@@ -527,6 +527,13 @@
     <string name="anim_onion_skin">洋葱皮</string>
     <string name="anim_shift_trace">透光台对位</string>
     <string name="anim_new_keyframe">新帧</string>
+    <string name="anim_drawing_workflow">作画方式</string>
+    <string name="anim_manual_keyframes">手动建帧</string>
+    <string name="anim_auto_keyframes_hint">在没有关键帧的位置落笔时，自动新建空白帧</string>
+    <string name="anim_manual_keyframes_hint">拖动帧块右边缘可延长显示，期间继续绘制会修改整段画面；要画下一张，请先点“新建空白帧”</string>
+    <string name="anim_new_blank_keyframe">新建空白帧</string>
+    <string name="anim_previous_frame_reference">旧帧参考</string>
+    <string name="anim_previous_frame_reference_hint">淡化显示上一关键帧，方便画下一张；透明度和着色可在下方洋葱皮设置中调整，不会出现在动画导出中</string>
     <string name="anim_duplicate_frame">复制</string>
     <string name="anim_delete_frame">删帧</string>
     <string name="anim_multi_select">多选</string>
@@ -1092,6 +1099,7 @@
     <string name="brush_library_title">笔刷库</string>
     <string name="brush_presets_count">%d 预设</string>
     <string name="brush_presets_loading">正在载入笔刷库...</string>
+    <string name="brush_presets_reload">重新载入</string>
     <string name="brush_switch_to_list">切换为列表视图</string>
     <string name="brush_switch_to_grid">切换为网格视图</string>
     <string name="brush_empty_fav_title">暂无常用笔刷</string>

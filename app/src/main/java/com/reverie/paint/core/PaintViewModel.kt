@@ -520,6 +520,8 @@ class PaintViewModel : ViewModel() {
     var brushOpacity by mutableDoubleStateOf(1.0)
     var brushPresets by mutableStateOf<List<BrushPresetInfo>>(emptyList())
     var isBrushPresetsLoading by mutableStateOf(false)
+    var brushPresetsLoaded = false
+        internal set
     var brushPresetIndex by mutableIntStateOf(-1)
 
     // User-defined brush groups: preset name -> group name; and the list of
@@ -2664,6 +2666,7 @@ class PaintViewModel : ViewModel() {
     fun syncSettingsFromPrefs() {
         if (::appContext.isInitialized) {
             val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+            anim.manualKeyframes = prefs.getBoolean(ANIMATION_MANUAL_KEYFRAMES_PREF, false)
             // 性能标尺: 设置项(仅 debug 构建有该入口, 见 PerfHud)或 setprop 任一为真即为开。
             // 用 PerfHud.readPref 而不是直接读偏好 —— 正式版恒 false, 避免残留偏好默默开着标尺。
             perfHudEnabled = PerfHud.readPref(prefs)
@@ -3400,6 +3403,7 @@ class PaintViewModel : ViewModel() {
         val strokeColor: Int = 0xFF000000.toInt(),
         val strokePosition: Int = 0,
         val strokeOpacity: Int = 100,
+        val fillColor: Int = 0xFFFFFFFF.toInt(),
     )
 
     // ---- async render plumbing ----
@@ -3555,13 +3559,18 @@ class PaintViewModel : ViewModel() {
         unregisterMemoryPressureCallbacks()
         renderThread = null
         renderHandler = null
+        brushPresetsLoaded = false
         super.onCleared()
     }
 
     private var performanceHintSession: Any? = null
     private var renderThreadTid: Int = -1
+    private var adpfDisabled: Boolean = false
 
     internal fun initPerformanceHintSession() {
+        if (adpfDisabled || DeviceInfo.isHuaweiOrHonor) {
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hasAppContext() && renderThreadTid > 0 && performanceHintSession == null) {
             try {
                 val phm = appContext.getSystemService(android.os.PerformanceHintManager::class.java)
@@ -3571,19 +3580,27 @@ class PaintViewModel : ViewModel() {
                     android.util.Log.i("PaintViewModel", "ADPF PerformanceHintSession created for tid $renderThreadTid (target=${targetNanos}ns)")
                 }
             } catch (t: Throwable) {
-                android.util.Log.w("PaintViewModel", "ADPF PerformanceHintSession init failed: ${t.message}")
+                adpfDisabled = true
+                android.util.Log.w("PaintViewModel", "ADPF PerformanceHintSession init failed, disabling ADPF: ${t.message}")
             }
         }
     }
 
     internal fun reportRenderWorkDuration(durationNanos: Long) {
+        if (adpfDisabled || DeviceInfo.isHuaweiOrHonor || durationNanos <= 0L) {
+            return
+        }
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             if (performanceHintSession == null) {
                 initPerformanceHintSession()
             }
             try {
                 (performanceHintSession as? android.os.PerformanceHintManager.Session)?.reportActualWorkDuration(durationNanos)
-            } catch (_: Throwable) {}
+            } catch (t: Throwable) {
+                adpfDisabled = true
+                closePerformanceHintSession()
+                android.util.Log.w("PaintViewModel", "ADPF reportActualWorkDuration failed, disabling ADPF: ${t.message}")
+            }
         }
     }
 
@@ -3624,7 +3641,9 @@ class PaintViewModel : ViewModel() {
                 android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY
             )
             try {
-                ReverieCoreBridge.bindCurrentThreadToPerformanceCores()
+                if (!DeviceInfo.isHuaweiOrHonor) {
+                    ReverieCoreBridge.bindCurrentThreadToPerformanceCores()
+                }
             } catch (t: Throwable) {
                 android.util.Log.w("PaintViewModel", "Failed to bind render thread affinity: ${t.message}")
             }
@@ -3643,7 +3662,10 @@ class PaintViewModel : ViewModel() {
         after: (() -> Unit)? = null,
         op: () -> Unit,
     ) {
-        val h = renderHandler ?: return
+        val h = renderHandler ?: run {
+            if (after != null) mainHandler.post { after() }
+            return
+        }
         pendingCoreOps.incrementAndGet()
         h.post {
             pendingCoreOps.decrementPositive()
@@ -4035,8 +4057,10 @@ class PaintViewModel : ViewModel() {
         // (HWUI 不做局部纹理更新), 这是本项目最大的带宽开销
         if (traceOn) PerfTrace.renderFlip(w.toLong() * h * 4, w.toLong() * h)
 
-        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            rendered.prepareToDraw()
+        if (!DeviceInfo.isHuaweiOrHonor && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
+            try {
+                rendered.prepareToDraw()
+            } catch (_: Throwable) {}
         }
 
         // Direct hardware invalidate from render thread (zero Handler hop, zero frame delay).
@@ -4101,6 +4125,7 @@ class PaintViewModel : ViewModel() {
             val strokeColor = strokeParams?.getOrNull(1) ?: 0xFF000000.toInt()
             val strokePosition = strokeParams?.getOrNull(2) ?: 0
             val strokeOpacity = strokeParams?.getOrNull(3) ?: 100
+            val fillColor = if (nodeType == 2) ReverieCoreBridge.getFillLayerColor(i) else 0xFFFFFFFF.toInt()
             list.add(
                 LayerUiState(
                     index = i,
@@ -4123,6 +4148,7 @@ class PaintViewModel : ViewModel() {
                     strokeColor = strokeColor,
                     strokePosition = strokePosition,
                     strokeOpacity = strokeOpacity,
+                    fillColor = fillColor,
                 ),
             )
         }

@@ -192,6 +192,13 @@ fun BrushPanel(
         }
     }
 
+    // Auto heal: if brush presets are empty when opening the panel, trigger reload
+    LaunchedEffect(Unit) {
+        if (vm.brushPresets.isEmpty() && !vm.isBrushPresetsLoading) {
+            vm.loadBrushPresets(force = true)
+        }
+    }
+
     // Sync scroll positions when scrolling is idle, avoiding continuous work while scrolling
     LaunchedEffect(categoryScrollState) {
         androidx.compose.runtime.snapshotFlow { categoryScrollState.isScrollInProgress }
@@ -523,7 +530,7 @@ fun BrushPanel(
                                                 .padding(16.dp),
                                             contentAlignment = Alignment.Center
                                         ) {
-                                            if (vm.isBrushPresetsLoading || vm.brushPresets.isEmpty()) {
+                                            if (vm.isBrushPresetsLoading) {
                                                 Column(
                                                     horizontalAlignment = Alignment.CenterHorizontally,
                                                     verticalArrangement = Arrangement.Center
@@ -538,6 +545,34 @@ fun BrushPanel(
                                                         stringResource(R.string.brush_presets_loading),
                                                         color = Morandi.subText,
                                                         fontSize = 12.sp,
+                                                    )
+                                                }
+                                            } else if (vm.brushPresets.isEmpty()) {
+                                                Column(
+                                                    horizontalAlignment = Alignment.CenterHorizontally,
+                                                    verticalArrangement = Arrangement.Center
+                                                ) {
+                                                    Icon(
+                                                        painter = painterResource(R.drawable.ic_brush),
+                                                        contentDescription = null,
+                                                        tint = Morandi.subText.copy(alpha = 0.35f),
+                                                        modifier = Modifier.size(36.dp)
+                                                    )
+                                                    Spacer(Modifier.height(8.dp))
+                                                    Text(
+                                                        stringResource(R.string.brush_empty_category_title),
+                                                        color = Morandi.subText,
+                                                        fontSize = 13.sp,
+                                                    )
+                                                    Spacer(Modifier.height(8.dp))
+                                                    Text(
+                                                        stringResource(R.string.brush_presets_reload),
+                                                        color = Morandi.accent,
+                                                        fontSize = 12.sp,
+                                                        modifier = Modifier
+                                                            .clip(RoundedCornerShape(6.dp))
+                                                            .clickable { vm.loadBrushPresets(force = true) }
+                                                            .padding(horizontal = 12.dp, vertical = 6.dp)
                                                     )
                                                 }
                                             } else {

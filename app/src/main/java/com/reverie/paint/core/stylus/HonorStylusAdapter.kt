@@ -106,10 +106,8 @@ class HonorStylusAdapter : StylusBrandAdapter {
 
     override fun onWindowFocusChanged(activity: Activity, hasFocus: Boolean) {
         Log.d(TAG, "onWindowFocusChanged: hasFocus=$hasFocus, activity=${activity.localClassName}")
-        if (hasFocus) {
+        if (hasFocus && !isReceiverRegistered) {
             bindBroadcastReceiver(activity)
-        } else {
-            unbindBroadcastReceiver(activity)
         }
     }
 
@@ -189,6 +187,15 @@ class HonorStylusAdapter : StylusBrandAdapter {
         try {
             val vm = currentVm ?: return
             val fm = currentFeedbackManager
+
+            if (intent != null) {
+                try {
+                    val loader = registeredContextRef?.get()?.classLoader
+                        ?: currentAppContext?.classLoader
+                        ?: vm.javaClass.classLoader
+                    intent.setExtrasClassLoader(loader)
+                } catch (_: Throwable) {}
+            }
 
             Log.i(TAG, "onBroadcastReceived: action=$action")
 

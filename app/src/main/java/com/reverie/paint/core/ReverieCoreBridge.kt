@@ -85,7 +85,11 @@ object ReverieCoreBridge {
         mainActivity?.let { act ->
             CrashHandler.init(act)
             val swapDir = java.io.File(act.cacheDir, "swap").apply { mkdirs() }
-            configureTileEngine(swapDir.absolutePath)
+            try {
+                configureTileEngine(swapDir.absolutePath)
+            } catch (e: UnsatisfiedLinkError) {
+                android.util.Log.w("ReverieCoreBridge", "configureTileEngine not available in native library", e)
+            }
         }
     }
 
@@ -1033,6 +1037,7 @@ object ReverieCoreBridge {
     external fun getAdjustmentLayerConfig(index: Int): String
     // 原生填充层换色 (KisGeneratorLayer + reverie-solid-color); 非填充层返回 false
     external fun setFillLayerColor(index: Int, colorArgb: Int): Boolean
+    external fun getFillLayerColor(index: Int): Int
 
     external fun layerDepth(index: Int): Int
 

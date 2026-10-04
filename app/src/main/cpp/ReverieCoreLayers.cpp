@@ -260,6 +260,7 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
         if (type == LayerTypeFill) {
             // 保留预填色颜料层实现，用显式标记区分类型，不能依赖可编辑名称
             paintLayer->setProperty("reverie_is_fill", true);
+            paintLayer->setProperty("reverie_fill_color", (quint32)fillColor);
             QColor qc = QColor::fromRgba(fillColor);
             paintLayer->original()->fill(QRect(0, 0, image->width(), image->height()), KoColor(qc, cs));
             paintLayer->original()->setDirty();
@@ -324,7 +325,8 @@ int ReverieCore::copyLayer(int index)
     const std::function<void(KisNodeSP, KisNodeSP)> copyTypeProperties =
         [&](KisNodeSP source, KisNodeSP target) {
             for (const char *key : {"reverie_is_fill", "reverie_is_stroke", "reverie_stroke_size",
-                                    "reverie_stroke_color", "reverie_stroke_pos", "reverie_stroke_opacity"}) {
+                                    "reverie_stroke_color", "reverie_stroke_pos", "reverie_stroke_opacity",
+                                    "reverie_fill_color"}) {
                 const QVariant value = source->property(key);
                 if (value.isValid()) target->setProperty(key, value);
             }

@@ -134,10 +134,9 @@ void ReverieCore::flipCanvasVertical()
     flipCanvasCommon(false);
 }
 
-// Fill an entire layer with the current foreground colour (honours the active
-// selection, like every other fill path). Corner flood-fill from (1,1) only
-// covers the region connected to the top-left pixel, which is NOT the
-// "fill this layer" semantic the layer-detail panel promises.
+// Legacy L_FILL_LAYER recordings (empty argument) use the recorded foreground
+// colour, opacity and selection. New explicit-colour events and the layer-detail
+// panel use setFillLayerColor instead; keep these two semantics separate.
 void ReverieCore::fillLayer(int index)
 {
     if (!isLayerEditable(index)) {

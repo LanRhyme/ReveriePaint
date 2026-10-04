@@ -1,5 +1,6 @@
 name: 功能与体验建议 (Feature Request)
 description: 提出新功能构想、交互优化或对标 Krita/桌面绘画软件的能力建议
+title: "[FR] "
 labels: ["type: feature"]
 body:
   - type: markdown

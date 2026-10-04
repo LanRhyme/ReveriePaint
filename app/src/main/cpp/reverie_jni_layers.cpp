@@ -544,6 +544,12 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setFillLayerColor(JNIEnv *env, job
 }
 
 extern "C" JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_getFillLayerColor(JNIEnv *, jobject, jint index)
+{
+    return static_cast<jint>(core()->getFillLayerColor(index));
+}
+
+extern "C" JNIEXPORT jint JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_copySelectionToNewLayer(JNIEnv *, jobject, jboolean cut)
 {
     return core()->copySelectionToNewLayer(cut == JNI_TRUE);

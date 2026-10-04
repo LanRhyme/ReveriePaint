@@ -102,6 +102,7 @@ class LayerStrokeLogicTest {
         assertEquals(0xFF000000.toInt(), defaultState.strokeColor)
         assertEquals(0, defaultState.strokePosition)
         assertEquals(100, defaultState.strokeOpacity)
+        assertEquals(0xFFFFFFFF.toInt(), defaultState.fillColor)
 
         val strokeState = defaultState.copy(
             isStrokeLayer = true,
@@ -110,9 +111,11 @@ class LayerStrokeLogicTest {
             strokeColor = 0xFFFF0000.toInt(),
             strokePosition = 1,
             strokeOpacity = 80,
+            fillColor = 0xFF336699.toInt(),
         )
 
         assertTrue(strokeState.isStrokeLayer)
+        assertEquals(0xFF336699.toInt(), strokeState.fillColor)
         assertEquals(6, strokeState.nodeType)
         assertEquals(12, strokeState.strokeSize)
         assertEquals(0xFFFF0000.toInt(), strokeState.strokeColor)

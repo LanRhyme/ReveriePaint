@@ -446,19 +446,30 @@ fun HomePage(vm: PaintViewModel) {
                                     }
 
                                     else -> {
-                                        Column {
-                                            Text(
-                                                text = stringResource(R.string.gallery_title),
-                                                color = colors.text,
-                                                fontSize = 22.sp,
-                                                fontWeight = FontWeight.Bold,
-                                                letterSpacing = 0.5.sp,
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                                        ) {
+                                            Icon(
+                                                painter = painterResource(R.drawable.ic_reverie_logo),
+                                                contentDescription = null,
+                                                tint = colors.accent,
+                                                modifier = Modifier.size(28.dp),
                                             )
-                                            Text(
-                                                text = stringResource(R.string.gallery_items_count, displayProjects.size),
-                                                color = colors.subText,
-                                                fontSize = 11.sp,
-                                            )
+                                            Column {
+                                                Text(
+                                                    text = stringResource(R.string.gallery_title),
+                                                    color = colors.text,
+                                                    fontSize = 22.sp,
+                                                    fontWeight = FontWeight.Bold,
+                                                    letterSpacing = 0.5.sp,
+                                                )
+                                                Text(
+                                                    text = stringResource(R.string.gallery_items_count, displayProjects.size),
+                                                    color = colors.subText,
+                                                    fontSize = 11.sp,
+                                                )
+                                            }
                                         }
                                     }
                                 }

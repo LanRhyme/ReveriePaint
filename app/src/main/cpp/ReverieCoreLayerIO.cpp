@@ -54,6 +54,9 @@ void writeCommonAttrs(QXmlStreamWriter &w, const ReverieCore::LayerEntry &e)
     w.writeAttribute("background", e.background ? "1" : "0");
     if (node && node->property("reverie_is_fill").toBool()) {
         w.writeAttribute("is_fill", "1");
+        if (node->property("reverie_fill_color").isValid()) {
+            w.writeAttribute("fill_color", QString::number(node->property("reverie_fill_color").toUInt()));
+        }
     }
     if (e.isStrokeLayer || e.nodeType == ReverieCore::NodeTypeStroke) {
         w.writeAttribute("is_stroke", "1");
@@ -214,6 +217,11 @@ bool ReverieCore::loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image,
         }
         if (dynamic_cast<KisPaintLayer *>(node.data()) && a.value("is_fill") == QLatin1String("1")) {
             node->setProperty("reverie_is_fill", true);
+            bool okColor = false;
+            const quint32 fCol = a.value("fill_color").toString().toUInt(&okColor);
+            if (okColor) {
+                node->setProperty("reverie_fill_color", fCol);
+            }
         }
         if (a.value("is_stroke") == QLatin1String("1")) {
             node->setProperty("reverie_is_stroke", true);

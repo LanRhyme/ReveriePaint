@@ -7,6 +7,9 @@ package com.reverie.paint.core
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.util.LruCache
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
 
 /**
  * Global LRU memory cache for brush preset preview thumbnails.
@@ -19,6 +22,18 @@ object BrushThumbCache {
         override fun sizeOf(key: String, value: Bitmap): Int {
             return 1
         }
+    }
+
+    /**
+     * 缓存版本号: 任何一次成功填充/清空都递增。Compose 侧在缩略图仍显示占位时
+     * 读取它建立订阅, 使异步解码 (面板级 preload / 其他窗口) 完成后占位卡片
+     * 能立即重组并命中新缓存, 而不是一直空白直到某次无关重组 (如点击选中)。
+     */
+    var version by mutableStateOf(0)
+        private set
+
+    private fun bump() {
+        version++
     }
 
     fun getFast(name: String): Bitmap? {
@@ -36,6 +51,7 @@ object BrushThumbCache {
             val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
             if (bmp != null) {
                 cache.put(name, bmp)
+                bump()
             }
             bmp
         } catch (_: Throwable) {
@@ -46,6 +62,7 @@ object BrushThumbCache {
     fun put(name: String, bmp: Bitmap) {
         if (name.isNotBlank() && !bmp.isRecycled) {
             cache.put(name, bmp)
+            bump()
         }
     }
 
@@ -56,11 +73,13 @@ object BrushThumbCache {
             val bmp = BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
             if (bmp != null) {
                 cache.put(name, bmp)
+                bump()
             }
         } catch (_: Throwable) {}
     }
 
     fun clear() {
         cache.evictAll()
+        bump()
     }
 }

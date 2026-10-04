@@ -105,17 +105,77 @@ bool ReverieCore::setFillLayerColor(int index, quint32 colorArgb)
     if (index < 0 || index >= m_layers.size() || !m_document) {
         return false;
     }
-    KisGeneratorLayer *gl = dynamic_cast<KisGeneratorLayer *>(m_layers[index].node);
-    if (!gl) {
+    KisNodeSP node = m_layers[index].node;
+    if (!node) {
         return false;
     }
-    KisFilterConfigurationSP cfg = reverieMakeSolidColorConfig(colorArgb);
-    if (!cfg) {
-        return false;
+    if (KisGeneratorLayer *gl = dynamic_cast<KisGeneratorLayer *>(node.data())) {
+        KisFilterConfigurationSP cfg = reverieMakeSolidColorConfig(colorArgb);
+        if (!cfg) {
+            return false;
+        }
+        // setFilter 触发 generator 重算; 结构性刷新走全量重合成
+        gl->setFilter(cfg);
+        node->setProperty("reverie_fill_color", colorArgb);
+        recompositeProjection();
+        markDirty();
+        return true;
     }
-    // setFilter 触发 generator 重算; 结构性刷新走全量重合成
-    gl->setFilter(cfg);
-    recompositeProjection();
-    markDirty();
-    return true;
+    if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(node.data())) {
+        if (!node->property("reverie_is_fill").toBool()) {
+            return false;
+        }
+        KisPaintDeviceSP dev = pl->paintDevice();
+        if (!dev) return false;
+        KisImageSP image = m_document;
+        const KoColorSpace *cs = image->colorSpace();
+        const QRect docRect(0, 0, image->width(), image->height());
+        KisTransaction txn(kundo2_i18n("Fill Layer Color"), dev);
+        dev->clear();
+        QColor qc = QColor::fromRgba(colorArgb);
+        dev->fill(docRect, KoColor(qc, cs));
+        dev->setDirty(docRect);
+        pl->setDirty(docRect);
+        pushUndoCommand(txn.endAndTake());
+        node->setProperty("reverie_fill_color", colorArgb);
+        recompositeProjection();
+        markDirty();
+        return true;
+    }
+    return false;
 }
+
+quint32 ReverieCore::getFillLayerColor(int index) const
+{
+    if (index < 0 || index >= m_layers.size() || !m_document) {
+        return 0xFFFFFFFFu;
+    }
+    KisNodeSP node = m_layers[index].node;
+    if (!node) {
+        return 0xFFFFFFFFu;
+    }
+    if (KisGeneratorLayer *gl = dynamic_cast<KisGeneratorLayer *>(node.data())) {
+        if (gl->filter()) {
+            QVariant v;
+            if (gl->filter()->getProperty("color", v)) {
+                return v.value<QColor>().rgba();
+            }
+        }
+    }
+    if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(node.data())) {
+        if (node->property("reverie_is_fill").toBool()) {
+            if (KisPaintDeviceSP dev = pl->paintDevice()) {
+                KoColor seedCol = dev->pixel(QPoint(0, 0));
+                QColor qSeed;
+                seedCol.toQColor(&qSeed);
+                return qSeed.rgba();
+            }
+            QVariant v = node->property("reverie_fill_color");
+            if (v.isValid()) {
+                return v.toUInt();
+            }
+        }
+    }
+    return 0xFFFFFFFFu;
+}
+

@@ -135,17 +135,18 @@ class MainActivity : ComponentActivity() {
                 val maxFpsMode = modes.maxByOrNull { it.refreshRate }
                 if (maxFpsMode != null) {
                     val lp = window.attributes
-                    lp.preferredDisplayModeId = maxFpsMode.modeId
-                    lp.preferredRefreshRate = maxFpsMode.refreshRate
-                    if (android.os.Build.VERSION.SDK_INT >= 34) {
-                        try {
-                            lp.setFrameRateBoostOnTouchEnabled(true)
-                        } catch (_: Throwable) {}
+                    val needsUpdate = lp.preferredDisplayModeId != maxFpsMode.modeId ||
+                        lp.preferredRefreshRate != maxFpsMode.refreshRate
+                    if (needsUpdate) {
+                        lp.preferredDisplayModeId = maxFpsMode.modeId
+                        lp.preferredRefreshRate = maxFpsMode.refreshRate
+                        if (android.os.Build.VERSION.SDK_INT >= 34) {
+                            try {
+                                lp.setFrameRateBoostOnTouchEnabled(true)
+                            } catch (_: Throwable) {}
+                        }
+                        window.attributes = lp
                     }
-                    window.attributes = lp
-                    try {
-                        window.decorView.requestLayout()
-                    } catch (_: Throwable) {}
                 }
             }
         }

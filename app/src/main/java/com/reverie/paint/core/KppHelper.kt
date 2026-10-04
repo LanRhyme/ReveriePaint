@@ -80,6 +80,45 @@ object KppHelper {
                         return String(kppBytes, textStart, textLen, Charsets.UTF_8)
                     }
                 }
+            } else if (chunkType == "iTXt") {
+                var nullPos = -1
+                for (p in chunkDataStart until chunkDataEndI) {
+                    if (kppBytes[p] == 0.toByte()) {
+                        nullPos = p
+                        break
+                    }
+                }
+                if (nullPos != -1 && nullPos + 2 <= chunkDataEndI) {
+                    val keyword = String(kppBytes, chunkDataStart, nullPos - chunkDataStart, Charsets.ISO_8859_1)
+                    if (keyword == "preset") {
+                        val compFlag = kppBytes[nullPos + 1].toInt()
+                        val compMethod = kppBytes[nullPos + 2].toInt()
+                        var p = nullPos + 3
+                        while (p < chunkDataEndI && kppBytes[p] != 0.toByte()) p++
+                        p++ // skip null
+                        while (p < chunkDataEndI && kppBytes[p] != 0.toByte()) p++
+                        p++ // skip null
+                        val textStart = p
+                        val textLen = chunkDataEndI - textStart
+                        if (textLen >= 0 && textStart <= chunkDataEndI) {
+                            if (compFlag == 1 && compMethod == 0) {
+                                val inflater = Inflater(false)
+                                inflater.setInput(kppBytes, textStart, textLen)
+                                val bos = ByteArrayOutputStream()
+                                val buf = ByteArray(8192)
+                                while (!inflater.finished() && !inflater.needsInput()) {
+                                    val count = inflater.inflate(buf)
+                                    if (count > 0) bos.write(buf, 0, count)
+                                    else break
+                                }
+                                inflater.end()
+                                return bos.toString(Charsets.UTF_8.name())
+                            } else if (compFlag == 0) {
+                                return String(kppBytes, textStart, textLen, Charsets.UTF_8)
+                            }
+                        }
+                    }
+                }
             }
             idx += 12 + length
         }
@@ -258,7 +297,7 @@ object KppHelper {
             val chunkDataEnd = chunkDataStart.toLong() + length.toLong()
             if (length < 0 || chunkDataEnd + 4 > kppBytes.size.toLong()) break
 
-            val keyword = if (chunkType == "zTXt" || chunkType == "tEXt") {
+            val keyword = if (chunkType == "zTXt" || chunkType == "tEXt" || chunkType == "iTXt") {
                 readChunkKeyword(kppBytes, chunkDataStart, chunkDataEnd.toInt())
             } else null
 
@@ -338,7 +377,7 @@ object KppHelper {
         return String(png, from, p - from, Charsets.ISO_8859_1)
     }
 
-    /** Reads the version text value already present in a .kpp (tEXt); null when absent. */
+    /** Reads the version text value already present in a .kpp (tEXt or iTXt); null when absent. */
     private fun readExistingVersion(png: ByteArray): String? {
         var idx = 8
         while (idx + 12 <= png.size) {
@@ -348,13 +387,38 @@ object KppHelper {
             // Long accumulation, so a corrupt oversized length cannot overflow past the guard.
             val end = start.toLong() + length.toLong()
             if (length < 0 || end + 4 > png.size.toLong()) break
-            if (chunkType == "tEXt") {
+            if (chunkType == "tEXt" || chunkType == "iTXt") {
                 val endI = end.toInt()
                 var p = start
                 while (p < endI && png[p] != 0.toByte()) p++
                 if (p < endI && String(png, start, p - start, Charsets.ISO_8859_1) == "version") {
-                    val value = String(png, p + 1, endI - p - 1, Charsets.ISO_8859_1)
-                    if (value.isNotBlank()) return value
+                    if (chunkType == "tEXt") {
+                        val value = String(png, p + 1, endI - p - 1, Charsets.ISO_8859_1)
+                        if (value.isNotBlank()) return value
+                    } else if (p + 3 <= endI) {
+                        val compFlag = png[p + 1].toInt()
+                        var ip = p + 3
+                        while (ip < endI && png[ip] != 0.toByte()) ip++
+                        ip++ // skip lang
+                        while (ip < endI && png[ip] != 0.toByte()) ip++
+                        ip++ // skip trans_kw
+                        if (compFlag == 0 && ip <= endI) {
+                            val value = String(png, ip, endI - ip, Charsets.UTF_8)
+                            if (value.isNotBlank()) return value
+                        } else if (compFlag == 1 && ip <= endI) {
+                            val inflater = Inflater(false)
+                            inflater.setInput(png, ip, endI - ip)
+                            val bos = ByteArrayOutputStream()
+                            val buf = ByteArray(128)
+                            while (!inflater.finished() && !inflater.needsInput()) {
+                                val count = inflater.inflate(buf)
+                                if (count > 0) bos.write(buf, 0, count) else break
+                            }
+                            inflater.end()
+                            val value = bos.toString(Charsets.UTF_8.name())
+                            if (value.isNotBlank()) return value
+                        }
+                    }
                 }
             }
             idx += 12 + length

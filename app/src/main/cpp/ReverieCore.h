@@ -209,6 +209,7 @@ public:
     QString getAdjustmentLayerConfig(int index); // JSON; 非调整层返回空串
     // 原生填充层换色 (KisGeneratorLayer + reverie-solid-color); 非填充层返回 false
     bool setFillLayerColor(int index, quint32 colorArgb);
+    quint32 getFillLayerColor(int index) const;
     // 描边图层属性与栅格化
     bool isLayerStroke(int index) const;
     bool setLayerStrokeParams(int index, int size, quint32 color, int position, int opacity);

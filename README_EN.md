@@ -1,6 +1,6 @@
 <div align="center">
 
-<img src="art/icon.png" width="128" height="128" alt="ReveriePaint Icon" />
+<img src="art/icon.svg" width="128" height="128" alt="ReveriePaint Icon" />
 
 # ReveriePaint
 

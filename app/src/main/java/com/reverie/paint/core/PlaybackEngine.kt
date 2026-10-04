@@ -693,7 +693,12 @@ private fun PaintViewModel.dispatchLayerOpLocked(
         }
 
         L_FILL_LAYER -> {
-            ReverieCoreBridge.fillLayer(i)
+            val color = arg.toIntOrNull()
+            if (color != null) {
+                ReverieCoreBridge.setFillLayerColor(i, color)
+            } else {
+                ReverieCoreBridge.fillLayer(i)
+            }
         }
 
         L_STAMP -> {

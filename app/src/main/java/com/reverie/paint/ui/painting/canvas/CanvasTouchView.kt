@@ -1301,7 +1301,12 @@ class CanvasTouchView(context: Context) : View(context) {
         applyFrameRateHint(IDLE_FRAME_RATE_HZ)
     }
 
+    private var lastRefreshRateCheckTime: Long = 0L
+
     fun checkAndRestoreHighRefreshRate() {
+        val now = SystemClock.uptimeMillis()
+        if (now - lastRefreshRateCheckTime < 3000L) return
+        lastRefreshRateCheckTime = now
         val d = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
             try { display } catch (_: Throwable) { null }
         } else {
@@ -2370,7 +2375,6 @@ class CanvasTouchView(context: Context) : View(context) {
                         requestUnbufferedDispatch(android.view.InputDevice.SOURCE_TOUCHSCREEN)
                     } catch (_: Throwable) {}
                 }
-                checkAndRestoreHighRefreshRate()
             }
         }
         val pointerCount = event.pointerCount

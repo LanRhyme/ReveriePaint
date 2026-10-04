@@ -1314,7 +1314,6 @@ internal fun PaintViewModel.refreshDisplay() {
     scheduleRender(immediate = true)
 }
 
-private var brushPresetsLoaded = false
 private var cachedBuiltInNames: Set<String>? = null
 
 internal fun PaintViewModel.getBuiltInBrushNames(): Set<String> {
@@ -1331,7 +1330,8 @@ internal fun PaintViewModel.getBuiltInBrushNames(): Set<String> {
 }
 
 internal fun PaintViewModel.loadBrushPresets(force: Boolean = false) {
-    if (brushPresetsLoaded && !force) return
+    if (brushPresetsLoaded && brushPresets.isNotEmpty() && !force) return
+    if (isBrushPresetsLoading && !force) return
     brushPresetsLoaded = true
     isBrushPresetsLoading = true
     loadToolOptions()
@@ -1344,13 +1344,18 @@ internal fun PaintViewModel.loadBrushPresets(force: Boolean = false) {
     // 改为 IO 线程执行, 完成后再回主线程走后面的流程 (Compose 状态写入必须在
     // 主线程, JNI 读取仍在渲染线程)。
     viewModelScope.launch {
-        val dirs = withContext(Dispatchers.IO) {
-            val d = copyBundledBrushAssets()
-            // 必须在引擎加载任何预设之前清掉历史重复参数键
-            migrateDuplicatedPresetParams(d.first)
-            d
+        try {
+            val dirs = withContext(Dispatchers.IO) {
+                val d = copyBundledBrushAssets()
+                // 必须在引擎加载任何预设之前清掉历史重复参数键
+                migrateDuplicatedPresetParams(d.first)
+                d
+            }
+            loadBrushPresetsAfterAssets(dirs.first, dirs.second)
+        } catch (t: Throwable) {
+            android.util.Log.e("ReveriePaint", "loadBrushPresets IO failed", t)
+            isBrushPresetsLoading = false
         }
-        loadBrushPresetsAfterAssets(dirs.first, dirs.second)
     }
 }
 
@@ -1440,97 +1445,104 @@ private fun PaintViewModel.loadBrushPresetsAfterAssets(
     // render HandlerThread is not reliably visible to composition.
     val list = ArrayList<BrushPresetInfo>()
     runCore(after = {
-        android.util.Log.d("ReveriePaint", "loadBrushPresets assign=${list.size}")
-        // Re-apply the persisted user order (same policy as reloadBrushPresets)
-        val rank = brushOrder.withIndex().associate { it.value to it.index }
-        val ordered =
-            if (rank.isEmpty()) list.toList()
-            else list.toList().sortedBy { rank[it.name] ?: (rank.size + it.index) }
-        brushPresets = ordered
-        if (ordered.isNotEmpty()) {
-            val defaultDrawingPreset = ordered.firstOrNull {
-                it.name == "b)_Basic-5_Size_default"
-            } ?: ordered.firstOrNull {
-                it.name == "b)_Basic-5_Size_Opacity"
-            } ?: ordered.firstOrNull {
-                it.group == "基础" && !it.name.startsWith("a)_Eraser", ignoreCase = true) && !it.name.contains("Eraser", ignoreCase = true)
-            } ?: ordered.firstOrNull {
-                it.group != "橡皮擦" && !it.name.startsWith("a)_Eraser", ignoreCase = true) && !it.name.contains("Eraser", ignoreCase = true)
-            } ?: ordered[0]
+        try {
+            android.util.Log.d("ReveriePaint", "loadBrushPresets assign=${list.size}")
+            // Re-apply the persisted user order (same policy as reloadBrushPresets)
+            val rank = brushOrder.withIndex().associate { it.value to it.index }
+            val ordered =
+                if (rank.isEmpty()) list.toList()
+                else list.toList().sortedBy { rank[it.name] ?: (rank.size + it.index) }
+            brushPresets = ordered
+            if (ordered.isNotEmpty()) {
+                val defaultDrawingPreset = ordered.firstOrNull {
+                    it.name == "b)_Basic-5_Size_default"
+                } ?: ordered.firstOrNull {
+                    it.name == "b)_Basic-5_Size_Opacity"
+                } ?: ordered.firstOrNull {
+                    it.group == "基础" && !it.name.startsWith("a)_Eraser", ignoreCase = true) && !it.name.contains("Eraser", ignoreCase = true)
+                } ?: ordered.firstOrNull {
+                    it.group != "橡皮擦" && !it.name.startsWith("a)_Eraser", ignoreCase = true) && !it.name.contains("Eraser", ignoreCase = true)
+                } ?: ordered[0]
 
-            val defaultEraserPreset = ordered.firstOrNull {
-                it.name == "a)_Eraser_Circle"
-            } ?: ordered.firstOrNull {
-                it.name == "Eraser_circle"
-            } ?: ordered.firstOrNull {
-                it.group == "橡皮擦"
-            } ?: ordered[0]
+                val defaultEraserPreset = ordered.firstOrNull {
+                    it.name == "a)_Eraser_Circle"
+                } ?: ordered.firstOrNull {
+                    it.name == "Eraser_circle"
+                } ?: ordered.firstOrNull {
+                    it.group == "橡皮擦"
+                } ?: ordered[0]
 
-            val savedToolId = prefs().getString("current_tool_id", "brush") ?: "brush"
-            val isEraserTool = savedToolId == "eraser"
-            val fallbackPreset = if (isEraserTool) defaultEraserPreset else defaultDrawingPreset
+                val savedToolId = prefs().getString("current_tool_id", "brush") ?: "brush"
+                val isEraserTool = savedToolId == "eraser"
+                val fallbackPreset = if (isEraserTool) defaultEraserPreset else defaultDrawingPreset
 
-            val savedToolState = toolBrushStates[savedToolId]
-            // Saved preset indices are NATIVE-table indices; validate by item presence
-            val targetIndex =
-                if (savedToolState != null && ordered.any { it.index == savedToolState.presetIndex }) {
-                    val candidate = ordered.first { it.index == savedToolState.presetIndex }
-                    val isCandidateEraser = candidate.group == "橡皮擦" ||
-                            candidate.name.startsWith("a)_Eraser", ignoreCase = true) ||
-                            candidate.name.contains("Eraser", ignoreCase = true)
-                    if (!isEraserTool && isCandidateEraser) {
-                        fallbackPreset.index
-                    } else {
-                        savedToolState.presetIndex
-                    }
-                } else {
-                    val savedPresetIdx = prefs().getInt("last_brush_preset_index", -1)
-                    if (savedPresetIdx >= 0 && ordered.any { it.index == savedPresetIdx }) {
-                        val candidate = ordered.first { it.index == savedPresetIdx }
+                val savedToolState = toolBrushStates[savedToolId]
+                // Saved preset indices are NATIVE-table indices; validate by item presence
+                val targetIndex =
+                    if (savedToolState != null && ordered.any { it.index == savedToolState.presetIndex }) {
+                        val candidate = ordered.first { it.index == savedToolState.presetIndex }
                         val isCandidateEraser = candidate.group == "橡皮擦" ||
                                 candidate.name.startsWith("a)_Eraser", ignoreCase = true) ||
                                 candidate.name.contains("Eraser", ignoreCase = true)
                         if (!isEraserTool && isCandidateEraser) {
                             fallbackPreset.index
                         } else {
-                            savedPresetIdx
+                            savedToolState.presetIndex
                         }
                     } else {
-                        fallbackPreset.index
+                        val savedPresetIdx = prefs().getInt("last_brush_preset_index", -1)
+                        if (savedPresetIdx >= 0 && ordered.any { it.index == savedPresetIdx }) {
+                            val candidate = ordered.first { it.index == savedPresetIdx }
+                            val isCandidateEraser = candidate.group == "橡皮擦" ||
+                                    candidate.name.startsWith("a)_Eraser", ignoreCase = true) ||
+                                    candidate.name.contains("Eraser", ignoreCase = true)
+                            if (!isEraserTool && isCandidateEraser) {
+                                fallbackPreset.index
+                            } else {
+                                savedPresetIdx
+                            }
+                        } else {
+                            fallbackPreset.index
+                        }
                     }
-                }
-            applyTool(savedToolId)
-            selectBrushPreset(targetIndex)
-        }
-        isBrushPresetsLoading = false
-    }) {
-        android.util.Log.d("ReveriePaint", "loadBrushPresets runCore start")
-        val nrb = ReverieCoreBridge.loadBrushResources(brushDir.absolutePath)
-        android.util.Log.d("ReveriePaint", "loadBrushResources count=$nrb")
-        val patternDir = java.io.File(appContext.filesDir, "patterns")
-        if (patternDir.exists()) {
-            try {
-                ReverieCoreBridge.loadPatternResources(patternDir.absolutePath)
-            } catch (_: Throwable) {
+                applyTool(savedToolId)
+                selectBrushPreset(targetIndex)
             }
+        } finally {
+            isBrushPresetsLoading = false
         }
-        val n = ReverieCoreBridge.loadBrushPresetsFromDir(dir.absolutePath)
-        android.util.Log.d("ReveriePaint", "loadBrushPresets count=$n")
-        val builtInNames = getBuiltInBrushNames()
-        list.clear()
-        for (i in 0 until n) {
-            val nm = ReverieCoreBridge.brushPresetName(i)
-            list.add(
-                BrushPresetInfo(
-                    index = i,
-                    name = nm,
-                    thumbBytes = ReverieCoreBridge.brushPresetThumbData(i),
-                    group = userBrushGroups[nm] ?: inferBrushGroup(nm),
-                    isBuiltIn = builtInNames.contains(nm),
-                ),
-            )
+    }) {
+        try {
+            android.util.Log.d("ReveriePaint", "loadBrushPresets runCore start")
+            val nrb = ReverieCoreBridge.loadBrushResources(brushDir.absolutePath)
+            android.util.Log.d("ReveriePaint", "loadBrushResources count=$nrb")
+            val patternDir = java.io.File(appContext.filesDir, "patterns")
+            if (patternDir.exists()) {
+                try {
+                    ReverieCoreBridge.loadPatternResources(patternDir.absolutePath)
+                } catch (_: Throwable) {
+                }
+            }
+            val n = ReverieCoreBridge.loadBrushPresetsFromDir(dir.absolutePath)
+            android.util.Log.d("ReveriePaint", "loadBrushPresets count=$n")
+            val builtInNames = getBuiltInBrushNames()
+            list.clear()
+            for (i in 0 until n) {
+                val nm = ReverieCoreBridge.brushPresetName(i)
+                list.add(
+                    BrushPresetInfo(
+                        index = i,
+                        name = nm,
+                        thumbBytes = ReverieCoreBridge.brushPresetThumbData(i),
+                        group = userBrushGroups[nm] ?: inferBrushGroup(nm),
+                        isBuiltIn = builtInNames.contains(nm),
+                    ),
+                )
+            }
+            android.util.Log.d("ReveriePaint", "loadBrushPresets list=${list.size}")
+        } catch (t: Throwable) {
+            android.util.Log.e("ReveriePaint", "loadBrushPresets runCore op failed", t)
         }
-        android.util.Log.d("ReveriePaint", "loadBrushPresets list=${list.size}")
     }
 }
 

@@ -1,5 +1,6 @@
 name: 性能与机型兼容性反馈 (Performance & Device Issues)
 description: 反馈特定处理器/机型上的掉帧、大笔刷延迟、手势卡顿或触控兼容性问题
+title: "[PERF] "
 labels: ["type: perf", "hardware: device-compat"]
 body:
   - type: markdown

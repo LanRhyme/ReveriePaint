@@ -229,13 +229,7 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
     }
 
     private fun getSystemProperty(key: String): String {
-        return try {
-            val clazz = Class.forName("android.os.SystemProperties")
-            val method = clazz.getMethod("get", String::class.java)
-            (method.invoke(null, key) as? String)?.trim() ?: ""
-        } catch (_: Throwable) {
-            ""
-        }
+        return DeviceInfo.getSystemProperty(key)
     }
 
     private fun saveCrashReport(report: String) {

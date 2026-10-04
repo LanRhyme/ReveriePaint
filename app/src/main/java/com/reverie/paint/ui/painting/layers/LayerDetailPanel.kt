@@ -313,6 +313,9 @@ internal fun LayerDetailPage(
 
         if (isFillLayer) {
             var showFillColorPicker by remember { mutableStateOf(false) }
+            val currentFillColor = remember(layer?.fillColor) {
+                Color(layer?.fillColor ?: 0xFFFFFFFF.toInt())
+            }
             Row(
                 modifier =
                     Modifier
@@ -334,7 +337,8 @@ internal fun LayerDetailPage(
                             Modifier
                                 .size(24.dp)
                                 .clip(RoundedCornerShape(6.dp))
-                                .background(Morandi.accent),
+                                .background(currentFillColor)
+                                .border(1.dp, Morandi.border, RoundedCornerShape(6.dp)),
                     )
                     Column {
                         Text(stringResource(R.string.layer_fill_color), color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Medium)
@@ -352,12 +356,15 @@ internal fun LayerDetailPage(
             if (showFillColorPicker) {
                 CompactColorPickerPopup(
                     title = stringResource(R.string.layer_fill_select_title),
-                    initialColor = Morandi.accent,
+                    initialColor = currentFillColor,
                     onColorSelected = { col ->
-                        val hex = String.format("#%02X%02X%02X", (col.red * 255).toInt(), (col.green * 255).toInt(), (col.blue * 255).toInt())
-                        // 必须走 updateBrushColor 同步引擎侧颜色, 裸赋值只改 UI 镜像会填上一次的旧色
-                        vm.updateBrushColor(hex)
-                        vm.fillLayerForeground(index)
+                        val argb = android.graphics.Color.argb(
+                            (col.alpha * 255).toInt(),
+                            (col.red * 255).toInt(),
+                            (col.green * 255).toInt(),
+                            (col.blue * 255).toInt(),
+                        )
+                        vm.setFillLayerColor(index, argb)
                     },
                     onDismiss = { showFillColorPicker = false },
                 )

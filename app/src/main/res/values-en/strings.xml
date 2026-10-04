@@ -527,6 +527,13 @@
     <string name="anim_onion_skin">Onion Skin</string>
     <string name="anim_shift_trace">Shift &amp; Trace</string>
     <string name="anim_new_keyframe">New Frame</string>
+    <string name="anim_drawing_workflow">Drawing workflow</string>
+    <string name="anim_manual_keyframes">Manual keyframes</string>
+    <string name="anim_auto_keyframes_hint">Drawing at a time without a keyframe automatically creates a blank frame</string>
+    <string name="anim_manual_keyframes_hint">Drag the right edge of a frame block to hold it longer. Drawing anywhere in the hold changes the whole drawing. Tap New blank frame before drawing the next one</string>
+    <string name="anim_new_blank_keyframe">New blank frame</string>
+    <string name="anim_previous_frame_reference">Previous drawing</string>
+    <string name="anim_previous_frame_reference_hint">Show the previous keyframe faintly as a guide. Adjust opacity and tint in the onion skin settings below. Guides are excluded from animation exports</string>
     <string name="anim_duplicate_frame">Duplicate</string>
     <string name="anim_delete_frame">Delete</string>
     <string name="anim_multi_select">Select</string>
@@ -1092,6 +1099,7 @@
     <string name="brush_library_title">Brush Library</string>
     <string name="brush_presets_count">%d Presets</string>
     <string name="brush_presets_loading">Loading brush library...</string>
+    <string name="brush_presets_reload">Reload</string>
     <string name="brush_switch_to_list">Switch to List View</string>
     <string name="brush_switch_to_grid">Switch to Grid View</string>
     <string name="brush_empty_fav_title">No Favorite Brushes</string>

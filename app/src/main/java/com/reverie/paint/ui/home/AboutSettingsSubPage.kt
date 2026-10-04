@@ -218,44 +218,55 @@ fun AboutSettingsSubPage(
             }
 
             // Banner Title & Subtitle
-            Column(
+            Row(
                 modifier = Modifier
                     .fillMaxSize()
                     .padding(horizontal = if (compact) 18.dp else 24.dp),
-                verticalArrangement = Arrangement.Center,
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(if (compact) 12.dp else 16.dp),
             ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                Icon(
+                    painter = painterResource(R.drawable.ic_reverie_logo),
+                    contentDescription = null,
+                    tint = colors.accent,
+                    modifier = Modifier.size(if (compact) 36.dp else 44.dp),
+                )
+                Column(
+                    verticalArrangement = Arrangement.Center,
                 ) {
-                    Text(
-                        text = "ReveriePaint",
-                        color = colors.text,
-                        fontSize = if (compact) 22.sp else 28.sp,
-                        fontWeight = FontWeight.Bold,
-                        letterSpacing = 0.5.sp,
-                    )
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(colors.accent.copy(alpha = 0.18f))
-                            .padding(horizontal = 7.dp, vertical = 2.dp),
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         Text(
-                            text = "v${BuildConfig.VERSION_NAME}",
-                            color = colors.accent,
-                            fontSize = 11.sp,
+                            text = "ReveriePaint",
+                            color = colors.text,
+                            fontSize = if (compact) 22.sp else 28.sp,
                             fontWeight = FontWeight.Bold,
+                            letterSpacing = 0.5.sp,
                         )
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(colors.accent.copy(alpha = 0.18f))
+                                .padding(horizontal = 7.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                text = "v${BuildConfig.VERSION_NAME}",
+                                color = colors.accent,
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                     }
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(R.string.settings_about_sub),
+                        color = colors.subText,
+                        fontSize = if (compact) 11.sp else 13.sp,
+                        fontWeight = FontWeight.Normal,
+                    )
                 }
-                Spacer(Modifier.height(4.dp))
-                Text(
-                    text = stringResource(R.string.settings_about_sub),
-                    color = colors.subText,
-                    fontSize = if (compact) 11.sp else 13.sp,
-                    fontWeight = FontWeight.Normal,
-                )
             }
         }
 

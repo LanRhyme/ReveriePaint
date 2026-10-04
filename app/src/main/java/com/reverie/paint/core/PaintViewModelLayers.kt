@@ -640,25 +640,20 @@ internal fun PaintViewModel.flipCanvasVertical() {
 /** 用当前前景色填充整层 (区别于 floodFill 的角点连通区填充)。 */
 internal fun PaintViewModel.fillLayerForeground(i: Int) {
     if (recorder.recording) {
-        // 换色可能发生在两笔之间，填色事件之前也需要捕获当前颜色与不透明度。
-        recorder.captureContext(
-            toolMode = when (currentToolId) {
-                "eraser" -> 1
-                "smudge" -> 3
-                else -> 0
-            },
-            preset = brushPresetIndex,
-            size = brushSize,
-            opacity = brushOpacity,
-            flow = brushFlow,
-            compositeOp = brushCompositeOp,
-            color = brushColor,
-            layer = currentLayerIndex,
-        )
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_FILL_LAYER, i)
     }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.fillLayer(i)
+    }
+}
+
+/** 修改填充图层的颜色 (区别于 fillLayerForeground, 不污染画笔颜色且支持填充图层与预填色颜料层)。 */
+internal fun PaintViewModel.setFillLayerColor(index: Int, colorInt: Int) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_FILL_LAYER, index, colorInt.toString())
+    }
+    runCore(after = { notifyLayerChanged(pixelChanged = true) }) {
+        ReverieCoreBridge.setFillLayerColor(index, colorInt)
     }
 }
 

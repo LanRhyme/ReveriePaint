@@ -19,6 +19,7 @@
 
 #include <kis_abr_brush_collection.h>
 #include <kis_abr_brush.h>
+#include <KoEmbeddedResource.h>
 // calcAutoSpacing(): 自动间距 (useAutoSpacing="1") 的生效值计算, 与
 // KisPaintOpUtils::effectiveSpacing 内部用的是同一个公式。
 #include <kis_paintop_utils.h>
@@ -332,6 +333,16 @@ bool ReverieCore::loadSingleBrushResource(const QString &baseName)
                             lr->addResource(lowerSp.staticCast<KoResource>());
                         }
                     }
+                    const QString baseWithoutExt = QFileInfo(bareName).completeBaseName();
+                    if (!baseWithoutExt.isEmpty() && baseWithoutExt != bareName) {
+                        KisBrushSP noExtSp(brushSp->clone().dynamicCast<KisBrush>());
+                        if (noExtSp) {
+                            noExtSp->setFilename(baseWithoutExt);
+                            noExtSp->setName(baseWithoutExt);
+                            noExtSp->setMD5Sum(md5Hex);
+                            lr->addResource(noExtSp.staticCast<KoResource>());
+                        }
+                    }
                 }
                 m_loadedBrushes.insert(bareName, brushSp);
                 if (baseName != bareName) {
@@ -340,9 +351,14 @@ bool ReverieCore::loadSingleBrushResource(const QString &baseName)
                 if (!cleanName.isEmpty() && cleanName != bareName && cleanName != baseName) {
                     m_loadedBrushes.insert(cleanName, brushSp);
                 }
+                const QString baseWithoutExt = QFileInfo(bareName).completeBaseName();
+                if (!baseWithoutExt.isEmpty() && baseWithoutExt != bareName) {
+                    m_loadedBrushes.insert(baseWithoutExt, brushSp);
+                }
                 m_loadedResourceNames.insert(bareName);
                 m_loadedResourceNames.insert(baseName);
                 if (!cleanName.isEmpty()) m_loadedResourceNames.insert(cleanName);
+                if (!baseWithoutExt.isEmpty()) m_loadedResourceNames.insert(baseWithoutExt);
                 f.close();
                 return true;
             } else {
@@ -376,6 +392,16 @@ bool ReverieCore::loadSingleBrushResource(const QString &baseName)
                             lr->addResource(lowerSp);
                         }
                     }
+                    const QString baseWithoutExt = QFileInfo(bareName).completeBaseName();
+                    if (!baseWithoutExt.isEmpty() && baseWithoutExt != bareName) {
+                        KoResourceSP noExtSp(resSp->clone());
+                        if (noExtSp) {
+                            noExtSp->setFilename(baseWithoutExt);
+                            noExtSp->setName(baseWithoutExt);
+                            noExtSp->setMD5Sum(md5Hex);
+                            lr->addResource(noExtSp);
+                        }
+                    }
                     if (bareName.endsWith(QLatin1String(".pat"), Qt::CaseInsensitive)) {
                         const QString noPat = bareName.left(bareName.length() - 4);
                         if (!noPat.isEmpty()) {
@@ -401,6 +427,8 @@ bool ReverieCore::loadSingleBrushResource(const QString &baseName)
                 m_loadedResourceNames.insert(bareName);
                 m_loadedResourceNames.insert(baseName);
                 if (!cleanName.isEmpty()) m_loadedResourceNames.insert(cleanName);
+                const QString baseWithoutExt = QFileInfo(bareName).completeBaseName();
+                if (!baseWithoutExt.isEmpty()) m_loadedResourceNames.insert(baseWithoutExt);
                 f.close();
                 RPC_LOG("RPC loadSingleBrushResource Pattern loaded: %s (name=%s, md5=%s)",
                         fullPath.toUtf8().constData(), res->name().toUtf8().constData(), md5Hex.toUtf8().constData());
@@ -415,6 +443,33 @@ bool ReverieCore::loadSingleBrushResource(const QString &baseName)
     return false;
 }
 
+static QByteArray inflateDataStream(const uchar *src, int srcLen)
+{
+    if (!src || srcLen <= 0) return QByteArray();
+    z_stream strm;
+    memset(&strm, 0, sizeof(strm));
+    if (inflateInit(&strm) != Z_OK) return QByteArray();
+    strm.next_in = const_cast<Bytef*>(src);
+    strm.avail_in = srcLen;
+
+    QByteArray out;
+    char buffer[65536];
+    int ret = Z_OK;
+    while (ret == Z_OK) {
+        strm.next_out = reinterpret_cast<Bytef*>(buffer);
+        strm.avail_out = sizeof(buffer);
+        ret = inflate(&strm, Z_NO_FLUSH);
+        if (ret != Z_OK && ret != Z_STREAM_END) {
+            inflateEnd(&strm);
+            return QByteArray();
+        }
+        int have = sizeof(buffer) - strm.avail_out;
+        out.append(buffer, have);
+    }
+    inflateEnd(&strm);
+    return out;
+}
+
 void ReverieCore::ensureBrushForPreset(const QString &kppPath)
 {
     if (m_brushDir.isEmpty() || kppPath.isEmpty()) return;
@@ -426,37 +481,61 @@ void ReverieCore::ensureBrushForPreset(const QString &kppPath)
     // Check PNG signature
     if (data.size() < 8 || memcmp(data.constData(), "\x89PNG\r\n\x1a\n", 8) != 0) return;
 
-    // Scan PNG chunks for zTXt or tEXt chunk with keyword "preset"
+    // Scan PNG chunks for zTXt, tEXt, or iTXt chunk with keyword "preset"
     int idx = 8;
     while (idx + 12 <= data.size()) {
         const quint32 length = qFromBigEndian<quint32>(reinterpret_cast<const uchar*>(data.constData() + idx));
         const char *type = data.constData() + idx + 4;
         const bool isZTxt = (memcmp(type, "zTXt", 4) == 0);
         const bool isTExt = (memcmp(type, "tEXt", 4) == 0);
-        if ((isZTxt || isTExt) && idx + 8 + int(length) <= data.size()) {
+        const bool isITxt = (memcmp(type, "iTXt", 4) == 0);
+        if ((isZTxt || isTExt || isITxt) && idx + 8 + int(length) <= data.size()) {
             const char *chunkData = data.constData() + idx + 8;
             int nullPos = 0;
             while (nullPos < int(length) && chunkData[nullPos] != 0) {
                 ++nullPos;
             }
-            if (nullPos < int(length) && memcmp(chunkData, "preset", 6) == 0) {
+            if (nullPos == 6 && memcmp(chunkData, "preset", 6) == 0) {
                 QString xmlStr;
                 if (isZTxt && nullPos < int(length) - 2) {
                     const uchar *zStream = reinterpret_cast<const uchar*>(chunkData + nullPos + 2);
-                    uLongf zLen = length - (nullPos + 2);
-                    uLongf destLen = 1024 * 1024; // 1MB max uncompressed XML
-                    QByteArray decomp;
-                    decomp.resize(destLen);
-                    if (uncompress(reinterpret_cast<Bytef*>(decomp.data()), &destLen, zStream, zLen) == Z_OK) {
-                        decomp.resize(destLen);
+                    const int zLen = int(length) - (nullPos + 2);
+                    const QByteArray decomp = inflateDataStream(zStream, zLen);
+                    if (!decomp.isEmpty()) {
                         xmlStr = QString::fromUtf8(decomp);
                     }
                 } else if (isTExt) {
-                    xmlStr = QString::fromUtf8(chunkData + nullPos + 1, length - (nullPos + 1));
+                    xmlStr = QString::fromUtf8(chunkData + nullPos + 1, int(length) - (nullPos + 1));
+                } else if (isITxt && nullPos + 3 <= int(length)) {
+                    const uchar compFlag = static_cast<uchar>(chunkData[nullPos + 1]);
+                    const uchar compMethod = static_cast<uchar>(chunkData[nullPos + 2]);
+                    // Skip null-terminated language tag
+                    int p = nullPos + 3;
+                    while (p < int(length) && chunkData[p] != 0) ++p;
+                    ++p; // skip null
+                    // Skip null-terminated translated keyword
+                    while (p < int(length) && chunkData[p] != 0) ++p;
+                    ++p; // skip null
+                    const int textLen = int(length) - p;
+                    if (textLen >= 0 && p <= int(length)) {
+                        if (compFlag == 1 && compMethod == 0) {
+                            const uchar *zStream = reinterpret_cast<const uchar*>(chunkData + p);
+                            const QByteArray decomp = inflateDataStream(zStream, textLen);
+                            if (!decomp.isEmpty()) {
+                                xmlStr = QString::fromUtf8(decomp);
+                            }
+                        } else if (compFlag == 0) {
+                            xmlStr = QString::fromUtf8(chunkData + p, textLen);
+                        }
+                    }
                 }
 
                 if (!xmlStr.isEmpty()) {
-                    auto decodeBase64Safe = [](const QString &b64Str) -> QByteArray {
+                    auto decodeBase64Safe = [](QString b64Str) -> QByteArray {
+                        b64Str = b64Str.trimmed();
+                        if (b64Str.startsWith(QLatin1String("<![CDATA[")) && b64Str.endsWith(QLatin1String("]]>"))) {
+                            b64Str = b64Str.mid(9, b64Str.length() - 12).trimmed();
+                        }
                         QByteArray bytes = QByteArray::fromBase64(b64Str.toLatin1());
                         if (bytes.size() >= 8 && memcmp(bytes.constData(), "\x89PNG\r\n\x1a\n", 8) != 0 && memcmp(bytes.constData(), "GPAT", 4) != 0) {
                             QByteArray second = QByteArray::fromBase64(bytes);
@@ -482,7 +561,7 @@ void ReverieCore::ensureBrushForPreset(const QString &kppPath)
                         const QString b64 = m.captured(2).trimmed();
                         if (b64.isEmpty()) continue;
                         auto getAttr = [&attrs](const QString &attr) -> QString {
-                            QRegularExpression r(QStringLiteral("%1\\s*=\\s*\"([^\"]+)\"").arg(attr), QRegularExpression::CaseInsensitiveOption);
+                            QRegularExpression r(QStringLiteral("%1\\s*=\\s*[\"']([^\"']+)[\"']").arg(attr), QRegularExpression::CaseInsensitiveOption);
                             auto mr = r.match(attrs);
                             return mr.hasMatch() ? mr.captured(1).trimmed() : QString();
                         };
@@ -491,7 +570,8 @@ void ReverieCore::ensureBrushForPreset(const QString &kppPath)
                         if (!fn.isEmpty()) {
                             const QByteArray bytes = decodeBase64Safe(b64);
                             if (!bytes.isEmpty()) {
-                                const QString dir = (type == QLatin1String("kis_patterns")) ? m_patternDir : m_brushDir;
+                                const bool isPattern = (type == QLatin1String("kis_patterns") || type == QLatin1String("patterns") || fn.endsWith(QLatin1String(".pat"), Qt::CaseInsensitive));
+                                const QString dir = (isPattern && !m_patternDir.isEmpty()) ? m_patternDir : m_brushDir;
                                 if (!dir.isEmpty()) {
                                     const QString outPath = QDir(dir).filePath(QFileInfo(fn).fileName());
                                     QFile outF(outPath);
@@ -552,7 +632,7 @@ void ReverieCore::ensureBrushForPreset(const QString &kppPath)
 
                     // 3. Explicit filename="..." and pattern="..." XML attributes
                     static const QRegularExpression attrRe(
-                        QStringLiteral("(?:filename|pattern)\\s*=\\s*\"([^\"]+)\""),
+                        QStringLiteral("(?:filename|pattern)\\s*=\\s*[\"']([^\"']+)[\"']"),
                         QRegularExpression::CaseInsensitiveOption);
                     auto itAttr = attrRe.globalMatch(xmlStr);
                     while (itAttr.hasNext()) {
@@ -576,7 +656,7 @@ void ReverieCore::ensureBrushForPreset(const QString &kppPath)
 
                     // 4. Fallback regex to capture any brush resource file names in XML
                     static const QRegularExpression re(
-                        QStringLiteral("([\\w\\-\\._ %]+\\.(?:gbr|gih|png|svg|pat|abr|jpg|jpeg))"),
+                        QStringLiteral("([^\"'<>\r\n\t]+?\\.(?:gbr|gih|png|svg|pat|abr|jpg|jpeg))"),
                         QRegularExpression::CaseInsensitiveOption);
                     auto it = re.globalMatch(xmlStr);
                     while (it.hasNext()) {
@@ -715,7 +795,28 @@ bool ReverieCore::loadBrushPreset(int index)
         bool addedSideloaded = false;
         for (const auto &loadRes : sideloaded) {
             KoResourceSP r = loadRes.resource();
-            if (r && lr) {
+            if (!r && loadRes.type() == KoResourceLoadResult::EmbeddedResource) {
+                KoEmbeddedResource er = loadRes.embeddedResource();
+                if (er.isValid()) {
+                    const KoResourceSignature sig = er.signature();
+                    const QByteArray data = er.data();
+                    const bool isPattern = (sig.type == QLatin1String("patterns") || sig.type == QLatin1String("kis_patterns") || sig.filename.endsWith(QLatin1String(".pat"), Qt::CaseInsensitive));
+                    const QString targetDir = (isPattern && !m_patternDir.isEmpty()) ? m_patternDir : m_brushDir;
+                    if (!targetDir.isEmpty() && !sig.filename.isEmpty()) {
+                        const QString filePath = QDir(targetDir).filePath(QFileInfo(sig.filename).fileName());
+                        if (!QFile::exists(filePath) && !data.isEmpty()) {
+                            QFile outF(filePath);
+                            if (outF.open(QIODevice::WriteOnly)) {
+                                outF.write(data);
+                                outF.close();
+                            }
+                        }
+                    }
+                    if (loadSingleBrushResource(sig.filename)) {
+                        addedSideloaded = true;
+                    }
+                }
+            } else if (r && lr) {
                 lr->addResource(r);
                 addedSideloaded = true;
             }
@@ -855,7 +956,28 @@ bool ReverieCore::ensurePresetInfo(int index, CachedPresetInfo &out)
         bool addedSideloaded = false;
         for (const auto &loadRes : sideloaded) {
             KoResourceSP r = loadRes.resource();
-            if (r && lr) {
+            if (!r && loadRes.type() == KoResourceLoadResult::EmbeddedResource) {
+                KoEmbeddedResource er = loadRes.embeddedResource();
+                if (er.isValid()) {
+                    const KoResourceSignature sig = er.signature();
+                    const QByteArray data = er.data();
+                    const bool isPattern = (sig.type == QLatin1String("patterns") || sig.type == QLatin1String("kis_patterns") || sig.filename.endsWith(QLatin1String(".pat"), Qt::CaseInsensitive));
+                    const QString targetDir = (isPattern && !m_patternDir.isEmpty()) ? m_patternDir : m_brushDir;
+                    if (!targetDir.isEmpty() && !sig.filename.isEmpty()) {
+                        const QString filePath = QDir(targetDir).filePath(QFileInfo(sig.filename).fileName());
+                        if (!QFile::exists(filePath) && !data.isEmpty()) {
+                            QFile outF(filePath);
+                            if (outF.open(QIODevice::WriteOnly)) {
+                                outF.write(data);
+                                outF.close();
+                            }
+                        }
+                    }
+                    if (loadSingleBrushResource(sig.filename)) {
+                        addedSideloaded = true;
+                    }
+                }
+            } else if (r && lr) {
                 lr->addResource(r);
                 addedSideloaded = true;
             }

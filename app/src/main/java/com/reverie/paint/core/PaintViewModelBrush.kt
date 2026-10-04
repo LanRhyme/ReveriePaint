@@ -1721,6 +1721,7 @@ import kotlinx.coroutines.withContext
                 if (rank.isEmpty()) list.toList()
                 else list.toList().sortedBy { rank[it.name] ?: (rank.size + it.index) }
             brushPresets = ordered
+            brushPresetsLoaded = true
             if (ordered.isNotEmpty()) {
                 val target = keepName?.let { n -> ordered.firstOrNull { it.name == n } }
                 selectBrushPreset(target?.index ?: ordered[0].index)

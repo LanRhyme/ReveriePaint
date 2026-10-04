@@ -175,6 +175,16 @@ jobs:
                 }
               }
 
+              // Check title prefix for type tags (e.g. [BUG], [FR], [PERF])
+              const titleTrim = (issue.title || '').trim();
+              if (/^\[bug\]/i.test(titleTrim) && !currentLabels.includes('type: bug')) {
+                labelsToAdd.add('type: bug');
+              } else if (/^\[fr\]/i.test(titleTrim) && !currentLabels.includes('type: feature')) {
+                labelsToAdd.add('type: feature');
+              } else if (/^\[perf\]/i.test(titleTrim) && !currentLabels.includes('type: perf')) {
+                labelsToAdd.add('type: perf');
+              }
+
               const keywordRules = [
                 { regex: /(笔刷|画笔|笔尖|brush|brushstudio|paintop)/i, label: 'scope: brush' },
                 { regex: /(图层|图层组|剪贴蒙版|alpha锁|混合模式|blending|layer)/i, label: 'scope: layer' },

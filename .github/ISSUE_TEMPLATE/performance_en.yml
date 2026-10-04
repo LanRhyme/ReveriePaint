@@ -1,5 +1,6 @@
 name: Performance & Device Issues (English)
 description: Report frame drops, large brush lag, latency, or device-specific compatibility issues
+title: "[PERF] "
 labels: ["type: perf", "hardware: device-compat"]
 body:
   - type: markdown
