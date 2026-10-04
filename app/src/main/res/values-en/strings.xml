@@ -2214,9 +2214,11 @@
 
     <string name="settings_three_finger_edit_title">Three-finger swipe down to edit</string>
     <string name="settings_three_finger_edit_desc">Swipe down with three fingers to open your custom menu; tap to redo</string>
-    <string name="canvas_edit_title">Canvas quick menu</string>
+    <string name="canvas_edit_title">Quick menu</string>
     <string name="canvas_edit_customize">Customize swipe menu</string>
     <string name="canvas_edit_customize_hint">Add actions and use the arrows to reorder them. Keep at least one action.</string>
+    <string name="canvas_edit_selected_tab">Menu (%1$d)</string>
+    <string name="canvas_edit_available_tab">Add (%1$d)</string>
     <string name="canvas_edit_move_up">Move %1$s up</string>
     <string name="canvas_edit_move_down">Move %1$s down</string>
     <string name="canvas_edit_remove">Remove %1$s</string>
@@ -2263,5 +2265,8 @@
     <string name="liquify_hardness">Hardness</string>
     <string name="project_copying_progress">Copying artworks (%1$d/%2$d)</string>
     <string name="project_copy_result">Copied %1$d artworks, %2$d failed</string>
+    <string name="canvas_edit_previous_page">Previous actions</string>
+    <string name="canvas_edit_next_page">Next actions</string>
+    <string name="canvas_edit_page">%1$d / %2$d</string>
 </resources>
 

@@ -2,6 +2,8 @@
 package com.reverie.paint.ui.painting
 
 import androidx.annotation.StringRes
+import androidx.annotation.DrawableRes
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.FlowRow
@@ -13,8 +15,14 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.Button
+import androidx.compose.material3.Tab
+import androidx.compose.material3.PrimaryTabRow
+import androidx.compose.material3.TabRowDefaults
+import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.IconButtonDefaults
@@ -49,12 +57,24 @@ internal val CanvasEditAction.titleRes: Int
         is CanvasEditAction.Shortcut -> action.titleRes
     }
 
+internal val CanvasEditAction.iconRes: Int
+    @DrawableRes get() = when (this) {
+        CanvasEditAction.Clipboard.CUT -> R.drawable.ic_cut
+        CanvasEditAction.Clipboard.COPY -> R.drawable.ic_copy
+        CanvasEditAction.Clipboard.PASTE -> R.drawable.ic_paste
+        is CanvasEditAction.Shortcut -> action.iconRes
+    }
+
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 internal fun CanvasEditMenuCustomizeDialog(vm: PaintViewModel, onDismiss: () -> Unit) {
     // Edits are a draft until Save, including restoring defaults. Rotation preserves the draft.
     var draft by rememberSaveable { mutableStateOf(CanvasEditAction.encode(vm.canvasEditMenuActions)) }
     val actions = CanvasEditAction.decode(draft)
     val available = CanvasEditAction.available.filterNot { it in actions }
+    var adding by rememberSaveable { mutableStateOf(false) }
+    val selectedScroll = rememberLazyListState()
+    val availableScroll = rememberLazyListState()
     val windowHeight = with(LocalDensity.current) { LocalWindowInfo.current.containerSize.height.toDp() }
     val buttonColors = ButtonDefaults.textButtonColors(contentColor = Morandi.text)
     val iconColors = IconButtonDefaults.iconButtonColors(
@@ -65,95 +85,161 @@ internal fun CanvasEditMenuCustomizeDialog(vm: PaintViewModel, onDismiss: () -> 
     Dialog(onDismissRequest = onDismiss, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Surface(
             modifier = Modifier.padding(16.dp).widthIn(max = 560.dp).fillMaxWidth()
-                .heightIn(max = windowHeight * 0.9f),
+                .heightIn(max = minOf(windowHeight * 0.9f, 640.dp)),
             shape = RoundedCornerShape(16.dp),
             color = Morandi.panel,
         ) {
             Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
                 Text(stringResource(R.string.canvas_edit_customize), color = Morandi.text, fontSize = 17.sp)
-                Text(stringResource(R.string.canvas_edit_customize_hint), color = Morandi.subText, fontSize = 12.sp)
-                LazyColumn(Modifier.weight(1f, fill = false)) {
-                    item {
-                        Text(
-                            stringResource(R.string.quick_action_active_list),
-                            Modifier.padding(vertical = 8.dp), color = Morandi.accent, fontSize = 13.sp,
+                PrimaryTabRow(
+                    selectedTabIndex = if (adding) 1 else 0,
+                    containerColor = Morandi.panel, contentColor = Morandi.text,
+                    indicator = {
+                        TabRowDefaults.PrimaryIndicator(
+                            modifier = Modifier.tabIndicatorOffset(if (adding) 1 else 0), color = Morandi.accent,
+                        )
+                    },
+                    divider = {},
+                ) {
+                    for (showAvailable in listOf(false, true)) {
+                        Tab(
+                            selected = adding == showAvailable,
+                            onClick = { adding = showAvailable },
+                            selectedContentColor = Morandi.text,
+                            unselectedContentColor = Morandi.text.copy(alpha = 0.65f),
+                            text = {
+                                Text(
+                                    stringResource(
+                                        if (showAvailable) R.string.canvas_edit_available_tab
+                                        else R.string.canvas_edit_selected_tab,
+                                        if (showAvailable) available.size else actions.size,
+                                    ),
+                                    fontSize = 13.sp,
+                                )
+                            },
                         )
                     }
-                    items(actions, key = { "selected:${it.id}" }) { action ->
+                }
+                LazyColumn(
+                    Modifier.weight(1f), state = if (adding) availableScroll else selectedScroll,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    if (windowHeight >= 480.dp) item {
+                        Text(
+                            stringResource(R.string.canvas_edit_customize_hint), Modifier.padding(vertical = 8.dp),
+                            color = Morandi.text.copy(alpha = 0.75f), fontSize = 12.sp,
+                        )
+                    }
+                    if (!adding) items(actions, key = { "selected:${it.id}" }) { action ->
                         val index = actions.indexOf(action)
                         val title = stringResource(action.titleRes)
-                        Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                            Text(title, Modifier.weight(1f), color = Morandi.text, fontSize = 13.sp)
-                            for (direction in listOf(-1, 1)) {
-                                IconButton(
-                                    modifier = Modifier.size(48.dp),
-                                    colors = iconColors,
-                                    enabled = index + direction in actions.indices,
-                                    onClick = {
-                                        val reordered = actions.toMutableList()
-                                        reordered.add(index + direction, reordered.removeAt(index))
-                                        draft = CanvasEditAction.encode(reordered)
-                                    },
+                        BoxWithConstraints(Modifier.fillMaxWidth()) {
+                            val compact = maxWidth < 400.dp * LocalDensity.current.fontScale
+                            val label: @Composable (Modifier) -> Unit = { modifier ->
+                                Row(
+                                    modifier, verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(12.dp),
                                 ) {
                                     Icon(
-                                        painterResource(
-                                            if (direction < 0) R.drawable.ic_arrow_up else R.drawable.ic_arrow_down,
-                                        ),
-                                        stringResource(
-                                            if (direction < 0) R.string.canvas_edit_move_up
-                                            else R.string.canvas_edit_move_down,
-                                            title,
-                                        ),
-                                        Modifier.size(18.dp),
+                                        painterResource(action.iconRes), null,
+                                        Modifier.size(20.dp), tint = Morandi.text,
                                     )
+                                    Text(title, Modifier.weight(1f), color = Morandi.text, fontSize = 14.sp)
                                 }
                             }
-                            IconButton(
-                                onClick = { draft = CanvasEditAction.encode(actions - action) },
-                                modifier = Modifier.size(48.dp), colors = iconColors, enabled = actions.size > 1,
-                            ) {
-                                Icon(
-                                    painterResource(R.drawable.ic_minus),
-                                    stringResource(R.string.canvas_edit_remove, title), Modifier.size(18.dp),
-                                )
+                            val controls: @Composable () -> Unit = {
+                                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    for (direction in listOf(-1, 1)) {
+                                        IconButton(
+                                            modifier = Modifier.size(48.dp),
+                                            colors = iconColors,
+                                            enabled = index + direction in actions.indices,
+                                            onClick = {
+                                                val reordered = actions.toMutableList()
+                                                reordered.add(index + direction, reordered.removeAt(index))
+                                                draft = CanvasEditAction.encode(reordered)
+                                            },
+                                        ) {
+                                            Icon(
+                                                painterResource(
+                                                    if (direction < 0) R.drawable.ic_arrow_up
+                                                    else R.drawable.ic_arrow_down,
+                                                ),
+                                                stringResource(
+                                                    if (direction < 0) R.string.canvas_edit_move_up
+                                                    else R.string.canvas_edit_move_down,
+                                                    title,
+                                                ),
+                                                Modifier.size(18.dp),
+                                            )
+                                        }
+                                    }
+                                    IconButton(
+                                        onClick = { draft = CanvasEditAction.encode(actions - action) },
+                                        modifier = Modifier.size(48.dp), colors = iconColors,
+                                        enabled = actions.size > 1,
+                                    ) {
+                                        Icon(
+                                            painterResource(R.drawable.ic_minus),
+                                            stringResource(R.string.canvas_edit_remove, title), Modifier.size(18.dp),
+                                        )
+                                    }
+                                }
+                            }
+                            if (compact) {
+                                Column(Modifier.padding(top = 8.dp)) {
+                                    label(Modifier.fillMaxWidth())
+                                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) { controls() }
+                                }
+                            } else {
+                                Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
+                                    label(Modifier.weight(1f))
+                                    controls()
+                                }
                             }
                         }
                     }
-                    item {
-                        Text(
-                            stringResource(R.string.quick_action_available_list),
-                            Modifier.padding(vertical = 8.dp), color = Morandi.accent, fontSize = 13.sp,
-                        )
-                    }
-                    items(available, key = { "available:${it.id}" }) { action ->
+                    if (adding) items(available, key = { "available:${it.id}" }) { action ->
                         val title = stringResource(action.titleRes)
                         TextButton(
                             onClick = { draft = CanvasEditAction.encode(actions + action) },
                             modifier = Modifier.fillMaxWidth().heightIn(min = 48.dp), colors = buttonColors,
                         ) {
-                            Text(title, Modifier.weight(1f))
+                            Icon(painterResource(action.iconRes), null, Modifier.size(20.dp))
+                            Text(title, Modifier.weight(1f).padding(horizontal = 12.dp), fontSize = 14.sp)
                             Icon(
                                 painterResource(R.drawable.ic_plus),
-                                stringResource(R.string.canvas_edit_add, title), Modifier.size(18.dp),
+                                null, Modifier.size(18.dp),
                             )
                         }
                     }
-                    if (available.isEmpty()) {
+                    if (adding && available.isEmpty()) {
                         item { Text(stringResource(R.string.quick_action_all_added), color = Morandi.subText) }
                     }
                 }
-                FlowRow(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                FlowRow(
+                    Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
                     TextButton(
                         onClick = { draft = CanvasEditAction.encode(CanvasEditAction.defaults) }, colors = buttonColors,
+                        modifier = Modifier.heightIn(min = 48.dp),
                     ) {
                         Text(stringResource(R.string.quick_action_reset_default))
                     }
-                    TextButton(onClick = onDismiss, colors = buttonColors) { Text(stringResource(R.string.cancel)) }
-                    TextButton(onClick = {
-                        vm.updateCanvasEditMenuActions(actions)
-                        onDismiss()
-                    }, colors = ButtonDefaults.textButtonColors(contentColor = Morandi.accent)) {
-                        Text(stringResource(R.string.canvas_edit_save))
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        TextButton(onClick = onDismiss, colors = buttonColors) { Text(stringResource(R.string.cancel)) }
+                        Button(onClick = {
+                            vm.updateCanvasEditMenuActions(actions)
+                            onDismiss()
+                        }, colors = ButtonDefaults.buttonColors(
+                            containerColor = Morandi.accent, contentColor = Morandi.onAccent,
+                        ), modifier = Modifier.heightIn(min = 48.dp)) {
+                            Text(stringResource(R.string.canvas_edit_save))
+                        }
                     }
                 }
             }

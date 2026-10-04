@@ -2214,9 +2214,11 @@
 
     <string name="settings_three_finger_edit_title">三指下滑打开编辑菜单</string>
     <string name="settings_three_finger_edit_desc">三指一起向下滑动打开自定义菜单；轻点仍可重做</string>
-    <string name="canvas_edit_title">画布快捷菜单</string>
+    <string name="canvas_edit_title">快捷菜单</string>
     <string name="canvas_edit_customize">自定义三指菜单</string>
     <string name="canvas_edit_customize_hint">添加常用操作，用上下箭头调整顺序，至少保留一项</string>
+    <string name="canvas_edit_selected_tab">已选 (%1$d)</string>
+    <string name="canvas_edit_available_tab">添加 (%1$d)</string>
     <string name="canvas_edit_move_up">上移%1$s</string>
     <string name="canvas_edit_move_down">下移%1$s</string>
     <string name="canvas_edit_remove">移除%1$s</string>
@@ -2263,5 +2265,8 @@
     <string name="liquify_hardness">硬度</string>
     <string name="project_copying_progress">正在复制作品（%1$d/%2$d）</string>
     <string name="project_copy_result">已复制 %1$d 项，失败 %2$d 项</string>
+    <string name="canvas_edit_previous_page">上一页操作</string>
+    <string name="canvas_edit_next_page">下一页操作</string>
+    <string name="canvas_edit_page">%1$d / %2$d</string>
 </resources>
 
