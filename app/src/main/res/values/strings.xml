@@ -2213,8 +2213,15 @@
     <string name="sync_conflict_suffix"> (云端)</string>
 
     <string name="settings_three_finger_edit_title">三指下滑打开编辑菜单</string>
-    <string name="settings_three_finger_edit_desc">三指一起向下滑动可剪切、复制或粘贴；轻点仍可重做</string>
-    <string name="canvas_edit_title">剪切与复制</string>
+    <string name="settings_three_finger_edit_desc">三指一起向下滑动打开自定义菜单；轻点仍可重做</string>
+    <string name="canvas_edit_title">画布快捷菜单</string>
+    <string name="canvas_edit_customize">自定义三指菜单</string>
+    <string name="canvas_edit_customize_hint">添加常用操作，用上下箭头调整顺序，至少保留一项</string>
+    <string name="canvas_edit_move_up">上移%1$s</string>
+    <string name="canvas_edit_move_down">下移%1$s</string>
+    <string name="canvas_edit_remove">移除%1$s</string>
+    <string name="canvas_edit_add">添加%1$s</string>
+    <string name="canvas_edit_save">保存</string>
     <string name="canvas_edit_no_pixels">当前图层没有可复制的像素，或不是普通像素图层</string>
     <string name="canvas_edit_cut">剪切</string>
     <string name="canvas_edit_loading">正在读取可用操作…</string>

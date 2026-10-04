@@ -191,6 +191,7 @@ fun PaintingPage(
     var canvasH by remember { mutableStateOf(1) }
 
     var canvasEditMenuOpen by remember { mutableStateOf(false) }
+    var canvasEditMenuCustomizeOpen by remember { mutableStateOf(false) }
 
     // Popup panels
     var showIndicator by remember { mutableStateOf(false) }
@@ -1375,7 +1376,17 @@ fun PaintingPage(
         }
 
         if (canvasEditMenuOpen) {
-            CanvasEditMenu(vm = vm, onDismiss = { canvasEditMenuOpen = false })
+            CanvasEditMenu(
+                vm = vm,
+                onDismiss = { canvasEditMenuOpen = false },
+                onCustomize = {
+                    canvasEditMenuOpen = false
+                    canvasEditMenuCustomizeOpen = true
+                },
+            )
+        }
+        if (canvasEditMenuCustomizeOpen) {
+            CanvasEditMenuCustomizeDialog(vm, onDismiss = { canvasEditMenuCustomizeOpen = false })
         }
 
         // ---- Floating selection panel (Krita tool-options style) ----

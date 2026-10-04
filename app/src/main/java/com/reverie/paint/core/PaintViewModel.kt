@@ -1784,9 +1784,20 @@ class PaintViewModel : ViewModel() {
     var gestureTwoFingerUndo by mutableStateOf(true)
     var gestureThreeFingerRedo by mutableStateOf(true)
     var gestureThreeFingerEditMenu by mutableStateOf(true)
+    var canvasEditMenuActions by mutableStateOf(com.reverie.paint.model.CanvasEditAction.defaults)
+        private set
     var canvasEditBusy by mutableStateOf(false)
     var canvasEditCapabilities by mutableIntStateOf(0)
     var canvasClipboardAvailable by mutableStateOf(true)
+
+    fun updateCanvasEditMenuActions(actions: List<com.reverie.paint.model.CanvasEditAction>) {
+        val encoded = com.reverie.paint.model.CanvasEditAction.encode(actions)
+        canvasEditMenuActions = com.reverie.paint.model.CanvasEditAction.decode(encoded)
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString(com.reverie.paint.model.CanvasEditAction.PREFERENCE_KEY, encoded).apply()
+        }
+    }
 
     fun updateGestureThreeFingerEditMenu(enable: Boolean) {
         gestureThreeFingerEditMenu = enable
@@ -2739,6 +2750,9 @@ class PaintViewModel : ViewModel() {
             gestureTwoFingerUndo = prefs.getBoolean("gestureTwoFingerUndo", true)
             gestureThreeFingerRedo = prefs.getBoolean("gestureThreeFingerRedo", true)
             gestureThreeFingerEditMenu = prefs.getBoolean("gestureThreeFingerEditMenu", true)
+            canvasEditMenuActions = com.reverie.paint.model.CanvasEditAction.decode(
+                prefs.getString(com.reverie.paint.model.CanvasEditAction.PREFERENCE_KEY, null),
+            )
             gesturePinchTransform = prefs.getBoolean("gesturePinchTransform", true)
             gestureQuickPinchFit = prefs.getBoolean("gestureQuickPinchFit", true)
             backKeyAction = BackKeyAction.fromId(prefs.getString("backKeyAction", BackKeyAction.NONE.id))

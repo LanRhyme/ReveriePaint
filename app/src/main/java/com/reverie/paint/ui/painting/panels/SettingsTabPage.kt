@@ -42,6 +42,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
+import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -69,6 +71,7 @@ import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.BackKeyAction
 import com.reverie.paint.model.RotationSnap
+import com.reverie.paint.ui.painting.CanvasEditMenuCustomizeDialog
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.components.noRippleClickable
@@ -82,6 +85,11 @@ internal fun SettingsTabPage(
     var currentSubPage by remember { mutableStateOf<String?>(null) }
     var recordingShortcut by remember { mutableStateOf<ShortcutDefinition?>(null) }
     var smoothingAdvancedExpanded by remember { mutableStateOf(false) }
+    var canvasEditMenuCustomizeOpen by remember { mutableStateOf(false) }
+
+    if (canvasEditMenuCustomizeOpen) {
+        CanvasEditMenuCustomizeDialog(vm, onDismiss = { canvasEditMenuCustomizeOpen = false })
+    }
 
     AnimatedContent(
         targetState = currentSubPage,
@@ -653,6 +661,12 @@ internal fun SettingsTabPage(
                                 checked = vm.gestureThreeFingerEditMenu,
                                 onChecked = { vm.updateGestureThreeFingerEditMenu(it) },
                             )
+                        }
+                        TextButton(
+                            onClick = { canvasEditMenuCustomizeOpen = true },
+                            colors = ButtonDefaults.textButtonColors(contentColor = Morandi.accent),
+                        ) {
+                            Text(stringResource(R.string.canvas_edit_customize))
                         }
 
                         SettingsInnerDivider()

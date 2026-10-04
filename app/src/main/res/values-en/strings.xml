@@ -2213,8 +2213,15 @@
     <string name="sync_conflict_suffix"> (cloud)</string>
 
     <string name="settings_three_finger_edit_title">Three-finger swipe down to edit</string>
-    <string name="settings_three_finger_edit_desc">Swipe down with three fingers to cut, copy or paste; tap to redo</string>
-    <string name="canvas_edit_title">Copy and paste</string>
+    <string name="settings_three_finger_edit_desc">Swipe down with three fingers to open your custom menu; tap to redo</string>
+    <string name="canvas_edit_title">Canvas quick menu</string>
+    <string name="canvas_edit_customize">Customize swipe menu</string>
+    <string name="canvas_edit_customize_hint">Add actions and use the arrows to reorder them. Keep at least one action.</string>
+    <string name="canvas_edit_move_up">Move %1$s up</string>
+    <string name="canvas_edit_move_down">Move %1$s down</string>
+    <string name="canvas_edit_remove">Remove %1$s</string>
+    <string name="canvas_edit_add">Add %1$s</string>
+    <string name="canvas_edit_save">Save</string>
     <string name="canvas_edit_no_pixels">No pixels to copy, or the current layer is not a regular paint layer</string>
     <string name="canvas_edit_cut">Cut</string>
     <string name="canvas_edit_loading">Checking available actions…</string>
