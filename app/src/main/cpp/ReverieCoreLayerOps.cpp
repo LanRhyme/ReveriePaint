@@ -154,12 +154,11 @@ void ReverieCore::fillLayer(int index)
     KisTransaction txn(kundo2_i18n("Fill Layer"), dev);
     QColor qColor(m_brushColor);
     if (!qColor.isValid()) qColor = Qt::black;
-    qColor.setAlphaF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
-    KoColor koColor(qColor, image->colorSpace());
+    KoColor koColor(qColor, dev->colorSpace());
     const QRect docRect(0, 0, int(image->width()), int(image->height()));
     KisFillPainter painter(dev);
-    painter.setPaintColor(koColor);
-    painter.setOpacityF(m_brushOpacity);
+    // Opacity belongs to the painter; applying it to the color as well squares it.
+    painter.setOpacityF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
     painter.setCompositeOpId(COMPOSITE_OVER);
     if (m_selection) {
         painter.setSelection(m_selection);
@@ -168,7 +167,9 @@ void ReverieCore::fillLayer(int index)
     if (pl && pl->alphaLocked()) {
         painter.setChannelFlags(pl->channelLockFlags());
     }
-    painter.paintRect(docRect);
+    // paintRect() needs a fill style or a brush preset and otherwise paints nothing.
+    // fillSelection() uses bitBlt, preserving selection, channel locks and compositing.
+    painter.fillSelection(docRect, koColor);
     dev->setDirty(docRect);
     markDirty();
     txn.commit(image->undoAdapter());
