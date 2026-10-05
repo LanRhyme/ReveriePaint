@@ -27,6 +27,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
+import androidx.compose.material3.LocalTextStyle
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
@@ -45,9 +46,11 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.ImeAction
 import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.rememberTextMeasurer
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.Dp
@@ -224,6 +227,20 @@ fun CompactHsvSlider(
 ) {
     var showDirectInputDialog by remember { mutableStateOf(false) }
 
+    val measurer = rememberTextMeasurer()
+    val density = LocalDensity.current
+    val baseTextStyle = LocalTextStyle.current
+    val labelWidth = remember(baseTextStyle, density.fontScale, density.density) {
+        val style = baseTextStyle.merge(TextStyle(fontSize = 11.sp, fontWeight = FontWeight.SemiBold))
+        maxOf(14.dp, with(density) { measurer.measure("M", style).size.width.toDp() })
+    }
+    // 数值列至少预留"最大数值文本"的实测宽度, 保证拖动时数值位数变化不会带动滑杆长度抖动
+    // 用 min 而非固定宽度: 实测值本身已向上取整, 且预留不足时文字可自然变宽而不会被截断
+    val valueMinWidth = remember(max, unitSuffix, baseTextStyle, density.fontScale, density.density) {
+        val style = baseTextStyle.merge(TextStyle(fontSize = 11.sp))
+        maxOf(32.dp, with(density) { measurer.measure("${max.roundToInt()}$unitSuffix", style).size.width.toDp() })
+    }
+
     Row(
         modifier = Modifier.fillMaxWidth(),
         verticalAlignment = Alignment.CenterVertically
@@ -234,7 +251,9 @@ fun CompactHsvSlider(
                 color = Morandi.subText,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
-                modifier = Modifier.width(14.dp)
+                maxLines = 1,
+                softWrap = false,
+                modifier = Modifier.widthIn(min = labelWidth)
             )
         }
         Box(
@@ -282,8 +301,10 @@ fun CompactHsvSlider(
                 text = textDisplay,
                 color = Morandi.text,
                 fontSize = 11.sp,
+                maxLines = 1,
+                softWrap = false,
                 modifier = Modifier
-                    .width(32.dp)
+                    .widthIn(min = valueMinWidth)
                     .clip(RoundedCornerShape(3.dp))
                     .clickable(enabled = allowDirectInput) {
                         showDirectInputDialog = true
