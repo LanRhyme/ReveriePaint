@@ -1677,74 +1677,73 @@ internal fun CanvasOverlay(
                             }
                         }
                         GuideMode.SYMMETRY -> {
-                            if (guide.assistedDrawing || vm.drawingGuidePanelOpen) {
-                                val scX = bmp.width.toFloat() / maxOf(1, vm.docWidth)
-                                val scY = bmp.height.toFloat() / maxOf(1, vm.docHeight)
-                                val cx = (vm.docWidth * guide.symmetryCenterX) * scX - halfW
-                                val cy = (vm.docHeight * guide.symmetryCenterY) * scY - halfH
-                                val symCol = Morandi.accent.copy(alpha = 0.85f)
-                                val currentScale = zoom.value * fitScale
-                                val symStroke = androidx.compose.ui.graphics.drawscope.Stroke(
-                                    width = 1.5.dp.toPx() / currentScale,
-                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6f, 4f))
+                            // Reference lines remain visible even when assisted drawing is disabled.
+                            val scX = bmp.width.toFloat() / maxOf(1, vm.docWidth)
+                            val scY = bmp.height.toFloat() / maxOf(1, vm.docHeight)
+                            val cx = (vm.docWidth * guide.symmetryCenterX) * scX - halfW
+                            val cy = (vm.docHeight * guide.symmetryCenterY) * scY - halfH
+                            val symCol = Morandi.accent.copy(alpha = 0.85f)
+                            val currentScale = zoom.value * fitScale
+                            val symStroke = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = 1.5.dp.toPx() / currentScale,
+                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(floatArrayOf(6f, 4f))
+                            )
+
+                            val rotRad = (guide.symmetryRotationDeg % 360f) * (PI.toFloat() / 180f)
+                            val cosR = cos(rotRad)
+                            val sinR = sin(rotRad)
+                            val dMax = maxOf(docW, docH) * 2.5f
+
+                            fun drawRotatedLine(dirX: Float, dirY: Float) {
+                                val rx = dirX * cosR - dirY * sinR
+                                val ry = dirX * sinR + dirY * cosR
+                                drawLine(
+                                    symCol,
+                                    Offset(cx - rx * dMax, cy - ry * dMax),
+                                    Offset(cx + rx * dMax, cy + ry * dMax),
+                                    strokeWidth = symStroke.width,
+                                    pathEffect = symStroke.pathEffect,
                                 )
+                            }
 
-                                val rotRad = (guide.symmetryRotationDeg % 360f) * (PI.toFloat() / 180f)
-                                val cosR = cos(rotRad)
-                                val sinR = sin(rotRad)
-                                val dMax = maxOf(docW, docH) * 2.5f
-
-                                fun drawRotatedLine(dirX: Float, dirY: Float) {
-                                    val rx = dirX * cosR - dirY * sinR
-                                    val ry = dirX * sinR + dirY * cosR
-                                    drawLine(
-                                        symCol,
-                                        Offset(cx - rx * dMax, cy - ry * dMax),
-                                        Offset(cx + rx * dMax, cy + ry * dMax),
-                                        strokeWidth = symStroke.width,
-                                        pathEffect = symStroke.pathEffect,
-                                    )
+                            when (guide.symmetryType) {
+                                SymmetryType.VERTICAL -> {
+                                    drawRotatedLine(0f, 1f)
                                 }
-
-                                when (guide.symmetryType) {
-                                    SymmetryType.VERTICAL -> {
-                                        drawRotatedLine(0f, 1f)
-                                    }
-                                    SymmetryType.HORIZONTAL -> {
-                                        drawRotatedLine(1f, 0f)
-                                    }
-                                    SymmetryType.QUADRANT -> {
-                                        drawRotatedLine(0f, 1f)
-                                        drawRotatedLine(1f, 0f)
-                                    }
-                                    SymmetryType.RADIAL -> {
-                                        drawRotatedLine(0f, 1f)
-                                        drawRotatedLine(1f, 0f)
-                                        val diag = 0.70710678f
-                                        drawRotatedLine(diag, diag)
-                                        drawRotatedLine(-diag, diag)
-                                    }
+                                SymmetryType.HORIZONTAL -> {
+                                    drawRotatedLine(1f, 0f)
                                 }
-
-                                if (vm.drawingGuidePanelOpen) {
-                                    // 1. 中心平移控制柄
-                                    drawCircle(Morandi.accent.copy(alpha = 0.35f), radius = 12.dp.toPx() / currentScale, center = Offset(cx, cy))
-                                    drawCircle(Morandi.accent, radius = 6.dp.toPx() / currentScale, center = Offset(cx, cy))
-                                    drawCircle(Color.White, radius = 2.5.dp.toPx() / currentScale, center = Offset(cx, cy))
-
-                                    // 2. 轴向旋转控制柄 (沿对称主轴分布)
-                                    val rotHandleDist = minOf(docW, docH) * 0.35f * scX
-                                    val rotHandleX = cx - sinR * rotHandleDist
-                                    val rotHandleY = cy + cosR * rotHandleDist
-                                    val rotCenter = Offset(rotHandleX, rotHandleY)
-
-                                    drawCircle(Morandi.accent.copy(alpha = 0.25f), radius = 13.dp.toPx() / currentScale, center = rotCenter)
-                                    drawCircle(Morandi.accent, radius = 7.dp.toPx() / currentScale, center = rotCenter)
-                                    drawCircle(Color.White, radius = 3.5.dp.toPx() / currentScale, center = rotCenter)
-                                    drawCircle(Morandi.accent, radius = 1.5.dp.toPx() / currentScale, center = rotCenter)
-                                } else {
-                                    drawCircle(Morandi.accent, radius = 4.dp.toPx() / currentScale, center = Offset(cx, cy))
+                                SymmetryType.QUADRANT -> {
+                                    drawRotatedLine(0f, 1f)
+                                    drawRotatedLine(1f, 0f)
                                 }
+                                SymmetryType.RADIAL -> {
+                                    drawRotatedLine(0f, 1f)
+                                    drawRotatedLine(1f, 0f)
+                                    val diag = 0.70710678f
+                                    drawRotatedLine(diag, diag)
+                                    drawRotatedLine(-diag, diag)
+                                }
+                            }
+
+                            if (vm.drawingGuidePanelOpen) {
+                                // 1. 中心平移控制柄
+                                drawCircle(Morandi.accent.copy(alpha = 0.35f), radius = 12.dp.toPx() / currentScale, center = Offset(cx, cy))
+                                drawCircle(Morandi.accent, radius = 6.dp.toPx() / currentScale, center = Offset(cx, cy))
+                                drawCircle(Color.White, radius = 2.5.dp.toPx() / currentScale, center = Offset(cx, cy))
+
+                                // 2. 轴向旋转控制柄 (沿对称主轴分布)
+                                val rotHandleDist = minOf(docW, docH) * 0.35f * scX
+                                val rotHandleX = cx - sinR * rotHandleDist
+                                val rotHandleY = cy + cosR * rotHandleDist
+                                val rotCenter = Offset(rotHandleX, rotHandleY)
+
+                                drawCircle(Morandi.accent.copy(alpha = 0.25f), radius = 13.dp.toPx() / currentScale, center = rotCenter)
+                                drawCircle(Morandi.accent, radius = 7.dp.toPx() / currentScale, center = rotCenter)
+                                drawCircle(Color.White, radius = 3.5.dp.toPx() / currentScale, center = rotCenter)
+                                drawCircle(Morandi.accent, radius = 1.5.dp.toPx() / currentScale, center = rotCenter)
+                            } else {
+                                drawCircle(Morandi.accent, radius = 4.dp.toPx() / currentScale, center = Offset(cx, cy))
                             }
                         }
                         else -> Unit
