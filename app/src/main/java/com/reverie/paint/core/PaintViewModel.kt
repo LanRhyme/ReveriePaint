@@ -929,10 +929,12 @@ class PaintViewModel : ViewModel() {
                 isViewTransformLocked = !isViewTransformLocked
             }
             com.reverie.paint.model.QuickAction.FLIP_H -> {
-                flipCanvasHorizontal()
+                // 快捷面板固定为"视图翻转": 这里要的是随时可切回的临时镜像,
+                // 完全翻转要逐层改像素且进撤销栈, 放快捷面板上容易误触。
+                toggleViewFlipHorizontal()
             }
             com.reverie.paint.model.QuickAction.FLIP_V -> {
-                flipCanvasVertical()
+                toggleViewFlipVertical()
             }
             com.reverie.paint.model.QuickAction.RESET_VIEW -> {
                 requestUiCommand("reset_view")
@@ -1426,6 +1428,13 @@ class PaintViewModel : ViewModel() {
     // Canvas View Lock (固定画布缩放与旋转，保留双指平移)
     var isViewTransformLocked by mutableStateOf(false)
 
+    // 视图翻转 (View Flip): 只镜像**显示**, 一像素都不改 —— 与"完全翻转"
+    // (flipCanvasHorizontal/Vertical, 逐层镜像像素) 是两回事。图层多时完全翻转
+    // 要重绘每一层, 临时查看/对照画一下用视图翻转, 零开销且随时可切回。
+    // 属于视图状态: 不进撤销栈、不影响导出、不录制进回放。
+    var viewFlipX by mutableStateOf(false)
+    var viewFlipY by mutableStateOf(false)
+
     // Canvas Touch Disabled (禁用画布触控：丢弃一切手指触控与手势，仅手写笔/鼠标可操作画布，单次会话有效)
     var isCanvasTouchDisabled by mutableStateOf(false)
 
@@ -1789,9 +1798,20 @@ class PaintViewModel : ViewModel() {
     var gestureTwoFingerUndo by mutableStateOf(true)
     var gestureThreeFingerRedo by mutableStateOf(true)
     var gestureThreeFingerEditMenu by mutableStateOf(true)
+    var canvasEditMenuActions by mutableStateOf(com.reverie.paint.model.CanvasEditAction.defaults)
+        private set
     var canvasEditBusy by mutableStateOf(false)
     var canvasEditCapabilities by mutableIntStateOf(0)
     var canvasClipboardAvailable by mutableStateOf(true)
+
+    fun updateCanvasEditMenuActions(actions: List<com.reverie.paint.model.CanvasEditAction>) {
+        val encoded = com.reverie.paint.model.CanvasEditAction.encode(actions)
+        canvasEditMenuActions = com.reverie.paint.model.CanvasEditAction.decode(encoded)
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString(com.reverie.paint.model.CanvasEditAction.PREFERENCE_KEY, encoded).apply()
+        }
+    }
 
     fun updateGestureThreeFingerEditMenu(enable: Boolean) {
         gestureThreeFingerEditMenu = enable
@@ -2676,6 +2696,7 @@ class PaintViewModel : ViewModel() {
     fun syncSettingsFromPrefs() {
         if (::appContext.isInitialized) {
             val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+            anim.manualKeyframes = prefs.getBoolean(ANIMATION_MANUAL_KEYFRAMES_PREF, false)
             // 性能标尺: 设置项(仅 debug 构建有该入口, 见 PerfHud)或 setprop 任一为真即为开。
             // 用 PerfHud.readPref 而不是直接读偏好 —— 正式版恒 false, 避免残留偏好默默开着标尺。
             perfHudEnabled = PerfHud.readPref(prefs)
@@ -2748,6 +2769,9 @@ class PaintViewModel : ViewModel() {
             gestureTwoFingerUndo = prefs.getBoolean("gestureTwoFingerUndo", true)
             gestureThreeFingerRedo = prefs.getBoolean("gestureThreeFingerRedo", true)
             gestureThreeFingerEditMenu = prefs.getBoolean("gestureThreeFingerEditMenu", true)
+            canvasEditMenuActions = com.reverie.paint.model.CanvasEditAction.decode(
+                prefs.getString(com.reverie.paint.model.CanvasEditAction.PREFERENCE_KEY, null),
+            )
             gesturePinchTransform = prefs.getBoolean("gesturePinchTransform", true)
             gestureQuickPinchFit = prefs.getBoolean("gestureQuickPinchFit", true)
             backKeyAction = BackKeyAction.fromId(prefs.getString("backKeyAction", BackKeyAction.NONE.id))
@@ -4296,6 +4320,11 @@ fun inferBrushGroup(name: String): String =
 
 /** Per-preset independent brush parameters. */
 data class BrushParams(
+    /**
+     * 动力学曲线 (optionKey -> Krita sensor param 全文)。
+     * 曲线必须随预设落盘, 否则切换笔刷/重启后只剩引擎里的即时值, 曲线编辑等于白做。
+     */
+    val dynamicOptions: Map<String, String> = emptyMap(),
     val size: Double = 20.0,
     val opacity: Double = 1.0,
     val flow: Double = 1.0,

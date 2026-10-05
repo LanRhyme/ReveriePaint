@@ -50,7 +50,7 @@ val ALL_SHORTCUT_DEFINITIONS = listOf(
     ShortcutDefinition("pan_canvas", ShortcutCategory.PAINTING, "移动画布", "Space(长按)", R.string.shortcut_def_pan_canvas),
     ShortcutDefinition("zoom_in", ShortcutCategory.PAINTING, "放大画布", "LeftCtrl + =", R.string.shortcut_def_zoom_in),
     ShortcutDefinition("zoom_out", ShortcutCategory.PAINTING, "缩小画布", "LeftCtrl + -", R.string.shortcut_def_zoom_out),
-    ShortcutDefinition("flip_canvas", ShortcutCategory.PAINTING, "翻转画布", "H", R.string.shortcut_def_flip_canvas),
+    ShortcutDefinition("flip_canvas", ShortcutCategory.PAINTING, "视图水平翻转", "H", R.string.shortcut_def_flip_canvas),
     ShortcutDefinition("rotate_canvas", ShortcutCategory.PAINTING, "旋转画布", "R", R.string.shortcut_def_rotate_canvas),
     ShortcutDefinition("save_document", ShortcutCategory.PAINTING, "保存", "LeftCtrl + S", R.string.shortcut_def_save_document),
     ShortcutDefinition("undo", ShortcutCategory.PAINTING, "撤销", "LeftCtrl + Z", R.string.shortcut_def_undo),
@@ -560,7 +560,9 @@ internal fun PaintViewModel.handleKeyEvent(event: KeyEvent): Boolean {
             updateBrushSecondaryColor(c1)
             true
         }
-        "H" -> { flipCanvasHorizontal(); true }
+        // 与画布面板一致: 快捷键/指令走**视图翻转** (只镜像显示, 零开销);
+        // 真正镜像像素的完全翻转在面板里长按触发, 没有默认快捷键
+        "H" -> { toggleViewFlipHorizontal(); true }
         "R" -> { requestUiCommand("rotate_cw"); true }
         "Delete", "Backspace" -> { removeLayer(currentLayerIndex); true }
         "PageDown" -> {
@@ -603,6 +605,13 @@ internal fun PaintViewModel.handleNativeKeyEvent(event: android.view.KeyEvent): 
 
     return false
 }
+
+/**
+ * 一次性 UI 命令 token: 视口状态 (pan/zoom/rotation) 只有 UI 层持有, VM 想动
+ * 它们只能发命令让 PaintingPage 代劳。
+ */
+internal const val UI_CMD_VIEW_FLIP_X = "view_flip_x"
+internal const val UI_CMD_VIEW_FLIP_Y = "view_flip_y"
 
 /** 发一次性 UI 命令给 PaintingPage 消费 (视口/面板动作 UI 层才做得到)。 */
 internal fun PaintViewModel.requestUiCommand(cmd: String) {
@@ -674,7 +683,7 @@ internal fun PaintViewModel.executeShortcutAction(id: String) {
         "zoom_in" -> requestUiCommand("zoom_in")
         "zoom_out" -> requestUiCommand("zoom_out")
         "rotate_canvas" -> requestUiCommand("rotate_cw")
-        "flip_canvas" -> flipCanvasHorizontal()
+        "flip_canvas" -> toggleViewFlipHorizontal()
         "toggle_last_tool" -> {
             val t = lastToolId
             if (t != currentToolId) applyTool(t)

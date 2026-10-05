@@ -469,7 +469,7 @@
     <string name="shortcut_def_pan_canvas">移动画布</string>
     <string name="shortcut_def_zoom_in">放大画布</string>
     <string name="shortcut_def_zoom_out">缩小画布</string>
-    <string name="shortcut_def_flip_canvas">翻转画布</string>
+    <string name="shortcut_def_flip_canvas">视图水平翻转</string>
     <string name="shortcut_def_rotate_canvas">旋转画布</string>
     <string name="shortcut_def_save_document">保存</string>
     <string name="shortcut_def_undo">撤销</string>
@@ -527,6 +527,13 @@
     <string name="anim_onion_skin">洋葱皮</string>
     <string name="anim_shift_trace">透光台对位</string>
     <string name="anim_new_keyframe">新帧</string>
+    <string name="anim_drawing_workflow">作画方式</string>
+    <string name="anim_manual_keyframes">手动建帧</string>
+    <string name="anim_auto_keyframes_hint">在没有关键帧的位置落笔时，自动新建空白帧</string>
+    <string name="anim_manual_keyframes_hint">拖动帧块右边缘可延长显示，期间继续绘制会修改整段画面；要画下一张，请先点“新建空白帧”</string>
+    <string name="anim_new_blank_keyframe">新建空白帧</string>
+    <string name="anim_previous_frame_reference">旧帧参考</string>
+    <string name="anim_previous_frame_reference_hint">淡化显示上一关键帧，方便画下一张；透明度和着色可在下方洋葱皮设置中调整，不会出现在动画导出中</string>
     <string name="anim_duplicate_frame">复制</string>
     <string name="anim_delete_frame">删帧</string>
     <string name="anim_multi_select">多选</string>
@@ -795,8 +802,14 @@
     <string name="quick_action_layout_grid_2">2 列网格</string>
     <string name="quick_action_layout_grid_3">3 列网格</string>
     <string name="quick_action_lock_view">固定视角</string>
-    <string name="quick_action_flip_h">水平翻转</string>
-    <string name="quick_action_flip_v">垂直翻转</string>
+    <string name="quick_action_flip_h">视图翻转·横</string>
+    <string name="quick_action_flip_v">视图翻转·纵</string>
+    <string name="toast_view_flip_h_on">视图水平翻转</string>
+    <string name="toast_view_flip_h_off">已取消视图水平翻转</string>
+    <string name="toast_view_flip_v_on">视图垂直翻转</string>
+    <string name="toast_view_flip_v_off">已取消视图垂直翻转</string>
+    <string name="toast_canvas_flip_h_done">已完全水平翻转画布</string>
+    <string name="toast_canvas_flip_v_done">已完全垂直翻转画布</string>
     <string name="quick_action_reset_view">居中回正</string>
     <string name="quick_action_undo">撤销</string>
     <string name="quick_action_redo">重做</string>
@@ -2206,8 +2219,17 @@
     <string name="sync_conflict_suffix"> (云端)</string>
 
     <string name="settings_three_finger_edit_title">三指下滑打开编辑菜单</string>
-    <string name="settings_three_finger_edit_desc">三指一起向下滑动可剪切、复制或粘贴；轻点仍可重做</string>
-    <string name="canvas_edit_title">剪切与复制</string>
+    <string name="settings_three_finger_edit_desc">三指一起向下滑动打开自定义菜单；轻点仍可重做</string>
+    <string name="canvas_edit_title">快捷菜单</string>
+    <string name="canvas_edit_customize">自定义三指菜单</string>
+    <string name="canvas_edit_customize_hint">添加常用操作，用上下箭头调整顺序，至少保留一项</string>
+    <string name="canvas_edit_selected_tab">已选 (%1$d)</string>
+    <string name="canvas_edit_available_tab">添加 (%1$d)</string>
+    <string name="canvas_edit_move_up">上移%1$s</string>
+    <string name="canvas_edit_move_down">下移%1$s</string>
+    <string name="canvas_edit_remove">移除%1$s</string>
+    <string name="canvas_edit_add">添加%1$s</string>
+    <string name="canvas_edit_save">保存</string>
     <string name="canvas_edit_no_pixels">当前图层没有可复制的像素，或不是普通像素图层</string>
     <string name="canvas_edit_cut">剪切</string>
     <string name="canvas_edit_loading">正在读取可用操作…</string>
@@ -2261,5 +2283,8 @@
     <string name="quick_shape_ellipse">椭圆</string>
     <string name="quick_shape_rectangle">矩形</string>
     <string name="quick_shape_triangle">三角形</string>
+    <string name="canvas_edit_previous_page">上一页操作</string>
+    <string name="canvas_edit_next_page">下一页操作</string>
+    <string name="canvas_edit_page">%1$d / %2$d</string>
 </resources>
 

@@ -205,7 +205,24 @@ internal fun LayerRow(
                     onBounds(rowTop, rowBottom)
                 }
                 .pointerInput(index, isBg) {
-                    if (isBg) return@pointerInput
+                    if (isBg) {
+                        detectTapGestures(
+                            onPress = { offset ->
+                                val press = androidx.compose.foundation.interaction.PressInteraction.Press(offset)
+                                scope.launch { rowInteraction.emit(press) }
+                                val released = tryAwaitRelease()
+                                if (released) {
+                                    scope.launch { rowInteraction.emit(androidx.compose.foundation.interaction.PressInteraction.Release(press)) }
+                                } else {
+                                    scope.launch { rowInteraction.emit(androidx.compose.foundation.interaction.PressInteraction.Cancel(press)) }
+                                }
+                            },
+                            onTap = {
+                                onClick()
+                            }
+                        )
+                        return@pointerInput
+                    }
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
                         val startX = down.position.x
@@ -562,7 +579,7 @@ internal fun LayerRowContent(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = if (onRename != null) {
+                modifier = if (onRename != null && !isBg) {
                     Modifier
                         .clip(RoundedCornerShape(4.dp))
                         .pointerInput(layer.index, layer.name) {

@@ -144,6 +144,13 @@ class CanvasTouchView(context: Context) : View(context) {
     var canvasPanX: Float = 0f
     var canvasPanY: Float = 0f
     var canvasFitScale: Float = 1f
+    /**
+     * 视图翻转 (仅镜像显示, 不触碰像素)。与 canvasZoom/Rotation/Pan 同属视图状态:
+     * 开启时位图绕画布中心镜像绘制, 坐标反算走 [CanvasViewTransform] 的 signX/signY,
+     * 于是"看到哪就画到哪"依旧成立 —— 而完全翻转要逐层镜像像素, 图层多时会卡。
+     */
+    var canvasFlipX: Boolean = false
+    var canvasFlipY: Boolean = false
 
     var onTransform: ((zoom: Float, rotation: Float, panX: Float, panY: Float) -> Unit)? = null
 
@@ -1447,6 +1454,15 @@ class CanvasTouchView(context: Context) : View(context) {
             canvas.translate(centerX, centerY)
             canvas.rotate(canvasRotation)
             canvas.scale(scale, scale)
+            // 视图翻转: 在当前原点(=画布中心)上做轴镜像, 与 CanvasViewTransform 的
+            // signX/signY 完全同源 —— 位图、棋盘格、像素网格一起镜像, 而缩放/旋转
+            // 手势的语义不变 (镜像只作用于显示, 不改任何一层的像素)。
+            if (canvasFlipX || canvasFlipY) {
+                canvas.scale(
+                    if (canvasFlipX) -1f else 1f,
+                    if (canvasFlipY) -1f else 1f,
+                )
+            }
 
             // 绘制透明棋盘格
             checkerboardPaint?.let { cb ->
@@ -1897,6 +1913,8 @@ class CanvasTouchView(context: Context) : View(context) {
             bmpH,
             dw,
             dh,
+            canvasFlipX,
+            canvasFlipY,
         )
     }
 

@@ -27,8 +27,11 @@ internal object QuickShapeRecognition {
         val loop = points.dropLast(1) + first
         // Closed RDP must split at two distinct endpoints, never simplify the zero-length seam.
         val split = loop.indices.maxBy { loop[it].distanceTo(first) }
-        val corners = simplify(loop.take(split + 1), span * 0.035f).dropLast(1) +
-            simplify(loop.drop(split), span * 0.035f).dropLast(1)
+        val corners = removeStraightCorners(
+            simplify(loop.take(split + 1), span * 0.035f).dropLast(1) +
+                simplify(loop.drop(split), span * 0.035f).dropLast(1),
+            span * 0.035f,
+        )
         val area = abs(loop.zipWithNext().sumOf { (a, b) ->
             a.x.toDouble() * b.y - b.x.toDouble() * a.y
         } / 2).toFloat()
@@ -101,6 +104,21 @@ internal object QuickShapeRecognition {
         val index = (1 until points.lastIndex).maxBy { distanceToSegment(points[it], points.first(), points.last()) }
         if (distanceToSegment(points[index], points.first(), points.last()) <= epsilon) return listOf(points.first(), points.last())
         return simplify(points.take(index + 1), epsilon).dropLast(1) + simplify(points.drop(index), epsilon)
+    }
+
+    /** RDP pins both split endpoints, even when the pen starts in the middle of an edge. */
+    private fun removeStraightCorners(points: List<Point2D>, epsilon: Float): List<Point2D> {
+        val corners = points.toMutableList()
+        while (corners.size > 3) {
+            val index = corners.indices.minBy { i ->
+                distanceToSegment(corners[i], corners[(i + corners.size - 1) % corners.size],
+                    corners[(i + 1) % corners.size])
+            }
+            if (distanceToSegment(corners[index], corners[(index + corners.size - 1) % corners.size],
+                    corners[(index + 1) % corners.size]) > epsilon) break
+            corners.removeAt(index)
+        }
+        return corners
     }
 
     private fun distanceToSegment(p: Point2D, a: Point2D, b: Point2D): Float {

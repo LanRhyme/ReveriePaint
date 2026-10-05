@@ -15,6 +15,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.ui.draw.shadow
 import com.reverie.paint.ui.components.liquidHighlight
 import com.reverie.paint.ui.components.pressScale
@@ -347,11 +348,19 @@ internal fun CanvasTabPage(
                     },
                     modifier = Modifier.weight(1f),
                 )
+                // 画布翻转: 单击 = 视图翻转 (只镜像显示, 零开销, 可反复切),
+                // 长按 = 完全翻转 (真的镜像每一层像素, 图层多时较慢), 且会把
+                // 该轴的视图翻转复位, 免得看起来"翻了两次像没生效"。
                 CanvasActionTile(
                     icon = R.drawable.ic_flip_horizontal,
                     label = stringResource(R.string.canvas_action_flip_h),
+                    active = vm.viewFlipX,
                     onClick = {
-                        vm.flipCanvasHorizontal()
+                        vm.toggleViewFlipHorizontal()
+                        onClose()
+                    },
+                    onLongClick = {
+                        vm.flipCanvasHorizontalFull()
                         onClose()
                     },
                     modifier = Modifier.weight(1f),
@@ -359,8 +368,13 @@ internal fun CanvasTabPage(
                 CanvasActionTile(
                     icon = R.drawable.ic_flip_vertical,
                     label = stringResource(R.string.canvas_action_flip_v),
+                    active = vm.viewFlipY,
                     onClick = {
-                        vm.flipCanvasVertical()
+                        vm.toggleViewFlipVertical()
+                        onClose()
+                    },
+                    onLongClick = {
+                        vm.flipCanvasVerticalFull()
                         onClose()
                     },
                     modifier = Modifier.weight(1f),
@@ -385,17 +399,37 @@ private fun CanvasActionTile(
     label: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    /** 开关类动作的"已开启"态 (如视图翻转), 开启时整体高亮, 一眼能看出当前状态 */
+    active: Boolean = false,
+    /** 长按回调: 给了就启用长按 (画布翻转用长按 = 完全翻转) */
+    onLongClick: (() -> Unit)? = null,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val shape = RoundedCornerShape(10.dp)
+    val iconTint = if (active) Morandi.accent else Morandi.icon
+    val labelColor = if (active) Morandi.accent else Morandi.text
 
     Column(
         modifier = modifier
             .pressScale(interaction, pressedScale = 0.94f)
             .clip(shape)
             .liquidHighlight(interaction, Color.White, radius = 24.dp)
-            .background(Morandi.panelHi.copy(alpha = 0.55f))
-            .clickable(interactionSource = interaction, indication = null) { onClick() }
+            .background(
+                if (active) Morandi.accent.copy(alpha = 0.16f)
+                else Morandi.panelHi.copy(alpha = 0.55f),
+            )
+            .then(
+                if (onLongClick != null) {
+                    Modifier.combinedClickable(
+                        interactionSource = interaction,
+                        indication = null,
+                        onClick = onClick,
+                        onLongClick = onLongClick,
+                    )
+                } else {
+                    Modifier.clickable(interactionSource = interaction, indication = null) { onClick() }
+                },
+            )
             .padding(vertical = 7.dp, horizontal = 2.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
@@ -403,13 +437,13 @@ private fun CanvasActionTile(
         Icon(
             painter = painterResource(icon),
             contentDescription = label,
-            tint = Morandi.icon,
+            tint = iconTint,
             modifier = Modifier.size(18.dp),
         )
         Spacer(Modifier.height(3.dp))
         Text(
             text = label,
-            color = Morandi.text,
+            color = labelColor,
             fontSize = 10.5.sp,
             fontWeight = FontWeight.Medium,
             maxLines = 1,

@@ -60,6 +60,9 @@ fun CanvasView(
     rotation: androidx.compose.runtime.State<Float>,
     panX: androidx.compose.runtime.State<Float>,
     panY: androidx.compose.runtime.State<Float>,
+    /** 视图翻转 (仅镜像显示, 不改动任何图层像素) */
+    flipX: Boolean = false,
+    flipY: Boolean = false,
     fitScale: Float,
     onFitScale: (Float) -> Unit,
     onTransform: (zoom: Float, rotation: Float, panX: Float, panY: Float) -> Unit,
@@ -281,6 +284,13 @@ fun CanvasView(
                 touchView.viewW = viewW
                 touchView.viewH = viewH
                 touchView.setSpacePanning(vm?.isSpacePanning == true)
+                // 视图翻转不参与手势 (缩放/旋转/平移由手势自己写), 所以放在
+                // isInteracting 判断之外, 免得拖着手时点了翻转却不生效
+                if (touchView.canvasFlipX != flipX || touchView.canvasFlipY != flipY) {
+                    touchView.canvasFlipX = flipX
+                    touchView.canvasFlipY = flipY
+                    touchView.invalidate()
+                }
                 if (!touchView.isInteracting && !touchView.isTransformActive) {
                     touchView.canvasZoom = zoom.value
                     touchView.canvasRotation = rotation.value
@@ -341,6 +351,8 @@ fun CanvasView(
                 rotation = rotation,
                 panX = panX,
                 panY = panY,
+                flipX = flipX,
+                flipY = flipY,
                 fitScale = fitScale,
             )
         }
@@ -373,6 +385,8 @@ fun CanvasView(
             rotation = rotation,
             panX = panX,
             panY = panY,
+            flipX = flipX,
+            flipY = flipY,
             fitScale = fitScale,
             tool = tool,
             tfState = tfState,
@@ -423,6 +437,8 @@ fun widgetToImage(
     bmpH: Int,
     docW: Int,
     docH: Int,
+    flipX: Boolean = false,
+    flipY: Boolean = false,
 ): Offset {
     val scale = (zoom * fitScale).coerceAtLeast(0.001f)
     val dx = p.x - (canvasW / 2f + panX)
@@ -434,9 +450,11 @@ fun widgetToImage(
     val unrotatedY = dx * sinR + dy * cosR
     // Bitmap (viewport) coordinates: the canvas bitmap is bmpW x bmpH and is
     // drawn centred at the widget origin, so the inverse of the draw
-    // transform lands on bitmap pixels
-    val bx = unrotatedX / scale + bmpW / 2f
-    val by = unrotatedY / scale + bmpH / 2f
+    // transform lands on bitmap pixels. 视图翻转时绘制端多乘了一次 -1, 这里同步取反
+    val signX = if (flipX) -1f else 1f
+    val signY = if (flipY) -1f else 1f
+    val bx = (unrotatedX / scale) * signX + bmpW / 2f
+    val by = (unrotatedY / scale) * signY + bmpH / 2f
     // Bitmap -> document space: the C++ core works in full document
     // coordinates (1080x1920 etc.), while the render viewport is downscaled
     return Offset(bx * (docW.toFloat() / bmpW), by * (docH.toFloat() / bmpH))
@@ -456,10 +474,14 @@ fun imageToWidget(
     bmpH: Int,
     docW: Int,
     docH: Int,
+    flipX: Boolean = false,
+    flipY: Boolean = false,
 ): Offset {
     val scale = (zoom * fitScale).coerceAtLeast(0.001f)
-    val bx = p.x * (bmpW.toFloat() / maxOf(1, docW)) - bmpW / 2f
-    val by = p.y * (bmpH.toFloat() / maxOf(1, docH)) - bmpH / 2f
+    val signX = if (flipX) -1f else 1f
+    val signY = if (flipY) -1f else 1f
+    val bx = (p.x * (bmpW.toFloat() / maxOf(1, docW)) - bmpW / 2f) * signX
+    val by = (p.y * (bmpH.toFloat() / maxOf(1, docH)) - bmpH / 2f) * signY
     val radians = Math.toRadians(rotation.toDouble())
     val cosR = cos(radians).toFloat()
     val sinR = sin(radians).toFloat()

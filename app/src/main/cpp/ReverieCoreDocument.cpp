@@ -38,6 +38,7 @@ ReverieCore::~ReverieCore()
     endStrokeBatch();
     m_layers.clear();
     m_canvasClipboard = nullptr;
+    waitForDocumentTasks();
     m_document.clear(); // KisImageSP releases the image
 }
 
@@ -52,6 +53,7 @@ bool ReverieCore::newDocument(int width, int height, bool infiniteCanvas)
     // Release any previous document. KisImage destructor frees its owned undo store,
     // so m_undoStore must be reset to nullptr to prevent dangling pointer access.
     m_canvasClipboard = nullptr;
+    waitForDocumentTasks();
     m_document.clear();
     m_undoStore = nullptr;
     m_macroDepth = 0;
@@ -177,6 +179,7 @@ void ReverieCore::closeDocument()
     // Document + undo history. KisImage owns the node tree: clearing the SP
     // frees all layers and their tiles.
     m_canvasClipboard = nullptr;
+    waitForDocumentTasks();
     m_document.clear();
     m_undoStore = nullptr;
     m_macroDepth = 0;
@@ -329,6 +332,21 @@ void ReverieCore::recompositeProjection()
     }
     image->refreshGraphAsync();
     image->waitForDone();
+}
+
+void ReverieCore::waitForDocumentTasks()
+{
+    // 释放文档前必须排空文档调度器, 否则会踩 SIGABRT:
+    // KisAsyncMerger 的合并任务是挂在文档调度器上的作业 (KisUpdateJobItem),
+    // 它在后台线程跑 startMerge -> KisTiledDataManager::clear -> 释放 tile;
+    // 若此时主线程 drop 掉 KisImage, 合并线程就会把 tile 交给错误的 store 释放,
+    // 触发 kis_tile_data_store.cc 的 Q_ASSERT(td->m_store == this) (SIGABRT)。
+    // 典型复现: 绘制 -> 撤销 -> 立刻新建画布/关闭文档。
+    if (!m_document) {
+        return;
+    }
+    m_document->requestStrokeEnd();
+    m_document->waitForDone();
 }
 
 void ReverieCore::syncLayersFromImage()

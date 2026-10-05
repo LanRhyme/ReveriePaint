@@ -469,7 +469,7 @@
     <string name="shortcut_def_pan_canvas">Pan Canvas</string>
     <string name="shortcut_def_zoom_in">Zoom In</string>
     <string name="shortcut_def_zoom_out">Zoom Out</string>
-    <string name="shortcut_def_flip_canvas">Flip Canvas</string>
+    <string name="shortcut_def_flip_canvas">View Flip Horizontal</string>
     <string name="shortcut_def_rotate_canvas">Rotate Canvas</string>
     <string name="shortcut_def_save_document">Save</string>
     <string name="shortcut_def_undo">Undo</string>
@@ -527,6 +527,13 @@
     <string name="anim_onion_skin">Onion Skin</string>
     <string name="anim_shift_trace">Shift &amp; Trace</string>
     <string name="anim_new_keyframe">New Frame</string>
+    <string name="anim_drawing_workflow">Drawing workflow</string>
+    <string name="anim_manual_keyframes">Manual keyframes</string>
+    <string name="anim_auto_keyframes_hint">Drawing at a time without a keyframe automatically creates a blank frame</string>
+    <string name="anim_manual_keyframes_hint">Drag the right edge of a frame block to hold it longer. Drawing anywhere in the hold changes the whole drawing. Tap New blank frame before drawing the next one</string>
+    <string name="anim_new_blank_keyframe">New blank frame</string>
+    <string name="anim_previous_frame_reference">Previous drawing</string>
+    <string name="anim_previous_frame_reference_hint">Show the previous keyframe faintly as a guide. Adjust opacity and tint in the onion skin settings below. Guides are excluded from animation exports</string>
     <string name="anim_duplicate_frame">Duplicate</string>
     <string name="anim_delete_frame">Delete</string>
     <string name="anim_multi_select">Select</string>
@@ -795,8 +802,14 @@
     <string name="quick_action_layout_grid_2">2 Columns</string>
     <string name="quick_action_layout_grid_3">3 Columns</string>
     <string name="quick_action_lock_view">Lock View</string>
-    <string name="quick_action_flip_h">Flip H</string>
-    <string name="quick_action_flip_v">Flip V</string>
+    <string name="quick_action_flip_h">View Flip H</string>
+    <string name="quick_action_flip_v">View Flip V</string>
+    <string name="toast_view_flip_h_on">View Flipped Horizontally</string>
+    <string name="toast_view_flip_h_off">View Flip H Off</string>
+    <string name="toast_view_flip_v_on">View Flipped Vertically</string>
+    <string name="toast_view_flip_v_off">View Flip V Off</string>
+    <string name="toast_canvas_flip_h_done">Canvas Flipped Horizontally</string>
+    <string name="toast_canvas_flip_v_done">Canvas Flipped Vertically</string>
     <string name="quick_action_reset_view">Center &amp; Reset</string>
     <string name="quick_action_undo">Undo</string>
     <string name="quick_action_redo">Redo</string>
@@ -2206,8 +2219,17 @@
     <string name="sync_conflict_suffix"> (cloud)</string>
 
     <string name="settings_three_finger_edit_title">Three-finger swipe down to edit</string>
-    <string name="settings_three_finger_edit_desc">Swipe down with three fingers to cut, copy or paste; tap to redo</string>
-    <string name="canvas_edit_title">Copy and paste</string>
+    <string name="settings_three_finger_edit_desc">Swipe down with three fingers to open your custom menu; tap to redo</string>
+    <string name="canvas_edit_title">Quick menu</string>
+    <string name="canvas_edit_customize">Customize swipe menu</string>
+    <string name="canvas_edit_customize_hint">Add actions and use the arrows to reorder them. Keep at least one action.</string>
+    <string name="canvas_edit_selected_tab">Menu (%1$d)</string>
+    <string name="canvas_edit_available_tab">Add (%1$d)</string>
+    <string name="canvas_edit_move_up">Move %1$s up</string>
+    <string name="canvas_edit_move_down">Move %1$s down</string>
+    <string name="canvas_edit_remove">Remove %1$s</string>
+    <string name="canvas_edit_add">Add %1$s</string>
+    <string name="canvas_edit_save">Save</string>
     <string name="canvas_edit_no_pixels">No pixels to copy, or the current layer is not a regular paint layer</string>
     <string name="canvas_edit_cut">Cut</string>
     <string name="canvas_edit_loading">Checking available actions…</string>
@@ -2261,5 +2283,8 @@
     <string name="quick_shape_ellipse">Ellipse</string>
     <string name="quick_shape_rectangle">Rectangle</string>
     <string name="quick_shape_triangle">Triangle</string>
+    <string name="canvas_edit_previous_page">Previous actions</string>
+    <string name="canvas_edit_next_page">Next actions</string>
+    <string name="canvas_edit_page">%1$d / %2$d</string>
 </resources>
 

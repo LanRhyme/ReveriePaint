@@ -208,8 +208,8 @@ internal fun PaintViewModel.touchStart(
     smoothingHistDist[0] = 0.0
     smoothingHistCount = 1
     lastInputEventTimeMs = 0L
-    // 动画项目: 当前帧没有关键帧时, 先把这一帧"分"出来再落笔。
-    // 不做这步的话墨迹会烙在**被 hold 的前一帧**上, 污染前面所有帧。
+    // 动画项目的自动模式: 当前帧没有关键帧时先分帧再落笔。
+    // 手动模式主动保留曝光，继续编辑该段共用的画面。
     //
     // 为什么合并进同一个 runCore: 建帧与落笔必须严格先建后画, 而原来拆成
     // 三次投递 (建帧 / 建帧后全量同步 / 落笔), 每次都是一轮 handler 往返 +

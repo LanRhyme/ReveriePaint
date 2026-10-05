@@ -165,6 +165,8 @@ internal fun AnimationTimelinePanel(
                     vm = vm,
                     hazeState = hazeState,
                     onClose = { vm.anim.toolbarExpanded = false },
+                    // 给时间轴和顶部工具栏留空间，设置内容增多时在卡片内部滚动。
+                    maxHeight = (config.screenHeightDp.dp - panelHeight - 64.dp).coerceAtLeast(100.dp),
                 )
             }
         }

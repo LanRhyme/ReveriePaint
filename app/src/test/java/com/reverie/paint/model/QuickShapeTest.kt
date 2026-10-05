@@ -71,6 +71,27 @@ class QuickShapeTest {
         assertEquals(QuickShapeType.TRIANGLE, fit.type)
     }
 
+    @Test fun `rectangle recognition does not depend on which part of an edge starts the stroke`() {
+        val shape = QuickShapeResult(QuickShapeType.RECTANGLE, emptyList(), Point2D(250f, 300f), 140f, 70f, 0.5f)
+        assertEveryStart(loop(QuickShapeGeometry.corners(shape)), QuickShapeType.RECTANGLE)
+    }
+
+    @Test fun `triangle recognition does not depend on starting at a vertex`() {
+        assertEveryStart(loop(listOf(Point2D(100f, 20f), Point2D(220f, 220f), Point2D(0f, 220f))),
+            QuickShapeType.TRIANGLE)
+    }
+
+    private fun assertEveryStart(closed: List<Point2D>, expected: QuickShapeType) {
+        val points = closed.dropLast(1)
+        for (reverse in listOf(false, true)) {
+            val ordered = if (reverse) points.reversed() else points
+            for (start in ordered.indices) {
+                val rotated = ordered.drop(start) + ordered.take(start) + ordered[start]
+                assertEquals("start=$start reverse=$reverse", expected, QuickShapeFitter.fit(rotated)?.type)
+            }
+        }
+    }
+
     @Test fun `open zigzag is not silently replaced by a line`() {
         assertNull(QuickShapeFitter.fit((0..40).map { Point2D(it * 8f, if (it % 2 == 0) 0f else 50f) }))
     }

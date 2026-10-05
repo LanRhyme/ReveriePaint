@@ -96,6 +96,8 @@ fun CanvasAdjustOverlay(
                 bmpH,
                 docW,
                 docH,
+                vm.viewFlipX,
+                vm.viewFlipY,
             )
             val startDocPt = widgetToImage(
                 dragStartPos,
@@ -110,6 +112,8 @@ fun CanvasAdjustOverlay(
                 bmpH,
                 docW,
                 docH,
+                vm.viewFlipX,
+                vm.viewFlipY,
             )
 
             val dX = (currentDocPt.x - startDocPt.x).roundToInt()
@@ -270,6 +274,8 @@ fun CanvasAdjustOverlay(
                         fitScale = fitScale,
                         rotation = rotation.value,
                         handleTouchRadiusPx = handleTouchRadiusPx,
+                        flipX = vm.viewFlipX,
+                        flipY = vm.viewFlipY,
                     )
 
                     // 空白区域: 不消费, 事件下沉给画布平移
@@ -313,22 +319,24 @@ fun CanvasAdjustOverlay(
         val midYDoc = (topDoc + bottomDoc) / 2f
 
         // 计算裁切框 4 个角在屏幕坐标系中的位置
-        val toScreen = { docPt: Offset ->
-            imageToWidget(
-                docPt,
-                viewW,
-                viewH,
-                panX.value,
-                panY.value,
-                zoom.value,
-                fitScale,
-                rotation.value,
-                bmpW,
-                bmpH,
-                docW,
-                docH,
-            )
-        }
+    val toScreen = { docPt: Offset ->
+        imageToWidget(
+            docPt,
+            viewW,
+            viewH,
+            panX.value,
+            panY.value,
+            zoom.value,
+            fitScale,
+            rotation.value,
+            bmpW,
+            bmpH,
+            docW,
+            docH,
+            vm.viewFlipX,
+            vm.viewFlipY,
+        )
+    }
 
         val pTL = toScreen(Offset(leftDoc, topDoc))
         val pTR = toScreen(Offset(rightDoc, topDoc))
@@ -458,6 +466,8 @@ private fun resolveCropHandle(
     fitScale: Float,
     rotation: Float,
     handleTouchRadiusPx: Float,
+    flipX: Boolean = false,
+    flipY: Boolean = false,
 ): CropHandle {
     val leftDoc = state.cropX.toFloat()
     val topDoc = state.cropY.toFloat()
@@ -480,6 +490,8 @@ private fun resolveCropHandle(
             bmpH,
             docW,
             docH,
+            flipX,
+            flipY,
         )
     }
 
@@ -521,6 +533,8 @@ private fun resolveCropHandle(
         bmpH,
         docW,
         docH,
+        flipX,
+        flipY,
     )
     return if (docPt.x in leftDoc..rightDoc && docPt.y in topDoc..bottomDoc) {
         CropHandle.MOVE_BOX

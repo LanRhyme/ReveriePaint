@@ -70,6 +70,9 @@ internal fun CanvasOverlay(
     rotation: androidx.compose.runtime.State<Float>,
     panX: androidx.compose.runtime.State<Float>,
     panY: androidx.compose.runtime.State<Float>,
+    /** 视图翻转 (仅镜像显示): 覆盖层必须与画布位图用同一套镜像, 否则选区/控制点会错位 */
+    flipX: Boolean = false,
+    flipY: Boolean = false,
     fitScale: Float,
     tool: Tool,
     tfState: TransformState,
@@ -192,6 +195,15 @@ internal fun CanvasOverlay(
                 translate(center.x, center.y)
                 rotate(rotation.value, pivot = Offset.Zero)
                 scale(scale, scale, pivot = Offset.Zero)
+                // 视图翻转: 与 CanvasTouchView.drawCanvas 里的 canvas.scale(-1,1)
+                // 同一套 (绕画布中心镜像), 于是选区/变换框/辅助线继续贴合画面
+                if (flipX || flipY) {
+                    scale(
+                        if (flipX) -1f else 1f,
+                        if (flipY) -1f else 1f,
+                        pivot = Offset.Zero,
+                    )
+                }
             }) {
                 // Draw transform preview
                 val previewBmp = vm.transformPreviewBitmap
@@ -366,16 +378,31 @@ internal fun CanvasOverlay(
                     val ang = Math.toDegrees(atan2((e.y - s.y).toDouble(), (e.x - s.x).toDouble())).toFloat()
                     val label =
                         "%.0f px  %.1f°".format(dist, ang)
-                    drawContext.canvas.nativeCanvas.drawText(
-                        label,
-                        (p2.x + 8.dp.toPx()),
-                        (p2.y - 8.dp.toPx()),
-                        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                            color = android.graphics.Color.WHITE
-                            textSize = 13.dp.toPx()
-                            isFakeBoldText = true
-                        },
-                    )
+                    // 读数标签是 UI chrome, 不能跟着画面一起镜像 (否则 "px / °"
+                    // 会反着写)。绕锚点 p2 再镜像一次即可抵消: 合成后线性部分从
+                    // R·S(scale)·M 回到 R·S(scale), 而 p2 仍落在它的镜像屏幕
+                    // 位置上 (withTransform 推导: S(m)·T(p)·S(m)·T(-p) 等价于
+                    // 平移 m·p - p, 对 q=p 恰好得到 m·p)。
+                    withTransform({
+                        if (flipX || flipY) {
+                            scale(
+                                if (flipX) -1f else 1f,
+                                if (flipY) -1f else 1f,
+                                pivot = p2,
+                            )
+                        }
+                    }) {
+                        drawContext.canvas.nativeCanvas.drawText(
+                            label,
+                            (p2.x + 8.dp.toPx()),
+                            (p2.y - 8.dp.toPx()),
+                            android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                                color = android.graphics.Color.WHITE
+                                textSize = 13.dp.toPx()
+                                isFakeBoldText = true
+                            },
+                        )
+                    }
                 }
 
                 // Crop tool preview: dim the outside, white frame

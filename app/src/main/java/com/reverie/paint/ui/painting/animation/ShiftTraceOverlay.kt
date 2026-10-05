@@ -39,6 +39,8 @@ internal fun ShiftTraceOverlay(
     rotation: State<Float>,
     panX: State<Float>,
     panY: State<Float>,
+    flipX: Boolean = false,
+    flipY: Boolean = false,
     fitScale: Float,
 ) {
     if (!vm.anim.shiftTraceActive) return
@@ -76,6 +78,14 @@ internal fun ShiftTraceOverlay(
             translate(center.x, center.y)
             rotate(rotation.value, pivot = Offset.Zero)
             scale(viewScale, viewScale, pivot = Offset.Zero)
+            // 视图翻转: 洋葱皮帧是画面的一部分, 必须跟着画布一起镜像
+            if (flipX || flipY) {
+                scale(
+                    if (flipX) -1f else 1f,
+                    if (flipY) -1f else 1f,
+                    pivot = Offset.Zero,
+                )
+            }
         }) {
             val native = drawContext.canvas.nativeCanvas
 

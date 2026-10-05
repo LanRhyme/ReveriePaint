@@ -231,6 +231,7 @@ add_library(reverie_jni SHARED
     ReverieCoreAnimation.cpp
     ReverieCoreInbetween.cpp
     ReverieCoreIO.cpp
+    ReverieCoreIccData.cpp
     ReverieCoreColorSpaceHook.cpp
     ReverieCrashHandler.cpp
     ${KRITA_SRC_DIR}/plugins/impex/psd/psd_colormode_block.cpp

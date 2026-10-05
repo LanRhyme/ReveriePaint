@@ -222,7 +222,6 @@ fun QuickActionWindow(
                         Modifier.background(Morandi.panel.copy(alpha = opacity))
                     }
                 )
-                .border(1.dp, Morandi.border.copy(alpha = 0.7f), windowShape)
                 .animateContentSize(Motion.enterSpring())
         ) {
         if (isCollapsed) {
@@ -621,6 +620,8 @@ private fun QuickActionButton(
     // 判断该动作当前是否处于高亮/激活态
     val isActivated = when (action) {
         QuickAction.LOCK_VIEW -> vm.isViewTransformLocked
+        QuickAction.FLIP_H -> vm.viewFlipX
+        QuickAction.FLIP_V -> vm.viewFlipY
         QuickAction.TOGGLE_ERASER -> vm.currentToolId == "eraser"
         QuickAction.ALPHA_LOCK -> vm.isCurrentLayerAlphaLocked()
         QuickAction.DISABLE_TOUCH -> vm.isCanvasTouchDisabled
@@ -1598,6 +1599,14 @@ private fun getActionToastInfo(
         QuickAction.TOGGLE_ERASER -> {
             if (vm.currentToolId == "eraser") context.getString(R.string.tool_brush)
             else context.getString(R.string.tool_eraser)
+        }
+        QuickAction.FLIP_H -> {
+            if (!vm.viewFlipX) context.getString(R.string.toast_view_flip_h_on)
+            else context.getString(R.string.toast_view_flip_h_off)
+        }
+        QuickAction.FLIP_V -> {
+            if (!vm.viewFlipY) context.getString(R.string.toast_view_flip_v_on)
+            else context.getString(R.string.toast_view_flip_v_off)
         }
         QuickAction.BRUSH_SIZE_INC -> {
             val newSize = (vm.brushSize * 1.25).coerceAtMost(vm.effectiveBrushMaxSize)

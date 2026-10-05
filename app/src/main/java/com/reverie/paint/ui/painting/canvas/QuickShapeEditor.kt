@@ -44,7 +44,8 @@ internal fun QuickShapeEditor(
     val path = remember { Path() }
     val point = remember { FloatArray(2) }
     fun updateTransform() = transform.update(size.width, size.height, panX.value, panY.value,
-        zoom.value, scale, rotation.value, vm.renderW, vm.renderH, vm.docWidth, vm.docHeight)
+        zoom.value, scale, rotation.value, vm.renderW, vm.renderH, vm.docWidth, vm.docHeight,
+        vm.viewFlipX, vm.viewFlipY)
     Box(modifier) {
         Canvas(Modifier.fillMaxSize().onSizeChanged { size = it }.pointerInput(vm) {
             awaitEachGesture {

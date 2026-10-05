@@ -284,16 +284,6 @@ import kotlinx.coroutines.withContext
         runCore(render = false) { ReverieCoreBridge.setBrushFollowDirection(v) }
     }
 
-    internal fun PaintViewModel.updateBrushStreamline(v: Double) {
-        brushStreamline = v
-        saveBrushParam()
-    }
-
-    internal fun PaintViewModel.updateBrushTaper(v: Double) {
-        brushTaper = v
-        saveBrushParam()
-    }
-
     internal fun PaintViewModel.updateBrushTextureEnabled(v: Boolean) {
         brushTextureEnabled = v
         saveBrushParam(reloadEngine = true, immediateReload = true)
@@ -431,12 +421,6 @@ import kotlinx.coroutines.withContext
         runCore(render = false) { ReverieCoreBridge.setBrushJitter(brushJitterAngle, brushJitterSize) }
     }
 
-    internal fun PaintViewModel.updateBrushJitterSize(v: Double) {
-        brushJitterSize = v
-        saveBrushParam(reloadEngine = true)
-        runCore(render = false) { ReverieCoreBridge.setBrushJitter(brushJitterAngle, brushJitterSize) }
-    }
-
     internal fun PaintViewModel.updateBrushMinSizeLimit(v: Double) {
         brushMinSizeLimit = v
         if (brushSize < v) updateBrushSize(v)
@@ -490,28 +474,13 @@ import kotlinx.coroutines.withContext
         saveBrushParam(reloadEngine = true, immediateReload = true)
     }
 
-    internal fun PaintViewModel.updateBrushMaskingTipShape(v: Int) {
-        brushMaskingTipShape = v
-        saveBrushParam(reloadEngine = true, immediateReload = true)
-    }
-
     internal fun PaintViewModel.updateBrushMaskingFade(v: Double) {
         brushMaskingFade = v
         saveBrushParam(reloadEngine = true)
     }
 
-    internal fun PaintViewModel.updateBrushMaskingSoftness(v: Double) {
-        brushMaskingSoftness = v
-        saveBrushParam(reloadEngine = true)
-    }
-
     internal fun PaintViewModel.updateBrushRotationSensor(v: String) {
         brushRotationSensor = v
-        saveBrushParam(reloadEngine = true, immediateReload = true)
-    }
-
-    internal fun PaintViewModel.updateBrushScatterSensor(v: String) {
-        brushScatterSensor = v
         saveBrushParam(reloadEngine = true, immediateReload = true)
     }
 
@@ -571,6 +540,50 @@ import kotlinx.coroutines.withContext
 
     private var pendingKppReloadJob: Job? = null
 
+    /**
+     * 把内存里的动力学曲线序列化成 Krita sensor param 全文, 供 kpp 落盘。
+     *
+     * 曲线本身住在 `brushDynamicOptions` (DynamicOptionConfig.points), 而 Krita 把它放在
+     * `<Key>Sensor` param 的 XML 里, 由 `<Key>UseCurve` 开关。此前 updateBrushDynamicOption
+     * 只写内存 + 下发引擎, 不落盘, 于是切笔刷/重启后曲线丢失。
+     * 只有"已启用"或"曲线非线性"的选项才写, 避免把一堆恒等曲线塞进每个预设。
+     */
+    private fun PaintViewModel.buildDynamicOptionSensorXml(): Map<String, String> {
+        val out = HashMap<String, String>()
+        for ((key, cfg) in brushDynamicOptions) {
+            if (key.isBlank()) continue
+            val curve = cfg.toKritaCurveString()
+            val nonLinear = curve != "0.000,0.000;1.000,1.000;"
+            if (!cfg.enabled && !nonLinear) continue
+            val id = cfg.sensorId.ifBlank { "pressure" }
+            out[key] = "<!DOCTYPE params><params id=\"$id\"><curve>$curve</curve></params>"
+        }
+        return out
+    }
+
+    /**
+     * 把 kpp 里读回的 `<Key>Sensor` 曲线灌进 brushDynamicOptions。
+     *
+     * 曲线编辑此前只写内存 + 下发引擎, 落盘由 [buildDynamicOptionSensorXml] 负责;
+     * 读回这一段是它的对侧, 缺了的话切笔刷后 UI 会显示默认曲线而引擎用的是 kpp 里的,
+     * 两边对不上。预设里没有传感器 param 时保持现状 (线性), 不覆盖用户内存中的值。
+     */
+    private fun PaintViewModel.applySensorXmlToDynamicOptions(sensorXml: Map<String, String>) {
+        if (sensorXml.isEmpty()) return
+        for ((key, body) in sensorXml) {
+            val cfg = brushDynamicOptions[key] ?: continue
+            val id = Regex("""id="([^"]+)"""").find(body)?.groupValues?.getOrNull(1)
+            val curve = Regex("""<curve>([^<]*)</curve>""").find(body)?.groupValues?.getOrNull(1)
+            if (curve.isNullOrBlank()) continue
+            val points = com.reverie.paint.model.DynamicOptionConfig.parseKritaCurve(curve)
+            brushDynamicOptions[key] = cfg.copy(
+                enabled = true,
+                sensorId = id ?: cfg.sensorId,
+                points = points,
+            )
+        }
+    }
+
     internal fun PaintViewModel.saveBrushParam(
         dynamicsChanged: Boolean = false,
         smudgeChanged: Boolean = false,
@@ -586,6 +599,7 @@ import kotlinx.coroutines.withContext
         val sc = smudgeChanged || (existing?.smudgeCustomized == true)
         val spc = spacingChanged || (existing?.spacingCustomized == true)
         val p = BrushParams(
+            dynamicOptions = buildDynamicOptionSensorXml(),
             size = brushSize,
             opacity = brushOpacity,
             flow = brushFlow,
@@ -1439,6 +1453,7 @@ import kotlinx.coroutines.withContext
                 // SoftnessValue 缺省即 1.0(neutral/不改动笔尖羽化)；引擎侧兜底报告的是 0.5，
                 // 那是"半羽化"而不是中性值，所以这里不拿 d[10] 兜底，直接落到 neutral。
                 brushSoftness = parsed.softness ?: KppHelper.SOFTNESS_NEUTRAL
+                applySensorXmlToDynamicOptions(parsed.sensorXml)
                 brushRatio = parsed.ratio ?: d.getOrNull(11) ?: 1.0
                 brushSharpness = d.getOrNull(12) ?: 0.0
                 brushRotation = d.getOrNull(13) ?: 0.0
@@ -1638,20 +1653,6 @@ import kotlinx.coroutines.withContext
     internal fun PaintViewModel.updateBrushPanelCategory(cat: String) {
         brushPanelSelectedCategory = cat
         updateCurrentToolBrushState { it.copy(category = cat) }
-        persistBrushPanelState()
-    }
-
-    internal fun PaintViewModel.updateBrushCategoryScroll(index: Int, offset: Int) {
-        brushCategoryScrollIndex = index
-        brushCategoryScrollOffset = offset
-        updateCurrentToolBrushState { it.copy(categoryScrollIndex = index, categoryScrollOffset = offset) }
-        persistBrushPanelState()
-    }
-
-    internal fun PaintViewModel.updateBrushPresetScroll(index: Int, offset: Int) {
-        brushPresetScrollIndex = index
-        brushPresetScrollOffset = offset
-        updateCurrentToolBrushState { it.copy(presetScrollIndex = index, presetScrollOffset = offset) }
         persistBrushPanelState()
     }
 
@@ -2059,7 +2060,7 @@ import kotlinx.coroutines.withContext
                         ?: (matchedTip?.let { tipFileNameMap[it.index] })
                         ?: ""
 
-                    val rawName = preset.name.trim().ifBlank { "$targetGroupName ${idx + 1}" }
+                    val rawName = abrPresetName(preset.name, targetGroupName, idx)
                     var candidateName = rawName.replace(Regex("""[\\/:*?"<>|]"""), "_")
                     var counter = 2
                     while (existingKppNames.contains(candidateName)) {
@@ -2311,6 +2312,23 @@ import kotlinx.coroutines.withContext
             android.util.Log.e("ReveriePaint", "importSingleBrushInternal failed", e)
             BrushImportResult(success = false)
         }
+    }
+
+    /**
+     * ABR 预设的落盘名。
+     *
+     * Photoshop 给很多 ABR 包的笔刷名就是纯数字 ("1"、"2"、"3"…)，Krita 自己的
+     * 资源名也是把包名拼在前面 (`brushes_by_mar_ka_d338ela_2`)。裸数字名有两个
+     * 实际问题: 用户在笔刷列表里完全认不出这是哪个包; 再导入第二个同命名的包
+     * 会走重名兜底变成 "1_2"、"2_2"，越导越乱。
+     *
+     * 所以纯数字名补包名前缀，自带描述的名字（"Round 10 Hardness 80%"）保持原样。
+     */
+    internal fun abrPresetName(rawName: String, packBaseName: String, index: Int): String {
+        val trimmed = rawName.trim()
+        if (trimmed.isBlank()) return "$packBaseName ${index + 1}"
+        val hasLetter = trimmed.any { it.isLetter() }
+        return if (hasLetter) trimmed else "${packBaseName}_$trimmed"
     }
 
     /** 导入外部笔刷文件 (.kpp, .bundle, .gbr, .png, .abr, .zip) */

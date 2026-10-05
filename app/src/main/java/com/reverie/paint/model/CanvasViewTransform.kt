@@ -21,6 +21,65 @@ import kotlin.math.sin
  *
  * 纯 Kotlin 实现, 无 Android 依赖, 可 JVM 单测。
  */
+/**
+ * 视图翻转时补偿平移量, 使翻转**前后视图中心看到的是同一处内容** (CSP 的行为)。
+ *
+ * 纯函数, 无 Android 依赖, 可 JVM 单测。
+ *
+ * ---------------------------------------------------------------------------
+ * 推导
+ * ---------------------------------------------------------------------------
+ * 记屏幕视口中心 Vc, 画布中心 C = Vc + p (p 就是 panX/panY), 旋转 R = R(θ),
+ * 生效缩放 s。翻转矩阵 M = diag(±1, ±1) 作用在**位图空间**(旋转之前), 于是
+ *
+ *     S = C + R · s · (M · b)
+ *
+ * 由 S = Vc 反解, 当前视图中心落在文档坐标 b(M) = M · q, 其中
+ *
+ *     q = R(-θ) · (-p) / s          (与 M 无关)
+ *
+ * 翻转轴切换 M -> M' 后要把同一个 b 留在视图中心, 即 p' 满足 M'·q' = M·q,
+ * q' = R(-θ)·(-p')/s, 解得
+ *
+ *     p' = R(θ) · (M'·M) · R(-θ) · p
+ *
+ * M'·M 就是这次操作"净"作用的那面镜子 (视图翻转只切一面, 所以是
+ * diag(-1,1) 或 diag(1,-1); 两面同时切则是 180° 旋转 diag(-1,-1))。
+ * 展开成 2θ 的形式:
+ *
+ *     x' = (sx·cos²θ + sy·sin²θ)·px + (sx - sy)·cosθ·sinθ·py
+ *     y' = (sx - sy)·cosθ·sinθ·px + (sx·sin²θ + sy·cos²θ)·py
+ *
+ * 注意 σ = 0 时退化为 p' = (sx·px, sy·py); 且该矩阵是对合的 (反射),
+ * 所以来回切两刀会精确回到原值, 不会有累积漂移。
+ *
+ * @param flipX 该轴本次要镜像 (净效果), false 表示保持
+ * @param flipY 同上 (垂直轴)
+ * @param out   out[0]=新的 panX, out[1]=新的 panY
+ */
+fun viewFlipMirroredPan(
+    panX: Float,
+    panY: Float,
+    rotationDeg: Float,
+    flipX: Boolean,
+    flipY: Boolean,
+    out: FloatArray,
+) {
+    val sx = if (flipX) -1f else 1f
+    val sy = if (flipY) -1f else 1f
+    val twoTheta = Math.toRadians((rotationDeg * 2.0))
+    val cos2 = cos(twoTheta).toFloat()
+    val sin2 = sin(twoTheta).toFloat()
+    // cos²θ = (1 + cos2θ)/2, sin²θ = (1 - cos2θ)/2, cosθ·sinθ = sin2θ/2
+    val a = (sx + sy) * 0.5f          // (sx·cos² + sy·sin²) = (sx+sy)/2 + (sx-sy)·cos2/2
+    val b = (sx - sy) * 0.5f
+    val m00 = a + b * cos2
+    val m11 = a - b * cos2
+    val m01 = b * sin2
+    out[0] = m00 * panX + m01 * panY
+    out[1] = m01 * panX + m11 * panY
+}
+
 class CanvasViewTransform {
 
     // ---- 输入参数 (上一次 update 的值) ----
@@ -35,11 +94,16 @@ class CanvasViewTransform {
     private var bmpH = 1
     private var docW = 1
     private var docH = 1
+    private var flipX = false
+    private var flipY = false
 
     // ---- 派生量 (update 时重算) ----
     private var scale = 1f
     private var cosR = 1f
     private var sinR = 0f
+    // 视图翻转的镜像系数: -1f 表示该轴镜像 (绕位图中心, 与绘制端的 scale(-1,1) 同一套)
+    private var signX = 1f
+    private var signY = 1f
     private var bmpPerDocX = 1f
     private var bmpPerDocY = 1f
     private var docPerBmpX = 1f
@@ -71,6 +135,8 @@ class CanvasViewTransform {
         bmpH: Int,
         docW: Int,
         docH: Int,
+        flipX: Boolean = false,
+        flipY: Boolean = false,
     ): Boolean {
         val bw = maxOf(1, bmpW)
         val bh = maxOf(1, bmpH)
@@ -87,7 +153,9 @@ class CanvasViewTransform {
                 this.bmpW == bw &&
                 this.bmpH == bh &&
                 this.docW == dw &&
-                this.docH == dh
+                this.docH == dh &&
+                this.flipX == flipX &&
+                this.flipY == flipY
         if (same) return false
 
         this.viewW = viewW.toFloat()
@@ -101,8 +169,12 @@ class CanvasViewTransform {
         this.bmpH = bh
         this.docW = dw
         this.docH = dh
+        this.flipX = flipX
+        this.flipY = flipY
 
         scale = (zoom * fitScale).coerceAtLeast(0.001f)
+        signX = if (flipX) -1f else 1f
+        signY = if (flipY) -1f else 1f
         val radians = Math.toRadians(rotation.toDouble())
         cosR = cos(radians).toFloat()
         sinR = sin(radians).toFloat()
@@ -117,10 +189,13 @@ class CanvasViewTransform {
         return true
     }
 
+    /** 当前是否处于视图翻转 (仅镜像显示, 像素未变) */
+    val isFlipped: Boolean get() = flipX || flipY
+
     /** 文档坐标 -> 屏幕坐标。out[0]=x, out[1]=y */
     fun docToScreen(x: Float, y: Float, out: FloatArray) {
-        val bx = x * bmpPerDocX - halfBmpW
-        val by = y * bmpPerDocY - halfBmpH
+        val bx = (x * bmpPerDocX - halfBmpW) * signX
+        val by = (y * bmpPerDocY - halfBmpH) * signY
         val sx = bx * scale
         val sy = by * scale
         out[0] = sx * cosR - sy * sinR + centerX
@@ -129,8 +204,8 @@ class CanvasViewTransform {
 
     /** 渲染位图坐标 -> 屏幕坐标。out[0]=x, out[1]=y */
     fun bitmapToScreen(x: Float, y: Float, out: FloatArray) {
-        val sx = (x - halfBmpW) * scale
-        val sy = (y - halfBmpH) * scale
+        val sx = (x - halfBmpW) * signX * scale
+        val sy = (y - halfBmpH) * signY * scale
         out[0] = sx * cosR - sy * sinR + centerX
         out[1] = sx * sinR + sy * cosR + centerY
     }
@@ -142,8 +217,8 @@ class CanvasViewTransform {
         // 逆旋转: 等价于按 -rotation 旋转 (cos(-r)=cos(r), sin(-r)=-sin(r))
         val ux = dx * cosR + dy * sinR
         val uy = -dx * sinR + dy * cosR
-        out[0] = ux / scale + halfBmpW
-        out[1] = uy / scale + halfBmpH
+        out[0] = ux * signX / scale + halfBmpW
+        out[1] = uy * signY / scale + halfBmpH
     }
 
     /** 屏幕坐标 -> 文档坐标。out[0]=x, out[1]=y */
@@ -153,8 +228,8 @@ class CanvasViewTransform {
         // 逆旋转: 等价于按 -rotation 旋转 (cos(-r)=cos(r), sin(-r)=-sin(r))
         val ux = dx * cosR + dy * sinR
         val uy = -dx * sinR + dy * cosR
-        out[0] = (ux / scale + halfBmpW) * docPerBmpX
-        out[1] = (uy / scale + halfBmpH) * docPerBmpY
+        out[0] = (ux * signX / scale + halfBmpW) * docPerBmpX
+        out[1] = (uy * signY / scale + halfBmpH) * docPerBmpY
     }
 
     /**
@@ -182,8 +257,10 @@ class CanvasViewTransform {
         for (i in 0 until 4) {
             val x = if (i == 0 || i == 2) pl else pr
             val y = if (i < 2) pt else pb
-            val sx = (x - halfBmpW) * scale
-            val sy = (y - halfBmpH) * scale
+            // 镜像只改符号, 包围盒取四角极值, 与顺序无关 —— 所以左右/上下
+            // 不用交换, 直接带 signX/signY 即可
+            val sx = (x - halfBmpW) * signX * scale
+            val sy = (y - halfBmpH) * signY * scale
             val px = sx * cosR - sy * sinR + centerX
             val py = sx * sinR + sy * cosR + centerY
             if (px < minX) minX = px

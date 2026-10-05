@@ -637,6 +637,57 @@ internal fun PaintViewModel.flipCanvasVertical() {
     }
 }
 
+/**
+ * 视图翻转 (水平): 只镜像显示, 不动像素。
+ *
+ * 与 [flipCanvasHorizontal] 的区别: 后者要逐层镜像 paint device, 图层多时会明显卡顿,
+ * 而且进撤销栈。临时翻过来看一眼/对照着画两笔用这个 —— 坐标反算走
+ * CanvasViewTransform 的 signX, 所以"看到哪就画到哪"依旧成立。
+ */
+internal fun PaintViewModel.toggleViewFlipHorizontal() {
+    viewFlipX = !viewFlipX
+    // 画布是硬件直出的, 必须让 AndroidView 重跑一次 update 才会重绘
+    displayRevision++
+    // 以**当前视图中心**为轴翻转 (CSP 行为): 翻转后视图中心看到的还是同一处
+    // 内容, 不用手动把画布拖回去找。平移量只有 UI 侧持有, 这里发一次性命令,
+    // 由 PaintingPage 用自己的 rotation/pan 做补偿 (公式见 viewFlipMirroredPan)。
+    requestUiCommand(UI_CMD_VIEW_FLIP_X)
+    showActionToast(
+        if (viewFlipX) R.string.toast_view_flip_h_on else R.string.toast_view_flip_h_off,
+        R.drawable.ic_flip_horizontal,
+    )
+}
+
+/** 视图翻转 (垂直), 见 [toggleViewFlipHorizontal]。 */
+internal fun PaintViewModel.toggleViewFlipVertical() {
+    viewFlipY = !viewFlipY
+    displayRevision++
+    requestUiCommand(UI_CMD_VIEW_FLIP_Y)
+    showActionToast(
+        if (viewFlipY) R.string.toast_view_flip_v_on else R.string.toast_view_flip_v_off,
+        R.drawable.ic_flip_vertical,
+    )
+}
+
+/**
+ * 完全翻转 (水平): 真的镜像每一层像素, 并把该轴的视图翻转复位。
+ *
+ * 复位是必须的 —— 视图翻转是"临时看", 完全翻转是"改数据"; 两者叠在一次操作上,
+ * 用户预期是"翻转完就回到未翻转的基准", 否则画面会翻两次, 看起来像没生效。
+ */
+internal fun PaintViewModel.flipCanvasHorizontalFull() {
+    viewFlipX = false
+    flipCanvasHorizontal()
+    showActionToast(R.string.toast_canvas_flip_h_done, R.drawable.ic_flip_horizontal)
+}
+
+/** 完全翻转 (垂直), 见 [flipCanvasHorizontalFull]。 */
+internal fun PaintViewModel.flipCanvasVerticalFull() {
+    viewFlipY = false
+    flipCanvasVertical()
+    showActionToast(R.string.toast_canvas_flip_v_done, R.drawable.ic_flip_vertical)
+}
+
 /** 用当前前景色填充整层 (区别于 floodFill 的角点连通区填充)。 */
 internal fun PaintViewModel.fillLayerForeground(i: Int) {
     if (recorder.recording) {

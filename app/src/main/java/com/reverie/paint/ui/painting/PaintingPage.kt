@@ -191,6 +191,7 @@ fun PaintingPage(
     var canvasH by remember { mutableStateOf(1) }
 
     var canvasEditMenuOpen by remember { mutableStateOf(false) }
+    var canvasEditMenuCustomizeOpen by remember { mutableStateOf(false) }
 
     // Popup panels
     var showIndicator by remember { mutableStateOf(false) }
@@ -252,6 +253,25 @@ fun PaintingPage(
         }
     }
 
+    // 视图翻转的平移补偿: 翻转以**当前视图中心**为轴 (CSP 行为), 所以翻转前后
+    // 视图中心看到的还是同一处内容, 不用手动把画布拖回去找。公式是纯函数
+    // viewFlipMirroredPan (有单测锁住), 这里只负责把结果写回视口状态。
+    val flipPanScratch = remember { FloatArray(2) }
+    fun mirrorPanForViewFlipX() {
+        com.reverie.paint.model.viewFlipMirroredPan(
+            panX, panY, rotation, flipX = true, flipY = false, flipPanScratch
+        )
+        panX = flipPanScratch[0]
+        panY = flipPanScratch[1]
+    }
+    fun mirrorPanForViewFlipY() {
+        com.reverie.paint.model.viewFlipMirroredPan(
+            panX, panY, rotation, flipX = false, flipY = true, flipPanScratch
+        )
+        panX = flipPanScratch[0]
+        panY = flipPanScratch[1]
+    }
+
     // 快捷键触发的视口/面板命令 (VM 不持有视口状态, 只发一次性命令 token)
     LaunchedEffect(vm.uiCommandTick) {
         val cmd = vm.pendingUiCommand ?: return@LaunchedEffect
@@ -277,6 +297,9 @@ fun PaintingPage(
                 }
                 flashIndicator()
             }
+            // 视图翻转: 翻转前把平移量也镜像过去, 这样翻转前后视图中心是同一处
+            com.reverie.paint.core.UI_CMD_VIEW_FLIP_X -> mirrorPanForViewFlipX()
+            com.reverie.paint.core.UI_CMD_VIEW_FLIP_Y -> mirrorPanForViewFlipY()
             "open_edit_menu" -> {
                 vm.refreshCanvasEditCapabilities()
                 canvasEditMenuOpen = true
@@ -479,6 +502,8 @@ fun PaintingPage(
                     bmpH,
                     vm.docWidth,
                     vm.docHeight,
+                    vm.viewFlipX,
+                    vm.viewFlipY,
                 )
                 if (docPos.x in 0f..vm.docWidth.toFloat() && docPos.y in 0f..vm.docHeight.toFloat()) {
                     vm.floodFill(docPos.x, docPos.y)
@@ -649,6 +674,8 @@ fun PaintingPage(
                 rotation = rotationState,
                 panX = panXState,
                 panY = panYState,
+                flipX = vm.viewFlipX,
+                flipY = vm.viewFlipY,
                 fitScale = fitScale,
                 onFitScale = {
                     fitScale = it
@@ -1378,7 +1405,17 @@ fun PaintingPage(
         }
 
         if (canvasEditMenuOpen) {
-            CanvasEditMenu(vm = vm, onDismiss = { canvasEditMenuOpen = false })
+            CanvasEditMenu(
+                vm = vm,
+                onDismiss = { canvasEditMenuOpen = false },
+                onCustomize = {
+                    canvasEditMenuOpen = false
+                    canvasEditMenuCustomizeOpen = true
+                },
+            )
+        }
+        if (canvasEditMenuCustomizeOpen) {
+            CanvasEditMenuCustomizeDialog(vm, onDismiss = { canvasEditMenuCustomizeOpen = false })
         }
 
         // ---- Floating selection panel (Krita tool-options style) ----
