@@ -77,6 +77,24 @@ import kotlin.math.roundToInt
 
 private val TRACK_HEADER_W = 104.dp
 
+/**
+ * 动画背景帧 / 前景帧在时间轴上的标识色 (整行底纹 + 帧格底色 + 角标)。
+ * 色相与关键帧色标 (原画橙红 / 中割群青 / 草稿青绿) 刻意错开, 避免混淆。
+ */
+internal val MarkerBackgroundColor = Color(0xFFB8860B) // 深金 = 常驻所有帧之下
+internal val MarkerForegroundColor = Color(0xFF7E5AA0) // 深紫 = 常驻所有帧之上
+
+/**
+ * 该图层的标记标识色; 不是前景/背景帧时返回 null。
+ * 前景/背景帧是常驻层 —— 帧时间对它没有意义, 因此它的帧块在所有帧上都算"当前",
+ * 且不允许移动/拉伸 (唯一入口是轨道菜单)。
+ */
+private fun markerColorOf(vm: PaintViewModel, layerIndex: Int): Color? = when (layerIndex) {
+    vm.anim.backgroundLayerIndex -> MarkerBackgroundColor
+    vm.anim.foregroundLayerIndex -> MarkerForegroundColor
+    else -> null
+}
+
 /** 帧边缘拉伸状态: 目标图层 + 帧号 + 原始跨度 + 当前拖拽增量 (帧数) */
 internal class TrimDragState(
     val layer: Int,
@@ -238,6 +256,19 @@ internal fun TimelineTrackArea(
         }
     }
 
+    // 前景/背景帧角标文字 (first = 背景, second = 前景), 只 measure 一次
+    val markerBadgeLayouts = remember(textMeasurer, density, context) {
+        val style = TextStyle(color = Color.White, fontSize = 9.sp, fontWeight = FontWeight.SemiBold)
+        textMeasurer.measure(
+            text = context.getString(R.string.anim_marker_badge_background),
+            style = style,
+        ) to
+            textMeasurer.measure(
+                text = context.getString(R.string.anim_marker_badge_foreground),
+                style = style,
+            )
+    }
+
     val liveLayers = rememberUpdatedState(layers)
     val liveRowPx = rememberUpdatedState(rowPx)
     val liveHeaderW = rememberUpdatedState(headerW)
@@ -267,6 +298,8 @@ internal fun TimelineTrackArea(
     val cache = vm.anim.keyframeCache
     val thumbImages = vm.anim.frameThumbImages
     val showThumbs = vm.anim.showThumbnails
+    // 前景/背景帧的条要铺到哪一帧为止 (动画长度与播放终点取大)
+    val markerSpanEndFrame = maxOf(vm.anim.length, vm.playbackEndFrame() + 1, vm.anim.currentTime + 1)
     val thumbAspect = FRAME_THUMB_W.toFloat() / FRAME_THUMB_H.toFloat()
     val selBorderPx = with(density) { 2.5.dp.toPx() }
     val selGlowPx = with(density) { 6.dp.toPx() }
@@ -327,6 +360,9 @@ internal fun TimelineTrackArea(
                                 hit = t
                             }
                         }
+                        // 前景/背景帧是常驻层, 整行视为一条带: 不做帧块命中 (不弹帧菜单、不启动拖拽),
+                        // 但仍返回所在帧号, 保证点击能正常定位播放头。
+                        if (markerColorOf(vm, layer) != null) return Triple(layer, frame, false)
                         return if (inBlock) Triple(layer, hit, true) else Triple(layer, frame, false)
                     }
 
@@ -339,6 +375,8 @@ internal fun TimelineTrackArea(
                         val row = ((y + liveScroll.value) / rpx).toInt()
                         if (row !in ls.indices) return null
                         val layer = ls[row].index
+                        // 常驻层不能拉伸 (曝光对整行常驻的层没有意义)
+                        if (markerColorOf(vm, layer) != null) return null
                         val activeTrack = if (vm.anim.selectedTrack >= 0) vm.anim.selectedTrack else vm.currentLayerIndex
                         if (layer != activeTrack) return null
 
@@ -575,6 +613,18 @@ internal fun TimelineTrackArea(
                                     }
                                     if (b == 0) {
                                         val rowTop = row * rpx - liveScroll.value
+                                        // 前景/背景帧整行是一条常驻带: 长按给轨道菜单 (含取消标记入口),
+                                        // 不弹帧菜单 —— 新建帧/粘贴对常驻层是破坏性的
+                                        if (markerColorOf(vm, hitLayer) != null) {
+                                            frameMenu = null
+                                            trackMenu = TrackMenuState(
+                                                hitLayer,
+                                                ls.firstOrNull { it.index == hitLayer }?.name.orEmpty(),
+                                                hw / 2f,
+                                                rowTop,
+                                            )
+                                            continue@gesture
+                                        }
                                         val times = vm.anim.keyframeCache[hitLayer].orEmpty()
                                         val idx = times.indexOf(hitTime)
                                         val hold = if (idx >= 0 && idx + 1 < times.size) {
@@ -800,10 +850,23 @@ internal fun TimelineTrackArea(
                         val top = i * rowPx
                         val times = cache[layer.index]
 
+                        // 前景/背景帧: 整行铺一层淡色底, 与普通轨道一眼区分 (在帧格之前绘制)
+                        val markerColor = markerColorOf(vm, layer.index)
+                        if (markerColor != null) {
+                            drawRect(
+                                color = markerColor.copy(alpha = 0.10f),
+                                topLeft = Offset(scrollX, top + 1f),
+                                size = Size(trackW, (rowPx - 2f).coerceAtLeast(1f)),
+                            )
+                        }
+
                         if (!times.isNullOrEmpty()) {
                             var start = times.binarySearch(firstFrame)
                             if (start < 0) start = -(start + 1)
                             start = (start - 1).coerceAtLeast(0)
+                            // 前景/背景帧整行只有一条常驻条: 始终从它自己的起点画, 不受横向裁剪影响,
+                            // 也不会因为该层被弄出多余关键帧而画出第二条
+                            if (markerColor != null) start = 0
 
                             val isDraggingThisLayer = frameDrag?.layer == layer.index
                             val dragFrom = frameDrag?.fromTime ?: -1
@@ -814,10 +877,19 @@ internal fun TimelineTrackArea(
                             for (idx in start until times.size) {
                                 val t = times[idx]
                                 if (t > lastFrame + 12) break
+                                // 常驻条只画一条
+                                if (markerColor != null && idx > 0) break
 
                                 val lastHold = vm.anim.lastFrameHold[layer.index] ?: 1
                                 val next = if (idx + 1 < times.size) times[idx + 1] else t + lastHold
                                 var span = (next - t).coerceAtLeast(1)
+                                // 前景/背景帧: 强制铺到动画末尾, 画出来就是一条贯穿整行的常驻条。
+                                // 但**不必超过可视范围**: 画布已经 clip 过, 画到视口外只是白白让 Skia
+                                // 每次重绘都去构造一个几百万像素宽的圆角矩形路径 —— 那是纯浪费。
+                                if (markerColor != null) {
+                                    val spanEnd = minOf(markerSpanEndFrame, lastFrame + 1)
+                                    span = (spanEnd - t).coerceAtLeast(1)
+                                }
 
                                 // 正在被拖拽的块跳过本体绘制 (由浮空 ghost 块绘制)
                                 if (isDraggingThisLayer && t == dragFrom) {
@@ -847,15 +919,18 @@ internal fun TimelineTrackArea(
                                 }
 
                                 val activeTrack = if (vm.anim.selectedTrack >= 0) vm.anim.selectedTrack else vm.currentLayerIndex
-                                val active = layer.index == activeTrack && currentTime >= t && currentTime < next
+                                // 前景/背景帧的条铺满整行, 在它铺到的范围内都算"当前"
+                                val blockEnd = if (markerColor != null) t + span else next
+                                val active = layer.index == activeTrack && currentTime >= t && currentTime < blockEnd
                                 val isMultiSelected = vm.anim.isMultiSelectMode && vm.anim.selectedFrames.contains(t)
                                 val cellX = visualT * frameW + 2f
                                 val cellY = top + 4f
                                 val cellH = rowPx - 8f
 
-                                // 底色
+                                // 底色 (前景/背景帧用各自的标识色, 多选高亮优先级最高)
                                 val baseColor = when {
                                     isMultiSelected -> Morandi.accent.copy(alpha = 0.38f)
+                                    markerColor != null -> markerColor.copy(alpha = if (active) 0.52f else 0.34f)
                                     active -> Morandi.subText.copy(alpha = 0.42f)
                                     else -> Morandi.subText.copy(alpha = 0.30f)
                                 }
@@ -877,9 +952,13 @@ internal fun TimelineTrackArea(
                                         th = ih
                                         tw = th * thumbAspect
                                     }
-                                    val numSlots = if (isTrimmingThisLayer && t == trimTime) {
-                                        ((cellW + 4f) / frameW).roundToInt().coerceAtLeast(1)
-                                    } else span
+                                    val numSlots = when {
+                                        // 前景/背景帧只在条首铺一张缩略图, 其余留作纯色带
+                                        markerColor != null -> 1
+                                        isTrimmingThisLayer && t == trimTime ->
+                                            ((cellW + 4f) / frameW).roundToInt().coerceAtLeast(1)
+                                        else -> span
+                                    }
                                     for (f in 0 until numSlots) {
                                         val slotX = cellX + f * frameW
                                         if (slotX + tw * 0.4f <= cellX + cellW) {
@@ -961,10 +1040,47 @@ internal fun TimelineTrackArea(
                                     )
                                 }
 
-                                // 右边缘拉伸手柄 (单选及多选均展示)
-                                val showTrimHandle = !vm.anim.isPlaying && (
+                                // 前景/背景帧角标 (帧格左下角, 实底 + 白字, 压在最上层不会被缩略图或高亮边框吃掉)
+                                if (markerColor != null) {
+                                    val badge = if (layer.index == vm.anim.backgroundLayerIndex) {
+                                        markerBadgeLayouts.first
+                                    } else {
+                                        markerBadgeLayouts.second
+                                    }
+                                    val borderInset = if (active || isMultiSelected) selBorderPx + 1.5f else 2.5f
+                                    val padH = 4.dp.toPx()
+                                    val padV = 1.5.dp.toPx()
+                                    val badgeW = badge.size.width + padH * 2f
+                                    val badgeH = badge.size.height + padV * 2f
+                                    val badgeLeft = cellX + borderInset + 1f
+                                    val innerW = cellW - (borderInset + 1f) * 2f
+                                    val innerH = cellH - borderInset * 2f
+                                    // 帧格太窄/太矮时不画, 宁可不显示也不越出帧格
+                                    if (badgeW <= innerW && badgeH <= innerH) {
+                                        val badgeTop = cellY + cellH - borderInset - 1f - badgeH
+                                        drawRoundRect(
+                                            color = Color.Black.copy(alpha = 0.28f),
+                                            topLeft = Offset(badgeLeft - 0.5f, badgeTop - 0.5f),
+                                            size = Size(badgeW + 1f, badgeH + 1f),
+                                            cornerRadius = CornerRadius(3.dp.toPx(), 3.dp.toPx()),
+                                        )
+                                        drawRoundRect(
+                                            color = markerColor,
+                                            topLeft = Offset(badgeLeft, badgeTop),
+                                            size = Size(badgeW, badgeH),
+                                            cornerRadius = CornerRadius(2.6.dp.toPx(), 2.6.dp.toPx()),
+                                        )
+                                        drawText(
+                                            textLayoutResult = badge,
+                                            topLeft = Offset(badgeLeft + padH, badgeTop + padV),
+                                        )
+                                    }
+                                }
+
+                                // 右边缘拉伸手柄 (单选及多选均展示; 前景/背景帧常驻整行, 没有可拉伸的边缘)
+                                val showTrimHandle = !vm.anim.isPlaying && markerColor == null && (
                                     (!vm.anim.isMultiSelectMode && active) ||
-                                    (vm.anim.isMultiSelectMode && isMultiSelected)
+                                        (vm.anim.isMultiSelectMode && isMultiSelected)
                                 )
                                 if (showTrimHandle) {
                                     val handleX = cellX + cellW - trimHandleVisualW / 2f
@@ -1160,6 +1276,18 @@ internal fun TimelineTrackArea(
                         for (i in firstRow..lastRow) {
                             val layer = layers[i]
                             val rowCenterY = i * rowPx + rowPx / 2f
+
+                            // 前景/背景帧: 轨道头右缘竖条, 与轨道区整行底纹连成一体
+                            val headerMarkerColor = markerColorOf(vm, layer.index)
+                            if (headerMarkerColor != null) {
+                                val barW = 3.dp.toPx()
+                                drawRoundRect(
+                                    color = headerMarkerColor,
+                                    topLeft = Offset(headerW - barW, i * rowPx + 3f),
+                                    size = Size(barW, (rowPx - 6f).coerceAtLeast(1f)),
+                                    cornerRadius = CornerRadius(1.5.dp.toPx(), 1.5.dp.toPx()),
+                                )
+                            }
 
                             if (!layer.visible) {
                                 drawRoundRect(

@@ -608,6 +608,23 @@
     <string name="anim_import_audio">音频</string>
     <string name="anim_importing">导入中…</string>
 
+    <!-- 前景 / 背景帧 -->
+    <string name="anim_marker_set_background">设为动画背景</string>
+    <string name="anim_marker_set_foreground">设为动画前景</string>
+    <string name="anim_marker_clear_background">取消动画背景</string>
+    <string name="anim_marker_clear_foreground">取消动画前景</string>
+    <string name="anim_marker_badge_background">背景</string>
+    <string name="anim_marker_badge_foreground">前景</string>
+    <string name="anim_marker_toast_background">已设为动画背景（常驻所有帧之下）</string>
+    <string name="anim_marker_toast_foreground">已设为动画前景（常驻所有帧之上）</string>
+    <string name="anim_marker_toast_cleared">已取消标记</string>
+    <string name="anim_marker_toast_locked">图层已锁定，无法设为背景或前景</string>
+    <string name="anim_marker_toast_multi_frame">该图层已有多帧，无法作为常驻的背景或前景</string>
+    <string name="anim_marker_toast_move_failed">图层移动失败，未能设为背景或前景</string>
+    <string name="anim_marker_row">前景 / 背景帧</string>
+    <string name="anim_settings_layers">图层</string>
+    <string name="anim_marker_toast_gone">图层已不存在</string>
+
     <!-- Export -->
     <string name="export_title">导出作品</string>
     <string name="export_type_image">静态图片</string>

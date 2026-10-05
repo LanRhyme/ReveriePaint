@@ -48,10 +48,12 @@ import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.animationApplyOnionSkin
+import com.reverie.paint.core.animationClearLayerMarker
 import com.reverie.paint.core.animationImportAudio
 import com.reverie.paint.core.animationImportImages
 import com.reverie.paint.core.animationImportVideo
 import com.reverie.paint.core.animationSetFramerate
+import com.reverie.paint.core.animationSetLayerMarker
 import com.reverie.paint.ui.components.ReChip
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReSectionTitle
@@ -350,6 +352,39 @@ internal fun TimelineSettings(
                     fontSize = 12.sp,
                 )
             }
+        }
+
+        ReSectionTitle(text = stringResource(R.string.anim_settings_layers), modifier = Modifier.padding(start = 12.dp))
+
+        // 前景 / 背景帧: 作用于**当前图层**, 选中态就是"已经是标记层"。
+        // 时间轴轨道头长按菜单里也有同样的入口, 但那个位置没人找得到, 所以这里必须有一份看得见的。
+        val curLayer = vm.currentLayerIndex
+        val isMarkerBg = curLayer >= 0 && vm.anim.backgroundLayerIndex == curLayer
+        val isMarkerFg = curLayer >= 0 && vm.anim.foregroundLayerIndex == curLayer
+        CompactSettingRow(label = stringResource(R.string.anim_marker_row)) {
+            ReChip(
+                text = stringResource(R.string.anim_marker_badge_background),
+                onTap = {
+                    if (isMarkerBg) {
+                        vm.animationClearLayerMarker(toFront = false)
+                    } else {
+                        vm.animationSetLayerMarker(curLayer, toFront = false)
+                    }
+                },
+                selected = isMarkerBg,
+            )
+            Spacer(modifier = Modifier.width(6.dp))
+            ReChip(
+                text = stringResource(R.string.anim_marker_badge_foreground),
+                onTap = {
+                    if (isMarkerFg) {
+                        vm.animationClearLayerMarker(toFront = true)
+                    } else {
+                        vm.animationSetLayerMarker(curLayer, toFront = true)
+                    }
+                },
+                selected = isMarkerFg,
+            )
         }
 
         ReSectionTitle(text = stringResource(R.string.anim_settings_import), modifier = Modifier.padding(start = 12.dp))

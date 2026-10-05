@@ -51,8 +51,10 @@ import androidx.compose.ui.window.PopupProperties
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.animationAddBlankKeyframeAt
+import com.reverie.paint.core.animationClearLayerMarker
 import com.reverie.paint.core.animationCopyCurrentFrameTo
 import com.reverie.paint.core.animationGenerateInbetween
+import com.reverie.paint.core.animationSetLayerMarker
 import com.reverie.paint.core.animationRemoveKeyframe
 import com.reverie.paint.core.animationSeek
 import com.reverie.paint.core.animationSetKeyframeTag
@@ -394,8 +396,31 @@ internal fun TrackMenuPopup(
     val strClearLayer = androidx.compose.ui.res.stringResource(R.string.clear)
     val strDeleteLayer = androidx.compose.ui.res.stringResource(R.string.layer_op_delete_layer)
     val strCannotDelete = androidx.compose.ui.res.stringResource(R.string.timeline_cannot_delete_only_layer)
+    val strSetBg = androidx.compose.ui.res.stringResource(R.string.anim_marker_set_background)
+    val strSetFg = androidx.compose.ui.res.stringResource(R.string.anim_marker_set_foreground)
+    val strClearBg = androidx.compose.ui.res.stringResource(R.string.anim_marker_clear_background)
+    val strClearFg = androidx.compose.ui.res.stringResource(R.string.anim_marker_clear_foreground)
+
+    // 背景/前景层在时间轴上不画帧格, 所以菜单里要能一键取消;
+    // 已经是标记层时项名切换成"取消…", 避免点两次才反应过来。
+    val isBackground = vm.anim.backgroundLayerIndex == menu.layerIndex
+    val isForeground = vm.anim.foregroundLayerIndex == menu.layerIndex
 
     val items = listOf(
+        (if (isBackground) strClearBg else strSetBg) to {
+            if (isBackground) {
+                vm.animationClearLayerMarker(toFront = false)
+            } else {
+                vm.animationSetLayerMarker(menu.layerIndex, toFront = false)
+            }
+        },
+        (if (isForeground) strClearFg else strSetFg) to {
+            if (isForeground) {
+                vm.animationClearLayerMarker(toFront = true)
+            } else {
+                vm.animationSetLayerMarker(menu.layerIndex, toFront = true)
+            }
+        },
         strCopyLayer to { vm.copyLayer(menu.layerIndex) },
         strClearLayer to { vm.clearLayer(menu.layerIndex) },
         strDeleteLayer to {

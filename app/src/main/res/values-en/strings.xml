@@ -608,6 +608,23 @@
     <string name="anim_import_audio">Audio</string>
     <string name="anim_importing">Importing…</string>
 
+    <!-- Foreground / background frames -->
+    <string name="anim_marker_set_background">Set as animation background</string>
+    <string name="anim_marker_set_foreground">Set as animation foreground</string>
+    <string name="anim_marker_clear_background">Clear animation background</string>
+    <string name="anim_marker_clear_foreground">Clear animation foreground</string>
+    <string name="anim_marker_badge_background">BG</string>
+    <string name="anim_marker_badge_foreground">FG</string>
+    <string name="anim_marker_toast_background">Set as animation background (holds under every frame)</string>
+    <string name="anim_marker_toast_foreground">Set as animation foreground (holds over every frame)</string>
+    <string name="anim_marker_toast_cleared">Marker cleared</string>
+    <string name="anim_marker_toast_locked">Layer is locked, cannot set as background or foreground</string>
+    <string name="anim_marker_toast_multi_frame">Layer has multiple frames and cannot hold as background or foreground</string>
+    <string name="anim_marker_toast_move_failed">Could not move the layer; nothing was set</string>
+    <string name="anim_marker_row">Foreground / background</string>
+    <string name="anim_settings_layers">Layers</string>
+    <string name="anim_marker_toast_gone">Layer no longer exists</string>
+
     <!-- Export -->
     <string name="export_title">Export</string>
     <string name="export_type_image">Image</string>

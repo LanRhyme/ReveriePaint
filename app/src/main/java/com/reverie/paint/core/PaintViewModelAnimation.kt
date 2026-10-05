@@ -19,6 +19,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import com.reverie.paint.R
+import com.reverie.paint.model.AnimationLayerOps
 
 /** 新建动画画布的默认帧率。 */
 internal const val DEFAULT_ANIMATION_FPS = 12
@@ -242,6 +243,46 @@ internal class AnimationState {
     /** 关键帧色标映射: (图层, 帧号) -> 标签 (0=无, 1=原画/Key-橙红, 2=中割/Breakdown-群青, 3=草稿/Guide-青绿) */
     var keyframeTags by mutableStateOf<Map<Long, Int>>(emptyMap())
 
+    /**
+     * 动画背景层 id ([AnimationLayerOps.NO_LAYER] = 无)。
+     *
+     * 存 id 不存下标: id 是 KisNode 指针 (ReverieCore.h:83-88), 同一次运行内稳定,
+     * 图层增删或重排后靠它反查当前下标; 下标自己会漂。
+     * 存盘写的是解析出来的**下标**, 见 [AnimationLayerOps.encodeMarkerIndex]。
+     */
+    var backgroundLayerId by mutableLongStateOf(AnimationLayerOps.NO_LAYER)
+
+    /** 动画前景层 id (同上)。 */
+    var foregroundLayerId by mutableLongStateOf(AnimationLayerOps.NO_LAYER)
+
+    /**
+     * 上次写进文档的标记下标。
+     *
+     * 只用来避免每次引擎同步都往 .revp 资源表里重复写一遍 (下标没变就不写)。
+     * 纯记账值, UI 不读, 所以不是 Compose 状态。
+     */
+    internal var backgroundMarkerIndex: Int = -1
+    internal var foregroundMarkerIndex: Int = -1
+
+    /**
+     * 背景层 / 前景层的**当前下标** (-1 = 无), 由引擎同步时解析后写入。
+     *
+     * 真身是 [backgroundLayerId] / [foregroundLayerId], 这里只是给 UI 用的镜像:
+     * 时间轴要按行判断该画成"贯穿条"还是"帧格", 而 UI 线程不能查引擎 (铁律 2),
+     * 所以下标必须在渲染线程解析好再交出来。
+     */
+    var backgroundLayerIndex by mutableIntStateOf(-1)
+    var foregroundLayerIndex by mutableIntStateOf(-1)
+
+    /**
+     * 这份文档的动画标记是否已经探测过一遍。
+     *
+     * 引擎同步是每次帧操作后都要跑的, 而标记校验要读图层 id (每层一次 JNI)。
+     * 没有任何标记、又已经探测过文档时, 整个校验必须能直接返回 ——
+     * **没用到这个功能的人不该为它付任何开销**。重新打开工程时 [reset] 会清零。
+     */
+    internal var markerProbeDone: Boolean = false
+
     /** 临时透光状态 (长按洋葱皮图标触发) */
     var isTemporaryOnionSkin by mutableStateOf(false)
 
@@ -296,6 +337,14 @@ internal class AnimationState {
         keyframeCache = emptyMap()
         lastFrameHold = emptyMap()
         keyframeTags = emptyMap()
+        backgroundLayerId = AnimationLayerOps.NO_LAYER
+        foregroundLayerId = AnimationLayerOps.NO_LAYER
+        backgroundMarkerIndex = -1
+        foregroundMarkerIndex = -1
+        backgroundLayerIndex = -1
+        foregroundLayerIndex = -1
+        // 换文档了, 标记要重新从 .revp 资源里探测一遍 (否则新工程里已有的标记读不出来)
+        markerProbeDone = false
         isTemporaryOnionSkin = false
         isFlipPeeking = false
         flipOriginalTime = -1
@@ -350,6 +399,8 @@ internal fun PaintViewModel.syncAnimationFromNative() {
     }
     anim.lastFrameHold = holdsMap
 
+    syncAnimationLayerMarkers()
+
     anim.revision++
     if (anim.shiftTraceActive) {
         mainHandler.post { animationFetchShiftTraceBitmaps() }
@@ -365,7 +416,14 @@ internal fun PaintViewModel.syncAnimationFromNative() {
         // Krita 侧是 0~255, UI 是百分比
         anim.onionTint = (onionCfg[2] * 100 + 127) / 255
     }
-    val assets = ReverieCoreBridge.revAssetNames().toList()
+    /**
+     * 取 .revp 里的音频资源。
+     *
+     * 必须滤掉前景/背景标记资源 (键名带 `reverie.anim.` 前缀): 它们不是音频,
+     * 而 QMap 按名排序, `reverie.anim.bg` 会排在多数音频文件名之前被 [assets].first()
+     * 取走, 把真正的音频顶掉。
+     */
+    val assets = AnimationLayerOps.audioAssetsOf(ReverieCoreBridge.revAssetNames().toList())
     anim.audioAssets = assets
     if (assets.isNotEmpty() && anim.audioWaveform.isEmpty()) {
         val firstName = assets.first()
@@ -1810,6 +1868,267 @@ private fun PaintViewModel.animationStep(gen: Int) {
  */
 internal fun PaintViewModel.syncAnimationFromNativeAfter() {
     renderHandler?.post { syncAnimationFromNative() }
+}
+
+// ============================================================
+// 前景 / 背景帧: 图层级的"动画豁免"
+//
+// 引擎侧**没有任何像素操作**。Krita 的 hold 语义下, 一个没有多关键帧的图层本就
+// 从第 0 帧一直持续到无穷 —— 也就是说"常驻所有帧"这个效果引擎里本来就成立。
+// 这里要做的只有三件事: 把它挪到正确的位置、记下标记、把下标写进文档资源。
+// ============================================================
+
+/** 当前所有图层的 id, 下标与 vm.layers 对齐。只能在 reverie-render 线程调用。 */
+private fun currentLayerIds(): List<Long> =
+    (0 until ReverieCoreBridge.layerCount()).map { ReverieCoreBridge.layerId(it) }
+
+/** 把标记下标写进 .revp 资源 (随工程持久化)。 */
+private fun storeLayerMarker(
+    asset: String,
+    index: Int,
+) {
+    ReverieCoreBridge.storeRevAsset(asset, AnimationLayerOps.encodeMarkerIndex(index).toByteArray())
+}
+
+/**
+ * 清除标记。
+ *
+ * 必须写**空数组**而不是写 -1: 存进去的是十进制文本, 写 -1 会被
+ * [AnimationLayerOps.encodeMarkerIndex] 夹成 0, 回读时就成了"第 0 层是背景",
+ * 反而凭空造出一个标记。
+ */
+private fun clearLayerMarker(asset: String) {
+    ReverieCoreBridge.storeRevAsset(asset, ByteArray(0))
+}
+
+/** 读回标记下标; 无标记或内容损坏时返回 -1。 */
+private fun readLayerMarker(asset: String): Int =
+    runCatching {
+        AnimationLayerOps.decodeMarkerIndex(ReverieCoreBridge.revAssetBytes(asset)?.decodeToString())
+    }.getOrDefault(-1)
+
+/**
+ * 标记层还必须是个"单帧层"。
+ *
+ * 帧数为 0 的是从没开过动画的静态层 —— 它天然跨所有帧显示, 正是最标准的背景层, 必须放行
+ * (引擎侧 keyframeCount 对没有关键帧通道的层返回 0)。帧数为 1 也放行。
+ * 超过 1 就是会动的动画层了, 那种层还在时间轴上画成一条贯穿的带就是骗人的。
+ *
+ * 设置时已经拦过一道 (animationSetLayerMarker), 这里是兜底 —— 帧的增删有太多入口
+ * (帧菜单、批量栏、自动中割、导入序列), 防线放在同步这一层才不用一个个去堵。
+ */
+private fun PaintViewModel.markerLayerStillHolds(layerIndex: Int): Boolean =
+    layerIndex >= 0 && ReverieCoreBridge.keyframeCount(layerIndex) <= 1
+
+/**
+ * 前景/背景标记的校验与回读, 在每次引擎状态同步后调用 (reverie-render 线程)。
+ *
+ * 维持一条不变量: **文档资源里有标记 ⟺ 内存里有标记**。
+ * 设置时写、取消时清空, 两者始终同进同退, 于是回读可以做成无状态的 ——
+ * 内存里没有而文档里有, 就说明是刚打开工程; 内存里有而图层已不在, 就两边一起清。
+ *
+ * 回读时把文档里的**下标**换算成 layerId: 下标会随图层增删重排漂移, id 不会
+ * (同一次运行内), 所以内存里一律用 id 定位, 只在读写文档时换算成下标。
+ */
+private fun PaintViewModel.syncAnimationLayerMarkers() {
+    // 快速通道: 没有任何标记、这份文档也已经探测过, 就一次 JNI 都不发。
+    // 本函数挂在每次引擎同步之后, 不加这道闸的话, 没用前景/背景帧的人
+    // 每次帧操作都要多付"图层数"次 JNI (currentLayerIds) —— 白给的负担。
+    val hasMarker = anim.backgroundLayerId != AnimationLayerOps.NO_LAYER ||
+        anim.foregroundLayerId != AnimationLayerOps.NO_LAYER
+    if (!hasMarker && anim.markerProbeDone) return
+
+    val ids = currentLayerIds()
+
+    // ---- 背景 ----
+    run {
+        val cur = anim.backgroundLayerId
+        val idx = AnimationLayerOps.indexOfLayerId(ids, cur)
+        var resolved: Long = AnimationLayerOps.NO_LAYER
+        when {
+            // 图层还在: 把文档里的下标刷新成当前值 (重排/增删后下标会漂)
+            idx >= 0 && markerLayerStillHolds(idx) -> {
+                resolved = cur
+                if (idx != anim.backgroundMarkerIndex) {
+                    storeLayerMarker(AnimationLayerOps.ASSET_BACKGROUND, idx)
+                    anim.backgroundMarkerIndex = idx
+                }
+            }
+            // 图层还在, 但已经不是单帧层了: 常驻语义失效, 摘掉标记
+            idx >= 0 -> {
+                anim.backgroundMarkerIndex = -1
+                clearLayerMarker(AnimationLayerOps.ASSET_BACKGROUND)
+            }
+            // 图层被删了: 两边一起清, 不留孤儿标记
+            cur != AnimationLayerOps.NO_LAYER -> {
+                anim.backgroundMarkerIndex = -1
+                clearLayerMarker(AnimationLayerOps.ASSET_BACKGROUND)
+            }
+            // 内存里没有: 尝试从文档回读 (打开工程后首次同步会走到这里)
+            else -> {
+                val saved = readLayerMarker(AnimationLayerOps.ASSET_BACKGROUND)
+                val id = AnimationLayerOps.layerIdAt(ids, saved)
+                if (id != AnimationLayerOps.NO_LAYER) {
+                    resolved = id
+                    anim.backgroundMarkerIndex = saved
+                } else if (saved >= 0) {
+                    // 存的下标已经越界 (图层被删过): 清掉, 否则每次同步都白查一遍
+                    clearLayerMarker(AnimationLayerOps.ASSET_BACKGROUND)
+                }
+            }
+        }
+        anim.backgroundLayerId = resolved
+        anim.backgroundLayerIndex = AnimationLayerOps.indexOfLayerId(ids, resolved)
+    }
+
+    // ---- 前景 ----
+    run {
+        val cur = anim.foregroundLayerId
+        val idx = AnimationLayerOps.indexOfLayerId(ids, cur)
+        var resolved: Long = AnimationLayerOps.NO_LAYER
+        when {
+            idx >= 0 && markerLayerStillHolds(idx) -> {
+                resolved = cur
+                if (idx != anim.foregroundMarkerIndex) {
+                    storeLayerMarker(AnimationLayerOps.ASSET_FOREGROUND, idx)
+                    anim.foregroundMarkerIndex = idx
+                }
+            }
+            // 同上: 多帧了就不再是常驻层
+            idx >= 0 -> {
+                anim.foregroundMarkerIndex = -1
+                clearLayerMarker(AnimationLayerOps.ASSET_FOREGROUND)
+            }
+            cur != AnimationLayerOps.NO_LAYER -> {
+                anim.foregroundMarkerIndex = -1
+                clearLayerMarker(AnimationLayerOps.ASSET_FOREGROUND)
+            }
+            else -> {
+                val saved = readLayerMarker(AnimationLayerOps.ASSET_FOREGROUND)
+                val id = AnimationLayerOps.layerIdAt(ids, saved)
+                if (id != AnimationLayerOps.NO_LAYER) {
+                    resolved = id
+                    anim.foregroundMarkerIndex = saved
+                } else if (saved >= 0) {
+                    clearLayerMarker(AnimationLayerOps.ASSET_FOREGROUND)
+                }
+            }
+        }
+        anim.foregroundLayerId = resolved
+        anim.foregroundLayerIndex = AnimationLayerOps.indexOfLayerId(ids, resolved)
+    }
+
+    // 探测过了: 之后再同步, 只要仍然没有标记就可以直接返回
+    anim.markerProbeDone = true
+}
+
+/**
+ * 把 [layerIndex] 设为动画背景 ([toFront] = false) 或前景 ([toFront] = true)。
+ *
+ * 位置规则来自引擎: 图层下标 0 是 Krita 的不可移动背景层, 所以
+ * "最底"只能表达成"移到索引 0 之上" (moveLayerAbove(idx, 0)),
+ * "最顶"是 moveLayerAbove(idx, -1)。
+ */
+internal fun PaintViewModel.animationSetLayerMarker(
+    layerIndex: Int,
+    toFront: Boolean,
+) {
+    if (layerIndex < 0) return
+    var toastRes = 0
+    runCore(
+        after = {
+            if (toastRes != 0) showActionToast(toastRes)
+            syncAnimationFromNativeAfter()
+        },
+    ) {
+        val ids = currentLayerIds()
+        val id = AnimationLayerOps.layerIdAt(ids, layerIndex)
+        if (id == AnimationLayerOps.NO_LAYER) {
+            toastRes = R.string.anim_marker_toast_gone
+            return@runCore
+        }
+        if (ReverieCoreBridge.layerLocked(layerIndex)) {
+            toastRes = R.string.anim_marker_toast_locked
+            return@runCore
+        }
+        // 常驻层的语义是"跨所有帧显示同一份内容", 所以它必须是单帧层。
+        // 多帧层在播放时会动, 若还把它在时间轴上画成一条贯穿的带, 就是骗人的。
+        if (ReverieCoreBridge.keyframeCount(layerIndex) > 1) {
+            toastRes = R.string.anim_marker_toast_multi_frame
+            return@runCore
+        }
+        // 同一层不能既是背景又是前景: 撞了就先把另一侧摘掉
+        val conflicting = if (toFront) anim.backgroundLayerId else anim.foregroundLayerId
+        if (conflicting == id) {
+            if (toFront) {
+                anim.backgroundLayerId = AnimationLayerOps.NO_LAYER
+                anim.backgroundMarkerIndex = -1
+                anim.backgroundLayerIndex = -1
+                clearLayerMarker(AnimationLayerOps.ASSET_BACKGROUND)
+            } else {
+                anim.foregroundLayerId = AnimationLayerOps.NO_LAYER
+                anim.foregroundMarkerIndex = -1
+                anim.foregroundLayerIndex = -1
+                clearLayerMarker(AnimationLayerOps.ASSET_FOREGROUND)
+            }
+        }
+        // 摆位置。索引 0 自己移不动, 但它本来就在最底, 不需要移;
+        // layerIndex == 1 也已经贴在背景层上方, 同样不必移。
+        // 移动失败就不能继续记标记 —— 位置没到位却显示成常驻层, 那是假的。
+        if (layerIndex > 0) {
+            val moved = when {
+                toFront -> ReverieCoreBridge.moveLayerAbove(layerIndex, -1)
+                layerIndex > 1 -> ReverieCoreBridge.moveLayerAbove(layerIndex, 0)
+                else -> true
+            }
+            if (!moved) {
+                toastRes = R.string.anim_marker_toast_move_failed
+                return@runCore
+            }
+        }
+        // 移动会改变下标, 所以重新解析一次再记; 记 id 不记下标。
+        val newIds = currentLayerIds()
+        val newIndex = AnimationLayerOps.indexOfLayerId(newIds, id)
+        if (toFront) {
+            anim.foregroundLayerId = id
+            anim.foregroundLayerIndex = newIndex
+            if (newIndex >= 0) {
+                storeLayerMarker(AnimationLayerOps.ASSET_FOREGROUND, newIndex)
+                anim.foregroundMarkerIndex = newIndex
+            }
+            toastRes = R.string.anim_marker_toast_foreground
+        } else {
+            anim.backgroundLayerId = id
+            anim.backgroundLayerIndex = newIndex
+            if (newIndex >= 0) {
+                storeLayerMarker(AnimationLayerOps.ASSET_BACKGROUND, newIndex)
+                anim.backgroundMarkerIndex = newIndex
+            }
+            toastRes = R.string.anim_marker_toast_background
+        }
+    }
+}
+
+/** 取消动画背景 ([toFront] = false) 或前景 ([toFront] = true) 标记。只清标记, 不动图层位置。 */
+internal fun PaintViewModel.animationClearLayerMarker(toFront: Boolean) {
+    runCore(
+        after = {
+            showActionToast(R.string.anim_marker_toast_cleared)
+            syncAnimationFromNativeAfter()
+        },
+    ) {
+        if (toFront) {
+            anim.foregroundLayerId = AnimationLayerOps.NO_LAYER
+            anim.foregroundMarkerIndex = -1
+            anim.foregroundLayerIndex = -1
+            clearLayerMarker(AnimationLayerOps.ASSET_FOREGROUND)
+        } else {
+            anim.backgroundLayerId = AnimationLayerOps.NO_LAYER
+            anim.backgroundMarkerIndex = -1
+            anim.backgroundLayerIndex = -1
+            clearLayerMarker(AnimationLayerOps.ASSET_BACKGROUND)
+        }
+    }
 }
 
 // ============================================================

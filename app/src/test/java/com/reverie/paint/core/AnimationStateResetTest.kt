@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
+import com.reverie.paint.model.AnimationLayerOps
 
 class AnimationStateResetTest {
 
@@ -40,6 +41,10 @@ class AnimationStateResetTest {
         anim.isTemporaryOnionSkin = true
         anim.isFlipPeeking = true
         anim.flipOriginalTime = 4
+        anim.backgroundLayerId = 4242L
+        anim.foregroundLayerId = 4343L
+        anim.backgroundMarkerIndex = 7
+        anim.foregroundMarkerIndex = 8
         anim.revision = 12
         val oldPlayGen = anim.playGen
 
@@ -72,6 +77,12 @@ class AnimationStateResetTest {
         assertFalse(anim.isTemporaryOnionSkin)
         assertFalse(anim.isFlipPeeking)
         assertEquals(-1, anim.flipOriginalTime)
+        // 前景/背景标记必须一起清: 漏掉的话会把上一个工程的图层 id 带进新工程,
+        // 而 id 是节点指针 —— 新工程里那个地址可能正好是另一个图层。
+        assertEquals(AnimationLayerOps.NO_LAYER, anim.backgroundLayerId)
+        assertEquals(AnimationLayerOps.NO_LAYER, anim.foregroundLayerId)
+        assertEquals(-1, anim.backgroundMarkerIndex)
+        assertEquals(-1, anim.foregroundMarkerIndex)
         assertEquals(13, anim.revision)
         assertEquals(oldPlayGen + 1, anim.playGen)
     }
