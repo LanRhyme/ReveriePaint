@@ -132,7 +132,7 @@ class QuickShapeTest {
     @Test fun `rotated rectangle resize uses local axes`() {
         val shape = QuickShapeResult(QuickShapeType.RECTANGLE, emptyList(), Point2D(200f, 200f), 80f, 40f, 0.8f)
         val handle = QuickShapeGeometry.localToDoc(shape, Point2D(140f, 65f))
-        val resized = QuickShapeGeometry.drag(shape, 0, shape.center, handle)
+        val resized = QuickShapeGeometry.drag(shape, 0, QuickShapeGeometry.handles(shape)[0], handle)
         assertEquals(140f, resized.radiusX, 0.001f)
         assertEquals(65f, resized.radiusY, 0.001f)
     }
@@ -143,6 +143,67 @@ class QuickShapeTest {
         val moved = QuickShapeGeometry.drag(shape, 1, b, Point2D(120f, 90f))
         assertEquals(a, moved.points[0])
         assertEquals(Point2D(120f, 90f), moved.points[1])
+    }
+
+    @Test fun `touching near any handle without moving keeps the shape unchanged`() {
+        val shapes = listOf(
+            QuickShapeFitter.fit(ellipse(80f, 80f))!!,
+            QuickShapeFitter.fit(ellipse(100f, 60f, 0.7f))!!,
+            QuickShapeResult(QuickShapeType.RECTANGLE, emptyList(), Point2D(200f, 200f), 80f, 40f, 0.8f),
+            QuickShapeResult(QuickShapeType.LINE, listOf(Point2D(10f, 20f), Point2D(80f, 60f))),
+            QuickShapeFitter.fit(loop(listOf(Point2D(100f, 20f), Point2D(220f, 220f), Point2D(0f, 220f))))!!,
+        )
+        for (shape in shapes) QuickShapeGeometry.handles(shape).forEachIndexed { i, handle ->
+            val finger = handle + Point2D(7f, -5f)
+            assertEquals(shape, QuickShapeGeometry.drag(shape, i, finger, finger))
+        }
+    }
+
+    @Test fun `line and triangle handle drags preserve the finger offset`() {
+        for (type in listOf(QuickShapeType.LINE, QuickShapeType.TRIANGLE)) {
+            val points = listOf(Point2D(10f, 20f), Point2D(80f, 60f), Point2D(50f, 100f))
+                .take(if (type == QuickShapeType.LINE) 2 else 3)
+            val shape = QuickShapeResult(type, points)
+            val finger = points[1] + Point2D(7f, -5f)
+            val delta = Point2D(15f, 25f)
+            val moved = QuickShapeGeometry.drag(shape, 1, finger, finger + delta)
+            points.indices.forEach { i ->
+                assertEquals(if (i == 1) points[i] + delta else points[i], moved.points[i])
+            }
+        }
+    }
+
+    @Test fun `rotated resize is independent of where within the handle target the finger lands`() {
+        for (type in listOf(QuickShapeType.CIRCLE, QuickShapeType.ELLIPSE, QuickShapeType.RECTANGLE)) {
+            val shape = QuickShapeResult(type, emptyList(), Point2D(200f, 200f), 80f,
+                if (type == QuickShapeType.CIRCLE) 80f else 40f, 0.8f)
+            val handle = QuickShapeGeometry.handles(shape)[0]
+            val offset = Point2D(7f, -5f)
+            val delta = Point2D(30f, 20f)
+            val exact = QuickShapeGeometry.drag(shape, 0, handle, handle + delta)
+            val near = QuickShapeGeometry.drag(shape, 0, handle + offset, handle + offset + delta)
+            assertEquals(exact.radiusX, near.radiusX, 0.001f)
+            assertEquals(exact.radiusY, near.radiusY, 0.001f)
+            assertEquals(shape.center, near.center)
+        }
+    }
+
+    @Test fun `rotation uses finger angle change without snapping the handle to the finger`() {
+        val shape = QuickShapeResult(QuickShapeType.ELLIPSE, emptyList(), Point2D(200f, 200f), 80f, 40f, 0.8f)
+        val start = QuickShapeGeometry.handles(shape)[1] + Point2D(7f, -5f)
+        val vector = start - shape.center
+        val end = shape.center + Point2D(-vector.y, vector.x)
+        val moved = QuickShapeGeometry.drag(shape, 1, start, end)
+        assertEquals(shape.rotationRad + PI.toFloat() / 2, moved.rotationRad, 0.001f)
+        assertEquals(shape.center, moved.center)
+        assertEquals(shape.radiusX, moved.radiusX, 0f)
+        assertEquals(shape, QuickShapeGeometry.drag(shape, 1, start, shape.center))
+    }
+
+    @Test fun `invalid drag origins and handles cannot corrupt the shape`() {
+        val shape = QuickShapeFitter.fit(ellipse(100f, 60f))!!
+        assertEquals(shape, QuickShapeGeometry.drag(shape, 0, Point2D(Float.NaN, 0f), Point2D(50f, 50f)))
+        assertEquals(shape, QuickShapeGeometry.drag(shape, 9, Point2D(40f, 40f), Point2D(50f, 50f)))
     }
 
     @Test fun `closed shapes generate a closed path with bounded samples`() {

@@ -46,21 +46,29 @@ object QuickShapeGeometry {
     }
 
     fun drag(shape: QuickShapeResult, handle: Int, from: Point2D, to: Point2D): QuickShapeResult {
-        if (!to.x.isFinite() || !to.y.isFinite()) return shape
+        if (!from.x.isFinite() || !from.y.isFinite() || !to.x.isFinite() || !to.y.isFinite()) return shape
+        if (from == to) return shape
+        val delta = to - from
+        if (!delta.x.isFinite() || !delta.y.isFinite()) return shape
         if (handle < 0) {
-            val d = to - from
-            return shape.copy(center = shape.center + d, points = shape.points.map { it + d })
+            return shape.copy(center = shape.center + delta, points = shape.points.map { it + delta })
         }
         if (shape.type == QuickShapeType.LINE || shape.type == QuickShapeType.TRIANGLE) {
             val points = shape.points.toMutableList()
             if (handle !in points.indices) return shape
-            points[handle] = to
+            points[handle] = points[handle] + delta
             return shape.copy(points = points, center = points.reduce { a, b -> a + b } / points.size.toFloat())
         }
         if (handle == 1) {
-            return shape.copy(rotationRad = atan2(to.y - shape.center.y, to.x - shape.center.x) + PI.toFloat() / 2)
+            val start = from - shape.center
+            val end = to - shape.center
+            if (hypot(start.x, start.y) < 0.001f || hypot(end.x, end.y) < 0.001f) return shape
+            val angle = atan2(end.y, end.x) - atan2(start.y, start.x)
+            return shape.copy(rotationRad = shape.rotationRad + atan2(sin(angle), cos(angle)))
         }
-        val local = docToLocal(shape, to)
+        if (handle != 0) return shape
+        // The touch target is larger than the visible handle. Preserve the initial finger offset.
+        val local = Point2D(shape.radiusX, shape.radiusY) + docToLocal(shape, to) - docToLocal(shape, from)
         val rx = abs(local.x).coerceIn(1f, 100000f)
         val ry = abs(local.y).coerceIn(1f, 100000f)
         return if (shape.type == QuickShapeType.CIRCLE) {
