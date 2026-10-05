@@ -124,6 +124,9 @@ void ReverieCore::writeLayersXml(QString *out)
                 const QColor c = (gl->filter() && gl->filter()->getProperty("color", v))
                     ? v.value<QColor>() : QColor(Qt::white);
                 w.writeAttribute("color_argb", QString::number(c.rgba()));
+                if (gl->filter() && gl->filter()->getProperty("pattern_png", v)) {
+                    w.writeAttribute("pattern_png", QString::fromLatin1(v.toByteArray().toBase64()));
+                }
             }
         } else if (e.nodeType == NodeTypeFilterMask) {
             if (KisFilterMask *fm = dynamic_cast<KisFilterMask *>(e.node)) {
@@ -283,9 +286,31 @@ bool ReverieCore::loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image,
                 const QXmlStreamAttributes a = r.attributes();
                 bool okColor = false;
                 const quint32 colorArgb = a.value("color_argb").toUInt(&okColor, 10);
-                KisFilterConfigurationSP gcfg = reverieMakeSolidColorConfig(okColor ? colorArgb : 0xFFFFFFFFu);
-                if (!gcfg) continue;
-                node = new KisGeneratorLayer(image, nodeName, gcfg, nullptr);
+                const auto encodedPattern = a.value("pattern_png");
+                KisFilterConfigurationSP gcfg;
+                if (!encodedPattern.isEmpty() && encodedPattern.size() <= 24 * 1024 * 1024) {
+                    gcfg = reverieMakePatternConfig(QByteArray::fromBase64(encodedPattern.toLatin1()));
+                } else if (encodedPattern.isEmpty()) {
+                    gcfg = reverieMakeSolidColorConfig(okColor ? colorArgb : 0xFFFFFFFFu);
+                }
+                if (gcfg) {
+                    node = new KisGeneratorLayer(image, nodeName, gcfg, nullptr);
+                } else {
+                    // A damaged/oversized pattern must not turn white or leave a partial tree.
+                    // Use the layer's saved raster backup, just like unsupported clone layers.
+                    KisPaintLayerSP fallback = new KisPaintLayer(image, nodeName, 255, cs);
+                    const QString filename = a.value("filename").toString();
+                    if (!filename.isEmpty() && store->open(filename)) {
+                        PendingLayerPixels job;
+                        job.dev = fallback->original();
+                        job.pngBytes = readStoreEntryBytes(store);
+                        job.hasPng = !job.pngBytes.isEmpty();
+                        job.hasData = job.hasPng;
+                        store->close();
+                        loader.stage(job);
+                    }
+                    node = fallback;
+                }
             } else if (name == QLatin1String("clonelayer")) {
                 // v1 限制: 克隆层源关系未序列化, 回退为颜料层保结构
                 const QString fn = r.attributes().value("filename").toString();

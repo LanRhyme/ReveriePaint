@@ -622,3 +622,15 @@ Java_com_reverie_paint_core_ReverieCoreBridge_rasterizeLayerStroke(JNIEnv *, job
 }
 
 
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setFillLayerPattern(JNIEnv *env, jobject, jint index, jbyteArray data)
+{
+    if (!data) return JNI_FALSE;
+    const jsize length = env->GetArrayLength(data);
+    if (length <= 0 || length > 16 * 1024 * 1024) return JNI_FALSE;
+    QByteArray png(length, Qt::Uninitialized);
+    env->GetByteArrayRegion(data, 0, length, reinterpret_cast<jbyte *>(png.data()));
+    if (env->ExceptionCheck()) return JNI_FALSE;
+    return core()->setFillLayerPattern(index, png) ? JNI_TRUE : JNI_FALSE;
+}

@@ -1037,6 +1037,11 @@ object ReverieCoreBridge {
     external fun getAdjustmentLayerConfig(index: Int): String
     // 原生填充层换色 (KisGeneratorLayer + reverie-solid-color); 非填充层返回 false
     external fun setFillLayerColor(index: Int, colorArgb: Int): Boolean
+    external fun setFillLayerPattern(index: Int, png: ByteArray): Boolean
+    external fun floodFillPatternAt(
+        x: Int, y: Int, tolerance: Int, sampleMerged: Boolean, expand: Int, feather: Int,
+        closeGap: Int, opacity: Double, compositeOp: String, png: ByteArray,
+    ): Boolean
     external fun getFillLayerColor(index: Int): Int
 
     external fun layerDepth(index: Int): Int

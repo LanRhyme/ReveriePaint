@@ -216,6 +216,7 @@ add_library(reverie_jni SHARED
     ReverieCoreFilterRegistry.cpp
     ReverieCoreAdjustment.cpp
     ReverieCoreGenerators.cpp
+    ReverieCorePatternFill.cpp
     ReverieCoreLayerIO.cpp
     ReverieCoreFilterPreview.cpp
     ReverieCoreFilterPreviewFx.cpp

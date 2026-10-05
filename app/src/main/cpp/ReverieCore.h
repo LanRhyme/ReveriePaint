@@ -210,6 +210,10 @@ public:
     // 原生填充层换色 (KisGeneratorLayer + reverie-solid-color); 非填充层返回 false
     bool setFillLayerColor(int index, quint32 colorArgb);
     quint32 getFillLayerColor(int index) const;
+    bool setFillLayerPattern(int index, const QByteArray &png);
+    bool floodFillPatternAt(int x, int y, int tolerance, bool sampleMerged, int expand,
+                            int feather, int closeGap, double opacity, const QString &compositeOp,
+                            const QByteArray &png);
     // 描边图层属性与栅格化
     bool isLayerStroke(int index) const;
     bool setLayerStrokeParams(int index, int size, quint32 color, int position, int opacity);
@@ -1323,6 +1327,8 @@ private:
                                                       const QByteArray &lut = QByteArray());
     // 纯色填充层配置组装 (ReverieCoreGenerators.cpp)
     static KisFilterConfigurationSP reverieMakeSolidColorConfig(quint32 rgba);
+    static KisFilterConfigurationSP reverieMakePatternConfig(const QByteArray &png);
+    bool applyFillGeneratorConfig(int index, KisFilterConfigurationSP config);
 
     // Filter backup devices for non-destructive live preview (single & multi-layer)
     struct FilterBackupEntry {

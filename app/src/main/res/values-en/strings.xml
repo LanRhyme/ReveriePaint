@@ -2291,5 +2291,14 @@
     <string name="canvas_edit_previous_page">Previous actions</string>
     <string name="canvas_edit_next_page">Next actions</string>
     <string name="canvas_edit_page">%1$d / %2$d</string>
+    <string name="pattern_title">Patterns</string>
+    <string name="pattern_hint">Tiles the image, including transparency; large images are reduced to a maximum dimension of 2048 px</string>
+    <string name="pattern_import">Import pattern</string>
+    <string name="pattern_empty">No patterns yet. Import a PNG or JPG to get started</string>
+    <string name="pattern_import_failed">Cannot read this image. Try another PNG or JPG</string>
+    <string name="pattern_fill_failed">Cannot fill. Select an editable layer</string>
+    <string name="pattern_use_color">Use foreground color</string>
+    <string name="pattern_layer_choose">Choose fill pattern</string>
+    <string name="pattern_opacity">Pattern opacity</string>
 </resources>
 

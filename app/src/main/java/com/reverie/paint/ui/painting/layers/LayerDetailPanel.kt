@@ -312,6 +312,17 @@ internal fun LayerDetailPage(
         val isStrokeLayer = (layer?.isStrokeLayer == true) || (layer?.nodeType == 6)
 
         if (isFillLayer) {
+            var showPatterns by remember { mutableStateOf(false) }
+            androidx.compose.material3.TextButton(
+                onClick = { showPatterns = true },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+            ) {
+                Text(stringResource(R.string.pattern_layer_choose), color = Morandi.accent)
+            }
+            if (showPatterns) com.reverie.paint.ui.painting.panels.PatternPickerDialog(
+                onSelect = { vm.setFillLayerPattern(index, it) },
+                onDismiss = { showPatterns = false },
+            )
             var showFillColorPicker by remember { mutableStateOf(false) }
             val currentFillColor = remember(layer?.fillColor) {
                 Color(layer?.fillColor ?: 0xFFFFFFFF.toInt())

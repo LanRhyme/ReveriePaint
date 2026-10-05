@@ -1609,6 +1609,7 @@ class PaintViewModel : ViewModel() {
     var fillCloseGap by mutableIntStateOf(4) // 闭合空隙 (0..16 px)
     var fillOpacity by mutableDoubleStateOf(1.0)
     var fillCompositeOp by mutableStateOf("normal")
+    internal var fillPattern by mutableStateOf<FillPattern?>(null)
 
     var gradientType by mutableIntStateOf(0) // 0: 线性, 1: 径向, 2: 角度
     var gradientRepeat by mutableIntStateOf(0) // 0: 无, 1: 重复, 2: 往返
