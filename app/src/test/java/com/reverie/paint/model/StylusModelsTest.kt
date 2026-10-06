@@ -158,19 +158,23 @@ class StylusModelsTest {
         val focus = com.reverie.paint.core.stylus.XiaomiPencilModel.FOCUS_PEN
         assertEquals(8192, focus.maxPressure)
         assertTrue("Focus pen has focus key", focus.hasFocusKey)
+        assertTrue("Focus pen has double tap", focus.hasDoubleTap)
         assertEquals("焦点触控笔", focus.editionName)
 
         val gen2 = com.reverie.paint.core.stylus.XiaomiPencilModel.SMART_PEN_2
         assertEquals(4096, gen2.maxPressure)
         assertFalse(gen2.hasFocusKey)
+        assertTrue("Smart pen 2 has double tap", gen2.hasDoubleTap)
 
         val gen1 = com.reverie.paint.core.stylus.XiaomiPencilModel.SMART_PEN_1
         assertEquals(4096, gen1.maxPressure)
         assertFalse(gen1.hasFocusKey)
+        assertFalse("Smart pen 1 does not have double tap", gen1.hasDoubleTap)
 
         assertEquals(focus, com.reverie.paint.core.stylus.XiaomiPencilModel.fromKey("FOCUS"))
         assertEquals(gen2, com.reverie.paint.core.stylus.XiaomiPencilModel.fromKey("SMART_PEN_2"))
         assertEquals(gen1, com.reverie.paint.core.stylus.XiaomiPencilModel.fromKey("GEN1"))
+        assertEquals(gen1, com.reverie.paint.core.stylus.XiaomiPencilModel.fromKey("1"))
     }
 
     @Test

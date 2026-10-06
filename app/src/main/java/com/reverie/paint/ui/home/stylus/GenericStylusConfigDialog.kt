@@ -68,7 +68,7 @@ internal fun GenericStylusConfigDialog(
                 Spacer(Modifier.height(8.dp))
 
                 // 侧键行为
-                StylusDialogSectionTitle(stringResource(R.string.stylus_samsung_side_key))
+                StylusDialogSectionTitle(stringResource(R.string.stylus_generic_side_key))
                 StylusDialogCard {
                     StylusDialogSwitchItem(
                         title = stringResource(R.string.stylus_generic_hold_eraser),

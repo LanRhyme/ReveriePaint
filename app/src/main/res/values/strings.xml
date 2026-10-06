@@ -1617,6 +1617,7 @@
     <string name="stylus_curve_i_know">我知道了</string>
     <string name="stylus_gesture_and_keys">手势与按键映射</string>
     <string name="stylus_oppo_auto_model">自动识别 (%s)</string>
+    <string name="stylus_oppo_pro_model">Pro 版手写笔 (OPPO Pencil 2 Pro / OnePlus Stylo 2)</string>
     <string name="stylus_oppo_standard_model">标准版手写笔 (无触控条)</string>
     <string name="stylus_oppo_title">OPPO / 一加手写笔专属设置</string>
     <string name="stylus_oppo_model">设备型号</string>
@@ -1656,6 +1657,8 @@
     <string name="stylus_xiaomi_focus_model">小米焦点触控笔 (Xiaomi Focus Pen)</string>
     <string name="stylus_xiaomi_smart2_model">小米灵感触控笔 (第二代)</string>
     <string name="stylus_xiaomi_smart1_model">小米灵感触控笔 (第一代)</string>
+    <string name="stylus_xiaomi_press_8k">8192级超高压感</string>
+    <string name="stylus_xiaomi_press_4k">4096级压感</string>
     <string name="stylus_xiaomi_side_key">侧键行为</string>
     <string name="stylus_xiaomi_hold_eraser">按住侧键切换橡皮</string>
     <string name="stylus_xiaomi_hold_eraser_desc">小米笔记标准语义：按住书写键或副键落笔，该笔画临时变为橡皮，抬起恢复原工具</string>
@@ -1668,6 +1671,7 @@
 
     <!-- 通用触控手写笔 -->
     <string name="stylus_generic_title">通用触控手写笔设置</string>
+    <string name="stylus_generic_side_key">侧键行为</string>
     <string name="stylus_generic_key_mapping">按键动作映射</string>
     <string name="stylus_generic_primary_action">主按键 (Barrel 1)</string>
     <string name="stylus_generic_secondary_action">副按键 / 尾部按键 (Barrel 2 / Tail)</string>

@@ -105,6 +105,7 @@ class XiaomiStylusAdapter : StylusBrandAdapter {
         return when {
             model.contains("pad 6s") || model.contains("pad 7") -> XiaomiPencilModel.FOCUS_PEN
             model.contains("pad 6") -> XiaomiPencilModel.SMART_PEN_2
+            model.contains("pad 5") -> XiaomiPencilModel.SMART_PEN_1
             else -> XiaomiPencilModel.SMART_PEN_2
         }
     }
@@ -223,6 +224,15 @@ class XiaomiStylusAdapter : StylusBrandAdapter {
         vm: PaintViewModel,
         feedbackManager: StylusFeedbackManager,
     ): Boolean {
+        if (!vm.xiaomiPencilModel.hasDoubleTap) {
+            val action = StylusAction.fromActionId(vm.xiaomiPrimaryButtonAction)
+            if (action != StylusAction.NONE) {
+                feedbackManager.triggerActionConfirmation()
+                vm.executeStylusAction(action)
+            }
+            return true
+        }
+
         primaryClickCount++
         if (primaryClickCount == 1) {
             val singleRunnable = Runnable {

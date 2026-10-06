@@ -192,6 +192,7 @@ enum class XiaomiPencilModel(
     val editionName: String,
     val maxPressure: Int,
     val hasFocusKey: Boolean,
+    val hasDoubleTap: Boolean,
     val desc: String,
 ) {
     FOCUS_PEN(
@@ -199,6 +200,7 @@ enum class XiaomiPencilModel(
         editionName = "焦点触控笔",
         maxPressure = 8192,
         hasFocusKey = true,
+        hasDoubleTap = true,
         desc = "8192级超高压感 · 独立多功能焦点键 · 物理书写/截图双按键 · 极低时延与触感联动",
     ),
     SMART_PEN_2(
@@ -206,13 +208,15 @@ enum class XiaomiPencilModel(
         editionName = "第二代",
         maxPressure = 4096,
         hasFocusKey = false,
-        desc = "4096级高精度压感 · 物理主/副双侧键 · 磁吸无线快充",
+        hasDoubleTap = true,
+        desc = "4096级高精度压感 · 书写键双击切工具 · 物理主/副双侧键 · 磁吸无线快充",
     ),
     SMART_PEN_1(
         displayName = "小米灵感触控笔 (第一代)",
         editionName = "第一代",
         maxPressure = 4096,
         hasFocusKey = false,
+        hasDoubleTap = false,
         desc = "4096级标准压感 · 物理双按键 · 基础手写与触控适配",
     );
 
