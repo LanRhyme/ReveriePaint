@@ -153,24 +153,39 @@ class StylusModelsTest {
     @Test
     fun `xiaomi pencil models correctly specified`() {
         val models = com.reverie.paint.core.stylus.XiaomiPencilModel.entries
-        assertEquals(3, models.size)
+        assertEquals(4, models.size)
+
+        val pro = com.reverie.paint.core.stylus.XiaomiPencilModel.FOCUS_PEN_PRO
+        assertEquals(16384, pro.maxPressure)
+        assertFalse(pro.hasFocusKey)
+        assertTrue(pro.hasDoubleTap)
+        assertTrue(pro.hasSlideGesture)
+        assertTrue(pro.hasSqueezeGesture)
+        assertFalse("Pro has no physical buttons", pro.hasPhysicalButtons)
+        assertEquals("Pro 版", pro.editionName)
 
         val focus = com.reverie.paint.core.stylus.XiaomiPencilModel.FOCUS_PEN
         assertEquals(8192, focus.maxPressure)
         assertTrue("Focus pen has focus key", focus.hasFocusKey)
         assertTrue("Focus pen has double tap", focus.hasDoubleTap)
+        assertFalse(focus.hasSlideGesture)
+        assertTrue("Standard focus pen has physical buttons", focus.hasPhysicalButtons)
         assertEquals("焦点触控笔", focus.editionName)
 
         val gen2 = com.reverie.paint.core.stylus.XiaomiPencilModel.SMART_PEN_2
         assertEquals(4096, gen2.maxPressure)
         assertFalse(gen2.hasFocusKey)
         assertTrue("Smart pen 2 has double tap", gen2.hasDoubleTap)
+        assertTrue("Smart pen 2 has physical buttons", gen2.hasPhysicalButtons)
 
         val gen1 = com.reverie.paint.core.stylus.XiaomiPencilModel.SMART_PEN_1
         assertEquals(4096, gen1.maxPressure)
         assertFalse(gen1.hasFocusKey)
         assertFalse("Smart pen 1 does not have double tap", gen1.hasDoubleTap)
+        assertTrue("Smart pen 1 has physical buttons", gen1.hasPhysicalButtons)
 
+        assertEquals(pro, com.reverie.paint.core.stylus.XiaomiPencilModel.fromKey("FOCUS_PEN_PRO"))
+        assertEquals(pro, com.reverie.paint.core.stylus.XiaomiPencilModel.fromKey("PRO"))
         assertEquals(focus, com.reverie.paint.core.stylus.XiaomiPencilModel.fromKey("FOCUS"))
         assertEquals(gen2, com.reverie.paint.core.stylus.XiaomiPencilModel.fromKey("SMART_PEN_2"))
         assertEquals(gen1, com.reverie.paint.core.stylus.XiaomiPencilModel.fromKey("GEN1"))

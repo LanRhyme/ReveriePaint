@@ -193,14 +193,31 @@ enum class XiaomiPencilModel(
     val maxPressure: Int,
     val hasFocusKey: Boolean,
     val hasDoubleTap: Boolean,
+    val hasSlideGesture: Boolean = false,
+    val hasSqueezeGesture: Boolean = false,
+    val hasPhysicalButtons: Boolean = true,
     val desc: String,
 ) {
+    FOCUS_PEN_PRO(
+        displayName = "小米焦点触控笔 Pro (Xiaomi Focus Pen Pro)",
+        editionName = "Pro 版",
+        maxPressure = 16384,
+        hasFocusKey = false,
+        hasDoubleTap = true,
+        hasSlideGesture = true,
+        hasSqueezeGesture = true,
+        hasPhysicalButtons = false,
+        desc = "16384级超万级压感 · 无按键一体化触控 · 轻捏与双击快捷交互 · 笔身滑动调参 · 内置触觉线性微震",
+    ),
     FOCUS_PEN(
         displayName = "小米焦点触控笔 (Xiaomi Focus Pen)",
         editionName = "焦点触控笔",
         maxPressure = 8192,
         hasFocusKey = true,
         hasDoubleTap = true,
+        hasSlideGesture = false,
+        hasSqueezeGesture = false,
+        hasPhysicalButtons = true,
         desc = "8192级超高压感 · 独立多功能焦点键 · 物理书写/截图双按键 · 极低时延与触感联动",
     ),
     SMART_PEN_2(
@@ -209,6 +226,9 @@ enum class XiaomiPencilModel(
         maxPressure = 4096,
         hasFocusKey = false,
         hasDoubleTap = true,
+        hasSlideGesture = false,
+        hasSqueezeGesture = false,
+        hasPhysicalButtons = true,
         desc = "4096级高精度压感 · 书写键双击切工具 · 物理主/副双侧键 · 磁吸无线快充",
     ),
     SMART_PEN_1(
@@ -217,12 +237,16 @@ enum class XiaomiPencilModel(
         maxPressure = 4096,
         hasFocusKey = false,
         hasDoubleTap = false,
+        hasSlideGesture = false,
+        hasSqueezeGesture = false,
+        hasPhysicalButtons = true,
         desc = "4096级标准压感 · 物理双按键 · 基础手写与触控适配",
     );
 
     companion object {
         fun fromKey(key: String): XiaomiPencilModel {
             return when {
+                key.contains("PRO", ignoreCase = true) -> FOCUS_PEN_PRO
                 key.contains("FOCUS", ignoreCase = true) -> FOCUS_PEN
                 key.contains("1", ignoreCase = true) || key.contains("GEN1", ignoreCase = true) -> SMART_PEN_1
                 else -> SMART_PEN_2

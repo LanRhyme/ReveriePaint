@@ -1518,11 +1518,12 @@ class PaintViewModel : ViewModel() {
     var honorHapticsEnabled by mutableStateOf(true)
 
     // 小米 (Xiaomi) 触控笔适配参数
-    var xiaomiPencilModelMode by mutableStateOf("AUTO") // "AUTO", "FOCUS_PEN", "SMART_PEN_2", "SMART_PEN_1"
+    var xiaomiPencilModelMode by mutableStateOf("AUTO") // "AUTO", "FOCUS_PEN_PRO", "FOCUS_PEN", "SMART_PEN_2", "SMART_PEN_1"
     val detectedXiaomiPencilModel: com.reverie.paint.core.stylus.XiaomiPencilModel
         get() = stylusDriver?.detectXiaomiPencilModel() ?: com.reverie.paint.core.stylus.XiaomiPencilModel.SMART_PEN_2
     val xiaomiPencilModel: com.reverie.paint.core.stylus.XiaomiPencilModel
         get() = when (xiaomiPencilModelMode) {
+            "FOCUS_PEN_PRO" -> com.reverie.paint.core.stylus.XiaomiPencilModel.FOCUS_PEN_PRO
             "FOCUS_PEN" -> com.reverie.paint.core.stylus.XiaomiPencilModel.FOCUS_PEN
             "SMART_PEN_2" -> com.reverie.paint.core.stylus.XiaomiPencilModel.SMART_PEN_2
             "SMART_PEN_1" -> com.reverie.paint.core.stylus.XiaomiPencilModel.SMART_PEN_1
@@ -1533,6 +1534,10 @@ class PaintViewModel : ViewModel() {
     var xiaomiFocusButtonAction by mutableStateOf("toggle_last_tool")
     var xiaomiDoubleTapAction by mutableStateOf("toggle_eraser")
     var xiaomiSideButtonErase by mutableStateOf(true)
+    var xiaomiSqueezeAction by mutableStateOf("tool_color")
+    var xiaomiSlideAction by mutableStateOf("adjust_brush_size")
+    var xiaomiSlideSensitivity by mutableStateOf("normal")
+    var xiaomiInPenHapticsEnabled by mutableStateOf(true)
 
     // 通用 (Generic) 手写笔适配参数
     var genericPrimaryButtonAction by mutableStateOf("toggle_eraser")
@@ -2094,16 +2099,20 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    fun executeStylusSlide(delta: Float): Boolean {
-        if (oppoSlideAction == "none" || oppoSlideAction.isBlank()) {
+    fun executeStylusSlide(
+        delta: Float,
+        slideAction: String = oppoSlideAction,
+        sensitivity: String = oppoSlideSensitivity,
+    ): Boolean {
+        if (slideAction == "none" || slideAction.isBlank()) {
             return false
         }
         // 反转滑动方向以符合自然滑动交互（向笔尾滑动为增加，向笔尖滑动为减少）
         val effectiveDelta = -delta
         val isIncrease = effectiveDelta > 0
-        return when (oppoSlideAction) {
+        return when (slideAction) {
             "adjust_brush_size" -> {
-                val deltaFrac = when (oppoSlideSensitivity) {
+                val deltaFrac = when (sensitivity) {
                     "low" -> 0.015f
                     "high" -> 0.035f
                     else -> 0.025f
@@ -2143,7 +2152,7 @@ class PaintViewModel : ViewModel() {
                 true
             }
             "adjust_opacity" -> {
-                val step = when (oppoSlideSensitivity) {
+                val step = when (sensitivity) {
                     "low" -> 0.02
                     "high" -> 0.08
                     else -> 0.05
@@ -2163,6 +2172,11 @@ class PaintViewModel : ViewModel() {
             }
             else -> false
         }
+    }
+
+    fun executeXiaomiSlide(up: Boolean): Boolean {
+        val delta = if (up) -1f else 1f
+        return executeStylusSlide(delta, slideAction = xiaomiSlideAction, sensitivity = xiaomiSlideSensitivity)
     }
 
     fun updateOppoDoubleTapAction(actionId: String) {
@@ -2393,6 +2407,39 @@ class PaintViewModel : ViewModel() {
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("xiaomiSideButtonErase", enabled).apply()
+        }
+    }
+
+    fun updateXiaomiSqueezeAction(actionId: String) {
+        xiaomiSqueezeAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("xiaomiSqueezeAction", actionId).apply()
+        }
+    }
+
+    fun updateXiaomiSlideAction(actionId: String) {
+        xiaomiSlideAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("xiaomiSlideAction", actionId).apply()
+        }
+    }
+
+    fun updateXiaomiSlideSensitivity(sensitivity: String) {
+        xiaomiSlideSensitivity = sensitivity
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("xiaomiSlideSensitivity", sensitivity).apply()
+        }
+    }
+
+    fun updateXiaomiInPenHapticsEnabled(enabled: Boolean) {
+        xiaomiInPenHapticsEnabled = enabled
+        stylusDriver?.syncSettings()
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("xiaomiInPenHapticsEnabled", enabled).apply()
         }
     }
 
@@ -2856,6 +2903,10 @@ class PaintViewModel : ViewModel() {
             xiaomiFocusButtonAction = prefs.getString("xiaomiFocusButtonAction", "toggle_last_tool") ?: "toggle_last_tool"
             xiaomiDoubleTapAction = prefs.getString("xiaomiDoubleTapAction", "toggle_eraser") ?: "toggle_eraser"
             xiaomiSideButtonErase = prefs.getBoolean("xiaomiSideButtonErase", true)
+            xiaomiSqueezeAction = prefs.getString("xiaomiSqueezeAction", "tool_color") ?: "tool_color"
+            xiaomiSlideAction = prefs.getString("xiaomiSlideAction", "adjust_brush_size") ?: "adjust_brush_size"
+            xiaomiSlideSensitivity = prefs.getString("xiaomiSlideSensitivity", "normal") ?: "normal"
+            xiaomiInPenHapticsEnabled = prefs.getBoolean("xiaomiInPenHapticsEnabled", true)
             genericPrimaryButtonAction = prefs.getString("genericPrimaryButtonAction", "toggle_eraser") ?: "toggle_eraser"
             genericSecondaryButtonAction = prefs.getString("genericSecondaryButtonAction", "undo") ?: "undo"
             genericSideButtonErase = prefs.getBoolean("genericSideButtonErase", true)

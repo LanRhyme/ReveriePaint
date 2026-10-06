@@ -43,6 +43,36 @@ class XiaomiStylusAdapter : StylusBrandAdapter {
     private var isSecondaryCurrentlyDown: Boolean = false
     private var strokeHappenedSinceSecondaryPress: Boolean = false
 
+    // PenEngine (Xiaomi HyperOS 3.0+ TouchFilmUtils) reflection bridge
+    private var currentVm: PaintViewModel? = null
+    private var currentFeedbackManager: StylusFeedbackManager? = null
+    private var touchFilmUtilsClass: Class<*>? = null
+    private var onDispatchKeyEventMethod: java.lang.reflect.Method? = null
+    private var isPenEngineInitialized = false
+
+    override fun register(context: Context, vm: PaintViewModel, feedbackManager: StylusFeedbackManager) {
+        currentVm = vm
+        currentFeedbackManager = feedbackManager
+        initPenEngineIfAvailable(context.applicationContext, vm, feedbackManager)
+    }
+
+    override fun onActivityResume(activity: android.app.Activity) {
+        currentVm?.let { vm ->
+            currentFeedbackManager?.let { fm ->
+                initPenEngineIfAvailable(activity.applicationContext, vm, fm)
+            }
+        }
+    }
+
+    override fun onActivityPause(activity: android.app.Activity) {
+        destroyPenEngine()
+    }
+
+    override fun unregister(context: Context) {
+        destroyPenEngine()
+        release()
+    }
+
     override fun detect(context: Context, vm: PaintViewModel): StylusDeviceDetected? {
         val manufacturer = Build.MANUFACTURER.lowercase()
         val brandName = Build.BRAND.lowercase()
@@ -63,7 +93,9 @@ class XiaomiStylusAdapter : StylusBrandAdapter {
                     if (hasStylusSource || name.contains("pen") || name.contains("stylus")) {
                         if (name.contains("xiaomi") || name.contains("mi pen") || name.contains("smart pen") || name.contains("focus")) {
                             xiaomiStylusConnected = true
-                            if (name.contains("focus")) {
+                            if (name.contains("focus pro") || name.contains("focus pen pro") || name.contains("stylus pro")) {
+                                detectedPenName = "小米焦点触控笔 Pro"
+                            } else if (name.contains("focus")) {
                                 detectedPenName = "小米焦点触控笔"
                             }
                             break
@@ -88,6 +120,9 @@ class XiaomiStylusAdapter : StylusBrandAdapter {
                 for (id in inputManager.inputDeviceIds) {
                     val dev = inputManager.getInputDevice(id) ?: continue
                     val name = dev.name.lowercase()
+                    if (name.contains("focus pro") || name.contains("focus pen pro") || name.contains("stylus pro")) {
+                        return XiaomiPencilModel.FOCUS_PEN_PRO
+                    }
                     if (name.contains("focus")) {
                         return XiaomiPencilModel.FOCUS_PEN
                     }
@@ -103,10 +138,94 @@ class XiaomiStylusAdapter : StylusBrandAdapter {
 
         val model = Build.MODEL.lowercase()
         return when {
+            model.contains("pad 8") -> XiaomiPencilModel.FOCUS_PEN_PRO
             model.contains("pad 6s") || model.contains("pad 7") -> XiaomiPencilModel.FOCUS_PEN
             model.contains("pad 6") -> XiaomiPencilModel.SMART_PEN_2
             model.contains("pad 5") -> XiaomiPencilModel.SMART_PEN_1
             else -> XiaomiPencilModel.SMART_PEN_2
+        }
+    }
+
+    private fun initPenEngineIfAvailable(context: Context, vm: PaintViewModel, fm: StylusFeedbackManager) {
+        if (isPenEngineInitialized) return
+        try {
+            val utilsClass = Class.forName("com.miui.penengine.touchfilm.MiuiTouchFilmUtils")
+            val listenerInterface = Class.forName("com.miui.penengine.touchfilm.MiuiTouchFilmUtils\$TouchFilmListener")
+            touchFilmUtilsClass = utilsClass
+            onDispatchKeyEventMethod = utilsClass.getMethod("onDispatchKeyEvent", KeyEvent::class.java)
+
+            val proxyListener = java.lang.reflect.Proxy.newProxyInstance(
+                listenerInterface.classLoader,
+                arrayOf(listenerInterface),
+            ) { _, method, args ->
+                when (method.name) {
+                    "onTouchFilmTriggered" -> {
+                        val function = args?.getOrNull(0) as? Int ?: return@newProxyInstance null
+                        handleTouchFilmTriggered(function, vm, fm)
+                        null
+                    }
+                    "onBrushPreviewChanged" -> {
+                        null
+                    }
+                    else -> null
+                }
+            }
+
+            val initMethod = utilsClass.getMethod("init", Context::class.java, listenerInterface)
+            initMethod.invoke(null, context, proxyListener)
+            isPenEngineInitialized = true
+        } catch (_: Throwable) {
+            // Not running on Xiaomi HyperOS with PenEngine SDK, fallback gracefully
+        }
+    }
+
+    private fun destroyPenEngine() {
+        if (!isPenEngineInitialized) return
+        try {
+            touchFilmUtilsClass?.getMethod("onDestroy")?.invoke(null)
+        } catch (_: Throwable) {}
+        isPenEngineInitialized = false
+    }
+
+    private fun handleTouchFilmTriggered(function: Int, vm: PaintViewModel, fm: StylusFeedbackManager) {
+        val switchBrushEraser = getTouchFilmConstant("SWITCH_BETWEEN_BRUSH_AND_ERASER", 1)
+        val switchToPrevious = getTouchFilmConstant("SWITCH_TO_PREVIOUS_BRUSH", 2)
+        val showColorWheel = getTouchFilmConstant("SHOW_COLOR_WHEEL", 3)
+        val showBrushSettings = getTouchFilmConstant("SHOW_BRUSH_SETTINGS", 4)
+        val stylusSlideUp = getTouchFilmConstant("STYLUS_SLIDE_UP", 5)
+        val stylusSlideDown = getTouchFilmConstant("STYLUS_SLIDE_DOWN", 6)
+
+        when (function) {
+            switchBrushEraser -> {
+                fm.triggerActionConfirmation()
+                vm.executeStylusAction(StylusAction.fromActionId(vm.xiaomiDoubleTapAction))
+            }
+            switchToPrevious -> {
+                fm.triggerActionConfirmation()
+                vm.executeStylusAction(StylusAction.TOGGLE_LAST_TOOL)
+            }
+            showColorWheel -> {
+                fm.triggerActionConfirmation()
+                vm.executeStylusAction(StylusAction.SHOW_COLOR_PALETTE)
+            }
+            showBrushSettings -> {
+                fm.triggerActionConfirmation()
+                vm.executeStylusAction(StylusAction.fromActionId(vm.xiaomiSqueezeAction))
+            }
+            stylusSlideUp -> {
+                vm.executeXiaomiSlide(up = true)
+            }
+            stylusSlideDown -> {
+                vm.executeXiaomiSlide(up = false)
+            }
+        }
+    }
+
+    private fun getTouchFilmConstant(name: String, fallback: Int): Int {
+        return try {
+            touchFilmUtilsClass?.getField(name)?.getInt(null) ?: fallback
+        } catch (_: Throwable) {
+            fallback
         }
     }
 
@@ -115,6 +234,19 @@ class XiaomiStylusAdapter : StylusBrandAdapter {
         vm: PaintViewModel,
         feedbackManager: StylusFeedbackManager,
     ): Boolean {
+        // Forward to Xiaomi PenEngine SDK if available on HyperOS
+        if (onDispatchKeyEventMethod != null) {
+            try {
+                val handled = onDispatchKeyEventMethod?.invoke(null, event) as? Boolean ?: false
+                if (handled) return true
+            } catch (_: Throwable) {}
+        }
+
+        // Focus Pen Pro is buttonless and handles gestures via PenEngine
+        if (!vm.xiaomiPencilModel.hasPhysicalButtons) {
+            return false
+        }
+
         val keyCode = event.keyCode
 
         // Focus button (Focus Pen only)
