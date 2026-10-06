@@ -2332,5 +2332,24 @@
     <string name="canvas_edit_previous_page">上一页操作</string>
     <string name="canvas_edit_next_page">下一页操作</string>
     <string name="canvas_edit_page">%1$d / %2$d</string>
+
+    <!-- 帧转图层 -->
+    <string name="f2l_menu">帧转图层</string>
+    <string name="f2l_toast_done">已拆出 %1$d 个图层</string>
+    <string name="f2l_toast_partial">已拆出 %1$d 个图层后中止</string>
+    <string name="f2l_reject_no_frames">没有可拆的帧</string>
+    <string name="f2l_reject_too_many">一次最多拆 %1$d 帧</string>
+    <string name="f2l_reject_not_animatable">该轨道不是位图图层，取不到画面</string>
+    <string name="f2l_reject_locked">该轨道已锁定</string>
+    <string name="f2l_reject_addgroup">新建图层组失败，已中止</string>
+    <string name="f2l_reject_alloc">无法分配中转画布</string>
+    <string name="f2l_reject_render">第 %1$d 帧取画面失败，已中止（可撤销）</string>
+    <string name="f2l_reject_addlayer">新建图层失败，已中止（可撤销）</string>
+    <string name="f2l_reject_write">第 %1$d 帧写入图层失败，已中止（可撤销）</string>
+    <string name="f2l_group">帧转图层 %1$d</string>
+    <string name="tl_collapse_group">折叠该组</string>
+    <string name="tl_expand_group">展开该组</string>
+    <string name="f2l_progress">正在拆分 %1$d / %2$d</string>
+    <string name="f2l_running">拆分中…</string>
 </resources>
 

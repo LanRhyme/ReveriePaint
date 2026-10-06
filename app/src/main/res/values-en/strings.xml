@@ -2332,5 +2332,24 @@
     <string name="canvas_edit_previous_page">Previous actions</string>
     <string name="canvas_edit_next_page">Next actions</string>
     <string name="canvas_edit_page">%1$d / %2$d</string>
+
+    <!-- 帧转图层 -->
+    <string name="f2l_menu">Frames to layers</string>
+    <string name="f2l_toast_done">Split into %1$d layers</string>
+    <string name="f2l_toast_partial">Stopped after %1$d layers</string>
+    <string name="f2l_reject_no_frames">No frame to split</string>
+    <string name="f2l_reject_too_many">At most %1$d frames at a time</string>
+    <string name="f2l_reject_not_animatable">That track is not a bitmap layer</string>
+    <string name="f2l_reject_locked">That track is locked</string>
+    <string name="f2l_reject_addgroup">Could not create the layer group; stopped</string>
+    <string name="f2l_reject_alloc">Could not allocate the transit canvas</string>
+    <string name="f2l_reject_render">Frame %1$d could not be rendered; stopped (undoable)</string>
+    <string name="f2l_reject_addlayer">Could not create a layer; stopped (undoable)</string>
+    <string name="f2l_reject_write">Frame %1$d could not be written; stopped (undoable)</string>
+    <string name="f2l_group">Frames to layers %1$d</string>
+    <string name="tl_collapse_group">Collapse group</string>
+    <string name="tl_expand_group">Expand group</string>
+    <string name="f2l_progress">Splitting %1$d / %2$d</string>
+    <string name="f2l_running">Splitting…</string>
 </resources>
 

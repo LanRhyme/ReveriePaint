@@ -3859,6 +3859,32 @@ class PaintViewModel : ViewModel() {
 
     internal val pendingCoreOps = java.util.concurrent.atomic.AtomicInteger(0)
 
+    /**
+     * 「帧转图层」整条链复用的中转位图(一张 ARGB_8888, 2800×1840 约 20MB)。
+     *
+     * 只分配一张、逐帧覆写: 拆 N 帧就只占一张的内存, 拆完由
+     * `releaseFramesToLayersTransit()` 回收。**不能**是扩展属性 ——
+     * Kotlin 不允许扩展属性持有 backing field。
+     */
+    internal var framesToLayersTransit: android.graphics.Bitmap? = null
+
+    /** 本次计划拆多少帧 —— 用来区分"全成"与"中止"。 */
+    internal var framesToLayersPlanned: Int = 0
+
+    /** 本次实际建成的层数。 */
+    internal var framesToLayersCreated: Int = 0
+
+    /**
+     * 阶段二要用: (层下标, 帧号) 的对应表。
+     *
+     * 建层在阶段一全部做完, 写像素在阶段二逐个进行 —— 靠这张表把两者对上。
+     * 存下标而不是 id 是安全的: 新层是**连续追加在队尾**的, 阶段二又不再有任何结构变更。
+     */
+    internal val framesToLayersNewIds = mutableListOf<Pair<Int, Int>>()
+
+    /** 第几次做帧转图层, 用来给组编号(「帧转图层 1」「帧转图层 2」…)。 */
+    internal var framesToLayersSeqCounter: Int = 0
+
     // Stroke-sample transport (batch-preserving). The UI thread appends every
     // touch sample into preallocated arrays and posts ONE drain runnable; the
     // render thread submits the whole batch in a single JNI call. The old
