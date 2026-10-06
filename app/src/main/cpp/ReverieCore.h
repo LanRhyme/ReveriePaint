@@ -119,6 +119,8 @@ public:
     // content painted on a clipped layer is masked by the next layer's alpha
     bool layerClipped(int index) const;
     void setLayerClipped(int index, bool clipped);
+    bool layerAlphaInherited(int index) const;
+    void setLayerAlphaInherited(int index, bool enable);
     void flipLayerHorizontal(int index);
     void flipLayerVertical(int index);
     // Canvas flip: mirror every paintable layer (incl. background/locked and
@@ -503,6 +505,7 @@ public:
         bool alphaLocked = false;     // preserve alpha (transparency lock)
         int colorLabel = 0;           // color label index 0-9
         bool clipped = false;         // clipping mask onto the layer below
+        bool alphaInherited = false;  // inherit alpha from layers below (Krita native)
         bool background = false;      // background layer (index 0)
         bool isStrokeLayer = false;   // stroke layer with layer style
         int strokeSize = 6;
@@ -1233,6 +1236,7 @@ private:
     // 复用后只剩 memcpy 级别的 clear + bitBlt。
     KisPaintDeviceSP m_strokeMergeScratch;
     KisPaintDeviceSP m_strokeOutScratch;
+    KisPaintDeviceSP m_strokeClipScratch;
 
     /** 取(必要时建)某图层在笔触叠加用的洋葱皮投影; 未开洋葱皮返回空 */
     KisPaintDeviceSP strokeOnionProjection(int layerIndex);
@@ -1243,6 +1247,7 @@ private:
     /** 复用的拼装设备; 保证 [r] 范围是干净的 */
     KisPaintDeviceSP strokeMergeScratch(const QRect &r);
     KisPaintDeviceSP strokeOutScratch(const QRect &r);
+    KisPaintDeviceSP strokeClipScratch(const QRect &r);
 
     /** 丢弃笔触洋葱皮缓存 (切帧 / 改配置 / 关键帧结构变化时调) */
     void invalidateStrokeOnionCache() {

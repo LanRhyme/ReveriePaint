@@ -586,6 +586,7 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
         layerObj["locked"] = e.locked;
         layerObj["alphaLocked"] = e.alphaLocked;
         layerObj["clipped"] = e.clipped;
+        layerObj["alphaInherited"] = e.alphaInherited;
         layerObj["isGroup"] = e.isGroup;
         layerObj["depth"] = e.depth;
         layerObj["colorLabel"] = e.colorLabel;
@@ -822,6 +823,7 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
         layerObj["locked"] = e.locked;
         layerObj["alphaLocked"] = e.alphaLocked;
         layerObj["clipped"] = e.clipped;
+        layerObj["alphaInherited"] = e.alphaInherited;
         layerObj["isGroup"] = e.isGroup;
         layerObj["depth"] = e.depth;
         layerObj["colorLabel"] = e.colorLabel;
@@ -1232,9 +1234,15 @@ static bool loadKraNodesDom(const QDomElement &parentElem,
             node->setY(el.attribute("y", "0").toInt());
 
             if (KisLayer *l = dynamic_cast<KisLayer *>(node.data())) {
+                const bool isClipped = (el.attribute("clipped", "0") == "1") ||
+                                       (el.attribute("clipping", "0") == "1");
                 const bool inheritAlpha = (el.attribute("inherit-alpha", "0") == "1") ||
                                           (el.attribute("inherit_alpha", "0") == "1");
-                l->disableAlphaChannel(inheritAlpha);
+                if (isClipped) {
+                    l->enableClippingLayer(true);
+                } else if (inheritAlpha) {
+                    l->disableAlphaChannel(true);
+                }
                 const QString op = el.attribute("compositeop").trimmed();
                 if (!op.isEmpty()) {
                     l->setCompositeOpId(op);
@@ -1496,7 +1504,13 @@ bool ReverieCore::loadRevp(const QString &path)
             layer->setCompositeOpId(blend);
             layer->setUserLocked(layerObj["locked"].toBool(isBg));
             layer->setAlphaLocked(layerObj["alphaLocked"].toBool(isBg));
-            layer->disableAlphaChannel(layerObj["clipped"].toBool(false));
+            const bool isClipped = layerObj["clipped"].toBool(false);
+            const bool isInherited = layerObj["alphaInherited"].toBool(false);
+            if (isClipped) {
+                layer->enableClippingLayer(true);
+            } else if (isInherited) {
+                layer->disableAlphaChannel(true);
+            }
 
             const QString layerFileName = QString("layer_%1.png").arg(i, 3, 10, QChar('0'));
             bool loadedPixelData = false;
@@ -1898,7 +1912,7 @@ bool ReverieCore::loadPsd(const QString &path)
                     layer->setCompositeOpId(op);
                 }
                 layer->setVisible(rec->visible);
-                layer->disableAlphaChannel(rec->clipping > 0);
+                layer->enableClippingLayer(rec->clipping > 0);
                 layer->setAlphaLocked(rec->transparencyProtected);
                 layer->setColorLabelIndex(rec->labelColor);
                 image->addNode(layer, groupStack.isEmpty() ? image->rootLayer() : groupStack.top());

@@ -1060,6 +1060,13 @@ object ReverieCoreBridge {
         clipped: Boolean,
     )
 
+    external fun layerAlphaInherited(index: Int): Boolean
+
+    external fun setLayerAlphaInherited(
+        index: Int,
+        enable: Boolean,
+    )
+
     external fun flipLayerHorizontal(index: Int)
 
     external fun flipLayerVertical(index: Int)

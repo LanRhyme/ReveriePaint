@@ -47,7 +47,8 @@ void writeCommonAttrs(QXmlStreamWriter &w, const ReverieCore::LayerEntry &e)
     }
     w.writeAttribute("locked", e.locked ? "1" : "0");
     w.writeAttribute("alpha_locked", e.alphaLocked ? "1" : "0");
-    w.writeAttribute("inherit_alpha", e.clipped ? "1" : "0");
+    w.writeAttribute("clipped", e.clipped ? "1" : "0");
+    w.writeAttribute("inherit_alpha", e.alphaInherited ? "1" : "0");
     w.writeAttribute("color_label", QString::number(e.colorLabel));
     w.writeAttribute("x", QString::number(node ? int(node->x()) : 0));
     w.writeAttribute("y", QString::number(node ? int(node->y()) : 0));
@@ -207,7 +208,13 @@ bool ReverieCore::loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image,
         node->setX(attrInt("x", 0));
         node->setY(attrInt("y", 0));
         if (KisLayer *l = dynamic_cast<KisLayer *>(node.data())) {
-            l->disableAlphaChannel(a.value("inherit_alpha") == QLatin1String("1"));
+            const bool isClipped = a.value("clipped") == QLatin1String("1");
+            const bool isInherited = a.value("inherit_alpha") == QLatin1String("1");
+            if (isClipped) {
+                l->enableClippingLayer(true);
+            } else if (isInherited) {
+                l->disableAlphaChannel(true);
+            }
             const QString op = a.value("compositeop").toString();
             if (!op.isEmpty()) l->setCompositeOpId(op);
             // alpha_locked 仅颜料层子类支持

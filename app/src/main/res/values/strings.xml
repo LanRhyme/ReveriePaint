@@ -974,7 +974,8 @@
     <string name="layer_op_delete_group">删除图层组</string>
     <string name="layer_op_merge_group">合并图层组</string>
     <string name="layer_op_lock_group">锁定图层组</string>
-    <string name="layer_op_clip">继承透明度</string>
+    <string name="layer_op_clip">剪切蒙版</string>
+    <string name="layer_op_alpha_inherit">继承透明度</string>
     <string name="layer_op_pass_through">穿透混合模式 (Pass-through)</string>
     <string name="layer_op_duplicate">复制图层</string>
     <string name="layer_op_delete_layer">删除图层</string>
@@ -1848,7 +1849,7 @@
     <string name="layer_fill_layer">填充图层</string>
     <string name="layer_thumbnail">图层缩略图</string>
     <string name="layer_solo">独显中</string>
-    <string name="layer_alpha_inherit">继承透明度</string>
+    <string name="layer_alpha_inherit">剪切蒙版</string>
     <string name="layer_locked">锁定</string>
     <string name="curves_ch_red">红 (R)</string>
     <string name="curves_ch_green">绿 (G)</string>
@@ -1878,7 +1879,7 @@
     <string name="export_format_psd_desc">完整保留各图层、混合模式与剪裁属性</string>
     <string name="export_format_psd_tag">分层工程</string>
     <string name="export_format_kra_name">Krita 原生工程</string>
-    <string name="export_format_kra_desc">标准 Krita 规范，含继承透明度与正片叠底</string>
+    <string name="export_format_kra_desc">标准 Krita 规范，含剪切蒙版与正片叠底</string>
     <string name="export_format_kra_tag">Krita 原生</string>
     <string name="export_format_revp_name">ReveriePaint 原生</string>
     <string name="export_format_revp_desc">专有工程包，完整保留活跃作画耗时与图层数据</string>

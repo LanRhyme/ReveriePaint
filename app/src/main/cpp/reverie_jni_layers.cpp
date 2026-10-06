@@ -210,6 +210,18 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setLayerClipped(JNIEnv *, jobject,
     core()->setLayerClipped(index, clipped);
 }
 
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_layerAlphaInherited(JNIEnv *, jobject, jint index)
+{
+    return core()->layerAlphaInherited(index) ? JNI_TRUE : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setLayerAlphaInherited(JNIEnv *, jobject, jint index, jboolean enable)
+{
+    core()->setLayerAlphaInherited(index, enable == JNI_TRUE);
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_flipLayerHorizontal(JNIEnv *, jobject, jint index)
 {

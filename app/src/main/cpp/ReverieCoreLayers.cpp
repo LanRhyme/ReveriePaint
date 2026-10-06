@@ -566,6 +566,31 @@ void ReverieCore::removeLayer(int index)
     if (!image || !m_layers[index].node) {
         return;
     }
+
+    // If a base layer is removed, unclip layers that were clipped to it
+    if (!e.clipped) {
+        int spanEnd = index + 1;
+        if (e.isGroup) {
+            while (spanEnd < m_layers.size() && m_layers[spanEnd].depth > e.depth) {
+                ++spanEnd;
+            }
+        }
+        int nextIdx = spanEnd;
+        while (nextIdx < m_layers.size() && m_layers[nextIdx].depth == e.depth && m_layers[nextIdx].clipped) {
+            if (KisLayer *clipL = dynamic_cast<KisLayer *>(m_layers[nextIdx].node)) {
+                clipL->enableClippingLayer(false);
+            }
+            m_layers[nextIdx].clipped = false;
+            if (m_layers[nextIdx].isGroup) {
+                int gEnd = nextIdx + 1;
+                while (gEnd < m_layers.size() && m_layers[gEnd].depth > e.depth) ++gEnd;
+                nextIdx = gEnd;
+            } else {
+                ++nextIdx;
+            }
+        }
+    }
+
     // Krita-native undo: a layer-remove command (undo re-inserts the node)
     pushUndoCommand(new KisImageLayerRemoveCommand(image, KisNodeSP(m_layers[index].node)));
     recompositeProjection();
@@ -852,7 +877,7 @@ bool ReverieCore::layerClipped(int index) const
         return false;
     }
     if (KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node)) {
-        return layer->alphaChannelDisabled();
+        return layer->clippingEnabled();
     }
     return m_layers[index].clipped;
 }
@@ -862,13 +887,54 @@ void ReverieCore::setLayerClipped(int index, bool clipped)
     if (index <= 0 || index >= m_layers.size()) {
         return;
     }
-    m_layers[index].clipped = clipped;
     if (KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node)) {
-        layer->disableAlphaChannel(clipped);
-        m_layers[index].node->setDirty(QRect(0, 0, m_document->width(), m_document->height()));
+        if (layer->clippingEnabled() != clipped) {
+            // 互斥: 开启剪切蒙版时自动关闭继承透明度
+            if (clipped && layer->alphaChannelDisabled()) {
+                layer->disableAlphaChannel(false);
+                m_layers[index].alphaInherited = false;
+            }
+            pushUndoCommand(new ReverieNodeClippingCommand(
+                KisLayerSP(layer), clipped,
+                kundo2_i18n("Clipping Mask")));
+            m_layers[index].clipped = clipped;
+            recompositeProjection();
+            markDirty();
+        }
     }
-    recompositeProjection();
-    markDirty();
+}
+
+bool ReverieCore::layerAlphaInherited(int index) const
+{
+    if (index < 0 || index >= m_layers.size()) {
+        return false;
+    }
+    if (KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node)) {
+        return layer->alphaChannelDisabled();
+    }
+    return m_layers[index].alphaInherited;
+}
+
+void ReverieCore::setLayerAlphaInherited(int index, bool enable)
+{
+    if (index <= 0 || index >= m_layers.size()) {
+        return;
+    }
+    if (KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node)) {
+        if (layer->alphaChannelDisabled() != enable) {
+            // 互斥: 开启继承透明度时自动关闭剪切蒙版
+            if (enable && layer->clippingEnabled()) {
+                pushUndoCommand(new ReverieNodeClippingCommand(
+                    KisLayerSP(layer), false,
+                    kundo2_i18n("Clipping Mask")));
+                m_layers[index].clipped = false;
+            }
+            layer->disableAlphaChannel(enable);
+            m_layers[index].alphaInherited = enable;
+            recompositeProjection();
+            markDirty();
+        }
+    }
 }
 
 bool ReverieCore::isLayerStroke(int index) const

@@ -1188,6 +1188,9 @@ internal fun LayerDetailPage(
                 OpToggle(R.drawable.ic_clip, stringResource(R.string.layer_op_clip), layer?.clipped == true, enabled = !isBg) {
                     vm.setLayerClipped(index, !(layer?.clipped == true))
                 }
+                OpToggle(R.drawable.ic_alpha_inherit, stringResource(R.string.layer_op_alpha_inherit), layer?.alphaInherited == true, enabled = !isBg) {
+                    vm.setLayerAlphaInherited(index, !(layer?.alphaInherited == true))
+                }
                 OpToggle(R.drawable.ic_sliders, stringResource(R.string.layer_op_pass_through), vm.groupPassThrough(index)) {
                     vm.setGroupPassThrough(index, !vm.groupPassThrough(index))
                 }
@@ -1224,6 +1227,9 @@ internal fun LayerDetailPage(
                 }
                 OpToggle(R.drawable.ic_clip, stringResource(R.string.layer_op_clip), layer?.clipped == true, enabled = !isBg) {
                     vm.setLayerClipped(index, !(layer?.clipped == true))
+                }
+                OpToggle(R.drawable.ic_alpha_inherit, stringResource(R.string.layer_op_alpha_inherit), layer?.alphaInherited == true, enabled = !isBg) {
+                    vm.setLayerAlphaInherited(index, !(layer?.alphaInherited == true))
                 }
                 val canRasterize = isFilterLayer || isFillLayer || (layer != null && layer.nodeType != 0 && !layer.isGroup)
                 if (canRasterize) {
