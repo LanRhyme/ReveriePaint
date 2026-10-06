@@ -90,6 +90,27 @@ object PerfTrace {
     private var drawIdx = 0
     private var drawN = 0
 
+    // presentWait: invalidateFromRender() -> onDraw() 的等待耗时 (UI 线程呈现延迟)
+    private val presentWaitRing = LongArray(RING)
+    private val presentWaitSort = LongArray(RING)
+    private var presentWaitIdx = 0
+    private var presentWaitN = 0
+
+    // frontierErr: 引擎实际绘制前沿 vs 时间窗估计前沿的屏幕像素误差 (px)
+    private val frontierErrRing = FloatArray(RING)
+    private val frontierErrSort = FloatArray(RING)
+    private var frontierErrIdx = 0
+    private var frontierErrN = 0
+
+    // 百分位数计算缓存: 250ms 窗口内复用结果, 避免每次调用重复排序 (移出热路径)
+    private const val PERCENTILE_CACHE_MS = 250L
+    private var presentWaitCacheAtNs = 0L
+    private var presentWaitP50CacheValueMs = 0L
+    private var presentWaitP95CacheValueMs = 0L
+    private var frontierErrCacheAtNs = 0L
+    private var frontierErrP50CacheValuePx = 0f
+    private var frontierErrP95CacheValuePx = 0f
+
     // 上一次保存 (C++ 侧阶段耗时, 单位 ms; 由 revpSaveStats 填入)
     private var saveTotalMs = -1L
     private var saveSnapshotMs = -1L
@@ -252,6 +273,102 @@ object PerfTrace {
         frameRing[frameIdx] = dt
         frameIdx = (frameIdx + 1) % RING
         if (frameN < RING) frameN++
+    }
+
+    /** 记录 invalidateFromRender() 到下一次 onDraw 开始的呈现等待耗时 (纳秒) */
+    @Synchronized
+    fun recordPresentWait(nanos: Long) {
+        if (nanos <= 0L || nanos > 200_000_000L) return
+        presentWaitRing[presentWaitIdx] = nanos
+        presentWaitIdx = (presentWaitIdx + 1) % RING
+        if (presentWaitN < RING) presentWaitN++
+    }
+
+    val presentWaitP50Ms: Long
+        @Synchronized
+        get() {
+            val now = System.nanoTime()
+            if (now - presentWaitCacheAtNs < PERCENTILE_CACHE_MS * 1_000_000L) return presentWaitP50CacheValueMs
+            updatePresentWaitCacheLocked(now)
+            return presentWaitP50CacheValueMs
+        }
+
+    val presentWaitP95Ms: Long
+        @Synchronized
+        get() {
+            val now = System.nanoTime()
+            if (now - presentWaitCacheAtNs < PERCENTILE_CACHE_MS * 1_000_000L) return presentWaitP95CacheValueMs
+            updatePresentWaitCacheLocked(now)
+            return presentWaitP95CacheValueMs
+        }
+
+    private fun updatePresentWaitCacheLocked(now: Long) {
+        presentWaitCacheAtNs = now
+        if (presentWaitN < 5) {
+            presentWaitP50CacheValueMs = 0L
+            presentWaitP95CacheValueMs = 0L
+        } else {
+            presentWaitP50CacheValueMs = (p50Locked(presentWaitRing, presentWaitSort, presentWaitN) / 1e6).toLong()
+            presentWaitP95CacheValueMs = (p95Locked(presentWaitRing, presentWaitSort, presentWaitN) / 1e6).toLong()
+        }
+    }
+
+    /** 记录引擎真实上屏前沿与当前时间窗估计前沿的屏幕像素欧氏距离 (px) */
+    @Synchronized
+    fun recordFrontierError(errPx: Float) {
+        if (!errPx.isFinite() || errPx < 0f || errPx > 5000f) return
+        frontierErrRing[frontierErrIdx] = errPx
+        frontierErrIdx = (frontierErrIdx + 1) % RING
+        if (frontierErrN < RING) frontierErrN++
+    }
+
+    val frontierErrP50Px: Float
+        @Synchronized
+        get() {
+            val now = System.nanoTime()
+            if (now - frontierErrCacheAtNs < PERCENTILE_CACHE_MS * 1_000_000L) return frontierErrP50CacheValuePx
+            updateFrontierErrCacheLocked(now)
+            return frontierErrP50CacheValuePx
+        }
+
+    val frontierErrP95Px: Float
+        @Synchronized
+        get() {
+            val now = System.nanoTime()
+            if (now - frontierErrCacheAtNs < PERCENTILE_CACHE_MS * 1_000_000L) return frontierErrP95CacheValuePx
+            updateFrontierErrCacheLocked(now)
+            return frontierErrP95CacheValuePx
+        }
+
+    private fun updateFrontierErrCacheLocked(now: Long) {
+        frontierErrCacheAtNs = now
+        if (frontierErrN <= 0) {
+            frontierErrP50CacheValuePx = 0f
+            frontierErrP95CacheValuePx = 0f
+        } else {
+            frontierErrP50CacheValuePx = p50LockedFloat(frontierErrRing, frontierErrSort, frontierErrN)
+            frontierErrP95CacheValuePx = p95LockedFloat(frontierErrRing, frontierErrSort, frontierErrN)
+        }
+    }
+
+    @Synchronized
+    fun invalidatePercentileCachesForTest() {
+        presentWaitCacheAtNs = 0L
+        frontierErrCacheAtNs = 0L
+    }
+
+    @Synchronized
+    fun resetForTest() {
+        presentWaitIdx = 0
+        presentWaitN = 0
+        presentWaitCacheAtNs = 0L
+        presentWaitP50CacheValueMs = 0L
+        presentWaitP95CacheValueMs = 0L
+        frontierErrIdx = 0
+        frontierErrN = 0
+        frontierErrCacheAtNs = 0L
+        frontierErrP50CacheValuePx = 0f
+        frontierErrP95CacheValuePx = 0f
     }
 
     /** C++ 侧回报的上一次保存阶段耗时 (见 `revpSaveStats`) */
@@ -724,6 +841,27 @@ object PerfTrace {
         System.arraycopy(src, 0, scratch, 0, n)
         Arrays.sort(scratch, 0, n)
         return scratch[((n - 1) * 95 / 100).coerceIn(0, n - 1)].toDouble()
+    }
+
+    private fun p50Locked(src: LongArray, scratch: LongArray, n: Int): Double {
+        if (n <= 0) return 0.0
+        System.arraycopy(src, 0, scratch, 0, n)
+        Arrays.sort(scratch, 0, n)
+        return scratch[((n - 1) * 50 / 100).coerceIn(0, n - 1)].toDouble()
+    }
+
+    private fun p50LockedFloat(src: FloatArray, scratch: FloatArray, n: Int): Float {
+        if (n <= 0) return 0f
+        System.arraycopy(src, 0, scratch, 0, n)
+        Arrays.sort(scratch, 0, n)
+        return scratch[((n - 1) * 50 / 100).coerceIn(0, n - 1)]
+    }
+
+    private fun p95LockedFloat(src: FloatArray, scratch: FloatArray, n: Int): Float {
+        if (n <= 0) return 0f
+        System.arraycopy(src, 0, scratch, 0, n)
+        Arrays.sort(scratch, 0, n)
+        return scratch[((n - 1) * 95 / 100).coerceIn(0, n - 1)]
     }
 
     /**
