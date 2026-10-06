@@ -31,6 +31,8 @@
 
 本轮构建、原生校验及回归证据位于 `F:\Codex\work\reveriepaint-pattern-refresh\`；真机汇总为 `phone-current-verification.json`，逐项日志为 `pattern/phone-current.log` 和 `onion/phone-current.log`，界面证据为 `pattern/ui-picker-second.png`、`ui-filled.png`、`ui-undo.png`、`ui-redo.png`。临时测试组件已卸载，独立测试应用保留在手机。
 
+提交者随后反馈已完成一轮手动测试，暂未发现异常，未逐项报告所有步骤结果。PR 附有独立复查流程，请其他维护者重点复核导入、跨层区域填充、透明度、撤销重做、保存/回放及洋葱皮，并补充其他设备和历史工程覆盖。
+
 ## 初版验证（2026-10-06，历史记录）
 
 - 完整原生编译通过；运行测试发现 Qt PNG 尺寸预检拒绝有效图片后，改为使用已有 libpng，并重新编译、链接验证通过。更新解码器后的真机回归已于 2026-10-06 完成，结果见下。
