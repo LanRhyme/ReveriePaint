@@ -235,7 +235,9 @@ class StylusDriver(
                 return true
             }
             val name = dev.name.lowercase()
-            if (name.contains("stylus") || name.contains("pen") || name.contains("pencil")) {
+            if (name.contains("stylus") || name.contains("pen") || name.contains("pencil") ||
+                name.contains("nearlink") || name.contains("starflash") || name.contains("星闪")
+            ) {
                 return true
             }
         }

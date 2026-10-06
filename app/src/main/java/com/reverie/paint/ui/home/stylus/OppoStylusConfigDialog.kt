@@ -197,13 +197,15 @@ internal fun OppoStylusConfigDialog(
                     // 触觉微震反馈
                     StylusDialogSectionTitle(stringResource(R.string.stylus_oppo_haptics))
                     StylusDialogCard {
-                        StylusDialogSwitchItem(
-                            title = stringResource(R.string.stylus_oppo_haptics_pen),
-                            summary = stringResource(R.string.stylus_oppo_haptics_pen_desc),
-                            checked = vm.oppoInPenHapticsEnabled,
-                            onCheckedChange = { vm.updateOppoInPenHapticsEnabled(it) },
-                        )
-                        StylusDialogDivider()
+                        if (vm.oppoPencilModel.hasInPenHaptics) {
+                            StylusDialogSwitchItem(
+                                title = stringResource(R.string.stylus_oppo_haptics_pen),
+                                summary = stringResource(R.string.stylus_oppo_haptics_pen_desc),
+                                checked = vm.oppoInPenHapticsEnabled,
+                                onCheckedChange = { vm.updateOppoInPenHapticsEnabled(it) },
+                            )
+                            StylusDialogDivider()
+                        }
                         StylusDialogSwitchItem(
                             title = stringResource(R.string.stylus_oppo_haptics_gesture),
                             summary = stringResource(R.string.stylus_oppo_haptics_gesture_desc),

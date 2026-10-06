@@ -144,40 +144,44 @@ internal fun HonorStylusConfigDialog(
                     }
 
                     // 2. 笔身双击手势
-                    StylusDialogSectionTitle(stringResource(R.string.stylus_honor_double_tap))
-                    StylusDialogCard {
-                        val doubleClickTitle = actionOptions.find { it.second == vm.honorDoubleTapAction }?.first
-                            ?: actionOptions[0].first
-                        StylusDialogDropdownItem(
-                            title = stringResource(R.string.stylus_honor_double_tap_action),
-                            currentText = doubleClickTitle,
-                            options = actionOptions.map { it.first },
-                            onSelect = { idx ->
-                                vm.updateHonorDoubleTapAction(actionOptions[idx].second)
-                            },
-                        )
+                    if (!vm.honorPencilModel.hasPhysicalButton) {
+                        StylusDialogSectionTitle(stringResource(R.string.stylus_honor_double_tap))
+                        StylusDialogCard {
+                            val doubleClickTitle = actionOptions.find { it.second == vm.honorDoubleTapAction }?.first
+                                ?: actionOptions[0].first
+                            StylusDialogDropdownItem(
+                                title = stringResource(R.string.stylus_honor_double_tap_action),
+                                currentText = doubleClickTitle,
+                                options = actionOptions.map { it.first },
+                                onSelect = { idx ->
+                                    vm.updateHonorDoubleTapAction(actionOptions[idx].second)
+                                },
+                            )
+                        }
                     }
 
                     // 3. 物理侧键行为 (折叠屏手写笔 Magic-Pen)
-                    StylusDialogSectionTitle(stringResource(R.string.stylus_honor_side_key))
-                    StylusDialogCard {
-                        StylusDialogSwitchItem(
-                            title = stringResource(R.string.stylus_honor_hold_eraser),
-                            summary = stringResource(R.string.stylus_honor_hold_eraser_desc),
-                            checked = vm.honorSideButtonErase,
-                            onCheckedChange = { vm.updateHonorSideButtonErase(it) },
-                        )
-                        StylusDialogDivider()
-                        val singleClickTitle = actionOptions.find { it.second == vm.honorSingleClickAction }?.first
-                            ?: actionOptions.last().first
-                        StylusDialogDropdownItem(
-                            title = stringResource(R.string.stylus_honor_click_action),
-                            currentText = singleClickTitle,
-                            options = actionOptions.map { it.first },
-                            onSelect = { idx ->
-                                vm.updateHonorSingleClickAction(actionOptions[idx].second)
-                            },
-                        )
+                    if (vm.honorPencilModel.hasPhysicalButton) {
+                        StylusDialogSectionTitle(stringResource(R.string.stylus_honor_side_key))
+                        StylusDialogCard {
+                            StylusDialogSwitchItem(
+                                title = stringResource(R.string.stylus_honor_hold_eraser),
+                                summary = stringResource(R.string.stylus_honor_hold_eraser_desc),
+                                checked = vm.honorSideButtonErase,
+                                onCheckedChange = { vm.updateHonorSideButtonErase(it) },
+                            )
+                            StylusDialogDivider()
+                            val singleClickTitle = actionOptions.find { it.second == vm.honorSingleClickAction }?.first
+                                ?: actionOptions.last().first
+                            StylusDialogDropdownItem(
+                                title = stringResource(R.string.stylus_honor_click_action),
+                                currentText = singleClickTitle,
+                                options = actionOptions.map { it.first },
+                                onSelect = { idx ->
+                                    vm.updateHonorSingleClickAction(actionOptions[idx].second)
+                                },
+                            )
+                        }
                     }
 
                     // 4. 触觉反馈

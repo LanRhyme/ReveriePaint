@@ -158,13 +158,22 @@ class OppoStylusAdapter : StylusBrandAdapter {
             }
         }
 
-        val model = Build.MODEL.lowercase()
-        val device = Build.DEVICE.lowercase()
-        if (model.contains("pro") || device.contains("pro") ||
-            model.contains("opd2401") || model.contains("opd2403") || model.contains("opd2405")
-        ) {
-            return OppoPencilModel.PRO
-        }
+        // 优先检查已连接输入设备名称，避免平板本身代号(如 OnePlus Pad Pro / OPD2401)误判标准版手写笔
+        try {
+            val inputManager = context.getSystemService(Context.INPUT_SERVICE) as? android.hardware.input.InputManager
+            if (inputManager != null) {
+                for (id in inputManager.inputDeviceIds) {
+                    val dev = inputManager.getInputDevice(id) ?: continue
+                    val name = dev.name.lowercase()
+                    if (name.contains("pencil") || name.contains("stylus") || name.contains("pen")) {
+                        if (name.contains("pro") || name.contains("stylo 2") || name.contains("stylo2")) {
+                            return OppoPencilModel.PRO
+                        }
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+
         return OppoPencilModel.STANDARD
     }
 
