@@ -21,6 +21,7 @@ import androidx.compose.ui.graphics.Path
 import com.reverie.paint.BuildConfig
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.core.stylus.FrontBufferProbe
 import com.reverie.paint.core.stylus.UniversalKalmanPredictor
 import com.reverie.paint.model.*
 import com.reverie.paint.ui.theme.parseColor
@@ -1959,11 +1960,13 @@ class CanvasTouchView(context: Context) : View(context) {
         // =========================================================================
         // 1.5 硬件笔尖前向超前预测延伸 (Frontier Twin Stroke Preview)
         // 结合物理历史采样回填滞后空窗 [P_frontier -> P_cur] 与卡尔曼前瞻预测 [P_cur -> P_pred]
-        // 若前缓冲已激活，笔尖预览已在 handleToolMove 中极速直出 (4~8ms)，此处跳过绘制避免双重重绘；
-        // 仅在前缓冲未激活时作为软件回退在 Canvas 上绘制。
+        // 若前缓冲可用，笔尖预览已在 handleToolMove 中直出，此处跳过绘制避免双重重绘；
+        // 仅在前缓冲不可用时 (未挂载, 或渲染器初始化失败) 作为软件回退在 Canvas 上绘制。
+        // 注意: 不能只判 `== null` —— 渲染器初始化失败时 overlay 非空但其 renderPreviewPath
+        // 是静默 no-op, 只判空会形成"开关开着却完全没有预览"的回退空洞。
         // =========================================================================
         var drewPrediction = hasDrawnPrediction
-        if (frontBufferOverlay == null) {
+        if (FrontBufferProbe.softwareFallbackRequired(frontBufferOverlay != null, frontBufferOverlay?.canRenderPreview == true)) {
             val predPt = predictedScreenPoint
             val curPos = localCursorPos
             val fidelityTier = v.currentBrushPredictionTier
@@ -4331,19 +4334,29 @@ class CanvasTouchView(context: Context) : View(context) {
                         predictedScreenPoint = null
                     }
 
-                    // 3. 硬件前缓冲直出 (Phase B0): 捕获到移动事件并计算好最新笔尖前沿后，立即硬件级直出，绕过 VSYNC
-                    if (frontBufferOverlay != null && pointerIndex in 0 until event.pointerCount) {
+                    // 3. 前缓冲直出: 捕获到移动事件并计算好最新笔尖前沿后立即直出, 绕过 VSYNC。
+                    // 门控与 onDraw 软件回退互补 (canRenderPreview 为 false 时由软件回退接管,
+                    // 见 FrontBufferProbe.softwareFallbackRequired): 渲染器初始化失败时不能在此
+                    // 置 drew=true, 否则直出与回退两边都不画。
+                    if (frontBufferOverlay?.canRenderPreview == true && pointerIndex in 0 until event.pointerCount) {
                         val curX = event.getX(pointerIndex)
                         val curY = event.getY(pointerIndex)
                         val curPos = Offset(curX, curY)
                         var drew = false
                         if (predictedScreenPoint != null && computePreviewStrokePath(curPos, previewStrokePath)) {
-                            frontBufferOverlay?.renderPreviewPath(previewStrokePath, previewStrokeWidth, previewStrokeColor)
-                            drew = true
-                            activePredictedTipScreenX = previewTipEndX
-                            activePredictedTipScreenY = previewTipEndY
-                            hasActivePredictedTip = true
-                        } else {
+                            // 前缓冲层位于窗口 z 序最顶层 (setZOrderOnTop): 笔尖或前瞻端点落在
+                            // 工具栏/浮窗等 UI 区域上时跳过绘制, 避免预览墨迹盖在 UI 之上
+                            val overUi = isHoverOverUi(curX, curY) ||
+                                isHoverOverUi(previewTipEndX, previewTipEndY)
+                            if (!overUi) {
+                                frontBufferOverlay?.renderPreviewPath(previewStrokePath, previewStrokeWidth, previewStrokeColor)
+                                drew = true
+                                activePredictedTipScreenX = previewTipEndX
+                                activePredictedTipScreenY = previewTipEndY
+                                hasActivePredictedTip = true
+                            }
+                        }
+                        if (!drew) {
                             if (hasActivePredictedTip || hasDrawnPrediction) {
                                 frontBufferOverlay?.clearPreview()
                             }

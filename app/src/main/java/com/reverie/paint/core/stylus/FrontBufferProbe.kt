@@ -37,6 +37,22 @@ object FrontBufferProbe {
     }
 
     /**
+     * 判断笔尖预览是否必须走软件回退 (in-window Canvas 绘制)。
+     *
+     * 回退空洞修复: [CanvasTouchView] 中"是否绘制软件回退预览"与"是否走前缓冲直出"
+     * 两个门控必须严格互补 —— 只判 overlay 对象是否为空是不够的, 因为 overlay 存在
+     * 但渲染器初始化失败 (`canRenderPreview == false`) 时, 直出调用是静默 no-op,
+     * 若此时不再回退软件绘制, 开启开关后会"完全没有预览"。
+     *
+     * @param overlayPresent 前缓冲覆盖层是否已挂载
+     * @param canRenderPreview 覆盖层渲染器是否真正可用 ([FrontBufferPreviewOverlay.canRenderPreview])
+     * @return true 表示必须在 onDraw 中用软件路径绘制预览
+     */
+    fun softwareFallbackRequired(overlayPresent: Boolean, canRenderPreview: Boolean): Boolean {
+        return !overlayPresent || !canRenderPreview
+    }
+
+    /**
      * 获取详细诊断信息字符串 (供 Debug / 性能日志使用)。
      */
     fun getDiagnosticSummary(): String {

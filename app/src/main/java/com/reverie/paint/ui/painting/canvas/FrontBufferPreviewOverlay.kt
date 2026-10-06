@@ -49,6 +49,16 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
     private var isRendererInitialized = false
     private var hasContent = false
 
+    /**
+     * 前缓冲渲染器是否真正可用。
+     *
+     * [CanvasTouchView] 用它做"回退空洞"判定: overlay 对象存在但渲染器初始化失败
+     * (探针不满足 / 构造抛异常) 时, `renderPreviewPath` 会静默 no-op, 此时必须让
+     * 软件回退路径接管绘制, 否则开启开关后反而完全没有预览。
+     */
+    val canRenderPreview: Boolean
+        get() = isRendererInitialized
+
     // 热路径零分配：预分配 8 个槽位的路径包环形缓冲与全局单例 clearPacket
     private val packetPool = Array(POOL_SIZE) { FrontBufferPathPacket(Path()) }
     private var poolIndex = 0
