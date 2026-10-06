@@ -1585,6 +1585,7 @@
     <string name="stylus_huawei_features">Body double-tap, side button mappings &amp; NearLink/Bluetooth pressure</string>
     <string name="stylus_honor_features">Double-tap gestures, foldable pen side key, and haptic vibration feedback</string>
     <string name="stylus_samsung_features">Side button mappings &amp; haptic feedback config</string>
+    <string name="stylus_xiaomi_features">Writing, screenshot and focus button mapping, hold-to-erase and tactile feedback</string>
     <string name="stylus_generic_features">Standard Android pressure and tilt protocol</string>
     <string name="stylus_cursor_mode_none">Hidden</string>
     <string name="stylus_cursor_mode_drawing">While Painting</string>
@@ -1647,6 +1648,33 @@
     <string name="stylus_samsung_double_click_action">Double Click Action</string>
     <string name="stylus_samsung_long_press_action">Long Press Action</string>
     <string name="stylus_samsung_hint">Tip: If side button does not respond, open Samsung Settings -> Advanced Features -> S Pen and disable Air Command button trigger</string>
+
+    <!-- Xiaomi Stylus -->
+    <string name="stylus_xiaomi_title">Xiaomi Stylus Settings</string>
+    <string name="stylus_xiaomi_model">Stylus Hardware Model</string>
+    <string name="stylus_xiaomi_auto_model">Auto Detect (%s)</string>
+    <string name="stylus_xiaomi_focus_model">Xiaomi Focus Pen</string>
+    <string name="stylus_xiaomi_smart2_model">Xiaomi Smart Pen (2nd Gen)</string>
+    <string name="stylus_xiaomi_smart1_model">Xiaomi Smart Pen (1st Gen)</string>
+    <string name="stylus_xiaomi_side_key">Side Button Behavior</string>
+    <string name="stylus_xiaomi_hold_eraser">Hold Side Button to Erase</string>
+    <string name="stylus_xiaomi_hold_eraser_desc">Xiaomi Notes semantics: Hold primary or secondary button while drawing to temporarily switch to eraser</string>
+    <string name="stylus_xiaomi_key_mapping">Button Actions</string>
+    <string name="stylus_xiaomi_primary_action">Primary (Writing) Button Click</string>
+    <string name="stylus_xiaomi_double_tap_action">Primary Button Double Click</string>
+    <string name="stylus_xiaomi_secondary_action">Secondary (Screenshot) Button Click</string>
+    <string name="stylus_xiaomi_focus_action">Focus Button Click (Focus Pen)</string>
+    <string name="stylus_xiaomi_hint">Tip: If stylus buttons do not respond, check stylus shortcut settings in HyperOS system settings</string>
+
+    <!-- Generic Stylus -->
+    <string name="stylus_generic_title">Generic Stylus Settings</string>
+    <string name="stylus_generic_key_mapping">Button Actions</string>
+    <string name="stylus_generic_primary_action">Primary Button (Barrel 1)</string>
+    <string name="stylus_generic_secondary_action">Secondary Button (Barrel 2 / Tail)</string>
+    <string name="stylus_generic_hold_eraser">Hold Side Button to Erase</string>
+    <string name="stylus_generic_hold_eraser_desc">Hold barrel button while contacting screen to temporarily switch to eraser</string>
+    <string name="stylus_generic_physical_eraser">Physical Eraser Tip (TOOL_TYPE_ERASER)</string>
+    <string name="stylus_generic_physical_eraser_desc">Supports styluses with physical eraser tail (e.g. Staedtler Noris Digital, Surface Pen, Wacom EMR) flip-to-erase</string>
 
     <!-- HUAWEI M-Pencil -->
     <string name="stylus_huawei_title">HUAWEI M-Pencil Settings</string>

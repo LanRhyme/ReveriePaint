@@ -50,6 +50,12 @@ class StylusModelsTest {
         assertTrue("Honor should support double tap", honor?.subtitle?.contains("双击") == true)
         assertTrue("Honor should support side key", honor?.subtitle?.contains("侧键") == true)
         assertTrue("Honor should support haptics", honor?.subtitle?.contains("触感") == true)
+
+        val xiaomi = brands.firstOrNull { it == StylusBrand.XIAOMI_STYLUS }
+        assertNotNull("Xiaomi brand defined", xiaomi)
+        assertEquals("小米灵感 / 焦点触控笔", xiaomi?.displayName)
+        assertTrue("Xiaomi should support writing/focus keys", xiaomi?.subtitle?.contains("按键") == true)
+        assertTrue("Xiaomi should support double click", xiaomi?.subtitle?.contains("双击") == true)
     }
 
     @Test
@@ -142,5 +148,28 @@ class StylusModelsTest {
         assertEquals(StylusAudioType.INK_PEN, StylusAudioType.fromOrdinal(1))
         assertEquals(StylusAudioType.SOFT_TICK, StylusAudioType.fromOrdinal(2))
         assertEquals(StylusAudioType.PENCIL, StylusAudioType.fromOrdinal(999))
+    }
+
+    @Test
+    fun `xiaomi pencil models correctly specified`() {
+        val models = com.reverie.paint.core.stylus.XiaomiPencilModel.entries
+        assertEquals(3, models.size)
+
+        val focus = com.reverie.paint.core.stylus.XiaomiPencilModel.FOCUS_PEN
+        assertEquals(8192, focus.maxPressure)
+        assertTrue("Focus pen has focus key", focus.hasFocusKey)
+        assertEquals("焦点触控笔", focus.editionName)
+
+        val gen2 = com.reverie.paint.core.stylus.XiaomiPencilModel.SMART_PEN_2
+        assertEquals(4096, gen2.maxPressure)
+        assertFalse(gen2.hasFocusKey)
+
+        val gen1 = com.reverie.paint.core.stylus.XiaomiPencilModel.SMART_PEN_1
+        assertEquals(4096, gen1.maxPressure)
+        assertFalse(gen1.hasFocusKey)
+
+        assertEquals(focus, com.reverie.paint.core.stylus.XiaomiPencilModel.fromKey("FOCUS"))
+        assertEquals(gen2, com.reverie.paint.core.stylus.XiaomiPencilModel.fromKey("SMART_PEN_2"))
+        assertEquals(gen1, com.reverie.paint.core.stylus.XiaomiPencilModel.fromKey("GEN1"))
     }
 }

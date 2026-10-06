@@ -26,6 +26,7 @@ class StylusDriver(
         HuaweiStylusAdapter(),
         HonorStylusAdapter(),
         SamsungStylusAdapter(),
+        XiaomiStylusAdapter(),
         GenericStylusAdapter(),
     )
 
@@ -102,6 +103,10 @@ class StylusDriver(
         return getAdapter<HonorStylusAdapter>()?.detectModel(context) ?: HonorPencilModel.MAGIC_PENCIL_3
     }
 
+    fun detectXiaomiPencilModel(): XiaomiPencilModel {
+        return getAdapter<XiaomiStylusAdapter>()?.detectModel(context) ?: XiaomiPencilModel.SMART_PEN_2
+    }
+
     /**
      * Detects brand styluses and sorts them so the connected/supported stylus is pinned on top.
      */
@@ -175,11 +180,15 @@ class StylusDriver(
             StylusBrand.HUAWEI_MPENCIL -> vm.huaweiSideButtonErase
             StylusBrand.HONOR_MAGIC_PENCIL -> vm.honorSideButtonErase
             StylusBrand.SAMSUNG_SPEN -> vm.samsungSideButtonErase
-            else -> vm.huaweiSideButtonErase || vm.honorSideButtonErase || vm.samsungSideButtonErase
+            StylusBrand.XIAOMI_STYLUS -> vm.xiaomiSideButtonErase
+            StylusBrand.GENERIC -> vm.genericSideButtonErase
+            else -> vm.huaweiSideButtonErase || vm.honorSideButtonErase || vm.samsungSideButtonErase || vm.xiaomiSideButtonErase || vm.genericSideButtonErase
         }
         if (!eraseAllowed) return false
         val btn = event.buttonState
         return (btn and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0 ||
+                (btn and MotionEvent.BUTTON_PRIMARY) != 0 ||
+                (btn and MotionEvent.BUTTON_STYLUS_SECONDARY) != 0 ||
                 (btn and MotionEvent.BUTTON_SECONDARY) != 0
     }
 
@@ -241,6 +250,7 @@ class StylusDriver(
         }
         val actionId = when (detected?.brand) {
             StylusBrand.SAMSUNG_SPEN -> vm.samsungDoubleClickAction
+            StylusBrand.XIAOMI_STYLUS -> vm.xiaomiDoubleTapAction
             else -> vm.oppoDoubleTapAction
         }
         if (actionId.trim().equals("none", ignoreCase = true)) return false
@@ -260,6 +270,8 @@ class StylusDriver(
         }
         val actionId = when (detected?.brand) {
             StylusBrand.SAMSUNG_SPEN -> vm.samsungSingleClickAction
+            StylusBrand.XIAOMI_STYLUS -> vm.xiaomiPrimaryButtonAction
+            StylusBrand.GENERIC -> vm.genericPrimaryButtonAction
             else -> vm.oppoDoubleTapAction
         }
         if (actionId.trim().equals("none", ignoreCase = true)) return false

@@ -1517,6 +1517,28 @@ class PaintViewModel : ViewModel() {
     var honorSideButtonErase by mutableStateOf(true)
     var honorHapticsEnabled by mutableStateOf(true)
 
+    // 小米 (Xiaomi) 触控笔适配参数
+    var xiaomiPencilModelMode by mutableStateOf("AUTO") // "AUTO", "FOCUS_PEN", "SMART_PEN_2", "SMART_PEN_1"
+    val detectedXiaomiPencilModel: com.reverie.paint.core.stylus.XiaomiPencilModel
+        get() = stylusDriver?.detectXiaomiPencilModel() ?: com.reverie.paint.core.stylus.XiaomiPencilModel.SMART_PEN_2
+    val xiaomiPencilModel: com.reverie.paint.core.stylus.XiaomiPencilModel
+        get() = when (xiaomiPencilModelMode) {
+            "FOCUS_PEN" -> com.reverie.paint.core.stylus.XiaomiPencilModel.FOCUS_PEN
+            "SMART_PEN_2" -> com.reverie.paint.core.stylus.XiaomiPencilModel.SMART_PEN_2
+            "SMART_PEN_1" -> com.reverie.paint.core.stylus.XiaomiPencilModel.SMART_PEN_1
+            else -> detectedXiaomiPencilModel
+        }
+    var xiaomiPrimaryButtonAction by mutableStateOf("toggle_eraser")
+    var xiaomiSecondaryButtonAction by mutableStateOf("tool_picker")
+    var xiaomiFocusButtonAction by mutableStateOf("toggle_last_tool")
+    var xiaomiDoubleTapAction by mutableStateOf("toggle_eraser")
+    var xiaomiSideButtonErase by mutableStateOf(true)
+
+    // 通用 (Generic) 手写笔适配参数
+    var genericPrimaryButtonAction by mutableStateOf("toggle_eraser")
+    var genericSecondaryButtonAction by mutableStateOf("undo")
+    var genericSideButtonErase by mutableStateOf(true)
+
     // 触控预测与输入延迟优化
     var motionPredictorEnabled by mutableStateOf(true)
 
@@ -2326,6 +2348,78 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun updateXiaomiPencilModelMode(mode: String) {
+        xiaomiPencilModelMode = mode
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("xiaomiPencilModelMode", mode).apply()
+        }
+    }
+
+    fun updateXiaomiPrimaryButtonAction(actionId: String) {
+        xiaomiPrimaryButtonAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("xiaomiPrimaryButtonAction", actionId).apply()
+        }
+    }
+
+    fun updateXiaomiSecondaryButtonAction(actionId: String) {
+        xiaomiSecondaryButtonAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("xiaomiSecondaryButtonAction", actionId).apply()
+        }
+    }
+
+    fun updateXiaomiFocusButtonAction(actionId: String) {
+        xiaomiFocusButtonAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("xiaomiFocusButtonAction", actionId).apply()
+        }
+    }
+
+    fun updateXiaomiDoubleTapAction(actionId: String) {
+        xiaomiDoubleTapAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("xiaomiDoubleTapAction", actionId).apply()
+        }
+    }
+
+    fun updateXiaomiSideButtonErase(enabled: Boolean) {
+        xiaomiSideButtonErase = enabled
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("xiaomiSideButtonErase", enabled).apply()
+        }
+    }
+
+    fun updateGenericPrimaryButtonAction(actionId: String) {
+        genericPrimaryButtonAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("genericPrimaryButtonAction", actionId).apply()
+        }
+    }
+
+    fun updateGenericSecondaryButtonAction(actionId: String) {
+        genericSecondaryButtonAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("genericSecondaryButtonAction", actionId).apply()
+        }
+    }
+
+    fun updateGenericSideButtonErase(enabled: Boolean) {
+        genericSideButtonErase = enabled
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("genericSideButtonErase", enabled).apply()
+        }
+    }
+
     fun executeStylusAction(action: com.reverie.paint.core.stylus.StylusAction) {
         if (action == com.reverie.paint.core.stylus.StylusAction.NONE) return
         executeShortcutAction(action.actionId)
@@ -2756,6 +2850,15 @@ class PaintViewModel : ViewModel() {
             honorSingleClickAction = prefs.getString("honorSingleClickAction", "none") ?: "none"
             honorSideButtonErase = prefs.getBoolean("honorSideButtonErase", true)
             honorHapticsEnabled = prefs.getBoolean("honorHapticsEnabled", true)
+            xiaomiPencilModelMode = prefs.getString("xiaomiPencilModelMode", "AUTO") ?: "AUTO"
+            xiaomiPrimaryButtonAction = prefs.getString("xiaomiPrimaryButtonAction", "toggle_eraser") ?: "toggle_eraser"
+            xiaomiSecondaryButtonAction = prefs.getString("xiaomiSecondaryButtonAction", "tool_picker") ?: "tool_picker"
+            xiaomiFocusButtonAction = prefs.getString("xiaomiFocusButtonAction", "toggle_last_tool") ?: "toggle_last_tool"
+            xiaomiDoubleTapAction = prefs.getString("xiaomiDoubleTapAction", "toggle_eraser") ?: "toggle_eraser"
+            xiaomiSideButtonErase = prefs.getBoolean("xiaomiSideButtonErase", true)
+            genericPrimaryButtonAction = prefs.getString("genericPrimaryButtonAction", "toggle_eraser") ?: "toggle_eraser"
+            genericSecondaryButtonAction = prefs.getString("genericSecondaryButtonAction", "undo") ?: "undo"
+            genericSideButtonErase = prefs.getBoolean("genericSideButtonErase", true)
             gestureTwoFingerUndo = prefs.getBoolean("gestureTwoFingerUndo", true)
             gestureThreeFingerRedo = prefs.getBoolean("gestureThreeFingerRedo", true)
             gestureThreeFingerEditMenu = prefs.getBoolean("gestureThreeFingerEditMenu", true)

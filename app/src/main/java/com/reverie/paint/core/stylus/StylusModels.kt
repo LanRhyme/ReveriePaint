@@ -9,6 +9,7 @@ enum class StylusBrand(val displayName: String, val subtitle: String) {
     HUAWEI_MPENCIL("HUAWEI M-Pencil", "适配笔身双击、星闪低延迟、物理侧键映射与触感联动"),
     HONOR_MAGIC_PENCIL("荣耀 Magic-Pencil", "适配笔身双击、折叠屏侧键、微震触感与防误触"),
     SAMSUNG_SPEN("三星 S Pen", "适配侧键单击/双击/长按、悬空指令与触觉反馈"),
+    XIAOMI_STYLUS("小米灵感 / 焦点触控笔", "适配书写键/焦点键、物理双按键映射、双击切工具与触感反馈"),
     GENERIC("通用触控手写笔", "标准 Android 压感、倾角检测与防误触"),
 }
 
@@ -181,6 +182,46 @@ enum class HonorPencilModel(
                 key.contains("MAGIC_PENCIL_3", ignoreCase = true) || key.contains("GEN3", ignoreCase = true) -> MAGIC_PENCIL_3
                 key.contains("MAGIC_PEN", ignoreCase = true) || key.contains("FOLD", ignoreCase = true) -> MAGIC_PEN
                 else -> MAGIC_PENCIL_3
+            }
+        }
+    }
+}
+
+enum class XiaomiPencilModel(
+    val displayName: String,
+    val editionName: String,
+    val maxPressure: Int,
+    val hasFocusKey: Boolean,
+    val desc: String,
+) {
+    FOCUS_PEN(
+        displayName = "小米焦点触控笔 (Xiaomi Focus Pen)",
+        editionName = "焦点触控笔",
+        maxPressure = 8192,
+        hasFocusKey = true,
+        desc = "8192级超高压感 · 独立多功能焦点键 · 物理书写/截图双按键 · 极低时延与触感联动",
+    ),
+    SMART_PEN_2(
+        displayName = "小米灵感触控笔 (第二代)",
+        editionName = "第二代",
+        maxPressure = 4096,
+        hasFocusKey = false,
+        desc = "4096级高精度压感 · 物理主/副双侧键 · 磁吸无线快充",
+    ),
+    SMART_PEN_1(
+        displayName = "小米灵感触控笔 (第一代)",
+        editionName = "第一代",
+        maxPressure = 4096,
+        hasFocusKey = false,
+        desc = "4096级标准压感 · 物理双按键 · 基础手写与触控适配",
+    );
+
+    companion object {
+        fun fromKey(key: String): XiaomiPencilModel {
+            return when {
+                key.contains("FOCUS", ignoreCase = true) -> FOCUS_PEN
+                key.contains("1", ignoreCase = true) || key.contains("GEN1", ignoreCase = true) -> SMART_PEN_1
+                else -> SMART_PEN_2
             }
         }
     }
