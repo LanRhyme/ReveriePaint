@@ -2826,6 +2826,8 @@ class PaintViewModel : ViewModel() {
 
     fun syncSettingsFromPrefs() {
         if (::appContext.isInitialized) {
+            // Toolbar choices must restore even when no brush parameter cache has been saved yet.
+            loadPinnedTools()
             val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
             anim.manualKeyframes = prefs.getBoolean(ANIMATION_MANUAL_KEYFRAMES_PREF, false)
             // 性能标尺: 设置项(仅 debug 构建有该入口, 见 PerfHud)或 setprop 任一为真即为开。
