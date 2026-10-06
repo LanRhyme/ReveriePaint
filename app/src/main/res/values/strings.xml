@@ -1585,6 +1585,7 @@
     <string name="stylus_huawei_features">笔身双击、侧键动作映射与星闪/蓝牙压感适配</string>
     <string name="stylus_honor_features">笔身双击、折叠屏侧键与触感微震专属配置</string>
     <string name="stylus_samsung_features">侧键动作映射与触觉微震专属配置</string>
+    <string name="stylus_xiaomi_features">书写键、截图键与焦点键自定义，按住切换橡皮与手感优化</string>
     <string name="stylus_generic_features">标准 Android 压感与倾角触控协议</string>
     <string name="stylus_cursor_mode_none">不显示</string>
     <string name="stylus_cursor_mode_drawing">绘画时显示</string>
@@ -1616,6 +1617,7 @@
     <string name="stylus_curve_i_know">我知道了</string>
     <string name="stylus_gesture_and_keys">手势与按键映射</string>
     <string name="stylus_oppo_auto_model">自动识别 (%s)</string>
+    <string name="stylus_oppo_pro_model">Pro 版手写笔 (OPPO Pencil 2 Pro / OnePlus Stylo 2)</string>
     <string name="stylus_oppo_standard_model">标准版手写笔 (无触控条)</string>
     <string name="stylus_oppo_title">OPPO / 一加手写笔专属设置</string>
     <string name="stylus_oppo_model">设备型号</string>
@@ -1647,6 +1649,45 @@
     <string name="stylus_samsung_double_click_action">侧键双击动作</string>
     <string name="stylus_samsung_long_press_action">侧键长按动作</string>
     <string name="stylus_samsung_hint">提示：若侧键在绘画中未响应，请前往三星系统设置 -> 高级功能 -> S Pen，关闭“使用画笔按钮打开浮空指令”以允许绘图应用接收按键事件</string>
+
+    <!-- 小米灵感 / 焦点触控笔 -->
+    <string name="stylus_xiaomi_title">小米触控笔专属设置</string>
+    <string name="stylus_xiaomi_model">手写笔硬件型号</string>
+    <string name="stylus_xiaomi_auto_model">自动匹配 (%s)</string>
+    <string name="stylus_xiaomi_focus_pro_model">小米焦点触控笔 Pro (Xiaomi Focus Pen Pro)</string>
+    <string name="stylus_xiaomi_focus_model">小米焦点触控笔 (Xiaomi Focus Pen)</string>
+    <string name="stylus_xiaomi_smart2_model">小米灵感触控笔 (第二代)</string>
+    <string name="stylus_xiaomi_smart1_model">小米灵感触控笔 (第一代)</string>
+    <string name="stylus_xiaomi_press_16k">16384级超高压感</string>
+    <string name="stylus_xiaomi_press_8k">8192级超高压感</string>
+    <string name="stylus_xiaomi_press_4k">4096级压感</string>
+    <string name="stylus_xiaomi_gestures">触控手势映射</string>
+    <string name="stylus_xiaomi_squeeze_action">笔身轻捏动作 (Squeeze)</string>
+    <string name="stylus_xiaomi_slide_action">笔身触控滑动动作</string>
+    <string name="stylus_xiaomi_slide_sens">滑动灵敏度</string>
+    <string name="stylus_xiaomi_haptics">触感反馈与微震</string>
+    <string name="stylus_xiaomi_haptics_pen">笔身书写微震</string>
+    <string name="stylus_xiaomi_haptics_pen_desc">激活手写笔内置超线性微马达，落笔时提供真实沙沙纸感反馈</string>
+    <string name="stylus_xiaomi_side_key">侧键行为</string>
+    <string name="stylus_xiaomi_hold_eraser">按住侧键切换橡皮</string>
+    <string name="stylus_xiaomi_hold_eraser_desc">小米笔记标准语义：按住书写键或副键落笔，该笔画临时变为橡皮，抬起恢复原工具</string>
+    <string name="stylus_xiaomi_key_mapping">按键动作映射</string>
+    <string name="stylus_xiaomi_primary_action">主键 (书写键) 单击</string>
+    <string name="stylus_xiaomi_double_tap_action">主键 (书写键) 双击</string>
+    <string name="stylus_xiaomi_secondary_action">副键 (截图键) 单击</string>
+    <string name="stylus_xiaomi_focus_action">焦点键单击 (焦点笔专属)</string>
+    <string name="stylus_xiaomi_hint">提示：若按键未响应，请检查系统设置 -> 触控笔中是否开启快捷功能，并在 HyperOS 允许应用使用手写笔快捷键</string>
+
+    <!-- 通用触控手写笔 -->
+    <string name="stylus_generic_title">通用触控手写笔设置</string>
+    <string name="stylus_generic_side_key">侧键行为</string>
+    <string name="stylus_generic_key_mapping">按键动作映射</string>
+    <string name="stylus_generic_primary_action">主按键 (Barrel 1)</string>
+    <string name="stylus_generic_secondary_action">副按键 / 尾部按键 (Barrel 2 / Tail)</string>
+    <string name="stylus_generic_hold_eraser">按住侧键切换橡皮</string>
+    <string name="stylus_generic_hold_eraser_desc">按住侧键接触屏幕时临时作为橡皮擦擦除，抬起后恢复原画笔</string>
+    <string name="stylus_generic_physical_eraser">物理橡皮末端 (TOOL_TYPE_ERASER)</string>
+    <string name="stylus_generic_physical_eraser_desc">支持带有物理橡皮擦末端的手写笔（如施德楼 Noris Digital、Surface Pen、Wacom EMR 笔尾）倒转直接擦除</string>
 
     <!-- HUAWEI M-Pencil -->
     <string name="stylus_huawei_title">HUAWEI M-Pencil 专属设置</string>
@@ -2300,5 +2341,24 @@
     <string name="pattern_use_color">改用前景色</string>
     <string name="pattern_layer_choose">选择填充图案</string>
     <string name="pattern_opacity">图案不透明度</string>
+
+    <!-- 帧转图层 -->
+    <string name="f2l_menu">帧转图层</string>
+    <string name="f2l_toast_done">已拆出 %1$d 个图层</string>
+    <string name="f2l_toast_partial">已拆出 %1$d 个图层后中止</string>
+    <string name="f2l_reject_no_frames">没有可拆的帧</string>
+    <string name="f2l_reject_too_many">一次最多拆 %1$d 帧</string>
+    <string name="f2l_reject_not_animatable">该轨道不是位图图层，取不到画面</string>
+    <string name="f2l_reject_locked">该轨道已锁定</string>
+    <string name="f2l_reject_addgroup">新建图层组失败，已中止</string>
+    <string name="f2l_reject_alloc">无法分配中转画布</string>
+    <string name="f2l_reject_render">第 %1$d 帧取画面失败，已中止（可撤销）</string>
+    <string name="f2l_reject_addlayer">新建图层失败，已中止（可撤销）</string>
+    <string name="f2l_reject_write">第 %1$d 帧写入图层失败，已中止（可撤销）</string>
+    <string name="f2l_group">帧转图层 %1$d</string>
+    <string name="tl_collapse_group">折叠该组</string>
+    <string name="tl_expand_group">展开该组</string>
+    <string name="f2l_progress">正在拆分 %1$d / %2$d</string>
+    <string name="f2l_running">拆分中…</string>
 </resources>
 

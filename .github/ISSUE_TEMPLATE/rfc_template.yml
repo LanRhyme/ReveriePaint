@@ -1,0 +1,55 @@
+name: 架构变更与设计提案 (RFC / Architecture Proposal)
+description: 提交重大功能变更、JNI/C++ 引擎调整、核心架构重构或预期 >200 行代码的轻量 RFC 提案
+title: "[RFC] "
+labels: ["type: rfc", "status: under-review"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        按照项目贡献规范，对预期改动超过 200 行、调整 JNI 边界、变更核心调度模型或新增工具模块的变更，请在动手前提交此 RFC 与维护者确认方案
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 背景与动机 (Motivation)
+      description: 阐明本次改动要解决的核心痛点、目标场景以及为什么现有架构不足以支持
+      placeholder: "请说明当前面临的问题或架构局限"
+    validations:
+      required: true
+
+  - type: textarea
+    id: design
+    attributes:
+      label: 详细技术方案 (Detailed Design)
+      description: 包含模块职责划分、关键接口定义、数据结构流转以及对 C++ 引擎或 JNI 边界的影响评估
+      placeholder: "请列出核心类/方法设计、调用时序及状态机设计"
+    validations:
+      required: true
+
+  - type: textarea
+    id: impact
+    attributes:
+      label: 架构影响与风险评估 (Impact & Risk)
+      description: 评估对渲染性能、双缓冲、录制回放兼容性、内存分配或线程调度的潜在影响
+      placeholder: "请评估可能带来的性能或稳定性风险，以及对应防护措施"
+    validations:
+      required: true
+
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: 备选方案或权衡考虑 (Alternatives Considered)
+      description: 是否考虑过其他技术路径，为何最终选择此方案
+      placeholder: "简述其他考虑过的设计及否决理由"
+    validations:
+      required: false
+
+  - type: checkboxes
+    id: checklist
+    attributes:
+      label: 提案确认 (Checklist)
+      options:
+        - label: 我已通读 AGENTS.md 架构约束并确认设计未违背引擎铁律
+          required: true
+        - label: 我已知晓重大特性须在 RFC 达成共识后方可开展编码实现
+          required: true

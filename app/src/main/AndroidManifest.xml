@@ -130,6 +130,10 @@
                 <action android:name="huawei.intent.action.STYLUS_BUTTON_CLICK" />
                 <action android:name="com.huawei.stylus.action.BUTTON_CLICK" />
                 <action android:name="com.huawei.stylus.action.BUTTON_PRESSED" />
+                <action android:name="com.huawei.action.STYLUS_DOUBLE_CLICK" />
+                <action android:name="huawei.intent.action.STYLUS_DOUBLE_CLICK" />
+                <action android:name="com.huawei.pencil.action.DOUBLE_CLICK" />
+                <action android:name="com.huawei.nearlink.action.STYLUS_DOUBLE_CLICK" />
             </intent-filter>
         </receiver>
         <receiver

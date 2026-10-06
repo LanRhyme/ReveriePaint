@@ -148,48 +148,52 @@ internal fun HuaweiStylusConfigDialog(
                     }
 
                     // 2. 笔身双击手势
-                    StylusDialogSectionTitle(stringResource(R.string.stylus_huawei_double_tap))
-                    StylusDialogCard {
-                        val doubleClickTitle = actionOptions.find { it.second == vm.huaweiDoubleTapAction }?.first ?: actionOptions[0].first
-                        StylusDialogDropdownItem(
-                            title = stringResource(R.string.stylus_huawei_double_tap_action),
-                            currentText = doubleClickTitle,
-                            options = actionOptions.map { it.first },
-                            onSelect = { idx ->
-                                vm.updateHuaweiDoubleTapAction(actionOptions[idx].second)
-                            },
-                        )
+                    if (vm.huaweiPencilModel.hasDoubleTap) {
+                        StylusDialogSectionTitle(stringResource(R.string.stylus_huawei_double_tap))
+                        StylusDialogCard {
+                            val doubleClickTitle = actionOptions.find { it.second == vm.huaweiDoubleTapAction }?.first ?: actionOptions[0].first
+                            StylusDialogDropdownItem(
+                                title = stringResource(R.string.stylus_huawei_double_tap_action),
+                                currentText = doubleClickTitle,
+                                options = actionOptions.map { it.first },
+                                onSelect = { idx ->
+                                    vm.updateHuaweiDoubleTapAction(actionOptions[idx].second)
+                                },
+                            )
+                        }
                     }
 
-                    // 3. 物理侧键行为
-                    StylusDialogSectionTitle(stringResource(R.string.stylus_huawei_side_key))
-                    StylusDialogCard {
-                        StylusDialogSwitchItem(
-                            title = stringResource(R.string.stylus_huawei_hold_eraser),
-                            summary = stringResource(R.string.stylus_huawei_hold_eraser_desc),
-                            checked = vm.huaweiSideButtonErase,
-                            onCheckedChange = { vm.updateHuaweiSideButtonErase(it) },
-                        )
-                        StylusDialogDivider()
-                        val singleClickTitle = actionOptions.find { it.second == vm.huaweiSingleClickAction }?.first ?: actionOptions.last().first
-                        StylusDialogDropdownItem(
-                            title = stringResource(R.string.stylus_huawei_click_action),
-                            currentText = singleClickTitle,
-                            options = actionOptions.map { it.first },
-                            onSelect = { idx ->
-                                vm.updateHuaweiSingleClickAction(actionOptions[idx].second)
-                            },
-                        )
-                        StylusDialogDivider()
-                        val longPressTitle = actionOptions.find { it.second == vm.huaweiLongPressAction }?.first ?: actionOptions[5].first
-                        StylusDialogDropdownItem(
-                            title = stringResource(R.string.stylus_huawei_long_press_action),
-                            currentText = longPressTitle,
-                            options = actionOptions.map { it.first },
-                            onSelect = { idx ->
-                                vm.updateHuaweiLongPressAction(actionOptions[idx].second)
-                            },
-                        )
+                    // 3. 物理侧键行为 (仅第一代 / M-Pen 具备物理实体按键)
+                    if (!vm.huaweiPencilModel.hasDoubleTap) {
+                        StylusDialogSectionTitle(stringResource(R.string.stylus_huawei_side_key))
+                        StylusDialogCard {
+                            StylusDialogSwitchItem(
+                                title = stringResource(R.string.stylus_huawei_hold_eraser),
+                                summary = stringResource(R.string.stylus_huawei_hold_eraser_desc),
+                                checked = vm.huaweiSideButtonErase,
+                                onCheckedChange = { vm.updateHuaweiSideButtonErase(it) },
+                            )
+                            StylusDialogDivider()
+                            val singleClickTitle = actionOptions.find { it.second == vm.huaweiSingleClickAction }?.first ?: actionOptions.last().first
+                            StylusDialogDropdownItem(
+                                title = stringResource(R.string.stylus_huawei_click_action),
+                                currentText = singleClickTitle,
+                                options = actionOptions.map { it.first },
+                                onSelect = { idx ->
+                                    vm.updateHuaweiSingleClickAction(actionOptions[idx].second)
+                                },
+                            )
+                            StylusDialogDivider()
+                            val longPressTitle = actionOptions.find { it.second == vm.huaweiLongPressAction }?.first ?: actionOptions[5].first
+                            StylusDialogDropdownItem(
+                                title = stringResource(R.string.stylus_huawei_long_press_action),
+                                currentText = longPressTitle,
+                                options = actionOptions.map { it.first },
+                                onSelect = { idx ->
+                                    vm.updateHuaweiLongPressAction(actionOptions[idx].second)
+                                },
+                            )
+                        }
                     }
 
                     // 4. 触觉反馈

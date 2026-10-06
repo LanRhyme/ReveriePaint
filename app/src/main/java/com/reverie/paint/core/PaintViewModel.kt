@@ -1517,6 +1517,33 @@ class PaintViewModel : ViewModel() {
     var honorSideButtonErase by mutableStateOf(true)
     var honorHapticsEnabled by mutableStateOf(true)
 
+    // 小米 (Xiaomi) 触控笔适配参数
+    var xiaomiPencilModelMode by mutableStateOf("AUTO") // "AUTO", "FOCUS_PEN_PRO", "FOCUS_PEN", "SMART_PEN_2", "SMART_PEN_1"
+    val detectedXiaomiPencilModel: com.reverie.paint.core.stylus.XiaomiPencilModel
+        get() = stylusDriver?.detectXiaomiPencilModel() ?: com.reverie.paint.core.stylus.XiaomiPencilModel.SMART_PEN_2
+    val xiaomiPencilModel: com.reverie.paint.core.stylus.XiaomiPencilModel
+        get() = when (xiaomiPencilModelMode) {
+            "FOCUS_PEN_PRO" -> com.reverie.paint.core.stylus.XiaomiPencilModel.FOCUS_PEN_PRO
+            "FOCUS_PEN" -> com.reverie.paint.core.stylus.XiaomiPencilModel.FOCUS_PEN
+            "SMART_PEN_2" -> com.reverie.paint.core.stylus.XiaomiPencilModel.SMART_PEN_2
+            "SMART_PEN_1" -> com.reverie.paint.core.stylus.XiaomiPencilModel.SMART_PEN_1
+            else -> detectedXiaomiPencilModel
+        }
+    var xiaomiPrimaryButtonAction by mutableStateOf("toggle_eraser")
+    var xiaomiSecondaryButtonAction by mutableStateOf("tool_picker")
+    var xiaomiFocusButtonAction by mutableStateOf("toggle_last_tool")
+    var xiaomiDoubleTapAction by mutableStateOf("toggle_eraser")
+    var xiaomiSideButtonErase by mutableStateOf(true)
+    var xiaomiSqueezeAction by mutableStateOf("tool_color")
+    var xiaomiSlideAction by mutableStateOf("adjust_brush_size")
+    var xiaomiSlideSensitivity by mutableStateOf("normal")
+    var xiaomiInPenHapticsEnabled by mutableStateOf(true)
+
+    // 通用 (Generic) 手写笔适配参数
+    var genericPrimaryButtonAction by mutableStateOf("toggle_eraser")
+    var genericSecondaryButtonAction by mutableStateOf("undo")
+    var genericSideButtonErase by mutableStateOf(true)
+
     // 触控预测与输入延迟优化
     var motionPredictorEnabled by mutableStateOf(true)
 
@@ -2073,16 +2100,20 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    fun executeStylusSlide(delta: Float): Boolean {
-        if (oppoSlideAction == "none" || oppoSlideAction.isBlank()) {
+    fun executeStylusSlide(
+        delta: Float,
+        slideAction: String = oppoSlideAction,
+        sensitivity: String = oppoSlideSensitivity,
+    ): Boolean {
+        if (slideAction == "none" || slideAction.isBlank()) {
             return false
         }
         // 反转滑动方向以符合自然滑动交互（向笔尾滑动为增加，向笔尖滑动为减少）
         val effectiveDelta = -delta
         val isIncrease = effectiveDelta > 0
-        return when (oppoSlideAction) {
+        return when (slideAction) {
             "adjust_brush_size" -> {
-                val deltaFrac = when (oppoSlideSensitivity) {
+                val deltaFrac = when (sensitivity) {
                     "low" -> 0.015f
                     "high" -> 0.035f
                     else -> 0.025f
@@ -2122,7 +2153,7 @@ class PaintViewModel : ViewModel() {
                 true
             }
             "adjust_opacity" -> {
-                val step = when (oppoSlideSensitivity) {
+                val step = when (sensitivity) {
                     "low" -> 0.02
                     "high" -> 0.08
                     else -> 0.05
@@ -2142,6 +2173,11 @@ class PaintViewModel : ViewModel() {
             }
             else -> false
         }
+    }
+
+    fun executeXiaomiSlide(up: Boolean): Boolean {
+        val delta = if (up) -1f else 1f
+        return executeStylusSlide(delta, slideAction = xiaomiSlideAction, sensitivity = xiaomiSlideSensitivity)
     }
 
     fun updateOppoDoubleTapAction(actionId: String) {
@@ -2324,6 +2360,111 @@ class PaintViewModel : ViewModel() {
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("honorHapticsEnabled", enabled).apply()
+        }
+    }
+
+    fun updateXiaomiPencilModelMode(mode: String) {
+        xiaomiPencilModelMode = mode
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("xiaomiPencilModelMode", mode).apply()
+        }
+    }
+
+    fun updateXiaomiPrimaryButtonAction(actionId: String) {
+        xiaomiPrimaryButtonAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("xiaomiPrimaryButtonAction", actionId).apply()
+        }
+    }
+
+    fun updateXiaomiSecondaryButtonAction(actionId: String) {
+        xiaomiSecondaryButtonAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("xiaomiSecondaryButtonAction", actionId).apply()
+        }
+    }
+
+    fun updateXiaomiFocusButtonAction(actionId: String) {
+        xiaomiFocusButtonAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("xiaomiFocusButtonAction", actionId).apply()
+        }
+    }
+
+    fun updateXiaomiDoubleTapAction(actionId: String) {
+        xiaomiDoubleTapAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("xiaomiDoubleTapAction", actionId).apply()
+        }
+    }
+
+    fun updateXiaomiSideButtonErase(enabled: Boolean) {
+        xiaomiSideButtonErase = enabled
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("xiaomiSideButtonErase", enabled).apply()
+        }
+    }
+
+    fun updateXiaomiSqueezeAction(actionId: String) {
+        xiaomiSqueezeAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("xiaomiSqueezeAction", actionId).apply()
+        }
+    }
+
+    fun updateXiaomiSlideAction(actionId: String) {
+        xiaomiSlideAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("xiaomiSlideAction", actionId).apply()
+        }
+    }
+
+    fun updateXiaomiSlideSensitivity(sensitivity: String) {
+        xiaomiSlideSensitivity = sensitivity
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("xiaomiSlideSensitivity", sensitivity).apply()
+        }
+    }
+
+    fun updateXiaomiInPenHapticsEnabled(enabled: Boolean) {
+        xiaomiInPenHapticsEnabled = enabled
+        stylusDriver?.syncSettings()
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("xiaomiInPenHapticsEnabled", enabled).apply()
+        }
+    }
+
+    fun updateGenericPrimaryButtonAction(actionId: String) {
+        genericPrimaryButtonAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("genericPrimaryButtonAction", actionId).apply()
+        }
+    }
+
+    fun updateGenericSecondaryButtonAction(actionId: String) {
+        genericSecondaryButtonAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("genericSecondaryButtonAction", actionId).apply()
+        }
+    }
+
+    fun updateGenericSideButtonErase(enabled: Boolean) {
+        genericSideButtonErase = enabled
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("genericSideButtonErase", enabled).apply()
         }
     }
 
@@ -2686,6 +2827,8 @@ class PaintViewModel : ViewModel() {
 
     fun syncSettingsFromPrefs() {
         if (::appContext.isInitialized) {
+            // Toolbar choices must restore even when no brush parameter cache has been saved yet.
+            loadPinnedTools()
             val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
             anim.manualKeyframes = prefs.getBoolean(ANIMATION_MANUAL_KEYFRAMES_PREF, false)
             // 性能标尺: 设置项(仅 debug 构建有该入口, 见 PerfHud)或 setprop 任一为真即为开。
@@ -2757,6 +2900,19 @@ class PaintViewModel : ViewModel() {
             honorSingleClickAction = prefs.getString("honorSingleClickAction", "none") ?: "none"
             honorSideButtonErase = prefs.getBoolean("honorSideButtonErase", true)
             honorHapticsEnabled = prefs.getBoolean("honorHapticsEnabled", true)
+            xiaomiPencilModelMode = prefs.getString("xiaomiPencilModelMode", "AUTO") ?: "AUTO"
+            xiaomiPrimaryButtonAction = prefs.getString("xiaomiPrimaryButtonAction", "toggle_eraser") ?: "toggle_eraser"
+            xiaomiSecondaryButtonAction = prefs.getString("xiaomiSecondaryButtonAction", "tool_picker") ?: "tool_picker"
+            xiaomiFocusButtonAction = prefs.getString("xiaomiFocusButtonAction", "toggle_last_tool") ?: "toggle_last_tool"
+            xiaomiDoubleTapAction = prefs.getString("xiaomiDoubleTapAction", "toggle_eraser") ?: "toggle_eraser"
+            xiaomiSideButtonErase = prefs.getBoolean("xiaomiSideButtonErase", true)
+            xiaomiSqueezeAction = prefs.getString("xiaomiSqueezeAction", "tool_color") ?: "tool_color"
+            xiaomiSlideAction = prefs.getString("xiaomiSlideAction", "adjust_brush_size") ?: "adjust_brush_size"
+            xiaomiSlideSensitivity = prefs.getString("xiaomiSlideSensitivity", "normal") ?: "normal"
+            xiaomiInPenHapticsEnabled = prefs.getBoolean("xiaomiInPenHapticsEnabled", true)
+            genericPrimaryButtonAction = prefs.getString("genericPrimaryButtonAction", "toggle_eraser") ?: "toggle_eraser"
+            genericSecondaryButtonAction = prefs.getString("genericSecondaryButtonAction", "undo") ?: "undo"
+            genericSideButtonErase = prefs.getBoolean("genericSideButtonErase", true)
             gestureTwoFingerUndo = prefs.getBoolean("gestureTwoFingerUndo", true)
             gestureThreeFingerRedo = prefs.getBoolean("gestureThreeFingerRedo", true)
             gestureThreeFingerEditMenu = prefs.getBoolean("gestureThreeFingerEditMenu", true)
@@ -3705,6 +3861,32 @@ class PaintViewModel : ViewModel() {
     }
 
     internal val pendingCoreOps = java.util.concurrent.atomic.AtomicInteger(0)
+
+    /**
+     * 「帧转图层」整条链复用的中转位图(一张 ARGB_8888, 2800×1840 约 20MB)。
+     *
+     * 只分配一张、逐帧覆写: 拆 N 帧就只占一张的内存, 拆完由
+     * `releaseFramesToLayersTransit()` 回收。**不能**是扩展属性 ——
+     * Kotlin 不允许扩展属性持有 backing field。
+     */
+    internal var framesToLayersTransit: android.graphics.Bitmap? = null
+
+    /** 本次计划拆多少帧 —— 用来区分"全成"与"中止"。 */
+    internal var framesToLayersPlanned: Int = 0
+
+    /** 本次实际建成的层数。 */
+    internal var framesToLayersCreated: Int = 0
+
+    /**
+     * 阶段二要用: (层下标, 帧号) 的对应表。
+     *
+     * 建层在阶段一全部做完, 写像素在阶段二逐个进行 —— 靠这张表把两者对上。
+     * 存下标而不是 id 是安全的: 新层是**连续追加在队尾**的, 阶段二又不再有任何结构变更。
+     */
+    internal val framesToLayersNewIds = mutableListOf<Pair<Int, Int>>()
+
+    /** 第几次做帧转图层, 用来给组编号(「帧转图层 1」「帧转图层 2」…)。 */
+    internal var framesToLayersSeqCounter: Int = 0
 
     // Stroke-sample transport (batch-preserving). The UI thread appends every
     // touch sample into preallocated arrays and posts ONE drain runnable; the

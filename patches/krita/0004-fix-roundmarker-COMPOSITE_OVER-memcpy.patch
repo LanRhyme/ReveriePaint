@@ -1,0 +1,81 @@
+From be41a252577819f2db5e12bc26fb0b5071708ff6 Mon Sep 17 00:00:00 2001
+From: LanRhyme <xiao_ren233@foxmail.com>
+Date: Tue, 6 Oct 2026 17:56:05 +0800
+Subject: [PATCH 4/4] =?UTF-8?q?fix(roundmarker):=20=E5=9C=86=E5=A4=B4?=
+ =?UTF-8?q?=E7=AC=94=E5=88=B7=E8=BE=B9=E7=BC=98=E5=83=8F=E7=B4=A0=E6=94=B9?=
+ =?UTF-8?q?=E7=94=A8=20COMPOSITE=5FOVER=20=E6=B7=B7=E5=90=88=E6=9B=BF?=
+ =?UTF-8?q?=E4=BB=A3=E8=A3=B8=20memcpy,=20=E6=B6=88=E9=99=A4=E7=AC=94?=
+ =?UTF-8?q?=E7=94=BB=E4=BA=A4=E5=8F=89=E5=A4=84=E7=9A=84=E7=99=BD=E8=BE=B9?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ libs/image/kis_marker_painter.cpp | 21 ++++++++++++++-------
+ 1 file changed, 14 insertions(+), 7 deletions(-)
+
+diff --git a/libs/image/kis_marker_painter.cpp b/libs/image/kis_marker_painter.cpp
+index c93cc2f1..1a6362f7 100644
+--- a/libs/image/kis_marker_painter.cpp
++++ b/libs/image/kis_marker_painter.cpp
+@@ -8,6 +8,7 @@
+ 
+ #include <KoColor.h>
+ #include <KoColorSpace.h>
++#include <KoCompositeOpRegistry.h>
+ 
+ #include "kis_paint_device.h"
+ 
+@@ -72,6 +73,8 @@ void KisMarkerPainter::fillHalfBrushDiff(const QPointF &p1, const QPointF &p2, c
+ 
+     KIS_SAFE_ASSERT_RECOVER_RETURN(isRectInValidRange(alignedRect));
+ 
++    const KoCompositeOp *op = cs->compositeOp(COMPOSITE_OVER);
++
+     KisSequentialIterator it(m_d->device, alignedRect);
+ 
+     while (it.nextPixel()) {
+@@ -93,9 +96,12 @@ void KisMarkerPainter::fillHalfBrushDiff(const QPointF &p1, const QPointF &p2, c
+ 
+         const quint8 srcAlpha = fadePos > 0 ? quint8((1.0 - fadePos) * 255.0) : 255;
+ 
+-        // ReveriePaint: standard overwrite behaviour (see fillFullCircle)
+         currentColor.setOpacity(srcAlpha);
+-        memcpy(it.rawData(), currentColor.data(), pixelSize);
++        if (op) {
++            op->composite(it.rawData(), pixelSize, currentColor.data(), pixelSize, nullptr, 0, 1, 1, OPACITY_OPAQUE_F);
++        } else {
++            memcpy(it.rawData(), currentColor.data(), pixelSize);
++        }
+     }
+ }
+ 
+@@ -105,6 +111,7 @@ void KisMarkerPainter::fillFullCircle(const QPointF &center, qreal radius)
+ 
+     const int pixelSize = m_d->device->pixelSize();
+     const KoColorSpace *cs = m_d->device->colorSpace();
++    const KoCompositeOp *op = cs->compositeOp(COMPOSITE_OVER);
+ 
+     const qreal fadedRadius = radius + 1;
+     QRectF boundRect(center.x() - fadedRadius, center.y() - fadedRadius,
+@@ -125,12 +132,12 @@ void KisMarkerPainter::fillFullCircle(const QPointF &center, qreal radius)
+ 
+         const quint8 srcAlpha = value3 > 0 ? quint8((1.0 - value3) * 255.0) : 255;
+ 
+-        // ReveriePaint: standard painter's brush behaviour - always paint
+-        // with the new colour (Krita's marker "only darken" behaviour made
+-        // a new colour invisible over existing opaque pixels, which users
+-        // perceived as broken colour layering)
+         currentColor.setOpacity(srcAlpha);
+-        memcpy(it.rawData(), currentColor.data(), pixelSize);
++        if (op) {
++            op->composite(it.rawData(), pixelSize, currentColor.data(), pixelSize, nullptr, 0, 1, 1, OPACITY_OPAQUE_F);
++        } else {
++            memcpy(it.rawData(), currentColor.data(), pixelSize);
++        }
+     }
+ }
+ 
+-- 
+2.55.0
+

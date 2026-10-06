@@ -40,6 +40,7 @@ import com.reverie.paint.core.animationBatchDeleteSelected
 import com.reverie.paint.core.animationBatchDuplicateSelected
 import com.reverie.paint.core.animationBatchShiftSelected
 import com.reverie.paint.core.animationClearSelectedFrames
+import com.reverie.paint.core.animationFramesToLayers
 import com.reverie.paint.core.animationInvertSelectedFrames
 import com.reverie.paint.core.animationSelectAllFrames
 import com.reverie.paint.core.animationSetSelectedDuration
@@ -154,6 +155,23 @@ internal fun TimelineBatchBar(
         )
 
         Spacer(modifier = Modifier.width(10.dp))
+
+        // 「帧转图层」: 拆的是**当前选中的那些帧**, 源就是当前轨道。
+        // 运行时换成"拆分中"占位防重复触发; 详细进度见 FramesToLayersProgressOverlay
+        // (浮层挂在时间轴面板上, 两个入口都能看到 —— 只做在这里的话, 从菜单启动就看不到)。
+        if (vm.anim.framesToLayersTotal > 0) {
+            GlyphTextButton(
+                text = stringResource(R.string.f2l_running),
+                onClick = {},
+            )
+        } else {
+            GlyphTextButton(
+                text = stringResource(R.string.f2l_menu),
+                onClick = { vm.animationFramesToLayers(track, vm.anim.selectedFrames.toList()) },
+            )
+        }
+
+        Spacer(modifier = Modifier.width(4.dp))
 
         // 批量复制
         GlyphTextButton(

@@ -39,6 +39,17 @@ jobs:
           chmod +x scripts/copy_jni_libs.sh
           ./scripts/copy_jni_libs.sh
 
+      - name: Architecture Guardrail Check
+        run: |
+          chmod +x scripts/check_architecture.sh
+          ./scripts/check_architecture.sh
+
+      - name: Run Unit Tests
+        run: ./gradlew :app:testDebugUnitTest
+
+      - name: Run Android Lint Check
+        run: ./gradlew :app:lintDebug
+
       - name: Build Android Debug APK
         run: ./gradlew assembleDebug
 

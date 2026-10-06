@@ -50,6 +50,12 @@ class StylusModelsTest {
         assertTrue("Honor should support double tap", honor?.subtitle?.contains("双击") == true)
         assertTrue("Honor should support side key", honor?.subtitle?.contains("侧键") == true)
         assertTrue("Honor should support haptics", honor?.subtitle?.contains("触感") == true)
+
+        val xiaomi = brands.firstOrNull { it == StylusBrand.XIAOMI_STYLUS }
+        assertNotNull("Xiaomi brand defined", xiaomi)
+        assertEquals("小米灵感 / 焦点触控笔", xiaomi?.displayName)
+        assertTrue("Xiaomi should support writing/focus keys", xiaomi?.subtitle?.contains("按键") == true)
+        assertTrue("Xiaomi should support double click", xiaomi?.subtitle?.contains("双击") == true)
     }
 
     @Test
@@ -142,5 +148,73 @@ class StylusModelsTest {
         assertEquals(StylusAudioType.INK_PEN, StylusAudioType.fromOrdinal(1))
         assertEquals(StylusAudioType.SOFT_TICK, StylusAudioType.fromOrdinal(2))
         assertEquals(StylusAudioType.PENCIL, StylusAudioType.fromOrdinal(999))
+    }
+
+    @Test
+    fun `xiaomi pencil models correctly specified`() {
+        val models = com.reverie.paint.core.stylus.XiaomiPencilModel.entries
+        assertEquals(4, models.size)
+
+        val pro = com.reverie.paint.core.stylus.XiaomiPencilModel.FOCUS_PEN_PRO
+        assertEquals(16384, pro.maxPressure)
+        assertFalse(pro.hasFocusKey)
+        assertTrue(pro.hasDoubleTap)
+        assertTrue(pro.hasSlideGesture)
+        assertTrue(pro.hasSqueezeGesture)
+        assertFalse("Pro has no physical buttons", pro.hasPhysicalButtons)
+        assertEquals("Pro 版", pro.editionName)
+
+        val focus = com.reverie.paint.core.stylus.XiaomiPencilModel.FOCUS_PEN
+        assertEquals(8192, focus.maxPressure)
+        assertTrue("Focus pen has focus key", focus.hasFocusKey)
+        assertTrue("Focus pen has double tap", focus.hasDoubleTap)
+        assertFalse(focus.hasSlideGesture)
+        assertTrue("Standard focus pen has physical buttons", focus.hasPhysicalButtons)
+        assertEquals("焦点触控笔", focus.editionName)
+
+        val gen2 = com.reverie.paint.core.stylus.XiaomiPencilModel.SMART_PEN_2
+        assertEquals(4096, gen2.maxPressure)
+        assertFalse(gen2.hasFocusKey)
+        assertTrue("Smart pen 2 has double tap", gen2.hasDoubleTap)
+        assertTrue("Smart pen 2 has physical buttons", gen2.hasPhysicalButtons)
+
+        val gen1 = com.reverie.paint.core.stylus.XiaomiPencilModel.SMART_PEN_1
+        assertEquals(4096, gen1.maxPressure)
+        assertFalse(gen1.hasFocusKey)
+        assertFalse("Smart pen 1 does not have double tap", gen1.hasDoubleTap)
+        assertTrue("Smart pen 1 has physical buttons", gen1.hasPhysicalButtons)
+
+        assertEquals(pro, com.reverie.paint.core.stylus.XiaomiPencilModel.fromKey("FOCUS_PEN_PRO"))
+        assertEquals(pro, com.reverie.paint.core.stylus.XiaomiPencilModel.fromKey("PRO"))
+        assertEquals(focus, com.reverie.paint.core.stylus.XiaomiPencilModel.fromKey("FOCUS"))
+        assertEquals(gen2, com.reverie.paint.core.stylus.XiaomiPencilModel.fromKey("SMART_PEN_2"))
+        assertEquals(gen1, com.reverie.paint.core.stylus.XiaomiPencilModel.fromKey("GEN1"))
+        assertEquals(gen1, com.reverie.paint.core.stylus.XiaomiPencilModel.fromKey("1"))
+    }
+
+    @Test
+    fun `huawei pencil models correctly specified`() {
+        val models = com.reverie.paint.core.stylus.HuaweiPencilModel.entries
+        assertEquals(3, models.size)
+
+        val gen3 = com.reverie.paint.core.stylus.HuaweiPencilModel.GEN3_NEARLINK
+        assertEquals(16384, gen3.maxPressure)
+        assertTrue("Gen 3 has NearLink", gen3.isNearLink)
+        assertTrue("Gen 3 has double tap", gen3.hasDoubleTap)
+
+        val gen2 = com.reverie.paint.core.stylus.HuaweiPencilModel.GEN2
+        assertEquals(4096, gen2.maxPressure)
+        assertFalse(gen2.isNearLink)
+        assertTrue(gen2.hasDoubleTap)
+
+        val gen1 = com.reverie.paint.core.stylus.HuaweiPencilModel.GEN1
+        assertEquals(4096, gen1.maxPressure)
+        assertFalse(gen1.isNearLink)
+        assertFalse(gen1.hasDoubleTap)
+
+        assertEquals(gen3, com.reverie.paint.core.stylus.HuaweiPencilModel.fromKey("GEN3_NEARLINK"))
+        assertEquals(gen3, com.reverie.paint.core.stylus.HuaweiPencilModel.fromKey("NEARLINK"))
+        assertEquals(gen2, com.reverie.paint.core.stylus.HuaweiPencilModel.fromKey("GEN2"))
+        assertEquals(gen1, com.reverie.paint.core.stylus.HuaweiPencilModel.fromKey("GEN1"))
     }
 }

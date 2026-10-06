@@ -172,6 +172,11 @@ android {
             pickFirsts += listOf("**/libreverie_jni.so", "**/*.so")
         }
     }
+
+    lint {
+        baseline = file("lint-baseline.xml")
+        abortOnError = true
+    }
 }
 
 if (usePrebuiltJni) {

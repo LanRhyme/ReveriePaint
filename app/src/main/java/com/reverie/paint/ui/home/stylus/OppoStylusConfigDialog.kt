@@ -55,7 +55,7 @@ internal fun OppoStylusConfigDialog(
 
     val modelOptions = listOf(
         "AUTO" to stringResource(R.string.stylus_oppo_auto_model, vm.detectedOppoPencilModel.editionName),
-        "PRO" to "OPPO Pencil 2 Pro / OnePlus Stylo 2",
+        "PRO" to stringResource(R.string.stylus_oppo_pro_model),
         "STANDARD" to stringResource(R.string.stylus_oppo_standard_model),
     )
 
@@ -91,7 +91,7 @@ internal fun OppoStylusConfigDialog(
                     StylusDialogSectionTitle(stringResource(R.string.stylus_oppo_model))
                     StylusDialogCard {
                         val currentModelText = when (vm.oppoPencilModelMode) {
-                            "PRO" -> "OPPO Pencil 2 Pro / OnePlus Stylo 2"
+                            "PRO" -> stringResource(R.string.stylus_oppo_pro_model)
                             "STANDARD" -> stringResource(R.string.stylus_oppo_standard_model)
                             else -> stringResource(R.string.stylus_oppo_auto_model, vm.detectedOppoPencilModel.editionName)
                         }
@@ -197,13 +197,15 @@ internal fun OppoStylusConfigDialog(
                     // 触觉微震反馈
                     StylusDialogSectionTitle(stringResource(R.string.stylus_oppo_haptics))
                     StylusDialogCard {
-                        StylusDialogSwitchItem(
-                            title = stringResource(R.string.stylus_oppo_haptics_pen),
-                            summary = stringResource(R.string.stylus_oppo_haptics_pen_desc),
-                            checked = vm.oppoInPenHapticsEnabled,
-                            onCheckedChange = { vm.updateOppoInPenHapticsEnabled(it) },
-                        )
-                        StylusDialogDivider()
+                        if (vm.oppoPencilModel.hasInPenHaptics) {
+                            StylusDialogSwitchItem(
+                                title = stringResource(R.string.stylus_oppo_haptics_pen),
+                                summary = stringResource(R.string.stylus_oppo_haptics_pen_desc),
+                                checked = vm.oppoInPenHapticsEnabled,
+                                onCheckedChange = { vm.updateOppoInPenHapticsEnabled(it) },
+                            )
+                            StylusDialogDivider()
+                        }
                         StylusDialogSwitchItem(
                             title = stringResource(R.string.stylus_oppo_haptics_gesture),
                             summary = stringResource(R.string.stylus_oppo_haptics_gesture_desc),

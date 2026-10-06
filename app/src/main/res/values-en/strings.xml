@@ -1585,6 +1585,7 @@
     <string name="stylus_huawei_features">Body double-tap, side button mappings &amp; NearLink/Bluetooth pressure</string>
     <string name="stylus_honor_features">Double-tap gestures, foldable pen side key, and haptic vibration feedback</string>
     <string name="stylus_samsung_features">Side button mappings &amp; haptic feedback config</string>
+    <string name="stylus_xiaomi_features">Writing, screenshot and focus button mapping, hold-to-erase and tactile feedback</string>
     <string name="stylus_generic_features">Standard Android pressure and tilt protocol</string>
     <string name="stylus_cursor_mode_none">Hidden</string>
     <string name="stylus_cursor_mode_drawing">While Painting</string>
@@ -1616,6 +1617,7 @@
     <string name="stylus_curve_i_know">Got It</string>
     <string name="stylus_gesture_and_keys">Gestures &amp; Key Mapping</string>
     <string name="stylus_oppo_auto_model">Auto Detect (%s)</string>
+    <string name="stylus_oppo_pro_model">Pro Edition (OPPO Pencil 2 Pro / OnePlus Stylo 2)</string>
     <string name="stylus_oppo_standard_model">Standard Stylus (No Touch Bar)</string>
     <string name="stylus_oppo_title">OPPO / OnePlus Stylus Settings</string>
     <string name="stylus_oppo_model">Device Model</string>
@@ -1647,6 +1649,45 @@
     <string name="stylus_samsung_double_click_action">Double Click Action</string>
     <string name="stylus_samsung_long_press_action">Long Press Action</string>
     <string name="stylus_samsung_hint">Tip: If side button does not respond, open Samsung Settings -> Advanced Features -> S Pen and disable Air Command button trigger</string>
+
+    <!-- Xiaomi Stylus -->
+    <string name="stylus_xiaomi_title">Xiaomi Stylus Settings</string>
+    <string name="stylus_xiaomi_model">Stylus Hardware Model</string>
+    <string name="stylus_xiaomi_auto_model">Auto Detect (%s)</string>
+    <string name="stylus_xiaomi_focus_pro_model">Xiaomi Focus Pen Pro</string>
+    <string name="stylus_xiaomi_focus_model">Xiaomi Focus Pen</string>
+    <string name="stylus_xiaomi_smart2_model">Xiaomi Smart Pen (2nd Gen)</string>
+    <string name="stylus_xiaomi_smart1_model">Xiaomi Smart Pen (1st Gen)</string>
+    <string name="stylus_xiaomi_press_16k">16384 Pressure Levels</string>
+    <string name="stylus_xiaomi_press_8k">8192 Pressure Levels</string>
+    <string name="stylus_xiaomi_press_4k">4096 Pressure Levels</string>
+    <string name="stylus_xiaomi_gestures">Touch Gesture Actions</string>
+    <string name="stylus_xiaomi_squeeze_action">Pinch / Squeeze Action</string>
+    <string name="stylus_xiaomi_slide_action">Touch Slide Action</string>
+    <string name="stylus_xiaomi_slide_sens">Slide Sensitivity</string>
+    <string name="stylus_xiaomi_haptics">Haptic Feedback &amp; Vibration</string>
+    <string name="stylus_xiaomi_haptics_pen">Stylus Writing Vibration</string>
+    <string name="stylus_xiaomi_haptics_pen_desc">Activate internal linear micro-motor for paper friction feedback while writing</string>
+    <string name="stylus_xiaomi_side_key">Side Button Behavior</string>
+    <string name="stylus_xiaomi_hold_eraser">Hold Side Button to Erase</string>
+    <string name="stylus_xiaomi_hold_eraser_desc">Xiaomi Notes semantics: Hold primary or secondary button while drawing to temporarily switch to eraser</string>
+    <string name="stylus_xiaomi_key_mapping">Button Actions</string>
+    <string name="stylus_xiaomi_primary_action">Primary (Writing) Button Click</string>
+    <string name="stylus_xiaomi_double_tap_action">Primary Button Double Click</string>
+    <string name="stylus_xiaomi_secondary_action">Secondary (Screenshot) Button Click</string>
+    <string name="stylus_xiaomi_focus_action">Focus Button Click (Focus Pen)</string>
+    <string name="stylus_xiaomi_hint">Tip: If stylus buttons do not respond, check stylus shortcut settings in HyperOS system settings</string>
+
+    <!-- Generic Stylus -->
+    <string name="stylus_generic_title">Generic Stylus Settings</string>
+    <string name="stylus_generic_side_key">Side Button Behavior</string>
+    <string name="stylus_generic_key_mapping">Button Actions</string>
+    <string name="stylus_generic_primary_action">Primary Button (Barrel 1)</string>
+    <string name="stylus_generic_secondary_action">Secondary Button (Barrel 2 / Tail)</string>
+    <string name="stylus_generic_hold_eraser">Hold Side Button to Erase</string>
+    <string name="stylus_generic_hold_eraser_desc">Hold barrel button while contacting screen to temporarily switch to eraser</string>
+    <string name="stylus_generic_physical_eraser">Physical Eraser Tip (TOOL_TYPE_ERASER)</string>
+    <string name="stylus_generic_physical_eraser_desc">Supports styluses with physical eraser tail (e.g. Staedtler Noris Digital, Surface Pen, Wacom EMR) flip-to-erase</string>
 
     <!-- HUAWEI M-Pencil -->
     <string name="stylus_huawei_title">HUAWEI M-Pencil Settings</string>
@@ -2300,5 +2341,24 @@
     <string name="pattern_use_color">Use foreground color</string>
     <string name="pattern_layer_choose">Choose fill pattern</string>
     <string name="pattern_opacity">Pattern opacity</string>
+
+    <!-- 帧转图层 -->
+    <string name="f2l_menu">Frames to layers</string>
+    <string name="f2l_toast_done">Split into %1$d layers</string>
+    <string name="f2l_toast_partial">Stopped after %1$d layers</string>
+    <string name="f2l_reject_no_frames">No frame to split</string>
+    <string name="f2l_reject_too_many">At most %1$d frames at a time</string>
+    <string name="f2l_reject_not_animatable">That track is not a bitmap layer</string>
+    <string name="f2l_reject_locked">That track is locked</string>
+    <string name="f2l_reject_addgroup">Could not create the layer group; stopped</string>
+    <string name="f2l_reject_alloc">Could not allocate the transit canvas</string>
+    <string name="f2l_reject_render">Frame %1$d could not be rendered; stopped (undoable)</string>
+    <string name="f2l_reject_addlayer">Could not create a layer; stopped (undoable)</string>
+    <string name="f2l_reject_write">Frame %1$d could not be written; stopped (undoable)</string>
+    <string name="f2l_group">Frames to layers %1$d</string>
+    <string name="tl_collapse_group">Collapse group</string>
+    <string name="tl_expand_group">Expand group</string>
+    <string name="f2l_progress">Splitting %1$d / %2$d</string>
+    <string name="f2l_running">Splitting…</string>
 </resources>
 

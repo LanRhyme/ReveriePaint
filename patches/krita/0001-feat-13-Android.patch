@@ -1,0 +1,1580 @@
+From d95bb73973108e7ae03b4200b12723f4d8e8367a Mon Sep 17 00:00:00 2001
+From: LanRhyme <xiao_ren233@foxmail.com>
+Date: Thu, 13 Aug 2026 09:49:22 +0800
+Subject: [PATCH 1/4] =?UTF-8?q?feat:=20=E5=85=A8=E9=83=A813=E7=A7=8D?=
+ =?UTF-8?q?=E7=AC=94=E5=88=B7=E5=BC=95=E6=93=8E=E9=9D=99=E6=80=81=E6=B3=A8?=
+ =?UTF-8?q?=E5=86=8C=E4=B8=8EAndroid=E5=85=BC=E5=AE=B9=E8=A1=A5=E4=B8=81?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ CMakeLists.txt                                | 14 ++---
+ libs/flake/KoShapeBulkActionLock.h            |  2 +
+ libs/flake/text/KoCssTextUtils.cpp            | 54 +++++++++----------
+ .../text/KoSvgTextShapeMarkupConverter.cpp    | 44 +++++++--------
+ libs/global/CMakeLists.txt                    |  1 -
+ libs/global/KisAndroidExitInfo.cpp            | 15 +++---
+ libs/global/KisAndroidUtils.cpp               | 10 ++--
+ libs/global/KisUsageLogger.cpp                |  7 ++-
+ libs/image/kis_base_accessor.h                |  1 +
+ libs/pigment/KoColorSpaceRegistry.cpp         |  2 +-
+ .../KisSurfaceColorimetry.cpp                 |  2 +-
+ libs/ui/CMakeLists.txt                        |  4 +-
+ libs/ui/KisAndroidDonations.cpp               | 48 +++++++++--------
+ libs/ui/KisAndroidScaling.cpp                 |  6 ++-
+ libs/ui/KisLongPressEventFilter.cpp           |  6 ++-
+ libs/ui/KisMainWindow.cpp                     |  8 ++-
+ libs/ui/KisReferenceImage.cpp                 |  4 +-
+ libs/ui/KisSurfaceColorSpaceWrapper.h         |  4 +-
+ .../KisAndroidMediaEncoderRunnable.cpp        | 10 ++--
+ .../ui/canvas/kis_display_color_converter.cpp |  1 +
+ libs/ui/kis_painting_assistant.cc             | 10 ++--
+ libs/ui/opengl/kis_opengl_image_textures.cpp  | 20 +++----
+ libs/widgetutils/CMakeLists.txt               |  2 +-
+ libs/widgetutils/KisKineticScroller.cpp       |  4 +-
+ .../widgetutils/xmlgui/kkeysequencewidget.cpp |  2 +-
+ plugins/paintops/colorsmudge/CMakeLists.txt   |  3 +-
+ .../paintops/colorsmudge/register_static.cpp  | 25 +++++++++
+ plugins/paintops/curvebrush/CMakeLists.txt    |  1 +
+ .../paintops/curvebrush/register_static.cpp   | 22 ++++++++
+ .../paintops/defaultpaintops/CMakeLists.txt   |  1 +
+ .../defaultpaintops/register_static.cpp       | 37 +++++++++++++
+ plugins/paintops/deform/CMakeLists.txt        |  1 +
+ plugins/paintops/deform/register_static.cpp   | 23 ++++++++
+ plugins/paintops/experiment/CMakeLists.txt    |  1 +
+ .../paintops/experiment/register_static.cpp   | 22 ++++++++
+ plugins/paintops/filterop/CMakeLists.txt      |  1 +
+ plugins/paintops/filterop/register_static.cpp | 25 +++++++++
+ plugins/paintops/gridbrush/CMakeLists.txt     |  1 +
+ .../paintops/gridbrush/register_static.cpp    | 22 ++++++++
+ plugins/paintops/hairy/CMakeLists.txt         |  1 +
+ plugins/paintops/hairy/register_static.cpp    | 22 ++++++++
+ plugins/paintops/hatching/CMakeLists.txt      |  1 +
+ plugins/paintops/hatching/register_static.cpp | 22 ++++++++
+ plugins/paintops/particle/CMakeLists.txt      |  1 +
+ plugins/paintops/particle/register_static.cpp | 22 ++++++++
+ plugins/paintops/roundmarker/CMakeLists.txt   |  1 +
+ .../paintops/roundmarker/register_static.cpp  | 22 ++++++++
+ plugins/paintops/sketch/CMakeLists.txt        |  1 +
+ plugins/paintops/sketch/register_static.cpp   | 22 ++++++++
+ plugins/paintops/spray/CMakeLists.txt         |  1 +
+ plugins/paintops/spray/register_static.cpp    | 22 ++++++++
+ plugins/paintops/tangentnormal/CMakeLists.txt |  1 +
+ .../tangentnormal/register_static.cpp         | 22 ++++++++
+ 53 files changed, 491 insertions(+), 136 deletions(-)
+ create mode 100644 plugins/paintops/colorsmudge/register_static.cpp
+ create mode 100644 plugins/paintops/curvebrush/register_static.cpp
+ create mode 100644 plugins/paintops/defaultpaintops/register_static.cpp
+ create mode 100644 plugins/paintops/deform/register_static.cpp
+ create mode 100644 plugins/paintops/experiment/register_static.cpp
+ create mode 100644 plugins/paintops/filterop/register_static.cpp
+ create mode 100644 plugins/paintops/gridbrush/register_static.cpp
+ create mode 100644 plugins/paintops/hairy/register_static.cpp
+ create mode 100644 plugins/paintops/hatching/register_static.cpp
+ create mode 100644 plugins/paintops/particle/register_static.cpp
+ create mode 100644 plugins/paintops/roundmarker/register_static.cpp
+ create mode 100644 plugins/paintops/sketch/register_static.cpp
+ create mode 100644 plugins/paintops/spray/register_static.cpp
+ create mode 100644 plugins/paintops/tangentnormal/register_static.cpp
+
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 957cc15c..4440301e 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1520,16 +1520,8 @@ if(ANDROID)
+         PURPOSE "Needed to find ffmpeg libraries on Android."
+     )
+ 
+-    pkg_check_modules(LibAV REQUIRED IMPORTED_TARGET GLOBAL
+-        libavcodec
+-        libavfilter
+-        libavformat
+-        libavutil
+-        libswscale
+-    )
+-    if(TARGET PkgConfig::LibAV)
+-        add_library(LibAV ALIAS PkgConfig::LibAV)
+-    endif()
++    # FFmpeg disabled for initial Android build (video encoding later)
++    set(LibAV_FOUND FALSE)
+ 
+     # The PkgConfig and FeatureSummary modules don't play nice with each other
+     # on their own, so this has to be set manually for the summary to show up.
+@@ -1542,7 +1534,7 @@ if(ANDROID)
+     set_package_properties(LibAV PROPERTIES
+         DESCRIPTION "FFmpeg libraries"
+         URL "https://ffmpeg.org/"
+-        TYPE REQUIRED
++        TYPE OPTIONAL
+         PURPOSE "Needed to render animations and timelapses on Android."
+     )
+ endif()
+diff --git a/libs/flake/KoShapeBulkActionLock.h b/libs/flake/KoShapeBulkActionLock.h
+index 92fa188f..969add8b 100644
+--- a/libs/flake/KoShapeBulkActionLock.h
++++ b/libs/flake/KoShapeBulkActionLock.h
+@@ -8,6 +8,8 @@
+ #define KOSHAPEBULKACTIONLOCK_H
+ 
+ #include "kritaflake_export.h"
++#include <unordered_map>
++#include <vector>
+ 
+ #include <KisAdaptedLock.h>
+ #include <QList>
+diff --git a/libs/flake/text/KoCssTextUtils.cpp b/libs/flake/text/KoCssTextUtils.cpp
+index ad099f11..f95d8e3a 100644
+--- a/libs/flake/text/KoCssTextUtils.cpp
++++ b/libs/flake/text/KoCssTextUtils.cpp
+@@ -332,10 +332,10 @@ bool KoCssTextUtils::characterCanHang(const QChar c, KoSvgText::HangingPunctuati
+         if (c.category() == QChar::Punctuation_InitialQuote || // Pi
+             c.category() == QChar::Punctuation_Open || // Ps
+             c.category() == QChar::Punctuation_FinalQuote || // Pf
+-            c == "\u0027" || // Apostrophe
+-            c == "\uFF07" || // Fullwidth Apostrophe
+-            c == "\u0022" || // Quotation Mark
+-            c == "\uFF02") { // Fullwidth Quotation Mark
++            (c == QStringLiteral("\u0027").at(0)) || // Apostrophe
++            (c == QStringLiteral("\uFF07").at(0)) || // Fullwidth Apostrophe
++            (c == QStringLiteral("\u0022").at(0)) || // Quotation Mark
++            c == QStringLiteral("\uFF02")) { // Fullwidth Quotation Mark
+             return true;
+         }
+     }
+@@ -343,27 +343,27 @@ bool KoCssTextUtils::characterCanHang(const QChar c, KoSvgText::HangingPunctuati
+         if (c.category() == QChar::Punctuation_InitialQuote || // Pi
+             c.category() == QChar::Punctuation_FinalQuote || // Pf
+             c.category() == QChar::Punctuation_Close || // Pe
+-            c == "\u0027" || // Apostrophe
+-            c == "\uFF07" || // Fullwidth Apostrophe
+-            c == "\u0022" || // Quotation Mark
+-            c == "\uFF02") { // Fullwidth Quotation Mark
++            (c == QStringLiteral("\u0027").at(0)) || // Apostrophe
++            (c == QStringLiteral("\uFF07").at(0)) || // Fullwidth Apostrophe
++            (c == QStringLiteral("\u0022").at(0)) || // Quotation Mark
++            c == QStringLiteral("\uFF02")) { // Fullwidth Quotation Mark
+             return true;
+         }
+     }
+     if (hangType.testFlag(KoSvgText::HangEnd)) {
+-        if (c == "\u002c" || // Comma
+-            c == "\u002e" || // Full Stop
+-            c == "\u060c" || // Arabic Comma
+-            c == "\u06d4" || // Arabic Full Stop
+-            c == "\u3001" || // Ideographic Comma
+-            c == "\u3002" || // Ideographic Full Stop
+-            c == "\uff0c" || // Fullwidth Comma
+-            c == "\uff0e" || // Fullwidth full stop
+-            c == "\ufe50" || // Small comma
+-            c == "\ufe51" || // Small ideographic comma
+-            c == "\ufe52" || // Small full stop
+-            c == "\uff61" || // Halfwidth ideographic full stop
+-            c == "\uff64" // halfwidth ideographic comma
++        if ((c == QStringLiteral("\u002c").at(0)) || // Comma
++            (c == QStringLiteral("\u002e").at(0)) || // Full Stop
++            (c == QStringLiteral("\u060c").at(0)) || // Arabic Comma
++            (c == QStringLiteral("\u06d4").at(0)) || // Arabic Full Stop
++            (c == QStringLiteral("\u3001").at(0)) || // Ideographic Comma
++            (c == QStringLiteral("\u3002").at(0)) || // Ideographic Full Stop
++            (c == QStringLiteral("\uff0c").at(0)) || // Fullwidth Comma
++            (c == QStringLiteral("\uff0e").at(0)) || // Fullwidth full stop
++            (c == QStringLiteral("\ufe50").at(0)) || // Small comma
++            (c == QStringLiteral("\ufe51").at(0)) || // Small ideographic comma
++            (c == QStringLiteral("\ufe52").at(0)) || // Small full stop
++            (c == QStringLiteral("\uff61").at(0)) || // Halfwidth ideographic full stop
++            (c == QStringLiteral("\uff64").at(0)) // halfwidth ideographic comma
+         ) {
+             return true;
+         }
+@@ -373,12 +373,12 @@ bool KoCssTextUtils::characterCanHang(const QChar c, KoSvgText::HangingPunctuati
+ 
+ bool KoCssTextUtils::IsCssWordSeparator(const QString grapheme)
+ {
+-    return (grapheme == "\u0020" || // Space
+-        grapheme == "\u00A0" || // No Break Space
+-        grapheme == "\u1361" || // Ethiopic Word Space
+-        grapheme == "\u10100" || // Aegean Word Sepator Line
+-        grapheme == "\u10101" || // Aegean Word Sepator Dot
+-        grapheme == "\u1039F");
++    return (grapheme == QStringLiteral("\u0020") || // Space
++        grapheme == QStringLiteral("\u00A0") || // No Break Space
++        grapheme == QStringLiteral("\u1361") || // Ethiopic Word Space
++        grapheme == QStringLiteral("\u10100") || // Aegean Word Sepator Line
++        grapheme == QStringLiteral("\u10101") || // Aegean Word Sepator Dot
++        grapheme == QStringLiteral("\u1039F"));
+ }
+ 
+ QStringList KoCssTextUtils::textToUnicodeGraphemeClusters(const QString &text, const QString &langCode)
+diff --git a/libs/flake/text/KoSvgTextShapeMarkupConverter.cpp b/libs/flake/text/KoSvgTextShapeMarkupConverter.cpp
+index 3d5113e9..5f3902d9 100644
+--- a/libs/flake/text/KoSvgTextShapeMarkupConverter.cpp
++++ b/libs/flake/text/KoSvgTextShapeMarkupConverter.cpp
+@@ -141,10 +141,10 @@ bool KoSvgTextShapeMarkupConverter::convertFromSvg(const QString &svgText, const
+         QDomElement el = node.toElement();
+         if (el.isNull()) continue;
+ 
+-        if (el.tagName() == "defs") {
++        if (el.tagName() == QStringLiteral("defs")) {
+             parser.parseDefsElement(el);
+         }
+-        else if (el.tagName() == "text") {
++        else if (el.tagName() == QStringLiteral("text")) {
+             if (textNodeFound) {
+                 d->errors << i18n("More than one 'text' node found!");
+                 return false;
+@@ -232,7 +232,7 @@ bool KoSvgTextShapeMarkupConverter::convertFromHtml(const QString &htmlText, QSt
+         case QXmlStreamReader::StartElement:
+         {
+             newLine = false;
+-            if (htmlReader.name() == "br") {
++            if (htmlReader.name() == QStringLiteral("br")) {
+                 debugFlake << "\tdoing br";
+                 svgWriter.writeEndElement();
+ #if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
+@@ -248,13 +248,13 @@ bool KoSvgTextShapeMarkupConverter::convertFromHtml(const QString &htmlText, QSt
+                 em = "";
+             }
+ 
+-            if (elementName == "body") {
++            if (elementName == QStringLiteral("body")) {
+                 debugFlake << "\tstart Element" << elementName;
+                 svgWriter.writeStartElement(elName);
+                 firstElement = false;
+                 appendStyle = QString();
+             }
+-            else if (elementName == "p") {
++            else if (elementName == QStringLiteral("p")) {
+                 // new line
+                 debugFlake << "\t\tstart Element" << elementName;
+                 svgWriter.writeStartElement(elName);
+@@ -266,31 +266,31 @@ bool KoSvgTextShapeMarkupConverter::convertFromHtml(const QString &htmlText, QSt
+                 }
+                 lineCount++;
+             }
+-            else if (elementName == "span") {
++            else if (elementName == QStringLiteral("span")) {
+                 debugFlake << "\tstart Element" << elementName;
+                 svgWriter.writeStartElement(elName);
+                 firstElement = false;
+                 appendStyle = QString();
+             }
+-            else if (elementName == "b" || elementName == "strong") {
++            else if (elementName == QStringLiteral("b") || elementName == QStringLiteral("strong")) {
+                 debugFlake << "\tstart Element" << elementName;
+                 svgWriter.writeStartElement(elName);
+                 firstElement = false;
+                 appendStyle = "font-weight:700;";
+             }
+-            else if (elementName == "i" || elementName == "em") {
++            else if (elementName == QStringLiteral("i") || elementName == QStringLiteral("em")) {
+                 debugFlake << "\tstart Element" << elementName;
+                 svgWriter.writeStartElement(elName);
+                 firstElement = false;
+                 appendStyle = "font-style:italic;";
+             }
+-            else if (elementName == "u") {
++            else if (elementName == QStringLiteral("u")) {
+                 debugFlake << "\tstart Element" << elementName;
+                 svgWriter.writeStartElement(elName);
+                 firstElement = false;
+                 appendStyle = "text-decoration:underline";
+             }
+-            else if (elementName == "font") {
++            else if (elementName == QStringLiteral("font")) {
+                 debugFlake << "\tstart Element" << elementName;
+                 svgWriter.writeStartElement(elName);
+                 firstElement = false;
+@@ -299,7 +299,7 @@ bool KoSvgTextShapeMarkupConverter::convertFromHtml(const QString &htmlText, QSt
+                     svgWriter.writeAttribute("fill", htmlReader.attributes().value("color").toString());
+                 }
+             }
+-            else if (elementName == "pre") {
++            else if (elementName == QStringLiteral("pre")) {
+                 debugFlake << "\tstart Element" << elementName;
+                 svgWriter.writeStartElement(elName);
+                 firstElement = false;
+@@ -333,15 +333,15 @@ bool KoSvgTextShapeMarkupConverter::convertFromHtml(const QString &htmlText, QSt
+                     }
+ 
+                     if (QString(style.at(0)).trimmed() == "line-height"){
+-                        if (style.at(1).contains("%")) {
++                        if (QString(style.at(1)).contains("%")) {
+                             double percentage = QString(style.at(1)).remove("%").toDouble();
+                             em = QString::number(percentage/100.0)+"em";
+-                        } else if(style.at(1).contains("em")) {
++                        } else if(QString(style.at(1)).contains("em")) {
+                             em = style.at(1);
+-                        } else if(style.at(1).contains("px")) {
++                        } else if(QString(style.at(1)).contains("px")) {
+                             em = style.at(1);
+                         }
+-                        if (elementName == "body") {
++                        if (elementName == QStringLiteral("body")) {
+                             bodyEm = em;
+                         }
+                     }
+@@ -373,8 +373,8 @@ bool KoSvgTextShapeMarkupConverter::convertFromHtml(const QString &htmlText, QSt
+         }
+         case QXmlStreamReader::EndElement:
+         {
+-            if (htmlReader.name() == "br") break;
+-            if (elementName == "p" || spanLikes.contains(elementName) || elementName == "body") {
++            if (htmlReader.name() == QStringLiteral("br")) break;
++            if (elementName == QStringLiteral("p") || spanLikes.contains(elementName) || elementName == QStringLiteral("body")) {
+                 debugFlake << "\tEndElement" <<  htmlReader.name() << "(" << elementName << ")";
+                 svgWriter.writeEndElement();
+             }
+@@ -382,7 +382,7 @@ bool KoSvgTextShapeMarkupConverter::convertFromHtml(const QString &htmlText, QSt
+         }
+         case QXmlStreamReader::Characters:
+         {
+-            if (elementName == "style") {
++            if (elementName == QStringLiteral("style")) {
+                 *styles = htmlReader.text().toString();
+             }
+             else {
+@@ -876,7 +876,7 @@ void parseTextAttributes(const QXmlStreamAttributes &elementAttributes,
+     // we convert all the presentation attributes into styles
+     QString presentationAttributes;
+     for (int a = 0; a < elementAttributes.size(); a++) {
+-        if (elementAttributes.at(a).name() != "style") {
++        if (elementAttributes.at(a).name() != QStringLiteral("style")) {
+             presentationAttributes
+                     .append(elementAttributes.at(a).name().toString())
+                     .append(":")
+@@ -1008,7 +1008,7 @@ bool KoSvgTextShapeMarkupConverter::convertSvgToDocument(const QString &svgText,
+                     return previousBlockAbsoluteXOffset && blockAbsoluteXOffset
+                         && qFuzzyCompare(*previousBlockAbsoluteXOffset, *blockAbsoluteXOffset);
+                 };
+-                if ((isSameXOffset() || thisBlockAlignment != prevBlockAlignment) && svgReader.name() != "text"
++                if ((isSameXOffset() || thisBlockAlignment != prevBlockAlignment) && svgReader.name() != QStringLiteral("text")
+                     && elementAttributes.hasAttribute("dy")) {
+ 
+                     QString dyString = elementAttributes.value("dy").toString();
+@@ -1016,7 +1016,7 @@ bool KoSvgTextShapeMarkupConverter::convertSvgToDocument(const QString &svgText,
+                         dyString = dyString.remove("pt").trimmed();
+                     }
+ 
+-                    KIS_SAFE_ASSERT_RECOVER_NOOP(formatStack.isEmpty() == (svgReader.name() == "text"));
++                    KIS_SAFE_ASSERT_RECOVER_NOOP(formatStack.isEmpty() == (svgReader.name() == QStringLiteral("text")));
+ 
+                     absoluteLineOffset = fixToQtDpi(KisDomUtils::toDouble(dyString));
+                     newBlock = absoluteLineOffset > 0;
+@@ -1062,7 +1062,7 @@ bool KoSvgTextShapeMarkupConverter::convertSvgToDocument(const QString &svgText,
+         }
+         case QXmlStreamReader::EndElement:
+         {
+-            if (svgReader.name() != "text") {
++            if (svgReader.name() != QStringLiteral("text")) {
+                 formatStack.pop();
+                 KIS_SAFE_ASSERT_RECOVER(!formatStack.isEmpty()) { break; }
+ 
+diff --git a/libs/global/CMakeLists.txt b/libs/global/CMakeLists.txt
+index 69ad8d54..90e66d00 100644
+--- a/libs/global/CMakeLists.txt
++++ b/libs/global/CMakeLists.txt
+@@ -57,7 +57,6 @@ endif(WIN32)
+ 
+ if (ANDROID)
+     list(APPEND kritaglobal_LIB_SRCS
+-        KisAndroidCrashHandler.cpp
+         KisAndroidExitInfo.cpp
+         KisAndroidLogHandler.cpp
+         KisAndroidUtils.cpp
+diff --git a/libs/global/KisAndroidExitInfo.cpp b/libs/global/KisAndroidExitInfo.cpp
+index c9c0f6e4..5ba274f9 100644
+--- a/libs/global/KisAndroidExitInfo.cpp
++++ b/libs/global/KisAndroidExitInfo.cpp
+@@ -3,14 +3,15 @@
+  */
+ #include "KisAndroidUtils.h"
+ #include "KisAndroidExitInfo.h"
+-#include <QAndroidJniEnvironment>
+-#include <QAndroidJniObject>
+-#include <QtAndroid>
++#include <QJniEnvironment>
++#if defined(Q_OS_ANDROID)
++#include <QJniObject>
++#endif
+ 
+ KisAndroidExitInfo KisAndroidExitInfo::getLast()
+ {
+-    QAndroidJniEnvironment env;
+-    QAndroidJniObject activity = QAndroidJniObject::callStaticObjectMethod("org/qtproject/qt5/android/QtNative",
++    QJniEnvironment env;
++    QJniObject activity = QJniObject::callStaticObjectMethod("org/qtproject/qt5/android/QtNative",
+                                                                            "activity",
+                                                                            "()Landroid/app/Activity;");
+     if (env->ExceptionCheck()) {
+@@ -23,7 +24,7 @@ KisAndroidExitInfo KisAndroidExitInfo::getLast()
+         return KisAndroidExitInfo();
+     }
+ 
+-    QAndroidJniObject exitInfo =
++    QJniObject exitInfo =
+         activity.callObjectMethod("getLastApplicationExitInfo", "()Landroid/app/ApplicationExitInfo;");
+     if (env->ExceptionCheck()) {
+         qWarning("KisAndroidExitInfo::getLast: JNI exception in getLastApplicationExitInfo");
+@@ -61,7 +62,7 @@ KisAndroidExitInfo KisAndroidExitInfo::getLast()
+ 
+     QString description;
+     {
+-        QAndroidJniObject descriptionObject = exitInfo.callObjectMethod("getDescription", "()Ljava/lang/String;");
++        QJniObject descriptionObject = exitInfo.callObjectMethod("getDescription", "()Ljava/lang/String;");
+         if (env->ExceptionCheck()) {
+             qWarning("KisAndroidExitInfo::getLast: JNI exception in getDescription");
+             env->ExceptionDescribe();
+diff --git a/libs/global/KisAndroidUtils.cpp b/libs/global/KisAndroidUtils.cpp
+index 2a50e2b3..85b750a2 100644
+--- a/libs/global/KisAndroidUtils.cpp
++++ b/libs/global/KisAndroidUtils.cpp
+@@ -7,12 +7,14 @@
+ 
+ #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+ #include <QJniEnvironment>
++#if defined(Q_OS_ANDROID)
+ #include <QJniObject>
++#endif
+ #else
+-#include <QAndroidJniEnvironment>
+-#include <QAndroidJniObject>
+-using QJniEnvironment = QAndroidJniEnvironment;
+-using QJniObject = QAndroidJniObject;
++#include <QJniEnvironment>
++#include <QJniObject>
++using QJniEnvironment = QJniEnvironment;
++using QJniObject = QJniObject;
+ #endif
+ 
+ namespace KisAndroidUtils
+diff --git a/libs/global/KisUsageLogger.cpp b/libs/global/KisUsageLogger.cpp
+index 14771f94..cc575696 100644
+--- a/libs/global/KisUsageLogger.cpp
++++ b/libs/global/KisUsageLogger.cpp
+@@ -6,6 +6,9 @@
+ #include "KisUsageLogger.h"
+ 
+ #include <QScreen>
++#ifdef Q_OS_ANDROID
++#include <QJniObject>
++#endif
+ #include <QGlobalStatic>
+ #include <QDebug>
+ #include <QDateTime>
+@@ -154,9 +157,9 @@ QString KisUsageLogger::basicSystemInfo()
+ 
+ #ifdef Q_OS_ANDROID
+     QString manufacturer =
+-        QAndroidJniObject::getStaticObjectField("android/os/Build", "MANUFACTURER", "Ljava/lang/String;").toString();
++        QJniObject::getStaticObjectField("android/os/Build", "MANUFACTURER", "Ljava/lang/String;").toString();
+     const QString model =
+-        QAndroidJniObject::getStaticObjectField("android/os/Build", "MODEL", "Ljava/lang/String;").toString();
++        QJniObject::getStaticObjectField("android/os/Build", "MODEL", "Ljava/lang/String;").toString();
+     manufacturer[0] = manufacturer[0].toUpper();
+     systemInfo.append("\n  Product Model: ").append(manufacturer + " " + model);
+ #elif defined(Q_OS_LINUX)
+diff --git a/libs/image/kis_base_accessor.h b/libs/image/kis_base_accessor.h
+index 34b19a69..58f49632 100644
+--- a/libs/image/kis_base_accessor.h
++++ b/libs/image/kis_base_accessor.h
+@@ -8,6 +8,7 @@
+ #define _KISBASEACCESSOR_H_
+ 
+ #include <kritaimage_export.h>
++#include <QtGlobal>
+ #include <kis_shared.h>
+ 
+ class KRITAIMAGE_EXPORT KisBaseConstAccessor : public KisShared
+diff --git a/libs/pigment/KoColorSpaceRegistry.cpp b/libs/pigment/KoColorSpaceRegistry.cpp
+index 09093a5c..bb77558e 100644
+--- a/libs/pigment/KoColorSpaceRegistry.cpp
++++ b/libs/pigment/KoColorSpaceRegistry.cpp
+@@ -794,7 +794,7 @@ const KoColorProfile *KoColorSpaceRegistry::profileForQColorSpace(const QColorSp
+ {
+     if (!space.isValid()) return p709SRGBProfile();
+     const KoColorProfile *profile = nullptr;
+-#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
++#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0)) || (QT_VERSION < QT_VERSION_CHECK(6, 7, 0) && QT_VERSION >= QT_VERSION_CHECK(6, 0, 0))
+     ColorPrimaries primaries = mapQColorSpaceColorPrimaries.value(space.primaries(), PRIMARIES_UNSPECIFIED);
+     TransferCharacteristics transfer = mapQColorSpaceColorTransfer.value(space.transferFunction(), TRC_UNSPECIFIED);
+     if (space.transferFunction() == QColorSpace::TransferFunction::Gamma || (transfer == TRC_UNSPECIFIED && primaries == PRIMARIES_UNSPECIFIED)) {
+diff --git a/libs/surfacecolormanagementapi/surfacecolormanagement/KisSurfaceColorimetry.cpp b/libs/surfacecolormanagementapi/surfacecolormanagement/KisSurfaceColorimetry.cpp
+index c69848ed..c7f0fd13 100644
+--- a/libs/surfacecolormanagementapi/surfacecolormanagement/KisSurfaceColorimetry.cpp
++++ b/libs/surfacecolormanagementapi/surfacecolormanagement/KisSurfaceColorimetry.cpp
+@@ -95,7 +95,7 @@ QDebug operator<<(QDebug debug, const ColorSpace &value) {
+     std::visit([&] (auto &&v) {debug.nospace() << "primaries: " << v; }, value.primaries);
+     std::visit([&] (auto &&v) {debug.nospace() << ", transferFunction: " << v; }, value.transferFunction);
+     if (value.luminance) {
+-        debug.nospace() << ", luminance: " << value.luminance;
++        debug.nospace() << ", luminance: " << value.luminance->minLuminance;
+     } else {
+         debug.nospace() << ", luminance: " << "<none>";
+     }
+diff --git a/libs/ui/CMakeLists.txt b/libs/ui/CMakeLists.txt
+index cf7eb79f..dc023e36 100644
+--- a/libs/ui/CMakeLists.txt
++++ b/libs/ui/CMakeLists.txt
+@@ -569,9 +569,7 @@ endif()
+ if(ANDROID)
+     list(APPEND kritaui_LIB_SRCS
+         KisAndroidDonations.cpp
+-        animation/KisAndroidMediaEncoderRunnable.cpp
+         animation/KisMediaEncoderFormatPreferencesDialog.cpp
+-        animation/KisMediaEncoderWrapper.cpp
+     )
+ endif()
+ 
+@@ -788,7 +786,7 @@ endif()
+ if (ANDROID)
+     target_link_libraries(kritaui PRIVATE GLESv3)
+     target_link_libraries(kritaui PUBLIC Qt${QT_MAJOR_VERSION}::Gui)
+-    target_link_libraries(kritaui PRIVATE Qt${QT_MAJOR_VERSION}::AndroidExtras)
++    target_link_libraries(kritaui PRIVATE Qt6::Core Qt6::Gui)
+     if(TARGET LibAV)
+         target_link_libraries(kritaui PRIVATE LibAV)
+     endif()
+diff --git a/libs/ui/KisAndroidDonations.cpp b/libs/ui/KisAndroidDonations.cpp
+index e1841b51..7bc2a2d3 100644
+--- a/libs/ui/KisAndroidDonations.cpp
++++ b/libs/ui/KisAndroidDonations.cpp
+@@ -2,14 +2,16 @@
+  * SPDX-License-Identifier: GPL-3.0-or-later
+  */
+ #include "KisAndroidDonations.h"
++#if defined(Q_OS_ANDROID)
++#include <QJniObject>
++#endif
+ 
+ #include "KisApplication.h"
+ #include "kis_splash_screen.h"
+ 
+-#include <QAndroidJniEnvironment>
++#include <QJniEnvironment>
+ #include <QImage>
+ #include <QTemporaryFile>
+-#include <QtAndroid>
+ 
+ // See DonationHelper.java for notes!
+ 
+@@ -21,12 +23,12 @@ void cleanupProductIconData(void *info)
+     delete[] data;
+ }
+ 
+-QPixmap getProductIcon(const QAndroidJniObject &javaProduct)
++QPixmap getProductIcon(const QJniObject &javaProduct)
+ {
+     jint width = 256;
+     jint height = 256;
+ 
+-    QAndroidJniObject pixelsArrayObject = javaProduct.callObjectMethod("getIconPixels", "(II)[I", width, height);
++    QJniObject pixelsArrayObject = javaProduct.callObjectMethod("getIconPixels", "(II)[I", width, height);
+     if (!pixelsArrayObject.isValid()) {
+         return QPixmap();
+     }
+@@ -36,7 +38,7 @@ QPixmap getProductIcon(const QAndroidJniObject &javaProduct)
+         return QPixmap();
+     }
+ 
+-    QAndroidJniEnvironment env;
++    QJniEnvironment env;
+     jsize length = env->GetArrayLength(pixelsArray);
+     if (length != jsize(width) * jsize(height)) {
+         return QPixmap();
+@@ -81,13 +83,13 @@ KisAndroidDonations *KisAndroidDonations::instance()
+ 
+ void KisAndroidDonations::setLoaded(bool loaded)
+ {
+-    QAndroidJniObject::callStaticMethod<void>("org/krita/android/MainActivity", "setLoaded", "(Z)V", jboolean(loaded));
++    QJniObject::callStaticMethod<void>("org/krita/android/MainActivity", "setLoaded", "(Z)V", jboolean(loaded));
+ }
+ 
+ void KisAndroidDonations::setLoadingText(const QString &text)
+ {
+-    QAndroidJniObject textObject = QAndroidJniObject::fromString(text);
+-    QAndroidJniObject::callStaticMethod<void>("org/krita/android/MainActivity",
++    QJniObject textObject = QJniObject::fromString(text);
++    QJniObject::callStaticMethod<void>("org/krita/android/MainActivity",
+                                               "setLoadingText",
+                                               "(Ljava/lang/String;)V",
+                                               textObject.object<jstring>());
+@@ -95,7 +97,7 @@ void KisAndroidDonations::setLoadingText(const QString &text)
+ 
+ void KisAndroidDonations::showDonationDialog(bool splash)
+ {
+-    QAndroidJniEnvironment env;
++    QJniEnvironment env;
+     jbyteArray splashBytes = nullptr;
+     QString splashArtist;
+     if (splash) {
+@@ -117,9 +119,9 @@ void KisAndroidDonations::showDonationDialog(bool splash)
+                      qUtf8Printable(f.errorString()));
+         }
+     }
+-    QAndroidJniObject splashArtistObject = QAndroidJniObject::fromString(splashArtist);
+-    QAndroidJniObject splashVersionObject = QAndroidJniObject::fromString(qApp->applicationVersion());
+-    QAndroidJniObject::callStaticMethod<void>("org/krita/android/MainActivity",
++    QJniObject splashArtistObject = QJniObject::fromString(splashArtist);
++    QJniObject splashVersionObject = QJniObject::fromString(qApp->applicationVersion());
++    QJniObject::callStaticMethod<void>("org/krita/android/MainActivity",
+                                               "showDonationDialog",
+                                               "(Z[BLjava/lang/String;Ljava/lang/String;)V",
+                                               jboolean(splash),
+@@ -149,13 +151,13 @@ void KisAndroidDonations::setShowDonationManagementDialogPending(bool pending)
+ QVector<KisSupporterProduct> KisAndroidDonations::getCurrentProducts() const
+ {
+     QVector<KisSupporterProduct> products;
+-    QAndroidJniObject currentProducts = QAndroidJniObject::callStaticObjectMethod("org/krita/android/DonationHelper",
++    QJniObject currentProducts = QJniObject::callStaticObjectMethod("org/krita/android/DonationHelper",
+                                                                                   "getCurrentProducts",
+                                                                                   "()Ljava/util/List;");
+     jint size = currentProducts.callMethod<jint>("size", "()I");
+     products.reserve(size);
+     for (jint i = 0; i < size; ++i) {
+-        QAndroidJniObject javaProduct = currentProducts.callObjectMethod("get", "(I)Ljava/lang/Object;", i);
++        QJniObject javaProduct = currentProducts.callObjectMethod("get", "(I)Ljava/lang/Object;", i);
+ 
+         products.append(KisSupporterProduct{
+             KisSupporterProductType(javaProduct.callMethod<jint>("getType", "()I")),
+@@ -173,9 +175,9 @@ QVector<KisSupporterProduct> KisAndroidDonations::getCurrentProducts() const
+ 
+ void KisAndroidDonations::startBillingFlowFor(const QString &productId, const QString &offerToken)
+ {
+-    QAndroidJniObject productIdObject = QAndroidJniObject::fromString(productId);
+-    QAndroidJniObject offerTokenObject = QAndroidJniObject::fromString(offerToken);
+-    QAndroidJniObject::callStaticMethod<void>("org/krita/android/DonationHelper",
++    QJniObject productIdObject = QJniObject::fromString(productId);
++    QJniObject offerTokenObject = QJniObject::fromString(offerToken);
++    QJniObject::callStaticMethod<void>("org/krita/android/DonationHelper",
+                                               "startBillingFlowForProductId",
+                                               "(Ljava/lang/String;Ljava/lang/String;)V",
+                                               productIdObject.object<jstring>(),
+@@ -189,13 +191,13 @@ void KisAndroidDonations::slotStartDonationFlow()
+ 
+ void KisAndroidDonations::slotManageSubscriptions()
+ {
+-    QAndroidJniObject::callStaticMethod<void>("org/krita/android/MainActivity", "manageSubscriptions", "()V");
++    QJniObject::callStaticMethod<void>("org/krita/android/MainActivity", "manageSubscriptions", "()V");
+ }
+ 
+ void KisAndroidDonations::slotManageSubscription(const QString &productId)
+ {
+-    QAndroidJniObject productIdObject = QAndroidJniObject::fromString(productId);
+-    QAndroidJniObject::callStaticMethod<void>("org/krita/android/MainActivity",
++    QJniObject productIdObject = QJniObject::fromString(productId);
++    QJniObject::callStaticMethod<void>("org/krita/android/MainActivity",
+                                               "manageSubscription",
+                                               "(Ljava/lang/String;)V",
+                                               productIdObject.object<jstring>());
+@@ -223,15 +225,15 @@ KisAndroidDonations::KisAndroidDonations(QObject *parent)
+ 
+ bool KisAndroidDonations::isProductOwned(const QString &productId) const
+ {
+-    QAndroidJniObject productIdObject = QAndroidJniObject::fromString(productId);
+-    return QAndroidJniObject::callStaticMethod<jboolean>("org/krita/android/DonationHelper",
++    QJniObject productIdObject = QJniObject::fromString(productId);
++    return QJniObject::callStaticMethod<jboolean>("org/krita/android/DonationHelper",
+                                                          "isProductOwned",
+                                                          "(Ljava/lang/String;)B");
+ }
+ 
+ void KisAndroidDonations::syncState()
+ {
+-    QAndroidJniObject::callStaticMethod<void>("org/krita/android/DonationHelper", "syncState", "()V");
++    QJniObject::callStaticMethod<void>("org/krita/android/DonationHelper", "syncState", "()V");
+ }
+ 
+ extern "C" JNIEXPORT void JNICALL Java_org_krita_android_JNIWrappers_donationStateUpdated(JNIEnv * /*env*/,
+diff --git a/libs/ui/KisAndroidScaling.cpp b/libs/ui/KisAndroidScaling.cpp
+index b861ae7d..dd187b1f 100644
+--- a/libs/ui/KisAndroidScaling.cpp
++++ b/libs/ui/KisAndroidScaling.cpp
+@@ -13,10 +13,12 @@
+ #include <qpa/qplatformscreen.h>
+ 
+ #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
++#if defined(Q_OS_ANDROID)
+ #include <QJniObject>
++#endif
+ #else
+-#include <QAndroidJniObject>
+-using QJniObject = QAndroidJniObject;
++#include <QJniObject>
++using QJniObject = QJniObject;
+ #endif
+ 
+ KisAndroidScaling::KisAndroidScaling(KisConfig &cfg, KisApplication *app)
+diff --git a/libs/ui/KisLongPressEventFilter.cpp b/libs/ui/KisLongPressEventFilter.cpp
+index 5e8d0fcd..19535af4 100644
+--- a/libs/ui/KisLongPressEventFilter.cpp
++++ b/libs/ui/KisLongPressEventFilter.cpp
+@@ -1,5 +1,8 @@
+ // SPDX-License-Identifier: GPL-3.0-or-later
+ #include "KisLongPressEventFilter.h"
++#if defined(Q_OS_ANDROID)
++#include <QJniObject>
++#endif
+ #include <KisKineticScroller.h>
+ #include <QAbstractButton>
+ #include <QAbstractScrollArea>
+@@ -18,7 +21,6 @@
+ #include <QStyleHints>
+ #include <QTimer>
+ #ifdef Q_OS_ANDROID
+-#include <QtAndroid>
+ #endif
+ 
+ KisLongPressEventFilter::KisLongPressEventFilter(QObject *parent)
+@@ -30,7 +32,7 @@ KisLongPressEventFilter::KisLongPressEventFilter(QObject *parent)
+     connect(m_timer, &QTimer::timeout, this, &KisLongPressEventFilter::triggerLongPress);
+ #ifdef Q_OS_ANDROID
+     m_longPressTimeout =
+-        QAndroidJniObject::callStaticMethod<jint>("org/krita/android/MainActivity", "getLongPressTimeout", "()I");
++        QJniObject::callStaticMethod<jint>("org/krita/android/MainActivity", "getLongPressTimeout", "()I");
+ #endif
+ }
+ 
+diff --git a/libs/ui/KisMainWindow.cpp b/libs/ui/KisMainWindow.cpp
+index bbf49728..771813b8 100644
+--- a/libs/ui/KisMainWindow.cpp
++++ b/libs/ui/KisMainWindow.cpp
+@@ -13,6 +13,9 @@
+ 
+ // qt includes
+ #include <QApplication>
++#if defined(Q_OS_ANDROID)
++#include <QJniObject>
++#endif
+ #include <QByteArray>
+ #include <QCloseEvent>
+ #include <QStandardPaths>
+@@ -101,7 +104,6 @@
+ #ifdef Q_OS_ANDROID
+ #include "KisAndroidDonations.h"
+ #include "dialogs/KisDonationManagementDialog.h"
+-#include <QtAndroid>
+ #include <KisAndroidUtils.h>
+ #endif
+ 
+@@ -639,7 +641,9 @@ KisMainWindow::KisMainWindow(QUuid uuid)
+     setFixedSize(KisApplication::primaryScreen()->availableGeometry().size());
+ 
+     QScreen *s = QGuiApplication::primaryScreen();
++#if QT_VERSION < QT_VERSION_CHECK(6, 0, 0)
+     s->setOrientationUpdateMask(Qt::LandscapeOrientation|Qt::InvertedLandscapeOrientation|Qt::PortraitOrientation|Qt::InvertedPortraitOrientation);
++#endif
+     connect(s, SIGNAL(orientationChanged(Qt::ScreenOrientation)), this, SLOT(orientationChanged()));
+ 
+ #if KRITA_QT_HAS_ANDROID_QPLATFORMSCREEN_DENSITY_ADJUSTMENT
+@@ -658,7 +662,7 @@ KisMainWindow::KisMainWindow(QUuid uuid)
+     // When Krita starts, Java side sends an event to set applicationState() to active. But, before
+     // the event could reach KisApplication's platform integration, it is cleared by KisOpenGLModeProber::probeFormat.
+     // So, we send it manually when MainWindow shows up.
+-    QAndroidJniObject::callStaticMethod<void>("org/qtproject/qt5/android/QtNative", "setApplicationState", "(I)V", Qt::ApplicationActive);
++    QJniObject::callStaticMethod<void>("org/qtproject/qt5/android/QtNative", "setApplicationState", "(I)V", Qt::ApplicationActive);
+ #endif
+ 
+     setAcceptDrops(true);
+diff --git a/libs/ui/KisReferenceImage.cpp b/libs/ui/KisReferenceImage.cpp
+index 882bc8ce..697b57e3 100644
+--- a/libs/ui/KisReferenceImage.cpp
++++ b/libs/ui/KisReferenceImage.cpp
+@@ -93,7 +93,7 @@ struct KisReferenceImage::Private : public QSharedData
+         // loaded into a qimage cannot be saved to png unless we explicitly
+         // convert the colorspace of the QImage
+ #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+-        if (image.colorSpace().colorModel() != QColorSpace::ColorModel::Rgb || !image.colorSpace().isValid()) {
++        if (!image.colorSpace().isValid()) {
+             image.convertToColorSpace(QColorSpace(QColorSpace::SRgb));
+         }
+ #else
+@@ -274,7 +274,7 @@ void KisReferenceImage::paint(QPainter &gc) const
+     // Color conversion.
+     QImage *targetD = dynamic_cast<QImage*>(gc.device());
+ #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+-    const bool getTargetCs = (targetD && targetD->colorSpace().colorModel() == QColorSpace::ColorModel::Rgb);
++    const bool getTargetCs = (targetD && targetD->colorSpace().isValid());
+ 
+     const KoColorProfile *targetP = getTargetCs? KoColorSpaceRegistry::instance()->profileForQColorSpace(targetD->colorSpace()): KoColorSpaceRegistry::instance()->p709SRGBProfile();
+     const KoColorProfile *sourceP = KoColorSpaceRegistry::instance()->profileForQColorSpace(d->image.colorSpace());
+diff --git a/libs/ui/KisSurfaceColorSpaceWrapper.h b/libs/ui/KisSurfaceColorSpaceWrapper.h
+index c7b547d0..a6e2606d 100644
+--- a/libs/ui/KisSurfaceColorSpaceWrapper.h
++++ b/libs/ui/KisSurfaceColorSpaceWrapper.h
+@@ -64,7 +64,7 @@ public:
+             return { sRGBColorSpace };
+         } else if (colorSpace == QColorSpace::SRgbLinear) {
+             return { scRGBColorSpace };
+-        } else if (colorSpace == QColorSpace::Bt2100Pq) {
++        } else if (colorSpace == QColorSpace::SRgbLinear) {
+             return { bt2020PQColorSpace };
+         } else {
+             qWarning() << "WARNING: KisSurfaceColorSpaceWrapper: unsupported surface color space" << colorSpace;
+@@ -117,7 +117,7 @@ public:
+         case scRGBColorSpace:
+             return QColorSpace::SRgbLinear;
+         case bt2020PQColorSpace:
+-            return QColorSpace::Bt2100Pq;
++            return QColorSpace::SRgbLinear;
+         }
+         
+         Q_UNREACHABLE_RETURN(QColorSpace());
+diff --git a/libs/ui/animation/KisAndroidMediaEncoderRunnable.cpp b/libs/ui/animation/KisAndroidMediaEncoderRunnable.cpp
+index b4390f68..83c8b0be 100644
+--- a/libs/ui/animation/KisAndroidMediaEncoderRunnable.cpp
++++ b/libs/ui/animation/KisAndroidMediaEncoderRunnable.cpp
+@@ -13,12 +13,14 @@
+ 
+ #if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+ #include <QJniEnvironment>
++#if defined(Q_OS_ANDROID)
+ #include <QJniObject>
++#endif
+ #else
+-#include <QAndroidJniEnvironment>
+-#include <QAndroidJniObject>
+-using QJniEnvironment = QAndroidJniEnvironment;
+-using QJniObject = QAndroidJniObject;
++#include <QJniEnvironment>
++#include <QJniObject>
++using QJniEnvironment = QJniEnvironment;
++using QJniObject = QJniObject;
+ #endif
+ 
+ #include <klocalizedstring.h>
+diff --git a/libs/ui/canvas/kis_display_color_converter.cpp b/libs/ui/canvas/kis_display_color_converter.cpp
+index 8ed6cc06..752552bd 100644
+--- a/libs/ui/canvas/kis_display_color_converter.cpp
++++ b/libs/ui/canvas/kis_display_color_converter.cpp
+@@ -9,6 +9,7 @@
+ #include <QGlobalStatic>
+ #include <QPointer>
+ #include <QPalette>
++#include <QApplication>
+ 
+ #include <KoColor.h>
+ #include <KoColorDisplayRendererInterface.h>
+diff --git a/libs/ui/kis_painting_assistant.cc b/libs/ui/kis_painting_assistant.cc
+index c5a63d13..c9b244f9 100644
+--- a/libs/ui/kis_painting_assistant.cc
++++ b/libs/ui/kis_painting_assistant.cc
+@@ -641,10 +641,10 @@ void KisPaintingAssistant::loadXml(KoStore* store, QMap<int, KisPaintingAssistan
+     while (!xml.atEnd()) {
+         switch (xml.readNext()) {
+         case QXmlStreamReader::StartElement:
+-            if (xml.name() == "assistant") {
++            if (xml.name() == QStringLiteral("assistant")) {
+ 
+                 auto active = xml.attributes().value("active");
+-                setSnappingActive( (active != "0")  );
++                setSnappingActive( (active != QStringLiteral("0"))  );
+ 
+                 // load custom shared assistant properties
+                 if ( xml.attributes().hasAttribute("useCustomColor")) {
+@@ -671,14 +671,14 @@ void KisPaintingAssistant::loadXml(KoStore* store, QMap<int, KisPaintingAssistan
+ 
+                 if ( xml.attributes().hasAttribute("locked")) {
+                     auto locked = xml.attributes().value("locked");
+-                    setLocked(locked == "1");
++                    setLocked(locked == QStringLiteral("1"));
+                 }
+ 
+             }
+ 
+             loadCustomXml(&xml);
+ 
+-            if (xml.name() == "handle") {
++            if (xml.name() == QStringLiteral("handle")) {
+                 QString strId = xml.attributes().value("id").toString(),
+                         strX = xml.attributes().value("x").toString(),
+                         strY = xml.attributes().value("y").toString();
+@@ -691,7 +691,7 @@ void KisPaintingAssistant::loadXml(KoStore* store, QMap<int, KisPaintingAssistan
+                     }
+                 }
+                 addHandle(handleMap.value(id), HandleType::NORMAL);
+-            } else if (xml.name() == "sidehandle") {
++            } else if (xml.name() == QStringLiteral("sidehandle")) {
+                 QString strId = xml.attributes().value("id").toString(),
+                         strX = xml.attributes().value("x").toString(),
+                         strY = xml.attributes().value("y").toString();
+diff --git a/libs/ui/opengl/kis_opengl_image_textures.cpp b/libs/ui/opengl/kis_opengl_image_textures.cpp
+index f45e5b05..d8dcfa0f 100644
+--- a/libs/ui/opengl/kis_opengl_image_textures.cpp
++++ b/libs/ui/opengl/kis_opengl_image_textures.cpp
+@@ -6,11 +6,13 @@
+ 
+ #include "opengl/kis_opengl_image_textures.h"
+ 
+-#ifdef QT_OPENGL_ES_2
++#if defined(Q_OS_ANDROID)
++#include <qopengl.h>
++#include <GLES3/gl3.h>
++#elif defined(QT_OPENGL_ES_2)
++#include <qopengl.h>
++#else
+ #include <qopengl.h>
+-#endif
+-
+-#ifndef QT_OPENGL_ES_2
+ #include <QOpenGLFunctions>
+ #endif
+ #include <QOpenGLContext>
+@@ -574,14 +576,14 @@ void initializeRGBA16FTextures(QOpenGLContext *ctx, KisGLTexturesInfo &texturesI
+         dbgUI << "Pixel type half (GLES or GL3)";
+         texturesInfo.format = GL_RGBA;
+     } else if (haveBuiltInOpenExr && ctx->hasExtension("GL_ARB_half_float_pixel")) {
+-        texturesInfo.internalFormat = GL_RGBA16F_ARB;
++        texturesInfo.internalFormat = GL_RGBA16F;
+         dbgUI << "Using ARB half";
+-        texturesInfo.type = GL_HALF_FLOAT_ARB;
++        texturesInfo.type = GL_HALF_FLOAT;
+         destinationColorDepthId = Float16BitsColorDepthID;
+         texturesInfo.format = GL_RGBA;
+         dbgUI << "Pixel type half";
+     } else if (haveBuiltInOpenExr && ctx->hasExtension("GL_ATI_texture_float")) {
+-        texturesInfo.internalFormat = GL_RGBA_FLOAT16_ATI;
++        texturesInfo.internalFormat = GL_RGBA16F;
+         dbgUI << "Using ATI half";
+         texturesInfo.type = GL_HALF_FLOAT;
+         destinationColorDepthId = Float16BitsColorDepthID;
+@@ -693,13 +695,13 @@ void KisOpenGLImageTextures::updateTextureFormat()
+                 m_texturesInfo.format = GL_RGBA;
+                 destinationColorDepthId = Float32BitsColorDepthID;
+             } else if (ctx->hasExtension("GL_ARB_texture_float")) {
+-                m_texturesInfo.internalFormat = GL_RGBA32F_ARB;
++                m_texturesInfo.internalFormat = GL_RGBA32F;
+                 dbgUI << "Using ARB float";
+                 m_texturesInfo.type = GL_FLOAT;
+                 m_texturesInfo.format = GL_RGBA;
+                 destinationColorDepthId = Float32BitsColorDepthID;
+             } else if (ctx->hasExtension("GL_ATI_texture_float")) {
+-                m_texturesInfo.internalFormat = GL_RGBA_FLOAT32_ATI;
++                m_texturesInfo.internalFormat = GL_RGBA32F;
+                 dbgUI << "Using ATI float";
+                 m_texturesInfo.type = GL_FLOAT;
+                 m_texturesInfo.format = GL_RGBA;
+diff --git a/libs/widgetutils/CMakeLists.txt b/libs/widgetutils/CMakeLists.txt
+index 00f3c84d..7c18fbe0 100644
+--- a/libs/widgetutils/CMakeLists.txt
++++ b/libs/widgetutils/CMakeLists.txt
+@@ -146,7 +146,7 @@ if (APPLE)
+ endif ()
+ 
+ if (ANDROID)
+-    target_link_libraries(kritawidgetutils PRIVATE Qt${QT_MAJOR_VERSION}::AndroidExtras)
++    target_link_libraries(kritawidgetutils PRIVATE Qt6::Core Qt6::Gui)
+ endif()
+ 
+ target_link_libraries(kritawidgetutils
+diff --git a/libs/widgetutils/KisKineticScroller.cpp b/libs/widgetutils/KisKineticScroller.cpp
+index 6024802c..509363f0 100644
+--- a/libs/widgetutils/KisKineticScroller.cpp
++++ b/libs/widgetutils/KisKineticScroller.cpp
+@@ -12,7 +12,6 @@
+ #include <QEvent>
+ #include <QScrollBar>
+ #ifdef Q_OS_ANDROID
+-#include <QtAndroid>
+ #else
+ #include <QApplication>
+ #include <QStyleHints>
+@@ -108,8 +107,7 @@ QScroller* KisKineticScroller::createPreconfiguredScroller(QAbstractScrollArea *
+         // If the mouse press event delay is too large, it also ends up delaying
+         // long-presses. Cap the value there for consistency.
+ #ifdef Q_OS_ANDROID
+-        int maxDelayMs =
+-            QAndroidJniObject::callStaticMethod<jint>("org/krita/android/MainActivity", "getLongPressTimeout", "()I");
++        int maxDelayMs = 500;
+ #else
+         int maxDelayMs = qApp->styleHints()->mousePressAndHoldInterval();
+ #endif
+diff --git a/libs/widgetutils/xmlgui/kkeysequencewidget.cpp b/libs/widgetutils/xmlgui/kkeysequencewidget.cpp
+index 1f267f3a..73f69ee9 100644
+--- a/libs/widgetutils/xmlgui/kkeysequencewidget.cpp
++++ b/libs/widgetutils/xmlgui/kkeysequencewidget.cpp
+@@ -892,7 +892,7 @@ void KKeySequenceButton::keyPressEvent(QKeyEvent *e)
+              * TODO: in the future replace the whole widget with QKeySequenceEdit,
+              *       it uses QKeyMapper directly.
+              */
+-#if (QT_VERSION < QT_VERSION_CHECK(6, 0, 0))
++#if (QT_VERSION < QT_VERSION_CHECK(6, 7, 0))
+             const QList<int> vec = QKeyMapper::possibleKeys(e);
+ #else
+             const QList<QKeyCombination> vec = QKeyMapper::possibleKeys(e);
+diff --git a/plugins/paintops/colorsmudge/CMakeLists.txt b/plugins/paintops/colorsmudge/CMakeLists.txt
+index 1416a9a9..1f405569 100644
+--- a/plugins/paintops/colorsmudge/CMakeLists.txt
++++ b/plugins/paintops/colorsmudge/CMakeLists.txt
+@@ -27,7 +27,8 @@ set(kritacolorsmudgepaintop_SOURCES
+     KisColorSmudgeStrategyWithOverlay.cpp
+     KisColorSmudgeStrategyMask.cpp
+     KisColorSmudgeStrategyStamp.cpp
+-    KisColorSmudgeStrategyMaskLegacy.cpp)
++    KisColorSmudgeStrategyMaskLegacy.cpp
++    register_static.cpp)
+ 
+ kis_add_library(kritacolorsmudgepaintop MODULE ${kritacolorsmudgepaintop_SOURCES})
+ 
+diff --git a/plugins/paintops/colorsmudge/register_static.cpp b/plugins/paintops/colorsmudge/register_static.cpp
+new file mode 100644
+index 00000000..7573aeff
+--- /dev/null
++++ b/plugins/paintops/colorsmudge/register_static.cpp
+@@ -0,0 +1,25 @@
++/*
++ * SPDX-FileCopyrightText: 2026 ReveriePaint
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Static registration for the colorsmudge paintop, callable from external
++ * code without QPluginLoader (same pattern as defaultpaintops).
++ */
++
++#include <brushengine/kis_paintop_registry.h>
++#include <brushengine/kis_paintop_factory.h>
++#include <klocalizedstring.h>
++#include <kis_simple_paintop_factory.h>
++
++#include "kis_colorsmudgeop.h"
++#include "kis_colorsmudgeop_settings.h"
++#include "kis_colorsmudgeop_settings_widget.h"
++
++extern "C" __attribute__((visibility("default"))) void krita_register_colorsmudge_paintop()
++{
++    KisPaintOpRegistry::instance()->add(
++        new KisSimplePaintOpFactory<KisColorSmudgeOp, KisColorSmudgeOpSettings, KisColorSmudgeOpSettingsWidget>(
++            "colorsmudge", i18n("Color Smudge"), KisPaintOpFactory::categoryStable(),
++            "krita-colorsmudge.png", QString(), QStringList(), 2));
++}
+diff --git a/plugins/paintops/curvebrush/CMakeLists.txt b/plugins/paintops/curvebrush/CMakeLists.txt
+index 1c16a85a..d69422eb 100644
+--- a/plugins/paintops/curvebrush/CMakeLists.txt
++++ b/plugins/paintops/curvebrush/CMakeLists.txt
+@@ -1,5 +1,6 @@
+ set(kritacurvepaintop_SOURCES
+       curve_paintop_plugin.cpp
++    register_static.cpp
+       kis_curve_paintop.cpp
+       kis_curve_paintop_settings.cpp
+       kis_curve_paintop_settings_widget.cpp
+diff --git a/plugins/paintops/curvebrush/register_static.cpp b/plugins/paintops/curvebrush/register_static.cpp
+new file mode 100644
+index 00000000..898259ff
+--- /dev/null
++++ b/plugins/paintops/curvebrush/register_static.cpp
+@@ -0,0 +1,22 @@
++/*
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Static registration for the curvebrush paintop, callable from external code
++ * without QPluginLoader (same pattern as defaultpaintops register_static).
++ */
++
++#include <brushengine/kis_paintop_registry.h>
++#include <brushengine/kis_paintop_factory.h>
++#include <klocalizedstring.h>
++#include <kis_simple_paintop_factory.h>
++#include "kis_curve_paintop.h"
++#include "kis_curve_paintop_settings.h"
++#include "kis_curve_paintop_settings_widget.h"
++
++extern "C" __attribute__((visibility("default"))) void krita_register_curve_paintop()
++{
++    KisPaintOpRegistry::instance()->add(
++        new KisSimplePaintOpFactory<KisCurvePaintOp, KisCurvePaintOpSettings, KisCurvePaintOpSettingsWidget>(
++            "curvebrush", i18n("Curve"), KisPaintOpFactory::categoryStable(),
++            "krita-curve.png", QString(), QStringList(), 9));
++}
+diff --git a/plugins/paintops/defaultpaintops/CMakeLists.txt b/plugins/paintops/defaultpaintops/CMakeLists.txt
+index a08dcef3..55691ba4 100644
+--- a/plugins/paintops/defaultpaintops/CMakeLists.txt
++++ b/plugins/paintops/defaultpaintops/CMakeLists.txt
+@@ -19,6 +19,7 @@ set(kritadefaultpaintops_SOURCES
+         duplicate/KisDuplicateOptionData.cpp
+         duplicate/KisDuplicateOptionModel.cpp
+         duplicate/KisDuplicateOptionWidget.cpp
++        register_static.cpp
+     )
+ 
+ ki18n_wrap_ui(kritadefaultpaintops_SOURCES duplicate/wdgduplicateop.ui )
+diff --git a/plugins/paintops/defaultpaintops/register_static.cpp b/plugins/paintops/defaultpaintops/register_static.cpp
+new file mode 100644
+index 00000000..f916b3e1
+--- /dev/null
++++ b/plugins/paintops/defaultpaintops/register_static.cpp
+@@ -0,0 +1,37 @@
++/*
++ * SPDX-FileCopyrightText: 2026 ReveriePaint
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Static registration for the default paintop factories, callable from
++ * external code (ReveriePaint) without going through QPluginLoader.
++ * Instantiating KisSimplePaintOpFactory inside this library keeps the
++ * vtable layout identical to libkritaimage's view of KisPaintOpFactory.
++ */
++
++#include "kritadefaultpaintops_export.h"
++
++#include <brushengine/kis_paintop_registry.h>
++#include <brushengine/kis_paintop_factory.h>
++#include <kis_simple_paintop_factory.h>
++#include <klocalizedstring.h>
++#include <KoCompositeOpRegistry.h>
++
++#include "brush/kis_brushop.h"
++#include "brush/KisBrushOpSettings.h"
++#include "brush/kis_brushop_settings_widget.h"
++#include "duplicate/kis_duplicateop.h"
++#include "duplicate/kis_duplicateop_settings.h"
++#include "duplicate/kis_duplicateop_settings_widget.h"
++
++extern "C" KRITADEFAULTPAINTOPS_EXPORT void krita_register_default_paintops()
++{
++    KisPaintOpRegistry *r = KisPaintOpRegistry::instance();
++    r->add(new KisSimplePaintOpFactory<KisBrushOp, KisBrushOpSettings, KisBrushOpSettingsWidget>(
++        "paintbrush", i18nc("Pixel paintbrush", "Pixel"), KisPaintOpFactory::categoryStable(),
++        "krita-paintbrush.png", QString(), QStringList(), 1));
++    r->add(new KisSimplePaintOpFactory<KisDuplicateOp, KisDuplicateOpSettings, KisDuplicateOpSettingsWidget>(
++        "duplicate", i18nc("clone paintbrush (previously \"Duplicate\")", "Clone"),
++        KisPaintOpFactory::categoryStable(), "krita-duplicate.png", QString(),
++        QStringList(COMPOSITE_COPY), 15));
++}
+diff --git a/plugins/paintops/deform/CMakeLists.txt b/plugins/paintops/deform/CMakeLists.txt
+index d23feb63..eb2f4eaf 100644
+--- a/plugins/paintops/deform/CMakeLists.txt
++++ b/plugins/paintops/deform/CMakeLists.txt
+@@ -1,6 +1,7 @@
+ set(kritadeformpaintop_SOURCES
+     deform_brush.cpp
+     deform_paintop_plugin.cpp
++    register_static.cpp
+     kis_deform_paintop.cpp
+     kis_deform_paintop_settings.cpp
+     kis_deform_paintop_settings_widget.cpp
+diff --git a/plugins/paintops/deform/register_static.cpp b/plugins/paintops/deform/register_static.cpp
+new file mode 100644
+index 00000000..5621ee9e
+--- /dev/null
++++ b/plugins/paintops/deform/register_static.cpp
+@@ -0,0 +1,23 @@
++/*
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Static registration for the deformbrush paintop, callable from external code
++ * without QPluginLoader (same pattern as defaultpaintops register_static).
++ */
++
++#include <brushengine/kis_paintop_registry.h>
++#include <brushengine/kis_paintop_factory.h>
++#include <klocalizedstring.h>
++#include <kis_simple_paintop_factory.h>
++#include <KoCompositeOpRegistry.h>
++#include "kis_deform_paintop.h"
++#include "kis_deform_paintop_settings.h"
++#include "kis_deform_paintop_settings_widget.h"
++
++extern "C" __attribute__((visibility("default"))) void krita_register_deform_paintop()
++{
++    KisPaintOpRegistry::instance()->add(
++        new KisSimplePaintOpFactory<KisDeformPaintOp, KisDeformPaintOpSettings, KisDeformPaintOpSettingsWidget>(
++            "deformbrush", i18n("Deform"), KisPaintOpFactory::categoryStable(),
++            "krita-deform.png", QString(), QStringList(COMPOSITE_COPY), 16));
++}
+diff --git a/plugins/paintops/experiment/CMakeLists.txt b/plugins/paintops/experiment/CMakeLists.txt
+index d2423473..dd324304 100644
+--- a/plugins/paintops/experiment/CMakeLists.txt
++++ b/plugins/paintops/experiment/CMakeLists.txt
+@@ -1,5 +1,6 @@
+ set(kritaexperimentpaintop_SOURCES
+     experiment_paintop_plugin.cpp
++    register_static.cpp
+     kis_experiment_paintop.cpp
+     kis_experiment_paintop_settings.cpp
+     kis_experiment_paintop_settings_widget.cpp
+diff --git a/plugins/paintops/experiment/register_static.cpp b/plugins/paintops/experiment/register_static.cpp
+new file mode 100644
+index 00000000..d9da8151
+--- /dev/null
++++ b/plugins/paintops/experiment/register_static.cpp
+@@ -0,0 +1,22 @@
++/*
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Static registration for the experimentbrush paintop, callable from external code
++ * without QPluginLoader (same pattern as defaultpaintops register_static).
++ */
++
++#include <brushengine/kis_paintop_registry.h>
++#include <brushengine/kis_paintop_factory.h>
++#include <klocalizedstring.h>
++#include <kis_simple_paintop_factory.h>
++#include "kis_experiment_paintop.h"
++#include "kis_experiment_paintop_settings.h"
++#include "kis_experiment_paintop_settings_widget.h"
++
++extern "C" __attribute__((visibility("default"))) void krita_register_experiment_paintop()
++{
++    KisPaintOpRegistry::instance()->add(
++        new KisSimplePaintOpFactory<KisExperimentPaintOp, KisExperimentPaintOpSettings, KisExperimentPaintOpSettingsWidget>(
++            "experimentbrush", i18n("Shape"), KisPaintOpFactory::categoryStable(),
++            "krita-experiment.png", QString(), QStringList(), 5));
++}
+diff --git a/plugins/paintops/filterop/CMakeLists.txt b/plugins/paintops/filterop/CMakeLists.txt
+index 6f515174..23d5cfbc 100644
+--- a/plugins/paintops/filterop/CMakeLists.txt
++++ b/plugins/paintops/filterop/CMakeLists.txt
+@@ -1,5 +1,6 @@
+ set(kritafilterop_SOURCES
+     filterop.cpp
++    register_static.cpp
+     kis_filterop.cpp
+     kis_filterop_settings.cpp
+     kis_filterop_settings_widget.cpp
+diff --git a/plugins/paintops/filterop/register_static.cpp b/plugins/paintops/filterop/register_static.cpp
+new file mode 100644
+index 00000000..7b7e6766
+--- /dev/null
++++ b/plugins/paintops/filterop/register_static.cpp
+@@ -0,0 +1,25 @@
++/*
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Static registration for the filter paintop, callable from external code
++ * without QPluginLoader (same pattern as defaultpaintops register_static).
++ */
++
++#include <brushengine/kis_paintop_registry.h>
++#include <brushengine/kis_paintop_factory.h>
++#include <klocalizedstring.h>
++#include <kis_simple_paintop_factory.h>
++#include <KoCompositeOpRegistry.h>
++#include "kis_filterop.h"
++#include "kis_filterop_settings.h"
++#include "kis_filterop_settings_widget.h"
++
++extern "C" __attribute__((visibility("default"))) void krita_register_filter_paintop()
++{
++    QStringList whiteList;
++    whiteList << COMPOSITE_COPY;
++    KisPaintOpRegistry::instance()->add(
++        new KisSimplePaintOpFactory<KisFilterOp, KisFilterOpSettings, KisFilterOpSettingsWidget>(
++            "filter", i18n("Filter"), KisPaintOpFactory::categoryStable(),
++            "krita-filterop.png", QString(), whiteList, 17));
++}
+diff --git a/plugins/paintops/gridbrush/CMakeLists.txt b/plugins/paintops/gridbrush/CMakeLists.txt
+index 35f5927e..4d68d27f 100644
+--- a/plugins/paintops/gridbrush/CMakeLists.txt
++++ b/plugins/paintops/gridbrush/CMakeLists.txt
+@@ -1,5 +1,6 @@
+ set(kritagridpaintop_SOURCES
+     grid_paintop_plugin.cpp
++    register_static.cpp
+     kis_grid_paintop.cpp
+     KisGridOpOptionData.cpp
+     KisGridOpOptionModel.cpp
+diff --git a/plugins/paintops/gridbrush/register_static.cpp b/plugins/paintops/gridbrush/register_static.cpp
+new file mode 100644
+index 00000000..443a53bd
+--- /dev/null
++++ b/plugins/paintops/gridbrush/register_static.cpp
+@@ -0,0 +1,22 @@
++/*
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Static registration for the gridbrush paintop, callable from external code
++ * without QPluginLoader (same pattern as defaultpaintops register_static).
++ */
++
++#include <brushengine/kis_paintop_registry.h>
++#include <brushengine/kis_paintop_factory.h>
++#include <klocalizedstring.h>
++#include <kis_simple_paintop_factory.h>
++#include "kis_grid_paintop.h"
++#include "kis_grid_paintop_settings.h"
++#include "kis_grid_paintop_settings_widget.h"
++
++extern "C" __attribute__((visibility("default"))) void krita_register_grid_paintop()
++{
++    KisPaintOpRegistry::instance()->add(
++        new KisSimplePaintOpFactory<KisGridPaintOp, KisGridPaintOpSettings, KisGridPaintOpSettingsWidget>(
++            "gridbrush", i18n("Grid"), KisPaintOpFactory::categoryStable(),
++            "krita-grid.png", QString(), QStringList(), 8));
++}
+diff --git a/plugins/paintops/hairy/CMakeLists.txt b/plugins/paintops/hairy/CMakeLists.txt
+index e479ead0..a0245a69 100644
+--- a/plugins/paintops/hairy/CMakeLists.txt
++++ b/plugins/paintops/hairy/CMakeLists.txt
+@@ -1,5 +1,6 @@
+ set(kritahairypaintop_SOURCES
+     hairy_paintop_plugin.cpp
++    register_static.cpp
+     kis_hairy_paintop.cpp
+     kis_hairy_paintop_settings.cpp
+     kis_hairy_paintop_settings_widget.cpp
+diff --git a/plugins/paintops/hairy/register_static.cpp b/plugins/paintops/hairy/register_static.cpp
+new file mode 100644
+index 00000000..e0e50a3d
+--- /dev/null
++++ b/plugins/paintops/hairy/register_static.cpp
+@@ -0,0 +1,22 @@
++/*
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Static registration for the hairybrush paintop, callable from external code
++ * without QPluginLoader (same pattern as defaultpaintops register_static).
++ */
++
++#include <brushengine/kis_paintop_registry.h>
++#include <brushengine/kis_paintop_factory.h>
++#include <klocalizedstring.h>
++#include <kis_simple_paintop_factory.h>
++#include "kis_hairy_paintop.h"
++#include "kis_hairy_paintop_settings.h"
++#include "kis_hairy_paintop_settings_widget.h"
++
++extern "C" __attribute__((visibility("default"))) void krita_register_hairy_paintop()
++{
++    KisPaintOpRegistry::instance()->add(
++        new KisSimplePaintOpFactory<KisHairyPaintOp, KisHairyPaintOpSettings, KisHairyPaintOpSettingsWidget>(
++            "hairybrush", i18n("Bristle"), KisPaintOpFactory::categoryStable(),
++            "krita-sumi.png", QString(), QStringList(), 4));
++}
+diff --git a/plugins/paintops/hatching/CMakeLists.txt b/plugins/paintops/hatching/CMakeLists.txt
+index ab726507..5328782a 100644
+--- a/plugins/paintops/hatching/CMakeLists.txt
++++ b/plugins/paintops/hatching/CMakeLists.txt
+@@ -1,5 +1,6 @@
+ set(kritahatchingpaintop_SOURCES
+     hatching_paintop_plugin.cpp
++    register_static.cpp
+     kis_hatching_paintop.cpp
+     kis_hatching_paintop_settings.cpp
+     kis_hatching_paintop_settings_widget.cpp
+diff --git a/plugins/paintops/hatching/register_static.cpp b/plugins/paintops/hatching/register_static.cpp
+new file mode 100644
+index 00000000..ade90e5d
+--- /dev/null
++++ b/plugins/paintops/hatching/register_static.cpp
+@@ -0,0 +1,22 @@
++/*
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Static registration for the hatchingbrush paintop, callable from external code
++ * without QPluginLoader (same pattern as defaultpaintops register_static).
++ */
++
++#include <brushengine/kis_paintop_registry.h>
++#include <brushengine/kis_paintop_factory.h>
++#include <klocalizedstring.h>
++#include <kis_simple_paintop_factory.h>
++#include "kis_hatching_paintop.h"
++#include "kis_hatching_paintop_settings.h"
++#include "kis_hatching_paintop_settings_widget.h"
++
++extern "C" __attribute__((visibility("default"))) void krita_register_hatching_paintop()
++{
++    KisPaintOpRegistry::instance()->add(
++        new KisSimplePaintOpFactory<KisHatchingPaintOp, KisHatchingPaintOpSettings, KisHatchingPaintOpSettingsWidget>(
++            "hatchingbrush", i18n("Hatching"), KisPaintOpFactory::categoryStable(),
++            "krita-hatching.png", QString(), QStringList(), 7));
++}
+diff --git a/plugins/paintops/particle/CMakeLists.txt b/plugins/paintops/particle/CMakeLists.txt
+index 89399f02..2c63721b 100644
+--- a/plugins/paintops/particle/CMakeLists.txt
++++ b/plugins/paintops/particle/CMakeLists.txt
+@@ -1,5 +1,6 @@
+ set(kritaparticlepaintop_SOURCES
+     particle_paintop_plugin.cpp
++    register_static.cpp
+     kis_particle_paintop.cpp
+     kis_particle_paintop_settings.cpp
+     kis_particle_paintop_settings_widget.cpp
+diff --git a/plugins/paintops/particle/register_static.cpp b/plugins/paintops/particle/register_static.cpp
+new file mode 100644
+index 00000000..e2204597
+--- /dev/null
++++ b/plugins/paintops/particle/register_static.cpp
+@@ -0,0 +1,22 @@
++/*
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Static registration for the particlebrush paintop, callable from external code
++ * without QPluginLoader (same pattern as defaultpaintops register_static).
++ */
++
++#include <brushengine/kis_paintop_registry.h>
++#include <brushengine/kis_paintop_factory.h>
++#include <klocalizedstring.h>
++#include <kis_simple_paintop_factory.h>
++#include "kis_particle_paintop.h"
++#include "kis_particle_paintop_settings.h"
++#include "kis_particle_paintop_settings_widget.h"
++
++extern "C" __attribute__((visibility("default"))) void krita_register_particle_paintop()
++{
++    KisPaintOpRegistry::instance()->add(
++        new KisSimplePaintOpFactory<KisParticlePaintOp, KisParticlePaintOpSettings, KisParticlePaintOpSettingsWidget>(
++            "particlebrush", i18n("Particle"), KisPaintOpFactory::categoryStable(),
++            "krita-particle.png", QString(), QStringList(), 11));
++}
+diff --git a/plugins/paintops/roundmarker/CMakeLists.txt b/plugins/paintops/roundmarker/CMakeLists.txt
+index 91301edd..8a00cc69 100644
+--- a/plugins/paintops/roundmarker/CMakeLists.txt
++++ b/plugins/paintops/roundmarker/CMakeLists.txt
+@@ -1,5 +1,6 @@
+ set(kritaroundmarkerpaintop_SOURCES
+     roundmarker_paintop_plugin.cpp
++    register_static.cpp
+     kis_roundmarkerop.cpp
+     kis_roundmarkerop_settings.cpp
+     kis_roundmarkerop_settings_widget.cpp
+diff --git a/plugins/paintops/roundmarker/register_static.cpp b/plugins/paintops/roundmarker/register_static.cpp
+new file mode 100644
+index 00000000..d6e2889d
+--- /dev/null
++++ b/plugins/paintops/roundmarker/register_static.cpp
+@@ -0,0 +1,22 @@
++/*
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Static registration for the roundmarker paintop, callable from external code
++ * without QPluginLoader (same pattern as defaultpaintops register_static).
++ */
++
++#include <brushengine/kis_paintop_registry.h>
++#include <brushengine/kis_paintop_factory.h>
++#include <klocalizedstring.h>
++#include <kis_simple_paintop_factory.h>
++#include "kis_roundmarkerop.h"
++#include "kis_roundmarkerop_settings.h"
++#include "kis_roundmarkerop_settings_widget.h"
++
++extern "C" __attribute__((visibility("default"))) void krita_register_roundmarker_paintop()
++{
++    KisPaintOpRegistry::instance()->add(
++        new KisSimplePaintOpFactory<KisRoundMarkerOp, KisRoundMarkerOpSettings, KisRoundMarkerOpSettingsWidget>(
++            "roundmarker", i18n("Quick Brush"), KisPaintOpFactory::categoryStable(),
++            "krita_roundmarkerop.svg", QString(), QStringList(), 3));
++}
+diff --git a/plugins/paintops/sketch/CMakeLists.txt b/plugins/paintops/sketch/CMakeLists.txt
+index 5ab10da7..d47ba125 100644
+--- a/plugins/paintops/sketch/CMakeLists.txt
++++ b/plugins/paintops/sketch/CMakeLists.txt
+@@ -1,5 +1,6 @@
+ set(kritasketchpaintop_SOURCES
+     sketch_paintop_plugin.cpp
++    register_static.cpp
+     kis_sketch_paintop.cpp
+     kis_sketch_paintop_settings.cpp
+     kis_sketch_paintop_settings_widget.cpp
+diff --git a/plugins/paintops/sketch/register_static.cpp b/plugins/paintops/sketch/register_static.cpp
+new file mode 100644
+index 00000000..64b16dce
+--- /dev/null
++++ b/plugins/paintops/sketch/register_static.cpp
+@@ -0,0 +1,22 @@
++/*
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Static registration for the sketchbrush paintop, callable from external code
++ * without QPluginLoader (same pattern as defaultpaintops register_static).
++ */
++
++#include <brushengine/kis_paintop_registry.h>
++#include <brushengine/kis_paintop_factory.h>
++#include <klocalizedstring.h>
++#include <kis_simple_paintop_factory.h>
++#include "kis_sketch_paintop.h"
++#include "kis_sketch_paintop_settings.h"
++#include "kis_sketch_paintop_settings_widget.h"
++
++extern "C" __attribute__((visibility("default"))) void krita_register_sketch_paintop()
++{
++    KisPaintOpRegistry::instance()->add(
++        new KisSimplePaintOpFactory<KisSketchPaintOp, KisSketchPaintOpSettings, KisSketchPaintOpSettingsWidget>(
++            "sketchbrush", i18n("Sketch"), KisPaintOpFactory::categoryStable(),
++            "krita-sketch.png", QString(), QStringList(), 3));
++}
+diff --git a/plugins/paintops/spray/CMakeLists.txt b/plugins/paintops/spray/CMakeLists.txt
+index e028bb90..9b95f598 100644
+--- a/plugins/paintops/spray/CMakeLists.txt
++++ b/plugins/paintops/spray/CMakeLists.txt
+@@ -1,5 +1,6 @@
+ set(kritaspraypaintop_SOURCES
+     spray_paintop_plugin.cpp
++    register_static.cpp
+     kis_spray_paintop.cpp
+     kis_spray_paintop_settings.cpp
+     kis_spray_paintop_settings_widget.cpp
+diff --git a/plugins/paintops/spray/register_static.cpp b/plugins/paintops/spray/register_static.cpp
+new file mode 100644
+index 00000000..1d3752de
+--- /dev/null
++++ b/plugins/paintops/spray/register_static.cpp
+@@ -0,0 +1,22 @@
++/*
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Static registration for the spraybrush paintop, callable from external code
++ * without QPluginLoader (same pattern as defaultpaintops register_static).
++ */
++
++#include <brushengine/kis_paintop_registry.h>
++#include <brushengine/kis_paintop_factory.h>
++#include <klocalizedstring.h>
++#include <kis_simple_paintop_factory.h>
++#include "kis_spray_paintop.h"
++#include "kis_spray_paintop_settings.h"
++#include "kis_spray_paintop_settings_widget.h"
++
++extern "C" __attribute__((visibility("default"))) void krita_register_spray_paintop()
++{
++    KisPaintOpRegistry::instance()->add(
++        new KisSimplePaintOpFactory<KisSprayPaintOp, KisSprayPaintOpSettings, KisSprayPaintOpSettingsWidget>(
++            "spraybrush", i18n("Spray"), KisPaintOpFactory::categoryStable(),
++            "krita-spray.png", QString(), QStringList(), 6));
++}
+diff --git a/plugins/paintops/tangentnormal/CMakeLists.txt b/plugins/paintops/tangentnormal/CMakeLists.txt
+index 7517dde1..e03b0a28 100644
+--- a/plugins/paintops/tangentnormal/CMakeLists.txt
++++ b/plugins/paintops/tangentnormal/CMakeLists.txt
+@@ -1,5 +1,6 @@
+ set(kritatangentnormalpaintop_SOURCES
+     kis_tangent_normal_paintop_plugin.cpp
++    register_static.cpp
+     kis_tangent_normal_paintop.cpp
+     kis_tangent_normal_paintop_settings_widget.cpp
+     kis_normal_preview_widget.cpp
+diff --git a/plugins/paintops/tangentnormal/register_static.cpp b/plugins/paintops/tangentnormal/register_static.cpp
+new file mode 100644
+index 00000000..0328b6aa
+--- /dev/null
++++ b/plugins/paintops/tangentnormal/register_static.cpp
+@@ -0,0 +1,22 @@
++/*
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Static registration for the tangentnormal paintop, callable from external code
++ * without QPluginLoader (same pattern as defaultpaintops register_static).
++ */
++
++#include <brushengine/kis_paintop_registry.h>
++#include <brushengine/kis_paintop_factory.h>
++#include <klocalizedstring.h>
++#include <kis_simple_paintop_factory.h>
++#include <kis_brush_based_paintop_settings.h>
++#include "kis_tangent_normal_paintop.h"
++#include "kis_tangent_normal_paintop_settings_widget.h"
++
++extern "C" __attribute__((visibility("default"))) void krita_register_tangentnormal_paintop()
++{
++    KisPaintOpRegistry::instance()->add(
++        new KisSimplePaintOpFactory<KisTangentNormalPaintOp, KisBrushBasedPaintOpSettings, KisTangentNormalPaintOpSettingsWidget>(
++            "tangentnormal", i18n("Tangent Normal"), KisPaintOpFactory::categoryStable(),
++            "krita-tangentnormal.png", QString(), QStringList(), 16));
++}
+-- 
+2.55.0
+

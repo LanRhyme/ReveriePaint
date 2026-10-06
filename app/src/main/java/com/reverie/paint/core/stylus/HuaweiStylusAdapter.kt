@@ -41,9 +41,12 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
         const val ACTION_HUAWEI_LEGACY_DOUBLE_PRESSED = "com.huawei.android.stylus.action.BUTTON_DOUBLE_PRESSED"
         const val ACTION_HUAWEI_DOUBLE_TAP = "com.huawei.stylus.action.DOUBLE_TAP"
         const val ACTION_HUAWEI_STYLUS_BUTTON_CLICK = "com.huawei.intent.action.STYLUS_BUTTON_CLICK"
-        const val ACTION_HUAWEI_STYLUS_BUTTON_CLICK_ALT = "huawei.intent.action.STYLUS_BUTTON_CLICK"
         const val ACTION_HUAWEI_BUTTON_CLICK = "com.huawei.stylus.action.BUTTON_CLICK"
         const val ACTION_HUAWEI_BUTTON_PRESSED = "com.huawei.stylus.action.BUTTON_PRESSED"
+        const val ACTION_HUAWEI_STYLUS_DOUBLE_CLICK = "com.huawei.action.STYLUS_DOUBLE_CLICK"
+        const val ACTION_HUAWEI_DOUBLE_CLICK_ALT = "huawei.intent.action.STYLUS_DOUBLE_CLICK"
+        const val ACTION_HUAWEI_PENCIL_DOUBLE_CLICK = "com.huawei.pencil.action.DOUBLE_CLICK"
+        const val ACTION_HUAWEI_NEARLINK_DOUBLE_CLICK = "com.huawei.nearlink.action.STYLUS_DOUBLE_CLICK"
 
         // Huawei Global System Settings for Stylus Double-Click
         const val SETTING_DOUBLE_CLICK_SWITCH_MODE = "double_click_switch_mode"
@@ -93,12 +96,11 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
         vm: PaintViewModel,
         feedbackManager: StylusFeedbackManager,
     ) {
-        currentAppContext = context.applicationContext
+        val appCtx = context.applicationContext
+        currentAppContext = appCtx
         currentVm = vm
         currentFeedbackManager = feedbackManager
-        if (context is Activity) {
-            bindBroadcastReceiver(context)
-        }
+        bindBroadcastReceiver(appCtx)
     }
 
     override fun unregister(context: Context) {
@@ -110,20 +112,19 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
     }
 
     override fun onWindowFocusChanged(activity: Activity, hasFocus: Boolean) {
-        Log.d(TAG, "onWindowFocusChanged: hasFocus=$hasFocus, activity=${activity.localClassName}")
         if (hasFocus && !isReceiverRegistered) {
-            bindBroadcastReceiver(activity)
+            bindBroadcastReceiver(activity.applicationContext)
         }
     }
 
     override fun onActivityResume(activity: Activity) {
-        Log.d(TAG, "onActivityResume: activity=${activity.localClassName}")
-        bindBroadcastReceiver(activity)
+        if (!isReceiverRegistered) {
+            bindBroadcastReceiver(activity.applicationContext)
+        }
     }
 
     override fun onActivityPause(activity: Activity) {
-        Log.d(TAG, "onActivityPause: activity=${activity.localClassName}")
-        unbindBroadcastReceiver(activity)
+        // 保持后台/悬浮窗常驻接收，避免弹窗切换或页面切换导致解注册丢事件
     }
 
     @Synchronized
@@ -142,9 +143,12 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
             addAction(ACTION_HUAWEI_LEGACY_DOUBLE_PRESSED)
             addAction(ACTION_HUAWEI_DOUBLE_TAP)
             addAction(ACTION_HUAWEI_STYLUS_BUTTON_CLICK)
-            addAction(ACTION_HUAWEI_STYLUS_BUTTON_CLICK_ALT)
             addAction(ACTION_HUAWEI_BUTTON_CLICK)
             addAction(ACTION_HUAWEI_BUTTON_PRESSED)
+            addAction(ACTION_HUAWEI_STYLUS_DOUBLE_CLICK)
+            addAction(ACTION_HUAWEI_DOUBLE_CLICK_ALT)
+            addAction(ACTION_HUAWEI_PENCIL_DOUBLE_CLICK)
+            addAction(ACTION_HUAWEI_NEARLINK_DOUBLE_CLICK)
         }
 
         try {
@@ -214,8 +218,19 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
                 ACTION_HUAWEI_BUTTON_DOUBLE_PRESSED,
                 ACTION_HUAWEI_DOUBLE_CLICK,
                 ACTION_HUAWEI_LEGACY_DOUBLE_PRESSED,
-                ACTION_HUAWEI_DOUBLE_TAP -> true
-                else -> (count >= 2) || (clickType == 2)
+                ACTION_HUAWEI_DOUBLE_TAP,
+                ACTION_HUAWEI_STYLUS_DOUBLE_CLICK,
+                ACTION_HUAWEI_DOUBLE_CLICK_ALT,
+                ACTION_HUAWEI_PENCIL_DOUBLE_CLICK,
+                ACTION_HUAWEI_NEARLINK_DOUBLE_CLICK -> true
+                else -> {
+                    // M-Pencil 2/3 代笔身无实体按键，所有硬件/系统发送的按键广播均对应笔身双击手势
+                    if (vm.huaweiPencilModel.hasDoubleTap) {
+                        true
+                    } else {
+                        (count >= 2) || (clickType == 2)
+                    }
+                }
             }
 
             if (isDoubleTapAction) {
@@ -261,14 +276,54 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
     }
 
     fun detectModel(context: Context): HuaweiPencilModel {
+        // 1. 扫描已连接输入设备，精确匹配 M-Pencil 第三代 (星闪 NearLink)
+        try {
+            val inputManager = context.getSystemService(Context.INPUT_SERVICE) as? InputManager
+            if (inputManager != null) {
+                for (id in inputManager.inputDeviceIds) {
+                    val dev = inputManager.getInputDevice(id) ?: continue
+                    val name = dev.name.lowercase()
+                    if (name.contains("m-pencil") || name.contains("mpencil") || name.contains("huawei") || name.contains("pen")) {
+                        if (name.contains("3rd") || name.contains("gen3") || name.contains("cd-mp03") ||
+                            name.contains("mp03") || name.contains("nearlink") || name.contains("starflash") ||
+                            name.contains("星闪") || name.contains("sle")
+                        ) {
+                            return HuaweiPencilModel.GEN3_NEARLINK
+                        }
+                    }
+                }
+            }
+        } catch (_: Throwable) {}
+
+        // 2. 检测系统属性中的星闪/NearLink 支持
+        val hasNearLinkProp = try {
+            val spClass = Class.forName("android.os.SystemProperties")
+            val getMethod = spClass.getMethod("get", String::class.java, String::class.java)
+            val nearlink = getMethod.invoke(null, "ro.huawei.nearlink.support", "false") as String
+            val hwSc = getMethod.invoke(null, "hw_sc.nearlink", "false") as String
+            val sle = getMethod.invoke(null, "ro.nearlink.support", "false") as String
+            nearlink.equals("true", ignoreCase = true) ||
+                hwSc.equals("true", ignoreCase = true) ||
+                sle.equals("true", ignoreCase = true)
+        } catch (_: Throwable) {
+            false
+        }
+
+        // 3. 硬件型号与代号全量匹配 (覆盖全系列星闪平板)
         val model = Build.MODEL.uppercase()
         val device = Build.DEVICE.uppercase()
         val product = Build.PRODUCT.uppercase()
+        val hardware = Build.HARDWARE.uppercase()
 
-        // Detect NearLink generation: MatePad Pro 13.2, MatePad 11.5S, MatePad Pro 11 2024, etc.
-        val isNearLinkDevice = model.contains("11.5S") || model.contains("13.2") ||
-                model.contains("PCE") || model.contains("WGR") || model.contains("DBX") ||
-                product.contains("NEARLINK") || device.contains("NEARLINK")
+        val isNearLinkDevice = hasNearLinkProp ||
+                model.contains("11.5S") || model.contains("11.5") || model.contains("13.2") ||
+                model.contains("12.2") || model.contains("12 X") || model.contains("12X") ||
+                model.contains("TGR") || model.contains("PCE") || model.contains("GOT") ||
+                model.contains("MRX") || model.contains("WGR") || model.contains("DBX") ||
+                model.contains("BTU") || model.contains("KLVD") ||
+                device.contains("TGR") || device.contains("PCE") || device.contains("GOT") ||
+                device.contains("BTU") || device.contains("MRX") ||
+                product.contains("NEARLINK") || device.contains("NEARLINK") || hardware.contains("NEARLINK")
 
         return if (isNearLinkDevice) {
             HuaweiPencilModel.GEN3_NEARLINK
@@ -305,13 +360,14 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
             }
         } catch (_: Throwable) {}
 
-        val detectedModel = detectModel(context)
+        val activeModel = vm.huaweiPencilModel
+
         return StylusDeviceDetected(
             brand = StylusBrand.HUAWEI_MPENCIL,
             isCurrentDeviceSupported = isHuawei,
             isConnected = stylusConnected || isHuawei,
             deviceName = if (isHuawei) {
-                "HUAWEI M-Pencil (${detectedModel.editionName} · ${Build.MODEL})"
+                "HUAWEI M-Pencil (${activeModel.editionName} · ${Build.MODEL})"
             } else {
                 "HUAWEI M-Pencil"
             },
@@ -431,33 +487,14 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
         Log.d(TAG, "onStylusKeyEvent: action=${event.action}, keyCode=$keyCode, repeat=${event.repeatCount}")
 
         if (event.action == KeyEvent.ACTION_UP) {
-            if (keyCode == KeyEvent.KEYCODE_STYLUS_BUTTON_SECONDARY) {
-                Log.i(TAG, "Secondary button pressed -> immediate double tap")
+            // M-Pencil 2/3 代 (隐形触控/星闪双击): 硬件固件在笔身双击后派发按键，收到即代表双击手势触发
+            if (vm.huaweiPencilModel.hasDoubleTap) {
+                Log.i(TAG, "M-Pencil double-tap hardware key triggered directly (keyCode=$keyCode)")
                 return handleDoubleTap(vm, feedbackManager)
             }
 
-            val now = SystemClock.uptimeMillis()
-            val timeSinceLastKey = now - lastKeyReleaseTime
-            lastKeyReleaseTime = now
-
-            if (timeSinceLastKey < DOUBLE_CLICK_TIMEOUT_MS && keyClickCount >= 1) {
-                keyClickCount = 0
-                pendingKeySingleClickRunnable?.let { handler.removeCallbacks(it) }
-                pendingKeySingleClickRunnable = null
-                Log.i(TAG, "Hardware key double-tap aggregated within ${timeSinceLastKey}ms (keyCode=$keyCode)")
-                return handleDoubleTap(vm, feedbackManager)
-            } else {
-                keyClickCount = 1
-                pendingKeySingleClickRunnable?.let { handler.removeCallbacks(it) }
-                val singleTask = Runnable {
-                    keyClickCount = 0
-                    Log.i(TAG, "Hardware key single-tap dispatched (keyCode=$keyCode)")
-                    handleSingleClick(vm, feedbackManager)
-                }
-                pendingKeySingleClickRunnable = singleTask
-                handler.postDelayed(singleTask, DOUBLE_CLICK_TIMEOUT_MS)
-                return true
-            }
+            // 第一代 M-Pencil (实体侧键)
+            return handleSingleClick(vm, feedbackManager)
         }
         return false
     }

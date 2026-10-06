@@ -1,0 +1,18 @@
+# ReveriePaint Code Owners Definition
+# Strict review required for engine core, JNI and CI infrastructure
+
+# Default fallback
+* @LanRhyme
+
+# C++ native engine and JNI boundary (strict review by core maintainer)
+/app/src/main/cpp/ @LanRhyme
+/app/src/main/java/com/reverie/paint/core/ReverieCoreBridge.kt @LanRhyme
+/app/src/main/java/com/reverie/paint/core/PlaybackEngine.kt @LanRhyme
+/app/src/main/java/com/reverie/paint/core/PaintRecorder.kt @LanRhyme
+/app/src/main/java/com/reverie/paint/core/RecordingEvents.kt @LanRhyme
+
+# Build system, CI workflows and release scripts
+/.github/workflows/ @LanRhyme
+/app/build.gradle.kts @LanRhyme
+/settings.gradle.kts @LanRhyme
+/scripts/ @LanRhyme

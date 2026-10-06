@@ -619,6 +619,10 @@ bool ReverieCore::addKeyframe(int layerIndex, int time)
     KUndo2Command *cmd = new KUndo2Command(kundo2_noi18n("Add Keyframe"));
     channel->addKeyframe(time, cmd);
     pushUndoCommand(cmd);
+    // Auto-keyframing splits an exposure without changing the current time.
+    // The synchronous onion projection and its extent still describe the held
+    // frame until invalidated; Krita's separate cache tracks channelHash itself.
+    invalidateStrokeOnionCache();
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
     // 新建的是空白帧: 其它帧的缩略图不受影响, 不作全局失效。
     // 新帧自身没有缓存条目, UI 侧会自然渲染它 (引擎 miss -> 透明图)。
@@ -642,6 +646,7 @@ bool ReverieCore::addDuplicateKeyframe(int layerIndex, int time)
         channel->addKeyframe(time, cmd);
     }
     pushUndoCommand(cmd);
+    invalidateStrokeOnionCache();
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
     dirtyKeyframeThumb(layerIndex, time);  // 只有目标帧是新内容
     return true;
@@ -657,6 +662,7 @@ bool ReverieCore::removeKeyframe(int layerIndex, int time)
     KUndo2Command *cmd = new KUndo2Command(kundo2_noi18n("Remove Keyframe"));
     channel->removeKeyframe(time, cmd);
     pushUndoCommand(cmd);
+    invalidateStrokeOnionCache();
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
     // 精准作废被删帧: 引擎缓存清条目 + 发脏帧信号 (同帧号随后重建帧 /
     // UI 侧丢弃旧位图), 其它帧内容不变, 不作全局失效。
@@ -674,6 +680,7 @@ bool ReverieCore::copyKeyframe(int layerIndex, int fromTime, int toTime)
     // 静态 copyKeyframe 生成独立像素副本 (与 cloneKeyframe 的共享像素相对)
     KisKeyframeChannel::copyKeyframe(channel, fromTime, channel, toTime, cmd);
     pushUndoCommand(cmd);
+    invalidateStrokeOnionCache();
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
     dirtyKeyframeThumb(layerIndex, toTime);  // 源帧不变, 只有目标帧是新内容
     return true;
@@ -688,6 +695,7 @@ bool ReverieCore::cloneKeyframe(int layerIndex, int fromTime, int toTime)
     KUndo2Command *cmd = new KUndo2Command(kundo2_noi18n("Clone Keyframe"));
     channel->cloneKeyframe(fromTime, toTime, cmd);
     pushUndoCommand(cmd);
+    invalidateStrokeOnionCache();
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
     dirtyKeyframeThumb(layerIndex, toTime);  // 共享像素: 源帧内容未变
     return true;
@@ -714,6 +722,7 @@ bool ReverieCore::moveKeyframe(int layerIndex, int fromTime, int toTime)
     channel->removeKeyframe(parking, cmd);
 
     pushUndoCommand(cmd);
+    invalidateStrokeOnionCache();
     markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
     // 移动语义: 原位置的帧没了, 目标位置内容更新 (拖拽覆盖时 toTime 旧帧
     // 一并作废)。两个位置都精准失效, 其余帧照常复用。

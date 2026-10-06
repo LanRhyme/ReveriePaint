@@ -26,6 +26,7 @@ class StylusDriver(
         HuaweiStylusAdapter(),
         HonorStylusAdapter(),
         SamsungStylusAdapter(),
+        XiaomiStylusAdapter(),
         GenericStylusAdapter(),
     )
 
@@ -102,6 +103,10 @@ class StylusDriver(
         return getAdapter<HonorStylusAdapter>()?.detectModel(context) ?: HonorPencilModel.MAGIC_PENCIL_3
     }
 
+    fun detectXiaomiPencilModel(): XiaomiPencilModel {
+        return getAdapter<XiaomiStylusAdapter>()?.detectModel(context) ?: XiaomiPencilModel.SMART_PEN_2
+    }
+
     /**
      * Detects brand styluses and sorts them so the connected/supported stylus is pinned on top.
      */
@@ -175,11 +180,15 @@ class StylusDriver(
             StylusBrand.HUAWEI_MPENCIL -> vm.huaweiSideButtonErase
             StylusBrand.HONOR_MAGIC_PENCIL -> vm.honorSideButtonErase
             StylusBrand.SAMSUNG_SPEN -> vm.samsungSideButtonErase
-            else -> vm.huaweiSideButtonErase || vm.honorSideButtonErase || vm.samsungSideButtonErase
+            StylusBrand.XIAOMI_STYLUS -> vm.xiaomiSideButtonErase
+            StylusBrand.GENERIC -> vm.genericSideButtonErase
+            else -> vm.huaweiSideButtonErase || vm.honorSideButtonErase || vm.samsungSideButtonErase || vm.xiaomiSideButtonErase || vm.genericSideButtonErase
         }
         if (!eraseAllowed) return false
         val btn = event.buttonState
         return (btn and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0 ||
+                (btn and MotionEvent.BUTTON_PRIMARY) != 0 ||
+                (btn and MotionEvent.BUTTON_STYLUS_SECONDARY) != 0 ||
                 (btn and MotionEvent.BUTTON_SECONDARY) != 0
     }
 
@@ -226,7 +235,9 @@ class StylusDriver(
                 return true
             }
             val name = dev.name.lowercase()
-            if (name.contains("stylus") || name.contains("pen") || name.contains("pencil")) {
+            if (name.contains("stylus") || name.contains("pen") || name.contains("pencil") ||
+                name.contains("nearlink") || name.contains("starflash") || name.contains("星闪")
+            ) {
                 return true
             }
         }
@@ -240,8 +251,11 @@ class StylusDriver(
             return getAdapter<HuaweiStylusAdapter>()?.handleDoubleTap(vm, feedbackManager) ?: false
         }
         val actionId = when (detected?.brand) {
+            StylusBrand.HONOR_MAGIC_PENCIL -> vm.honorDoubleTapAction
             StylusBrand.SAMSUNG_SPEN -> vm.samsungDoubleClickAction
-            else -> vm.oppoDoubleTapAction
+            StylusBrand.XIAOMI_STYLUS -> vm.xiaomiDoubleTapAction
+            StylusBrand.OPPO_ONEPLUS -> vm.oppoDoubleTapAction
+            else -> "none"
         }
         if (actionId.trim().equals("none", ignoreCase = true)) return false
         val action = StylusAction.fromActionId(actionId)
@@ -259,8 +273,11 @@ class StylusDriver(
             return getAdapter<HuaweiStylusAdapter>()?.handleSingleClick(vm, feedbackManager) ?: false
         }
         val actionId = when (detected?.brand) {
+            StylusBrand.HONOR_MAGIC_PENCIL -> vm.honorSingleClickAction
             StylusBrand.SAMSUNG_SPEN -> vm.samsungSingleClickAction
-            else -> vm.oppoDoubleTapAction
+            StylusBrand.XIAOMI_STYLUS -> vm.xiaomiPrimaryButtonAction
+            StylusBrand.GENERIC -> vm.genericPrimaryButtonAction
+            else -> "none"
         }
         if (actionId.trim().equals("none", ignoreCase = true)) return false
         val action = StylusAction.fromActionId(actionId)

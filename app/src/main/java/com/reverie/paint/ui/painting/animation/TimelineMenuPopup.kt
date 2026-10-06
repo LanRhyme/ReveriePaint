@@ -53,6 +53,7 @@ import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.animationAddBlankKeyframeAt
 import com.reverie.paint.core.animationClearLayerMarker
 import com.reverie.paint.core.animationCopyCurrentFrameTo
+import com.reverie.paint.core.animationFramesToLayers
 import com.reverie.paint.core.animationGenerateInbetween
 import com.reverie.paint.core.animationSetLayerMarker
 import com.reverie.paint.core.animationRemoveKeyframe
@@ -406,7 +407,28 @@ internal fun TrackMenuPopup(
     val isBackground = vm.anim.backgroundLayerIndex == menu.layerIndex
     val isForeground = vm.anim.foregroundLayerIndex == menu.layerIndex
 
-    val items = listOf(
+    // 组折叠(时间轴): 只有组能折; 折叠状态按组名记
+    val isGroupLayer = vm.layers.firstOrNull { it.index == menu.layerIndex }?.isGroup == true
+    val isCollapsedGroup = isGroupLayer && menu.layerName in vm.anim.timelineCollapsedGroups
+    val strCollapseGroup = androidx.compose.ui.res.stringResource(R.string.tl_collapse_group)
+    val strExpandGroup = androidx.compose.ui.res.stringResource(R.string.tl_expand_group)
+
+    // 组折叠项: 不是组就没有这一项(null 会被 listOfNotNull 滤掉)
+    val groupCollapseItem: Pair<String, () -> Unit>? = if (isGroupLayer) {
+        (if (isCollapsedGroup) strExpandGroup else strCollapseGroup) to {
+            vm.anim.timelineCollapsedGroups =
+                if (isCollapsedGroup) {
+                    vm.anim.timelineCollapsedGroups - menu.layerName
+                } else {
+                    vm.anim.timelineCollapsedGroups + menu.layerName
+                }
+        }
+    } else {
+        null
+    }
+
+    val items = listOfNotNull(
+        groupCollapseItem,
         (if (isBackground) strClearBg else strSetBg) to {
             if (isBackground) {
                 vm.animationClearLayerMarker(toFront = false)
@@ -420,6 +442,15 @@ internal fun TrackMenuPopup(
             } else {
                 vm.animationSetLayerMarker(menu.layerIndex, toFront = true)
             }
+        },
+        androidx.compose.ui.res.stringResource(R.string.f2l_menu) to {
+            // 帧转图层取的是**这一条轨道**的画面, 源就是菜单点中的这条轨道。
+            // 帧号: 多选态下用用户选中的那些(空集才回落成"整条轨道的全部关键帧"),
+            // 非多选时也用整条轨道 —— 这条轨道里有几个关键帧就拆几个图层。
+            val picked =
+                if (vm.anim.isMultiSelectMode) vm.anim.selectedFrames.toList()
+                else emptyList()
+            vm.animationFramesToLayers(menu.layerIndex, picked)
         },
         strCopyLayer to { vm.copyLayer(menu.layerIndex) },
         strClearLayer to { vm.clearLayer(menu.layerIndex) },

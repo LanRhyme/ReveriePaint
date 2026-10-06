@@ -306,6 +306,18 @@ internal class AnimationState {
      */
     var playGen = 0
 
+    /** 「帧转图层」进度: 已完成的帧数 / 总帧数。0 表示没有在进行。 */
+    var framesToLayersDone by mutableIntStateOf(0)
+    var framesToLayersTotal by mutableIntStateOf(0)
+
+    /**
+     * 时间轴上处于折叠状态的图层组(按组名记)。
+     *
+     * 折叠展开只影响时间轴的行显示, 不动图层结构 —— 判定时按组名 + 结构推导,
+     * 因为图层 id 在越界时会回退成 index+1, 拿不到互不相同的值。
+     */
+    var timelineCollapsedGroups by mutableStateOf<Set<String>>(emptySet())
+
     /** 重置动画状态为初始默认值 (新建静态画布或关闭工程时调用) */
     fun reset() {
         enabled = false
@@ -321,6 +333,9 @@ internal class AnimationState {
         selectedTrack = -1
         selectedFrames = emptySet()
         isMultiSelectMode = false
+        framesToLayersDone = 0
+        framesToLayersTotal = 0
+        timelineCollapsedGroups = emptySet()
         scrollPx = 0f
         frameThumbs = emptyMap()
         frameThumbImages = emptyMap()

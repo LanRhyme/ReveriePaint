@@ -48,6 +48,8 @@ import com.reverie.paint.ui.home.stylus.OppoStylusConfigDialog
 import com.reverie.paint.ui.home.stylus.PressureCurveDetailDialog
 import com.reverie.paint.ui.home.stylus.PressureCurveHelpDialog
 import com.reverie.paint.ui.home.stylus.SamsungStylusConfigDialog
+import com.reverie.paint.ui.home.stylus.XiaomiStylusConfigDialog
+import com.reverie.paint.ui.home.stylus.GenericStylusConfigDialog
 import com.reverie.paint.ui.theme.Theme
 
 @Composable
@@ -286,6 +288,16 @@ internal fun StylusSettingsSubPage(
                                 onClick = { activeConfigBrand = StylusBrand.SAMSUNG_SPEN },
                             )
                         }
+                        StylusBrand.XIAOMI_STYLUS -> {
+                            SettingStylusDeviceRow(
+                                title = device.deviceName,
+                                summary = stringResource(R.string.stylus_xiaomi_features),
+                                isCurrentDevice = device.isCurrentDeviceSupported,
+                                isConnected = device.isConnected,
+                                shape = shape,
+                                onClick = { activeConfigBrand = StylusBrand.XIAOMI_STYLUS },
+                            )
+                        }
                         StylusBrand.GENERIC -> {
                             SettingStylusDeviceRow(
                                 title = device.deviceName,
@@ -293,7 +305,7 @@ internal fun StylusSettingsSubPage(
                                 isCurrentDevice = device.isCurrentDeviceSupported,
                                 isConnected = device.isConnected,
                                 shape = shape,
-                                onClick = null,
+                                onClick = { activeConfigBrand = StylusBrand.GENERIC },
                             )
                         }
                     }
@@ -332,6 +344,12 @@ internal fun StylusSettingsSubPage(
         }
         StylusBrand.SAMSUNG_SPEN -> {
             SamsungStylusConfigDialog(vm = vm, onDismiss = { activeConfigBrand = null })
+        }
+        StylusBrand.XIAOMI_STYLUS -> {
+            XiaomiStylusConfigDialog(vm = vm, onDismiss = { activeConfigBrand = null })
+        }
+        StylusBrand.GENERIC -> {
+            GenericStylusConfigDialog(vm = vm, onDismiss = { activeConfigBrand = null })
         }
         else -> {}
     }

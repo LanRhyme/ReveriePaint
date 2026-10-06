@@ -1,0 +1,57 @@
+From c2a79338bf2e9d55ffaf9d6308abf084d3e9e7e1 Mon Sep 17 00:00:00 2001
+From: LanRhyme <xiao_ren233@foxmail.com>
+Date: Thu, 13 Aug 2026 14:56:51 +0800
+Subject: [PATCH 2/4] =?UTF-8?q?fix:=20KisMarkerPainter=E6=94=B9=E6=A0=87?=
+ =?UTF-8?q?=E5=87=86=E8=A6=86=E7=9B=96=E8=A1=8C=E4=B8=BA(=E5=9C=86?=
+ =?UTF-8?q?=E5=A4=B4=E7=AC=94=E4=B8=8D=E5=86=8D=E5=8F=AA=E5=8A=A0=E6=B7=B1?=
+ =?UTF-8?q?)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ libs/image/kis_marker_painter.cpp | 19 +++++++++----------
+ 1 file changed, 9 insertions(+), 10 deletions(-)
+
+diff --git a/libs/image/kis_marker_painter.cpp b/libs/image/kis_marker_painter.cpp
+index 7713b0db..c93cc2f1 100644
+--- a/libs/image/kis_marker_painter.cpp
++++ b/libs/image/kis_marker_painter.cpp
+@@ -92,12 +92,10 @@ void KisMarkerPainter::fillHalfBrushDiff(const QPointF &p1, const QPointF &p2, c
+         qreal fadePos = value3;
+ 
+         const quint8 srcAlpha = fadePos > 0 ? quint8((1.0 - fadePos) * 255.0) : 255;
+-        const quint8 dstAlpha = cs->opacityU8(it.rawData());
+ 
+-        if (srcAlpha > dstAlpha) {
+-            currentColor.setOpacity(srcAlpha);
+-            memcpy(it.rawData(), currentColor.data(), pixelSize);
+-        }
++        // ReveriePaint: standard overwrite behaviour (see fillFullCircle)
++        currentColor.setOpacity(srcAlpha);
++        memcpy(it.rawData(), currentColor.data(), pixelSize);
+     }
+ }
+ 
+@@ -126,12 +124,13 @@ void KisMarkerPainter::fillFullCircle(const QPointF &center, qreal radius)
+         if (value3 > 1.0) continue;
+ 
+         const quint8 srcAlpha = value3 > 0 ? quint8((1.0 - value3) * 255.0) : 255;
+-        const quint8 dstAlpha = cs->opacityU8(it.rawData());
+ 
+-        if (srcAlpha > dstAlpha) {
+-            currentColor.setOpacity(srcAlpha);
+-            memcpy(it.rawData(), currentColor.data(), pixelSize);
+-        }
++        // ReveriePaint: standard painter's brush behaviour - always paint
++        // with the new colour (Krita's marker "only darken" behaviour made
++        // a new colour invisible over existing opaque pixels, which users
++        // perceived as broken colour layering)
++        currentColor.setOpacity(srcAlpha);
++        memcpy(it.rawData(), currentColor.data(), pixelSize);
+     }
+ }
+ 
+-- 
+2.55.0
+
