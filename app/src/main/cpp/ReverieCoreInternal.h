@@ -294,6 +294,38 @@ private:
     bool m_oldVisible;
 };
 
+class ReverieNodeClippingCommand : public KUndo2Command
+{
+public:
+    ReverieNodeClippingCommand(KisLayerSP layer, bool clipped,
+                              const KUndo2MagicString &text)
+        : KUndo2Command(text)
+        , m_layer(layer)
+        , m_newClipped(clipped)
+        , m_oldClipped(layer ? layer->clippingEnabled() : false)
+    {
+    }
+
+    void redo() override
+    {
+        if (m_layer) {
+            m_layer->enableClippingLayer(m_newClipped);
+        }
+    }
+
+    void undo() override
+    {
+        if (m_layer) {
+            m_layer->enableClippingLayer(m_oldClipped);
+        }
+    }
+
+private:
+    KisLayerSP m_layer;
+    bool m_newClipped;
+    bool m_oldClipped;
+};
+
 /**
  * Undo/redo for selection changes, mirroring how Krita's selection tools
  * record edits: saves the previous selection object plus its pixel mask

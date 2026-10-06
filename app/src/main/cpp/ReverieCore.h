@@ -1229,6 +1229,7 @@ private:
     // 复用后只剩 memcpy 级别的 clear + bitBlt。
     KisPaintDeviceSP m_strokeMergeScratch;
     KisPaintDeviceSP m_strokeOutScratch;
+    KisPaintDeviceSP m_strokeClipScratch;
 
     /** 取(必要时建)某图层在笔触叠加用的洋葱皮投影; 未开洋葱皮返回空 */
     KisPaintDeviceSP strokeOnionProjection(int layerIndex);
@@ -1239,6 +1240,7 @@ private:
     /** 复用的拼装设备; 保证 [r] 范围是干净的 */
     KisPaintDeviceSP strokeMergeScratch(const QRect &r);
     KisPaintDeviceSP strokeOutScratch(const QRect &r);
+    KisPaintDeviceSP strokeClipScratch(const QRect &r);
 
     /** 丢弃笔触洋葱皮缓存 (切帧 / 改配置 / 关键帧结构变化时调) */
     void invalidateStrokeOnionCache() {

@@ -1848,7 +1848,7 @@
     <string name="layer_fill_layer">Fill Layer</string>
     <string name="layer_thumbnail">Layer Thumbnail</string>
     <string name="layer_solo">Solo</string>
-    <string name="layer_alpha_inherit">Inherit Alpha</string>
+    <string name="layer_alpha_inherit">Clipping Mask</string>
     <string name="layer_locked">Lock</string>
     <string name="curves_ch_red">Red (R)</string>
     <string name="curves_ch_green">Green (G)</string>
@@ -1878,7 +1878,7 @@
     <string name="export_format_psd_desc">Preserves all layers, blend modes and clipping properties</string>
     <string name="export_format_psd_tag">Layered Project</string>
     <string name="export_format_kra_name">Krita Project</string>
-    <string name="export_format_kra_desc">Standard Krita format with alpha inheritance and blending</string>
+    <string name="export_format_kra_desc">Standard Krita format with clipping masks and blending</string>
     <string name="export_format_kra_tag">Native Krita</string>
     <string name="export_format_revp_name">ReveriePaint Native</string>
     <string name="export_format_revp_desc">Proprietary package preserving drawing time and layer data</string>
