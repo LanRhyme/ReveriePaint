@@ -1478,6 +1478,8 @@ class PaintViewModel : ViewModel() {
     var stylusAudioVolume by mutableFloatStateOf(0.6f)
     var stylusAudioType by mutableStateOf(StylusAudioType.PENCIL)
     var stylusStrokePredictionEnabled by mutableStateOf(true)
+    var cursorSnapToPredictedTip by mutableStateOf(false)
+    var stylusFrontBufferPreviewEnabled by mutableStateOf(false)
     // Samsung Notes 标准语义: 按住侧键落笔 = 临时橡皮 (默认开, 可在三星 S Pen 专属设置中关闭)
     var samsungSideButtonErase by mutableStateOf(true)
     var samsungSingleClickAction by mutableStateOf("toggle_eraser")
@@ -1548,67 +1550,82 @@ class PaintViewModel : ViewModel() {
     var motionPredictorEnabled by mutableStateOf(true)
 
     /**
-     * 判定当前笔刷是否适用于前向矢量切线预测。
-     * 画世界 Pro / Procreate 规范：
-     * 仅对纯色、实心、无纹理的线稿类基础笔刷启用切线预测；
-     * 自动排除带颗粒纹理、杂色抖动、低透明度罩染、大间距打点、复杂水彩/涂抹/笔刷印章的笔刷，
-     * 避免在有质感的笔迹前方拉出生硬突兀的矢量直线。
+     * 笔刷低延迟前向预测保真度分级 (Fidelity Tiering)
+     * 严格依据 docs/WET-INK-EXPERIMENT.md 历史教训，避免图像笔尖替换跳变与粗劣生硬假线：
+     * - NONE: 严禁放行 (印章/喷溅/特效/网格/双重蒙版/涂抹等，保持纯裸管线)
+     * - TIER_1: 高保真基础 (勾线/圆笔/墨水/平头/标准线稿，全量放行)
+     * - TIER_2: 精细拟合 (基础铅笔/速写，细径/低散布，限制安全外推半径)
      */
-    val isCurrentBrushPredictionEligible: Boolean
+    enum class PredictionFidelityTier {
+        NONE,
+        TIER_1,
+        TIER_2
+    }
+
+    private var cachedPredictionTier: PredictionFidelityTier? = null
+    private var cachedTierBrushPresetIndex: Int = -1
+    private var cachedTierToolId: String = ""
+    private var cachedTierPredictionEnabled: Boolean = true
+    private var cachedTierTextureEnabled: Boolean = false
+    private var cachedTierOpacity: Double = -1.0
+    private var cachedTierFlow: Double = -1.0
+    private var cachedTierCompositeOp: String = ""
+
+    /**
+     * 判定当前笔刷的保真度分级 (带 O(1) 状态缓存，防热路径每帧线性扫描)。
+     * 遵循 docs/WET-INK-EXPERIMENT.md 历史教训，杜绝图像笔尖替换跳变与软硬边突变：
+     * - NONE: 印章/喷溅/特效/网格/双重蒙版/涂抹，以及严重低透明度或极端散布；
+     * - TIER_2: 铅笔/速写，或启用材质纹理、喷枪/软笔尖、中低流量笔刷（仅绘制微细笔锋导引，防 Overdraw 加深）；
+     * - TIER_1: 基础线稿/勾线/纯色墨水/圆笔/平头 (高保真全量放行，支持完整空窗回填)。
+     */
+    val currentBrushPredictionTier: PredictionFidelityTier
         get() {
-            if (!stylusStrokePredictionEnabled) return false
-            if (currentToolId != "brush" && currentToolId != "eraser") return false
+            if (!stylusStrokePredictionEnabled) return PredictionFidelityTier.NONE
+            if (currentToolId != "brush" && currentToolId != "eraser") return PredictionFidelityTier.NONE
+            if (currentToolId == "smudge") return PredictionFidelityTier.NONE
 
-            // 1. 混合模式与涂抹检查：非 normal/erase 模式或涂抹不进行矢量假线预测
-            if (currentToolId == "smudge") return false
-            if (brushCompositeOp != "normal" && brushCompositeOp != "erase" && brushCompositeOp.isNotEmpty()) return false
-
-            // 2. 纹理与颗粒检查：启用了纹理贴图或散布则不进行假线延伸
-            if (brushTextureEnabled) return false
-            if (brushScatter > 0.01) return false
-            if (brushSpacing > 0.25) return false
-
-            // 3. 透明度与流量检查：低不透明度（如淡彩、喷笔罩染等）不拉实体线
-            if (brushOpacity < 0.65 || (brushFlow > 0.0 && brushFlow < 0.65)) return false
-
-            // 4. 笔刷预设与分组检查：排除天然带纹理、特殊印章或水彩混合类材质笔刷
-            val preset = brushPresets.firstOrNull { it.index == brushPresetIndex }
-            val grp = preset?.group?.ifEmpty { null } ?: inferBrushGroup(preset?.name ?: "")
-            val excludedGroups = setOf("铅笔", "水彩", "混合", "绘画", "纹理与排线", "印章与喷溅", "特效与滤镜", "速写", "形状")
-            if (excludedGroups.contains(grp)) return false
-
-            val name = preset?.name ?: ""
-            if (name.contains("Pencil", ignoreCase = true) ||
-                name.contains("Chalk", ignoreCase = true) ||
-                name.contains("Charcoal", ignoreCase = true) ||
-                name.contains("Pastel", ignoreCase = true) ||
-                name.contains("Bristle", ignoreCase = true) ||
-                name.contains("Dry", ignoreCase = true) ||
-                name.contains("Texture", ignoreCase = true) ||
-                name.contains("Wet", ignoreCase = true) ||
-                name.contains("Water", ignoreCase = true) ||
-                name.contains("Stamp", ignoreCase = true) ||
-                name.contains("Spray", ignoreCase = true) ||
-                name.contains("Splat", ignoreCase = true) ||
-                name.contains("Sponge", ignoreCase = true) ||
-                name.contains("Airbrush", ignoreCase = true) ||
-                name.contains("Sketch", ignoreCase = true) ||
-                name.contains("Curve", ignoreCase = true) ||
-                name.contains("Blender", ignoreCase = true) ||
-                name.contains("Smudge", ignoreCase = true) ||
-                name.contains("Rake", ignoreCase = true) ||
-                name.contains("Hatch", ignoreCase = true) ||
-                name.contains("Screentone", ignoreCase = true) ||
-                name.contains("Noise", ignoreCase = true) ||
-                name.contains("Grain", ignoreCase = true) ||
-                name.contains("Blur", ignoreCase = true) ||
-                name.contains("Shade", ignoreCase = true) ||
-                name.contains("Fuzzy", ignoreCase = true)) {
-                return false
+            if (cachedPredictionTier != null &&
+                cachedTierBrushPresetIndex == brushPresetIndex &&
+                cachedTierToolId == currentToolId &&
+                cachedTierPredictionEnabled == stylusStrokePredictionEnabled &&
+                cachedTierTextureEnabled == brushTextureEnabled &&
+                cachedTierOpacity == brushOpacity &&
+                cachedTierFlow == brushFlow &&
+                cachedTierCompositeOp == brushCompositeOp
+            ) {
+                return cachedPredictionTier!!
             }
 
-            return true
+            val tier = computeCurrentBrushPredictionTier()
+            cachedPredictionTier = tier
+            cachedTierBrushPresetIndex = brushPresetIndex
+            cachedTierToolId = currentToolId
+            cachedTierPredictionEnabled = stylusStrokePredictionEnabled
+            cachedTierTextureEnabled = brushTextureEnabled
+            cachedTierOpacity = brushOpacity
+            cachedTierFlow = brushFlow
+            cachedTierCompositeOp = brushCompositeOp
+            return tier
         }
+
+    private fun computeCurrentBrushPredictionTier(): PredictionFidelityTier {
+        val preset = brushPresets.firstOrNull { it.index == brushPresetIndex }
+        return resolvePredictionTier(
+            predictionEnabled = stylusStrokePredictionEnabled,
+            toolId = currentToolId,
+            compositeOp = brushCompositeOp,
+            scatter = brushScatter,
+            spacing = brushSpacing,
+            opacity = brushOpacity,
+            flow = brushFlow,
+            textureEnabled = brushTextureEnabled,
+            presetGroup = preset?.group,
+            presetName = preset?.name ?: ""
+        )
+    }
+
+    val isCurrentBrushPredictionEligible: Boolean
+        get() = currentBrushPredictionTier != PredictionFidelityTier.NONE
 
     // 绘图辅助与参考线状态 (Symmetry, Perspective, Grid)
     var drawingGuide by mutableStateOf(DrawingGuideConfig())
@@ -2239,6 +2256,22 @@ class PaintViewModel : ViewModel() {
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("stylusStrokePredictionEnabled", enabled).apply()
+        }
+    }
+
+    fun updateCursorSnapToPredictedTip(enabled: Boolean) {
+        cursorSnapToPredictedTip = enabled
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("cursorSnapToPredictedTip", enabled).apply()
+        }
+    }
+
+    fun updateStylusFrontBufferPreviewEnabled(enabled: Boolean) {
+        stylusFrontBufferPreviewEnabled = enabled
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("stylusFrontBufferPreviewEnabled", enabled).apply()
         }
     }
 
@@ -2884,6 +2917,8 @@ class PaintViewModel : ViewModel() {
             stylusAudioType = StylusAudioType.fromOrdinal(prefs.getInt("stylusAudioType", StylusAudioType.PENCIL.ordinal))
             samsungSideButtonErase = prefs.getBoolean("samsungSideButtonErase", true)
             stylusStrokePredictionEnabled = prefs.getBoolean("stylusStrokePredictionEnabled", true)
+            cursorSnapToPredictedTip = prefs.getBoolean("cursorSnapToPredictedTip", false)
+            stylusFrontBufferPreviewEnabled = prefs.getBoolean("stylusFrontBufferPreviewEnabled", false)
             motionPredictorEnabled = stylusStrokePredictionEnabled
             samsungSingleClickAction = prefs.getString("samsungSingleClickAction", "toggle_eraser") ?: "toggle_eraser"
             samsungDoubleClickAction = prefs.getString("samsungDoubleClickAction", "undo") ?: "undo"
@@ -3910,8 +3945,77 @@ class PaintViewModel : ViewModel() {
             com.reverie.paint.model.Tool.FILL,
             com.reverie.paint.model.Tool.LASSO,
         )
+        const val PRESENT_ESTIMATE_MS = 14L // 补偿 UI draw + SurfaceFlinger 合成上屏延迟 (~1~1.5 帧 VSYNC)
+        const val PRESENT_TAIL_MS = 8L      // onDraw 提交 + HWUI/SF 合成 ~1 帧 @120Hz (保守常数)
         const val STROKE_BATCH_CAPACITY = 256
         const val STROKE_SAMPLE_STRIDE = 6
+
+        fun resolvePredictionTier(
+            predictionEnabled: Boolean,
+            toolId: String,
+            compositeOp: String,
+            scatter: Double,
+            spacing: Double,
+            opacity: Double,
+            flow: Double,
+            textureEnabled: Boolean,
+            presetGroup: String?,
+            presetName: String
+        ): PredictionFidelityTier {
+            if (!predictionEnabled) return PredictionFidelityTier.NONE
+            if (toolId != "brush" && toolId != "eraser") return PredictionFidelityTier.NONE
+            if (toolId == "smudge") return PredictionFidelityTier.NONE
+            if (compositeOp != "normal" && compositeOp != "erase" && compositeOp.isNotEmpty()) return PredictionFidelityTier.NONE
+
+            // 1. 特殊打点/严重散布绝对禁止
+            if (scatter > 0.15) return PredictionFidelityTier.NONE
+            if (spacing > 0.40) return PredictionFidelityTier.NONE
+
+            // 2. 极低不透明度（如极度透明的罩染）直接拦截在 NONE，防范伪线突兀
+            if (opacity < 0.35) return PredictionFidelityTier.NONE
+
+            // 3. 笔刷预设与分组检查
+            val grp = presetGroup?.ifEmpty { null } ?: inferBrushGroup(presetName)
+
+            // Tier 3 (NONE): 严格拦截的特征 (印章、喷溅、特效、网格、形状、水彩扩散、色彩混合)
+            val hardExcludedGroups = setOf("印章与喷溅", "特效与滤镜", "形状", "水彩", "混合")
+            if (hardExcludedGroups.contains(grp)) return PredictionFidelityTier.NONE
+
+            if (presetName.contains("Stamp", ignoreCase = true) ||
+                presetName.contains("Spray", ignoreCase = true) ||
+                presetName.contains("Splat", ignoreCase = true) ||
+                presetName.contains("Sponge", ignoreCase = true) ||
+                presetName.contains("Rake", ignoreCase = true) ||
+                presetName.contains("Noise", ignoreCase = true) ||
+                presetName.contains("Particle", ignoreCase = true) ||
+                presetName.contains("Grid", ignoreCase = true) ||
+                presetName.contains("Curve", ignoreCase = true) ||
+                presetName.contains("Screentone", ignoreCase = true) ||
+                presetName.contains("Water", ignoreCase = true) ||
+                presetName.contains("Wet", ignoreCase = true) ||
+                presetName.contains("Blender", ignoreCase = true) ||
+                presetName.contains("Smudge", ignoreCase = true)) {
+                return PredictionFidelityTier.NONE
+            }
+
+            // 4. TIER_1 严格白名单准入 (仅基础纯色勾线、圆笔、墨水、标记笔，全段空窗回填)
+            val isWhitelistedGroup = grp == "基础" || grp == "勾线" || grp == "马克笔"
+            val isTextureActive = textureEnabled
+            val isLowFlowOrOpacity = (flow > 0.0 && flow < 0.60) || opacity < 0.60
+            val isSoftOrAirbrush = grp == "喷枪" ||
+                presetName.contains("Airbrush", ignoreCase = true) ||
+                presetName.contains("Soft", ignoreCase = true) ||
+                presetName.contains("Fuzzy", ignoreCase = true) ||
+                presetName.contains("Blur", ignoreCase = true)
+
+            if (isWhitelistedGroup && !isTextureActive && !isLowFlowOrOpacity && !isSoftOrAirbrush) {
+                return PredictionFidelityTier.TIER_1
+            }
+
+            // 5. TIER_2 防御式安全降级 (铅笔、速写、纹理排线、油画绘画、带纹理、低流量及所有未知笔刷)
+            // 采用微细笔锋导引线 (1.5~3.5px, <=15ms 回填)，严格防范湿墨 v1 颗粒跳变与 Overdraw 过曝
+            return PredictionFidelityTier.TIER_2
+        }
     }
 
     @Volatile private var pendingSampleX = 0.0
@@ -3920,11 +4024,55 @@ class PaintViewModel : ViewModel() {
     private val strokeBatchLock = Any()
     private val strokeBatchCoords = FloatArray(STROKE_BATCH_CAPACITY * STROKE_SAMPLE_STRIDE)
     private val strokeDrainCoords = FloatArray(STROKE_BATCH_CAPACITY * STROKE_SAMPLE_STRIDE)
+    private val strokeBatchTimes = LongArray(STROKE_BATCH_CAPACITY)
+    private val strokeDrainTimes = LongArray(STROKE_BATCH_CAPACITY)
     private var strokeBatchCount = 0
     private var batchOverflowLogCounter = 0 // queueStrokeMove 仅 UI 线程调用
     @Volatile private var strokeBatchQueued = false
     @Volatile private var lastQueuedInputEventTime = 0L
     @Volatile private var lastQueuedUptime = 0L
+    @Volatile var lastE2ePipelineMs: Long = 40L
+    data class RenderedFrontier(
+        val docX: Float,
+        val docY: Float,
+        val timeMs: Long
+    )
+
+    @Volatile
+    var currentRenderedFrontier: RenderedFrontier? = null
+
+    val lastRenderedFrontierValid: Boolean
+        get() = currentRenderedFrontier != null
+
+    val lastRenderedFrontierDocX: Float
+        get() = currentRenderedFrontier?.docX ?: Float.NaN
+
+    val lastRenderedFrontierDocY: Float
+        get() = currentRenderedFrontier?.docY ?: Float.NaN
+
+    val lastRenderedFrontierTimeMs: Long
+        get() = currentRenderedFrontier?.timeMs ?: 0L
+
+    fun resetRenderedFrontier() {
+        currentRenderedFrontier = null
+    }
+
+    fun updateRenderedFrontier(docX: Float, docY: Float, timeMs: Long) {
+        if (docX.isFinite() && docY.isFinite()) {
+            currentRenderedFrontier = RenderedFrontier(docX, docY, timeMs)
+        }
+    }
+
+    val effectivePipelineDelayMs: Long
+        get() {
+            val measuredPresent = PerfTrace.presentWaitP50Ms
+            val presentComp = if (measuredPresent in 2L..35L) {
+                (measuredPresent + PRESENT_TAIL_MS).coerceAtLeast(PRESENT_ESTIMATE_MS)
+            } else {
+                PRESENT_ESTIMATE_MS
+            }
+            return (lastE2ePipelineMs + presentComp).coerceIn(20L, 85L)
+        }
     private var perfLogCounter = 0
 
     private val strokeBatchRunnable = Runnable {
@@ -3936,6 +4084,7 @@ class PaintViewModel : ViewModel() {
             strokeBatchCount = 0
             if (n > 0) {
                 System.arraycopy(strokeBatchCoords, 0, strokeDrainCoords, 0, n * STROKE_SAMPLE_STRIDE)
+                System.arraycopy(strokeBatchTimes, 0, strokeDrainTimes, 0, n)
             }
         }
         pendingCoreOps.decrementPositive()
@@ -3957,10 +4106,21 @@ class PaintViewModel : ViewModel() {
             val tDone = android.os.SystemClock.uptimeMillis()
             val queueWait = tDispatch - lastQueuedUptime
             val e2e = if (lastQueuedInputEventTime > 0) tDone - lastQueuedInputEventTime else 0L
+            if (e2e in 5L..250L) {
+                lastE2ePipelineMs = e2e
+            }
+            val lastSampleIdx = n - 1
+            val lastCoordIdx = lastSampleIdx * STROKE_SAMPLE_STRIDE
+            updateRenderedFrontier(
+                strokeDrainCoords[lastCoordIdx],
+                strokeDrainCoords[lastCoordIdx + 1],
+                strokeDrainTimes[lastSampleIdx]
+            )
+
             if (++perfLogCounter % 5 == 0) {
                 android.util.Log.i(
                     "ReveriePerf",
-                    "StrokePerf: n=$n queueWait=${queueWait}ms krita=${dtKrita}ms render=${dtRender}ms e2e=${e2e}ms"
+                    "StrokePerf: n=$n queueWait=${queueWait}ms krita=${dtKrita}ms render=${dtRender}ms e2e=${e2e}ms effectiveDelay=${effectivePipelineDelayMs}ms presentWait=${PerfTrace.presentWaitP50Ms}ms frontierErr=${"%.1f".format(PerfTrace.frontierErrP50Px)}px"
                 )
             }
         }
@@ -3999,6 +4159,7 @@ class PaintViewModel : ViewModel() {
                 strokeBatchCoords[o + 3] = safeTiltX
                 strokeBatchCoords[o + 4] = safeTiltY
                 strokeBatchCoords[o + 5] = safeRotation
+                strokeBatchTimes[strokeBatchCount] = inputEventTimeMs
                 strokeBatchCount++
             } else {
                 // 队列满 (渲染线程被长任务阻塞): 覆盖最后一个样本而非静默
@@ -4011,6 +4172,7 @@ class PaintViewModel : ViewModel() {
                 strokeBatchCoords[o + 3] = safeTiltX
                 strokeBatchCoords[o + 4] = safeTiltY
                 strokeBatchCoords[o + 5] = safeRotation
+                strokeBatchTimes[strokeBatchCount - 1] = inputEventTimeMs
                 if (++batchOverflowLogCounter % 60 == 1) {
                     android.util.Log.w(
                         "ReveriePerf",
@@ -4032,6 +4194,7 @@ class PaintViewModel : ViewModel() {
         synchronized(strokeBatchLock) {
             strokeBatchCount = 0
         }
+        resetRenderedFrontier()
     }
 
     // Airbrush hold-still ink flow: a self-rescheduling timer on the render
@@ -4229,7 +4392,7 @@ class PaintViewModel : ViewModel() {
         PerfTrace.tick("render.calls", 1000L)
         if (!ok) {
             if (ReverieCoreBridge.renderPendingDirty()) {
-                rh?.postDelayed({ doRender() }, 8L)
+                rh?.postDelayed({ doRender() }, 4L)
             } else if (liquifyPresentation.isPending(liquifyPresentationGesture)) {
                 displayBitmap?.let { liquifyPresentation.publish(liquifyPresentationGesture, it) }
                 com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidateFromRender()

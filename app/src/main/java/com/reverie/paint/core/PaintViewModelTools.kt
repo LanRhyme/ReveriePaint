@@ -237,6 +237,7 @@ internal fun PaintViewModel.touchStart(
             ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), effPressure)
         }
     }
+    updateRenderedFrontier(x, y, lastStrokeTimeMs)
     // Pen-down instant ink: if the stylus stays still (or moves slower than
     // the sample-spacing gate), paint the start dot after ~1 frame instead
     // of showing nothing until pen-up.
@@ -512,6 +513,7 @@ internal fun PaintViewModel.touchEnd(render: Boolean = true) {
     } else {
         android.util.Log.d("ReverieRec", "touchEnd: recorder NOT recording")
     }
+    resetRenderedFrontier()
     if (render) {
         runCore(after = {
             scheduleRender(immediate = true)

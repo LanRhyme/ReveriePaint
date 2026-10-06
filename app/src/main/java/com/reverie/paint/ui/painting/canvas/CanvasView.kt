@@ -32,6 +32,7 @@ import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.unit.dp
 import com.reverie.paint.core.*
+import com.reverie.paint.core.stylus.FrontBufferProbe
 import com.reverie.paint.model.Tool
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.parseColor
@@ -375,6 +376,27 @@ fun CanvasView(
                 update = { overlay ->
                     overlay.targetTouchView = touchViewRef
                 },
+            )
+        }
+
+        if (vm.stylusFrontBufferPreviewEnabled && FrontBufferProbe.isSupported()) {
+            androidx.compose.ui.viewinterop.AndroidView(
+                modifier = Modifier.fillMaxSize(),
+                factory = { ctx ->
+                    FrontBufferPreviewOverlay(ctx).also { overlay ->
+                        overlay.targetTouchView = touchViewRef
+                        touchViewRef?.frontBufferOverlay = overlay
+                    }
+                },
+                update = { overlay ->
+                    overlay.targetTouchView = touchViewRef
+                    touchViewRef?.frontBufferOverlay = overlay
+                },
+                onRelease = { overlay ->
+                    overlay.targetTouchView = null
+                    touchViewRef?.frontBufferOverlay = null
+                    overlay.release()
+                }
             )
         }
 
