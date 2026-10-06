@@ -315,6 +315,8 @@ private fun TimelinePanelSurface(
                     } else {
                         TimelineControls(vm = vm, modifier = Modifier.fillMaxWidth().height(CONTROL_H))
                     }
+                    // 帧转图层进度浮层: 挂在两种布局共用位置, 从哪个入口启动都能看到
+                    FramesToLayersProgressOverlay(vm = vm)
                 }
             }
 
@@ -358,6 +360,10 @@ private fun TimelinePanelSurface(
                         )
                     }
                 }
+
+                // 帧转图层进度浮层: 挂在**两种布局共用**的位置, 面板收起时也在 ——
+                // 收起状态下正在拆帧的话, 用户连"正在动"都看不到。
+                FramesToLayersProgressOverlay(vm = vm)
             }
         }
     }

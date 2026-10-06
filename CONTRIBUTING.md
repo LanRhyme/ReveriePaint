@@ -92,7 +92,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 修改 `app/src/main/cpp/` 源码时, 需本地配置交叉编译环境:
 
 - Qt for Android 6.6.3 (`android_arm64_v8a`) 以及对应宿主 `QT_HOST_PATH`
-- Krita 交叉编译源码产物与头文件
+- Krita 交叉编译源码产物与头文件 (源码请使用配套的 [LanRhyme/krita (reverie-android 分支)](https://github.com/LanRhyme/krita/tree/reverie-android)，若基于官方 Krita 需打入项目内置的 `patches/krita/*.patch` 补丁集)
 - KF6 6.6.0 arm64 交叉编译库
 
 ```bash
@@ -132,3 +132,38 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 - `type`: `feat` / `fix` / `refactor` / `perf` / `docs` / `build` / `revert`
 - `scope`: `brush` / `layers` / `render` / `stroke` / `filter` / `selection` / `ui` / `io` / `theme` / `native` 等小写功能域
 - 示例: `feat(theme): 主题设置中增加画布工作区背景颜色修改支持`
+
+---
+
+## 贡献治理与协作流程
+
+### 1. 贡献准入与轻量 RFC 规范
+为了防止后期核心架构混乱与未经充分论证的冗余改动，项目采取分级准入机制:
+- **直接提交 PR 范围**: 明确的缺陷修复、现有 UI 视觉或交互微调、文档与国际化文案增补、Model 层纯逻辑单测补充
+- **必须前置提交 RFC 提案范围**:
+  - 变更涉及 `app/src/main/cpp/` 引擎层或 `ReverieCoreBridge.kt` JNI 交互边界
+  - 预期新增顶层绘图工具、滤镜插件或图层混合模式
+  - 单次提交变动预期超过 200 行代码
+  - 调整既有线程调度模型、双缓冲渲染管线或二进制录制事件协议
+- **RFC 流程**: 在 GitHub Issue 中选择「架构变更与设计提案 (RFC)」模板提交，与核心维护者确认方案后再启动编码实现
+
+### 2. AI 辅助贡献透明守则 (AI Policy)
+欢迎借助现代 AI 辅助编码工具提高效率，但为确保工程稳定性与可维护性，须遵守以下守则:
+- **透明度声明**: PR 中必须主动勾选 AI 辅助选项并注明辅助范围与所用模型
+- **代码责任制**: 提交者对 PR 内的所有代码负完全责任，须逐行理解代码逻辑并在真机实测通过
+- **严禁无脑搬运**: 严禁直接提交未经本地真机验证、未通读 AGENTS.md 产生幻觉或违背引擎铁律的低质 AI 生成代码，维护者对此类提交将直接关闭处理
+
+### 3. 代码审查与模块责任 (CODEOWNERS)
+项目通过 `.github/CODEOWNERS` 进行模块责任划分:
+- **严格审查区**: `app/src/main/cpp/`、`core/ReverieCoreBridge.kt` 及核心调度引擎必须由核心维护者严审
+- **常规审查区**: `ui/`、`model/` 及文案资源层在通过自动化门禁后由活跃维护者同行评审
+
+### 4. 本地自动化自检流水线
+提交 PR 前须确保以下本地检查全部通过:
+```bash
+./scripts/check_architecture.sh   # 依赖单向性与架构铁律检查
+./gradlew :app:compileDebugKotlin # Kotlin 编译自检
+./gradlew :app:testDebugUnitTest  # 单元测试自检
+./gradlew :app:lintDebug          # Android Lint 门禁检查
+```
+

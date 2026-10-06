@@ -30,6 +30,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.ImageBitmap
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.translate
@@ -68,6 +69,7 @@ import com.reverie.paint.core.frameThumbKey
 import com.reverie.paint.core.playbackEndFrame
 import com.reverie.paint.core.setCurrentLayer
 import com.reverie.paint.core.toggleLayerVisible
+import com.reverie.paint.model.FramesToLayersOps
 import com.reverie.paint.model.TimelineReorderHelper
 import com.reverie.paint.ui.theme.Morandi
 import kotlinx.coroutines.launch
@@ -227,7 +229,21 @@ internal fun TimelineTrackArea(
 ) {
     val liveScrollY = rememberUpdatedState(scrollY)
     val liveMaxScrollY = rememberUpdatedState(maxScrollY)
-    val layers = remember(vm.layers) { vm.layers.reversed() }
+    // 折叠的组: 其子层**不占行**(整组只留组那一行), 所以直接从列表里滤掉。
+    // 下游全部基于 `layers` 计算(行数、命中、滚动范围), 滤在这一层就一致了。
+    // 折叠集合从结构推导, 不依赖任何图层 id —— 见 FramesToLayersOps.hiddenIndices。
+    val hiddenLayerIndices = remember(vm.layers, vm.anim.timelineCollapsedGroups) {
+        FramesToLayersOps.hiddenIndices(
+            indices = vm.layers.map { it.index },
+            depths = vm.layers.map { it.depth },
+            names = vm.layers.map { it.name },
+            isGroup = vm.layers.map { it.isGroup },
+            collapsedNames = vm.anim.timelineCollapsedGroups,
+        )
+    }
+    val layers = remember(vm.layers, hiddenLayerIndices) {
+        vm.layers.filterNot { it.index in hiddenLayerIndices }.reversed()
+    }
 
     val density = LocalDensity.current
     val context = LocalContext.current
@@ -840,8 +856,8 @@ internal fun TimelineTrackArea(
                     val contentH = (layers.size * rowPx).coerceAtLeast(size.height + scrollY)
                     val thumbInset = 3.dp.toPx()
 
-                    val firstRow = (scrollY / rowPx).toInt().coerceIn(0, layers.size)
-                    val lastRow = ((scrollY + size.height) / rowPx).toInt().coerceIn(0, layers.size - 1)
+                    val firstRow = (scrollY / rowPx).toInt().coerceAtLeast(0)
+                    val lastRow = ((scrollY + size.height) / rowPx).toInt().coerceAtMost(layers.size - 1)
                     val firstFrame = (scrollX / frameW).toInt().coerceAtLeast(0)
                     val lastFrame = ((scrollX + trackW) / frameW).toInt().coerceAtLeast(0) + 1
 
@@ -1271,11 +1287,31 @@ internal fun TimelineTrackArea(
             if (layers.isNotEmpty()) {
                 clipRect(left = 0f, top = 0f, right = headerW, bottom = size.height) {
                     translate(top = -scrollY) {
-                        val firstRow = (scrollY / rowPx).toInt().coerceIn(0, layers.size - 1)
-                        val lastRow = ((scrollY + size.height) / rowPx).toInt().coerceIn(0, layers.size - 1)
+                        // coerceIn(min, max) 在 min > max 时**先抛异常**, 不看被钳的值:
+                        // layers 为空时区间是 0..-1, 直接 IllegalArgumentException 崩掉。
+                        // 空表下 firstRow/lastRow 取 -1 即可 —— firstRow..lastRow 成空区间,
+                        // 循环不执行, layers[i] 也不会被索引。
+                        val firstRow = (scrollY / rowPx).toInt().coerceAtLeast(0)
+                        val lastRow = ((scrollY + size.height) / rowPx).toInt().coerceAtMost(layers.size - 1)
                         for (i in firstRow..lastRow) {
                             val layer = layers[i]
                             val rowCenterY = i * rowPx + rowPx / 2f
+
+                            // 折叠的组: 行头右缘画个 ▸, 提示"里面还有子层, 双击/菜单可展开"
+                            if (layer.isGroup && layer.name in vm.anim.timelineCollapsedGroups) {
+                                val triCx = headerW - 7.dp.toPx()
+                                val triCy = rowCenterY
+                                val triR = 4.dp.toPx()
+                                drawPath(
+                                    path = Path().apply {
+                                        moveTo(triCx - triR * 0.5f, triCy - triR)
+                                        lineTo(triCx + triR * 0.5f, triCy)
+                                        lineTo(triCx - triR * 0.5f, triCy + triR)
+                                        close()
+                                    },
+                                    color = Morandi.accent,
+                                )
+                            }
 
                             // 前景/背景帧: 轨道头右缘竖条, 与轨道区整行底纹连成一体
                             val headerMarkerColor = markerColorOf(vm, layer.index)

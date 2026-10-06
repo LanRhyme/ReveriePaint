@@ -125,8 +125,11 @@ class CanvasTouchView(context: Context) : View(context) {
     // 侧键按住=临时橡皮 (Samsung Notes 语义): 仅在笔接触的事件流中更新, 抬笔后由下一次落笔重判
     private var tempEraseActive = false
 
-    /** 绘画路径的生效工具: 侧键按住时强制橡皮, 其余时刻跟随 UI 工具。 */
-    private fun effTool(): Tool = if (tempEraseActive) Tool.ERASER else tool
+    // 物理橡皮擦末端 (TOOL_TYPE_ERASER, 施德楼/Surface/Wacom EMR 笔尾): 倒转笔身时直接生效为橡皮
+    private var physicalEraserActive = false
+
+    /** 绘画路径的生效工具: 侧键按住或物理橡皮擦末端时强制橡皮, 其余时刻跟随 UI 工具。 */
+    private fun effTool(): Tool = if (tempEraseActive || physicalEraserActive) Tool.ERASER else tool
 
     private fun getOrCreateStylusDriver(): com.reverie.paint.core.stylus.StylusDriver? {
         val cached = cachedDriver
@@ -2263,6 +2266,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 localIsHovering = !overUi
                 localIsTouching = false
                 localPressure = 1f
+                physicalEraserActive = (event.getToolType(0) == MotionEvent.TOOL_TYPE_ERASER)
                 invalidate()
 
                 // S Pen 悬空侧键: 按下/释放边沿时把事件交给驱动层状态机
@@ -2291,6 +2295,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     getOrCreateStylusDriver()?.onStylusHoverExited()
                     lastHoverButtonState = 0
                 }
+                physicalEraserActive = false
                 localIsHovering = false
                 localIsTouching = false
                 localCursorPos = null
@@ -2466,11 +2471,13 @@ class CanvasTouchView(context: Context) : View(context) {
         // (只要当前未处于双指手势，任何手指接触均视为手掌接触，优先保证手写笔落笔防误触)
         val isStylusTouch = !editMenuGestureActive && stylusPointerIndex >= 0 && (!isTransformActive || fingerCount < 2)
 
-        // 侧键按住=临时橡皮 (Samsung Notes 语义): 每个笔接触事件重判, 纯手指路径清残留
+        // 侧键按住=临时橡皮 (Samsung Notes 语义) 或 物理橡皮尾接触: 每个笔接触事件重判, 纯手指路径清残留
         if (isStylusTouch) {
             tempEraseActive = getOrCreateStylusDriver()?.isSideButtonEraseActive(event) == true
+            physicalEraserActive = (event.getToolType(stylusPointerIndex) == MotionEvent.TOOL_TYPE_ERASER)
         } else if (fingerCount > 0) {
             tempEraseActive = false
+            physicalEraserActive = false
         }
 
         // =========================================================

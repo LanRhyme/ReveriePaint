@@ -841,6 +841,15 @@ import kotlinx.coroutines.withContext
         }
     }
 
+    internal fun PaintViewModel.loadPinnedTools() {
+        try {
+            val pinned = prefs().getString("pinned_tools", null) ?: return
+            val ids = pinned.split(",").filter { it.isNotEmpty() }
+            pinnedTools = ids.mapNotNull { com.reverie.paint.model.Tool.fromId(it) }
+        } catch (_: Exception) {
+        }
+    }
+
     /**
      * 一次性迁移 (2026-09): 旧版 updateParam 因把属性顺序写死成 `type` 在前而从未匹配成功，
      * 全部参数修改都被追加成重复键写进 .kpp（引擎按文档序取最后一个 → 新旧值谁生效看运气，
@@ -1041,13 +1050,6 @@ import kotlinx.coroutines.withContext
         
         try {
             currentToolId = prefs().getString("current_tool_id", "brush") ?: "brush"
-        } catch (_: Exception) {
-        }
-        
-        try {
-            val pinned = prefs().getString("pinned_tools", null) ?: return
-            val ids = pinned.split(",").filter { it.isNotEmpty() }
-            pinnedTools = ids.mapNotNull { com.reverie.paint.model.Tool.fromId(it) }
         } catch (_: Exception) {
         }
     }

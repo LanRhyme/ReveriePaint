@@ -51,8 +51,8 @@ android {
         }
         minSdk = 23
         targetSdk = 33
-        versionCode = 31
-        versionName = "1.4.3"
+        versionCode = 32
+        versionName = "1.4.4"
 
         buildConfigField("String", "AIFADIAN_API_TOKEN", "\"$aifadianApiToken\"")
         buildConfigField("String", "AIFADIAN_USER_ID", "\"$aifadianUserId\"")
@@ -171,6 +171,11 @@ android {
             useLegacyPackaging = true
             pickFirsts += listOf("**/libreverie_jni.so", "**/*.so")
         }
+    }
+
+    lint {
+        baseline = file("lint-baseline.xml")
+        abortOnError = true
     }
 }
 
