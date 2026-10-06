@@ -38,6 +38,9 @@ enum class QuickShapeType(val title: String) {
     ELLIPSE("椭圆"),
     RECTANGLE("矩形"),
     TRIANGLE("三角形"),
+    CONTOUR("轮廓"),
+    QUADRILATERAL("四边形"),
+    CURVE("曲线"),
 }
 
 /**
@@ -66,6 +69,8 @@ data class QuickShapeResult(
     val radiusX: Float = 0f,
     val radiusY: Float = 0f,
     val rotationRad: Float = 0f,
+    val arcSweepRad: Float = 0f,
+    val contourCurved: Boolean = false,
 )
 
 /**
@@ -159,7 +164,9 @@ data class TypographyConfig(
  * QuickShape 算法引擎：基于离散采样点的高精度几何图元拟合
  */
 object QuickShapeFitter {
-    fun fit(rawPoints: List<Point2D>): QuickShapeResult? = QuickShapeRecognition.fit(rawPoints)
+    fun fit(rawPoints: List<Point2D>, recognizeArcs: Boolean = false, relaxed: Boolean = false,
+            recognizeQuadrilaterals: Boolean = false, recognizeCurves: Boolean = false): QuickShapeResult? =
+        QuickShapeRecognition.fit(rawPoints, recognizeArcs, relaxed, recognizeQuadrilaterals, recognizeCurves)
 }
 
 /**

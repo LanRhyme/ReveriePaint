@@ -104,7 +104,8 @@ class CanvasTouchView(context: Context) : View(context) {
         if (v != null && capture != null && strokeStarted && v.quickShapeEnabled &&
             effTool() == Tool.BRUSH && capture.travelled >= 48f * density &&
             SystemClock.uptimeMillis() - capture.lastMovementMs >= 650L) {
-            quickShapeCandidate = capture.recognize()
+            quickShapeCandidate = capture.recognize(v.quickShapeArcEnabled, v.quickShapeRelaxedEnabled,
+                v.quickShapeQuadrilateralEnabled, v.quickShapeCurveEnabled)
             if (quickShapeCandidate != null) {
                 performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
                 v.showActionToast(R.string.quick_shape_ready, R.drawable.ic_line)

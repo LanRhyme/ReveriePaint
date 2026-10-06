@@ -1458,6 +1458,15 @@ class PaintViewModel : ViewModel() {
     var eraserCursorMode by mutableIntStateOf(3)
     var cursorStyleMode by mutableIntStateOf(5) // 0: 圆形, 1: 十字准星, 2: 点, 3: 无, 4: 系统指针, 5: 圆+十字准星
     var quickShapeEnabled by mutableStateOf(false) // 驻停线条成形，默认关闭
+    var quickShapeQuadrilateralEnabled by mutableStateOf(false)
+    var quickShapeConversionsEnabled by mutableStateOf(false)
+    var quickShapeCurveEnabled by mutableStateOf(false)
+    var quickShapeRelaxedEnabled by mutableStateOf(false)
+    var quickShapeArcEnabled by mutableStateOf(false)
+    var quickShapeBoxHandlesEnabled by mutableStateOf(false)
+    var quickShapeCurvedContourEnabled by mutableStateOf(false)
+    var quickShapeContourEnabled by mutableStateOf(false)
+    var quickShapeAngleSnapEnabled by mutableStateOf(false)
     internal var quickShapeCapture: QuickShapeStrokeCapture? = null
     internal var quickShapeDraft: QuickShapeDraft? = null
     var quickShapeCommitting by mutableStateOf(false)
@@ -2064,6 +2073,78 @@ class PaintViewModel : ViewModel() {
                 .edit()
                 .putInt("cursorStyleMode", mode)
                 .apply()
+        }
+    }
+
+    fun updateQuickShapeQuadrilateralEnabled(enable: Boolean) {
+        quickShapeQuadrilateralEnabled = enable
+        if (hasAppContext()) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("quickShapeQuadrilateralEnabled", enable).apply()
+        }
+    }
+
+    fun updateQuickShapeConversionsEnabled(enable: Boolean) {
+        quickShapeConversionsEnabled = enable
+        if (hasAppContext()) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("quickShapeConversionsEnabled", enable).apply()
+        }
+    }
+
+    fun updateQuickShapeCurveEnabled(enable: Boolean) {
+        quickShapeCurveEnabled = enable
+        if (hasAppContext()) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("quickShapeCurveEnabled", enable).apply()
+        }
+    }
+
+    fun updateQuickShapeRelaxedEnabled(enable: Boolean) {
+        quickShapeRelaxedEnabled = enable
+        if (hasAppContext()) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("quickShapeRelaxedEnabled", enable).apply()
+        }
+    }
+
+    fun updateQuickShapeArcEnabled(enable: Boolean) {
+        quickShapeArcEnabled = enable
+        if (hasAppContext()) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("quickShapeArcEnabled", enable).apply()
+        }
+    }
+
+    fun updateQuickShapeBoxHandlesEnabled(enable: Boolean) {
+        quickShapeBoxHandlesEnabled = enable
+        if (hasAppContext()) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("quickShapeBoxHandlesEnabled", enable).apply()
+        }
+    }
+
+    fun updateQuickShapeCurvedContourEnabled(enable: Boolean) {
+        quickShapeCurvedContourEnabled = enable
+        if (hasAppContext()) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("quickShapeCurvedContourEnabled", enable).apply()
+        }
+    }
+
+    fun updateQuickShapeContourEnabled(enable: Boolean) {
+        quickShapeContourEnabled = enable
+        if (hasAppContext()) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("quickShapeContourEnabled", enable).apply()
+        }
+    }
+
+    fun updateQuickShapeAngleSnapEnabled(enable: Boolean) {
+        quickShapeAngleSnapEnabled = enable
+        if (hasAppContext()) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("quickShapeAngleSnapEnabled", enable).apply()
         }
     }
 
@@ -2941,6 +3022,15 @@ class PaintViewModel : ViewModel() {
             eraserCursorMode = prefs.getInt("eraserCursorMode", 3)
             cursorStyleMode = prefs.getInt("cursorStyleMode", 5)
             quickShapeEnabled = prefs.getBoolean("quickShapeEnabledV2", false)
+            quickShapeQuadrilateralEnabled = prefs.getBoolean("quickShapeQuadrilateralEnabled", false)
+            quickShapeConversionsEnabled = prefs.getBoolean("quickShapeConversionsEnabled", false)
+            quickShapeCurveEnabled = prefs.getBoolean("quickShapeCurveEnabled", false)
+            quickShapeRelaxedEnabled = prefs.getBoolean("quickShapeRelaxedEnabled", false)
+            quickShapeArcEnabled = prefs.getBoolean("quickShapeArcEnabled", false)
+            quickShapeBoxHandlesEnabled = prefs.getBoolean("quickShapeBoxHandlesEnabled", false)
+            quickShapeCurvedContourEnabled = prefs.getBoolean("quickShapeCurvedContourEnabled", false)
+            quickShapeContourEnabled = prefs.getBoolean("quickShapeContourEnabled", false)
+            quickShapeAngleSnapEnabled = prefs.getBoolean("quickShapeAngleSnapEnabled", false)
             try {
                 val rawView = prefs.getString("view_settings", null)
                 if (rawView != null) {

@@ -41,8 +41,11 @@ class QuickShapeStrokeCapture(private val capacity: Int = 8192) {
         data[i + 3] = tiltX; data[i + 4] = tiltY; data[i + 5] = 0f
     }
 
-    fun recognize(): QuickShapeResult? = if (overflowed) null else
-        QuickShapeFitter.fit((0 until count).map { Point2D(data[it * 6], data[it * 6 + 1]) })
+    fun recognize(recognizeArcs: Boolean = false, relaxed: Boolean = false,
+                  recognizeQuadrilaterals: Boolean = false, recognizeCurves: Boolean = false): QuickShapeResult? =
+        if (overflowed) null else QuickShapeFitter.fit(
+            (0 until count).map { Point2D(data[it * 6], data[it * 6 + 1]) },
+            recognizeArcs, relaxed, recognizeQuadrilaterals, recognizeCurves)
 
     fun snapshot(): FloatArray = data.copyOf(count * 6)
 }

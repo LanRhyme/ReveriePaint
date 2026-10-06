@@ -5,7 +5,8 @@ import kotlin.math.*
 
 /** Conservative recognition: an unsupported or ambiguous stroke stays freehand. */
 internal object QuickShapeRecognition {
-    fun fit(input: List<Point2D>): QuickShapeResult? {
+    fun fit(input: List<Point2D>, recognizeArcs: Boolean, relaxed: Boolean,
+            recognizeQuadrilaterals: Boolean, recognizeCurves: Boolean): QuickShapeResult? {
         if (input.size < 6 || input.any { !it.x.isFinite() || !it.y.isFinite() }) return null
         val clean = input.filterIndexed { i, p -> i == 0 || p.distanceTo(input[i - 1]) > 0.001f }
         if (clean.size < 6) return null
@@ -23,7 +24,10 @@ internal object QuickShapeRecognition {
                 return QuickShapeResult(QuickShapeType.LINE, listOf(first, last), (first + last) / 2f)
             }
         }
-        if (direct > span * 0.22f || length < span * 2f) return null
+        if (direct > span * 0.22f || length < span * 2f) {
+            if (recognizeCurves) QuickShapeCurve.fit(points, length, relaxed)?.let { return it }
+            return if (recognizeArcs) QuickShapeArc.fit(points, length, relaxed) else null
+        }
         val loop = points.dropLast(1) + first
         // Closed RDP must split at two distinct endpoints, never simplify the zero-length seam.
         val split = loop.indices.maxBy { loop[it].distanceTo(first) }
@@ -42,6 +46,20 @@ internal object QuickShapeRecognition {
                 return QuickShapeResult(QuickShapeType.TRIANGLE, corners, corners.reduce { a, b -> a + b } / 3f)
             }
         }
+        if (recognizeQuadrilaterals) {
+            val tolerances = if (relaxed) listOf(0.035f, 0.05f, 0.07f) else listOf(0.035f)
+            for (tolerance in tolerances) {
+                val four = if (tolerance == 0.035f) corners else removeStraightCorners(
+                    simplify(loop.take(split + 1), span * tolerance).dropLast(1) +
+                        simplify(loop.drop(split), span * tolerance).dropLast(1), span * tolerance)
+                if (four.size != 4 || !simpleQuadrilateral(four) ||
+                    length / perimeter(four) !in 0.85f..1.25f || pathError(points, four) > span * 0.027f) continue
+                val angle = atan2(four[1].y - four[0].y, four[1].x - four[0].x)
+                val frame = orientedBox(four, angle, QuickShapeType.QUADRILATERAL)
+                val handles = four.indices.flatMap { listOf(four[it], (four[it] + four[(it + 1) % 4]) / 2f) }
+                return frame.copy(points = handles)
+            }
+        }
         if (corners.size == 4 && convex(corners)) {
             val edges = corners.indices.map { corners[(it + 1) % 4] - corners[it] }
             val squareAngles = edges.indices.all {
@@ -52,6 +70,25 @@ internal object QuickShapeRecognition {
                 val angle = atan2(edges[0].y, edges[0].x)
                 val box = orientedBox(points, angle, QuickShapeType.RECTANGLE)
                 if (pathError(points, QuickShapeGeometry.corners(box)) < span * 0.035f) return box
+            }
+        }
+        if (relaxed) {
+            // Try coarser corner simplification only after the original strict polygon checks.
+            // Keep convexity, area and whole-path checks: a random quadrilateral is not a rectangle.
+            for (tolerance in listOf(0.035f, 0.05f, 0.07f, 0.09f)) {
+                val four = removeStraightCorners(
+                    simplify(loop.take(split + 1), span * tolerance).dropLast(1) +
+                        simplify(loop.drop(split), span * tolerance).dropLast(1), span * tolerance)
+                if (four.size != 4 || !convex(four) || length / perimeter(four) !in 0.85f..1.3f) continue
+                val edges = four.indices.map { four[(it + 1) % 4] - four[it] }
+                if (edges.indices.any {
+                    val a = edges[it]; val b = edges[(it + 1) % 4]
+                    abs(a.x * b.x + a.y * b.y) / max(0.001f, hypot(a.x, a.y) * hypot(b.x, b.y)) > 0.5f
+                }) continue
+                val box = edges.map { orientedBox(points, atan2(it.y, it.x), QuickShapeType.RECTANGLE) }
+                    .minBy { pathError(points, QuickShapeGeometry.corners(it)) }
+                if (area / (4f * box.radiusX * box.radiusY) in 0.72f..1.15f &&
+                    pathError(points, QuickShapeGeometry.corners(box)) < span * 0.055f) return box
             }
         }
         val mean = points.reduce { a, b -> a + b } / points.size.toFloat()
@@ -132,6 +169,14 @@ internal object QuickShapeRecognition {
     private fun pathError(points: List<Point2D>, corners: List<Point2D>): Float = rms(points.map { p ->
         corners.indices.minOf { distanceToSegment(p, corners[it], corners[(it + 1) % corners.size]) }
     })
+    private fun simpleQuadrilateral(p: List<Point2D>): Boolean {
+        fun cross(a: Point2D, b: Point2D, c: Point2D): Float =
+            (b.x - a.x) * (c.y - a.y) - (b.y - a.y) * (c.x - a.x)
+        fun intersects(a: Point2D, b: Point2D, c: Point2D, d: Point2D): Boolean =
+            cross(a, b, c) * cross(a, b, d) <= 0f && cross(c, d, a) * cross(c, d, b) <= 0f
+        return !intersects(p[0], p[1], p[2], p[3]) && !intersects(p[1], p[2], p[3], p[0])
+    }
+
     private fun convex(p: List<Point2D>): Boolean {
         val crosses = p.indices.map {
             val a = p[(it + 1) % p.size] - p[it]

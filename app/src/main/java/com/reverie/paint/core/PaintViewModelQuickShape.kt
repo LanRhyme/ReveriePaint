@@ -22,7 +22,7 @@ internal fun PaintViewModel.beginQuickShape(shape: QuickShapeResult, original: F
     quickShapeDraft = QuickShapeDraft(original, currentLayerIndex, anim.currentTime, docWidth, docHeight, canvasCreatedTime)
     stopAirbrush()
     disarmStrokeStartKick()
-    activeQuickShape = shape
+    activeQuickShape = QuickShapeGeometry.snapLine(shape, quickShapeAngleSnapEnabled)
     isQuickShapeEditing = true
 }
 

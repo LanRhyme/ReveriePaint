@@ -2363,5 +2363,37 @@
     <string name="tl_expand_group">Expand group</string>
     <string name="f2l_progress">Splitting %1$d / %2$d</string>
     <string name="f2l_running">Splitting…</string>
+
+    <string name="quick_shape_quad_setting">Recognize quadrilaterals</string>
+    <string name="quick_shape_quad_hint">Keep four drawn corners without forcing right angles; eight-point controls add resizing and contour editing</string>
+    <string name="quick_shape_curve_setting">Recognize three-point curves</string>
+    <string name="quick_shape_curve_hint">Drag both endpoints and the on-curve midpoint independently; when enabled, prefer editable curves over circular arcs</string>
+    <string name="quick_shape_quad">Quadrilateral</string>
+    <string name="quick_shape_curve">Curve</string>
+    <string name="quick_shape_quad_edit_hint">Drag the four corners to reshape, or drag elsewhere to move</string>
+    <string name="quick_shape_curve_edit_hint">Drag either endpoint; drag the middle point to bend the curve through it</string>
+    <string name="quick_shape_curved">Curved contours</string>
+    <string name="quick_shape_curved_hint">Off joins corners with straight edges; on allows curves. Also change this in the editor</string>
+    <string name="quick_shape_contour_lines">Straight edges</string>
+    <string name="quick_shape_contour_curves">Curved edges</string>
+    <string name="quick_shape_relaxed">Forgiving recognition</string>
+    <string name="quick_shape_relaxed_hint">Tolerate uneven rectangle edges, rounded corners and arc wobble; arc recognition must also be enabled</string>
+    <string name="quick_shape_arc">Arc</string>
+    <string name="quick_shape_arc_edit_hint">Drag to move; drag endpoints or the curve handle to reshape the arc</string>
+    <string name="quick_shape_angle_snap">Snap line angles</string>
+    <string name="quick_shape_angle_snap_hint">Snap QuickShape lines near horizontal, vertical, 30°, 45° and related angles</string>
+    <string name="quick_shape_arc_setting">Recognize arcs</string>
+    <string name="quick_shape_arc_setting_hint">Recognize open circular arcs; keep freehand strokes when uncertain</string>
+    <string name="quick_shape_box_handles">Eight resize handles</string>
+    <string name="quick_shape_box_handles_hint">Resize rectangles at corners and edge midpoints; rotate with the separate handle</string>
+    <string name="quick_shape_contour_setting">Hold to reshape</string>
+    <string name="quick_shape_contour_setting_hint">Hold the button while dragging a rectangle handle with another finger or pen</string>
+    <string name="quick_shape_contour">Custom contour</string>
+    <string name="quick_shape_hold_contour">Hold to reshape</string>
+    <string name="quick_shape_box_edit_hint">Drag the eight handles to resize; use the separate handle above to rotate</string>
+    <string name="quick_shape_conversions">Quadrilateral conversions</string>
+    <string name="quick_shape_conversions_hint">Show buttons to convert to a parallelogram, rectangle, or square while editing</string>
+    <string name="quick_shape_to_parallelogram">To parallelogram</string>
+    <string name="quick_shape_to_rectangle">To rectangle</string>
 </resources>
 
