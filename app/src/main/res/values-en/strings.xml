@@ -1560,6 +1560,8 @@
     <string name="stylus_prediction_desc">120Hz/144Hz millisecond transient forward prediction for zero lag</string>
     <string name="stylus_cursor_snap_title">Snap Cursor to Predicted Tip</string>
     <string name="stylus_cursor_snap_desc">Extend cursor to the forward predicted tip; disable to anchor cursor strictly to physical stylus tip</string>
+    <string name="stylus_front_buffer_title">Front-Buffer Tip Direct Out</string>
+    <string name="stylus_front_buffer_desc">Experimental: tip preview goes out through a dedicated front-buffer layer, bypassing the compositor queue for lower perceived latency</string>
     <string name="stylus_brush_cursor">Brush Cursor</string>
     <string name="stylus_brush_cursor_desc">Cursor display policy when hovering or painting</string>
     <string name="stylus_eraser_cursor">Eraser Cursor</string>

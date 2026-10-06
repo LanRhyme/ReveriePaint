@@ -40,4 +40,33 @@ class FrontBufferProbeTest {
         val clearPacket = FrontBufferPathPacket(path = null, strokeWidth = 0f, color = 0, isClear = true)
         assertTrue(clearPacket.isClear)
     }
+
+    @Test
+    fun `no software fallback when overlay mounted and renderer ready`() {
+        assertFalse(FrontBufferProbe.softwareFallbackRequired(overlayPresent = true, canRenderPreview = true))
+    }
+
+    @Test
+    fun `software fallback required when renderer failed to initialize`() {
+        // 回退空洞回归: overlay 非空但渲染器初始化失败, 直出是 no-op, 必须回退软件绘制
+        assertTrue(FrontBufferProbe.softwareFallbackRequired(overlayPresent = true, canRenderPreview = false))
+    }
+
+    @Test
+    fun `software fallback required when overlay not mounted`() {
+        assertTrue(FrontBufferProbe.softwareFallbackRequired(overlayPresent = false, canRenderPreview = false))
+        // 覆盖层未挂载时无论 canRender 参数为何都必须回退
+        assertTrue(FrontBufferProbe.softwareFallbackRequired(overlayPresent = false, canRenderPreview = true))
+    }
+
+    @Test
+    fun `fallback and direct-out gates are strictly complementary`() {
+        for (present in listOf(false, true)) {
+            for (canRender in listOf(false, true)) {
+                val fallback = FrontBufferProbe.softwareFallbackRequired(present, canRender)
+                val directOut = present && canRender
+                assertTrue("fallback and directOut must be complementary", fallback != directOut)
+            }
+        }
+    }
 }

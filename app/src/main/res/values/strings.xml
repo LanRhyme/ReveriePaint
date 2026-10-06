@@ -1560,6 +1560,8 @@
     <string name="stylus_prediction_desc">采用 120Hz/144Hz 毫秒级瞬态前向预测，笔迹即时紧跟笔尖</string>
     <string name="stylus_cursor_snap_title">光标跟随预测前沿</string>
     <string name="stylus_cursor_snap_desc">开启后光标环跟随预测笔尖前伸，关闭则紧贴物理笔尖</string>
+    <string name="stylus_front_buffer_title">前缓冲笔尖直出</string>
+    <string name="stylus_front_buffer_desc">实验性: 笔尖预览经独立前缓冲层直出上屏，绕过合成队列进一步降低跟手延迟</string>
     <string name="stylus_brush_cursor">画笔光标</string>
     <string name="stylus_brush_cursor_desc">画笔悬浮或绘制时的光标显示策略</string>
     <string name="stylus_eraser_cursor">橡皮光标</string>
