@@ -251,9 +251,11 @@ class StylusDriver(
             return getAdapter<HuaweiStylusAdapter>()?.handleDoubleTap(vm, feedbackManager) ?: false
         }
         val actionId = when (detected?.brand) {
+            StylusBrand.HONOR_MAGIC_PENCIL -> vm.honorDoubleTapAction
             StylusBrand.SAMSUNG_SPEN -> vm.samsungDoubleClickAction
             StylusBrand.XIAOMI_STYLUS -> vm.xiaomiDoubleTapAction
-            else -> vm.oppoDoubleTapAction
+            StylusBrand.OPPO_ONEPLUS -> vm.oppoDoubleTapAction
+            else -> "none"
         }
         if (actionId.trim().equals("none", ignoreCase = true)) return false
         val action = StylusAction.fromActionId(actionId)
@@ -271,10 +273,11 @@ class StylusDriver(
             return getAdapter<HuaweiStylusAdapter>()?.handleSingleClick(vm, feedbackManager) ?: false
         }
         val actionId = when (detected?.brand) {
+            StylusBrand.HONOR_MAGIC_PENCIL -> vm.honorSingleClickAction
             StylusBrand.SAMSUNG_SPEN -> vm.samsungSingleClickAction
             StylusBrand.XIAOMI_STYLUS -> vm.xiaomiPrimaryButtonAction
             StylusBrand.GENERIC -> vm.genericPrimaryButtonAction
-            else -> vm.oppoDoubleTapAction
+            else -> "none"
         }
         if (actionId.trim().equals("none", ignoreCase = true)) return false
         val action = StylusAction.fromActionId(actionId)

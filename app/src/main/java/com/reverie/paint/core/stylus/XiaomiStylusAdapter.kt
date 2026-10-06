@@ -161,7 +161,9 @@ class XiaomiStylusAdapter : StylusBrandAdapter {
                 when (method.name) {
                     "onTouchFilmTriggered" -> {
                         val function = args?.getOrNull(0) as? Int ?: return@newProxyInstance null
-                        handleTouchFilmTriggered(function, vm, fm)
+                        handler.post {
+                            handleTouchFilmTriggered(function, vm, fm)
+                        }
                         null
                     }
                     "onBrushPreviewChanged" -> {
