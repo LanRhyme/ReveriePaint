@@ -54,6 +54,7 @@ internal fun PaintViewModel.saveProject(
     name: String,
     onComplete: (() -> Unit)? = null,
 ) {
+    if (deferForReferenceImport { saveProject(name, onComplete) }) return
     tickPaintingTimer()
     isBlockingLoading = true
     blockingLoadingMessage = getString(R.string.project_saving_progress)
@@ -128,7 +129,7 @@ internal fun PaintViewModel.saveProject(
 }
 
 internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
-    if (isAutoSaving || isBlockingLoading) return
+    if (isAutoSaving || isBlockingLoading || referenceImportActive) return
     val touchView = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
     if (touchView?.isInteracting == true || touchView?.isTransformActive == true) return
 
@@ -314,6 +315,8 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     android.util.Log.d("RP_IO", "loadProject START: name=${p.name}, path=${p.filePath}, isAutoSaved=${p.isAutoSaved}")
     stopPaintingTimer()
     resetAnimationState()
+    resetProjectReferences(loading = true)
+    val referenceLoadSession = referenceSession
     // Navigate to painting page first, then show loading overlay while reading native file
     currentPage = Page.PAINTING
     isBlockingLoading = true
@@ -331,8 +334,10 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     }
 
     var loadedCollapsedGroups: Set<String> = emptySet()
+    var referenceRestoreScheduled = false
     runCore(
         after = {
+            if (referenceSession == referenceLoadSession && !referenceRestoreScheduled) referenceLoading = false
             collapsedGroupNames = loadedCollapsedGroups
             initialStrokeCount = p.strokeCount
             totalStrokes = p.strokeCount
@@ -401,6 +406,9 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                     ReverieCoreBridge.loadPng(file.absolutePath)
                 }
             if (ok) {
+                if (!file.extension.equals("revp", ignoreCase = true)) resetNativeProjectReferences()
+                restoreProjectReferencesOnRender(referenceLoadSession)
+                referenceRestoreScheduled = true
                 coreW = ReverieCoreBridge.docWidth()
                 coreH = ReverieCoreBridge.docHeight()
                 renderW = coreW
@@ -460,6 +468,7 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 }
                 android.util.Log.d("RP_IO", "loadProject OP OK: coreW=$coreW, coreH=$coreH, nativeLayers=${ReverieCoreBridge.layerCount()}, animated=$animated")
             } else {
+                mainHandler.post { if (referenceSession == referenceLoadSession) referenceLoading = false }
                 android.util.Log.e("RP_IO", "loadProject OP FAILED for ${file.absolutePath}")
             }
         }
@@ -899,6 +908,7 @@ internal fun PaintViewModel.exportDocument(
     onSuccess: (java.io.File) -> Unit,
     onError: (String) -> Unit = {},
 ) {
+    if (deferForReferenceImport { exportDocument(format, targetFile, embedAuthor, onSuccess, onError) }) return
     val fmt = format.lowercase()
     runCore(render = false) {
         if (!embedAuthor || !authorProfile.enabled) {
@@ -1114,6 +1124,7 @@ internal fun PaintViewModel.exportImageToGallery(
 }
 
 internal fun PaintViewModel.goHome() {
+    resetProjectReferences()
     recorder.endSession()
     stopPaintingTimer()
     // 动画播放与状态镜像: 离开绘画页彻底停止并重置动画状态, 避免耗电和跨画布状态残留
@@ -1122,7 +1133,10 @@ internal fun PaintViewModel.goHome() {
     // tile) 一直驻留内存, 重新打开时新旧文档共存推高峰值内存 (大文档被 LMK
     // 杀进程)。排队到渲染线程, FIFO 保证已排队的引擎操作先完成; 之后残留的
     // 渲染/保存调用在 C++ 侧空文档防护中安全返回。
-    runCore(render = false) { ReverieCoreBridge.closeDocument() }
+    runCore(render = false) {
+        resetNativeProjectReferences()
+        ReverieCoreBridge.closeDocument()
+    }
     currentProjectFile = null
     docName = ""
     isModified = false
@@ -1187,6 +1201,7 @@ internal fun PaintViewModel.startPainting(
     animation: Boolean = false,
     animationFps: Int = DEFAULT_ANIMATION_FPS,
 ) {
+    resetProjectReferences()
     val actualName = name?.ifBlank { null } ?: generateNextProjectName()
     currentProjectFile = null // Reset so new artwork won't overwrite previous project file
     docName = actualName
@@ -1228,6 +1243,7 @@ internal fun PaintViewModel.startPainting(
     ) {
         try {
             if (ReverieCoreBridge.newDocument(w, h)) {
+                resetNativeProjectReferences()
                 coreW = w
                 coreH = h
                 renderW = w

@@ -2351,5 +2351,8 @@
     <string name="tl_expand_group">展开该组</string>
     <string name="f2l_progress">正在拆分 %1$d / %2$d</string>
     <string name="f2l_running">拆分中…</string>
+    <string name="reference_import_legacy">导入旧版参考图</string>
+    <string name="reference_import_failed">参考图导入失败，已保留原有图片</string>
+    <string name="reference_restore_failed">部分参考数据无法读取，请重新添加参考图</string>
 </resources>
 

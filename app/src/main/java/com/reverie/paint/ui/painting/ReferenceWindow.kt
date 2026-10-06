@@ -57,6 +57,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.zIndex
 import com.reverie.paint.R
+import com.reverie.paint.core.importLegacyProjectReferences
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.updateBrushColor
 import com.reverie.paint.ui.components.ReSwitch
@@ -1177,6 +1178,18 @@ private fun ReferenceSettingsPopup(
                         color = Morandi.text,
                         fontSize = 13.sp,
                         fontWeight = FontWeight.Medium
+                    )
+                }
+
+                if (vm.hasLegacyReferenceImages) {
+                    Text(
+                        text = stringResource(R.string.reference_import_legacy),
+                        color = Morandi.text,
+                        fontSize = 13.sp,
+                        modifier = Modifier.fillMaxWidth().clickable {
+                            vm.importLegacyProjectReferences()
+                            onDismiss()
+                        }.padding(vertical = 12.dp)
                     )
                 }
 
