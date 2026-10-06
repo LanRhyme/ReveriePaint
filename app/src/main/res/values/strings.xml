@@ -2341,6 +2341,14 @@
     <string name="pattern_use_color">改用前景色</string>
     <string name="pattern_layer_choose">选择填充图案</string>
     <string name="pattern_opacity">图案不透明度</string>
+    <string name="pattern_scale_title">图案大小</string>
+    <string name="pattern_scale_crisp">清晰边缘</string>
+    <string name="pattern_scale_smooth">平滑</string>
+    <string name="pattern_scale_crisp_hint">适合像素图和线稿，保留硬边缘；缩小时细线可能丢失，放大可能出现锯齿</string>
+    <string name="pattern_scale_smooth_hint">适合照片和连续纹理，边缘更柔和；放大不会增加原图细节</string>
+    <string name="pattern_scale_value">%1$d%% · %2$d × %3$d 像素</string>
+    <string name="pattern_scale_hint">保持宽高比例，每块图案最长边不超过 2048 像素；重置可恢复导入尺寸，图库原图不变</string>
+    <string name="pattern_scale_failed">无法调整图案大小，请缩小比例后重试</string>
 
     <!-- 帧转图层 -->
     <string name="f2l_menu">帧转图层</string>

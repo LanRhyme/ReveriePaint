@@ -2341,6 +2341,14 @@
     <string name="pattern_use_color">Use foreground color</string>
     <string name="pattern_layer_choose">Choose fill pattern</string>
     <string name="pattern_opacity">Pattern opacity</string>
+    <string name="pattern_scale_title">Pattern size</string>
+    <string name="pattern_scale_crisp">Sharp edges</string>
+    <string name="pattern_scale_smooth">Smooth</string>
+    <string name="pattern_scale_crisp_hint">For pixel art and linework. Keeps hard edges; shrinking may lose thin lines and enlarging may look jagged</string>
+    <string name="pattern_scale_smooth_hint">For photos and continuous textures. Softens edges; enlarging cannot add original detail</string>
+    <string name="pattern_scale_value">%1$d%% · %2$d × %3$d px</string>
+    <string name="pattern_scale_hint">Keeps the aspect ratio, up to 2048 px per side. Reset restores the imported size. The library image stays unchanged</string>
+    <string name="pattern_scale_failed">Cannot resize this pattern. Try a smaller scale</string>
 
     <!-- 帧转图层 -->
     <string name="f2l_menu">Frames to layers</string>

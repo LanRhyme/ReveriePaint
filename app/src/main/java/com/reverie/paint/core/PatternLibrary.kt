@@ -6,11 +6,14 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
 import com.reverie.paint.model.PatternFillEvent
+import com.reverie.paint.model.PatternScale
 import java.io.ByteArrayOutputStream
 import java.io.File
 import java.security.MessageDigest
 
-internal data class FillPattern(val name: String, val png: ByteArray, val thumbnail: Bitmap)
+internal data class FillPattern(
+    val name: String, val png: ByteArray, val thumbnail: Bitmap, val width: Int, val height: Int,
+)
 
 /** Only called on Dispatchers.IO; patterns are normalized and bounded before reaching JNI. */
 internal object PatternLibrary {
@@ -19,6 +22,29 @@ internal object PatternLibrary {
         ?.sortedBy { it.name.lowercase() }.orEmpty()
 
     fun load(context: Context, file: File): FillPattern = decode(context, Uri.fromFile(file), file.nameWithoutExtension)
+
+    /** IO thread only. Keep the library file intact; the recording embeds these prepared pixels. */
+    @JvmOverloads
+    fun scaled(pattern: FillPattern, percent: Float, smooth: Boolean = false): FillPattern {
+        val (width, height) = PatternScale.size(pattern.width, pattern.height, percent)
+        if (width == pattern.width && height == pattern.height) return pattern
+        val source = requireNotNull(BitmapFactory.decodeByteArray(pattern.png, 0, pattern.png.size))
+        try {
+            // Nearest-neighbour preserves hard edges; filtering is opt-in for continuous textures.
+            val resized = Bitmap.createScaledBitmap(source, width, height, smooth)
+            try {
+                val output = ByteArrayOutputStream()
+                check(resized.compress(Bitmap.CompressFormat.PNG, 100, output))
+                val bytes = output.toByteArray()
+                require(bytes.size in 1..PatternFillEvent.MAX_PATTERN_BYTES)
+                return pattern.copy(png = bytes, width = width, height = height)
+            } finally {
+                if (resized !== source) resized.recycle()
+            }
+        } finally {
+            source.recycle()
+        }
+    }
 
     fun import(context: Context, uri: Uri): FillPattern {
         val pattern = decode(context, uri, "")
@@ -52,7 +78,9 @@ internal object PatternLibrary {
                 (bitmap.width * scale).toInt().coerceAtLeast(1),
                 (bitmap.height * scale).toInt().coerceAtLeast(1), true)
             // createScaledBitmap can return its input when already small.
-            return FillPattern(name, bytes, if (thumbnail === bitmap) bitmap.copy(Bitmap.Config.ARGB_8888, false) else thumbnail)
+            return FillPattern(name, bytes,
+                if (thumbnail === bitmap) bitmap.copy(Bitmap.Config.ARGB_8888, false) else thumbnail,
+                bitmap.width, bitmap.height)
         } finally {
             bitmap.recycle()
         }

@@ -42,6 +42,7 @@ internal fun PatternPickerDialog(
     var files by remember { mutableStateOf<List<File>>(emptyList()) }
     var busy by remember { mutableStateOf(true) }
     var failed by remember { mutableStateOf(false) }
+    var selected by remember { mutableStateOf<FillPattern?>(null) }
     LaunchedEffect(Unit) {
         files = withContext(Dispatchers.IO) { PatternLibrary.list(context) }
         busy = false
@@ -52,8 +53,8 @@ internal fun PatternPickerDialog(
         scope.launch {
             try {
                 val pattern = withContext(Dispatchers.IO) { block() }
-                onSelect(pattern)
-                onDismiss()
+                files = withContext(Dispatchers.IO) { PatternLibrary.list(context) }
+                selected = pattern
             } catch (cancelled: CancellationException) {
                 throw cancelled
             } catch (_: Exception) {
@@ -65,6 +66,30 @@ internal fun PatternPickerDialog(
     }
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) load { PatternLibrary.import(context, uri) }
+    }
+    selected?.let { pattern ->
+        PatternScaleDialog(pattern, busy, failed,
+            onCancel = { selected = null; failed = false },
+            onApply = { percent, smooth ->
+                busy = true
+                failed = false
+                scope.launch {
+                    try {
+                        val prepared = withContext(Dispatchers.IO) {
+                            PatternLibrary.scaled(pattern, percent, smooth)
+                        }
+                        onSelect(prepared)
+                        onDismiss()
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (_: Exception) {
+                        failed = true
+                    } finally {
+                        busy = false
+                    }
+                }
+            })
+        return
     }
     Dialog(onDismissRequest = { if (!busy) onDismiss() }) {
         Surface(color = Morandi.panel, shape = MaterialTheme.shapes.large) {
