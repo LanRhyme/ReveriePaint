@@ -387,6 +387,7 @@ void ReverieCore::syncLayersFromImage()
                     l->enableClippingLayer(false);
                 }
                 entry.clipped = l->clippingEnabled();
+                entry.alphaInherited = l->alphaChannelDisabled();
                 entry.background = m_layers.isEmpty();  // first layer = bg
 
                 if (oldEntries.contains(node.data())) {

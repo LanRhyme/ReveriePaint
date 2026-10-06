@@ -975,6 +975,7 @@
     <string name="layer_op_merge_group">Merge Group</string>
     <string name="layer_op_lock_group">Lock Group</string>
     <string name="layer_op_clip">Clipping Mask</string>
+    <string name="layer_op_alpha_inherit">Inherit Alpha</string>
     <string name="layer_op_pass_through">Pass-Through</string>
     <string name="layer_op_duplicate">Duplicate</string>
     <string name="layer_op_delete_layer">Delete Layer</string>

@@ -119,6 +119,8 @@ public:
     // content painted on a clipped layer is masked by the next layer's alpha
     bool layerClipped(int index) const;
     void setLayerClipped(int index, bool clipped);
+    bool layerAlphaInherited(int index) const;
+    void setLayerAlphaInherited(int index, bool enable);
     void flipLayerHorizontal(int index);
     void flipLayerVertical(int index);
     // Canvas flip: mirror every paintable layer (incl. background/locked and
@@ -499,6 +501,7 @@ public:
         bool alphaLocked = false;     // preserve alpha (transparency lock)
         int colorLabel = 0;           // color label index 0-9
         bool clipped = false;         // clipping mask onto the layer below
+        bool alphaInherited = false;  // inherit alpha from layers below (Krita native)
         bool background = false;      // background layer (index 0)
         bool isStrokeLayer = false;   // stroke layer with layer style
         int strokeSize = 6;

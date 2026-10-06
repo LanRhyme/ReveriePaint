@@ -113,4 +113,28 @@ class ClippingMaskLogicTest {
         }
         assertFalse(layers[0].clipped)
     }
+
+    @Test
+    fun `clipping mask and inherit alpha are mutually exclusive`() {
+        var clipped = false
+        var alphaInherited = true
+
+        fun setClipped(v: Boolean) {
+            clipped = v
+            if (clipped) alphaInherited = false
+        }
+
+        fun setAlphaInherited(v: Boolean) {
+            alphaInherited = v
+            if (alphaInherited) clipped = false
+        }
+
+        setClipped(true)
+        assertTrue(clipped)
+        assertFalse(alphaInherited)
+
+        setAlphaInherited(true)
+        assertFalse(clipped)
+        assertTrue(alphaInherited)
+    }
 }

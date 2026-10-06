@@ -1898,7 +1898,7 @@ bool ReverieCore::loadPsd(const QString &path)
                     layer->setCompositeOpId(op);
                 }
                 layer->setVisible(rec->visible);
-                layer->disableAlphaChannel(rec->clipping > 0);
+                layer->enableClippingLayer(rec->clipping > 0);
                 layer->setAlphaLocked(rec->transparencyProtected);
                 layer->setColorLabelIndex(rec->labelColor);
                 image->addNode(layer, groupStack.isEmpty() ? image->rootLayer() : groupStack.top());

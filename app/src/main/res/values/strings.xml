@@ -975,6 +975,7 @@
     <string name="layer_op_merge_group">合并图层组</string>
     <string name="layer_op_lock_group">锁定图层组</string>
     <string name="layer_op_clip">剪切蒙版</string>
+    <string name="layer_op_alpha_inherit">继承透明度</string>
     <string name="layer_op_pass_through">穿透混合模式 (Pass-through)</string>
     <string name="layer_op_duplicate">复制图层</string>
     <string name="layer_op_delete_layer">删除图层</string>

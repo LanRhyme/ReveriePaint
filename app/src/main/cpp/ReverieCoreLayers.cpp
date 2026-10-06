@@ -889,10 +889,48 @@ void ReverieCore::setLayerClipped(int index, bool clipped)
     }
     if (KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node)) {
         if (layer->clippingEnabled() != clipped) {
+            // 互斥: 开启剪切蒙版时自动关闭继承透明度
+            if (clipped && layer->alphaChannelDisabled()) {
+                layer->disableAlphaChannel(false);
+                m_layers[index].alphaInherited = false;
+            }
             pushUndoCommand(new ReverieNodeClippingCommand(
                 KisLayerSP(layer), clipped,
                 kundo2_i18n("Clipping Mask")));
             m_layers[index].clipped = clipped;
+            recompositeProjection();
+            markDirty();
+        }
+    }
+}
+
+bool ReverieCore::layerAlphaInherited(int index) const
+{
+    if (index < 0 || index >= m_layers.size()) {
+        return false;
+    }
+    if (KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node)) {
+        return layer->alphaChannelDisabled();
+    }
+    return m_layers[index].alphaInherited;
+}
+
+void ReverieCore::setLayerAlphaInherited(int index, bool enable)
+{
+    if (index <= 0 || index >= m_layers.size()) {
+        return;
+    }
+    if (KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node)) {
+        if (layer->alphaChannelDisabled() != enable) {
+            // 互斥: 开启继承透明度时自动关闭剪切蒙版
+            if (enable && layer->clippingEnabled()) {
+                pushUndoCommand(new ReverieNodeClippingCommand(
+                    KisLayerSP(layer), false,
+                    kundo2_i18n("Clipping Mask")));
+                m_layers[index].clipped = false;
+            }
+            layer->disableAlphaChannel(enable);
+            m_layers[index].alphaInherited = enable;
             recompositeProjection();
             markDirty();
         }
