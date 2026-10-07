@@ -32,6 +32,7 @@ internal fun QuickShapeEditor(
     vm: PaintViewModel,
     zoom: State<Float>, rotation: State<Float>, panX: State<Float>, panY: State<Float>,
     fitScale: Float,
+    onViewTransform: (zoom: Float, rotation: Float, panX: Float, panY: Float) -> Unit = { _, _, _, _ -> },
     modifier: Modifier = Modifier,
 ) {
     val shape = vm.activeQuickShape ?: return
@@ -67,17 +68,59 @@ internal fun QuickShapeEditor(
                 }
                 val reshape = reshapePointer != null
                 var cancelled = vm.quickShapeCommitting
+                // 编辑器是 zIndex 最高的全屏 overlay, 双指事件到不了 CanvasTouchView。
+                // 单指仍然抓手柄/拖形状; 双指改为驱动画布平移/缩放, 避免控制点被
+                // 顶部胶囊盖住时连画布都无法移动 (编辑期间画布不再被锁死)。
+                var twoFinger = false
+                var startZoom = 1f
+                var startRotation = 0f
+                var startPanX = 0f
+                var startPanY = 0f
+                var startDist = 1f
+                val startDoc = FloatArray(2)
                 do {
                     val event = awaitPointerEvent()
-                    if (event.changes.count { it.pressed && it.id != reshapePointer } > 1 ||
-                        (reshape && reshapePointer == null)) cancelled = true
-                    val change = event.changes.firstOrNull { it.id == down.id }
-                    if (!cancelled && !vm.quickShapeCommitting && change != null &&
-                        (change.pressed || change.previousPressed)) {
-                        transform.screenToDoc(change.position.x, change.position.y, point)
-                        vm.activeQuickShape = QuickShapeGeometry.drag(original, handle, from, Point2D(point[0], point[1]),
-                            vm.quickShapeAngleSnapEnabled, reshape, vm.quickShapeBoxHandlesEnabled,
-                            vm.quickShapeCurvedContourEnabled)
+                    val pressed = event.changes.filter { it.pressed }
+                    if (pressed.size >= 2) {
+                        val centroid = (pressed[0].position + pressed[1].position) / 2f
+                        val dist = (pressed[0].position - pressed[1].position).getDistance().coerceAtLeast(1f)
+                        if (!twoFinger) {
+                            twoFinger = true
+                            cancelled = true
+                            updateTransform()
+                            startZoom = zoom.value
+                            startRotation = rotation.value
+                            startPanX = panX.value
+                            startPanY = panY.value
+                            startDist = dist
+                            transform.screenToDoc(centroid.x, centroid.y, startDoc)
+                        } else {
+                            val newZoom = (startZoom * (dist / startDist)).coerceIn(0.02f, 128f)
+                            // 先按 startPan + newZoom 求 startDoc 的屏幕位置, 再补质心差值,
+                            // 于是缩放围绕双指中心, 且不用重写旋转/翻转数学。
+                            transform.update(
+                                size.width, size.height, startPanX, startPanY, newZoom, scale, startRotation,
+                                vm.renderW, vm.renderH, vm.docWidth, vm.docHeight, vm.viewFlipX, vm.viewFlipY,
+                            )
+                            transform.docToScreen(startDoc[0], startDoc[1], point)
+                            onViewTransform(
+                                newZoom, startRotation,
+                                startPanX + (centroid.x - point[0]),
+                                startPanY + (centroid.y - point[1]),
+                            )
+                            updateTransform()
+                        }
+                    } else if (!twoFinger) {
+                        if (event.changes.count { it.pressed && it.id != reshapePointer } > 1 ||
+                            (reshape && reshapePointer == null)) cancelled = true
+                        val change = event.changes.firstOrNull { it.id == down.id }
+                        if (!cancelled && !vm.quickShapeCommitting && change != null &&
+                            (change.pressed || change.previousPressed)) {
+                            transform.screenToDoc(change.position.x, change.position.y, point)
+                            vm.activeQuickShape = QuickShapeGeometry.drag(original, handle, from, Point2D(point[0], point[1]),
+                                vm.quickShapeAngleSnapEnabled, reshape, vm.quickShapeBoxHandlesEnabled,
+                                vm.quickShapeCurvedContourEnabled)
+                        }
                     }
                     event.changes.forEach { it.consume() }
                 } while (event.changes.any { it.pressed })

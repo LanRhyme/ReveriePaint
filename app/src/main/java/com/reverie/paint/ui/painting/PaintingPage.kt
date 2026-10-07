@@ -186,6 +186,7 @@ fun PaintingPage(
     val panYState = remember { mutableFloatStateOf(0f) }
     var panY by panYState
     var fitScale by remember { mutableFloatStateOf(1f) }
+    var canvasTouchView by remember { mutableStateOf<com.reverie.paint.ui.painting.canvas.CanvasTouchView?>(null) }
 
     var canvasW by remember { mutableStateOf(1) }
     var canvasH by remember { mutableStateOf(1) }
@@ -696,6 +697,7 @@ fun PaintingPage(
                         indicatorTick++
                     }
                 },
+                onTouchViewReady = { canvasTouchView = it },
                 onTextRequested = { x, y ->
                     textDialogPos = x to y
                 },
@@ -2293,7 +2295,8 @@ fun PaintingPage(
         if (vm.isQuickShapeEditing) {
             com.reverie.paint.ui.painting.canvas.QuickShapeEditor(
                 vm, zoomState, rotationState, panXState, panYState, fitScale,
-                Modifier.fillMaxSize().zIndex(2000f),
+                onViewTransform = { z, r, px, py -> canvasTouchView?.applyViewTransform(z, r, px, py) },
+                modifier = Modifier.fillMaxSize().zIndex(2000f),
             )
         }
     }

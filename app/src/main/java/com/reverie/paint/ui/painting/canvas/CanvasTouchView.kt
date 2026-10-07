@@ -614,6 +614,22 @@ class CanvasTouchView(context: Context) : View(context) {
     private var spacePanInitialPan = Offset.Zero
     private var isSpaceDragging = false
 
+    /**
+     * 供全屏覆盖层 (速创形状编辑器) 在编辑期间驱动画布平移/缩放。
+     * 编辑器是 zIndex 最高的全屏 overlay, 双指事件到不了 CanvasTouchView;
+     * 由编辑器算好新变换后回写, 编辑期间画布不再被锁死。
+     */
+    fun applyViewTransform(zoom: Float, rotation: Float, panX: Float, panY: Float) {
+        if (!zoom.isFinite() || !rotation.isFinite() || !panX.isFinite() || !panY.isFinite()) return
+        cancelCanvasTransformAnimators()
+        canvasZoom = zoom.coerceIn(0.02f, 128f)
+        canvasRotation = rotation
+        canvasPanX = panX
+        canvasPanY = panY
+        onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+        invalidate()
+    }
+
     fun setSpacePanning(active: Boolean) {
         if (!active) {
             isSpaceDragging = false
