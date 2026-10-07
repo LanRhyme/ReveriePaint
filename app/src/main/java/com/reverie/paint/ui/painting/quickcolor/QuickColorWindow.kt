@@ -5,7 +5,6 @@
 package com.reverie.paint.ui.painting.quickcolor
 
 import android.graphics.Bitmap
-import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
@@ -784,7 +783,6 @@ private fun QuickColorPalettesTab(
     vm: PaintViewModel,
     onColorSelected: (String) -> Unit,
 ) {
-    val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val activePalette = remember(vm.defaultPaletteId, vm.allPalettes) {
         vm.allPalettes.firstOrNull { it.id == vm.defaultPaletteId } ?: vm.allPalettes.firstOrNull()
@@ -825,7 +823,7 @@ private fun QuickColorPalettesTab(
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         if (activePalette != null) {
                             vm.addColorToPalette(activePalette.id, vm.brushColor)
-                            Toast.makeText(context, context.getString(R.string.color_pal_saved_cur_color), Toast.LENGTH_SHORT).show()
+                            vm.showActionToast(R.string.color_pal_saved_cur_color, R.drawable.ic_palette)
                         }
                     }
                     .padding(horizontal = 5.dp, vertical = 2.dp),
@@ -854,11 +852,11 @@ private fun QuickColorPalettesTab(
                 onColorSelect = onColorSelected,
                 onColorLongPress = { colorIdx ->
                     vm.removeColorFromPalette(activePalette.id, colorIdx)
-                    Toast.makeText(context, context.getString(R.string.color_pal_removed_color), Toast.LENGTH_SHORT).show()
+                    vm.showActionToast(R.string.color_pal_removed_color, R.drawable.ic_palette)
                 },
                 onEmptySlotClick = {
                     vm.addColorToPalette(activePalette.id, vm.brushColor)
-                    Toast.makeText(context, context.getString(R.string.color_pal_saved_cur_color), Toast.LENGTH_SHORT).show()
+                    vm.showActionToast(R.string.color_pal_saved_cur_color, R.drawable.ic_palette)
                 },
             )
         }
