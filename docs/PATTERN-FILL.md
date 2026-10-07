@@ -1,6 +1,6 @@
 # 图案填充（#48）
 
-分支 `feat/pattern-fill`，原始实现基于 `49f08196`。最新本地适配基于主线 `7a37ac16`（已合入 #76）；此前各轮记录保留原有基线，不能视为最新版本的验证结果。
+分支 `feat/pattern-fill`，原始实现基于 `49f08196`。本轮适配基于主线 `7a37ac16`（已合入 #76），源码合并提交为 `8502eda8`，撤销补修与重建 JNI 提交为 `53338708`；此前各轮记录保留原有基线，不能视为最新版本的验证结果。
 
 ## 主线合入 #76 后的适配与补修（2026-10-07）
 
@@ -25,7 +25,7 @@
 
 本轮为真机自动检查和自动 UI 操作，不冒充人工触控测试。没有复测横屏、大字体、完整系统图片选择流程、PSD/KRA 互通、真实历史生成器工程和旧剪切录制语义兼容；此前透明背景保存和人工生成器样本的失败记录仍保留在下文，未宣称已修复。本轮没有覆盖跨设备性能、所有画布尺寸或所有历史文件。
 
-证据位于 `F:\Codex\work\reveriepaint-pattern-main-20261007\`：`baseline-clipping.log` 与 `final-clipping.log` 为修复前后对照，`phone-verification.json` 汇总本轮 36 组及 UI 比较，`native-final-verification.json` 和 `apk-verification.json` 记录二进制核验；测试组件源码、对照包、最终包、截图及编译日志均分别保留。初次脚本换行错误及安装时手机断开属于环境失败，恢复后重新执行，不计作通过的测试。PR #70 在本轮本地验证结束时仍关闭，尚未推送本轮适配。
+证据位于 `F:\Codex\work\reveriepaint-pattern-main-20261007\`：`baseline-clipping.log` 与 `final-clipping.log` 为修复前后对照，`phone-verification.json` 汇总本轮 36 组及 UI 比较，`native-final-verification.json` 和 `apk-verification.json` 记录二进制核验；测试组件源码、对照包、最终包、截图及编译日志均分别保留。初次脚本换行错误及安装时手机断开属于环境失败，恢复后重新执行，不计作通过的测试。本轮适配通过原分支更新 #70 的代码与说明，保留三次暂停和历史失败记录；此次更新不重新打开或合并 PR。
 
 ### 请维护者复查
 
