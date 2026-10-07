@@ -750,6 +750,8 @@
     <string name="settings_layer_height_spacious">Spacious</string>
     <string name="settings_panel_pinning_title">Panel Pin &amp; Drag</string>
     <string name="settings_panel_pinning_desc">Allow pinning and dragging layer and brush panels freely</string>
+    <string name="settings_layer_header_inherit_alpha_title">Layer Header Shortcut for Inherit Alpha</string>
+    <string name="settings_layer_header_inherit_alpha_desc">Use inherit alpha for the layer panel header button instead of clipping mask</string>
     <string name="settings_brush_size_scales_with_canvas_title">Brush Max Size Follows Canvas</string>
     <string name="settings_brush_size_scales_with_canvas_desc">Automatically set maximum brush size to 1/2 of the canvas longer side</string>
     <string name="settings_canvas_rotation">Rotate Canvas</string>

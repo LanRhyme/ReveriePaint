@@ -750,6 +750,8 @@
     <string name="settings_layer_height_spacious">宽松</string>
     <string name="settings_panel_pinning_title">面板固定与自由平移</string>
     <string name="settings_panel_pinning_desc">允许固定图层与画笔面板并在画布上拖动平移</string>
+    <string name="settings_layer_header_inherit_alpha_title">图层顶部快捷为继承透明度</string>
+    <string name="settings_layer_header_inherit_alpha_desc">开启后图层面板顶部快捷按钮切换为继承透明度，关闭则为剪切蒙版</string>
     <string name="settings_brush_size_scales_with_canvas_title">笔刷上限跟随画布</string>
     <string name="settings_brush_size_scales_with_canvas_desc">笔刷最大尺寸自动设定为画布长边的 1/2</string>
     <string name="settings_canvas_rotation">画布可旋转</string>
