@@ -65,6 +65,8 @@ class StylusDriver(
 
     @Volatile
     private var cachedPrimaryBrand: StylusBrand? = null
+    var hasDedicatedActiveStylus: Boolean = false
+        private set
 
     init {
         detectDevices()
@@ -126,6 +128,9 @@ class StylusDriver(
                 .thenByDescending { it.isConnected }
         )
         cachedPrimaryBrand = detected.firstOrNull()?.brand
+        hasDedicatedActiveStylus = detected.any {
+            it.brand != StylusBrand.GENERIC && it.isCurrentDeviceSupported && it.isConnected
+        }
         return detected
     }
 
@@ -148,6 +153,9 @@ class StylusDriver(
     fun onStylusMotionEvent(event: MotionEvent): Boolean {
         if (onGenericMotionEvent(event)) return true
         for (adapter in adapters) {
+            if (adapter.brand == StylusBrand.GENERIC && (!vm.genericStylusEnabled || hasDedicatedActiveStylus)) {
+                continue
+            }
             if (adapter.onStylusMotionEvent(event, vm, feedbackManager)) {
                 return true
             }
@@ -181,8 +189,8 @@ class StylusDriver(
             StylusBrand.HONOR_MAGIC_PENCIL -> vm.honorSideButtonErase
             StylusBrand.SAMSUNG_SPEN -> vm.samsungSideButtonErase
             StylusBrand.XIAOMI_STYLUS -> vm.xiaomiSideButtonErase
-            StylusBrand.GENERIC -> vm.genericSideButtonErase
-            else -> vm.huaweiSideButtonErase || vm.honorSideButtonErase || vm.samsungSideButtonErase || vm.xiaomiSideButtonErase || vm.genericSideButtonErase
+            StylusBrand.GENERIC -> vm.genericStylusEnabled && vm.genericSideButtonErase
+            else -> vm.huaweiSideButtonErase || vm.honorSideButtonErase || vm.samsungSideButtonErase || vm.xiaomiSideButtonErase || (vm.genericStylusEnabled && vm.genericSideButtonErase)
         }
         if (!eraseAllowed) return false
         val btn = event.buttonState
@@ -201,6 +209,9 @@ class StylusDriver(
             return false
         }
         for (adapter in adapters) {
+            if (adapter.brand == StylusBrand.GENERIC && (!vm.genericStylusEnabled || hasDedicatedActiveStylus)) {
+                continue
+            }
             if (adapter.onStylusKeyEvent(event, vm, feedbackManager)) {
                 return true
             }
@@ -276,7 +287,7 @@ class StylusDriver(
             StylusBrand.HONOR_MAGIC_PENCIL -> vm.honorSingleClickAction
             StylusBrand.SAMSUNG_SPEN -> vm.samsungSingleClickAction
             StylusBrand.XIAOMI_STYLUS -> vm.xiaomiPrimaryButtonAction
-            StylusBrand.GENERIC -> vm.genericPrimaryButtonAction
+            StylusBrand.GENERIC -> if (vm.genericStylusEnabled) vm.genericPrimaryButtonAction else "none"
             else -> "none"
         }
         if (actionId.trim().equals("none", ignoreCase = true)) return false

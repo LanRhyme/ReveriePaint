@@ -607,6 +607,9 @@ internal fun PaintViewModel.setLayerAlphaInherited(
     i: Int,
     enable: Boolean,
 ) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_ALPHA_INHERITED, i, if (enable) "1" else "0")
+    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.setLayerAlphaInherited(i, enable)
     }

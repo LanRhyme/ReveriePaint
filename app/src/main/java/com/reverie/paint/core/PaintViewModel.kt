@@ -813,6 +813,27 @@ class PaintViewModel : ViewModel() {
     var currentToolId by mutableStateOf("brush")
         internal set
 
+    /** 当前笔画临时覆盖工具 (如物理橡皮擦末端 TOOL_TYPE_ERASER 或侧键临时擦除生效时设为 "eraser") */
+    var activeStrokeToolOverride by mutableStateOf<String?>(null)
+        internal set
+    internal var activeStrokeOriginalPresetIndex: Int = -1
+    internal var activeStrokeOriginalSize: Double = 0.0
+    internal var activeStrokeOriginalOpacity: Double = 1.0
+    internal var activeStrokeOriginalFlow: Double = 1.0
+    internal var activeStrokeOriginalCompositeOp: String = "normal"
+    internal var activeStrokeOriginalToolMode: Int = 0
+
+    /**
+     * 获取指定工具 (如 "eraser") 的当前有效笔尖尺寸
+     */
+    fun getToolEffectiveSize(toolId: String): Double {
+        val state = toolBrushStates[toolId]
+        val curPreset = brushPresets.firstOrNull { it.index == state?.presetIndex }
+        val saved = curPreset?.let { brushParams[it.name] }
+        val mem = curPreset?.let { state?.paramMemory?.get(it.name) }
+        return mem?.getOrNull(0) ?: saved?.size ?: brushSize
+    }
+
     /** 最近一次活跃的绘制类工具 (brush / eraser / smudge), 用于在临时工具 (如吸管) 切换回笔刷时保留笔刷尺寸与参数 */
     var lastDrawingToolId: String = "brush"
         internal set
@@ -1329,6 +1350,7 @@ class PaintViewModel : ViewModel() {
     var themeMode by mutableStateOf("DARK") // "DARK", "LIGHT", "SYSTEM"
     var paintingUiScale by mutableFloatStateOf(1.0f) // 绘画页面整体 UI 大小缩放 (0.75 - 1.35)
     var layerRowHeightDp by mutableIntStateOf(52) // 44: 紧凑, 52: 标准, 64: 舒适
+    var layerHeaderInheritAlpha by mutableStateOf(false) // 图层面板顶部按钮行为: false 为剪切蒙版, true 为继承透明度
     var quickSliderHeightDp by mutableIntStateOf(175) // 绘画界面快捷滑块长度 (100 - 260 dp, 默认 175)
     var leftHandMode by mutableStateOf(false) // 左手模式: 快捷工具栏与滑块镜像停靠在右侧
     var selectionMaskColorHex by mutableStateOf("#141416") // 选区蒙版遮罩颜色 (默认深空灰黑)
@@ -1540,6 +1562,7 @@ class PaintViewModel : ViewModel() {
     var xiaomiInPenHapticsEnabled by mutableStateOf(true)
 
     // 通用 (Generic) 手写笔适配参数
+    var genericStylusEnabled by mutableStateOf(false)
     var genericPrimaryButtonAction by mutableStateOf("toggle_eraser")
     var genericSecondaryButtonAction by mutableStateOf("undo")
     var genericSideButtonErase by mutableStateOf(true)
@@ -2460,6 +2483,15 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun updateGenericStylusEnabled(enabled: Boolean) {
+        genericStylusEnabled = enabled
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("genericStylusEnabled", enabled).apply()
+        }
+        stylusDriver?.syncSettings()
+    }
+
     fun updateGenericSideButtonErase(enabled: Boolean) {
         genericSideButtonErase = enabled
         if (::appContext.isInitialized) {
@@ -2604,6 +2636,17 @@ class PaintViewModel : ViewModel() {
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
                 .putBoolean("leftHandMode", enabled)
+                .apply()
+        }
+    }
+
+    fun updateLayerHeaderInheritAlpha(enabled: Boolean) {
+        layerHeaderInheritAlpha = enabled
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("layerHeaderInheritAlpha", enabled)
                 .apply()
         }
     }
@@ -2853,6 +2896,7 @@ class PaintViewModel : ViewModel() {
             quickSliderHeightDp = prefs.getInt("quickSliderHeightDp", 175).coerceIn(100, 260)
             toolbarSqueezedWarningDismissed = prefs.getBoolean("toolbarSqueezedWarningDismissed", false)
             panelPinningEnabled = prefs.getBoolean("panelPinningEnabled", false)
+            layerHeaderInheritAlpha = prefs.getBoolean("layerHeaderInheritAlpha", false)
             leftHandMode = prefs.getBoolean("leftHandMode", false)
             selectionMaskColorHex = prefs.getString("selection_mask_color", "#141416") ?: "#141416"
             selectionMaskOpacity = prefs.getFloat("selection_mask_opacity", 0.47f).coerceIn(0.10f, 0.90f)
@@ -2910,6 +2954,7 @@ class PaintViewModel : ViewModel() {
             xiaomiSlideAction = prefs.getString("xiaomiSlideAction", "adjust_brush_size") ?: "adjust_brush_size"
             xiaomiSlideSensitivity = prefs.getString("xiaomiSlideSensitivity", "normal") ?: "normal"
             xiaomiInPenHapticsEnabled = prefs.getBoolean("xiaomiInPenHapticsEnabled", true)
+            genericStylusEnabled = prefs.getBoolean("genericStylusEnabled", false)
             genericPrimaryButtonAction = prefs.getString("genericPrimaryButtonAction", "toggle_eraser") ?: "toggle_eraser"
             genericSecondaryButtonAction = prefs.getString("genericSecondaryButtonAction", "undo") ?: "undo"
             genericSideButtonErase = prefs.getBoolean("genericSideButtonErase", true)

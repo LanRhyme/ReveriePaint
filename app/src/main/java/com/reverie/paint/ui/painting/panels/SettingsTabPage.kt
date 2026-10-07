@@ -206,122 +206,30 @@ internal fun SettingsTabPage(
 
                         SettingsInnerDivider()
 
-                        // 图层项高度
-                        Column(
+                        // 图层面板顶部按钮行为 (默认关闭为剪切蒙版，开启为继承透明度)
+                        Row(
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
                                 Text(
-                                    text = stringResource(R.string.settings_layer_row_height),
+                                    text = stringResource(R.string.settings_layer_header_inherit_alpha_title),
                                     color = Morandi.text,
                                     fontSize = 13.sp,
                                 )
                                 Text(
-                                    text = "${vm.layerRowHeightDp} dp",
-                                    color = Morandi.accent,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
+                                    text = stringResource(R.string.settings_layer_header_inherit_alpha_desc),
+                                    color = Morandi.subText,
+                                    fontSize = 11.sp,
                                 )
                             }
-                            Spacer(Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(40.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Morandi.panel)
-                                    .padding(3.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                listOf(
-                                    44 to R.string.settings_layer_height_compact,
-                                    52 to R.string.settings_layer_height_standard,
-                                    64 to R.string.settings_layer_height_spacious,
-                                ).forEach { (h, strRes) ->
-                                    val selected = vm.layerRowHeightDp == h
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .fillMaxHeight()
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(if (selected) Morandi.accent else Color.Transparent)
-                                            .clickable { vm.updateLayerRowHeight(h) },
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Column(
-                                            horizontalAlignment = Alignment.CenterHorizontally,
-                                            verticalArrangement = Arrangement.Center,
-                                        ) {
-                                            Text(
-                                                text = stringResource(strRes),
-                                                color = if (selected) Color.White else Morandi.subText,
-                                                fontSize = 12.sp,
-                                                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                                maxLines = 1,
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
-                        SettingsInnerDivider()
-
-                        // 界面动效速度 (标准 / 极速 <= 0.1s / 关闭)
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(vertical = 8.dp),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.settings_anim_speed_title),
-                                color = Morandi.text,
-                                fontSize = 13.sp,
+                            ReSwitch(
+                                checked = vm.layerHeaderInheritAlpha,
+                                onChecked = { vm.updateLayerHeaderInheritAlpha(it) },
                             )
-                            Text(
-                                text = stringResource(R.string.settings_anim_speed_desc),
-                                color = Morandi.subText,
-                                fontSize = 11.sp,
-                            )
-                            Spacer(Modifier.height(8.dp))
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(40.dp)
-                                    .clip(RoundedCornerShape(10.dp))
-                                    .background(Morandi.panel)
-                                    .padding(3.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                com.reverie.paint.model.UiAnimationSpeed.entries.forEach { speed ->
-                                    val selected = vm.uiAnimationSpeed == speed
-                                    Box(
-                                        modifier = Modifier
-                                            .weight(1f)
-                                            .fillMaxHeight()
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(if (selected) Morandi.accent else Color.Transparent)
-                                            .clickable { vm.updateUiAnimationSpeed(speed) },
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Text(
-                                            text = stringResource(speed.labelRes()),
-                                            color = if (selected) Color.White else Morandi.subText,
-                                            fontSize = 12.sp,
-                                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-                                            maxLines = 1,
-                                        )
-                                    }
-                                }
-                            }
                         }
                     }
 

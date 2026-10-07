@@ -38,6 +38,7 @@ import androidx.compose.material.icons.rounded.Layers
 import kotlin.math.roundToInt
 import androidx.compose.material.icons.rounded.Opacity
 import androidx.compose.material.icons.rounded.Palette
+import androidx.compose.material.icons.rounded.Speed
 import androidx.compose.material.icons.rounded.Wallpaper
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
@@ -60,7 +61,9 @@ import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.model.UiAnimationSpeed
 import com.reverie.paint.ui.painting.panels.CompactColorPickerPopup
+import com.reverie.paint.ui.painting.panels.labelRes
 import com.reverie.paint.ui.theme.Theme
 import com.reverie.paint.ui.theme.parseColor
 
@@ -412,7 +415,7 @@ internal fun ThemeSettingsSubPage(
                     summary = stringResource(R.string.theme_ui_scale_desc),
                     valueText = "${(vm.paintingUiScale * 100).toInt()}%",
                     sliderFraction = ((vm.paintingUiScale - 0.75f) / (1.35f - 0.75f)).coerceIn(0f, 1f),
-                    shape = settingGroupShape(0, 3),
+                    shape = settingGroupShape(0, 4),
                     onValueChange = { fraction ->
                         val newScale = 0.75f + fraction * (1.35f - 0.75f)
                         vm.updatePaintingUiScale(newScale)
@@ -425,11 +428,25 @@ internal fun ThemeSettingsSubPage(
                     summary = stringResource(R.string.theme_quick_slider_height_desc),
                     valueText = "${vm.quickSliderHeightDp} dp",
                     sliderFraction = ((vm.quickSliderHeightDp - 100f) / (260f - 100f)).coerceIn(0f, 1f),
-                    shape = settingGroupShape(1, 3),
+                    shape = settingGroupShape(1, 4),
                     onValueChange = { fraction ->
                         val newHeight = (100f + fraction * 160f).roundToInt()
                         vm.updateQuickSliderHeight(newHeight)
                     },
+                )
+
+                SettingSegmentGroupItem(
+                    icon = R.drawable.ic_layers,
+                    title = stringResource(R.string.settings_layer_row_height),
+                    summary = "${vm.layerRowHeightDp} dp",
+                    options = listOf(
+                        44 to stringResource(R.string.settings_layer_height_compact),
+                        52 to stringResource(R.string.settings_layer_height_standard),
+                        64 to stringResource(R.string.settings_layer_height_spacious),
+                    ),
+                    selected = vm.layerRowHeightDp,
+                    shape = settingGroupShape(2, 4),
+                    onSelect = { vm.updateLayerRowHeight(it) },
                 )
 
                 SettingSwitchGroupItem(
@@ -437,7 +454,7 @@ internal fun ThemeSettingsSubPage(
                     title = stringResource(R.string.theme_left_hand_mode_title),
                     summary = stringResource(R.string.theme_left_hand_mode_desc),
                     checked = vm.leftHandMode,
-                    shape = settingGroupShape(2, 3),
+                    shape = settingGroupShape(3, 4),
                     onCheckedChange = { vm.updateLeftHandMode(it) },
                 )
             }
@@ -469,8 +486,20 @@ internal fun ThemeSettingsSubPage(
                     summary = if (blurSupported) stringResource(R.string.theme_blur_desc) else stringResource(R.string.theme_blur_unsupported),
                     checked = vm.blurBackground,
                     enabled = blurSupported,
-                    shape = settingGroupShape(0, 2),
+                    shape = settingGroupShape(0, 3),
                     onCheckedChange = { vm.updateBlurBackground(it) },
+                )
+
+                SettingSegmentGroupItem(
+                    icon = Icons.Rounded.Speed,
+                    title = stringResource(R.string.settings_anim_speed_title),
+                    summary = stringResource(R.string.settings_anim_speed_desc),
+                    options = UiAnimationSpeed.entries.map {
+                        it to stringResource(it.labelRes())
+                    },
+                    selected = vm.uiAnimationSpeed,
+                    shape = settingGroupShape(1, 3),
+                    onSelect = { vm.updateUiAnimationSpeed(it) },
                 )
 
                 SettingSwitchGroupItem(
@@ -478,7 +507,7 @@ internal fun ThemeSettingsSubPage(
                     title = stringResource(R.string.theme_immersive_title),
                     summary = stringResource(R.string.theme_immersive_desc),
                     checked = vm.immersiveMode,
-                    shape = settingGroupShape(1, 2),
+                    shape = settingGroupShape(2, 3),
                     onCheckedChange = {
                         vm.updateExtendToCutout(true)
                         vm.updateImmersiveMode(it)
