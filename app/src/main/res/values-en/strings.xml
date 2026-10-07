@@ -750,6 +750,8 @@
     <string name="settings_layer_height_spacious">Spacious</string>
     <string name="settings_panel_pinning_title">Panel Pin &amp; Drag</string>
     <string name="settings_panel_pinning_desc">Allow pinning and dragging layer and brush panels freely</string>
+    <string name="settings_layer_header_inherit_alpha_title">Layer Header Shortcut for Inherit Alpha</string>
+    <string name="settings_layer_header_inherit_alpha_desc">Use inherit alpha for the layer panel header button instead of clipping mask</string>
     <string name="settings_brush_size_scales_with_canvas_title">Brush Max Size Follows Canvas</string>
     <string name="settings_brush_size_scales_with_canvas_desc">Automatically set maximum brush size to 1/2 of the canvas longer side</string>
     <string name="settings_canvas_rotation">Rotate Canvas</string>
@@ -975,6 +977,7 @@
     <string name="layer_op_merge_group">Merge Group</string>
     <string name="layer_op_lock_group">Lock Group</string>
     <string name="layer_op_clip">Clipping Mask</string>
+    <string name="layer_op_alpha_inherit">Inherit Alpha</string>
     <string name="layer_op_pass_through">Pass-Through</string>
     <string name="layer_op_duplicate">Duplicate</string>
     <string name="layer_op_delete_layer">Delete Layer</string>
@@ -1680,6 +1683,8 @@
 
     <!-- Generic Stylus -->
     <string name="stylus_generic_title">Generic Stylus Settings</string>
+    <string name="stylus_generic_enable_protocol">Enable Generic Button Mapping</string>
+    <string name="stylus_generic_enable_protocol_desc">Enable barrel buttons and hold-to-erase for third-party standard styluses, disabled by default to prevent conflicts with Samsung, Huawei, Xiaomi, etc.</string>
     <string name="stylus_generic_side_key">Side Button Behavior</string>
     <string name="stylus_generic_key_mapping">Button Actions</string>
     <string name="stylus_generic_primary_action">Primary Button (Barrel 1)</string>
@@ -1848,7 +1853,6 @@
     <string name="layer_fill_layer">Fill Layer</string>
     <string name="layer_thumbnail">Layer Thumbnail</string>
     <string name="layer_solo">Solo</string>
-    <string name="layer_alpha_inherit">Inherit Alpha</string>
     <string name="layer_locked">Lock</string>
     <string name="curves_ch_red">Red (R)</string>
     <string name="curves_ch_green">Green (G)</string>
@@ -1878,7 +1882,7 @@
     <string name="export_format_psd_desc">Preserves all layers, blend modes and clipping properties</string>
     <string name="export_format_psd_tag">Layered Project</string>
     <string name="export_format_kra_name">Krita Project</string>
-    <string name="export_format_kra_desc">Standard Krita format with alpha inheritance and blending</string>
+    <string name="export_format_kra_desc">Standard Krita format with clipping masks and blending</string>
     <string name="export_format_kra_tag">Native Krita</string>
     <string name="export_format_revp_name">ReveriePaint Native</string>
     <string name="export_format_revp_desc">Proprietary package preserving drawing time and layer data</string>

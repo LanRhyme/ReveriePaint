@@ -67,41 +67,53 @@ internal fun GenericStylusConfigDialog(
 
                 Spacer(Modifier.height(8.dp))
 
-                // 侧键行为
-                StylusDialogSectionTitle(stringResource(R.string.stylus_generic_side_key))
+                // 通用协议按键映射主开关
                 StylusDialogCard {
                     StylusDialogSwitchItem(
-                        title = stringResource(R.string.stylus_generic_hold_eraser),
-                        summary = stringResource(R.string.stylus_generic_hold_eraser_desc),
-                        checked = vm.genericSideButtonErase,
-                        onCheckedChange = { vm.updateGenericSideButtonErase(it) },
+                        title = stringResource(R.string.stylus_generic_enable_protocol),
+                        summary = stringResource(R.string.stylus_generic_enable_protocol_desc),
+                        checked = vm.genericStylusEnabled,
+                        onCheckedChange = { vm.updateGenericStylusEnabled(it) },
                     )
                 }
 
-                // 按键动作映射
-                StylusDialogSectionTitle(stringResource(R.string.stylus_generic_key_mapping))
-                StylusDialogCard {
-                    // 主侧键单击
-                    val primaryClickTitle = actionOptions.find { it.second == vm.genericPrimaryButtonAction }?.first ?: actionOptions[0].first
-                    StylusDialogDropdownItem(
-                        title = stringResource(R.string.stylus_generic_primary_action),
-                        currentText = primaryClickTitle,
-                        options = actionOptions.map { it.first },
-                        onSelect = { idx ->
-                            vm.updateGenericPrimaryButtonAction(actionOptions[idx].second)
-                        },
-                    )
+                if (vm.genericStylusEnabled) {
+                    // 侧键行为
+                    StylusDialogSectionTitle(stringResource(R.string.stylus_generic_side_key))
+                    StylusDialogCard {
+                        StylusDialogSwitchItem(
+                            title = stringResource(R.string.stylus_generic_hold_eraser),
+                            summary = stringResource(R.string.stylus_generic_hold_eraser_desc),
+                            checked = vm.genericSideButtonErase,
+                            onCheckedChange = { vm.updateGenericSideButtonErase(it) },
+                        )
+                    }
 
-                    // 副侧键 / 笔尾按键单击
-                    val secondaryClickTitle = actionOptions.find { it.second == vm.genericSecondaryButtonAction }?.first ?: actionOptions[0].first
-                    StylusDialogDropdownItem(
-                        title = stringResource(R.string.stylus_generic_secondary_action),
-                        currentText = secondaryClickTitle,
-                        options = actionOptions.map { it.first },
-                        onSelect = { idx ->
-                            vm.updateGenericSecondaryButtonAction(actionOptions[idx].second)
-                        },
-                    )
+                    // 按键动作映射
+                    StylusDialogSectionTitle(stringResource(R.string.stylus_generic_key_mapping))
+                    StylusDialogCard {
+                        // 主侧键单击
+                        val primaryClickTitle = actionOptions.find { it.second == vm.genericPrimaryButtonAction }?.first ?: actionOptions[0].first
+                        StylusDialogDropdownItem(
+                            title = stringResource(R.string.stylus_generic_primary_action),
+                            currentText = primaryClickTitle,
+                            options = actionOptions.map { it.first },
+                            onSelect = { idx ->
+                                vm.updateGenericPrimaryButtonAction(actionOptions[idx].second)
+                            },
+                        )
+
+                        // 副侧键 / 笔尾按键单击
+                        val secondaryClickTitle = actionOptions.find { it.second == vm.genericSecondaryButtonAction }?.first ?: actionOptions[0].first
+                        StylusDialogDropdownItem(
+                            title = stringResource(R.string.stylus_generic_secondary_action),
+                            currentText = secondaryClickTitle,
+                            options = actionOptions.map { it.first },
+                            onSelect = { idx ->
+                                vm.updateGenericSecondaryButtonAction(actionOptions[idx].second)
+                            },
+                        )
+                    }
                 }
 
                 // 物理橡皮尾说明卡片

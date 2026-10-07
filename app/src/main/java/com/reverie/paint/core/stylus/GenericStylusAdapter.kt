@@ -27,8 +27,8 @@ class GenericStylusAdapter : StylusBrandAdapter {
         return StylusDeviceDetected(
             brand = StylusBrand.GENERIC,
             isCurrentDeviceSupported = true,
-            isConnected = true,
-            deviceName = "通用触控手写笔 (标准 Android 触控协议)",
+            isConnected = vm.genericStylusEnabled,
+            deviceName = if (vm.genericStylusEnabled) "通用触控手写笔 (已启用按键映射)" else "通用触控手写笔 (标准触控协议·未启用按键)",
         )
     }
 
@@ -37,6 +37,7 @@ class GenericStylusAdapter : StylusBrandAdapter {
         vm: PaintViewModel,
         feedbackManager: StylusFeedbackManager,
     ): Boolean {
+        if (!vm.genericStylusEnabled) return false
         if (event.action == KeyEvent.ACTION_UP) {
             when (event.keyCode) {
                 KeyEvent.KEYCODE_STYLUS_BUTTON_PRIMARY,
@@ -71,6 +72,7 @@ class GenericStylusAdapter : StylusBrandAdapter {
         vm: PaintViewModel,
         feedbackManager: StylusFeedbackManager,
     ): Boolean {
+        if (!vm.genericStylusEnabled) return false
         val buttonState = event.buttonState
         val isPrimaryBtnDown = (buttonState and MotionEvent.BUTTON_PRIMARY) != 0 ||
                 (buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0

@@ -1306,9 +1306,9 @@ internal fun CanvasOverlay(
                             tool == Tool.LASSO && vm.lassoMultiPoints.size >= 3 -> {
                                 val pts = vm.lassoMultiPoints
                                 inProgressClosedPath.reset()
-                                inProgressClosedPath.moveTo(pts[0].first - halfW, pts[0].second - halfH)
+                                inProgressClosedPath.moveTo(pts[0].first * scX - halfW, pts[0].second * scY - halfH)
                                 for (i in 1 until pts.size) {
-                                    inProgressClosedPath.lineTo(pts[i].first - halfW, pts[i].second - halfH)
+                                    inProgressClosedPath.lineTo(pts[i].first * scX - halfW, pts[i].second * scY - halfH)
                                 }
                                 inProgressClosedPath.close()
                                 when (vm.selectionMode) {
@@ -1464,15 +1464,18 @@ internal fun CanvasOverlay(
                     val blackStrokeW = 1.5.dp.toPx() / currentScale
                     val dashInterval = 3.5.dp.toPx() / currentScale
                     val antPhase = animFraction * (dashInterval * 2)
-                    val docW = bmp.width.toFloat()
-                    val docH = bmp.height.toFloat()
-                    val halfW = docW / 2f
-                    val halfH = docH / 2f
+                    val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
+                    val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
+                    val halfW = bmp.width / 2f
+                    val halfH = bmp.height / 2f
+                    val bx = { x: Int, y: Int -> Offset(x * scX - halfW, y * scY - halfH) }
 
                     val path = Path().apply {
-                        moveTo(multiPts[0].first - halfW, multiPts[0].second - halfH)
+                        val p0 = bx(multiPts[0].first, multiPts[0].second)
+                        moveTo(p0.x, p0.y)
                         for (i in 1 until multiPts.size) {
-                            lineTo(multiPts[i].first - halfW, multiPts[i].second - halfH)
+                            val pi = bx(multiPts[i].first, multiPts[i].second)
+                            lineTo(pi.x, pi.y)
                         }
                     }
 
@@ -1538,7 +1541,7 @@ internal fun CanvasOverlay(
                             val jointIdx = acc - 1
                             if (jointIdx in 1 until multiPts.size - 1) {
                                 val pt = multiPts[jointIdx]
-                                val center = Offset(pt.first - halfW, pt.second - halfH)
+                                val center = bx(pt.first, pt.second)
                                 drawCircle(
                                     color = Color.Black.copy(alpha = 0.65f),
                                     radius = 3.8.dp.toPx() / currentScale,
@@ -1553,7 +1556,7 @@ internal fun CanvasOverlay(
                         }
                     } else if (vm.lassoSubMode == LassoSubMode.POLYLINE) {
                         for (i in 1 until multiPts.size - 1) {
-                            val center = Offset(multiPts[i].first - halfW, multiPts[i].second - halfH)
+                            val center = bx(multiPts[i].first, multiPts[i].second)
                             drawCircle(
                                 color = Color.Black.copy(alpha = 0.65f),
                                 radius = 3.8.dp.toPx() / currentScale,
@@ -1568,7 +1571,7 @@ internal fun CanvasOverlay(
                     }
 
                     // 起点闭合光圈 (高亮起点，提示用户点击可闭合)
-                    val startCenter = Offset(multiPts[0].first - halfW, multiPts[0].second - halfH)
+                    val startCenter = bx(multiPts[0].first, multiPts[0].second)
                     drawCircle(
                         color = Color.Black.copy(alpha = 0.6f),
                         radius = 8.5.dp.toPx() / currentScale,
@@ -1589,7 +1592,7 @@ internal fun CanvasOverlay(
 
                     // 最新末端锚点
                     val lastPt = multiPts.last()
-                    val endCenter = Offset(lastPt.first - halfW, lastPt.second - halfH)
+                    val endCenter = bx(lastPt.first, lastPt.second)
                     drawCircle(
                         color = Color.Black.copy(alpha = 0.6f),
                         radius = 4.8.dp.toPx() / currentScale,

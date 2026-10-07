@@ -601,6 +601,20 @@ internal fun PaintViewModel.setLayerClipped(
     }
 }
 
+internal fun PaintViewModel.layerAlphaInherited(i: Int) = ReverieCoreBridge.layerAlphaInherited(i)
+
+internal fun PaintViewModel.setLayerAlphaInherited(
+    i: Int,
+    enable: Boolean,
+) {
+    if (recorder.recording) {
+        recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_ALPHA_INHERITED, i, if (enable) "1" else "0")
+    }
+    runCore(after = ::notifyLayerChanged) {
+        ReverieCoreBridge.setLayerAlphaInherited(i, enable)
+    }
+}
+
 internal fun PaintViewModel.flipLayerHorizontal(i: Int) {
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_FLIP_H, i)

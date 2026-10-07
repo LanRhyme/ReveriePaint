@@ -29,6 +29,7 @@ import com.reverie.paint.model.RecordingEvents.L_BLEND
 import com.reverie.paint.model.RecordingEvents.L_CANVAS_FLIP_H
 import com.reverie.paint.model.RecordingEvents.L_CANVAS_FLIP_V
 import com.reverie.paint.model.RecordingEvents.L_FILL_LAYER
+import com.reverie.paint.model.RecordingEvents.L_ALPHA_INHERITED
 import com.reverie.paint.model.RecordingEvents.L_CLEAR
 import com.reverie.paint.model.RecordingEvents.L_CLIPPED
 import com.reverie.paint.model.RecordingEvents.L_COLOR_LABEL
@@ -627,6 +628,10 @@ private fun PaintViewModel.dispatchLayerOpLocked(
 
         L_CLIPPED -> {
             ReverieCoreBridge.setLayerClipped(i, arg == "1")
+        }
+
+        L_ALPHA_INHERITED -> {
+            ReverieCoreBridge.setLayerAlphaInherited(i, arg == "1")
         }
 
         L_RENAME -> {

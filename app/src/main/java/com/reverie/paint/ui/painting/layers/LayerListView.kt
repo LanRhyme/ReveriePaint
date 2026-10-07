@@ -681,14 +681,19 @@ internal fun LayerListView(
                     }
                 },
             )
+            val useAlphaInherit = vm.layerHeaderInheritAlpha
             TopIcon(
-                resId = R.drawable.ic_clip,
-                desc = stringResource(R.string.layer_op_clip),
-                active = selLayer?.clipped == true,
+                resId = if (useAlphaInherit) R.drawable.ic_alpha_inherit else R.drawable.ic_clip,
+                desc = stringResource(if (useAlphaInherit) R.string.layer_op_alpha_inherit else R.string.layer_op_clip),
+                active = if (useAlphaInherit) selLayer?.alphaInherited == true else selLayer?.clipped == true,
                 enabled = !isBg,
                 onClick = {
                     if (selectedIndex >= 0 && !isBg) {
-                        vm.setLayerClipped(selectedIndex, !(selLayer?.clipped == true))
+                        if (useAlphaInherit) {
+                            vm.setLayerAlphaInherited(selectedIndex, !(selLayer?.alphaInherited == true))
+                        } else {
+                            vm.setLayerClipped(selectedIndex, !(selLayer?.clipped == true))
+                        }
                     }
                 },
             )
