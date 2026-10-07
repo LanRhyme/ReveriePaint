@@ -5,6 +5,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.net.Uri
+import android.util.LruCache
 import com.reverie.paint.model.PatternFillEvent
 import com.reverie.paint.model.PatternScale
 import java.io.ByteArrayOutputStream
@@ -17,11 +18,18 @@ internal data class FillPattern(
 
 /** Only called on Dispatchers.IO; patterns are normalized and bounded before reaching JNI. */
 internal object PatternLibrary {
+    private val thumbnailCache = LruCache<String, Bitmap>(32)
+
     fun list(context: Context): List<File> = File(context.filesDir, "patterns").listFiles()
         ?.filter { it.isFile && it.extension.lowercase() in setOf("png", "jpg", "jpeg") }
         ?.sortedBy { it.name.lowercase() }.orEmpty()
 
     fun load(context: Context, file: File): FillPattern = decode(context, Uri.fromFile(file), file.nameWithoutExtension)
+
+    fun delete(file: File): Boolean {
+        thumbnailCache.remove(file.absolutePath)
+        return file.delete()
+    }
 
     /** IO thread only. Keep the library file intact; the recording embeds these prepared pixels. */
     @JvmOverloads
@@ -87,6 +95,7 @@ internal object PatternLibrary {
     }
 
     fun thumbnail(file: File): Bitmap? {
+        thumbnailCache.get(file.absolutePath)?.let { return it }
         val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
         BitmapFactory.decodeFile(file.absolutePath, bounds)
         if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return null
@@ -95,6 +104,8 @@ internal object PatternLibrary {
             while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 256) sample *= 2
             inSampleSize = sample
         }
-        return BitmapFactory.decodeFile(file.absolutePath, options)
+        val bitmap = BitmapFactory.decodeFile(file.absolutePath, options) ?: return null
+        thumbnailCache.put(file.absolutePath, bitmap)
+        return bitmap
     }
 }

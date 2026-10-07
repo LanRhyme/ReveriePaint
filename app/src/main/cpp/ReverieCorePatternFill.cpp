@@ -165,7 +165,9 @@ bool ReverieCore::floodFillPatternAt(int x, int y, int tolerance, bool sampleMer
     auto *layer = dynamic_cast<KisPaintLayer *>(node);
     if (layer && layer->alphaLocked()) painter.setChannelFlags(layer->channelLockFlags());
     painter.setOpacityF(qBound(0.0, opacity, 1.0));
-    painter.setCompositeOpId(compositeOp == "normal" ? COMPOSITE_OVER : compositeOp);
+    const QString effectiveOp = (compositeOp == "normal") ? COMPOSITE_OVER :
+                                ((compositeOp == "difference") ? COMPOSITE_DIFF : compositeOp);
+    painter.setCompositeOpId(effectiveOp);
     painter.setPattern(KoPatternSP(new KoPattern(image, "Pattern", "pattern.png")));
     painter.fillPattern(x, y, sampleMerged ? m_document->projection() : target);
     target->setDirty();

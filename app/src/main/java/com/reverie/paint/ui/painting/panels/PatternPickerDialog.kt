@@ -3,9 +3,10 @@ package com.reverie.paint.ui.painting.panels
 
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -16,7 +17,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.ImageBitmap
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -43,6 +46,7 @@ internal fun PatternPickerDialog(
     var busy by remember { mutableStateOf(true) }
     var failed by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf<FillPattern?>(null) }
+    var fileToDelete by remember { mutableStateOf<File?>(null) }
     LaunchedEffect(Unit) {
         files = withContext(Dispatchers.IO) { PatternLibrary.list(context) }
         busy = false
@@ -66,6 +70,38 @@ internal fun PatternPickerDialog(
     }
     val importer = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) load { PatternLibrary.import(context, uri) }
+    }
+    fileToDelete?.let { target ->
+        AlertDialog(
+            onDismissRequest = { fileToDelete = null },
+            title = {
+                Text(stringResource(R.string.pattern_delete_title), color = Morandi.text, style = MaterialTheme.typography.titleMedium)
+            },
+            text = {
+                Text(stringResource(R.string.pattern_delete_confirm), color = Morandi.subText)
+            },
+            confirmButton = {
+                TextButton(
+                    onClick = {
+                        val toDel = target
+                        fileToDelete = null
+                        scope.launch {
+                            withContext(Dispatchers.IO) { PatternLibrary.delete(toDel) }
+                            files = withContext(Dispatchers.IO) { PatternLibrary.list(context) }
+                        }
+                    }
+                ) {
+                    Text(stringResource(R.string.common_delete), color = MaterialTheme.colorScheme.error)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { fileToDelete = null }) {
+                    Text(stringResource(R.string.common_cancel), color = Morandi.text)
+                }
+            },
+            containerColor = Morandi.panel,
+            shape = MaterialTheme.shapes.large,
+        )
     }
     selected?.let { pattern ->
         PatternScaleDialog(pattern, busy, failed,
@@ -112,7 +148,12 @@ internal fun PatternPickerDialog(
                         verticalArrangement = Arrangement.spacedBy(12.dp),
                         horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         items(files, key = { it.absolutePath }) { file ->
-                            PatternThumbnail(file, !busy) { load { PatternLibrary.load(context, file) } }
+                            PatternThumbnail(
+                                file = file,
+                                enabled = !busy,
+                                onClick = { load { PatternLibrary.load(context, file) } },
+                                onLongClick = { fileToDelete = file },
+                            )
                         }
                     }
                 }
@@ -129,13 +170,31 @@ internal fun PatternPickerDialog(
     }
 }
 
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-private fun PatternThumbnail(file: File, enabled: Boolean, onClick: () -> Unit) {
+private fun PatternThumbnail(
+    file: File,
+    enabled: Boolean,
+    onClick: () -> Unit,
+    onLongClick: () -> Unit,
+) {
     val preview by produceState<ImageBitmap?>(null, file.absolutePath) {
         value = withContext(Dispatchers.IO) { runCatching { PatternLibrary.thumbnail(file)?.asImageBitmap() }.getOrNull() }
     }
-    Column(Modifier.clickable(enabled = enabled, onClick = onClick).padding(4.dp),
-        horizontalAlignment = Alignment.CenterHorizontally) {
+    val haptic = LocalHapticFeedback.current
+    Column(
+        modifier = Modifier
+            .combinedClickable(
+                enabled = enabled,
+                onClick = onClick,
+                onLongClick = {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onLongClick()
+                },
+            )
+            .padding(4.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
         Box(Modifier.fillMaxWidth().aspectRatio(1f).background(Morandi.panelHi), contentAlignment = Alignment.Center) {
             preview?.let { Image(it, contentDescription = null, modifier = Modifier.fillMaxSize()) }
         }

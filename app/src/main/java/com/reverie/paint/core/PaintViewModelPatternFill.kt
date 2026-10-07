@@ -35,6 +35,7 @@ private fun PaintViewModel.applyPatternFill(event: PatternFillEvent) {
 internal fun applyPatternFillLocked(event: PatternFillEvent): Boolean {
     if (event.wholeLayer) return ReverieCoreBridge.setFillLayerPattern(event.layer, event.png)
     ReverieCoreBridge.setCurrentLayer(event.layer)
+    val op = if (event.compositeOp == "difference") "diff" else event.compositeOp
     return ReverieCoreBridge.floodFillPatternAt(event.x, event.y, event.tolerance, event.sampleMerged,
-        event.expand, event.feather, event.closeGap, event.opacity, event.compositeOp, event.png)
+        event.expand, event.feather, event.closeGap, event.opacity, op, event.png)
 }

@@ -807,8 +807,9 @@ void ReverieCore::setLayerBlendMode(int index, const QString &opId)
         return;  // background is always 'normal'
     }
     if (m_layers[index].node) {
+        const QString effectiveOp = (opId == "difference") ? COMPOSITE_DIFF : opId;
         // Krita-native undo: the composite-op command redo() applies the op
-        pushUndoCommand(new KisNodeCompositeOpCommand(KisNodeSP(m_layers[index].node), opId));
+        pushUndoCommand(new KisNodeCompositeOpCommand(KisNodeSP(m_layers[index].node), effectiveOp));
         if (m_layers[index].nodeType == NodeTypeAdjustment) {
             recompositeProjection();
         } else {

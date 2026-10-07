@@ -2375,6 +2375,8 @@
     <string name="pattern_scale_value">%1$d%% · %2$d × %3$d px</string>
     <string name="pattern_scale_hint">Keeps the aspect ratio, up to 2048 px per side. Reset restores the imported size. The library image stays unchanged</string>
     <string name="pattern_scale_failed">Cannot resize this pattern. Try a smaller scale</string>
+    <string name="pattern_delete_title">Delete pattern</string>
+    <string name="pattern_delete_confirm">Are you sure you want to delete this pattern? This cannot be undone</string>
 
     <!-- 帧转图层 -->
     <string name="f2l_menu">Frames to layers</string>

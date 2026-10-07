@@ -1500,7 +1500,7 @@ internal fun BlendModesPage(
                     }
                     items(cat.opIds, key = { it }) { opId ->
                         val name = stringResource(blendModeResId(opId))
-                        val isSelected = opId == current
+                        val isSelected = opId == current || (opId == "difference" && current == "diff")
                         val rowSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
 
                         Box(
@@ -1566,7 +1566,7 @@ internal fun blendModeResId(opId: String): Int = when (opId) {
     "burn" -> R.string.blend_color_burn
     "linear_burn" -> R.string.blend_linear_burn
     "linear_dodge" -> R.string.blend_linear_dodge
-    "difference" -> R.string.blend_difference
+    "difference", "diff" -> R.string.blend_difference
     "add" -> R.string.blend_add
     "subtract" -> R.string.blend_subtract
     "divide" -> R.string.blend_divide

@@ -1238,7 +1238,6 @@ private:
     // 复用后只剩 memcpy 级别的 clear + bitBlt。
     KisPaintDeviceSP m_strokeMergeScratch;
     KisPaintDeviceSP m_strokeOutScratch;
-    KisPaintDeviceSP m_strokeClipScratch;
 
     // 复用暂存设备池 (组图层递归合成/剪切蒙版栈式复用, 零堆内存分配)
     QVector<KisPaintDeviceSP> m_scratchPool;
@@ -1253,7 +1252,6 @@ private:
     /** 复用的拼装设备; 保证 [r] 范围是干净的 */
     KisPaintDeviceSP strokeMergeScratch(const QRect &r);
     KisPaintDeviceSP strokeOutScratch(const QRect &r);
-    KisPaintDeviceSP strokeClipScratch(const QRect &r);
 
     /** 丢弃笔触洋葱皮缓存 (切帧 / 改配置 / 关键帧结构变化时调) */
     void invalidateStrokeOnionCache() {
