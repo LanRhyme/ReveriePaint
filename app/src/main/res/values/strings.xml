@@ -1849,7 +1849,6 @@
     <string name="layer_fill_layer">填充图层</string>
     <string name="layer_thumbnail">图层缩略图</string>
     <string name="layer_solo">独显中</string>
-    <string name="layer_alpha_inherit">剪切蒙版</string>
     <string name="layer_locked">锁定</string>
     <string name="curves_ch_red">红 (R)</string>
     <string name="curves_ch_green">绿 (G)</string>

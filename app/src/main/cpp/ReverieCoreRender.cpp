@@ -98,13 +98,35 @@ KisPaintDeviceSP ReverieCore::strokeOutScratch(const QRect &r)
     return m_strokeOutScratch;
 }
 
-KisPaintDeviceSP ReverieCore::strokeClipScratch(const QRect &r)
+KisPaintDeviceSP ReverieCore::borrowScratchDevice(const QRect &r)
 {
-    if (!m_strokeClipScratch || !m_document) {
-        m_strokeClipScratch = new KisPaintDevice(m_document->colorSpace());
+    if (!m_document) return nullptr;
+    if (m_scratchPoolIndex >= m_scratchPool.size()) {
+        m_scratchPool.append(new KisPaintDevice(m_document->colorSpace()));
     }
-    m_strokeClipScratch->clear(r);
-    return m_strokeClipScratch;
+    KisPaintDeviceSP dev = m_scratchPool[m_scratchPoolIndex++];
+    dev->clear(r);
+    return dev;
+}
+
+void ReverieCore::returnScratchDevice()
+{
+    if (m_scratchPoolIndex > 0) {
+        --m_scratchPoolIndex;
+    }
+}
+
+namespace {
+struct ScratchDeviceGuard {
+    ReverieCore *core;
+    KisPaintDeviceSP dev;
+    ScratchDeviceGuard(ReverieCore *c, const QRect &r)
+        : core(c), dev(c ? c->borrowScratchDevice(r) : nullptr) {}
+    ~ScratchDeviceGuard() {
+        if (core) core->returnScratchDevice();
+    }
+    KisPaintDeviceSP device() const { return dev; }
+};
 }
 
 bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
@@ -914,8 +936,8 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
         // 分支 A: 无剪切蒙版层, 走快速既有路径
         if (clipEnd == eEnd) {
             if (e.isGroup) {
-                KisPaintDeviceSP tmp(new KisPaintDevice(m_document->colorSpace()));
-                tmp->clear(r);
+                ScratchDeviceGuard tmpGuard(this, r);
+                KisPaintDeviceSP tmp = tmpGuard.device();
                 compositeLayersRange(tmp, i + 1, eEnd, r, excludeIdx);
                 KisPainter painter(out);
                 painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
@@ -938,7 +960,8 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
         }
 
         // 分支 B: 存在剪切蒙版链 (Base Layer + 1..N Clipped Layers)
-        KisPaintDeviceSP clipScratch = strokeClipScratch(r);
+        ScratchDeviceGuard clipGuard(this, r);
+        KisPaintDeviceSP clipScratch = clipGuard.device();
 
         // 1. 渲染 Base Layer 内容到 clipScratch (以 100% 不透明度与 Normal 混合, 自身混合模式/不透明度在最终合入 out 时应用)
         if (e.isGroup) {
@@ -969,8 +992,8 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
             if (c.isGroup) {
                 int gEnd = cIdx + 1;
                 while (gEnd < clipEnd && m_layers[gEnd].depth > c.depth) ++gEnd;
-                KisPaintDeviceSP tmp(new KisPaintDevice(m_document->colorSpace()));
-                tmp->clear(r);
+                ScratchDeviceGuard tmpGuard(this, r);
+                KisPaintDeviceSP tmp = tmpGuard.device();
                 compositeLayersRange(tmp, cIdx + 1, gEnd, r, excludeIdx);
 
                 KisPainter cPainter(clipScratch);
@@ -989,7 +1012,8 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
                 applyAdjustment(clipScratch, c);
                 ++cIdx;
             } else if (c.isStrokeLayer || c.nodeType == NodeTypeStroke) {
-                KisPaintDeviceSP sScratch = strokeMergeScratch(r);
+                ScratchDeviceGuard sGuard(this, r);
+                KisPaintDeviceSP sScratch = sGuard.device();
                 compositeStrokeLayer(sScratch, c, r);
 
                 KisPainter cPainter(clipScratch);

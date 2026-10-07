@@ -567,6 +567,8 @@ void ReverieCore::removeLayer(int index)
         return;
     }
 
+    QVector<KUndo2Command *> undoCmds;
+
     // If a base layer is removed, unclip layers that were clipped to it
     if (!e.clipped) {
         int spanEnd = index + 1;
@@ -578,6 +580,7 @@ void ReverieCore::removeLayer(int index)
         int nextIdx = spanEnd;
         while (nextIdx < m_layers.size() && m_layers[nextIdx].depth == e.depth && m_layers[nextIdx].clipped) {
             if (KisLayer *clipL = dynamic_cast<KisLayer *>(m_layers[nextIdx].node)) {
+                undoCmds.append(new ReverieNodeClippingCommand(KisLayerSP(clipL), false));
                 clipL->enableClippingLayer(false);
             }
             m_layers[nextIdx].clipped = false;
@@ -592,7 +595,12 @@ void ReverieCore::removeLayer(int index)
     }
 
     // Krita-native undo: a layer-remove command (undo re-inserts the node)
-    pushUndoCommand(new KisImageLayerRemoveCommand(image, KisNodeSP(m_layers[index].node)));
+    undoCmds.append(new KisImageLayerRemoveCommand(image, KisNodeSP(m_layers[index].node)));
+    if (undoCmds.size() == 1) {
+        pushUndoCommand(undoCmds.first());
+    } else {
+        pushUndoCommand(new ReverieCompositeCommand(kundo2_i18n("Remove Layer"), undoCmds));
+    }
     recompositeProjection();
     syncLayersFromImage();
     if (m_currentLayer >= m_layers.size()) {
@@ -887,17 +895,31 @@ void ReverieCore::setLayerClipped(int index, bool clipped)
     if (index <= 0 || index >= m_layers.size()) {
         return;
     }
+    if (clipped) {
+        KisNode *node = m_layers[index].node;
+        if (!node || !node->prevSibling()) {
+            return;
+        }
+    }
     if (KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node)) {
         if (layer->clippingEnabled() != clipped) {
             // 互斥: 开启剪切蒙版时自动关闭继承透明度
             if (clipped && layer->alphaChannelDisabled()) {
+                QVector<KUndo2Command *> children;
+                children.append(new ReverieNodeAlphaInheritCommand(KisLayerSP(layer), false));
+                children.append(new ReverieNodeClippingCommand(KisLayerSP(layer), true));
                 layer->disableAlphaChannel(false);
+                layer->enableClippingLayer(true);
+                pushUndoCommand(new ReverieCompositeCommand(kundo2_i18n("Clipping Mask"), children));
                 m_layers[index].alphaInherited = false;
+                m_layers[index].clipped = true;
+            } else {
+                layer->enableClippingLayer(clipped);
+                pushUndoCommand(new ReverieNodeClippingCommand(
+                    KisLayerSP(layer), clipped,
+                    kundo2_i18n("Clipping Mask")));
+                m_layers[index].clipped = clipped;
             }
-            pushUndoCommand(new ReverieNodeClippingCommand(
-                KisLayerSP(layer), clipped,
-                kundo2_i18n("Clipping Mask")));
-            m_layers[index].clipped = clipped;
             recompositeProjection();
             markDirty();
         }
@@ -924,13 +946,21 @@ void ReverieCore::setLayerAlphaInherited(int index, bool enable)
         if (layer->alphaChannelDisabled() != enable) {
             // 互斥: 开启继承透明度时自动关闭剪切蒙版
             if (enable && layer->clippingEnabled()) {
-                pushUndoCommand(new ReverieNodeClippingCommand(
-                    KisLayerSP(layer), false,
-                    kundo2_i18n("Clipping Mask")));
+                QVector<KUndo2Command *> children;
+                children.append(new ReverieNodeClippingCommand(KisLayerSP(layer), false));
+                children.append(new ReverieNodeAlphaInheritCommand(KisLayerSP(layer), true));
+                layer->enableClippingLayer(false);
+                layer->disableAlphaChannel(true);
+                pushUndoCommand(new ReverieCompositeCommand(kundo2_i18n("Inherit Alpha"), children));
                 m_layers[index].clipped = false;
+                m_layers[index].alphaInherited = true;
+            } else {
+                layer->disableAlphaChannel(enable);
+                pushUndoCommand(new ReverieNodeAlphaInheritCommand(
+                    KisLayerSP(layer), enable,
+                    kundo2_i18n("Inherit Alpha")));
+                m_layers[index].alphaInherited = enable;
             }
-            layer->disableAlphaChannel(enable);
-            m_layers[index].alphaInherited = enable;
             recompositeProjection();
             markDirty();
         }

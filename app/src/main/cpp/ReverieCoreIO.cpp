@@ -1504,12 +1504,20 @@ bool ReverieCore::loadRevp(const QString &path)
             layer->setCompositeOpId(blend);
             layer->setUserLocked(layerObj["locked"].toBool(isBg));
             layer->setAlphaLocked(layerObj["alphaLocked"].toBool(isBg));
-            const bool isClipped = layerObj["clipped"].toBool(false);
-            const bool isInherited = layerObj["alphaInherited"].toBool(false);
-            if (isClipped) {
-                layer->enableClippingLayer(true);
-            } else if (isInherited) {
-                layer->disableAlphaChannel(true);
+            if (!layerObj.contains("alphaInherited")) {
+                // 向后兼容旧版本 REVP (旧版将继承透明度保存在 clipped 字段中)
+                const bool oldInherited = layerObj["clipped"].toBool(false);
+                if (oldInherited) {
+                    layer->disableAlphaChannel(true);
+                }
+            } else {
+                const bool isClipped = layerObj["clipped"].toBool(false);
+                const bool isInherited = layerObj["alphaInherited"].toBool(false);
+                if (isClipped) {
+                    layer->enableClippingLayer(true);
+                } else if (isInherited) {
+                    layer->disableAlphaChannel(true);
+                }
             }
 
             const QString layerFileName = QString("layer_%1.png").arg(i, 3, 10, QChar('0'));
@@ -1996,6 +2004,7 @@ static void writeKraNodesXml(QXmlStreamWriter &xml,
         const QString visibleStr = layer->visible() ? QStringLiteral("1") : QStringLiteral("0");
         const QString lockedStr = layer->userLocked() ? QStringLiteral("1") : QStringLiteral("0");
         const QString inheritAlphaStr = layer->alphaChannelDisabled() ? QStringLiteral("1") : QStringLiteral("0");
+        const QString clippingStr = layer->clippingEnabled() ? QStringLiteral("1") : QStringLiteral("0");
 
         if (isGroup) {
             xml.writeStartElement(QStringLiteral("layer"));
@@ -2005,6 +2014,7 @@ static void writeKraNodesXml(QXmlStreamWriter &xml,
             xml.writeAttribute(QStringLiteral("visible"), visibleStr);
             xml.writeAttribute(QStringLiteral("locked"), lockedStr);
             xml.writeAttribute(QStringLiteral("inherit-alpha"), inheritAlphaStr);
+            xml.writeAttribute(QStringLiteral("clipping"), clippingStr);
             xml.writeAttribute(QStringLiteral("channelflags"),
                                kraChannelFlagsString(layer->colorSpace(), layer->alphaChannelDisabled()));
             xml.writeAttribute(QStringLiteral("colorspacename"), QStringLiteral("RGBA"));
@@ -2034,6 +2044,7 @@ static void writeKraNodesXml(QXmlStreamWriter &xml,
             xml.writeAttribute(QStringLiteral("locked"), lockedStr);
             xml.writeAttribute(QStringLiteral("lockalpha"), alphaLockedStr);
             xml.writeAttribute(QStringLiteral("inherit-alpha"), inheritAlphaStr);
+            xml.writeAttribute(QStringLiteral("clipping"), clippingStr);
             xml.writeAttribute(QStringLiteral("channelflags"),
                                kraChannelFlagsString(pl->paintDevice() ? pl->paintDevice()->colorSpace() : nullptr,
                                                      layer->alphaChannelDisabled()));
@@ -2097,6 +2108,7 @@ static void writeKraNodesXml(QXmlStreamWriter &xml,
             xml.writeAttribute(QStringLiteral("visible"), visibleStr);
             xml.writeAttribute(QStringLiteral("locked"), lockedStr);
             xml.writeAttribute(QStringLiteral("inherit-alpha"), inheritAlphaStr);
+            xml.writeAttribute(QStringLiteral("clipping"), clippingStr);
             xml.writeAttribute(QStringLiteral("filename"), layerFileName);
             xml.writeAttribute(QStringLiteral("colorspacename"), QStringLiteral("RGBA"));
             xml.writeAttribute(QStringLiteral("nodetype"), QStringLiteral("paintlayer"));
