@@ -813,6 +813,27 @@ class PaintViewModel : ViewModel() {
     var currentToolId by mutableStateOf("brush")
         internal set
 
+    /** 当前笔画临时覆盖工具 (如物理橡皮擦末端 TOOL_TYPE_ERASER 或侧键临时擦除生效时设为 "eraser") */
+    var activeStrokeToolOverride by mutableStateOf<String?>(null)
+        internal set
+    internal var activeStrokeOriginalPresetIndex: Int = -1
+    internal var activeStrokeOriginalSize: Double = 0.0
+    internal var activeStrokeOriginalOpacity: Double = 1.0
+    internal var activeStrokeOriginalFlow: Double = 1.0
+    internal var activeStrokeOriginalCompositeOp: String = "normal"
+    internal var activeStrokeOriginalToolMode: Int = 0
+
+    /**
+     * 获取指定工具 (如 "eraser") 的当前有效笔尖尺寸
+     */
+    fun getToolEffectiveSize(toolId: String): Double {
+        val state = toolBrushStates[toolId]
+        val curPreset = brushPresets.firstOrNull { it.index == state?.presetIndex }
+        val saved = curPreset?.let { brushParams[it.name] }
+        val mem = curPreset?.let { state?.paramMemory?.get(it.name) }
+        return mem?.getOrNull(0) ?: saved?.size ?: brushSize
+    }
+
     /** 最近一次活跃的绘制类工具 (brush / eraser / smudge), 用于在临时工具 (如吸管) 切换回笔刷时保留笔刷尺寸与参数 */
     var lastDrawingToolId: String = "brush"
         internal set
@@ -1541,6 +1562,7 @@ class PaintViewModel : ViewModel() {
     var xiaomiInPenHapticsEnabled by mutableStateOf(true)
 
     // 通用 (Generic) 手写笔适配参数
+    var genericStylusEnabled by mutableStateOf(false)
     var genericPrimaryButtonAction by mutableStateOf("toggle_eraser")
     var genericSecondaryButtonAction by mutableStateOf("undo")
     var genericSideButtonErase by mutableStateOf(true)
@@ -2460,6 +2482,15 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun updateGenericStylusEnabled(enabled: Boolean) {
+        genericStylusEnabled = enabled
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("genericStylusEnabled", enabled).apply()
+        }
+        stylusDriver?.syncSettings()
+    }
+
     fun updateGenericSideButtonErase(enabled: Boolean) {
         genericSideButtonErase = enabled
         if (::appContext.isInitialized) {
@@ -2922,6 +2953,7 @@ class PaintViewModel : ViewModel() {
             xiaomiSlideAction = prefs.getString("xiaomiSlideAction", "adjust_brush_size") ?: "adjust_brush_size"
             xiaomiSlideSensitivity = prefs.getString("xiaomiSlideSensitivity", "normal") ?: "normal"
             xiaomiInPenHapticsEnabled = prefs.getBoolean("xiaomiInPenHapticsEnabled", true)
+            genericStylusEnabled = prefs.getBoolean("genericStylusEnabled", false)
             genericPrimaryButtonAction = prefs.getString("genericPrimaryButtonAction", "toggle_eraser") ?: "toggle_eraser"
             genericSecondaryButtonAction = prefs.getString("genericSecondaryButtonAction", "undo") ?: "undo"
             genericSideButtonErase = prefs.getBoolean("genericSideButtonErase", true)

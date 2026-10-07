@@ -1558,11 +1558,15 @@ class CanvasTouchView(context: Context) : View(context) {
                         val endY = curPos.y + (dy / dist) * clampDist
 
                         val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
-                        val cursorBrushSize = v.brushSize.toFloat()
+                        val cursorBrushSize = when {
+                            effTool() == Tool.LIQUIFY -> liquifyBrushSize
+                            effTool() == Tool.ERASER && tool != Tool.ERASER -> v.getToolEffectiveSize("eraser").toFloat()
+                            else -> v.brushSize.toFloat()
+                        }
                         val pFrac = if (v.brushPressureEnabled) pressureFractionCached(predictedPressure) else 1f
                         val strokeWidth = (cursorBrushSize * scale * pFrac).coerceAtLeast(1.5f)
 
-                        val isEraser = tool == Tool.ERASER
+                        val isEraser = effTool() == Tool.ERASER
                         val baseColor = if (isEraser) {
                             android.graphics.Color.WHITE
                         } else {
@@ -1786,7 +1790,7 @@ class CanvasTouchView(context: Context) : View(context) {
         // =========================================================================
         if (v.brushStudioOpen || v.moreSettingsOpen || overlayPanelsOpen) return
         val pos = localCursorPos ?: return
-        val isEraser = tool == Tool.ERASER
+        val isEraser = effTool() == Tool.ERASER
         val cursorMode = if (isEraser) v.eraserCursorMode else v.brushCursorMode
         // 0: 不显示, 1: 绘画时显示, 2: 悬空显示, 3: 绘画和悬空显示
         val shouldShow = when (cursorMode) {
@@ -1795,12 +1799,16 @@ class CanvasTouchView(context: Context) : View(context) {
             3 -> localIsTouching || localIsHovering
             else -> false
         }
-        val isDrawTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY
+        val isDrawTool = effTool() == Tool.BRUSH || effTool() == Tool.ERASER || effTool() == Tool.SMUDGE || effTool() == Tool.LIQUIFY
         // Phase 2: 记录本帧光标环的屏幕位置与半径 —— 下一帧做局部失效时要把环的"旧位置"也覆盖掉
         lqRingValid = false
         if (shouldShow && isDrawTool && v.cursorStyleMode != 4) {
             val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
-            val cursorBrushSize = if (tool == Tool.LIQUIFY) liquifyBrushSize else v.brushSize.toFloat()
+            val cursorBrushSize = when {
+                effTool() == Tool.LIQUIFY -> liquifyBrushSize
+                effTool() == Tool.ERASER && tool != Tool.ERASER -> v.getToolEffectiveSize("eraser").toFloat()
+                else -> v.brushSize.toFloat()
+            }
             val pressureFraction =
                 if (localIsTouching) {
                     pressureFractionCached(localPressure)
@@ -3419,7 +3427,8 @@ class CanvasTouchView(context: Context) : View(context) {
                 if (isStylus) {
                     getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (effTool() == Tool.ERASER))
                 }
-                strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble(), tiltX, tiltY, rotation)
+                val overrideTool = if (effTool() == Tool.ERASER && tool != Tool.ERASER) "eraser" else null
+                strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble(), tiltX, tiltY, rotation, toolOverride = overrideTool)
                 if (strokeStarted) {
                     // 纸张摩擦音效: 落笔起振 (橡皮稍收音量, 附带初始落笔压感)
                     getOrCreateStylusDriver()?.feedbackManager?.startStrokeSound(effTool() == Tool.ERASER, pressure.toFloat())
@@ -3687,7 +3696,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     if (hasSymmetry) {
                         safeBeginSymmetryUndoMacro()
                     }
-                    strokeStarted = v.touchStart(startDoc.x, startDoc.y, pressure.toDouble(), touchTiltX, touchTiltY, touchRotation)
+                    val overrideTool = if (effTool() == Tool.ERASER && tool != Tool.ERASER) "eraser" else null
+                    strokeStarted = v.touchStart(startDoc.x, startDoc.y, pressure.toDouble(), touchTiltX, touchTiltY, touchRotation, toolOverride = overrideTool)
                     if (strokeStarted) {
                         if (isStylus) {
                             getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (effTool() == Tool.ERASER))
@@ -4437,10 +4447,12 @@ class CanvasTouchView(context: Context) : View(context) {
                         // 仅当没有镜像分支重放时主笔才立即全量渲染；有分支则在镜像分支执行完毕后统一渲染
                         v.touchEnd(render = !hasBranchesToReplay)
                         if (hasBranchesToReplay) {
+                            val isEraserStroke = (effTool() == Tool.ERASER)
                             v.replaySymmetricBranches(
                                 mirroredSamples,
                                 mirroredSizes,
                                 mirroredSamples.size,
+                                isEraser = isEraserStroke,
                                 onComplete = {
                                     resetMirrorBranches()
                                     isSymmetryUndoMacroOpen = false

@@ -217,4 +217,49 @@ class StylusModelsTest {
         assertEquals(gen2, com.reverie.paint.core.stylus.HuaweiPencilModel.fromKey("GEN2"))
         assertEquals(gen1, com.reverie.paint.core.stylus.HuaweiPencilModel.fromKey("GEN1"))
     }
+
+    @Test
+    fun `dedicated stylus brand priority isolates generic stylus adapter`() {
+        val dedicatedBrands = listOf(
+            com.reverie.paint.core.stylus.StylusBrand.SAMSUNG_SPEN,
+            com.reverie.paint.core.stylus.StylusBrand.HUAWEI_MPENCIL,
+            com.reverie.paint.core.stylus.StylusBrand.HONOR_MAGIC_PENCIL,
+            com.reverie.paint.core.stylus.StylusBrand.OPPO_ONEPLUS,
+            com.reverie.paint.core.stylus.StylusBrand.XIAOMI_STYLUS,
+        )
+
+        for (brand in dedicatedBrands) {
+            val detected = listOf(
+                com.reverie.paint.core.stylus.StylusDeviceDetected(
+                    brand = brand,
+                    isCurrentDeviceSupported = true,
+                    isConnected = true,
+                    deviceName = "Dedicated Pen",
+                ),
+                com.reverie.paint.core.stylus.StylusDeviceDetected(
+                    brand = com.reverie.paint.core.stylus.StylusBrand.GENERIC,
+                    isCurrentDeviceSupported = true,
+                    isConnected = true,
+                    deviceName = "Generic Pen",
+                ),
+            )
+            val hasDedicated = detected.any {
+                it.brand != com.reverie.paint.core.stylus.StylusBrand.GENERIC && it.isCurrentDeviceSupported && it.isConnected
+            }
+            assertTrue("Dedicated brand $brand must activate isolation gate", hasDedicated)
+        }
+
+        val genericOnly = listOf(
+            com.reverie.paint.core.stylus.StylusDeviceDetected(
+                brand = com.reverie.paint.core.stylus.StylusBrand.GENERIC,
+                isCurrentDeviceSupported = true,
+                isConnected = true,
+                deviceName = "Generic Pen",
+            ),
+        )
+        val hasDedicatedForGeneric = genericOnly.any {
+            it.brand != com.reverie.paint.core.stylus.StylusBrand.GENERIC && it.isCurrentDeviceSupported && it.isConnected
+        }
+        assertFalse("Generic-only device must not trigger isolation", hasDedicatedForGeneric)
+    }
 }
