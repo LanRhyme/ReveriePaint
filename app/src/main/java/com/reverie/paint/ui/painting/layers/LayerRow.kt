@@ -150,6 +150,8 @@ internal fun LayerRow(
     multiSelected: Boolean = false,
     onRename: ((Int, String) -> Unit)? = null,
     modifier: Modifier = Modifier,
+    hasNextSibling: Boolean = false,
+    openDepths: Set<Int> = emptySet(),
 ) {
     val rowHeight = vm.layerRowHeightDp.dp
     val index = layer.index
@@ -381,8 +383,8 @@ internal fun LayerRow(
                 when {
                     dragOnGroup -> Morandi.accent.copy(alpha = 0.22f)
                     isDragging -> Color.Transparent
-                    selected -> Morandi.accent.copy(alpha = 0.28f)
-                    multiSelected -> Morandi.accent.copy(alpha = 0.16f)
+                    selected -> Morandi.accent.copy(alpha = 0.22f)
+                    multiSelected -> Morandi.accent.copy(alpha = 0.14f)
                     else -> Color.Transparent
                 },
             animationSpec = spring(dampingRatio = 0.90f, stiffness = 500f),
@@ -413,6 +415,19 @@ internal fun LayerRow(
                         scaleY = groupScale
                     },
         ) {
+            // Selected indicator pill on the left
+            if (selected && !isDragging) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.CenterStart)
+                        .padding(start = 2.dp)
+                        .width(3.dp)
+                        .height(20.dp)
+                        .clip(RoundedCornerShape(1.5.dp))
+                        .background(Morandi.accent),
+                )
+            }
+
             LayerRowContent(
                 vm = vm,
                 layer = layer,
@@ -425,7 +440,9 @@ internal fun LayerRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(rowHeight)
-                    .padding(horizontal = 4.dp),
+                    .padding(start = 6.dp, end = 6.dp),
+                hasNextSibling = hasNextSibling,
+                openDepths = openDepths,
             )
             Row(
                 modifier =
@@ -468,6 +485,8 @@ internal fun LayerRowContent(
     onClick: () -> Unit = {},
     onRename: ((Int, String) -> Unit)? = null,
     modifier: Modifier = Modifier,
+    hasNextSibling: Boolean = false,
+    openDepths: Set<Int> = emptySet(),
 ) {
     val isBg = layer.isBackground
     val visible = layer.visible
@@ -476,75 +495,123 @@ internal fun LayerRowContent(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        // Group indent: whole row content shifts right for nested layers,
-        // with VS Code style vertical guide lines (one per nesting level)
+        // 1. Group tree guide lines (depth > 0)
         if (layer.depth > 0) {
-            Box(Modifier.width((layer.depth * 16).dp).fillMaxHeight()) {
-                Canvas(Modifier.fillMaxSize()) {
-                    val step = 16.dp.toPx()
-                    val lw = 1.dp.toPx()
-                    for (d in 1..layer.depth) {
-                        val x = step * (d - 0.5f)
-                        drawLine(
-                            color = Morandi.subText.copy(alpha = 0.35f),
-                            start = Offset(x, 0f),
-                            end = Offset(x, size.height),
-                            strokeWidth = lw,
+            val stepDp = 14.dp
+            val treeWidth = (layer.depth * 14).dp
+            Canvas(
+                modifier = Modifier
+                    .width(treeWidth)
+                    .fillMaxHeight(),
+            ) {
+                val step = stepDp.toPx()
+                val lw = 1.2f.dp.toPx()
+                val midY = size.height / 2f
+                val r = 4.dp.toPx()
+                val guideColor = Morandi.subText.copy(alpha = 0.35f)
+
+                for (d in 1..layer.depth) {
+                    val x = step * (d - 0.5f)
+                    if (d < layer.depth) {
+                        // Ancestor vertical line
+                        if (openDepths.isEmpty() || d in openDepths) {
+                            drawLine(
+                                color = guideColor,
+                                start = Offset(x, 0f),
+                                end = Offset(x, size.height),
+                                strokeWidth = lw,
+                                cap = StrokeCap.Round,
+                            )
+                        }
+                    } else {
+                        // Direct branch connector
+                        val branchEndX = x + step * 0.5f
+                        val path = Path().apply {
+                            moveTo(x, 0f)
+                            if (hasNextSibling) {
+                                lineTo(x, size.height)
+                                moveTo(x, midY)
+                                lineTo(branchEndX, midY)
+                            } else {
+                                lineTo(x, midY - r)
+                                quadraticTo(x, midY, x + r, midY)
+                                lineTo(branchEndX, midY)
+                            }
+                        }
+                        drawPath(
+                            path = path,
+                            color = guideColor,
+                            style = Stroke(
+                                width = lw,
+                                cap = StrokeCap.Round,
+                                join = StrokeJoin.Round,
+                            ),
                         )
                     }
                 }
             }
-        } else {
-            Spacer(Modifier.width(0.dp))
         }
 
-        // Collapse arrow for groups (toggle, does not select)
-        if (layer.isGroup) {
+        // 2. Clipping mask guide indicator (↳)
+        if (layer.clipped) {
             Box(
-                modifier =
-                    Modifier
-                        .size(22.dp)
-                        .noRippleClickable(onToggleCollapse),
+                modifier = Modifier
+                    .width(14.dp)
+                    .fillMaxHeight(),
                 contentAlignment = Alignment.Center,
             ) {
-                Icon(
-                    painterResource(R.drawable.ic_chevron),
-                    contentDescription = if (collapsed) stringResource(R.string.layer_expand) else stringResource(R.string.layer_collapse),
-                    tint = Morandi.subText,
-                    modifier = Modifier.size(14.dp).rotate(if (collapsed) 0f else 90f),
-                )
+                Canvas(modifier = Modifier.fillMaxSize()) {
+                    val lw = 1.35f.dp.toPx()
+                    val midY = size.height / 2f
+                    val startX = 2.dp.toPx()
+                    val endX = 12.dp.toPx()
+                    val arrowPath = Path().apply {
+                        moveTo(startX, midY - 8.dp.toPx())
+                        lineTo(startX, midY)
+                        lineTo(endX, midY)
+                        moveTo(endX - 3.5f.dp.toPx(), midY - 3.5f.dp.toPx())
+                        lineTo(endX, midY)
+                        lineTo(endX - 3.5f.dp.toPx(), midY + 3.5f.dp.toPx())
+                    }
+                    drawPath(
+                        path = arrowPath,
+                        color = Morandi.accent.copy(alpha = 0.85f),
+                        style = Stroke(
+                            width = lw,
+                            cap = StrokeCap.Round,
+                            join = StrokeJoin.Round,
+                        ),
+                    )
+                }
             }
         }
-        // Visibility eye (left of the thumbnail)
+
+        // 3. Visibility eye (always left-aligned across all rows)
         Box(
-            modifier =
-                Modifier
-                    .size(24.dp)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(if (visible) Color.Transparent else Morandi.panel.copy(alpha = 0.7f))
-                    .noRippleClickable { vm.toggleLayerVisible(index) },
+            modifier = Modifier
+                .size(24.dp)
+                .clip(RoundedCornerShape(6.dp))
+                .background(if (visible) Color.Transparent else Morandi.panel.copy(alpha = 0.6f))
+                .noRippleClickable { vm.toggleLayerVisible(index) },
             contentAlignment = Alignment.Center,
         ) {
             Icon(
                 painterResource(if (visible) R.drawable.ic_eye else R.drawable.ic_eye_off),
                 contentDescription = stringResource(R.string.layer_visibility),
-                tint = if (visible) Morandi.icon else Morandi.subText,
+                tint = if (visible) Morandi.icon else Morandi.subText.copy(alpha = 0.45f),
                 modifier = Modifier.size(17.dp),
             )
         }
-        // Thumbnail (light checkerboard behind)
+
+        // 4. Thumbnail (always left-aligned across all rows)
         Box(
-            Modifier
+            modifier = Modifier
                 .size(36.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .then(
-                    if (layer.colorLabel > 0) {
-                        Modifier.border(
-                            width = 2.dp,
-                            color = layerLabelColor(layer.colorLabel),
-                            shape = RoundedCornerShape(6.dp),
-                        )
-                    } else Modifier
+                .clip(RoundedCornerShape(7.dp))
+                .border(
+                    width = if (layer.colorLabel > 0) 2.dp else 1.dp,
+                    color = if (layer.colorLabel > 0) layerLabelColor(layer.colorLabel) else Morandi.border.copy(alpha = 0.35f),
+                    shape = RoundedCornerShape(7.dp),
                 ),
         ) {
             LightCheckerboard(Modifier.fillMaxSize())
@@ -564,18 +631,61 @@ internal fun LayerRowContent(
                     )
                 }
             } else {
-                vm.thumbFor(layer.index, layer.name)?.let { thumb ->
-                    if (!thumb.isRecycled) {
-                        Image(
-                            bitmap = thumb.asImageBitmap(),
-                            contentDescription = stringResource(R.string.layer_thumbnail),
-                            modifier = Modifier.fillMaxSize(),
+                val thumb = vm.thumbFor(layer.index, layer.name)
+                if (thumb != null && !thumb.isRecycled) {
+                    Image(
+                        bitmap = thumb.asImageBitmap(),
+                        contentDescription = stringResource(R.string.layer_thumbnail),
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                } else if (layer.isGroup) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Morandi.accent.copy(alpha = 0.12f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painterResource(R.drawable.ic_folder),
+                            contentDescription = stringResource(R.string.layer_add_group),
+                            tint = Morandi.accent,
+                            modifier = Modifier.size(18.dp),
                         )
                     }
                 }
             }
         }
-        Column(Modifier.weight(1f)) {
+
+        // 5. Group collapse chevron (embedded right after thumbnail, before layer name)
+        if (layer.isGroup) {
+            val chevronRot by animateFloatAsState(
+                targetValue = if (collapsed) 0f else 90f,
+                animationSpec = tween(180),
+                label = "chevronRot",
+            )
+            Box(
+                modifier = Modifier
+                    .size(20.dp)
+                    .clip(RoundedCornerShape(4.dp))
+                    .noRippleClickable(onToggleCollapse),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painterResource(R.drawable.ic_chevron),
+                    contentDescription = if (collapsed) stringResource(R.string.layer_expand) else stringResource(R.string.layer_collapse),
+                    tint = Morandi.subText,
+                    modifier = Modifier
+                        .size(13.dp)
+                        .rotate(chevronRot),
+                )
+            }
+        }
+
+        // 6. Name, type icon, opacity/blend-mode subtitle
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.Center,
+        ) {
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -589,7 +699,7 @@ internal fun LayerRowContent(
                                 },
                                 onTap = {
                                     onClick()
-                                }
+                                },
                             )
                         }
                 } else Modifier,
@@ -598,27 +708,27 @@ internal fun LayerRowContent(
                     Icon(
                         painterResource(R.drawable.ic_fill),
                         contentDescription = stringResource(R.string.layer_fill_layer),
-                        tint = if (selected) Morandi.onAccent else Morandi.accent,
+                        tint = Morandi.accent,
                         modifier = Modifier.size(12.dp),
                     )
                 } else if (layer.nodeType == 3) {
                     Icon(
                         painterResource(R.drawable.ic_image_adjust),
                         contentDescription = stringResource(R.string.layer_filter_layer),
-                        tint = if (selected) Morandi.onAccent else Morandi.accent,
+                        tint = Morandi.accent,
                         modifier = Modifier.size(12.dp),
                     )
                 } else if (layer.isStrokeLayer || layer.nodeType == 6) {
                     Icon(
                         painterResource(R.drawable.ic_shape_stroke),
                         contentDescription = stringResource(R.string.layer_stroke_layer),
-                        tint = if (selected) Morandi.onAccent else Morandi.accent,
+                        tint = Morandi.accent,
                         modifier = Modifier.size(12.dp),
                     )
                 }
                 Text(
                     text = layerDisplayName(layer.name),
-                    color = if (selected) Morandi.onAccent else Morandi.text,
+                    color = Morandi.text,
                     fontSize = 12.sp,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
@@ -638,52 +748,58 @@ internal fun LayerRowContent(
                 }
                 Text(
                     text = "$tag${(layer.opacity * 100).roundToInt()}% · $blendName",
-                    color = if (selected) Morandi.onAccent.copy(alpha = 0.7f) else Morandi.subText,
+                    color = Morandi.subText,
                     fontSize = 10.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
             }
         }
-        // Right-side status icons
-        if (vm.layerSoloed(index)) {
-            Icon(
-                painterResource(R.drawable.ic_eye),
-                contentDescription = stringResource(R.string.layer_solo),
-                tint = Morandi.accent,
-                modifier = Modifier.size(13.dp),
-            )
-        }
-        if (layer.clipped) {
-            Icon(
-                painterResource(R.drawable.ic_clip),
-                contentDescription = stringResource(R.string.layer_op_clip),
-                tint = if (selected) Morandi.onAccent.copy(alpha = 0.8f) else Morandi.subText,
-                modifier = Modifier.size(13.dp),
-            )
-        } else if (layer.alphaInherited) {
-            Icon(
-                painterResource(R.drawable.ic_alpha_inherit),
-                contentDescription = stringResource(R.string.layer_op_alpha_inherit),
-                tint = if (selected) Morandi.onAccent.copy(alpha = 0.8f) else Morandi.subText,
-                modifier = Modifier.size(13.dp),
-            )
-        }
-        if (layer.alphaLocked && !isBg) {
-            Icon(
-                painterResource(R.drawable.ic_grid),
-                contentDescription = stringResource(R.string.layer_alpha_lock),
-                tint = if (selected) Morandi.onAccent.copy(alpha = 0.8f) else Morandi.subText,
-                modifier = Modifier.size(13.dp),
-            )
-        }
-        if (layer.locked || isBg) {
-            Icon(
-                painterResource(R.drawable.ic_lock),
-                contentDescription = stringResource(R.string.layer_locked),
-                tint = if (selected) Morandi.onAccent.copy(alpha = 0.8f) else Morandi.subText,
-                modifier = Modifier.size(13.dp),
-            )
+
+        // 7. Right-side status icons badge
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (vm.layerSoloed(index)) {
+                Icon(
+                    painterResource(R.drawable.ic_eye),
+                    contentDescription = stringResource(R.string.layer_solo),
+                    tint = Morandi.accent,
+                    modifier = Modifier.size(13.dp),
+                )
+            }
+            if (layer.clipped) {
+                Icon(
+                    painterResource(R.drawable.ic_clip),
+                    contentDescription = stringResource(R.string.layer_op_clip),
+                    tint = if (selected) Morandi.text.copy(alpha = 0.85f) else Morandi.subText,
+                    modifier = Modifier.size(13.dp),
+                )
+            } else if (layer.alphaInherited) {
+                Icon(
+                    painterResource(R.drawable.ic_alpha_inherit),
+                    contentDescription = stringResource(R.string.layer_op_alpha_inherit),
+                    tint = if (selected) Morandi.text.copy(alpha = 0.85f) else Morandi.subText,
+                    modifier = Modifier.size(13.dp),
+                )
+            }
+            if (layer.alphaLocked && !isBg) {
+                Icon(
+                    painterResource(R.drawable.ic_grid),
+                    contentDescription = stringResource(R.string.layer_alpha_lock),
+                    tint = if (selected) Morandi.text.copy(alpha = 0.85f) else Morandi.subText,
+                    modifier = Modifier.size(13.dp),
+                )
+            }
+            if (layer.locked || isBg) {
+                Icon(
+                    painterResource(R.drawable.ic_lock),
+                    contentDescription = stringResource(R.string.layer_locked),
+                    tint = if (selected) Morandi.text.copy(alpha = 0.85f) else Morandi.subText,
+                    modifier = Modifier.size(13.dp),
+                )
+            }
         }
     }
 }
