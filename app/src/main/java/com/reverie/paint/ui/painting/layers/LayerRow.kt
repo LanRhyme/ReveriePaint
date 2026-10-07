@@ -420,10 +420,9 @@ internal fun LayerRow(
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
-                        .padding(start = 2.dp)
                         .width(3.dp)
-                        .height(20.dp)
-                        .clip(RoundedCornerShape(1.5.dp))
+                        .height(24.dp)
+                        .clip(RoundedCornerShape(topEnd = 1.5.dp, bottomEnd = 1.5.dp))
                         .background(Morandi.accent),
                 )
             }
@@ -440,7 +439,7 @@ internal fun LayerRow(
                 modifier = Modifier
                     .fillMaxWidth()
                     .height(rowHeight)
-                    .padding(start = 6.dp, end = 6.dp),
+                    .padding(end = 6.dp),
                 hasNextSibling = hasNextSibling,
                 openDepths = openDepths,
             )
@@ -495,7 +494,25 @@ internal fun LayerRowContent(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        // 1. Group tree guide lines (depth > 0)
+        // 1. Visibility eye switch (ALWAYS at the absolute leftmost edge across ALL rows, filling full row height)
+        Box(
+            modifier = Modifier
+                .width(32.dp)
+                .fillMaxHeight()
+                .clip(RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
+                .background(if (visible) Color.Transparent else Morandi.panel.copy(alpha = 0.35f))
+                .noRippleClickable { vm.toggleLayerVisible(index) },
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                painterResource(if (visible) R.drawable.ic_eye else R.drawable.ic_eye_off),
+                contentDescription = stringResource(R.string.layer_visibility),
+                tint = if (visible) Morandi.icon else Morandi.subText.copy(alpha = 0.35f),
+                modifier = Modifier.size(17.dp),
+            )
+        }
+
+        // 2. Group tree guide lines (depth > 0)
         if (layer.depth > 0) {
             val stepDp = 14.dp
             val treeWidth = (layer.depth * 14).dp
@@ -525,7 +542,7 @@ internal fun LayerRowContent(
                         }
                     } else {
                         // Direct branch connector
-                        val branchEndX = x + step * 0.5f
+                        val branchEndX = size.width
                         val path = Path().apply {
                             moveTo(x, 0f)
                             if (hasNextSibling) {
@@ -552,58 +569,7 @@ internal fun LayerRowContent(
             }
         }
 
-        // 2. Clipping mask guide indicator (↳)
-        if (layer.clipped) {
-            Box(
-                modifier = Modifier
-                    .width(14.dp)
-                    .fillMaxHeight(),
-                contentAlignment = Alignment.Center,
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val lw = 1.35f.dp.toPx()
-                    val midY = size.height / 2f
-                    val startX = 2.dp.toPx()
-                    val endX = 12.dp.toPx()
-                    val arrowPath = Path().apply {
-                        moveTo(startX, midY - 8.dp.toPx())
-                        lineTo(startX, midY)
-                        lineTo(endX, midY)
-                        moveTo(endX - 3.5f.dp.toPx(), midY - 3.5f.dp.toPx())
-                        lineTo(endX, midY)
-                        lineTo(endX - 3.5f.dp.toPx(), midY + 3.5f.dp.toPx())
-                    }
-                    drawPath(
-                        path = arrowPath,
-                        color = Morandi.accent.copy(alpha = 0.85f),
-                        style = Stroke(
-                            width = lw,
-                            cap = StrokeCap.Round,
-                            join = StrokeJoin.Round,
-                        ),
-                    )
-                }
-            }
-        }
-
-        // 3. Visibility eye (always left-aligned across all rows)
-        Box(
-            modifier = Modifier
-                .size(24.dp)
-                .clip(RoundedCornerShape(6.dp))
-                .background(if (visible) Color.Transparent else Morandi.panel.copy(alpha = 0.6f))
-                .noRippleClickable { vm.toggleLayerVisible(index) },
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                painterResource(if (visible) R.drawable.ic_eye else R.drawable.ic_eye_off),
-                contentDescription = stringResource(R.string.layer_visibility),
-                tint = if (visible) Morandi.icon else Morandi.subText.copy(alpha = 0.45f),
-                modifier = Modifier.size(17.dp),
-            )
-        }
-
-        // 4. Thumbnail (always left-aligned across all rows)
+        // 3. Thumbnail (always aligned across all rows at the same group depth)
         Box(
             modifier = Modifier
                 .size(36.dp)
@@ -704,6 +670,21 @@ internal fun LayerRowContent(
                         }
                 } else Modifier,
             ) {
+                if (layer.clipped) {
+                    Icon(
+                        painterResource(R.drawable.ic_clip),
+                        contentDescription = stringResource(R.string.layer_op_clip),
+                        tint = Morandi.accent,
+                        modifier = Modifier.size(12.dp),
+                    )
+                } else if (layer.alphaInherited) {
+                    Icon(
+                        painterResource(R.drawable.ic_alpha_inherit),
+                        contentDescription = stringResource(R.string.layer_op_alpha_inherit),
+                        tint = Morandi.accent,
+                        modifier = Modifier.size(12.dp),
+                    )
+                }
                 if (layer.nodeType == 2) {
                     Icon(
                         painterResource(R.drawable.ic_fill),
