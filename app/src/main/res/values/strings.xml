@@ -1611,6 +1611,7 @@
     <string name="stylus_honor_features">笔身双击、折叠屏侧键与触感微震专属配置</string>
     <string name="stylus_samsung_features">侧键动作映射与触觉微震专属配置</string>
     <string name="stylus_xiaomi_features">书写键、截图键与焦点键自定义，按住切换橡皮与手感优化</string>
+    <string name="stylus_vivo_features">笔身双击、书写振动与超低延迟笔迹预测专属配置</string>
     <string name="stylus_generic_features">标准 Android 压感与倾角触控协议</string>
     <string name="stylus_cursor_mode_none">不显示</string>
     <string name="stylus_cursor_mode_drawing">绘画时显示</string>
@@ -1757,6 +1758,31 @@
     <string name="stylus_honor_haptics_title">手势触发微震反馈</string>
     <string name="stylus_honor_haptics_desc">双击或按键触发快捷功能时提供瞬态微触反馈</string>
     <string name="stylus_honor_hint">提示：若笔身双击无响应，请在系统设置 -> 辅助功能 -> 手写笔 -> 双击切换中开启双击手势支持</string>
+
+    <!-- vivo / iQOO Pencil -->
+    <string name="stylus_vivo_title">vivo / iQOO 手写笔专属设置</string>
+    <string name="stylus_vivo_model">手写笔硬件型号</string>
+    <string name="stylus_vivo_auto_model">自动识别 (%s)</string>
+    <string name="stylus_vivo_model_pencil2">vivo Pencil2 / iQOO Pencil (第二代)</string>
+    <string name="stylus_vivo_model_pencil2_nv">vivo Pencil2 NV (无振动版)</string>
+    <string name="stylus_vivo_model_pencil2s">iQOO Pencil Air / vivo Pencil2s / iQOO Pencil2s</string>
+    <string name="stylus_vivo_model_pencil3">vivo Pencil3 / iQOO Pencil3 (第三代)</string>
+    <string name="stylus_vivo_model_pencil1">vivo Pencil (第一代)</string>
+    <string name="stylus_vivo_no_vibrate_badge">无书写振动</string>
+    <string name="stylus_vivo_double_tap_action">笔身双击动作</string>
+    <string name="stylus_vivo_key_mapping">按键动作映射</string>
+    <string name="stylus_vivo_primary_action">主键单击动作</string>
+    <string name="stylus_vivo_secondary_action">副键单击动作</string>
+    <string name="stylus_vivo_side_key">按键行为</string>
+    <string name="stylus_vivo_hold_eraser">按住按键临时变橡皮</string>
+    <string name="stylus_vivo_hold_eraser_desc">按住按键落笔时该笔画自动变为橡皮擦，抬笔恢复原工具</string>
+    <string name="stylus_vivo_vibrate">书写振动</string>
+    <string name="stylus_vivo_vibrate_pen">笔身书写振动</string>
+    <string name="stylus_vivo_vibrate_pen_desc">落笔时驱动笔身马达模拟纸感触觉；需在系统设置中同时开启手写笔「书写振动」总开关</string>
+    <string name="stylus_vivo_prediction">笔迹预测</string>
+    <string name="stylus_vivo_prediction_enable">超低延迟笔迹预测</string>
+    <string name="stylus_vivo_prediction_desc">vivo 算法引擎预测落笔轨迹，绘制时笔尖切线前向延伸；仅对纯色实心基础笔刷生效</string>
+    <string name="stylus_vivo_hint">提示：双击与书写振动依赖系统手写笔服务，若双击无响应请在系统设置 -> 手写笔中开启双击手势</string>
     <string name="stylus_action_switch_brush_eraser">切换画笔与橡皮</string>
     <string name="stylus_action_follow_system">跟随系统设置</string>
     <string name="stylus_action_undo">撤销</string>

@@ -219,6 +219,55 @@ class StylusModelsTest {
     }
 
     @Test
+    fun `vivo pencil models correctly specified`() {
+        val brands = StylusBrand.entries
+        val vivo = brands.firstOrNull { it == StylusBrand.VIVO_PENCIL }
+        assertNotNull("vivo brand defined", vivo)
+        assertEquals("vivo Pencil / iQOO Pencil", vivo?.displayName)
+        assertTrue("vivo should support double tap", vivo?.subtitle?.contains("双击") == true)
+        assertTrue("vivo should support writing vibrate", vivo?.subtitle?.contains("振动") == true)
+        assertTrue("vivo should support prediction", vivo?.subtitle?.contains("笔迹预测") == true)
+
+        val models = com.reverie.paint.core.stylus.VivoPencilModel.entries
+        assertEquals(5, models.size)
+
+        val pencil2 = com.reverie.paint.core.stylus.VivoPencilModel.VIVO_PENCIL2
+        assertTrue("Pencil2 has body double tap", pencil2.hasDoubleTap)
+        assertTrue("Pencil2 has writing vibration", pencil2.hasWritingVibrate)
+        assertFalse("Pencil2 is buttonless (capacitive film body)", pencil2.hasPhysicalButtons)
+        assertEquals("第二代", pencil2.editionName)
+
+        val nv = com.reverie.paint.core.stylus.VivoPencilModel.VIVO_PENCIL2_NV
+        assertTrue(nv.hasDoubleTap)
+        assertFalse("NV edition has no writing vibration", nv.hasWritingVibrate)
+        assertFalse(nv.hasPhysicalButtons)
+
+        val p2s = com.reverie.paint.core.stylus.VivoPencilModel.VIVO_PENCIL2S
+        assertTrue(p2s.hasDoubleTap)
+        assertFalse(p2s.hasWritingVibrate)
+        assertTrue("2s generation has physical button switching", p2s.hasPhysicalButtons)
+
+        val pencil3 = com.reverie.paint.core.stylus.VivoPencilModel.VIVO_PENCIL3
+        assertTrue(pencil3.hasDoubleTap)
+        assertTrue(pencil3.hasWritingVibrate)
+        assertFalse(pencil3.hasPhysicalButtons)
+
+        val pencil1 = com.reverie.paint.core.stylus.VivoPencilModel.VIVO_PENCIL1
+        assertFalse("1st gen has no body double tap", pencil1.hasDoubleTap)
+        assertFalse(pencil1.hasWritingVibrate)
+        assertTrue(pencil1.hasPhysicalButtons)
+
+        val vivoModels = com.reverie.paint.core.stylus.VivoPencilModel
+        assertEquals(pencil2, vivoModels.fromKey("VIVO_PENCIL2"))
+        assertEquals(nv, vivoModels.fromKey("VIVO_PENCIL2_NV"))
+        assertEquals(p2s, vivoModels.fromKey("AIR"))
+        assertEquals(p2s, vivoModels.fromKey("VIVO_PENCIL2S"))
+        assertEquals(pencil3, vivoModels.fromKey("VIVO_PENCIL3"))
+        assertEquals(pencil1, vivoModels.fromKey("GEN1"))
+        assertEquals(pencil2, vivoModels.fromKey("UNKNOWN"))
+    }
+
+    @Test
     fun `dedicated stylus brand priority isolates generic stylus adapter`() {
         val dedicatedBrands = listOf(
             com.reverie.paint.core.stylus.StylusBrand.SAMSUNG_SPEN,
@@ -226,6 +275,7 @@ class StylusModelsTest {
             com.reverie.paint.core.stylus.StylusBrand.HONOR_MAGIC_PENCIL,
             com.reverie.paint.core.stylus.StylusBrand.OPPO_ONEPLUS,
             com.reverie.paint.core.stylus.StylusBrand.XIAOMI_STYLUS,
+            com.reverie.paint.core.stylus.StylusBrand.VIVO_PENCIL,
         )
 
         for (brand in dedicatedBrands) {

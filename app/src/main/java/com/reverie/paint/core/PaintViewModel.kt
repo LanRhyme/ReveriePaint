@@ -1446,6 +1446,25 @@ class PaintViewModel : ViewModel() {
     var xiaomiSlideSensitivity by mutableStateOf("normal")
     var xiaomiInPenHapticsEnabled by mutableStateOf(true)
 
+    // vivo / iQOO 手写笔适配参数 (笔迹预测开关复用全局 stylusStrokePredictionEnabled)
+    var vivoPencilModelMode by mutableStateOf("AUTO") // "AUTO", "VIVO_PENCIL2", "VIVO_PENCIL2_NV", "VIVO_PENCIL2S", "VIVO_PENCIL3", "VIVO_PENCIL1"
+    val detectedVivoPencilModel: com.reverie.paint.core.stylus.VivoPencilModel
+        get() = stylusDriver?.detectVivoPencilModel() ?: com.reverie.paint.core.stylus.VivoPencilModel.VIVO_PENCIL2
+    val vivoPencilModel: com.reverie.paint.core.stylus.VivoPencilModel
+        get() = when (vivoPencilModelMode) {
+            "VIVO_PENCIL2" -> com.reverie.paint.core.stylus.VivoPencilModel.VIVO_PENCIL2
+            "VIVO_PENCIL2_NV" -> com.reverie.paint.core.stylus.VivoPencilModel.VIVO_PENCIL2_NV
+            "VIVO_PENCIL2S" -> com.reverie.paint.core.stylus.VivoPencilModel.VIVO_PENCIL2S
+            "VIVO_PENCIL3" -> com.reverie.paint.core.stylus.VivoPencilModel.VIVO_PENCIL3
+            "VIVO_PENCIL1" -> com.reverie.paint.core.stylus.VivoPencilModel.VIVO_PENCIL1
+            else -> detectedVivoPencilModel
+        }
+    var vivoDoubleTapAction by mutableStateOf("toggle_eraser")
+    var vivoPrimaryClickAction by mutableStateOf("toggle_eraser")
+    var vivoSecondaryClickAction by mutableStateOf("tool_picker")
+    var vivoSideButtonErase by mutableStateOf(true)
+    var vivoWritingVibrateEnabled by mutableStateOf(true)
+
     // 通用 (Generic) 手写笔适配参数
     var genericStylusEnabled by mutableStateOf(false)
     var genericPrimaryButtonAction by mutableStateOf("toggle_eraser")
@@ -2352,6 +2371,56 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun updateVivoPencilModelMode(mode: String) {
+        vivoPencilModelMode = mode
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("vivoPencilModelMode", mode).apply()
+        }
+    }
+
+    fun updateVivoDoubleTapAction(actionId: String) {
+        vivoDoubleTapAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("vivoDoubleTapAction", actionId).apply()
+        }
+    }
+
+    fun updateVivoPrimaryClickAction(actionId: String) {
+        vivoPrimaryClickAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("vivoPrimaryClickAction", actionId).apply()
+        }
+    }
+
+    fun updateVivoSecondaryClickAction(actionId: String) {
+        vivoSecondaryClickAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("vivoSecondaryClickAction", actionId).apply()
+        }
+    }
+
+    fun updateVivoSideButtonErase(enabled: Boolean) {
+        vivoSideButtonErase = enabled
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("vivoSideButtonErase", enabled).apply()
+        }
+    }
+
+    fun updateVivoWritingVibrateEnabled(enabled: Boolean) {
+        vivoWritingVibrateEnabled = enabled
+        // 关闭时立即停掉可能在振的笔身 (VivoStylusAdapter.syncSettings 处理边沿)
+        stylusDriver?.syncSettings()
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("vivoWritingVibrateEnabled", enabled).apply()
+        }
+    }
+
     fun updateGenericPrimaryButtonAction(actionId: String) {
         genericPrimaryButtonAction = actionId
         if (::appContext.isInitialized) {
@@ -2839,6 +2908,12 @@ class PaintViewModel : ViewModel() {
             xiaomiSlideAction = prefs.getString("xiaomiSlideAction", "adjust_brush_size") ?: "adjust_brush_size"
             xiaomiSlideSensitivity = prefs.getString("xiaomiSlideSensitivity", "normal") ?: "normal"
             xiaomiInPenHapticsEnabled = prefs.getBoolean("xiaomiInPenHapticsEnabled", true)
+            vivoPencilModelMode = prefs.getString("vivoPencilModelMode", "AUTO") ?: "AUTO"
+            vivoDoubleTapAction = prefs.getString("vivoDoubleTapAction", "toggle_eraser") ?: "toggle_eraser"
+            vivoPrimaryClickAction = prefs.getString("vivoPrimaryClickAction", "toggle_eraser") ?: "toggle_eraser"
+            vivoSecondaryClickAction = prefs.getString("vivoSecondaryClickAction", "tool_picker") ?: "tool_picker"
+            vivoSideButtonErase = prefs.getBoolean("vivoSideButtonErase", true)
+            vivoWritingVibrateEnabled = prefs.getBoolean("vivoWritingVibrateEnabled", true)
             genericStylusEnabled = prefs.getBoolean("genericStylusEnabled", false)
             genericPrimaryButtonAction = prefs.getString("genericPrimaryButtonAction", "toggle_eraser") ?: "toggle_eraser"
             genericSecondaryButtonAction = prefs.getString("genericSecondaryButtonAction", "undo") ?: "undo"

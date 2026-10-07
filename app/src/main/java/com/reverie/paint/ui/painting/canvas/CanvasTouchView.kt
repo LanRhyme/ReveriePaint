@@ -780,6 +780,10 @@ class CanvasTouchView(context: Context) : View(context) {
 
     // ---- 硬件笔尖前向超前预测 (OEM Hardware Motion Prediction) ----
     private var oplusPredictor: OplusMotionPredictor? = null
+
+    // vivo/iQOO 官方笔迹预测引擎 (penengine-simplify SDK): 与 OPPO 预测共用
+    // predictedScreenPoint 消费管线, 二者互斥存在 (见 onAttachedToWindow 设备门控)
+    private var vivoPredictor: com.vivo.penengine.impl.VivoAlgorithmManagerImpl? = null
     private var predictedScreenPoint: Offset? = null
     private var predictedPressure: Float = 1f
     private val cachedTouchPointInfo = OplusTouchPointInfo()
@@ -1307,6 +1311,19 @@ class CanvasTouchView(context: Context) : View(context) {
                 android.util.Log.e("ReveriePerf", "Failed to init OplusMotionPredictor", t)
             }
         }
+        if (vivoPredictor == null &&
+            com.reverie.paint.core.stylus.VivoStylusAdapter.isVivoDeviceSupported()
+        ) {
+            try {
+                // SDK 内部自检 Build.BRAND=="vivo" && isTablet(), 非平板/非 vivo 时自动退化为
+                // 返回当前点 (预测管线无输出); 算法参数 cfg 由 SDK 从 assets 拷贝到 cacheDir
+                vivoPredictor = com.vivo.penengine.impl.VivoAlgorithmManagerImpl(context.applicationContext)
+                android.util.Log.i("ReveriePerf", "VivoAlgorithmManagerImpl initialized")
+            } catch (t: Throwable) {
+                android.util.Log.e("ReveriePerf", "Failed to init VivoAlgorithmManagerImpl", t)
+                vivoPredictor = null
+            }
+        }
         post { updateSystemGestureExclusion() }
     }
 
@@ -1444,6 +1461,10 @@ class CanvasTouchView(context: Context) : View(context) {
         cancelCanvasTransformAnimators()
         oplusPredictor?.destroy()
         oplusPredictor = null
+        try {
+            vivoPredictor?.release()
+        } catch (_: Throwable) {}
+        vivoPredictor = null
         safeEndSymmetryUndoMacro()
         resetMirrorBranches()
         currentStrokeDocPos = Offset.Zero
@@ -3833,28 +3854,16 @@ class CanvasTouchView(context: Context) : View(context) {
 
                 // OEM 硬件前向预测计算 (抵消 144Hz 屏幕 1~2 帧约 14~20ms 物理显示上屏延迟)
                 if (isStylus && v.isCurrentBrushPredictionEligible) {
-                    val op = oplusPredictor
-                    if (op != null && op.isValid) {
+                    val vp = vivoPredictor
+                    if (vp != null) {
+                        // vivo 算法引擎: SDK 直接消费 MotionEvent (历史点与状态机在内部处理),
+                        // 仅在触控索引 0 即手写笔时调用 —— SDK 以 event.getX()/getY() 读点,
+                        // 多指 (手掌压屏) 场景下不使用, 避免把掌点喂进预测
                         try {
-                            for (i in 0 until event.historySize) {
-                                cachedTouchPointInfo.x = event.getHistoricalX(pointerIndex, i)
-                                cachedTouchPointInfo.y = event.getHistoricalY(pointerIndex, i)
-                                cachedTouchPointInfo.pressure = if (isStylus) event.getHistoricalPressure(pointerIndex, i).coerceIn(0f, 1f) else 1f
-                                cachedTouchPointInfo.axisTilt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, pointerIndex, i) else 0f
-                                cachedTouchPointInfo.timestamp = event.getHistoricalEventTime(i)
-                                op.pushTouchPoint(cachedTouchPointInfo)
-                            }
-                            cachedTouchPointInfo.x = event.getX(pointerIndex)
-                            cachedTouchPointInfo.y = event.getY(pointerIndex)
-                            cachedTouchPointInfo.pressure = pressure
-                            cachedTouchPointInfo.axisTilt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) event.getAxisValue(MotionEvent.AXIS_TILT, pointerIndex) else 0f
-                            cachedTouchPointInfo.timestamp = event.eventTime
-                            op.pushTouchPoint(cachedTouchPointInfo)
-
-                            val pred = op.predictTouchPoint()
-                            if (pred != null) {
+                            val pred = if (pointerIndex == 0) vp.computeEstimatePoint(event) else null
+                            if (pred != null && (pred.x != 0f || pred.y != 0f)) {
                                 predictedScreenPoint = Offset(pred.x, pred.y)
-                                predictedPressure = pred.pressure.coerceIn(0.01f, 1f)
+                                predictedPressure = pressure.coerceIn(0.01f, 1f)
                             } else {
                                 predictedScreenPoint = null
                             }
@@ -3862,7 +3871,37 @@ class CanvasTouchView(context: Context) : View(context) {
                             predictedScreenPoint = null
                         }
                     } else {
-                        predictedScreenPoint = null
+                        val op = oplusPredictor
+                        if (op != null && op.isValid) {
+                            try {
+                                for (i in 0 until event.historySize) {
+                                    cachedTouchPointInfo.x = event.getHistoricalX(pointerIndex, i)
+                                    cachedTouchPointInfo.y = event.getHistoricalY(pointerIndex, i)
+                                    cachedTouchPointInfo.pressure = if (isStylus) event.getHistoricalPressure(pointerIndex, i).coerceIn(0f, 1f) else 1f
+                                    cachedTouchPointInfo.axisTilt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, pointerIndex, i) else 0f
+                                    cachedTouchPointInfo.timestamp = event.getHistoricalEventTime(i)
+                                    op.pushTouchPoint(cachedTouchPointInfo)
+                                }
+                                cachedTouchPointInfo.x = event.getX(pointerIndex)
+                                cachedTouchPointInfo.y = event.getY(pointerIndex)
+                                cachedTouchPointInfo.pressure = pressure
+                                cachedTouchPointInfo.axisTilt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) event.getAxisValue(MotionEvent.AXIS_TILT, pointerIndex) else 0f
+                                cachedTouchPointInfo.timestamp = event.eventTime
+                                op.pushTouchPoint(cachedTouchPointInfo)
+
+                                val pred = op.predictTouchPoint()
+                                if (pred != null) {
+                                    predictedScreenPoint = Offset(pred.x, pred.y)
+                                    predictedPressure = pred.pressure.coerceIn(0.01f, 1f)
+                                } else {
+                                    predictedScreenPoint = null
+                                }
+                            } catch (_: Throwable) {
+                                predictedScreenPoint = null
+                            }
+                        } else {
+                            predictedScreenPoint = null
+                        }
                     }
                 } else {
                     predictedScreenPoint = null

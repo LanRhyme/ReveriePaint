@@ -10,6 +10,7 @@ enum class StylusBrand(val displayName: String, val subtitle: String) {
     HONOR_MAGIC_PENCIL("荣耀 Magic-Pencil", "适配笔身双击、折叠屏侧键、微震触感与防误触"),
     SAMSUNG_SPEN("三星 S Pen", "适配侧键单击/双击/长按、悬空指令与触觉反馈"),
     XIAOMI_STYLUS("小米灵感 / 焦点触控笔", "适配书写键/焦点键、物理双按键映射、双击切工具与触感反馈"),
+    VIVO_PENCIL("vivo Pencil / iQOO Pencil", "适配笔身双击、书写振动与超低延迟笔迹预测"),
     GENERIC("通用触控手写笔", "标准 Android 压感、倾角检测与防误触"),
 }
 
@@ -250,6 +251,73 @@ enum class XiaomiPencilModel(
                 key.contains("FOCUS", ignoreCase = true) -> FOCUS_PEN
                 key.contains("1", ignoreCase = true) || key.contains("GEN1", ignoreCase = true) -> SMART_PEN_1
                 else -> SMART_PEN_2
+            }
+        }
+    }
+}
+
+/**
+ * vivo / iQOO 手写笔能力表 (严格取自官方「手写笔SDK 2.0 接入指南」型号支持矩阵)。
+ * 全系型号均支持笔迹预测; 双击切换/书写振动/按键切换按型号区分。
+ */
+enum class VivoPencilModel(
+    val displayName: String,
+    val editionName: String,
+    val hasDoubleTap: Boolean,
+    val hasWritingVibrate: Boolean,
+    val hasPhysicalButtons: Boolean,
+    val desc: String,
+) {
+    VIVO_PENCIL2(
+        displayName = "vivo Pencil2 / iQOO Pencil",
+        editionName = "第二代",
+        hasDoubleTap = true,
+        hasWritingVibrate = true,
+        hasPhysicalButtons = false,
+        desc = "笔迹预测 · 笔身双击切换 · 笔身书写振动 (需系统书写振动开关开启) · 电容膜笔身无实体按键",
+    ),
+    VIVO_PENCIL2_NV(
+        displayName = "vivo Pencil2 NV",
+        editionName = "第二代 NV 版",
+        hasDoubleTap = true,
+        hasWritingVibrate = false,
+        hasPhysicalButtons = false,
+        desc = "笔迹预测 · 笔身双击切换 · 无书写振动 (NV 版无笔身马达)",
+    ),
+    VIVO_PENCIL2S(
+        displayName = "iQOO Pencil Air / vivo Pencil2s / iQOO Pencil2s",
+        editionName = "2s 世代 (Air)",
+        hasDoubleTap = true,
+        hasWritingVibrate = false,
+        hasPhysicalButtons = true,
+        desc = "笔迹预测 · 笔身双击切换 · 实体按键单击切换 · 无书写振动",
+    ),
+    VIVO_PENCIL3(
+        displayName = "vivo Pencil3 / iQOO Pencil3",
+        editionName = "第三代",
+        hasDoubleTap = true,
+        hasWritingVibrate = true,
+        hasPhysicalButtons = false,
+        desc = "笔迹预测 · 笔身双击切换 · 笔身书写振动 (需系统书写振动开关开启)",
+    ),
+    VIVO_PENCIL1(
+        displayName = "vivo Pencil",
+        editionName = "第一代",
+        hasDoubleTap = false,
+        hasWritingVibrate = false,
+        hasPhysicalButtons = true,
+        desc = "笔迹预测 · 实体按键单击切换 · 无笔身双击与书写振动",
+    );
+
+    companion object {
+        fun fromKey(key: String): VivoPencilModel {
+            val k = key.uppercase()
+            return when {
+                k.contains("NV") -> VIVO_PENCIL2_NV
+                k.contains("2S") || k.contains("AIR") -> VIVO_PENCIL2S
+                k.contains("PENCIL3") || k.contains("GEN3") -> VIVO_PENCIL3
+                k.contains("PENCIL1") || k.contains("GEN1") -> VIVO_PENCIL1
+                else -> VIVO_PENCIL2
             }
         }
     }

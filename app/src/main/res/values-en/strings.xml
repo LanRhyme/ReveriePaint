@@ -1611,6 +1611,7 @@
     <string name="stylus_honor_features">Double-tap gestures, foldable pen side key, and haptic vibration feedback</string>
     <string name="stylus_samsung_features">Side button mappings &amp; haptic feedback config</string>
     <string name="stylus_xiaomi_features">Writing, screenshot and focus button mapping, hold-to-erase and tactile feedback</string>
+    <string name="stylus_vivo_features">Body double-tap, writing vibration and ultra-low-latency stroke prediction</string>
     <string name="stylus_generic_features">Standard Android pressure and tilt protocol</string>
     <string name="stylus_cursor_mode_none">Hidden</string>
     <string name="stylus_cursor_mode_drawing">While Painting</string>
@@ -1757,6 +1758,31 @@
     <string name="stylus_honor_haptics_title">Haptic Vibration on Gesture</string>
     <string name="stylus_honor_haptics_desc">Provide transient tactile vibration when double-tap or button action fires</string>
     <string name="stylus_honor_hint">Note: If double-tap does not respond, ensure double-tap gesture is enabled in System Settings -> Accessibility features -> Stylus -> Double-tap</string>
+
+    <!-- vivo / iQOO Pencil -->
+    <string name="stylus_vivo_title">vivo / iQOO Stylus Settings</string>
+    <string name="stylus_vivo_model">Stylus Hardware Model</string>
+    <string name="stylus_vivo_auto_model">Auto Detect (%s)</string>
+    <string name="stylus_vivo_model_pencil2">vivo Pencil2 / iQOO Pencil (2nd Gen)</string>
+    <string name="stylus_vivo_model_pencil2_nv">vivo Pencil2 NV (No Vibration)</string>
+    <string name="stylus_vivo_model_pencil2s">iQOO Pencil Air / vivo Pencil2s / iQOO Pencil2s</string>
+    <string name="stylus_vivo_model_pencil3">vivo Pencil3 / iQOO Pencil3 (3rd Gen)</string>
+    <string name="stylus_vivo_model_pencil1">vivo Pencil (1st Gen)</string>
+    <string name="stylus_vivo_no_vibrate_badge">No Writing Vibration</string>
+    <string name="stylus_vivo_double_tap_action">Body Double-Tap Action</string>
+    <string name="stylus_vivo_key_mapping">Button Actions</string>
+    <string name="stylus_vivo_primary_action">Primary Button Click</string>
+    <string name="stylus_vivo_secondary_action">Secondary Button Click</string>
+    <string name="stylus_vivo_side_key">Button Behavior</string>
+    <string name="stylus_vivo_hold_eraser">Hold Button to Erase</string>
+    <string name="stylus_vivo_hold_eraser_desc">Holding the button while touching turns the stroke into a temporary eraser; releasing restores the tool</string>
+    <string name="stylus_vivo_vibrate">Writing Vibration</string>
+    <string name="stylus_vivo_vibrate_pen">In-Pen Writing Vibration</string>
+    <string name="stylus_vivo_vibrate_pen_desc">Drives the pen motor for paper-like tactile feedback while writing; the system stylus writing-vibration switch must also be enabled</string>
+    <string name="stylus_vivo_prediction">Stroke Prediction</string>
+    <string name="stylus_vivo_prediction_enable">Ultra-Low-Latency Prediction</string>
+    <string name="stylus_vivo_prediction_desc">The vivo engine predicts pen trajectory and extends the tip tangent forward; only applied to solid plain brushes</string>
+    <string name="stylus_vivo_hint">Note: Double-tap and writing vibration rely on the system stylus service. If double-tap does not respond, enable the double-tap gesture in System Settings -> Stylus</string>
     <string name="stylus_action_switch_brush_eraser">Switch Brush/Eraser</string>
     <string name="stylus_action_follow_system">Follow System</string>
     <string name="stylus_action_undo">Undo</string>

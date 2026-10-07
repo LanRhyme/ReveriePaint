@@ -48,6 +48,7 @@ import com.reverie.paint.ui.home.stylus.OppoStylusConfigDialog
 import com.reverie.paint.ui.home.stylus.PressureCurveDetailDialog
 import com.reverie.paint.ui.home.stylus.PressureCurveHelpDialog
 import com.reverie.paint.ui.home.stylus.SamsungStylusConfigDialog
+import com.reverie.paint.ui.home.stylus.VivoStylusConfigDialog
 import com.reverie.paint.ui.home.stylus.XiaomiStylusConfigDialog
 import com.reverie.paint.ui.home.stylus.GenericStylusConfigDialog
 import com.reverie.paint.ui.theme.Theme
@@ -298,6 +299,16 @@ internal fun StylusSettingsSubPage(
                                 onClick = { activeConfigBrand = StylusBrand.XIAOMI_STYLUS },
                             )
                         }
+                        StylusBrand.VIVO_PENCIL -> {
+                            SettingStylusDeviceRow(
+                                title = device.deviceName,
+                                summary = stringResource(R.string.stylus_vivo_features),
+                                isCurrentDevice = device.isCurrentDeviceSupported,
+                                isConnected = device.isConnected,
+                                shape = shape,
+                                onClick = { activeConfigBrand = StylusBrand.VIVO_PENCIL },
+                            )
+                        }
                         StylusBrand.GENERIC -> {
                             SettingStylusDeviceRow(
                                 title = device.deviceName,
@@ -347,6 +358,9 @@ internal fun StylusSettingsSubPage(
         }
         StylusBrand.XIAOMI_STYLUS -> {
             XiaomiStylusConfigDialog(vm = vm, onDismiss = { activeConfigBrand = null })
+        }
+        StylusBrand.VIVO_PENCIL -> {
+            VivoStylusConfigDialog(vm = vm, onDismiss = { activeConfigBrand = null })
         }
         StylusBrand.GENERIC -> {
             GenericStylusConfigDialog(vm = vm, onDismiss = { activeConfigBrand = null })
