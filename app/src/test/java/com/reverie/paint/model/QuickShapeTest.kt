@@ -293,5 +293,33 @@ class QuickShapeTest {
         assertEquals(line, QuickShapeGeometry.scaledBy(line, 0f))
         assertEquals(line, QuickShapeGeometry.scaledBy(line, Float.NaN))
         assertEquals(line, QuickShapeGeometry.snappedToAngle(line, Float.NaN))
+    // ---- 逐点压感重采样 (开关关闭时仍走平均压感) ----
+
+    @Test fun `pressure resample keeps the original variation`() {
+        val original = FloatArray(6 * 6)
+        for (i in 0 until 6) {
+            original[i * 6] = i * 10f
+            original[i * 6 + 2] = 0.1f + i * 0.1f
+        }
+        val out = QuickShapePressure.resample(original, 11)
+        assertEquals(11, out.size)
+        assertEquals(0.1f, out.first(), 0.001f)
+        assertEquals(0.6f, out.last(), 0.001f)
+        for (i in 1 until out.size) assertTrue(out[i] >= out[i - 1] - 0.001f)
+    }
+
+    @Test fun `pressure average matches the existing uniform behaviour`() {
+        val original = FloatArray(6 * 4)
+        for (i in 0 until 4) original[i * 6 + 2] = 0.2f + i * 0.2f
+        assertEquals(0.5f, QuickShapePressure.average(original), 0.001f)
+    }
+
+    @Test fun `pressure resample tolerates empty and single samples`() {
+        assertEquals(0, QuickShapePressure.resample(FloatArray(0), 0).size)
+        val single = FloatArray(6).also { it[2] = 0.42f }
+        val out = QuickShapePressure.resample(single, 5)
+        assertEquals(5, out.size)
+        assertEquals(0.42f, out[0], 0.001f)
+        assertEquals(1f, QuickShapePressure.average(FloatArray(0)), 0.001f)
     }
 }

@@ -46,6 +46,8 @@ internal fun QuickShapeSettingRow(vm: PaintViewModel) {
                 vm.quickShapeRelaxedEnabled, vm::updateQuickShapeRelaxedEnabled)
             QuickShapeOption(R.string.quick_shape_angle_snap, R.string.quick_shape_angle_snap_hint,
                 vm.quickShapeAngleSnapEnabled, vm::updateQuickShapeAngleSnapEnabled)
+            QuickShapeOption(R.string.quick_shape_per_point_pressure, R.string.quick_shape_per_point_pressure_hint,
+                vm.quickShapePerPointPressureEnabled, vm::updateQuickShapePerPointPressureEnabled)
             QuickShapeOption(R.string.quick_shape_arc_setting, R.string.quick_shape_arc_setting_hint,
                 vm.quickShapeArcEnabled, vm::updateQuickShapeArcEnabled)
             QuickShapeOption(R.string.quick_shape_box_handles, R.string.quick_shape_box_handles_hint,
