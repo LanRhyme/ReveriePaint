@@ -2402,6 +2402,13 @@
     <string name="quick_shape_context_changed">画布已变化，形状编辑已结束</string>
     <string name="quick_shape_failed">形状未能写入，请重试或保留原笔画</string>
     <string name="quick_shape_edit_hint">拖动画面移动形状，拖动控制点调整大小或旋转\n原笔画保留作参考，完成后用当前笔刷替换</string>
+    <string name="quick_shape_snap_horizontal">水平</string>
+    <string name="quick_shape_snap_vertical">垂直</string>
+    <string name="quick_shape_snap_diagonal">45°</string>
+    <string name="quick_shape_rotate_ccw">逆时针 15°</string>
+    <string name="quick_shape_rotate_cw">顺时针 15°</string>
+    <string name="quick_shape_scale_down">缩小</string>
+    <string name="quick_shape_scale_up">放大</string>
     <string name="quick_shape_keep_freehand">保留原笔画</string>
     <string name="quick_shape_line">直线</string>
     <string name="quick_shape_circle">圆</string>

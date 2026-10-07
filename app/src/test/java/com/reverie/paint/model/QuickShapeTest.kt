@@ -230,4 +230,68 @@ class QuickShapeTest {
         assertTrue(capture.moved(120f, 120f, 1600, 5f))
         assertEquals(1600L, capture.lastMovementMs)
     }
+
+    // ---- 胶囊精确摆正 / 旋转 / 缩放 (纯新增编辑原语, 不参与识别) ----
+
+    @Test fun `snap to angle rebuilds a line at the target angle keeping midpoint and length`() {
+        val line = QuickShapeResult(QuickShapeType.LINE, listOf(Point2D(0f, 0f), Point2D(100f, 30f)), Point2D(50f, 15f))
+        val snapped = QuickShapeGeometry.snappedToAngle(line, 0f)
+        val p0 = snapped.points[0]
+        val p1 = snapped.points[1]
+        assertEquals(0f, atan2(p1.y - p0.y, p1.x - p0.x), 0.001f)
+        assertEquals(50f, snapped.center.x, 0.01f)
+        assertEquals(15f, snapped.center.y, 0.01f)
+        assertEquals(line.points[0].distanceTo(line.points[1]), p0.distanceTo(p1), 0.01f)
+    }
+
+    @Test fun `snap to angle folds a rectangle rotation into 0-90`() {
+        val rect = QuickShapeResult(QuickShapeType.RECTANGLE, emptyList(), Point2D(0f, 0f), 60f, 30f, 0.3f)
+        assertEquals(0f, QuickShapeGeometry.snappedToAngle(rect, 90f).rotationRad, 0.001f)
+        assertEquals(45f * PI.toFloat() / 180f, QuickShapeGeometry.snappedToAngle(rect, 45f).rotationRad, 0.001f)
+    }
+
+    @Test fun `snap to angle rotates a quadrilateral so its first edge hits the target`() {
+        val quad = QuickShapeResult(
+            QuickShapeType.QUADRILATERAL,
+            listOf(Point2D(0f, 0f), Point2D(100f, 20f), Point2D(110f, 80f), Point2D(10f, 60f)),
+            Point2D(55f, 40f),
+        )
+        val snapped = QuickShapeGeometry.snappedToAngle(quad, 0f)
+        val a = snapped.points[0]
+        val b = snapped.points[1]
+        assertEquals(0f, atan2(b.y - a.y, b.x - a.x), 0.001f)
+    }
+
+    @Test fun `rotate updates parametric rotation and keeps the centre`() {
+        val ellipse = QuickShapeResult(QuickShapeType.ELLIPSE, emptyList(), Point2D(10f, 20f), 60f, 30f, 0f)
+        val rotated = QuickShapeGeometry.rotatedBy(ellipse, (PI / 2).toFloat())
+        assertEquals((PI / 2).toFloat(), rotated.rotationRad, 0.001f)
+        assertEquals(10f, rotated.center.x, 0.001f)
+        assertEquals(20f, rotated.center.y, 0.001f)
+    }
+
+    @Test fun `rotate turns vertex shapes around their centre`() {
+        val tri = QuickShapeResult(
+            QuickShapeType.TRIANGLE,
+            listOf(Point2D(10f, 0f), Point2D(0f, 10f), Point2D(-10f, 0f)),
+            Point2D(0f, 0f),
+        )
+        val rotated = QuickShapeGeometry.rotatedBy(tri, (PI / 2).toFloat())
+        assertEquals(0f, rotated.points[0].x, 0.01f)
+        assertEquals(10f, rotated.points[0].y, 0.01f)
+    }
+
+    @Test fun `scale grows and shrinks radii with a floor`() {
+        val circle = QuickShapeResult(QuickShapeType.CIRCLE, emptyList(), Point2D(0f, 0f), 50f, 50f)
+        assertEquals(100f, QuickShapeGeometry.scaledBy(circle, 2f).radiusX, 0.001f)
+        assertEquals(1f, QuickShapeGeometry.scaledBy(circle, 0.0001f).radiusX, 0.001f)
+    }
+
+    @Test fun `rotate and scale ignore degenerate input`() {
+        val line = QuickShapeResult(QuickShapeType.LINE, listOf(Point2D(0f, 0f), Point2D(10f, 0f)), Point2D(5f, 0f))
+        assertEquals(line, QuickShapeGeometry.rotatedBy(line, Float.NaN))
+        assertEquals(line, QuickShapeGeometry.scaledBy(line, 0f))
+        assertEquals(line, QuickShapeGeometry.scaledBy(line, Float.NaN))
+        assertEquals(line, QuickShapeGeometry.snappedToAngle(line, Float.NaN))
+    }
 }

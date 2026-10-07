@@ -2402,6 +2402,13 @@
     <string name="quick_shape_context_changed">Canvas changed; shape editing ended</string>
     <string name="quick_shape_failed">Could not draw the shape. Retry or keep the freehand stroke</string>
     <string name="quick_shape_edit_hint">Drag to move; drag handles to resize or rotate\nOriginal stroke stays as reference; Done replaces it with your current brush</string>
+    <string name="quick_shape_snap_horizontal">Horizontal</string>
+    <string name="quick_shape_snap_vertical">Vertical</string>
+    <string name="quick_shape_snap_diagonal">45°</string>
+    <string name="quick_shape_rotate_ccw">Rotate -15°</string>
+    <string name="quick_shape_rotate_cw">Rotate +15°</string>
+    <string name="quick_shape_scale_down">Smaller</string>
+    <string name="quick_shape_scale_up">Larger</string>
     <string name="quick_shape_keep_freehand">Keep freehand</string>
     <string name="quick_shape_line">Line</string>
     <string name="quick_shape_circle">Circle</string>

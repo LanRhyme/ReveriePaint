@@ -4,6 +4,7 @@ package com.reverie.paint.core
 import com.reverie.paint.R
 import com.reverie.paint.model.QuickShapeGeometry
 import com.reverie.paint.model.QuickShapeResult
+import kotlin.math.PI
 
 internal data class QuickShapeDraft(
     val original: FloatArray,
@@ -116,4 +117,30 @@ private fun PaintViewModel.finishQuickShape(restoreOriginal: Boolean) {
         }
         scheduleRender(immediate = true)
     }
+}
+
+
+/**
+ * 胶囊轴向按钮: 精确摆到指定朝向 (水平 0 / 垂直 90 / 45 度), 不受识别期容差限制。
+ * 只改 activeQuickShape, 由编辑器叠加层即时重绘; 提交路径不变。
+ */
+internal fun PaintViewModel.snapQuickShapeToAngle(targetDeg: Float) {
+    if (!targetDeg.isFinite()) return
+    val shape = activeQuickShape ?: return
+    val updated = QuickShapeGeometry.snappedToAngle(shape, targetDeg)
+    if (updated != shape) activeQuickShape = updated
+}
+
+/** 胶囊旋转按钮: 逆时针为正, 单位度 */
+internal fun PaintViewModel.rotateQuickShapeBy(deltaDeg: Float) {
+    if (!deltaDeg.isFinite()) return
+    val shape = activeQuickShape ?: return
+    activeQuickShape = QuickShapeGeometry.rotatedBy(shape, deltaDeg * (PI.toFloat() / 180f))
+}
+
+/** 胶囊缩放按钮: factor > 1 放大 */
+internal fun PaintViewModel.scaleQuickShapeBy(factor: Float) {
+    if (!factor.isFinite() || factor <= 0f) return
+    val shape = activeQuickShape ?: return
+    activeQuickShape = QuickShapeGeometry.scaledBy(shape, factor)
 }

@@ -138,4 +138,114 @@ object QuickShapeGeometry {
             shape.copy(radiusX = radius, radiusY = radius)
         } else shape.copy(radiusX = rx, radiusY = ry)
     }
+
+    /**
+     * 绕中心旋转 (弧度, 正为逆时针)。
+     * 参数化类型 (圆/椭圆/矩形) 只累加 rotationRad; 顶点式类型逐点绕 center 旋转;
+     * 圆弧同时更新 rotationRad 与三个定义点, 保持几何一致。
+     */
+    fun rotatedBy(shape: QuickShapeResult, deltaRad: Float): QuickShapeResult {
+        if (!deltaRad.isFinite()) return shape
+        val cosR = cos(deltaRad)
+        val sinR = sin(deltaRad)
+        return when (shape.type) {
+            QuickShapeType.CIRCLE, QuickShapeType.ELLIPSE, QuickShapeType.RECTANGLE ->
+                if (!shape.rotationRad.isFinite()) shape
+                else shape.copy(rotationRad = normalizeRad(shape.rotationRad + deltaRad))
+            QuickShapeType.ARC ->
+                if (!shape.rotationRad.isFinite()) shape
+                else shape.copy(
+                    rotationRad = normalizeRad(shape.rotationRad + deltaRad),
+                    points = shape.points.map { rotateAround(it, shape.center, cosR, sinR) },
+                )
+            QuickShapeType.NONE -> shape
+            else -> {
+                if (shape.points.isEmpty() || shape.points.any { !it.x.isFinite() || !it.y.isFinite() }) return shape
+                shape.copy(points = shape.points.map { rotateAround(it, shape.center, cosR, sinR) })
+            }
+        }
+    }
+
+    /** 以中心为基点缩放 (factor > 1 放大); 半径/顶点都有最小尺寸保护 */
+    fun scaledBy(shape: QuickShapeResult, factor: Float): QuickShapeResult {
+        if (!factor.isFinite() || factor <= 0f) return shape
+        return when (shape.type) {
+            QuickShapeType.CIRCLE, QuickShapeType.ELLIPSE, QuickShapeType.RECTANGLE ->
+                if (!shape.radiusX.isFinite() || !shape.radiusY.isFinite()) shape
+                else shape.copy(
+                    radiusX = maxOf(shape.radiusX * factor, MIN_SHAPE_SIZE),
+                    radiusY = maxOf(shape.radiusY * factor, MIN_SHAPE_SIZE),
+                )
+            QuickShapeType.ARC ->
+                if (!shape.radiusX.isFinite()) shape
+                else shape.copy(
+                    radiusX = maxOf(shape.radiusX * factor, MIN_SHAPE_SIZE),
+                    points = shape.points.map { scaleAround(it, shape.center, factor) },
+                )
+            QuickShapeType.NONE -> shape
+            else -> {
+                if (shape.points.isEmpty() || shape.points.any { !it.x.isFinite() || !it.y.isFinite() }) return shape
+                shape.copy(points = shape.points.map { scaleAround(it, shape.center, factor) })
+            }
+        }
+    }
+
+    /**
+     * 精确摆正到指定朝向 (度)。
+     * 与识别期的吸附容差无关: 用户点名要哪个角度就摆到哪个角度。
+     * 直线按目标角重建 (保中点与长度); 矩形把旋转角折叠到 [0,90); 四边形/轮廓整体旋转首边到目标角。
+     */
+    fun snappedToAngle(shape: QuickShapeResult, targetDeg: Float): QuickShapeResult {
+        if (!targetDeg.isFinite()) return shape
+        val target = normalizeDeg(targetDeg)
+        return when (shape.type) {
+            QuickShapeType.LINE -> {
+                if (shape.points.size != 2) return shape
+                val p0 = shape.points[0]
+                val p1 = shape.points[1]
+                if (!p0.x.isFinite() || !p0.y.isFinite() || !p1.x.isFinite() || !p1.y.isFinite()) return shape
+                val len = hypot(p1.x - p0.x, p1.y - p0.y)
+                if (!len.isFinite() || len <= 0f) return shape
+                val mid = Point2D((p0.x + p1.x) / 2f, (p0.y + p1.y) / 2f)
+                val rad = target * DEG_TO_RAD
+                val half = len / 2f
+                shape.copy(
+                    points = listOf(
+                        Point2D(mid.x - half * cos(rad), mid.y - half * sin(rad)),
+                        Point2D(mid.x + half * cos(rad), mid.y + half * sin(rad)),
+                    ),
+                    center = mid,
+                )
+            }
+            QuickShapeType.RECTANGLE -> {
+                if (!shape.rotationRad.isFinite()) shape
+                else shape.copy(rotationRad = ((target % 90f) + 90f) % 90f * DEG_TO_RAD)
+            }
+            QuickShapeType.QUADRILATERAL, QuickShapeType.CONTOUR -> {
+                val vs = shape.points
+                if (vs.size < 2 || vs.any { !it.x.isFinite() || !it.y.isFinite() }) return shape
+                val cur = atan2(vs[1].y - vs[0].y, vs[1].x - vs[0].x)
+                if (!cur.isFinite()) return shape
+                rotatedBy(shape, target * DEG_TO_RAD - cur)
+            }
+            else -> shape
+        }
+    }
+
+    private fun rotateAround(p: Point2D, c: Point2D, cosR: Float, sinR: Float): Point2D {
+        val d = p - c
+        return c + Point2D(d.x * cosR - d.y * sinR, d.x * sinR + d.y * cosR)
+    }
+
+    private fun scaleAround(p: Point2D, c: Point2D, factor: Float): Point2D = c + (p - c) * factor
+
+    private fun normalizeRad(a: Float): Float = atan2(sin(a), cos(a))
+
+    private fun normalizeDeg(deg: Float): Float {
+        val d = deg % 360f
+        return if (d < 0f) d + 360f else d
+    }
+
+    private const val DEG_TO_RAD = 0.017453292f
+    private const val MIN_SHAPE_SIZE = 1f
 }
