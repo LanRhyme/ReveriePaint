@@ -11,6 +11,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
@@ -89,8 +90,21 @@ internal fun QuickShapeEditor(
                 transform.docToScreen(p.x, p.y, point)
                 if (i == 0) path.moveTo(point[0], point[1]) else path.lineTo(point[0], point[1])
             }
-            drawPath(path, Morandi.panel, style = Stroke(width = 5f * density))
-            drawPath(path, Morandi.accent, style = Stroke(width = 2f * density))
+            // 形状标识框: 与笔刷同宽、均粗、半透明的轮廓 (与本地实现一致),
+            // 让"现在是什么形状"一目了然, 又不会盖住底下真实笔触的轻重变化。
+            val outlineColor = runCatching { Color(android.graphics.Color.parseColor(vm.brushColor)) }
+                .getOrDefault(Morandi.accent)
+                .copy(alpha = 0.55f)
+            val outlineWidth = (vm.brushSize.toFloat() * zoom.value * fitScale).coerceAtLeast(1f)
+            drawPath(
+                path = path,
+                color = outlineColor,
+                style = Stroke(
+                    width = outlineWidth,
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                    join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                ),
+            )
             handles.forEachIndexed { i, p ->
                 transform.docToScreen(p.x, p.y, point)
                 val pos = Offset(point[0], point[1])
