@@ -3,68 +3,37 @@ package com.reverie.paint.model
 
 import org.junit.Assert.*
 import org.junit.Test
-import java.io.ByteArrayOutputStream
-import java.util.zip.ZipEntry
-import java.util.zip.ZipOutputStream
+import java.io.File
 
 class ProjectReferencesTest {
-    private fun zip(vararg entries: Pair<String, ByteArray>) = ByteArrayOutputStream().also { out ->
-        ZipOutputStream(out).use { zip ->
-            for ((name, bytes) in entries) {
-                zip.putNextEntry(ZipEntry(name)); zip.write(bytes); zip.closeEntry()
-            }
-        }
-    }.toByteArray()
-
-    @Test fun `view state preserves image transform and display choices`() {
+    @Test fun `valid display choices retain transforms`() {
         val state = ReferenceViewState(true, true, true, 1, true, 2.5f, -37f, -123f, 876f)
-        assertEquals(state, ProjectReferences.decodeState(ProjectReferences.encodeState(state)))
+        assertEquals(state, ProjectReferences.validState(state))
     }
 
-    @Test fun `missing truncated unknown and nonfinite state uses safe defaults`() {
-        val invalid = listOf(null, byteArrayOf(1), ByteArray(28),
-            ProjectReferences.encodeState(ReferenceViewState(zoom = Float.NaN)),
-            ProjectReferences.encodeState(ReferenceViewState(panX = Float.POSITIVE_INFINITY)),
-            ProjectReferences.encodeState(ReferenceViewState(tab = 9)),
-            ProjectReferences.encodeState(ReferenceViewState(zoom = 0f)))
-        for (bytes in invalid) assertEquals(ReferenceViewState(), ProjectReferences.decodeState(bytes))
+    @Test fun `invalid display values fall back safely`() {
+        for (state in listOf(ReferenceViewState(zoom = Float.NaN), ReferenceViewState(zoom = 0f),
+            ReferenceViewState(zoom = 129f), ReferenceViewState(tab = 2),
+            ReferenceViewState(rotation = Float.NEGATIVE_INFINITY),
+            ReferenceViewState(panX = Float.POSITIVE_INFINITY), ReferenceViewState(panY = Float.NaN))) {
+            assertEquals(ReferenceViewState(), ProjectReferences.validState(state))
+        }
     }
 
-    @Test fun `image bundle preserves ordering and exact bytes without local paths`() {
-        val images = listOf(byteArrayOf(4, 8, 15), byteArrayOf(16, 23, 42))
-        val restored = ProjectReferences.decodeImages(ProjectReferences.encodeImages(images))
-        assertEquals(images.size, restored.size)
-        images.zip(restored).forEach { (a, b) -> assertArrayEquals(a, b) }
+    private fun path(vararg parts: String) = parts.joinToString(File.separator)
+
+    @Test fun `rename keeps a single artwork mapping`() {
+        assertEquals(path("projects", "new.revp"), ProjectReferences.movedPath(
+            path("projects", "old.revp"), path("projects", "old.revp"), path("projects", "new.revp")))
     }
 
-    @Test fun `cleared images have nonempty encoding and replace a previous bundle`() {
-        val cleared = ProjectReferences.encodeImages(emptyList())
-        assertTrue(cleared.isNotEmpty())
-        assertTrue(ProjectReferences.decodeImages(cleared).isEmpty())
-        assertTrue(ProjectReferences.decodeImages(null).isEmpty())
-        assertFalse(cleared.contentEquals(ProjectReferences.encodeImages(listOf(byteArrayOf(1)))))
+    @Test fun `folder move follows nested artworks`() {
+        assertEquals(path("other", "nested", "a.revp"), ProjectReferences.movedPath(
+            path("projects", "nested", "a.revp"), "projects", "other"))
     }
 
-    @Test fun `unexpected names directories gaps and empty payloads are rejected`() {
-        val invalid = listOf(zip("../0.png" to byteArrayOf(1)), zip("1.png" to byteArrayOf(1)),
-            zip("0.png/" to byteArrayOf(1)), zip("0.png" to byteArrayOf()),
-            zip("0.png" to byteArrayOf(1), "2.png" to byteArrayOf(2)), ByteArray(22))
-        for (bytes in invalid) assertTrue(runCatching { ProjectReferences.decodeImages(bytes) }.isFailure)
-    }
-
-    @Test fun `bundle count and decoded byte budgets are enforced`() {
-        assertTrue(runCatching {
-            ProjectReferences.encodeImages(List(ProjectReferences.MAX_IMAGES + 1) { byteArrayOf(1) })
-        }.isFailure)
-        // Small compressed input with an oversized decompressed entry, independent of ZIP size claims.
-        val bomb = ByteArrayOutputStream().also { out ->
-            ZipOutputStream(out).use { zip ->
-                zip.putNextEntry(ZipEntry("0.png"))
-                val block = ByteArray(1024 * 1024)
-                repeat(65) { zip.write(block) }
-                zip.closeEntry()
-            }
-        }.toByteArray()
-        assertTrue(runCatching { ProjectReferences.decodeImages(bomb) }.isFailure)
+    @Test fun `similar prefix cannot move or delete another artwork`() {
+        assertNull(ProjectReferences.movedPath(path("projects-backup", "a.revp"), "projects", "other"))
+        assertNull(ProjectReferences.movedPath("a.revp.bak", "a.revp", "b.revp"))
     }
 }

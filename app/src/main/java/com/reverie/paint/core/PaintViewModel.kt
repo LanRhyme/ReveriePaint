@@ -869,9 +869,17 @@ class PaintViewModel : ViewModel() {
     @Volatile internal var referenceSession: Long = 0
     @Volatile internal var referenceOperation: Long = 0
     internal var referenceImportJob: Job? = null
+    internal var referenceRestoreJob: Job? = null
     internal var referenceImportActive = false
     internal var referenceLoading = false
-    internal var referenceSavedState = ByteArray(0)
+    internal var referenceSavedState = com.reverie.paint.model.ReferenceViewState()
+    @Volatile internal var referenceProfileId = java.util.UUID.randomUUID().toString()
+    internal val referenceStore by lazy { LocalReferenceStore(appContext) }
+    internal val referenceIoMutex = kotlinx.coroutines.sync.Mutex()
+    var referenceCacheBytes by mutableLongStateOf(0L)
+        internal set
+    var referenceCacheClearing by mutableStateOf(false)
+        internal set
     var hasLegacyReferenceImages by mutableStateOf(false)
         internal set
 

@@ -2355,6 +2355,13 @@
     <string name="tl_expand_group">展开该组</string>
     <string name="f2l_progress">正在拆分 %1$d / %2$d</string>
     <string name="f2l_running">拆分中…</string>
+    <string name="reference_cache_title">参考图缓存</string>
+    <string name="reference_cache_clear">清除参考图缓存</string>
+    <string name="reference_cache_size">本机参考图占用 %1$s，不随作品文件传输</string>
+    <string name="reference_cache_confirm">清除本机所有作品的参考图副本、显示状态及旧版参考图缓存，包括当前作品。之后需要重新添加参考图。作品文件、相册原图和窗口位置设置不会被删除</string>
+    <string name="reference_cache_clearing">正在清除参考图缓存…</string>
+    <string name="reference_cache_cleared">参考图缓存已清除</string>
+    <string name="reference_cache_failed">部分参考图缓存未能清除，请重试</string>
     <string name="reference_import_legacy">导入旧版参考图</string>
     <string name="reference_import_failed">参考图导入失败，已保留原有图片</string>
     <string name="reference_restore_failed">部分参考数据无法读取，请重新添加参考图</string>

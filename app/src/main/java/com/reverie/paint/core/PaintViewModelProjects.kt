@@ -54,7 +54,8 @@ internal fun PaintViewModel.saveProject(
     name: String,
     onComplete: (() -> Unit)? = null,
 ) {
-    if (deferForReferenceImport { saveProject(name, onComplete) }) return
+    val referenceProfile = referenceProfileId
+    val previousReferencePath = currentProjectFile
     tickPaintingTimer()
     isBlockingLoading = true
     blockingLoadingMessage = getString(R.string.project_saving_progress)
@@ -68,6 +69,10 @@ internal fun PaintViewModel.saveProject(
                 return@runCore
             }
             currentProjectFile = targetFile.absolutePath
+            // Renaming from the save dialog moves this working association; do not let the
+            // previous file and the renamed artwork share a mutable reference selection.
+            previousReferencePath?.takeIf { it != targetFile.absolutePath }?.let(referenceStore::forgetPath)
+            referenceStore.bind(targetFile.absolutePath, referenceProfile)
             initialStrokeCount = totalStrokes
             isModified = false
             docName = name
@@ -77,6 +82,7 @@ internal fun PaintViewModel.saveProject(
             if (autoSaveFile.exists()) {
                 autoSaveFile.delete()
             }
+            referenceStore.forgetPath(autoSaveFile.absolutePath)
             val autoSaveTmp = File(autoSaveDir(), "$name.autosave.revp.tmp")
             if (autoSaveTmp.exists()) {
                 autoSaveTmp.delete()
@@ -129,7 +135,7 @@ internal fun PaintViewModel.saveProject(
 }
 
 internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
-    if (isAutoSaving || isBlockingLoading || referenceImportActive) return
+    if (isAutoSaving || isBlockingLoading) return
     val touchView = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
     if (touchView?.isInteracting == true || touchView?.isTransformActive == true) return
 
@@ -140,6 +146,7 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
     val layerCount = layers.size
     val currentMasterPath = currentProjectFile?.takeIf { !it.contains(".autosave") && !it.contains(".emergency") } ?: ""
     val autoSaveFile = File(autoSaveDir(), "$name.autosave.revp")
+    val referenceProfile = referenceProfileId
 
     runCore(
         render = false,
@@ -194,6 +201,7 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
                             false
                         }
                         if (isValid) {
+                            referenceStore.bind(autoSaveFile.absolutePath, referenceProfile)
                             AutoSaveHistoryManager.recordSnapshot(
                                 context = appContext,
                                 sourceRevpFile = autoSaveFile,
@@ -237,6 +245,7 @@ internal fun PaintViewModel.emergencySaveOnCrash() {
         val recBlob = try { recorder.serialize() } catch (_: Throwable) { null }
         val saved = ReverieCoreBridge.saveRevp(emergencyFile.absolutePath, extraJson, recBlob)
         if (saved && emergencyFile.exists() && emergencyFile.length() > 0) {
+            referenceStore.bind(emergencyFile.absolutePath, referenceProfileId)
             AutoSaveHistoryManager.recordSnapshot(
                 context = appContext,
                 sourceRevpFile = emergencyFile,
@@ -277,6 +286,9 @@ internal fun PaintViewModel.restoreAutoSaveSnapshot(snapshot: AutoSaveSnapshot, 
         filePath = targetFile.absolutePath,
         isAutoSaved = false,
     )
+    // Reference copies are local working aids, not historical snapshot contents.
+    // A restored copy starts without references; restoring the original may reuse its local mapping.
+    if (asCopy) referenceStore.forgetPath(targetFile.absolutePath)
     loadProject(project)
 }
 
@@ -287,6 +299,7 @@ internal fun PaintViewModel.discardAndExit() {
     if (autoSaveFile.exists()) {
         autoSaveFile.delete()
     }
+    forgetLocalReferences(autoSaveFile)
     val autoSaveTmp = File(autoSaveDir(), "$name.autosave.revp.tmp")
     if (autoSaveTmp.exists()) {
         autoSaveTmp.delete()
@@ -295,6 +308,7 @@ internal fun PaintViewModel.discardAndExit() {
     if (emergencyFile.exists()) {
         emergencyFile.delete()
     }
+    forgetLocalReferences(emergencyFile)
     if (currentProjectFile != null && (currentProjectFile!!.contains(".autosave") || currentProjectFile!!.contains(".emergency"))) {
         val f = File(currentProjectFile!!)
         if (f.exists()) f.delete()
@@ -334,10 +348,13 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     }
 
     var loadedCollapsedGroups: Set<String> = emptySet()
-    var referenceRestoreScheduled = false
+    var documentLoaded = false
     runCore(
         after = {
-            if (referenceSession == referenceLoadSession && !referenceRestoreScheduled) referenceLoading = false
+            if (referenceSession == referenceLoadSession) {
+                if (documentLoaded) restoreLocalProjectReferences(p.filePath)
+                else referenceLoading = false
+            }
             collapsedGroupNames = loadedCollapsedGroups
             initialStrokeCount = p.strokeCount
             totalStrokes = p.strokeCount
@@ -406,9 +423,7 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                     ReverieCoreBridge.loadPng(file.absolutePath)
                 }
             if (ok) {
-                if (!file.extension.equals("revp", ignoreCase = true)) resetNativeProjectReferences()
-                restoreProjectReferencesOnRender(referenceLoadSession)
-                referenceRestoreScheduled = true
+                documentLoaded = true
                 coreW = ReverieCoreBridge.docWidth()
                 coreH = ReverieCoreBridge.docHeight()
                 renderW = coreW
@@ -496,7 +511,7 @@ internal fun PaintViewModel.moveProjectToFolder(
     val destDir = if (targetFolderName.isNullOrBlank()) root else File(root, targetFolderName)
     if (!destDir.exists()) destDir.mkdirs()
     val destFile = File(destDir, srcFile.name)
-    srcFile.renameTo(destFile)
+    if (srcFile.renameTo(destFile)) referenceStore.move(srcFile, destFile)
     refreshProjects()
 }
 
@@ -510,6 +525,7 @@ internal fun PaintViewModel.deleteProject(p: com.reverie.paint.model.Project) {
         val file = File(p.filePath)
         if (file.exists()) file.delete()
     }
+    if (!File(p.filePath).exists()) forgetLocalReferences(File(p.filePath))
     refreshProjects()
 }
 
@@ -525,7 +541,7 @@ internal fun PaintViewModel.renameProject(
             } else {
                 File(file.parentFile, "${newName.trim()}.${file.extension}")
             }
-        file.renameTo(target)
+        if (file.renameTo(target)) referenceStore.move(file, target)
     }
     refreshProjects()
 }
@@ -545,6 +561,7 @@ internal fun PaintViewModel.deleteProjects(projects: List<com.reverie.paint.mode
             val file = File(p.filePath)
             if (file.exists()) file.delete()
         }
+        if (!File(p.filePath).exists()) forgetLocalReferences(File(p.filePath))
     }
     refreshProjects()
 }
@@ -908,7 +925,6 @@ internal fun PaintViewModel.exportDocument(
     onSuccess: (java.io.File) -> Unit,
     onError: (String) -> Unit = {},
 ) {
-    if (deferForReferenceImport { exportDocument(format, targetFile, embedAuthor, onSuccess, onError) }) return
     val fmt = format.lowercase()
     runCore(render = false) {
         if (!embedAuthor || !authorProfile.enabled) {
@@ -1133,10 +1149,7 @@ internal fun PaintViewModel.goHome() {
     // tile) 一直驻留内存, 重新打开时新旧文档共存推高峰值内存 (大文档被 LMK
     // 杀进程)。排队到渲染线程, FIFO 保证已排队的引擎操作先完成; 之后残留的
     // 渲染/保存调用在 C++ 侧空文档防护中安全返回。
-    runCore(render = false) {
-        resetNativeProjectReferences()
-        ReverieCoreBridge.closeDocument()
-    }
+    runCore(render = false) { ReverieCoreBridge.closeDocument() }
     currentProjectFile = null
     docName = ""
     isModified = false
@@ -1243,7 +1256,6 @@ internal fun PaintViewModel.startPainting(
     ) {
         try {
             if (ReverieCoreBridge.newDocument(w, h)) {
-                resetNativeProjectReferences()
                 coreW = w
                 coreH = h
                 renderW = w

@@ -200,6 +200,8 @@ internal fun GeneralSettingsSubPage(
                 )
             }
 
+            ReferenceCacheSettings(vm)
+
             // Section 4: 诊断 (性能标尺)。debug 构建才有内容, 正式版是空实现 ——
             // 见 [com.reverie.paint.perf.PerfHud]。
             PerfHud.SettingsSection(vm)
