@@ -20,6 +20,9 @@ import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.togetherWith
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.graphics.compositeOver
+import androidx.compose.runtime.DisposableEffect
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Canvas
@@ -653,6 +656,15 @@ internal fun LayerRowContent(
             verticalArrangement = Arrangement.Center,
         ) {
             var lastNameTapTime by remember(layer.index) { mutableLongStateOf(0L) }
+            var pendingDetailJob by remember(layer.index) { mutableStateOf<Job?>(null) }
+            val coroutineScope = rememberCoroutineScope()
+
+            DisposableEffect(layer.index) {
+                onDispose {
+                    pendingDetailJob?.cancel()
+                }
+            }
+
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -661,13 +673,23 @@ internal fun LayerRowContent(
                         .clip(RoundedCornerShape(4.dp))
                         .noRippleClickable {
                             val now = android.os.SystemClock.uptimeMillis()
-                            if (now - lastNameTapTime < 350L) {
+                            if (now - lastNameTapTime < 300L) {
                                 lastNameTapTime = 0L
+                                pendingDetailJob?.cancel()
+                                pendingDetailJob = null
                                 onRename(layer.index, layer.name)
                             } else {
                                 lastNameTapTime = now
                                 if (!selected) {
+                                    pendingDetailJob?.cancel()
+                                    pendingDetailJob = null
                                     onClick()
+                                } else {
+                                    pendingDetailJob?.cancel()
+                                    pendingDetailJob = coroutineScope.launch {
+                                        delay(260L)
+                                        onClick()
+                                    }
                                 }
                             }
                         }
