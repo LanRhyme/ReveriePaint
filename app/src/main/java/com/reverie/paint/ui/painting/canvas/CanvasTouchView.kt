@@ -265,11 +265,6 @@ class CanvasTouchView(context: Context) : View(context) {
         strokeWidth = 0.9f * density
         color = android.graphics.Color.argb(240, 255, 255, 255)
     }
-    // DIAG-ONLY: 光标跟随诊断点 (定位后删除)
-    private val diagTipPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
-        style = Paint.Style.FILL
-        color = android.graphics.Color.MAGENTA
-    }
     private val crosshairPaintBlack = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeWidth = 1.2f * density
@@ -2467,13 +2462,6 @@ class CanvasTouchView(context: Context) : View(context) {
                     canvas.drawLine(effectiveCursorPos.x - len, effectiveCursorPos.y, effectiveCursorPos.x + len, effectiveCursorPos.y, crosshairPaintWhite)
                     canvas.drawLine(effectiveCursorPos.x, effectiveCursorPos.y - len, effectiveCursorPos.x, effectiveCursorPos.y + len, crosshairPaintWhite)
                 }
-            }
-
-            // DIAG-ONLY: 品红实心点 = 预测笔尖坐标 (activePredictedTipScreenX/Y)。
-            // 诊断判读: 品红点在指尖前方=预测延伸正常; 与光标环重合=跟随正常;
-            // 品红点在指尖=无前向延伸; 无品红点=跟随条件不成立。定位后删除。
-            if (v.frontBufferPredictionEnabled && localIsTouching) {
-                canvas.drawCircle(activePredictedTipScreenX, activePredictedTipScreenY, 6f * density, diagTipPaint)
             }
 
             // 对称辅助光标镜像绘制 (支持垂直/水平/四象限/径向多分支)
