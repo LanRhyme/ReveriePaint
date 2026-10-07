@@ -480,14 +480,20 @@ class CanvasTouchView(context: Context) : View(context) {
             liveSelectionPath?.value = null
             return
         }
-        val docW = docBitmap?.width ?: vm?.docWidth ?: 1
-        val docH = docBitmap?.height ?: vm?.docHeight ?: 1
-        val halfW = docW / 2f
-        val halfH = docH / 2f
+        val v = vm
+        val bmp = v?.displayBitmap ?: docBitmap
+        val bmpW = (bmp?.width ?: v?.renderW?.takeIf { it > 0 } ?: v?.docWidth ?: 1).toFloat()
+        val bmpH = (bmp?.height ?: v?.renderH?.takeIf { it > 0 } ?: v?.docHeight ?: 1).toFloat()
+        val docW = (if (v != null && v.docWidth > 0) v.docWidth else bmpW.toInt()).toFloat()
+        val docH = (if (v != null && v.docHeight > 0) v.docHeight else bmpH.toInt()).toFloat()
+        val scX = bmpW / docW
+        val scY = bmpH / docH
+        val halfW = bmpW / 2f
+        val halfH = bmpH / 2f
         val p = Path().apply {
-            moveTo(points[0].x - halfW, points[0].y - halfH)
+            moveTo(points[0].x * scX - halfW, points[0].y * scY - halfH)
             for (j in 1 until points.size) {
-                lineTo(points[j].x - halfW, points[j].y - halfH)
+                lineTo(points[j].x * scX - halfW, points[j].y * scY - halfH)
             }
             if (closed) {
                 close()
@@ -3533,7 +3539,11 @@ class CanvasTouchView(context: Context) : View(context) {
                 } else {
                     val now = android.os.SystemClock.uptimeMillis()
                     val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
-                    val snapDistThreshold = (24f * density) / currentScale
+                    val bmp = v.displayBitmap ?: docBitmap
+                    val bmpW = (bmp?.width ?: v.renderW.takeIf { it > 0 } ?: v.docWidth).toFloat()
+                    val docW = (if (v.docWidth > 0) v.docWidth else bmpW.toInt()).toFloat()
+                    val bmpPerDoc = (bmpW / docW).coerceAtLeast(0.001f)
+                    val snapDistThreshold = (24f * density) / (currentScale * bmpPerDoc)
 
                     // 双击闭合 (至少已有3个点时双击直接闭合选区)
                     if (v.lassoMultiPoints.size >= 3 && now - lastLassoTapTimeMs < 350L &&
@@ -4559,11 +4569,15 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                     lassoPoints.clear()
                 } else {
-                    val dragDist = hypot(docPos.x - firstDocPos.x, docPos.y - firstDocPos.y)
-                    val isTap = dragDist < 8f * density && lassoPoints.size <= 3
-
+                    val bmp = v.displayBitmap ?: docBitmap
+                    val bmpW = (bmp?.width ?: v.renderW.takeIf { it > 0 } ?: v.docWidth).toFloat()
+                    val docW = (if (v.docWidth > 0) v.docWidth else bmpW.toInt()).toFloat()
+                    val bmpPerDoc = (bmpW / docW).coerceAtLeast(0.001f)
                     val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
-                    val snapDistThreshold = (24f * density) / currentScale
+                    val currentDocScale = maxOf(0.001f, currentScale * bmpPerDoc)
+                    val dragDist = hypot(docPos.x - firstDocPos.x, docPos.y - firstDocPos.y)
+                    val isTap = dragDist < (8f * density) / currentDocScale && lassoPoints.size <= 3
+                    val snapDistThreshold = (24f * density) / currentDocScale
 
                     // 1. 若已有 >= 3 个点，且本次抬手位置落在起点吸附阈值内，直接闭合提交（不重复追加起点）
                     if (v.lassoMultiPoints.size >= 3) {
