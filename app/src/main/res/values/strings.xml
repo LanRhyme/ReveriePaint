@@ -1683,6 +1683,8 @@
 
     <!-- 通用触控手写笔 -->
     <string name="stylus_generic_title">通用触控手写笔设置</string>
+    <string name="stylus_generic_enable_protocol">启用通用协议按键映射</string>
+    <string name="stylus_generic_enable_protocol_desc">为第三方标准触控协议手写笔启用侧键自定义与按住擦除，默认关闭以避免与三星、华为、小米等品牌原生手写笔产生按键冲突</string>
     <string name="stylus_generic_side_key">侧键行为</string>
     <string name="stylus_generic_key_mapping">按键动作映射</string>
     <string name="stylus_generic_primary_action">主按键 (Barrel 1)</string>

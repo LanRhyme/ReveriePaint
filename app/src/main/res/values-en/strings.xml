@@ -1683,6 +1683,8 @@
 
     <!-- Generic Stylus -->
     <string name="stylus_generic_title">Generic Stylus Settings</string>
+    <string name="stylus_generic_enable_protocol">Enable Generic Button Mapping</string>
+    <string name="stylus_generic_enable_protocol_desc">Enable barrel buttons and hold-to-erase for third-party standard styluses, disabled by default to prevent conflicts with Samsung, Huawei, Xiaomi, etc.</string>
     <string name="stylus_generic_side_key">Side Button Behavior</string>
     <string name="stylus_generic_key_mapping">Button Actions</string>
     <string name="stylus_generic_primary_action">Primary Button (Barrel 1)</string>
