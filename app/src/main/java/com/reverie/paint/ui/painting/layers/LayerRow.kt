@@ -652,21 +652,24 @@ internal fun LayerRowContent(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.Center,
         ) {
+            var lastNameTapTime by remember(layer.index) { mutableLongStateOf(0L) }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                 modifier = if (onRename != null && !isBg) {
                     Modifier
                         .clip(RoundedCornerShape(4.dp))
-                        .pointerInput(layer.index, layer.name) {
-                            detectTapGestures(
-                                onDoubleTap = {
-                                    onRename(layer.index, layer.name)
-                                },
-                                onTap = {
+                        .noRippleClickable {
+                            val now = android.os.SystemClock.uptimeMillis()
+                            if (now - lastNameTapTime < 350L) {
+                                lastNameTapTime = 0L
+                                onRename(layer.index, layer.name)
+                            } else {
+                                lastNameTapTime = now
+                                if (!selected) {
                                     onClick()
-                                },
-                            )
+                                }
+                            }
                         }
                 } else Modifier,
             ) {
