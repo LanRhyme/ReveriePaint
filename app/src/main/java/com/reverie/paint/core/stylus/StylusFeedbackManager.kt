@@ -81,11 +81,19 @@ class StylusFeedbackManager(private val context: Context) {
     }
 
     /**
+     * vivo 笔身书写振动钩子 (由 VivoStylusAdapter 注册; 内部自行处理型号能力与用户开关门控)。
+     * 必须在下方的 OPPO 系 early-return 之前调用 —— vivo 设备上 inPenHaptics 恒为 false,
+     * 若放到分支内会被直接跳过。调用点只有落笔/抬笔, 不在每帧热路径上。
+     */
+    var vivoWritingVibrateHook: ((Boolean) -> Unit)? = null
+
+    /**
      * Controls physical in-pen haptic micro-vibrations via ColorOS OCS AIDL.
      * When enabled on touchdown, triggers continuous in-pen micro-vibration;
      * on pen lift, immediately stops the vibration.
      */
     fun setWritingHapticsEnabled(enabled: Boolean, isEraser: Boolean = false) {
+        vivoWritingVibrateHook?.invoke(enabled)
         if (!hapticsEnabled || !inPenHaptics) {
             if (ocsClient.isAvailable) {
                 ocsClient.stopFeedBackVibration()

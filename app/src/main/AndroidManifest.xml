@@ -25,6 +25,9 @@
         <package android:name="com.hihonor.stylus" />
         <package android:name="com.hihonor.featurelayer.sharedfeature.stylus" />
         <package android:name="com.hihonor.penkit" />
+        <!-- vivo/iQOO 手写笔: penwrite = 手势/书写振动服务宿主, penalgoengine = 形状识别服务 -->
+        <package android:name="com.vivo.penwrite" />
+        <package android:name="com.vivo.penalgoengine" />
     </queries>
 
     <application

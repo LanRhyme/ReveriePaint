@@ -27,6 +27,7 @@ class StylusDriver(
         HonorStylusAdapter(),
         SamsungStylusAdapter(),
         XiaomiStylusAdapter(),
+        VivoStylusAdapter(),
         GenericStylusAdapter(),
     )
 
@@ -109,6 +110,10 @@ class StylusDriver(
         return getAdapter<XiaomiStylusAdapter>()?.detectModel(context) ?: XiaomiPencilModel.SMART_PEN_2
     }
 
+    fun detectVivoPencilModel(): VivoPencilModel {
+        return getAdapter<VivoStylusAdapter>()?.detectModel(context) ?: VivoPencilModel.VIVO_PENCIL2
+    }
+
     /**
      * Detects brand styluses and sorts them so the connected/supported stylus is pinned on top.
      */
@@ -189,8 +194,9 @@ class StylusDriver(
             StylusBrand.HONOR_MAGIC_PENCIL -> vm.honorSideButtonErase
             StylusBrand.SAMSUNG_SPEN -> vm.samsungSideButtonErase
             StylusBrand.XIAOMI_STYLUS -> vm.xiaomiSideButtonErase
+            StylusBrand.VIVO_PENCIL -> vm.vivoSideButtonErase
             StylusBrand.GENERIC -> vm.genericStylusEnabled && vm.genericSideButtonErase
-            else -> vm.huaweiSideButtonErase || vm.honorSideButtonErase || vm.samsungSideButtonErase || vm.xiaomiSideButtonErase || (vm.genericStylusEnabled && vm.genericSideButtonErase)
+            else -> vm.huaweiSideButtonErase || vm.honorSideButtonErase || vm.samsungSideButtonErase || vm.xiaomiSideButtonErase || vm.vivoSideButtonErase || (vm.genericStylusEnabled && vm.genericSideButtonErase)
         }
         if (!eraseAllowed) return false
         val btn = event.buttonState
@@ -266,6 +272,7 @@ class StylusDriver(
             StylusBrand.SAMSUNG_SPEN -> vm.samsungDoubleClickAction
             StylusBrand.XIAOMI_STYLUS -> vm.xiaomiDoubleTapAction
             StylusBrand.OPPO_ONEPLUS -> vm.oppoDoubleTapAction
+            StylusBrand.VIVO_PENCIL -> vm.vivoDoubleTapAction
             else -> "none"
         }
         if (actionId.trim().equals("none", ignoreCase = true)) return false
@@ -287,6 +294,7 @@ class StylusDriver(
             StylusBrand.HONOR_MAGIC_PENCIL -> vm.honorSingleClickAction
             StylusBrand.SAMSUNG_SPEN -> vm.samsungSingleClickAction
             StylusBrand.XIAOMI_STYLUS -> vm.xiaomiPrimaryButtonAction
+            StylusBrand.VIVO_PENCIL -> vm.vivoPrimaryClickAction
             StylusBrand.GENERIC -> if (vm.genericStylusEnabled) vm.genericPrimaryButtonAction else "none"
             else -> "none"
         }
