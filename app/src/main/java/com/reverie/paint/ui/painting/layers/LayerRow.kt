@@ -578,8 +578,8 @@ internal fun LayerRowContent(
                 .size(36.dp)
                 .clip(RoundedCornerShape(7.dp))
                 .border(
-                    width = if (layer.colorLabel > 0) 2.dp else 1.dp,
-                    color = if (layer.colorLabel > 0) layerLabelColor(layer.colorLabel) else Morandi.border.copy(alpha = 0.35f),
+                    width = 1.dp,
+                    color = Morandi.border.copy(alpha = 0.35f),
                     shape = RoundedCornerShape(7.dp),
                 ),
         ) {
@@ -622,6 +622,19 @@ internal fun LayerRowContent(
                         )
                     }
                 }
+            }
+
+            // Elegant color label badge at bottom-end of thumbnail
+            if (layer.colorLabel > 0) {
+                Box(
+                    modifier = Modifier
+                        .align(Alignment.BottomEnd)
+                        .padding(2.5.dp)
+                        .size(8.dp)
+                        .clip(CircleShape)
+                        .background(layerLabelColor(layer.colorLabel))
+                        .border(1.dp, Morandi.panel, CircleShape),
+                )
             }
         }
 
