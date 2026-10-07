@@ -51,6 +51,7 @@ fun DiagnosticsDialog(
     onDismiss: () -> Unit,
 ) {
     val context = LocalContext.current
+    val saveSuccessTemplate = stringResource(R.string.diagnostics_save_success_toast)
     var reportContent by remember { mutableStateOf<String?>(null) }
     var isLoading by remember { mutableStateOf(true) }
     var showFullLog by remember { mutableStateOf(false) }
@@ -247,7 +248,7 @@ fun DiagnosticsDialog(
                                 if (savedPath != null) {
                                     Toast.makeText(
                                         context,
-                                        context.getString(R.string.diagnostics_save_success_toast, savedPath),
+                                        String.format(saveSuccessTemplate, savedPath),
                                         Toast.LENGTH_LONG,
                                     ).show()
                                 } else {
