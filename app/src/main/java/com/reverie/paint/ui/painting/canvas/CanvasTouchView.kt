@@ -2134,8 +2134,8 @@ class CanvasTouchView(context: Context) : View(context) {
                         val prevPos = previousSinglePos
                         var angleOk = true
                         if (prevPos != Offset.Zero) {
-                            val v1x = curPos.x - prevPos.x
-                            val v1y = curPos.y - prevPos.y
+                            val v1x = localCursorX - prevPos.x
+                            val v1y = localCursorY - prevPos.y
                             val len1 = hypot(v1x, v1y)
                             if (len1 > 1.5f) {
                                 val dot = (v1x * dx + v1y * dy) / (len1 * dist)
@@ -2147,8 +2147,8 @@ class CanvasTouchView(context: Context) : View(context) {
 
                         if (angleOk) {
                             val clampDist = dist.coerceAtMost(maxDistPx)
-                            val endX = curPos.x + (dx / dist) * clampDist
-                            val endY = curPos.y + (dy / dist) * clampDist
+                            val endX = localCursorX + (dx / dist) * clampDist
+                            val endY = localCursorY + (dy / dist) * clampDist
 
                             val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
                             val cursorBrushSize = v.brushSize.toFloat()
@@ -2177,11 +2177,11 @@ class CanvasTouchView(context: Context) : View(context) {
                             )
                             tipShaderPaint.strokeWidth = strokeWidth
                             tipShaderPaint.shader = android.graphics.LinearGradient(
-                                curPos.x, curPos.y, endX, endY,
+                                localCursorX, localCursorY, endX, endY,
                                 startColor, endColor,
                                 android.graphics.Shader.TileMode.CLAMP
                             )
-                            canvas.drawLine(curPos.x, curPos.y, endX, endY, tipShaderPaint)
+                            canvas.drawLine(localCursorX, localCursorY, endX, endY, tipShaderPaint)
                         }
                     }
                 } catch (_: Throwable) {}

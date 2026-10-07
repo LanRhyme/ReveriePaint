@@ -62,7 +62,7 @@ object PerfTrace {
      * @Synchronized 会编译成 ACC_SYNCHRONIZED, 进方法体前就持锁 —— 方法内首行的
      * `if (!enabled) return` 快路径根本绕不开 monitor, 门是纸糊的 (PR #82 review)。
      * 改手动锁后, 纯诊断的记录方法才能把快路径真正放到锁外。
-     * 注意锁域: 本锁只保护 frontierErr*/presentWait* 字段族, 其他统计各有各的 @Synchronized,
+     * 注意锁域: 本锁只保护 frontier/presentWait 字段族, 其他统计各有各的 @Synchronized,
      * 字段不相交, 互不干扰。
      */
     private val traceLock = Any()
