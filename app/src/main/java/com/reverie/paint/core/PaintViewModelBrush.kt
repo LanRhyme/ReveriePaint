@@ -1691,11 +1691,6 @@ import kotlinx.coroutines.withContext
         runCore(render = false) { ReverieCoreBridge.setBrushSecondaryColor(c) }
     }
 
-    internal fun PaintViewModel.swapColors() {
-        val temp = brushColor
-        updateBrushColor(brushSecondaryColor)
-        updateBrushSecondaryColor(temp)
-    }
 
     internal fun PaintViewModel.updateBrushOpacity(v: Double, commit: Boolean = true) {
         brushOpacity = v

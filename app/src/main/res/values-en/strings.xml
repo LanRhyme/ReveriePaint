@@ -845,6 +845,28 @@
     <string name="quick_action_clear_layer">Clear Layer</string>
     <string name="quick_action_disable_touch">Disable Touch</string>
 
+    <!-- Quick Color Strings -->
+    <string name="tool_quick_color">Quick Color</string>
+    <string name="quick_color_window_title">Quick Color</string>
+    <string name="color_window_title">Color</string>
+    <string name="quick_action_toggle_quick_color">Quick Color</string>
+    <string name="quick_color_add_palette">Add to Palette</string>
+    <string name="quick_color_swap">Swap Colors</string>
+    <string name="quick_color_eyedropper">Eyedropper</string>
+
+    <!-- Quick Layer Strings -->
+    <string name="tool_quick_layer">Quick Layers</string>
+    <string name="quick_layer_window_title">Quick Layers</string>
+    <string name="quick_action_toggle_quick_layer">Quick Layers</string>
+    <string name="quick_layer_open_full_panel">Open Layers Panel</string>
+    <string name="quick_layer_opacity_format">Opacity %1$d%%</string>
+    <string name="quick_layer_new">New Layer</string>
+    <string name="quick_layer_duplicate">Duplicate Layer</string>
+    <string name="quick_layer_merge">Merge Down</string>
+    <string name="quick_layer_delete">Delete Layer</string>
+    <string name="quick_layer_alpha_lock">Lock Alpha</string>
+    <string name="quick_layer_empty">No Layers</string>
+
     <string name="settings_gesture_pen_hint">Note: Multi-touch gestures work regardless of stylus mode. Two-finger undo and three-finger redo remain available</string>
     <string name="settings_eyedropper_long_press_title">Long Press Eyedropper</string>
     <string name="settings_eyedropper_long_press_stylus_desc">Stylus mode active: long press canvas with finger or stylus to pick color</string>
@@ -2348,6 +2370,25 @@
     <string name="canvas_edit_previous_page">Previous actions</string>
     <string name="canvas_edit_next_page">Next actions</string>
     <string name="canvas_edit_page">%1$d / %2$d</string>
+    <string name="pattern_title">Patterns</string>
+    <string name="pattern_hint">Tiles the image, including transparency; large images are reduced to a maximum dimension of 2048 px</string>
+    <string name="pattern_import">Import pattern</string>
+    <string name="pattern_empty">No patterns yet. Import a PNG or JPG to get started</string>
+    <string name="pattern_import_failed">Cannot read this image. Try another PNG or JPG</string>
+    <string name="pattern_fill_failed">Cannot fill. Select an editable layer</string>
+    <string name="pattern_use_color">Use foreground color</string>
+    <string name="pattern_layer_choose">Choose fill pattern</string>
+    <string name="pattern_opacity">Pattern opacity</string>
+    <string name="pattern_scale_title">Pattern size</string>
+    <string name="pattern_scale_crisp">Sharp edges</string>
+    <string name="pattern_scale_smooth">Smooth</string>
+    <string name="pattern_scale_crisp_hint">For pixel art and linework. Keeps hard edges; shrinking may lose thin lines and enlarging may look jagged</string>
+    <string name="pattern_scale_smooth_hint">For photos and continuous textures. Softens edges; enlarging cannot add original detail</string>
+    <string name="pattern_scale_value">%1$d%% · %2$d × %3$d px</string>
+    <string name="pattern_scale_hint">Keeps the aspect ratio, up to 2048 px per side. Reset restores the imported size. The library image stays unchanged</string>
+    <string name="pattern_scale_failed">Cannot resize this pattern. Try a smaller scale</string>
+    <string name="pattern_delete_title">Delete pattern</string>
+    <string name="pattern_delete_confirm">Are you sure you want to delete this pattern? This cannot be undone</string>
 
     <!-- 帧转图层 -->
     <string name="f2l_menu">Frames to layers</string>
@@ -2367,6 +2408,16 @@
     <string name="tl_expand_group">Expand group</string>
     <string name="f2l_progress">Splitting %1$d / %2$d</string>
     <string name="f2l_running">Splitting…</string>
+    <string name="reference_cache_title">Reference cache</string>
+    <string name="reference_cache_clear">Clear reference cache</string>
+    <string name="reference_cache_size">Local references use %1$s and are not included in project files</string>
+    <string name="reference_cache_confirm">Remove local reference copies, display state and legacy reference cache for all artworks, including the current one. References will need to be added again. Artwork files, gallery originals and window position settings will be kept</string>
+    <string name="reference_cache_clearing">Clearing reference cache…</string>
+    <string name="reference_cache_cleared">Reference cache cleared</string>
+    <string name="reference_cache_failed">Some reference cache files could not be removed. Please retry</string>
+    <string name="reference_import_legacy">Import legacy references</string>
+    <string name="reference_import_failed">Could not import references; existing images were kept</string>
+    <string name="reference_restore_failed">Could not read reference data; please add the reference images again</string>
 
     <string name="quick_shape_quad_setting">Recognize quadrilaterals</string>
     <string name="quick_shape_quad_hint">Keep four drawn corners without forcing right angles; eight-point controls add resizing and contour editing</string>

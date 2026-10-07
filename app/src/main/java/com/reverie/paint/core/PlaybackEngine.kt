@@ -137,6 +137,7 @@ class ReplaySession(
 
     internal val reader = RecordingReader(events)
     internal var currentMs = 0L
+    internal var lastPatternPng: ByteArray? = null
     internal var pendingStep: Runnable? = null
     internal var lastProgressWallMs = 0L
     internal var lastStepWallMs = 0L
@@ -390,6 +391,7 @@ private fun PaintViewModel.updateReplayProgress(s: ReplaySession) {
 /** Runs inside a runCore op (render thread, before any replay dispatch). */
 internal fun PaintViewModel.resetReplayDocLocked(s: ReplaySession) {
     currentReplayPreset = -1
+    s.lastPatternPng = null
     currentReplayVersion = s.version
     val snap = s.snapshotFile
     var ok =
@@ -779,6 +781,13 @@ private fun PaintViewModel.dispatchToolOpLocked(
     r: RecordingReader,
 ) {
     when (op) {
+        com.reverie.paint.model.RecordingEvents.T_PATTERN_FILL -> {
+            val event = com.reverie.paint.model.PatternFillEvent.readFrom(r, replaySession?.lastPatternPng)
+            replaySession?.lastPatternPng = event.png
+            if (!applyPatternFillLocked(event)) {
+                android.util.Log.w("ReverieReplay", "Pattern fill skipped: target is not editable")
+            }
+        }
         T_SHAPE -> {
             val kind = r.u8()
             val x1 = r.f32()

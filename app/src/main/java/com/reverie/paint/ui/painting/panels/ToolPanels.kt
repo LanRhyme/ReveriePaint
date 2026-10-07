@@ -100,6 +100,12 @@ fun FillPanel(
     hazeState: HazeState? = null,
 ) {
     var propsOpen by remember { mutableStateOf(false) }
+    var showPatterns by remember { mutableStateOf(false) }
+    if (showPatterns) PatternPickerDialog(
+        onSelect = { vm.fillPattern = it },
+        onDismiss = { showPatterns = false },
+        onUseColor = { vm.fillPattern = null },
+    )
     val fillSampleOptions = getFillSampleOptions()
 
     ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
@@ -112,6 +118,12 @@ fun FillPanel(
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                ToolActionButton(
+                    iconRes = R.drawable.ic_grid,
+                    label = androidx.compose.ui.res.stringResource(R.string.pattern_title),
+                    active = vm.fillPattern != null,
+                    onClick = { showPatterns = true },
+                )
                 ToolBubbleDropdown(
                     items = fillSampleOptions,
                     selected = sampleLayers,
@@ -141,6 +153,7 @@ fun FillPanel(
                     verticalArrangement = Arrangement.spacedBy(6.dp),
                     modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
                 ) {
+                    if (vm.fillPattern != null) PatternFillProperties(vm)
                     ToolFloatSlider(
                         label = androidx.compose.ui.res.stringResource(R.string.fill_expand),
                         valueText = "${expand}px",

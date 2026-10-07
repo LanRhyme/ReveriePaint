@@ -312,6 +312,17 @@ internal fun LayerDetailPage(
         val isStrokeLayer = (layer?.isStrokeLayer == true) || (layer?.nodeType == 6)
 
         if (isFillLayer) {
+            var showPatterns by remember { mutableStateOf(false) }
+            androidx.compose.material3.TextButton(
+                onClick = { showPatterns = true },
+                modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp),
+            ) {
+                Text(stringResource(R.string.pattern_layer_choose), color = Morandi.accent)
+            }
+            if (showPatterns) com.reverie.paint.ui.painting.panels.PatternPickerDialog(
+                onSelect = { vm.setFillLayerPattern(index, it) },
+                onDismiss = { showPatterns = false },
+            )
             var showFillColorPicker by remember { mutableStateOf(false) }
             val currentFillColor = remember(layer?.fillColor) {
                 Color(layer?.fillColor ?: 0xFFFFFFFF.toInt())
@@ -1489,7 +1500,7 @@ internal fun BlendModesPage(
                     }
                     items(cat.opIds, key = { it }) { opId ->
                         val name = stringResource(blendModeResId(opId))
-                        val isSelected = opId == current
+                        val isSelected = opId == current || (opId == "difference" && current == "diff")
                         val rowSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
 
                         Box(
@@ -1555,7 +1566,7 @@ internal fun blendModeResId(opId: String): Int = when (opId) {
     "burn" -> R.string.blend_color_burn
     "linear_burn" -> R.string.blend_linear_burn
     "linear_dodge" -> R.string.blend_linear_dodge
-    "difference" -> R.string.blend_difference
+    "difference", "diff" -> R.string.blend_difference
     "add" -> R.string.blend_add
     "subtract" -> R.string.blend_subtract
     "divide" -> R.string.blend_divide

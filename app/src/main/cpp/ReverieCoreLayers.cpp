@@ -807,8 +807,9 @@ void ReverieCore::setLayerBlendMode(int index, const QString &opId)
         return;  // background is always 'normal'
     }
     if (m_layers[index].node) {
+        const QString effectiveOp = (opId == "difference") ? COMPOSITE_DIFF : opId;
         // Krita-native undo: the composite-op command redo() applies the op
-        pushUndoCommand(new KisNodeCompositeOpCommand(KisNodeSP(m_layers[index].node), opId));
+        pushUndoCommand(new KisNodeCompositeOpCommand(KisNodeSP(m_layers[index].node), effectiveOp));
         if (m_layers[index].nodeType == NodeTypeAdjustment) {
             recompositeProjection();
         } else {
@@ -914,10 +915,12 @@ void ReverieCore::setLayerClipped(int index, bool clipped)
                 m_layers[index].alphaInherited = false;
                 m_layers[index].clipped = true;
             } else {
+                // Capture the old flag before applying the change. Replay still
+                // applies immediately even when pushUndoCommand discards history.
+                auto *command = new ReverieNodeClippingCommand(
+                    KisLayerSP(layer), clipped, kundo2_i18n("Clipping Mask"));
                 layer->enableClippingLayer(clipped);
-                pushUndoCommand(new ReverieNodeClippingCommand(
-                    KisLayerSP(layer), clipped,
-                    kundo2_i18n("Clipping Mask")));
+                pushUndoCommand(command);
                 m_layers[index].clipped = clipped;
             }
             recompositeProjection();
@@ -955,10 +958,10 @@ void ReverieCore::setLayerAlphaInherited(int index, bool enable)
                 m_layers[index].clipped = false;
                 m_layers[index].alphaInherited = true;
             } else {
+                auto *command = new ReverieNodeAlphaInheritCommand(
+                    KisLayerSP(layer), enable, kundo2_i18n("Inherit Alpha"));
                 layer->disableAlphaChannel(enable);
-                pushUndoCommand(new ReverieNodeAlphaInheritCommand(
-                    KisLayerSP(layer), enable,
-                    kundo2_i18n("Inherit Alpha")));
+                pushUndoCommand(command);
                 m_layers[index].alphaInherited = enable;
             }
             recompositeProjection();

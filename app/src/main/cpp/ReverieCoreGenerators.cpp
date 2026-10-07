@@ -114,12 +114,7 @@ bool ReverieCore::setFillLayerColor(int index, quint32 colorArgb)
         if (!cfg) {
             return false;
         }
-        // setFilter 触发 generator 重算; 结构性刷新走全量重合成
-        gl->setFilter(cfg);
-        node->setProperty("reverie_fill_color", colorArgb);
-        recompositeProjection();
-        markDirty();
-        return true;
+        return applyFillGeneratorConfig(index, cfg);
     }
     if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(node.data())) {
         if (!node->property("reverie_is_fill").toBool()) {

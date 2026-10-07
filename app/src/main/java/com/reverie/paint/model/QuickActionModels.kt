@@ -34,6 +34,8 @@ enum class QuickAction(
     MERGE_DOWN("merge_down", R.string.quick_action_merge_down, R.drawable.ic_merge_down),
     CLEAR_LAYER("clear_layer", R.string.quick_action_clear_layer, R.drawable.ic_trash),
     DISABLE_TOUCH("disable_touch", R.string.quick_action_disable_touch, R.drawable.ic_hand),
+    TOGGLE_QUICK_COLOR("toggle_quick_color", R.string.quick_action_toggle_quick_color, R.drawable.ic_palette),
+    TOGGLE_QUICK_LAYER("toggle_quick_layer", R.string.quick_action_toggle_quick_layer, R.drawable.ic_layers),
     ;
 
     companion object {

@@ -1040,6 +1040,7 @@ fun PaintingPage(
                         when (it) {
                             Tool.REFERENCE -> {
                                 vm.referenceWindowOpen = !vm.referenceWindowOpen
+                                vm.persistReferenceState()
                                 moreToolsOpen = false
                             }
                             Tool.SHORTCUT -> {
@@ -1050,6 +1051,16 @@ fun PaintingPage(
                             Tool.QUICK_BRUSH -> {
                                 vm.quickBrushWindowOpen = !vm.quickBrushWindowOpen
                                 vm.persistQuickBrushState()
+                                moreToolsOpen = false
+                            }
+                            Tool.QUICK_COLOR -> {
+                                vm.quickColorWindowOpen = !vm.quickColorWindowOpen
+                                vm.persistQuickColorState()
+                                moreToolsOpen = false
+                            }
+                            Tool.QUICK_LAYER -> {
+                                vm.quickLayerWindowOpen = !vm.quickLayerWindowOpen
+                                vm.persistQuickLayerState()
                                 moreToolsOpen = false
                             }
                             Tool.SYMMETRY -> {
@@ -1891,6 +1902,7 @@ fun PaintingPage(
                     when (it) {
                         Tool.REFERENCE -> {
                             vm.referenceWindowOpen = !vm.referenceWindowOpen
+                            vm.persistReferenceState()
                             moreToolsOpen = false
                         }
                         Tool.SHORTCUT -> {
@@ -1901,6 +1913,16 @@ fun PaintingPage(
                         Tool.QUICK_BRUSH -> {
                             vm.quickBrushWindowOpen = !vm.quickBrushWindowOpen
                             vm.persistQuickBrushState()
+                            moreToolsOpen = false
+                        }
+                        Tool.QUICK_COLOR -> {
+                            vm.quickColorWindowOpen = !vm.quickColorWindowOpen
+                            vm.persistQuickColorState()
+                            moreToolsOpen = false
+                        }
+                        Tool.QUICK_LAYER -> {
+                            vm.quickLayerWindowOpen = !vm.quickLayerWindowOpen
+                            vm.persistQuickLayerState()
                             moreToolsOpen = false
                         }
                         Tool.SYMMETRY -> {
@@ -1963,7 +1985,7 @@ fun PaintingPage(
         ) {
             ReferenceWindow(
                 vm = vm,
-                onClose = { vm.referenceWindowOpen = false },
+                onClose = { vm.referenceWindowOpen = false; vm.persistReferenceState() },
                 hazeState = hazeState,
                 opacity = vm.popupPanelOpacity,
             )
@@ -1999,6 +2021,45 @@ fun PaintingPage(
                 onClose = {
                     vm.quickBrushWindowOpen = false
                     vm.persistQuickBrushState()
+                },
+                hazeState = hazeState,
+                opacity = vm.popupPanelOpacity,
+            )
+        }
+
+        // ---- Persistent Floating Quick Color Window (常驻悬浮快捷颜色小窗) ----
+        AnimatedVisibility(
+            visible = vm.quickColorWindowOpen,
+            enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
+            exit = fadeOut(Motion.exitTween(150)) + androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
+            modifier = Modifier.zIndex(77f),
+        ) {
+            com.reverie.paint.ui.painting.quickcolor.QuickColorWindow(
+                vm = vm,
+                onClose = {
+                    vm.quickColorWindowOpen = false
+                    vm.persistQuickColorState()
+                },
+                hazeState = hazeState,
+                opacity = vm.popupPanelOpacity,
+            )
+        }
+
+        // ---- Persistent Floating Quick Layer Window (常驻悬浮快捷图层小窗) ----
+        AnimatedVisibility(
+            visible = vm.quickLayerWindowOpen,
+            enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
+            exit = fadeOut(Motion.exitTween(150)) + androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
+            modifier = Modifier.zIndex(78f),
+        ) {
+            com.reverie.paint.ui.painting.quicklayer.QuickLayerWindow(
+                vm = vm,
+                onClose = {
+                    vm.quickLayerWindowOpen = false
+                    vm.persistQuickLayerState()
+                },
+                onOpenFullLayerPanel = {
+                    layerPanelOpen = true
                 },
                 hazeState = hazeState,
                 opacity = vm.popupPanelOpacity,

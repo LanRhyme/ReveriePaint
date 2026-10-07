@@ -386,10 +386,11 @@ internal fun PaintViewModel.removeLayer(index: Int) {
 
 internal fun PaintViewModel.setCurrentLayer(i: Int) {
     Breadcrumbs.record("Layer", "Set current layer: $i")
+    currentLayerIndex = i
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_SET_CURRENT, i)
     }
-    runCore(after = ::notifyLayerChanged) {
+    runCore(after = { notifyLayerChanged(forceThumbs = false) }) {
         ReverieCoreBridge.setCurrentLayer(i)
     }
 }

@@ -49,6 +49,7 @@ import com.reverie.paint.core.AlbumPhoto
 import com.reverie.paint.core.MAX_REFERENCE_IMAGES
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.ReferenceAlbumManager
+import com.reverie.paint.core.projectReferenceBitmap
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.glassBorder
@@ -83,7 +84,7 @@ fun ReferenceAlbumPickerSheet(
         hasPermission = granted
     }
 
-    // Persisted selected URIs state in album
+    // Includes document-owned references, even when their original gallery files no longer exist.
     val selectedUris = remember {
         mutableStateListOf<Uri>().apply {
             addAll(vm.referenceAlbumSelectedUris)
@@ -215,6 +216,81 @@ fun ReferenceAlbumPickerSheet(
 
                 Spacer(modifier = Modifier.height(10.dp))
 
+                if (selectedUris.isNotEmpty()) {
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 10.dp)
+                    ) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 2.dp, vertical = 2.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            Text(
+                                text = stringResource(R.string.reference_album_selected_strip, selectedUris.size),
+                                color = Morandi.accent,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold
+                            )
+                            Text(
+                                text = stringResource(R.string.reference_album_clear_all),
+                                color = Morandi.subText,
+                                fontSize = 11.sp,
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(4.dp))
+                                    .clickable { selectedUris.clear() }
+                                    .padding(horizontal = 4.dp, vertical = 2.dp)
+                            )
+                        }
+                        Spacer(modifier = Modifier.height(4.dp))
+                        LazyRow(
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            items(selectedUris.toList(), key = { it.toString() }) { uri ->
+                                Box(
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Color(0xFF141518))
+                                        .border(
+                                            width = 1.5.dp,
+                                            color = Morandi.accent,
+                                            shape = RoundedCornerShape(8.dp)
+                                        )
+                                ) {
+                                    AlbumThumbnailItem(
+                                        uri = uri,
+                                        modifier = Modifier.fillMaxSize(),
+                                        embeddedBitmap = vm.projectReferenceBitmap(uri)
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .align(Alignment.TopEnd)
+                                            .padding(2.dp)
+                                            .size(18.dp)
+                                            .clip(CircleShape)
+                                            .background(Color(0xD9E04E4E))
+                                            .clickable { selectedUris.remove(uri) },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.ic_x),
+                                            contentDescription = stringResource(R.string.common_delete),
+                                            tint = Color.White,
+                                            modifier = Modifier.size(11.dp)
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+
+
                 // Body: Content or Permission Request
                 if (!hasPermission) {
                     Box(
@@ -257,79 +333,6 @@ fun ReferenceAlbumPickerSheet(
                         )
                     }
                 } else {
-                    if (selectedUris.isNotEmpty()) {
-                        Column(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(bottom = 10.dp)
-                        ) {
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(horizontal = 2.dp, vertical = 2.dp),
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                                verticalAlignment = Alignment.CenterVertically
-                            ) {
-                                Text(
-                                    text = stringResource(R.string.reference_album_selected_strip, selectedUris.size),
-                                    color = Morandi.accent,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.SemiBold
-                                )
-                                Text(
-                                    text = stringResource(R.string.reference_album_clear_all),
-                                    color = Morandi.subText,
-                                    fontSize = 11.sp,
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .clickable { selectedUris.clear() }
-                                        .padding(horizontal = 4.dp, vertical = 2.dp)
-                                )
-                            }
-                            Spacer(modifier = Modifier.height(4.dp))
-                            LazyRow(
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                modifier = Modifier.fillMaxWidth()
-                            ) {
-                                items(selectedUris.toList(), key = { it.toString() }) { uri ->
-                                    Box(
-                                        modifier = Modifier
-                                            .size(56.dp)
-                                            .clip(RoundedCornerShape(8.dp))
-                                            .background(Color(0xFF141518))
-                                            .border(
-                                                width = 1.5.dp,
-                                                color = Morandi.accent,
-                                                shape = RoundedCornerShape(8.dp)
-                                            )
-                                    ) {
-                                        AlbumThumbnailItem(
-                                            uri = uri,
-                                            modifier = Modifier.fillMaxSize()
-                                        )
-                                        Box(
-                                            modifier = Modifier
-                                                .align(Alignment.TopEnd)
-                                                .padding(2.dp)
-                                                .size(18.dp)
-                                                .clip(CircleShape)
-                                                .background(Color(0xD9E04E4E))
-                                                .clickable { selectedUris.remove(uri) },
-                                            contentAlignment = Alignment.Center
-                                        ) {
-                                            Icon(
-                                                painter = painterResource(R.drawable.ic_x),
-                                                contentDescription = stringResource(R.string.common_delete),
-                                                tint = Color.White,
-                                                modifier = Modifier.size(11.dp)
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
-
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 82.dp),
                         verticalArrangement = Arrangement.spacedBy(6.dp),
@@ -457,12 +460,17 @@ fun ReferenceAlbumPickerSheet(
 @Composable
 private fun AlbumThumbnailItem(
     uri: Uri,
-    modifier: Modifier = Modifier
+    modifier: Modifier = Modifier,
+    embeddedBitmap: Bitmap? = null
 ) {
     val context = LocalContext.current
     var bitmap by remember(uri) { mutableStateOf<Bitmap?>(null) }
 
-    LaunchedEffect(uri) {
+    LaunchedEffect(uri, embeddedBitmap) {
+        if (embeddedBitmap != null) {
+            bitmap = embeddedBitmap
+            return@LaunchedEffect
+        }
         withContext(Dispatchers.IO) {
             val bmp = ReferenceAlbumManager.loadThumbnail(context.contentResolver, uri)
             withContext(Dispatchers.Main) {

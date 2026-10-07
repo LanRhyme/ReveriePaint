@@ -1229,6 +1229,32 @@ class CanvasTouchView(context: Context) : View(context) {
             }
         }
 
+        // 快捷颜色浮窗区域 (若打开)
+        if (v.quickColorWindowOpen) {
+            val cw = if (v.quickColorWindowWidth > 0f) v.quickColorWindowWidth
+                     else if (v.quickColorCollapsed) 48f * d else 212f * d
+            val ch = if (v.quickColorWindowHeight > 0f) v.quickColorWindowHeight
+                     else if (v.quickColorCollapsed) 48f * d else 270f * d
+            val cx = if (v.quickColorWindowX >= 0f) v.quickColorWindowX else ((width - cw) / 2f).coerceAtLeast(0f)
+            val cy = if (v.quickColorWindowY >= 0f) v.quickColorWindowY else ((height - ch) / 2f).coerceAtLeast(0f)
+            if (x >= cx && x <= cx + cw && y >= cy && y <= cy + ch) {
+                return true
+            }
+        }
+
+        // 快捷图层浮窗区域 (若打开)
+        if (v.quickLayerWindowOpen) {
+            val lw = if (v.quickLayerWindowWidth > 0f) v.quickLayerWindowWidth
+                     else if (v.quickLayerCollapsed) 48f * d else 156f * d
+            val lh = if (v.quickLayerWindowHeight > 0f) v.quickLayerWindowHeight
+                     else if (v.quickLayerCollapsed) 48f * d else 320f * d
+            val lx = if (v.quickLayerWindowX >= 0f) v.quickLayerWindowX else ((width - lw) / 2f).coerceAtLeast(0f)
+            val ly = if (v.quickLayerWindowY >= 0f) v.quickLayerWindowY else ((height - lh) / 2f).coerceAtLeast(0f)
+            if (x >= lx && x <= lx + lw && y >= ly && y <= ly + lh) {
+                return true
+            }
+        }
+
         return false
     }
 
@@ -2307,6 +2333,7 @@ class CanvasTouchView(context: Context) : View(context) {
         when (event.actionMasked) {
             MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
                 localCursorPos = Offset(event.x, event.y)
+                vm?.lastPointerScreenPosition = Offset(event.x, event.y)
                 val overUi = isHoverOverUi(event.x, event.y)
                 localIsHovering = !overUi
                 localIsTouching = false
@@ -2365,6 +2392,7 @@ class CanvasTouchView(context: Context) : View(context) {
         if (event.isFromSource(android.view.InputDevice.SOURCE_CLASS_POINTER)) {
             if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) {
                 localCursorPos = Offset(event.x, event.y)
+                vm?.lastPointerScreenPosition = Offset(event.x, event.y)
                 val overUi = isHoverOverUi(event.x, event.y)
                 localIsHovering = !overUi
                 localIsTouching = false
@@ -2598,6 +2626,7 @@ class CanvasTouchView(context: Context) : View(context) {
             val pressure = if (rawPressure.isNaN()) 1f else rawPressure.coerceIn(0f, 1f)
 
             localCursorPos = screenPos
+            vm?.lastPointerScreenPosition = screenPos
             localIsTouching = true
             localIsHovering = false
             localPressure = pressure

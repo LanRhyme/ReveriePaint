@@ -554,10 +554,7 @@ internal fun PaintViewModel.handleKeyEvent(event: KeyEvent): Boolean {
         "C" -> { applyTool("crop"); true }
         "V" -> { applyTool("move"); true }
         "X" -> {
-            val c1 = brushColor
-            val c2 = brushSecondaryColor
-            updateBrushColor(c2)
-            updateBrushSecondaryColor(c1)
+            swapColors()
             true
         }
         // 与画布面板一致: 快捷键/指令走**视图翻转** (只镜像显示, 零开销);
@@ -658,12 +655,7 @@ internal fun PaintViewModel.executeShortcutAction(id: String) {
             val newOp = (brushOpacity - 0.1).coerceAtLeast(0.01)
             updateBrushOpacity(newOp)
         }
-        "swap_colors" -> {
-            val c1 = brushColor
-            val c2 = brushSecondaryColor
-            updateBrushColor(c2)
-            updateBrushSecondaryColor(c1)
-        }
+        "swap_colors" -> swapColors()
         "undo" -> undo()
         "redo" -> redo()
         "save_document" -> saveProject(docName)
@@ -688,7 +680,9 @@ internal fun PaintViewModel.executeShortcutAction(id: String) {
             val t = lastToolId
             if (t != currentToolId) applyTool(t)
         }
-        "tool_color" -> requestUiCommand("open_color")
+        "tool_color" -> toggleQuickColor(atPointer = true)
+        "toggle_quick_color" -> toggleQuickColor(atPointer = true)
+        "toggle_quick_layer" -> toggleQuickLayer()
         "disable_touch" -> toggleCanvasTouchDisabled()
         // 打开滤镜页并预选对应分类 (color 含 HSV/曲线, blur 含高斯模糊,
         // enhance 含锐化); 具体滤镜项仍需用户点选

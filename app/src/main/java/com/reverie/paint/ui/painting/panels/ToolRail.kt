@@ -235,7 +235,7 @@ fun ToolRail(
                                 t.displayName,
                                 modifier = Modifier.fillMaxWidth().height(32.dp),
                                 onTap = {
-                                    if (t == Tool.REFERENCE || t == Tool.SHORTCUT || t == Tool.QUICK_BRUSH || t == Tool.SYMMETRY || t == Tool.PERSPECTIVE) {
+                                    if (t == Tool.REFERENCE || t == Tool.SHORTCUT || t == Tool.QUICK_BRUSH || t == Tool.QUICK_COLOR || t == Tool.QUICK_LAYER || t == Tool.SYMMETRY || t == Tool.PERSPECTIVE) {
                                         tooltipTool = null
                                         onTool(t)
                                     } else if (t in listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE) && tool == t) {
@@ -252,6 +252,8 @@ fun ToolRail(
                                     Tool.REFERENCE -> vm.referenceWindowOpen
                                     Tool.SHORTCUT -> vm.quickActionWindowOpen
                                     Tool.QUICK_BRUSH -> vm.quickBrushWindowOpen
+                                    Tool.QUICK_COLOR -> vm.quickColorWindowOpen
+                                    Tool.QUICK_LAYER -> vm.quickLayerWindowOpen
                                     Tool.SYMMETRY -> vm.drawingGuide.mode == GuideMode.SYMMETRY
                                     Tool.PERSPECTIVE -> vm.drawingGuide.mode == GuideMode.PERSPECTIVE
                                     else -> tool == t
@@ -515,6 +517,8 @@ fun toolIcon(tool: Tool): Int =
         Tool.REFERENCE -> R.drawable.ic_reference
         Tool.SHORTCUT -> R.drawable.ic_shortcut
         Tool.QUICK_BRUSH -> R.drawable.ic_brush_quick
+        Tool.QUICK_COLOR -> R.drawable.ic_palette
+        Tool.QUICK_LAYER -> R.drawable.ic_layers
         Tool.SYMMETRY -> R.drawable.ic_flip_horizontal
         Tool.PERSPECTIVE -> R.drawable.ic_grid
     }
