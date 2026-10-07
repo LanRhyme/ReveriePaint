@@ -856,16 +856,19 @@ internal fun LayerDetailPage(
         )
 
         // Opacity slider
+        var localOpacity by remember(index) { mutableFloatStateOf((layer?.opacity ?: 1.0).toFloat()) }
+        var lastOpacityNs by remember(index) { mutableLongStateOf(0L) }
+        LaunchedEffect(layer?.opacity) {
+            localOpacity = (layer?.opacity ?: 1.0).toFloat()
+        }
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
             Text(stringResource(R.string.layer_opacity), color = Morandi.text, fontSize = 13.sp)
             Spacer(Modifier.weight(1f))
-            Text("${((layer?.opacity ?: 1.0) * 100).roundToInt()}%", color = Morandi.subText, fontSize = 13.sp)
+            Text("${(localOpacity * 100).roundToInt()}%", color = Morandi.subText, fontSize = 13.sp)
         }
-        var localOpacity by remember(index) { mutableFloatStateOf((layer?.opacity ?: 1.0).toFloat()) }
-        var lastOpacityNs by remember(index) { mutableLongStateOf(0L) }
         ReSlider(
             value = localOpacity,
             onValue = {
