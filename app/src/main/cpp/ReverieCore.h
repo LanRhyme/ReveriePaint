@@ -119,6 +119,8 @@ public:
     // content painted on a clipped layer is masked by the next layer's alpha
     bool layerClipped(int index) const;
     void setLayerClipped(int index, bool clipped);
+    bool layerAlphaInherited(int index) const;
+    void setLayerAlphaInherited(int index, bool enable);
     void flipLayerHorizontal(int index);
     void flipLayerVertical(int index);
     // Canvas flip: mirror every paintable layer (incl. background/locked and
@@ -162,6 +164,8 @@ public:
     void compositeLayersRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &r,
                               int excludeIdx = -1);
     void compositeStrokeLayer(KisPaintDeviceSP out, const LayerEntry &e, const QRect &r);
+    KisPaintDeviceSP borrowScratchDevice(const QRect &r);
+    void returnScratchDevice();
     void applyStrokeParamsInternal(int index, int size, quint32 color, int position, int opacity);
     // Multi-layer type creation
     enum LayerType {
@@ -499,6 +503,7 @@ public:
         bool alphaLocked = false;     // preserve alpha (transparency lock)
         int colorLabel = 0;           // color label index 0-9
         bool clipped = false;         // clipping mask onto the layer below
+        bool alphaInherited = false;  // inherit alpha from layers below (Krita native)
         bool background = false;      // background layer (index 0)
         bool isStrokeLayer = false;   // stroke layer with layer style
         int strokeSize = 6;
@@ -1229,6 +1234,10 @@ private:
     // 复用后只剩 memcpy 级别的 clear + bitBlt。
     KisPaintDeviceSP m_strokeMergeScratch;
     KisPaintDeviceSP m_strokeOutScratch;
+
+    // 复用暂存设备池 (组图层递归合成/剪切蒙版栈式复用, 零堆内存分配)
+    QVector<KisPaintDeviceSP> m_scratchPool;
+    int m_scratchPoolIndex{0};
 
     /** 取(必要时建)某图层在笔触叠加用的洋葱皮投影; 未开洋葱皮返回空 */
     KisPaintDeviceSP strokeOnionProjection(int layerIndex);

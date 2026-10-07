@@ -657,7 +657,14 @@ internal fun LayerRowContent(
         if (layer.clipped) {
             Icon(
                 painterResource(R.drawable.ic_clip),
-                contentDescription = stringResource(R.string.layer_alpha_inherit),
+                contentDescription = stringResource(R.string.layer_op_clip),
+                tint = if (selected) Morandi.onAccent.copy(alpha = 0.8f) else Morandi.subText,
+                modifier = Modifier.size(13.dp),
+            )
+        } else if (layer.alphaInherited) {
+            Icon(
+                painterResource(R.drawable.ic_alpha_inherit),
+                contentDescription = stringResource(R.string.layer_op_alpha_inherit),
                 tint = if (selected) Morandi.onAccent.copy(alpha = 0.8f) else Morandi.subText,
                 modifier = Modifier.size(13.dp),
             )
