@@ -1629,6 +1629,34 @@ class PaintViewModel : ViewModel() {
     }
 
     /**
+     * 加权平滑 / 拉绳防抖是否生效。读内存字段, 无 IO, 热路径可直接读。
+     * (与 PaintViewModelTools.touchEnd 的 needCatchUp 判定同源)
+     */
+    val isStrokeSmoothingActive: Boolean
+        get() = when (strokeSmoothingType) {
+            SMOOTHING_OFF -> false
+            SMOOTHING_WEIGHTED -> (strokeSmoothnessDistanceMin > 0.0 || strokeSmoothnessDistanceMax > 0.0)
+            else -> maxOf(strokeStabilizer.toDouble(), brushStreamline) > 0.0
+        }
+
+    /**
+     * 前缓冲预览有效分级 (PR #82 review 问题 4)。
+     * 平滑/防抖开启时引擎落墨走平滑后轨迹 (几何内切+滞后), 而预览回填段走原始
+     * 物理点 —— TIER_1 全宽假线必与真墨撕裂, 故钳制为 TIER_2 发丝导引线。
+     * 注意: 卡尔曼输入保持原始物理点 (预测的是物理笔尖), 只降级回填段渲染,
+     * 不碰预测本身。
+     */
+    val effectivePredictionTier: PredictionFidelityTier
+        get() {
+            val tier = currentBrushPredictionTier
+            return if (tier == PredictionFidelityTier.TIER_1 && isStrokeSmoothingActive) {
+                PredictionFidelityTier.TIER_2
+            } else {
+                tier
+            }
+        }
+
+    /**
      * 上游原版判定: 当前笔刷是否适用于 OEM 硬件前向预测尾线。
      * (前缓冲预测开启时由 [currentBrushPredictionTier] 分级接管, 本判定仅服务上游尾线路径)
      */
@@ -2314,6 +2342,10 @@ class PaintViewModel : ViewModel() {
     fun updateStylusStrokePredictionEnabled(enabled: Boolean) {
         stylusStrokePredictionEnabled = enabled
         motionPredictorEnabled = enabled
+        if (enabled && frontBufferPredictionEnabled) {
+            // 对称互斥: 打开旧开关时关闭新开关, 两者永不同时开启 (last wins)。
+            updateFrontBufferPredictionEnabled(false)
+        }
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("stylusStrokePredictionEnabled", enabled).apply()
@@ -2322,6 +2354,11 @@ class PaintViewModel : ViewModel() {
 
     fun updateFrontBufferPredictionEnabled(enabled: Boolean) {
         frontBufferPredictionEnabled = enabled
+        if (enabled && stylusStrokePredictionEnabled) {
+            // 新旧互斥 (PR #82 review): 前缓冲开启时, 上游 OEM 尾线在分发层被短路恒为
+            // 死开关 (见 CanvasTouchView 双系统分派), 此处直接关闭旧开关, 免得用户困惑。
+            updateStylusStrokePredictionEnabled(false)
+        }
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("frontBufferPredictionEnabled", enabled).apply()

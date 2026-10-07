@@ -224,7 +224,22 @@ class CanvasTouchView(context: Context) : View(context) {
     private var frameRateHigh = true
     private val idleDownclockRunnable = Runnable { downclockWhenIdle() }
 
-    private var localCursorPos: Offset? = null
+    // 热路径零分配 (AGENTS.md §4.4): 同 predictedScreenX/Y, 可空 Offset 拆双 Float + NaN。
+    // 悬停/触控每事件赋值, 原 Offset? 写法每次装箱。
+    private var localCursorX: Float = Float.NaN
+    private var localCursorY: Float = Float.NaN
+    private val hasLocalCursorPos: Boolean
+        get() = !localCursorX.isNaN() && !localCursorY.isNaN()
+
+    private fun setLocalCursorPos(x: Float, y: Float) {
+        localCursorX = x
+        localCursorY = y
+    }
+
+    private fun clearLocalCursorPos() {
+        localCursorX = Float.NaN
+        localCursorY = Float.NaN
+    }
     private var localIsHovering = false
     private var localIsTouching = false
     private var localPressure = 1f
@@ -766,7 +781,7 @@ class CanvasTouchView(context: Context) : View(context) {
             val delayMs = (520L - (v.eyedropperSensitivity - 1) * 70L).coerceIn(200L, 600L)
             postDelayed(longPressRunnable, delayMs)
             if (!v.penOnlyMode) {
-                localCursorPos = pendingEdgeScreenPos
+                setLocalCursorPos(pendingEdgeScreenPos.x, pendingEdgeScreenPos.y)
                 localIsTouching = true
                 localIsHovering = false
                 localPressure = 1f
@@ -774,7 +789,7 @@ class CanvasTouchView(context: Context) : View(context) {
             }
         } else if (!v.penOnlyMode) {
             isPendingLongPress = false
-            localCursorPos = pendingEdgeScreenPos
+            setLocalCursorPos(pendingEdgeScreenPos.x, pendingEdgeScreenPos.y)
             localIsTouching = true
             localIsHovering = false
             localPressure = 1f
@@ -789,7 +804,23 @@ class CanvasTouchView(context: Context) : View(context) {
         predictionTargetMs = 40.0f,
         maxSteps = 8
     )
-    private var predictedScreenPoint: Offset? = null
+    // 热路径零分配 (AGENTS.md §4.4): Offset 为 @JvmInline value class, 声明为可空类型
+    // Offset? 后每次赋值都会在堆上装箱分配。拆成两个 Float + NaN 哨兵, 热路径零分配。
+    private var predictedScreenX: Float = Float.NaN
+    private var predictedScreenY: Float = Float.NaN
+    /** 是否持有有效预测点 (替代原来的可空 Offset 判空) */
+    private val hasPredictedScreenPoint: Boolean
+        get() = !predictedScreenX.isNaN() && !predictedScreenY.isNaN()
+
+    private fun setPredictedScreenPoint(x: Float, y: Float) {
+        predictedScreenX = x
+        predictedScreenY = y
+    }
+
+    private fun clearPredictedScreenPoint() {
+        predictedScreenX = Float.NaN
+        predictedScreenY = Float.NaN
+    }
     private var predictedPressure: Float = 1f
     private var hasDrawnPrediction: Boolean = false
     private val cachedTouchPointInfo = OplusTouchPointInfo()
@@ -799,6 +830,101 @@ class CanvasTouchView(context: Context) : View(context) {
     private var previewStrokeColor: Int = 0
     private var previewTipEndX: Float = 0f
     private var previewTipEndY: Float = 0f
+    // 本帧预览包络起点 (回填段起点, 屏幕坐标): 与 previewTipEndX/Y 共同构成
+    // UI 避让包络矩形, 由 computePreviewStrokePath 每帧刷新。
+    private var previewBackfillStartX: Float = 0f
+    private var previewBackfillStartY: Float = 0f
+
+    // ---- 前缓冲 UI 避让注册表 (PR #82 review 问题 3) ----
+    // setZOrderOnTop(true) 把前缓冲层置于整个 Window 之上, 预览假线可能画到
+    // Compose 控件表面。仅判触点端点不够: 高速运笔一帧可跨过 56dp 顶栏,
+    // 线段穿过 UI 区而两端都在外面。此处用包络矩形做保守相交判定, 命中即整帧跳过。
+    // 不可变数组 + @Volatile 发布: 布局/浮窗/左右手切换时 UI 线程重建, 热路径只读。
+    // 几何与 isHoverOverUi 同源 (见该函数注释), 改一处记得同步另一处。
+    @Volatile
+    private var uiExclusionRects: Array<android.graphics.RectF> = emptyArray()
+
+    /**
+     * 重建 UI 避让注册表。每笔 DOWN 时 + onSizeChanged 时调用 (UI 线程, 非逐事件热路径)。
+     */
+    private fun rebuildUiExclusionRects() {
+        val v = vm
+        val d = density
+        val w = width.toFloat()
+        val h = height.toFloat()
+        if (w <= 0f || h <= 0f) {
+            uiExclusionRects = emptyArray()
+            return
+        }
+        val list = ArrayList<android.graphics.RectF>(6)
+        // 顶部操作栏 (380dp x 56dp): 左右手镜像 —— 左手模式顶栏在左上角,
+        // 原 isHoverOverUi 只判了右侧, 此处补上 (PR #82 review 问题 3)。
+        val barW = 380f * d
+        val barH = 56f * d
+        if (v?.leftHandMode == true) {
+            list.add(android.graphics.RectF(0f, 0f, barW, barH))
+        } else {
+            list.add(android.graphics.RectF(w - barW, 0f, w, barH))
+        }
+        // 左侧快捷工具栏 (宽 56dp, 全高)
+        list.add(android.graphics.RectF(0f, 0f, 56f * d, h))
+        if (v != null) {
+            // 参考浮窗 (若打开)
+            if (v.referenceWindowOpen) {
+                val rw = v.referenceWindowWidth * d
+                val rh = v.referenceWindowHeight * d
+                list.add(android.graphics.RectF(v.referenceWindowX, v.referenceWindowY, v.referenceWindowX + rw, v.referenceWindowY + rh))
+            }
+            // 快捷操作浮窗 (若打开)
+            if (v.quickActionWindowOpen) {
+                val qw = if (v.quickActionCollapsed) 90f * d else 380f * d
+                val qh = if (v.quickActionCollapsed) 50f * d else 380f * d
+                val qx = if (v.quickActionWindowX >= 0f) v.quickActionWindowX else ((w - qw) / 2f).coerceAtLeast(0f)
+                val qy = if (v.quickActionWindowY >= 0f) v.quickActionWindowY else ((h - qh) / 2f).coerceAtLeast(0f)
+                list.add(android.graphics.RectF(qx, qy, qx + qw, qy + qh))
+            }
+            // 快捷笔刷浮窗 (若打开)
+            if (v.quickBrushWindowOpen) {
+                val isVert = v.quickBrushOrientation == "vertical"
+                val favCount = v.favoriteBrushNames.size
+                val visibleCount = if (favCount == 0) 1 else favCount.coerceAtMost(v.quickBrushMaxLength)
+                val listDim = if (favCount == 0) 130f else (visibleCount * 43f - 1f)
+                val bw = when {
+                    v.quickBrushCollapsed -> 90f * d
+                    isVert -> 56f * d
+                    else -> (70f + listDim + 36f) * d
+                }
+                val bh = when {
+                    v.quickBrushCollapsed -> 50f * d
+                    isVert -> (28f + (if (favCount == 0) 48f else (visibleCount * 43f - 1f)) + 36f) * d
+                    else -> 56f * d
+                }
+                val bx = if (v.quickBrushWindowX >= 0f) v.quickBrushWindowX else ((w - bw) / 2f).coerceAtLeast(0f)
+                val by = if (v.quickBrushWindowY >= 0f) v.quickBrushWindowY else ((h - bh) / 2f).coerceAtLeast(0f)
+                list.add(android.graphics.RectF(bx, by, bx + bw, by + bh))
+            }
+        }
+        uiExclusionRects = list.toTypedArray()
+    }
+
+    /**
+     * 本帧预览包络 (回填起点 → 当前点 → 笔尖终点, 外扩笔宽/8dp 裕度覆盖二次曲线隆起)
+     * 是否触碰任一 UI 避让区。包络相交是线段相交的保守上界: 漏判为零, 误判至多跳过一帧
+     * 预览 (下一触控事件 ~4ms 后即到), 宁可少画, 不画到 UI 脸上。
+     */
+    private fun previewEnvelopeHitsUi(curX: Float, curY: Float): Boolean {
+        val rects = uiExclusionRects
+        if (rects.isEmpty()) return false
+        val margin = maxOf(previewStrokeWidth, 8f * density)
+        val minX = minOf(previewBackfillStartX, curX, previewTipEndX) - margin
+        val maxX = maxOf(previewBackfillStartX, curX, previewTipEndX) + margin
+        val minY = minOf(previewBackfillStartY, curY, previewTipEndY) - margin
+        val maxY = maxOf(previewBackfillStartY, curY, previewTipEndY) + margin
+        for (r in rects) {
+            if (maxX >= r.left && minX <= r.right && maxY >= r.top && minY <= r.bottom) return true
+        }
+        return false
+    }
     private val tipShaderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
@@ -855,7 +981,7 @@ class CanvasTouchView(context: Context) : View(context) {
             val elapsed = now - lastPredictionUptimeMs
             if (elapsed >= 50L) {
                 isWatchdogScheduled = false
-                if (predictedScreenPoint != null || hasDrawnPrediction) {
+                if (hasPredictedScreenPoint || hasDrawnPrediction) {
                     clearPredictionState(triggerInvalidate = true)
                 }
             } else {
@@ -871,8 +997,8 @@ class CanvasTouchView(context: Context) : View(context) {
             removeCallbacks(predictionStagnationRunnable)
             isWatchdogScheduled = false
         }
-        val had = predictedScreenPoint != null || hasDrawnPrediction
-        predictedScreenPoint = null
+        val had = hasPredictedScreenPoint || hasDrawnPrediction
+        clearPredictedScreenPoint()
         hasDrawnPrediction = false
         hasActivePredictedTip = false
         activePredictedTipScreenX = 0f
@@ -900,7 +1026,7 @@ class CanvasTouchView(context: Context) : View(context) {
      */
     private fun computePreviewStrokePath(curPos: Offset, outPath: android.graphics.Path): Boolean {
         val v = vm ?: return false
-        val fidelityTier = v.currentBrushPredictionTier
+        val fidelityTier = v.effectivePredictionTier
         if (fidelityTier == PaintViewModel.PredictionFidelityTier.NONE) return false
         if (!localIsTouching || tool != Tool.BRUSH) return false
 
@@ -908,7 +1034,7 @@ class CanvasTouchView(context: Context) : View(context) {
         val cursorBrushSize = v.brushSize.toFloat()
         // 笔压口径: 预测可用时用预测压力 (前瞻段), 预测被抑制时退回当前实际压力,
         // 避免用过期 predictedPressure 画出宽度突变的回填段
-        val pressureForWidth = if (predictedScreenPoint != null) predictedPressure else localPressure
+        val pressureForWidth = if (hasPredictedScreenPoint) predictedPressure else localPressure
         val pFrac = if (v.brushPressureEnabled) pressureFractionCached(pressureForWidth) else 1f
         val actualStrokeWidth = (cursorBrushSize * scale * pFrac).coerceAtLeast(1.5f)
 
@@ -973,13 +1099,12 @@ class CanvasTouchView(context: Context) : View(context) {
 
         // ---- 2. 前向延伸段 (仅预测可用且通过门控时) ----
         // 预测被抑制 (慢速/急转/看门狗) 时不再整段清空预览: 回填段照画, 只少画前瞻尾。
-        val predPt = predictedScreenPoint
         var endX = curPos.x
         var endY = curPos.y
         var hasExtension = false
-        if (predPt != null) {
-            val dx = predPt.x - curPos.x
-            val dy = predPt.y - curPos.y
+        if (hasPredictedScreenPoint) {
+            val dx = predictedScreenX - curPos.x
+            val dy = predictedScreenY - curPos.y
             val dist = kotlin.math.hypot(dx, dy)
             val maxAllowedDiag = if (screenDiag > 0f) screenDiag / 6f else 600f
             // 动态上限联动笔宽：大笔刷自适应拉伸，避免出现短于笔宽的圆钝团块
@@ -1034,11 +1159,16 @@ class CanvasTouchView(context: Context) : View(context) {
 
         outPath.rewind()
         var pathStarted = false
+        // UI 避让包络起点: 默认当前点, 有回填段时取回填起点
+        var segX0 = curPos.x
+        var segY0 = curPos.y
         if (backfillStartStep > 0) {
             val startIdx = (touchHistoryHead - 1 - backfillStartStep + 128) % 64
             val fx = touchHistoryX[startIdx]
             val fy = touchHistoryY[startIdx]
             if (kotlin.math.hypot(curPos.x - fx, curPos.y - fy) < (screenDiag / 4f)) {
+                segX0 = fx
+                segY0 = fy
                 outPath.moveTo(fx, fy)
                 for (step in (backfillStartStep - 1) downTo 0) {
                     val idx = (touchHistoryHead - 1 - step + 128) % 64
@@ -1067,6 +1197,8 @@ class CanvasTouchView(context: Context) : View(context) {
         previewStrokeColor = finalColorWithAlpha
         previewTipEndX = endX
         previewTipEndY = endY
+        previewBackfillStartX = segX0
+        previewBackfillStartY = segY0
         return true
     }
 
@@ -1634,6 +1766,7 @@ class CanvasTouchView(context: Context) : View(context) {
             universalPredictor.setScreenDiagonal(kotlin.math.hypot(w.toFloat(), h.toFloat()))
         }
         updateSystemGestureExclusion()
+        rebuildUiExclusionRects()
     }
 
     override fun onAttachedToWindow() {
@@ -1961,15 +2094,15 @@ class CanvasTouchView(context: Context) : View(context) {
         var drewPrediction = hasDrawnPrediction
         if (v.frontBufferPredictionEnabled) {
             if (FrontBufferProbe.softwareFallbackRequired(frontBufferOverlay != null, frontBufferOverlay?.canRenderPreview == true)) {
-                val curPos = localCursorPos
-                val fidelityTier = v.currentBrushPredictionTier
+                val fidelityTier = v.effectivePredictionTier
                 val isDrawingTool = tool == Tool.BRUSH
                 var fallbackDrew = false
                 // 不再要求 predPt != null: 预测被抑制时回填段照画 (修断裂/慢速无预览)
                 if (fidelityTier != PaintViewModel.PredictionFidelityTier.NONE &&
-                    localIsTouching && isDrawingTool && curPos != null) {
+                    localIsTouching && isDrawingTool && hasLocalCursorPos) {
                     try {
-                        if (computePreviewStrokePath(curPos, previewStrokePath)) {
+                        // 局部非空 Offset 为内联值类, 无堆分配
+                        if (computePreviewStrokePath(Offset(localCursorX, localCursorY), previewStrokePath)) {
                             tipShaderPaint.shader = null
                             tipShaderPaint.color = previewStrokeColor
                             tipShaderPaint.strokeWidth = previewStrokeWidth
@@ -1989,13 +2122,11 @@ class CanvasTouchView(context: Context) : View(context) {
             }
         } else if (v.stylusStrokePredictionEnabled && v.isCurrentBrushPredictionEligible) {
             // 上游原版: OEM 硬件预测尾线 (实时预测未来 15~20ms 笔尖切线, 微羽化渐隐)
-            val predPt = predictedScreenPoint
-            val curPos = localCursorPos
             val isDrawingTool = tool == Tool.BRUSH || tool == Tool.ERASER
-            if (localIsTouching && isDrawingTool && predPt != null && curPos != null) {
+            if (localIsTouching && isDrawingTool && hasPredictedScreenPoint && hasLocalCursorPos) {
                 try {
-                    val dx = predPt.x - curPos.x
-                    val dy = predPt.y - curPos.y
+                    val dx = predictedScreenX - localCursorX
+                    val dy = predictedScreenY - localCursorY
                     val dist = hypot(dx, dy)
                     val maxDistPx = 14f * density
                     val minDistPx = 2.5f * density
@@ -2248,7 +2379,9 @@ class CanvasTouchView(context: Context) : View(context) {
         // 依据用户的光标模式设置独立渲染
         // =========================================================================
         if (v.brushStudioOpen || v.moreSettingsOpen || overlayPanelsOpen) return
-        val pos = localCursorPos ?: return
+        if (!hasLocalCursorPos) return
+        // 局部非空 Offset 为内联值类, 无堆分配
+        val pos = Offset(localCursorX, localCursorY)
         val isEraser = tool == Tool.ERASER
         val cursorMode = if (isEraser) v.eraserCursorMode else v.brushCursorMode
         // 0: 不显示, 1: 绘画时显示, 2: 悬空显示, 3: 绘画和悬空显示
@@ -2519,8 +2652,8 @@ class CanvasTouchView(context: Context) : View(context) {
         if (!viewTransform.isAxisAligned) return false
         if (v.pixelGridEnabled && viewTransform.currentScale >= 4f) return false
         if (v.brushStudioOpen || v.moreSettingsOpen || overlayPanelsOpen) return false
-        if (localCursorPos != null || localIsTouching || localIsHovering) return false
-        if (predictedScreenPoint != null) return false
+        if (hasLocalCursorPos || localIsTouching || localIsHovering) return false
+        if (hasPredictedScreenPoint) return false
         if (isTransformActive || isInteracting) return false
         val guide = v.drawingGuide
         if (guide.mode == GuideMode.SYMMETRY && guide.assistedDrawing && mirrorBranchHasSamples()) return false
@@ -2621,13 +2754,12 @@ class CanvasTouchView(context: Context) : View(context) {
             right = maxOf(right, lqRingCx + lqRingR + 2f)
             bottom = maxOf(bottom, lqRingCy + lqRingR + 2f)
         }
-        val cur = localCursorPos
-        if (cur != null) {
+        if (hasLocalCursorPos) {
             val r = if (lqRingValid) lqRingR else 0f
-            left = minOf(left, cur.x - r - 2f)
-            top = minOf(top, cur.y - r - 2f)
-            right = maxOf(right, cur.x + r + 2f)
-            bottom = maxOf(bottom, cur.y + r + 2f)
+            left = minOf(left, localCursorX - r - 2f)
+            top = minOf(top, localCursorY - r - 2f)
+            right = maxOf(right, localCursorX + r + 2f)
+            bottom = maxOf(bottom, localCursorY + r + 2f)
         }
         if (right <= left || bottom <= top) {
             // 这一帧位移场没变、环也没动: 连重绘都不需要
@@ -2672,7 +2804,7 @@ class CanvasTouchView(context: Context) : View(context) {
         when (actionMasked) {
             MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
                 val predPos = calculatePredictedHoverPos(localX, localY, android.os.SystemClock.uptimeMillis())
-                localCursorPos = predPos
+                setLocalCursorPos(predPos.x, predPos.y)
                 val overUi = isHoverOverUi(localX, localY)
                 localIsHovering = !overUi
                 localIsTouching = false
@@ -2694,7 +2826,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 lastHoverEventTimeMs = 0L
                 localIsHovering = false
                 localIsTouching = false
-                localCursorPos = null
+                clearLocalCursorPos()
                 invalidateCursor(null)
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -2708,7 +2840,7 @@ class CanvasTouchView(context: Context) : View(context) {
 
     public override fun dispatchHoverEvent(event: MotionEvent): Boolean {
         if (isInteracting || isTransformActive) {
-            localCursorPos = Offset(event.x, event.y)
+            setLocalCursorPos(event.x, event.y)
             invalidate()
             return true
         }
@@ -2718,7 +2850,7 @@ class CanvasTouchView(context: Context) : View(context) {
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         if (isInteracting || isTransformActive) {
             if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) {
-                localCursorPos = Offset(event.x, event.y)
+                setLocalCursorPos(event.x, event.y)
                 invalidate()
                 return true
             }
@@ -2737,7 +2869,7 @@ class CanvasTouchView(context: Context) : View(context) {
         when (event.actionMasked) {
             MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
                 val predPos = calculatePredictedHoverPos(event.x, event.y, event.eventTime)
-                localCursorPos = predPos
+                setLocalCursorPos(predPos.x, predPos.y)
                 val overUi = isHoverOverUi(event.x, event.y)
                 localIsHovering = !overUi
                 localIsTouching = false
@@ -2775,7 +2907,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 physicalEraserActive = false
                 localIsHovering = false
                 localIsTouching = false
-                localCursorPos = null
+                clearLocalCursorPos()
                 invalidateCursor(null)
 
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
@@ -2797,7 +2929,7 @@ class CanvasTouchView(context: Context) : View(context) {
         if (event.isFromSource(android.view.InputDevice.SOURCE_CLASS_POINTER)) {
             if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) {
                 val predPos = calculatePredictedHoverPos(event.x, event.y, event.eventTime)
-                localCursorPos = predPos
+                setLocalCursorPos(predPos.x, predPos.y)
                 val overUi = isHoverOverUi(event.x, event.y)
                 localIsHovering = !overUi
                 localIsTouching = false
@@ -3025,10 +3157,12 @@ class CanvasTouchView(context: Context) : View(context) {
             val rawPressure = event.getPressure(stylusPointerIndex)
             val pressure = if (rawPressure.isNaN()) 1f else rawPressure.coerceIn(0f, 1f)
 
-            localCursorPos = screenPos
+            setLocalCursorPos(screenPos.x, screenPos.y)
             localIsTouching = true
             localIsHovering = false
             localPressure = pressure
+            // 前缓冲 UI 避让注册表: 每笔重建 (布局/浮窗/左右手状态快照, 非逐事件热路径)
+            rebuildUiExclusionRects()
 
             val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
                 v.cursorStyleMode != 4
@@ -3115,7 +3249,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     priorStrokeScreenPos = previousSinglePos
                     handleToolMove(event, stylusPointerIndex, docPos, pressure, isStylus = true)
                     previousSinglePos = screenPos
-                    localCursorPos = screenPos
+                    setLocalCursorPos(screenPos.x, screenPos.y)
                     localIsTouching = true
                     // 仅在非笔刷工具、光标跟随模式、绘图辅助生效或预测延伸激活时在 UI 线程重绘
                     val isDrawingTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE
@@ -3126,9 +3260,9 @@ class CanvasTouchView(context: Context) : View(context) {
                         val cursorMode = if (isEraser) v.eraserCursorMode else v.brushCursorMode
                         val hasAssist = v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing
                         val predictionVisualActive = if (v.frontBufferPredictionEnabled) {
-                            predictedScreenPoint != null || hasDrawnPrediction
+                            hasPredictedScreenPoint || hasDrawnPrediction
                         } else {
-                            v.isCurrentBrushPredictionEligible && predictedScreenPoint != null
+                            v.isCurrentBrushPredictionEligible && hasPredictedScreenPoint
                         }
                         if (cursorMode == 1 || cursorMode == 3 || hasAssist || predictionVisualActive) {
                             invalidate()
@@ -3685,7 +3819,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     val delayMs = (520L - (v.eyedropperSensitivity - 1) * 70L).coerceIn(200L, 600L)
                     postDelayed(longPressRunnable, delayMs)
                     if (!v.penOnlyMode) {
-                        localCursorPos = screenPos
+                        setLocalCursorPos(screenPos.x, screenPos.y)
                         localIsTouching = true
                         localIsHovering = false
                         localPressure = 1f
@@ -3697,7 +3831,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         return true
                     }
                     isPendingLongPress = false
-                    localCursorPos = screenPos
+                    setLocalCursorPos(screenPos.x, screenPos.y)
                     localIsTouching = true
                     localIsHovering = false
                     localPressure = 1f
@@ -3734,7 +3868,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         val downDoc = pendingEdgeDocPos
                         isPendingEdgeFinger = false
                         if (!v.penOnlyMode) {
-                            localCursorPos = screenPos
+                            setLocalCursorPos(screenPos.x, screenPos.y)
                             localIsTouching = true
                             localIsHovering = false
                             localPressure = 1f
@@ -3757,7 +3891,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         longPressToken++
                         isPendingLongPress = false
                         if (!v.penOnlyMode) {
-                            localCursorPos = screenPos
+                            setLocalCursorPos(screenPos.x, screenPos.y)
                             localIsTouching = true
                             handleToolDown(pendingDownScreenPos, pendingDownDocPos, pendingDownPressure, isStylus = false)
                             handleToolMove(event, 0, docPos, 1f, isStylus = false)
@@ -3807,7 +3941,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         // 笔模式下且未开启单指平移：忽略单指移动
                         return true
                     }
-                    localCursorPos = screenPos
+                    setLocalCursorPos(screenPos.x, screenPos.y)
                     localIsTouching = true
                     handleToolMove(event, 0, docPos, 1f, isStylus = false)
                     invalidate()
@@ -3840,7 +3974,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     pickerActive?.value = false
                     isLongPressPickerActive = false
                     localIsTouching = false
-                    localCursorPos = null
+                    clearLocalCursorPos()
                     invalidate()
                     return true
                 }
@@ -3854,7 +3988,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         handleToolUp(event, downDoc, isCancel = false)
                     }
                     localIsTouching = false
-                    localCursorPos = null
+                    clearLocalCursorPos()
                     invalidate()
                     return true
                 }
@@ -3866,7 +4000,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         handleToolUp(event, pendingDownDocPos, isCancel = false)
                     }
                     localIsTouching = false
-                    localCursorPos = null
+                    clearLocalCursorPos()
                     invalidate()
                     return true
                 }
@@ -3874,13 +4008,13 @@ class CanvasTouchView(context: Context) : View(context) {
                 if (!isPenOnlyPan) {
                     if (v.penOnlyMode) {
                         localIsTouching = false
-                        localCursorPos = null
+                        clearLocalCursorPos()
                         invalidate()
                         return true
                     }
                     handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
                     localIsTouching = false
-                    localCursorPos = null
+                    clearLocalCursorPos()
                     invalidate()
                 }
                 return true
@@ -4267,13 +4401,13 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
 
                 // Dual-track replacement: immediately clear old prediction upon real event reception
-                predictedScreenPoint = null
+                clearPredictedScreenPoint()
 
                 // 双系统分派:
                 // - 前缓冲预测开启 (默认): 卡尔曼训练 + 空窗回填 + 前缓冲直出 (本次低延迟技术)
                 // - 前缓冲预测关闭: 上游原版"超低延迟笔迹预测" (OEM 硬件预测器渐隐尾线, 仅 OPPO 有效)
                 val frontBufferPrediction = v.frontBufferPredictionEnabled && tool == Tool.BRUSH
-                val fidelityTier = if (frontBufferPrediction) v.currentBrushPredictionTier else PaintViewModel.PredictionFidelityTier.NONE
+                val fidelityTier = if (frontBufferPrediction) v.effectivePredictionTier else PaintViewModel.PredictionFidelityTier.NONE
 
                 if (frontBufferPrediction && fidelityTier != PaintViewModel.PredictionFidelityTier.NONE) {
                     // 1. 通用 4 阶卡尔曼滤波器与物理采样训练（前向几何预测时间窗与后台渲染耗时彻底解耦）
@@ -4329,7 +4463,7 @@ class CanvasTouchView(context: Context) : View(context) {
 
                             val pred = op.predictTouchPoint()
                             if (pred != null) {
-                                predictedScreenPoint = Offset(pred.x, pred.y)
+                                setPredictedScreenPoint(pred.x, pred.y)
                                 predictedPressure = pred.pressure.coerceIn(0.01f, 1f)
                                 predictionObtained = true
                             }
@@ -4376,23 +4510,23 @@ class CanvasTouchView(context: Context) : View(context) {
                                         }
 
                                         if (!wildDiag && angleOk) {
-                                            predictedScreenPoint = Offset(predX, predY)
+                                            setPredictedScreenPoint(predX, predY)
                                             predictedPressure = if (predP.isFinite()) predP.coerceIn(0.01f, 1f) else 1f
                                             predictionObtained = true
                                         } else {
-                                            predictedScreenPoint = null
+                                            clearPredictedScreenPoint()
                                         }
                                     } else {
-                                        predictedScreenPoint = null
+                                        clearPredictedScreenPoint()
                                     }
                                 } else {
-                                    predictedScreenPoint = null
+                                    clearPredictedScreenPoint()
                                 }
                             } else {
-                                predictedScreenPoint = null
+                                clearPredictedScreenPoint()
                             }
                         } catch (_: Throwable) {
-                            predictedScreenPoint = null
+                            clearPredictedScreenPoint()
                         }
                     }
 
@@ -4404,7 +4538,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         postDelayed(predictionStagnationRunnable, 50L)
                     }
                     if (!predictionObtained) {
-                        predictedScreenPoint = null
+                        clearPredictedScreenPoint()
                     }
 
                     // 3. 前缓冲直出: 捕获到移动事件并计算好最新笔尖前沿后立即直出, 绕过 VSYNC。
@@ -4416,12 +4550,15 @@ class CanvasTouchView(context: Context) : View(context) {
                         val curY = event.getY(pointerIndex)
                         val curPos = Offset(curX, curY)
                         var drew = false
-                        // 不再要求 predictedScreenPoint != null: 预测被抑制时回填段照画
+                        // 不再要求 hasPredictedScreenPoint: 预测被抑制时回填段照画
                         if (computePreviewStrokePath(curPos, previewStrokePath)) {
                             // 前缓冲层位于窗口 z 序最顶层 (setZOrderOnTop): 笔尖或前瞻端点落在
-                            // 工具栏/浮窗等 UI 区域上时跳过绘制, 避免预览墨迹盖在 UI 之上
+                            // 工具栏/浮窗等 UI 区域上时跳过绘制, 避免预览墨迹盖在 UI 之上。
+                            // 端点判定不够: 高速运笔一帧可跨过顶栏, 包络相交做保守整段判定
+                            // (左手模式顶栏已纳入注册表, 见 rebuildUiExclusionRects)。
                             val overUi = isHoverOverUi(curX, curY) ||
-                                isHoverOverUi(previewTipEndX, previewTipEndY)
+                                isHoverOverUi(previewTipEndX, previewTipEndY) ||
+                                previewEnvelopeHitsUi(curX, curY)
                             if (!overUi) {
                                 frontBufferOverlay?.renderPreviewPath(previewStrokePath, previewStrokeWidth, previewStrokeColor)
                                 drew = true
@@ -4460,7 +4597,7 @@ class CanvasTouchView(context: Context) : View(context) {
 
                             val pred = op.predictTouchPoint()
                             if (pred != null) {
-                                predictedScreenPoint = Offset(pred.x, pred.y)
+                                setPredictedScreenPoint(pred.x, pred.y)
                                 predictedPressure = pred.pressure.coerceIn(0.01f, 1f)
                             }
                         } catch (_: Throwable) {}
@@ -4473,7 +4610,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         hasDrawnPrediction = false
                     }
                 } else {
-                    predictedScreenPoint = null
+                    clearPredictedScreenPoint()
                     if (frontBufferOverlay != null) {
                         if (hasActivePredictedTip || hasDrawnPrediction) {
                             frontBufferOverlay?.clearPreview()
@@ -4940,13 +5077,12 @@ class CanvasTouchView(context: Context) : View(context) {
             right = maxOf(right, lqRingCx + lqRingR + 2f)
             bottom = maxOf(bottom, lqRingCy + lqRingR + 2f)
         }
-        val cur = localCursorPos
-        if (cur != null) {
+        if (hasLocalCursorPos) {
             val r = if (lqRingValid) lqRingR else 0f
-            left = minOf(left, cur.x - r - 2f)
-            top = minOf(top, cur.y - r - 2f)
-            right = maxOf(right, cur.x + r + 2f)
-            bottom = maxOf(bottom, cur.y + r + 2f)
+            left = minOf(left, localCursorX - r - 2f)
+            top = minOf(top, localCursorY - r - 2f)
+            right = maxOf(right, localCursorX + r + 2f)
+            bottom = maxOf(bottom, localCursorY + r + 2f)
         }
         val l = left.toInt().coerceIn(0, viewW)
         val t = top.toInt().coerceIn(0, viewH)

@@ -18,15 +18,21 @@ import android.view.MotionEvent
 import android.view.SurfaceView
 import androidx.graphics.lowlatency.CanvasFrontBufferedRenderer
 import com.reverie.paint.core.stylus.FrontBufferProbe
+import java.util.concurrent.atomic.AtomicBoolean
 
 /**
  * 笔尖前沿段预览载荷数据 (传递给 CanvasFrontBufferedRenderer 渲染线程)。
+ *
+ * [inFlight]: GL 线程绘制进行时为 true。UI 线程复用槽位前必须 CAS 抢占,
+ * 绘制中的槽位禁止触碰 —— 底层的 SkPath 非线程安全, UI 线程 `set()` 与
+ * GL 线程 `drawPath()` 并发必 SIGSEGV (PR #82 review)。
  */
 class FrontBufferPathPacket(
     var path: Path? = null,
     var strokeWidth: Float = 0f,
     var color: Int = 0,
     var isClear: Boolean = false,
+    val inFlight: AtomicBoolean = AtomicBoolean(false),
 )
 
 /**
@@ -92,17 +98,23 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
                         bufferHeight: Int,
                         param: FrontBufferPathPacket
                     ) {
-                        // 1. 单缓冲清屏：擦除前一次预览段
-                        canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                        try {
+                            // 1. 单缓冲清屏：擦除前一次预览段
+                            canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
 
-                        if (param.isClear || param.path == null) {
-                            return
+                            if (param.isClear || param.path == null) {
+                                return
+                            }
+
+                            // 2. 绘制当前最新笔尖前沿段
+                            previewPaint.color = param.color
+                            previewPaint.strokeWidth = param.strokeWidth.coerceAtLeast(1.5f)
+                            canvas.drawPath(param.path!!, previewPaint)
+                        } finally {
+                            // GL 线程绘制完成: 释放槽位, UI 线程方可复用。
+                            // commit()/cancelPending() 丢弃的包走 onDrawMultiBufferedLayer 释放。
+                            param.inFlight.set(false)
                         }
-
-                        // 2. 绘制当前最新笔尖前沿段
-                        previewPaint.color = param.color
-                        previewPaint.strokeWidth = param.strokeWidth.coerceAtLeast(1.5f)
-                        canvas.drawPath(param.path!!, previewPaint)
                     }
 
                     override fun onDrawMultiBufferedLayer(
@@ -111,8 +123,15 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
                         bufferHeight: Int,
                         params: Collection<FrontBufferPathPacket>
                     ) {
-                        // 多缓冲层保持透明清空，正式墨迹由底层的 CanvasTouchView / Krita 负责
-                        canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                        try {
+                            // 多缓冲层保持透明清空，正式墨迹由底层的 CanvasTouchView / Krita 负责
+                            canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
+                        } finally {
+                            // commit 静默点 (与前缓冲绘制同一串行 GL 线程, cancelPending 已执行):
+                            // 所有 pending 包永不到达前缓冲回调, 在此批量释放 inFlight,
+                            // 否则槽位泄漏为永久占用, 打几笔后池枯竭、预览永久消失。
+                            for (p in packetPool) p.inFlight.set(false)
+                        }
                     }
                 }
 
@@ -128,24 +147,42 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
     }
 
     /**
+     * 原子占用一个空闲槽位。绘制中的槽位跳过; 池空返回 null, 调用方丢帧
+     * (预览为 best-effort, 下一触控事件 ~4ms 后即到, 丢帧无视觉影响, 绝不阻塞 UI 线程)。
+     */
+    private fun obtainPacket(): FrontBufferPathPacket? {
+        for (i in 0 until POOL_SIZE) {
+            val cand = packetPool[(poolIndex + i) and POOL_MASK]
+            if (cand.inFlight.compareAndSet(false, true)) {
+                poolIndex = (poolIndex + i + 1) and POOL_MASK
+                return cand
+            }
+        }
+        return null
+    }
+
+    /**
      * 投递最新前沿预览路径至前缓冲渲染线程 (热路径零分配)。
      */
     fun renderPreviewPath(path: Path, strokeWidth: Float, color: Int) {
         if (!isRendererInitialized) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // 先确认渲染器可用再占槽: 否则占了槽却投递失败, inFlight 永久泄漏。
+            @Suppress("UNCHECKED_CAST")
+            val renderer = frontRenderer as? CanvasFrontBufferedRenderer<FrontBufferPathPacket>
+                ?: return
+            val packet = obtainPacket() ?: return // 无空闲槽位: 丢帧
             try {
-                val packet = packetPool[poolIndex]
-                poolIndex = (poolIndex + 1) and POOL_MASK
                 val targetPath = packet.path ?: Path().also { packet.path = it }
                 targetPath.set(path)
                 packet.strokeWidth = strokeWidth
                 packet.color = color
                 packet.isClear = false
                 hasContent = true
-                @Suppress("UNCHECKED_CAST")
-                (frontRenderer as? CanvasFrontBufferedRenderer<FrontBufferPathPacket>)
-                    ?.renderFrontBufferedLayer(packet)
+                renderer.renderFrontBufferedLayer(packet)
             } catch (t: Throwable) {
+                // 提交失败: 立即释放槽位, 否则泄漏为永久 inFlight
+                packet.inFlight.set(false)
                 Log.w(TAG, "renderPreviewPath error: ${t.message}")
             }
         }

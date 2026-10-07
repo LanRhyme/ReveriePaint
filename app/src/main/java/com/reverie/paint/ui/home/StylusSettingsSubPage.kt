@@ -128,8 +128,12 @@ internal fun StylusSettingsSubPage(
                 SettingSwitchGroupItem(
                     icon = Icons.Rounded.Speed,
                     title = stringResource(R.string.stylus_prediction_title),
-                    summary = stringResource(R.string.stylus_prediction_desc),
+                    summary = stringResource(
+                        if (vm.frontBufferPredictionEnabled) R.string.stylus_prediction_superseded_desc
+                        else R.string.stylus_prediction_desc
+                    ),
                     checked = vm.stylusStrokePredictionEnabled,
+                    enabled = !vm.frontBufferPredictionEnabled,
                     shape = settingGroupShape(2, 7),
                     onCheckedChange = { vm.updateStylusStrokePredictionEnabled(it) },
                 )

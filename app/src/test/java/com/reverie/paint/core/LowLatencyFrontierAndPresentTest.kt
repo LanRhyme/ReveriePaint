@@ -6,6 +6,7 @@ package com.reverie.paint.core
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
+import org.junit.After
 import org.junit.Before
 import org.junit.Test
 
@@ -13,6 +14,15 @@ class LowLatencyFrontierAndPresentTest {
 
     @Before
     fun setUp() {
+        PerfTrace.resetForTest()
+        // recordFrontierError 仅在启用时记录 (PR #82 review 问题 5):
+        // 单测需显式建立该前置条件。
+        PerfTrace.enabled = true
+    }
+
+    @After
+    fun tearDown() {
+        PerfTrace.enabled = false
         PerfTrace.resetForTest()
     }
 

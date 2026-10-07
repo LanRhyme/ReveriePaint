@@ -57,6 +57,16 @@ object PerfTrace {
     @Volatile
     var isEnabledByProp: Boolean = false
 
+    /**
+     * 前沿/呈现延迟字段族的显式锁 (替代 @Synchronized)。
+     * @Synchronized 会编译成 ACC_SYNCHRONIZED, 进方法体前就持锁 —— 方法内首行的
+     * `if (!enabled) return` 快路径根本绕不开 monitor, 门是纸糊的 (PR #82 review)。
+     * 改手动锁后, 纯诊断的记录方法才能把快路径真正放到锁外。
+     * 注意锁域: 本锁只保护 frontierErr*/presentWait* 字段族, 其他统计各有各的 @Synchronized,
+     * 字段不相交, 互不干扰。
+     */
+    private val traceLock = Any()
+
     /** 是否叠加"液化网格"可视化 (`setprop debug.reverie.lqgrid 1`; 只有 debug 构建会用到) */
     @Volatile
     var gridOverlayByProp: Boolean = false
@@ -275,31 +285,41 @@ object PerfTrace {
         if (frameN < RING) frameN++
     }
 
-    /** 记录 invalidateFromRender() 到下一次 onDraw 开始的呈现等待耗时 (纳秒) */
-    @Synchronized
+    /**
+     * 记录 invalidateFromRender() 到下一次 onDraw 开始的呈现等待耗时 (纳秒)。
+     *
+     * 刻意**不加** enabled 门禁: [PaintViewModel.presentLagEstimateMs] 依赖
+     * [presentWaitP50Ms] 的实测值计算回填锚点 ("可见末端", PR #82 commit 6),
+     * 门一加, 全体默认用户 (enabled=false) 的锚点退化成 14ms 常数。
+     * 诊断开关只控制"看不看", 不控制"记不记" —— 记是功能的输入。
+     */
     fun recordPresentWait(nanos: Long) {
-        if (nanos <= 0L || nanos > 200_000_000L) return
-        presentWaitRing[presentWaitIdx] = nanos
-        presentWaitIdx = (presentWaitIdx + 1) % RING
-        if (presentWaitN < RING) presentWaitN++
+        synchronized(traceLock) {
+            if (nanos <= 0L || nanos > 200_000_000L) return
+            presentWaitRing[presentWaitIdx] = nanos
+            presentWaitIdx = (presentWaitIdx + 1) % RING
+            if (presentWaitN < RING) presentWaitN++
+        }
     }
 
     val presentWaitP50Ms: Long
-        @Synchronized
         get() {
-            val now = System.nanoTime()
-            if (now - presentWaitCacheAtNs < PERCENTILE_CACHE_MS * 1_000_000L) return presentWaitP50CacheValueMs
-            updatePresentWaitCacheLocked(now)
-            return presentWaitP50CacheValueMs
+            synchronized(traceLock) {
+                val now = System.nanoTime()
+                if (now - presentWaitCacheAtNs < PERCENTILE_CACHE_MS * 1_000_000L) return presentWaitP50CacheValueMs
+                updatePresentWaitCacheLocked(now)
+                return presentWaitP50CacheValueMs
+            }
         }
 
     val presentWaitP95Ms: Long
-        @Synchronized
         get() {
-            val now = System.nanoTime()
-            if (now - presentWaitCacheAtNs < PERCENTILE_CACHE_MS * 1_000_000L) return presentWaitP95CacheValueMs
-            updatePresentWaitCacheLocked(now)
-            return presentWaitP95CacheValueMs
+            synchronized(traceLock) {
+                val now = System.nanoTime()
+                if (now - presentWaitCacheAtNs < PERCENTILE_CACHE_MS * 1_000_000L) return presentWaitP95CacheValueMs
+                updatePresentWaitCacheLocked(now)
+                return presentWaitP95CacheValueMs
+            }
         }
 
     private fun updatePresentWaitCacheLocked(now: Long) {
@@ -313,31 +333,39 @@ object PerfTrace {
         }
     }
 
-    /** 记录引擎真实上屏前沿与当前时间窗估计前沿的屏幕像素欧氏距离 (px) */
-    @Synchronized
+    /**
+     * 记录引擎真实上屏前沿与当前时间窗估计前沿的屏幕像素欧氏距离 (px)。
+     * 纯诊断信号, 生产代码无读者 —— 未启用时锁外快路径直接返回, 热路径零开销。
+     */
     fun recordFrontierError(errPx: Float) {
-        if (!errPx.isFinite() || errPx < 0f || errPx > 5000f) return
-        frontierErrRing[frontierErrIdx] = errPx
-        frontierErrIdx = (frontierErrIdx + 1) % RING
-        if (frontierErrN < RING) frontierErrN++
+        // 锁外快路径: @Volatile 读, 无 monitor 竞争
+        if (!enabled && !isEnabledByProp) return
+        synchronized(traceLock) {
+            if (!errPx.isFinite() || errPx < 0f || errPx > 5000f) return
+            frontierErrRing[frontierErrIdx] = errPx
+            frontierErrIdx = (frontierErrIdx + 1) % RING
+            if (frontierErrN < RING) frontierErrN++
+        }
     }
 
     val frontierErrP50Px: Float
-        @Synchronized
         get() {
-            val now = System.nanoTime()
-            if (now - frontierErrCacheAtNs < PERCENTILE_CACHE_MS * 1_000_000L) return frontierErrP50CacheValuePx
-            updateFrontierErrCacheLocked(now)
-            return frontierErrP50CacheValuePx
+            synchronized(traceLock) {
+                val now = System.nanoTime()
+                if (now - frontierErrCacheAtNs < PERCENTILE_CACHE_MS * 1_000_000L) return frontierErrP50CacheValuePx
+                updateFrontierErrCacheLocked(now)
+                return frontierErrP50CacheValuePx
+            }
         }
 
     val frontierErrP95Px: Float
-        @Synchronized
         get() {
-            val now = System.nanoTime()
-            if (now - frontierErrCacheAtNs < PERCENTILE_CACHE_MS * 1_000_000L) return frontierErrP95CacheValuePx
-            updateFrontierErrCacheLocked(now)
-            return frontierErrP95CacheValuePx
+            synchronized(traceLock) {
+                val now = System.nanoTime()
+                if (now - frontierErrCacheAtNs < PERCENTILE_CACHE_MS * 1_000_000L) return frontierErrP95CacheValuePx
+                updateFrontierErrCacheLocked(now)
+                return frontierErrP95CacheValuePx
+            }
         }
 
     private fun updateFrontierErrCacheLocked(now: Long) {
@@ -351,24 +379,26 @@ object PerfTrace {
         }
     }
 
-    @Synchronized
     fun invalidatePercentileCachesForTest() {
-        presentWaitCacheAtNs = 0L
-        frontierErrCacheAtNs = 0L
+        synchronized(traceLock) {
+            presentWaitCacheAtNs = 0L
+            frontierErrCacheAtNs = 0L
+        }
     }
 
-    @Synchronized
     fun resetForTest() {
-        presentWaitIdx = 0
-        presentWaitN = 0
-        presentWaitCacheAtNs = 0L
-        presentWaitP50CacheValueMs = 0L
-        presentWaitP95CacheValueMs = 0L
-        frontierErrIdx = 0
-        frontierErrN = 0
-        frontierErrCacheAtNs = 0L
-        frontierErrP50CacheValuePx = 0f
-        frontierErrP95CacheValuePx = 0f
+        synchronized(traceLock) {
+            presentWaitIdx = 0
+            presentWaitN = 0
+            presentWaitCacheAtNs = 0L
+            presentWaitP50CacheValueMs = 0L
+            presentWaitP95CacheValueMs = 0L
+            frontierErrIdx = 0
+            frontierErrN = 0
+            frontierErrCacheAtNs = 0L
+            frontierErrP50CacheValuePx = 0f
+            frontierErrP95CacheValuePx = 0f
+        }
     }
 
     /** C++ 侧回报的上一次保存阶段耗时 (见 `revpSaveStats`) */

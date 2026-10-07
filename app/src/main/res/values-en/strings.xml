@@ -1557,7 +1557,8 @@
     <string name="stylus_touch_and_cursor">Touch &amp; Cursor</string>
     <string name="stylus_pen_mode_desc">Disable finger drawing. One finger pans, two fingers zoom and rotate</string>
     <string name="stylus_prediction_title">Ultra-low Latency Prediction</string>
-    <string name="stylus_prediction_desc">120Hz/144Hz millisecond transient forward prediction for zero lag</string>
+    <string name="stylus_prediction_desc">OEM hardware prediction trail, only effective on select devices (e.g. OPPO); auto-disabled when Front-Buffer Prediction is on</string>
+    <string name="stylus_prediction_superseded_desc">Auto-disabled while Front-Buffer Prediction is on</string>
     <string name="stylus_front_buffer_prediction_title">Front-Buffer Prediction</string>
     <string name="stylus_front_buffer_prediction_desc">Direct tip preview to screen, ink stays closer to the pen tip</string>
     <string name="stylus_brush_cursor">Brush Cursor</string>
