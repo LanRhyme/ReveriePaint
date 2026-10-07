@@ -58,6 +58,7 @@ import androidx.compose.ui.window.PopupProperties
 import androidx.compose.ui.zIndex
 import com.reverie.paint.R
 import com.reverie.paint.core.importLegacyProjectReferences
+import com.reverie.paint.core.ensureReferenceImagesLoaded
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.updateBrushColor
 import com.reverie.paint.ui.components.ReSwitch
@@ -104,6 +105,9 @@ fun ReferenceWindow(
     }
 
     val context = androidx.compose.ui.platform.LocalContext.current
+    LaunchedEffect(vm.referenceWindowOpen) {
+        if (vm.referenceWindowOpen) vm.ensureReferenceImagesLoaded()
+    }
     val windowShape = RoundedCornerShape(16.dp)
 
     val haptic = LocalHapticFeedback.current
@@ -119,6 +123,9 @@ fun ReferenceWindow(
             emptyList<PlacedReferenceImage>() to Size.Zero
         }
     }
+    // Deferred decoding can publish images after this gesture coroutine has started.
+    val currentPlacedImages by rememberUpdatedState(placedImages)
+    val currentLayoutSize by rememberUpdatedState(totalLayoutSize)
 
     var viewportSize by remember { mutableStateOf(IntSize(1, 1)) }
     var lastTapTimeMs by remember { mutableLongStateOf(0L) }
@@ -238,8 +245,8 @@ fun ReferenceWindow(
                                     isFlipped = vm.referenceIsFlipped,
                                     isGrayscale = vm.referenceIsGrayscale,
                                     activeTab = vm.referenceActiveTab,
-                                    placedImages = placedImages,
-                                    totalSize = totalLayoutSize,
+                                    placedImages = currentPlacedImages,
+                                    totalSize = currentLayoutSize,
                                     canvasBitmap = vm.displayBitmap
                                 )
                                 if (initialSampled != null) {
@@ -274,8 +281,8 @@ fun ReferenceWindow(
                                         isFlipped = vm.referenceIsFlipped,
                                         isGrayscale = vm.referenceIsGrayscale,
                                         activeTab = vm.referenceActiveTab,
-                                        placedImages = placedImages,
-                                        totalSize = totalLayoutSize,
+                                        placedImages = currentPlacedImages,
+                                        totalSize = currentLayoutSize,
                                         canvasBitmap = vm.displayBitmap
                                     )
                                     if (sampled != null) {
@@ -386,7 +393,9 @@ fun ReferenceWindow(
             if (vm.referenceActiveTab == 0) {
                 // Image Tab
                 val images = vm.referenceImages
-                if (images.isNotEmpty()) {
+                if (vm.referenceBitmapLoading) {
+                    Text(stringResource(R.string.common_loading), color = Morandi.subText, fontSize = 13.sp)
+                } else if (images.isNotEmpty()) {
                     ReferenceImagesView(
                         images = images,
                         placedImages = placedImages,

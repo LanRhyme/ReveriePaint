@@ -50,6 +50,8 @@ internal fun PaintViewModel.resetProjectReferences(loading: Boolean = false) {
     if (referenceImportActive) isImportingMedia = false
     referenceImportActive = false
     referenceLoading = loading
+    referenceBitmapLoading = false
+    referenceDeferredFiles = null
     referenceImages = emptyList()
     referenceAlbumSelectedUris = emptyList()
     referenceProfileId = UUID.randomUUID().toString()
@@ -66,6 +68,7 @@ internal fun PaintViewModel.persistProjectReferenceState() {
         putBoolean("ref_allow_rotation", referenceAllowRotation)
     }
     if (currentPage != Page.PAINTING || referenceLoading || referenceCacheClearing) return
+    if (referenceWindowOpen) ensureReferenceImagesLoaded()
     currentProjectFile?.let { referenceStore.bind(it, referenceProfileId) }
     val state = referenceState()
     if (state == referenceSavedState) return
@@ -76,30 +79,63 @@ internal fun PaintViewModel.persistProjectReferenceState() {
 /** Called on the UI thread after a successful document load. No reference bytes pass through JNI. */
 internal fun PaintViewModel.restoreLocalProjectReferences(path: String) {
     val session = referenceSession
-    val profile = referenceStore.profile(path) ?: referenceProfileId.also { referenceStore.bind(path, it) }
-    referenceProfileId = profile
+    val fallbackProfile = referenceProfileId
     referenceLoading = true
     referenceRestoreJob = viewModelScope.launch {
         val result = withContext(Dispatchers.IO) {
             referenceIoMutex.withLock {
                 runCatching {
-                    val files = referenceStore.images(profile)
-                    var budget = ProjectReferences.MAX_BYTES.toLong()
-                    val images = files.map { file ->
-                        ensureActive()
-                        decodeReferenceImage(file, budget).also { budget -= it.byteCount }
+                    ensureActive()
+                    val profile = referenceStore.profile(path) ?: fallbackProfile.also {
+                        referenceStore.bind(path, it)
                     }
-                    Triple(files, images, referenceStore.state(profile))
+                    val files = referenceStore.images(profile)
+                    Triple(profile, files, referenceStore.state(profile))
                 }
             }
         }
         if (referenceSession != session) return@launch
-        result.onSuccess { (files, images, state) ->
-            referenceImages = images
+        result.onSuccess { (profile, files, state) ->
+            referenceProfileId = profile
+            referenceDeferredFiles = files.takeIf { it.isNotEmpty() }
             referenceAlbumSelectedUris = files.map { Uri.fromFile(it) }
             applyReferenceState(state)
         }.onFailure { showActionToast(R.string.reference_restore_failed, R.drawable.ic_image) }
         referenceLoading = false
+        if (referenceWindowOpen) ensureReferenceImagesLoaded()
+    }
+}
+
+/** A hidden window restores metadata only. Decode on demand, without overwriting newer UI choices. */
+internal fun PaintViewModel.ensureReferenceImagesLoaded() {
+    if (referenceLoading || referenceBitmapLoading || referenceImportActive || referenceCacheClearing) return
+    val files = referenceDeferredFiles ?: return
+    val session = referenceSession
+    referenceBitmapLoading = true
+    referenceRestoreJob = viewModelScope.launch {
+        try {
+            val images = withContext(Dispatchers.IO) {
+                referenceIoMutex.withLock {
+                    var budget = ProjectReferences.MAX_BYTES.toLong()
+                    files.map { file ->
+                        ensureActive()
+                        decodeReferenceImage(file, budget).also {
+                            budget -= it.byteCount
+                            it.prepareToDraw()
+                        }
+                    }
+                }
+            }
+            if (referenceSession != session) return@launch
+            referenceImages = images
+            referenceDeferredFiles = null
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (error: Exception) {
+            if (referenceSession == session) showActionToast(R.string.reference_restore_failed, R.drawable.ic_image)
+        } finally {
+            if (referenceSession == session) referenceBitmapLoading = false
+        }
     }
 }
 
@@ -142,7 +178,7 @@ private fun PaintViewModel.copyReferenceSource(uri: Uri, file: File) {
 /** Imported images are written once; subsequent artwork saves do not encode or copy reference pixels. */
 internal fun PaintViewModel.importProjectReferences(uris: List<Uri>, replace: Boolean) {
     if (!hasAppContext() || currentPage != Page.PAINTING) return
-    if (referenceLoading || isImportingMedia || referenceCacheClearing) {
+    if (referenceLoading || referenceBitmapLoading || isImportingMedia || referenceCacheClearing) {
         showActionToast(R.string.toast_importing_media, R.drawable.ic_image)
         return
     }
@@ -152,6 +188,7 @@ internal fun PaintViewModel.importProjectReferences(uris: List<Uri>, replace: Bo
     val profile = referenceProfileId
     currentProjectFile?.let { referenceStore.bind(it, profile) }
     val retained = referenceAlbumSelectedUris.zip(referenceImages).toMap()
+    val retainedFiles = referenceAlbumSelectedUris.associateWith { File(requireNotNull(it.path)) }
     val selected = (if (replace) uris else referenceAlbumSelectedUris + uris).distinct().take(MAX_REFERENCE_IMAGES)
     isImportingMedia = true
     referenceImportActive = true
@@ -166,20 +203,39 @@ internal fun PaintViewModel.importProjectReferences(uris: List<Uri>, replace: Bo
                     val images = selected.map { uri ->
                         ensureActive()
                         val existing = retained[uri]
-                        val file = if (existing != null) File(requireNotNull(uri.path))
-                            else referenceStore.newImageFile(profile).also { created.add(it) }
-                        val bitmap = existing ?: run {
+                        val retainedFile = retainedFiles[uri]
+                        var file = retainedFile ?: referenceStore.newImageFile(profile).also { created.add(it) }
+                        val bitmap = existing ?: if (retainedFile != null) decodeReferenceImage(retainedFile, budget) else run {
                             val source = File(file.parentFile, file.name + ".incoming")
                             try {
                                 copyReferenceSource(uri, source)
                                 ensureActive()
                                 decodeReferenceImage(source, budget).also { bitmap ->
-                                    file.outputStream().use { check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it)) }
+                                    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                                    BitmapFactory.decodeFile(source.absolutePath, bounds)
+                                    val extension = when (bounds.outMimeType) {
+                                        "image/png" -> "png"
+                                        "image/jpeg" -> "jpg"
+                                        "image/webp" -> "webp"
+                                        else -> null
+                                    }
+                                    if (extension != null && bounds.outWidth == bitmap.width &&
+                                        bounds.outHeight == bitmap.height) {
+                                        // No resampling: retain source bytes instead of inflating JPEG into PNG.
+                                        file = File(file.parentFile, file.nameWithoutExtension + "." + extension)
+                                        created.add(file)
+                                        check(source.renameTo(file))
+                                    } else {
+                                        file.outputStream().use {
+                                            check(bitmap.compress(Bitmap.CompressFormat.PNG, 100, it))
+                                        }
+                                    }
                                 }
                             } finally { source.delete() }
                         }
                         budget -= bitmap.byteCount
                         require(budget >= 0)
+                        if (existing == null) bitmap.prepareToDraw()
                         files.add(file)
                         bitmap
                     }
@@ -191,6 +247,7 @@ internal fun PaintViewModel.importProjectReferences(uris: List<Uri>, replace: Bo
             }
             if (referenceSession != session || referenceOperation != operation) return@launch
             referenceImages = images
+            referenceDeferredFiles = null
             referenceAlbumSelectedUris = files.map { Uri.fromFile(it) }
             referenceActiveTab = 0
             referenceWindowOpen = true
@@ -214,7 +271,7 @@ internal fun PaintViewModel.importProjectReferences(uris: List<Uri>, replace: Bo
 }
 
 internal fun PaintViewModel.clearProjectReferences() {
-    if (referenceLoading) return
+    if (referenceLoading || referenceBitmapLoading) return
     referenceImportJob?.cancel()
     if (referenceImportActive) isImportingMedia = false
     referenceImportActive = false

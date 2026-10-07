@@ -96,12 +96,13 @@ internal class LocalReferenceStore(private val context: Context) {
         require(names.length() <= ProjectReferences.MAX_IMAGES)
         return (0 until names.length()).map {
             val name = names.getString(it)
-            require(name.endsWith(".png") && UUID.fromString(name.removeSuffix(".png")).toString() + ".png" == name)
+            require(File(name).extension in setOf("png", "jpg", "webp"))
+            require(UUID.fromString(File(name).nameWithoutExtension).toString() + "." + File(name).extension == name)
             File(directory(id), name)
         }
     }
 
-    /** IO thread. PNGs are immutable; publish the small ordered list only once all writes succeeded. */
+    /** IO thread. Images are immutable; publish the ordered list only once all writes succeeded. */
     fun saveImages(id: String, files: List<File>) {
         require(files.size <= ProjectReferences.MAX_IMAGES)
         require(files.all { it.parentFile == directory(id) && it.isFile })

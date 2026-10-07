@@ -872,6 +872,9 @@ class PaintViewModel : ViewModel() {
     internal var referenceRestoreJob: Job? = null
     internal var referenceImportActive = false
     internal var referenceLoading = false
+    var referenceBitmapLoading by mutableStateOf(false)
+        internal set
+    internal var referenceDeferredFiles: List<java.io.File>? = null
     internal var referenceSavedState = com.reverie.paint.model.ReferenceViewState()
     @Volatile internal var referenceProfileId = java.util.UUID.randomUUID().toString()
     internal val referenceStore by lazy { LocalReferenceStore(appContext) }
