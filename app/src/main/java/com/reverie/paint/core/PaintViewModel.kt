@@ -866,27 +866,27 @@ class PaintViewModel : ViewModel() {
     var referenceWindowWidth by mutableFloatStateOf(260f)
     var referenceWindowHeight by mutableFloatStateOf(300f)
 
-    fun persistReferenceState() {
-        if (!::appContext.isInitialized) return
-        try {
-            val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
-            p.putBoolean("ref_window_open", referenceWindowOpen)
-            p.putFloat("ref_window_x", referenceWindowX)
-            p.putFloat("ref_window_y", referenceWindowY)
-            p.putFloat("ref_window_w", referenceWindowWidth)
-            p.putFloat("ref_window_h", referenceWindowHeight)
-            p.putBoolean("ref_is_grayscale", referenceIsGrayscale)
-            p.putBoolean("ref_allow_rotation", referenceAllowRotation)
-            p.putBoolean("ref_is_flipped", referenceIsFlipped)
-            p.putInt("ref_active_tab", referenceActiveTab)
-            p.putBoolean("ref_bars_collapsed", referenceBarsCollapsed)
-            p.putFloat("ref_zoom", referenceZoom)
-            p.putFloat("ref_rotation", referenceRotation)
-            p.putFloat("ref_pan_x", referencePanX)
-            p.putFloat("ref_pan_y", referencePanY)
-            p.apply()
-        } catch (_: Exception) {}
-    }
+    @Volatile internal var referenceSession: Long = 0
+    @Volatile internal var referenceOperation: Long = 0
+    internal var referenceImportJob: Job? = null
+    internal var referenceRestoreJob: Job? = null
+    internal var referenceImportActive = false
+    internal var referenceLoading = false
+    var referenceBitmapLoading by mutableStateOf(false)
+        internal set
+    internal var referenceDeferredFiles: List<java.io.File>? = null
+    internal var referenceSavedState = com.reverie.paint.model.ReferenceViewState()
+    @Volatile internal var referenceProfileId = java.util.UUID.randomUUID().toString()
+    internal val referenceStore by lazy { LocalReferenceStore(appContext) }
+    internal val referenceIoMutex = kotlinx.coroutines.sync.Mutex()
+    var referenceCacheBytes by mutableLongStateOf(0L)
+        internal set
+    var referenceCacheClearing by mutableStateOf(false)
+        internal set
+    var hasLegacyReferenceImages by mutableStateOf(false)
+        internal set
+
+    fun persistReferenceState() = persistProjectReferenceState()
 
     // Quick Actions Tool Window State (快捷操作浮窗)
     var quickActionWindowOpen by mutableStateOf(false)
@@ -1051,107 +1051,6 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    fun persistReferenceImages() {
-        if (!::appContext.isInitialized) return
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val dir = java.io.File(appContext.filesDir, "ref_images")
-                if (dir.exists()) dir.deleteRecursively()
-                dir.mkdirs()
-                val currentImgs = referenceImages
-                for ((idx, bmp) in currentImgs.withIndex()) {
-                    val file = java.io.File(dir, "ref_$idx.png")
-                    java.io.FileOutputStream(file).use { out ->
-                        bmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
-                    }
-                }
-                val urisJson = JSONArray().apply {
-                    for (u in referenceAlbumSelectedUris) {
-                        put(u.toString())
-                    }
-                }.toString()
-                appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                    .edit()
-                    .putInt("ref_images_count", currentImgs.size)
-                    .putString("ref_album_selected_uris", urisJson)
-                    .apply()
-            } catch (e: Exception) {
-                android.util.Log.e("ReveriePaint", "Failed to persist reference images", e)
-            }
-        }
-    }
-
-    fun loadPersistedReferenceImages() {
-        if (!::appContext.isInitialized) return
-        viewModelScope.launch(Dispatchers.IO) {
-            try {
-                val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                val urisJson = prefs.getString("ref_album_selected_uris", null)
-                val restoredUris = mutableListOf<android.net.Uri>()
-                if (!urisJson.isNullOrEmpty()) {
-                    try {
-                        val arr = JSONArray(urisJson)
-                        for (i in 0 until arr.length()) {
-                            restoredUris.add(android.net.Uri.parse(arr.getString(i)))
-                        }
-                    } catch (_: Throwable) {}
-                }
-
-                val dir = java.io.File(appContext.filesDir, "ref_images")
-                val count = prefs.getInt("ref_images_count", 0)
-                val list = mutableListOf<Bitmap>()
-                // B4: 参考图恢复改**有界解码** —— 最长边压到 2048, 并设总字节预算。
-                // 参考图只是"看着画"的辅助, 不需要原始分辨率; 而 decodeFile 按整张图分配,
-                // 老版本存下来的大图会让启动时一次性分配几百 MB(甚至 OOM)。
-                val maxEdge = 2048
-                val totalBudget = 64L * 1024L * 1024L
-                var loadedBytes = 0L
-                val decodeScaled: (java.io.File) -> Bitmap? = { f ->
-                    try {
-                        val bounds = android.graphics.BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                        android.graphics.BitmapFactory.decodeFile(f.absolutePath, bounds)
-                        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) {
-                            null
-                        } else {
-                            var sample = 1
-                            while (maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= maxEdge) sample *= 2
-                            android.graphics.BitmapFactory.decodeFile(
-                                f.absolutePath,
-                                android.graphics.BitmapFactory.Options().apply { inSampleSize = sample },
-                            )
-                        }
-                    } catch (_: Throwable) {
-                        null
-                    }
-                }
-                if (dir.exists() && count > 0) {
-                    for (i in 0 until count) {
-                        val file = java.io.File(dir, "ref_$i.png")
-                        if (!file.exists()) continue
-                        val bmp = decodeScaled(file) ?: continue
-                        if (loadedBytes + bmp.byteCount > totalBudget) {
-                            // 预算用尽: 后面的图直接跳过(宁可少几张, 也不把内存打满)
-                            bmp.recycle()
-                            break
-                        }
-                        loadedBytes += bmp.byteCount
-                        list.add(bmp)
-                    }
-                }
-                viewModelScope.launch(Dispatchers.Main) {
-                    if (restoredUris.isNotEmpty()) {
-                        referenceAlbumSelectedUris = restoredUris
-                    }
-                    if (list.isNotEmpty()) {
-                        referenceImages = list
-                    }
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("ReveriePaint", "Failed to load reference images", e)
-            }
-        }
-    }
-
     fun persistBrushPanelState() {
         if (!::appContext.isInitialized) return
         try {
@@ -1230,112 +1129,17 @@ class PaintViewModel : ViewModel() {
         }.getOrNull()
     }
 
-    suspend fun loadBitmapsFromUris(uris: List<android.net.Uri>): List<Bitmap> = withContext(Dispatchers.IO) {
-        val loaded = mutableListOf<Bitmap>()
-        val maxDim = 2048
-        for (uri in uris.take(MAX_REFERENCE_IMAGES)) {
-            try {
-                val bmp = if (uri.scheme == "http" || uri.scheme == "https") {
-                    val conn = java.net.URL(uri.toString()).openConnection()
-                    conn.connectTimeout = 10000
-                    conn.readTimeout = 15000
-                    conn.getInputStream()?.use { s ->
-                        android.graphics.BitmapFactory.decodeStream(s)
-                    }
-                } else {
-                    decodeSampledBitmapFromUri(uri, maxDim)
-                }
-                if (bmp != null) {
-                    loaded.add(bmp)
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("ReveriePaint", "Failed to load reference image $uri", e)
-            }
-        }
-        loaded
-    }
+    fun applyReferenceAlbumSelection(selectedUris: List<android.net.Uri>) =
+        importProjectReferences(selectedUris, replace = true)
 
-    fun applyReferenceAlbumSelection(selectedUris: List<android.net.Uri>) {
-        val trimmed = selectedUris.distinct().take(MAX_REFERENCE_IMAGES)
-        referenceAlbumSelectedUris = trimmed
-        if (trimmed.isEmpty()) {
-            clearReferenceImage()
-            return
-        }
-        viewModelScope.launch(Dispatchers.IO) {
-            val loaded = loadBitmapsFromUris(trimmed)
-            viewModelScope.launch(Dispatchers.Main) {
-                val wasEmpty = referenceImages.isEmpty()
-                referenceImages = loaded
-                referenceActiveTab = 0
-                referenceWindowOpen = true
-                if (wasEmpty) {
-                    resetReferenceTransform()
-                }
-                persistReferenceImages()
-                persistReferenceState()
-            }
-        }
-    }
-
-    fun importReferenceImagesFromUris(uris: List<android.net.Uri>) {
-        if (!::appContext.isInitialized || uris.isEmpty()) return
-        if (isImportingMedia) {
-            showActionToast(R.string.toast_importing_media, R.drawable.ic_image)
-            return
-        }
-        isImportingMedia = true
-        viewModelScope.launch(Dispatchers.IO) {
-            val newBitmaps = mutableListOf<Bitmap>()
-            val maxAllowed = MAX_REFERENCE_IMAGES
-            val maxDim = 2048
-            for (uri in uris.take(maxAllowed)) {
-                try {
-                    val bmp = if (uri.scheme == "http" || uri.scheme == "https") {
-                        val conn = java.net.URL(uri.toString()).openConnection()
-                        conn.connectTimeout = 10000
-                        conn.readTimeout = 15000
-                        conn.getInputStream()?.use { s ->
-                            android.graphics.BitmapFactory.decodeStream(s)
-                        }
-                    } else {
-                        decodeSampledBitmapFromUri(uri, maxDim)
-                    }
-                    if (bmp != null) {
-                        newBitmaps.add(bmp)
-                    }
-                } catch (e: Exception) {
-                    android.util.Log.e("ReveriePaint", "Failed to load reference image $uri", e)
-                }
-            }
-            viewModelScope.launch(Dispatchers.Main) {
-                isImportingMedia = false
-                if (newBitmaps.isNotEmpty()) {
-                    val combined = referenceImages + newBitmaps
-                    referenceImages = combined.takeLast(maxAllowed)
-                    referenceAlbumSelectedUris = (referenceAlbumSelectedUris + uris).distinct().take(maxAllowed)
-                    referenceActiveTab = 0
-                    referenceWindowOpen = true
-                    resetReferenceTransform()
-                    persistReferenceImages()
-                    persistReferenceState()
-                    showActionToast(R.string.toast_imported_ref_images, R.drawable.ic_image, newBitmaps.size)
-                }
-            }
-        }
-    }
+    fun importReferenceImagesFromUris(uris: List<android.net.Uri>) =
+        importProjectReferences(uris, replace = false)
 
     fun importReferenceImageFromUri(uri: android.net.Uri) {
         importReferenceImagesFromUris(listOf(uri))
     }
 
-    fun clearReferenceImage() {
-        referenceImages = emptyList()
-        referenceAlbumSelectedUris = emptyList()
-        resetReferenceTransform()
-        persistReferenceImages()
-        persistReferenceState()
-    }
+    fun clearReferenceImage() = clearProjectReferences()
 
     fun resetReferenceTransform() {
         referenceZoom = 1f
@@ -3086,22 +2890,14 @@ class PaintViewModel : ViewModel() {
                 } catch (_: Exception) {}
             }
 
-            // 参考窗口持久化恢复
-            referenceWindowOpen = prefs.getBoolean("ref_window_open", false)
+            // Window placement remains a device preference; images and view state belong to the document.
             referenceWindowX = prefs.getFloat("ref_window_x", 80f)
             referenceWindowY = prefs.getFloat("ref_window_y", 140f)
             referenceWindowWidth = prefs.getFloat("ref_window_w", 260f)
             referenceWindowHeight = prefs.getFloat("ref_window_h", 300f)
-            referenceIsGrayscale = prefs.getBoolean("ref_is_grayscale", false)
             referenceAllowRotation = prefs.getBoolean("ref_allow_rotation", true)
-            referenceIsFlipped = prefs.getBoolean("ref_is_flipped", false)
-            referenceActiveTab = prefs.getInt("ref_active_tab", 0)
-            referenceBarsCollapsed = prefs.getBoolean("ref_bars_collapsed", false)
-            referenceZoom = prefs.getFloat("ref_zoom", 1f)
-            referenceRotation = prefs.getFloat("ref_rotation", 0f)
-            referencePanX = prefs.getFloat("ref_pan_x", 0f)
-            referencePanY = prefs.getFloat("ref_pan_y", 0f)
-            loadPersistedReferenceImages()
+            hasLegacyReferenceImages = prefs.getInt("ref_images_count", 0) > 0 &&
+                File(appContext.filesDir, "ref_images").isDirectory
 
             // 快捷操作浮窗持久化恢复
             quickActionWindowOpen = prefs.getBoolean("quick_action_open", false)

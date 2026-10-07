@@ -2355,5 +2355,15 @@
     <string name="tl_expand_group">Expand group</string>
     <string name="f2l_progress">Splitting %1$d / %2$d</string>
     <string name="f2l_running">Splitting…</string>
+    <string name="reference_cache_title">Reference cache</string>
+    <string name="reference_cache_clear">Clear reference cache</string>
+    <string name="reference_cache_size">Local references use %1$s and are not included in project files</string>
+    <string name="reference_cache_confirm">Remove local reference copies, display state and legacy reference cache for all artworks, including the current one. References will need to be added again. Artwork files, gallery originals and window position settings will be kept</string>
+    <string name="reference_cache_clearing">Clearing reference cache…</string>
+    <string name="reference_cache_cleared">Reference cache cleared</string>
+    <string name="reference_cache_failed">Some reference cache files could not be removed. Please retry</string>
+    <string name="reference_import_legacy">Import legacy references</string>
+    <string name="reference_import_failed">Could not import references; existing images were kept</string>
+    <string name="reference_restore_failed">Could not read reference data; please add the reference images again</string>
 </resources>
 

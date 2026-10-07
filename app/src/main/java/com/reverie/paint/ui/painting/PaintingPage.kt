@@ -1037,6 +1037,7 @@ fun PaintingPage(
                         when (it) {
                             Tool.REFERENCE -> {
                                 vm.referenceWindowOpen = !vm.referenceWindowOpen
+                                vm.persistReferenceState()
                                 moreToolsOpen = false
                             }
                             Tool.SHORTCUT -> {
@@ -1888,6 +1889,7 @@ fun PaintingPage(
                     when (it) {
                         Tool.REFERENCE -> {
                             vm.referenceWindowOpen = !vm.referenceWindowOpen
+                            vm.persistReferenceState()
                             moreToolsOpen = false
                         }
                         Tool.SHORTCUT -> {
@@ -1960,7 +1962,7 @@ fun PaintingPage(
         ) {
             ReferenceWindow(
                 vm = vm,
-                onClose = { vm.referenceWindowOpen = false },
+                onClose = { vm.referenceWindowOpen = false; vm.persistReferenceState() },
                 hazeState = hazeState,
                 opacity = vm.popupPanelOpacity,
             )
