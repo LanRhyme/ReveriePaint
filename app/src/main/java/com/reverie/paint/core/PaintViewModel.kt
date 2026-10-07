@@ -1552,9 +1552,9 @@ class PaintViewModel : ViewModel() {
     /**
      * 笔刷低延迟前向预测保真度分级 (Fidelity Tiering)
      * 严格依据 docs/WET-INK-EXPERIMENT.md 历史教训，避免图像笔尖替换跳变与粗劣生硬假线：
-     * - NONE: 严禁放行 (印章/喷溅/特效/网格/双重蒙版/涂抹等，保持纯裸管线)
-     * - TIER_1: 高保真基础 (勾线/圆笔/墨水/平头/标准线稿，全量放行)
-     * - TIER_2: 精细拟合 (基础铅笔/速写，细径/低散布，限制安全外推半径)
+     * - NONE: 严禁放行 (印章/喷溅/特效/网格/形状/色彩混合等，保持纯裸管线)
+     * - TIER_1: 高保真基础 (勾线/圆笔/墨水/平头/标准线稿，透明度对齐真墨全量放行)
+     * - TIER_2: 精细拟合 (铅笔/速写/水彩/纹理/低流量及未知笔刷，加粗导引线)
      */
     enum class PredictionFidelityTier {
         NONE,
@@ -3977,8 +3977,9 @@ class PaintViewModel : ViewModel() {
             // 3. 笔刷预设与分组检查
             val grp = presetGroup?.ifEmpty { null } ?: inferBrushGroup(presetName)
 
-            // Tier 3 (NONE): 严格拦截的特征 (印章、喷溅、特效、网格、形状、水彩扩散、色彩混合)
-            val hardExcludedGroups = setOf("印章与喷溅", "特效与滤镜", "形状", "水彩", "混合")
+            // Tier 3 (NONE): 严格拦截的特征 (印章、喷溅、特效、网格、形状、色彩混合)
+            // 注: 水彩类不再硬拦截 (用户反馈水彩完全无预览), 现降级为 TIER_2 导引线
+            val hardExcludedGroups = setOf("印章与喷溅", "特效与滤镜", "形状", "混合")
             if (hardExcludedGroups.contains(grp)) return PredictionFidelityTier.NONE
 
             if (presetName.contains("Stamp", ignoreCase = true) ||
@@ -3991,8 +3992,6 @@ class PaintViewModel : ViewModel() {
                 presetName.contains("Grid", ignoreCase = true) ||
                 presetName.contains("Curve", ignoreCase = true) ||
                 presetName.contains("Screentone", ignoreCase = true) ||
-                presetName.contains("Water", ignoreCase = true) ||
-                presetName.contains("Wet", ignoreCase = true) ||
                 presetName.contains("Blender", ignoreCase = true) ||
                 presetName.contains("Smudge", ignoreCase = true)) {
                 return PredictionFidelityTier.NONE
@@ -4012,8 +4011,8 @@ class PaintViewModel : ViewModel() {
                 return PredictionFidelityTier.TIER_1
             }
 
-            // 5. TIER_2 防御式安全降级 (铅笔、速写、纹理排线、油画绘画、带纹理、低流量及所有未知笔刷)
-            // 采用微细笔锋导引线 (1.5~3.5px, <=15ms 回填)，严格防范湿墨 v1 颗粒跳变与 Overdraw 过曝
+            // 5. TIER_2 防御式安全降级 (铅笔、速写、水彩、纹理排线、油画绘画、带纹理、低流量及所有未知笔刷)
+            // 采用加粗可见的导引线 (0.5x 笔宽, 上限 8dp)，仍明显窄于笔宽以防范湿墨 v1 替换跳变
             return PredictionFidelityTier.TIER_2
         }
     }
@@ -4063,16 +4062,22 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    val effectivePipelineDelayMs: Long
+    /**
+     * 估计的"已绘制→已上屏"呈现延迟 (invalidate→onDraw + HWUI/合成尾)。
+     * 预览锚点需要它把起点从"引擎已绘制前沿"回退到"屏幕上真实可见的墨迹末端"。
+     */
+    val presentLagEstimateMs: Long
         get() {
             val measuredPresent = PerfTrace.presentWaitP50Ms
-            val presentComp = if (measuredPresent in 2L..35L) {
+            return if (measuredPresent in 2L..35L) {
                 (measuredPresent + PRESENT_TAIL_MS).coerceAtLeast(PRESENT_ESTIMATE_MS)
             } else {
                 PRESENT_ESTIMATE_MS
             }
-            return (lastE2ePipelineMs + presentComp).coerceIn(20L, 85L)
         }
+
+    val effectivePipelineDelayMs: Long
+        get() = (lastE2ePipelineMs + presentLagEstimateMs).coerceIn(20L, 85L)
     private var perfLogCounter = 0
 
     private val strokeBatchRunnable = Runnable {

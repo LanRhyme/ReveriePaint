@@ -73,7 +73,6 @@ class BrushPredictionTierTest {
         assertEquals(PaintViewModel.PredictionFidelityTier.NONE, resolve(presetGroup = "印章与喷溅"))
         assertEquals(PaintViewModel.PredictionFidelityTier.NONE, resolve(presetGroup = "特效与滤镜"))
         assertEquals(PaintViewModel.PredictionFidelityTier.NONE, resolve(presetGroup = "形状"))
-        assertEquals(PaintViewModel.PredictionFidelityTier.NONE, resolve(presetGroup = "水彩"))
         assertEquals(PaintViewModel.PredictionFidelityTier.NONE, resolve(presetGroup = "混合"))
 
         // Names
@@ -81,10 +80,25 @@ class BrushPredictionTierTest {
         assertEquals(PaintViewModel.PredictionFidelityTier.NONE, resolve(presetName = "Spray_Can"))
         assertEquals(PaintViewModel.PredictionFidelityTier.NONE, resolve(presetName = "Splat_Wet"))
         assertEquals(PaintViewModel.PredictionFidelityTier.NONE, resolve(presetName = "Grid_Pattern"))
-        assertEquals(PaintViewModel.PredictionFidelityTier.NONE, resolve(presetName = "Water_Color_Bleed"))
-        assertEquals(PaintViewModel.PredictionFidelityTier.NONE, resolve(presetName = "Wet_Paint_Wash"))
         assertEquals(PaintViewModel.PredictionFidelityTier.NONE, resolve(presetName = "Color_Blender_Smooth"))
         assertEquals(PaintViewModel.PredictionFidelityTier.NONE, resolve(presetName = "Brush_Smudge_Soft"))
+    }
+
+    @Test
+    fun `watercolor group and wet names downgrade to TIER_2 guide line instead of NONE`() {
+        // 用户反馈: 水彩类完全无预览。现改为 TIER_2 半宽导引线, 不再硬拦截
+        assertEquals(
+            PaintViewModel.PredictionFidelityTier.TIER_2,
+            resolve(presetGroup = "水彩", presetName = "i)_Wet_Bleed")
+        )
+        assertEquals(
+            PaintViewModel.PredictionFidelityTier.TIER_2,
+            resolve(presetName = "Water_Color_Bleed")
+        )
+        assertEquals(
+            PaintViewModel.PredictionFidelityTier.TIER_2,
+            resolve(presetName = "Wet_Paint_Wash")
+        )
     }
 
     @Test

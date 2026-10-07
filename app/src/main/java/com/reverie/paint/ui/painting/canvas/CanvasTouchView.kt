@@ -892,151 +892,142 @@ class CanvasTouchView(context: Context) : View(context) {
 
     /**
      * 计算笔尖前瞻超前预测段与历史空窗回填路径。
-     * 贯通 [P_frontier -> P_cur -> P_pred]，写入 [previewStrokeWidth]、[previewStrokeColor]、
-     * [previewTipEndX]、[previewTipEndY]，并填充 [outPath]。
-     * 若被门控安全区间拦截或条件不满足返回 false。
+     *
+     * 回填锚点 = 屏幕上真实可见的墨迹末端 (渲染前沿 - 呈现延迟); 前向段仅在预测
+     * 通过门控时追加, 预测被抑制时仍保留回填段 (避免慢速/急转时预览整体消失)。
+     * 写入 [previewStrokeWidth]、[previewStrokeColor]、[previewTipEndX]、
+     * [previewTipEndY]，并填充 [outPath]; 两段都不可用时返回 false。
      */
     private fun computePreviewStrokePath(curPos: Offset, outPath: android.graphics.Path): Boolean {
         val v = vm ?: return false
-        val predPt = predictedScreenPoint ?: return false
         val fidelityTier = v.currentBrushPredictionTier
         if (fidelityTier == PaintViewModel.PredictionFidelityTier.NONE) return false
         if (!localIsTouching || tool != Tool.BRUSH) return false
 
-        val dx = predPt.x - curPos.x
-        val dy = predPt.y - curPos.y
-        val dist = kotlin.math.hypot(dx, dy)
-
         val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
         val cursorBrushSize = v.brushSize.toFloat()
-        val pFrac = if (v.brushPressureEnabled) pressureFractionCached(predictedPressure) else 1f
+        // 笔压口径: 预测可用时用预测压力 (前瞻段), 预测被抑制时退回当前实际压力,
+        // 避免用过期 predictedPressure 画出宽度突变的回填段
+        val pressureForWidth = if (predictedScreenPoint != null) predictedPressure else localPressure
+        val pFrac = if (v.brushPressureEnabled) pressureFractionCached(pressureForWidth) else 1f
         val actualStrokeWidth = (cursorBrushSize * scale * pFrac).coerceAtLeast(1.5f)
 
         val screenDiag = kotlin.math.hypot(width.toFloat(), height.toFloat())
-        val maxAllowedDiag = if (screenDiag > 0f) screenDiag / 6f else 600f
-        // 动态上限联动笔宽：大笔刷自适应拉伸，避免出现短于笔宽的圆钝团块
-        val maxDistPx = (68f * density).coerceAtLeast(actualStrokeWidth * 1.8f).coerceAtMost(maxAllowedDiag)
-        val minDistPx = 2.0f * density
-        val wildDiag = screenDiag > 0f && dist > maxAllowedDiag
 
-        if (dist !in minDistPx..(maxDistPx * 2.5f) || wildDiag || predictedPressure <= 0.05f) {
-            return false
-        }
-
-        val prevPos = priorStrokeScreenPos
-        if (prevPos != Offset.Zero && prevPos != curPos) {
-            val v1x = curPos.x - prevPos.x
-            val v1y = curPos.y - prevPos.y
-            val len1 = kotlin.math.hypot(v1x, v1y)
-            if (len1 > 1.5f && dist > 1.5f) {
-                val dot = (v1x * dx + v1y * dy) / (len1 * dist)
-                if (dot < 0.55f) { // 急转弯或大幅变向时抑制外推
-                    return false
-                }
-            }
-        }
-
-        val clampDist = dist.coerceAtMost(maxDistPx)
-        val endX = curPos.x + (dx / dist) * clampDist
-        val endY = curPos.y + (dy / dist) * clampDist
-
-        val baseColor = resolveBrushColorCached(v.brushColor)
-        val baseAlpha = (v.brushOpacity * (if (v.brushFlow > 0.0) v.brushFlow else 1.0)).coerceIn(0.05, 1.0).toFloat()
-
-        // 1. 查找历史采样环形缓冲区中最接近真墨前沿的时间点 P_frontier
-        // TIER 1 回填完整延迟空窗 (effectivePipelineDelayMs)，TIER 2 仅回填微小片段 (15ms)
-        val lagWindowMs = if (fidelityTier == PaintViewModel.PredictionFidelityTier.TIER_2) {
-            15L
-        } else {
-            (v.effectivePipelineDelayMs * 0.85f).toLong().coerceIn(20L, 70L)
-        }
-
+        // ---- 1. 回填空窗锚点: 屏幕上真实可见的墨迹末端 ----
+        // 引擎前沿 (currentRenderedFrontier) 只是"已渲染", 还要再过一个呈现周期
+        // (presentWait + 合成尾) 才上屏; 锚到渲染前沿会在 [可见末端 → 渲染前沿]
+        // 之间留下可见断裂。锚点取 (渲染前沿时间 - 呈现延迟), 无前沿信息时退回
+        // (最新样本 - 全链路延迟) 估计; 两者都偏保守 (宁可轻微重叠, 不留缝)。
         var backfillStartStep = 0
         val historyCount = touchHistoryCount
-        var estimatedStep = 0
         if (historyCount > 1) {
+            var estimatedStep = 0
+            val lagWindowMs = v.effectivePipelineDelayMs.coerceIn(20L, 80L)
             val latestIdx = (touchHistoryHead - 1 + 64) % 64
-            val latestTime = touchHistoryTime[latestIdx]
-            val targetFrontierTime = latestTime - lagWindowMs
+            val targetFrontierTime = touchHistoryTime[latestIdx] - lagWindowMs
             for (step in 1 until historyCount) {
                 val idx = (touchHistoryHead - 1 - step + 128) % 64
-                val sampleTime = touchHistoryTime[idx]
-                if (sampleTime >= targetFrontierTime) {
+                if (touchHistoryTime[idx] >= targetFrontierTime) {
                     estimatedStep = step
                 } else {
                     break
                 }
             }
-        }
-        backfillStartStep = estimatedStep
+            // +1: 再深一个样本, 偏向重叠而非留缝 (估计误差一律倒向"多画一点")
+            backfillStartStep = (estimatedStep + 1).coerceAtMost(historyCount - 1)
 
-        // 若引擎回传了真实绘制前沿，进行精确几何匹配与误差度量 (Phase 1 真实前沿回传)
-        val frontier = v.currentRenderedFrontier
-        if (frontier != null &&
-            !frontier.docX.isNaN() &&
-            !frontier.docY.isNaN()) {
-            ensureViewTransform()
-            viewTransform.docToScreen(
-                frontier.docX,
-                frontier.docY,
-                frontierPointScratch
-            )
-            val realFrontierScreenX = frontierPointScratch[0]
-            val realFrontierScreenY = frontierPointScratch[1]
-            val realFrontierTimeMs = frontier.timeMs
-
-            if (historyCount > 1) {
+            val frontier = v.currentRenderedFrontier
+            if (frontier != null && !frontier.docX.isNaN() && !frontier.docY.isNaN() && frontier.timeMs > 0L) {
+                // 误差度量 (诊断): 估计前沿 vs 引擎渲染前沿的屏幕距离
+                ensureViewTransform()
+                viewTransform.docToScreen(frontier.docX, frontier.docY, frontierPointScratch)
                 val estIdx = (touchHistoryHead - 1 - estimatedStep + 128) % 64
-                val estX = touchHistoryX[estIdx]
-                val estY = touchHistoryY[estIdx]
-                val errPx = kotlin.math.hypot(estX - realFrontierScreenX, estY - realFrontierScreenY)
-                PerfTrace.recordFrontierError(errPx)
+                PerfTrace.recordFrontierError(
+                    kotlin.math.hypot(
+                        touchHistoryX[estIdx] - frontierPointScratch[0],
+                        touchHistoryY[estIdx] - frontierPointScratch[1]
+                    )
+                )
 
-                // 在历史环中寻找最吻合真实前沿的样本 (时间戳+几何双重对齐)
+                // 可见末端时间 = 渲染前沿时间 - 呈现延迟, 取时间上最接近的样本再深一个样本;
+                // 上限 estimatedStep + 5 防止前沿过期 (渲染线程被占) 时回填过深
+                val anchorTimeMs = frontier.timeMs - v.presentLagEstimateMs
                 var matchedStep = -1
-                var minCost = Float.MAX_VALUE
+                var bestDt = Long.MAX_VALUE
                 for (step in 1 until historyCount) {
                     val idx = (touchHistoryHead - 1 - step + 128) % 64
-                    val sx = touchHistoryX[idx]
-                    val sy = touchHistoryY[idx]
-                    val sDist = kotlin.math.hypot(sx - realFrontierScreenX, sy - realFrontierScreenY)
-                    val timeDiff = if (realFrontierTimeMs > 0L) {
-                        kotlin.math.abs(touchHistoryTime[idx] - realFrontierTimeMs).toFloat()
-                    } else {
-                        0f
-                    }
-                    val cost = sDist + timeDiff * 2f
-                    if (cost < minCost) {
-                        minCost = cost
+                    val dt = kotlin.math.abs(touchHistoryTime[idx] - anchorTimeMs)
+                    if (dt < bestDt) {
+                        bestDt = dt
                         matchedStep = step
                     }
                 }
-                if (matchedStep > 0 && minCost < (screenDiag / 4f)) {
-                    if (fidelityTier == PaintViewModel.PredictionFidelityTier.TIER_2) {
-                        // TIER 2: 铅笔/速写微细导引线，回填保持短段 (不超过 15ms 时间窗)
-                        backfillStartStep = matchedStep.coerceAtMost(estimatedStep)
-                    } else {
-                        // TIER 1: 勾线/纯色笔刷，全段精确对齐真墨前沿
-                        backfillStartStep = matchedStep
-                    }
+                if (matchedStep > 0 && bestDt <= 30L) {
+                    backfillStartStep = (matchedStep + 1)
+                        .coerceAtMost(historyCount - 1)
+                        .coerceAtMost(estimatedStep + 5)
                 }
             }
         }
 
-        val isThickBrush = fidelityTier == PaintViewModel.PredictionFidelityTier.TIER_1 &&
-            actualStrokeWidth > 14f * density
+        // ---- 2. 前向延伸段 (仅预测可用且通过门控时) ----
+        // 预测被抑制 (慢速/急转/看门狗) 时不再整段清空预览: 回填段照画, 只少画前瞻尾。
+        val predPt = predictedScreenPoint
+        var endX = curPos.x
+        var endY = curPos.y
+        var hasExtension = false
+        if (predPt != null) {
+            val dx = predPt.x - curPos.x
+            val dy = predPt.y - curPos.y
+            val dist = kotlin.math.hypot(dx, dy)
+            val maxAllowedDiag = if (screenDiag > 0f) screenDiag / 6f else 600f
+            // 动态上限联动笔宽：大笔刷自适应拉伸，避免出现短于笔宽的圆钝团块
+            val maxDistPx = (68f * density).coerceAtLeast(actualStrokeWidth * 1.8f).coerceAtMost(maxAllowedDiag)
+            val minDistPx = 2.0f * density
+            val wildDiag = screenDiag > 0f && dist > maxAllowedDiag
 
-        val finalAlpha: Int
-        var finalStrokeWidth = actualStrokeWidth
-
-        if (fidelityTier == PaintViewModel.PredictionFidelityTier.TIER_1) {
-            finalAlpha = (baseAlpha * 0.45f * 255).toInt().coerceIn(20, 240)
-            if (isThickBrush) {
-                finalStrokeWidth = (actualStrokeWidth * 0.65f).coerceAtLeast(3f * density)
+            if (dist in minDistPx..(maxDistPx * 2.5f) && !wildDiag && predictedPressure > 0.05f) {
+                val prevPos = priorStrokeScreenPos
+                var angleOk = true
+                if (prevPos != Offset.Zero && prevPos != curPos) {
+                    val v1x = curPos.x - prevPos.x
+                    val v1y = curPos.y - prevPos.y
+                    val len1 = kotlin.math.hypot(v1x, v1y)
+                    if (len1 > 1.5f && dist > 1.5f) {
+                        val dot = (v1x * dx + v1y * dy) / (len1 * dist)
+                        if (dot < 0.55f) { // 急转弯或大幅变向时抑制外推
+                            angleOk = false
+                        }
+                    }
+                }
+                if (angleOk) {
+                    val clampDist = dist.coerceAtMost(maxDistPx)
+                    endX = curPos.x + (dx / dist) * clampDist
+                    endY = curPos.y + (dy / dist) * clampDist
+                    hasExtension = true
+                }
             }
+        }
+
+        // 回填段与前向段都不可用 → 无预览
+        if (backfillStartStep <= 0 && !hasExtension) return false
+
+        val baseColor = resolveBrushColorCached(v.brushColor)
+        val baseAlpha = (v.brushOpacity * (if (v.brushFlow > 0.0) v.brushFlow else 1.0)).coerceIn(0.05, 1.0).toFloat()
+
+        // ---- 3. 样式: 预览颜色/宽度对齐真墨, 消除"颜色浅"与笔触断裂的观感差 ----
+        // TIER_1 (纯色勾线类): 全宽全透明度 —— 预览即真墨观感, 衔接处无灰边;
+        //   重叠区仅一个呈现周期 (同色叠加不加深, 半透明笔刷至多瞬时轻微加深)
+        // TIER_2 (铅笔/水彩/纹理/低流量): 半宽导引线, 可见但不喧宾夺主
+        val finalAlpha: Int
+        val finalStrokeWidth: Float
+        if (fidelityTier == PaintViewModel.PredictionFidelityTier.TIER_1) {
+            finalAlpha = (baseAlpha * 255f).toInt().coerceIn(30, 255)
+            finalStrokeWidth = actualStrokeWidth
         } else {
-            finalStrokeWidth = (actualStrokeWidth * 0.35f).coerceIn(1.5f * density, 4.0f * density)
-            finalAlpha = (baseAlpha * 0.35f * 255).toInt().coerceIn(20, 190)
+            finalAlpha = (baseAlpha * 0.75f * 255f).toInt().coerceIn(30, 220)
+            finalStrokeWidth = (actualStrokeWidth * 0.5f).coerceIn(2f * density, 8f * density)
         }
         val finalColorWithAlpha = (baseColor and 0x00FFFFFF) or (finalAlpha shl 24)
 
@@ -1060,12 +1051,15 @@ class CanvasTouchView(context: Context) : View(context) {
             outPath.moveTo(curPos.x, curPos.y)
         }
 
-        if (prevPos != Offset.Zero && prevPos != curPos) {
-            val ctrlX = curPos.x + (curPos.x - prevPos.x) * 0.5f
-            val ctrlY = curPos.y + (curPos.y - prevPos.y) * 0.5f
-            outPath.quadTo(ctrlX, ctrlY, endX, endY)
-        } else {
-            outPath.lineTo(endX, endY)
+        if (hasExtension) {
+            val prevPos = priorStrokeScreenPos
+            if (prevPos != Offset.Zero && prevPos != curPos) {
+                val ctrlX = curPos.x + (curPos.x - prevPos.x) * 0.5f
+                val ctrlY = curPos.y + (curPos.y - prevPos.y) * 0.5f
+                outPath.quadTo(ctrlX, ctrlY, endX, endY)
+            } else {
+                outPath.lineTo(endX, endY)
+            }
         }
 
         previewStrokeWidth = finalStrokeWidth
@@ -1967,13 +1961,13 @@ class CanvasTouchView(context: Context) : View(context) {
         // =========================================================================
         var drewPrediction = hasDrawnPrediction
         if (FrontBufferProbe.softwareFallbackRequired(frontBufferOverlay != null, frontBufferOverlay?.canRenderPreview == true)) {
-            val predPt = predictedScreenPoint
             val curPos = localCursorPos
             val fidelityTier = v.currentBrushPredictionTier
             val isDrawingTool = tool == Tool.BRUSH
             var fallbackDrew = false
+            // 不再要求 predPt != null: 预测被抑制时回填段照画 (修断裂/慢速无预览)
             if (fidelityTier != PaintViewModel.PredictionFidelityTier.NONE &&
-                localIsTouching && isDrawingTool && predPt != null && curPos != null) {
+                localIsTouching && isDrawingTool && curPos != null) {
                 try {
                     if (computePreviewStrokePath(curPos, previewStrokePath)) {
                         tipShaderPaint.shader = null
@@ -4324,13 +4318,14 @@ class CanvasTouchView(context: Context) : View(context) {
                         }
                     }
 
-                    if (predictionObtained && predictedScreenPoint != null) {
-                        lastPredictionUptimeMs = android.os.SystemClock.uptimeMillis()
-                        if (!isWatchdogScheduled) {
-                            isWatchdogScheduled = true
-                            postDelayed(predictionStagnationRunnable, 50L)
-                        }
-                    } else {
+                    // 预览活动打点: 预测成功或回填段绘制都算"活跃", 看门狗据此判定真正停滞。
+                    // 回填段独立于预测工作, 慢速/急转时预测被抑制但预览仍在刷新, 不能清。
+                    lastPredictionUptimeMs = android.os.SystemClock.uptimeMillis()
+                    if (!isWatchdogScheduled) {
+                        isWatchdogScheduled = true
+                        postDelayed(predictionStagnationRunnable, 50L)
+                    }
+                    if (!predictionObtained) {
                         predictedScreenPoint = null
                     }
 
@@ -4343,7 +4338,8 @@ class CanvasTouchView(context: Context) : View(context) {
                         val curY = event.getY(pointerIndex)
                         val curPos = Offset(curX, curY)
                         var drew = false
-                        if (predictedScreenPoint != null && computePreviewStrokePath(curPos, previewStrokePath)) {
+                        // 不再要求 predictedScreenPoint != null: 预测被抑制时回填段照画
+                        if (computePreviewStrokePath(curPos, previewStrokePath)) {
                             // 前缓冲层位于窗口 z 序最顶层 (setZOrderOnTop): 笔尖或前瞻端点落在
                             // 工具栏/浮窗等 UI 区域上时跳过绘制, 避免预览墨迹盖在 UI 之上
                             val overUi = isHoverOverUi(curX, curY) ||
