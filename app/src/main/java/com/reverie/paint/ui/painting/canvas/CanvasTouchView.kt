@@ -1151,8 +1151,27 @@ class CanvasTouchView(context: Context) : View(context) {
 
         // 快捷操作浮窗区域 (若打开)
         if (v.quickActionWindowOpen) {
-            val qw = if (v.quickActionCollapsed) 90f * d else 380f * d
-            val qh = if (v.quickActionCollapsed) 50f * d else 380f * d
+            val qw = if (v.quickActionWindowWidth > 0f) {
+                v.quickActionWindowWidth
+            } else {
+                if (v.quickActionCollapsed) 72f * d
+                else when (v.quickActionsConfig.layoutMode) {
+                    QuickActionLayoutMode.COLUMN -> 56f * d
+                    QuickActionLayoutMode.ROW -> 240f * d
+                    QuickActionLayoutMode.GRID_2 -> 110f * d
+                    QuickActionLayoutMode.GRID_3 -> 160f * d
+                }
+            }
+            val qh = if (v.quickActionWindowHeight > 0f) {
+                v.quickActionWindowHeight
+            } else {
+                if (v.quickActionCollapsed) 44f * d
+                else when (v.quickActionsConfig.layoutMode) {
+                    QuickActionLayoutMode.COLUMN -> 280f * d
+                    QuickActionLayoutMode.ROW -> 76f * d
+                    QuickActionLayoutMode.GRID_2, QuickActionLayoutMode.GRID_3 -> 160f * d
+                }
+            }
             val qx = if (v.quickActionWindowX >= 0f) v.quickActionWindowX else ((width - qw) / 2f).coerceAtLeast(0f)
             val qy = if (v.quickActionWindowY >= 0f) v.quickActionWindowY else ((height - qh) / 2f).coerceAtLeast(0f)
             if (x >= qx && x <= qx + qw && y >= qy && y <= qy + qh) {
@@ -1162,19 +1181,30 @@ class CanvasTouchView(context: Context) : View(context) {
 
         // 快捷笔刷浮窗区域 (若打开)
         if (v.quickBrushWindowOpen) {
-            val isVert = v.quickBrushOrientation == "vertical"
-            val favCount = v.favoriteBrushNames.size
-            val visibleCount = if (favCount == 0) 1 else favCount.coerceAtMost(v.quickBrushMaxLength)
-            val listDim = if (favCount == 0) 130f else (visibleCount * 43f - 1f)
-            val bw = when {
-                v.quickBrushCollapsed -> 90f * d
-                isVert -> 56f * d
-                else -> (70f + listDim + 36f) * d
+            val bw = if (v.quickBrushWindowWidth > 0f) {
+                v.quickBrushWindowWidth
+            } else {
+                val isVert = v.quickBrushOrientation == "vertical"
+                val favCount = v.favoriteBrushNames.size
+                val visibleCount = if (favCount == 0) 1 else favCount.coerceAtMost(v.quickBrushMaxLength)
+                val listDim = if (favCount == 0) 130f else (visibleCount * 43f - 1f)
+                when {
+                    v.quickBrushCollapsed -> 90f * d
+                    isVert -> 56f * d
+                    else -> (70f + listDim + 36f) * d
+                }
             }
-            val bh = when {
-                v.quickBrushCollapsed -> 50f * d
-                isVert -> (28f + (if (favCount == 0) 48f else (visibleCount * 43f - 1f)) + 36f) * d
-                else -> 56f * d
+            val bh = if (v.quickBrushWindowHeight > 0f) {
+                v.quickBrushWindowHeight
+            } else {
+                val isVert = v.quickBrushOrientation == "vertical"
+                val favCount = v.favoriteBrushNames.size
+                val visibleCount = if (favCount == 0) 1 else favCount.coerceAtMost(v.quickBrushMaxLength)
+                when {
+                    v.quickBrushCollapsed -> 50f * d
+                    isVert -> (28f + (if (favCount == 0) 48f else (visibleCount * 43f - 1f)) + 36f) * d
+                    else -> 56f * d
+                }
             }
             val bx = if (v.quickBrushWindowX >= 0f) v.quickBrushWindowX else ((width - bw) / 2f).coerceAtLeast(0f)
             val by = if (v.quickBrushWindowY >= 0f) v.quickBrushWindowY else ((height - bh) / 2f).coerceAtLeast(0f)

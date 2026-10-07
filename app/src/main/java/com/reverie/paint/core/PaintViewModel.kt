@@ -893,6 +893,8 @@ class PaintViewModel : ViewModel() {
     var quickActionsConfig by mutableStateOf(com.reverie.paint.model.QuickActionsConfig())
     var quickActionWindowX by mutableFloatStateOf(-1f)
     var quickActionWindowY by mutableFloatStateOf(-1f)
+    var quickActionWindowWidth by mutableFloatStateOf(0f)
+    var quickActionWindowHeight by mutableFloatStateOf(0f)
     var quickActionCollapsed by mutableStateOf(false)
 
     fun persistQuickActionsState() {
@@ -915,6 +917,8 @@ class PaintViewModel : ViewModel() {
     var quickBrushWindowOpen by mutableStateOf(false)
     var quickBrushWindowX by mutableFloatStateOf(-1f)
     var quickBrushWindowY by mutableFloatStateOf(-1f)
+    var quickBrushWindowWidth by mutableFloatStateOf(0f)
+    var quickBrushWindowHeight by mutableFloatStateOf(0f)
     var quickBrushCollapsed by mutableStateOf(false)
     var quickBrushOrientation by mutableStateOf("horizontal") // "horizontal" or "vertical"
     var quickBrushMaxLength by mutableIntStateOf(6) // 最大长度（显示数量上限）
