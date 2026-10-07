@@ -1019,15 +1019,16 @@ class CanvasTouchView(context: Context) : View(context) {
         // ---- 3. 样式: 预览颜色/宽度对齐真墨, 消除"颜色浅"与笔触断裂的观感差 ----
         // TIER_1 (纯色勾线类): 全宽全透明度 —— 预览即真墨观感, 衔接处无灰边;
         //   重叠区仅一个呈现周期 (同色叠加不加深, 半透明笔刷至多瞬时轻微加深)
-        // TIER_2 (铅笔/水彩/纹理/低流量): 半宽导引线, 可见但不喧宾夺主
+        // TIER_2 (铅笔/纹理/低流量): 发丝级导引线 —— 真机结论: 加粗/提透明会放大
+        //   与真墨的形状/颜色差异, "对不上的错误反馈"比"无预览"更伤跟手感
         val finalAlpha: Int
         val finalStrokeWidth: Float
         if (fidelityTier == PaintViewModel.PredictionFidelityTier.TIER_1) {
             finalAlpha = (baseAlpha * 255f).toInt().coerceIn(30, 255)
             finalStrokeWidth = actualStrokeWidth
         } else {
-            finalAlpha = (baseAlpha * 0.75f * 255f).toInt().coerceIn(30, 220)
-            finalStrokeWidth = (actualStrokeWidth * 0.5f).coerceIn(2f * density, 8f * density)
+            finalAlpha = (baseAlpha * 0.35f * 255f).toInt().coerceIn(20, 190)
+            finalStrokeWidth = (actualStrokeWidth * 0.35f).coerceIn(1.5f * density, 4.0f * density)
         }
         val finalColorWithAlpha = (baseColor and 0x00FFFFFF) or (finalAlpha shl 24)
 
@@ -1077,7 +1078,7 @@ class CanvasTouchView(context: Context) : View(context) {
         var predX = rawX
         var predY = rawY
 
-        if (vm?.cursorSnapToPredictedTip == true && dt in 2L..100L) {
+        if (vm?.frontBufferPredictionEnabled == true && dt in 2L..100L) {
             val vx = (rawX - lastHoverRawX) / dt
             val vy = (rawY - lastHoverRawY) / dt
             val speed = hypot(vx, vy)
@@ -1952,39 +1953,107 @@ class CanvasTouchView(context: Context) : View(context) {
         }
 
         // =========================================================================
-        // 1.5 硬件笔尖前向超前预测延伸 (Frontier Twin Stroke Preview)
-        // 结合物理历史采样回填滞后空窗 [P_frontier -> P_cur] 与卡尔曼前瞻预测 [P_cur -> P_pred]
-        // 若前缓冲可用，笔尖预览已在 handleToolMove 中直出，此处跳过绘制避免双重重绘；
-        // 仅在前缓冲不可用时 (未挂载, 或渲染器初始化失败) 作为软件回退在 Canvas 上绘制。
-        // 注意: 不能只判 `== null` —— 渲染器初始化失败时 overlay 非空但其 renderPreviewPath
-        // 是静默 no-op, 只判空会形成"开关开着却完全没有预览"的回退空洞。
+        // 1.5 笔尖前向超前预测 (双系统分派)
+        // - 前缓冲预测开启: 前沿孪生预览 [P_frontier -> P_cur -> P_pred], 前缓冲直出,
+        //   不可用时在此软件回退绘制 (回退空洞见 FrontBufferProbe.softwareFallbackRequired)
+        // - 前缓冲预测关闭: 上游原版 OEM 硬件预测渐隐尾线 (仅 OPPO 硬件预测器有效)
         // =========================================================================
         var drewPrediction = hasDrawnPrediction
-        if (FrontBufferProbe.softwareFallbackRequired(frontBufferOverlay != null, frontBufferOverlay?.canRenderPreview == true)) {
+        if (v.frontBufferPredictionEnabled) {
+            if (FrontBufferProbe.softwareFallbackRequired(frontBufferOverlay != null, frontBufferOverlay?.canRenderPreview == true)) {
+                val curPos = localCursorPos
+                val fidelityTier = v.currentBrushPredictionTier
+                val isDrawingTool = tool == Tool.BRUSH
+                var fallbackDrew = false
+                // 不再要求 predPt != null: 预测被抑制时回填段照画 (修断裂/慢速无预览)
+                if (fidelityTier != PaintViewModel.PredictionFidelityTier.NONE &&
+                    localIsTouching && isDrawingTool && curPos != null) {
+                    try {
+                        if (computePreviewStrokePath(curPos, previewStrokePath)) {
+                            tipShaderPaint.shader = null
+                            tipShaderPaint.color = previewStrokeColor
+                            tipShaderPaint.strokeWidth = previewStrokeWidth
+                            canvas.drawPath(previewStrokePath, tipShaderPaint)
+                            fallbackDrew = true
+                            activePredictedTipScreenX = previewTipEndX
+                            activePredictedTipScreenY = previewTipEndY
+                            hasActivePredictedTip = true
+                        }
+                    } catch (_: Throwable) {}
+                }
+                drewPrediction = fallbackDrew
+                hasDrawnPrediction = fallbackDrew
+                if (!fallbackDrew) {
+                    hasActivePredictedTip = false
+                }
+            }
+        } else if (v.stylusStrokePredictionEnabled && v.isCurrentBrushPredictionEligible) {
+            // 上游原版: OEM 硬件预测尾线 (实时预测未来 15~20ms 笔尖切线, 微羽化渐隐)
+            val predPt = predictedScreenPoint
             val curPos = localCursorPos
-            val fidelityTier = v.currentBrushPredictionTier
-            val isDrawingTool = tool == Tool.BRUSH
-            var fallbackDrew = false
-            // 不再要求 predPt != null: 预测被抑制时回填段照画 (修断裂/慢速无预览)
-            if (fidelityTier != PaintViewModel.PredictionFidelityTier.NONE &&
-                localIsTouching && isDrawingTool && curPos != null) {
+            val isDrawingTool = tool == Tool.BRUSH || tool == Tool.ERASER
+            if (localIsTouching && isDrawingTool && predPt != null && curPos != null) {
                 try {
-                    if (computePreviewStrokePath(curPos, previewStrokePath)) {
-                        tipShaderPaint.shader = null
-                        tipShaderPaint.color = previewStrokeColor
-                        tipShaderPaint.strokeWidth = previewStrokeWidth
-                        canvas.drawPath(previewStrokePath, tipShaderPaint)
-                        fallbackDrew = true
-                        activePredictedTipScreenX = previewTipEndX
-                        activePredictedTipScreenY = previewTipEndY
-                        hasActivePredictedTip = true
+                    val dx = predPt.x - curPos.x
+                    val dy = predPt.y - curPos.y
+                    val dist = hypot(dx, dy)
+                    val maxDistPx = 14f * density
+                    val minDistPx = 2.5f * density
+                    if (dist in minDistPx..(maxDistPx * 3.5f) && predictedPressure > 0.05f) {
+                        val prevPos = previousSinglePos
+                        var angleOk = true
+                        if (prevPos != Offset.Zero) {
+                            val v1x = curPos.x - prevPos.x
+                            val v1y = curPos.y - prevPos.y
+                            val len1 = hypot(v1x, v1y)
+                            if (len1 > 1.5f) {
+                                val dot = (v1x * dx + v1y * dy) / (len1 * dist)
+                                if (dot < 0.55f) { // 急转弯或大幅变向时抑制直线外推
+                                    angleOk = false
+                                }
+                            }
+                        }
+
+                        if (angleOk) {
+                            val clampDist = dist.coerceAtMost(maxDistPx)
+                            val endX = curPos.x + (dx / dist) * clampDist
+                            val endY = curPos.y + (dy / dist) * clampDist
+
+                            val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
+                            val cursorBrushSize = v.brushSize.toFloat()
+                            val pFrac = if (v.brushPressureEnabled) pressureFractionCached(predictedPressure) else 1f
+                            val strokeWidth = (cursorBrushSize * scale * pFrac).coerceAtLeast(1.5f)
+
+                            val isEraser = tool == Tool.ERASER
+                            val baseColor = if (isEraser) {
+                                android.graphics.Color.WHITE
+                            } else {
+                                resolveBrushColorCached(v.brushColor)
+                            }
+                            val baseAlpha = (if (isEraser) 0.8 else (v.brushOpacity * (if (v.brushFlow > 0.0) v.brushFlow else 1.0))).coerceIn(0.05, 1.0).toFloat()
+
+                            val startColor = android.graphics.Color.argb(
+                                (baseAlpha * 0.55f * 255).toInt().coerceIn(0, 255),
+                                android.graphics.Color.red(baseColor),
+                                android.graphics.Color.green(baseColor),
+                                android.graphics.Color.blue(baseColor)
+                            )
+                            val endColor = android.graphics.Color.argb(
+                                0, // 终点彻底渐隐至 0% 透明度，彻底消除圆形粗钝 Cap 假线感
+                                android.graphics.Color.red(baseColor),
+                                android.graphics.Color.green(baseColor),
+                                android.graphics.Color.blue(baseColor)
+                            )
+                            tipShaderPaint.strokeWidth = strokeWidth
+                            tipShaderPaint.shader = android.graphics.LinearGradient(
+                                curPos.x, curPos.y, endX, endY,
+                                startColor, endColor,
+                                android.graphics.Shader.TileMode.CLAMP
+                            )
+                            canvas.drawLine(curPos.x, curPos.y, endX, endY, tipShaderPaint)
+                        }
                     }
                 } catch (_: Throwable) {}
-            }
-            drewPrediction = fallbackDrew
-            hasDrawnPrediction = fallbackDrew
-            if (!fallbackDrew) {
-                hasActivePredictedTip = false
             }
         }
 
@@ -2193,8 +2262,8 @@ class CanvasTouchView(context: Context) : View(context) {
         // Phase 2: 记录本帧光标环的屏幕位置与半径 —— 下一帧做局部失效时要把环的"旧位置"也覆盖掉
         lqRingValid = false
         if (shouldShow && isDrawTool && v.cursorStyleMode != 4) {
-            // 绘画中且硬件前瞻预测生效时，若开启光标吸附，光标圆心自动对齐至预测延伸笔尖
-            val effectiveCursorPos = if (v.cursorSnapToPredictedTip && localIsTouching && drewPrediction && hasActivePredictedTip) {
+            // 绘画中且前缓冲预测生效时，光标圆心自动对齐至预测延伸笔尖
+            val effectiveCursorPos = if (v.frontBufferPredictionEnabled && localIsTouching && drewPrediction && hasActivePredictedTip) {
                 Offset(activePredictedTipScreenX, activePredictedTipScreenY)
             } else {
                 pos
@@ -2203,17 +2272,20 @@ class CanvasTouchView(context: Context) : View(context) {
             val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
             val cursorBrushSize = if (tool == Tool.LIQUIFY) liquifyBrushSize else v.brushSize.toFloat()
             val pressureFraction = if (localIsTouching) {
-                val targetPressure = if (v.cursorSnapToPredictedTip && drewPrediction && predictedPressure.isFinite()) {
-                    predictedPressure
+                if (v.frontBufferPredictionEnabled) {
+                    // 前缓冲预测: 预测压力 + EMA 阻尼 (防光标环呼吸抖动)
+                    val targetPressure = if (drewPrediction && predictedPressure.isFinite()) predictedPressure else localPressure
+                    smoothedCursorPressure = if (smoothedCursorPressure < 0f) {
+                        targetPressure
+                    } else {
+                        smoothedCursorPressure * 0.65f + targetPressure * 0.35f
+                    }
+                    pressureFractionCached(smoothedCursorPressure)
                 } else {
-                    localPressure
+                    // 上游原版: 直接使用当前实际压力, 无平滑
+                    smoothedCursorPressure = -1f
+                    pressureFractionCached(localPressure)
                 }
-                smoothedCursorPressure = if (smoothedCursorPressure < 0f) {
-                    targetPressure
-                } else {
-                    smoothedCursorPressure * 0.65f + targetPressure * 0.35f
-                }
-                pressureFractionCached(smoothedCursorPressure)
             } else {
                 smoothedCursorPressure = -1f
                 1f
@@ -2987,7 +3059,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     previousSinglePos = screenPos
                     priorStrokeScreenPos = screenPos
                     val downP = pressure.coerceIn(0.01f, 1f)
-                    if (v.stylusStrokePredictionEnabled && tool == Tool.BRUSH && screenPos.x.isFinite() && screenPos.y.isFinite()) {
+                    if (v.frontBufferPredictionEnabled && tool == Tool.BRUSH && screenPos.x.isFinite() && screenPos.y.isFinite()) {
                         universalPredictor.addPoint(screenPos.x, screenPos.y, downP, event.eventTime)
                         recordTouchSample(screenPos.x, screenPos.y, event.eventTime)
                     }
@@ -3053,8 +3125,12 @@ class CanvasTouchView(context: Context) : View(context) {
                         val isEraser = tool == Tool.ERASER
                         val cursorMode = if (isEraser) v.eraserCursorMode else v.brushCursorMode
                         val hasAssist = v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing
-                        if (cursorMode == 1 || cursorMode == 3 || hasAssist ||
-                            (v.isCurrentBrushPredictionEligible && (predictedScreenPoint != null || hasDrawnPrediction))) {
+                        val predictionVisualActive = if (v.frontBufferPredictionEnabled) {
+                            predictedScreenPoint != null || hasDrawnPrediction
+                        } else {
+                            v.isCurrentBrushPredictionEligible && predictedScreenPoint != null
+                        }
+                        if (cursorMode == 1 || cursorMode == 3 || hasAssist || predictionVisualActive) {
                             invalidate()
                         }
                     }
@@ -3568,7 +3644,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 previousSinglePos = screenPos
                 priorStrokeScreenPos = screenPos
                 clearPredictionState(triggerInvalidate = false)
-                if (v.stylusStrokePredictionEnabled && tool == Tool.BRUSH && screenPos.x.isFinite() && screenPos.y.isFinite()) {
+                if (v.frontBufferPredictionEnabled && tool == Tool.BRUSH && screenPos.x.isFinite() && screenPos.y.isFinite()) {
                     universalPredictor.addPoint(screenPos.x, screenPos.y, 1f, event.eventTime)
                     recordTouchSample(screenPos.x, screenPos.y, event.eventTime)
                 }
@@ -4193,11 +4269,13 @@ class CanvasTouchView(context: Context) : View(context) {
                 // Dual-track replacement: immediately clear old prediction upon real event reception
                 predictedScreenPoint = null
 
-                // 门控检查：仅在预测总开关开启、工具为画笔且笔刷保真度非 NONE 时执行训练与采样录入
-                val predictionActive = v.stylusStrokePredictionEnabled && tool == Tool.BRUSH
-                val fidelityTier = if (predictionActive) v.currentBrushPredictionTier else PaintViewModel.PredictionFidelityTier.NONE
+                // 双系统分派:
+                // - 前缓冲预测开启 (默认): 卡尔曼训练 + 空窗回填 + 前缓冲直出 (本次低延迟技术)
+                // - 前缓冲预测关闭: 上游原版"超低延迟笔迹预测" (OEM 硬件预测器渐隐尾线, 仅 OPPO 有效)
+                val frontBufferPrediction = v.frontBufferPredictionEnabled && tool == Tool.BRUSH
+                val fidelityTier = if (frontBufferPrediction) v.currentBrushPredictionTier else PaintViewModel.PredictionFidelityTier.NONE
 
-                if (predictionActive && fidelityTier != PaintViewModel.PredictionFidelityTier.NONE) {
+                if (frontBufferPrediction && fidelityTier != PaintViewModel.PredictionFidelityTier.NONE) {
                     // 1. 通用 4 阶卡尔曼滤波器与物理采样训练（前向几何预测时间窗与后台渲染耗时彻底解耦）
                     // 几何外推时间窗上限严格锁定为 MAX_PREDICTION_MS = 32ms (约 1~2 帧)，外推至 2.0 帧呈现前瞻，紧贴笔尖真实落点，防止高速运笔过冲断裂
                     val frameTimeMs = universalPredictor.avgReportRateMs.coerceIn(4f, 16.67f)
@@ -4359,6 +4437,40 @@ class CanvasTouchView(context: Context) : View(context) {
                             hasActivePredictedTip = false
                         }
                         hasDrawnPrediction = drew
+                    }
+                } else if (!v.frontBufferPredictionEnabled && isStylus && v.isCurrentBrushPredictionEligible) {
+                    // 上游原版: OEM 硬件前向预测尾线 (抵消 144Hz 屏幕 1~2 帧物理上屏延迟)
+                    val op = oplusPredictor
+                    if (op != null && op.isValid) {
+                        try {
+                            for (i in 0 until event.historySize) {
+                                cachedTouchPointInfo.x = event.getHistoricalX(pointerIndex, i)
+                                cachedTouchPointInfo.y = event.getHistoricalY(pointerIndex, i)
+                                cachedTouchPointInfo.pressure = if (isStylus) event.getHistoricalPressure(pointerIndex, i).coerceIn(0f, 1f) else 1f
+                                cachedTouchPointInfo.axisTilt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, pointerIndex, i) else 0f
+                                cachedTouchPointInfo.timestamp = event.getHistoricalEventTime(i)
+                                op.pushTouchPoint(cachedTouchPointInfo)
+                            }
+                            cachedTouchPointInfo.x = event.getX(pointerIndex)
+                            cachedTouchPointInfo.y = event.getY(pointerIndex)
+                            cachedTouchPointInfo.pressure = pressure
+                            cachedTouchPointInfo.axisTilt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) event.getAxisValue(MotionEvent.AXIS_TILT, pointerIndex) else 0f
+                            cachedTouchPointInfo.timestamp = event.eventTime
+                            op.pushTouchPoint(cachedTouchPointInfo)
+
+                            val pred = op.predictTouchPoint()
+                            if (pred != null) {
+                                predictedScreenPoint = Offset(pred.x, pred.y)
+                                predictedPressure = pred.pressure.coerceIn(0.01f, 1f)
+                            }
+                        } catch (_: Throwable) {}
+                    }
+                    if (frontBufferOverlay != null) {
+                        if (hasActivePredictedTip || hasDrawnPrediction) {
+                            frontBufferOverlay?.clearPreview()
+                        }
+                        hasActivePredictedTip = false
+                        hasDrawnPrediction = false
                     }
                 } else {
                     predictedScreenPoint = null

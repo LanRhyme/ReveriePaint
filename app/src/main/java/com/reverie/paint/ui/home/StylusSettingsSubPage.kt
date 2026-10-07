@@ -19,7 +19,6 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.VolumeDown
 import androidx.compose.material.icons.automirrored.rounded.VolumeUp
-import androidx.compose.material.icons.rounded.Adjust
 import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.Bolt
 import androidx.compose.material.icons.rounded.Brush
@@ -115,7 +114,7 @@ internal fun StylusSettingsSubPage(
                     title = stringResource(R.string.settings_pen_mode),
                     summary = stringResource(R.string.stylus_pen_mode_desc),
                     checked = vm.penOnlyMode,
-                    shape = settingGroupShape(0, 8),
+                    shape = settingGroupShape(0, 7),
                     onCheckedChange = { vm.updatePenOnlyMode(it) },
                 )
                 SettingSwitchGroupItem(
@@ -123,7 +122,7 @@ internal fun StylusSettingsSubPage(
                     title = stringResource(R.string.settings_pen_mode_single_finger_pan_title),
                     summary = stringResource(R.string.settings_pen_mode_single_finger_pan_desc),
                     checked = vm.penModeSingleFingerPanEnabled,
-                    shape = settingGroupShape(1, 8),
+                    shape = settingGroupShape(1, 7),
                     onCheckedChange = { vm.updatePenModeSingleFingerPan(it) },
                 )
                 SettingSwitchGroupItem(
@@ -131,24 +130,16 @@ internal fun StylusSettingsSubPage(
                     title = stringResource(R.string.stylus_prediction_title),
                     summary = stringResource(R.string.stylus_prediction_desc),
                     checked = vm.stylusStrokePredictionEnabled,
-                    shape = settingGroupShape(2, 8),
+                    shape = settingGroupShape(2, 7),
                     onCheckedChange = { vm.updateStylusStrokePredictionEnabled(it) },
                 )
                 SettingSwitchGroupItem(
-                    icon = Icons.Rounded.Adjust,
-                    title = stringResource(R.string.stylus_cursor_snap_title),
-                    summary = stringResource(R.string.stylus_cursor_snap_desc),
-                    checked = vm.cursorSnapToPredictedTip,
-                    shape = settingGroupShape(3, 8),
-                    onCheckedChange = { vm.updateCursorSnapToPredictedTip(it) },
-                )
-                SettingSwitchGroupItem(
                     icon = Icons.Rounded.Bolt,
-                    title = stringResource(R.string.stylus_front_buffer_title),
-                    summary = stringResource(R.string.stylus_front_buffer_desc),
-                    checked = vm.stylusFrontBufferPreviewEnabled,
-                    shape = settingGroupShape(4, 8),
-                    onCheckedChange = { vm.updateStylusFrontBufferPreviewEnabled(it) },
+                    title = stringResource(R.string.stylus_front_buffer_prediction_title),
+                    summary = stringResource(R.string.stylus_front_buffer_prediction_desc),
+                    checked = vm.frontBufferPredictionEnabled,
+                    shape = settingGroupShape(3, 7),
+                    onCheckedChange = { vm.updateFrontBufferPredictionEnabled(it) },
                 )
                 SettingDropdownGroupItem(
                     icon = Icons.Rounded.Brush,
@@ -156,7 +147,7 @@ internal fun StylusSettingsSubPage(
                     summary = stringResource(R.string.stylus_brush_cursor_desc),
                     currentText = cursorModeOptions.getOrElse(vm.brushCursorMode) { cursorModeOptions[0] },
                     options = cursorModeOptions,
-                    shape = settingGroupShape(5, 8),
+                    shape = settingGroupShape(4, 7),
                     onSelect = { vm.updateBrushCursorMode(it) },
                 )
                 SettingDropdownGroupItem(
@@ -165,7 +156,7 @@ internal fun StylusSettingsSubPage(
                     summary = stringResource(R.string.stylus_eraser_cursor_desc),
                     currentText = cursorModeOptions.getOrElse(vm.eraserCursorMode) { cursorModeOptions.last() },
                     options = cursorModeOptions,
-                    shape = settingGroupShape(6, 8),
+                    shape = settingGroupShape(5, 7),
                     onSelect = { vm.updateEraserCursorMode(it) },
                 )
                 SettingDropdownGroupItem(
@@ -174,7 +165,7 @@ internal fun StylusSettingsSubPage(
                     summary = stringResource(R.string.stylus_cursor_style_desc),
                     currentText = cursorStyleOptions.getOrElse(vm.cursorStyleMode) { cursorStyleOptions[0] },
                     options = cursorStyleOptions,
-                    shape = settingGroupShape(7, 8),
+                    shape = settingGroupShape(6, 7),
                     onSelect = { vm.updateCursorStyleMode(it) },
                 )
             }

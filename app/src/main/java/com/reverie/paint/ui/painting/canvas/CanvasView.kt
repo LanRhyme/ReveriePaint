@@ -379,7 +379,7 @@ fun CanvasView(
             )
         }
 
-        if (vm.stylusFrontBufferPreviewEnabled && FrontBufferProbe.isSupported()) {
+        if (vm.frontBufferPredictionEnabled && FrontBufferProbe.isSupported()) {
             androidx.compose.ui.viewinterop.AndroidView(
                 modifier = Modifier.fillMaxSize(),
                 factory = { ctx ->

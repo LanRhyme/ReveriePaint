@@ -85,18 +85,18 @@ class BrushPredictionTierTest {
     }
 
     @Test
-    fun `watercolor group and wet names downgrade to TIER_2 guide line instead of NONE`() {
-        // 用户反馈: 水彩类完全无预览。现改为 TIER_2 半宽导引线, 不再硬拦截
+    fun `watercolor returns NONE - fake line cannot match real wet ink`() {
+        // 真机实测: 水彩假线与真墨形状/颜色/流量全对不上, 错误反馈比无预览更伤跟手感
         assertEquals(
-            PaintViewModel.PredictionFidelityTier.TIER_2,
+            PaintViewModel.PredictionFidelityTier.NONE,
             resolve(presetGroup = "水彩", presetName = "i)_Wet_Bleed")
         )
         assertEquals(
-            PaintViewModel.PredictionFidelityTier.TIER_2,
+            PaintViewModel.PredictionFidelityTier.NONE,
             resolve(presetName = "Water_Color_Bleed")
         )
         assertEquals(
-            PaintViewModel.PredictionFidelityTier.TIER_2,
+            PaintViewModel.PredictionFidelityTier.NONE,
             resolve(presetName = "Wet_Paint_Wash")
         )
     }

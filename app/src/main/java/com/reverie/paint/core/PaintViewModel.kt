@@ -1478,8 +1478,12 @@ class PaintViewModel : ViewModel() {
     var stylusAudioVolume by mutableFloatStateOf(0.6f)
     var stylusAudioType by mutableStateOf(StylusAudioType.PENCIL)
     var stylusStrokePredictionEnabled by mutableStateOf(true)
-    var cursorSnapToPredictedTip by mutableStateOf(false)
-    var stylusFrontBufferPreviewEnabled by mutableStateOf(false)
+    /**
+     * 前缓冲预测 (本次低延迟技术的总开关, 默认关)。
+     * 开启时启用: 卡尔曼运动预测 + 墨迹空窗回填 + 前缓冲直出 + 光标跟随 + 悬停前瞻;
+     * 关闭时回到上游原版行为 (仅"超低延迟笔迹预测"开关的 OEM 硬件尾线)。
+     */
+    var frontBufferPredictionEnabled by mutableStateOf(false)
     // Samsung Notes 标准语义: 按住侧键落笔 = 临时橡皮 (默认开, 可在三星 S Pen 专属设置中关闭)
     var samsungSideButtonErase by mutableStateOf(true)
     var samsungSingleClickAction by mutableStateOf("toggle_eraser")
@@ -1554,7 +1558,7 @@ class PaintViewModel : ViewModel() {
      * 严格依据 docs/WET-INK-EXPERIMENT.md 历史教训，避免图像笔尖替换跳变与粗劣生硬假线：
      * - NONE: 严禁放行 (印章/喷溅/特效/网格/形状/色彩混合等，保持纯裸管线)
      * - TIER_1: 高保真基础 (勾线/圆笔/墨水/平头/标准线稿，透明度对齐真墨全量放行)
-     * - TIER_2: 精细拟合 (铅笔/速写/水彩/纹理/低流量及未知笔刷，加粗导引线)
+     * - TIER_2: 精细拟合 (铅笔/速写/纹理/低流量及未知笔刷，发丝级导引线)
      */
     enum class PredictionFidelityTier {
         NONE,
@@ -1580,14 +1584,14 @@ class PaintViewModel : ViewModel() {
      */
     val currentBrushPredictionTier: PredictionFidelityTier
         get() {
-            if (!stylusStrokePredictionEnabled) return PredictionFidelityTier.NONE
+            if (!frontBufferPredictionEnabled) return PredictionFidelityTier.NONE
             if (currentToolId != "brush" && currentToolId != "eraser") return PredictionFidelityTier.NONE
             if (currentToolId == "smudge") return PredictionFidelityTier.NONE
 
             if (cachedPredictionTier != null &&
                 cachedTierBrushPresetIndex == brushPresetIndex &&
                 cachedTierToolId == currentToolId &&
-                cachedTierPredictionEnabled == stylusStrokePredictionEnabled &&
+                cachedTierPredictionEnabled == frontBufferPredictionEnabled &&
                 cachedTierTextureEnabled == brushTextureEnabled &&
                 cachedTierOpacity == brushOpacity &&
                 cachedTierFlow == brushFlow &&
@@ -1600,7 +1604,7 @@ class PaintViewModel : ViewModel() {
             cachedPredictionTier = tier
             cachedTierBrushPresetIndex = brushPresetIndex
             cachedTierToolId = currentToolId
-            cachedTierPredictionEnabled = stylusStrokePredictionEnabled
+            cachedTierPredictionEnabled = frontBufferPredictionEnabled
             cachedTierTextureEnabled = brushTextureEnabled
             cachedTierOpacity = brushOpacity
             cachedTierFlow = brushFlow
@@ -1611,7 +1615,7 @@ class PaintViewModel : ViewModel() {
     private fun computeCurrentBrushPredictionTier(): PredictionFidelityTier {
         val preset = brushPresets.firstOrNull { it.index == brushPresetIndex }
         return resolvePredictionTier(
-            predictionEnabled = stylusStrokePredictionEnabled,
+            predictionEnabled = frontBufferPredictionEnabled,
             toolId = currentToolId,
             compositeOp = brushCompositeOp,
             scatter = brushScatter,
@@ -1624,8 +1628,65 @@ class PaintViewModel : ViewModel() {
         )
     }
 
+    /**
+     * 上游原版判定: 当前笔刷是否适用于 OEM 硬件前向预测尾线。
+     * (前缓冲预测开启时由 [currentBrushPredictionTier] 分级接管, 本判定仅服务上游尾线路径)
+     */
     val isCurrentBrushPredictionEligible: Boolean
-        get() = currentBrushPredictionTier != PredictionFidelityTier.NONE
+        get() {
+            if (!stylusStrokePredictionEnabled) return false
+            if (currentToolId != "brush" && currentToolId != "eraser") return false
+
+            // 1. 混合模式与涂抹检查：非 normal/erase 模式或涂抹不进行矢量假线预测
+            if (currentToolId == "smudge") return false
+            if (brushCompositeOp != "normal" && brushCompositeOp != "erase" && brushCompositeOp.isNotEmpty()) return false
+
+            // 2. 纹理与颗粒检查：启用了纹理贴图或散布则不进行假线延伸
+            if (brushTextureEnabled) return false
+            if (brushScatter > 0.01) return false
+            if (brushSpacing > 0.25) return false
+
+            // 3. 透明度与流量检查：低不透明度（如淡彩、喷笔罩染等）不拉实体线
+            if (brushOpacity < 0.65 || (brushFlow > 0.0 && brushFlow < 0.65)) return false
+
+            // 4. 笔刷预设与分组检查：排除天然带纹理、特殊印章或水彩混合类材质笔刷
+            val preset = brushPresets.firstOrNull { it.index == brushPresetIndex }
+            val grp = preset?.group?.ifEmpty { null } ?: inferBrushGroup(preset?.name ?: "")
+            val excludedGroups = setOf("铅笔", "水彩", "混合", "绘画", "纹理与排线", "印章与喷溅", "特效与滤镜", "速写", "形状")
+            if (excludedGroups.contains(grp)) return false
+
+            val name = preset?.name ?: ""
+            if (name.contains("Pencil", ignoreCase = true) ||
+                name.contains("Chalk", ignoreCase = true) ||
+                name.contains("Charcoal", ignoreCase = true) ||
+                name.contains("Pastel", ignoreCase = true) ||
+                name.contains("Bristle", ignoreCase = true) ||
+                name.contains("Dry", ignoreCase = true) ||
+                name.contains("Texture", ignoreCase = true) ||
+                name.contains("Wet", ignoreCase = true) ||
+                name.contains("Water", ignoreCase = true) ||
+                name.contains("Stamp", ignoreCase = true) ||
+                name.contains("Spray", ignoreCase = true) ||
+                name.contains("Splat", ignoreCase = true) ||
+                name.contains("Sponge", ignoreCase = true) ||
+                name.contains("Airbrush", ignoreCase = true) ||
+                name.contains("Sketch", ignoreCase = true) ||
+                name.contains("Curve", ignoreCase = true) ||
+                name.contains("Blender", ignoreCase = true) ||
+                name.contains("Smudge", ignoreCase = true) ||
+                name.contains("Rake", ignoreCase = true) ||
+                name.contains("Hatch", ignoreCase = true) ||
+                name.contains("Screentone", ignoreCase = true) ||
+                name.contains("Noise", ignoreCase = true) ||
+                name.contains("Grain", ignoreCase = true) ||
+                name.contains("Blur", ignoreCase = true) ||
+                name.contains("Shade", ignoreCase = true) ||
+                name.contains("Fuzzy", ignoreCase = true)) {
+                return false
+            }
+
+            return true
+        }
 
     // 绘图辅助与参考线状态 (Symmetry, Perspective, Grid)
     var drawingGuide by mutableStateOf(DrawingGuideConfig())
@@ -2259,19 +2320,11 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    fun updateCursorSnapToPredictedTip(enabled: Boolean) {
-        cursorSnapToPredictedTip = enabled
+    fun updateFrontBufferPredictionEnabled(enabled: Boolean) {
+        frontBufferPredictionEnabled = enabled
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("cursorSnapToPredictedTip", enabled).apply()
-        }
-    }
-
-    fun updateStylusFrontBufferPreviewEnabled(enabled: Boolean) {
-        stylusFrontBufferPreviewEnabled = enabled
-        if (::appContext.isInitialized) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("stylusFrontBufferPreviewEnabled", enabled).apply()
+                .edit().putBoolean("frontBufferPredictionEnabled", enabled).apply()
         }
     }
 
@@ -2917,8 +2970,11 @@ class PaintViewModel : ViewModel() {
             stylusAudioType = StylusAudioType.fromOrdinal(prefs.getInt("stylusAudioType", StylusAudioType.PENCIL.ordinal))
             samsungSideButtonErase = prefs.getBoolean("samsungSideButtonErase", true)
             stylusStrokePredictionEnabled = prefs.getBoolean("stylusStrokePredictionEnabled", true)
-            cursorSnapToPredictedTip = prefs.getBoolean("cursorSnapToPredictedTip", false)
-            stylusFrontBufferPreviewEnabled = prefs.getBoolean("stylusFrontBufferPreviewEnabled", false)
+            // 迁移: 旧版"前缓冲笔尖直出"独立开关升级为"前缓冲预测"总开关, 保留老用户选择
+            frontBufferPredictionEnabled = prefs.getBoolean(
+                "frontBufferPredictionEnabled",
+                prefs.getBoolean("stylusFrontBufferPreviewEnabled", false),
+            )
             motionPredictorEnabled = stylusStrokePredictionEnabled
             samsungSingleClickAction = prefs.getString("samsungSingleClickAction", "toggle_eraser") ?: "toggle_eraser"
             samsungDoubleClickAction = prefs.getString("samsungDoubleClickAction", "undo") ?: "undo"
@@ -3977,9 +4033,11 @@ class PaintViewModel : ViewModel() {
             // 3. 笔刷预设与分组检查
             val grp = presetGroup?.ifEmpty { null } ?: inferBrushGroup(presetName)
 
-            // Tier 3 (NONE): 严格拦截的特征 (印章、喷溅、特效、网格、形状、色彩混合)
-            // 注: 水彩类不再硬拦截 (用户反馈水彩完全无预览), 现降级为 TIER_2 导引线
-            val hardExcludedGroups = setOf("印章与喷溅", "特效与滤镜", "形状", "混合")
+            // Tier 3 (NONE): 严格拦截的特征 (印章、喷溅、特效、网格、形状、水彩、色彩混合)
+            // 水彩/湿墨类真机实测: 假线 (纯色/固定宽) 与真墨 (纹理/混色/低流量) 形状颜色流量全对不上,
+            // "错误的早期反馈"比"无预览"更伤跟手感 (同 WET-INK-EXPERIMENT.md 的替换跳变教训),
+            // 故恢复硬拦截, 保持纯真墨管线。保真预览需像素级湿墨方案, 不在此路径。
+            val hardExcludedGroups = setOf("印章与喷溅", "特效与滤镜", "形状", "水彩", "混合")
             if (hardExcludedGroups.contains(grp)) return PredictionFidelityTier.NONE
 
             if (presetName.contains("Stamp", ignoreCase = true) ||
@@ -3992,6 +4050,8 @@ class PaintViewModel : ViewModel() {
                 presetName.contains("Grid", ignoreCase = true) ||
                 presetName.contains("Curve", ignoreCase = true) ||
                 presetName.contains("Screentone", ignoreCase = true) ||
+                presetName.contains("Water", ignoreCase = true) ||
+                presetName.contains("Wet", ignoreCase = true) ||
                 presetName.contains("Blender", ignoreCase = true) ||
                 presetName.contains("Smudge", ignoreCase = true)) {
                 return PredictionFidelityTier.NONE
@@ -4011,8 +4071,9 @@ class PaintViewModel : ViewModel() {
                 return PredictionFidelityTier.TIER_1
             }
 
-            // 5. TIER_2 防御式安全降级 (铅笔、速写、水彩、纹理排线、油画绘画、带纹理、低流量及所有未知笔刷)
-            // 采用加粗可见的导引线 (0.5x 笔宽, 上限 8dp)，仍明显窄于笔宽以防范湿墨 v1 替换跳变
+            // 5. TIER_2 防御式安全降级 (铅笔、速写、纹理排线、油画绘画、带纹理、低流量及所有未知笔刷)
+            // 采用发丝级导引线 (0.35x 笔宽, 上限 4dp, 低透明度), 与真墨差异最小化 ——
+            // 真机结论: 加粗/提透明会让"假线与真墨对不上"变得显眼, 错误反馈比无反馈更伤跟手感
             return PredictionFidelityTier.TIER_2
         }
     }
