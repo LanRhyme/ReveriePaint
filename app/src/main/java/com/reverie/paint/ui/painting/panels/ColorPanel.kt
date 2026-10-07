@@ -93,6 +93,7 @@ fun ColorPanel(
                 sat = modelHsv[1]
                 valB = modelHsv[2]
             } catch (_: Exception) { }
+            lastSelfUpdatedHex = ""
         }
     }
 
@@ -148,7 +149,17 @@ fun ColorPanel(
                     ).show()
                 },
                 onClose = onClose,
-                onSwapColors = { vm.swapColors() },
+                onSwapColors = {
+                    try {
+                        val c = android.graphics.Color.parseColor(vm.brushSecondaryColor)
+                        val modelHsv = rgbToHsvModel(c, vm.colorModel)
+                        hue = modelHsv[0]
+                        sat = modelHsv[1]
+                        valB = modelHsv[2]
+                    } catch (_: Exception) {}
+                    lastSelfUpdatedHex = ""
+                    vm.swapColors()
+                },
                 onDragHandle = { dragAmount -> vm.colorPanelOffset += dragAmount },
                 onColorDropStart = onColorDropStart,
                 onColorDropMove = onColorDropMove,

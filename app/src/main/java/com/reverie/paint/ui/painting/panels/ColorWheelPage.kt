@@ -339,7 +339,7 @@ fun WheelColorPage(
  * and double-tap snap for primary hues and corners.
  */
 @Composable
-private fun WheelPickerCanvas(
+internal fun WheelPickerCanvas(
     shape: String,
     colorModel: String,
     hue: Float,

@@ -66,6 +66,8 @@ enum class Tool(
     REFERENCE("reference", "参考", ToolGroup.VIEW),
     SHORTCUT("shortcut", "快捷操作", ToolGroup.VIEW),
     QUICK_BRUSH("quick_brush", "快捷笔刷", ToolGroup.VIEW),
+    QUICK_COLOR("quick_color", "快捷颜色", ToolGroup.VIEW),
+    QUICK_LAYER("quick_layer", "快捷图层", ToolGroup.VIEW),
     SYMMETRY("symmetry", "对称", ToolGroup.OTHER),
     PERSPECTIVE("perspective", "透视", ToolGroup.OTHER),
     ;

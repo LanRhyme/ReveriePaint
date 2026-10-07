@@ -845,6 +845,28 @@
     <string name="quick_action_clear_layer">清空图层</string>
     <string name="quick_action_disable_touch">禁用触控</string>
 
+    <!-- Quick Color Strings -->
+    <string name="tool_quick_color">快捷颜色</string>
+    <string name="quick_color_window_title">快捷颜色</string>
+    <string name="color_window_title">颜色</string>
+    <string name="quick_action_toggle_quick_color">快捷颜色</string>
+    <string name="quick_color_add_palette">保存至色板</string>
+    <string name="quick_color_swap">交换前背景色</string>
+    <string name="quick_color_eyedropper">吸管取色</string>
+
+    <!-- Quick Layer Strings -->
+    <string name="tool_quick_layer">快捷图层</string>
+    <string name="quick_layer_window_title">快捷图层</string>
+    <string name="quick_action_toggle_quick_layer">快捷图层</string>
+    <string name="quick_layer_open_full_panel">展开图层面板</string>
+    <string name="quick_layer_opacity_format">不透明度 %1$d%%</string>
+    <string name="quick_layer_new">新建图层</string>
+    <string name="quick_layer_duplicate">复制图层</string>
+    <string name="quick_layer_merge">向下合并</string>
+    <string name="quick_layer_delete">删除图层</string>
+    <string name="quick_layer_alpha_lock">锁定透明度</string>
+    <string name="quick_layer_empty">暂无图层</string>
+
     <string name="settings_gesture_pen_hint">提示：多指触控手势不受笔模式影响，手写笔模式下依然可以直接使用双指撤销与三指重做</string>
     <string name="settings_eyedropper_long_press_title">长按画布吸色</string>
     <string name="settings_eyedropper_long_press_stylus_desc">笔模式已开启：支持手指或手写笔长按画布取色</string>

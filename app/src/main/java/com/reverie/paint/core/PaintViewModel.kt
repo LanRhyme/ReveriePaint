@@ -939,6 +939,80 @@ class PaintViewModel : ViewModel() {
         } catch (_: Exception) {}
     }
 
+    // Pointer Screen Position Tracking (for opening floating panels at pointer)
+    var lastPointerScreenPosition by mutableStateOf<androidx.compose.ui.geometry.Offset?>(null)
+
+    // Quick Color Tool Window State (快捷颜色浮窗)
+    var quickColorWindowOpen by mutableStateOf(false)
+    var quickColorWindowX by mutableFloatStateOf(-1f)
+    var quickColorWindowY by mutableFloatStateOf(-1f)
+    var quickColorWindowWidth by mutableFloatStateOf(0f)
+    var quickColorWindowHeight by mutableFloatStateOf(0f)
+    var quickColorCollapsed by mutableStateOf(false)
+    var quickColorTab by mutableIntStateOf(0)
+
+    fun persistQuickColorState() {
+        if (!::appContext.isInitialized) return
+        try {
+            val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
+            p.putBoolean("quick_color_open", quickColorWindowOpen)
+            p.putFloat("quick_color_x", quickColorWindowX)
+            p.putFloat("quick_color_y", quickColorWindowY)
+            p.putBoolean("quick_color_collapsed", quickColorCollapsed)
+            p.putInt("quick_color_tab", quickColorTab)
+            p.apply()
+        } catch (_: Exception) {}
+    }
+
+    fun toggleQuickColor(atPointer: Boolean = false) {
+        if (quickColorWindowOpen) {
+            quickColorWindowOpen = false
+        } else {
+            if (atPointer) {
+                lastPointerScreenPosition?.let { pos ->
+                    quickColorWindowX = (pos.x - 110f).coerceAtLeast(0f)
+                    quickColorWindowY = (pos.y - 120f).coerceAtLeast(0f)
+                }
+            }
+            quickColorWindowOpen = true
+        }
+        persistQuickColorState()
+    }
+
+    fun swapColors() {
+        val c1 = brushColor
+        val c2 = brushSecondaryColor
+        updateBrushColor(c2)
+        updateBrushSecondaryColor(c1)
+    }
+
+    // Quick Layer Tool Window State (快捷图层浮窗)
+    var quickLayerWindowOpen by mutableStateOf(false)
+    var quickLayerWindowX by mutableFloatStateOf(-1f)
+    var quickLayerWindowY by mutableFloatStateOf(-1f)
+    var quickLayerWindowWidth by mutableFloatStateOf(0f)
+    var quickLayerWindowHeight by mutableFloatStateOf(0f)
+    var quickLayerCollapsed by mutableStateOf(false)
+    var quickLayerPinned by mutableStateOf(true)
+
+    fun persistQuickLayerState() {
+        if (!::appContext.isInitialized) return
+        try {
+            val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
+            p.putBoolean("quick_layer_open", quickLayerWindowOpen)
+            p.putFloat("quick_layer_x", quickLayerWindowX)
+            p.putFloat("quick_layer_y", quickLayerWindowY)
+            p.putBoolean("quick_layer_collapsed", quickLayerCollapsed)
+            p.putBoolean("quick_layer_pinned", quickLayerPinned)
+            p.apply()
+        } catch (_: Exception) {}
+    }
+
+    fun toggleQuickLayer() {
+        quickLayerWindowOpen = !quickLayerWindowOpen
+        persistQuickLayerState()
+    }
+
     fun getOrderedFavoriteBrushes(): List<BrushPresetInfo> {
         val favs = brushPresets.filter { isFavoriteBrush(it.name) }
         if (quickBrushOrder.isEmpty()) return favs
@@ -985,10 +1059,7 @@ class PaintViewModel : ViewModel() {
                 applyTool("picker")
             }
             com.reverie.paint.model.QuickAction.SWAP_COLOR -> {
-                val c1 = brushColor
-                val c2 = brushSecondaryColor
-                updateBrushColor(c2)
-                updateBrushSecondaryColor(c1)
+                swapColors()
             }
             com.reverie.paint.model.QuickAction.BRUSH_SIZE_INC -> {
                 val newSize = (brushSize * 1.25).coerceAtMost(effectiveBrushMaxSize)
@@ -1021,6 +1092,12 @@ class PaintViewModel : ViewModel() {
             }
             com.reverie.paint.model.QuickAction.DISABLE_TOUCH -> {
                 isCanvasTouchDisabled = !isCanvasTouchDisabled
+            }
+            com.reverie.paint.model.QuickAction.TOGGLE_QUICK_COLOR -> {
+                toggleQuickColor(atPointer = true)
+            }
+            com.reverie.paint.model.QuickAction.TOGGLE_QUICK_LAYER -> {
+                toggleQuickLayer()
             }
         }
     }
@@ -2938,6 +3015,20 @@ class PaintViewModel : ViewModel() {
             if (brushOrderStr.isNotBlank()) {
                 quickBrushOrder = brushOrderStr.split(",").filter { it.isNotBlank() }
             }
+
+            // 快捷颜色浮窗持久化恢复
+            quickColorWindowOpen = prefs.getBoolean("quick_color_open", false)
+            quickColorWindowX = prefs.getFloat("quick_color_x", -1f)
+            quickColorWindowY = prefs.getFloat("quick_color_y", -1f)
+            quickColorCollapsed = prefs.getBoolean("quick_color_collapsed", false)
+            quickColorTab = prefs.getInt("quick_color_tab", 0)
+
+            // 快捷图层浮窗持久化恢复
+            quickLayerWindowOpen = prefs.getBoolean("quick_layer_open", false)
+            quickLayerWindowX = prefs.getFloat("quick_layer_x", -1f)
+            quickLayerWindowY = prefs.getFloat("quick_layer_y", -1f)
+            quickLayerCollapsed = prefs.getBoolean("quick_layer_collapsed", false)
+            quickLayerPinned = prefs.getBoolean("quick_layer_pinned", true)
 
             applyCurrentTheme()
         }
