@@ -835,6 +835,22 @@ class CanvasTouchView(context: Context) : View(context) {
     private var previewBackfillStartX: Float = 0f
     private var previewBackfillStartY: Float = 0f
 
+    // ---- STAMP 分级: 真实笔尖戳印预览 (水彩/纹理与排线/绘画类) ----
+    // tip 位图缓存 (按 tip 文件+颜色), dab 点集预分配 (热路径零分配)。
+    private val stampCache by lazy { BrushTipStampCache(context) }
+    private val previewStampX = FloatArray(64)
+    private val previewStampY = FloatArray(64)
+    private val previewStampSize = FloatArray(64)
+    private val previewStampAlpha = FloatArray(64)
+    private var previewStampCount = 0
+    private var previewStampBitmap: Bitmap? = null
+    private var previewUsedStamp = false
+    private val stampPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+    private val stampDstRect = android.graphics.RectF()
+    // dab 弧长排布顶点收集
+    private val stampVX = FloatArray(128)
+    private val stampVY = FloatArray(128)
+
     // ---- 前缓冲 UI 避让注册表 (PR #82 review 问题 3) ----
     // setZOrderOnTop(true) 把前缓冲层置于整个 Window 之上, 预览假线可能画到
     // Compose 控件表面。仅判触点端点不够: 高速运笔一帧可跨过 56dp 顶栏,
@@ -1141,6 +1157,21 @@ class CanvasTouchView(context: Context) : View(context) {
         val baseColor = resolveBrushColorCached(v.brushColor)
         val baseAlpha = (v.brushOpacity * (if (v.brushFlow > 0.0) v.brushFlow else 1.0)).coerceIn(0.05, 1.0).toFloat()
 
+        // ---- 2.5 STAMP 分级: 真实笔尖戳印 (水彩/纹理与排线/绘画类) ----
+        // tip 不可解码 (如 GIH 动画笔尖) 时回落 TIER_2 发丝线, 而非直接无预览。
+        previewUsedStamp = false
+        if (fidelityTier == PaintViewModel.PredictionFidelityTier.STAMP) {
+            if (computeStampDabs(
+                    v, backfillStartStep, hasExtension, endX, endY, curPos,
+                    actualStrokeWidth, baseColor, baseAlpha
+                )
+            ) {
+                previewUsedStamp = true
+                return true
+            }
+            // 回落: 走下方 TIER_2 发丝线逻辑
+        }
+
         // ---- 3. 样式: 预览颜色/宽度对齐真墨, 消除"颜色浅"与笔触断裂的观感差 ----
         // TIER_1 (纯色勾线类): 全宽全透明度 —— 预览即真墨观感, 衔接处无灰边;
         //   重叠区仅一个呈现周期 (同色叠加不加深, 半透明笔刷至多瞬时轻微加深)
@@ -1199,6 +1230,105 @@ class CanvasTouchView(context: Context) : View(context) {
         previewTipEndY = endY
         previewBackfillStartX = segX0
         previewBackfillStartY = segY0
+        return true
+    }
+
+    /**
+     * STAMP 分级 dab 点位计算: 沿回填段+前向段按 brushSpacing 弧长排布,
+     * 逐点盖印真实笔尖位图 (BrushTipStampCache, 已按笔刷颜色着色)。
+     *
+     * tip 不可解码 (如 GIH 动画笔尖) → false, 调用方回落 TIER_2 发丝线。
+     * 热路径零分配: 顶点与 dab 点集全部预分配数组。
+     */
+    private fun computeStampDabs(
+        v: PaintViewModel,
+        backfillStartStep: Int,
+        hasExtension: Boolean,
+        endX: Float,
+        endY: Float,
+        curPos: Offset,
+        dabDiameterPx: Float,
+        baseColor: Int,
+        baseAlpha: Float,
+    ): Boolean {
+        val tipAsset = v.brushTipAsset
+        if (tipAsset.isBlank()) return false
+        val bmp = try {
+            stampCache.get(tipAsset, baseColor)
+        } catch (_: Throwable) {
+            null
+        } ?: return false
+
+        // 1. 收集顶点: 回填段历史点 (旧→新) → 当前点 → 预测延伸点
+        var vc = 0
+        if (backfillStartStep > 0) {
+            var step = backfillStartStep
+            while (step >= 0 && vc < 127) {
+                val idx = (touchHistoryHead - 1 - step + 128) % 64
+                stampVX[vc] = touchHistoryX[idx]
+                stampVY[vc] = touchHistoryY[idx]
+                vc++
+                step--
+            }
+        }
+        if (vc == 0 || stampVX[vc - 1] != curPos.x || stampVY[vc - 1] != curPos.y) {
+            if (vc < 127) {
+                stampVX[vc] = curPos.x
+                stampVY[vc] = curPos.y
+                vc++
+            }
+        }
+        if (hasExtension && vc < 128) {
+            stampVX[vc] = endX
+            stampVY[vc] = endY
+            vc++
+        }
+        if (vc == 0) return false
+
+        // 2. 弧长排布 dab: 间距 = brushSpacing × 笔宽 (Krita 语义), 钳制防爆量
+        val spacingPx = (v.brushSpacing.toFloat() * dabDiameterPx)
+            .coerceIn(dabDiameterPx * 0.12f, dabDiameterPx * 1.5f)
+            .coerceAtLeast(2f)
+        var count = 0
+        // 首 dab 落在起点
+        previewStampX[0] = stampVX[0]
+        previewStampY[0] = stampVY[0]
+        previewStampSize[0] = dabDiameterPx
+        previewStampAlpha[0] = baseAlpha
+        count = 1
+        var acc = 0f
+        var i = 1
+        while (i < vc && count < 64) {
+            val ex = stampVX[i]
+            val ey = stampVY[i]
+            var sx = previewStampX[count - 1]
+            var sy = previewStampY[count - 1]
+            var segLeft = kotlin.math.hypot(ex - sx, ey - sy)
+            while (acc + segLeft >= spacingPx && count < 64) {
+                val need = spacingPx - acc
+                val t = if (segLeft > 0f) need / segLeft else 0f
+                sx += (ex - sx) * t
+                sy += (ey - sy) * t
+                previewStampX[count] = sx
+                previewStampY[count] = sy
+                previewStampSize[count] = dabDiameterPx
+                previewStampAlpha[count] = baseAlpha
+                count++
+                segLeft = kotlin.math.hypot(ex - sx, ey - sy)
+                acc = 0f
+            }
+            acc += segLeft
+            i++
+        }
+        if (count == 0) return false
+
+        previewStampBitmap = bmp
+        previewStampCount = count
+        previewTipEndX = endX
+        previewTipEndY = endY
+        previewBackfillStartX = stampVX[0]
+        previewBackfillStartY = stampVY[0]
+        previewStrokeWidth = dabDiameterPx
         return true
     }
 
@@ -2103,10 +2233,27 @@ class CanvasTouchView(context: Context) : View(context) {
                     try {
                         // 局部非空 Offset 为内联值类, 无堆分配
                         if (computePreviewStrokePath(Offset(localCursorX, localCursorY), previewStrokePath)) {
-                            tipShaderPaint.shader = null
-                            tipShaderPaint.color = previewStrokeColor
-                            tipShaderPaint.strokeWidth = previewStrokeWidth
-                            canvas.drawPath(previewStrokePath, tipShaderPaint)
+                            if (previewUsedStamp && previewStampBitmap != null && previewStampCount > 0) {
+                                // STAMP 分级软件回退: onDraw 内逐 dab 盖印 (与前缓冲同数据源)
+                                val bmp = previewStampBitmap!!
+                                for (i in 0 until previewStampCount) {
+                                    val s = previewStampSize[i]
+                                    if (s <= 0f) continue
+                                    stampPaint.alpha =
+                                        (previewStampAlpha[i] * 255f).toInt().coerceIn(0, 255)
+                                    val half = s / 2f
+                                    stampDstRect.set(
+                                        previewStampX[i] - half, previewStampY[i] - half,
+                                        previewStampX[i] + half, previewStampY[i] + half
+                                    )
+                                    canvas.drawBitmap(bmp, null, stampDstRect, stampPaint)
+                                }
+                            } else {
+                                tipShaderPaint.shader = null
+                                tipShaderPaint.color = previewStrokeColor
+                                tipShaderPaint.strokeWidth = previewStrokeWidth
+                                canvas.drawPath(previewStrokePath, tipShaderPaint)
+                            }
                             fallbackDrew = true
                             activePredictedTipScreenX = previewTipEndX
                             activePredictedTipScreenY = previewTipEndY
@@ -4441,7 +4588,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         }
                     }
 
-                    // 2. 笔尖前向超前预测计算 (分级放行：TIER_1/2 放行，NONE 已在外层拦截)
+                    // 2. 笔尖前向超前预测计算 (分级放行：TIER_1/2/STAMP 放行，NONE 已在外层拦截)
                     var predictionObtained = false
                     val op = oplusPredictor
                     if (isStylus && op != null && op.isValid) {
@@ -4560,7 +4707,17 @@ class CanvasTouchView(context: Context) : View(context) {
                                 isHoverOverUi(previewTipEndX, previewTipEndY) ||
                                 previewEnvelopeHitsUi(curX, curY)
                             if (!overUi) {
-                                frontBufferOverlay?.renderPreviewPath(previewStrokePath, previewStrokeWidth, previewStrokeColor)
+                                if (previewUsedStamp && previewStampBitmap != null && previewStampCount > 0) {
+                                    // STAMP 分级: 真实笔尖戳印直出 (水彩/纹理/绘画类)
+                                    frontBufferOverlay?.renderStampPreview(
+                                        previewStampBitmap!!,
+                                        previewStampX, previewStampY,
+                                        previewStampSize, previewStampAlpha,
+                                        previewStampCount
+                                    )
+                                } else {
+                                    frontBufferOverlay?.renderPreviewPath(previewStrokePath, previewStrokeWidth, previewStrokeColor)
+                                }
                                 drew = true
                                 activePredictedTipScreenX = previewTipEndX
                                 activePredictedTipScreenY = previewTipEndY

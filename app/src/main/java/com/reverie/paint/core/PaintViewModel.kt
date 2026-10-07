@@ -1558,12 +1558,16 @@ class PaintViewModel : ViewModel() {
      * 严格依据 docs/WET-INK-EXPERIMENT.md 历史教训，避免图像笔尖替换跳变与粗劣生硬假线：
      * - NONE: 严禁放行 (印章/喷溅/特效/网格/形状/色彩混合等，保持纯裸管线)
      * - TIER_1: 高保真基础 (勾线/圆笔/墨水/平头/标准线稿，透明度对齐真墨全量放行)
-     * - TIER_2: 精细拟合 (铅笔/速写/纹理/低流量及未知笔刷，发丝级导引线)
+     * - TIER_2: 精细拟合 (铅笔/速写/低流量及未知笔刷，发丝级导引线)
+     * - STAMP: 真实笔尖戳印 (水彩/纹理与排线/绘画类)：前缓冲逐 dab 盖印真实 tip
+     *   位图 (形状颜色与真墨一致，仅湿润累积为近似，预览只存活 1~2 帧)。
+     *   仅 brush 工具；tip 不可解码时渲染侧回落 TIER_2 发丝线。
      */
     enum class PredictionFidelityTier {
         NONE,
         TIER_1,
-        TIER_2
+        TIER_2,
+        STAMP
     }
 
     private var cachedPredictionTier: PredictionFidelityTier? = null
@@ -1581,6 +1585,7 @@ class PaintViewModel : ViewModel() {
      * - NONE: 印章/喷溅/特效/网格/双重蒙版/涂抹，以及严重低透明度或极端散布；
      * - TIER_2: 铅笔/速写，或启用材质纹理、喷枪/软笔尖、中低流量笔刷（仅绘制微细笔锋导引，防 Overdraw 加深）；
      * - TIER_1: 基础线稿/勾线/纯色墨水/圆笔/平头 (高保真全量放行，支持完整空窗回填)。
+     * - STAMP: 水彩/纹理与排线/绘画类 (真实笔尖戳印，形状颜色与真墨一致)。
      */
     val currentBrushPredictionTier: PredictionFidelityTier
         get() {
@@ -4043,6 +4048,23 @@ class PaintViewModel : ViewModel() {
         const val STROKE_BATCH_CAPACITY = 256
         const val STROKE_SAMPLE_STRIDE = 6
 
+        /**
+         * 点刷家族判定: 印章/喷溅/飞溅/海绵/耙/噪点/粒子/网格/曲线/网点类预设。
+         * 这类笔刷以大间距散点落墨, 连续盖印/连续假线都会失真, STAMP 与假线一律禁行。
+         */
+        private fun isDottedStampFamily(presetName: String): Boolean {
+            return presetName.contains("Stamp", ignoreCase = true) ||
+                presetName.contains("Spray", ignoreCase = true) ||
+                presetName.contains("Splat", ignoreCase = true) ||
+                presetName.contains("Sponge", ignoreCase = true) ||
+                presetName.contains("Rake", ignoreCase = true) ||
+                presetName.contains("Noise", ignoreCase = true) ||
+                presetName.contains("Particle", ignoreCase = true) ||
+                presetName.contains("Grid", ignoreCase = true) ||
+                presetName.contains("Curve", ignoreCase = true) ||
+                presetName.contains("Screentone", ignoreCase = true)
+        }
+
         fun resolvePredictionTier(
             predictionEnabled: Boolean,
             toolId: String,
@@ -4067,8 +4089,24 @@ class PaintViewModel : ViewModel() {
             // 2. 极低不透明度（如极度透明的罩染）直接拦截在 NONE，防范伪线突兀
             if (opacity < 0.35) return PredictionFidelityTier.NONE
 
-            // 3. 笔刷预设与分组检查
+            // 2.5 预设分组判定 (STAMP 与硬拦截共用)
             val grp = presetGroup?.ifEmpty { null } ?: inferBrushGroup(presetName)
+
+            // 2.6 STAMP: 真实笔尖戳印预览 (水彩/纹理与排线/绘画类)，仅 brush 工具。
+            // v1 假线对这类笔刷是"错误反馈" (形状颜色流量全对不上)，但真实 tip 戳印
+            // 在形状颜色上与真墨一致，仅湿润累积为近似 (预览只存活 1~2 帧，真墨即达覆盖)。
+            // 点刷家族 (印章/喷溅/飞溅/海绵/耙/噪点/粒子/网格/曲线/网点) 除外：大间距散点笔刷
+            // 连续盖印反而失真，走后方硬拦截。橡皮擦不参与 (挖除语义无法用叠加表达)。
+            // tip 不可解码 (如 GIH 动画笔尖) 时渲染侧回落 TIER_2 发丝线。
+            if (toolId == "brush" && !isDottedStampFamily(presetName) &&
+                (grp == "水彩" || grp == "纹理与排线" || grp == "绘画" ||
+                    presetName.contains("Water", ignoreCase = true) ||
+                    presetName.contains("Wet", ignoreCase = true))
+            ) {
+                return PredictionFidelityTier.STAMP
+            }
+
+            // 3. 笔刷预设与分组检查 (硬拦截)
 
             // Tier 3 (NONE): 严格拦截的特征 (印章、喷溅、特效、网格、形状、水彩、色彩混合)
             // 水彩/湿墨类真机实测: 假线 (纯色/固定宽) 与真墨 (纹理/混色/低流量) 形状颜色流量全对不上,

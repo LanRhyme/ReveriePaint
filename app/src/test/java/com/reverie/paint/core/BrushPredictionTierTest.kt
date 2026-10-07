@@ -85,19 +85,30 @@ class BrushPredictionTierTest {
     }
 
     @Test
-    fun `watercolor returns NONE - fake line cannot match real wet ink`() {
-        // 真机实测: 水彩假线与真墨形状/颜色/流量全对不上, 错误反馈比无预览更伤跟手感
+    fun `watercolor returns STAMP - real tip stamping replaces fake line`() {
+        // v1 假线与真墨形状颜色流量全对不上故曾硬拦截为 NONE;
+        // STAMP 盖印真实 tip (形状颜色一致, 仅湿润累积近似), 故升级放行。
         assertEquals(
-            PaintViewModel.PredictionFidelityTier.NONE,
+            PaintViewModel.PredictionFidelityTier.STAMP,
             resolve(presetGroup = "水彩", presetName = "i)_Wet_Bleed")
         )
         assertEquals(
-            PaintViewModel.PredictionFidelityTier.NONE,
+            PaintViewModel.PredictionFidelityTier.STAMP,
             resolve(presetName = "Water_Color_Bleed")
         )
         assertEquals(
-            PaintViewModel.PredictionFidelityTier.NONE,
+            PaintViewModel.PredictionFidelityTier.STAMP,
             resolve(presetName = "Wet_Paint_Wash")
+        )
+        // 橡皮擦不参与 STAMP (挖除语义无法用叠加表达): 保持旧行为 NONE
+        assertEquals(
+            PaintViewModel.PredictionFidelityTier.NONE,
+            resolve(toolId = "eraser", presetGroup = "水彩", presetName = "i)_Wet_Bleed")
+        )
+        // 点刷家族优先于 Wet: Splat_Wet 仍为 NONE
+        assertEquals(
+            PaintViewModel.PredictionFidelityTier.NONE,
+            resolve(presetName = "Splat_Wet")
         )
     }
 
@@ -133,7 +144,7 @@ class BrushPredictionTierTest {
     }
 
     @Test
-    fun `textured, oil painting, pencil and sketch brushes evaluate to TIER_2`() {
+    fun `pencil and sketch brushes stay at TIER_2 hairline`() {
         assertEquals(
             PaintViewModel.PredictionFidelityTier.TIER_2,
             resolve(presetGroup = "铅笔", presetName = "c)_Pencil-2B")
@@ -144,15 +155,20 @@ class BrushPredictionTierTest {
         )
         assertEquals(
             PaintViewModel.PredictionFidelityTier.TIER_2,
+            resolve(presetName = "Charcoal_Soft")
+        )
+    }
+
+    @Test
+    fun `textured and oil painting brushes upgrade to STAMP`() {
+        // 真实 tip 戳印比发丝线更接近真墨 (形状/颗粒), 故从 TIER_2 升级
+        assertEquals(
+            PaintViewModel.PredictionFidelityTier.STAMP,
             resolve(presetGroup = "纹理与排线", presetName = "w)_Texture_Hatch")
         )
         assertEquals(
-            PaintViewModel.PredictionFidelityTier.TIER_2,
+            PaintViewModel.PredictionFidelityTier.STAMP,
             resolve(presetGroup = "绘画", presetName = "f)_Oils_Bristle")
-        )
-        assertEquals(
-            PaintViewModel.PredictionFidelityTier.TIER_2,
-            resolve(presetName = "Charcoal_Soft")
         )
     }
 

@@ -5,12 +5,14 @@
 package com.reverie.paint.ui.painting.canvas
 
 import android.content.Context
+import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
 import android.graphics.Paint
 import android.graphics.Path
 import android.graphics.PixelFormat
 import android.graphics.PorterDuff
+import android.graphics.RectF
 import android.os.Build
 import android.util.AttributeSet
 import android.util.Log
@@ -19,6 +21,9 @@ import android.view.SurfaceView
 import androidx.graphics.lowlatency.CanvasFrontBufferedRenderer
 import com.reverie.paint.core.stylus.FrontBufferProbe
 import java.util.concurrent.atomic.AtomicBoolean
+
+/** 单包最大 dab 戳印数 (预分配, 热路径零分配)。 */
+private const val MAX_STAMPS = 64
 
 /**
  * 笔尖前沿段预览载荷数据 (传递给 CanvasFrontBufferedRenderer 渲染线程)。
@@ -33,6 +38,16 @@ class FrontBufferPathPacket(
     var color: Int = 0,
     var isClear: Boolean = false,
     val inFlight: AtomicBoolean = AtomicBoolean(false),
+    // ---- STAMP 分级: 真实笔尖戳印预览 ----
+    // UI 线程在 CAS 抢占成功后写入, GL 线程只读, happens-before 由 CAS 保证。
+    // stampBitmap 为已按笔刷颜色着色的 tip 位图 (BrushTipStampCache 提供),
+    // stampX/Y/Size/Alpha 为预分配 dab 点集 (位置像素, 尺寸像素, 透明度 0..1)。
+    var stampBitmap: Bitmap? = null,
+    val stampX: FloatArray = FloatArray(MAX_STAMPS),
+    val stampY: FloatArray = FloatArray(MAX_STAMPS),
+    val stampSize: FloatArray = FloatArray(MAX_STAMPS),
+    val stampAlpha: FloatArray = FloatArray(MAX_STAMPS),
+    var stampCount: Int = 0,
 )
 
 /**
@@ -76,6 +91,10 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
         strokeJoin = Paint.Join.ROUND
     }
 
+    // STAMP 分级: 戳印绘制 (位图缩放盖印, 预分配零分配)
+    private val stampPaint = Paint(Paint.FILTER_BITMAP_FLAG)
+    private val stampDst = RectF()
+
     init {
         // 设为完全透明与顶层覆盖
         setZOrderOnTop(true)
@@ -102,14 +121,33 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
                             // 1. 单缓冲清屏：擦除前一次预览段
                             canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
 
-                            if (param.isClear || param.path == null) {
+                            if (param.isClear) {
                                 return
                             }
 
-                            // 2. 绘制当前最新笔尖前沿段
+                            // 2a. STAMP 分级: 逐 dab 盖印真实笔尖位图
+                            val stampBmp = param.stampBitmap
+                            val stampN = param.stampCount.coerceAtMost(MAX_STAMPS)
+                            if (stampBmp != null && !stampBmp.isRecycled && stampN > 0) {
+                                for (i in 0 until stampN) {
+                                    val s = param.stampSize[i]
+                                    if (s <= 0f) continue
+                                    val cx = param.stampX[i]
+                                    val cy = param.stampY[i]
+                                    stampPaint.alpha =
+                                        (param.stampAlpha[i] * 255f).toInt().coerceIn(0, 255)
+                                    val half = s / 2f
+                                    stampDst.set(cx - half, cy - half, cx + half, cy + half)
+                                    canvas.drawBitmap(stampBmp, null, stampDst, stampPaint)
+                                }
+                                return
+                            }
+
+                            // 2b. TIER_1/2: 绘制当前最新笔尖前沿段 (单色折线)
+                            val path = param.path ?: return
                             previewPaint.color = param.color
                             previewPaint.strokeWidth = param.strokeWidth.coerceAtLeast(1.5f)
-                            canvas.drawPath(param.path!!, previewPaint)
+                            canvas.drawPath(path, previewPaint)
                         } finally {
                             // GL 线程绘制完成: 释放槽位, UI 线程方可复用。
                             // commit()/cancelPending() 丢弃的包走 onDrawMultiBufferedLayer 释放。
@@ -178,12 +216,51 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
                 packet.strokeWidth = strokeWidth
                 packet.color = color
                 packet.isClear = false
+                packet.stampCount = 0 // 复用槽位: 清除残留戳印
                 hasContent = true
                 renderer.renderFrontBufferedLayer(packet)
             } catch (t: Throwable) {
                 // 提交失败: 立即释放槽位, 否则泄漏为永久 inFlight
                 packet.inFlight.set(false)
                 Log.w(TAG, "renderPreviewPath error: ${t.message}")
+            }
+        }
+    }
+
+    /**
+     * 投递戳印预览: 沿 dab 点集盖印真实笔尖位图 (STAMP 分级, 水彩/纹理/绘画类)。
+     * 热路径零分配: 点集拷入预分配槽位数组; 位图由 BrushTipStampCache 提供 (已着色)。
+     */
+    fun renderStampPreview(
+        bitmap: Bitmap,
+        xs: FloatArray,
+        ys: FloatArray,
+        sizes: FloatArray,
+        alphas: FloatArray,
+        count: Int,
+    ) {
+        if (!isRendererInitialized) return
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            // 先确认渲染器可用再占槽: 否则占了槽却投递失败, inFlight 永久泄漏。
+            @Suppress("UNCHECKED_CAST")
+            val renderer = frontRenderer as? CanvasFrontBufferedRenderer<FrontBufferPathPacket>
+                ?: return
+            val packet = obtainPacket() ?: return // 无空闲槽位: 丢帧
+            try {
+                val n = count.coerceAtMost(MAX_STAMPS)
+                xs.copyInto(packet.stampX, 0, 0, n)
+                ys.copyInto(packet.stampY, 0, 0, n)
+                sizes.copyInto(packet.stampSize, 0, 0, n)
+                alphas.copyInto(packet.stampAlpha, 0, 0, n)
+                packet.stampBitmap = bitmap
+                packet.stampCount = n
+                packet.isClear = false
+                hasContent = true
+                renderer.renderFrontBufferedLayer(packet)
+            } catch (t: Throwable) {
+                // 提交失败: 立即释放槽位, 否则泄漏为永久 inFlight
+                packet.inFlight.set(false)
+                Log.w(TAG, "renderStampPreview error: ${t.message}")
             }
         }
     }
