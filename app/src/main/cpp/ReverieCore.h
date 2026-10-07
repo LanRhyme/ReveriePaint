@@ -214,6 +214,10 @@ public:
     // 原生填充层换色 (KisGeneratorLayer + reverie-solid-color); 非填充层返回 false
     bool setFillLayerColor(int index, quint32 colorArgb);
     quint32 getFillLayerColor(int index) const;
+    bool setFillLayerPattern(int index, const QByteArray &png);
+    bool floodFillPatternAt(int x, int y, int tolerance, bool sampleMerged, int expand,
+                            int feather, int closeGap, double opacity, const QString &compositeOp,
+                            const QByteArray &png);
     // 描边图层属性与栅格化
     bool isLayerStroke(int index) const;
     bool setLayerStrokeParams(int index, int size, quint32 color, int position, int opacity);
@@ -1234,6 +1238,7 @@ private:
     // 复用后只剩 memcpy 级别的 clear + bitBlt。
     KisPaintDeviceSP m_strokeMergeScratch;
     KisPaintDeviceSP m_strokeOutScratch;
+    KisPaintDeviceSP m_strokeClipScratch;
 
     // 复用暂存设备池 (组图层递归合成/剪切蒙版栈式复用, 零堆内存分配)
     QVector<KisPaintDeviceSP> m_scratchPool;
@@ -1248,6 +1253,7 @@ private:
     /** 复用的拼装设备; 保证 [r] 范围是干净的 */
     KisPaintDeviceSP strokeMergeScratch(const QRect &r);
     KisPaintDeviceSP strokeOutScratch(const QRect &r);
+    KisPaintDeviceSP strokeClipScratch(const QRect &r);
 
     /** 丢弃笔触洋葱皮缓存 (切帧 / 改配置 / 关键帧结构变化时调) */
     void invalidateStrokeOnionCache() {
@@ -1332,6 +1338,8 @@ private:
                                                       const QByteArray &lut = QByteArray());
     // 纯色填充层配置组装 (ReverieCoreGenerators.cpp)
     static KisFilterConfigurationSP reverieMakeSolidColorConfig(quint32 rgba);
+    static KisFilterConfigurationSP reverieMakePatternConfig(const QByteArray &png);
+    bool applyFillGeneratorConfig(int index, KisFilterConfigurationSP config);
 
     // Filter backup devices for non-destructive live preview (single & multi-layer)
     struct FilterBackupEntry {

@@ -92,6 +92,7 @@ class PaintRecorder {
     private var lastCompositeOp: String? = null
     private var lastColor: String? = null
     private var lastLayer = -2
+    private var lastPatternPng: ByteArray? = null
 
     /** Start a recording session. [snapshotSource] is the document file the
      *  session started from (copied to [snapshotTempDir]); null for a blank
@@ -108,6 +109,7 @@ class PaintRecorder {
         prior: ParsedRecording? = null,
     ) {
         endSession()
+        lastPatternPng = null
         buffer = RecordingBuffer()
         recording = true
         sessionW = w
@@ -174,6 +176,7 @@ class PaintRecorder {
         val obsolete = synchronized(ioLock) {
             recording = false
             buffer = null
+            lastPatternPng = null
             eventCount = 0
             priorEvents = null
             priorEventCount = 0
@@ -419,6 +422,12 @@ class PaintRecorder {
         it.u8(op)
         writePayload(it)
     }
+
+    fun patternFill(event: com.reverie.paint.model.PatternFillEvent) =
+        toolOp(com.reverie.paint.model.RecordingEvents.T_PATTERN_FILL) {
+            event.writeTo(it, lastPatternPng)
+            lastPatternPng = event.png
+        }
 
     fun pointsOp(
         op: Int,

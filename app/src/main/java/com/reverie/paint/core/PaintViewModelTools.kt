@@ -2582,6 +2582,10 @@ internal fun PaintViewModel.floodFill(
         showActionToast(R.string.canvas_toast_layer_hidden, com.reverie.paint.R.drawable.ic_eye_off)
         return
     }
+    if (fillPattern != null) {
+        floodFillPattern(x, y, tolerance, sampleMerged, expand, feather, closeGap)
+        return
+    }
     if (recorder.recording) {
         // V3 携带填充色: 引擎用自身 m_brushColor 填充, 回放若不带色会漂到
         // 上一个 CONTEXT 的颜色
