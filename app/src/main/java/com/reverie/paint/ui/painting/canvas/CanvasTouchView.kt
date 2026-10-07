@@ -4586,6 +4586,16 @@ class CanvasTouchView(context: Context) : View(context) {
                             hasActivePredictedTip = false
                         }
                         hasDrawnPrediction = drew
+                        // 前缓冲直出绕过 onDraw: 必须显式失效光标区域, 否则 onDraw 里的
+                        // 光标环得不到重绘调度, 跟随标记置位也"看似"不跟随
+                        // (handleToolMove 全程零 invalidate, PR 原生问题)。
+                        // 软件回退路径在 onDraw 内绘制, 自带重绘, 不受影响。
+                        // 局部失效 (非全屏), 120Hz 下开销可忽略。
+                        invalidateCursor(
+                            if (drew) Offset(activePredictedTipScreenX, activePredictedTipScreenY)
+                            else if (hasLocalCursorPos) Offset(localCursorX, localCursorY)
+                            else null
+                        )
                     }
                 } else if (!v.frontBufferPredictionEnabled && isStylus && v.isCurrentBrushPredictionEligible) {
                     // 上游原版: OEM 硬件前向预测尾线 (抵消 144Hz 屏幕 1~2 帧物理上屏延迟)
