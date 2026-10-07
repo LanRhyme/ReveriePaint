@@ -282,6 +282,7 @@ internal fun PaintViewModel.touchStart(
         }
     }
     quickShapeCapture?.append(x, y, effPressure.toFloat(), safeTiltX.toFloat(), safeTiltY.toFloat())
+    updateRenderedFrontier(x, y, lastStrokeTimeMs)
     // Pen-down instant ink: if the stylus stays still (or moves slower than
     // the sample-spacing gate), paint the start dot after ~1 frame instead
     // of showing nothing until pen-up.
@@ -568,6 +569,7 @@ internal fun PaintViewModel.touchEnd(render: Boolean = true) {
     val origIsEraser = (currentToolId == "eraser")
     activeStrokeToolOverride = null
 
+    resetRenderedFrontier()
     if (render) {
         runCore(after = {
             scheduleRender(immediate = true)

@@ -57,6 +57,16 @@ object PerfTrace {
     @Volatile
     var isEnabledByProp: Boolean = false
 
+    /**
+     * 前沿/呈现延迟字段族的显式锁 (替代 @Synchronized)。
+     * @Synchronized 会编译成 ACC_SYNCHRONIZED, 进方法体前就持锁 —— 方法内首行的
+     * `if (!enabled) return` 快路径根本绕不开 monitor, 门是纸糊的 (PR #82 review)。
+     * 改手动锁后, 纯诊断的记录方法才能把快路径真正放到锁外。
+     * 注意锁域: 本锁只保护 frontier/presentWait 字段族, 其他统计各有各的 @Synchronized,
+     * 字段不相交, 互不干扰。
+     */
+    private val traceLock = Any()
+
     /** 是否叠加"液化网格"可视化 (`setprop debug.reverie.lqgrid 1`; 只有 debug 构建会用到) */
     @Volatile
     var gridOverlayByProp: Boolean = false
@@ -89,6 +99,27 @@ object PerfTrace {
     private val drawSort = LongArray(RING)
     private var drawIdx = 0
     private var drawN = 0
+
+    // presentWait: invalidateFromRender() -> onDraw() 的等待耗时 (UI 线程呈现延迟)
+    private val presentWaitRing = LongArray(RING)
+    private val presentWaitSort = LongArray(RING)
+    private var presentWaitIdx = 0
+    private var presentWaitN = 0
+
+    // frontierErr: 引擎实际绘制前沿 vs 时间窗估计前沿的屏幕像素误差 (px)
+    private val frontierErrRing = FloatArray(RING)
+    private val frontierErrSort = FloatArray(RING)
+    private var frontierErrIdx = 0
+    private var frontierErrN = 0
+
+    // 百分位数计算缓存: 250ms 窗口内复用结果, 避免每次调用重复排序 (移出热路径)
+    private const val PERCENTILE_CACHE_MS = 250L
+    private var presentWaitCacheAtNs = 0L
+    private var presentWaitP50CacheValueMs = 0L
+    private var presentWaitP95CacheValueMs = 0L
+    private var frontierErrCacheAtNs = 0L
+    private var frontierErrP50CacheValuePx = 0f
+    private var frontierErrP95CacheValuePx = 0f
 
     // 上一次保存 (C++ 侧阶段耗时, 单位 ms; 由 revpSaveStats 填入)
     private var saveTotalMs = -1L
@@ -252,6 +283,122 @@ object PerfTrace {
         frameRing[frameIdx] = dt
         frameIdx = (frameIdx + 1) % RING
         if (frameN < RING) frameN++
+    }
+
+    /**
+     * 记录 invalidateFromRender() 到下一次 onDraw 开始的呈现等待耗时 (纳秒)。
+     *
+     * 刻意**不加** enabled 门禁: [PaintViewModel.presentLagEstimateMs] 依赖
+     * [presentWaitP50Ms] 的实测值计算回填锚点 ("可见末端", PR #82 commit 6),
+     * 门一加, 全体默认用户 (enabled=false) 的锚点退化成 14ms 常数。
+     * 诊断开关只控制"看不看", 不控制"记不记" —— 记是功能的输入。
+     */
+    fun recordPresentWait(nanos: Long) {
+        synchronized(traceLock) {
+            if (nanos <= 0L || nanos > 200_000_000L) return
+            presentWaitRing[presentWaitIdx] = nanos
+            presentWaitIdx = (presentWaitIdx + 1) % RING
+            if (presentWaitN < RING) presentWaitN++
+        }
+    }
+
+    val presentWaitP50Ms: Long
+        get() {
+            synchronized(traceLock) {
+                val now = System.nanoTime()
+                if (now - presentWaitCacheAtNs < PERCENTILE_CACHE_MS * 1_000_000L) return presentWaitP50CacheValueMs
+                updatePresentWaitCacheLocked(now)
+                return presentWaitP50CacheValueMs
+            }
+        }
+
+    val presentWaitP95Ms: Long
+        get() {
+            synchronized(traceLock) {
+                val now = System.nanoTime()
+                if (now - presentWaitCacheAtNs < PERCENTILE_CACHE_MS * 1_000_000L) return presentWaitP95CacheValueMs
+                updatePresentWaitCacheLocked(now)
+                return presentWaitP95CacheValueMs
+            }
+        }
+
+    private fun updatePresentWaitCacheLocked(now: Long) {
+        presentWaitCacheAtNs = now
+        if (presentWaitN < 5) {
+            presentWaitP50CacheValueMs = 0L
+            presentWaitP95CacheValueMs = 0L
+        } else {
+            presentWaitP50CacheValueMs = (p50Locked(presentWaitRing, presentWaitSort, presentWaitN) / 1e6).toLong()
+            presentWaitP95CacheValueMs = (p95Locked(presentWaitRing, presentWaitSort, presentWaitN) / 1e6).toLong()
+        }
+    }
+
+    /**
+     * 记录引擎真实上屏前沿与当前时间窗估计前沿的屏幕像素欧氏距离 (px)。
+     * 纯诊断信号, 生产代码无读者 —— 未启用时锁外快路径直接返回, 热路径零开销。
+     */
+    fun recordFrontierError(errPx: Float) {
+        // 锁外快路径: @Volatile 读, 无 monitor 竞争
+        if (!enabled && !isEnabledByProp) return
+        synchronized(traceLock) {
+            if (!errPx.isFinite() || errPx < 0f || errPx > 5000f) return
+            frontierErrRing[frontierErrIdx] = errPx
+            frontierErrIdx = (frontierErrIdx + 1) % RING
+            if (frontierErrN < RING) frontierErrN++
+        }
+    }
+
+    val frontierErrP50Px: Float
+        get() {
+            synchronized(traceLock) {
+                val now = System.nanoTime()
+                if (now - frontierErrCacheAtNs < PERCENTILE_CACHE_MS * 1_000_000L) return frontierErrP50CacheValuePx
+                updateFrontierErrCacheLocked(now)
+                return frontierErrP50CacheValuePx
+            }
+        }
+
+    val frontierErrP95Px: Float
+        get() {
+            synchronized(traceLock) {
+                val now = System.nanoTime()
+                if (now - frontierErrCacheAtNs < PERCENTILE_CACHE_MS * 1_000_000L) return frontierErrP95CacheValuePx
+                updateFrontierErrCacheLocked(now)
+                return frontierErrP95CacheValuePx
+            }
+        }
+
+    private fun updateFrontierErrCacheLocked(now: Long) {
+        frontierErrCacheAtNs = now
+        if (frontierErrN <= 0) {
+            frontierErrP50CacheValuePx = 0f
+            frontierErrP95CacheValuePx = 0f
+        } else {
+            frontierErrP50CacheValuePx = p50LockedFloat(frontierErrRing, frontierErrSort, frontierErrN)
+            frontierErrP95CacheValuePx = p95LockedFloat(frontierErrRing, frontierErrSort, frontierErrN)
+        }
+    }
+
+    fun invalidatePercentileCachesForTest() {
+        synchronized(traceLock) {
+            presentWaitCacheAtNs = 0L
+            frontierErrCacheAtNs = 0L
+        }
+    }
+
+    fun resetForTest() {
+        synchronized(traceLock) {
+            presentWaitIdx = 0
+            presentWaitN = 0
+            presentWaitCacheAtNs = 0L
+            presentWaitP50CacheValueMs = 0L
+            presentWaitP95CacheValueMs = 0L
+            frontierErrIdx = 0
+            frontierErrN = 0
+            frontierErrCacheAtNs = 0L
+            frontierErrP50CacheValuePx = 0f
+            frontierErrP95CacheValuePx = 0f
+        }
     }
 
     /** C++ 侧回报的上一次保存阶段耗时 (见 `revpSaveStats`) */
@@ -724,6 +871,27 @@ object PerfTrace {
         System.arraycopy(src, 0, scratch, 0, n)
         Arrays.sort(scratch, 0, n)
         return scratch[((n - 1) * 95 / 100).coerceIn(0, n - 1)].toDouble()
+    }
+
+    private fun p50Locked(src: LongArray, scratch: LongArray, n: Int): Double {
+        if (n <= 0) return 0.0
+        System.arraycopy(src, 0, scratch, 0, n)
+        Arrays.sort(scratch, 0, n)
+        return scratch[((n - 1) * 50 / 100).coerceIn(0, n - 1)].toDouble()
+    }
+
+    private fun p50LockedFloat(src: FloatArray, scratch: FloatArray, n: Int): Float {
+        if (n <= 0) return 0f
+        System.arraycopy(src, 0, scratch, 0, n)
+        Arrays.sort(scratch, 0, n)
+        return scratch[((n - 1) * 50 / 100).coerceIn(0, n - 1)]
+    }
+
+    private fun p95LockedFloat(src: FloatArray, scratch: FloatArray, n: Int): Float {
+        if (n <= 0) return 0f
+        System.arraycopy(src, 0, scratch, 0, n)
+        Arrays.sort(scratch, 0, n)
+        return scratch[((n - 1) * 95 / 100).coerceIn(0, n - 1)]
     }
 
     /**

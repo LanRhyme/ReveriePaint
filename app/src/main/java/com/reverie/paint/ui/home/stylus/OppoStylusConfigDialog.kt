@@ -249,7 +249,7 @@ internal fun OppoStylusConfigDialog(
                     StylusDialogCard {
                         StylusDialogSwitchItem(
                             title = stringResource(R.string.stylus_prediction_title),
-                            summary = stringResource(R.string.stylus_oppo_latency_desc),
+                            summary = stringResource(R.string.stylus_prediction_desc),
                             checked = vm.stylusStrokePredictionEnabled,
                             onCheckedChange = { vm.updateStylusStrokePredictionEnabled(it) },
                         )
