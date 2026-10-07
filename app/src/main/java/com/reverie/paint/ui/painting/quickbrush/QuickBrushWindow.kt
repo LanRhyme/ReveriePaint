@@ -149,6 +149,13 @@ fun QuickBrushWindow(
         if (isCollapsed) RoundedCornerShape(22.dp) else RoundedCornerShape(22.dp)
     }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            vm.quickBrushWindowWidth = 0f
+            vm.quickBrushWindowHeight = 0f
+        }
+    }
+
     Box(
         modifier = modifier
             .offset {
@@ -176,6 +183,8 @@ fun QuickBrushWindow(
             modifier = Modifier
                 .onSizeChanged { size ->
                     windowSize = size
+                    vm.quickBrushWindowWidth = size.width.toFloat()
+                    vm.quickBrushWindowHeight = size.height.toFloat()
                     if (size.width > 0 && size.height > 0) {
                         val minX = marginPx
                         val maxX = (screenWidthPx - size.width - marginPx).coerceAtLeast(minX)

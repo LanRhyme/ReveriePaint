@@ -99,6 +99,8 @@ object RecordingEvents {
     const val L_CANVAS_FLIP_H = 36 // 画布整体翻转 (全部图层绕文档中心镜像)
     const val L_CANVAS_FLIP_V = 37
     const val L_FILL_LAYER = 38 // index=层号; 用当前前景色填充整层 (选区感知)
+    const val L_ALPHA_INHERITED = 39 // index=层号; arg="1"开启/"0"关闭
+
 
     // ---- Tool op codes (TOOL_OP; payload layout is op-specific) ----
     const val T_SHAPE = 0 // kind u8, x1..y2 f32, filled u8

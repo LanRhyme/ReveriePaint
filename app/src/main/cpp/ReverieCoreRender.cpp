@@ -98,6 +98,37 @@ KisPaintDeviceSP ReverieCore::strokeOutScratch(const QRect &r)
     return m_strokeOutScratch;
 }
 
+KisPaintDeviceSP ReverieCore::borrowScratchDevice(const QRect &r)
+{
+    if (!m_document) return nullptr;
+    if (m_scratchPoolIndex >= m_scratchPool.size()) {
+        m_scratchPool.append(new KisPaintDevice(m_document->colorSpace()));
+    }
+    KisPaintDeviceSP dev = m_scratchPool[m_scratchPoolIndex++];
+    dev->clear(r);
+    return dev;
+}
+
+void ReverieCore::returnScratchDevice()
+{
+    if (m_scratchPoolIndex > 0) {
+        --m_scratchPoolIndex;
+    }
+}
+
+namespace {
+struct ScratchDeviceGuard {
+    ReverieCore *core;
+    KisPaintDeviceSP dev;
+    ScratchDeviceGuard(ReverieCore *c, const QRect &r)
+        : core(c), dev(c ? c->borrowScratchDevice(r) : nullptr) {}
+    ~ScratchDeviceGuard() {
+        if (core) core->returnScratchDevice();
+    }
+    KisPaintDeviceSP device() const { return dev; }
+};
+}
+
 bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
 {
     KisImageSP image = m_document;
@@ -673,25 +704,187 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
     if (!out || r.isEmpty() || !m_document) {
         return;
     }
+
+    auto applyAdjustment = [&](KisPaintDeviceSP target, const LayerEntry &adjEntry) {
+        KisAdjustmentLayer *adj = dynamic_cast<KisAdjustmentLayer *>(adjEntry.node);
+        const quint8 op = adjEntry.node->opacity();
+        KisFilterConfigurationSP config = adj ? adj->filter() : nullptr;
+        if (adj && config && op > 0) {
+            QVariant v;
+            const int type = config->getProperty("reverieType", v) ? v.toInt() : 0;
+            const double p1 = config->getProperty("p1", v) ? v.toDouble() : 0.0;
+            const double p2 = config->getProperty("p2", v) ? v.toDouble() : 0.0;
+            const double p3 = config->getProperty("p3", v) ? v.toDouble() : 0.0;
+            const double p4 = config->getProperty("p4", v) ? v.toDouble() : 0.0;
+            const bool hasLut = config->getProperty("lut", v);
+            const QByteArray lut = hasLut ? v.toByteArray() : QByteArray();
+
+            const int margin = reverieFilterMargin(type);
+            const QRect docRect(0, 0, m_document->width(), m_document->height());
+            const QRect work = r.adjusted(-margin, -margin, margin, margin).intersected(docRect);
+
+            if (!work.isEmpty()) {
+                QImage img(work.width(), work.height(), QImage::Format_ARGB32_Premultiplied);
+                if (!img.isNull()) {
+                    target->readBytes(img.bits(), work.x(), work.y(), work.width(), work.height());
+
+                    QImage origCopy;
+                    if (op < 255) {
+                        origCopy = img.copy();
+                    }
+
+                    if (type == 13 && lut.size() >= 768) {
+                        const quint8 *base = reinterpret_cast<const quint8 *>(lut.constData());
+                        reverieApplyCurvesLutKernel(img, base, base + 256, base + 512);
+                    } else if (type == 30 && lut.size() >= 1024) {
+                        qint32 gradientLut[256];
+                        memcpy(gradientLut, lut.constData(), sizeof(gradientLut));
+                        reverieApplyGradientMapKernel(img, gradientLut);
+                    } else {
+                        reverieApplyScalarKernel(img, type, p1, p2, p3, p4);
+                    }
+
+                    if (op < 255 && !origCopy.isNull()) {
+                        const int h = img.height();
+                        const int w = img.width();
+                        const int alpha = op;
+                        const int invAlpha = 255 - alpha;
+                        for (int y = 0; y < h; ++y) {
+                            quint8 *dstP = img.scanLine(y);
+                            const quint8 *srcP = origCopy.constScanLine(y);
+                            for (int x = 0; x < w * 4; ++x) {
+                                dstP[x] = static_cast<quint8>((dstP[x] * alpha + srcP[x] * invAlpha) / 255);
+                            }
+                        }
+                    }
+
+                    if (margin == 0) {
+                        target->writeBytes(img.constBits(), work.x(), work.y(), work.width(), work.height());
+                    } else {
+                        const QRect targetR = r.intersected(docRect);
+                        if (!targetR.isEmpty()) {
+                            const int sx = targetR.x() - work.x();
+                            const int sy = targetR.y() - work.y();
+                            QImage cropped(targetR.width(), targetR.height(), img.format());
+                            for (int row = 0; row < cropped.height(); ++row) {
+                                memcpy(cropped.scanLine(row),
+                                       img.scanLine(sy + row) + sx * 4,
+                                       size_t(cropped.width()) * 4);
+                            }
+                            target->writeBytes(cropped.constBits(), targetR.x(), targetR.y(), cropped.width(), cropped.height());
+                        }
+                    }
+                }
+            }
+        }
+    };
+
+    auto compositePaintLayer = [&](KisPaintDeviceSP target, const LayerEntry &le, int leIdx, bool lockAlpha, qreal overrideOpacity, const QString &overrideOp) {
+        KisPaintDeviceSP dev = layerPaintDeviceFor(le);
+        if (!dev) return;
+
+        KisPaintDeviceSP src = nullptr;
+        if (KisPaintLayer *plOnion = dynamic_cast<KisPaintLayer *>(le.node)) {
+            if (plOnion->onionSkinEnabled()) {
+                if (!m_strokeOnionCacheExtent.contains(leIdx)) {
+                    strokeOnionProjection(leIdx);
+                }
+                const QRect onionExt = strokeOnionExtent(leIdx);
+                if (!onionExt.isEmpty() && onionExt.intersects(r)) {
+                    src = strokeOnionProjection(leIdx);
+                }
+            }
+        }
+
+        KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(le.node);
+        const bool hasTemp = pl && pl->hasTemporaryTarget();
+
+        const qreal opacity = (overrideOpacity >= 0.0) ? overrideOpacity : (qreal(le.node->opacity()) / 255.0);
+        const QString opId = (!overrideOp.isEmpty()) ? overrideOp : le.node->compositeOpId();
+
+        QBitArray chanFlags;
+        if (lockAlpha) {
+            chanFlags = target->colorSpace()->channelFlags(true, false);
+        }
+        KisLayer *layer = dynamic_cast<KisLayer *>(le.node);
+        if (layer && !layer->channelFlags().isEmpty()) {
+            if (lockAlpha) {
+                chanFlags &= layer->channelFlags();
+            } else {
+                chanFlags = layer->channelFlags();
+            }
+        }
+
+        if (!src && !hasTemp) {
+            const QRect devExt = dev->extent();
+            const KoColorSpace *cs = dev->colorSpace();
+            const bool isDefaultTransparent = !cs || cs->opacityU8(dev->defaultPixel().data()) == 0;
+            if (isDefaultTransparent && (devExt.isEmpty() || !devExt.intersects(r))) {
+                if (opId != COMPOSITE_COPY && opId != COMPOSITE_CLEAR) {
+                    return;
+                }
+            }
+
+            KisPainter painter(target);
+            painter.setOpacityF(opacity);
+            painter.setCompositeOpId(opId);
+            if (!chanFlags.isEmpty()) {
+                painter.setChannelFlags(chanFlags);
+            }
+            painter.bitBlt(r.topLeft(), dev, r);
+            painter.end();
+        } else {
+            KisPaintDeviceSP scratch = strokeMergeScratch(r);
+            if (src) {
+                KisPainter onionPainter(scratch);
+                onionPainter.setCompositeOpId(QStringLiteral("behind"));
+                onionPainter.bitBlt(r.topLeft(), src, r);
+                onionPainter.end();
+            }
+            {
+                KisPainter basePainter(scratch);
+                basePainter.setCompositeOpId(QStringLiteral("normal"));
+                basePainter.bitBlt(r.topLeft(), dev, r);
+                basePainter.end();
+            }
+            if (hasTemp) {
+                KisPaintDeviceSP tempTarget = pl ? pl->temporaryTarget() : nullptr;
+                if (tempTarget) {
+                    KisPainter tempPainter(scratch);
+                    if (pl) {
+                        pl->setupTemporaryPainter(&tempPainter);
+                    } else {
+                        tempPainter.setOpacityF(qBound<qreal>(0.0, m_strokeOpacity, 1.0));
+                    }
+                    if (tempPainter.compositeOpId().isEmpty()) {
+                        tempPainter.setCompositeOpId(QStringLiteral("normal"));
+                    }
+                    if (m_toolMode == ToolEraser) {
+                        tempPainter.setCompositeOpId(QStringLiteral("erase"));
+                    }
+                    if (m_selection) {
+                        tempPainter.setSelection(m_selection);
+                    }
+                    tempPainter.bitBlt(r.topLeft(), tempTarget, r);
+                    tempPainter.end();
+                }
+            }
+            KisPainter painter(target);
+            painter.setOpacityF(opacity);
+            painter.setCompositeOpId(opId);
+            if (!chanFlags.isEmpty()) {
+                painter.setChannelFlags(chanFlags);
+            }
+            painter.bitBlt(r.topLeft(), scratch, r);
+            painter.end();
+        }
+    };
+
     int i = startIdx;
     while (i < endIdx) {
         if (i < 0 || i >= m_layers.size()) break;
         const LayerEntry &e = m_layers[i];
-        if (i == excludeIdx) {
-            // 预览基座: 被排除的那一项(及其子树)整块跳过 —— 与不可见图层走同一条路径,
-            // 于是组内的目标图层也能被正确排除(见 setLiquifyPreviewBaseRect)。
-            if (e.isGroup) {
-                int j = i + 1;
-                while (j < endIdx && m_layers[j].depth > e.depth) {
-                    ++j;
-                }
-                i = j;
-            } else {
-                ++i;
-            }
-            continue;
-        }
-        if (!e.visible || !e.node) {
+        if (i == excludeIdx || !e.visible || !e.node) {
             if (e.isGroup) {
                 int j = i + 1;
                 while (j < endIdx && m_layers[j].depth > e.depth) {
@@ -704,230 +897,155 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
             continue;
         }
 
+        // 剪切蒙版孤立层 (下方的基底被隐藏/被排除/不存在): 跳过绘制
+        if (e.clipped) {
+            if (e.isGroup) {
+                int j = i + 1;
+                while (j < endIdx && m_layers[j].depth > e.depth) {
+                    ++j;
+                }
+                i = j;
+            } else {
+                ++i;
+            }
+            continue;
+        }
+
+        // 计算当前图层及其子树结束位置
+        int eEnd = i + 1;
         if (e.isGroup) {
-            int j = i + 1;
-            while (j < endIdx && m_layers[j].depth > e.depth) {
-                ++j;
+            while (eEnd < endIdx && m_layers[eEnd].depth > e.depth) {
+                ++eEnd;
             }
-            KisPaintDeviceSP tmp(new KisPaintDevice(m_document->colorSpace()));
-            tmp->clear(r);
-            compositeLayersRange(tmp, i + 1, j, r, excludeIdx);
-            KisPainter painter(out);
-            painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
-            painter.setCompositeOpId(e.node->compositeOpId());
-            KisLayer *layer = dynamic_cast<KisLayer *>(e.node);
-            if (layer && !layer->channelFlags().isEmpty()) {
-                painter.setChannelFlags(layer->channelFlags());
-            }
-            painter.bitBlt(r.topLeft(), tmp, r);
-            painter.end();
-            i = j;
-        } else if (e.nodeType == NodeTypeAdjustment) {
-            KisAdjustmentLayer *adj = dynamic_cast<KisAdjustmentLayer *>(e.node);
-            const quint8 op = e.node->opacity();
-            KisFilterConfigurationSP config = adj ? adj->filter() : nullptr;
-            if (adj && config && op > 0) {
-                QVariant v;
-                const int type = config->getProperty("reverieType", v) ? v.toInt() : 0;
-                const double p1 = config->getProperty("p1", v) ? v.toDouble() : 0.0;
-                const double p2 = config->getProperty("p2", v) ? v.toDouble() : 0.0;
-                const double p3 = config->getProperty("p3", v) ? v.toDouble() : 0.0;
-                const double p4 = config->getProperty("p4", v) ? v.toDouble() : 0.0;
-                const bool hasLut = config->getProperty("lut", v);
-                const QByteArray lut = hasLut ? v.toByteArray() : QByteArray();
-
-                const int margin = reverieFilterMargin(type);
-                const QRect docRect(0, 0, m_document->width(), m_document->height());
-                const QRect work = r.adjusted(-margin, -margin, margin, margin).intersected(docRect);
-
-                if (!work.isEmpty()) {
-                    QImage img(work.width(), work.height(), QImage::Format_ARGB32_Premultiplied);
-                    if (!img.isNull()) {
-                        out->readBytes(img.bits(), work.x(), work.y(), work.width(), work.height());
-
-                        QImage origCopy;
-                        if (op < 255) {
-                            origCopy = img.copy();
-                        }
-
-                        if (type == 13 && lut.size() >= 768) {
-                            const quint8 *base = reinterpret_cast<const quint8 *>(lut.constData());
-                            reverieApplyCurvesLutKernel(img, base, base + 256, base + 512);
-                        } else if (type == 30 && lut.size() >= 1024) {
-                            qint32 gradientLut[256];
-                            memcpy(gradientLut, lut.constData(), sizeof(gradientLut));
-                            reverieApplyGradientMapKernel(img, gradientLut);
-                        } else {
-                            reverieApplyScalarKernel(img, type, p1, p2, p3, p4);
-                        }
-
-                        if (op < 255 && !origCopy.isNull()) {
-                            const int h = img.height();
-                            const int w = img.width();
-                            const int alpha = op;
-                            const int invAlpha = 255 - alpha;
-                            for (int y = 0; y < h; ++y) {
-                                quint8 *dstP = img.scanLine(y);
-                                const quint8 *srcP = origCopy.constScanLine(y);
-                                for (int x = 0; x < w * 4; ++x) {
-                                    dstP[x] = static_cast<quint8>((dstP[x] * alpha + srcP[x] * invAlpha) / 255);
-                                }
-                            }
-                        }
-
-                        if (margin == 0) {
-                            out->writeBytes(img.constBits(), work.x(), work.y(), work.width(), work.height());
-                        } else {
-                            const QRect targetR = r.intersected(docRect);
-                            if (!targetR.isEmpty()) {
-                                const int sx = targetR.x() - work.x();
-                                const int sy = targetR.y() - work.y();
-                                QImage cropped(targetR.width(), targetR.height(), img.format());
-                                for (int row = 0; row < cropped.height(); ++row) {
-                                    memcpy(cropped.scanLine(row),
-                                           img.scanLine(sy + row) + sx * 4,
-                                           size_t(cropped.width()) * 4);
-                                }
-                                out->writeBytes(cropped.constBits(), targetR.x(), targetR.y(), cropped.width(), cropped.height());
-                            }
-                        }
-                    }
-                }
-            }
-            ++i;
-        } else if (e.isStrokeLayer || e.nodeType == NodeTypeStroke) {
-            compositeStrokeLayer(out, e, r);
-            ++i;
-            continue;
-        } else {
-
-            KisPaintDeviceSP dev = layerPaintDeviceFor(e);
-            if (dev) {
-                // 有洋葱皮时先在**复用的**临时设备里拼出"邻帧叠影 + 当前帧内容"
-                // 再整体叠进 out。
-                //
-                // 为什么不能直接对 out 用 behind: out 里已经有更下面的图层,
-                // behind 会把洋葱皮压到它们**底下**, 于是洋葱皮被下层挡住 ——
-                // 正确语义是"洋葱皮只在本图层内容之下", 不能越过图层边界。
-                // Krita 的做法也是给每个需要洋葱皮的图层单独建投影
-                // (KisPaintLayer::needProjection + copyOriginalToProjection)。
-                //
-                // 性能要点 (历史教训): 这条路径每渲染帧每图层都要走一次
-                // (笔画期间 ~8ms 一轮)。早期实现每次 new KisPaintDevice +
-                // clear(r) + 3 次 bitBlt, tile manager 的构造/析构直接把渲染
-                // 线程拖出掉帧, 用户表现为"绘制到洋葱皮区域就会卡"。现在:
-                //   1. 脏区碰不到洋葱皮范围就直接走普通单 blit 路径
-                //      (最常见 —— 笔画落在当前帧位置, 邻帧叠影往往在别处);
-                //   2. 拼装设备复用, 省掉 KisPaintDevice 构造/析构;
-                //   3. 合成范围来自缓存, 不再每次问 src->extent()
-                //      (那是 O(脏瓦片数) 的遍历)。
-                KisPaintDeviceSP src = nullptr;
-                if (KisPaintLayer *plOnion = dynamic_cast<KisPaintLayer *>(e.node)) {
-                    if (plOnion->onionSkinEnabled()) {
-                        // 返回 nullptr 表示"这个图层此刻没有可显示的邻帧"
-                        // (只有一个关键帧 / 配置全关), 走普通路径。
-                        //
-                        // 注意: extent 表是 strokeOnionProjection 里的**惰性缓存**,
-                        // invalidateStrokeOnionCache() (切帧/改配置/结构变化) 会把
-                        // 它整个清掉。条目不存在时必须先调一次 strokeOnionProjection
-                        // 把 extent/投影算出来 —— 否则就是"extent 空 → 不调用 →
-                        // 永远空"的死锁, 表现为切帧后笔画期间洋葱皮整个消失
-                        // (抬笔走 Krita 投影路径才回来)。无通道/单帧图层在这里
-                        // 提前退出且不落条目, 但那几次虚调用 + 计数没有分配,
-                        // 每渲染帧付出完全可接受。
-                        if (!m_strokeOnionCacheExtent.contains(i)) {
-                            strokeOnionProjection(i);
-                        }
-                        const QRect onionExt = strokeOnionExtent(i);
-                        if (!onionExt.isEmpty() && onionExt.intersects(r)) {
-                            src = strokeOnionProjection(i);
-                        }
-                    }
-                }
-
-                // 当前帧内容 + 可选临时目标 (中转绘制) 的叠加函数。
-                //
-                // 洋葱皮存在时: 先在复用的 scratch 里拼出
-                //   [洋葱皮 (behind)] <- [当前帧内容] <- [临时目标]
-                // 再整体叠进 out。否则直接单次 bitBlt 进 out (保持原快路径,
-                // 这是绝大多数图层的常态, 零额外开销)。
-                const bool hasTemp = [&] {
-                    KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node);
-                    return pl && pl->hasTemporaryTarget();
-                }();
-
-                if (!src && !hasTemp) {
-                    const QRect devExt = dev->extent();
-                    const KoColorSpace *cs = dev->colorSpace();
-                    const bool isDefaultTransparent = !cs || cs->opacityU8(dev->defaultPixel().data()) == 0;
-                    if (isDefaultTransparent && (devExt.isEmpty() || !devExt.intersects(r))) {
-                        const QString &opId = e.node->compositeOpId();
-                        if (opId != COMPOSITE_COPY && opId != COMPOSITE_CLEAR) {
-                            ++i;
-                            continue;
-                        }
-                    }
-
-                    // 最热路径: 无洋葱皮、无中转绘制 —— 一次 bitBlt 完事
-                    KisPainter painter(out);
-                    painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
-                    painter.setCompositeOpId(e.node->compositeOpId());
-                    KisLayer *layer = dynamic_cast<KisLayer *>(e.node);
-                    if (layer && !layer->channelFlags().isEmpty()) {
-                        painter.setChannelFlags(layer->channelFlags());
-                    }
-                    painter.bitBlt(r.topLeft(), dev, r);
-                    painter.end();
-                } else {
-                    KisPaintDeviceSP scratch = strokeMergeScratch(r);
-                    if (src) {
-                        KisPainter onionPainter(scratch);
-                        onionPainter.setCompositeOpId(QStringLiteral("behind"));
-                        onionPainter.bitBlt(r.topLeft(), src, r);
-                        onionPainter.end();
-                    }
-                    {
-                        KisPainter basePainter(scratch);
-                        basePainter.setCompositeOpId(QStringLiteral("normal"));
-                        basePainter.bitBlt(r.topLeft(), dev, r);
-                        basePainter.end();
-                    }
-                    if (hasTemp) {
-                        KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node);
-                        KisPaintDeviceSP tempTarget = pl ? pl->temporaryTarget() : nullptr;
-                        if (tempTarget) {
-                            KisPainter tempPainter(scratch);
-                            if (pl) {
-                                pl->setupTemporaryPainter(&tempPainter);
-                            } else {
-                                tempPainter.setOpacityF(qBound<qreal>(0.0, m_strokeOpacity, 1.0));
-                            }
-                            if (tempPainter.compositeOpId().isEmpty()) {
-                                tempPainter.setCompositeOpId(QStringLiteral("normal"));
-                            }
-                            if (m_toolMode == ToolEraser) {
-                                tempPainter.setCompositeOpId(QStringLiteral("erase"));
-                            }
-                            if (m_selection) {
-                                tempPainter.setSelection(m_selection);
-                            }
-                            tempPainter.bitBlt(r.topLeft(), tempTarget, r);
-                            tempPainter.end();
-                        }
-                    }
-                    KisPainter painter(out);
-                    painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
-                    painter.setCompositeOpId(e.node->compositeOpId());
-                    KisLayer *layer = dynamic_cast<KisLayer *>(e.node);
-                    if (layer && !layer->channelFlags().isEmpty()) {
-                        painter.setChannelFlags(layer->channelFlags());
-                    }
-                    painter.bitBlt(r.topLeft(), scratch, r);
-                    painter.end();
-                }
-            }
-            ++i;
         }
+
+        // 检查上方紧邻且同深度的剪切蒙版层链
+        int clipEnd = eEnd;
+        while (clipEnd < endIdx && m_layers[clipEnd].depth == e.depth && m_layers[clipEnd].clipped) {
+            if (m_layers[clipEnd].isGroup) {
+                int gEnd = clipEnd + 1;
+                while (gEnd < endIdx && m_layers[gEnd].depth > e.depth) {
+                    ++gEnd;
+                }
+                clipEnd = gEnd;
+            } else {
+                ++clipEnd;
+            }
+        }
+
+        // 分支 A: 无剪切蒙版层, 走快速既有路径
+        if (clipEnd == eEnd) {
+            if (e.isGroup) {
+                ScratchDeviceGuard tmpGuard(this, r);
+                KisPaintDeviceSP tmp = tmpGuard.device();
+                compositeLayersRange(tmp, i + 1, eEnd, r, excludeIdx);
+                KisPainter painter(out);
+                painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
+                painter.setCompositeOpId(e.node->compositeOpId());
+                KisLayer *layer = dynamic_cast<KisLayer *>(e.node);
+                if (layer && !layer->channelFlags().isEmpty()) {
+                    painter.setChannelFlags(layer->channelFlags());
+                }
+                painter.bitBlt(r.topLeft(), tmp, r);
+                painter.end();
+            } else if (e.nodeType == NodeTypeAdjustment) {
+                applyAdjustment(out, e);
+            } else if (e.isStrokeLayer || e.nodeType == NodeTypeStroke) {
+                compositeStrokeLayer(out, e, r);
+            } else {
+                compositePaintLayer(out, e, i, false, -1.0, QString());
+            }
+            i = eEnd;
+            continue;
+        }
+
+        // 分支 B: 存在剪切蒙版链 (Base Layer + 1..N Clipped Layers)
+        ScratchDeviceGuard clipGuard(this, r);
+        KisPaintDeviceSP clipScratch = clipGuard.device();
+
+        // 1. 渲染 Base Layer 内容到 clipScratch (以 100% 不透明度与 Normal 混合, 自身混合模式/不透明度在最终合入 out 时应用)
+        if (e.isGroup) {
+            compositeLayersRange(clipScratch, i + 1, eEnd, r, excludeIdx);
+        } else if (e.nodeType == NodeTypeAdjustment) {
+            applyAdjustment(clipScratch, e);
+        } else if (e.isStrokeLayer || e.nodeType == NodeTypeStroke) {
+            compositeStrokeLayer(clipScratch, e, r);
+        } else {
+            compositePaintLayer(clipScratch, e, i, false, 1.0, QStringLiteral("normal"));
+        }
+
+        // 2. 依次渲染剪切蒙版层链到 clipScratch (锁定 Alpha 通道)
+        int cIdx = eEnd;
+        while (cIdx < clipEnd) {
+            const LayerEntry &c = m_layers[cIdx];
+            if (!c.visible || !c.node || cIdx == excludeIdx) {
+                if (c.isGroup) {
+                    int gEnd = cIdx + 1;
+                    while (gEnd < clipEnd && m_layers[gEnd].depth > c.depth) ++gEnd;
+                    cIdx = gEnd;
+                } else {
+                    ++cIdx;
+                }
+                continue;
+            }
+
+            if (c.isGroup) {
+                int gEnd = cIdx + 1;
+                while (gEnd < clipEnd && m_layers[gEnd].depth > c.depth) ++gEnd;
+                ScratchDeviceGuard tmpGuard(this, r);
+                KisPaintDeviceSP tmp = tmpGuard.device();
+                compositeLayersRange(tmp, cIdx + 1, gEnd, r, excludeIdx);
+
+                KisPainter cPainter(clipScratch);
+                cPainter.setOpacityF(qreal(c.node->opacity()) / 255.0);
+                cPainter.setCompositeOpId(c.node->compositeOpId());
+                QBitArray cFlags = clipScratch->colorSpace()->channelFlags(true, false);
+                KisLayer *cLayer = dynamic_cast<KisLayer *>(c.node);
+                if (cLayer && !cLayer->channelFlags().isEmpty()) {
+                    cFlags &= cLayer->channelFlags();
+                }
+                cPainter.setChannelFlags(cFlags);
+                cPainter.bitBlt(r.topLeft(), tmp, r);
+                cPainter.end();
+                cIdx = gEnd;
+            } else if (c.nodeType == NodeTypeAdjustment) {
+                applyAdjustment(clipScratch, c);
+                ++cIdx;
+            } else if (c.isStrokeLayer || c.nodeType == NodeTypeStroke) {
+                ScratchDeviceGuard sGuard(this, r);
+                KisPaintDeviceSP sScratch = sGuard.device();
+                compositeStrokeLayer(sScratch, c, r);
+
+                KisPainter cPainter(clipScratch);
+                cPainter.setOpacityF(qreal(c.node->opacity()) / 255.0);
+                cPainter.setCompositeOpId(c.node->compositeOpId());
+                QBitArray cFlags = clipScratch->colorSpace()->channelFlags(true, false);
+                KisLayer *cLayer = dynamic_cast<KisLayer *>(c.node);
+                if (cLayer && !cLayer->channelFlags().isEmpty()) {
+                    cFlags &= cLayer->channelFlags();
+                }
+                cPainter.setChannelFlags(cFlags);
+                cPainter.bitBlt(r.topLeft(), sScratch, r);
+                cPainter.end();
+                ++cIdx;
+            } else {
+                compositePaintLayer(clipScratch, c, cIdx, true, -1.0, QString());
+                ++cIdx;
+            }
+        }
+
+        // 3. 将组装完成的基底 + 剪切蒙版整体通过基底图层的属性叠入 out
+        KisPainter painter(out);
+        painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
+        painter.setCompositeOpId(e.node->compositeOpId());
+        KisLayer *layer = dynamic_cast<KisLayer *>(e.node);
+        if (layer && !layer->channelFlags().isEmpty()) {
+            painter.setChannelFlags(layer->channelFlags());
+        }
+        painter.bitBlt(r.topLeft(), clipScratch, r);
+        painter.end();
+
+        i = clipEnd;
     }
 }
 

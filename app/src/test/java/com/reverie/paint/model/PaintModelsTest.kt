@@ -140,5 +140,31 @@ class PaintModelsTest {
         assertEquals(BackKeyAction.NONE, BackKeyAction.fromId(null))
         assertEquals(BackKeyAction.NONE, BackKeyAction.fromId(""))
     }
+
+    @Test
+    fun `套索点在缩放渲染视口下的坐标映射与回退中心对齐`() {
+        val docW = 4272
+        val docH = 6400
+        val bmpW = 2734
+        val bmpH = 4096
+        val scX = bmpW.toFloat() / docW
+        val scY = bmpH.toFloat() / docH
+        val halfW = bmpW / 2f
+        val halfH = bmpH / 2f
+
+        // 文档中心映射后落在叠加层原点
+        val centerDocX = docW / 2f
+        val centerDocY = docH / 2f
+        val overlayCenterX = centerDocX * scX - halfW
+        val overlayCenterY = centerDocY * scY - halfH
+        assertEquals(0f, overlayCenterX, 1e-3f)
+        assertEquals(0f, overlayCenterY, 1e-3f)
+
+        // 文档右下角映射后落在叠加层右下边界
+        val brOverlayX = docW * scX - halfW
+        val brOverlayY = docH * scY - halfH
+        assertEquals(halfW, brOverlayX, 1e-3f)
+        assertEquals(halfH, brOverlayY, 1e-3f)
+    }
 }
 

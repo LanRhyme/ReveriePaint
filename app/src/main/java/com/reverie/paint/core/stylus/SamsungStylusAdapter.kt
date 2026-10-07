@@ -81,7 +81,7 @@ class SamsungStylusAdapter : StylusBrandAdapter {
             isButtonCurrentlyDown = true
             lastButtonDownTime = now
             strokeHappenedSincePress = false
-            return false
+            return true
         } else if (isPrimaryBtnDown && isButtonCurrentlyDown) {
             // 侧键按住期间笔尖接触屏幕: 该笔是临时橡皮, 松键不应再触发动作
             val action = event.actionMasked
@@ -116,21 +116,23 @@ class SamsungStylusAdapter : StylusBrandAdapter {
             pendingSingleClickRunnable?.let { handler.removeCallbacks(it) }
             pendingSingleClickRunnable = null
             buttonClickCount = 0
-            return false
+            return true
         }
 
         if (pressDuration > 450L) {
             pendingSingleClickRunnable?.let { handler.removeCallbacks(it) }
             pendingSingleClickRunnable = null
             buttonClickCount = 0
-            return handleLongPress(vm, feedbackManager)
+            handleLongPress(vm, feedbackManager)
+            return true
         }
 
         if (timeSinceLastRelease < 320L) {
             pendingSingleClickRunnable?.let { handler.removeCallbacks(it) }
             pendingSingleClickRunnable = null
             buttonClickCount = 0
-            return handleDoubleClick(vm, feedbackManager)
+            handleDoubleClick(vm, feedbackManager)
+            return true
         } else {
             buttonClickCount = 1
             pendingSingleClickRunnable?.let { handler.removeCallbacks(it) }
@@ -142,8 +144,8 @@ class SamsungStylusAdapter : StylusBrandAdapter {
             }
             pendingSingleClickRunnable = runnable
             handler.postDelayed(runnable, 280L)
+            return true
         }
-        return false
     }
 
     /**

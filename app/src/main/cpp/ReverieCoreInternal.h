@@ -294,6 +294,72 @@ private:
     bool m_oldVisible;
 };
 
+class ReverieNodeClippingCommand : public KUndo2Command
+{
+public:
+    ReverieNodeClippingCommand(KisLayerSP layer, bool clipped,
+                              const KUndo2MagicString &text = KUndo2MagicString(),
+                              KUndo2Command *parent = nullptr)
+        : KUndo2Command(text, parent)
+        , m_layer(layer)
+        , m_newClipped(clipped)
+        , m_oldClipped(layer ? layer->clippingEnabled() : false)
+    {
+    }
+
+    void redo() override
+    {
+        if (m_layer) {
+            m_layer->enableClippingLayer(m_newClipped);
+        }
+    }
+
+    void undo() override
+    {
+        if (m_layer) {
+            m_layer->enableClippingLayer(m_oldClipped);
+        }
+    }
+
+private:
+    KisLayerSP m_layer;
+    bool m_newClipped;
+    bool m_oldClipped;
+};
+
+class ReverieNodeAlphaInheritCommand : public KUndo2Command
+{
+public:
+    ReverieNodeAlphaInheritCommand(KisLayerSP layer, bool disableAlpha,
+                                  const KUndo2MagicString &text = KUndo2MagicString(),
+                                  KUndo2Command *parent = nullptr)
+        : KUndo2Command(text, parent)
+        , m_layer(layer)
+        , m_newDisabled(disableAlpha)
+        , m_oldDisabled(layer ? layer->alphaChannelDisabled() : false)
+    {
+    }
+
+    void redo() override
+    {
+        if (m_layer) {
+            m_layer->disableAlphaChannel(m_newDisabled);
+        }
+    }
+
+    void undo() override
+    {
+        if (m_layer) {
+            m_layer->disableAlphaChannel(m_oldDisabled);
+        }
+    }
+
+private:
+    KisLayerSP m_layer;
+    bool m_newDisabled;
+    bool m_oldDisabled;
+};
+
 /**
  * Undo/redo for selection changes, mirroring how Krita's selection tools
  * record edits: saves the previous selection object plus its pixel mask

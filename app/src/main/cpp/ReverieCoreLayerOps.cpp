@@ -221,8 +221,8 @@ bool ReverieCore::mergeDown(int index)
         painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
         painter.setCompositeOpId(e.node->compositeOpId());
         KisPaintLayer *dstPl = dynamic_cast<KisPaintLayer *>(m_layers[ti].node);
-        if (dstPl && dstPl->alphaLocked()) {
-            painter.setChannelFlags(dstPl->channelLockFlags());
+        if ((dstPl && dstPl->alphaLocked()) || e.clipped) {
+            painter.setChannelFlags(dst->colorSpace()->channelFlags(true, false));
         }
         painter.bitBlt(ext.x(), ext.y(), src, ext.x(), ext.y(), ext.width(), ext.height());
         dst->setDirty(ext);

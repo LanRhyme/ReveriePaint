@@ -52,6 +52,7 @@ import androidx.compose.foundation.layout.sizeIn
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.gestures.scrollBy
 import kotlinx.coroutines.delay
@@ -537,172 +538,197 @@ internal fun LayerListView(
         val isBg = selLayer?.isBackground ?: true
         val isFilter = selLayer?.nodeType == 3
 
-        // Top actions: + new paint layer | folder group | more layers (menu) | lock layer | lock alpha | clip mask | merge down
+        // Top actions: [Creation group] | Divider | [Properties/State group]
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 8.dp, vertical = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
-            TopIcon(
-                resId = R.drawable.ic_plus,
-                desc = stringResource(R.string.layer_add_paint_layer),
-                onClick = {
-                    val now = System.currentTimeMillis()
-                    if (now - lastLayerOpTime > 350L) {
-                        lastLayerOpTime = now
-                        vm.clearLayerSelection()
-                        vm.addLayer()
-                    }
-                },
-            )
-            TopIcon(
-                resId = R.drawable.ic_folder,
-                desc = stringResource(R.string.layer_add_group),
-                onClick = {
-                    val now = System.currentTimeMillis()
-                    if (now - lastLayerOpTime > 350L) {
-                        lastLayerOpTime = now
-                        vm.clearLayerSelection()
-                        vm.addGroupLayer()
-                    }
-                },
-            )
-            Box {
+            // 左侧：新建与分组操作
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
                 TopIcon(
-                    resId = R.drawable.ic_layers,
-                    desc = stringResource(R.string.layer_more_types),
-                    active = showNewLayerMenu,
-                    onClick = { showNewLayerMenu = true },
-                )
-                DropdownMenu(
-                    expanded = showNewLayerMenu,
-                    onDismissRequest = { showNewLayerMenu = false },
-                    modifier = Modifier.background(Morandi.panel).glassBorder(RoundedCornerShape(8.dp)),
-                ) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.layer_type_fill), color = Morandi.text, fontSize = 13.sp) },
-                        leadingIcon = {
-                            Icon(
-                                painterResource(R.drawable.ic_fill),
-                                null,
-                                tint = Morandi.icon,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        },
-                        onClick = {
-                            showNewLayerMenu = false
-                            val now = System.currentTimeMillis()
-                            if (now - lastLayerOpTime > 350L) {
-                                lastLayerOpTime = now
-                                vm.clearLayerSelection()
-                                vm.addFillLayer()
-                            }
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.layer_type_filter), color = Morandi.text, fontSize = 13.sp) },
-                        leadingIcon = {
-                            Icon(
-                                painterResource(R.drawable.ic_image_adjust),
-                                null,
-                                tint = Morandi.icon,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        },
-                        onClick = {
-                            showNewLayerMenu = false
+                    resId = R.drawable.ic_plus,
+                    desc = stringResource(R.string.layer_add_paint_layer),
+                    onClick = {
+                        val now = System.currentTimeMillis()
+                        if (now - lastLayerOpTime > 350L) {
+                            lastLayerOpTime = now
                             vm.clearLayerSelection()
-                            onOpenCreateFilter()
-                        },
+                            vm.addLayer()
+                        }
+                    },
+                )
+                TopIcon(
+                    resId = R.drawable.ic_folder,
+                    desc = stringResource(R.string.layer_add_group),
+                    onClick = {
+                        val now = System.currentTimeMillis()
+                        if (now - lastLayerOpTime > 350L) {
+                            lastLayerOpTime = now
+                            vm.clearLayerSelection()
+                            vm.addGroupLayer()
+                        }
+                    },
+                )
+                Box {
+                    TopIcon(
+                        resId = R.drawable.ic_layers,
+                        desc = stringResource(R.string.layer_more_types),
+                        active = showNewLayerMenu,
+                        onClick = { showNewLayerMenu = true },
                     )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.layer_type_stroke), color = Morandi.text, fontSize = 13.sp) },
-                        leadingIcon = {
-                            Icon(
-                                painterResource(R.drawable.ic_shape_stroke),
-                                null,
-                                tint = Morandi.icon,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        },
-                        onClick = {
-                            showNewLayerMenu = false
-                            val now = System.currentTimeMillis()
-                            if (now - lastLayerOpTime > 350L) {
-                                lastLayerOpTime = now
+                    DropdownMenu(
+                        expanded = showNewLayerMenu,
+                        onDismissRequest = { showNewLayerMenu = false },
+                        modifier = Modifier.background(Morandi.panel).glassBorder(RoundedCornerShape(8.dp)),
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.layer_type_fill), color = Morandi.text, fontSize = 13.sp) },
+                            leadingIcon = {
+                                Icon(
+                                    painterResource(R.drawable.ic_fill),
+                                    null,
+                                    tint = Morandi.icon,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            },
+                            onClick = {
+                                showNewLayerMenu = false
+                                val now = System.currentTimeMillis()
+                                if (now - lastLayerOpTime > 350L) {
+                                    lastLayerOpTime = now
+                                    vm.clearLayerSelection()
+                                    vm.addFillLayer()
+                                }
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.layer_type_filter), color = Morandi.text, fontSize = 13.sp) },
+                            leadingIcon = {
+                                Icon(
+                                    painterResource(R.drawable.ic_image_adjust),
+                                    null,
+                                    tint = Morandi.icon,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            },
+                            onClick = {
+                                showNewLayerMenu = false
                                 vm.clearLayerSelection()
-                                vm.addStrokeLayer()
-                            }
-                        },
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.layer_stamp_visible), color = Morandi.text, fontSize = 13.sp) },
-                        leadingIcon = {
-                            Icon(
-                                painterResource(R.drawable.ic_layers),
-                                null,
-                                tint = Morandi.icon,
-                                modifier = Modifier.size(16.dp),
-                            )
-                        },
-                        onClick = {
-                            showNewLayerMenu = false
-                            val now = System.currentTimeMillis()
-                            if (now - lastLayerOpTime > 350L) {
-                                lastLayerOpTime = now
-                                vm.clearLayerSelection()
-                                vm.stampVisibleLayers()
-                            }
-                        },
-                    )
+                                onOpenCreateFilter()
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.layer_type_stroke), color = Morandi.text, fontSize = 13.sp) },
+                            leadingIcon = {
+                                Icon(
+                                    painterResource(R.drawable.ic_shape_stroke),
+                                    null,
+                                    tint = Morandi.icon,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            },
+                            onClick = {
+                                showNewLayerMenu = false
+                                val now = System.currentTimeMillis()
+                                if (now - lastLayerOpTime > 350L) {
+                                    lastLayerOpTime = now
+                                    vm.clearLayerSelection()
+                                    vm.addStrokeLayer()
+                                }
+                            },
+                        )
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.layer_stamp_visible), color = Morandi.text, fontSize = 13.sp) },
+                            leadingIcon = {
+                                Icon(
+                                    painterResource(R.drawable.ic_layers),
+                                    null,
+                                    tint = Morandi.icon,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            },
+                            onClick = {
+                                showNewLayerMenu = false
+                                val now = System.currentTimeMillis()
+                                if (now - lastLayerOpTime > 350L) {
+                                    lastLayerOpTime = now
+                                    vm.clearLayerSelection()
+                                    vm.stampVisibleLayers()
+                                }
+                            },
+                        )
+                    }
                 }
             }
 
-            TopIcon(
-                resId = R.drawable.ic_merge_down,
-                desc = stringResource(R.string.layer_op_merge_down),
-                enabled = selectedIndex > 0 && !isBg && !isFilter,
-                onClick = {
-                    val now = System.currentTimeMillis()
-                    if (now - lastLayerOpTime > 350L && selectedIndex > 0 && !isBg && !isFilter) {
-                        lastLayerOpTime = now
-                        vm.mergeDown(selectedIndex)
-                    }
-                },
+            // 中间微弱分割线
+            Box(
+                modifier = Modifier
+                    .width(1.dp)
+                    .height(16.dp)
+                    .background(Morandi.border.copy(alpha = 0.45f)),
             )
-            TopIcon(
-                resId = R.drawable.ic_grid,
-                desc = stringResource(R.string.layer_op_alpha_lock),
-                active = selLayer?.alphaLocked == true,
-                enabled = !isBg && !isFilter,
-                onClick = {
-                    if (selectedIndex >= 0 && !isBg && !isFilter) {
-                        vm.setLayerAlphaLocked(selectedIndex, !(selLayer?.alphaLocked == true))
-                    }
-                },
-            )
-            TopIcon(
-                resId = R.drawable.ic_clip,
-                desc = stringResource(R.string.layer_op_clip),
-                active = selLayer?.clipped == true,
-                enabled = !isBg,
-                onClick = {
-                    if (selectedIndex >= 0 && !isBg) {
-                        vm.setLayerClipped(selectedIndex, !(selLayer?.clipped == true))
-                    }
-                },
-            )
-            TopIcon(
-                resId = R.drawable.ic_lock,
-                desc = stringResource(R.string.layer_op_lock_layer),
-                active = selLayer?.locked == true,
-                enabled = !isBg,
-                onClick = {
-                    if (selectedIndex >= 0 && !isBg) {
-                        vm.setLayerLocked(selectedIndex, !(selLayer?.locked == true))
-                    }
-                },
-            )
+
+            // 右侧：图层操作与属性状态
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                TopIcon(
+                    resId = R.drawable.ic_merge_down,
+                    desc = stringResource(R.string.layer_op_merge_down),
+                    enabled = selectedIndex > 0 && !isBg && !isFilter,
+                    onClick = {
+                        val now = System.currentTimeMillis()
+                        if (now - lastLayerOpTime > 350L && selectedIndex > 0 && !isBg && !isFilter) {
+                            lastLayerOpTime = now
+                            vm.mergeDown(selectedIndex)
+                        }
+                    },
+                )
+                TopIcon(
+                    resId = R.drawable.ic_grid,
+                    desc = stringResource(R.string.layer_op_alpha_lock),
+                    active = selLayer?.alphaLocked == true,
+                    enabled = !isBg && !isFilter,
+                    onClick = {
+                        if (selectedIndex >= 0 && !isBg && !isFilter) {
+                            vm.setLayerAlphaLocked(selectedIndex, !(selLayer?.alphaLocked == true))
+                        }
+                    },
+                )
+                val useAlphaInherit = vm.layerHeaderInheritAlpha
+                TopIcon(
+                    resId = if (useAlphaInherit) R.drawable.ic_alpha_inherit else R.drawable.ic_clip,
+                    desc = stringResource(if (useAlphaInherit) R.string.layer_op_alpha_inherit else R.string.layer_op_clip),
+                    active = if (useAlphaInherit) selLayer?.alphaInherited == true else selLayer?.clipped == true,
+                    enabled = !isBg,
+                    onClick = {
+                        if (selectedIndex >= 0 && !isBg) {
+                            if (useAlphaInherit) {
+                                vm.setLayerAlphaInherited(selectedIndex, !(selLayer?.alphaInherited == true))
+                            } else {
+                                vm.setLayerClipped(selectedIndex, !(selLayer?.clipped == true))
+                            }
+                        }
+                    },
+                )
+                TopIcon(
+                    resId = R.drawable.ic_lock,
+                    desc = stringResource(R.string.layer_op_lock_layer),
+                    active = selLayer?.locked == true,
+                    enabled = !isBg,
+                    onClick = {
+                        if (selectedIndex >= 0 && !isBg) {
+                            vm.setLayerLocked(selectedIndex, !(selLayer?.locked == true))
+                        }
+                    },
+                )
+            }
         }
 
         Spacer(Modifier.height(4.dp))
@@ -808,12 +834,42 @@ internal fun LayerListView(
                     modifier = Modifier.fillMaxSize(),
                 ) {
                     // Key by unique stable layer id so Compose animateItem correctly animates reordered rows
-                    items(displayList, key = { it.id }) { layer ->
+                    itemsIndexed(displayList, key = { _, layer -> layer.id }) { displayIdx, layer ->
+                        val hasNextSibling = if (layer.depth > 0) {
+                            var found = false
+                            for (k in (displayIdx + 1) until displayList.size) {
+                                val next = displayList[k]
+                                if (next.depth < layer.depth) break
+                                if (next.depth == layer.depth) {
+                                    found = true
+                                    break
+                                }
+                            }
+                            found
+                        } else false
+
+                        val openDepths = if (layer.depth > 1) {
+                            val open = mutableSetOf<Int>()
+                            for (d in 1 until layer.depth) {
+                                for (k in (displayIdx + 1) until displayList.size) {
+                                    val next = displayList[k]
+                                    if (next.depth < d) break
+                                    if (next.depth >= d) {
+                                        open.add(d)
+                                        break
+                                    }
+                                }
+                            }
+                            open
+                        } else emptySet()
+
                         LayerRow(
                             vm = vm,
                             layer = layer,
                             selected = layer.index == selectedIndex,
                             collapsed = layer.name in collapsedGroupNames,
+                            hasNextSibling = hasNextSibling,
+                            openDepths = openDepths,
                             onToggleCollapse = {
                                 revealedIndex = null
                                 vm.toggleGroupCollapsed(layer.name)

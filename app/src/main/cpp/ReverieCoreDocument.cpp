@@ -223,6 +223,8 @@ void ReverieCore::closeDocument()
     invalidateStrokeOnionCache();
     m_strokeMergeScratch = nullptr;
     m_strokeOutScratch = nullptr;
+    m_scratchPool.clear();
+    m_scratchPoolIndex = 0;
 
     // Keyframe thumbnail caches reference live nodes. The generation counter
     // stays monotonic: Kotlin caches gen values to decide UI rebuilds, so it
@@ -382,7 +384,8 @@ void ReverieCore::syncLayersFromImage()
                     entry.alphaLocked = false;
                 }
                 entry.colorLabel = l->colorLabelIndex();
-                entry.clipped = l->alphaChannelDisabled();
+                entry.clipped = l->clippingEnabled() && (node->prevSibling() != nullptr);
+                entry.alphaInherited = l->alphaChannelDisabled();
                 entry.background = m_layers.isEmpty();  // first layer = bg
 
                 if (oldEntries.contains(node.data())) {

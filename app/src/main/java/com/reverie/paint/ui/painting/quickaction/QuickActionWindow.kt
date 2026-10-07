@@ -162,6 +162,13 @@ fun QuickActionWindow(
         }
     }
 
+    DisposableEffect(Unit) {
+        onDispose {
+            vm.quickActionWindowWidth = 0f
+            vm.quickActionWindowHeight = 0f
+        }
+    }
+
     Box(
         modifier = modifier
             .offset {
@@ -189,6 +196,8 @@ fun QuickActionWindow(
             modifier = Modifier
                 .onSizeChanged { size ->
                     windowSize = size
+                    vm.quickActionWindowWidth = size.width.toFloat()
+                    vm.quickActionWindowHeight = size.height.toFloat()
                     if (size.width > 0 && size.height > 0) {
                         val minX = marginPx
                         val maxX = (screenWidthPx - size.width - marginPx).coerceAtLeast(minX)

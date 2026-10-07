@@ -496,14 +496,20 @@ class CanvasTouchView(context: Context) : View(context) {
             liveSelectionPath?.value = null
             return
         }
-        val docW = docBitmap?.width ?: vm?.docWidth ?: 1
-        val docH = docBitmap?.height ?: vm?.docHeight ?: 1
-        val halfW = docW / 2f
-        val halfH = docH / 2f
+        val v = vm
+        val bmp = v?.displayBitmap ?: docBitmap
+        val bmpW = (bmp?.width ?: v?.renderW?.takeIf { it > 0 } ?: v?.docWidth ?: 1).toFloat()
+        val bmpH = (bmp?.height ?: v?.renderH?.takeIf { it > 0 } ?: v?.docHeight ?: 1).toFloat()
+        val docW = (if (v != null && v.docWidth > 0) v.docWidth else bmpW.toInt()).toFloat()
+        val docH = (if (v != null && v.docHeight > 0) v.docHeight else bmpH.toInt()).toFloat()
+        val scX = bmpW / docW
+        val scY = bmpH / docH
+        val halfW = bmpW / 2f
+        val halfH = bmpH / 2f
         val p = Path().apply {
-            moveTo(points[0].x - halfW, points[0].y - halfH)
+            moveTo(points[0].x * scX - halfW, points[0].y * scY - halfH)
             for (j in 1 until points.size) {
-                lineTo(points[j].x - halfW, points[j].y - halfH)
+                lineTo(points[j].x * scX - halfW, points[j].y * scY - halfH)
             }
             if (closed) {
                 close()
@@ -1161,8 +1167,27 @@ class CanvasTouchView(context: Context) : View(context) {
 
         // 快捷操作浮窗区域 (若打开)
         if (v.quickActionWindowOpen) {
-            val qw = if (v.quickActionCollapsed) 90f * d else 380f * d
-            val qh = if (v.quickActionCollapsed) 50f * d else 380f * d
+            val qw = if (v.quickActionWindowWidth > 0f) {
+                v.quickActionWindowWidth
+            } else {
+                if (v.quickActionCollapsed) 72f * d
+                else when (v.quickActionsConfig.layoutMode) {
+                    QuickActionLayoutMode.COLUMN -> 56f * d
+                    QuickActionLayoutMode.ROW -> 240f * d
+                    QuickActionLayoutMode.GRID_2 -> 110f * d
+                    QuickActionLayoutMode.GRID_3 -> 160f * d
+                }
+            }
+            val qh = if (v.quickActionWindowHeight > 0f) {
+                v.quickActionWindowHeight
+            } else {
+                if (v.quickActionCollapsed) 44f * d
+                else when (v.quickActionsConfig.layoutMode) {
+                    QuickActionLayoutMode.COLUMN -> 280f * d
+                    QuickActionLayoutMode.ROW -> 76f * d
+                    QuickActionLayoutMode.GRID_2, QuickActionLayoutMode.GRID_3 -> 160f * d
+                }
+            }
             val qx = if (v.quickActionWindowX >= 0f) v.quickActionWindowX else ((width - qw) / 2f).coerceAtLeast(0f)
             val qy = if (v.quickActionWindowY >= 0f) v.quickActionWindowY else ((height - qh) / 2f).coerceAtLeast(0f)
             if (x >= qx && x <= qx + qw && y >= qy && y <= qy + qh) {
@@ -1172,19 +1197,30 @@ class CanvasTouchView(context: Context) : View(context) {
 
         // 快捷笔刷浮窗区域 (若打开)
         if (v.quickBrushWindowOpen) {
-            val isVert = v.quickBrushOrientation == "vertical"
-            val favCount = v.favoriteBrushNames.size
-            val visibleCount = if (favCount == 0) 1 else favCount.coerceAtMost(v.quickBrushMaxLength)
-            val listDim = if (favCount == 0) 130f else (visibleCount * 43f - 1f)
-            val bw = when {
-                v.quickBrushCollapsed -> 90f * d
-                isVert -> 56f * d
-                else -> (70f + listDim + 36f) * d
+            val bw = if (v.quickBrushWindowWidth > 0f) {
+                v.quickBrushWindowWidth
+            } else {
+                val isVert = v.quickBrushOrientation == "vertical"
+                val favCount = v.favoriteBrushNames.size
+                val visibleCount = if (favCount == 0) 1 else favCount.coerceAtMost(v.quickBrushMaxLength)
+                val listDim = if (favCount == 0) 130f else (visibleCount * 43f - 1f)
+                when {
+                    v.quickBrushCollapsed -> 90f * d
+                    isVert -> 56f * d
+                    else -> (70f + listDim + 36f) * d
+                }
             }
-            val bh = when {
-                v.quickBrushCollapsed -> 50f * d
-                isVert -> (28f + (if (favCount == 0) 48f else (visibleCount * 43f - 1f)) + 36f) * d
-                else -> 56f * d
+            val bh = if (v.quickBrushWindowHeight > 0f) {
+                v.quickBrushWindowHeight
+            } else {
+                val isVert = v.quickBrushOrientation == "vertical"
+                val favCount = v.favoriteBrushNames.size
+                val visibleCount = if (favCount == 0) 1 else favCount.coerceAtMost(v.quickBrushMaxLength)
+                when {
+                    v.quickBrushCollapsed -> 50f * d
+                    isVert -> (28f + (if (favCount == 0) 48f else (visibleCount * 43f - 1f)) + 36f) * d
+                    else -> 56f * d
+                }
             }
             val bx = if (v.quickBrushWindowX >= 0f) v.quickBrushWindowX else ((width - bw) / 2f).coerceAtLeast(0f)
             val by = if (v.quickBrushWindowY >= 0f) v.quickBrushWindowY else ((height - bh) / 2f).coerceAtLeast(0f)
@@ -1578,11 +1614,15 @@ class CanvasTouchView(context: Context) : View(context) {
                         val endY = curPos.y + (dy / dist) * clampDist
 
                         val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
-                        val cursorBrushSize = v.brushSize.toFloat()
+                        val cursorBrushSize = when {
+                            effTool() == Tool.LIQUIFY -> liquifyBrushSize
+                            effTool() == Tool.ERASER && tool != Tool.ERASER -> v.getToolEffectiveSize("eraser").toFloat()
+                            else -> v.brushSize.toFloat()
+                        }
                         val pFrac = if (v.brushPressureEnabled) pressureFractionCached(predictedPressure) else 1f
                         val strokeWidth = (cursorBrushSize * scale * pFrac).coerceAtLeast(1.5f)
 
-                        val isEraser = tool == Tool.ERASER
+                        val isEraser = effTool() == Tool.ERASER
                         val baseColor = if (isEraser) {
                             android.graphics.Color.WHITE
                         } else {
@@ -1806,7 +1846,7 @@ class CanvasTouchView(context: Context) : View(context) {
         // =========================================================================
         if (v.brushStudioOpen || v.moreSettingsOpen || overlayPanelsOpen) return
         val pos = localCursorPos ?: return
-        val isEraser = tool == Tool.ERASER
+        val isEraser = effTool() == Tool.ERASER
         val cursorMode = if (isEraser) v.eraserCursorMode else v.brushCursorMode
         // 0: 不显示, 1: 绘画时显示, 2: 悬空显示, 3: 绘画和悬空显示
         val shouldShow = when (cursorMode) {
@@ -1815,12 +1855,16 @@ class CanvasTouchView(context: Context) : View(context) {
             3 -> localIsTouching || localIsHovering
             else -> false
         }
-        val isDrawTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY
+        val isDrawTool = effTool() == Tool.BRUSH || effTool() == Tool.ERASER || effTool() == Tool.SMUDGE || effTool() == Tool.LIQUIFY
         // Phase 2: 记录本帧光标环的屏幕位置与半径 —— 下一帧做局部失效时要把环的"旧位置"也覆盖掉
         lqRingValid = false
         if (shouldShow && isDrawTool && v.cursorStyleMode != 4) {
             val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
-            val cursorBrushSize = if (tool == Tool.LIQUIFY) liquifyBrushSize else v.brushSize.toFloat()
+            val cursorBrushSize = when {
+                effTool() == Tool.LIQUIFY -> liquifyBrushSize
+                effTool() == Tool.ERASER && tool != Tool.ERASER -> v.getToolEffectiveSize("eraser").toFloat()
+                else -> v.brushSize.toFloat()
+            }
             val pressureFraction =
                 if (localIsTouching) {
                     pressureFractionCached(localPressure)
@@ -3455,7 +3499,8 @@ class CanvasTouchView(context: Context) : View(context) {
                         it.begin(screenPos.x, screenPos.y, SystemClock.uptimeMillis())
                     }
                 }
-                strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble(), tiltX, tiltY, rotation)
+                val overrideTool = if (effTool() == Tool.ERASER && tool != Tool.ERASER) "eraser" else null
+                strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble(), tiltX, tiltY, rotation, toolOverride = overrideTool)
                 if (strokeStarted) {
                     // 纸张摩擦音效: 落笔起振 (橡皮稍收音量, 附带初始落笔压感)
                     getOrCreateStylusDriver()?.feedbackManager?.startStrokeSound(effTool() == Tool.ERASER, pressure.toFloat())
@@ -3560,7 +3605,11 @@ class CanvasTouchView(context: Context) : View(context) {
                 } else {
                     val now = android.os.SystemClock.uptimeMillis()
                     val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
-                    val snapDistThreshold = (24f * density) / currentScale
+                    val bmp = v.displayBitmap ?: docBitmap
+                    val bmpW = (bmp?.width ?: v.renderW.takeIf { it > 0 } ?: v.docWidth).toFloat()
+                    val docW = (if (v.docWidth > 0) v.docWidth else bmpW.toInt()).toFloat()
+                    val bmpPerDoc = (bmpW / docW).coerceAtLeast(0.001f)
+                    val snapDistThreshold = (24f * density) / (currentScale * bmpPerDoc)
 
                     // 双击闭合 (至少已有3个点时双击直接闭合选区)
                     if (v.lassoMultiPoints.size >= 3 && now - lastLassoTapTimeMs < 350L &&
@@ -3723,7 +3772,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     if (hasSymmetry) {
                         safeBeginSymmetryUndoMacro()
                     }
-                    strokeStarted = v.touchStart(startDoc.x, startDoc.y, pressure.toDouble(), touchTiltX, touchTiltY, touchRotation)
+                    val overrideTool = if (effTool() == Tool.ERASER && tool != Tool.ERASER) "eraser" else null
+                    strokeStarted = v.touchStart(startDoc.x, startDoc.y, pressure.toDouble(), touchTiltX, touchTiltY, touchRotation, toolOverride = overrideTool)
                     if (strokeStarted) {
                         if (isStylus) {
                             getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (effTool() == Tool.ERASER))
@@ -4490,10 +4540,12 @@ class CanvasTouchView(context: Context) : View(context) {
                         // 仅当没有镜像分支重放时主笔才立即全量渲染；有分支则在镜像分支执行完毕后统一渲染
                         v.touchEnd(render = !hasBranchesToReplay)
                         if (hasBranchesToReplay) {
+                            val isEraserStroke = (effTool() == Tool.ERASER)
                             v.replaySymmetricBranches(
                                 mirroredSamples,
                                 mirroredSizes,
                                 mirroredSamples.size,
+                                isEraser = isEraserStroke,
                                 onComplete = {
                                     resetMirrorBranches()
                                     isSymmetryUndoMacroOpen = false
@@ -4600,11 +4652,15 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                     lassoPoints.clear()
                 } else {
-                    val dragDist = hypot(docPos.x - firstDocPos.x, docPos.y - firstDocPos.y)
-                    val isTap = dragDist < 8f * density && lassoPoints.size <= 3
-
+                    val bmp = v.displayBitmap ?: docBitmap
+                    val bmpW = (bmp?.width ?: v.renderW.takeIf { it > 0 } ?: v.docWidth).toFloat()
+                    val docW = (if (v.docWidth > 0) v.docWidth else bmpW.toInt()).toFloat()
+                    val bmpPerDoc = (bmpW / docW).coerceAtLeast(0.001f)
                     val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
-                    val snapDistThreshold = (24f * density) / currentScale
+                    val currentDocScale = maxOf(0.001f, currentScale * bmpPerDoc)
+                    val dragDist = hypot(docPos.x - firstDocPos.x, docPos.y - firstDocPos.y)
+                    val isTap = dragDist < (8f * density) / currentDocScale && lassoPoints.size <= 3
+                    val snapDistThreshold = (24f * density) / currentDocScale
 
                     // 1. 若已有 >= 3 个点，且本次抬手位置落在起点吸附阈值内，直接闭合提交（不重复追加起点）
                     if (v.lassoMultiPoints.size >= 3) {
