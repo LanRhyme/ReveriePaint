@@ -1559,7 +1559,7 @@
     <string name="stylus_prediction_title">Ultra-low Latency Prediction</string>
     <string name="stylus_prediction_desc">120Hz/144Hz millisecond transient forward prediction for zero lag</string>
     <string name="stylus_front_buffer_prediction_title">Front-Buffer Prediction</string>
-    <string name="stylus_front_buffer_prediction_desc">Experimental: Kalman motion prediction + ink gap backfill + front-buffer direct out + cursor follow, closing the tip-to-ink gap within one frame</string>
+    <string name="stylus_front_buffer_prediction_desc">Direct tip preview to screen, ink stays closer to the pen tip</string>
     <string name="stylus_brush_cursor">Brush Cursor</string>
     <string name="stylus_brush_cursor_desc">Cursor display policy when hovering or painting</string>
     <string name="stylus_eraser_cursor">Eraser Cursor</string>
