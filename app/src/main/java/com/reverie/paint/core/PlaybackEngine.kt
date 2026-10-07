@@ -335,7 +335,10 @@ private fun PaintViewModel.replayStepLocked(
     val targetMs = if (s.totalMs > 0) (s.currentMs + stepSimMs).coerceAtMost(s.totalMs) else Long.MAX_VALUE
 
     var hasEvents = false
-    while (r.remaining() > 0 && (s.totalMs == 0L || s.currentMs < targetMs)) {
+    // Several samples (especially generated shapes) may share the final millisecond.
+    // At the end, drain those zero-delta events too; otherwise currentMs == totalMs
+    // prevents all later ticks from consuming the remaining moves / stroke-end.
+    while (r.remaining() > 0 && (targetMs >= s.totalMs || s.currentMs < targetMs)) {
         val type = r.u8()
         val dt = r.varint()
         s.currentMs += dt
@@ -433,7 +436,8 @@ private fun PaintViewModel.seekLocked(
     val r = s.reader
     r.pos = 0
     s.currentMs = 0
-    while (r.remaining() > 0 && s.currentMs < target) {
+    // Seeking to 100% must include every event at the final timestamp as well.
+    while (r.remaining() > 0 && (fraction >= 1f || s.currentMs < target)) {
         val type = r.u8()
         val dt = r.varint()
         s.currentMs += dt

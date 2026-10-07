@@ -97,6 +97,22 @@ class CanvasTouchView(context: Context) : View(context) {
     var tfState: TransformState? = null
     var docBitmap: Bitmap? = null
 
+    private var quickShapeCandidate: QuickShapeResult? = null
+    private val quickShapeHold = Runnable {
+        val v = vm
+        val capture = v?.quickShapeCapture
+        if (v != null && capture != null && strokeStarted && v.quickShapeEnabled &&
+            effTool() == Tool.BRUSH && capture.travelled >= 48f * density &&
+            SystemClock.uptimeMillis() - capture.lastMovementMs >= 650L) {
+            quickShapeCandidate = capture.recognize(v.quickShapeArcEnabled, v.quickShapeRelaxedEnabled,
+                v.quickShapeQuadrilateralEnabled, v.quickShapeCurveEnabled)
+            if (quickShapeCandidate != null) {
+                performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                v.showActionToast(R.string.quick_shape_ready, R.drawable.ic_line)
+            }
+        }
+    }
+
     private var cachedDriver: com.reverie.paint.core.stylus.StylusDriver? = null
 
     // S Pen 悬停期间侧键状态追踪: 仅在按钮按下/释放边沿把 hover 事件喂给驱动层,
@@ -1416,6 +1432,9 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     override fun onDetachedFromWindow() {
+        removeCallbacks(quickShapeHold)
+        vm?.quickShapeCapture = null
+        vm?.cancelQuickShape()
         removeCallbacks(liquifyHoldRunnable)
         super.onDetachedFromWindow()
         removeCallbacks(continuousUndoRunnable)
@@ -1437,7 +1456,8 @@ class CanvasTouchView(context: Context) : View(context) {
         // 仍周期渲染并保持笔画事务开启; 未投递的笔画样本与起笔 kick 一并丢弃
         vm?.stopAirbrush()
         vm?.disarmStrokeStartKick()
-        vm?.clearPendingStrokeSamples()
+        // Keeping a QuickShape draft queues the normal smoothing/taper finish; do not drop it.
+        if (vm?.isQuickShapeEditing != true) vm?.clearPendingStrokeSamples()
         cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
         cachedDriver?.feedbackManager?.stopStrokeSound()
         cachedDriver = null
@@ -2410,6 +2430,12 @@ class CanvasTouchView(context: Context) : View(context) {
     // -------------------------------------------------------------
     override fun onTouchEvent(event: MotionEvent): Boolean {
         val v = vm ?: return super.onTouchEvent(event)
+        if (v.isQuickShapeEditing) return true
+        if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+            removeCallbacks(quickShapeHold)
+            quickShapeCandidate = null
+            v.quickShapeCapture = null
+        }
         if (event.actionMasked == MotionEvent.ACTION_DOWN && editMenuGestureActive) {
             removeCallbacks(continuousRedoRunnable)
             editMenuGestureActive = false
@@ -3459,6 +3485,9 @@ class CanvasTouchView(context: Context) : View(context) {
         rotation: Double = 0.0,
     ) {
         val v = vm ?: return
+        removeCallbacks(quickShapeHold)
+        quickShapeCandidate = null
+        v.quickShapeCapture = null
         val activeLayer = v.layers.firstOrNull { it.index == v.currentLayerIndex }
         val t = effTool()
         val isDrawingTool = t.group == ToolGroup.BRUSH || t.group == ToolGroup.FILL || t.group == ToolGroup.SHAPES
@@ -3491,6 +3520,13 @@ class CanvasTouchView(context: Context) : View(context) {
                 currentStrokeDocPos = docPos
                 if (isStylus) {
                     getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (effTool() == Tool.ERASER))
+                }
+                // Native stroke stays untouched until a deliberate hold followed by pen-up.
+                if (v.quickShapeEnabled && effTool() == Tool.BRUSH && !v.brushAirbrush &&
+                    !(v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing) && !v.anim.isPlaying) {
+                    v.quickShapeCapture = QuickShapeStrokeCapture().also {
+                        it.begin(screenPos.x, screenPos.y, SystemClock.uptimeMillis())
+                    }
                 }
                 val overrideTool = if (effTool() == Tool.ERASER && tool != Tool.ERASER) "eraser" else null
                 strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble(), tiltX, tiltY, rotation, toolOverride = overrideTool)
@@ -3786,6 +3822,14 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
                 if (!strokeStarted) return
 
+                v.quickShapeCapture?.let { capture ->
+                    if (capture.moved(event.getX(pointerIndex), event.getY(pointerIndex),
+                            SystemClock.uptimeMillis(), 5f * density)) {
+                        quickShapeCandidate = null
+                        removeCallbacks(quickShapeHold)
+                        postDelayed(quickShapeHold, 650L)
+                    }
+                }
                 currentStrokeDocPos = docPos
 
                 val effectiveDocPos = applyAssistedDrawing(firstDocPos, docPos)
@@ -4493,6 +4537,7 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     private fun handleToolUp(event: MotionEvent, docPos: Offset, isCancel: Boolean) {
+        removeCallbacks(quickShapeHold)
         removeCallbacks(liquifyHoldRunnable)
         val v = vm ?: return
 
@@ -4507,7 +4552,15 @@ class CanvasTouchView(context: Context) : View(context) {
                 if (strokeStarted) {
                     cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
                     cachedDriver?.feedbackManager?.stopStrokeSound()
-                    if (isCancel) {
+                    val candidate = quickShapeCandidate
+                    val capture = v.quickShapeCapture
+                    v.quickShapeCapture = null
+                    quickShapeCandidate = null
+                    if (!isCancel && v.quickShapeEnabled && candidate != null && capture != null && !capture.overflowed) {
+                        v.beginQuickShape(candidate, capture.snapshot())
+                        resetMirrorBranches()
+                        safeEndSymmetryUndoMacro()
+                    } else if (isCancel) {
                         v.touchCancel()
                         resetMirrorBranches()
                         safeEndSymmetryUndoMacro()

@@ -642,7 +642,9 @@ fun PaintingPage(
             .focusRequester(focusRequester)
             .focusable()
             .onKeyEvent {
-                if (vm.isTextInputActive || vm.isShortcutRecordingActive) {
+                if (vm.isQuickShapeEditing) {
+                    true
+                } else if (vm.isTextInputActive || vm.isShortcutRecordingActive) {
                     false
                 } else {
                     vm.handleKeyEvent(it)
@@ -873,6 +875,7 @@ fun PaintingPage(
         // BackHandler for Android system back button/gesture: close active panels first, then request exit
         androidx.activity.compose.BackHandler {
             when {
+                vm.isQuickShapeEditing -> vm.cancelQuickShape()
                 vm.isCanvasAdjustActive -> vm.exitCanvasAdjustMode()
                 filterController != null -> filterController.cancel()
                 vm.pendingExternalImageUri != null -> vm.pendingExternalImageUri = null
@@ -2279,6 +2282,12 @@ fun PaintingPage(
 
         // ---- Floating Layer Drag Overlay (Global Root Window) ----
         LayerDragOverlay(vm = vm)
+        if (vm.isQuickShapeEditing) {
+            com.reverie.paint.ui.painting.canvas.QuickShapeEditor(
+                vm, zoomState, rotationState, panXState, panYState, fitScale,
+                Modifier.fillMaxSize().zIndex(2000f),
+            )
+        }
     }
 }
 }

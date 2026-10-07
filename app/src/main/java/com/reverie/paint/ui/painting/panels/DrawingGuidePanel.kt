@@ -113,6 +113,8 @@ fun DrawingGuidePanel(
                 }
             }
 
+            QuickShapeSettingRow(vm)
+
             // Mode Selector
             Row(
                 modifier = Modifier.fillMaxWidth(),

@@ -519,6 +519,9 @@ internal fun SettingsTabPage(
                     )
 
                     SettingsCard {
+                        QuickShapeSettingRow(vm)
+                        SettingsInnerDivider()
+
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()

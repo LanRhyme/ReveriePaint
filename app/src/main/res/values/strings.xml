@@ -2355,6 +2355,18 @@
     <string name="liquify_hardness">硬度</string>
     <string name="project_copying_progress">正在复制作品（%1$d/%2$d）</string>
     <string name="project_copy_result">已复制 %1$d 项，失败 %2$d 项</string>
+    <string name="quick_shape_setting">速创形状</string>
+    <string name="quick_shape_setting_hint">画笔画完停留片刻，抬笔后调整形状\n使用绘图辅助或喷枪时不触发</string>
+    <string name="quick_shape_ready">已识别形状，抬笔后调整</string>
+    <string name="quick_shape_context_changed">画布已变化，形状编辑已结束</string>
+    <string name="quick_shape_failed">形状未能写入，请重试或保留原笔画</string>
+    <string name="quick_shape_edit_hint">拖动画面移动形状，拖动控制点调整大小或旋转\n原笔画保留作参考，完成后用当前笔刷替换</string>
+    <string name="quick_shape_keep_freehand">保留原笔画</string>
+    <string name="quick_shape_line">直线</string>
+    <string name="quick_shape_circle">圆</string>
+    <string name="quick_shape_ellipse">椭圆</string>
+    <string name="quick_shape_rectangle">矩形</string>
+    <string name="quick_shape_triangle">三角形</string>
     <string name="canvas_edit_previous_page">上一页操作</string>
     <string name="canvas_edit_next_page">下一页操作</string>
     <string name="canvas_edit_page">%1$d / %2$d</string>
@@ -2406,5 +2418,37 @@
     <string name="reference_import_legacy">导入旧版参考图</string>
     <string name="reference_import_failed">参考图导入失败，已保留原有图片</string>
     <string name="reference_restore_failed">部分参考数据无法读取，请重新添加参考图</string>
+
+    <string name="quick_shape_quad_setting">识别四边形</string>
+    <string name="quick_shape_quad_hint">保留手绘的四个顶点，不强制直角；开启八点控制可调整尺寸与轮廓</string>
+    <string name="quick_shape_curve_setting">识别三点曲线</string>
+    <string name="quick_shape_curve_hint">两端和曲线中点分别可拖动，不限定为圆弧；开启后优先识别为三点曲线</string>
+    <string name="quick_shape_quad">四边形</string>
+    <string name="quick_shape_curve">曲线</string>
+    <string name="quick_shape_quad_edit_hint">拖动四个角调整四边形，拖动画面移动整体</string>
+    <string name="quick_shape_curve_edit_hint">拖动两端调整端点；拖动中间点改变弧度，曲线始终经过它</string>
+    <string name="quick_shape_curved">曲线轮廓</string>
+    <string name="quick_shape_curved_hint">关闭时用直线连接顶点；开启后允许曲线，并可在编辑栏切换</string>
+    <string name="quick_shape_contour_lines">直线轮廓</string>
+    <string name="quick_shape_contour_curves">曲线轮廓</string>
+    <string name="quick_shape_relaxed">宽松识别</string>
+    <string name="quick_shape_relaxed_hint">容许矩形轻微歪斜、圆钝角及圆弧抖动；圆弧仍需单独开启</string>
+    <string name="quick_shape_arc">圆弧</string>
+    <string name="quick_shape_arc_edit_hint">拖动画面移动圆弧，拖动端点或弧上控制点调整弯曲程度</string>
+    <string name="quick_shape_angle_snap">直线角度吸附</string>
+    <string name="quick_shape_angle_snap_hint">接近水平、垂直及 30°、45° 等方向时吸附，仅影响速创直线</string>
+    <string name="quick_shape_arc_setting">识别圆弧</string>
+    <string name="quick_shape_arc_setting_hint">识别开放的圆形弧线，无法可靠判断时保留原笔画</string>
+    <string name="quick_shape_box_handles">八点尺寸控制</string>
+    <string name="quick_shape_box_handles_hint">在矩形四角和四边中点调整尺寸，保留独立旋转点</string>
+    <string name="quick_shape_contour_setting">按住调整轮廓</string>
+    <string name="quick_shape_contour_setting_hint">编辑矩形时，按住按钮并用另一根手指或笔拖动控制点</string>
+    <string name="quick_shape_contour">自定义轮廓</string>
+    <string name="quick_shape_hold_contour">按住调整轮廓</string>
+    <string name="quick_shape_box_edit_hint">拖动八个控制点调整尺寸，上方独立点用于旋转</string>
+    <string name="quick_shape_conversions">四边形转换</string>
+    <string name="quick_shape_conversions_hint">编辑时显示转为平行四边形、矩形和正方形的按钮</string>
+    <string name="quick_shape_to_parallelogram">转为平行四边形</string>
+    <string name="quick_shape_to_rectangle">转为矩形</string>
 </resources>
 

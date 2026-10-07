@@ -281,6 +281,7 @@ internal fun PaintViewModel.touchStart(
             ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), effPressure)
         }
     }
+    quickShapeCapture?.append(x, y, effPressure.toFloat(), safeTiltX.toFloat(), safeTiltY.toFloat())
     // Pen-down instant ink: if the stylus stays still (or moves slower than
     // the sample-spacing gate), paint the start dot after ~1 frame instead
     // of showing nothing until pen-up.
@@ -471,6 +472,7 @@ internal fun PaintViewModel.touchMove(
     if (recorder.recording) {
         recorder.strokeMove(effX, effY, effP.toFloat())
     }
+    quickShapeCapture?.append(effX, effY, effP.toFloat(), safeTiltX.toFloat(), safeTiltY.toFloat())
     queueStrokeMove(effX, effY, effP, inputEventTimeMs, safeTiltX, safeTiltY, safeRotation)
 }
 
@@ -603,6 +605,7 @@ internal fun PaintViewModel.touchEnd(render: Boolean = true) {
 }
 
 internal fun PaintViewModel.touchCancel() {
+    quickShapeCapture = null
     stopAirbrush()
     disarmStrokeStartKick()
     // Drop undelivered samples so the queued drain cannot append to a stroke
@@ -798,6 +801,7 @@ internal fun PaintViewModel.replaySymmetricBranches(
 }
 
 internal fun PaintViewModel.applyTool(toolId: String) {
+    if (isQuickShapeEditing) return
     if (toolId == currentToolId && !isTemporaryPicker) {
         return
     }
@@ -1379,6 +1383,7 @@ internal fun PaintViewModel.applyWarpMeshTransform(
 }
 
 internal fun PaintViewModel.undo() {
+    if (isQuickShapeEditing) { cancelQuickShape(); return }
     if (customUndoHook?.invoke() == true) {
         return
     }
@@ -1424,6 +1429,7 @@ internal fun PaintViewModel.undo() {
 }
 
 internal fun PaintViewModel.redo() {
+    if (isQuickShapeEditing) return
     stopAirbrush()
     disarmStrokeStartKick()
     clearPendingStrokeSamples()
@@ -2602,16 +2608,6 @@ internal fun PaintViewModel.floodFill(
         // 填充直接改了当前帧像素, 洋葱皮缓存要失效 (它不感知帧内改动)
         ReverieCoreBridge.flushOnionSkinCaches()
     }
-}
-
-internal fun PaintViewModel.commitQuickShape() {
-    activeQuickShape = null
-    isQuickShapeEditing = false
-}
-
-internal fun PaintViewModel.cancelQuickShape() {
-    activeQuickShape = null
-    isQuickShapeEditing = false
 }
 
 internal fun PaintViewModel.updateDrawingGuide(config: DrawingGuideConfig) {
