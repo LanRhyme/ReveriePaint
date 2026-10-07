@@ -668,32 +668,6 @@ internal fun LayerRowContent(
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
-                modifier = if (onRename != null && !isBg) {
-                    Modifier
-                        .clip(RoundedCornerShape(4.dp))
-                        .noRippleClickable {
-                            val now = android.os.SystemClock.uptimeMillis()
-                            if (now - lastNameTapTime < 300L) {
-                                lastNameTapTime = 0L
-                                pendingDetailJob?.cancel()
-                                pendingDetailJob = null
-                                onRename(layer.index, layer.name)
-                            } else {
-                                lastNameTapTime = now
-                                if (!selected) {
-                                    pendingDetailJob?.cancel()
-                                    pendingDetailJob = null
-                                    onClick()
-                                } else {
-                                    pendingDetailJob?.cancel()
-                                    pendingDetailJob = coroutineScope.launch {
-                                        delay(260L)
-                                        onClick()
-                                    }
-                                }
-                            }
-                        }
-                } else Modifier,
             ) {
                 if (layer.clipped) {
                     Icon(
@@ -739,6 +713,32 @@ internal fun LayerRowContent(
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = if (onRename != null && !isBg) {
+                        Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .noRippleClickable {
+                                val now = android.os.SystemClock.uptimeMillis()
+                                if (now - lastNameTapTime < 260L) {
+                                    lastNameTapTime = 0L
+                                    pendingDetailJob?.cancel()
+                                    pendingDetailJob = null
+                                    onRename(layer.index, layer.name)
+                                } else {
+                                    lastNameTapTime = now
+                                    if (!selected) {
+                                        pendingDetailJob?.cancel()
+                                        pendingDetailJob = null
+                                        onClick()
+                                    } else {
+                                        pendingDetailJob?.cancel()
+                                        pendingDetailJob = coroutineScope.launch {
+                                            delay(200L)
+                                            onClick()
+                                        }
+                                    }
+                                }
+                            }
+                    } else Modifier,
                 )
             }
             val blendName = stringResource(blendModeResId(layer.blendMode))
