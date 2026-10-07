@@ -262,4 +262,15 @@ class StylusModelsTest {
         }
         assertFalse("Generic-only device must not trigger isolation", hasDedicatedForGeneric)
     }
+
+    @Test
+    fun `samsung stylus default action ids resolve to valid stylus actions`() {
+        val singleAction = StylusAction.fromActionId("toggle_eraser")
+        val doubleAction = StylusAction.fromActionId("undo")
+        val longPressAction = StylusAction.fromActionId("tool_picker")
+
+        assertEquals(StylusAction.TOGGLE_ERASER, singleAction)
+        assertEquals(StylusAction.UNDO, doubleAction)
+        assertEquals(StylusAction.COLOR_PICKER, longPressAction)
+    }
 }
