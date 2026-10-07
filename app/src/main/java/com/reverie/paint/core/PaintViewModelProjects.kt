@@ -47,6 +47,26 @@ internal fun PaintViewModel.autoSaveDir(): File {
     return dir
 }
 
+internal fun estimateProjectSaveBytes(w: Int, h: Int, layerCount: Int, currentFileSize: Long): Long {
+    val minBuffer = 50L * 1024 * 1024 // 50MB 安全保留余量
+    return if (currentFileSize > 0L) {
+        currentFileSize * 2 + minBuffer
+    } else {
+        val rawBytes = w.toLong() * h * 4 * layerCount.coerceAtLeast(1)
+        (rawBytes * 35 / 100) + minBuffer
+    }
+}
+
+internal fun checkProjectDiskSpace(targetFile: File, requiredBytes: Long): Boolean {
+    val dir = targetFile.parentFile?.takeIf { it.exists() } ?: targetFile
+    return try {
+        val stat = android.os.StatFs(dir.absolutePath)
+        stat.availableBytes >= requiredBytes
+    } catch (_: Throwable) {
+        true
+    }
+}
+
 // Blocking loading overlay state (used during canvas loading, saving, creating)
 
 /** Calls [onComplete] only after a successful save; failures keep the current document open and dirty state intact. */
@@ -54,6 +74,29 @@ internal fun PaintViewModel.saveProject(
     name: String,
     onComplete: (() -> Unit)? = null,
 ) {
+    val fileToSave =
+        currentProjectFile?.let { File(it) }?.takeIf { it.parentFile?.exists() == true && !it.name.contains(".autosave") }
+            ?: File(projectDir(), "$name.revp")
+    val finalFile =
+        if (fileToSave.nameWithoutExtension != name) {
+            File(fileToSave.parentFile, "$name.revp")
+        } else {
+            fileToSave
+        }
+
+    val requiredSpace = estimateProjectSaveBytes(
+        docWidth,
+        docHeight,
+        layers.size,
+        if (finalFile.exists()) finalFile.length() else 0L,
+    )
+    if (!checkProjectDiskSpace(finalFile, requiredSpace)) {
+        lowStorageMessage = getString(R.string.dialog_storage_insufficient_desc)
+        showLowStorageDialog = true
+        showActionToast(R.string.toast_project_save_low_storage, R.drawable.ic_alert_triangle)
+        return
+    }
+
     val referenceProfile = referenceProfileId
     val previousReferencePath = currentProjectFile
     tickPaintingTimer()
@@ -65,9 +108,11 @@ internal fun PaintViewModel.saveProject(
             isBlockingLoading = false
             val targetFile = savedFile
             if (targetFile == null) {
+                Breadcrumbs.record("Save", "saveProject FAILED for: $name")
                 showActionToast(R.string.toast_project_save_failed, R.drawable.ic_save)
                 return@runCore
             }
+            Breadcrumbs.record("Save", "saveProject SUCCESS: $name ($totalStrokes strokes)")
             currentProjectFile = targetFile.absolutePath
             // Renaming from the save dialog moves this working association; do not let the
             // previous file and the renamed artwork share a mutable reference selection.
@@ -139,13 +184,24 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
     val touchView = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
     if (touchView?.isInteracting == true || touchView?.isTransformActive == true) return
 
+    val name = docName.ifBlank { if (LanguageManager.isChinese()) "未命名作品" else "Untitled Artwork" }
+    val autoSaveFile = File(autoSaveDir(), "$name.autosave.revp")
+    val requiredSpace = estimateProjectSaveBytes(
+        docWidth,
+        docHeight,
+        layers.size,
+        if (autoSaveFile.exists()) autoSaveFile.length() else 0L,
+    )
+    if (!checkProjectDiskSpace(autoSaveFile, requiredSpace)) {
+        android.util.Log.w("RP_IO", "autoSaveProject: insufficient disk space ($requiredSpace bytes required), suspending autosave")
+        return
+    }
+
     isAutoSaving = true
     tickPaintingTimer()
-    val name = docName.ifBlank { if (LanguageManager.isChinese()) "未命名作品" else "Untitled Artwork" }
     val strokeCount = totalStrokes
     val layerCount = layers.size
     val currentMasterPath = currentProjectFile?.takeIf { !it.contains(".autosave") && !it.contains(".emergency") } ?: ""
-    val autoSaveFile = File(autoSaveDir(), "$name.autosave.revp")
     val referenceProfile = referenceProfileId
 
     runCore(
@@ -349,8 +405,16 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
 
     var loadedCollapsedGroups: Set<String> = emptySet()
     var documentLoaded = false
+    var isHealed = false
     runCore(
         after = {
+            if (!documentLoaded) {
+                Breadcrumbs.record("IO", "loadProject FAILED for: ${p.name}")
+                isBlockingLoading = false
+                showActionToast(R.string.toast_project_import_unsupported, R.drawable.ic_alert_triangle)
+                return@runCore
+            }
+            Breadcrumbs.record("IO", "loadProject SUCCESS: ${p.name} (healed=$isHealed)")
             if (referenceSession == referenceLoadSession) {
                 if (documentLoaded) restoreLocalProjectReferences(p.filePath)
                 else referenceLoading = false
@@ -358,7 +422,7 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             collapsedGroupNames = loadedCollapsedGroups
             initialStrokeCount = p.strokeCount
             totalStrokes = p.strokeCount
-            isModified = isRecovered // 异常恢复的工程标记为未保存
+            isModified = isRecovered || isHealed // 异常恢复或自愈的工程标记为未保存
             docWidth = if (coreW > 0) coreW else p.width
             docHeight = if (coreH > 0) coreH else p.height
             docDpi = if (p.dpi > 0) p.dpi else 300
@@ -386,8 +450,10 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             startPaintingTimer()
             if (isRecovered) {
                 showActionToast(R.string.toast_project_restored_autosave, R.drawable.ic_save)
+            } else if (isHealed) {
+                showActionToast(R.string.toast_project_healed_recovery, R.drawable.ic_alert_triangle)
             }
-            android.util.Log.d("RP_IO", "loadProject AFTER: docW=$docWidth, docH=$docHeight, currentProjectFile=$currentProjectFile, isModified=$isModified, layers=${layers.size}, currentLayer=$currentLayerIndex")
+            android.util.Log.d("RP_IO", "loadProject AFTER: docW=$docWidth, docH=$docHeight, currentProjectFile=$currentProjectFile, isModified=$isModified, layers=${layers.size}, currentLayer=$currentLayerIndex, isHealed=$isHealed")
         },
     ) {
         val file = java.io.File(p.filePath)
@@ -424,6 +490,7 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 }
             if (ok) {
                 documentLoaded = true
+                isHealed = ReverieCoreBridge.isLastLoadHealed()
                 coreW = ReverieCoreBridge.docWidth()
                 coreH = ReverieCoreBridge.docHeight()
                 renderW = coreW

@@ -18,7 +18,7 @@ import java.util.Locale
  */
 object Breadcrumbs {
     private const val TAG = "Breadcrumbs"
-    private const val MAX_CRUMBS = 25
+    private const val MAX_CRUMBS = 100
 
     private val queue = ArrayDeque<String>(MAX_CRUMBS)
     private val timeFormat = SimpleDateFormat("HH:mm:ss.SSS", Locale.getDefault())

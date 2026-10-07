@@ -174,9 +174,10 @@ QByteArray readStoreEntryBytes(KoStore *store)
 
 } // namespace
 
-bool ReverieCore::loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image, KoStore *store, bool *bgVisible)
+bool ReverieCore::loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image, KoStore *store, bool *bgVisible, bool *outHealed)
 {
     if (bgVisible) *bgVisible = false;
+    if (outHealed) *outHealed = false;
     if (xmlData.isEmpty() || !image || !store) return false;
 
     QXmlStreamReader r(xmlData);
@@ -378,7 +379,11 @@ bool ReverieCore::loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image,
     }
     // 树解析完成, 统一并行解码 + 串行写回全部暂存图层
     loader.flush();
-    if (r.hasError()) return false;
+    if (r.hasError()) {
+        qWarning() << "loadLayersXmlTree: XML parsing error:" << r.errorString() << ", retained recovered nodes:" << any;
+        if (outHealed) *outHealed = true;
+        if (!any) return false;
+    }
 
     if (bgVisible) *bgVisible = bg;
     return any;

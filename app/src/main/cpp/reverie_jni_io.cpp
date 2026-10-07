@@ -111,6 +111,12 @@ Java_com_reverie_paint_core_ReverieCoreBridge_loadRevp(JNIEnv *env, jobject, jst
 }
 
 JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_isLastLoadHealed(JNIEnv *, jobject)
+{
+    return core()->isLastLoadHealed() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_loadPsd(JNIEnv *env, jobject, jstring path)
 {
     const char *c = env->GetStringUTFChars(path, nullptr);

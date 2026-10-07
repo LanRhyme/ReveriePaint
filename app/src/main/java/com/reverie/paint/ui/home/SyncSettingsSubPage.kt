@@ -54,6 +54,9 @@ import com.reverie.paint.core.sync.SyncCredentials
 import com.reverie.paint.core.sync.SyncTimeFormat
 import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.theme.Theme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 @Composable
 internal fun SyncSettingsSubPage(
@@ -513,11 +516,37 @@ private fun SyncResultLine(vm: PaintViewModel) {
         SyncBackupStatus.DONE, SyncBackupStatus.FAILED -> {
             Column(modifier = Modifier.padding(start = 6.dp)) {
                 if (state.backupStatus == SyncBackupStatus.FAILED) {
-                    Text(
-                        text = stringResource(R.string.sync_status_failed) + " (" + state.lastBackupError + ")",
-                        color = Color(0xFFE05555),
-                        fontSize = 12.sp,
-                    )
+                    val coroutineScope = androidx.compose.runtime.rememberCoroutineScope()
+                    val context = androidx.compose.ui.platform.LocalContext.current
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.sync_status_failed) + " (" + state.lastBackupError + ")",
+                            color = Color(0xFFE05555),
+                            fontSize = 12.sp,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                        Text(
+                            text = stringResource(R.string.diagnostics_copy_btn),
+                            color = colors.accent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(colors.panelHi)
+                                .clickable {
+                                    coroutineScope.launch(kotlinx.coroutines.Dispatchers.IO) {
+                                        val report = DiagnosticsManager.generateDiagnosticsReport(context)
+                                        kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                                            DiagnosticsManager.copyReportToClipboard(context, report)
+                                        }
+                                    }
+                                }
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    }
                 } else {
                     val uploaded = state.lastBackupUploaded.takeIf { it > 0 }?.let { stringResource(R.string.sync_result_uploaded, it) }
                     val downloaded = state.lastRestoreDownloaded.takeIf { it > 0 }?.let { stringResource(R.string.sync_result_downloaded, it) }

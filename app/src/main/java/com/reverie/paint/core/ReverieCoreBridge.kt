@@ -910,6 +910,8 @@ object ReverieCoreBridge {
 
     external fun loadRevp(path: String): Boolean
 
+    external fun isLastLoadHealed(): Boolean
+
     external fun loadPsd(path: String): Boolean
 
     external fun saveKra(path: String): Boolean

@@ -875,7 +875,7 @@ public:
     bool exportPsd(const QString &path);
     // 兼容 KRA 语义的图层树元数据 (定义于 ReverieCoreLayerIO.cpp)
     void writeLayersXml(QString *out);
-    static bool loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image, KoStore *store, bool *bgVisible);
+    static bool loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image, KoStore *store, bool *bgVisible, bool *outHealed = nullptr);
     bool saveRevp(const QString &path, const QString &extraMetaJson = QString(),                  const QByteArray &recordingBlob = QByteArray());
     bool saveRevpAsync(const QString &path, const QString &extraMetaJson = QString(),                       const QByteArray &recordingBlob = QByteArray());
 
@@ -883,6 +883,7 @@ public:
      *  out 至少 8 个 qint64: [total, snapshot, encode, write, pngCount, pngBytes, fileBytes, async]。 */
     void revpSaveStats(qint64 *out);
     bool loadRevp(const QString &path);
+    bool isLastLoadHealed() const { return m_lastLoadHealed; }
     static bool loadKraTree(const QByteArray &maindocBytes, KisImageSP image, KoStore *store, const QString &docName, bool *bgVisible);
     bool loadPsd(const QString &path);
     bool saveKra(const QString &path);
@@ -1205,6 +1206,7 @@ private:
     QColor m_strokeColor;
     qreal m_strokeOpacity = 1.0;
     bool m_drawing = false;
+    bool m_lastLoadHealed = false;
 
     // ------------------------------------------------------------------
     // 笔触进行中的洋葱皮叠加 (onion skin during stroke)

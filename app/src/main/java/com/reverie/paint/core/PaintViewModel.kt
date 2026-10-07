@@ -1247,6 +1247,8 @@ class PaintViewModel : ViewModel() {
     var railSliderPanelHeightPx by mutableFloatStateOf(0f)
     var showToolbarSqueezedDialog by mutableStateOf(false)
     var toolbarSqueezedWarningDismissed by mutableStateOf(false)
+    var showLowStorageDialog by mutableStateOf(false)
+    var lowStorageMessage by mutableStateOf("")
 
     fun dismissToolbarSqueezedWarning(forever: Boolean) {
         showToolbarSqueezedDialog = false

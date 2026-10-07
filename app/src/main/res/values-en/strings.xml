@@ -430,6 +430,18 @@
     <string name="toast_project_import_image_failed">Failed to import image: %s</string>
     <string name="project_default_import_name">Imported Artwork</string>
     <string name="project_default_import_image_name">Imported Image</string>
+    <string name="toast_project_healed_recovery">Project layers recovered via self-healing fallback</string>
+    <string name="toast_project_save_low_storage">Insufficient storage, save cancelled to prevent corruption</string>
+    <string name="dialog_storage_insufficient_title">Insufficient Storage</string>
+    <string name="dialog_storage_insufficient_desc">Remaining storage is too low. Write stopped to protect project from corruption. Please free up space and try again</string>
+    <string name="diagnostics_dialog_title">System Diagnostics &amp; Logs</string>
+    <string name="diagnostics_dialog_desc">Includes device info, memory state, action breadcrumbs, and sanitized process logcat</string>
+    <string name="diagnostics_dialog_generating">Capturing and generating diagnostics log...</string>
+    <string name="diagnostics_copy_btn">Copy Log</string>
+    <string name="diagnostics_save_downloads_btn">Save to Downloads</string>
+    <string name="diagnostics_share_btn">Share Log</string>
+    <string name="diagnostics_save_success_toast">Log saved to: %s</string>
+    <string name="diagnostics_save_failed_toast">Failed to save log file</string>
 
     <!-- Tool Action Toasts -->
     <string name="toast_undo">Undo</string>

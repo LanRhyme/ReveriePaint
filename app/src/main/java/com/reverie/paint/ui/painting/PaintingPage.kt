@@ -863,6 +863,13 @@ fun PaintingPage(
             )
         }
 
+        if (vm.showLowStorageDialog) {
+            LowStorageDialog(
+                message = vm.lowStorageMessage,
+                onDismiss = { vm.showLowStorageDialog = false },
+            )
+        }
+
         vm.brushImportProgress?.let { progress ->
             BrushImportProgressDialog(progress = progress)
         }
@@ -880,6 +887,7 @@ fun PaintingPage(
                 filterController != null -> filterController.cancel()
                 vm.pendingExternalImageUri != null -> vm.pendingExternalImageUri = null
                 vm.pendingExternalBrushUris != null -> vm.pendingExternalBrushUris = null
+                vm.showLowStorageDialog -> vm.showLowStorageDialog = false
                 vm.showToolbarSqueezedDialog -> vm.showToolbarSqueezedDialog = false
                 showDiscardConfirmDialog -> showDiscardConfirmDialog = false
                 showExitSaveDialog -> showExitSaveDialog = false

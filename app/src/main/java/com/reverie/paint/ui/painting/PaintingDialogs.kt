@@ -599,5 +599,53 @@ internal fun BrushImportProgressDialog(
     }
 }
 
+@Composable
+internal fun LowStorageDialog(
+    message: String,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .width(320.dp)
+                .shadow(20.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.4f))
+                .clip(RoundedCornerShape(16.dp))
+                .background(Morandi.panel)
+                .glassBorder(RoundedCornerShape(16.dp))
+                .padding(20.dp),
+        ) {
+            Column {
+                Text(
+                    text = stringResource(R.string.dialog_storage_insufficient_title),
+                    color = Morandi.text,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = message.ifEmpty { stringResource(R.string.dialog_storage_insufficient_desc) },
+                    color = Morandi.subText,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                )
+                Spacer(Modifier.height(20.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ReTextButton(
+                        text = stringResource(R.string.common_confirm),
+                        onClick = onDismiss,
+                        textColor = Morandi.accent,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                    )
+                }
+            }
+        }
+    }
+}
+
 
 

@@ -174,7 +174,7 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
         }
 
         // 4. 最近操作轨迹 (Breadcrumbs)
-        sb.append("\n--- [User Action Breadcrumbs (Last 25 Events)] ---\n")
+        sb.append("\n--- [User Action Breadcrumbs (Last 100 Events)] ---\n")
         val crumbs = Breadcrumbs.dump()
         if (crumbs.isEmpty()) {
             sb.append("(No breadcrumb records available)\n")
@@ -196,6 +196,21 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
         throwable.printStackTrace(pw)
         pw.flush()
         sb.append(sw.toString())
+
+        // 6. 最近进程 Logcat (脱敏输出，捕获崩溃前 C++ 与系统日志现场)
+        sb.append("\n\n--- [Recent Process Logcat (Last 200 Lines, Sanitized)] ---\n")
+        try {
+            val logs = DiagnosticsManager.captureProcessLogcat(200)
+            if (logs.isEmpty()) {
+                sb.append("(No process logcat entries captured)\n")
+            } else {
+                logs.forEach { line ->
+                    sb.append(DiagnosticsManager.sanitize(line)).append("\n")
+                }
+            }
+        } catch (_: Throwable) {
+            sb.append("(Failed to capture logcat on crash)\n")
+        }
 
         sb.append("\n===================================================\n")
         return sb.toString()

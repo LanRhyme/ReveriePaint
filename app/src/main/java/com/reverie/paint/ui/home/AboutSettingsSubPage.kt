@@ -83,6 +83,7 @@ fun AboutSettingsSubPage(
     var showContributorsDialog by remember { mutableStateOf(false) }
     var showSponsorsDialog by remember { mutableStateOf(false) }
     var showLicensesDialog by remember { mutableStateOf(false) }
+    var showDiagnosticsDialog by remember { mutableStateOf(false) }
     var autoCheckUpdates by remember { mutableStateOf(UpdateManager.isAutoCheckEnabled(context)) }
 
     // Subtle wave animation for the painting canvas header
@@ -421,32 +422,13 @@ fun AboutSettingsSubPage(
                 onClick = { showLicensesDialog = true },
             )
 
-            val logToastMessage = stringResource(R.string.settings_export_log_toast)
             // 导出日志 (Bottom Rounded)
             AboutGroupItem(
                 icon = Icons.AutoMirrored.Rounded.Article,
                 title = stringResource(R.string.settings_export_log),
                 summary = stringResource(R.string.settings_export_log_sub),
                 shape = RoundedCornerShape(topStart = 4.dp, topEnd = 4.dp, bottomStart = 18.dp, bottomEnd = 18.dp),
-                onClick = {
-                    val latest = com.reverie.paint.core.CrashHandler.getLatestCrashLog(context)
-                    val content = if (!latest.isNullOrBlank()) {
-                        latest
-                    } else {
-                        "ReveriePaint Diagnostics:\nApp: ${BuildConfig.VERSION_NAME} (${BuildConfig.VERSION_CODE})\nDevice: ${android.os.Build.MANUFACTURER} ${android.os.Build.MODEL}\nAndroid: ${android.os.Build.VERSION.RELEASE} (SDK ${android.os.Build.VERSION.SDK_INT})\nStatus: Normal (No crash logs recorded)"
-                    }
-                    val cm = context.getSystemService(Context.CLIPBOARD_SERVICE) as? android.content.ClipboardManager
-                    cm?.setPrimaryClip(android.content.ClipData.newPlainText("ReveriePaint Log", content))
-                    Toast.makeText(context, logToastMessage, Toast.LENGTH_SHORT).show()
-                    try {
-                        val shareIntent = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
-                            type = "text/plain"
-                            putExtra(android.content.Intent.EXTRA_SUBJECT, "ReveriePaint Diagnostics & Crash Log")
-                            putExtra(android.content.Intent.EXTRA_TEXT, content)
-                        }
-                        context.startActivity(android.content.Intent.createChooser(shareIntent, null))
-                    } catch (_: Throwable) {}
-                },
+                onClick = { showDiagnosticsDialog = true },
             )
         }
 
@@ -504,6 +486,11 @@ fun AboutSettingsSubPage(
     // 第三方开源许可对话框 (MicYou OpenSourceLibraries 规范)
     if (showLicensesDialog) {
         LicensesDialog(onDismiss = { showLicensesDialog = false })
+    }
+
+    // 全景系统运行诊断与混合日志对话框
+    if (showDiagnosticsDialog) {
+        com.reverie.paint.ui.dialog.DiagnosticsDialog(onDismiss = { showDiagnosticsDialog = false })
     }
 }
 

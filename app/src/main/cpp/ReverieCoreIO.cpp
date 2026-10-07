@@ -25,6 +25,10 @@
 #include <QBuffer>
 #include <QThread>
 #include <QtConcurrent/QtConcurrentMap>
+#include <unistd.h>
+#include <fcntl.h>
+#include <sys/stat.h>
+#include <sys/types.h>
 
 void ReverieCore::setAuthorProfile(const QString &jsonStr)
 {
@@ -504,11 +508,54 @@ bool writeRevpStore(const QString &path,
     if (outStats) closeTimer.start();
     store.reset(); // flushes and closes zip
 
-    QFile::remove(path);
-    if (!QFile::rename(tmpPath, path)) {
-        QFile::remove(path);
-        QFile::copy(tmpPath, path);
+    // 1. 验证写入后的临时文件非空且具备基础 ZIP 尺寸 (ZIP EOCD 记录最小 22 字节)
+    QFile tmpFile(tmpPath);
+    if (!tmpFile.exists() || tmpFile.size() < 22) {
+        qWarning() << "writeRevpStore: tmp file invalid or truncated, size=" << tmpFile.size();
+        tmpFile.remove();
+        return false;
+    }
+
+    // 2. 校验 ZIP 尾部 EOCD (End of Central Directory 签名 0x06054b50)
+    if (!tmpFile.open(QIODevice::ReadOnly)) {
+        qWarning() << "writeRevpStore: failed to open tmp file for verification:" << tmpPath;
+        tmpFile.remove();
+        return false;
+    }
+    const qint64 fileSize = tmpFile.size();
+    const qint64 searchLen = qMin<qint64>(fileSize, 1024);
+    if (!tmpFile.seek(fileSize - searchLen)) {
+        tmpFile.close();
+        tmpFile.remove();
+        return false;
+    }
+    const QByteArray tail = tmpFile.read(searchLen);
+    tmpFile.close();
+
+    const char eocdMagic[] = {0x50, 0x4b, 0x05, 0x06};
+    if (tail.indexOf(QByteArray::fromRawData(eocdMagic, 4)) < 0) {
+        qWarning() << "writeRevpStore: missing ZIP EOCD magic, file corrupted during write:" << tmpPath;
         QFile::remove(tmpPath);
+        return false;
+    }
+
+    // 3. fsync 强制物理落盘 (防断电/掉电导致闪存空洞)
+    int fd = ::open(tmpPath.toUtf8().constData(), O_RDONLY);
+    if (fd >= 0) {
+        ::fsync(fd);
+        ::close(fd);
+    }
+
+    // 4. POSIX 原子替换覆盖已有目标 (Linux ::rename 具备原子替换语义，杜绝提前 remove 造成的无文件窗口期)
+    const QByteArray srcUtf8 = tmpPath.toUtf8();
+    const QByteArray dstUtf8 = path.toUtf8();
+    if (::rename(srcUtf8.constData(), dstUtf8.constData()) != 0) {
+        qWarning() << "writeRevpStore: atomic ::rename failed, falling back to copy replacement";
+        QFile::remove(path);
+        if (!QFile::rename(tmpPath, path)) {
+            QFile::copy(tmpPath, path);
+            QFile::remove(tmpPath);
+        }
     }
     if (outStats) outStats->writeNs += closeTimer.nsecsElapsed();
 
@@ -1297,6 +1344,7 @@ bool ReverieCore::loadKraTree(const QByteArray &maindocBytes, KisImageSP image, 
 
 bool ReverieCore::loadRevp(const QString &path)
 {
+    m_lastLoadHealed = false;
     qWarning() << "ReverieCore::loadRevp START:" << path;
     QScopedPointer<KoStore> store(KoStore::createStore(path, KoStore::Read, "", KoStore::Zip));
     if (!store) {
@@ -1439,10 +1487,14 @@ bool ReverieCore::loadRevp(const QString &path)
     }
     bool treeLoaded = false;
     bool treeBgVisible = false;
+    bool treeHealed = false;
     if (!layersXml.isEmpty()) {
-        treeLoaded = loadLayersXmlTree(layersXml, image, store.data(), &treeBgVisible);
+        treeLoaded = loadLayersXmlTree(layersXml, image, store.data(), &treeBgVisible, &treeHealed);
         if (treeLoaded) {
             bgLayerVisible = treeBgVisible;
+            if (treeHealed) {
+                m_lastLoadHealed = true;
+            }
         }
     }
 
@@ -1450,10 +1502,12 @@ bool ReverieCore::loadRevp(const QString &path)
         treeLoaded = loadKraTree(kraMaindocBytes, image, store.data(), kraDocName, &treeBgVisible);
         if (treeLoaded) {
             bgLayerVisible = treeBgVisible;
+            m_lastLoadHealed = true;
         }
     }
 
     if (isKraFallback && !treeLoaded) {
+        m_lastLoadHealed = true;
         KisPaintLayerSP bg = new KisPaintLayer(image, QStringLiteral("背景"), 255, cs);
         KoColor white(QColor(Qt::white), cs);
         bg->original()->fill(QRect(0, 0, w, h), white);
@@ -1480,9 +1534,25 @@ bool ReverieCore::loadRevp(const QString &path)
         image->addNode(bg, image->rootLayer());
         bgLayerVisible = true;
 
-        KisPaintLayerSP paint = new KisPaintLayer(image, QStringLiteral("颜料图层 1"), 255, cs);
-        paint->original()->fill(QRect(0, 0, w, h), KoColor(Qt::transparent, cs));
-        paint->original()->setDirty();
+        // 自愈降级恢复：若无图层元数据但 ZIP 包含预览/缩略图，拯救为恢复画作图层
+        QImage fallbackImg;
+        if (store->open(QStringLiteral("preview.png")) || store->open(QStringLiteral("thumbnail.png")) || store->open(QStringLiteral("mergedimage.png"))) {
+            QByteArray imgData = readAllStoreBytes(store.data());
+            store->close();
+            if (!imgData.isEmpty()) {
+                fallbackImg.loadFromData(imgData, "PNG");
+            }
+        }
+
+        KisPaintLayerSP paint = new KisPaintLayer(image, fallbackImg.isNull() ? QStringLiteral("颜料图层 1") : QStringLiteral("恢复画作"), 255, cs);
+        if (!fallbackImg.isNull()) {
+            paint->original()->convertFromQImage(fallbackImg, 0);
+            paint->original()->setDirty();
+            m_lastLoadHealed = true;
+        } else {
+            paint->original()->fill(QRect(0, 0, w, h), KoColor(Qt::transparent, cs));
+            paint->original()->setDirty();
+        }
         image->addNode(paint, image->rootLayer());
     } else {
         LayerPixelLoader loader;

@@ -430,6 +430,18 @@
     <string name="toast_project_import_image_failed">导入图片失败: %s</string>
     <string name="project_default_import_name">导入作品</string>
     <string name="project_default_import_image_name">导入图片</string>
+    <string name="toast_project_healed_recovery">已通过容错自愈模式恢复工程图层</string>
+    <string name="toast_project_save_low_storage">可用存储空间过低，已取消保存以防文件损坏</string>
+    <string name="dialog_storage_insufficient_title">存储空间不足</string>
+    <string name="dialog_storage_insufficient_desc">设备剩余存储空间过低，为防止工程损坏已阻止写盘，请清理设备空间后重试</string>
+    <string name="diagnostics_dialog_title">系统运行诊断与日志</string>
+    <string name="diagnostics_dialog_desc">包含设备软硬件信息、内存状态、操作轨迹以及当前进程 Logcat，已自动对密码与 Token 脱敏</string>
+    <string name="diagnostics_dialog_generating">正在抓取并生成系统诊断日志...</string>
+    <string name="diagnostics_copy_btn">复制日志</string>
+    <string name="diagnostics_save_downloads_btn">保存到下载</string>
+    <string name="diagnostics_share_btn">分享日志</string>
+    <string name="diagnostics_save_success_toast">日志已保存至: %s</string>
+    <string name="diagnostics_save_failed_toast">保存日志文件失败</string>
 
     <!-- Tool Action Toasts -->
     <string name="toast_undo">撤销</string>
