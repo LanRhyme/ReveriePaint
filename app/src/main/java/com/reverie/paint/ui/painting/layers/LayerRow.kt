@@ -381,20 +381,29 @@ internal fun LayerRow(
             animationSpec = spring(dampingRatio = 0.65f, stiffness = 500f),
             label = "groupScale",
         )
+        val labelColor = if (layer.colorLabel > 0) layerLabelColor(layer.colorLabel) else Color.Transparent
         val selectionBg by animateColorAsState(
             targetValue =
                 when {
-                    dragOnGroup -> Morandi.accent.copy(alpha = 0.22f)
                     isDragging -> Color.Transparent
-                    selected -> Morandi.accent.copy(alpha = 0.22f)
-                    multiSelected -> Morandi.accent.copy(alpha = 0.14f)
-                    else -> Color.Transparent
+                    layer.colorLabel > 0 ->
+                        when {
+                            dragOnGroup || selected -> labelColor.copy(alpha = 0.26f)
+                            multiSelected -> labelColor.copy(alpha = 0.18f)
+                            else -> labelColor.copy(alpha = 0.12f)
+                        }
+                    else ->
+                        when {
+                            dragOnGroup || selected -> Morandi.accent.copy(alpha = 0.22f)
+                            multiSelected -> Morandi.accent.copy(alpha = 0.14f)
+                            else -> Color.Transparent
+                        }
                 },
             animationSpec = spring(dampingRatio = 0.90f, stiffness = 500f),
             label = "selectionBg",
         )
         val groupBorderColor by animateColorAsState(
-            targetValue = if (dragOnGroup) Morandi.accent else Color.Transparent,
+            targetValue = if (dragOnGroup) (if (layer.colorLabel > 0) labelColor else Morandi.accent) else Color.Transparent,
             animationSpec = tween(180),
             label = "groupBorderColor",
         )
@@ -622,19 +631,6 @@ internal fun LayerRowContent(
                         )
                     }
                 }
-            }
-
-            // Elegant color label badge at bottom-end of thumbnail
-            if (layer.colorLabel > 0) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(2.5.dp)
-                        .size(8.dp)
-                        .clip(CircleShape)
-                        .background(layerLabelColor(layer.colorLabel))
-                        .border(1.dp, Morandi.panel, CircleShape),
-                )
             }
         }
 
