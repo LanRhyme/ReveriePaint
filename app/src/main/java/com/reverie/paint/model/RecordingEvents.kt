@@ -46,6 +46,7 @@ object RecordingEvents {
     // tweaks between strokes are captured without hooking every setter)
     const val CONTEXT = 0x10
     const val CONTEXT_EXT = 0x11 // follows a CONTEXT; extended brush params (softness/spacing/.../smudge/airbrush)
+    // v2's trailing customization byte uses RecordedBrushOverrides; legacy 0/1 remain valid.
     const val CONTEXT_FADE = 0x12 // follows a CONTEXT; f32 fade (渐隐), diff-based, additive new-type event
 
     // Layer structural operations (payload: op u8, index u16, arg string)
