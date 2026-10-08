@@ -15,6 +15,7 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerId
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.IntSize
@@ -23,6 +24,7 @@ import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.CanvasViewTransform
 import com.reverie.paint.model.Point2D
 import com.reverie.paint.model.QuickShapeGeometry
+import com.reverie.paint.model.QuickShapeViewportGesture
 import com.reverie.paint.ui.painting.panels.QuickShapeTopBar
 import com.reverie.paint.ui.theme.Morandi
 
@@ -38,6 +40,7 @@ internal fun QuickShapeEditor(
     val shape = vm.activeQuickShape ?: return
     var reshapePointer by remember { mutableStateOf<PointerId?>(null) }
     val transform = remember { CanvasViewTransform() }
+    val viewportGesture = remember { QuickShapeViewportGesture() }
     var size by remember { mutableStateOf(IntSize.Zero) }
     val scale by rememberUpdatedState(fitScale)
     val density = LocalDensity.current.density
@@ -72,45 +75,35 @@ internal fun QuickShapeEditor(
                 // 单指仍然抓手柄/拖形状; 双指改为驱动画布平移/缩放, 避免控制点被
                 // 顶部胶囊盖住时连画布都无法移动 (编辑期间画布不再被锁死)。
                 var twoFinger = false
-                var startZoom = 1f
-                var startRotation = 0f
-                var startPanX = 0f
-                var startPanY = 0f
-                var startDist = 1f
-                val startDoc = FloatArray(2)
+                viewportGesture.reset()
                 do {
                     val event = awaitPointerEvent()
-                    val pressed = event.changes.filter { it.pressed }
-                    if (pressed.size >= 2) {
-                        val centroid = (pressed[0].position + pressed[1].position) / 2f
-                        val dist = (pressed[0].position - pressed[1].position).getDistance().coerceAtLeast(1f)
-                        if (!twoFinger) {
-                            twoFinger = true
-                            cancelled = true
-                            updateTransform()
-                            startZoom = zoom.value
-                            startRotation = rotation.value
-                            startPanX = panX.value
-                            startPanY = panY.value
-                            startDist = dist
-                            transform.screenToDoc(centroid.x, centroid.y, startDoc)
-                        } else {
-                            val newZoom = (startZoom * (dist / startDist)).coerceIn(0.02f, 128f)
-                            // 先按 startPan + newZoom 求 startDoc 的屏幕位置, 再补质心差值,
-                            // 于是缩放围绕双指中心, 且不用重写旋转/翻转数学。
-                            transform.update(
-                                size.width, size.height, startPanX, startPanY, newZoom, scale, startRotation,
-                                vm.renderW, vm.renderH, vm.docWidth, vm.docHeight, vm.viewFlipX, vm.viewFlipY,
-                            )
-                            transform.docToScreen(startDoc[0], startDoc[1], point)
+                    var first: PointerInputChange? = null
+                    var second: PointerInputChange? = null
+                    // The held contour modifier is not a viewport finger; avoid a per-event List.
+                    for (index in event.changes.indices) {
+                        val pointer = event.changes[index]
+                        if (!pointer.pressed || pointer.id == reshapePointer) continue
+                        if (first == null) first = pointer else { second = pointer; break }
+                    }
+                    if (first != null && second != null) {
+                        twoFinger = true
+                        cancelled = true
+                        if (viewportGesture.update(
+                                first.id.value, first.position.x, first.position.y,
+                                second.id.value, second.position.x, second.position.y,
+                                size.width, size.height, zoom.value, panX.value, panY.value,
+                                vm.isViewTransformLocked,
+                            )) {
                             onViewTransform(
-                                newZoom, startRotation,
-                                startPanX + (centroid.x - point[0]),
-                                startPanY + (centroid.y - point[1]),
+                                viewportGesture.zoom, rotation.value, viewportGesture.panX, viewportGesture.panY,
                             )
                             updateTransform()
                         }
-                    } else if (!twoFinger) {
+                    } else {
+                        viewportGesture.reset()
+                    }
+                    if (!twoFinger) {
                         if (event.changes.count { it.pressed && it.id != reshapePointer } > 1 ||
                             (reshape && reshapePointer == null)) cancelled = true
                         val change = event.changes.firstOrNull { it.id == down.id }
