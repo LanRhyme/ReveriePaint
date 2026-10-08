@@ -244,9 +244,14 @@ class QuickShapeTest {
         assertEquals(line.points[0].distanceTo(line.points[1]), p0.distanceTo(p1), 0.01f)
     }
 
-    @Test fun `snap to angle folds a rectangle rotation into 0-90`() {
+    @Test fun `snap to angle keeps horizontal and vertical rectangles distinct`() {
         val rect = QuickShapeResult(QuickShapeType.RECTANGLE, emptyList(), Point2D(0f, 0f), 60f, 30f, 0.3f)
-        assertEquals(0f, QuickShapeGeometry.snappedToAngle(rect, 90f).rotationRad, 0.001f)
+        val horizontal = QuickShapeGeometry.outline(QuickShapeGeometry.snappedToAngle(rect, 0f))
+        val vertical = QuickShapeGeometry.outline(QuickShapeGeometry.snappedToAngle(rect, 90f))
+        assertEquals(120f, horizontal.maxOf { it.x } - horizontal.minOf { it.x }, 0.001f)
+        assertEquals(60f, horizontal.maxOf { it.y } - horizontal.minOf { it.y }, 0.001f)
+        assertEquals(60f, vertical.maxOf { it.x } - vertical.minOf { it.x }, 0.001f)
+        assertEquals(120f, vertical.maxOf { it.y } - vertical.minOf { it.y }, 0.001f)
         assertEquals(45f * PI.toFloat() / 180f, QuickShapeGeometry.snappedToAngle(rect, 45f).rotationRad, 0.001f)
     }
 
@@ -293,6 +298,7 @@ class QuickShapeTest {
         assertEquals(line, QuickShapeGeometry.scaledBy(line, 0f))
         assertEquals(line, QuickShapeGeometry.scaledBy(line, Float.NaN))
         assertEquals(line, QuickShapeGeometry.snappedToAngle(line, Float.NaN))
+    }
     // ---- 逐点压感重采样 (开关关闭时仍走平均压感) ----
 
     @Test fun `pressure resample keeps the original variation`() {

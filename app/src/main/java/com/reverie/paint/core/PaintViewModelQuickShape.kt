@@ -14,6 +14,7 @@ internal data class QuickShapeDraft(
     val width: Int,
     val height: Int,
     val documentCreatedTime: Long,
+    val recognizedShape: QuickShapeResult,
     var nativeOriginalActive: Boolean = true,
 )
 
@@ -21,7 +22,8 @@ internal data class QuickShapeDraft(
 internal fun PaintViewModel.beginQuickShape(shape: QuickShapeResult, original: FloatArray) {
     if (original.size < 12 || renderHandler == null) return
     quickShapeCapture = null
-    quickShapeDraft = QuickShapeDraft(original, currentLayerIndex, anim.currentTime, docWidth, docHeight, canvasCreatedTime)
+    quickShapeDraft = QuickShapeDraft(original, currentLayerIndex, anim.currentTime, docWidth, docHeight,
+        canvasCreatedTime, shape)
     stopAirbrush()
     disarmStrokeStartKick()
     activeQuickShape = QuickShapeGeometry.snapLine(shape, quickShapeAngleSnapEnabled)
@@ -59,21 +61,20 @@ private fun PaintViewModel.finishQuickShape(restoreOriginal: Boolean) {
         }) {}
         return
     }
-    val samples = if (restoreOriginal) draft.original else {
+    val samples = if (restoreOriginal) draft.original else if (quickShapePerPointPressureEnabled) {
+        QuickShapePressure.stroke(draft.original, draft.recognizedShape, shape)
+    } else {
         val path = QuickShapeGeometry.outline(shape)
         if (path.size < 2 || path.any { !it.x.isFinite() || !it.y.isFinite() }) return
-        val pressures = if (quickShapePerPointPressureEnabled) {
-            QuickShapePressure.resample(draft.original, path.size)
-        } else {
-            FloatArray(path.size) { QuickShapePressure.average(draft.original) }
-        }
+        val pressure = QuickShapePressure.average(draft.original)
         FloatArray(path.size * 6).also { out ->
             path.forEachIndexed { i, p ->
-                out[i * 6] = p.x; out[i * 6 + 1] = p.y; out[i * 6 + 2] = pressures[i]
+                out[i * 6] = p.x; out[i * 6 + 1] = p.y; out[i * 6 + 2] = pressure
                 out[i * 6 + 3] = draft.original[3]; out[i * 6 + 4] = draft.original[4]
             }
         }
     }
+    if (samples.size < 12) return
     quickShapeCommitting = true
     if (draft.nativeOriginalActive) {
         touchCancel()

@@ -193,7 +193,7 @@ object QuickShapeGeometry {
     /**
      * 精确摆正到指定朝向 (度)。
      * 与识别期的吸附容差无关: 用户点名要哪个角度就摆到哪个角度。
-     * 直线按目标角重建 (保中点与长度); 矩形把旋转角折叠到 [0,90); 四边形/轮廓整体旋转首边到目标角。
+     * 直线按目标角重建 (保中点与长度); 矩形保留目标朝向; 四边形/轮廓整体旋转首边到目标角。
      */
     fun snappedToAngle(shape: QuickShapeResult, targetDeg: Float): QuickShapeResult {
         if (!targetDeg.isFinite()) return shape
@@ -219,7 +219,7 @@ object QuickShapeGeometry {
             }
             QuickShapeType.RECTANGLE -> {
                 if (!shape.rotationRad.isFinite()) shape
-                else shape.copy(rotationRad = ((target % 90f) + 90f) % 90f * DEG_TO_RAD)
+                else shape.copy(rotationRad = target * DEG_TO_RAD)
             }
             QuickShapeType.QUADRILATERAL, QuickShapeType.CONTOUR -> {
                 val vs = shape.points
