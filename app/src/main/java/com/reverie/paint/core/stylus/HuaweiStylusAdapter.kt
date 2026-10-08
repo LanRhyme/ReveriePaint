@@ -60,6 +60,12 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
         private const val DEDUPLICATE_WINDOW_MS = 250L
     }
 
+    private var isSupportedHuaweiDevice: Boolean = run {
+        val m = Build.MANUFACTURER.lowercase()
+        val b = Build.BRAND.lowercase()
+        m.contains("huawei") || b.contains("huawei")
+    }
+
     private var isReceiverRegistered = false
     private var registeredContextRef: WeakReference<Context>? = null
     private var currentAppContext: Context? = null
@@ -336,6 +342,7 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
         val manufacturer = Build.MANUFACTURER.lowercase()
         val brandName = Build.BRAND.lowercase()
         val isHuawei = manufacturer.contains("huawei") || brandName.contains("huawei")
+        isSupportedHuaweiDevice = isHuawei
 
         var stylusConnected = false
         try {
@@ -387,6 +394,7 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
         vm: PaintViewModel,
         feedbackManager: StylusFeedbackManager,
     ): Boolean {
+        if (!isSupportedHuaweiDevice) return false
         val buttonState = event.buttonState
         val isPrimaryBtnDown = (buttonState and MotionEvent.BUTTON_PRIMARY) != 0 ||
                 (buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0 ||
@@ -465,6 +473,7 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
         vm: PaintViewModel,
         feedbackManager: StylusFeedbackManager,
     ): Boolean {
+        if (!isSupportedHuaweiDevice) return false
         val keyCode = event.keyCode
         val dev = event.device
         val isStylusDev = (event.source and android.view.InputDevice.SOURCE_STYLUS) != 0 ||

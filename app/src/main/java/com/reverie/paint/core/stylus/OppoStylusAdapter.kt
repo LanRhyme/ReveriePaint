@@ -33,6 +33,12 @@ class OppoStylusAdapter : StylusBrandAdapter {
         const val ACTION_OPPO_SINGLE_CLICK_LEGACY = "com.oplus.ipemanager.pencil.single_click"
     }
 
+    private var isSupportedOppoDevice: Boolean = run {
+        val m = Build.MANUFACTURER.lowercase()
+        val b = Build.BRAND.lowercase()
+        m.contains("oppo") || b.contains("oppo") || m.contains("oneplus") || b.contains("oneplus") || m.contains("realme") || b.contains("realme")
+    }
+
     private var isReceiverRegistered = false
     private var isObserverRegistered = false
     private var lastSlideTime: Long = 0L
@@ -115,6 +121,7 @@ class OppoStylusAdapter : StylusBrandAdapter {
         val isOppoDevice = manufacturer.contains("oppo") || brandName.contains("oppo") ||
                 manufacturer.contains("oneplus") || brandName.contains("oneplus") ||
                 manufacturer.contains("realme") || brandName.contains("realme")
+        isSupportedOppoDevice = isOppoDevice
 
         val btName = try {
             Settings.Global.getString(context.contentResolver, "ipe_pencil_bt_device_name")
@@ -182,6 +189,7 @@ class OppoStylusAdapter : StylusBrandAdapter {
         vm: PaintViewModel,
         feedbackManager: StylusFeedbackManager,
     ): Boolean {
+        if (!isSupportedOppoDevice) return false
         if (event.action == MotionEvent.ACTION_SCROLL || event.actionMasked == MotionEvent.ACTION_SCROLL) {
             val vScroll = event.getAxisValue(MotionEvent.AXIS_VSCROLL)
             val hScroll = event.getAxisValue(MotionEvent.AXIS_HSCROLL)
@@ -225,6 +233,7 @@ class OppoStylusAdapter : StylusBrandAdapter {
         vm: PaintViewModel,
         feedbackManager: StylusFeedbackManager,
     ): Boolean {
+        if (!isSupportedOppoDevice) return false
         val keyCode = event.keyCode
         val dev = event.device
         val isStylusDev = (event.source and android.view.InputDevice.SOURCE_STYLUS) != 0 ||

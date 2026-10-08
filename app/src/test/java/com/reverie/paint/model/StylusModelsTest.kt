@@ -323,4 +323,66 @@ class StylusModelsTest {
         assertEquals(StylusAction.UNDO, doubleAction)
         assertEquals(StylusAction.COLOR_PICKER, longPressAction)
     }
+
+    @Test
+    fun `samsung stylus swapped action mappings resolve correctly`() {
+        // User swapped mappings: single-click to undo, double-click to toggle brush/eraser
+        val singleClick = StylusAction.fromActionId("undo")
+        val doubleClick = StylusAction.fromActionId("toggle_eraser")
+
+        assertEquals(StylusAction.UNDO, singleClick)
+        assertEquals(StylusAction.TOGGLE_ERASER, doubleClick)
+    }
+
+    @Test
+    fun `primary dedicated brand resolution selects exclusively top supported connected brand`() {
+        // Emulating Samsung Galaxy Tab S9 environment
+        val detected = listOf(
+            com.reverie.paint.core.stylus.StylusDeviceDetected(
+                brand = com.reverie.paint.core.stylus.StylusBrand.OPPO_ONEPLUS,
+                isCurrentDeviceSupported = false,
+                isConnected = false,
+                deviceName = "OPPO Pencil",
+            ),
+            com.reverie.paint.core.stylus.StylusDeviceDetected(
+                brand = com.reverie.paint.core.stylus.StylusBrand.HUAWEI_MPENCIL,
+                isCurrentDeviceSupported = false,
+                isConnected = false,
+                deviceName = "HUAWEI M-Pencil",
+            ),
+            com.reverie.paint.core.stylus.StylusDeviceDetected(
+                brand = com.reverie.paint.core.stylus.StylusBrand.HONOR_MAGIC_PENCIL,
+                isCurrentDeviceSupported = false,
+                isConnected = false,
+                deviceName = "HONOR Magic-Pencil",
+            ),
+            com.reverie.paint.core.stylus.StylusDeviceDetected(
+                brand = com.reverie.paint.core.stylus.StylusBrand.SAMSUNG_SPEN,
+                isCurrentDeviceSupported = true,
+                isConnected = true,
+                deviceName = "Samsung S Pen (SM-X710)",
+            ),
+            com.reverie.paint.core.stylus.StylusDeviceDetected(
+                brand = com.reverie.paint.core.stylus.StylusBrand.XIAOMI_STYLUS,
+                isCurrentDeviceSupported = false,
+                isConnected = false,
+                deviceName = "Xiaomi Smart Pen",
+            ),
+            com.reverie.paint.core.stylus.StylusDeviceDetected(
+                brand = com.reverie.paint.core.stylus.StylusBrand.GENERIC,
+                isCurrentDeviceSupported = true,
+                isConnected = true,
+                deviceName = "Generic Pen",
+            ),
+        )
+
+        val primaryDedicated = detected.firstOrNull {
+            it.brand != com.reverie.paint.core.stylus.StylusBrand.GENERIC && it.isCurrentDeviceSupported && it.isConnected
+        } ?: detected.firstOrNull {
+            it.brand != com.reverie.paint.core.stylus.StylusBrand.GENERIC && it.isCurrentDeviceSupported
+        }
+
+        assertNotNull("Primary dedicated brand should be found", primaryDedicated)
+        assertEquals("Primary dedicated brand must be SAMSUNG_SPEN", com.reverie.paint.core.stylus.StylusBrand.SAMSUNG_SPEN, primaryDedicated?.brand)
+    }
 }

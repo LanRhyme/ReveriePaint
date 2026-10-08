@@ -29,6 +29,12 @@ class XiaomiStylusAdapter : StylusBrandAdapter {
         private const val KEY_FOCUS_KEYCODE_2 = KeyEvent.KEYCODE_F1
     }
 
+    private var isSupportedXiaomiDevice: Boolean = run {
+        val m = Build.MANUFACTURER.lowercase()
+        val b = Build.BRAND.lowercase()
+        m.contains("xiaomi") || b.contains("xiaomi") || b.contains("redmi") || m.contains("redmi")
+    }
+
     private val handler = Handler(Looper.getMainLooper())
 
     // Primary button tracking
@@ -77,6 +83,7 @@ class XiaomiStylusAdapter : StylusBrandAdapter {
         val manufacturer = Build.MANUFACTURER.lowercase()
         val brandName = Build.BRAND.lowercase()
         val isXiaomiDevice = manufacturer.contains("xiaomi") || brandName.contains("xiaomi") || brandName.contains("redmi")
+        isSupportedXiaomiDevice = isXiaomiDevice
 
         var xiaomiStylusConnected = false
         var detectedPenName = "小米灵感触控笔"
@@ -236,6 +243,7 @@ class XiaomiStylusAdapter : StylusBrandAdapter {
         vm: PaintViewModel,
         feedbackManager: StylusFeedbackManager,
     ): Boolean {
+        if (!isSupportedXiaomiDevice) return false
         // Forward to Xiaomi PenEngine SDK if available on HyperOS
         if (onDispatchKeyEventMethod != null) {
             try {
@@ -304,6 +312,7 @@ class XiaomiStylusAdapter : StylusBrandAdapter {
         vm: PaintViewModel,
         feedbackManager: StylusFeedbackManager,
     ): Boolean {
+        if (!isSupportedXiaomiDevice) return false
         val buttonState = event.buttonState
         val isPrimaryBtnDown = (buttonState and MotionEvent.BUTTON_PRIMARY) != 0 ||
                 (buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0

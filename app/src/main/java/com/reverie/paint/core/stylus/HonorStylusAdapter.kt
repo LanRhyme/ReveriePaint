@@ -52,6 +52,12 @@ class HonorStylusAdapter : StylusBrandAdapter {
         private const val DEDUPLICATE_WINDOW_MS = 250L
     }
 
+    private var isSupportedHonorDevice: Boolean = run {
+        val m = Build.MANUFACTURER.lowercase()
+        val b = Build.BRAND.lowercase()
+        m.contains("honor") || b.contains("honor")
+    }
+
     private var isReceiverRegistered = false
     private var registeredContextRef: WeakReference<Context>? = null
     private var currentAppContext: Context? = null
@@ -308,6 +314,7 @@ class HonorStylusAdapter : StylusBrandAdapter {
         val manufacturer = Build.MANUFACTURER.lowercase()
         val brandName = Build.BRAND.lowercase()
         val isHonor = manufacturer.contains("honor") || brandName.contains("honor")
+        isSupportedHonorDevice = isHonor
 
         var stylusConnected = false
         try {
@@ -359,6 +366,7 @@ class HonorStylusAdapter : StylusBrandAdapter {
         vm: PaintViewModel,
         feedbackManager: StylusFeedbackManager,
     ): Boolean {
+        if (!isSupportedHonorDevice) return false
         val keyCode = event.keyCode
         val isStylusKey = keyCode == KeyEvent.KEYCODE_STYLUS_BUTTON_PRIMARY ||
                 keyCode == KeyEvent.KEYCODE_STYLUS_BUTTON_SECONDARY ||
@@ -401,6 +409,7 @@ class HonorStylusAdapter : StylusBrandAdapter {
         vm: PaintViewModel,
         feedbackManager: StylusFeedbackManager,
     ): Boolean {
+        if (!isSupportedHonorDevice) return false
         val buttonState = event.buttonState
         val isSideButtonPressed = (buttonState and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0 ||
                 (buttonState and MotionEvent.BUTTON_SECONDARY) != 0

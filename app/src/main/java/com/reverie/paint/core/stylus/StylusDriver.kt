@@ -132,23 +132,40 @@ class StylusDriver(
                 .thenByDescending { it.isCurrentDeviceSupported }
                 .thenByDescending { it.isConnected }
         )
-        cachedPrimaryBrand = detected.firstOrNull()?.brand
-        hasDedicatedActiveStylus = detected.any {
+        val primaryDedicated = detected.firstOrNull {
             it.brand != StylusBrand.GENERIC && it.isCurrentDeviceSupported && it.isConnected
+        } ?: detected.firstOrNull {
+            it.brand != StylusBrand.GENERIC && it.isCurrentDeviceSupported
         }
+        cachedPrimaryBrand = primaryDedicated?.brand ?: detected.firstOrNull()?.brand
+        hasDedicatedActiveStylus = primaryDedicated != null
         return detected
+    }
+
+    /**
+     * Retrieves the single active adapter for the current platform/hardware.
+     * Prevents cross-brand event leakage (e.g. HUAWEI M-Pencil intercepting Samsung S Pen KeyEvents).
+     */
+    fun getActiveAdapter(): StylusBrandAdapter? {
+        val brand = cachedPrimaryBrand ?: run {
+            val d = detectDevices().firstOrNull()
+            cachedPrimaryBrand = d?.brand
+            d?.brand
+        }
+        if (hasDedicatedActiveStylus && brand != null && brand != StylusBrand.GENERIC) {
+            return getAdapterForBrand(brand)
+        }
+        if (vm.genericStylusEnabled) {
+            return getAdapterForBrand(StylusBrand.GENERIC)
+        }
+        return null
     }
 
     /**
      * Handles generic motion events (e.g. ACTION_SCROLL from stylus barrel slide).
      */
     fun onGenericMotionEvent(event: MotionEvent): Boolean {
-        for (adapter in adapters) {
-            if (adapter.onGenericMotionEvent(event, vm, feedbackManager)) {
-                return true
-            }
-        }
-        return false
+        return getActiveAdapter()?.onGenericMotionEvent(event, vm, feedbackManager) ?: false
     }
 
     /**
@@ -157,15 +174,7 @@ class StylusDriver(
      */
     fun onStylusMotionEvent(event: MotionEvent): Boolean {
         if (onGenericMotionEvent(event)) return true
-        for (adapter in adapters) {
-            if (adapter.brand == StylusBrand.GENERIC && (!vm.genericStylusEnabled || hasDedicatedActiveStylus)) {
-                continue
-            }
-            if (adapter.onStylusMotionEvent(event, vm, feedbackManager)) {
-                return true
-            }
-        }
-        return false
+        return getActiveAdapter()?.onStylusMotionEvent(event, vm, feedbackManager) ?: false
     }
 
     /**
@@ -173,9 +182,7 @@ class StylusDriver(
      * tracked across hover events (e.g. S Pen side button) is reset safely.
      */
     fun onStylusHoverExited() {
-        for (adapter in adapters) {
-            adapter.onStylusHoverExited(vm, feedbackManager)
-        }
+        getActiveAdapter()?.onStylusHoverExited(vm, feedbackManager)
     }
 
     /**
@@ -214,15 +221,7 @@ class StylusDriver(
         if (!isStylusKeyEvent(event)) {
             return false
         }
-        for (adapter in adapters) {
-            if (adapter.brand == StylusBrand.GENERIC && (!vm.genericStylusEnabled || hasDedicatedActiveStylus)) {
-                continue
-            }
-            if (adapter.onStylusKeyEvent(event, vm, feedbackManager)) {
-                return true
-            }
-        }
-        return false
+        return getActiveAdapter()?.onStylusKeyEvent(event, vm, feedbackManager) ?: false
     }
 
     private fun isStylusKeyEvent(event: KeyEvent): Boolean {
