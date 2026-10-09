@@ -45,6 +45,7 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
+import com.reverie.paint.core.FontManager
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.commitTypographyToCanvas
 import com.reverie.paint.ui.components.ReTextButton
@@ -63,8 +64,14 @@ fun TypographyPanel(
     modifier: Modifier = Modifier,
 ) {
     val cfg = vm.typographyConfig
+    val context = androidx.compose.ui.platform.LocalContext.current
     var propsOpen by remember { mutableStateOf(false) }
+    var fontPickerOpen by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
+
+    if (fontPickerOpen) {
+        FontPickerDialog(vm = vm, onDismiss = { fontPickerOpen = false })
+    }
 
     ToolFloatPanel(modifier = modifier, vm = vm, hazeState = hazeState) {
         Column(
@@ -118,7 +125,18 @@ fun TypographyPanel(
                     onClick = { vm.typographyConfig = cfg.copy(alignment = 2) },
                 )
 
-                // 4. 展开详细排版属性
+                // 4. 磁吸吸附开关
+                ToolFloatChip(
+                    label = androidx.compose.ui.res.stringResource(R.string.typography_snap),
+                    selected = cfg.snapEnabled,
+                    onClick = {
+                        val next = !cfg.snapEnabled
+                        vm.typographyConfig = cfg.copy(snapEnabled = next)
+                        if (!next) vm.typographySnapGuides = emptyList()
+                    },
+                )
+
+                // 5. 展开详细排版属性
                 ToolActionButton(
                     iconRes = R.drawable.ic_sliders,
                     label = if (propsOpen) androidx.compose.ui.res.stringResource(R.string.typography_collapse) else androidx.compose.ui.res.stringResource(R.string.typography_props),
@@ -126,7 +144,7 @@ fun TypographyPanel(
                     onClick = { propsOpen = !propsOpen },
                 )
 
-                // 5. 完成 (✔) 与 取消 (✕)
+                // 6. 完成 (✔) 与 取消 (✕)
                 ToolActionButton(
                     iconRes = R.drawable.ic_check,
                     label = androidx.compose.ui.res.stringResource(R.string.confirm),
@@ -137,7 +155,10 @@ fun TypographyPanel(
                     iconRes = R.drawable.ic_x,
                     label = androidx.compose.ui.res.stringResource(R.string.cancel),
                     danger = true,
-                    onClick = { vm.isTypographyEditing = false },
+                    onClick = {
+                        vm.isTypographyEditing = false
+                        vm.typographySnapGuides = emptyList()
+                    },
                 )
             }
 
@@ -153,29 +174,54 @@ fun TypographyPanel(
                         .widthIn(min = 280.dp, max = 340.dp)
                         .padding(horizontal = 4.dp, vertical = 2.dp),
                 ) {
-                    // 字体族选择
+                    // 字体选择入口卡片
+                    val currentFontDisplay = remember(cfg.fontFamilyName, cfg.fontPath) {
+                        FontManager.resolveDisplayName(context, cfg.fontFamilyName, cfg.fontPath)
+                    }
+
                     Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Morandi.panel)
+                            .border(1.dp, Morandi.border, RoundedCornerShape(6.dp))
+                            .clickable { fontPickerOpen = true }
+                            .padding(horizontal = 10.dp, vertical = 7.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
                     ) {
-                        listOf(
-                            androidx.compose.ui.res.stringResource(R.string.typography_font_default_short) to "default",
-                            androidx.compose.ui.res.stringResource(R.string.typography_font_serif_short) to "serif",
-                            androidx.compose.ui.res.stringResource(R.string.typography_font_monospace_short) to "monospace",
-                            androidx.compose.ui.res.stringResource(R.string.typography_font_cursive_short) to "cursive",
-                        ).forEach { (short, id) ->
-                            val sel = cfg.fontFamilyName == id || (id == "default" && cfg.fontFamilyName == "系统默认") || (id == "serif" && cfg.fontFamilyName == "衬线体") || (id == "monospace" && cfg.fontFamilyName == "等宽体") || (id == "cursive" && cfg.fontFamilyName == "手写体")
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(if (sel) Morandi.accent else Morandi.border.copy(alpha = 0.35f))
-                                    .clickable { vm.typographyConfig = cfg.copy(fontFamilyName = id) }
-                                    .padding(vertical = 5.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(short, color = if (sel) Color.White else Morandi.text, fontSize = 11.sp)
-                            }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_text),
+                                contentDescription = null,
+                                tint = Morandi.accent,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Text(
+                                text = androidx.compose.ui.res.stringResource(R.string.typography_font_family),
+                                color = Morandi.subText,
+                                fontSize = 12.sp,
+                            )
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Text(
+                                text = currentFontDisplay,
+                                color = Morandi.text,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                            Icon(
+                                painter = painterResource(R.drawable.ic_chevron),
+                                contentDescription = null,
+                                tint = Morandi.subText,
+                                modifier = Modifier.size(14.dp),
+                            )
                         }
                     }
 

@@ -6397,6 +6397,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 activeTextHandle = hit
                 textDragStartDocPos = docPos
                 textDragStartCfg = v.typographyConfig
+                v.typographySnapGuides = emptyList()
                 return
             }
 
@@ -6417,6 +6418,7 @@ class CanvasTouchView(context: Context) : View(context) {
             textColor = v.brushColor,
         )
         v.isTypographyEditing = true
+        v.typographySnapGuides = emptyList()
         activeTextHandle = -1
         lastTextTapTimeMs = now
         lastTextTapDocPos = docPos
@@ -6430,10 +6432,41 @@ class CanvasTouchView(context: Context) : View(context) {
         when (activeTextHandle) {
             -10 -> {
                 val delta = docPos - textDragStartDocPos
-                v.typographyConfig = textDragStartCfg.copy(
-                    posX = textDragStartCfg.posX + delta.x,
-                    posY = textDragStartCfg.posY + delta.y,
-                )
+                val rawLeft = textDragStartCfg.posX + delta.x
+                val rawTop = textDragStartCfg.posY + delta.y
+
+                if (textDragStartCfg.snapEnabled) {
+                    val paint = TypographyEngine.createTextPaint(textDragStartCfg, v.brushOpacity)
+                    val targetW = textDragStartCfg.boxWidth.toInt().coerceAtLeast(60)
+                    val layout = TypographyEngine.createLayout(textDragStartCfg, paint, targetW)
+                    val textW = layout.width.toFloat()
+                    val textH = layout.height.toFloat()
+
+                    val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
+                    val snapThreshold = (16f * density) / currentScale
+                    val margin = minOf(v.docWidth, v.docHeight) * 0.05f
+                    val snapResult = com.reverie.paint.model.TypographySnapHelper.calculateSnap(
+                        boxLeft = rawLeft,
+                        boxTop = rawTop,
+                        boxWidth = textW,
+                        boxHeight = textH,
+                        canvasWidth = v.docWidth,
+                        canvasHeight = v.docHeight,
+                        threshold = snapThreshold,
+                        safeMargin = margin,
+                    )
+                    v.typographyConfig = textDragStartCfg.copy(
+                        posX = snapResult.snappedLeft,
+                        posY = snapResult.snappedTop,
+                    )
+                    v.typographySnapGuides = snapResult.guides
+                } else {
+                    v.typographyConfig = textDragStartCfg.copy(
+                        posX = rawLeft,
+                        posY = rawTop,
+                    )
+                    v.typographySnapGuides = emptyList()
+                }
             }
             -20 -> {
                 val paint = TypographyEngine.createTextPaint(textDragStartCfg, v.brushOpacity)
@@ -6457,6 +6490,7 @@ class CanvasTouchView(context: Context) : View(context) {
     private fun handleTextUp(docPos: Offset) {
         activeTextHandle = -1
         textDragStartDocPos = Offset.Zero
+        vm?.typographySnapGuides = emptyList()
     }
 
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {

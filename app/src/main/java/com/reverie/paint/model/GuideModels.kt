@@ -145,6 +145,7 @@ data class DrawingGuideConfig(
 data class TypographyConfig(
     val text: String = "点击编辑文字",
     val fontFamilyName: String = "系统默认",
+    val fontPath: String? = null,
     val fontSize: Float = 48f,
     val letterSpacingSp: Float = 0f, // Kerning / 字间距
     val lineHeightMultiplier: Float = 1.2f, // Leading / 行间距倍数
@@ -158,6 +159,7 @@ data class TypographyConfig(
     val posY: Float = 100f,
     val boxWidth: Float = 400f,
     val rotationDeg: Float = 0f,
+    val snapEnabled: Boolean = true,
 )
 
 /**

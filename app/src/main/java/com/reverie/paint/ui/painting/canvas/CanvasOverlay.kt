@@ -1234,6 +1234,37 @@ internal fun CanvasOverlay(
                         )
                         drawTextHandle(rotPos)
                     }
+
+                    // 5. 磁吸吸附对齐动态参考线 (沿画布全长贯穿的 Morandi 虚线)
+                    if (vm.typographySnapGuides.isNotEmpty()) {
+                        for (guide in vm.typographySnapGuides) {
+                            val isCenter = guide.type == com.reverie.paint.model.SnapGuideType.CENTER
+                            val color = if (isCenter) Morandi.accent else Morandi.accent.copy(alpha = 0.55f)
+                            val strokeWidth = if (isCenter) 1.5.dp.toPx() / currentScale else 1.0.dp.toPx() / currentScale
+                            val pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                floatArrayOf(6.dp.toPx() / currentScale, 4.dp.toPx() / currentScale),
+                            )
+                            if (guide.isVertical) {
+                                val sx = guide.position * scX - bmp.width / 2f
+                                drawLine(
+                                    color = color,
+                                    start = Offset(sx, -bmp.height / 2f),
+                                    end = Offset(sx, bmp.height / 2f),
+                                    strokeWidth = strokeWidth,
+                                    pathEffect = pathEffect,
+                                )
+                            } else {
+                                val sy = guide.position * scY - bmp.height / 2f
+                                drawLine(
+                                    color = color,
+                                    start = Offset(-bmp.width / 2f, sy),
+                                    end = Offset(bmp.width / 2f, sy),
+                                    strokeWidth = strokeWidth,
+                                    pathEffect = pathEffect,
+                                )
+                            }
+                        }
+                    }
                 }
 
                 val isSelecting = liveSelectionPath.value != null ||

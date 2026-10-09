@@ -24,25 +24,36 @@ import kotlin.math.ceil
  */
 object TypographyEngine {
 
-    fun createTypeface(family: String, isBold: Boolean, isItalic: Boolean): Typeface {
+    fun createTypeface(
+        family: String,
+        fontPath: String? = null,
+        isBold: Boolean = false,
+        isItalic: Boolean = false,
+    ): Typeface {
         val style = when {
             isBold && isItalic -> Typeface.BOLD_ITALIC
             isBold -> Typeface.BOLD
             isItalic -> Typeface.ITALIC
             else -> Typeface.NORMAL
         }
-        val base = when (family) {
-            "衬线体", "衬线", "serif" -> Typeface.SERIF
-            "等宽体", "等宽", "monospace" -> Typeface.MONOSPACE
-            "手写体", "手写", "无衬线体", "黑体", "sans-serif", "cursive" -> Typeface.SANS_SERIF
-            else -> Typeface.DEFAULT
+        val custom = FontManager.getTypeface(family, fontPath)
+        return if (custom != null) {
+            if (style != Typeface.NORMAL) Typeface.create(custom, style) else custom
+        } else {
+            val base = when (family) {
+                "衬线体", "衬线", "serif", "system:serif" -> Typeface.SERIF
+                "等宽体", "等宽", "monospace", "system:monospace" -> Typeface.MONOSPACE
+                "手写体", "手写", "cursive", "system:cursive" -> Typeface.create("cursive", Typeface.NORMAL)
+                "无衬线体", "黑体", "sans-serif", "system:sans" -> Typeface.SANS_SERIF
+                else -> Typeface.DEFAULT
+            }
+            Typeface.create(base, style)
         }
-        return Typeface.create(base, style)
     }
 
     fun createTextPaint(cfg: TypographyConfig, opacity: Double = 1.0): TextPaint {
         return TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            typeface = createTypeface(cfg.fontFamilyName, cfg.isBold, cfg.isItalic)
+            typeface = createTypeface(cfg.fontFamilyName, cfg.fontPath, cfg.isBold, cfg.isItalic)
             textSize = cfg.fontSize.coerceAtLeast(8f)
             isUnderlineText = cfg.isUnderline
             val parsedCol = try {

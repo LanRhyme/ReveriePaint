@@ -627,6 +627,7 @@ fun PaintingPage(
                 vm.commitTypographyToCanvas()
             } else {
                 vm.isTypographyEditing = false
+                vm.typographySnapGuides = emptyList()
             }
         }
         if (tool != Tool.LASSO && vm.lassoMultiPoints.isNotEmpty()) {
@@ -2171,6 +2172,7 @@ fun PaintingPage(
                     textDialogPos = null
                     if (vm.typographyConfig.text.isBlank()) {
                         vm.isTypographyEditing = false
+                        vm.typographySnapGuides = emptyList()
                     }
                 },
             )

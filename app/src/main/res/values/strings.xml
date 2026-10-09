@@ -1482,6 +1482,18 @@
     <string name="typography_line_height">行距</string>
     <string name="typography_dialog_title">编辑文本内容</string>
     <string name="typography_dialog_placeholder">在此输入文字内容 (支持换行)...</string>
+    <string name="typography_snap">磁吸</string>
+    <string name="typography_font_family">字体</string>
+    <string name="typography_font_sans">无衬线体</string>
+    <string name="typography_font_picker_title">选择字体</string>
+    <string name="typography_font_preset_category">系统与预设</string>
+    <string name="typography_font_custom_category">自定义字体</string>
+    <string name="typography_font_import_btn">导入本地字体 (TTF / OTF)</string>
+    <string name="typography_font_preview_sample">永和九年，岁在癸丑 · AaBb 123</string>
+    <string name="typography_font_import_success">字体导入成功</string>
+    <string name="typography_font_import_failed">字体导入失败，请检查文件格式</string>
+    <string name="typography_font_empty_custom">暂未导入自定义字体</string>
+    <string name="typography_font_delete">删除字体</string>
 
     <!-- Drawing Guide Panel -->
     <string name="guide_title">绘图辅助</string>

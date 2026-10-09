@@ -2650,6 +2650,7 @@ internal fun PaintViewModel.commitTypographyToCanvas() {
     }
 
     isTypographyEditing = false
+    typographySnapGuides = emptyList()
     showActionToast(R.string.toast_text_created, R.drawable.ic_check)
 }
 

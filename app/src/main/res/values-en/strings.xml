@@ -1482,6 +1482,18 @@
     <string name="typography_line_height">Line Height</string>
     <string name="typography_dialog_title">Edit Text</string>
     <string name="typography_dialog_placeholder">Type text here (multi-line supported)...</string>
+    <string name="typography_snap">Snap</string>
+    <string name="typography_font_family">Font</string>
+    <string name="typography_font_sans">Sans-Serif</string>
+    <string name="typography_font_picker_title">Select Font</string>
+    <string name="typography_font_preset_category">System &amp; Presets</string>
+    <string name="typography_font_custom_category">Custom Fonts</string>
+    <string name="typography_font_import_btn">Import Font (TTF / OTF)</string>
+    <string name="typography_font_preview_sample">The quick brown fox jumps over the lazy dog · 123</string>
+    <string name="typography_font_import_success">Font imported successfully</string>
+    <string name="typography_font_import_failed">Failed to import font, check file format</string>
+    <string name="typography_font_empty_custom">No custom fonts imported</string>
+    <string name="typography_font_delete">Delete Font</string>
 
     <!-- Drawing Guide Panel -->
     <string name="guide_title">Drawing Guide</string>

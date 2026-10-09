@@ -1671,6 +1671,7 @@ class PaintViewModel : ViewModel() {
     // 画布内富文本排版状态 (In-place Typography)
     var typographyConfig by mutableStateOf(TypographyConfig())
     var isTypographyEditing by mutableStateOf(false)
+    var typographySnapGuides by mutableStateOf<List<com.reverie.paint.model.TypographySnapGuide>>(emptyList())
 
     var pressureCurvePreset by mutableIntStateOf(0) // 0: 线性, 1: 轻压灵敏, 2: 重压偏硬, 3: S型, 4: 自定义
     var pressureControlPoints by mutableStateOf(
