@@ -280,7 +280,7 @@
     <string name="settings_auto_save_info_title">自动保存机制说明</string>
     <string name="settings_auto_save_info_desc">自动保存将在后台静默执行，仅在画布产生修改时触发，且绝不会打断您当前的笔画绘制</string>
     <string name="settings_auto_save_history">最近自动保存快照</string>
-    <string name="settings_auto_save_history_sub">按工程独立保留最近历史快照，防止误触与意外丢失</string>
+    <string name="settings_auto_save_history_sub">查看历史快照、恢复草稿或手动清理备份</string>
     <string name="auto_save_history_title">最近自动保存历史</string>
     <string name="auto_save_history_empty">暂无自动保存快照</string>
     <string name="auto_save_history_empty_sub">作画过程中触发自动保存后将自动记录在此</string>
@@ -2496,9 +2496,14 @@
 
     <!-- 自动保存与快照恢复增强 -->
     <string name="auto_save_history_stats">共 %1$d 个快照 · 占用 %2$s MB</string>
-    <string name="auto_save_filter_all">全部</string>
+    <string name="auto_save_history_stats_with_limit">共 %1$d / %2$d 个快照 · 占用 %3$s MB</string>
+    <string name="auto_save_capacity_pill">上限 %1$d 个</string>
+    <string name="settings_auto_save_max_snapshots">快照保留数量</string>
+    <string name="settings_auto_save_max_snapshots_sub">历史快照的最大保留数量，达到上限时自动淘汰最旧版本</string>
+    <string name="settings_snapshot_count_unit">%1$d 个</string>
+    <string name="settings_snapshot_count_default">%1$d (默认)</string>
     <string name="auto_save_clear_confirm_title">清空所有历史快照？</string>
-    <string name="auto_save_clear_confirm_desc">将删除所有工程的历史备份快照以释放存储空间，此操作无法撤销</string>
+    <string name="auto_save_clear_confirm_desc">将删除所有历史备份快照以释放存储空间，此操作无法撤销</string>
     <string name="crash_recovery_badge">自动备份安全抢救</string>
     <string name="crash_recovery_time_prefix">备份时间：%1$s</string>
     <string name="crash_recovery_size_prefix">文件大小：%1$s</string>

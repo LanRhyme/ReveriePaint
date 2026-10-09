@@ -13,9 +13,14 @@ import java.io.File
 import java.util.zip.ZipFile
 
 object AutoSaveHistoryManager {
-    const val MAX_SNAPSHOTS = AutoSaveSnapshotPolicy.MAX_GLOBAL_SNAPSHOTS
-    const val MAX_SNAPSHOTS_PER_PROJECT = AutoSaveSnapshotPolicy.MAX_SNAPSHOTS_PER_PROJECT
+    const val DEFAULT_MAX_SNAPSHOTS = AutoSaveSnapshotPolicy.DEFAULT_MAX_SNAPSHOTS
     private const val META_FILE_NAME = "snapshots_meta.json"
+
+    fun getMaxSnapshots(context: Context): Int {
+        return context.getSharedPreferences("paint_prefs", Context.MODE_PRIVATE)
+            .getInt("autoSaveMaxSnapshots", DEFAULT_MAX_SNAPSHOTS)
+            .coerceIn(AutoSaveSnapshotPolicy.MIN_MAX_SNAPSHOTS, AutoSaveSnapshotPolicy.MAX_MAX_SNAPSHOTS)
+    }
 
     fun getHistoryDir(context: Context): File {
         val dir = File(context.filesDir, "autosave_history")
@@ -116,7 +121,8 @@ object AutoSaveHistoryManager {
                 isEmergency = isEmergency,
             )
 
-            val (retained, evicted) = AutoSaveSnapshotPolicy.prune(currentList, newSnapshot)
+            val maxSnapshots = getMaxSnapshots(context)
+            val (retained, evicted) = AutoSaveSnapshotPolicy.prune(currentList, newSnapshot, maxSnapshots)
 
             evicted.forEach { item ->
                 File(dir, item.fileName).delete()
@@ -127,6 +133,30 @@ object AutoSaveHistoryManager {
         } catch (t: Throwable) {
             android.util.Log.e("AutoSaveHistory", "Failed to record snapshot", t)
         }
+    }
+
+    @Synchronized
+    fun pruneToLimit(context: Context, limit: Int) {
+        val dir = getHistoryDir(context)
+        val currentList = getSnapshots(context).toMutableList()
+        val effectiveLimit = limit.coerceIn(AutoSaveSnapshotPolicy.MIN_MAX_SNAPSHOTS, AutoSaveSnapshotPolicy.MAX_MAX_SNAPSHOTS)
+        if (currentList.size <= effectiveLimit) return
+
+        val evicted = mutableListOf<AutoSaveSnapshot>()
+        while (currentList.size > effectiveLimit) {
+            val candidate = currentList.minWithOrNull(
+                compareBy<AutoSaveSnapshot> { it.isEmergency }
+                    .thenBy { it.timestamp }
+            ) ?: currentList.last()
+            currentList.remove(candidate)
+            evicted.add(candidate)
+        }
+
+        evicted.forEach { item ->
+            File(dir, item.fileName).delete()
+            File(dir, "${item.id}_thumb.png").delete()
+        }
+        saveMeta(dir, currentList)
     }
 
     @Synchronized

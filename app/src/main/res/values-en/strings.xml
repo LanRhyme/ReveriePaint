@@ -280,7 +280,7 @@
     <string name="settings_auto_save_info_title">About Auto-save</string>
     <string name="settings_auto_save_info_desc">Auto-save runs silently in the background only when changes occur, without interrupting your drawing strokes</string>
     <string name="settings_auto_save_history">Recent Auto-saved Snapshots</string>
-    <string name="settings_auto_save_history_sub">Retain recent snapshots per project to prevent accidental loss</string>
+    <string name="settings_auto_save_history_sub">View snapshots, restore drafts, or manually clean up backups</string>
     <string name="auto_save_history_title">Recent Auto-save History</string>
     <string name="auto_save_history_empty">No auto-saved snapshots yet</string>
     <string name="auto_save_history_empty_sub">Snapshots created during painting will be listed here</string>
@@ -2496,7 +2496,12 @@
 
     <!-- AutoSave and Snapshot Recovery Enhancements -->
     <string name="auto_save_history_stats">%1$d snapshots · %2$s MB</string>
-    <string name="auto_save_filter_all">All</string>
+    <string name="auto_save_history_stats_with_limit">%1$d / %2$d snapshots · %3$s MB</string>
+    <string name="auto_save_capacity_pill">Limit: %1$d</string>
+    <string name="settings_auto_save_max_snapshots">Snapshot Retention Count</string>
+    <string name="settings_auto_save_max_snapshots_sub">Maximum number of snapshots to keep, oldest will be evicted when limit is reached</string>
+    <string name="settings_snapshot_count_unit">%1$d</string>
+    <string name="settings_snapshot_count_default">%1$d (Default)</string>
     <string name="auto_save_clear_confirm_title">Clear All Snapshots?</string>
     <string name="auto_save_clear_confirm_desc">This will delete all historical backup snapshots across artworks to free up storage space. This action cannot be undone.</string>
     <string name="crash_recovery_badge">Auto-Backup Disaster Recovery</string>

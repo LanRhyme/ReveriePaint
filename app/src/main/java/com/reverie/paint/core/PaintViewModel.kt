@@ -240,6 +240,7 @@ class PaintViewModel : ViewModel() {
     // Auto-Save & General Settings state
     var autoSaveEnabled by mutableStateOf(true)
     var autoSaveIntervalMinutes by mutableIntStateOf(5)
+    var autoSaveMaxSnapshots by mutableIntStateOf(com.reverie.paint.model.AutoSaveSnapshotPolicy.DEFAULT_MAX_SNAPSHOTS)
     var autoSaveToastEnabled by mutableStateOf(true)
     var strokesSinceLastAutoSave by mutableIntStateOf(0)
     var hasPendingMajorOp by mutableStateOf(false)
@@ -3011,6 +3012,22 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun updateAutoSaveMaxSnapshots(maxCount: Int) {
+        val clamped = maxCount.coerceIn(
+            com.reverie.paint.model.AutoSaveSnapshotPolicy.MIN_MAX_SNAPSHOTS,
+            com.reverie.paint.model.AutoSaveSnapshotPolicy.MAX_MAX_SNAPSHOTS,
+        )
+        autoSaveMaxSnapshots = clamped
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putInt("autoSaveMaxSnapshots", clamped)
+                .apply()
+            AutoSaveHistoryManager.pruneToLimit(appContext, clamped)
+        }
+    }
+
     fun updateAutoSaveToastEnabled(enabled: Boolean) {
         autoSaveToastEnabled = enabled
         if (::appContext.isInitialized) {
@@ -3215,6 +3232,13 @@ class PaintViewModel : ViewModel() {
 
             autoSaveEnabled = prefs.getBoolean("autoSaveEnabled", true)
             autoSaveIntervalMinutes = prefs.getInt("autoSaveIntervalMinutes", 5).coerceIn(1, 60)
+            autoSaveMaxSnapshots = prefs.getInt(
+                "autoSaveMaxSnapshots",
+                com.reverie.paint.model.AutoSaveSnapshotPolicy.DEFAULT_MAX_SNAPSHOTS,
+            ).coerceIn(
+                com.reverie.paint.model.AutoSaveSnapshotPolicy.MIN_MAX_SNAPSHOTS,
+                com.reverie.paint.model.AutoSaveSnapshotPolicy.MAX_MAX_SNAPSHOTS,
+            )
             autoSaveToastEnabled = prefs.getBoolean("autoSaveToastEnabled", true)
             maxUndoSteps = prefs.getInt("maxUndoSteps", 50).coerceIn(10, 200)
             promptSaveOnExit = prefs.getBoolean("promptSaveOnExit", true)

@@ -61,6 +61,15 @@ internal fun GeneralSettingsSubPage(
         30 to stringResource(R.string.settings_minute_unit, 30),
     )
 
+    val snapshotCountOptions = listOf(
+        3 to stringResource(R.string.settings_snapshot_count_unit, 3),
+        5 to stringResource(R.string.settings_snapshot_count_unit, 5),
+        8 to stringResource(R.string.settings_snapshot_count_default, 8),
+        12 to stringResource(R.string.settings_snapshot_count_unit, 12),
+        16 to stringResource(R.string.settings_snapshot_count_unit, 16),
+        24 to stringResource(R.string.settings_snapshot_count_unit, 24),
+    )
+
     val undoOptions = listOf(
         30 to stringResource(R.string.settings_step_unit, 30),
         50 to stringResource(R.string.settings_step_recommend, 50),
@@ -122,7 +131,7 @@ internal fun GeneralSettingsSubPage(
             // Section 1: 自动保存
             SettingCategoryTitle(stringResource(R.string.settings_auto_save))
             SettingGroup {
-                val autoSaveTotal = if (vm.autoSaveEnabled) 4 else 1
+                val autoSaveTotal = if (vm.autoSaveEnabled) 5 else 1
                 SettingSwitchGroupItem(
                     icon = Icons.Rounded.Save,
                     title = stringResource(R.string.settings_auto_save_enable),
@@ -143,12 +152,22 @@ internal fun GeneralSettingsSubPage(
                         onSelect = { vm.updateAutoSaveIntervalMinutes(it) },
                     )
 
+                    SettingSegmentGroupItem(
+                        icon = Icons.Rounded.History,
+                        title = stringResource(R.string.settings_auto_save_max_snapshots),
+                        summary = stringResource(R.string.settings_auto_save_max_snapshots_sub),
+                        options = snapshotCountOptions,
+                        selected = vm.autoSaveMaxSnapshots,
+                        shape = settingGroupShape(2, autoSaveTotal),
+                        onSelect = { vm.updateAutoSaveMaxSnapshots(it) },
+                    )
+
                     SettingSwitchGroupItem(
                         icon = Icons.Rounded.NotificationsActive,
                         title = stringResource(R.string.settings_auto_save_toast),
                         summary = stringResource(R.string.settings_auto_save_toast_sub),
                         checked = vm.autoSaveToastEnabled,
-                        shape = settingGroupShape(2, autoSaveTotal),
+                        shape = settingGroupShape(3, autoSaveTotal),
                         onCheckedChange = { vm.updateAutoSaveToastEnabled(it) },
                     )
 
@@ -156,7 +175,7 @@ internal fun GeneralSettingsSubPage(
                         icon = Icons.Rounded.History,
                         title = stringResource(R.string.settings_auto_save_history),
                         summary = stringResource(R.string.settings_auto_save_history_sub),
-                        shape = settingGroupShape(3, autoSaveTotal),
+                        shape = settingGroupShape(4, autoSaveTotal),
                         onClick = { showAutoSaveHistoryDialog = true },
                     )
                 }
