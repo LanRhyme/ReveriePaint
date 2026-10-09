@@ -2507,5 +2507,6 @@
     <string name="crash_recovery_badge">自动备份安全抢救</string>
     <string name="crash_recovery_time_prefix">备份时间：%1$s</string>
     <string name="crash_recovery_size_prefix">文件大小：%1$s</string>
+    <string name="auto_save_snapshot_meta">%1$d 笔画 · %2$d 图层 · %3$s</string>
 </resources>
 

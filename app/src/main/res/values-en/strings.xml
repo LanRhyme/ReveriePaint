@@ -2507,5 +2507,6 @@
     <string name="crash_recovery_badge">Auto-Backup Disaster Recovery</string>
     <string name="crash_recovery_time_prefix">Backup Time: %1$s</string>
     <string name="crash_recovery_size_prefix">File Size: %1$s</string>
+    <string name="auto_save_snapshot_meta">%1$d strokes · %2$d layers · %3$s</string>
 </resources>
 

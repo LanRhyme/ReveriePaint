@@ -5,6 +5,7 @@
 package com.reverie.paint.ui.dialog
 
 import android.graphics.BitmapFactory
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -28,7 +29,10 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -89,7 +93,10 @@ fun RecentAutoSavesDialog(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        modifier = Modifier.weight(1f, fill = false),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         Box(
                             modifier = Modifier
                                 .size(40.dp)
@@ -124,7 +131,10 @@ fun RecentAutoSavesDialog(
                         }
                     }
 
-                    Row(verticalAlignment = Alignment.CenterVertically) {
+                    Row(
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
                         // 容量设置下拉
                         var showCapacityMenu by remember { mutableStateOf(false) }
                         Box {
@@ -133,29 +143,39 @@ fun RecentAutoSavesDialog(
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(colors.panelHi)
                                     .clickable { showCapacityMenu = true }
-                                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                                    .padding(horizontal = 10.dp, vertical = 6.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
                                 Text(
                                     text = stringResource(R.string.auto_save_capacity_pill, vm.autoSaveMaxSnapshots),
-                                    color = colors.subText,
+                                    color = colors.accent,
                                     fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
+                                    fontWeight = FontWeight.SemiBold,
                                 )
-                                Spacer(Modifier.width(3.dp))
+                                Spacer(Modifier.width(4.dp))
                                 Icon(
                                     painter = painterResource(R.drawable.ic_chevron),
                                     contentDescription = null,
-                                    tint = colors.subText,
-                                    modifier = Modifier.size(11.dp),
+                                    tint = colors.accent,
+                                    modifier = Modifier
+                                        .size(11.dp)
+                                        .rotate(90f),
                                 )
                             }
                             DropdownMenu(
                                 expanded = showCapacityMenu,
                                 onDismissRequest = { showCapacityMenu = false },
-                                modifier = Modifier.background(colors.panelHi),
+                                shape = RoundedCornerShape(14.dp),
+                                containerColor = colors.panelHi.copy(alpha = 0.98f),
+                                tonalElevation = 0.dp,
+                                shadowElevation = 12.dp,
+                                border = BorderStroke(1.dp, colors.border.copy(alpha = 0.5f)),
+                                modifier = Modifier
+                                    .widthIn(min = 148.dp)
+                                    .padding(vertical = 4.dp),
                             ) {
                                 listOf(3, 5, 8, 12, 16, 24).forEach { count ->
+                                    val isSelected = count == vm.autoSaveMaxSnapshots
                                     DropdownMenuItem(
                                         text = {
                                             Text(
@@ -164,11 +184,26 @@ fun RecentAutoSavesDialog(
                                                 } else {
                                                     stringResource(R.string.settings_snapshot_count_unit, count)
                                                 },
-                                                color = if (count == vm.autoSaveMaxSnapshots) colors.accent else colors.text,
+                                                color = if (isSelected) colors.accent else colors.text,
                                                 fontSize = 13.sp,
-                                                fontWeight = if (count == vm.autoSaveMaxSnapshots) FontWeight.Bold else FontWeight.Normal,
+                                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                             )
                                         },
+                                        trailingIcon = if (isSelected) {
+                                            {
+                                                Icon(
+                                                    painter = painterResource(R.drawable.ic_check),
+                                                    contentDescription = null,
+                                                    tint = colors.accent,
+                                                    modifier = Modifier.size(15.dp),
+                                                )
+                                            }
+                                        } else null,
+                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
+                                        modifier = Modifier
+                                            .height(38.dp)
+                                            .padding(horizontal = 4.dp, vertical = 2.dp)
+                                            .clip(RoundedCornerShape(8.dp)),
                                         onClick = {
                                             vm.updateAutoSaveMaxSnapshots(count)
                                             snapshots = AutoSaveHistoryManager.getSnapshots(context)
@@ -178,18 +213,30 @@ fun RecentAutoSavesDialog(
                                 }
                             }
                         }
-                        Spacer(Modifier.width(8.dp))
+
                         if (snapshots.isNotEmpty()) {
-                            Text(
-                                text = stringResource(R.string.auto_save_clear_all),
-                                color = colors.subText,
-                                fontSize = 13.sp,
+                            Row(
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
+                                    .background(colors.panelHi)
                                     .clickable { showClearConfirm = true }
-                                    .padding(horizontal = 10.dp, vertical = 6.dp),
-                            )
-                            Spacer(Modifier.width(8.dp))
+                                    .padding(horizontal = 9.dp, vertical = 6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.DeleteOutline,
+                                    contentDescription = null,
+                                    tint = colors.subText,
+                                    modifier = Modifier.size(14.dp),
+                                )
+                                Spacer(Modifier.width(3.dp))
+                                Text(
+                                    text = stringResource(R.string.auto_save_clear_all),
+                                    color = colors.subText,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
                         }
                         Box(
                             modifier = Modifier
@@ -304,6 +351,7 @@ fun RecentAutoSavesDialog(
                             text = stringResource(R.string.common_cancel),
                             onClick = { showClearConfirm = false },
                             primary = false,
+                            textColor = colors.subText,
                             modifier = Modifier.weight(1f),
                         )
                         ReTextButton(
@@ -314,6 +362,7 @@ fun RecentAutoSavesDialog(
                                 showClearConfirm = false
                             },
                             primary = true,
+                            containerColor = Color(0xFFC86464),
                             modifier = Modifier.weight(1f),
                         )
                     }
@@ -389,6 +438,7 @@ private fun SnapshotCard(
                 Image(
                     bitmap = thumbBitmap.asImageBitmap(),
                     contentDescription = null,
+                    contentScale = ContentScale.Crop,
                     modifier = Modifier.fillMaxSize(),
                 )
             } else {
@@ -442,7 +492,7 @@ private fun SnapshotCard(
             )
             Spacer(Modifier.height(3.dp))
             Text(
-                text = "${snapshot.strokeCount} 笔画 · ${snapshot.layerCount} 图层 · $sizeText",
+                text = stringResource(R.string.auto_save_snapshot_meta, snapshot.strokeCount, snapshot.layerCount, sizeText),
                 color = colors.subText.copy(alpha = 0.8f),
                 fontSize = 11.sp,
             )
@@ -457,14 +507,14 @@ private fun SnapshotCard(
                     .clip(RoundedCornerShape(10.dp))
                     .background(colors.accent.copy(alpha = 0.15f))
                     .clickable { onRestore() }
-                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                    .padding(horizontal = 14.dp, vertical = 8.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = stringResource(R.string.auto_save_restore_action),
                     color = colors.accent,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Medium,
+                    fontSize = 12.5.sp,
+                    fontWeight = FontWeight.SemiBold,
                 )
             }
 
@@ -482,7 +532,7 @@ private fun SnapshotCard(
                     imageVector = Icons.Rounded.DeleteOutline,
                     contentDescription = "Delete",
                     tint = colors.subText,
-                    modifier = Modifier.size(18.dp),
+                    modifier = Modifier.size(17.dp),
                 )
             }
         }
