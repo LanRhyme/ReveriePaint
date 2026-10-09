@@ -672,7 +672,6 @@ import kotlinx.coroutines.withContext
         val dir = File(appContext.filesDir, "paintoppresets")
         val kppFile = File(dir, "$name.kpp")
         if (kppFile.exists()) {
-            val pSnapshot = p
             val targetIdx = brushPresetIndex
             if (reloadEngine) {
                 pendingKppReloadJob?.cancel()
@@ -682,6 +681,9 @@ import kotlinx.coroutines.withContext
                     if (brushPresetIndex != targetIdx) return@launch
                     runCore(render = false) {
                         if (brushPresetIndex != targetIdx) return@runCore
+                        // A spacing/size edit may arrive during the debounce without requesting a
+                        // reload. Read the latest immutable snapshot so it is not overwritten here.
+                        val pSnapshot = brushParams[name] ?: return@runCore
                         KppHelper.updateKppFile(kppFile, name, pSnapshot)
                         if (ReverieCoreBridge.loadBrushPreset(targetIdx)) {
                             ReverieCoreBridge.setPresetIsEraser(isEraserPreset)
@@ -717,7 +719,7 @@ import kotlinx.coroutines.withContext
                 }
             } else {
                 runCore(render = false) {
-                    KppHelper.updateKppFile(kppFile, name, pSnapshot)
+                    KppHelper.updateKppFile(kppFile, name, p)
                 }
             }
         }

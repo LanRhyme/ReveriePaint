@@ -4,6 +4,7 @@
 
 package com.reverie.paint.core
 
+import com.reverie.paint.model.RecordedBrushOverrides
 import com.reverie.paint.model.RecordingBuffer
 import com.reverie.paint.model.RecordingEvents.CONTEXT
 import com.reverie.paint.model.RecordingEvents.CONTEXT_EXT
@@ -491,6 +492,7 @@ class PaintRecorder {
         airbrushEnabled: Boolean,
         airbrushRate: Double,
         isCustomized: Boolean = false,
+        spacingCustomized: Boolean = true,
     ) = emit(CONTEXT_EXT) {
         it.f32(softness.toFloat())
         it.f32(spacing.toFloat())
@@ -504,7 +506,7 @@ class PaintRecorder {
         it.str(secondaryColor)
         it.u8(if (airbrushEnabled) 1 else 0)
         it.f32(airbrushRate.toFloat())
-        it.u8(if (isCustomized) 1 else 0)
+        it.u8(RecordedBrushOverrides.encode(isCustomized, spacingCustomized))
     }
 
     /** Force the next captureContext() to emit a full CONTEXT (all sentinels

@@ -3,7 +3,9 @@ package com.reverie.paint.core
 
 import com.reverie.paint.R
 import com.reverie.paint.model.QuickShapeGeometry
+import com.reverie.paint.model.QuickShapePressure
 import com.reverie.paint.model.QuickShapeResult
+import kotlin.math.PI
 
 internal data class QuickShapeDraft(
     val original: FloatArray,
@@ -12,6 +14,7 @@ internal data class QuickShapeDraft(
     val width: Int,
     val height: Int,
     val documentCreatedTime: Long,
+    val recognizedShape: QuickShapeResult,
     var nativeOriginalActive: Boolean = true,
 )
 
@@ -19,7 +22,8 @@ internal data class QuickShapeDraft(
 internal fun PaintViewModel.beginQuickShape(shape: QuickShapeResult, original: FloatArray) {
     if (original.size < 12 || renderHandler == null) return
     quickShapeCapture = null
-    quickShapeDraft = QuickShapeDraft(original, currentLayerIndex, anim.currentTime, docWidth, docHeight, canvasCreatedTime)
+    quickShapeDraft = QuickShapeDraft(original, currentLayerIndex, anim.currentTime, docWidth, docHeight,
+        canvasCreatedTime, shape)
     stopAirbrush()
     disarmStrokeStartKick()
     activeQuickShape = QuickShapeGeometry.snapLine(shape, quickShapeAngleSnapEnabled)
@@ -57,11 +61,12 @@ private fun PaintViewModel.finishQuickShape(restoreOriginal: Boolean) {
         }) {}
         return
     }
-    val samples = if (restoreOriginal) draft.original else {
+    val samples = if (restoreOriginal) draft.original else if (quickShapePerPointPressureEnabled) {
+        QuickShapePressure.stroke(draft.original, draft.recognizedShape, shape)
+    } else {
         val path = QuickShapeGeometry.outline(shape)
         if (path.size < 2 || path.any { !it.x.isFinite() || !it.y.isFinite() }) return
-        val pressure = (draft.original.indices.step(6).sumOf { draft.original[it + 2].toDouble() } /
-            (draft.original.size / 6)).toFloat().coerceIn(0.01f, 1f)
+        val pressure = QuickShapePressure.average(draft.original)
         FloatArray(path.size * 6).also { out ->
             path.forEachIndexed { i, p ->
                 out[i * 6] = p.x; out[i * 6 + 1] = p.y; out[i * 6 + 2] = pressure
@@ -69,6 +74,7 @@ private fun PaintViewModel.finishQuickShape(restoreOriginal: Boolean) {
             }
         }
     }
+    if (samples.size < 12) return
     quickShapeCommitting = true
     if (draft.nativeOriginalActive) {
         touchCancel()
@@ -116,4 +122,30 @@ private fun PaintViewModel.finishQuickShape(restoreOriginal: Boolean) {
         }
         scheduleRender(immediate = true)
     }
+}
+
+
+/**
+ * 胶囊轴向按钮: 精确摆到指定朝向 (水平 0 / 垂直 90 / 45 度), 不受识别期容差限制。
+ * 只改 activeQuickShape, 由编辑器叠加层即时重绘; 提交路径不变。
+ */
+internal fun PaintViewModel.snapQuickShapeToAngle(targetDeg: Float) {
+    if (!targetDeg.isFinite()) return
+    val shape = activeQuickShape ?: return
+    val updated = QuickShapeGeometry.snappedToAngle(shape, targetDeg)
+    if (updated != shape) activeQuickShape = updated
+}
+
+/** 胶囊旋转按钮: 逆时针为正, 单位度 */
+internal fun PaintViewModel.rotateQuickShapeBy(deltaDeg: Float) {
+    if (!deltaDeg.isFinite()) return
+    val shape = activeQuickShape ?: return
+    activeQuickShape = QuickShapeGeometry.rotatedBy(shape, deltaDeg * (PI.toFloat() / 180f))
+}
+
+/** 胶囊缩放按钮: factor > 1 放大 */
+internal fun PaintViewModel.scaleQuickShapeBy(factor: Float) {
+    if (!factor.isFinite() || factor <= 0f) return
+    val shape = activeQuickShape ?: return
+    activeQuickShape = QuickShapeGeometry.scaledBy(shape, factor)
 }

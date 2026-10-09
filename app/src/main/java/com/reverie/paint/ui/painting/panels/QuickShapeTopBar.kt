@@ -21,6 +21,9 @@ import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.cancelQuickShape
 import com.reverie.paint.core.commitQuickShape
+import com.reverie.paint.core.rotateQuickShapeBy
+import com.reverie.paint.core.scaleQuickShapeBy
+import com.reverie.paint.core.snapQuickShapeToAngle
 import com.reverie.paint.model.QuickShapeConversions
 import com.reverie.paint.model.QuickShapeType
 import com.reverie.paint.model.QuickShapeGeometry
@@ -43,6 +46,8 @@ internal fun QuickShapeSettingRow(vm: PaintViewModel) {
                 vm.quickShapeRelaxedEnabled, vm::updateQuickShapeRelaxedEnabled)
             QuickShapeOption(R.string.quick_shape_angle_snap, R.string.quick_shape_angle_snap_hint,
                 vm.quickShapeAngleSnapEnabled, vm::updateQuickShapeAngleSnapEnabled)
+            QuickShapeOption(R.string.quick_shape_per_point_pressure, R.string.quick_shape_per_point_pressure_hint,
+                vm.quickShapePerPointPressureEnabled, vm::updateQuickShapePerPointPressureEnabled)
             QuickShapeOption(R.string.quick_shape_arc_setting, R.string.quick_shape_arc_setting_hint,
                 vm.quickShapeArcEnabled, vm::updateQuickShapeArcEnabled)
             QuickShapeOption(R.string.quick_shape_box_handles, R.string.quick_shape_box_handles_hint,
@@ -164,6 +169,48 @@ fun QuickShapeTopBar(vm: PaintViewModel, modifier: Modifier = Modifier,
                     vm.activeQuickShape = shape.copy(radiusX = half, radiusY = half)
                 }) { Text(stringResource(R.string.quick_shape_to_square), color = Morandi.accent) }
                 else -> Unit
+            }
+            // 精确摆正: 直线/矩形/四边形/轮廓。不受识别期吸附容差限制, 用户点名要哪个角度就摆到哪个角度
+            if (shape.type == QuickShapeType.LINE || shape.type == QuickShapeType.RECTANGLE ||
+                shape.type == QuickShapeType.QUADRILATERAL || shape.type == QuickShapeType.CONTOUR
+            ) {
+                for (deg in listOf(0f, 90f, 45f)) {
+                    TextButton(enabled = !vm.quickShapeCommitting && !reshapeHeld,
+                        onClick = { vm.snapQuickShapeToAngle(deg) }) {
+                        Text(
+                            stringResource(
+                                when (deg) {
+                                    0f -> R.string.quick_shape_snap_horizontal
+                                    90f -> R.string.quick_shape_snap_vertical
+                                    else -> R.string.quick_shape_snap_diagonal
+                                },
+                            ),
+                            color = Morandi.accent,
+                        )
+                    }
+                }
+            }
+            // 旋转 / 缩放: 闭合形状
+            val closedShape = shape.type == QuickShapeType.RECTANGLE || shape.type == QuickShapeType.CIRCLE ||
+                shape.type == QuickShapeType.ELLIPSE || shape.type == QuickShapeType.QUADRILATERAL ||
+                shape.type == QuickShapeType.CONTOUR
+            if (closedShape) {
+                TextButton(enabled = !vm.quickShapeCommitting && !reshapeHeld,
+                    onClick = { vm.rotateQuickShapeBy(-15f) }) {
+                    Text(stringResource(R.string.quick_shape_rotate_ccw), color = Morandi.accent)
+                }
+                TextButton(enabled = !vm.quickShapeCommitting && !reshapeHeld,
+                    onClick = { vm.rotateQuickShapeBy(15f) }) {
+                    Text(stringResource(R.string.quick_shape_rotate_cw), color = Morandi.accent)
+                }
+                TextButton(enabled = !vm.quickShapeCommitting && !reshapeHeld,
+                    onClick = { vm.scaleQuickShapeBy(0.8f) }) {
+                    Text(stringResource(R.string.quick_shape_scale_down), color = Morandi.accent)
+                }
+                TextButton(enabled = !vm.quickShapeCommitting && !reshapeHeld,
+                    onClick = { vm.scaleQuickShapeBy(1.25f) }) {
+                    Text(stringResource(R.string.quick_shape_scale_up), color = Morandi.accent)
+                }
             }
             TextButton(enabled = !vm.quickShapeCommitting, onClick = vm::commitQuickShape) {
                 Text(stringResource(R.string.common_done), color = Morandi.accent)

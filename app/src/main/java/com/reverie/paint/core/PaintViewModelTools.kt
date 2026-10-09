@@ -215,7 +215,7 @@ internal fun PaintViewModel.touchStart(
             color = strokeColor,
             layer = currentLayerIndex,
         )
-        val isPresetCustomized = strokePreset >= 0 && brushPresets.firstOrNull { it.index == strokePreset }?.let { brushParams.containsKey(it.name) } == true
+        val strokeParams = brushPresets.firstOrNull { it.index == strokePreset }?.let { brushParams[it.name] }
         recorder.captureContextExt(
             softness = brushSoftness,
             spacing = brushSpacing,
@@ -229,7 +229,8 @@ internal fun PaintViewModel.touchStart(
             secondaryColor = brushSecondaryColor,
             airbrushEnabled = brushAirbrush,
             airbrushRate = brushAirbrushRate,
-            isCustomized = isPresetCustomized,
+            isCustomized = strokeParams != null,
+            spacingCustomized = strokeParams?.spacingCustomized == true,
         )
         recorder.captureBrushFade(brushFade)
         recorder.strokeStart(x, y, effPressure.toFloat())
@@ -711,7 +712,7 @@ internal fun PaintViewModel.replaySymmetricBranches(
                 color = brushColor,
                 layer = currentLayerIndex,
             )
-            val isPresetCustomized = brushPresetIndex >= 0 && brushPresets.firstOrNull { it.index == brushPresetIndex }?.let { brushParams.containsKey(it.name) } == true
+            val strokeParams = brushPresets.firstOrNull { it.index == brushPresetIndex }?.let { brushParams[it.name] }
             recorder.captureContextExt(
                 softness = brushSoftness,
                 spacing = brushSpacing,
@@ -725,7 +726,8 @@ internal fun PaintViewModel.replaySymmetricBranches(
                 secondaryColor = brushSecondaryColor,
                 airbrushEnabled = brushAirbrush,
                 airbrushRate = brushAirbrushRate,
-                isCustomized = isPresetCustomized,
+                isCustomized = strokeParams != null,
+                spacingCustomized = strokeParams?.spacingCustomized == true,
             )
             recorder.captureBrushFade(brushFade)
             val effStartP = buf[2].coerceIn(0f, 1f)

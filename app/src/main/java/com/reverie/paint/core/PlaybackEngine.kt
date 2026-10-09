@@ -10,6 +10,7 @@ import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.geometry.Offset
+import com.reverie.paint.model.RecordedBrushOverrides
 import com.reverie.paint.model.RecordingEvents.CONTEXT
 import com.reverie.paint.model.RecordingEvents.CONTEXT_EXT
 import com.reverie.paint.model.RecordingEvents.CONTEXT_FADE
@@ -518,11 +519,14 @@ private fun PaintViewModel.dispatchReplayLocked(
             val secondaryColor = r.str()
             val airbrushEnabled = r.u8() != 0
             val airbrushRate = r.f32()
-            val isCustomized = if (currentReplayVersion >= 2) (r.u8() != 0) else false
-            val shouldApplyExtShape = (currentReplayPreset < 0) || isCustomized
+            val overrides = if (currentReplayVersion >= 2) r.u8() else 0
+            val shouldApplyExtShape = RecordedBrushOverrides.applyShape(currentReplayPreset, overrides)
             if (shouldApplyExtShape) {
                 ReverieCoreBridge.setBrushSoftness(softness.toDouble())
-                ReverieCoreBridge.setBrushSpacing(spacing.toDouble())
+                // Pressure/size edits also customize a preset, but do not change its native spacing.
+                if (RecordedBrushOverrides.applySpacing(currentReplayPreset, overrides)) {
+                    ReverieCoreBridge.setBrushSpacing(spacing.toDouble())
+                }
                 ReverieCoreBridge.setBrushAngle(angle.toDouble())
                 ReverieCoreBridge.setBrushScatter(scatter.toDouble())
                 ReverieCoreBridge.setBrushRotation(rotation.toDouble())

@@ -11,7 +11,9 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.PointerId
@@ -49,6 +51,14 @@ internal fun QuickShapeEditor(
         QuickShapeGeometry.handles(shape, vm.quickShapeBoxHandlesEnabled)
     }
     val path = remember { Path() }
+    val border = remember { Path() }
+    val borderPaint = remember {
+        android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+            style = android.graphics.Paint.Style.STROKE
+            strokeCap = android.graphics.Paint.Cap.ROUND
+            strokeJoin = android.graphics.Paint.Join.ROUND
+        }
+    }
     val point = remember { FloatArray(2) }
     fun updateTransform() = transform.update(size.width, size.height, panX.value, panY.value,
         zoom.value, scale, rotation.value, vm.renderW, vm.renderH, vm.docWidth, vm.docHeight,
@@ -125,8 +135,26 @@ internal fun QuickShapeEditor(
                 transform.docToScreen(p.x, p.y, point)
                 if (i == 0) path.moveTo(point[0], point[1]) else path.lineTo(point[0], point[1])
             }
-            drawPath(path, Morandi.panel, style = Stroke(width = 5f * density))
-            drawPath(path, Morandi.accent, style = Stroke(width = 2f * density))
+            // Color/width guide only: textures, pressure sensors and scatter are rendered on commit.
+            val outlineColor = runCatching { Color(android.graphics.Color.parseColor(vm.brushColor)) }
+                .getOrDefault(Morandi.accent)
+                .copy(alpha = vm.brushOpacity.toFloat().coerceIn(0f, 1f))
+            val outlineWidth = (vm.brushSize.toFloat() * zoom.value * fitScale).coerceAtLeast(1f)
+            drawPath(
+                path = path,
+                color = outlineColor,
+                style = Stroke(
+                    width = outlineWidth,
+                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                    join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                ),
+            )
+            // Outline the stroke boundary without filling its translucent interior with the border color.
+            border.reset()
+            borderPaint.strokeWidth = outlineWidth
+            borderPaint.getFillPath(path.asAndroidPath(), border.asAndroidPath())
+            drawPath(border, Morandi.panel, style = Stroke(width = 3f * density))
+            drawPath(border, Morandi.accent, style = Stroke(width = density))
             handles.forEachIndexed { i, p ->
                 transform.docToScreen(p.x, p.y, point)
                 val pos = Offset(point[0], point[1])

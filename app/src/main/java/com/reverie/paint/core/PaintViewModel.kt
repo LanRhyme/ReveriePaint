@@ -1377,6 +1377,7 @@ class PaintViewModel : ViewModel() {
     var quickShapeCurvedContourEnabled by mutableStateOf(false)
     var quickShapeContourEnabled by mutableStateOf(false)
     var quickShapeAngleSnapEnabled by mutableStateOf(false)
+    var quickShapePerPointPressureEnabled by mutableStateOf(false)
     internal var quickShapeCapture: QuickShapeStrokeCapture? = null
     internal var quickShapeDraft: QuickShapeDraft? = null
     var quickShapeCommitting by mutableStateOf(false)
@@ -2188,6 +2189,13 @@ class PaintViewModel : ViewModel() {
         if (hasAppContext()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("quickShapeAngleSnapEnabled", enable).apply()
+        }
+    }
+    fun updateQuickShapePerPointPressureEnabled(enable: Boolean) {
+        quickShapePerPointPressureEnabled = enable
+        if (hasAppContext()) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("quickShapePerPointPressureEnabled", enable).apply()
         }
     }
 
@@ -3200,6 +3208,7 @@ class PaintViewModel : ViewModel() {
             quickShapeCurvedContourEnabled = prefs.getBoolean("quickShapeCurvedContourEnabled", false)
             quickShapeContourEnabled = prefs.getBoolean("quickShapeContourEnabled", false)
             quickShapeAngleSnapEnabled = prefs.getBoolean("quickShapeAngleSnapEnabled", false)
+            quickShapePerPointPressureEnabled = prefs.getBoolean("quickShapePerPointPressureEnabled", false)
             try {
                 val rawView = prefs.getString("view_settings", null)
                 if (rawView != null) {
