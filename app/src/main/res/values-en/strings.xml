@@ -1435,6 +1435,12 @@
     <string name="brush_dynamics_add_point_hint">Tap grid to add points, drag to adjust curve</string>
     <string name="brush_dynamics_live_cursor">Live Feedback</string>
     <string name="brush_dynamics_strength">Dynamic Strength</string>
+    <string name="brush_studio_revert_changes">Revert Changes</string>
+    <string name="brush_studio_revert_confirm">Discard all changes made during this studio session and revert to initial state? This cannot be undone.</string>
+    <string name="brush_studio_revert_toast">Reverted to state before entering studio</string>
+    <string name="brush_studio_scratchpad_toggle">Scratchpad</string>
+    <string name="brush_studio_curve_edit">Edit Curve</string>
+    <string name="brush_studio_curve_test_hint">Pressure Test Strip (draw strokes to test dynamics)</string>
 
     <!-- Color Components & Sliders -->
     <string name="color_num_dialog_range">Range: %1$s ~ %2$s%3$s</string>

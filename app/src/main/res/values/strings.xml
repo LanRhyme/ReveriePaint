@@ -1435,6 +1435,12 @@
     <string name="brush_dynamics_add_point_hint">点击网格添加点，拖拽点微调曲率</string>
     <string name="brush_dynamics_live_cursor">实时动态响应</string>
     <string name="brush_dynamics_strength">动态影响强度</string>
+    <string name="brush_studio_revert_changes">还原修改</string>
+    <string name="brush_studio_revert_confirm">确定要放弃本次进入工作台后的所有修改，还原至初始状态吗？此操作无法撤销</string>
+    <string name="brush_studio_revert_toast">已还原至进入工作台前的状态</string>
+    <string name="brush_studio_scratchpad_toggle">试画板</string>
+    <string name="brush_studio_curve_edit">编辑曲线</string>
+    <string name="brush_studio_curve_test_hint">压感试笔条 (轻重划线体验过渡)</string>
 
     <!-- Color Components & Sliders -->
     <string name="color_num_dialog_range">有效范围: %1$s ~ %2$s%3$s</string>

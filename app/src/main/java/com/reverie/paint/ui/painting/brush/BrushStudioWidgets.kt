@@ -2,10 +2,6 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-/*
- * SPDX-License-Identifier: GPL-3.0-or-later
- */
-
 package com.reverie.paint.ui.painting.brush
 
 import android.content.Context

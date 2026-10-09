@@ -2,10 +2,6 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-/*
- * SPDX-License-Identifier: GPL-3.0-or-later
- */
-
 package com.reverie.paint.ui.painting.brush
 
 import android.content.Context
@@ -85,7 +81,6 @@ import java.nio.ByteBuffer
 import java.nio.ByteOrder
 import kotlin.math.*
 
-data class ScratchPoint(val x: Float, val y: Float, val pressure: Float)
 data class BrushTipItem(val filename: String, val name: String, val isCustom: Boolean, val bitmap: Bitmap?)
 
 internal object BrushTipDecoder {

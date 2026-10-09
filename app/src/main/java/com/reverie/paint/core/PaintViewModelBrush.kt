@@ -1094,6 +1094,37 @@ import kotlinx.coroutines.withContext
         return brushParams.containsKey(name)
     }
 
+    /** Capture initial parameter snapshot when opening Brush Studio */
+    internal fun PaintViewModel.captureBrushStudioSnapshot() {
+        val preset = brushPresets.firstOrNull { it.index == brushPresetIndex } ?: return
+        brushStudioInitialParams = brushParams[preset.name]?.copy()
+    }
+
+    /** Check if the current brush has changes compared to the studio initial snapshot */
+    internal fun PaintViewModel.hasBrushStudioChanges(): Boolean {
+        val preset = brushPresets.firstOrNull { it.index == brushPresetIndex } ?: return false
+        val initial = brushStudioInitialParams
+        val current = brushParams[preset.name]
+        return if (initial == null) {
+            current != null
+        } else {
+            current != initial
+        }
+    }
+
+    /** Revert parameters to the initial state when Brush Studio was entered */
+    internal fun PaintViewModel.revertBrushStudioSnapshot(): Boolean {
+        val preset = brushPresets.firstOrNull { it.index == brushPresetIndex } ?: return false
+        val initial = brushStudioInitialParams
+        if (initial != null) {
+            brushParams[preset.name] = initial.copy()
+        } else {
+            brushParams.remove(preset.name)
+        }
+        selectBrushPreset(preset.index)
+        return true
+    }
+
     /** Reset a brush preset back to factory default parameters */
     internal fun PaintViewModel.resetBrushPresetToDefault(presetName: String) {
         val dir = File(appContext.filesDir, "paintoppresets")

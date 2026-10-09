@@ -4,13 +4,12 @@
 
 package com.reverie.paint.ui.painting.brush
 
-import androidx.compose.animation.*
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
@@ -22,12 +21,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
-import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -37,25 +33,26 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.R
 import com.reverie.paint.model.BrushSensor
 import com.reverie.paint.model.CurvePoint
 import com.reverie.paint.model.CurvePreset
 import com.reverie.paint.model.DynamicOptionConfig
+import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.ReSwitch
+import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.theme.Morandi
-import kotlin.math.roundToInt
 
 /**
- * 独立参数的高阶贝塞尔动态响应曲线编辑器 (BrushDynamicCurveEditor)
+ * 笔刷参数动力学曲线组件
  *
- * 特性：
- * 1. 任意多控制点贝塞尔曲线绘制与插值，支持增删控制点、防越界保护
- * 2. 全量 Krita 传感器切换（压力、速度、运笔角、俯仰倾角、方位倾角、旋转、切向压感、渐隐、距离、时间、随机噪点）
- * 3. 常用曲线预设快速切换（线性/软/硬/S形/阶梯/拱形）与水平/垂直反转
- * 4. 选定控制点坐标数值步进微调面板
- * 5. 试画板实时光点追踪游标与输入/输出可视化标尺
+ * 规范采用「紧凑微缩胶囊预览 + 全功能大尺寸弹窗调校」架构：
+ * 1. 卡片内仅展示紧凑微缩预览与传感器徽标，消除纵向过度堆叠
+ * 2. 点击唤起专属大尺寸调校弹窗，采用单手势 awaitEachGesture 内核，彻底解决坐标系错位与拖拽手势冲突
+ * 3. 弹窗内集成硬件压感试笔条与预设切换，支持所见即所得调校
  */
 @Composable
 fun BrushDynamicCurveEditor(
@@ -69,8 +66,7 @@ fun BrushDynamicCurveEditor(
     textSub: Color = Morandi.subText,
 ) {
     val haptic = LocalHapticFeedback.current
-    var selectedPointIndex by remember { mutableIntStateOf(-1) }
-    var showSensorPicker by remember { mutableStateOf(false) }
+    var showDialog by remember { mutableStateOf(false) }
 
     val currentSensor = remember(config.sensorId) {
         BrushSensor.fromId(config.sensorId)
@@ -81,11 +77,11 @@ fun BrushDynamicCurveEditor(
             .fillMaxWidth()
             .clip(RoundedCornerShape(12.dp))
             .background(cardBg.copy(alpha = 0.5f))
-            .border(1.dp, borderCol.copy(alpha = 0.5f), RoundedCornerShape(12.dp))
+            .border(1.dp, borderCol.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
-        // ---- 1. 顶栏：开关 + 传感器徽标 + 重置 ----
+        // 顶栏：开关 + 传感器徽标 + 重置
         Row(
             modifier = Modifier.fillMaxWidth(),
             verticalAlignment = Alignment.CenterVertically,
@@ -115,14 +111,12 @@ fun BrushDynamicCurveEditor(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                 ) {
-                    // 当前传感器选择胶囊
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Morandi.accent.copy(alpha = 0.15f))
-                            .clickable { showSensorPicker = !showSensorPicker }
-                            .padding(horizontal = 8.dp, vertical = 4.dp),
-                        contentAlignment = Alignment.Center,
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Morandi.accent.copy(alpha = 0.14f))
+                            .clickable { showDialog = true }
+                            .padding(horizontal = 7.dp, vertical = 3.dp),
                     ) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -132,7 +126,7 @@ fun BrushDynamicCurveEditor(
                                 painter = painterResource(currentSensor.iconRes),
                                 contentDescription = null,
                                 tint = Morandi.accent,
-                                modifier = Modifier.size(13.dp),
+                                modifier = Modifier.size(12.dp),
                             )
                             Text(
                                 text = stringResource(currentSensor.titleRes),
@@ -140,16 +134,10 @@ fun BrushDynamicCurveEditor(
                                 fontSize = 11.sp,
                                 fontWeight = FontWeight.SemiBold,
                             )
-                            Icon(
-                                painter = painterResource(R.drawable.ic_chevron),
-                                contentDescription = null,
-                                tint = Morandi.accent.copy(alpha = 0.7f),
-                                modifier = Modifier.size(11.dp),
-                            )
                         }
                     }
 
-                    // 重置曲线按钮
+                    // 重置
                     Box(
                         modifier = Modifier
                             .size(24.dp)
@@ -162,7 +150,6 @@ fun BrushDynamicCurveEditor(
                                         strength = 1.0f,
                                     )
                                 )
-                                selectedPointIndex = -1
                             },
                         contentAlignment = Alignment.Center,
                     ) {
@@ -177,569 +164,657 @@ fun BrushDynamicCurveEditor(
             }
         }
 
+        // 启用状态下：紧凑微缩曲线胶囊卡片（点击打开弹窗精调）
         if (config.enabled) {
-            // ---- 2. 传感器展开选择器 (全量 Krita 传感器矩阵) ----
-            AnimatedVisibility(
-                visible = showSensorPicker,
-                enter = fadeIn() + expandVertically(),
-                exit = fadeOut() + shrinkVertically(),
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Morandi.panelHi.copy(alpha = 0.7f))
+                    .clickable { showDialog = true }
+                    .padding(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                Column(
+                // 微缩高清曲线预览
+                Box(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Morandi.panelHi.copy(alpha = 0.75f))
-                        .border(1.dp, borderCol.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
-                        .padding(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                        .size(width = 80.dp, height = 54.dp)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Color(0xFF141619))
+                        .border(0.8.dp, borderCol.copy(alpha = 0.4f), RoundedCornerShape(6.dp)),
+                ) {
+                    Canvas(modifier = Modifier.fillMaxSize().padding(4.dp)) {
+                        val w = size.width
+                        val h = size.height
+
+                        // 2x2 网格
+                        val gridCol = Color.White.copy(alpha = 0.08f)
+                        drawLine(gridCol, Offset(w * 0.5f, 0f), Offset(w * 0.5f, h), 0.8f)
+                        drawLine(gridCol, Offset(0f, h * 0.5f), Offset(w, h * 0.5f), 0.8f)
+
+                        val path = Path()
+                        val step = 40
+                        for (s in 0..step) {
+                            val xVal = s / step.toFloat()
+                            val yVal = config.evaluate(xVal)
+                            val sx = xVal * w
+                            val sy = (1f - yVal) * h
+                            if (s == 0) path.moveTo(sx, sy) else path.lineTo(sx, sy)
+                        }
+                        drawPath(path, Morandi.accent, style = Stroke(width = 1.8.dp.toPx(), cap = StrokeCap.Round))
+
+                        config.points.forEach { pt ->
+                            drawCircle(Morandi.accent, 2.dp.toPx(), Offset(pt.x * w, (1f - pt.y) * h))
+                        }
+
+                        // 实时输入光点
+                        if (liveInput in 0f..1f) {
+                            val liveX = liveInput * w
+                            val liveY = (1f - config.evaluate(liveInput)) * h
+                            drawCircle(Color.White, 3.dp.toPx(), Offset(liveX, liveY))
+                        }
+                    }
+                }
+
+                // 中间信息
+                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                    Text(
+                        text = stringResource(R.string.brush_dynamics_expand_title),
+                        color = textMain,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        text = "${stringResource(currentSensor.titleRes)} · ${(config.strength * 100).toInt()}%",
+                        color = textSub,
+                        fontSize = 10.sp,
+                    )
+                }
+
+                // 右侧进入精调胶囊
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Morandi.panel)
+                        .border(0.6.dp, borderCol.copy(alpha = 0.3f), RoundedCornerShape(6.dp))
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                 ) {
                     Text(
-                        text = stringResource(R.string.brush_studio_sensor_title),
-                        color = textSub,
-                        fontSize = 10.5.sp,
+                        text = stringResource(R.string.brush_studio_curve_edit),
+                        color = Morandi.accent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
                     )
-                    // 流式展示全部传感器
+                }
+            }
+        }
+    }
+
+    if (showDialog) {
+        BrushDynamicCurveDialog(
+            config = config,
+            onConfigChange = onConfigChange,
+            onDismiss = { showDialog = false },
+            cardBg = cardBg,
+            textMain = textMain,
+            textSub = textSub,
+            borderCol = borderCol,
+        )
+    }
+}
+
+/**
+ * 动力学曲线大尺寸精调弹窗
+ */
+@Composable
+internal fun BrushDynamicCurveDialog(
+    config: DynamicOptionConfig,
+    onConfigChange: (DynamicOptionConfig) -> Unit,
+    onDismiss: () -> Unit,
+    cardBg: Color,
+    textMain: Color,
+    textSub: Color,
+    borderCol: Color,
+) {
+    val haptic = LocalHapticFeedback.current
+    var showSensorDropdown by remember { mutableStateOf(false) }
+
+    val currentSensor = remember(config.sensorId) {
+        BrushSensor.fromId(config.sensorId)
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.65f)),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .widthIn(min = 320.dp, max = 580.dp)
+                    .fillMaxWidth(0.92f)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Morandi.panel)
+                    .border(1.dp, borderCol.copy(alpha = 0.3f), RoundedCornerShape(20.dp))
+                    .padding(18.dp),
+            ) {
+                Column(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    // 1. 顶栏：标题 + 传感器切换胶囊 + 关闭按钮
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Column {
+                            Text(
+                                text = stringResource(R.string.brush_dynamics_expand_title),
+                                color = textMain,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                text = stringResource(R.string.brush_dynamics_add_point_hint),
+                                color = textSub,
+                                fontSize = 11.sp,
+                            )
+                        }
+
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            // 传感器下拉选择
+                            Box {
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Morandi.accent.copy(alpha = 0.15f))
+                                        .clickable { showSensorDropdown = true }
+                                        .padding(horizontal = 9.dp, vertical = 5.dp),
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(currentSensor.iconRes),
+                                            contentDescription = null,
+                                            tint = Morandi.accent,
+                                            modifier = Modifier.size(13.dp),
+                                        )
+                                        Text(
+                                            text = stringResource(currentSensor.titleRes),
+                                            color = Morandi.accent,
+                                            fontSize = 12.sp,
+                                            fontWeight = FontWeight.SemiBold,
+                                        )
+                                        Icon(
+                                            painter = painterResource(R.drawable.ic_chevron),
+                                            contentDescription = null,
+                                            tint = Morandi.accent.copy(alpha = 0.7f),
+                                            modifier = Modifier.size(11.dp),
+                                        )
+                                    }
+                                }
+
+                                DropdownMenu(
+                                    expanded = showSensorDropdown,
+                                    onDismissRequest = { showSensorDropdown = false },
+                                    modifier = Modifier.background(Morandi.panelHi),
+                                ) {
+                                    BrushSensor.entries.forEach { sensor ->
+                                        DropdownMenuItem(
+                                            text = {
+                                                Row(
+                                                    verticalAlignment = Alignment.CenterVertically,
+                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                                ) {
+                                                    Icon(
+                                                        painter = painterResource(sensor.iconRes),
+                                                        contentDescription = null,
+                                                        tint = if (sensor == currentSensor) Morandi.accent else textSub,
+                                                        modifier = Modifier.size(14.dp),
+                                                    )
+                                                    Text(
+                                                        text = stringResource(sensor.titleRes),
+                                                        color = if (sensor == currentSensor) Morandi.accent else textMain,
+                                                        fontSize = 13.sp,
+                                                        fontWeight = if (sensor == currentSensor) FontWeight.SemiBold else FontWeight.Normal,
+                                                    )
+                                                }
+                                            },
+                                            onClick = {
+                                                showSensorDropdown = false
+                                                onConfigChange(config.copy(sensorId = sensor.id))
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+
+                            // 关闭按钮
+                            ReIconButton(R.drawable.ic_x, stringResource(R.string.common_close), onDismiss, size = 30.dp, tint = textSub)
+                        }
+                    }
+
+                    // 2. 快捷预设切换栏 (水平可滑动)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
                             .horizontalScroll(rememberScrollState()),
                         horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        BrushSensor.entries.forEach { sensor ->
-                            val isSelected = sensor.id == config.sensorId
+                        CurvePreset.entries.forEach { preset ->
                             Box(
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(
-                                        if (isSelected) Morandi.accent else Morandi.panel.copy(alpha = 0.8f)
-                                    )
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Morandi.panelHi)
                                     .clickable {
                                         haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                        onConfigChange(config.copy(sensorId = sensor.id))
-                                        showSensorPicker = false
+                                        onConfigChange(config.copy(points = preset.createPoints()))
                                     }
-                                    .padding(horizontal = 7.dp, vertical = 4.dp),
-                                contentAlignment = Alignment.Center,
+                                    .padding(horizontal = 9.dp, vertical = 5.dp),
                             ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                                ) {
-                                    Icon(
-                                        painter = painterResource(sensor.iconRes),
-                                        contentDescription = null,
-                                        tint = if (isSelected) Color.White else textSub,
-                                        modifier = Modifier.size(12.dp),
-                                    )
-                                    Text(
-                                        text = stringResource(sensor.titleRes),
-                                        color = if (isSelected) Color.White else textMain,
-                                        fontSize = 10.5.sp,
-                                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-
-            // ---- 3. 可交互曲线网格画布 ----
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(180.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Color(0xFF141619))
-                    .border(1.dp, borderCol.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
-                    .pointerInput(config.points) {
-                        detectTapGestures { offset ->
-                            val pad = 16f
-                            val w = size.width - pad * 2
-                            val h = size.height - pad * 2
-                            if (w <= 0 || h <= 0) return@detectTapGestures
-
-                            val clickNormX = ((offset.x - pad) / w).coerceIn(0f, 1f)
-                            val clickNormY = (1f - (offset.y - pad) / h).coerceIn(0f, 1f)
-
-                            // 检查是否点中了现有控制点
-                            var hitIndex = -1
-                            val hitRadiusPx = 28f
-                            config.points.forEachIndexed { idx, pt ->
-                                val ptPxX = pad + pt.x * w
-                                val ptPxY = pad + (1f - pt.y) * h
-                                val dist = kotlin.math.hypot(offset.x - ptPxX, offset.y - ptPxY)
-                                if (dist <= hitRadiusPx) {
-                                    hitIndex = idx
-                                }
-                            }
-
-                            if (hitIndex >= 0) {
-                                selectedPointIndex = hitIndex
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            } else {
-                                // 点击空白网格处新增控制点
-                                val newPoints = (config.points + CurvePoint.of(clickNormX, clickNormY))
-                                    .sortedBy { it.x }
-                                selectedPointIndex = newPoints.indexOfFirst { it.x == clickNormX }
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                onConfigChange(config.copy(points = newPoints))
-                            }
-                        }
-                    }
-                    .pointerInput(config.points, selectedPointIndex) {
-                        // 拖动期间以"按下时的点"为基准做绝对换算, 而不是逐帧累加 dragAmount:
-                        // 累加依赖父级回传的 config.points, 而 onConfigChange 要绕一圈
-                        // runCore 才回来, 状态滞后会让拖动丢增量/抖动。
-                        var grabbedIdx = -1
-                        var startNormX = 0f
-                        var startNormY = 0f
-                        detectDragGestures(
-                            onDragStart = { startOffset ->
-                                val pad = 16f
-                                val w = size.width - pad * 2
-                                val h = size.height - pad * 2
-                                val hitRadiusPx = 32f
-                                grabbedIdx = -1
-                                config.points.forEachIndexed { idx, pt ->
-                                    val ptPxX = pad + pt.x * w
-                                    val ptPxY = pad + (1f - pt.y) * h
-                                    val dist = kotlin.math.hypot(startOffset.x - ptPxX, startOffset.y - ptPxY)
-                                    // 取最近的命中点, 而不是最后命中的那个
-                                    if (dist <= hitRadiusPx) {
-                                        val cur = if (grabbedIdx < 0) Float.MAX_VALUE
-                                        else kotlin.math.hypot(
-                                            startOffset.x - (pad + config.points[grabbedIdx].x * w),
-                                            startOffset.y - (pad + (1f - config.points[grabbedIdx].y) * h),
-                                        )
-                                        if (dist < cur) {
-                                            grabbedIdx = idx
-                                            startNormX = pt.x
-                                            startNormY = pt.y
-                                        }
-                                    }
-                                }
-                                // 命中空白处就放弃本次拖动: 否则会顺移上一次选中的点
-                                if (grabbedIdx >= 0) selectedPointIndex = grabbedIdx
-                            },
-                        ) { change, _ ->
-                            val idx = grabbedIdx
-                            if (idx in config.points.indices) {
-                                change.consume()
-                                val pad = 16f
-                                val w = size.width - pad * 2
-                                val h = size.height - pad * 2
-                                if (w > 0 && h > 0) {
-                                    val curPos = change.position
-                                    val newNormY = (1f - (curPos.y - pad) / h).coerceIn(0f, 1f)
-                                    // 首尾端点的 X 严格锁定在 0 与 1
-                                    val newNormX = when (idx) {
-                                        0 -> 0f
-                                        config.points.lastIndex -> 1f
-                                        else -> ((curPos.x - pad) / w).coerceIn(0.01f, 0.99f)
-                                    }
-
-                                    val mutable = config.points.toMutableList()
-                                    mutable[idx] = CurvePoint.of(newNormX, newNormY)
-                                    // 仅对中间点重新保持有序
-                                    val sorted = mutable.sortedBy { it.x }
-                                    // 用"被移动的点在排序后的下标"回填, 不用 indexOf(值):
-                                    // 拖到与邻点数值重合时 indexOf 会返回邻点的下标, 之后
-                                    // 手柄会突然跳到另一个点上。sortedBy 是稳定排序, 因此
-                                    // 被移动点若与邻点 x 相同, 保持相对次序即为它自身。
-                                    selectedPointIndex = sorted.indexOfFirst { it === mutable[idx] }
-                                        .takeIf { it >= 0 } ?: sorted.indexOf(mutable[idx])
-                                    onConfigChange(config.copy(points = sorted))
-                                }
-                            }
-                        }
-                    }
-            ) {
-                Canvas(modifier = Modifier.fillMaxSize()) {
-                    val pad = 16.dp.toPx()
-                    val w = size.width - pad * 2
-                    val h = size.height - pad * 2
-                    if (w <= 0 || h <= 0) return@Canvas
-
-                    // 1. 绘制 4x4 网格辅助线
-                    val gridSteps = 4
-                    for (i in 0..gridSteps) {
-                        val gx = pad + (w / gridSteps) * i
-                        val gy = pad + (h / gridSteps) * i
-                        drawLine(
-                            color = Color.White.copy(alpha = 0.08f),
-                            start = Offset(gx, pad),
-                            end = Offset(gx, pad + h),
-                            strokeWidth = 1f,
-                        )
-                        drawLine(
-                            color = Color.White.copy(alpha = 0.08f),
-                            start = Offset(pad, gy),
-                            end = Offset(pad + w, gy),
-                            strokeWidth = 1f,
-                        )
-                    }
-
-                    // 2. 对角参考虚线
-                    drawLine(
-                        color = Color.White.copy(alpha = 0.12f),
-                        start = Offset(pad, pad + h),
-                        end = Offset(pad + w, pad),
-                        strokeWidth = 1f,
-                    )
-
-                    // 3. 拟合计算样条曲线路径
-                    val sorted = config.points.sortedBy { it.x }
-                    if (sorted.isNotEmpty()) {
-                        val curvePath = Path()
-                        val fillPath = Path()
-
-                        val sampleSteps = 100
-                        val firstX = pad + sorted.first().x * w
-                        val firstY = pad + (1f - sorted.first().y) * h
-
-                        curvePath.moveTo(firstX, firstY)
-                        fillPath.moveTo(firstX, pad + h)
-                        fillPath.lineTo(firstX, firstY)
-
-                        for (s in 1..sampleSteps) {
-                            val normX = s.toFloat() / sampleSteps
-                            val normY = config.evaluate(normX)
-                            val px = pad + normX * w
-                            val py = pad + (1f - normY) * h
-                            curvePath.lineTo(px, py)
-                            fillPath.lineTo(px, py)
-                        }
-
-                        val lastX = pad + sorted.last().x * w
-                        fillPath.lineTo(lastX, pad + h)
-                        fillPath.close()
-
-                        // 填充渐变下投影
-                        drawPath(
-                            path = fillPath,
-                            brush = Brush.verticalGradient(
-                                colors = listOf(Morandi.accent.copy(alpha = 0.28f), Color.Transparent),
-                                startY = pad,
-                                endY = pad + h,
-                            ),
-                        )
-
-                        // 描画主曲线轮廓
-                        drawPath(
-                            path = curvePath,
-                            color = Morandi.accent,
-                            style = Stroke(
-                                width = 2.5.dp.toPx(),
-                                cap = StrokeCap.Round,
-                                join = StrokeJoin.Round,
-                            ),
-                        )
-                    }
-
-                    // 4. 绘制控制点节点
-                    sorted.forEachIndexed { index, pt ->
-                        val px = pad + pt.x * w
-                        val py = pad + (1f - pt.y) * h
-                        val isSel = index == selectedPointIndex
-
-                        // 选中光晕
-                        if (isSel) {
-                            drawCircle(
-                                color = Morandi.accent.copy(alpha = 0.35f),
-                                radius = 10.dp.toPx(),
-                                center = Offset(px, py),
-                            )
-                        }
-
-                        // 节点主体
-                        drawCircle(
-                            color = if (isSel) Color.White else Morandi.accent,
-                            radius = if (isSel) 5.dp.toPx() else 4.dp.toPx(),
-                            center = Offset(px, py),
-                        )
-                        drawCircle(
-                            color = Color(0xFF141619),
-                            radius = if (isSel) 2.5.dp.toPx() else 2.dp.toPx(),
-                            center = Offset(px, py),
-                        )
-                    }
-
-                    // 5. 试画板实时动态追踪光点 (Live Cursor)
-                    if (liveInput in 0f..1f) {
-                        val liveOutput = config.evaluate(liveInput)
-                        val lpx = pad + liveInput * w
-                        val lpy = pad + (1f - liveOutput) * h
-
-                        // 外圈脉冲光环
-                        drawCircle(
-                            color = Color(0xFF50E3C2).copy(alpha = 0.45f),
-                            radius = 9.dp.toPx(),
-                            center = Offset(lpx, lpy),
-                        )
-                        // 内圈高亮核心
-                        drawCircle(
-                            color = Color(0xFF50E3C2),
-                            radius = 4.5.dp.toPx(),
-                            center = Offset(lpx, lpy),
-                        )
-                    }
-                }
-
-                // 左下角微提示
-                Text(
-                    text = stringResource(R.string.brush_dynamics_add_point_hint),
-                    color = textSub.copy(alpha = 0.5f),
-                    fontSize = 9.5.sp,
-                    modifier = Modifier
-                        .align(Alignment.BottomStart)
-                        .padding(start = 10.dp, bottom = 6.dp),
-                )
-
-                // 右上角实时响应标尺 HUD
-                if (liveInput in 0f..1f) {
-                    val liveOutput = config.evaluate(liveInput)
-                    Box(
-                        modifier = Modifier
-                            .align(Alignment.TopEnd)
-                            .padding(8.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color.Black.copy(alpha = 0.7f))
-                            .padding(horizontal = 6.dp, vertical = 2.5.dp),
-                    ) {
-                        Text(
-                            text = "In: ${(liveInput * 100).toInt()}% → Out: ${(liveOutput * 100).toInt()}%",
-                            color = Color(0xFF50E3C2),
-                            fontSize = 9.5.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-                }
-            }
-
-            // ---- 4. 曲线工具条：快捷预设 + 反转/增删 + 选定点微调 ----
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .horizontalScroll(rememberScrollState()),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                // 预设模式选项卡
-                CurvePreset.entries.forEach { preset ->
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Morandi.panelHi.copy(alpha = 0.6f))
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                onConfigChange(config.copy(points = preset.createPoints()))
-                                selectedPointIndex = -1
-                            }
-                            .padding(horizontal = 7.dp, vertical = 4.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = stringResource(preset.titleRes),
-                            color = textSub,
-                            fontSize = 10.sp,
-                        )
-                    }
-                }
-
-                // 水平反转
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Morandi.panelHi.copy(alpha = 0.6f))
-                        .clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            val inverted = config.points.map { CurvePoint.of(1f - it.x, it.y) }.sortedBy { it.x }
-                            onConfigChange(config.copy(points = inverted))
-                        }
-                        .padding(horizontal = 7.dp, vertical = 4.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = stringResource(R.string.brush_dynamics_invert_h),
-                        color = textSub,
-                        fontSize = 10.sp,
-                    )
-                }
-
-                // 垂直反转
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Morandi.panelHi.copy(alpha = 0.6f))
-                        .clickable {
-                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                            val inverted = config.points.map { CurvePoint.of(it.x, 1f - it.y) }
-                            onConfigChange(config.copy(points = inverted))
-                        }
-                        .padding(horizontal = 7.dp, vertical = 4.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = stringResource(R.string.brush_dynamics_invert_v),
-                        color = textSub,
-                        fontSize = 10.sp,
-                    )
-                }
-
-                // 删除选定节点 (若选中的是非首尾节点)
-                if (selectedPointIndex > 0 && selectedPointIndex < config.points.lastIndex) {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(Color(0xFFC86464).copy(alpha = 0.15f))
-                            .clickable {
-                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                val mutable = config.points.toMutableList()
-                                mutable.removeAt(selectedPointIndex)
-                                selectedPointIndex = -1
-                                onConfigChange(config.copy(points = mutable))
-                            }
-                            .padding(horizontal = 7.dp, vertical = 4.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = "删除点",
-                            color = Color(0xFFC86464),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Medium,
-                        )
-                    }
-                }
-            }
-
-            // ---- 5. 选定点坐标数值精调 (Steppers) ----
-            if (selectedPointIndex in config.points.indices) {
-                val currentPt = config.points[selectedPointIndex]
-                val isEndpoint = selectedPointIndex == 0 || selectedPointIndex == config.points.lastIndex
-
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Morandi.panelHi.copy(alpha = 0.4f))
-                        .padding(horizontal = 8.dp, vertical = 4.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = "点 #${selectedPointIndex + 1}",
-                        color = textSub,
-                        fontSize = 10.5.sp,
-                    )
-
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        // X 步进调节 (首尾锁定)
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(
-                                text = "X: ${(currentPt.x * 100).roundToInt()}%",
-                                color = textMain,
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Medium,
-                            )
-                            if (!isEndpoint) {
-                                PointStepper(
-                                    onStep = { delta ->
-                                        val newX = (currentPt.x + delta).coerceIn(0.01f, 0.99f)
-                                        val mutable = config.points.toMutableList()
-                                        mutable[selectedPointIndex] = CurvePoint.of(newX, currentPt.y)
-                                        val sorted = mutable.sortedBy { it.x }
-                                        selectedPointIndex = sorted.indexOf(mutable[selectedPointIndex])
-                                        onConfigChange(config.copy(points = sorted))
-                                    }
+                                Text(
+                                    text = stringResource(preset.titleRes),
+                                    color = textMain,
+                                    fontSize = 11.sp,
                                 )
                             }
                         }
 
-                        // Y 步进调节
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
-                            Text(
-                                text = "Y: ${(currentPt.y * 100).roundToInt()}%",
-                                color = textMain,
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.Medium,
-                            )
-                            PointStepper(
-                                onStep = { delta ->
-                                    val newY = (currentPt.y + delta).coerceIn(0f, 1f)
-                                    val mutable = config.points.toMutableList()
-                                    mutable[selectedPointIndex] = CurvePoint.of(currentPt.x, newY)
-                                    onConfigChange(config.copy(points = mutable))
+                        // 水平反转
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Morandi.panelHi)
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    val inverted = config.points.map { CurvePoint.of(1f - it.x, it.y) }.sortedBy { it.x }
+                                    onConfigChange(config.copy(points = inverted))
                                 }
-                            )
+                                .padding(horizontal = 9.dp, vertical = 5.dp),
+                        ) {
+                            Text(stringResource(R.string.brush_dynamics_invert_h), color = textSub, fontSize = 11.sp)
+                        }
+
+                        // 垂直反转
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Morandi.panelHi)
+                                .clickable {
+                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                    val inverted = config.points.map { CurvePoint.of(it.x, 1f - it.y) }
+                                    onConfigChange(config.copy(points = inverted))
+                                }
+                                .padding(horizontal = 9.dp, vertical = 5.dp),
+                        ) {
+                            Text(stringResource(R.string.brush_dynamics_invert_v), color = textSub, fontSize = 11.sp)
                         }
                     }
-                }
-            }
 
-            // ---- 6. 动态影响强度滑块 ----
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                Text(
-                    text = stringResource(R.string.brush_dynamics_strength),
-                    color = textSub,
-                    fontSize = 11.sp,
-                    modifier = Modifier.width(76.dp),
-                )
-                Box(modifier = Modifier.weight(1f)) {
-                    ReSlider(
-                        value = config.strength,
-                        onValue = { onConfigChange(config.copy(strength = it)) },
+                    // 3. 核心大尺寸曲线交互网格 (单手势引擎内核)
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(200.dp)
+                            .clip(RoundedCornerShape(12.dp))
+                            .background(Color(0xFF141619))
+                            .border(1.dp, borderCol.copy(alpha = 0.5f), RoundedCornerShape(12.dp)),
+                    ) {
+                        DynamicCurveEditorCanvas(
+                            config = config,
+                            onPointsChanged = { newPts ->
+                                onConfigChange(config.copy(points = newPts))
+                            },
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                    }
+
+                    // 4. 实时硬件压感试笔条
+                    DynamicTestStrokeCanvas(
+                        config = config,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(72.dp),
                     )
+
+                    // 5. 影响强度调节滑块
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.brush_dynamics_strength),
+                            color = textSub,
+                            fontSize = 11.sp,
+                            modifier = Modifier.width(76.dp),
+                        )
+                        ReSlider(
+                            value = config.strength,
+                            onValue = { onConfigChange(config.copy(strength = it.coerceIn(0.05f, 1f))) },
+                            modifier = Modifier.weight(1f),
+                        )
+                        Text(
+                            text = "${(config.strength * 100).toInt()}%",
+                            color = textMain,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.width(36.dp),
+                        )
+                    }
+
+                    // 底部操作栏
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        ReTextButton(
+                            stringResource(R.string.common_confirm),
+                            onClick = onDismiss,
+                            textColor = Morandi.accent,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
                 }
-                Text(
-                    text = "${(config.strength * 100).roundToInt()}%",
-                    color = textMain,
-                    fontSize = 11.sp,
-                    modifier = Modifier.width(36.dp),
-                )
             }
         }
     }
 }
 
+/**
+ * 曲线网格编辑器交互画布 (单手势 awaitEachGesture 内核，坐标系严格统一)
+ */
 @Composable
-private fun PointStepper(onStep: (Float) -> Unit) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        Box(
-            modifier = Modifier
-                .size(18.dp)
-                .clip(CircleShape)
-                .background(Morandi.panelHi)
-                .clickable { onStep(-0.02f) },
-            contentAlignment = Alignment.Center,
-        ) {
-            Text("-", color = Morandi.text, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+private fun DynamicCurveEditorCanvas(
+    config: DynamicOptionConfig,
+    onPointsChanged: (List<CurvePoint>) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val haptic = LocalHapticFeedback.current
+    val currentPoints by rememberUpdatedState(config.points)
+    val currentOnPointsChanged by rememberUpdatedState(onPointsChanged)
+    var selectedIdx by remember { mutableIntStateOf(-1) }
+    var lastTapTime by remember { mutableStateOf(0L) }
+    var lastTapIndex by remember { mutableIntStateOf(-1) }
+
+    Box(
+        modifier = modifier.pointerInput(Unit) {
+            awaitEachGesture {
+                val down = awaitFirstDown(requireUnconsumed = false)
+                down.consume()
+                val density = this.density
+                val pad = 20f * density
+                val w = size.width.toFloat() - pad * 2f
+                val h = size.height.toFloat() - pad * 2f
+                if (w <= 0f || h <= 0f) return@awaitEachGesture
+
+                val touchOffset = down.position
+                val pts = currentPoints
+                val touchRadiusPx = 36f * density
+
+                // 1. 命中测试
+                var foundIdx = -1
+                for (i in pts.indices) {
+                    val pt = pts[i]
+                    val screenX = pad + pt.x * w
+                    val screenY = pad + (1f - pt.y) * h
+                    val dx = touchOffset.x - screenX
+                    val dy = touchOffset.y - screenY
+                    if (dx * dx + dy * dy <= touchRadiusPx * touchRadiusPx) {
+                        foundIdx = i
+                        break
+                    }
+                }
+
+                // 双击内部控制点直接删除
+                val now = System.currentTimeMillis()
+                if (foundIdx > 0 && foundIdx < pts.size - 1) {
+                    if (foundIdx == lastTapIndex && now - lastTapTime < 350L) {
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        val curList = pts.toMutableList()
+                        curList.removeAt(foundIdx)
+                        currentOnPointsChanged(curList)
+                        lastTapTime = 0L
+                        lastTapIndex = -1
+                        selectedIdx = -1
+                        while (true) {
+                            val ev = awaitPointerEvent()
+                            val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!ch.pressed) break
+                            ch.consume()
+                        }
+                        return@awaitEachGesture
+                    }
+                    lastTapTime = now
+                    lastTapIndex = foundIdx
+                } else {
+                    lastTapTime = 0L
+                    lastTapIndex = -1
+                }
+
+                var activeIdx = foundIdx
+                if (activeIdx == -1) {
+                    // 空白处添加新点 (上限 6 个)
+                    if (pts.size < 6) {
+                        val newPt = CurvePoint.of(
+                            ((touchOffset.x - pad) / w).coerceIn(0.02f, 0.98f),
+                            (1f - (touchOffset.y - pad) / h).coerceIn(0f, 1f),
+                        )
+                        val updated = (pts + newPt).sortedBy { it.x }
+                        activeIdx = updated.indexOf(newPt)
+                        selectedIdx = activeIdx
+                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                        currentOnPointsChanged(updated)
+                    } else {
+                        selectedIdx = -1
+                        while (true) {
+                            val ev = awaitPointerEvent()
+                            val ch = ev.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!ch.pressed) break
+                            ch.consume()
+                        }
+                        return@awaitEachGesture
+                    }
+                } else {
+                    selectedIdx = activeIdx
+                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                }
+
+                var isDraggedOutOfCanvas = false
+
+                // 拖拽跟踪
+                while (true) {
+                    val event = awaitPointerEvent()
+                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                    if (!change.pressed) break
+                    change.consume()
+
+                    val curList = currentPoints.toMutableList()
+                    if (activeIdx in curList.indices) {
+                        val isInterior = activeIdx > 0 && activeIdx < curList.size - 1
+                        if (isInterior) {
+                            val outThresh = 30f * density
+                            val p = change.position
+                            isDraggedOutOfCanvas = p.y < -outThresh || p.y > size.height + outThresh ||
+                                    p.x < -outThresh || p.x > size.width + outThresh
+                        }
+
+                        // X 轴按邻点约束，杜绝交叉
+                        val minX = if (activeIdx == 0) 0f else (curList[activeIdx - 1].x + 0.02f).coerceAtMost(1f)
+                        val maxX = if (activeIdx == curList.size - 1) 1f else (curList[activeIdx + 1].x - 0.02f).coerceAtLeast(0f)
+                        val curX = if (activeIdx == 0) 0f else if (activeIdx == curList.size - 1) 1f else ((change.position.x - pad) / w).coerceIn(minX, maxX)
+                        val curY = (1f - (change.position.y - pad) / h).coerceIn(0f, 1f)
+                        curList[activeIdx] = CurvePoint.of(curX, curY)
+                        currentOnPointsChanged(curList)
+                    }
+                }
+
+                // 拖出边界释放删除内部点
+                if (isDraggedOutOfCanvas && activeIdx > 0 && activeIdx < currentPoints.size - 1) {
+                    val curList = currentPoints.toMutableList()
+                    if (activeIdx in curList.indices) {
+                        curList.removeAt(activeIdx)
+                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                        currentOnPointsChanged(curList)
+                    }
+                }
+            }
         }
-        Box(
+    ) {
+        Canvas(modifier = Modifier.fillMaxSize()) {
+            val pad = 20.dp.toPx()
+            val w = size.width - pad * 2f
+            val h = size.height - pad * 2f
+            if (w <= 0f || h <= 0f) return@Canvas
+
+            // 1. 4x4 网格辅助线
+            val gridSteps = 4
+            val gridCol = Color.White.copy(alpha = 0.08f)
+            for (i in 0..gridSteps) {
+                val gx = pad + (w / gridSteps) * i
+                val gy = pad + (h / gridSteps) * i
+                drawLine(gridCol, Offset(gx, pad), Offset(gx, pad + h), 1f)
+                drawLine(gridCol, Offset(pad, gy), Offset(pad + w, gy), 1f)
+            }
+
+            // 2. 绘制连续光滑响应曲线
+            val path = Path()
+            val step = 100
+            for (s in 0..step) {
+                val xVal = s / step.toFloat()
+                val yVal = config.evaluate(xVal)
+                val sx = pad + xVal * w
+                val sy = pad + (1f - yVal) * h
+                if (s == 0) path.moveTo(sx, sy) else path.lineTo(sx, sy)
+            }
+            drawPath(path, Morandi.accent, style = Stroke(width = 2.5.dp.toPx(), cap = StrokeCap.Round))
+
+            // 3. 绘制控制点
+            config.points.forEachIndexed { idx, pt ->
+                val cx = pad + pt.x * w
+                val cy = pad + (1f - pt.y) * h
+                val isSel = idx == selectedIdx
+
+                if (isSel) {
+                    drawCircle(Morandi.accent.copy(alpha = 0.3f), 10.dp.toPx(), Offset(cx, cy))
+                }
+                drawCircle(Color.White, 5.5.dp.toPx(), Offset(cx, cy))
+                drawCircle(Morandi.accent, 4.dp.toPx(), Offset(cx, cy))
+            }
+        }
+    }
+}
+
+/**
+ * 实时硬件压感试笔条：用笔轻重划线，实时体验当前曲线映射过渡
+ */
+private data class TestStrokePoint(val x: Float, val y: Float, val pressure: Float)
+
+@Composable
+private fun DynamicTestStrokeCanvas(
+    config: DynamicOptionConfig,
+    modifier: Modifier = Modifier,
+) {
+    var strokes by remember { mutableStateOf(listOf<List<TestStrokePoint>>()) }
+    var activeStroke by remember { mutableStateOf<List<TestStrokePoint>?>(null) }
+
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(10.dp))
+            .background(Color(0xFF141619))
+            .border(1.dp, Morandi.border.copy(alpha = 0.35f), RoundedCornerShape(10.dp)),
+    ) {
+        Canvas(
             modifier = Modifier
-                .size(18.dp)
-                .clip(CircleShape)
-                .background(Morandi.panelHi)
-                .clickable { onStep(0.02f) },
-            contentAlignment = Alignment.Center,
+                .fillMaxSize()
+                .pointerInput(config) {
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        down.consume()
+                        val initP = if (down.pressure > 0f) down.pressure else 0.5f
+                        val active = mutableListOf(TestStrokePoint(down.position.x, down.position.y, initP))
+                        activeStroke = active.toList()
+
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                            if (!change.pressed) break
+                            change.consume()
+
+                            val p = if (change.pressure > 0f) change.pressure else 0.5f
+                            active.add(TestStrokePoint(change.position.x, change.position.y, p))
+                            activeStroke = active.toList()
+                        }
+
+                        strokes = strokes + listOf(active.toList())
+                        activeStroke = null
+                    }
+                },
         ) {
-            Text("+", color = Morandi.text, fontSize = 11.sp, fontWeight = FontWeight.Bold)
+            val all = strokes + (activeStroke?.let { listOf(it) } ?: emptyList())
+            for (stroke in all) {
+                if (stroke.size == 1) {
+                    val p = stroke[0]
+                    val mappedP = config.evaluate(p.pressure)
+                    val r = 2.dp.toPx() + mappedP * 8.dp.toPx()
+                    drawCircle(Morandi.text, radius = r, center = Offset(p.x, p.y))
+                } else {
+                    for (i in 0 until stroke.size - 1) {
+                        val p0 = stroke[i]
+                        val p1 = stroke[i + 1]
+                        val mappedP = config.evaluate((p0.pressure + p1.pressure) * 0.5f)
+                        val strokeW = 1.5.dp.toPx() + mappedP * 14.dp.toPx()
+                        drawLine(
+                            color = Morandi.text,
+                            start = Offset(p0.x, p0.y),
+                            end = Offset(p1.x, p1.y),
+                            strokeWidth = strokeW,
+                            cap = StrokeCap.Round,
+                        )
+                    }
+                }
+            }
+        }
+
+        // 提示文案与清空按钮
+        if (strokes.isEmpty() && activeStroke == null) {
+            Box(modifier = Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                Text(
+                    text = stringResource(R.string.brush_studio_curve_test_hint),
+                    color = Morandi.subText.copy(alpha = 0.45f),
+                    fontSize = 11.sp,
+                )
+            }
+        } else {
+            Box(
+                modifier = Modifier
+                    .align(Alignment.TopEnd)
+                    .padding(6.dp)
+                    .size(24.dp)
+                    .clip(CircleShape)
+                    .background(Morandi.panel.copy(alpha = 0.8f))
+                    .clickable { strokes = emptyList() },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_trash),
+                    contentDescription = null,
+                    tint = Morandi.subText,
+                    modifier = Modifier.size(12.dp),
+                )
+            }
         }
     }
 }

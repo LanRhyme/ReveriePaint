@@ -708,6 +708,7 @@ class PaintViewModel : ViewModel() {
     var layerPanelOpen by mutableStateOf(false)
     var brushPanelOpen by mutableStateOf(false)
     var brushStudioOpen by mutableStateOf(false)
+    var brushStudioInitialParams by mutableStateOf<BrushParams?>(null)
 
     // Brush panel persistence state
     var brushPanelSelectedCategory by mutableStateOf("全部")

@@ -2,38 +2,23 @@
  * SPDX-License-Identifier: GPL-3.0-or-later
  */
 
-/*
- * SPDX-License-Identifier: GPL-3.0-or-later
- */
-
 package com.reverie.paint.ui.painting.brush
 
-import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.widget.Toast
 import androidx.activity.compose.BackHandler
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
-import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
-import com.reverie.paint.ui.painting.TextInputGuard
-import com.reverie.paint.ui.components.ReDropdownMenu
-import com.reverie.paint.ui.components.ReDropdownMenuItem
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -44,48 +29,28 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
-import com.reverie.paint.ui.theme.glassBorder
-import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.graphics.drawscope.rotate
-import androidx.compose.ui.graphics.drawscope.scale
-import androidx.compose.ui.graphics.drawscope.withTransform
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
-import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
-import androidx.compose.ui.window.DialogProperties
-import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.R
 import com.reverie.paint.core.*
-import com.reverie.paint.ui.components.ReSlider
-import com.reverie.paint.ui.components.ReSwitch
+import com.reverie.paint.ui.components.ReDropdownMenu
+import com.reverie.paint.ui.components.ReDropdownMenuItem
 import com.reverie.paint.ui.components.ReIconButton
-import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.components.ReTextButton
+import com.reverie.paint.ui.painting.TextInputGuard
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import dev.chrisbanes.haze.HazeState
-import java.io.File
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
-import kotlin.math.*
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 enum class StudioTab(val titleRes: Int, val subtitle: String, val iconRes: Int) {
     TIP(R.string.brush_studio_tab_tip, "Tip & Shape", R.drawable.ic_pencil),
@@ -115,8 +80,14 @@ fun BrushStudioPage(
     var showNewBrushDialog by remember { mutableStateOf(false) }
     var showRenameDialog by remember { mutableStateOf(false) }
     var showDeleteConfirmDialog by remember { mutableStateOf(false) }
+    var showRevertConfirmDialog by remember { mutableStateOf(false) }
     var showTipPickerModal by remember { mutableStateOf(false) }
     var showMaskingTipPickerModal by remember { mutableStateOf(false) }
+
+    // 进入工作台时捕获初始参数快照
+    LaunchedEffect(presetIndex) {
+        vm.captureBrushStudioSnapshot()
+    }
 
     // SAF Import Launcher for brush preset (.kpp, .bundle, .gbr, .png)
     val importBrushLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
@@ -137,22 +108,34 @@ fun BrushStudioPage(
         }
     }
 
-    // Scratchpad interactive test strokes
+    // 试画台状态
     val scratchStrokes = remember { mutableStateListOf<List<ScratchPoint>>() }
     var currentScratchStroke by remember { mutableStateOf<List<ScratchPoint>>(emptyList()) }
+    var scratchBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    var scratchpadVisible by remember { mutableStateOf(true) }
+    var scratchpadExpanded by remember { mutableStateOf(false) }
+    var scratchpadSolidBg by remember { mutableStateOf(false) }
 
     var shapeInvert by remember { mutableStateOf(false) }
     var shapeColorInvert by remember { mutableStateOf(false) }
     var shapeRgbAffectsAlpha by remember { mutableStateOf(true) }
 
-    /**
-     * 笔尖库清单。**只列名字, 不解码位图**。
-     *
-     * 原实现在 `remember` 里遍历 filesDir/brushes + assets/brushes 并对每个文件
-     * 同步 readBytes + 逐像素解码, 而 remember 是在组合阶段跑主线程的: 打开工作台
-     * 要扫六百多个文件, 其中还有 19MB 的动画 .gih, 卡顿与内存峰值都来自这里。
-     * 解码改由网格项按可见范围异步触发 (见 TipThumb)。
-     */
+    // 笔尖素材解码
+    var tipBitmap by remember(context, vm.brushTipAsset) {
+        mutableStateOf(
+            if (vm.brushTipAsset.isNotBlank()) {
+                BrushTipDecoder.loadTip(context, vm.brushTipAsset)
+            } else null
+        )
+    }
+    LaunchedEffect(context, vm.brushTipAsset) {
+        if (vm.brushTipAsset.isNotBlank() && tipBitmap == null) {
+            tipBitmap = withContext(Dispatchers.IO) {
+                BrushTipDecoder.loadTip(context, vm.brushTipAsset)
+            }
+        }
+    }
+
     var allTipItems by remember { mutableStateOf<List<BrushTipItem>>(emptyList()) }
     LaunchedEffect(context) {
         allTipItems = withContext(Dispatchers.IO) { buildTipItems(context) }
@@ -162,7 +145,6 @@ fun BrushStudioPage(
     val panelBg = Morandi.panel
     val cardBg = Morandi.panelHi
     val borderCol = Morandi.border.copy(alpha = 0.2f)
-    val dividerCol = Morandi.border.copy(alpha = 0.2f)
     val textMain = Morandi.text
     val textSub = Morandi.subText
 
@@ -210,20 +192,45 @@ fun BrushStudioPage(
 
                 Spacer(Modifier.weight(1f))
 
-                // New Brush action
+                // 还原修改动作
+                val hasChanges = vm.hasBrushStudioChanges()
+                ReIconButton(
+                    R.drawable.ic_refresh,
+                    stringResource(R.string.brush_studio_revert_changes),
+                    onTap = {
+                        if (hasChanges) {
+                            showRevertConfirmDialog = true
+                        } else {
+                            Toast.makeText(context, context.getString(R.string.brush_studio_revert_toast), Toast.LENGTH_SHORT).show()
+                        }
+                    },
+                    tint = if (hasChanges) Morandi.accent else textSub.copy(alpha = 0.45f),
+                    iconSize = 17.dp,
+                )
+
+                // 试画台折叠切换
+                ReIconButton(
+                    R.drawable.ic_pencil,
+                    stringResource(if (scratchpadVisible) R.string.scratchpad_collapse else R.string.scratchpad_expand),
+                    onTap = { scratchpadVisible = !scratchpadVisible },
+                    tint = if (scratchpadVisible) Morandi.accent else textSub,
+                    iconSize = 17.dp,
+                )
+
+                // 新建笔刷
                 ReIconButton(R.drawable.ic_plus, stringResource(R.string.brush_studio_new_brush), { showNewBrushDialog = true }, tint = textSub, iconSize = 17.dp)
 
-                // Duplicate action
+                // 复制笔刷
                 ReIconButton(R.drawable.ic_copy, stringResource(R.string.brush_studio_duplicate_brush), {
                     if (vm.brushPresets.any { it.index == presetIndex }) {
                         vm.duplicateBrushPreset(presetIndex)
                     }
                 }, tint = textSub, iconSize = 17.dp)
 
-                // Import action
+                // 导入笔刷
                 ReIconButton(R.drawable.ic_export_tab, stringResource(R.string.brush_studio_import_brush), { importBrushLauncher.launch(arrayOf("*/*")) }, tint = textSub, iconSize = 17.dp)
 
-                // Overflow Menu
+                // 溢出菜单
                 Box {
                     ReIconButton(R.drawable.ic_dots_vertical, stringResource(R.string.brush_studio_more_ops), { showMenu = true }, tint = textSub, iconSize = 17.dp)
 
@@ -275,83 +282,41 @@ fun BrushStudioPage(
 
             Box(Modifier.fillMaxWidth().height(0.6.dp).background(Morandi.border.copy(alpha = 0.08f)))
 
-            // ---- Master-Detail Split Workspace ----
-            Row(modifier = Modifier.fillMaxWidth().weight(1f)) {
-                // Left Navigation Rail (左侧功能导轨)
-                Column(
-                    modifier = Modifier
-                        .width(116.dp)
-                        .fillMaxHeight()
-                        .background(panelBg)
-                        .verticalScroll(rememberScrollState())
-                        .padding(vertical = 10.dp, horizontal = 6.dp),
-                    verticalArrangement = Arrangement.spacedBy(3.dp),
-                ) {
-                    StudioTab.values().forEach { tab ->
-                        val sel = tab == selectedTab
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(if (sel) Morandi.accent.copy(alpha = 0.14f) else Color.Transparent)
-                                .clickable { selectedTab = tab }
-                                .padding(vertical = 9.dp, horizontal = 10.dp),
-                        ) {
-                            Column(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalAlignment = Alignment.Start,
-                                verticalArrangement = Arrangement.spacedBy(2.dp),
-                            ) {
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                ) {
-                                    Icon(
-                                        painterResource(tab.iconRes),
-                                        contentDescription = null,
-                                        tint = if (sel) Morandi.accent else textSub,
-                                        modifier = Modifier.size(15.dp),
-                                    )
-                                    Text(
-                                        stringResource(tab.titleRes),
-                                        color = if (sel) Morandi.accent else textMain,
-                                        fontSize = 12.sp,
-                                        fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
-                                    )
-                                }
-                                Text(
-                                    tab.subtitle,
-                                    color = if (sel) Morandi.accent.copy(alpha = 0.7f) else textSub.copy(alpha = 0.6f),
-                                    fontSize = 9.sp,
-                                    maxLines = 1,
-                                )
-                            }
-                        }
-                    }
-                }
+            // ---- 自适应工作区 (宽屏/平板左右分栏，窄屏/手机顶部Tab胶囊) ----
+            BoxWithConstraints(modifier = Modifier.fillMaxWidth().weight(1f)) {
+                val isWideScreen = maxWidth >= 600.dp
 
-                Box(modifier = Modifier.width(0.6.dp).fillMaxHeight().background(Morandi.border.copy(alpha = 0.08f)))
-
-                // Right Main Workspace (右侧工作区)
-                Column(modifier = Modifier.weight(1f).fillMaxHeight().background(pageBg)) {
-                    // Top Interactive Scratchpad (试画台)
-                    var scratchpadExpanded by remember { mutableStateOf(false) }
-                    var scratchpadSolidBg by remember { mutableStateOf(false) }
-                    val scratchpadHeight by androidx.compose.animation.core.animateDpAsState(
-                        targetValue = if (scratchpadExpanded) 210.dp else 126.dp,
-                        label = "scratchpadHeight"
+                // 统一试画板 Composable
+                @Composable
+                fun ScratchpadCard() {
+                    val scratchpadHeight by animateDpAsState(
+                        targetValue = if (scratchpadExpanded) 200.dp else 122.dp,
+                        label = "scratchpadHeight",
                     )
+                    var canvasSize by remember { mutableStateOf(IntSize.Zero) }
 
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
                             .height(scratchpadHeight)
-                            .padding(horizontal = 10.dp, vertical = 8.dp)
+                            .padding(horizontal = 10.dp, vertical = 6.dp)
                             .clip(RoundedCornerShape(14.dp))
                             .background(Morandi.panelHi.copy(alpha = 0.5f))
                             .padding(4.dp)
                             .clip(RoundedCornerShape(10.dp))
-                            .background(if (scratchpadSolidBg) Morandi.panelHi else Morandi.panel),
+                            .background(if (scratchpadSolidBg) Morandi.panelHi else Morandi.panel)
+                            .onSizeChanged { size ->
+                                if (size.width > 0 && size.height > 0 && (size.width != canvasSize.width || size.height != canvasSize.height)) {
+                                    canvasSize = size
+                                    val old = scratchBitmap
+                                    val newBmp = Bitmap.createBitmap(size.width, size.height, Bitmap.Config.ARGB_8888)
+                                    if (old != null) {
+                                        val c = android.graphics.Canvas(newBmp)
+                                        c.drawBitmap(old, 0f, 0f, null)
+                                    }
+                                    scratchBitmap = newBmp
+                                }
+                            },
                     ) {
                         if (!scratchpadSolidBg) {
                             CheckerboardBackground(modifier = Modifier.fillMaxSize())
@@ -359,12 +324,16 @@ fun BrushStudioPage(
 
                         ScratchpadCanvas(
                             vm = vm,
-                            strokes = scratchStrokes,
+                            scratchBitmap = scratchBitmap,
                             currentStroke = currentScratchStroke,
                             onStrokeStart = { p -> currentScratchStroke = listOf(p) },
                             onStrokeAddPoints = { pts -> currentScratchStroke = currentScratchStroke + pts },
                             onStrokeEnd = {
                                 if (currentScratchStroke.isNotEmpty()) {
+                                    val bmp = scratchBitmap
+                                    if (bmp != null) {
+                                        bakeStrokeToBitmap(bmp, currentScratchStroke, vm, tipBitmap)
+                                    }
                                     scratchStrokes.add(currentScratchStroke)
                                     currentScratchStroke = emptyList()
                                 }
@@ -372,111 +341,148 @@ fun BrushStudioPage(
                             modifier = Modifier.fillMaxSize(),
                         )
 
-                        // Top Controls Overlay (Background switch, Expand toggle)
+                        // 试画板右上角操作
                         Row(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)
-                                .padding(8.dp),
+                                .padding(6.dp),
                             horizontalArrangement = Arrangement.spacedBy(6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            // Background switcher
+                            // 背景切换
                             Box(
                                 modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .size(26.dp)
+                                    .clip(RoundedCornerShape(6.dp))
                                     .background(Morandi.panel.copy(alpha = 0.85f))
                                     .clickable { scratchpadSolidBg = !scratchpadSolidBg },
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Icon(
                                     painterResource(if (scratchpadSolidBg) R.drawable.ic_layers else R.drawable.ic_circle),
-                                    contentDescription = stringResource(if (scratchpadSolidBg) R.string.scratchpad_bg_checker else R.string.scratchpad_bg_solid),
+                                    contentDescription = null,
                                     tint = textSub,
-                                    modifier = Modifier.size(14.dp),
+                                    modifier = Modifier.size(13.dp),
                                 )
                             }
 
-                            // Height expand toggle
+                            // 展开/收缩高度
                             Box(
                                 modifier = Modifier
-                                    .size(28.dp)
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .size(26.dp)
+                                    .clip(RoundedCornerShape(6.dp))
                                     .background(Morandi.panel.copy(alpha = 0.85f))
                                     .clickable { scratchpadExpanded = !scratchpadExpanded },
                                 contentAlignment = Alignment.Center,
                             ) {
                                 Icon(
                                     painterResource(R.drawable.ic_chevron),
-                                    contentDescription = stringResource(if (scratchpadExpanded) R.string.scratchpad_collapse else R.string.scratchpad_expand),
+                                    contentDescription = null,
                                     tint = if (scratchpadExpanded) Morandi.accent else textSub,
                                     modifier = Modifier
-                                        .size(15.dp)
+                                        .size(14.dp)
                                         .rotate(if (scratchpadExpanded) -90f else 90f),
+                                )
+                            }
+
+                            // 完全折叠收起
+                            Box(
+                                modifier = Modifier
+                                    .size(26.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Morandi.panel.copy(alpha = 0.85f))
+                                    .clickable { scratchpadVisible = false },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    painterResource(R.drawable.ic_x),
+                                    contentDescription = null,
+                                    tint = textSub,
+                                    modifier = Modifier.size(13.dp),
                                 )
                             }
                         }
 
-                        // Bottom Actions: Set Thumbnail & Clear button & Draw Hint
+                        // 设为预设图标
                         Row(
                             modifier = Modifier
                                 .align(Alignment.BottomStart)
-                                .padding(8.dp)
-                                .clip(RoundedCornerShape(8.dp))
+                                .padding(6.dp)
+                                .clip(RoundedCornerShape(6.dp))
                                 .background(Morandi.panel.copy(alpha = 0.9f))
                                 .clickable {
-                                    val allStrokes = if (currentScratchStroke.isNotEmpty()) {
-                                        scratchStrokes + listOf(currentScratchStroke)
-                                    } else {
-                                        scratchStrokes.toList()
-                                    }
-                                    captureScratchpadAsThumbnail(context, vm, allStrokes)
+                                    captureScratchpadAsThumbnail(context, vm, scratchBitmap, scratchStrokes)
                                 }
-                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(5.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
-                            Icon(painterResource(R.drawable.ic_pencil), contentDescription = null, tint = textSub, modifier = Modifier.size(13.dp))
-                            Text(stringResource(R.string.brush_studio_scratchpad_set_icon), color = textSub, fontSize = 11.sp)
+                            Icon(painterResource(R.drawable.ic_pencil), contentDescription = null, tint = textSub, modifier = Modifier.size(12.dp))
+                            Text(stringResource(R.string.brush_studio_scratchpad_set_icon), color = textSub, fontSize = 10.sp)
                         }
 
+                        // 清空试画板
                         if (scratchStrokes.isNotEmpty() || currentScratchStroke.isNotEmpty()) {
                             Row(
                                 modifier = Modifier
                                     .align(Alignment.BottomEnd)
-                                    .padding(8.dp)
-                                    .clip(RoundedCornerShape(8.dp))
+                                    .padding(6.dp)
+                                    .clip(RoundedCornerShape(6.dp))
                                     .background(Morandi.panel.copy(alpha = 0.9f))
                                     .clickable {
+                                        scratchBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
                                         scratchStrokes.clear()
                                         currentScratchStroke = emptyList()
                                     }
-                                    .padding(horizontal = 10.dp, vertical = 5.dp),
+                                    .padding(horizontal = 8.dp, vertical = 4.dp),
                                 verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                Icon(painterResource(R.drawable.ic_trash), contentDescription = null, tint = textSub, modifier = Modifier.size(13.dp))
-                                Text(stringResource(R.string.brush_studio_scratchpad_clear), color = textSub, fontSize = 11.sp)
+                                Icon(painterResource(R.drawable.ic_trash), contentDescription = null, tint = textSub, modifier = Modifier.size(12.dp))
+                                Text(stringResource(R.string.brush_studio_scratchpad_clear), color = textSub, fontSize = 10.sp)
                             }
                         } else {
                             Text(
                                 stringResource(R.string.brush_studio_scratchpad_hint),
-                                color = textSub.copy(alpha = 0.5f),
+                                color = textSub.copy(alpha = 0.45f),
                                 fontSize = 11.sp,
                                 modifier = Modifier.align(Alignment.Center),
                             )
                         }
                     }
+                }
 
-                    Box(Modifier.fillMaxWidth().height(0.6.dp).background(Morandi.border.copy(alpha = 0.08f)))
+                // 折叠状态下的快速呼出栏
+                @Composable
+                fun CollapsedScratchpadBar() {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 10.dp, vertical = 4.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(cardBg.copy(alpha = 0.5f))
+                            .clickable { scratchpadVisible = true }
+                            .padding(horizontal = 10.dp, vertical = 6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Icon(painterResource(R.drawable.ic_pencil), contentDescription = null, tint = textSub, modifier = Modifier.size(13.dp))
+                            Text(stringResource(R.string.brush_studio_scratchpad_toggle), color = textSub, fontSize = 11.sp)
+                        }
+                        Text(stringResource(R.string.scratchpad_expand), color = Morandi.accent, fontSize = 11.sp)
+                    }
+                }
 
-                    // Parameter Cards Stack
+                // 参数面板内容
+                @Composable
+                fun ColumnScope.ParameterCards() {
                     Column(
                         modifier = Modifier
                             .fillMaxWidth()
                             .weight(1f)
                             .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                            .padding(horizontal = 14.dp, vertical = 8.dp),
                     ) {
                         AnimatedContent(
                             targetState = selectedTab,
@@ -543,22 +549,145 @@ fun BrushStudioPage(
                                         onDelete = { showDeleteConfirmDialog = true },
                                     )
                                     StudioTab.INFO -> InfoTabContent(
-                                         vm = vm,
-                                         preset = preset,
-                                         cardBg = cardBg,
-                                         borderCol = borderCol,
-                                         textMain = textMain,
-                                         textSub = textSub,
-                                     )
+                                        vm = vm,
+                                        preset = preset,
+                                        cardBg = cardBg,
+                                        borderCol = borderCol,
+                                        textMain = textMain,
+                                        textSub = textSub,
+                                    )
                                 }
                             }
                         }
                     }
                 }
+
+                if (isWideScreen) {
+                    // 宽屏模式：左侧 116dp 导轨 + 右侧主工作台
+                    Row(modifier = Modifier.fillMaxSize()) {
+                        Column(
+                            modifier = Modifier
+                                .width(116.dp)
+                                .fillMaxHeight()
+                                .background(panelBg)
+                                .verticalScroll(rememberScrollState())
+                                .padding(vertical = 10.dp, horizontal = 6.dp),
+                            verticalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            StudioTab.values().forEach { tab ->
+                                val sel = tab == selectedTab
+                                Box(
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (sel) Morandi.accent.copy(alpha = 0.14f) else Color.Transparent)
+                                        .clickable { selectedTab = tab }
+                                        .padding(vertical = 9.dp, horizontal = 10.dp),
+                                ) {
+                                    Column(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalAlignment = Alignment.Start,
+                                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                                    ) {
+                                        Row(
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                        ) {
+                                            Icon(
+                                                painterResource(tab.iconRes),
+                                                contentDescription = null,
+                                                tint = if (sel) Morandi.accent else textSub,
+                                                modifier = Modifier.size(15.dp),
+                                            )
+                                            Text(
+                                                stringResource(tab.titleRes),
+                                                color = if (sel) Morandi.accent else textMain,
+                                                fontSize = 12.sp,
+                                                fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+                                            )
+                                        }
+                                        Text(
+                                            tab.subtitle,
+                                            color = if (sel) Morandi.accent.copy(alpha = 0.7f) else textSub.copy(alpha = 0.6f),
+                                            fontSize = 9.sp,
+                                            maxLines = 1,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Box(modifier = Modifier.width(0.6.dp).fillMaxHeight().background(Morandi.border.copy(alpha = 0.08f)))
+
+                        Column(modifier = Modifier.weight(1f).fillMaxHeight().background(pageBg)) {
+                            if (scratchpadVisible) {
+                                ScratchpadCard()
+                            } else {
+                                CollapsedScratchpadBar()
+                            }
+                            Box(Modifier.fillMaxWidth().height(0.6.dp).background(Morandi.border.copy(alpha = 0.08f)))
+                            ParameterCards()
+                        }
+                    }
+                } else {
+                    // 窄屏/手机模式：顶部水平滚动 Tab 胶囊栏 + 全宽工作区
+                    Column(modifier = Modifier.fillMaxSize()) {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .background(panelBg)
+                                .horizontalScroll(rememberScrollState())
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            StudioTab.values().forEach { tab ->
+                                val sel = tab == selectedTab
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (sel) Morandi.accent.copy(alpha = 0.16f) else cardBg.copy(alpha = 0.5f))
+                                        .border(if (sel) 1.dp else 0.5.dp, if (sel) Morandi.accent.copy(alpha = 0.4f) else borderCol, RoundedCornerShape(8.dp))
+                                        .clickable { selectedTab = tab }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                ) {
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
+                                        horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                    ) {
+                                        Icon(
+                                            painterResource(tab.iconRes),
+                                            contentDescription = null,
+                                            tint = if (sel) Morandi.accent else textSub,
+                                            modifier = Modifier.size(13.dp),
+                                        )
+                                        Text(
+                                            stringResource(tab.titleRes),
+                                            color = if (sel) Morandi.accent else textMain,
+                                            fontSize = 11.sp,
+                                            fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+
+                        Box(Modifier.fillMaxWidth().height(0.6.dp).background(Morandi.border.copy(alpha = 0.08f)))
+
+                        if (scratchpadVisible) {
+                            ScratchpadCard()
+                        } else {
+                            CollapsedScratchpadBar()
+                        }
+
+                        Box(Modifier.fillMaxWidth().height(0.6.dp).background(Morandi.border.copy(alpha = 0.08f)))
+                        ParameterCards()
+                    }
+                }
             }
         }
 
-        // Floating Modal: Brush Tip Library Picker (浮窗笔尖选择器)
+        // 浮窗笔尖选择器
         if (showTipPickerModal) {
             BrushTipPickerModal(
                 allTips = allTipItems,
@@ -597,7 +726,7 @@ fun BrushStudioPage(
             )
         }
 
-        // Dialogs
+        // 对话框
         if (showNewBrushDialog) {
             StudioNewBrushDialog(
                 onDismiss = { showNewBrushDialog = false },
@@ -626,6 +755,34 @@ fun BrushStudioPage(
                 textMain = textMain,
                 textSub = textSub,
                 borderCol = borderCol,
+            )
+        }
+
+        // 还原修改确认弹窗
+        if (showRevertConfirmDialog) {
+            AlertDialog(
+                onDismissRequest = { showRevertConfirmDialog = false },
+                title = { Text(stringResource(R.string.brush_studio_revert_changes), color = textMain, fontSize = 15.sp) },
+                text = { Text(stringResource(R.string.brush_studio_revert_confirm), color = textSub, fontSize = 13.sp) },
+                confirmButton = {
+                    ReTextButton(
+                        stringResource(R.string.common_confirm),
+                        onClick = {
+                            vm.revertBrushStudioSnapshot()
+                            scratchBitmap?.eraseColor(android.graphics.Color.TRANSPARENT)
+                            scratchStrokes.clear()
+                            currentScratchStroke = emptyList()
+                            showRevertConfirmDialog = false
+                            Toast.makeText(context, context.getString(R.string.brush_studio_revert_toast), Toast.LENGTH_SHORT).show()
+                        },
+                        textColor = Morandi.accent,
+                        fontWeight = FontWeight.Bold,
+                    )
+                },
+                dismissButton = {
+                    ReTextButton(stringResource(R.string.common_cancel), { showRevertConfirmDialog = false }, textColor = textSub)
+                },
+                containerColor = cardBg,
             )
         }
 
