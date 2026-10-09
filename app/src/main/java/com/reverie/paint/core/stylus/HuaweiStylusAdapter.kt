@@ -31,6 +31,7 @@ import java.lang.ref.WeakReference
  */
 class HuaweiStylusAdapter : StylusBrandAdapter {
     override val brand: StylusBrand = StylusBrand.HUAWEI_MPENCIL
+    override val isSideButtonPressed: Boolean get() = isButtonCurrentlyDown
 
     companion object {
         private const val TAG = "ReverieHuaweiStylus"

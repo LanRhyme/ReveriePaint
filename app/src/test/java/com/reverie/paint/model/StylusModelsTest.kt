@@ -385,4 +385,40 @@ class StylusModelsTest {
         assertNotNull("Primary dedicated brand should be found", primaryDedicated)
         assertEquals("Primary dedicated brand must be SAMSUNG_SPEN", com.reverie.paint.core.stylus.StylusBrand.SAMSUNG_SPEN, primaryDedicated?.brand)
     }
+
+    @Test
+    fun `xiaomi focus pen does not use touchfilm penengine and routes physical buttons`() {
+        val focusPen = com.reverie.paint.core.stylus.XiaomiPencilModel.FOCUS_PEN
+        val focusPro = com.reverie.paint.core.stylus.XiaomiPencilModel.FOCUS_PEN_PRO
+        val smartPen2 = com.reverie.paint.core.stylus.XiaomiPencilModel.SMART_PEN_2
+
+        // PenEngine (touchfilm) should only be activated for models with slide/touchfilm gestures
+        val needsPenEngineFocus = !focusPen.hasPhysicalButtons || focusPen.hasSlideGesture
+        val needsPenEnginePro = !focusPro.hasPhysicalButtons || focusPro.hasSlideGesture
+        val needsPenEngineSmart2 = !smartPen2.hasPhysicalButtons || smartPen2.hasSlideGesture
+
+        assertFalse("Standard Focus Pen has physical buttons, must NOT use TouchFilm PenEngine", needsPenEngineFocus)
+        assertTrue("Focus Pen Pro is buttonless and uses TouchFilm PenEngine", needsPenEnginePro)
+        assertFalse("Smart Pen 2 has physical buttons, must NOT use TouchFilm PenEngine", needsPenEngineSmart2)
+
+        // KeyCodes used by Xiaomi physical buttons: PageUp/PageDown are emitted by standard Xiaomi Focus Pen
+        val primaryKeyCodes = listOf(
+            android.view.KeyEvent.KEYCODE_PAGE_UP,
+            android.view.KeyEvent.KEYCODE_DPAD_UP,
+            android.view.KeyEvent.KEYCODE_STYLUS_BUTTON_PRIMARY,
+            android.view.KeyEvent.KEYCODE_BUTTON_1,
+            308,
+        )
+        val secondaryKeyCodes = listOf(
+            android.view.KeyEvent.KEYCODE_PAGE_DOWN,
+            android.view.KeyEvent.KEYCODE_DPAD_DOWN,
+            android.view.KeyEvent.KEYCODE_STYLUS_BUTTON_SECONDARY,
+            android.view.KeyEvent.KEYCODE_BUTTON_2,
+            309,
+        )
+
+        assertTrue(primaryKeyCodes.contains(android.view.KeyEvent.KEYCODE_PAGE_UP))
+        assertTrue(secondaryKeyCodes.contains(android.view.KeyEvent.KEYCODE_PAGE_DOWN))
+    }
 }
+

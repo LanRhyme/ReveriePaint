@@ -2513,6 +2513,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateXiaomiPencilModelMode(mode: String) {
         xiaomiPencilModelMode = mode
+        stylusDriver?.syncSettings()
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("xiaomiPencilModelMode", mode).apply()
@@ -2521,6 +2522,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateXiaomiPrimaryButtonAction(actionId: String) {
         xiaomiPrimaryButtonAction = actionId
+        stylusDriver?.syncSettings()
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("xiaomiPrimaryButtonAction", actionId).apply()
@@ -2529,6 +2531,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateXiaomiSecondaryButtonAction(actionId: String) {
         xiaomiSecondaryButtonAction = actionId
+        stylusDriver?.syncSettings()
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("xiaomiSecondaryButtonAction", actionId).apply()
@@ -2537,6 +2540,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateXiaomiFocusButtonAction(actionId: String) {
         xiaomiFocusButtonAction = actionId
+        stylusDriver?.syncSettings()
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("xiaomiFocusButtonAction", actionId).apply()
@@ -2545,6 +2549,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateXiaomiDoubleTapAction(actionId: String) {
         xiaomiDoubleTapAction = actionId
+        stylusDriver?.syncSettings()
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("xiaomiDoubleTapAction", actionId).apply()
@@ -2553,6 +2558,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateXiaomiSideButtonErase(enabled: Boolean) {
         xiaomiSideButtonErase = enabled
+        stylusDriver?.syncSettings()
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("xiaomiSideButtonErase", enabled).apply()
@@ -2561,6 +2567,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateXiaomiSqueezeAction(actionId: String) {
         xiaomiSqueezeAction = actionId
+        stylusDriver?.syncSettings()
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("xiaomiSqueezeAction", actionId).apply()
@@ -2569,6 +2576,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateXiaomiSlideAction(actionId: String) {
         xiaomiSlideAction = actionId
+        stylusDriver?.syncSettings()
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("xiaomiSlideAction", actionId).apply()
@@ -2577,6 +2585,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateXiaomiSlideSensitivity(sensitivity: String) {
         xiaomiSlideSensitivity = sensitivity
+        stylusDriver?.syncSettings()
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("xiaomiSlideSensitivity", sensitivity).apply()

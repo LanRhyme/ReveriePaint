@@ -1717,7 +1717,7 @@
     <string name="stylus_xiaomi_double_tap_action">Primary Button Double Click</string>
     <string name="stylus_xiaomi_secondary_action">Secondary (Screenshot) Button Click</string>
     <string name="stylus_xiaomi_focus_action">Focus Button Click (Focus Pen)</string>
-    <string name="stylus_xiaomi_hint">Tip: If stylus buttons do not respond, check stylus shortcut settings in HyperOS system settings</string>
+    <string name="stylus_xiaomi_hint">Tip: Long-pressing Focus key activates HyperOS system laser pointer; set to None to forward key events to app keyboard shortcuts</string>
 
     <!-- Generic Stylus -->
     <string name="stylus_generic_title">Generic Stylus Settings</string>

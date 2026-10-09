@@ -74,6 +74,12 @@ interface StylusBrandAdapter {
     ): Boolean = false
 
     /**
+     * True if the physical stylus side-button is currently tracked as held down.
+     * Used by StylusDriver.isSideButtonEraseActive when devices emit KeyEvents rather than MotionEvent buttonState.
+     */
+    val isSideButtonPressed: Boolean get() = false
+
+    /**
      * Notifies the adapter that the stylus left the hover field (ACTION_HOVER_EXIT).
      * Adapters tracking side-button state across hover events must reset it here,
      * otherwise a button held down during exit stays latched until the next hover move.

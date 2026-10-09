@@ -21,6 +21,7 @@ import com.reverie.paint.core.PaintViewModel
  */
 class SamsungStylusAdapter : StylusBrandAdapter {
     override val brand: StylusBrand = StylusBrand.SAMSUNG_SPEN
+    override val isSideButtonPressed: Boolean get() = isButtonCurrentlyDown
 
     private var isSupportedDevice: Boolean = run {
         val m = Build.MANUFACTURER.lowercase()

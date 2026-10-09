@@ -206,6 +206,10 @@ class StylusDriver(
             else -> vm.huaweiSideButtonErase || vm.honorSideButtonErase || vm.samsungSideButtonErase || vm.xiaomiSideButtonErase || vm.vivoSideButtonErase || (vm.genericStylusEnabled && vm.genericSideButtonErase)
         }
         if (!eraseAllowed) return false
+        val activeAdapter = getActiveAdapter()
+        if (activeAdapter != null && activeAdapter.isSideButtonPressed) {
+            return true
+        }
         val btn = event.buttonState
         return (btn and MotionEvent.BUTTON_STYLUS_PRIMARY) != 0 ||
                 (btn and MotionEvent.BUTTON_PRIMARY) != 0 ||
@@ -230,7 +234,11 @@ class StylusDriver(
             keyCode == KeyEvent.KEYCODE_STYLUS_BUTTON_SECONDARY ||
             keyCode == KeyEvent.KEYCODE_STYLUS_BUTTON_TERTIARY ||
             keyCode == KeyEvent.KEYCODE_STYLUS_BUTTON_TAIL ||
-            keyCode == 304 || keyCode == 305
+            keyCode == KeyEvent.KEYCODE_BUTTON_1 ||
+            keyCode == KeyEvent.KEYCODE_BUTTON_2 ||
+            keyCode == KeyEvent.KEYCODE_BUTTON_3 ||
+            keyCode == 304 || keyCode == 305 ||
+            keyCode == 308 || keyCode == 309 || keyCode == 310
         ) {
             return true
         }
@@ -242,7 +250,7 @@ class StylusDriver(
             return true
         }
 
-        val dev = event.device
+        val dev = event.device ?: if (event.deviceId > 0) android.view.InputDevice.getDevice(event.deviceId) else null
         if (dev != null) {
             val devSources = dev.sources
             if ((devSources and android.view.InputDevice.SOURCE_STYLUS) != 0 ||
@@ -252,7 +260,8 @@ class StylusDriver(
             }
             val name = dev.name.lowercase()
             if (name.contains("stylus") || name.contains("pen") || name.contains("pencil") ||
-                name.contains("nearlink") || name.contains("starflash") || name.contains("星闪")
+                name.contains("focus") || name.contains("nearlink") || name.contains("starflash") ||
+                name.contains("星闪")
             ) {
                 return true
             }

@@ -1717,7 +1717,7 @@
     <string name="stylus_xiaomi_double_tap_action">主键 (书写键) 双击</string>
     <string name="stylus_xiaomi_secondary_action">副键 (截图键) 单击</string>
     <string name="stylus_xiaomi_focus_action">焦点键单击 (焦点笔专属)</string>
-    <string name="stylus_xiaomi_hint">提示：若按键未响应，请检查系统设置 -> 触控笔中是否开启快捷功能，并在 HyperOS 允许应用使用手写笔快捷键</string>
+    <string name="stylus_xiaomi_hint">提示：长按焦点键为 HyperOS 系统级隔空激光笔；若按键未响应，请检查系统设置 -> 外接设备/手写笔快捷功能，设为“无操作”时可透传至应用快捷键</string>
 
     <!-- 通用触控手写笔 -->
     <string name="stylus_generic_title">通用触控手写笔设置</string>
