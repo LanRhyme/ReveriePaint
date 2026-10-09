@@ -265,7 +265,8 @@ private fun FontItemCard(
     onSelect: () -> Unit,
     onDelete: (() -> Unit)? = null,
 ) {
-    val sampleTypeface = remember(font) { FontManager.getTypefaceForItem(font) }
+    val context = LocalContext.current
+    val sampleTypeface = remember(font) { FontManager.getTypefaceForItem(context, font) }
     val sampleFontFamily = remember(sampleTypeface) { FontFamily(sampleTypeface) }
 
     Row(

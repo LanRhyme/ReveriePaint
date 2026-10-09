@@ -11,5 +11,6 @@ class ReverieApplication : Application() {
     override fun onCreate() {
         super.onCreate()
         CrashHandler.init(this)
+        com.reverie.paint.core.FontManager.appContext = this
     }
 }

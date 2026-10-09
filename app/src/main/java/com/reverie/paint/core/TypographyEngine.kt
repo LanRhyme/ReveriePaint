@@ -4,6 +4,7 @@
 
 package com.reverie.paint.core
 
+import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
 import android.graphics.Color
@@ -29,6 +30,7 @@ object TypographyEngine {
         fontPath: String? = null,
         isBold: Boolean = false,
         isItalic: Boolean = false,
+        context: Context? = null,
     ): Typeface {
         val style = when {
             isBold && isItalic -> Typeface.BOLD_ITALIC
@@ -36,7 +38,7 @@ object TypographyEngine {
             isItalic -> Typeface.ITALIC
             else -> Typeface.NORMAL
         }
-        val custom = FontManager.getTypeface(family, fontPath)
+        val custom = FontManager.getTypeface(family, fontPath, context)
         return if (custom != null) {
             if (style != Typeface.NORMAL) Typeface.create(custom, style) else custom
         } else {
@@ -51,9 +53,9 @@ object TypographyEngine {
         }
     }
 
-    fun createTextPaint(cfg: TypographyConfig, opacity: Double = 1.0): TextPaint {
+    fun createTextPaint(cfg: TypographyConfig, opacity: Double = 1.0, context: Context? = null): TextPaint {
         return TextPaint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-            typeface = createTypeface(cfg.fontFamilyName, cfg.fontPath, cfg.isBold, cfg.isItalic)
+            typeface = createTypeface(cfg.fontFamilyName, cfg.fontPath, cfg.isBold, cfg.isItalic, context)
             textSize = cfg.fontSize.coerceAtLeast(8f)
             isUnderlineText = cfg.isUnderline
             val parsedCol = try {
@@ -74,7 +76,10 @@ object TypographyEngine {
         }
     }
 
-    fun createLayout(cfg: TypographyConfig, paint: TextPaint, width: Int): StaticLayout {
+    fun createLayout(cfg: TypographyConfig, paint: TextPaint, width: Int): TypographyDrawLayout {
+        if (cfg.isVertical) {
+            return VerticalTypographyLayout(cfg, paint, width)
+        }
         val align = when (cfg.alignment) {
             1 -> Layout.Alignment.ALIGN_CENTER
             2 -> Layout.Alignment.ALIGN_OPPOSITE
@@ -82,7 +87,7 @@ object TypographyEngine {
         }
         val displayText = if (cfg.isAllCaps) cfg.text.uppercase() else cfg.text
         val targetWidth = width.coerceAtLeast(40)
-        return if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+        val staticLayout = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             StaticLayout.Builder.obtain(displayText, 0, displayText.length, paint, targetWidth)
                 .setAlignment(align)
                 .setLineSpacing(0f, cfg.lineHeightMultiplier.coerceIn(0.8f, 3.0f))
@@ -100,6 +105,7 @@ object TypographyEngine {
                 true,
             )
         }
+        return HorizontalTypographyLayout(staticLayout)
     }
 
     /**
@@ -157,5 +163,100 @@ object TypographyEngine {
         val left = (docCenterX - outW / 2f).toInt()
         val top = (docCenterY - outH / 2f).toInt()
         return Triple(rotBmp, left, top)
+    }
+}
+
+/**
+ * 统一排版布局接口 (支持水平 StaticLayout 与竖排直排布局)
+ */
+interface TypographyDrawLayout {
+    val width: Int
+    val height: Int
+    fun draw(canvas: Canvas)
+}
+
+/**
+ * 水平排版包装类
+ */
+class HorizontalTypographyLayout(private val staticLayout: StaticLayout) : TypographyDrawLayout {
+    override val width: Int get() = staticLayout.width
+    override val height: Int get() = staticLayout.height
+    override fun draw(canvas: Canvas) = staticLayout.draw(canvas)
+}
+
+/**
+ * 竖向排版布局类 (CJK 传统直排 / 现代竖排)
+ */
+class VerticalTypographyLayout(
+    private val cfg: TypographyConfig,
+    private val paint: TextPaint,
+    @Suppress("UNUSED_PARAMETER") private val targetWidth: Int,
+) : TypographyDrawLayout {
+
+    private data class GlyphPos(val text: String, val x: Float, val y: Float)
+    private val glyphs = mutableListOf<GlyphPos>()
+    private val layoutWidth: Int
+    private val layoutHeight: Int
+
+    override val width: Int get() = layoutWidth
+    override val height: Int get() = layoutHeight
+
+    init {
+        val displayText = if (cfg.isAllCaps) cfg.text.uppercase() else cfg.text
+        val rawLines = displayText.split("\n")
+        val lines = if (rawLines.isEmpty()) listOf("") else rawLines
+
+        val fontSize = cfg.fontSize.coerceAtLeast(8f)
+        val charStep = (fontSize + cfg.letterSpacingSp).coerceAtLeast(8f)
+        val colWidth = (fontSize * cfg.lineHeightMultiplier.coerceIn(0.8f, 3.0f)).coerceAtLeast(10f)
+
+        val fm = paint.fontMetrics
+        val baselineInCell = (charStep - (fm.descent - fm.ascent)) * 0.5f - fm.ascent
+
+        val maxChars = lines.maxOfOrNull { it.length }?.coerceAtLeast(1) ?: 1
+        val measuredH = maxOf(40f, maxChars * charStep)
+        val measuredW = maxOf(40f, lines.size * colWidth)
+
+        layoutWidth = ceil(measuredW).toInt()
+        layoutHeight = ceil(measuredH).toInt()
+
+        for (colIndex in lines.indices) {
+            val line = lines[colIndex]
+            val colX = if (cfg.verticalRtl) {
+                (lines.size - 1 - colIndex) * colWidth
+            } else {
+                colIndex * colWidth
+            }
+            val colCenterX = colX + colWidth * 0.5f
+            val colTotalH = line.length * charStep
+
+            val startY = when (cfg.alignment) {
+                1 -> (measuredH - colTotalH) * 0.5f
+                2 -> measuredH - colTotalH
+                else -> 0f
+            }
+
+            for (charIndex in line.indices) {
+                val ch = line[charIndex]
+                val chStr = ch.toString()
+                val chW = paint.measureText(chStr)
+
+                var posX = colCenterX - chW * 0.5f
+                var posY = startY + charIndex * charStep + baselineInCell
+
+                if (ch in "，。、") {
+                    posX += chW * 0.28f
+                    posY -= charStep * 0.22f
+                }
+
+                glyphs.add(GlyphPos(chStr, posX, posY))
+            }
+        }
+    }
+
+    override fun draw(canvas: Canvas) {
+        for (g in glyphs) {
+            canvas.drawText(g.text, g.x, g.y, paint)
+        }
     }
 }

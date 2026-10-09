@@ -1494,6 +1494,11 @@
     <string name="typography_font_import_failed">Failed to import font, check file format</string>
     <string name="typography_font_empty_custom">No custom fonts imported</string>
     <string name="typography_font_delete">Delete Font</string>
+    <string name="typography_font_lxgw_wenkai">LXGW WenKai (Built-in)</string>
+    <string name="typography_vertical">Vertical</string>
+    <string name="typography_horizontal">Horizontal</string>
+    <string name="typography_direction_rtl">RTL</string>
+    <string name="typography_direction_ltr">LTR</string>
 
     <!-- Drawing Guide Panel -->
     <string name="guide_title">Drawing Guide</string>

@@ -1494,6 +1494,11 @@
     <string name="typography_font_import_failed">字体导入失败，请检查文件格式</string>
     <string name="typography_font_empty_custom">暂未导入自定义字体</string>
     <string name="typography_font_delete">删除字体</string>
+    <string name="typography_font_lxgw_wenkai">霞鹜文楷 (内置)</string>
+    <string name="typography_vertical">竖排</string>
+    <string name="typography_horizontal">横排</string>
+    <string name="typography_direction_rtl">右至左</string>
+    <string name="typography_direction_ltr">左至右</string>
 
     <!-- Drawing Guide Panel -->
     <string name="guide_title">绘图辅助</string>

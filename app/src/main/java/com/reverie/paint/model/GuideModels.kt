@@ -144,7 +144,7 @@ data class DrawingGuideConfig(
  */
 data class TypographyConfig(
     val text: String = "点击编辑文字",
-    val fontFamilyName: String = "系统默认",
+    val fontFamilyName: String = "bundled:lxgw_wenkai",
     val fontPath: String? = null,
     val fontSize: Float = 48f,
     val letterSpacingSp: Float = 0f, // Kerning / 字间距
@@ -160,6 +160,8 @@ data class TypographyConfig(
     val boxWidth: Float = 400f,
     val rotationDeg: Float = 0f,
     val snapEnabled: Boolean = true,
+    val isVertical: Boolean = false,
+    val verticalRtl: Boolean = true, // 竖排换列方向: true 为从右向左 (传统中文), false 为从左向右
 )
 
 /**
