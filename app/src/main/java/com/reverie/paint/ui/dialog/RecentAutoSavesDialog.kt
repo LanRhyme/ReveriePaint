@@ -5,7 +5,6 @@
 package com.reverie.paint.ui.dialog
 
 import android.graphics.BitmapFactory
-import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -21,8 +20,6 @@ import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Image
 import androidx.compose.material.icons.rounded.Refresh
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
@@ -47,6 +44,8 @@ import com.reverie.paint.core.AutoSaveHistoryManager
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.restoreAutoSaveSnapshot
 import com.reverie.paint.model.AutoSaveSnapshot
+import com.reverie.paint.ui.components.ReDropdownMenu
+import com.reverie.paint.ui.components.ReDropdownMenuItem
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.theme.Theme
 import java.io.File
@@ -162,48 +161,29 @@ fun RecentAutoSavesDialog(
                                         .rotate(90f),
                                 )
                             }
-                            DropdownMenu(
+                            ReDropdownMenu(
                                 expanded = showCapacityMenu,
                                 onDismissRequest = { showCapacityMenu = false },
-                                shape = RoundedCornerShape(14.dp),
-                                containerColor = colors.panelHi.copy(alpha = 0.98f),
-                                tonalElevation = 0.dp,
-                                shadowElevation = 12.dp,
-                                border = BorderStroke(1.dp, colors.border.copy(alpha = 0.5f)),
-                                modifier = Modifier
-                                    .widthIn(min = 148.dp)
-                                    .padding(vertical = 4.dp),
                             ) {
                                 listOf(3, 5, 8, 12, 16, 24).forEach { count ->
                                     val isSelected = count == vm.autoSaveMaxSnapshots
-                                    DropdownMenuItem(
-                                        text = {
-                                            Text(
-                                                text = if (count == 8) {
-                                                    stringResource(R.string.settings_snapshot_count_default, count)
-                                                } else {
-                                                    stringResource(R.string.settings_snapshot_count_unit, count)
-                                                },
-                                                color = if (isSelected) colors.accent else colors.text,
-                                                fontSize = 13.sp,
-                                                fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                                            )
+                                    ReDropdownMenuItem(
+                                        text = if (count == 8) {
+                                            stringResource(R.string.settings_snapshot_count_default, count)
+                                        } else {
+                                            stringResource(R.string.settings_snapshot_count_unit, count)
                                         },
+                                        selected = isSelected,
                                         trailingIcon = if (isSelected) {
                                             {
                                                 Icon(
                                                     painter = painterResource(R.drawable.ic_check),
                                                     contentDescription = null,
                                                     tint = colors.accent,
-                                                    modifier = Modifier.size(15.dp),
+                                                    modifier = Modifier.size(16.dp),
                                                 )
                                             }
                                         } else null,
-                                        contentPadding = PaddingValues(horizontal = 14.dp, vertical = 0.dp),
-                                        modifier = Modifier
-                                            .height(38.dp)
-                                            .padding(horizontal = 4.dp, vertical = 2.dp)
-                                            .clip(RoundedCornerShape(8.dp)),
                                         onClick = {
                                             vm.updateAutoSaveMaxSnapshots(count)
                                             snapshots = AutoSaveHistoryManager.getSnapshots(context)

@@ -27,7 +27,13 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.PaddingValues
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.MenuDefaults
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
@@ -1352,5 +1358,102 @@ fun PanelCloseButton(
             fontWeight = FontWeight.Bold,
         )
     }
+}
+
+// ---------- ReDropdownMenu & ReDropdownMenuItem (无框工作室美学通用下拉菜单) ----------
+@Composable
+fun ReDropdownMenu(
+    expanded: Boolean,
+    onDismissRequest: () -> Unit,
+    modifier: Modifier = Modifier,
+    shape: androidx.compose.ui.graphics.Shape = RoundedCornerShape(16.dp),
+    content: @Composable ColumnScope.() -> Unit,
+) {
+    val colors = Theme.current
+    DropdownMenu(
+        expanded = expanded,
+        onDismissRequest = onDismissRequest,
+        shape = shape,
+        containerColor = colors.panelHi.copy(alpha = 0.98f),
+        tonalElevation = 0.dp,
+        shadowElevation = 14.dp,
+        border = null,
+        modifier = modifier
+            .widthIn(min = 160.dp)
+            .padding(vertical = 4.dp),
+        content = content,
+    )
+}
+
+@Composable
+fun ReDropdownMenuItem(
+    text: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+    icon: Any? = null,
+    trailingIcon: (@Composable () -> Unit)? = null,
+    isDestructive: Boolean = false,
+    selected: Boolean = false,
+    textColor: Color? = null,
+    iconColor: Color? = null,
+) {
+    val colors = Theme.current
+    val effectiveTextColor = when {
+        textColor != null -> textColor
+        isDestructive -> Color(0xFFFF5252)
+        selected -> colors.accent
+        else -> colors.text
+    }
+    val effectiveIconColor = when {
+        iconColor != null -> iconColor
+        isDestructive -> Color(0xFFFF5252)
+        selected -> colors.accent
+        else -> colors.icon
+    }
+
+    DropdownMenuItem(
+        text = {
+            Text(
+                text = text,
+                color = effectiveTextColor,
+                fontSize = 13.5.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
+            )
+        },
+        onClick = onClick,
+        leadingIcon = when (icon) {
+            is Int -> {
+                {
+                    Icon(
+                        painter = painterResource(icon),
+                        contentDescription = null,
+                        tint = effectiveIconColor,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+            is androidx.compose.ui.graphics.vector.ImageVector -> {
+                {
+                    Icon(
+                        imageVector = icon,
+                        contentDescription = null,
+                        tint = effectiveIconColor,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
+            }
+            else -> null
+        },
+        trailingIcon = trailingIcon,
+        colors = MenuDefaults.itemColors(
+            textColor = effectiveTextColor,
+            leadingIconColor = effectiveIconColor,
+        ),
+        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
+        modifier = modifier
+            .height(40.dp)
+            .padding(horizontal = 6.dp, vertical = 2.dp)
+            .clip(RoundedCornerShape(10.dp)),
+    )
 }
 
