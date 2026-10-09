@@ -1499,6 +1499,10 @@
     <string name="typography_horizontal">Horizontal</string>
     <string name="typography_direction_rtl">RTL</string>
     <string name="typography_direction_ltr">LTR</string>
+    <string name="typography_orientation">Layout</string>
+    <string name="typography_align">Align</string>
+    <string name="typography_vertical_rtl">Vertical (RTL)</string>
+    <string name="typography_vertical_ltr">Vertical (LTR)</string>
 
     <!-- Drawing Guide Panel -->
     <string name="guide_title">Drawing Guide</string>

@@ -5,24 +5,21 @@
 package com.reverie.paint.ui.painting.panels
 
 import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandHorizontally
+import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkHorizontally
-import androidx.compose.foundation.background
-import androidx.compose.foundation.clickable
+import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
-import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
-import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
@@ -35,8 +32,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -53,7 +48,7 @@ import dev.chrisbanes.haze.HazeState
 import kotlin.math.roundToInt
 
 /**
- * 画布内富文本排版控制悬浮面板与操作栏 (两层结构：上层核心工具/字体/排版/样式，下层精密滑块与提交)
+ * 画布内富文本排版控制悬浮面板与操作栏 (紧凑胶囊栏 + 折叠抽屉规范化设计)
  */
 @Composable
 fun TypographyPanel(
@@ -64,276 +59,203 @@ fun TypographyPanel(
 ) {
     val cfg = vm.typographyConfig
     val context = LocalContext.current
+    var propsOpen by remember { mutableStateOf(false) }
     var fontPickerOpen by remember { mutableStateOf(false) }
+    val scrollState = rememberScrollState()
 
     if (fontPickerOpen) {
         FontPickerDialog(vm = vm, onDismiss = { fontPickerOpen = false })
     }
+
+    val currentFontDisplayShort = remember(cfg.fontFamilyName, cfg.fontPath) {
+        val full = FontManager.resolveDisplayName(context, cfg.fontFamilyName, cfg.fontPath)
+        full.substringBefore(" (").take(5)
+    }
+
+    val orientationOptions = listOf(
+        ToolDropdownItemData(0, R.drawable.ic_text, stringResource(R.string.typography_horizontal)),
+        ToolDropdownItemData(1, R.drawable.ic_text, stringResource(R.string.typography_vertical_rtl)),
+        ToolDropdownItemData(2, R.drawable.ic_text, stringResource(R.string.typography_vertical_ltr)),
+    )
+
+    val alignOptions = listOf(
+        ToolDropdownItemData(0, R.drawable.ic_text, stringResource(R.string.typography_align_left)),
+        ToolDropdownItemData(1, R.drawable.ic_text, stringResource(R.string.typography_align_center)),
+        ToolDropdownItemData(2, R.drawable.ic_text, stringResource(R.string.typography_align_right)),
+    )
 
     ToolFloatPanel(modifier = modifier, vm = vm, hazeState = hazeState) {
         Column(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            // === 第一层 (Tier 1): 核心工具、字体、横竖排版、样式与对齐 ===
-            FlowRow(
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            // 主胶囊操作栏 (统一规格图标动作按钮与气泡下拉)
+            Row(
+                modifier = Modifier.horizontalScroll(scrollState),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
-                // 1. 编辑文字内容按钮
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Morandi.panelHi)
-                        .clickable(onClick = onOpenTextDialog)
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(5.dp),
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_text),
-                        contentDescription = null,
-                        tint = Morandi.accent,
-                        modifier = Modifier.size(15.dp),
-                    )
-                    Text(
-                        text = stringResource(R.string.typography_edit_text),
-                        fontSize = 12.sp,
-                        color = Morandi.text,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
-
-                // 2. 字体选择卡片
-                val currentFontDisplay = remember(cfg.fontFamilyName, cfg.fontPath) {
-                    FontManager.resolveDisplayName(context, cfg.fontFamilyName, cfg.fontPath)
-                }
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Morandi.panelHi)
-                        .clickable { fontPickerOpen = true }
-                        .padding(horizontal = 9.dp, vertical = 6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Text(
-                        text = currentFontDisplay,
-                        color = Morandi.text,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                    )
-                    Icon(
-                        painter = painterResource(R.drawable.ic_chevron),
-                        contentDescription = null,
-                        tint = Morandi.subText,
-                        modifier = Modifier.size(12.dp),
-                    )
-                }
-
-                // 3. 横排 / 竖排 分段切换
-                ToolFloatSegmented(
-                    options = listOf(
-                        false to stringResource(R.string.typography_horizontal),
-                        true to stringResource(R.string.typography_vertical),
-                    ),
-                    selected = cfg.isVertical,
-                    onSelect = { vm.typographyConfig = cfg.copy(isVertical = it) },
+                // 1. 编辑文字内容
+                ToolActionButton(
+                    iconRes = R.drawable.ic_text,
+                    label = stringResource(R.string.typography_edit_text),
+                    onClick = onOpenTextDialog,
                 )
 
-                // 4. 竖排换列方向 (右至左 RTL / 左至右 LTR)
-                AnimatedVisibility(
-                    visible = cfg.isVertical,
-                    enter = fadeIn() + expandHorizontally(),
-                    exit = fadeOut() + shrinkHorizontally(),
-                ) {
-                    ToolFloatSegmented(
-                        options = listOf(
-                            true to stringResource(R.string.typography_direction_rtl),
-                            false to stringResource(R.string.typography_direction_ltr),
-                        ),
-                        selected = cfg.verticalRtl,
-                        onSelect = { vm.typographyConfig = cfg.copy(verticalRtl = it) },
-                    )
-                }
+                // 2. 字体选择入口 (显示当前字体简称，带右下小三角指示)
+                ToolDropdownTriggerButton(
+                    iconRes = R.drawable.ic_text,
+                    label = currentFontDisplayShort,
+                    expanded = fontPickerOpen,
+                    onClick = { fontPickerOpen = true },
+                )
 
-                // 5. 样式组: 粗体(B) / 斜体(I) / 下划线(U)
-                Row(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Morandi.panelHi)
-                        .padding(2.dp),
-                    horizontalArrangement = Arrangement.spacedBy(2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    ToolFloatStyleChip(
-                        label = "B",
-                        selected = cfg.isBold,
-                        onClick = { vm.typographyConfig = cfg.copy(isBold = !cfg.isBold) },
-                    )
-                    ToolFloatStyleChip(
-                        label = "I",
-                        selected = cfg.isItalic,
-                        onClick = { vm.typographyConfig = cfg.copy(isItalic = !cfg.isItalic) },
-                    )
-                    ToolFloatStyleChip(
-                        label = "U",
-                        selected = cfg.isUnderline,
-                        onClick = { vm.typographyConfig = cfg.copy(isUnderline = !cfg.isUnderline) },
-                    )
-                }
+                // 3. 排版方向与换列模式下拉 (横排 / 竖排·右至左 / 竖排·左至右)
+                ToolBubbleDropdown(
+                    items = orientationOptions,
+                    selected = if (!cfg.isVertical) 0 else if (cfg.verticalRtl) 1 else 2,
+                    labelOverride = if (!cfg.isVertical) {
+                        stringResource(R.string.typography_horizontal)
+                    } else if (cfg.verticalRtl) {
+                        stringResource(R.string.typography_vertical)
+                    } else {
+                        stringResource(R.string.typography_vertical)
+                    },
+                    iconOverride = R.drawable.ic_text,
+                    onSelect = { mode ->
+                        when (mode) {
+                            0 -> vm.typographyConfig = cfg.copy(isVertical = false)
+                            1 -> vm.typographyConfig = cfg.copy(isVertical = true, verticalRtl = true)
+                            2 -> vm.typographyConfig = cfg.copy(isVertical = true, verticalRtl = false)
+                        }
+                    },
+                )
 
-                // 6. 对齐方式
-                ToolFloatSegmented(
-                    options = listOf(
-                        0 to stringResource(R.string.typography_align_left),
-                        1 to stringResource(R.string.typography_align_center),
-                        2 to stringResource(R.string.typography_align_right),
-                    ),
+                // 4. 对齐方式下拉 (左 / 中 / 右)
+                ToolBubbleDropdown(
+                    items = alignOptions,
                     selected = cfg.alignment,
+                    labelOverride = when (cfg.alignment) {
+                        1 -> stringResource(R.string.typography_align_center)
+                        2 -> stringResource(R.string.typography_align_right)
+                        else -> stringResource(R.string.typography_align_left)
+                    },
+                    iconOverride = R.drawable.ic_text,
                     onSelect = { vm.typographyConfig = cfg.copy(alignment = it) },
                 )
 
-                // 7. 磁吸吸附开关
+                // 5. 快速样式开关 (B / I / U)
                 ToolFloatChip(
-                    label = stringResource(R.string.typography_snap),
-                    selected = cfg.snapEnabled,
+                    label = "B",
+                    selected = cfg.isBold,
+                    onClick = { vm.typographyConfig = cfg.copy(isBold = !cfg.isBold) },
+                )
+                ToolFloatChip(
+                    label = "I",
+                    selected = cfg.isItalic,
+                    onClick = { vm.typographyConfig = cfg.copy(isItalic = !cfg.isItalic) },
+                )
+                ToolFloatChip(
+                    label = "U",
+                    selected = cfg.isUnderline,
+                    onClick = { vm.typographyConfig = cfg.copy(isUnderline = !cfg.isUnderline) },
+                )
+
+                // 6. 属性抽屉开关 (字号、字距、行距、磁吸)
+                ToolActionButton(
+                    iconRes = R.drawable.ic_sliders,
+                    label = if (propsOpen) stringResource(R.string.typography_collapse) else stringResource(R.string.typography_props),
+                    active = propsOpen,
+                    onClick = { propsOpen = !propsOpen },
+                )
+
+                // 7. 完成 (✔) 与 取消 (✕)
+                ToolActionButton(
+                    iconRes = R.drawable.ic_check,
+                    label = stringResource(R.string.confirm),
+                    primary = true,
+                    onClick = { vm.commitTypographyToCanvas() },
+                )
+                ToolActionButton(
+                    iconRes = R.drawable.ic_x,
+                    label = stringResource(R.string.cancel),
+                    danger = true,
                     onClick = {
-                        val next = !cfg.snapEnabled
-                        vm.typographyConfig = cfg.copy(snapEnabled = next)
-                        if (!next) vm.typographySnapGuides = emptyList()
+                        vm.isTypographyEditing = false
+                        vm.typographySnapGuides = emptyList()
                     },
                 )
             }
 
-            // 分割细线
-            Box(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(1.dp)
-                    .background(Morandi.border.copy(alpha = 0.35f))
-            )
-
-            // === 第二层 (Tier 2): 参数滑块 (字号、字间距、行距) + 完成 / 取消操作 ===
-            FlowRow(
-                verticalArrangement = Arrangement.spacedBy(6.dp),
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            // 平滑展开的纵向精密属性抽屉 (字号、字间距、行距、磁吸)
+            AnimatedVisibility(
+                visible = propsOpen,
+                enter = fadeIn() + expandVertically(),
+                exit = fadeOut() + shrinkVertically(),
             ) {
-                // 字号调节
-                ToolFloatSlider(
-                    label = stringResource(R.string.typography_font_size),
-                    valueText = "${cfg.fontSize.roundToInt()}px",
-                    range = 12f..240f,
-                    value = cfg.fontSize,
-                    onValue = { vm.typographyConfig = cfg.copy(fontSize = it) },
-                    modifier = Modifier.width(140.dp),
-                    labelWidth = 28.dp,
-                )
-
-                // 字间距调节
-                ToolFloatSlider(
-                    label = stringResource(R.string.typography_letter_spacing),
-                    valueText = "${cfg.letterSpacingSp.roundToInt()}px",
-                    range = -4f..32f,
-                    value = cfg.letterSpacingSp,
-                    onValue = { vm.typographyConfig = cfg.copy(letterSpacingSp = it) },
-                    modifier = Modifier.width(144.dp),
-                    labelWidth = 36.dp,
-                )
-
-                // 行距倍数调节
-                ToolFloatSlider(
-                    label = stringResource(R.string.typography_line_height),
-                    valueText = String.format("%.1fx", cfg.lineHeightMultiplier),
-                    range = 0.8f..2.5f,
-                    value = cfg.lineHeightMultiplier,
-                    onValue = { vm.typographyConfig = cfg.copy(lineHeightMultiplier = it) },
-                    modifier = Modifier.width(140.dp),
-                    labelWidth = 28.dp,
-                )
-
-                // 操作按钮组: 完成 (✔) 与 取消 (✕)
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
+                Column(
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                    modifier = Modifier
+                        .widthIn(min = 280.dp, max = 340.dp)
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
                 ) {
+                    // 磁吸开关行
                     Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Morandi.accent)
-                            .clickable { vm.commitTypographyToCanvas() }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_check),
-                            contentDescription = null,
-                            tint = Morandi.onAccent,
-                            modifier = Modifier.size(15.dp),
-                        )
                         Text(
-                            text = stringResource(R.string.confirm),
-                            color = Morandi.onAccent,
+                            text = stringResource(R.string.typography_snap),
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
+                            color = Morandi.subText,
+                        )
+                        ToolFloatChip(
+                            label = stringResource(R.string.typography_snap),
+                            selected = cfg.snapEnabled,
+                            onClick = {
+                                val next = !cfg.snapEnabled
+                                vm.typographyConfig = cfg.copy(snapEnabled = next)
+                                if (!next) vm.typographySnapGuides = emptyList()
+                            },
                         )
                     }
 
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Morandi.panelHi)
-                            .clickable {
-                                vm.isTypographyEditing = false
-                                vm.typographySnapGuides = emptyList()
-                            }
-                            .padding(horizontal = 12.dp, vertical = 6.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_x),
-                            contentDescription = null,
-                            tint = Morandi.subText,
-                            modifier = Modifier.size(15.dp),
-                        )
-                        Text(
-                            text = stringResource(R.string.cancel),
-                            color = Morandi.subText,
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.Normal,
-                        )
-                    }
+                    // 字号调节
+                    ToolFloatSlider(
+                        label = stringResource(R.string.typography_font_size),
+                        valueText = "${cfg.fontSize.roundToInt()}px",
+                        range = 12f..240f,
+                        value = cfg.fontSize,
+                        onValue = { vm.typographyConfig = cfg.copy(fontSize = it) },
+                        labelWidth = 56.dp,
+                    )
+
+                    // 字间距调节
+                    ToolFloatSlider(
+                        label = stringResource(R.string.typography_letter_spacing),
+                        valueText = "${cfg.letterSpacingSp.roundToInt()}px",
+                        range = -4f..32f,
+                        value = cfg.letterSpacingSp,
+                        onValue = { vm.typographyConfig = cfg.copy(letterSpacingSp = it) },
+                        labelWidth = 56.dp,
+                    )
+
+                    // 行距倍数调节
+                    ToolFloatSlider(
+                        label = stringResource(R.string.typography_line_height),
+                        valueText = String.format("%.1fx", cfg.lineHeightMultiplier),
+                        range = 0.8f..2.5f,
+                        value = cfg.lineHeightMultiplier,
+                        onValue = { vm.typographyConfig = cfg.copy(lineHeightMultiplier = it) },
+                        labelWidth = 56.dp,
+                    )
                 }
             }
         }
     }
 }
 
-@Composable
-private fun ToolFloatStyleChip(
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-) {
-    Box(
-        modifier = Modifier
-            .clip(RoundedCornerShape(6.dp))
-            .background(if (selected) Morandi.accent else Color.Transparent)
-            .clickable(onClick = onClick)
-            .padding(horizontal = 9.dp, vertical = 5.dp),
-        contentAlignment = Alignment.Center,
-    ) {
-        Text(
-            text = label,
-            fontSize = 12.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
-            color = if (selected) Morandi.onAccent else Morandi.subText,
-        )
-    }
-}
 
 /**
  * 文本内容快速输入与编辑对话框

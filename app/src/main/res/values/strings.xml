@@ -1499,6 +1499,10 @@
     <string name="typography_horizontal">横排</string>
     <string name="typography_direction_rtl">右至左</string>
     <string name="typography_direction_ltr">左至右</string>
+    <string name="typography_orientation">排版</string>
+    <string name="typography_align">对齐</string>
+    <string name="typography_vertical_rtl">竖排 (右至左)</string>
+    <string name="typography_vertical_ltr">竖排 (左至右)</string>
 
     <!-- Drawing Guide Panel -->
     <string name="guide_title">绘图辅助</string>
