@@ -1374,7 +1374,7 @@ fun ReDropdownMenu(
         expanded = expanded,
         onDismissRequest = onDismissRequest,
         shape = shape,
-        containerColor = colors.panelHi.copy(alpha = 0.98f),
+        containerColor = colors.panelHi,
         tonalElevation = 0.dp,
         shadowElevation = 14.dp,
         border = null,
@@ -1391,11 +1391,13 @@ fun ReDropdownMenuItem(
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
     icon: Any? = null,
+    leadingIcon: (@Composable () -> Unit)? = null,
     trailingIcon: (@Composable () -> Unit)? = null,
     isDestructive: Boolean = false,
     selected: Boolean = false,
     textColor: Color? = null,
     iconColor: Color? = null,
+    fontSize: androidx.compose.ui.unit.TextUnit = 13.5.sp,
 ) {
     val colors = Theme.current
     val effectiveTextColor = when {
@@ -1411,39 +1413,42 @@ fun ReDropdownMenuItem(
         else -> colors.icon
     }
 
+    val computedLeadingIcon: (@Composable () -> Unit)? = when {
+        leadingIcon != null -> leadingIcon
+        icon is Int -> {
+            {
+                Icon(
+                    painter = painterResource(icon),
+                    contentDescription = null,
+                    tint = effectiveIconColor,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+        icon is androidx.compose.ui.graphics.vector.ImageVector -> {
+            {
+                Icon(
+                    imageVector = icon,
+                    contentDescription = null,
+                    tint = effectiveIconColor,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+        }
+        else -> null
+    }
+
     DropdownMenuItem(
         text = {
             Text(
                 text = text,
                 color = effectiveTextColor,
-                fontSize = 13.5.sp,
+                fontSize = fontSize,
                 fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Medium,
             )
         },
         onClick = onClick,
-        leadingIcon = when (icon) {
-            is Int -> {
-                {
-                    Icon(
-                        painter = painterResource(icon),
-                        contentDescription = null,
-                        tint = effectiveIconColor,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
-            is androidx.compose.ui.graphics.vector.ImageVector -> {
-                {
-                    Icon(
-                        imageVector = icon,
-                        contentDescription = null,
-                        tint = effectiveIconColor,
-                        modifier = Modifier.size(18.dp),
-                    )
-                }
-            }
-            else -> null
-        },
+        leadingIcon = computedLeadingIcon,
         trailingIcon = trailingIcon,
         colors = MenuDefaults.itemColors(
             textColor = effectiveTextColor,

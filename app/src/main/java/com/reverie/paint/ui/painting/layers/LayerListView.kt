@@ -61,8 +61,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.reverie.paint.ui.components.ReDropdownMenu
+import com.reverie.paint.ui.components.ReDropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -580,21 +580,13 @@ internal fun LayerListView(
                         active = showNewLayerMenu,
                         onClick = { showNewLayerMenu = true },
                     )
-                    DropdownMenu(
+                    ReDropdownMenu(
                         expanded = showNewLayerMenu,
                         onDismissRequest = { showNewLayerMenu = false },
-                        modifier = Modifier.background(Morandi.panel).glassBorder(RoundedCornerShape(8.dp)),
                     ) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.layer_type_fill), color = Morandi.text, fontSize = 13.sp) },
-                            leadingIcon = {
-                                Icon(
-                                    painterResource(R.drawable.ic_fill),
-                                    null,
-                                    tint = Morandi.icon,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            },
+                        ReDropdownMenuItem(
+                            text = stringResource(R.string.layer_type_fill),
+                            icon = R.drawable.ic_fill,
                             onClick = {
                                 showNewLayerMenu = false
                                 val now = System.currentTimeMillis()
@@ -605,32 +597,18 @@ internal fun LayerListView(
                                 }
                             },
                         )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.layer_type_filter), color = Morandi.text, fontSize = 13.sp) },
-                            leadingIcon = {
-                                Icon(
-                                    painterResource(R.drawable.ic_image_adjust),
-                                    null,
-                                    tint = Morandi.icon,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            },
+                        ReDropdownMenuItem(
+                            text = stringResource(R.string.layer_type_filter),
+                            icon = R.drawable.ic_image_adjust,
                             onClick = {
                                 showNewLayerMenu = false
                                 vm.clearLayerSelection()
                                 onOpenCreateFilter()
                             },
                         )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.layer_type_stroke), color = Morandi.text, fontSize = 13.sp) },
-                            leadingIcon = {
-                                Icon(
-                                    painterResource(R.drawable.ic_shape_stroke),
-                                    null,
-                                    tint = Morandi.icon,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            },
+                        ReDropdownMenuItem(
+                            text = stringResource(R.string.layer_type_stroke),
+                            icon = R.drawable.ic_shape_stroke,
                             onClick = {
                                 showNewLayerMenu = false
                                 val now = System.currentTimeMillis()
@@ -641,16 +619,9 @@ internal fun LayerListView(
                                 }
                             },
                         )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.layer_stamp_visible), color = Morandi.text, fontSize = 13.sp) },
-                            leadingIcon = {
-                                Icon(
-                                    painterResource(R.drawable.ic_layers),
-                                    null,
-                                    tint = Morandi.icon,
-                                    modifier = Modifier.size(16.dp),
-                                )
-                            },
+                        ReDropdownMenuItem(
+                            text = stringResource(R.string.layer_stamp_visible),
+                            icon = R.drawable.ic_layers,
                             onClick = {
                                 showNewLayerMenu = false
                                 val now = System.currentTimeMillis()

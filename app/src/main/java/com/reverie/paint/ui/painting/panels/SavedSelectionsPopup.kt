@@ -27,8 +27,8 @@ import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.reverie.paint.ui.components.ReDropdownMenu
+import com.reverie.paint.ui.components.ReDropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
@@ -254,58 +254,63 @@ internal fun SavedSelectionsPopup(
                                     )
                                 }
 
-                                DropdownMenu(
+                                ReDropdownMenu(
                                     expanded = menuOpen,
                                     onDismissRequest = { menuOpen = false },
-                                    modifier = Modifier
-                                        .background(Morandi.panel)
-                                        .glassBorder(RoundedCornerShape(10.dp)),
                                 ) {
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.selection_op_replace), fontSize = 12.sp, color = Morandi.text) },
+                                    ReDropdownMenuItem(
+                                        text = stringResource(R.string.selection_op_replace),
+                                        fontSize = 12.sp,
                                         onClick = {
                                             menuOpen = false
                                             vm.loadStoredSelectionAction(index, 0)
                                         },
                                     )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.selection_op_add), fontSize = 12.sp, color = Morandi.text) },
+                                    ReDropdownMenuItem(
+                                        text = stringResource(R.string.selection_op_add),
+                                        fontSize = 12.sp,
                                         onClick = {
                                             menuOpen = false
                                             vm.loadStoredSelectionAction(index, 1)
                                         },
                                     )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.selection_op_subtract), fontSize = 12.sp, color = Morandi.text) },
+                                    ReDropdownMenuItem(
+                                        text = stringResource(R.string.selection_op_subtract),
+                                        fontSize = 12.sp,
                                         onClick = {
                                             menuOpen = false
                                             vm.loadStoredSelectionAction(index, 2)
                                         },
                                     )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.selection_op_intersect), fontSize = 12.sp, color = Morandi.text) },
+                                    ReDropdownMenuItem(
+                                        text = stringResource(R.string.selection_op_intersect),
+                                        fontSize = 12.sp,
                                         onClick = {
                                             menuOpen = false
                                             vm.loadStoredSelectionAction(index, 3)
                                         },
                                     )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.selection_op_overwrite), fontSize = 12.sp, color = Morandi.text) },
+                                    ReDropdownMenuItem(
+                                        text = stringResource(R.string.selection_op_overwrite),
+                                        fontSize = 12.sp,
                                         onClick = {
                                             menuOpen = false
                                             vm.updateStoredSelectionAction(index)
                                         },
                                     )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.selection_op_rename), fontSize = 12.sp, color = Morandi.text) },
+                                    ReDropdownMenuItem(
+                                        text = stringResource(R.string.selection_op_rename),
+                                        fontSize = 12.sp,
                                         onClick = {
                                             menuOpen = false
                                             renameIndex = index
                                             renameInitialName = item.name
                                         },
                                     )
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.common_delete), fontSize = 12.sp, color = Color(0xFFB05552)) },
+                                    ReDropdownMenuItem(
+                                        text = stringResource(R.string.common_delete),
+                                        fontSize = 12.sp,
+                                        isDestructive = true,
                                         onClick = {
                                             menuOpen = false
                                             vm.deleteStoredSelectionAction(index)

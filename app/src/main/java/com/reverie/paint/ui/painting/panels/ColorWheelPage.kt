@@ -19,7 +19,7 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
+import com.reverie.paint.ui.components.ReDropdownMenu
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -125,13 +125,10 @@ fun WheelColorPage(
                     )
                 }
 
-                DropdownMenu(
+                ReDropdownMenu(
                     expanded = showShapePopup,
                     onDismissRequest = { showShapePopup = false },
-                    modifier = Modifier
-                        .background(Morandi.panelHi)
-                        .glassBorder(RoundedCornerShape(10.dp))
-                        .padding(horizontal = 4.dp, vertical = 3.dp)
+                    modifier = Modifier.padding(horizontal = 4.dp, vertical = 3.dp)
                 ) {
                     Row(
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
@@ -235,13 +232,10 @@ fun WheelColorPage(
                 }
 
                 if (!isHsvFixed) {
-                    DropdownMenu(
+                    ReDropdownMenu(
                         expanded = showModelPopup,
                         onDismissRequest = { showModelPopup = false },
-                        modifier = Modifier
-                            .background(Morandi.panelHi)
-                            .glassBorder(RoundedCornerShape(10.dp))
-                            .padding(horizontal = 4.dp, vertical = 3.dp)
+                        modifier = Modifier.padding(horizontal = 4.dp, vertical = 3.dp)
                     ) {
                         Row(
                             horizontalArrangement = Arrangement.spacedBy(3.dp),

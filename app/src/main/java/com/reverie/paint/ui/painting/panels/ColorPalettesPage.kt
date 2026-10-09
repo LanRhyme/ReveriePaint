@@ -19,8 +19,8 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.reverie.paint.ui.components.ReDropdownMenu
+import com.reverie.paint.ui.components.ReDropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -162,64 +162,34 @@ fun PalettesPage(
                     )
                 }
 
-                DropdownMenu(
+                ReDropdownMenu(
                     expanded = showTopPlusMenu,
                     onDismissRequest = { showTopPlusMenu = false },
-                    modifier = Modifier
-                        .background(Morandi.panel)
-                        .glassBorder(RoundedCornerShape(10.dp))
                 ) {
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.color_pal_create_title), color = Morandi.text, fontSize = 13.sp) },
-                        leadingIcon = {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_folder_plus),
-                                contentDescription = null,
-                                tint = Morandi.icon,
-                                modifier = Modifier.size(16.dp)
-                            )
-                        },
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                        modifier = Modifier.height(36.dp),
+                    ReDropdownMenuItem(
+                        text = stringResource(R.string.color_pal_create_title),
+                        icon = R.drawable.ic_folder_plus,
                         onClick = {
                             showTopPlusMenu = false
                             newPaletteName = ""
                             showCreatePaletteDialog = true
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.color_pal_from_image), color = Morandi.text, fontSize = 13.sp) },
-                        leadingIcon = {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_bookmark_plus),
-                                contentDescription = null,
-                                tint = Morandi.icon,
-                                modifier = Modifier.size(16.dp)
-                            )
                         },
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                        modifier = Modifier.height(36.dp),
+                    )
+                    ReDropdownMenuItem(
+                        text = stringResource(R.string.color_pal_from_image),
+                        icon = R.drawable.ic_bookmark_plus,
                         onClick = {
                             showTopPlusMenu = false
                             importPaletteImageLauncher.launch("image/*")
-                        }
-                    )
-                    DropdownMenuItem(
-                        text = { Text(stringResource(R.string.color_pal_from_camera), color = Morandi.text, fontSize = 13.sp) },
-                        leadingIcon = {
-                            Icon(
-                                painter = painterResource(R.drawable.ic_image_adjust),
-                                contentDescription = null,
-                                tint = Morandi.icon,
-                                modifier = Modifier.size(16.dp)
-                            )
                         },
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                        modifier = Modifier.height(36.dp),
+                    )
+                    ReDropdownMenuItem(
+                        text = stringResource(R.string.color_pal_from_camera),
+                        icon = R.drawable.ic_image_adjust,
                         onClick = {
                             showTopPlusMenu = false
                             takeCameraPreviewLauncher.launch(null)
-                        }
+                        },
                     )
                 }
             }
@@ -303,16 +273,13 @@ fun PalettesPage(
                                     .padding(horizontal = 6.dp, vertical = 2.dp)
                             )
 
-                            DropdownMenu(
+                            ReDropdownMenu(
                                 expanded = activeMenuPalette?.id == palette.id,
-                                onDismissRequest = { activeMenuPalette = null },
-                                modifier = Modifier
-                                    .background(Morandi.panel)
-                                    .glassBorder(RoundedCornerShape(10.dp))
+                                onDismissRequest = { activeMenuPalette = null }
                             ) {
                                 if (palette.id != vm.defaultPaletteId) {
-                                    DropdownMenuItem(
-                                        text = { Text(stringResource(R.string.color_pal_set_default), color = Morandi.text, fontSize = 13.sp) },
+                                    ReDropdownMenuItem(
+                                        text = stringResource(R.string.color_pal_set_default),
                                         leadingIcon = {
                                             Icon(
                                                 painter = painterResource(R.drawable.ic_bookmark_plus),
@@ -321,8 +288,6 @@ fun PalettesPage(
                                                 modifier = Modifier.size(16.dp)
                                             )
                                         },
-                                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                        modifier = Modifier.height(36.dp),
                                         onClick = {
                                             vm.setDefaultPalette(palette.id)
                                             activeMenuPalette = null
@@ -330,8 +295,8 @@ fun PalettesPage(
                                         }
                                     )
                                 }
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.color_pal_export_code), color = Morandi.text, fontSize = 13.sp) },
+                                ReDropdownMenuItem(
+                                    text = stringResource(R.string.color_pal_export_code),
                                     leadingIcon = {
                                         Icon(
                                             painter = painterResource(R.drawable.ic_copy),
@@ -340,8 +305,6 @@ fun PalettesPage(
                                             modifier = Modifier.size(16.dp)
                                         )
                                     },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                    modifier = Modifier.height(36.dp),
                                     onClick = {
                                         val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE) as android.content.ClipboardManager
                                         val hexList = palette.colors.joinToString(", ")
@@ -350,8 +313,8 @@ fun PalettesPage(
                                         Toast.makeText(context, context.getString(R.string.color_pal_export_copied, palette.name), Toast.LENGTH_SHORT).show()
                                     }
                                 )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.color_pal_duplicate), color = Morandi.text, fontSize = 13.sp) },
+                                ReDropdownMenuItem(
+                                    text = stringResource(R.string.color_pal_duplicate),
                                     leadingIcon = {
                                         Icon(
                                             painter = painterResource(R.drawable.ic_copy),
@@ -360,16 +323,14 @@ fun PalettesPage(
                                             modifier = Modifier.size(16.dp)
                                         )
                                     },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                    modifier = Modifier.height(36.dp),
                                     onClick = {
                                         vm.duplicatePalette(palette.id)
                                         activeMenuPalette = null
                                         Toast.makeText(context, context.getString(R.string.color_pal_duplicated_toast), Toast.LENGTH_SHORT).show()
                                     }
                                 )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.color_pal_rename), color = Morandi.text, fontSize = 13.sp) },
+                                ReDropdownMenuItem(
+                                    text = stringResource(R.string.color_pal_rename),
                                     leadingIcon = {
                                         Icon(
                                             painter = painterResource(R.drawable.ic_brush),
@@ -378,16 +339,15 @@ fun PalettesPage(
                                             modifier = Modifier.size(16.dp)
                                         )
                                     },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                    modifier = Modifier.height(36.dp),
                                     onClick = {
                                         renamePaletteText = palette.name
                                         showRenameDialog = palette
                                         activeMenuPalette = null
                                     }
                                 )
-                                DropdownMenuItem(
-                                    text = { Text(stringResource(R.string.color_pal_delete), color = Morandi.accentHi, fontSize = 13.sp) },
+                                ReDropdownMenuItem(
+                                    text = stringResource(R.string.color_pal_delete),
+                                    isDestructive = true,
                                     leadingIcon = {
                                         Icon(
                                             painter = painterResource(R.drawable.ic_erase),
@@ -396,8 +356,6 @@ fun PalettesPage(
                                             modifier = Modifier.size(16.dp)
                                         )
                                     },
-                                    contentPadding = PaddingValues(horizontal = 12.dp, vertical = 0.dp),
-                                    modifier = Modifier.height(36.dp),
                                     onClick = {
                                         vm.deletePalette(palette.id)
                                         activeMenuPalette = null

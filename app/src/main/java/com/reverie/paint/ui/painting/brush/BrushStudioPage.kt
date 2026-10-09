@@ -28,6 +28,8 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.horizontalScroll
 import com.reverie.paint.ui.painting.TextInputGuard
+import com.reverie.paint.ui.components.ReDropdownMenu
+import com.reverie.paint.ui.components.ReDropdownMenuItem
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -225,44 +227,42 @@ fun BrushStudioPage(
                 Box {
                     ReIconButton(R.drawable.ic_dots_vertical, stringResource(R.string.brush_studio_more_ops), { showMenu = true }, tint = textSub, iconSize = 17.dp)
 
-                    DropdownMenu(
+                    ReDropdownMenu(
                         expanded = showMenu,
                         onDismissRequest = { showMenu = false },
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(panelBg),
                     ) {
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.brush_studio_rename_brush), color = textMain, fontSize = 13.sp) },
+                        ReDropdownMenuItem(
+                            text = stringResource(R.string.brush_studio_rename_brush),
                             onClick = {
                                 showMenu = false
                                 showRenameDialog = true
                             },
                         )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.brush_share_action), color = textMain, fontSize = 13.sp) },
+                        ReDropdownMenuItem(
+                            text = stringResource(R.string.brush_share_action),
                             onClick = {
                                 showMenu = false
                                 preset?.let { vm.shareBrushPreset(context, it.name) }
                             },
                         )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.brush_export_group_action), color = textMain, fontSize = 13.sp) },
+                        ReDropdownMenuItem(
+                            text = stringResource(R.string.brush_export_group_action),
                             onClick = {
                                 showMenu = false
                                 preset?.group?.let { vm.exportBrushGroup(context, it) }
                             },
                         )
-                        DropdownMenuItem(
-                            text = { Text(stringResource(R.string.brush_studio_reset_params), color = textMain, fontSize = 13.sp) },
+                        ReDropdownMenuItem(
+                            text = stringResource(R.string.brush_studio_reset_params),
                             onClick = {
                                 showMenu = false
                                 vm.resetBrushParams()
                             },
                         )
                         if (preset?.isBuiltIn != true) {
-                            DropdownMenuItem(
-                                text = { Text(stringResource(R.string.brush_studio_delete_brush), color = Color(0xFFC86464), fontSize = 13.sp) },
+                            ReDropdownMenuItem(
+                                text = stringResource(R.string.brush_studio_delete_brush),
+                                isDestructive = true,
                                 onClick = {
                                     showMenu = false
                                     showDeleteConfirmDialog = true

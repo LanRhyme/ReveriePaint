@@ -41,8 +41,8 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
+import com.reverie.paint.ui.components.ReDropdownMenu
+import com.reverie.paint.ui.components.ReDropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
@@ -381,21 +381,25 @@ internal fun SettingDropdownGroupItem(
                     )
                 }
 
-                DropdownMenu(
+                ReDropdownMenu(
                     expanded = expanded,
                     onDismissRequest = { expanded = false },
-                    modifier = Modifier.background(colors.panelHi),
                 ) {
                     options.forEachIndexed { idx, opt ->
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = opt,
-                                    color = if (opt == currentText) colors.accent else colors.text,
-                                    fontSize = 13.sp,
-                                    fontWeight = if (opt == currentText) FontWeight.Bold else FontWeight.Normal,
-                                )
-                            },
+                        val isSelected = opt == currentText
+                        ReDropdownMenuItem(
+                            text = opt,
+                            selected = isSelected,
+                            trailingIcon = if (isSelected) {
+                                {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_check),
+                                        contentDescription = null,
+                                        tint = colors.accent,
+                                        modifier = Modifier.size(16.dp),
+                                    )
+                                }
+                            } else null,
                             onClick = {
                                 onSelect(idx)
                                 expanded = false

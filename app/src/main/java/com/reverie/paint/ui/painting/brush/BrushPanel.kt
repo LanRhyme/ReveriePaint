@@ -19,6 +19,8 @@ import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
 import com.reverie.paint.ui.components.ReTextButton
+import com.reverie.paint.ui.components.ReDropdownMenu
+import com.reverie.paint.ui.components.ReDropdownMenuItem
 import com.reverie.paint.ui.painting.TextInputGuard
 import com.reverie.paint.R
 import androidx.compose.ui.res.painterResource
@@ -1992,26 +1994,15 @@ fun BrushPropertyPage(
                             )
                         }
 
-                        androidx.compose.material3.DropdownMenu(
+                        ReDropdownMenu(
                             expanded = showBlendMenu,
                             onDismissRequest = { showBlendMenu = false },
-                            modifier = Modifier.background(Morandi.panelHi),
                         ) {
                             blendModeList.forEach { (opId, name) ->
                                 val sel = vm.brushCompositeOp == opId
-                                androidx.compose.material3.DropdownMenuItem(
-                                    text = {
-                                        Text(
-                                            name,
-                                            color = if (sel) Morandi.accent else Morandi.text,
-                                            fontSize = 12.sp,
-                                            fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
-                                        )
-                                    },
-                                    onClick = {
-                                        vm.updateBrushCompositeOp(opId)
-                                        showBlendMenu = false
-                                    },
+                                ReDropdownMenuItem(
+                                    text = name,
+                                    selected = sel,
                                     trailingIcon = if (sel) {
                                         {
                                             Icon(
@@ -2022,6 +2013,10 @@ fun BrushPropertyPage(
                                             )
                                         }
                                     } else null,
+                                    onClick = {
+                                        vm.updateBrushCompositeOp(opId)
+                                        showBlendMenu = false
+                                    },
                                 )
                             }
                         }
