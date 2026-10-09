@@ -773,14 +773,14 @@ public:
     void waitForDocumentTasks();
 
     // Strokes (touch input; coordinates in document space)
-    void touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0);
+    void touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0, qreal timeSeconds = -1.0);
 
     // Application-level undo/redo via per-stroke layer snapshots.
     // Krita's command stack needs the full KisTransaction pipeline; for the
     // MVP we snapshot the current layer before each stroke and restore on
     // undo/redo. (ReverieUndoStore still backs image-level commands.)
     bool canUndo() const;
-    bool canRedo() const { return m_redoCount > 0; }
+    bool canRedo() const;
     void undo();
     void redo();
     void beginUndoMacro(const QString &text = QString());
@@ -795,9 +795,10 @@ public:
     // Excess commands are freed from the bottom of the stack on the next
     // push; applies to the live store and to every document created later.
     void setUndoLimit(int limit);
+    void resetStrokeCounter() { m_strokeCounter = 0; }
     // Returns true when this call flushed a batch and painted new ink (used
     // by the Kotlin transport to render only after real paint work).
-    bool touchStrokeMove(qreal x, qreal y, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0);
+    bool touchStrokeMove(qreal x, qreal y, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0, qreal timeSeconds = -1.0);
     // Flush the pending stroke start as an ink dot when no movement arrived
     // yet (hold-still / slow-start latency fix). No-op once the stroke moved.
     // Returns true when a dot was painted.
@@ -939,7 +940,7 @@ private:
     // convertToQImage returns transparent black. Krita itself uses the
     // refresh-walker + async-merger pair for exactly this case.
     // Returns true when a flush painted ink in this call.
-    bool appendStrokeSample(const QPointF &imgPos, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0);
+    bool appendStrokeSample(const QPointF &imgPos, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0, qreal timeSeconds = -1.0);
     void endStrokeBatch();
 
     struct StrokeSample {
@@ -1328,6 +1329,8 @@ private:
     int m_redoCount = 0;   // redo depth tracked locally (store hides it)
     int m_macroDepth = 0;  // nested macro transaction depth
     bool m_undoCaptureEnabled = true; // false during replay (no history growth)
+    quint64 m_strokeCounter = 0;
+    qreal m_lastSimulatedFlushTime = 0.0;
     // Deferred stroke transaction: created at the first real flush (after
     // the stroke device exists), committed at stroke end, discarded on
     // cancel - taps and no-paint strokes never create an undo command.

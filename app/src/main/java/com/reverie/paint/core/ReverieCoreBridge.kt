@@ -570,11 +570,27 @@ object ReverieCoreBridge {
         rotation: Double,
     )
 
+    external fun touchStrokeStartWithTime(
+        x: Double,
+        y: Double,
+        pressure: Double,
+        timeSeconds: Double,
+    )
+
     external fun touchStrokeMove(
         x: Double,
         y: Double,
         pressure: Double,
     )
+
+    external fun touchStrokeMoveWithTime(
+        x: Double,
+        y: Double,
+        pressure: Double,
+        timeSeconds: Double,
+    ): Boolean
+
+    external fun resetStrokeCounter()
 
     /** Batched stroke transport: [coords] holds [x,y,pressure] triplets,
      *  [count] is the triplet count. Drains every pending sample in one JNI

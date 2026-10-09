@@ -40,6 +40,10 @@ public:
     void redo();
     void clear();
     void setUndoLimit(int limit);
+    bool canUndo() const;
+    bool canRedo() const;
+    int count() const;
+    int index() const;
 
 private:
     KUndo2Stack *m_undoStack;

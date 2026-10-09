@@ -343,7 +343,7 @@ private fun PaintViewModel.replayStepLocked(
         val type = r.u8()
         val dt = r.varint()
         s.currentMs += dt
-        dispatchReplayLocked(type, r, render = false)
+        dispatchReplayLocked(s, type, r, render = false)
         hasEvents = true
         if (s.totalMs == 0L) break
     }
@@ -419,6 +419,8 @@ internal fun PaintViewModel.resetReplayDocLocked(s: ReplaySession) {
         renderW = -1
         renderH = -1
         setRenderViewport(coreW, coreH)
+        ReverieCoreBridge.resetStrokeCounter()
+        ReverieCoreBridge.setUndoLimit(maxUndoSteps)
         ReverieCoreBridge.setUndoCaptureEnabled(true)
         ReverieCoreBridge.clearUndoHistory()
         // Paint the initial frame right away so the canvas isn't stale
@@ -445,7 +447,7 @@ private fun PaintViewModel.seekLocked(
         // Seek fast-forwards the document state only: per-event renders are
         // suppressed (one immediate render at the end), otherwise dragging
         // the scrub bar queued hundreds of throttled renders and stalled.
-        dispatchReplayLocked(type, r, render = false)
+        dispatchReplayLocked(s, type, r, render = false)
     }
     s.elapsedMs = target
     s.progress = fraction
@@ -457,6 +459,7 @@ private fun PaintViewModel.seekLocked(
 // ---- Event dispatch (render thread; direct bridge calls, no re-recording) ----
 
 private fun PaintViewModel.dispatchReplayLocked(
+    s: ReplaySession,
     type: Int,
     r: RecordingReader,
     render: Boolean = true,
@@ -466,14 +469,16 @@ private fun PaintViewModel.dispatchReplayLocked(
             val x = r.f32()
             val y = r.f32()
             val p = r.f32()
-            ReverieCoreBridge.touchStrokeStart(x.toDouble(), y.toDouble(), p.toDouble())
+            val timeSec = if (s.totalMs > 0) (s.currentMs / 1000.0) else -1.0
+            ReverieCoreBridge.touchStrokeStartWithTime(x.toDouble(), y.toDouble(), p.toDouble(), timeSec)
         }
 
         STROKE_MOVE -> {
             val x = r.f32()
             val y = r.f32()
             val p = r.f32()
-            ReverieCoreBridge.touchStrokeMove(x.toDouble(), y.toDouble(), p.toDouble())
+            val timeSec = if (s.totalMs > 0) (s.currentMs / 1000.0) else -1.0
+            ReverieCoreBridge.touchStrokeMoveWithTime(x.toDouble(), y.toDouble(), p.toDouble(), timeSec)
             // Grow the stroke on screen: throttled render per move point,
             // same pacing the live painter uses while drawing (skipped while
             // seeking - seekLocked renders once at the end)
@@ -859,15 +864,17 @@ private fun PaintViewModel.dispatchToolOpLocked(
             // The replay rebuilt the native undo stack stroke-by-stroke in the
             // same order as the live session, so a plain native undo pops the
             // exact transaction the user undid while recording.
-            ReverieCoreBridge.undo()
-            val nw = ReverieCoreBridge.docWidth()
-            val nh = ReverieCoreBridge.docHeight()
-            if (nw > 0 && nh > 0 && (nw != coreW || nh != coreH)) {
-                coreW = nw
-                coreH = nh
-                renderW = -1
-                renderH = -1
-                setRenderViewport(coreW, coreH)
+            if (ReverieCoreBridge.canUndo()) {
+                ReverieCoreBridge.undo()
+                val nw = ReverieCoreBridge.docWidth()
+                val nh = ReverieCoreBridge.docHeight()
+                if (nw > 0 && nh > 0 && (nw != coreW || nh != coreH)) {
+                    coreW = nw
+                    coreH = nh
+                    renderW = -1
+                    renderH = -1
+                    setRenderViewport(coreW, coreH)
+                }
             }
         }
 
@@ -875,15 +882,17 @@ private fun PaintViewModel.dispatchToolOpLocked(
         T_CANVAS_CUT -> ReverieCoreBridge.copyCanvasToClipboard(true)
         T_CANVAS_PASTE -> ReverieCoreBridge.pasteCanvasClipboard()
         T_REDO -> {
-            ReverieCoreBridge.redo()
-            val nw = ReverieCoreBridge.docWidth()
-            val nh = ReverieCoreBridge.docHeight()
-            if (nw > 0 && nh > 0 && (nw != coreW || nh != coreH)) {
-                coreW = nw
-                coreH = nh
-                renderW = -1
-                renderH = -1
-                setRenderViewport(coreW, coreH)
+            if (ReverieCoreBridge.canRedo()) {
+                ReverieCoreBridge.redo()
+                val nw = ReverieCoreBridge.docWidth()
+                val nh = ReverieCoreBridge.docHeight()
+                if (nw > 0 && nh > 0 && (nw != coreW || nh != coreH)) {
+                    coreW = nw
+                    coreH = nh
+                    renderW = -1
+                    renderH = -1
+                    setRenderViewport(coreW, coreH)
+                }
             }
         }
 

@@ -16,7 +16,7 @@
 #include <filter/kis_filter_registry.h>
 #include <cmath>
 
-void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation)
+void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation, qreal timeSeconds)
 {
     if (!m_document || std::isnan(x) || std::isnan(y) || !std::isfinite(x) || !std::isfinite(y)) {
         return;
@@ -32,9 +32,12 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX
         touchStrokeEnd();
     }
     endStrokeBatch();
-    delete m_strokeTxn;
-    m_strokeTxn = nullptr;
-    m_strokeTxnActive = false;
+    if (m_strokeTxn) {
+        m_strokeTxn->revert();
+        delete m_strokeTxn;
+        m_strokeTxn = nullptr;
+        m_strokeTxnActive = false;
+    }
 
     // Defer the undo snapshot to the first real flush: reading every layer
     // here costs a full-document read per touch-down, which is felt as lag
@@ -50,7 +53,9 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX
     m_strokeOpacity = m_brushOpacity;
     m_idleKickPainted = false;
     m_strokeTimer.restart();
-    m_randomSource = new KisRandomSource();
+    m_strokeCounter++;
+    const int strokeSeed = int(quint32(m_strokeCounter) * 1664525u + 1013904223u);
+    m_randomSource = new KisRandomSource(strokeSeed);
     m_perStrokeRandomSource = new KisPerStrokeRandomSource();
     // The stroke paints straight onto the layer device with per-dab opacity
     // (Krita-native); no temporary buffer is used.
@@ -59,6 +64,8 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX
     m_strokeSamples.clear();
     m_strokeCarryCount = 0;
     m_strokeHadMove = false;
+    const qreal startTime = (timeSeconds >= 0.0) ? timeSeconds : 0.0;
+    m_lastSimulatedFlushTime = startTime;
     // The stroke starts at the finger-down position: append it as the first
     // sample so the down -> first-move segment is drawn. Otherwise the first
     // flush sees one sample and paints a dot, and the stroke start is cut off
@@ -69,11 +76,11 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX
     s.tiltX = tiltX;
     s.tiltY = tiltY;
     s.rotation = rotation;
-    s.time = 0.0;
+    s.time = startTime;
     m_strokeSamples.append(s);
 }
 
-bool ReverieCore::touchStrokeMove(qreal x, qreal y, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation)
+bool ReverieCore::touchStrokeMove(qreal x, qreal y, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation, qreal timeSeconds)
 {
     if (!m_drawing || !m_strokeBatchOpen || std::isnan(x) || std::isnan(y) || !std::isfinite(x) || !std::isfinite(y)) {
         return false;
@@ -90,7 +97,7 @@ bool ReverieCore::touchStrokeMove(qreal x, qreal y, qreal pressure, qreal tiltX,
             ? m_strokeStartImg
             : m_strokeSamples.last().imgPos;
     if (imgPos != lastPos) {
-        return appendStrokeSample(imgPos, pressure, tiltX, tiltY, rotation);
+        return appendStrokeSample(imgPos, pressure, tiltX, tiltY, rotation, timeSeconds);
     }
     return false;
 }
@@ -145,7 +152,12 @@ void ReverieCore::touchStrokeEnd()
         const QRect ext = tempTarget->exactBounds();
         if (!ext.isEmpty()) {
             if (m_document && m_undoCaptureEnabled) {
-                delete m_strokeTxn;
+                if (m_strokeTxn) {
+                    m_strokeTxn->revert();
+                    delete m_strokeTxn;
+                    m_strokeTxn = nullptr;
+                    m_strokeTxnActive = false;
+                }
                 m_strokeTxn = new KisTransaction(kundo2_i18n("Stroke"), pl->paintDevice());
                 m_strokeTxnActive = true;
             }
@@ -187,12 +199,13 @@ void ReverieCore::touchStrokeEnd()
 
     // Commit the Krita transaction: the tile snapshots taken at creation
     // are diffed and the undo command is pushed to the store. In replay
-    // mode the transaction is dropped instead (stroke content stays).
+    // mode the transaction is finalized cleanly without growing undo history.
     if (m_strokeTxnActive && m_document) {
         if (m_undoCaptureEnabled) {
             m_strokeTxn->commit(m_document->undoAdapter());
         } else {
-            delete m_strokeTxn;
+            KUndo2Command *cmd = m_strokeTxn->endAndTake();
+            delete cmd;
         }
         m_strokeTxn = nullptr;
         m_strokeTxnActive = false;
@@ -281,7 +294,7 @@ void ReverieCore::touchStrokeCancel()
     m_drawing = false;
 }
 
-bool ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation)
+bool ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation, qreal timeSeconds)
 {
     if (std::isnan(tiltX) || !std::isfinite(tiltX)) tiltX = 0.0;
     if (std::isnan(tiltY) || !std::isfinite(tiltY)) tiltY = 0.0;
@@ -325,12 +338,23 @@ bool ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure, qrea
     s.tiltX = tiltX;
     s.tiltY = tiltY;
     s.rotation = rotation;
-    s.time = m_strokeTimer.elapsed() / 1000.0;
+    if (timeSeconds >= 0.0) {
+        s.time = timeSeconds;
+    } else {
+        s.time = m_strokeTimer.elapsed() / 1000.0;
+    }
     m_strokeSamples.append(s);
-    // 144Hz / 120Hz 高刷新率自适应刷新门槛：4ms / 32 样本即可刷新，避免 8ms 跨帧导致 144Hz 跳帧
+    // 144Hz / 120Hz 高刷新率自适应刷新门槛：实时绘制 4ms / 32 样本；
+    // 回放模式按记录的仿真相对时间步进 (>8ms 或 32 样本)，确保 1x/32x/seek 分批完全确定性对齐。
     const qint64 now = QDateTime::currentMSecsSinceEpoch();
-    if (now - m_lastFlushMs >= 4 || m_strokeSamples.size() >= 32) {
+    const bool shouldFlush = (timeSeconds >= 0.0)
+        ? ((s.time - m_lastSimulatedFlushTime >= 0.008) || m_strokeSamples.size() >= 32)
+        : (now - m_lastFlushMs >= 4 || m_strokeSamples.size() >= 32);
+    if (shouldFlush) {
         m_lastFlushMs = now;
+        if (timeSeconds >= 0.0) {
+            m_lastSimulatedFlushTime = s.time;
+        }
         return flushStrokeBatch();
     }
     return false;
@@ -468,7 +492,11 @@ bool ReverieCore::flushStrokeBatch()
         }
         // Deferred Krita undo: for direct painting, start transaction on the layer.
         if (!needsIndirect && m_snapshotPending && !m_strokeTxnActive && m_undoCaptureEnabled) {
-            delete m_strokeTxn;
+            if (m_strokeTxn) {
+                m_strokeTxn->revert();
+                delete m_strokeTxn;
+                m_strokeTxn = nullptr;
+            }
             KisInterstrokeDataFactory *interstrokeDataFactory = nullptr;
             const bool isColorSmudge = (m_toolMode == ToolSmudge) ||
                 (m_brushPreset && m_brushPreset->paintOp().id() == QStringLiteral("colorsmudge"));
@@ -996,19 +1024,22 @@ void ReverieCore::pushUndoCommand(KUndo2Command *cmd)
         return;
     }
     // Replay mode: ops apply normally but must not grow undo history
-    // (hundreds of replay commands would otherwise eat tile-snapshot memory)
+    // (hundreds of replay commands would otherwise eat tile-snapshot memory).
+    // Structural commands (KisImageLayerAddCommand, KisImageLayerRemoveCommand,
+    // KisNodeRenameCommand, etc.) execute their actual mutation in redo().
     if (!m_undoCaptureEnabled) {
+        cmd->redo();
         delete cmd;
         return;
     }
     if (!m_document->undoAdapter()) {
+        cmd->redo();
         delete cmd;
         return;
     }
     // KisLegacyUndoAdapter::addCommand routes into our surrogate store
     // (installed via KisImage::setUndoStore); KUndo2Stack::push executes
-    // the command's redo() (the change is already applied by the caller,
-    // so redo() is a no-op for most commands) and clears redo state.
+    // the command's redo() and clears redo state.
     m_document->undoAdapter()->addCommand(cmd);
     m_redoCount = 0;
 }
@@ -1050,7 +1081,12 @@ void ReverieCore::endUndoMacro()
 
 bool ReverieCore::canUndo() const
 {
-    return m_undoStore && m_undoStore->presentCommand() != nullptr;
+    return m_undoStore && m_undoStore->canUndo();
+}
+
+bool ReverieCore::canRedo() const
+{
+    return m_undoStore && m_undoStore->canRedo();
 }
 
 void ReverieCore::undo()

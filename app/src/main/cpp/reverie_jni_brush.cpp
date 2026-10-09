@@ -310,10 +310,30 @@ Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeStartWithSensors(
     core()->touchStrokeStart(x, y, pressure, tiltX, tiltY, rotation);
 }
 
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeStartWithTime(
+    JNIEnv *, jobject, jdouble x, jdouble y, jdouble pressure, jdouble timeSeconds)
+{
+    core()->touchStrokeStart(x, y, pressure, 0.0, 0.0, 0.0, timeSeconds);
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeMove(JNIEnv *, jobject, jdouble x, jdouble y, jdouble pressure)
 {
     return core()->touchStrokeMove(x, y, pressure) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeMoveWithTime(
+    JNIEnv *, jobject, jdouble x, jdouble y, jdouble pressure, jdouble timeSeconds)
+{
+    return core()->touchStrokeMove(x, y, pressure, 0.0, 0.0, 0.0, timeSeconds) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_resetStrokeCounter(JNIEnv *, jobject)
+{
+    core()->resetStrokeCounter();
 }
 
 // Batched stroke transport: drains all samples accumulated by the Kotlin UI

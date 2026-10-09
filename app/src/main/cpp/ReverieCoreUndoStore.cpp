@@ -53,12 +53,16 @@ void ReverieUndoStore::purgeRedoState()
 
 void ReverieUndoStore::undo()
 {
-    m_undoStack->undo();
+    if (m_undoStack && m_undoStack->canUndo()) {
+        m_undoStack->undo();
+    }
 }
 
 void ReverieUndoStore::redo()
 {
-    m_undoStack->redo();
+    if (m_undoStack && m_undoStack->canRedo()) {
+        m_undoStack->redo();
+    }
 }
 
 void ReverieUndoStore::clear()
@@ -69,4 +73,24 @@ void ReverieUndoStore::clear()
 void ReverieUndoStore::setUndoLimit(int limit)
 {
     m_undoStack->setUndoLimit(limit);
+}
+
+bool ReverieUndoStore::canUndo() const
+{
+    return m_undoStack && m_undoStack->canUndo();
+}
+
+bool ReverieUndoStore::canRedo() const
+{
+    return m_undoStack && m_undoStack->canRedo();
+}
+
+int ReverieUndoStore::count() const
+{
+    return m_undoStack ? m_undoStack->count() : 0;
+}
+
+int ReverieUndoStore::index() const
+{
+    return m_undoStack ? m_undoStack->index() : 0;
 }
