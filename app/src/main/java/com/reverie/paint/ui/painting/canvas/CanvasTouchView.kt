@@ -2166,6 +2166,7 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     override fun onDetachedFromWindow() {
+        releaseLargeBitmapTiles()
         removeCallbacks(quickShapeHold)
         vm?.quickShapeCapture = null
         vm?.cancelQuickShape()
@@ -2247,6 +2248,90 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
+    // Support drawing huge bitmaps (> 100MB, e.g. 8192x8192 = 256MB)
+    // without triggering android.graphics.RecordingCanvas.throwIfCannotDraw
+    private var largeBitmapTiles: Array<Bitmap>? = null
+    private var largeBitmapLastGenId: Int = -1
+    private var largeBitmapCols: Int = 0
+    private var largeBitmapRows: Int = 0
+    private val largeBitmapSrcRect = android.graphics.Rect()
+    private val largeBitmapDstRect = android.graphics.Rect()
+
+    private fun drawLargeBitmapTiled(
+        canvas: Canvas,
+        bmp: Bitmap,
+        left: Float,
+        top: Float,
+        paint: Paint,
+    ) {
+        val maxTileDim = 4096
+        val cols = (bmp.width + maxTileDim - 1) / maxTileDim
+        val rows = (bmp.height + maxTileDim - 1) / maxTileDim
+        val totalTiles = cols * rows
+
+        val tilesNeedRealloc = largeBitmapTiles == null ||
+            largeBitmapTiles?.size != totalTiles ||
+            largeBitmapCols != cols ||
+            largeBitmapRows != rows
+
+        if (tilesNeedRealloc) {
+            largeBitmapTiles?.forEach { it.recycle() }
+            try {
+                val newTiles = Array(totalTiles) { idx ->
+                    val c = idx % cols
+                    val r = idx / cols
+                    val tw = minOf(maxTileDim, bmp.width - c * maxTileDim)
+                    val th = minOf(maxTileDim, bmp.height - r * maxTileDim)
+                    Bitmap.createBitmap(tw, th, Bitmap.Config.ARGB_8888)
+                }
+                largeBitmapTiles = newTiles
+                largeBitmapCols = cols
+                largeBitmapRows = rows
+                largeBitmapLastGenId = -1
+            } catch (t: Throwable) {
+                android.util.Log.e("CanvasTouchView", "Failed to allocate large bitmap tiles", t)
+                largeBitmapTiles?.forEach { it.recycle() }
+                largeBitmapTiles = null
+                return
+            }
+        }
+
+        val tiles = largeBitmapTiles ?: return
+        if (largeBitmapLastGenId != bmp.generationId) {
+            for (r in 0 until rows) {
+                for (c in 0 until cols) {
+                    val idx = r * cols + c
+                    val tile = tiles[idx]
+                    val sx = c * maxTileDim
+                    val sy = r * maxTileDim
+                    val tw = tile.width
+                    val th = tile.height
+                    largeBitmapSrcRect.set(sx, sy, sx + tw, sy + th)
+                    largeBitmapDstRect.set(0, 0, tw, th)
+                    val tileCanvas = Canvas(tile)
+                    tileCanvas.drawBitmap(bmp, largeBitmapSrcRect, largeBitmapDstRect, null)
+                }
+            }
+            largeBitmapLastGenId = bmp.generationId
+        }
+
+        for (r in 0 until rows) {
+            for (c in 0 until cols) {
+                val idx = r * cols + c
+                val tile = tiles[idx]
+                val tx = left + c * maxTileDim
+                val ty = top + r * maxTileDim
+                canvas.drawBitmap(tile, tx, ty, paint)
+            }
+        }
+    }
+
+    private fun releaseLargeBitmapTiles() {
+        largeBitmapTiles?.forEach { it.recycle() }
+        largeBitmapTiles = null
+        largeBitmapLastGenId = -1
+    }
+
     private fun drawCanvas(canvas: Canvas) {
         super.onDraw(canvas)
         val v = vm ?: return
@@ -2285,7 +2370,14 @@ class CanvasTouchView(context: Context) : View(context) {
             // 绘制真实画布像素
             directBitmapPaint.isFilterBitmap = v.magnificationInterpolation
             directBitmapPaint.isAntiAlias = v.magnificationInterpolation
-            canvas.drawBitmap(bmp, -imgW / 2f, -imgH / 2f, directBitmapPaint)
+            if (bmp.byteCount > 100 * 1024 * 1024) {
+                drawLargeBitmapTiled(canvas, bmp, -imgW / 2f, -imgH / 2f, directBitmapPaint)
+            } else {
+                if (largeBitmapTiles != null) {
+                    releaseLargeBitmapTiles()
+                }
+                canvas.drawBitmap(bmp, -imgW / 2f, -imgH / 2f, directBitmapPaint)
+            }
             v.onLiquifyBitmapDrawn(bmp)
 
             // 像素级网格高倍率缩放展示 (scale >= 4.0)

@@ -280,7 +280,7 @@
     <string name="settings_auto_save_info_title">About Auto-save</string>
     <string name="settings_auto_save_info_desc">Auto-save runs silently in the background only when changes occur, without interrupting your drawing strokes</string>
     <string name="settings_auto_save_history">Recent Auto-saved Snapshots</string>
-    <string name="settings_auto_save_history_sub">View and restore up to 5 recently retained snapshots</string>
+    <string name="settings_auto_save_history_sub">Retain recent snapshots per project to prevent accidental loss</string>
     <string name="auto_save_history_title">Recent Auto-save History</string>
     <string name="auto_save_history_empty">No auto-saved snapshots yet</string>
     <string name="auto_save_history_empty_sub">Snapshots created during painting will be listed here</string>
@@ -291,6 +291,8 @@
     <string name="auto_save_restore_as_copy">Restore as New Copy</string>
     <string name="auto_save_restore_confirm_title">Restore Snapshot</string>
     <string name="auto_save_restore_confirm_msg">Current canvas has unsaved changes. Restoring this snapshot will replace current unsaved content. Continue?</string>
+    <string name="auto_save_restore_confirm_msg_clean">About to restore snapshot of \"%1$s\", please choose restore mode:</string>
+    <string name="auto_save_badge_emergency">Emergency Rescue</string>
     <string name="crash_recovery_title">Abnormal Exit Detected</string>
     <string name="crash_recovery_desc">The app closed unexpectedly last time. A recent backup draft was found. Would you like to restore it now?</string>
     <string name="crash_recovery_confirm">Restore Now</string>

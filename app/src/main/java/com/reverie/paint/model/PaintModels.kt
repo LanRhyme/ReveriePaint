@@ -168,7 +168,7 @@ data class CanvasPreset(
     val height: Int,
 )
 
-/** A snapshot in the persistent recent auto-save history (最多保留5个) */
+/** A snapshot in the persistent recent auto-save history */
 data class AutoSaveSnapshot(
     val id: String,
     val fileName: String,
@@ -179,4 +179,5 @@ data class AutoSaveSnapshot(
     val layerCount: Int,
     val fileSize: Long,
     val thumbPath: String,
+    val isEmergency: Boolean = false,
 )

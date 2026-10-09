@@ -287,14 +287,33 @@ private fun SnapshotCard(
         Column(
             modifier = Modifier.weight(1f),
         ) {
-            Text(
-                text = snapshot.displayName,
-                color = colors.text,
-                fontSize = 15.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Text(
+                    text = snapshot.displayName,
+                    color = colors.text,
+                    fontSize = 15.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (snapshot.isEmergency) {
+                    Spacer(Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(colors.accent.copy(alpha = 0.2f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.auto_save_badge_emergency),
+                            color = colors.accent,
+                            fontSize = 10.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+            }
             Spacer(Modifier.height(3.dp))
             Text(
                 text = formattedTime,
@@ -403,7 +422,7 @@ private fun RestoreConfirmDialog(
                     text = if (hasUnsavedChanges) {
                         stringResource(R.string.auto_save_restore_confirm_msg)
                     } else {
-                        "即将恢复「${snapshot.displayName}」的自动保存快照，请选择恢复方式："
+                        stringResource(R.string.auto_save_restore_confirm_msg_clean, snapshot.displayName)
                     },
                     color = colors.subText,
                     fontSize = 14.sp,
@@ -434,7 +453,7 @@ private fun RestoreConfirmDialog(
 
                     // 取消
                     ReTextButton(
-                        text = "取消",
+                        text = stringResource(R.string.cancel),
                         onClick = onDismiss,
                         primary = false,
                         modifier = Modifier.fillMaxWidth(),

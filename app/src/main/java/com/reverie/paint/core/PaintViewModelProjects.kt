@@ -309,6 +309,7 @@ internal fun PaintViewModel.emergencySaveOnCrash() {
                 masterPath = masterPath,
                 strokeCount = totalStrokes,
                 layerCount = layers.size,
+                isEmergency = true,
             )
         }
     } catch (t: Throwable) {
@@ -324,8 +325,17 @@ internal fun PaintViewModel.restoreAutoSaveSnapshot(snapshot: AutoSaveSnapshot, 
     val targetFile: File
     val projectName: String
     if (asCopy) {
-        projectName = "${snapshot.displayName} (副本)"
-        targetFile = File(projectDir(), "$projectName.revp")
+        val rootDir = projectDir()
+        var candidateName = "${snapshot.displayName} (副本)"
+        var candidateFile = File(rootDir, "$candidateName.revp")
+        var copyIdx = 2
+        while (candidateFile.exists()) {
+            candidateName = "${snapshot.displayName} (副本 $copyIdx)"
+            candidateFile = File(rootDir, "$candidateName.revp")
+            copyIdx++
+        }
+        projectName = candidateName
+        targetFile = candidateFile
         snapFile.copyTo(targetFile, overwrite = true)
     } else {
         projectName = snapshot.displayName

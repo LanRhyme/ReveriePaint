@@ -280,7 +280,7 @@
     <string name="settings_auto_save_info_title">自动保存机制说明</string>
     <string name="settings_auto_save_info_desc">自动保存将在后台静默执行，仅在画布产生修改时触发，且绝不会打断您当前的笔画绘制</string>
     <string name="settings_auto_save_history">最近自动保存快照</string>
-    <string name="settings_auto_save_history_sub">查看并恢复最近持久保留的5个历史快照</string>
+    <string name="settings_auto_save_history_sub">按工程独立保留最近历史快照，防止误触与意外丢失</string>
     <string name="auto_save_history_title">最近自动保存历史</string>
     <string name="auto_save_history_empty">暂无自动保存快照</string>
     <string name="auto_save_history_empty_sub">作画过程中触发自动保存后将自动记录在此</string>
@@ -291,6 +291,8 @@
     <string name="auto_save_restore_as_copy">恢复为新副本</string>
     <string name="auto_save_restore_confirm_title">恢复历史快照</string>
     <string name="auto_save_restore_confirm_msg">当前画布存在未保存的修改，恢复快照将替换当前未保存内容，是否继续？</string>
+    <string name="auto_save_restore_confirm_msg_clean">即将恢复「%1$s」的历史快照，请选择恢复方式：</string>
+    <string name="auto_save_badge_emergency">崩溃抢救</string>
     <string name="crash_recovery_title">检测到异常退出</string>
     <string name="crash_recovery_desc">检测到应用上次未正常关闭，系统已为您自动找到崩溃前的备份草稿，是否立即恢复？</string>
     <string name="crash_recovery_confirm">立即恢复</string>

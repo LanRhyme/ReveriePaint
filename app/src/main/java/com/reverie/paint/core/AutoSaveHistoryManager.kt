@@ -6,13 +6,15 @@ package com.reverie.paint.core
 
 import android.content.Context
 import com.reverie.paint.model.AutoSaveSnapshot
+import com.reverie.paint.model.AutoSaveSnapshotPolicy
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.zip.ZipFile
 
 object AutoSaveHistoryManager {
-    const val MAX_SNAPSHOTS = 5
+    const val MAX_SNAPSHOTS = AutoSaveSnapshotPolicy.MAX_GLOBAL_SNAPSHOTS
+    const val MAX_SNAPSHOTS_PER_PROJECT = AutoSaveSnapshotPolicy.MAX_SNAPSHOTS_PER_PROJECT
     private const val META_FILE_NAME = "snapshots_meta.json"
 
     fun getHistoryDir(context: Context): File {
@@ -47,6 +49,7 @@ object AutoSaveHistoryManager {
                             layerCount = obj.optInt("layerCount", 1),
                             fileSize = revpFile.length(),
                             thumbPath = File(dir, "${id}_thumb.png").takeIf { it.exists() }?.absolutePath ?: "",
+                            isEmergency = obj.optBoolean("isEmergency", false),
                         ),
                     )
                 }
@@ -65,11 +68,23 @@ object AutoSaveHistoryManager {
         masterPath: String,
         strokeCount: Int,
         layerCount: Int,
+        isEmergency: Boolean = false,
     ) {
         try {
             if (!sourceRevpFile.exists() || sourceRevpFile.length() == 0L) return
+            val currentList = getSnapshots(context)
+            val projectKey = if (masterPath.isNotBlank()) masterPath else displayName
+            val existingForProject = currentList.filter {
+                AutoSaveSnapshotPolicy.projectKey(it) == projectKey
+            }
+
+            val now = System.currentTimeMillis()
+            if (AutoSaveSnapshotPolicy.shouldSkipRecord(existingForProject, strokeCount, now, isEmergency)) {
+                return
+            }
+
             val dir = getHistoryDir(context)
-            val id = "snap_${System.currentTimeMillis()}"
+            val id = "snap_${now}"
             val targetRevp = File(dir, "$id.revp")
             sourceRevpFile.copyTo(targetRevp, overwrite = true)
 
@@ -88,28 +103,27 @@ object AutoSaveHistoryManager {
                 }
             } catch (_: Throwable) {}
 
-            val currentList = getSnapshots(context).toMutableList()
             val newSnapshot = AutoSaveSnapshot(
                 id = id,
                 fileName = targetRevp.name,
                 displayName = displayName,
                 masterPath = masterPath,
-                timestamp = System.currentTimeMillis(),
+                timestamp = now,
                 strokeCount = strokeCount,
                 layerCount = layerCount,
                 fileSize = targetRevp.length(),
                 thumbPath = thumbFile.takeIf { it.exists() }?.absolutePath ?: "",
+                isEmergency = isEmergency,
             )
-            currentList.add(0, newSnapshot)
 
-            // 严格保持最多 5 个快照，超额自动淘汰最旧快照
-            while (currentList.size > MAX_SNAPSHOTS) {
-                val removed = currentList.removeAt(currentList.lastIndex)
-                File(dir, removed.fileName).delete()
-                File(dir, "${removed.id}_thumb.png").delete()
+            val (retained, evicted) = AutoSaveSnapshotPolicy.prune(currentList, newSnapshot)
+
+            evicted.forEach { item ->
+                File(dir, item.fileName).delete()
+                File(dir, "${item.id}_thumb.png").delete()
             }
 
-            saveMeta(dir, currentList)
+            saveMeta(dir, retained)
         } catch (t: Throwable) {
             android.util.Log.e("AutoSaveHistory", "Failed to record snapshot", t)
         }
@@ -143,6 +157,7 @@ object AutoSaveHistoryManager {
                 put("timestamp", item.timestamp)
                 put("strokeCount", item.strokeCount)
                 put("layerCount", item.layerCount)
+                put("isEmergency", item.isEmergency)
             }
             array.put(obj)
         }
