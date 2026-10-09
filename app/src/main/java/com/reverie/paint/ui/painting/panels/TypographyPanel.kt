@@ -144,32 +144,15 @@ fun TypographyPanel(
                     onSelect = { vm.typographyConfig = cfg.copy(alignment = it) },
                 )
 
-                // 5. 快速样式开关 (B / I / U)
-                ToolFloatChip(
-                    label = "B",
-                    selected = cfg.isBold,
-                    onClick = { vm.typographyConfig = cfg.copy(isBold = !cfg.isBold) },
-                )
-                ToolFloatChip(
-                    label = "I",
-                    selected = cfg.isItalic,
-                    onClick = { vm.typographyConfig = cfg.copy(isItalic = !cfg.isItalic) },
-                )
-                ToolFloatChip(
-                    label = "U",
-                    selected = cfg.isUnderline,
-                    onClick = { vm.typographyConfig = cfg.copy(isUnderline = !cfg.isUnderline) },
-                )
-
-                // 6. 属性抽屉开关 (字号、字距、行距、磁吸)
+                // 5. 属性抽屉开关 (字号、字距、行距、样式、磁吸)
                 ToolActionButton(
                     iconRes = R.drawable.ic_sliders,
                     label = if (propsOpen) stringResource(R.string.typography_collapse) else stringResource(R.string.typography_props),
-                    active = propsOpen,
+                    active = propsOpen || cfg.isBold || cfg.isItalic || cfg.isUnderline,
                     onClick = { propsOpen = !propsOpen },
                 )
 
-                // 7. 完成 (✔) 与 取消 (✕)
+                // 6. 完成 (✔) 与 取消 (✕)
                 ToolActionButton(
                     iconRes = R.drawable.ic_check,
                     label = stringResource(R.string.confirm),
@@ -187,7 +170,7 @@ fun TypographyPanel(
                 )
             }
 
-            // 平滑展开的纵向精密属性抽屉 (字号、字间距、行距、磁吸)
+            // 平滑展开的纵向精密属性抽屉 (样式、字号、字间距、行距、磁吸)
             AnimatedVisibility(
                 visible = propsOpen,
                 enter = fadeIn() + expandVertically(),
@@ -199,17 +182,30 @@ fun TypographyPanel(
                         .widthIn(min = 280.dp, max = 340.dp)
                         .padding(horizontal = 4.dp, vertical = 2.dp),
                 ) {
-                    // 磁吸开关行
+                    // 样式 (B / I / U) 与磁吸开关行
                     Row(
                         modifier = Modifier.fillMaxWidth(),
                         horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        Text(
-                            text = stringResource(R.string.typography_snap),
-                            fontSize = 12.sp,
-                            color = Morandi.subText,
-                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            ToolFloatChip(
+                                label = "B",
+                                selected = cfg.isBold,
+                                onClick = { vm.typographyConfig = cfg.copy(isBold = !cfg.isBold) },
+                            )
+                            ToolFloatChip(
+                                label = "I",
+                                selected = cfg.isItalic,
+                                onClick = { vm.typographyConfig = cfg.copy(isItalic = !cfg.isItalic) },
+                            )
+                            ToolFloatChip(
+                                label = "U",
+                                selected = cfg.isUnderline,
+                                onClick = { vm.typographyConfig = cfg.copy(isUnderline = !cfg.isUnderline) },
+                            )
+                        }
+
                         ToolFloatChip(
                             label = stringResource(R.string.typography_snap),
                             selected = cfg.snapEnabled,
