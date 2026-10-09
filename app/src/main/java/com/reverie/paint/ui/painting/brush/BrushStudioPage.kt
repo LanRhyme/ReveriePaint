@@ -74,6 +74,11 @@ fun BrushStudioPage(
     BackHandler { onBack() }
 
     val context = LocalContext.current
+    val tipImportedToast = stringResource(R.string.brush_studio_toast_tip_imported)
+    val tipImportFailedToast = stringResource(R.string.brush_studio_toast_tip_import_failed)
+    val brushCreatedToast = stringResource(R.string.brush_studio_toast_created)
+    val brushDeletedToast = stringResource(R.string.brush_studio_toast_deleted)
+    val revertToast = stringResource(R.string.brush_studio_revert_toast)
     val preset = vm.brushPresets.firstOrNull { it.index == presetIndex }
     var selectedTab by remember { mutableStateOf(StudioTab.TIP) }
     var showMenu by remember { mutableStateOf(false) }
@@ -101,9 +106,9 @@ fun BrushStudioPage(
         if (uri != null) {
             val res = vm.importCustomBrushTip(uri)
             if (res != null) {
-                Toast.makeText(context, context.getString(R.string.brush_studio_toast_tip_imported), Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, tipImportedToast, Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(context, context.getString(R.string.brush_studio_toast_tip_import_failed), Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, tipImportFailedToast, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -200,8 +205,6 @@ fun BrushStudioPage(
                     onTap = {
                         if (hasChanges) {
                             showRevertConfirmDialog = true
-                        } else {
-                            Toast.makeText(context, context.getString(R.string.brush_studio_revert_toast), Toast.LENGTH_SHORT).show()
                         }
                     },
                     tint = if (hasChanges) Morandi.accent else textSub.copy(alpha = 0.45f),
@@ -733,7 +736,7 @@ fun BrushStudioPage(
                 onCreate = { name, group ->
                     vm.createNewBrushPreset(name = name, group = group)
                     showNewBrushDialog = false
-                    Toast.makeText(context, context.getString(R.string.brush_studio_toast_created), Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, brushCreatedToast, Toast.LENGTH_SHORT).show()
                 },
                 cardBg = cardBg,
                 textMain = textMain,
@@ -773,7 +776,7 @@ fun BrushStudioPage(
                             scratchStrokes.clear()
                             currentScratchStroke = emptyList()
                             showRevertConfirmDialog = false
-                            Toast.makeText(context, context.getString(R.string.brush_studio_revert_toast), Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, revertToast, Toast.LENGTH_SHORT).show()
                         },
                         textColor = Morandi.accent,
                         fontWeight = FontWeight.Bold,
@@ -797,7 +800,7 @@ fun BrushStudioPage(
                         onClick = {
                             vm.deleteBrushPreset(presetIndex)
                             showDeleteConfirmDialog = false
-                            Toast.makeText(context, context.getString(R.string.brush_studio_toast_deleted), Toast.LENGTH_SHORT).show()
+                            Toast.makeText(context, brushDeletedToast, Toast.LENGTH_SHORT).show()
                         },
                         textColor = Color(0xFFC86464),
                     )
