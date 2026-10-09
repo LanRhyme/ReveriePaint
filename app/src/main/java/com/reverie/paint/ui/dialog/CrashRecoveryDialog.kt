@@ -88,7 +88,7 @@ fun CrashRecoveryDialog(
                             fontWeight = FontWeight.Bold,
                         )
                         Text(
-                            text = "自动备份安全拯救",
+                            text = stringResource(R.string.crash_recovery_badge),
                             color = colors.accent,
                             fontSize = 12.sp,
                         )
@@ -122,12 +122,12 @@ fun CrashRecoveryDialog(
                     )
                     Spacer(Modifier.height(4.dp))
                     Text(
-                        text = "备份时间：$formattedTime",
+                        text = stringResource(R.string.crash_recovery_time_prefix, formattedTime),
                         color = colors.subText,
                         fontSize = 12.sp,
                     )
                     Text(
-                        text = "文件大小：$sizeText",
+                        text = stringResource(R.string.crash_recovery_size_prefix, sizeText),
                         color = colors.subText,
                         fontSize = 12.sp,
                     )

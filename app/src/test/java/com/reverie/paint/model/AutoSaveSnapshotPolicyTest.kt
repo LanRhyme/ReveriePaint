@@ -60,6 +60,33 @@ class AutoSaveSnapshotPolicyTest {
     }
 
     @Test
+    fun `skip record does not skip when layer count changes within 90 seconds`() {
+        val existing = listOf(
+            AutoSaveSnapshot(
+                id = "1",
+                fileName = "1.revp",
+                displayName = "多图层作品",
+                masterPath = "",
+                timestamp = 100_000L,
+                strokeCount = 50,
+                layerCount = 2,
+                fileSize = 1024L,
+                thumbPath = "",
+                isEmergency = false,
+            ),
+        )
+
+        // Same strokes and same layers within 90s -> skip
+        assertTrue(AutoSaveSnapshotPolicy.shouldSkipRecord(existing, newStrokeCount = 50, newTimestamp = 130_000L, isEmergency = false, newLayerCount = 2))
+
+        // Same strokes, but new layer added -> do not skip
+        assertFalse(AutoSaveSnapshotPolicy.shouldSkipRecord(existing, newStrokeCount = 50, newTimestamp = 130_000L, isEmergency = false, newLayerCount = 3))
+
+        // Same strokes, but a layer deleted -> do not skip
+        assertFalse(AutoSaveSnapshotPolicy.shouldSkipRecord(existing, newStrokeCount = 50, newTimestamp = 130_000L, isEmergency = false, newLayerCount = 1))
+    }
+
+    @Test
     fun `skip record protects rich project from sudden blank canvas overwrite`() {
         val richHistory = listOf(
             createSnapshot("1", "大型作品", timestamp = 100_000L, strokeCount = 3000),

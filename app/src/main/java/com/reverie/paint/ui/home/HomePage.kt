@@ -64,6 +64,7 @@ import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.R
 import com.reverie.paint.ui.components.ReIconButton
+import com.reverie.paint.ui.dialog.RecentAutoSavesDialog
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Project
 import com.reverie.paint.ui.theme.AppColors
@@ -161,6 +162,7 @@ fun HomePage(vm: PaintViewModel) {
     var showBatchDeleteConfirm by remember { mutableStateOf(false) }
 
     var showMoreMenu by remember { mutableStateOf(false) }
+    var showAutoSaveHistoryDialog by remember { mutableStateOf(false) }
 
     val importLauncher =
         rememberLauncherForActivityResult(
@@ -235,6 +237,13 @@ fun HomePage(vm: PaintViewModel) {
                 Toast.makeText(context, String.format(toastStackCreated, name), Toast.LENGTH_SHORT).show()
             },
             onDismiss = { showNewFolderDialog = false },
+        )
+    }
+
+    if (showAutoSaveHistoryDialog) {
+        RecentAutoSavesDialog(
+            vm = vm,
+            onDismiss = { showAutoSaveHistoryDialog = false },
         )
     }
 
@@ -606,6 +615,14 @@ fun HomePage(vm: PaintViewModel) {
                                                             showMoreMenu = false
                                                             newFolderName = defaultFolderName
                                                             showNewFolderDialog = true
+                                                        },
+                                                    )
+                                                    HomeDropdownMenuItem(
+                                                        text = stringResource(R.string.auto_save_history_title),
+                                                        icon = R.drawable.ic_clock,
+                                                        onClick = {
+                                                            showMoreMenu = false
+                                                            showAutoSaveHistoryDialog = true
                                                         },
                                                     )
                                                     HomeDropdownMenuItem(

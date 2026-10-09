@@ -79,7 +79,7 @@ object AutoSaveHistoryManager {
             }
 
             val now = System.currentTimeMillis()
-            if (AutoSaveSnapshotPolicy.shouldSkipRecord(existingForProject, strokeCount, now, isEmergency)) {
+            if (AutoSaveSnapshotPolicy.shouldSkipRecord(existingForProject, strokeCount, now, isEmergency, layerCount)) {
                 return
             }
 

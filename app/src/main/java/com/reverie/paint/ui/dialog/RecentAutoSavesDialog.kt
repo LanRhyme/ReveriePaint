@@ -11,6 +11,7 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -56,6 +57,27 @@ fun RecentAutoSavesDialog(
     val context = LocalContext.current
     var snapshots by remember { mutableStateOf(AutoSaveHistoryManager.getSnapshots(context)) }
     var pendingRestoreSnapshot by remember { mutableStateOf<AutoSaveSnapshot?>(null) }
+    var showClearConfirm by remember { mutableStateOf(false) }
+    var selectedProjectFilter by remember { mutableStateOf<String?>(null) }
+
+    val distinctProjects = remember(snapshots) {
+        snapshots.map { it.displayName }.distinct()
+    }
+    LaunchedEffect(distinctProjects) {
+        if (selectedProjectFilter != null && !distinctProjects.contains(selectedProjectFilter)) {
+            selectedProjectFilter = null
+        }
+    }
+
+    val displaySnapshots = remember(snapshots, selectedProjectFilter) {
+        if (selectedProjectFilter == null) snapshots
+        else snapshots.filter { it.displayName == selectedProjectFilter }
+    }
+
+    val totalBytes = remember(snapshots) { snapshots.sumOf { it.fileSize } }
+    val totalMbStr = remember(totalBytes) {
+        String.format(Locale.getDefault(), "%.1f", totalBytes / (1024.0 * 1024.0))
+    }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -104,7 +126,11 @@ fun RecentAutoSavesDialog(
                                 fontWeight = FontWeight.Bold,
                             )
                             Text(
-                                text = stringResource(R.string.settings_auto_save_history_sub),
+                                text = if (snapshots.isEmpty()) {
+                                    stringResource(R.string.settings_auto_save_history_sub)
+                                } else {
+                                    stringResource(R.string.auto_save_history_stats, snapshots.size, totalMbStr)
+                                },
                                 color = colors.subText,
                                 fontSize = 12.sp,
                             )
@@ -119,10 +145,7 @@ fun RecentAutoSavesDialog(
                                 fontSize = 13.sp,
                                 modifier = Modifier
                                     .clip(RoundedCornerShape(8.dp))
-                                    .clickable {
-                                        AutoSaveHistoryManager.clearSnapshots(context)
-                                        snapshots = emptyList()
-                                    }
+                                    .clickable { showClearConfirm = true }
                                     .padding(horizontal = 10.dp, vertical = 6.dp),
                             )
                             Spacer(Modifier.width(8.dp))
@@ -145,7 +168,66 @@ fun RecentAutoSavesDialog(
                     }
                 }
 
-                Spacer(Modifier.height(16.dp))
+                Spacer(Modifier.height(14.dp))
+
+                // 多工程筛选胶囊标签行
+                if (distinctProjects.size > 1) {
+                    LazyRow(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(bottom = 12.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        item {
+                            val isSelected = selectedProjectFilter == null
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(if (isSelected) colors.accent.copy(alpha = 0.2f) else colors.panelHi)
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (isSelected) colors.accent else colors.border,
+                                        shape = RoundedCornerShape(14.dp),
+                                    )
+                                    .clickable { selectedProjectFilter = null }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                            ) {
+                                Text(
+                                    text = "${stringResource(R.string.auto_save_filter_all)} (${snapshots.size})",
+                                    color = if (isSelected) colors.accent else colors.text,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                )
+                            }
+                        }
+                        items(distinctProjects) { projName ->
+                            val isSelected = selectedProjectFilter == projName
+                            val count = snapshots.count { it.displayName == projName }
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(14.dp))
+                                    .background(if (isSelected) colors.accent.copy(alpha = 0.2f) else colors.panelHi)
+                                    .border(
+                                        width = 1.dp,
+                                        color = if (isSelected) colors.accent else colors.border,
+                                        shape = RoundedCornerShape(14.dp),
+                                    )
+                                    .clickable { selectedProjectFilter = projName }
+                                    .padding(horizontal = 12.dp, vertical = 6.dp),
+                            ) {
+                                Text(
+                                    text = "$projName ($count)",
+                                    color = if (isSelected) colors.accent else colors.text,
+                                    fontSize = 12.sp,
+                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                            }
+                        }
+                    }
+                }
 
                 // 快照列表
                 if (snapshots.isEmpty()) {
@@ -184,7 +266,7 @@ fun RecentAutoSavesDialog(
                         modifier = Modifier.weight(1f, fill = false),
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        items(snapshots, key = { it.id }) { item ->
+                        items(displaySnapshots, key = { it.id }) { item ->
                             SnapshotCard(
                                 snapshot = item,
                                 onRestore = {
@@ -196,6 +278,62 @@ fun RecentAutoSavesDialog(
                                 },
                             )
                         }
+                    }
+                }
+            }
+        }
+    }
+
+    // 清空全部二次确认对话框
+    if (showClearConfirm) {
+        Dialog(
+            onDismissRequest = { showClearConfirm = false },
+            properties = DialogProperties(usePlatformDefaultWidth = false),
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.85f)
+                    .widthIn(max = 400.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(colors.panel)
+                    .border(1.dp, colors.panelHi, RoundedCornerShape(20.dp))
+                    .padding(20.dp),
+            ) {
+                Column {
+                    Text(
+                        text = stringResource(R.string.auto_save_clear_confirm_title),
+                        color = colors.text,
+                        fontSize = 17.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = stringResource(R.string.auto_save_clear_confirm_desc),
+                        color = colors.subText,
+                        fontSize = 13.sp,
+                        lineHeight = 18.sp,
+                    )
+                    Spacer(Modifier.height(18.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    ) {
+                        ReTextButton(
+                            text = stringResource(R.string.common_cancel),
+                            onClick = { showClearConfirm = false },
+                            primary = false,
+                            modifier = Modifier.weight(1f),
+                        )
+                        ReTextButton(
+                            text = stringResource(R.string.auto_save_clear_all),
+                            onClick = {
+                                AutoSaveHistoryManager.clearSnapshots(context)
+                                snapshots = emptyList()
+                                showClearConfirm = false
+                            },
+                            primary = true,
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                 }
             }

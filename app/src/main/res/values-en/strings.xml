@@ -2493,5 +2493,14 @@
     <string name="quick_shape_conversions_hint">Show buttons to convert to a parallelogram, rectangle, or square while editing</string>
     <string name="quick_shape_to_parallelogram">To parallelogram</string>
     <string name="quick_shape_to_rectangle">To rectangle</string>
+
+    <!-- AutoSave and Snapshot Recovery Enhancements -->
+    <string name="auto_save_history_stats">%1$d snapshots · %2$s MB</string>
+    <string name="auto_save_filter_all">All</string>
+    <string name="auto_save_clear_confirm_title">Clear All Snapshots?</string>
+    <string name="auto_save_clear_confirm_desc">This will delete all historical backup snapshots across artworks to free up storage space. This action cannot be undone.</string>
+    <string name="crash_recovery_badge">Auto-Backup Disaster Recovery</string>
+    <string name="crash_recovery_time_prefix">Backup Time: %1$s</string>
+    <string name="crash_recovery_size_prefix">File Size: %1$s</string>
 </resources>
 

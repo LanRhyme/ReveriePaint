@@ -247,7 +247,7 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
         if (saved) {
             viewModelScope.launch(Dispatchers.IO) {
                 var waitMs = 0
-                while (waitMs < 10_000) {
+                while (waitMs < 60_000) {
                     delay(300)
                     waitMs += 300
                     if (autoSaveFile.exists() && autoSaveFile.lastModified() >= saveStartTime) {
@@ -324,13 +324,14 @@ internal fun PaintViewModel.restoreAutoSaveSnapshot(snapshot: AutoSaveSnapshot, 
 
     val targetFile: File
     val projectName: String
+    val cleanName = snapshot.displayName.removeSuffix(" (崩溃抢救)").removeSuffix(" (Emergency Rescue)")
     if (asCopy) {
         val rootDir = projectDir()
-        var candidateName = "${snapshot.displayName} (副本)"
+        var candidateName = "$cleanName (副本)"
         var candidateFile = File(rootDir, "$candidateName.revp")
         var copyIdx = 2
         while (candidateFile.exists()) {
-            candidateName = "${snapshot.displayName} (副本 $copyIdx)"
+            candidateName = "$cleanName (副本 $copyIdx)"
             candidateFile = File(rootDir, "$candidateName.revp")
             copyIdx++
         }
@@ -338,12 +339,12 @@ internal fun PaintViewModel.restoreAutoSaveSnapshot(snapshot: AutoSaveSnapshot, 
         targetFile = candidateFile
         snapFile.copyTo(targetFile, overwrite = true)
     } else {
-        projectName = snapshot.displayName
         targetFile = if (snapshot.masterPath.isNotBlank() && File(snapshot.masterPath).parentFile?.exists() == true) {
             File(snapshot.masterPath)
         } else {
-            File(projectDir(), "$projectName.revp")
+            File(projectDir(), "$cleanName.revp")
         }
+        projectName = targetFile.nameWithoutExtension
         snapFile.copyTo(targetFile, overwrite = true)
     }
 
@@ -356,6 +357,7 @@ internal fun PaintViewModel.restoreAutoSaveSnapshot(snapshot: AutoSaveSnapshot, 
     // A restored copy starts without references; restoring the original may reuse its local mapping.
     if (asCopy) referenceStore.forgetPath(targetFile.absolutePath)
     loadProject(project)
+    showActionToast(appContext.getString(R.string.toast_project_restored_autosave), R.drawable.ic_check)
 }
 
 internal fun PaintViewModel.discardAndExit() {

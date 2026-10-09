@@ -2493,5 +2493,14 @@
     <string name="quick_shape_conversions_hint">编辑时显示转为平行四边形、矩形和正方形的按钮</string>
     <string name="quick_shape_to_parallelogram">转为平行四边形</string>
     <string name="quick_shape_to_rectangle">转为矩形</string>
+
+    <!-- 自动保存与快照恢复增强 -->
+    <string name="auto_save_history_stats">共 %1$d 个快照 · 占用 %2$s MB</string>
+    <string name="auto_save_filter_all">全部</string>
+    <string name="auto_save_clear_confirm_title">清空所有历史快照？</string>
+    <string name="auto_save_clear_confirm_desc">将删除所有工程的历史备份快照以释放存储空间，此操作无法撤销</string>
+    <string name="crash_recovery_badge">自动备份安全抢救</string>
+    <string name="crash_recovery_time_prefix">备份时间：%1$s</string>
+    <string name="crash_recovery_size_prefix">文件大小：%1$s</string>
 </resources>
 
