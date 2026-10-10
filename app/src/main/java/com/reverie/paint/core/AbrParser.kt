@@ -31,6 +31,7 @@ object AbrParser {
         val thumbnail: ByteArray? = null, // Small downscaled density map for lightweight preview generation
         val thumbWidth: Int = 0,
         val thumbHeight: Int = 0,
+        val sha256: String = "",
     ) {
         override fun equals(other: Any?): Boolean {
             if (this === other) return true
@@ -38,7 +39,7 @@ object AbrParser {
             return uuid == other.uuid && index == other.index && width == other.width &&
                 height == other.height && depth == other.depth && data.contentEquals(other.data) &&
                 (thumbnail == null && other.thumbnail == null || thumbnail != null && other.thumbnail != null && thumbnail.contentEquals(other.thumbnail)) &&
-                thumbWidth == other.thumbWidth && thumbHeight == other.thumbHeight
+                thumbWidth == other.thumbWidth && thumbHeight == other.thumbHeight && sha256 == other.sha256
         }
 
         override fun hashCode(): Int {
@@ -51,9 +52,36 @@ object AbrParser {
             result = 31 * result + (thumbnail?.contentHashCode() ?: 0)
             result = 31 * result + thumbWidth
             result = 31 * result + thumbHeight
+            result = 31 * result + sha256.hashCode()
             return result
         }
     }
+
+    data class AbrDualBrushInfo(
+        val tipUuid: String? = null,
+        val diameter: Double = 30.0,
+        val spacing: Double = 0.25,
+        val scatter: Double = 0.0,
+        val compositeOp: String = "multiply",
+        val flipX: Boolean = false,
+        val flipY: Boolean = false,
+    )
+
+    data class AbrTextureInfo(
+        val patternName: String = "",
+        val patternUuid: String = "",
+        val scale: Double = 1.0,
+        val depth: Double = 0.5,
+        val mode: String = "multiply",
+        val invert: Boolean = false,
+    )
+
+    data class AbrColorDynamicsInfo(
+        val hueJitter: Double = 0.0,
+        val satJitter: Double = 0.0,
+        val valJitter: Double = 0.0,
+        val secondaryMix: Double = 0.0,
+    )
 
     data class AbrPresetInfo(
         val name: String,
@@ -68,11 +96,26 @@ object AbrParser {
         val pressureSize: Boolean = false,
         val pressureOpacity: Boolean = false,
         val pressureFlow: Boolean = false,
+        val tiltSize: Boolean = false,
+        val tiltOpacity: Boolean = false,
+        val tiltFlow: Boolean = false,
+        val tiltAngle: Boolean = false,
+        val sizeJitter: Double = 0.0,
+        val angleJitter: Double = 0.0,
+        val roundnessJitter: Double = 0.0,
+        val opacityJitter: Double = 0.0,
+        val flowJitter: Double = 0.0,
         val minDiameterRatio: Double = 0.0,
+        val minRoundness: Double = 0.0,
         val followDirection: Boolean = false,
         val flipX: Boolean = false,
         val flipY: Boolean = false,
         val isComputed: Boolean = false,
+        val dualBrush: AbrDualBrushInfo? = null,
+        val texture: AbrTextureInfo? = null,
+        val colorDynamics: AbrColorDynamicsInfo? = null,
+        val airbrush: Boolean = false,
+        val compositeOp: String = "normal",
     )
 
     data class AbrParseResult(
@@ -146,6 +189,19 @@ object AbrParser {
         return tipsByUuid[preset.tipUuid]
             ?: tipsByIndex[preset.tipIndex]
             ?: allTips.firstOrNull()
+    }
+
+    fun computeSha256(data: ByteArray): String {
+        if (data.isEmpty()) return ""
+        val md = java.security.MessageDigest.getInstance("SHA-256")
+        val digest = md.digest(data)
+        val sb = StringBuilder(digest.size * 2)
+        for (b in digest) {
+            val v = b.toInt() and 0xFF
+            if (v < 16) sb.append('0')
+            sb.append(Integer.toHexString(v))
+        }
+        return sb.toString()
     }
 
     /**
@@ -272,6 +328,7 @@ object AbrParser {
 
                         if (tipData != null) {
                             val uuid = "v${version}_tip_${i + 1}"
+                            val sha = computeSha256(tipData)
                             val fullTip = AbrDecodedTip(
                                 uuid = uuid,
                                 index = i + 1,
@@ -279,6 +336,7 @@ object AbrParser {
                                 height = height,
                                 depth = depth,
                                 data = tipData,
+                                sha256 = sha,
                             )
                             onTipDecoded?.invoke(fullTip)
 
@@ -294,6 +352,7 @@ object AbrParser {
                                     thumbnail = thumb,
                                     thumbWidth = tw,
                                     thumbHeight = th,
+                                    sha256 = sha,
                                 )
                             } else {
                                 fullTip
@@ -457,6 +516,7 @@ object AbrParser {
                     }
 
                     if (pixelData != null) {
+                        val sha = computeSha256(pixelData)
                         val fullTip = AbrDecodedTip(
                             uuid = uuid,
                             index = index,
@@ -464,6 +524,7 @@ object AbrParser {
                             height = height,
                             depth = depth,
                             data = pixelData,
+                            sha256 = sha,
                         )
                         onTipDecoded?.invoke(fullTip)
 
@@ -479,6 +540,7 @@ object AbrParser {
                                 thumbnail = thumb,
                                 thumbWidth = tw,
                                 thumbHeight = th,
+                                sha256 = sha,
                             )
                         } else {
                             fullTip
@@ -768,7 +830,7 @@ object AbrParser {
         }
     }
 
-    private fun extractPresetsFromDescriptor(
+    internal fun extractPresetsFromDescriptor(
         root: ActionDescriptorNode,
         tips: List<AbrDecodedTip>,
         basePackName: String,
@@ -807,27 +869,65 @@ object AbrParser {
 
             val tipUuid = if (isSampled) extractString(tipItems["sampledData"]) else null
 
+            // Blend Mode
+            val rawMode = extractString(items["mode"]) ?: extractString(items["Md  "])
+            val compOp = when (rawMode) {
+                "Mltp" -> "multiply"
+                "Drkn" -> "darken"
+                "Lghn" -> "lighten"
+                "Scrn" -> "screen"
+                "Ovrl" -> "overlay"
+                "SftL" -> "soft_light"
+                "HrdL", "linearLight", "vividLight", "pinLight" -> "hard_light"
+                "Dfrn" -> "difference"
+                "linearBurn", "colorBurn" -> "burn"
+                "linearDodge", "colorDodge" -> "dodge"
+                "Clr " -> "color"
+                "Lmns" -> "luminosity"
+                "H   " -> "hue"
+                "Strt" -> "saturation"
+                else -> "normal"
+            }
+
+            // Airbrush
+            val airbrush = extractBool(items["airbrush"]) || extractBool(items["buildUp"])
+
             // Shape Dynamics
             val useTipDynamics = extractBool(items["useTipDynamics"])
             var pressureSize = false
+            var tiltSize = false
+            var sizeJitter = 0.0
             var minDiameterRatio = 0.0
             var followDirection = false
+            var tiltAngle = false
+            var angleJitter = 0.0
+            var roundnessJitter = 0.0
+            var minRoundness = 0.0
 
             if (useTipDynamics) {
                 val szVr = extractItems(items["szVr"])
                 val szControl = extractDouble(szVr["bVTy"])?.toInt() ?: 0
-                if (szControl == 2) { // 2 = Pen Pressure
-                    pressureSize = true
-                }
-                val minD = extractDouble(items["minimumDiameter"])
+                if (szControl == 2) pressureSize = true
+                else if (szControl == 3) tiltSize = true
+
+                sizeJitter = ((extractDouble(szVr["jitter"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
+                val minD = extractDouble(items["minimumDiameter"]) ?: extractDouble(szVr["Mnm "])
                 if (minD != null) {
                     minDiameterRatio = (minD / 100.0).coerceIn(0.0, 1.0)
                 }
 
-                val angVr = extractItems(items["angleDynamics"])
+                val angVr = extractItems(items["angleDynamics"]).ifEmpty { extractItems(items["angVr"]) }
                 val angControl = extractDouble(angVr["bVTy"])?.toInt() ?: 0
-                if (angControl in 6..8) { // 6,7,8 = Direction / Rotation
-                    followDirection = true
+                if (angControl in 6..8) followDirection = true
+                else if (angControl == 3) tiltAngle = true
+
+                angleJitter = ((extractDouble(angVr["jitter"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
+
+                val rndVr = extractItems(items["roundnessDynamics"]).ifEmpty { extractItems(items["rndVr"]) }
+                roundnessJitter = ((extractDouble(rndVr["jitter"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
+                val minR = extractDouble(rndVr["Mnm "])
+                if (minR != null) {
+                    minRoundness = (minR / 100.0).coerceIn(0.0, 1.0)
                 }
             }
 
@@ -845,19 +945,110 @@ object AbrParser {
                 extractBool(items["useTransfer"]) ||
                 extractBool(items["useOtherDynamics"])
             var pressureOpacity = false
+            var tiltOpacity = false
+            var opacityJitter = 0.0
             var pressureFlow = false
+            var tiltFlow = false
+            var flowJitter = 0.0
+
             if (usePaintDynamics) {
                 val opVr = extractItems(items["opVr"]).ifEmpty { extractItems(items["opacityDynamics"]) }
-                if ((extractDouble(opVr["bVTy"])?.toInt() ?: 0) == 2) {
-                    pressureOpacity = true
-                }
+                val opControl = extractDouble(opVr["bVTy"])?.toInt() ?: 0
+                if (opControl == 2) pressureOpacity = true
+                else if (opControl == 3) tiltOpacity = true
+                opacityJitter = ((extractDouble(opVr["jitter"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
+
                 val prVr = extractItems(items["prVr"])
                     .ifEmpty { extractItems(items["flVr"]) }
                     .ifEmpty { extractItems(items["flowDynamics"]) }
-                if ((extractDouble(prVr["bVTy"])?.toInt() ?: 0) == 2) {
-                    pressureFlow = true
-                }
+                val flControl = extractDouble(prVr["bVTy"])?.toInt() ?: 0
+                if (flControl == 2) pressureFlow = true
+                else if (flControl == 3) tiltFlow = true
+                flowJitter = ((extractDouble(prVr["jitter"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
             }
+
+            // Dual Brush
+            val useDualBrush = extractBool(items["useDualBrush"])
+            val dualBrushInfo = if (useDualBrush) {
+                val dualDesc = items["dualBrush"] as? ActionDescriptorValue.Descriptor
+                if (dualDesc != null) {
+                    val dualTipDesc = dualDesc.items["Brsh"] as? ActionDescriptorValue.Descriptor
+                    val dTipItems = dualTipDesc?.items ?: emptyMap()
+                    val dTipUuid = extractString(dTipItems["sampledData"])
+                    val dDiam = extractDouble(dTipItems["Dmtr"]) ?: 30.0
+                    val dSpcn = ((extractDouble(dTipItems["Spcn"]) ?: 25.0) / 100.0).coerceIn(0.01, 5.0)
+                    val dScat = ((extractDouble(dualDesc.items["scatter"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
+                    val dModeRaw = extractString(dualDesc.items["Md  "]) ?: "Mltp"
+                    val dMode = when (dModeRaw) {
+                        "Mltp" -> "multiply"
+                        "Drkn" -> "darken"
+                        "linearBurn", "colorBurn" -> "burn"
+                        "linearDodge", "colorDodge" -> "dodge"
+                        "Ovrl" -> "overlay"
+                        else -> "multiply"
+                    }
+                    AbrDualBrushInfo(
+                        tipUuid = dTipUuid,
+                        diameter = dDiam,
+                        spacing = dSpcn,
+                        scatter = dScat,
+                        compositeOp = dMode,
+                        flipX = extractBool(dTipItems["flipX"]),
+                        flipY = extractBool(dTipItems["flipY"]),
+                    )
+                } else null
+            } else null
+
+            // Texture
+            val useTexture = extractBool(items["useTexture"])
+            val textureInfo = if (useTexture) {
+                val texDesc = items["texture"] as? ActionDescriptorValue.Descriptor
+                if (texDesc != null) {
+                    val patDesc = texDesc.items["Txtr"] as? ActionDescriptorValue.Descriptor
+                    val patName = extractString(patDesc?.items?.get("Nm  ")) ?: ""
+                    val patUuid = extractString(patDesc?.items?.get("Idnt")) ?: ""
+                    val scale = ((extractDouble(texDesc.items["Scl "]) ?: 100.0) / 100.0).coerceIn(0.01, 10.0)
+                    val depth = ((extractDouble(texDesc.items["textureDepth"]) ?: extractDouble(texDesc.items["Dpt "]) ?: 50.0) / 100.0).coerceIn(0.0, 1.0)
+                    val modeRaw = extractString(texDesc.items["textureBlendMode"]) ?: extractString(texDesc.items["Md  "]) ?: "Mltp"
+                    val mode = when (modeRaw) {
+                        "Sbtr" -> "subtract"
+                        "Drkn" -> "darken"
+                        "Ovrl" -> "overlay"
+                        "Ddg ", "colorDodge", "linearDodge" -> "dodge"
+                        "Brn ", "colorBurn", "linearBurn" -> "burn"
+                        "HrdL", "linearLight", "vividLight" -> "hard_light"
+                        "SftL" -> "soft_light"
+                        else -> "multiply"
+                    }
+                    val inv = extractBool(texDesc.items["InvT"])
+                    AbrTextureInfo(
+                        patternName = patName,
+                        patternUuid = patUuid,
+                        scale = scale,
+                        depth = depth,
+                        mode = mode,
+                        invert = inv,
+                    )
+                } else null
+            } else null
+
+            // Color Dynamics
+            val useColorDynamics = extractBool(items["useColorDynamics"])
+            val colorDynamicsInfo = if (useColorDynamics) {
+                val clDesc = (items["colorDynamics"] ?: items["clVr"]) as? ActionDescriptorValue.Descriptor
+                if (clDesc != null) {
+                    val hJ = ((extractDouble(clDesc.items["hJtr"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
+                    val sJ = ((extractDouble(clDesc.items["sJtr"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
+                    val bJ = ((extractDouble(clDesc.items["bJtr"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
+                    val mix = ((extractDouble(clDesc.items["jitter"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
+                    AbrColorDynamicsInfo(
+                        hueJitter = hJ,
+                        satJitter = sJ,
+                        valJitter = bJ,
+                        secondaryMix = mix,
+                    )
+                } else null
+            } else null
 
             presets.add(
                 AbrPresetInfo(
@@ -875,11 +1066,26 @@ object AbrParser {
                     pressureSize = pressureSize,
                     pressureOpacity = pressureOpacity,
                     pressureFlow = pressureFlow,
+                    tiltSize = tiltSize,
+                    tiltOpacity = tiltOpacity,
+                    tiltFlow = tiltFlow,
+                    tiltAngle = tiltAngle,
+                    sizeJitter = sizeJitter,
+                    angleJitter = angleJitter,
+                    roundnessJitter = roundnessJitter,
+                    opacityJitter = opacityJitter,
+                    flowJitter = flowJitter,
                     minDiameterRatio = minDiameterRatio,
+                    minRoundness = minRoundness,
                     followDirection = followDirection,
                     flipX = flipX,
                     flipY = flipY,
                     isComputed = !isSampled,
+                    dualBrush = dualBrushInfo,
+                    texture = textureInfo,
+                    colorDynamics = colorDynamicsInfo,
+                    airbrush = airbrush,
+                    compositeOp = compOp,
                 )
             )
         }

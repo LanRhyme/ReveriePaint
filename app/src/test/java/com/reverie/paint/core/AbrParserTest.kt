@@ -291,4 +291,171 @@ class AbrParserTest {
             AbrParser.matchTipForPreset(sampled, mapOf("tip-uuid" to tip), mapOf(3 to tip), listOf(tip)),
         )
     }
+
+    @Test
+    fun `computeSha256 returns consistent hex hash for tip deduplication`() {
+        val data1 = byteArrayOf(1, 2, 3, 4, 5)
+        val data2 = byteArrayOf(1, 2, 3, 4, 5)
+        val data3 = byteArrayOf(5, 4, 3, 2, 1)
+
+        val hash1 = AbrParser.computeSha256(data1)
+        val hash2 = AbrParser.computeSha256(data2)
+        val hash3 = AbrParser.computeSha256(data3)
+
+        assertEquals(64, hash1.length)
+        assertEquals(hash1, hash2)
+        assertTrue(hash1 != hash3)
+    }
+
+    @Test
+    fun `extractPresetsFromDescriptor extracts tilt, jitter, dualBrush, texture, colorDynamics and airbrush`() {
+        val tip = AbrParser.AbrDecodedTip(
+            uuid = "sample-uuid-123",
+            index = 1,
+            width = 64,
+            height = 64,
+            depth = 8,
+            data = ByteArray(4096),
+        )
+
+        val tipDesc = AbrParser.ActionDescriptorNode(
+            name = "",
+            classId = "sampledBrush",
+            items = mapOf(
+                "Dmtr" to AbrParser.ActionDescriptorValue.DoubleVal(60.0),
+                "Spcn" to AbrParser.ActionDescriptorValue.DoubleVal(15.0),
+                "sampledData" to AbrParser.ActionDescriptorValue.StringVal("sample-uuid-123"),
+            ),
+        )
+
+        val szVrDesc = AbrParser.ActionDescriptorNode(
+            name = "",
+            classId = "brVr",
+            items = mapOf(
+                "bVTy" to AbrParser.ActionDescriptorValue.IntVal(3), // Pen Tilt
+                "jitter" to AbrParser.ActionDescriptorValue.DoubleVal(25.0),
+                "Mnm " to AbrParser.ActionDescriptorValue.DoubleVal(10.0),
+            ),
+        )
+
+        val angVrDesc = AbrParser.ActionDescriptorNode(
+            name = "",
+            classId = "brVr",
+            items = mapOf(
+                "bVTy" to AbrParser.ActionDescriptorValue.IntVal(7), // Direction
+                "jitter" to AbrParser.ActionDescriptorValue.DoubleVal(40.0),
+            ),
+        )
+
+        val dualBrshDesc = AbrParser.ActionDescriptorNode(
+            name = "",
+            classId = "sampledBrush",
+            items = mapOf(
+                "Dmtr" to AbrParser.ActionDescriptorValue.DoubleVal(30.0),
+                "Spcn" to AbrParser.ActionDescriptorValue.DoubleVal(20.0),
+                "sampledData" to AbrParser.ActionDescriptorValue.StringVal("dual-tip-uuid"),
+            ),
+        )
+
+        val dualDesc = AbrParser.ActionDescriptorNode(
+            name = "",
+            classId = "dualBrush",
+            items = mapOf(
+                "Brsh" to AbrParser.ActionDescriptorValue.Descriptor(dualBrshDesc.name, dualBrshDesc.classId, dualBrshDesc.items),
+                "Md  " to AbrParser.ActionDescriptorValue.StringVal("Mltp"),
+                "scatter" to AbrParser.ActionDescriptorValue.DoubleVal(15.0),
+            ),
+        )
+
+        val texDesc = AbrParser.ActionDescriptorNode(
+            name = "",
+            classId = "texture",
+            items = mapOf(
+                "Txtr" to AbrParser.ActionDescriptorValue.Descriptor("", "", mapOf(
+                    "Nm  " to AbrParser.ActionDescriptorValue.StringVal("Canvas Pattern"),
+                    "Idnt" to AbrParser.ActionDescriptorValue.StringVal("pat-uuid-99"),
+                )),
+                "Scl " to AbrParser.ActionDescriptorValue.DoubleVal(150.0),
+                "textureDepth" to AbrParser.ActionDescriptorValue.DoubleVal(75.0),
+                "textureBlendMode" to AbrParser.ActionDescriptorValue.StringVal("Ovrl"),
+                "InvT" to AbrParser.ActionDescriptorValue.BoolVal(true),
+            ),
+        )
+
+        val cdDesc = AbrParser.ActionDescriptorNode(
+            name = "",
+            classId = "colorDynamics",
+            items = mapOf(
+                "hJtr" to AbrParser.ActionDescriptorValue.DoubleVal(10.0),
+                "sJtr" to AbrParser.ActionDescriptorValue.DoubleVal(20.0),
+                "bJtr" to AbrParser.ActionDescriptorValue.DoubleVal(30.0),
+                "jitter" to AbrParser.ActionDescriptorValue.DoubleVal(50.0),
+            ),
+        )
+
+        val presetItem = AbrParser.ActionDescriptorNode(
+            name = "",
+            classId = "preset",
+            items = mapOf(
+                "Nm  " to AbrParser.ActionDescriptorValue.StringVal("Rich Dynamics Preset"),
+                "Brsh" to AbrParser.ActionDescriptorValue.Descriptor(tipDesc.name, tipDesc.classId, tipDesc.items),
+                "useTipDynamics" to AbrParser.ActionDescriptorValue.BoolVal(true),
+                "szVr" to AbrParser.ActionDescriptorValue.Descriptor(szVrDesc.name, szVrDesc.classId, szVrDesc.items),
+                "angleDynamics" to AbrParser.ActionDescriptorValue.Descriptor(angVrDesc.name, angVrDesc.classId, angVrDesc.items),
+                "useDualBrush" to AbrParser.ActionDescriptorValue.BoolVal(true),
+                "dualBrush" to AbrParser.ActionDescriptorValue.Descriptor(dualDesc.name, dualDesc.classId, dualDesc.items),
+                "useTexture" to AbrParser.ActionDescriptorValue.BoolVal(true),
+                "texture" to AbrParser.ActionDescriptorValue.Descriptor(texDesc.name, texDesc.classId, texDesc.items),
+                "useColorDynamics" to AbrParser.ActionDescriptorValue.BoolVal(true),
+                "colorDynamics" to AbrParser.ActionDescriptorValue.Descriptor(cdDesc.name, cdDesc.classId, cdDesc.items),
+                "airbrush" to AbrParser.ActionDescriptorValue.BoolVal(true),
+                "mode" to AbrParser.ActionDescriptorValue.StringVal("Mltp"),
+            ),
+        )
+
+        val rootNode = AbrParser.ActionDescriptorNode(
+            name = "",
+            classId = "root",
+            items = mapOf(
+                "Brsh" to AbrParser.ActionDescriptorValue.ValueList(listOf(
+                    AbrParser.ActionDescriptorValue.Descriptor(presetItem.name, presetItem.classId, presetItem.items)
+                )),
+            ),
+        )
+
+        val presets = AbrParser.extractPresetsFromDescriptor(rootNode, listOf(tip), "TestPack")
+        assertEquals(1, presets.size)
+
+        val p = presets[0]
+        assertEquals("Rich Dynamics Preset", p.name)
+        assertEquals(60.0, p.diameter, 0.01)
+        assertEquals(0.15, p.spacing, 0.01)
+        assertTrue(p.tiltSize)
+        assertEquals(0.25, p.sizeJitter, 0.01)
+        assertTrue(p.followDirection)
+        assertEquals(0.40, p.angleJitter, 0.01)
+        assertTrue(p.airbrush)
+        assertEquals("multiply", p.compositeOp)
+
+        // Dual Brush assertions
+        assertNotNull(p.dualBrush)
+        assertEquals("dual-tip-uuid", p.dualBrush!!.tipUuid)
+        assertEquals(30.0, p.dualBrush!!.diameter, 0.01)
+        assertEquals("multiply", p.dualBrush!!.compositeOp)
+
+        // Texture assertions
+        assertNotNull(p.texture)
+        assertEquals("Canvas Pattern", p.texture!!.patternName)
+        assertEquals(1.5, p.texture!!.scale, 0.01)
+        assertEquals(0.75, p.texture!!.depth, 0.01)
+        assertEquals("overlay", p.texture!!.mode)
+        assertTrue(p.texture!!.invert)
+
+        // Color Dynamics assertions
+        assertNotNull(p.colorDynamics)
+        assertEquals(0.10, p.colorDynamics!!.hueJitter, 0.01)
+        assertEquals(0.20, p.colorDynamics!!.satJitter, 0.01)
+        assertEquals(0.30, p.colorDynamics!!.valJitter, 0.01)
+        assertEquals(0.50, p.colorDynamics!!.secondaryMix, 0.01)
+    }
 }

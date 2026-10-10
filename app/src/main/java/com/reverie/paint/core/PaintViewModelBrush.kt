@@ -2219,14 +2219,23 @@ import kotlinx.coroutines.withContext
                 val safeGroupPrefix = packBaseName.replace(Regex("""[^\w\u4e00-\u9fa5]"""), "_")
                 val tipFileNameMap = mutableMapOf<Int, String>()
                 val tipUuidToFileName = mutableMapOf<String, String>()
+                val tipShaMap = mutableMapOf<String, String>()
 
                 val parseResult = resolver.openInputStream(uri)?.use { inStream ->
                     AbrParser.parse(inStream, basePackName = targetGroupName) { decodedTip ->
-                        // Stream decoded tip PNG directly to disk, freeing the raw full-res byte array immediately
-                        val tipFileName = "${safeGroupPrefix}_tip_${decodedTip.index}.png"
-                        val tipFile = File(brushDir, tipFileName)
-                        val tipBytes = AbrParser.encodeTipPng(decodedTip)
-                        tipFile.writeBytes(tipBytes)
+                        // 1. Tip SHA-256 去重: 若该笔尖像素已在当前包存在，直接复用文件
+                        val sha = decodedTip.sha256
+                        val existingTipName = if (sha.isNotBlank()) tipShaMap[sha] else null
+                        val tipFileName = if (existingTipName != null) {
+                            existingTipName
+                        } else {
+                            val newName = "${safeGroupPrefix}_tip_${decodedTip.index}.png"
+                            val tipFile = File(brushDir, newName)
+                            val tipBytes = AbrParser.encodeTipPng(decodedTip)
+                            tipFile.writeBytes(tipBytes)
+                            if (sha.isNotBlank()) tipShaMap[sha] = newName
+                            newName
+                        }
                         tipFileNameMap[decodedTip.index] = tipFileName
                         tipUuidToFileName[decodedTip.uuid] = tipFileName
                     }
@@ -2273,8 +2282,78 @@ import kotlinx.coroutines.withContext
                         roundness = preset.roundness,
                     )
 
-                    val hasPressureDynamics = preset.pressureSize || preset.pressureOpacity || preset.pressureFlow
-                    val hasDynamics = hasPressureDynamics || preset.scatter > 0.001 || preset.followDirection || preset.flipX || preset.flipY
+                    // 映射倾斜与动力学传感器
+                    val sizeSensor = when {
+                        preset.tiltSize -> "declination"
+                        preset.sizeJitter > 0.05 -> "fuzzy"
+                        else -> "pressure"
+                    }
+                    val opacitySensor = when {
+                        preset.tiltOpacity -> "declination"
+                        preset.opacityJitter > 0.05 -> "fuzzy"
+                        else -> "pressure"
+                    }
+                    val flowSensor = when {
+                        preset.tiltFlow -> "declination"
+                        preset.flowJitter > 0.05 -> "fuzzy"
+                        else -> "pressure"
+                    }
+                    val rotationSensor = when {
+                        preset.followDirection -> "drawingangle"
+                        preset.tiltAngle -> "ascension"
+                        preset.angleJitter > 0.05 -> "fuzzy"
+                        else -> "drawingangle"
+                    }
+
+                    val dynamicOptions = mutableMapOf<String, String>()
+                    if (preset.tiltSize) {
+                        dynamicOptions["Size"] = """<!DOCTYPE params><params id="declination"><curve>0,0;1,1;</curve></params>"""
+                    } else if (preset.sizeJitter > 0.05) {
+                        dynamicOptions["Size"] = """<!DOCTYPE params><params id="fuzzy"><curve>0,0;1,1;</curve></params>"""
+                    }
+                    if (preset.tiltOpacity) {
+                        dynamicOptions["Opacity"] = """<!DOCTYPE params><params id="declination"><curve>0,0;1,1;</curve></params>"""
+                    } else if (preset.opacityJitter > 0.05) {
+                        dynamicOptions["Opacity"] = """<!DOCTYPE params><params id="fuzzy"><curve>0,0;1,1;</curve></params>"""
+                    }
+                    if (preset.tiltFlow) {
+                        dynamicOptions["Flow"] = """<!DOCTYPE params><params id="declination"><curve>0,0;1,1;</curve></params>"""
+                    } else if (preset.flowJitter > 0.05) {
+                        dynamicOptions["Flow"] = """<!DOCTYPE params><params id="fuzzy"><curve>0,0;1,1;</curve></params>"""
+                    }
+                    if (preset.followDirection) {
+                        dynamicOptions["Rotation"] = """<!DOCTYPE params><params fanCornersStep="30" fanCornersEnabled="0" angleOffset="0" id="drawingangle"><curve>0,0;1,1;</curve></params>"""
+                    } else if (preset.tiltAngle) {
+                        dynamicOptions["Rotation"] = """<!DOCTYPE params><params id="ascension"><curve>0,0;1,1;</curve></params>"""
+                    } else if (preset.angleJitter > 0.05) {
+                        dynamicOptions["Rotation"] = """<!DOCTYPE params><params id="fuzzy"><curve>0,0;1,1;</curve></params>"""
+                    }
+                    if (preset.scatter > 0.001) {
+                        dynamicOptions["Scatter"] = """<!DOCTYPE params><params id="fuzzy"><curve>0,0;1,1;</curve></params>"""
+                    }
+
+                    // 映射双重画笔 (Dual Brush -> MaskingBrush)
+                    val dual = preset.dualBrush
+                    val hasDual = dual != null
+                    val dualTipFileName = dual?.tipUuid?.let { tipUuidToFileName[it] } ?: ""
+                    val maskingSizeRatio = if (hasDual && preset.diameter > 0) {
+                        (dual!!.diameter / preset.diameter).coerceIn(0.05, 5.0)
+                    } else 1.0
+
+                    // 映射纹理贴图 (Texture)
+                    val tex = preset.texture
+                    val hasTexture = tex != null
+
+                    // 映射色彩动力学 (Color Dynamics)
+                    val cd = preset.colorDynamics
+
+                    val hasPressureDynamics = preset.pressureSize || preset.pressureOpacity || preset.pressureFlow ||
+                        preset.tiltSize || preset.tiltOpacity || preset.tiltFlow || preset.tiltAngle
+                    val hasDynamics = hasPressureDynamics || preset.scatter > 0.001 || preset.followDirection ||
+                        preset.flipX || preset.flipY || preset.sizeJitter > 0.001 || preset.angleJitter > 0.001 ||
+                        preset.opacityJitter > 0.001 || preset.flowJitter > 0.001 || dynamicOptions.isNotEmpty() ||
+                        hasDual || hasTexture || cd != null
+
                     val bp = BrushParams(
                         size = preset.diameter,
                         opacity = 1.0,
@@ -2287,12 +2366,35 @@ import kotlinx.coroutines.withContext
                         randomFlipX = preset.flipX,
                         randomFlipY = preset.flipY,
                         pressureEnabled = hasPressureDynamics,
-                        pressureSize = if (preset.pressureSize) 1.0 else 0.0,
-                        pressureOpacity = if (preset.pressureOpacity) 1.0 else 0.0,
-                        pressureFlow = if (preset.pressureFlow) 1.0 else 0.0,
+                        pressureSize = if (preset.pressureSize || preset.tiltSize) 1.0 else 0.0,
+                        pressureOpacity = if (preset.pressureOpacity || preset.tiltOpacity) 1.0 else 0.0,
+                        pressureFlow = if (preset.pressureFlow || preset.tiltFlow) 1.0 else 0.0,
+                        sizeSensor = sizeSensor,
+                        opacitySensor = opacitySensor,
+                        flowSensor = flowSensor,
+                        rotationSensor = rotationSensor,
+                        scatterSensor = "fuzzy",
+                        jitterAngle = preset.angleJitter,
+                        jitterSize = preset.sizeJitter,
+                        dynamicOptions = dynamicOptions,
+                        maskingEnabled = hasDual,
+                        maskingCompositeOp = dual?.compositeOp ?: "multiply",
+                        maskingSizeRatio = maskingSizeRatio,
+                        maskingSpacing = dual?.spacing ?: 0.1,
+                        maskingTipAsset = dualTipFileName,
+                        textureEnabled = hasTexture,
+                        textureScale = tex?.scale ?: 1.0,
+                        textureStrength = tex?.depth ?: 0.5,
+                        textureMode = tex?.mode ?: "multiply",
+                        texturePattern = tex?.patternName ?: "",
+                        hueJitter = cd?.hueJitter ?: 0.0,
+                        satJitter = cd?.satJitter ?: 0.0,
+                        valJitter = cd?.valJitter ?: 0.0,
+                        secondaryMix = cd?.secondaryMix ?: 0.0,
+                        airbrush = preset.airbrush,
                         tipAsset = matchedTipFileName,
                         paintOpId = "paintbrush",
-                        compositeOp = "normal",
+                        compositeOp = preset.compositeOp,
                         author = "外部创作者 (ABR)",
                         isAuthorLocked = true,
                         description = "导入自 Photoshop ABR 笔刷包: $packBaseName",
