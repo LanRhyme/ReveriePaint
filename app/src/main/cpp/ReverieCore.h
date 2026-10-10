@@ -855,6 +855,14 @@ public:
     void setBrushAntiAliasing(int level);
     void setPresetIsEraser(bool eraser);
     bool setBrushTipAsset(const QString &assetName);
+    void setBrushTexture(bool enabled, qreal scale, qreal strength, const QString &mode, const QString &patternName = QString());
+    bool scratchpadStart(int w, int h);
+    bool scratchpadStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0);
+    bool scratchpadStrokeMove(qreal x, qreal y, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0);
+    void scratchpadStrokeEnd();
+    void scratchpadClear();
+    bool scratchpadRender(quint8 *buffer, int w, int h, int stride);
+    void scratchpadEnd();
     bool hasPendingStrokeSamples() const { return m_strokeSamples.size() > m_strokeCarryCount; }
     int currentBrushPreset() const { return m_brushPresetIndex; }
 
@@ -1264,6 +1272,16 @@ private:
         m_strokeOnionCacheDirty = true;
         m_strokeOnionCacheExtent.clear();
     }
+
+    // Brush Studio isolated scratchpad
+    KisPaintDeviceSP m_scratchpadDev;
+    KisPainter *m_scratchpadPainter{nullptr};
+    KisDistanceInformation *m_scratchpadDistInfo{nullptr};
+    int m_scratchpadWidth{0};
+    int m_scratchpadHeight{0};
+    bool m_scratchpadStrokeActive{false};
+    StrokeSample m_scratchpadLastSample;
+
     // Smudge engine state (colorsmudge paintop)
     qreal m_smudgeRate = 0.5;   // color mixing rate -> ColorRateValue/MixValue
     qreal m_smudgeLength = 0.5; // smudge length -> SmudgeRateValue

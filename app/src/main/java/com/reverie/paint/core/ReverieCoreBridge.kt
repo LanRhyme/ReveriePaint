@@ -606,6 +606,36 @@ object ReverieCoreBridge {
 
     external fun touchStrokeCancel()
 
+    external fun setBrushTexture(
+        enabled: Boolean,
+        scale: Double,
+        strength: Double,
+        mode: String,
+        patternName: String,
+    )
+
+    external fun scratchpadStart(width: Int, height: Int): Boolean
+    external fun scratchpadStrokeStart(
+        x: Double,
+        y: Double,
+        pressure: Double,
+        tiltX: Double = 0.0,
+        tiltY: Double = 0.0,
+        rotation: Double = 0.0,
+    ): Boolean
+    external fun scratchpadStrokeMove(
+        x: Double,
+        y: Double,
+        pressure: Double,
+        tiltX: Double = 0.0,
+        tiltY: Double = 0.0,
+        rotation: Double = 0.0,
+    ): Boolean
+    external fun scratchpadStrokeEnd()
+    external fun scratchpadClear()
+    external fun scratchpadRender(bitmap: Bitmap): Boolean
+    external fun scratchpadEnd()
+
     external fun renderToBuffer(
         bitmap: Bitmap,
         forceFull: Boolean = false,

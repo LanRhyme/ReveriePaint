@@ -18,6 +18,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -264,3 +265,318 @@ internal fun TipThumb(filename: String, contentDescription: String?) {
         Box(Modifier.size(24.dp).clip(CircleShape).background(Color.White))
     }
 }
+
+data class PatternItem(val filename: String, val name: String, val isCustom: Boolean, val bitmap: Bitmap?)
+
+internal object BrushPatternDecoder {
+    private val cache = object : android.util.LruCache<String, Bitmap>(24 * 1024 * 1024) {
+        override fun sizeOf(key: String, value: Bitmap): Int = value.byteCount
+    }
+
+    fun loadPattern(context: Context, filename: String, maxSize: Int = 0): Bitmap? {
+        if (filename.isBlank()) return null
+        val key = "$filename@$maxSize"
+        cache.get(key)?.let { if (!it.isRecycled) return it }
+
+        val bmp = runCatching {
+            val internalFile = File(File(context.filesDir, "patterns"), filename)
+            val stream = if (internalFile.exists()) {
+                internalFile.inputStream()
+            } else {
+                context.assets.open("patterns/$filename")
+            }
+            stream.use { s ->
+                val bytes = s.readBytes()
+                if (filename.endsWith(".pat", true)) {
+                    decodePat(bytes, maxSize)
+                } else {
+                    decodeScaled(bytes, maxSize)
+                }
+            }
+        }.getOrNull()
+        if (bmp != null) cache.put(key, bmp)
+        return bmp
+    }
+
+    private fun decodeScaled(bytes: ByteArray, maxSize: Int): Bitmap? {
+        if (maxSize <= 0) return BitmapFactory.decodeByteArray(bytes, 0, bytes.size)
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeByteArray(bytes, 0, bytes.size, bounds)
+        val opts = BitmapFactory.Options().apply {
+            inSampleSize = sampleSizeFor(bounds.outWidth, bounds.outHeight, maxSize)
+        }
+        return BitmapFactory.decodeByteArray(bytes, 0, bytes.size, opts)
+    }
+
+    private fun sampleSizeFor(width: Int, height: Int, maxSize: Int): Int {
+        if (width <= 0 || height <= 0) return 1
+        var sample = 1
+        var longest = maxOf(width, height)
+        while (longest / 2 >= maxSize) {
+            longest /= 2
+            sample *= 2
+        }
+        return sample
+    }
+
+    private fun decodePat(bytes: ByteArray, maxSize: Int = 0): Bitmap? {
+        if (bytes.size < 24) return null
+        val buf = ByteBuffer.wrap(bytes).order(ByteOrder.BIG_ENDIAN)
+        val headerSize = buf.int
+        val version = buf.int
+        val width = buf.int
+        val height = buf.int
+        val bpp = buf.int
+        if (width <= 0 || height <= 0 || width > 4096 || height > 4096) return null
+        val offset = headerSize.coerceAtLeast(20)
+        if (bytes.size < offset + width * height * bpp) return null
+        val step = if (maxSize > 0) (maxOf(width, height) / maxSize).coerceAtLeast(1) else 1
+        val dstW = (width + step - 1) / step
+        val dstH = (height + step - 1) / step
+        val pixels = IntArray(dstW * dstH)
+        for (dy in 0 until dstH) {
+            val sy = dy * step
+            for (dx in 0 until dstW) {
+                val sx = dx * step
+                val srcIdx = offset + (sy * width + sx) * bpp
+                val argb = when (bpp) {
+                    1 -> {
+                        val v = bytes[srcIdx].toInt() and 0xFF
+                        (0xFF shl 24) or (v shl 16) or (v shl 8) or v
+                    }
+                    3 -> {
+                        val r = bytes[srcIdx].toInt() and 0xFF
+                        val g = bytes[srcIdx + 1].toInt() and 0xFF
+                        val b = bytes[srcIdx + 2].toInt() and 0xFF
+                        (0xFF shl 24) or (r shl 16) or (g shl 8) or b
+                    }
+                    4 -> {
+                        val r = bytes[srcIdx].toInt() and 0xFF
+                        val g = bytes[srcIdx + 1].toInt() and 0xFF
+                        val b = bytes[srcIdx + 2].toInt() and 0xFF
+                        val a = bytes[srcIdx + 3].toInt() and 0xFF
+                        (a shl 24) or (r shl 16) or (g shl 8) or b
+                    }
+                    else -> 0
+                }
+                pixels[dy * dstW + dx] = argb
+            }
+        }
+        return Bitmap.createBitmap(pixels, dstW, dstH, Bitmap.Config.ARGB_8888)
+    }
+}
+
+internal fun buildPatternItems(context: Context): List<PatternItem> {
+    val list = mutableListOf<PatternItem>()
+    val customDir = File(context.filesDir, "patterns")
+    if (customDir.exists()) {
+        customDir.listFiles()?.forEach { f ->
+            val name = f.name
+            if (name.endsWith(".pat", true) || name.endsWith(".png", true) || name.endsWith(".jpg", true)) {
+                list.add(
+                    PatternItem(
+                        filename = name,
+                        name = context.getString(R.string.brush_studio_pattern_custom_prefix, name.substringBeforeLast(".")),
+                        isCustom = true,
+                        bitmap = null,
+                    )
+                )
+            }
+        }
+    }
+    val files = runCatching { context.assets.list("patterns")?.toList() }.getOrNull() ?: emptyList()
+    files.sorted().forEach { f ->
+        if (f.endsWith(".pat", true) || f.endsWith(".png", true) || f.endsWith(".jpg", true)) {
+            if (list.none { it.filename == f }) {
+                val cleanName = f.substringBeforeLast(".").replace("_", " ")
+                list.add(PatternItem(filename = f, name = cleanName, isCustom = false, bitmap = null))
+            }
+        }
+    }
+    return list
+}
+
+@Composable
+internal fun PatternThumb(filename: String, contentDescription: String?) {
+    val context = LocalContext.current
+    if (filename.isBlank()) {
+        Box(Modifier.size(24.dp).clip(RoundedCornerShape(4.dp)).background(Morandi.panel))
+        return
+    }
+    val cached = remember(filename) { BrushPatternDecoder.loadPattern(context, filename, TIP_THUMB_MAX) }
+    var bmp by remember(filename) { mutableStateOf(cached) }
+    LaunchedEffect(filename) {
+        if (bmp == null) {
+            bmp = withContext(Dispatchers.IO) { BrushPatternDecoder.loadPattern(context, filename, TIP_THUMB_MAX) }
+        }
+    }
+    if (bmp != null) {
+        Image(
+            bitmap = bmp!!.asImageBitmap(),
+            contentDescription = contentDescription,
+            modifier = Modifier.fillMaxSize().padding(2.dp),
+        )
+    } else {
+        Box(Modifier.size(24.dp).clip(RoundedCornerShape(4.dp)).background(Morandi.panel))
+    }
+}
+
+@Composable
+internal fun BrushPatternPickerModal(
+    allPatterns: List<PatternItem>,
+    currentPattern: String,
+    onSelectPattern: (String) -> Unit,
+    onImportPattern: () -> Unit,
+    onDismiss: () -> Unit,
+    cardBg: Color,
+    borderCol: Color,
+    textMain: Color,
+    textSub: Color,
+) {
+    var filterCategoryIndex by remember { mutableIntStateOf(0) }
+    val categories = listOf(
+        R.string.brush_studio_tip_filter_all,
+        R.string.brush_studio_tip_filter_builtin,
+        R.string.brush_studio_tip_filter_custom,
+    )
+
+    val displayed = remember(filterCategoryIndex, allPatterns) {
+        when (filterCategoryIndex) {
+            1 -> allPatterns.filter { !it.isCustom }
+            2 -> allPatterns.filter { it.isCustom }
+            else -> allPatterns
+        }
+    }
+
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = androidx.compose.ui.window.DialogProperties(usePlatformDefaultWidth = false),
+    ) {
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(Color.Black.copy(alpha = 0.65f))
+                .noRippleClickable(onDismiss),
+            contentAlignment = Alignment.Center,
+        ) {
+            Box(
+                modifier = Modifier
+                    .widthIn(min = 320.dp, max = 560.dp)
+                    .fillMaxWidth(0.88f)
+                    .fillMaxHeight(0.78f)
+                    .shadow(16.dp, RoundedCornerShape(14.dp), spotColor = Color.Black.copy(alpha = 0.5f))
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Morandi.panel)
+                    .glassBorder(RoundedCornerShape(14.dp))
+                    .clickable(enabled = false) {},
+            ) {
+                Column(modifier = Modifier.fillMaxSize().padding(14.dp)) {
+                    // Header
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            stringResource(R.string.brush_studio_pattern_title),
+                            color = textMain,
+                            fontSize = 15.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+
+                        Spacer(Modifier.width(10.dp))
+
+                        // Category Pills
+                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
+                            categories.forEachIndexed { idx, catRes ->
+                                val sel = filterCategoryIndex == idx
+                                Box(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .background(if (sel) Morandi.accent.copy(alpha = 0.18f) else cardBg)
+                                        .clickable { filterCategoryIndex = idx }
+                                        .padding(horizontal = 8.dp, vertical = 3.dp),
+                                ) {
+                                    Text(
+                                        stringResource(catRes),
+                                        color = if (sel) Morandi.accent else textSub,
+                                        fontSize = 11.sp,
+                                    )
+                                }
+                            }
+                        }
+
+                        Spacer(Modifier.weight(1f))
+
+                        // Import Custom Pattern
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(6.dp))
+                                .background(cardBg)
+                                .clickable { onImportPattern() }
+                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
+                        ) {
+                            Icon(painterResource(R.drawable.ic_plus), contentDescription = null, tint = textMain, modifier = Modifier.size(13.dp))
+                            Text(stringResource(R.string.brush_studio_pattern_import), color = textMain, fontSize = 11.sp)
+                        }
+
+                        Spacer(Modifier.width(6.dp))
+
+                        ReIconButton(R.drawable.ic_x, stringResource(R.string.common_close), onDismiss, size = 28.dp, tint = textSub, iconSize = 16.dp)
+                    }
+
+                    Spacer(Modifier.height(10.dp))
+                    Box(Modifier.fillMaxWidth().height(0.6.dp).background(Morandi.border.copy(alpha = 0.2f)))
+                    Spacer(Modifier.height(10.dp))
+
+                    LazyVerticalGrid(
+                        columns = GridCells.Adaptive(minSize = 72.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        modifier = Modifier.fillMaxSize(),
+                    ) {
+                        items(displayed, key = { it.filename }) { item ->
+                            val isSelected = item.filename == currentPattern
+                            Column(
+                                horizontalAlignment = Alignment.CenterHorizontally,
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(if (isSelected) Morandi.accent.copy(alpha = 0.2f) else cardBg.copy(alpha = 0.6f))
+                                    .border(
+                                        width = if (isSelected) 1.5.dp else 0.5.dp,
+                                        color = if (isSelected) Morandi.accent else borderCol,
+                                        shape = RoundedCornerShape(8.dp),
+                                    )
+                                    .clickable { onSelectPattern(item.filename) }
+                                    .padding(6.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(56.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .background(Morandi.panel),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    CheckerboardBackground(modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp)))
+                                    PatternThumb(item.filename, item.name)
+                                }
+                                Text(
+                                    text = item.name,
+                                    color = if (isSelected) Morandi.accent else textMain,
+                                    fontSize = 10.sp,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    textAlign = TextAlign.Center,
+                                    modifier = Modifier.fillMaxWidth(),
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}
+

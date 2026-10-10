@@ -69,13 +69,26 @@ class BrushDynamicsTest {
             optionKey = "Opacity",
             points = listOf(CurvePoint(0f, 0f), CurvePoint(1f, 1f))
         )
-        assertEquals(0f, linearConfig.evaluate(0f), 0.001f)
-        assertEquals(0.5f, linearConfig.evaluate(0.5f), 0.001f)
-        assertEquals(1f, linearConfig.evaluate(1f), 0.001f)
+        // 2点时必须严格为直线，不能是 S 形 (旧实现 smoothstep 在 0.25 处会偏离到 0.156)
+        assertEquals(0f, linearConfig.evaluate(0f), 0.0001f)
+        assertEquals(0.25f, linearConfig.evaluate(0.25f), 0.0001f)
+        assertEquals(0.5f, linearConfig.evaluate(0.5f), 0.0001f)
+        assertEquals(0.75f, linearConfig.evaluate(0.75f), 0.0001f)
+        assertEquals(1f, linearConfig.evaluate(1f), 0.0001f)
 
-        // Beyond bounds clamping
-        assertEquals(0f, linearConfig.evaluate(-0.5f), 0.001f)
-        assertEquals(1f, linearConfig.evaluate(1.5f), 0.001f)
+        // 边界保护
+        assertEquals(0f, linearConfig.evaluate(-0.5f), 0.0001f)
+        assertEquals(1f, linearConfig.evaluate(1.5f), 0.0001f)
+
+        // 3点自然三次样条测试
+        val splineConfig = DynamicOptionConfig(
+            optionKey = "Size",
+            points = listOf(CurvePoint(0f, 0f), CurvePoint(0.5f, 1f), CurvePoint(1f, 0f))
+        )
+        assertEquals(0f, splineConfig.evaluate(0f), 0.001f)
+        assertEquals(1f, splineConfig.evaluate(0.5f), 0.001f)
+        assertEquals(0f, splineConfig.evaluate(1f), 0.001f)
+        assertTrue(splineConfig.evaluate(0.25f) > 0.5f)
     }
 
     @Test

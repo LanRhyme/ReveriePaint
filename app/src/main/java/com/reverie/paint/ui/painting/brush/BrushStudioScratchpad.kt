@@ -6,39 +6,51 @@ package com.reverie.paint.ui.painting.brush
 
 import android.content.Context
 import android.graphics.Bitmap
-import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import android.graphics.Rect
 import android.graphics.RectF
+import android.widget.Toast
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
+import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
-import androidx.compose.ui.graphics.*
-import androidx.compose.ui.graphics.drawscope.DrawScope
-import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.TextStyle
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.theme.Morandi
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 
-data class ScratchPoint(val x: Float, val y: Float, val pressure: Float)
+data class ScratchPoint(
+    val x: Float,
+    val y: Float,
+    val pressure: Float,
+    val tiltX: Float = 0f,
+    val tiltY: Float = 0f,
+    val rotation: Float = 0f,
+)
 
 /**
  * 将试画板内容生成为 256x256 的预设缩略图
@@ -128,57 +140,24 @@ private fun findNonTransparentBounds(bitmap: Bitmap): Rect? {
 }
 
 /**
- * 试画台核心画布：采用双缓冲位图渲染
- * 历史完成的笔画离屏渲染至 Bitmap，当前活跃笔画增量绘制，彻底消除多笔画卡顿
+ * 试画台核心画布：直接呈现 C++ 引擎真实渲染的离线位图
  */
 @Composable
 internal fun ScratchpadCanvas(
     vm: PaintViewModel,
     scratchBitmap: Bitmap?,
-    currentStroke: List<ScratchPoint>,
+    renderTick: Int,
     onStrokeStart: (ScratchPoint) -> Unit,
     onStrokeAddPoints: (List<ScratchPoint>) -> Unit,
     onStrokeEnd: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val context = LocalContext.current
-    val brushColor = remember(vm.brushColor) {
-        runCatching { Color(android.graphics.Color.parseColor(vm.brushColor)) }.getOrDefault(Color.White)
-    }
-    val secColor = remember(vm.brushSecondaryColor) {
-        runCatching { Color(android.graphics.Color.parseColor(vm.brushSecondaryColor)) }.getOrDefault(Color.White)
-    }
-    val opacity = vm.brushOpacity.toFloat().coerceIn(0.05f, 1f)
-    val flow = vm.brushFlow.toFloat().coerceIn(0.05f, 1f)
-    val softness = (vm.brushFade.toFloat().coerceIn(0f, 1f) * vm.brushSoftness.toFloat().coerceIn(0f, 1f))
-        .coerceIn(0f, 1f)
-    val ratio = vm.brushRatio.toFloat().coerceIn(0.05f, 1f)
-    val baseRadius = (vm.brushSize.toFloat().coerceIn(2f, 80f) / 2f)
-    val isSquare = vm.brushTipShape == 1
-    val angle = (vm.brushAngle + vm.brushRotation).toFloat()
-
-    var tipBitmap by remember(context, vm.brushTipAsset) {
-        mutableStateOf(
-            if (vm.brushTipAsset.isNotBlank()) {
-                BrushTipDecoder.loadTip(context, vm.brushTipAsset)
-            } else null
-        )
-    }
-    LaunchedEffect(context, vm.brushTipAsset) {
-        if (vm.brushTipAsset.isNotBlank() && tipBitmap == null) {
-            tipBitmap = withContext(Dispatchers.IO) {
-                BrushTipDecoder.loadTip(context, vm.brushTipAsset)
-            }
-        }
-    }
-    val tipImageBitmap = remember(tipBitmap) { tipBitmap?.asImageBitmap() }
-
     Canvas(
         modifier = modifier.pointerInput(Unit) {
             awaitEachGesture {
                 val down = awaitFirstDown(requireUnconsumed = false)
                 down.consume()
-                val initP = if (down.pressure > 0f) down.pressure.coerceIn(0.1f, 1.0f) else 1.0f
+                val initP = if (down.pressure > 0f) down.pressure.coerceIn(0.01f, 1.0f) else 1.0f
                 vm.scratchpadLiveInput = initP
                 onStrokeStart(ScratchPoint(down.position.x, down.position.y, initP))
 
@@ -195,7 +174,7 @@ internal fun ScratchpadCanvas(
                     }
                     if (change.position != change.previousPosition) {
                         change.consume()
-                        val p = if (change.pressure > 0f) change.pressure.coerceIn(0.1f, 1.0f) else initP
+                        val p = if (change.pressure > 0f) change.pressure.coerceIn(0.01f, 1.0f) else initP
                         vm.scratchpadLiveInput = p
                         val historical = change.historical
                         if (historical.isNotEmpty()) {
@@ -213,246 +192,269 @@ internal fun ScratchpadCanvas(
             }
         },
     ) {
-        // 1. 绘制已烘焙的历史位图 (1 次 drawImage，极速 0 分配)
-        if (scratchBitmap != null) {
-            drawImage(image = scratchBitmap.asImageBitmap())
-        }
+        // 读取 renderTick 触发重绘
+        @Suppress("UNUSED_VARIABLE")
+        val tick = renderTick
 
-        // 2. 绘制当前正在进行的活跃笔画 (只算当前这一笔)
-        fun DrawScope.drawDab(curPos: Offset, pressure: Float) {
-            val rad = baseRadius * (if (vm.brushPressureEnabled) (0.2f + 0.8f * pressure * vm.brushPressureSize.toFloat()) else 1f)
-            val baseAlpha = (opacity * flow * (if (vm.brushPressureEnabled) (0.25f + 0.75f * pressure * vm.brushPressureOpacity.toFloat()) else 1f)).coerceIn(0.02f, 1f)
-            val texMod = if (vm.brushTextureEnabled) {
-                0.8f + 0.4f * (((curPos.x.toInt() * 73 + curPos.y.toInt() * 37) and 0xFF) / 255f) * vm.brushTextureStrength.toFloat()
-            } else 1f
-            val dabAlpha = (baseAlpha * texMod).coerceIn(0.01f, 1f)
-
-            val effectiveColor = if (vm.brushSecondaryMix > 0.001) {
-                val mixFactor = vm.brushSecondaryMix.toFloat().coerceIn(0f, 1f)
-                Color(
-                    red = brushColor.red * (1f - mixFactor) + secColor.red * mixFactor,
-                    green = brushColor.green * (1f - mixFactor) + secColor.green * mixFactor,
-                    blue = brushColor.blue * (1f - mixFactor) + secColor.blue * mixFactor,
-                    alpha = brushColor.alpha,
-                )
-            } else brushColor
-
-            if (tipImageBitmap != null) {
-                val dabW = (rad * 2f).coerceAtLeast(2f)
-                val dabH = (rad * 2f * ratio).coerceAtLeast(2f)
-                if (angle != 0f) {
-                    withTransform({
-                        rotate(angle, curPos)
-                    }) {
-                        drawImage(
-                            image = tipImageBitmap,
-                            dstOffset = androidx.compose.ui.unit.IntOffset((curPos.x - dabW / 2f).toInt(), (curPos.y - dabH / 2f).toInt()),
-                            dstSize = androidx.compose.ui.unit.IntSize(dabW.toInt(), dabH.toInt()),
-                            alpha = dabAlpha,
-                            colorFilter = ColorFilter.tint(effectiveColor, BlendMode.SrcIn),
-                        )
-                    }
-                } else {
-                    drawImage(
-                        image = tipImageBitmap,
-                        dstOffset = androidx.compose.ui.unit.IntOffset((curPos.x - dabW / 2f).toInt(), (curPos.y - dabH / 2f).toInt()),
-                        dstSize = androidx.compose.ui.unit.IntSize(dabW.toInt(), dabH.toInt()),
-                        alpha = dabAlpha,
-                        colorFilter = ColorFilter.tint(effectiveColor, BlendMode.SrcIn),
-                    )
-                }
-            } else if (isSquare) {
-                if (angle != 0f) {
-                    withTransform({
-                        rotate(angle, curPos)
-                    }) {
-                        drawRect(
-                            color = effectiveColor.copy(alpha = dabAlpha),
-                            topLeft = Offset(curPos.x - rad, curPos.y - rad * ratio),
-                            size = Size(rad * 2f, rad * 2f * ratio),
-                        )
-                    }
-                } else {
-                    drawRect(
-                        color = effectiveColor.copy(alpha = dabAlpha),
-                        topLeft = Offset(curPos.x - rad, curPos.y - rad * ratio),
-                        size = Size(rad * 2f, rad * 2f * ratio),
-                    )
-                }
-            } else {
-                if (ratio < 0.99f || angle != 0f) {
-                    withTransform({
-                        if (angle != 0f) rotate(angle, curPos)
-                        scale(scaleX = 1f, scaleY = ratio, pivot = curPos)
-                    }) {
-                        if (softness <= 0.02f) {
-                            drawCircle(
-                                color = effectiveColor.copy(alpha = dabAlpha),
-                                radius = rad.coerceAtLeast(1.5f),
-                                center = curPos,
-                            )
-                        } else {
-                            val solidStop = (1f - softness).coerceIn(0f, 0.98f)
-                            drawCircle(
-                                brush = Brush.radialGradient(
-                                    colorStops = arrayOf(
-                                        0f to effectiveColor.copy(alpha = dabAlpha),
-                                        solidStop to effectiveColor.copy(alpha = dabAlpha),
-                                        1f to effectiveColor.copy(alpha = 0f),
-                                    ),
-                                    center = curPos,
-                                    radius = rad.coerceAtLeast(1.5f),
-                                ),
-                                radius = rad.coerceAtLeast(1.5f),
-                                center = curPos,
-                            )
-                        }
-                    }
-                } else {
-                    if (softness <= 0.02f) {
-                        drawCircle(
-                            color = effectiveColor.copy(alpha = dabAlpha),
-                            radius = rad.coerceAtLeast(1.5f),
-                            center = curPos,
-                        )
-                    } else {
-                        val solidStop = (1f - softness).coerceIn(0f, 0.98f)
-                        drawCircle(
-                            brush = Brush.radialGradient(
-                                colorStops = arrayOf(
-                                    0f to effectiveColor.copy(alpha = dabAlpha),
-                                    solidStop to effectiveColor.copy(alpha = dabAlpha),
-                                    1f to effectiveColor.copy(alpha = 0f),
-                                ),
-                                center = curPos,
-                                radius = rad.coerceAtLeast(1.5f),
-                            ),
-                            radius = rad.coerceAtLeast(1.5f),
-                            center = curPos,
-                        )
-                    }
-                }
-            }
-        }
-
-        if (currentStroke.isNotEmpty()) {
-            val spacing = (vm.brushSpacing.toFloat().coerceIn(0.01f, 2.5f) * (baseRadius * 2f)).coerceAtLeast(1.0f)
-            drawDab(Offset(currentStroke[0].x, currentStroke[0].y), currentStroke[0].pressure)
-
-            if (currentStroke.size > 1) {
-                var distToNextDab = spacing
-                for (i in 1 until currentStroke.size) {
-                    val p0 = currentStroke[i - 1]
-                    val p1 = currentStroke[i]
-                    val dx = p1.x - p0.x
-                    val dy = p1.y - p0.y
-                    val segDist = kotlin.math.hypot(dx, dy)
-                    if (segDist <= 0.0001f) continue
-
-                    var traveled = 0f
-                    while (traveled + distToNextDab <= segDist) {
-                        traveled += distToNextDab
-                        val t = traveled / segDist
-                        val cx = p0.x + dx * t
-                        val cy = p0.y + dy * t
-                        val cp = p0.pressure + (p1.pressure - p0.pressure) * t
-                        drawDab(Offset(cx, cy), cp)
-                        distToNextDab = spacing
-                    }
-                    distToNextDab -= (segDist - traveled)
-                }
+        if (scratchBitmap != null && !scratchBitmap.isRecycled) {
+            drawIntoCanvas { canvas ->
+                canvas.nativeCanvas.drawBitmap(scratchBitmap, 0f, 0f, null)
             }
         }
     }
 }
 
 /**
- * 将完成的笔画一次性烘焙至离屏位图
+ * 完整高内聚的试画板面板：内置离线 C++ 渲染调度、手势下发、撤销、清空与缩略图提取
  */
-internal fun bakeStrokeToBitmap(
-    bitmap: Bitmap,
-    stroke: List<ScratchPoint>,
+@Composable
+internal fun BrushStudioScratchpadPanel(
     vm: PaintViewModel,
-    tipBitmap: Bitmap?,
+    modifier: Modifier = Modifier,
+    isCollapsible: Boolean = false,
+    isExpanded: Boolean = true,
+    onToggleExpanded: () -> Unit = {},
+    onClose: () -> Unit = {},
 ) {
-    if (stroke.isEmpty()) return
-    val canvas = android.graphics.Canvas(bitmap)
+    val context = LocalContext.current
+    var canvasSize by remember { mutableStateOf(IntSize.Zero) }
+    var scratchBitmap by remember { mutableStateOf<Bitmap?>(null) }
+    val strokes = remember { mutableStateListOf<List<ScratchPoint>>() }
+    val currentStroke = remember { mutableListOf<ScratchPoint>() }
+    var renderTick by remember { mutableIntStateOf(0) }
+    var solidBg by remember { mutableStateOf(false) }
 
-    val brushColorInt = runCatching { android.graphics.Color.parseColor(vm.brushColor) }.getOrDefault(android.graphics.Color.WHITE)
-    val opacity = vm.brushOpacity.toFloat().coerceIn(0.05f, 1f)
-    val flow = vm.brushFlow.toFloat().coerceIn(0.05f, 1f)
-    val ratio = vm.brushRatio.toFloat().coerceIn(0.05f, 1f)
-    val baseRadius = (vm.brushSize.toFloat().coerceIn(2f, 80f) / 2f)
-    val isSquare = vm.brushTipShape == 1
-    val angle = (vm.brushAngle + vm.brushRotation).toFloat()
-    val spacing = (vm.brushSpacing.toFloat().coerceIn(0.01f, 2.5f) * (baseRadius * 2f)).coerceAtLeast(1.0f)
+    val thumbnailUpdatedToast = stringResource(R.string.brush_studio_toast_thumbnail_updated)
 
-    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG or android.graphics.Paint.FILTER_BITMAP_FLAG)
-
-    fun drawDab(cx: Float, cy: Float, pressure: Float) {
-        val rad = baseRadius * (if (vm.brushPressureEnabled) (0.2f + 0.8f * pressure * vm.brushPressureSize.toFloat()) else 1f)
-        val baseAlpha = (opacity * flow * (if (vm.brushPressureEnabled) (0.25f + 0.75f * pressure * vm.brushPressureOpacity.toFloat()) else 1f)).coerceIn(0.02f, 1f)
-        val alphaInt = (baseAlpha * 255).toInt().coerceIn(1, 255)
-
-        if (tipBitmap != null) {
-            val dabW = (rad * 2f).coerceAtLeast(2f)
-            val dabH = (rad * 2f * ratio).coerceAtLeast(2f)
-            val matrix = android.graphics.Matrix()
-            matrix.postScale(dabW / tipBitmap.width, dabH / tipBitmap.height)
-            if (angle != 0f) {
-                matrix.postRotate(angle, dabW / 2f, dabH / 2f)
-            }
-            matrix.postTranslate(cx - dabW / 2f, cy - dabH / 2f)
-
-            paint.colorFilter = PorterDuffColorFilter(brushColorInt, PorterDuff.Mode.SRC_IN)
-            paint.alpha = alphaInt
-            canvas.drawBitmap(tipBitmap, matrix, paint)
-        } else if (isSquare) {
-            paint.colorFilter = null
-            paint.color = brushColorInt
-            paint.alpha = alphaInt
-            paint.style = android.graphics.Paint.Style.FILL
-
-            canvas.save()
-            if (angle != 0f) canvas.rotate(angle, cx, cy)
-            canvas.drawRect(cx - rad, cy - rad * ratio, cx + rad, cy + rad * ratio, paint)
-            canvas.restore()
-        } else {
-            paint.colorFilter = null
-            paint.color = brushColorInt
-            paint.alpha = alphaInt
-            paint.style = android.graphics.Paint.Style.FILL
-
-            canvas.save()
-            if (angle != 0f) canvas.rotate(angle, cx, cy)
-            if (ratio < 0.99f) canvas.scale(1f, ratio, cx, cy)
-            canvas.drawCircle(cx, cy, rad, paint)
-            canvas.restore()
+    DisposableEffect(Unit) {
+        onDispose {
+            ReverieCoreBridge.scratchpadEnd()
+            scratchBitmap?.recycle()
+            scratchBitmap = null
         }
     }
 
-    drawDab(stroke[0].x, stroke[0].y, stroke[0].pressure)
-    if (stroke.size > 1) {
-        var distToNextDab = spacing
-        for (i in 1 until stroke.size) {
-            val p0 = stroke[i - 1]
-            val p1 = stroke[i]
-            val dx = p1.x - p0.x
-            val dy = p1.y - p0.y
-            val segDist = kotlin.math.hypot(dx, dy)
-            if (segDist <= 0.0001f) continue
-
-            var traveled = 0f
-            while (traveled + distToNextDab <= segDist) {
-                traveled += distToNextDab
-                val t = traveled / segDist
-                val cx = p0.x + dx * t
-                val cy = p0.y + dy * t
-                val cp = p0.pressure + (p1.pressure - p0.pressure) * t
-                drawDab(cx, cy, cp)
-                distToNextDab = spacing
+    // 重放已有笔画至 C++ 试画板
+    fun replayStrokesOnEngine(bmp: Bitmap) {
+        ReverieCoreBridge.scratchpadClear()
+        for (stroke in strokes) {
+            if (stroke.isEmpty()) continue
+            val p0 = stroke[0]
+            ReverieCoreBridge.scratchpadStrokeStart(
+                p0.x.toDouble(), p0.y.toDouble(), p0.pressure.toDouble(),
+                p0.tiltX.toDouble(), p0.tiltY.toDouble(), p0.rotation.toDouble()
+            )
+            for (i in 1 until stroke.size) {
+                val pi = stroke[i]
+                ReverieCoreBridge.scratchpadStrokeMove(
+                    pi.x.toDouble(), pi.y.toDouble(), pi.pressure.toDouble(),
+                    pi.tiltX.toDouble(), pi.tiltY.toDouble(), pi.rotation.toDouble()
+                )
             }
-            distToNextDab -= (segDist - traveled)
+            ReverieCoreBridge.scratchpadStrokeEnd()
+        }
+        bmp.eraseColor(0)
+        ReverieCoreBridge.scratchpadRender(bmp)
+        renderTick++
+    }
+
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .background(Morandi.panelHi.copy(alpha = 0.5f))
+            .border(0.6.dp, Morandi.border.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
+            .padding(8.dp),
+    ) {
+        // ---- 顶部控制栏 ----
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 4.dp, vertical = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    stringResource(R.string.brush_studio_scratchpad_title),
+                    color = Morandi.text,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    stringResource(R.string.brush_studio_scratchpad_sub),
+                    color = Morandi.subText,
+                    fontSize = 10.sp,
+                )
+            }
+
+            // 撤销动作
+            ReIconButton(
+                R.drawable.ic_undo,
+                stringResource(R.string.brush_studio_scratchpad_undo),
+                onTap = {
+                    if (strokes.isNotEmpty()) {
+                        strokes.removeAt(strokes.lastIndex)
+                        val bmp = scratchBitmap
+                        if (bmp != null && !bmp.isRecycled) {
+                            replayStrokesOnEngine(bmp)
+                        }
+                    }
+                },
+                tint = if (strokes.isNotEmpty()) Morandi.text else Morandi.subText.copy(alpha = 0.35f),
+                iconSize = 15.dp,
+                size = 30.dp,
+            )
+
+            // 清空动作
+            ReIconButton(
+                R.drawable.ic_trash,
+                stringResource(R.string.brush_studio_scratchpad_clear),
+                onTap = {
+                    strokes.clear()
+                    currentStroke.clear()
+                    ReverieCoreBridge.scratchpadClear()
+                    scratchBitmap?.eraseColor(0)
+                    renderTick++
+                },
+                tint = if (strokes.isNotEmpty()) Morandi.text else Morandi.subText.copy(alpha = 0.35f),
+                iconSize = 15.dp,
+                size = 30.dp,
+            )
+
+            // 背景棋盘格 / 纯色切换
+            ReIconButton(
+                if (solidBg) R.drawable.ic_layers else R.drawable.ic_circle,
+                stringResource(R.string.brush_studio_tex_enable),
+                onTap = { solidBg = !solidBg },
+                tint = Morandi.subText,
+                iconSize = 15.dp,
+                size = 30.dp,
+            )
+
+            // 设为预设图标
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .background(Morandi.panel.copy(alpha = 0.85f))
+                    .clickable {
+                        captureScratchpadAsThumbnail(context, vm, scratchBitmap, strokes)
+                        Toast.makeText(context, thumbnailUpdatedToast, Toast.LENGTH_SHORT).show()
+                    }
+                    .padding(horizontal = 8.dp, vertical = 5.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_pencil),
+                        contentDescription = null,
+                        tint = Morandi.accent,
+                        modifier = Modifier.size(12.dp),
+                    )
+                    Text(
+                        stringResource(R.string.brush_studio_scratchpad_set_icon),
+                        color = Morandi.accent,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
+
+            if (isCollapsible) {
+                Spacer(Modifier.width(4.dp))
+                ReIconButton(
+                    R.drawable.ic_x,
+                    stringResource(R.string.common_close),
+                    onTap = onClose,
+                    tint = Morandi.subText,
+                    iconSize = 15.dp,
+                    size = 30.dp,
+                )
+            }
+        }
+
+        Spacer(Modifier.height(6.dp))
+
+        // ---- 画布区域 ----
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f)
+                .clip(RoundedCornerShape(10.dp))
+                .background(if (solidBg) Morandi.panelHi else Morandi.panel)
+                .onSizeChanged { size ->
+                    if (size.width > 0 && size.height > 0 &&
+                        (size.width != canvasSize.width || size.height != canvasSize.height)
+                    ) {
+                        canvasSize = size
+                        val newBmp = Bitmap.createBitmap(size.width, size.height, Bitmap.Config.ARGB_8888)
+                        scratchBitmap?.recycle()
+                        scratchBitmap = newBmp
+                        ReverieCoreBridge.scratchpadStart(size.width, size.height)
+                        replayStrokesOnEngine(newBmp)
+                    }
+                },
+        ) {
+            if (!solidBg) {
+                CheckerboardBackground(modifier = Modifier.fillMaxSize())
+            }
+
+            ScratchpadCanvas(
+                vm = vm,
+                scratchBitmap = scratchBitmap,
+                renderTick = renderTick,
+                onStrokeStart = { p ->
+                    currentStroke.clear()
+                    currentStroke.add(p)
+                    ReverieCoreBridge.scratchpadStrokeStart(
+                        p.x.toDouble(), p.y.toDouble(), p.pressure.toDouble(),
+                        p.tiltX.toDouble(), p.tiltY.toDouble(), p.rotation.toDouble()
+                    )
+                    val bmp = scratchBitmap
+                    if (bmp != null && !bmp.isRecycled) {
+                        ReverieCoreBridge.scratchpadRender(bmp)
+                    }
+                    renderTick++
+                },
+                onStrokeAddPoints = { pts ->
+                    currentStroke.addAll(pts)
+                    for (p in pts) {
+                        ReverieCoreBridge.scratchpadStrokeMove(
+                            p.x.toDouble(), p.y.toDouble(), p.pressure.toDouble(),
+                            p.tiltX.toDouble(), p.tiltY.toDouble(), p.rotation.toDouble()
+                        )
+                    }
+                    val bmp = scratchBitmap
+                    if (bmp != null && !bmp.isRecycled) {
+                        ReverieCoreBridge.scratchpadRender(bmp)
+                    }
+                    renderTick++
+                },
+                onStrokeEnd = {
+                    ReverieCoreBridge.scratchpadStrokeEnd()
+                    val bmp = scratchBitmap
+                    if (bmp != null && !bmp.isRecycled) {
+                        ReverieCoreBridge.scratchpadRender(bmp)
+                    }
+                    if (currentStroke.isNotEmpty()) {
+                        strokes.add(currentStroke.toList())
+                        currentStroke.clear()
+                    }
+                    renderTick++
+                },
+                modifier = Modifier.fillMaxSize(),
+            )
+
+            // 空白提示文字
+            if (strokes.isEmpty() && currentStroke.isEmpty()) {
+                Text(
+                    stringResource(R.string.brush_studio_scratchpad_hint),
+                    color = Morandi.subText.copy(alpha = 0.45f),
+                    fontSize = 12.sp,
+                    modifier = Modifier.align(Alignment.Center),
+                )
+            }
         }
     }
 }

@@ -1214,16 +1214,21 @@
     <string name="brush_new_group_hint">输入组名称</string>
     <string name="brush_group_already_exists">组已存在</string>
 
-    <!-- Brush Studio Tabs -->
-    <string name="brush_studio_tab_tip">笔尖形状</string>
-    <string name="brush_studio_tab_masking">蒙版画笔</string>
+    <!-- Brush Studio Tabs (5 Modules) -->
+    <string name="brush_studio_tab_tip">笔尖外形</string>
     <string name="brush_studio_tab_stroke">笔画动态</string>
     <string name="brush_studio_tab_color">色彩涂抹</string>
-    <string name="brush_studio_tab_geometry">几何罗盘</string>
-    <string name="brush_studio_tab_texture">材质纹理</string>
-    <string name="brush_studio_tab_pressure">压感手感</string>
-    <string name="brush_studio_tab_engine">引擎参数</string>
-    <string name="brush_studio_tab_info">笔刷属性</string>
+    <string name="brush_studio_tab_texture">纹理蒙版</string>
+    <string name="brush_studio_tab_engine">预设高级</string>
+    <string name="brush_studio_tex_pattern_title">纹理贴图图案</string>
+    <string name="brush_studio_tex_choose">选择贴图</string>
+    <string name="brush_studio_tex_import_custom">导入自定义贴图</string>
+    <string name="brush_studio_tex_dialog_title">纹理贴图库</string>
+    <string name="brush_studio_tex_toast_imported">纹理贴图导入成功</string>
+    <string name="brush_studio_tex_toast_import_failed">纹理贴图导入失败</string>
+    <string name="brush_studio_tex_none">默认无贴图</string>
+    <string name="brush_studio_scratchpad_undo">撤销笔画</string>
+    <string name="brush_studio_scratchpad_title">实时试画板</string>
 
     <!-- Brush Studio Dialogs & Actions -->
     <string name="brush_studio_back_canvas">返回画布</string>
@@ -1317,6 +1322,14 @@
     <string name="brush_studio_geo_angle_jitter">角度随机抖动 (Jitter)</string>
     <string name="brush_studio_geo_auto_rotate">沿笔画运动方向自动旋转</string>
     <string name="brush_studio_tex_enable">启用纹理材质叠加</string>
+    <string name="brush_studio_pattern_title">材质纹理贴图</string>
+    <string name="brush_studio_pattern_choose">更换纹理</string>
+    <string name="brush_studio_pattern_import">导入图案</string>
+    <string name="brush_studio_pattern_default">默认纸纹</string>
+    <string name="brush_studio_pattern_custom_prefix">自定义: %s</string>
+    <string name="brush_studio_pattern_toast_imported">已导入纹理图案: %s</string>
+    <string name="brush_studio_pattern_toast_failed">纹理图案导入失败</string>
+    <string name="brush_studio_scratchpad_sub">Krita 核心引擎离线渲染</string>
     <string name="brush_studio_tex_blend_mode">纹理混合模式</string>
     <string name="brush_studio_tex_scale">纹理缩放比 (Scale)</string>
     <string name="brush_studio_tex_strength">纹理凹凸强度 (Strength)</string>
@@ -1441,6 +1454,13 @@
     <string name="brush_studio_scratchpad_toggle">试画板</string>
     <string name="brush_studio_curve_edit">编辑曲线</string>
     <string name="brush_studio_curve_test_hint">压感试笔条 (轻重划线体验过渡)</string>
+    <string name="brush_studio_smudge_mode">涂抹工作模式 (Smudge Mode)</string>
+    <string name="brush_studio_smudge_mode_dulling">混色耗散 (Dulling)</string>
+    <string name="brush_studio_smudge_mode_smearing">刮刀拉伸 (Smearing)</string>
+    <string name="brush_studio_color_rate">色彩速率 (Color Rate)</string>
+    <string name="brush_studio_composite_op">画笔混合模式 (Blend Mode)</string>
+    <string name="brush_studio_tip_fade">实心率 (Fade)</string>
+    <string name="brush_studio_tip_softness">柔和度 (Softness)</string>
 
     <!-- Color Components & Sliders -->
     <string name="color_num_dialog_range">有效范围: %1$s ~ %2$s%3$s</string>

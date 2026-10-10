@@ -41,6 +41,7 @@ data class AppColors(
     val scrim: Color, // full-screen backdrop over the canvas
     val gridLine: Color, // canvas grid
     val canvasShadow: Color, // drop shadow under the document
+    val error: Color = Color(0xFFD46A6A), // destructive / error actions
 )
 
 /** Morandi Dark palette - refined neutral studio workspace, elevated dark graphite panels, specular hairline borders, elegant Morandi misty blue accent. */
@@ -60,6 +61,7 @@ val MorandiDarkColors =
         scrim = Color(0x80000000),
         gridLine = Color(0x1FFFFFFF),
         canvasShadow = Color(0x80000000),
+        error = Color(0xFFD46A6A),
     )
 
 /** Default iOS Light palette - clean light gray background with pure white cards and Morandi misty blue accent. */
@@ -79,6 +81,7 @@ val MorandiLightColors =
         scrim = Color(0x52000000),
         gridLine = Color(0x1F000000),
         canvasShadow = Color(0x1F000000),
+        error = Color(0xFFD04444),
     )
 
 /** Alias for backward compatibility */

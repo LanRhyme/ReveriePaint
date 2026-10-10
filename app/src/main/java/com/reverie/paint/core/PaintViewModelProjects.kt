@@ -1522,6 +1522,21 @@ private fun PaintViewModel.copyBundledBrushAssets(): Pair<File, File> {
         android.util.Log.e("ReveriePaint", "brush copy failed", e)
     }
 
+    val patternDir = java.io.File(appContext.filesDir, "patterns")
+    try {
+        if (!patternDir.exists()) patternDir.mkdirs()
+        for (name in assets.list("patterns") ?: emptyArray()) {
+            val target = java.io.File(patternDir, name)
+            if (!target.exists()) {
+                assets.open("patterns/$name").use { input ->
+                    target.outputStream().use { output -> input.copyTo(output) }
+                }
+            }
+        }
+    } catch (e: Exception) {
+        android.util.Log.e("ReveriePaint", "pattern copy failed", e)
+    }
+
     try {
         prefs.edit().putInt("brush_assets_installed_version", com.reverie.paint.BuildConfig.VERSION_CODE).apply()
     } catch (_: Exception) {

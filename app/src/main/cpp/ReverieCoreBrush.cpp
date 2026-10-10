@@ -8,6 +8,7 @@
  * ReverieCoreInternal.h, public API in ReverieCore.h)
  * ============================================================ */
 #include "ReverieCoreInternal.h"
+#include "PixelAlpha.h"
 
 #include <QRegularExpression>
 #include <QBuffer>
@@ -57,6 +58,12 @@ float ReverieCore::brushPressureFraction(float pressure)
     const double p = qBound(0.0, static_cast<double>(pressure), 1.0);
     if (p <= pts.first().x()) return static_cast<float>(qBound(0.0, pts.first().y(), 1.0));
     if (p >= pts.last().x()) return static_cast<float>(qBound(0.0, pts.last().y(), 1.0));
+
+    // 两个控制点时严格线性插值，完全对齐 Krita 直线行为
+    if (pts.size() == 2) {
+        const double t = (p - pts[0].x()) / qMax(1e-9, pts[1].x() - pts[0].x());
+        return static_cast<float>(qBound(0.0, pts[0].y() + (pts[1].y() - pts[0].y()) * t, 1.0));
+    }
 
     int i = 0;
     while (i + 2 < pts.size() && pts[i + 1].x() < p) ++i;
@@ -1631,4 +1638,153 @@ void ReverieCore::setBrushAntiAliasing(int level)
     s->setProperty("Antialiasing", aa);
     s->setProperty("antialiasEdges", aa);
 }
+
+void ReverieCore::setBrushTexture(bool enabled, qreal scale, qreal strength, const QString &mode, const QString &patternName)
+{
+    if (!m_brushPreset || !m_brushPreset->settings()) return;
+    KisPaintOpSettingsSP s = m_brushPreset->settings();
+    s->setProperty("Texture/Pattern/Enabled", enabled);
+    s->setProperty("PressureTexture/Strength/", enabled);
+    s->setProperty("Texture/Pattern/Scale", scale);
+    s->setProperty("Texture/Pattern/Strength", strength);
+    QString modeCode = QStringLiteral("0");
+    if (mode.compare(QStringLiteral("screen"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("1");
+    else if (mode.compare(QStringLiteral("overlay"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("4");
+    else if (mode.compare(QStringLiteral("dodge"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("5");
+    else if (mode.compare(QStringLiteral("subtract"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("2");
+    s->setProperty("Texture/Pattern/TexturingMode", modeCode);
+    if (!patternName.isEmpty()) {
+        s->setProperty("Texture/Pattern/PatternFileName", patternName);
+        s->setProperty("Texture/Pattern/Name", patternName);
+    }
+}
+
+bool ReverieCore::scratchpadStart(int w, int h)
+{
+    if (w <= 0 || h <= 0) return false;
+    const KoColorSpace *cs = (m_document && m_document->colorSpace())
+        ? m_document->colorSpace()
+        : KoColorSpaceRegistry::instance()->rgb8();
+    if (!m_scratchpadDev || m_scratchpadWidth != w || m_scratchpadHeight != h) {
+        m_scratchpadDev = new KisPaintDevice(cs);
+        m_scratchpadWidth = w;
+        m_scratchpadHeight = h;
+    }
+    m_scratchpadDev->clear();
+    if (m_scratchpadPainter) {
+        m_scratchpadPainter->end();
+        delete m_scratchpadPainter;
+        m_scratchpadPainter = nullptr;
+    }
+    if (m_scratchpadDistInfo) {
+        delete m_scratchpadDistInfo;
+        m_scratchpadDistInfo = nullptr;
+    }
+    m_scratchpadStrokeActive = false;
+    return true;
+}
+
+bool ReverieCore::scratchpadStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation)
+{
+    if (!m_scratchpadDev || !m_brushPreset) return false;
+    if (m_scratchpadPainter) {
+        m_scratchpadPainter->end();
+        delete m_scratchpadPainter;
+        m_scratchpadPainter = nullptr;
+    }
+    if (m_scratchpadDistInfo) {
+        delete m_scratchpadDistInfo;
+        m_scratchpadDistInfo = nullptr;
+    }
+
+    m_scratchpadPainter = new KisPainter(m_scratchpadDev);
+    KisNodeSP node = (!m_layers.isEmpty() && m_layers.first().node) ? KisNodeSP(m_layers.first().node) : KisNodeSP();
+    m_scratchpadPainter->setPaintOpPreset(m_brushPreset, node, m_document);
+
+    const KoColorSpace *cs = m_scratchpadDev->colorSpace();
+    QColor qColor(m_brushColor);
+    if (!qColor.isValid()) qColor = Qt::black;
+    m_scratchpadPainter->setPaintColor(KoColor(qColor, cs));
+
+    QColor qBgColor(m_brushSecondaryColor);
+    if (!qBgColor.isValid()) qBgColor = Qt::white;
+    m_scratchpadPainter->setBackgroundColor(KoColor(qBgColor, cs));
+
+    m_scratchpadPainter->setOpacityF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
+    QString compOp = m_brushPreset->settings() ? m_brushPreset->settings()->effectivePaintOpCompositeOp() : QStringLiteral("normal");
+    if (m_toolMode == ToolEraser || (m_presetIsEraserOverride == 1)) {
+        compOp = QStringLiteral("erase");
+    }
+    m_scratchpadPainter->setCompositeOpId(compOp.isEmpty() ? QStringLiteral("normal") : compOp);
+
+    const QPointF pt(x, y);
+    m_scratchpadDistInfo = new KisDistanceInformation(pt, 0.0);
+    KisPaintInformation pi(pt, pressure, tiltX, tiltY, rotation);
+    m_scratchpadPainter->paintAt(pi, m_scratchpadDistInfo);
+
+    m_scratchpadLastSample = StrokeSample{pt, pressure, tiltX, tiltY, rotation, 0.0};
+    m_scratchpadStrokeActive = true;
+    return true;
+}
+
+bool ReverieCore::scratchpadStrokeMove(qreal x, qreal y, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation)
+{
+    if (!m_scratchpadStrokeActive || !m_scratchpadPainter || !m_scratchpadDistInfo) return false;
+    const QPointF pt(x, y);
+    KisPaintInformation pi1(m_scratchpadLastSample.imgPos, m_scratchpadLastSample.pressure, m_scratchpadLastSample.tiltX, m_scratchpadLastSample.tiltY, m_scratchpadLastSample.rotation);
+    KisPaintInformation pi2(pt, pressure, tiltX, tiltY, rotation);
+    m_scratchpadPainter->paintLine(pi1, pi2, m_scratchpadDistInfo);
+    m_scratchpadLastSample = StrokeSample{pt, pressure, tiltX, tiltY, rotation, 0.0};
+    return true;
+}
+
+void ReverieCore::scratchpadStrokeEnd()
+{
+    if (m_scratchpadPainter) {
+        m_scratchpadPainter->end();
+        delete m_scratchpadPainter;
+        m_scratchpadPainter = nullptr;
+    }
+    if (m_scratchpadDistInfo) {
+        delete m_scratchpadDistInfo;
+        m_scratchpadDistInfo = nullptr;
+    }
+    m_scratchpadStrokeActive = false;
+}
+
+void ReverieCore::scratchpadClear()
+{
+    if (m_scratchpadDev) {
+        m_scratchpadDev->clear();
+    }
+}
+
+bool ReverieCore::scratchpadRender(quint8 *buffer, int w, int h, int stride)
+{
+    if (!m_scratchpadDev || !buffer || w <= 0 || h <= 0 || stride < w * 4) return false;
+    const int rw = qMin(w, m_scratchpadWidth);
+    const int rh = qMin(h, m_scratchpadHeight);
+    QByteArray tmp(rw * rh * 4, 0);
+    m_scratchpadDev->readBytes(reinterpret_cast<quint8 *>(tmp.data()), 0, 0, rw, rh);
+    PixelAlpha::toDisplayRows(reinterpret_cast<const uint8_t *>(tmp.constData()), rw * 4, buffer, stride, rw, rh);
+    return true;
+}
+
+void ReverieCore::scratchpadEnd()
+{
+    if (m_scratchpadPainter) {
+        m_scratchpadPainter->end();
+        delete m_scratchpadPainter;
+        m_scratchpadPainter = nullptr;
+    }
+    if (m_scratchpadDistInfo) {
+        delete m_scratchpadDistInfo;
+        m_scratchpadDistInfo = nullptr;
+    }
+    m_scratchpadDev = nullptr;
+    m_scratchpadWidth = 0;
+    m_scratchpadHeight = 0;
+    m_scratchpadStrokeActive = false;
+}
+
 

@@ -278,3 +278,110 @@ internal fun StudioAngleDial(
         }
     }
 }
+
+@Composable
+internal fun StudioSensorChips(
+    title: String,
+    selectedSensor: String,
+    sensors: List<Pair<String, Int>>,
+    onSelectSensor: (String) -> Unit,
+    cardBg: Color,
+    textMain: Color,
+    textSub: Color,
+) {
+    Column(
+        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
+    ) {
+        Text(title, color = textSub, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+        Row(
+            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            sensors.forEach { (sensorId, nameRes) ->
+                val sel = (selectedSensor == sensorId) || (sensorId == "pressure" && selectedSensor.isBlank())
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(if (sel) Morandi.accent.copy(alpha = 0.22f) else Morandi.panel.copy(alpha = 0.6f))
+                        .clickable { onSelectSensor(sensorId) }
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Text(
+                        stringResource(nameRes),
+                        color = if (sel) Morandi.accent else textMain,
+                        fontSize = 11.sp,
+                        fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+internal fun StudioCurvePreview(
+    curveType: Int,
+    cardBg: Color,
+    borderCol: Color,
+    modifier: Modifier = Modifier,
+) {
+    Canvas(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(96.dp)
+            .clip(RoundedCornerShape(10.dp))
+            .background(Morandi.panel.copy(alpha = 0.6f))
+            .padding(10.dp)
+    ) {
+        val w = size.width
+        val h = size.height
+        val gridLines = 4
+        for (i in 1 until gridLines) {
+            val x = w * (i.toFloat() / gridLines)
+            val y = h * (i.toFloat() / gridLines)
+            drawLine(
+                color = borderCol.copy(alpha = 0.35f),
+                start = Offset(x, 0f),
+                end = Offset(x, h),
+                strokeWidth = 1f,
+            )
+            drawLine(
+                color = borderCol.copy(alpha = 0.35f),
+                start = Offset(0f, y),
+                end = Offset(w, y),
+                strokeWidth = 1f,
+            )
+        }
+
+        val path = androidx.compose.ui.graphics.Path()
+        val steps = 50
+        for (step in 0..steps) {
+            val t = step.toFloat() / steps
+            val v = when (curveType) {
+                1 -> t.toDouble().pow(0.5).toFloat()
+                2 -> t.toDouble().pow(2.0).toFloat()
+                3 -> {
+                    val s = if (t < 0.5f) {
+                        2.0 * t * t
+                    } else {
+                        1.0 - 2.0 * (1.0 - t) * (1.0 - t)
+                    }
+                    s.toFloat()
+                }
+                else -> t
+            }
+            val px = t * w
+            val py = h - v * h
+            if (step == 0) path.moveTo(px, py) else path.lineTo(px, py)
+        }
+
+        drawPath(
+            path = path,
+            color = Morandi.accent,
+            style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
+        )
+    }
+}
+

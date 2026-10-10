@@ -595,6 +595,7 @@ class PaintViewModel : ViewModel() {
     var brushTextureScale by mutableDoubleStateOf(1.0)
     var brushTextureStrength by mutableDoubleStateOf(0.5)
     var brushTextureMode by mutableStateOf("multiply")
+    var brushTexturePattern by mutableStateOf("")
     var brushHueJitter by mutableDoubleStateOf(0.0)
     var brushSatJitter by mutableDoubleStateOf(0.0)
     var brushValJitter by mutableDoubleStateOf(0.0)
@@ -665,6 +666,8 @@ class PaintViewModel : ViewModel() {
     var brushAirbrushRate by mutableDoubleStateOf(30.0)
     var brushSmudgeRate by mutableDoubleStateOf(0.5)
     var brushSmudgeLength by mutableDoubleStateOf(0.5)
+    var brushColorRate by mutableDoubleStateOf(0.5)
+    var brushSmudgeMode by mutableIntStateOf(0) // 0: Dulling, 1: Smearing
     var brushSpikes by mutableIntStateOf(2)
     var brushJitterAngle by mutableDoubleStateOf(0.0)
     var brushJitterSize by mutableDoubleStateOf(0.0)
@@ -5041,6 +5044,7 @@ data class BrushParams(
     val textureScale: Double = 1.0,
     val textureStrength: Double = 0.5,
     val textureMode: String = "multiply",
+    val texturePattern: String = "",
     val hueJitter: Double = 0.0,
     val satJitter: Double = 0.0,
     val valJitter: Double = 0.0,

@@ -584,6 +584,7 @@ object KppHelper {
         val textureScale: Double? = null,
         val textureStrength: Double? = null,
         val textureMode: String? = null,
+        val texturePattern: String? = null,
         val hueJitter: Double? = null,
         val satJitter: Double? = null,
         val valJitter: Double? = null,
@@ -687,6 +688,8 @@ object KppHelper {
             else -> if (texModeRaw != null) "multiply" else null
         }
 
+        val texPattern = Regex("""<param[^>]*name="Texture/Pattern/(?:PatternFileName|Name)"[^>]*>(?:<!\[CDATA\[)?([^<\]]+)""").find(xml)?.groupValues?.getOrNull(1)?.trim()
+
         val hasPressureH = Regex("""<param[^>]*name="Pressureh"[^>]*>(?:<!\[CDATA\[)?(true|false)""").find(xml)?.groupValues?.getOrNull(1)?.toBoolean() ?: false
         val hasPressureS = Regex("""<param[^>]*name="Pressures"[^>]*>(?:<!\[CDATA\[)?(true|false)""").find(xml)?.groupValues?.getOrNull(1)?.toBoolean() ?: false
         val hasPressureV = Regex("""<param[^>]*name="Pressurev"[^>]*>(?:<!\[CDATA\[)?(true|false)""").find(xml)?.groupValues?.getOrNull(1)?.toBoolean() ?: false
@@ -762,6 +765,7 @@ object KppHelper {
             textureScale = texScale,
             textureStrength = texStrength,
             textureMode = textureMode,
+            texturePattern = texPattern,
             hueJitter = hueJitter,
             satJitter = satJitter,
             valJitter = valJitter,
@@ -915,6 +919,10 @@ object KppHelper {
             else -> "0"
         }
         xml = updateParam(xml, "Texture/Pattern/TexturingMode", texModeCode)
+        if (params.texturePattern.isNotBlank()) {
+            xml = updateParam(xml, "Texture/Pattern/PatternFileName", params.texturePattern)
+            xml = updateParam(xml, "Texture/Pattern/Name", params.texturePattern)
+        }
 
         // 13. Update Color Dynamics (HSV Jitters & Mix)
         val hasHue = params.hueJitter > 0.001

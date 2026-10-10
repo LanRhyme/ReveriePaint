@@ -1214,16 +1214,21 @@
     <string name="brush_new_group_hint">Enter group name</string>
     <string name="brush_group_already_exists">Group already exists</string>
 
-    <!-- Brush Studio Tabs -->
-    <string name="brush_studio_tab_tip">Tip Shape</string>
-    <string name="brush_studio_tab_masking">Masking Brush</string>
-    <string name="brush_studio_tab_stroke">Stroke</string>
-    <string name="brush_studio_tab_color">Color</string>
-    <string name="brush_studio_tab_geometry">Geometry</string>
-    <string name="brush_studio_tab_texture">Texture</string>
-    <string name="brush_studio_tab_pressure">Pressure</string>
-    <string name="brush_studio_tab_engine">Engine</string>
-    <string name="brush_studio_tab_info">Properties</string>
+    <!-- Brush Studio Tabs (5 Modules) -->
+    <string name="brush_studio_tab_tip">Tip &amp; Shape</string>
+    <string name="brush_studio_tab_stroke">Stroke &amp; Dynamics</string>
+    <string name="brush_studio_tab_color">Color &amp; Smudge</string>
+    <string name="brush_studio_tab_texture">Texture &amp; Mask</string>
+    <string name="brush_studio_tab_engine">Preset &amp; Engine</string>
+    <string name="brush_studio_tex_pattern_title">Texture Pattern</string>
+    <string name="brush_studio_tex_choose">Choose Pattern</string>
+    <string name="brush_studio_tex_import_custom">Import Custom Pattern</string>
+    <string name="brush_studio_tex_dialog_title">Texture Pattern Library</string>
+    <string name="brush_studio_tex_toast_imported">Pattern imported successfully</string>
+    <string name="brush_studio_tex_toast_import_failed">Failed to import pattern</string>
+    <string name="brush_studio_tex_none">Default (No Pattern)</string>
+    <string name="brush_studio_scratchpad_undo">Undo Stroke</string>
+    <string name="brush_studio_scratchpad_title">Live Scratchpad</string>
 
     <!-- Brush Studio Dialogs & Actions -->
     <string name="brush_studio_back_canvas">Back to Canvas</string>
@@ -1317,6 +1322,14 @@
     <string name="brush_studio_geo_angle_jitter">Angle Jitter</string>
     <string name="brush_studio_geo_auto_rotate">Follow Stroke Direction</string>
     <string name="brush_studio_tex_enable">Enable Texture Overlay</string>
+    <string name="brush_studio_pattern_title">Texture Pattern</string>
+    <string name="brush_studio_pattern_choose">Change Pattern</string>
+    <string name="brush_studio_pattern_import">Import Pattern</string>
+    <string name="brush_studio_pattern_default">Default Paper</string>
+    <string name="brush_studio_pattern_custom_prefix">Custom: %s</string>
+    <string name="brush_studio_pattern_toast_imported">Imported texture pattern: %s</string>
+    <string name="brush_studio_pattern_toast_failed">Failed to import pattern</string>
+    <string name="brush_studio_scratchpad_sub">Native Krita Engine Offline Preview</string>
     <string name="brush_studio_tex_blend_mode">Texture Blend Mode</string>
     <string name="brush_studio_tex_scale">Texture Scale</string>
     <string name="brush_studio_tex_strength">Texture Strength</string>
@@ -1441,6 +1454,13 @@
     <string name="brush_studio_scratchpad_toggle">Scratchpad</string>
     <string name="brush_studio_curve_edit">Edit Curve</string>
     <string name="brush_studio_curve_test_hint">Pressure Test Strip (draw strokes to test dynamics)</string>
+    <string name="brush_studio_smudge_mode">Smudge Mode</string>
+    <string name="brush_studio_smudge_mode_dulling">Dulling</string>
+    <string name="brush_studio_smudge_mode_smearing">Smearing</string>
+    <string name="brush_studio_color_rate">Color Rate</string>
+    <string name="brush_studio_composite_op">Brush Blend Mode</string>
+    <string name="brush_studio_tip_fade">Fade</string>
+    <string name="brush_studio_tip_softness">Softness</string>
 
     <!-- Color Components & Sliders -->
     <string name="color_num_dialog_range">Range: %1$s ~ %2$s%3$s</string>

@@ -287,21 +287,41 @@ import kotlinx.coroutines.withContext
     internal fun PaintViewModel.updateBrushTextureEnabled(v: Boolean) {
         brushTextureEnabled = v
         saveBrushParam(reloadEngine = true, immediateReload = true)
+        runCore(render = false) {
+            ReverieCoreBridge.setBrushTexture(brushTextureEnabled, brushTextureScale, brushTextureStrength, brushTextureMode, brushTexturePattern)
+        }
     }
 
     internal fun PaintViewModel.updateBrushTextureScale(v: Double) {
         brushTextureScale = v
         saveBrushParam(reloadEngine = true)
+        runCore(render = false) {
+            ReverieCoreBridge.setBrushTexture(brushTextureEnabled, brushTextureScale, brushTextureStrength, brushTextureMode, brushTexturePattern)
+        }
     }
 
     internal fun PaintViewModel.updateBrushTextureStrength(v: Double) {
         brushTextureStrength = v
         saveBrushParam(reloadEngine = true)
+        runCore(render = false) {
+            ReverieCoreBridge.setBrushTexture(brushTextureEnabled, brushTextureScale, brushTextureStrength, brushTextureMode, brushTexturePattern)
+        }
     }
 
     internal fun PaintViewModel.updateBrushTextureMode(v: String) {
         brushTextureMode = v
         saveBrushParam(reloadEngine = true, immediateReload = true)
+        runCore(render = false) {
+            ReverieCoreBridge.setBrushTexture(brushTextureEnabled, brushTextureScale, brushTextureStrength, brushTextureMode, brushTexturePattern)
+        }
+    }
+
+    internal fun PaintViewModel.updateBrushTexturePattern(v: String) {
+        brushTexturePattern = v
+        saveBrushParam(reloadEngine = true, immediateReload = true)
+        runCore(render = false) {
+            ReverieCoreBridge.setBrushTexture(brushTextureEnabled, brushTextureScale, brushTextureStrength, brushTextureMode, brushTexturePattern)
+        }
     }
 
     internal fun PaintViewModel.updateBrushHueJitter(v: Double) {
@@ -410,6 +430,17 @@ import kotlinx.coroutines.withContext
         runCore(render = false) { ReverieCoreBridge.setBrushSmudgeLength(v) }
     }
 
+    internal fun PaintViewModel.updateBrushColorRate(v: Double) {
+        brushColorRate = v.coerceIn(0.0, 1.0)
+        saveBrushParam(smudgeChanged = true)
+        runCore(render = false) { ReverieCoreBridge.setBrushSmudgeRate(brushColorRate) }
+    }
+
+    internal fun PaintViewModel.updateBrushSmudgeMode(v: Int) {
+        brushSmudgeMode = v.coerceIn(0, 1)
+        saveBrushParam(smudgeChanged = true)
+    }
+
     internal fun PaintViewModel.updateBrushSpikes(v: Int) {
         brushSpikes = v
         saveBrushParam(reloadEngine = true)
@@ -497,6 +528,16 @@ import kotlinx.coroutines.withContext
     internal fun PaintViewModel.updateBrushFlowSensor(v: String) {
         brushFlowSensor = v
         saveBrushParam(dynamicsChanged = true, reloadEngine = true, immediateReload = true)
+    }
+
+    internal fun PaintViewModel.updateBrushScatterSensor(v: String) {
+        brushScatterSensor = v
+        saveBrushParam(dynamicsChanged = true, reloadEngine = true, immediateReload = true)
+    }
+
+    internal fun PaintViewModel.updateBrushStreamline(v: Double) {
+        brushStreamline = v
+        saveBrushParam()
     }
 
     /** Capture scratchpad raster as the preset's official PNG thumbnail */
@@ -623,6 +664,7 @@ import kotlinx.coroutines.withContext
             textureScale = brushTextureScale,
             textureStrength = brushTextureStrength,
             textureMode = brushTextureMode,
+            texturePattern = brushTexturePattern,
             hueJitter = brushHueJitter,
             satJitter = brushSatJitter,
             valJitter = brushValJitter,
@@ -714,6 +756,13 @@ import kotlinx.coroutines.withContext
                                     pSnapshot.pressureCurve,
                                 )
                             }
+                            ReverieCoreBridge.setBrushTexture(
+                                pSnapshot.textureEnabled,
+                                pSnapshot.textureScale,
+                                pSnapshot.textureStrength,
+                                pSnapshot.textureMode,
+                                pSnapshot.texturePattern,
+                            )
                         }
                     }
                 }
@@ -754,6 +803,7 @@ import kotlinx.coroutines.withContext
                 o.put("tscl", p.textureScale)
                 o.put("tstr", p.textureStrength)
                 o.put("tm", p.textureMode)
+                o.put("txp", p.texturePattern)
                 o.put("hj", p.hueJitter)
                 o.put("sj", p.satJitter)
                 o.put("vj", p.valJitter)
@@ -944,6 +994,7 @@ import kotlinx.coroutines.withContext
                     textureScale = o.optDouble("tscl", 1.0),
                     textureStrength = o.optDouble("tstr", 0.5),
                     textureMode = o.optString("tm", "multiply"),
+                    texturePattern = o.optString("txp", ""),
                     hueJitter = if (resetLegacyJitter) 0.0 else o.optDouble("hj", 0.0),
                     satJitter = if (resetLegacyJitter) 0.0 else o.optDouble("sj", 0.0),
                     valJitter = if (resetLegacyJitter) 0.0 else o.optDouble("vj", 0.0),
@@ -1415,6 +1466,7 @@ import kotlinx.coroutines.withContext
                 brushTextureScale = saved.textureScale
                 brushTextureStrength = saved.textureStrength
                 brushTextureMode = saved.textureMode
+                brushTexturePattern = saved.texturePattern
                 brushHueJitter = saved.hueJitter
                 brushSatJitter = saved.satJitter
                 brushValJitter = saved.valJitter
@@ -1517,6 +1569,7 @@ import kotlinx.coroutines.withContext
                 brushTextureScale = parsed.textureScale ?: 1.0
                 brushTextureStrength = parsed.textureStrength ?: 0.5
                 brushTextureMode = parsed.textureMode ?: "multiply"
+                brushTexturePattern = parsed.texturePattern ?: ""
                 brushHueJitter = parsed.hueJitter ?: 0.0
                 brushSatJitter = parsed.satJitter ?: 0.0
                 brushValJitter = parsed.valJitter ?: 0.0
@@ -1606,6 +1659,13 @@ import kotlinx.coroutines.withContext
                 } else {
                     ReverieCoreBridge.setBrushTipAsset("")
                 }
+                ReverieCoreBridge.setBrushTexture(
+                    saved.textureEnabled,
+                    saved.textureScale,
+                    saved.textureStrength,
+                    saved.textureMode,
+                    saved.texturePattern,
+                )
             } else {
                 ReverieCoreBridge.setBrushCompositeOp(effectiveCompOp)
                 if (saved?.tipAsset?.isNotEmpty() == true) {
@@ -2503,5 +2563,49 @@ import kotlinx.coroutines.withContext
             null
         }
     }
+
+    /** 导入用户自定义材质纹理贴图 (.pat, .png, .jpg) 并设置为当前笔刷纹理 */
+    internal fun PaintViewModel.importCustomPattern(uri: android.net.Uri): String? {
+        return try {
+            val resolver = appContext.contentResolver
+            val rawName = runCatching {
+                resolver.query(uri, null, null, null, null)?.use { cursor ->
+                    val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
+                    if (cursor.moveToFirst() && nameIndex >= 0) cursor.getString(nameIndex) else null
+                }
+            }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast("/") ?: "pat_${System.currentTimeMillis()}"
+
+            val baseName = if (rawName.contains('.')) rawName.substringBeforeLast(".") else rawName
+            val ext = if (rawName.contains('.')) rawName.substringAfterLast(".").lowercase() else "png"
+            val isPat = ext == "pat"
+
+            val patternDir = File(appContext.filesDir, "patterns")
+            if (!patternDir.exists()) patternDir.mkdirs()
+
+            val cleanName: String
+            if (isPat) {
+                cleanName = "$baseName.pat"
+                val target = File(patternDir, cleanName)
+                resolver.openInputStream(uri)?.use { input ->
+                    target.outputStream().use { output -> input.copyTo(output) }
+                }
+            } else {
+                cleanName = "$baseName.png"
+                val target = File(patternDir, cleanName)
+                val bmp = resolver.openInputStream(uri)?.use { input ->
+                    android.graphics.BitmapFactory.decodeStream(input)
+                } ?: return null
+                target.outputStream().use { output ->
+                    bmp.compress(Bitmap.CompressFormat.PNG, 100, output)
+                }
+            }
+            updateBrushTexturePattern(cleanName)
+            cleanName
+        } catch (e: Exception) {
+            android.util.Log.e("ReveriePaint", "importCustomPattern failed", e)
+            null
+        }
+    }
+
 
 

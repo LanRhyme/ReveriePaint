@@ -408,4 +408,84 @@ Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeCancel(JNIEnv *, jobjec
 {
     core()->touchStrokeCancel();
 }
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_scratchpadStart(JNIEnv *, jobject, jint w, jint h)
+{
+    return core()->scratchpadStart(w, h) ? JNI_TRUE : JNI_FALSE;
 }
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_scratchpadStrokeStart(JNIEnv *, jobject, jdouble x, jdouble y, jdouble pressure, jdouble tiltX, jdouble tiltY, jdouble rotation)
+{
+    return core()->scratchpadStrokeStart(x, y, pressure, tiltX, tiltY, rotation) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_scratchpadStrokeMove(JNIEnv *, jobject, jdouble x, jdouble y, jdouble pressure, jdouble tiltX, jdouble tiltY, jdouble rotation)
+{
+    return core()->scratchpadStrokeMove(x, y, pressure, tiltX, tiltY, rotation) ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_scratchpadStrokeEnd(JNIEnv *, jobject)
+{
+    core()->scratchpadStrokeEnd();
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_scratchpadClear(JNIEnv *, jobject)
+{
+    core()->scratchpadClear();
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_scratchpadRender(JNIEnv *env, jobject, jobject bitmap)
+{
+    if (!bitmap) return JNI_FALSE;
+    AndroidBitmapInfo info;
+    if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        return JNI_FALSE;
+    }
+    if (info.width <= 0 || info.height <= 0 || info.stride < (info.width * 4)) {
+        return JNI_FALSE;
+    }
+    void *pixels = nullptr;
+    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        return JNI_FALSE;
+    }
+    bool ok = core()->scratchpadRender(static_cast<quint8 *>(pixels), info.width, info.height, info.stride);
+    AndroidBitmap_unlockPixels(env, bitmap);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_scratchpadEnd(JNIEnv *, jobject)
+{
+    core()->scratchpadEnd();
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setBrushTexture(JNIEnv *env, jobject, jboolean enabled, jdouble scale, jdouble strength, jstring mode, jstring patternName)
+{
+    QString modeStr;
+    if (mode) {
+        const char *m = env->GetStringUTFChars(mode, nullptr);
+        if (m) {
+            modeStr = QString::fromUtf8(m);
+            env->ReleaseStringUTFChars(mode, m);
+        }
+    }
+    QString patStr;
+    if (patternName) {
+        const char *p = env->GetStringUTFChars(patternName, nullptr);
+        if (p) {
+            patStr = QString::fromUtf8(p);
+            env->ReleaseStringUTFChars(patternName, p);
+        }
+    }
+    core()->setBrushTexture(enabled == JNI_TRUE, scale, strength, modeStr, patStr);
+}
+}
+
+
