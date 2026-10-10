@@ -3770,7 +3770,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         return true
                     }
 
-                    handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
+                    handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL), isStylus = true)
                     localIsTouching = false
                     localIsHovering = true
                     isInteracting = false
@@ -4300,7 +4300,12 @@ class CanvasTouchView(context: Context) : View(context) {
                     localIsHovering = false
                     localPressure = 1f
                     invalidate()
-                    handleToolDown(screenPos, docPos, 1f, isStylus = false)
+                    // 点击型工具 (油漆桶/魔棒/相似选区): 手指触摸下延后至 ACTION_UP 确认单指轻点时触发，
+                    // 防止双指撤回时第一根手指先落下的毫秒级微差误触发新填充并顶掉撤销堆栈
+                    val isTapCommitTool = tool == Tool.FILL || tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR
+                    if (!isTapCommitTool) {
+                        handleToolDown(screenPos, docPos, 1f, isStylus = false)
+                    }
                 }
                 return true
             }
@@ -4605,15 +4610,21 @@ class CanvasTouchView(context: Context) : View(context) {
                 sampleColorAtScreenPos(previousSinglePos)
             }
             Tool.FILL -> {
-                v.floodFill(docPos.x, docPos.y, fillTolerance)
+                if (isStylus) {
+                    v.floodFill(docPos.x, docPos.y, fillTolerance)
+                }
             }
             Tool.MAGICWAND -> {
-                wandFlash?.value = docPos
-                v.selectContiguous(docPos.x.toInt(), docPos.y.toInt())
+                if (isStylus) {
+                    wandFlash?.value = docPos
+                    v.selectContiguous(docPos.x.toInt(), docPos.y.toInt())
+                }
             }
             Tool.SELECT_SIMILAR -> {
-                wandFlash?.value = docPos
-                v.selectSimilar(docPos.x.toInt(), docPos.y.toInt())
+                if (isStylus) {
+                    wandFlash?.value = docPos
+                    v.selectSimilar(docPos.x.toInt(), docPos.y.toInt())
+                }
             }
             Tool.SELECT_POLYGON -> {
                 onPolyPoint?.invoke(docPos)
@@ -5945,7 +5956,7 @@ class CanvasTouchView(context: Context) : View(context) {
         liquifyPressureActive = true
     }
 
-    private fun handleToolUp(event: MotionEvent, docPos: Offset, isCancel: Boolean) {
+    private fun handleToolUp(event: MotionEvent, docPos: Offset, isCancel: Boolean, isStylus: Boolean = false) {
         removeCallbacks(quickShapeHold)
         removeCallbacks(liquifyHoldRunnable)
         val v = vm ?: return
@@ -6146,6 +6157,41 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
                 if (v.isTemporaryPicker) {
                     v.restorePreviousTool()
+                }
+            }
+            Tool.FILL -> {
+                if (isStylus) {
+                    // 笔尖已在 handleToolDown 中触发
+                } else if (!isCancel && maxTouchPointers <= 1) {
+                    val dragDist = hypot(docPos.x - firstDocPos.x, docPos.y - firstDocPos.y)
+                    val currentScale = maxOf(0.001f, canvasZoom * canvasFitScale)
+                    if (dragDist < (12f * density) / currentScale) {
+                        v.floodFill(firstDocPos.x, firstDocPos.y, fillTolerance)
+                    }
+                }
+            }
+            Tool.MAGICWAND -> {
+                if (isStylus) {
+                    // 笔尖已在 handleToolDown 中触发
+                } else if (!isCancel && maxTouchPointers <= 1) {
+                    val dragDist = hypot(docPos.x - firstDocPos.x, docPos.y - firstDocPos.y)
+                    val currentScale = maxOf(0.001f, canvasZoom * canvasFitScale)
+                    if (dragDist < (12f * density) / currentScale) {
+                        wandFlash?.value = firstDocPos
+                        v.selectContiguous(firstDocPos.x.toInt(), firstDocPos.y.toInt())
+                    }
+                }
+            }
+            Tool.SELECT_SIMILAR -> {
+                if (isStylus) {
+                    // 笔尖已在 handleToolDown 中触发
+                } else if (!isCancel && maxTouchPointers <= 1) {
+                    val dragDist = hypot(docPos.x - firstDocPos.x, docPos.y - firstDocPos.y)
+                    val currentScale = maxOf(0.001f, canvasZoom * canvasFitScale)
+                    if (dragDist < (12f * density) / currentScale) {
+                        wandFlash?.value = firstDocPos
+                        v.selectSimilar(firstDocPos.x.toInt(), firstDocPos.y.toInt())
+                    }
                 }
             }
             else -> Unit
