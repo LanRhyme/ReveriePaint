@@ -60,7 +60,7 @@ fun LiquifyPanel(
                 active = true,
             )
             Column(
-                modifier = Modifier.width(170.dp),
+                modifier = Modifier.width(240.dp),
                 verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 ToolFloatSlider(

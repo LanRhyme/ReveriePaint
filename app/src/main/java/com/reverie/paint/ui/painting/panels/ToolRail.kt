@@ -508,7 +508,6 @@ fun toolIcon(tool: Tool): Int =
         Tool.SELECT_RECT -> R.drawable.ic_select_rect
         Tool.SELECT_ELLIPSE -> R.drawable.ic_circle
         Tool.SELECT_POLYGON -> R.drawable.ic_polyline
-        Tool.MOVE -> R.drawable.ic_hand
         Tool.CROP -> R.drawable.ic_crop
         Tool.MEASURE -> R.drawable.ic_canvas_resize
         Tool.TRANSFORM -> R.drawable.ic_move

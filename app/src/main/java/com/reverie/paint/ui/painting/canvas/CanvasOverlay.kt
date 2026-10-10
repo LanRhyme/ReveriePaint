@@ -175,10 +175,10 @@ internal fun CanvasOverlay(
             ((tool == Tool.SELECT_RECT || tool == Tool.SELECT_ELLIPSE) && liveShapeStart.value != null) ||
             (tool == Tool.LASSO && vm.lassoMultiPoints.isNotEmpty()) ||
             (tool == Tool.SELECT_POLYGON && polyPoints.isNotEmpty())
-        val isTransformOrMove = (tool == Tool.TRANSFORM || tool == Tool.MOVE)
+        val isTransform = (tool == Tool.TRANSFORM)
 
         // 仅在存在活动选区或正在绘制选区且非变换操作时才读取动画状态，无选区时完全不触发多余重绘
-        val hasActiveSelection = (vm.hasSelection && !isTransformOrMove) || isSelecting
+        val hasActiveSelection = (vm.hasSelection && !isTransform) || isSelecting
         val animFraction = if (hasActiveSelection) selAnimFraction.value else 0f
 
         val bmp = object {
@@ -207,7 +207,7 @@ internal fun CanvasOverlay(
             }) {
                 // Draw transform preview
                 val previewBmp = vm.transformPreviewBitmap
-                if ((tool == Tool.TRANSFORM || tool == Tool.MOVE) && tfState.active && previewBmp != null) {
+                if (tool == Tool.TRANSFORM && tfState.active && previewBmp != null) {
                     val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
                     val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
                     if (tool == Tool.TRANSFORM && tfState.mode == TransformMode.DISTORT) {
@@ -1272,9 +1272,9 @@ internal fun CanvasOverlay(
                     (tool == Tool.LASSO && vm.lassoMultiPoints.isNotEmpty()) ||
                     (tool == Tool.SELECT_POLYGON && polyPoints.isNotEmpty())
                 // 1. Procreate 风格：仅在选区工具内显示未选区 45 度动态流动斑马纹；切到非选区工具（画笔、橡皮擦等）时自动隐藏遮罩，保持画布视野干净
-                val isTransformOrMove = (tool == Tool.TRANSFORM || tool == Tool.MOVE)
+                val isTransform = (tool == Tool.TRANSFORM)
                 val isSelectionTool = tool.group == ToolGroup.SELECTION
-                val shouldShowZebra = isSelectionTool && !isTransformOrMove && (vm.hasSelection || isSelecting)
+                val shouldShowZebra = isSelectionTool && !isTransform && (vm.hasSelection || isSelecting)
                 val selBmp = if (vm.hasSelection) vm.selectionOverlayBitmap else null
                 if (shouldShowZebra) {
                     val nativeCanvas = drawContext.canvas.nativeCanvas
@@ -1421,7 +1421,7 @@ internal fun CanvasOverlay(
                 }
 
                 // 2. 选区边界动态黑白交替流动蚂蚁线：无论在选区工具内还是切到其他工具（画笔、橡皮擦等），只要存在活动选区，选区边缘均显示动态流动的黑白相间蚂蚁线
-                val shouldShowOutline = !isTransformOrMove && vm.hasSelection && (!isSelecting || vm.selectionMode != 0)
+                val shouldShowOutline = !isTransform && vm.hasSelection && (!isSelecting || vm.selectionMode != 0)
                 if (shouldShowOutline) {
                     vm.selectionOutlinePath?.let { outlinePath ->
                         val currentScale = (zoom.value * fitScale).coerceAtLeast(0.001f)

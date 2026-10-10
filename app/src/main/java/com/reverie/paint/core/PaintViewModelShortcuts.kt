@@ -68,8 +68,7 @@ val ALL_SHORTCUT_DEFINITIONS = listOf(
     ShortcutDefinition("tool_fill", ShortcutCategory.TOOLS, "填充工具", "G", R.string.shortcut_def_fill),
     ShortcutDefinition("tool_gradient", ShortcutCategory.TOOLS, "渐变工具", "LeftShift + G", R.string.shortcut_def_gradient),
     ShortcutDefinition("tool_crop", ShortcutCategory.TOOLS, "裁剪工具", "C", R.string.shortcut_def_crop),
-    ShortcutDefinition("tool_transform", ShortcutCategory.TOOLS, "变换工具", "LeftCtrl + T", R.string.shortcut_def_transform),
-    ShortcutDefinition("tool_move", ShortcutCategory.TOOLS, "移动工具", "V", R.string.shortcut_def_move),
+    ShortcutDefinition("tool_transform", ShortcutCategory.TOOLS, "变换工具", "V", R.string.shortcut_def_transform),
 
     // 滤镜 (Filters)
     ShortcutDefinition("filter_hsv", ShortcutCategory.FILTERS, "色相/饱和度/明度", "LeftCtrl + U", R.string.shortcut_def_filter_hsv),
@@ -520,7 +519,7 @@ internal fun PaintViewModel.handleKeyEvent(event: KeyEvent): Boolean {
         "LeftCtrl + D" -> { clearSelectionAction(); true }
         "LeftCtrl + J" -> { copyLayer(currentLayerIndex); true }
         "LeftCtrl + E" -> { mergeDown(currentLayerIndex); true }
-        "LeftCtrl + T" -> { applyTool("transform"); true }
+        "LeftCtrl + T", "V" -> { applyTool("transform"); true }
         "LeftCtrl + =", "LeftCtrl + +", "LeftCtrl + LeftShift + =", "LeftCtrl + LeftShift + +" -> { requestUiCommand("zoom_in"); true }
         "LeftCtrl + -", "LeftCtrl + NumPadSubtract" -> { requestUiCommand("zoom_out"); true }
         "LeftCtrl + 0", "LeftCtrl + NumPad0" -> { requestUiCommand("reset_view"); true }
@@ -552,7 +551,6 @@ internal fun PaintViewModel.handleKeyEvent(event: KeyEvent): Boolean {
         "L" -> { applyTool("lasso"); true }
         "W" -> { applyTool("magicwand"); true }
         "C" -> { applyTool("crop"); true }
-        "V" -> { applyTool("move"); true }
         "X" -> {
             swapColors()
             true
@@ -635,8 +633,7 @@ internal fun PaintViewModel.executeShortcutAction(id: String) {
         "tool_lasso" -> applyTool("lasso")
         "tool_magicwand" -> applyTool("magicwand")
         "tool_crop" -> applyTool("crop")
-        "tool_transform" -> applyTool("transform")
-        "tool_move" -> applyTool("move")
+        "tool_transform", "tool_move" -> applyTool("transform")
         "brush_size_inc" -> {
             val maxL = effectiveBrushMaxSize
             val newSize = (brushSize * 1.25).coerceAtMost(maxL)

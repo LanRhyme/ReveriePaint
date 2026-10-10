@@ -1096,6 +1096,7 @@ internal fun PaintViewModel.drawPolygon(
     runCore { ReverieCoreBridge.drawPolygon(xs, ys, points.size, closed) }
 }
 
+@Deprecated("Retained for replay/recording compatibility, move tool has been removed in favor of transform tool")
 internal fun PaintViewModel.moveLayerContent(
     dx: Int,
     dy: Int,

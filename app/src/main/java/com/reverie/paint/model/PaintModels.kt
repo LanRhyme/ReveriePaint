@@ -54,7 +54,6 @@ enum class Tool(
 
     // Transform tools
     TRANSFORM("transform", "变换", ToolGroup.TRANSFORM),
-    MOVE("move", "移动", ToolGroup.TRANSFORM),
     CROP("crop", "裁剪", ToolGroup.TRANSFORM),
 
     // Other tools

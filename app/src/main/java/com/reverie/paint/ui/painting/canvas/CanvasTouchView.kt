@@ -4633,7 +4633,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 measureStart?.value = docPos
                 measureEnd?.value = docPos
             }
-            Tool.TRANSFORM, Tool.MOVE -> {
+            Tool.TRANSFORM -> {
                 val state = tfState
                 if (state != null) {
                     if (!state.active) {
@@ -4659,72 +4659,68 @@ class CanvasTouchView(context: Context) : View(context) {
                         }
                         v.startTransformPreview()
                     }
-                    if (tool == Tool.MOVE) {
-                        state.handle = 8 // Translate only
+                    val handles = tfHandles(state)
+                    val currentScale = canvasZoom * canvasFitScale
+                    val baseThresholdDoc = (18f * density) / maxOf(0.01f, currentScale)
+
+                    if (state.mode == TransformMode.PERSPECTIVE) {
+                        var best = -1
+                        var bestD = baseThresholdDoc
+                        for (i in handles.indices) {
+                            val d = hypot(handles[i].x - docPos.x, handles[i].y - docPos.y)
+                            if (d < bestD) {
+                                bestD = d
+                                best = i
+                            }
+                        }
+                        state.handle = if (best in 0..3) best else 8
+                    } else if (state.mode == TransformMode.DISTORT) {
+                        var best = -1
+                        var baseD = baseThresholdDoc
+                        for (i in handles.indices) {
+                            val d = hypot(handles[i].x - docPos.x, handles[i].y - docPos.y)
+                            if (d < baseD) {
+                                baseD = d
+                                best = i
+                            }
+                        }
+                        state.handle = if (best in 0..15) best else 99
                     } else {
-                        val handles = tfHandles(state)
-                        val currentScale = canvasZoom * canvasFitScale
-                        val baseThresholdDoc = (18f * density) / maxOf(0.01f, currentScale)
+                        val c = state.bounds.center
+                        val dx = docPos.x - c.x - state.tx
+                        val dy = docPos.y - c.y - state.ty
+                        val rad = Math.toRadians(-state.rotation.toDouble())
+                        val cosR = cos(rad).toFloat()
+                        val sinR = sin(rad).toFloat()
+                        val ux = (dx * cosR - dy * sinR) / state.scaleX
+                        val uy = (dx * sinR + dy * cosR) / state.scaleY
 
-                        if (state.mode == TransformMode.PERSPECTIVE) {
-                            var best = -1
-                            var bestD = baseThresholdDoc
-                            for (i in handles.indices) {
-                                val d = hypot(handles[i].x - docPos.x, handles[i].y - docPos.y)
-                                if (d < bestD) {
-                                    bestD = d
-                                    best = i
-                                }
+                        val halfW = state.bounds.width / 2f
+                        val halfH = state.bounds.height / 2f
+                        val inBox = ux >= -halfW && ux <= halfW && uy >= -halfH && uy <= halfH
+
+                        val maxHandleRadius = minOf(halfW, halfH) * 0.4f
+                        val hitThresholdDoc = minOf(baseThresholdDoc, maxOf(1f, maxHandleRadius))
+
+                        var best = -1
+                        var bestD = hitThresholdDoc
+                        for (i in handles.indices) {
+                            val d = hypot(handles[i].x - docPos.x, handles[i].y - docPos.y)
+                            if (d < bestD) {
+                                bestD = d
+                                best = i
                             }
-                            state.handle = if (best in 0..3) best else 8
-                        } else if (state.mode == TransformMode.DISTORT) {
-                            var best = -1
-                            var bestD = baseThresholdDoc
-                            for (i in handles.indices) {
-                                val d = hypot(handles[i].x - docPos.x, handles[i].y - docPos.y)
-                                if (d < bestD) {
-                                    bestD = d
-                                    best = i
-                                }
-                            }
-                            state.handle = if (best in 0..15) best else 99
-                        } else {
-                            val c = state.bounds.center
-                            val dx = docPos.x - c.x - state.tx
-                            val dy = docPos.y - c.y - state.ty
-                            val rad = Math.toRadians(-state.rotation.toDouble())
-                            val cosR = cos(rad).toFloat()
-                            val sinR = sin(rad).toFloat()
-                            val ux = (dx * cosR - dy * sinR) / state.scaleX
-                            val uy = (dx * sinR + dy * cosR) / state.scaleY
+                        }
 
-                            val halfW = state.bounds.width / 2f
-                            val halfH = state.bounds.height / 2f
-                            val inBox = ux >= -halfW && ux <= halfW && uy >= -halfH && uy <= halfH
+                        // 框内核心平移区保护：落点在矩形中央安全区优先判定为平移，杜绝误触缩放手柄
+                        val inInnerSafetyZone = inBox && halfW > 0f && halfH > 0f &&
+                            (abs(ux) < halfW * 0.65f && abs(uy) < halfH * 0.65f)
 
-                            val maxHandleRadius = minOf(halfW, halfH) * 0.4f
-                            val hitThresholdDoc = minOf(baseThresholdDoc, maxOf(1f, maxHandleRadius))
-
-                            var best = -1
-                            var bestD = hitThresholdDoc
-                            for (i in handles.indices) {
-                                val d = hypot(handles[i].x - docPos.x, handles[i].y - docPos.y)
-                                if (d < bestD) {
-                                    bestD = d
-                                    best = i
-                                }
-                            }
-
-                            // 框内核心平移区保护：落点在矩形中央安全区优先判定为平移，杜绝误触缩放手柄
-                            val inInnerSafetyZone = inBox && halfW > 0f && halfH > 0f &&
-                                (abs(ux) < halfW * 0.65f && abs(uy) < halfH * 0.65f)
-
-                            state.handle = when {
-                                inInnerSafetyZone -> 8
-                                best >= 0 -> best
-                                inBox -> 8
-                                else -> 9
-                            }
+                        state.handle = when {
+                            inInnerSafetyZone -> 8
+                            best >= 0 -> best
+                            inBox -> 8
+                            else -> 9
                         }
                     }
                     state.dragStart = docPos
@@ -5177,7 +5173,7 @@ class CanvasTouchView(context: Context) : View(context) {
             Tool.MEASURE -> {
                 measureEnd?.value = docPos
             }
-            Tool.TRANSFORM, Tool.MOVE -> {
+            Tool.TRANSFORM -> {
                 shapeEndDocPos = docPos
                 val state = tfState
                 if (state != null && state.active && state.handle >= 0) {
@@ -5915,30 +5911,6 @@ class CanvasTouchView(context: Context) : View(context) {
             }
             Tool.TRANSFORM -> {
                 tfState?.handle = -1
-            }
-            Tool.MOVE -> {
-                val state = tfState
-                if (state != null) {
-                    val dx = state.tx.toInt()
-                    val dy = state.ty.toInt()
-                    state.tx = 0f
-                    state.ty = 0f
-                    v.transformPreviewBitmap = null
-                    if (dx != 0 || dy != 0) {
-                        val b = v.contentBounds()
-                        if (b != null && b[2] > 0 && b[3] > 0) {
-                            state.bounds = Rect(
-                                b[0].toFloat(),
-                                b[1].toFloat(),
-                                (b[0] + b[2]).toFloat(),
-                                (b[1] + b[3]).toFloat(),
-                            )
-                        }
-                        v.moveLayerContent(dx, dy)
-                    } else {
-                        v.startTransformPreview()
-                    }
-                }
             }
             Tool.PICKER -> {
                 pickerActive?.value = false

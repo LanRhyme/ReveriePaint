@@ -380,7 +380,6 @@
     <string name="tool_select_similar">相似色选择</string>
     <string name="tool_select">选区</string>
     <string name="tool_transform">变换</string>
-    <string name="tool_move">移动</string>
     <string name="tool_crop">裁剪</string>
     <string name="tool_picker">拾色</string>
     <string name="tool_text">文本</string>
@@ -499,7 +498,6 @@
     <string name="shortcut_def_gradient">渐变工具</string>
     <string name="shortcut_def_crop">裁剪工具</string>
     <string name="shortcut_def_transform">变换工具</string>
-    <string name="shortcut_def_move">移动工具</string>
     <string name="shortcut_def_filter_hsv">色相/饱和度/明度</string>
     <string name="shortcut_def_filter_curves">色彩曲线</string>
     <string name="shortcut_def_filter_blur">高斯模糊</string>

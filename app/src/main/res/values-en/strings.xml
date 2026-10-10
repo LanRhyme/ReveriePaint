@@ -380,7 +380,6 @@
     <string name="tool_select_similar">Similar Color Selection</string>
     <string name="tool_select">Selection</string>
     <string name="tool_transform">Transform</string>
-    <string name="tool_move">Move</string>
     <string name="tool_crop">Crop</string>
     <string name="tool_picker">Eyedropper</string>
     <string name="tool_text">Text</string>
@@ -499,7 +498,6 @@
     <string name="shortcut_def_gradient">Gradient Tool</string>
     <string name="shortcut_def_crop">Crop Tool</string>
     <string name="shortcut_def_transform">Transform Tool</string>
-    <string name="shortcut_def_move">Move Tool</string>
     <string name="shortcut_def_filter_hsv">Hue/Saturation/Value</string>
     <string name="shortcut_def_filter_curves">Color Curves</string>
     <string name="shortcut_def_filter_blur">Gaussian Blur</string>

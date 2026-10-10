@@ -518,7 +518,7 @@ fun PaintingPage(
     }
     // Clear transient tool state when switching tools, and activate tool states
     androidx.compose.runtime.LaunchedEffect(tool) {
-        if (tool == Tool.TRANSFORM || tool == Tool.MOVE) {
+        if (tool == Tool.TRANSFORM) {
             val targets = vm.editTargetLayers()
             val activeLayer = vm.layers.firstOrNull { it.index == vm.currentLayerIndex }
             if (activeLayer?.isGroup == true && targets.isEmpty()) {
