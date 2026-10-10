@@ -23,11 +23,10 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.pointer.PointerIcon
-import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
@@ -59,6 +58,7 @@ fun AllToolsPanel(
     hazeState: HazeState? = null,
 ) {
     var showCustomizeDialog by remember { mutableStateOf(false) }
+
     val groupedTools = remember(vm.pinnedTools) {
         val customSet = vm.pinnedTools.toSet()
         val moreTools = Tool.entries.filter { it !in customSet }
@@ -86,7 +86,7 @@ fun AllToolsPanel(
                 )
                 .align(if (vm.leftHandMode) Alignment.CenterEnd else Alignment.CenterStart)
                 .noRippleClickable { /* consume clicks inside panel */ }
-                .width(200.dp)
+                .width(236.dp)
                 .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.5f))
                 .clip(panelShape)
                 .then(
@@ -100,20 +100,23 @@ fun AllToolsPanel(
                     }
                 )
                 .glassBorder(panelShape)
-                .padding(12.dp)
+                .padding(horizontal = 10.dp, vertical = 10.dp)
         ) {
-            Column {
+            Column(
+                modifier = Modifier.fillMaxHeight(0.82f)
+            ) {
+                // Header
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(bottom = 8.dp, start = 4.dp, end = 4.dp),
+                        .padding(bottom = 6.dp, start = 2.dp, end = 2.dp),
                     horizontalArrangement = Arrangement.SpaceBetween,
                     verticalAlignment = Alignment.CenterVertically
                 ) {
                     Text(
                         stringResource(R.string.tool_all_tools_title),
                         color = Morandi.text,
-                        fontSize = 14.sp,
+                        fontSize = 13.5.sp,
                         fontWeight = FontWeight.SemiBold
                     )
                     Icon(
@@ -121,32 +124,33 @@ fun AllToolsPanel(
                         contentDescription = stringResource(R.string.tool_customize_bar),
                         tint = Morandi.icon,
                         modifier = Modifier
-                            .size(24.dp)
+                            .size(22.dp)
                             .clip(RoundedCornerShape(6.dp))
                             .clickable { showCustomizeDialog = true }
-                            .padding(4.dp)
+                            .padding(3.dp)
                     )
                 }
 
                 LazyColumn(
                     modifier = Modifier.weight(1f, fill = false),
-                    verticalArrangement = Arrangement.spacedBy(6.dp)
+                    verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     groupedTools.forEach { (group, tools) ->
                         item(key = group.name) {
                             Text(
                                 group.displayName,
                                 color = Morandi.subText,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier.padding(start = 4.dp, top = 4.dp, bottom = 2.dp),
+                                fontSize = 10.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp),
                             )
                         }
-                        val chunked = tools.chunked(3)
+
+                        val chunked = tools.chunked(2)
                         items(chunked) { rowTools ->
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.SpaceBetween
+                                horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 rowTools.forEach { t ->
                                     val isSelected = when (t) {
@@ -159,18 +163,25 @@ fun AllToolsPanel(
                                         Tool.PERSPECTIVE -> vm.drawingGuide.mode == GuideMode.PERSPECTIVE
                                         else -> tool == t
                                     }
-                                    val cellSource = remember { androidx.compose.foundation.interaction.MutableInteractionSource() }
-                                    Column(
-                                        horizontalAlignment = Alignment.CenterHorizontally,
+                                    val cellSource = remember { MutableInteractionSource() }
+                                    val toolLabel = stringResource(t.labelRes())
+
+                                    Row(
+                                        verticalAlignment = Alignment.CenterVertically,
                                         modifier = Modifier
                                             .weight(1f)
-                                            .pressScale(cellSource, pressedScale = 0.94f)
-                                            .clip(RoundedCornerShape(8.dp))
+                                            .height(34.dp)
+                                            .pressScale(cellSource, pressedScale = 0.95f)
+                                            .clip(RoundedCornerShape(7.dp))
                                             .background(
-                                                if (isSelected) Morandi.accent.copy(alpha = 0.18f)
-                                                else Color.Transparent
+                                                if (isSelected) Morandi.accent.copy(alpha = 0.22f)
+                                                else Morandi.panelHi.copy(alpha = 0.35f)
                                             )
-                                            .liquidHighlight(cellSource, Color.White, radius = 28.dp)
+                                            .then(
+                                                if (isSelected) Modifier.border(0.8.dp, Morandi.accent.copy(alpha = 0.55f), RoundedCornerShape(7.dp))
+                                                else Modifier
+                                            )
+                                            .liquidHighlight(cellSource, Color.White, radius = 24.dp)
                                             .clickable(interactionSource = cellSource, indication = null) {
                                                 if (t == tool && t.group == ToolGroup.BRUSH) {
                                                     vm.updateBrushPanelCategory(
@@ -187,24 +198,27 @@ fun AllToolsPanel(
                                                     onClose()
                                                 }
                                             }
-                                            .padding(vertical = 6.dp)
+                                            .padding(horizontal = 7.dp)
                                     ) {
                                         Icon(
                                             painter = painterResource(toolIcon(t)),
-                                            contentDescription = t.displayName,
+                                            contentDescription = toolLabel,
                                             tint = if (isSelected) Morandi.accentHi else Morandi.icon,
-                                            modifier = Modifier.size(22.dp)
+                                            modifier = Modifier.size(17.dp)
                                         )
-                                        Spacer(Modifier.height(3.dp))
+                                        Spacer(Modifier.width(6.dp))
                                         Text(
-                                            t.displayName,
+                                            text = toolLabel,
                                             color = if (isSelected) Morandi.accentHi else Morandi.text,
-                                            fontSize = 11.sp,
+                                            fontSize = 11.5.sp,
                                             maxLines = 1,
+                                            overflow = TextOverflow.Ellipsis,
                                         )
                                     }
                                 }
-                                repeat(3 - rowTools.size) { Spacer(Modifier.weight(1f)) }
+                                if (rowTools.size == 1) {
+                                    Spacer(Modifier.weight(1f))
+                                }
                             }
                         }
                     }
