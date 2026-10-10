@@ -109,14 +109,25 @@ enum class HuaweiPencilModel(
     val maxPressure: Int,
     val isNearLink: Boolean,
     val hasDoubleTap: Boolean,
+    val hasSqueeze: Boolean = false,
     val desc: String,
 ) {
+    PRO(
+        displayName = "HUAWEI M-Pencil Pro",
+        editionName = "Pro (星闪/轻捏版)",
+        maxPressure = 16384,
+        isNearLink = true,
+        hasDoubleTap = true,
+        hasSqueeze = true,
+        desc = "星闪 NearLink 传输 · 16384级超万级压感 · 笔身轻捏/挤压手势 · 隐形触控双击 · 内置微型线性微震",
+    ),
     GEN3_NEARLINK(
         displayName = "HUAWEI M-Pencil (第三代星闪版)",
         editionName = "第三代 (星闪)",
         maxPressure = 16384,
         isNearLink = true,
         hasDoubleTap = true,
+        hasSqueeze = false,
         desc = "星闪 NearLink 无线传输 · 16384级超万级压感 · 笔身双击手势 · 极速采样与微秒级时延",
     ),
     GEN2(
@@ -125,6 +136,7 @@ enum class HuaweiPencilModel(
         maxPressure = 4096,
         isNearLink = false,
         hasDoubleTap = true,
+        hasSqueeze = false,
         desc = "蓝牙无线通信 · 4096级高精度压感 · 360°隐形触控双击 · 磁吸无线快充",
     ),
     GEN1(
@@ -133,12 +145,14 @@ enum class HuaweiPencilModel(
         maxPressure = 4096,
         isNearLink = false,
         hasDoubleTap = false,
+        hasSqueeze = false,
         desc = "4096级标准压感 · 物理侧键 · 基础手写与触控适配",
     );
 
     companion object {
         fun fromKey(key: String): HuaweiPencilModel {
             return when {
+                key.contains("PRO", ignoreCase = true) -> PRO
                 key.contains("GEN3", ignoreCase = true) || key.contains("NEARLINK", ignoreCase = true) -> GEN3_NEARLINK
                 key.contains("GEN1", ignoreCase = true) -> GEN1
                 else -> GEN2

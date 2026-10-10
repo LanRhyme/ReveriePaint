@@ -137,6 +137,10 @@
                 <action android:name="huawei.intent.action.STYLUS_DOUBLE_CLICK" />
                 <action android:name="com.huawei.pencil.action.DOUBLE_CLICK" />
                 <action android:name="com.huawei.nearlink.action.STYLUS_DOUBLE_CLICK" />
+                <action android:name="com.huawei.stylus.action.SQUEEZE" />
+                <action android:name="com.huawei.stylus.action.PINCH" />
+                <action android:name="com.huawei.pencil.action.SQUEEZE" />
+                <action android:name="com.huawei.nearlink.action.STYLUS_SQUEEZE" />
             </intent-filter>
         </receiver>
         <receiver

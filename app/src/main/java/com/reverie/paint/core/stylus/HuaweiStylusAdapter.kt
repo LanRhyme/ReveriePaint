@@ -48,6 +48,10 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
         const val ACTION_HUAWEI_DOUBLE_CLICK_ALT = "huawei.intent.action.STYLUS_DOUBLE_CLICK"
         const val ACTION_HUAWEI_PENCIL_DOUBLE_CLICK = "com.huawei.pencil.action.DOUBLE_CLICK"
         const val ACTION_HUAWEI_NEARLINK_DOUBLE_CLICK = "com.huawei.nearlink.action.STYLUS_DOUBLE_CLICK"
+        const val ACTION_HUAWEI_SQUEEZE = "com.huawei.stylus.action.SQUEEZE"
+        const val ACTION_HUAWEI_PINCH = "com.huawei.stylus.action.PINCH"
+        const val ACTION_HUAWEI_PENCIL_SQUEEZE = "com.huawei.pencil.action.SQUEEZE"
+        const val ACTION_HUAWEI_NEARLINK_SQUEEZE = "com.huawei.nearlink.action.STYLUS_SQUEEZE"
 
         // Huawei Global System Settings for Stylus Double-Click
         const val SETTING_DOUBLE_CLICK_SWITCH_MODE = "double_click_switch_mode"
@@ -156,6 +160,10 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
             addAction(ACTION_HUAWEI_DOUBLE_CLICK_ALT)
             addAction(ACTION_HUAWEI_PENCIL_DOUBLE_CLICK)
             addAction(ACTION_HUAWEI_NEARLINK_DOUBLE_CLICK)
+            addAction(ACTION_HUAWEI_SQUEEZE)
+            addAction(ACTION_HUAWEI_PINCH)
+            addAction(ACTION_HUAWEI_PENCIL_SQUEEZE)
+            addAction(ACTION_HUAWEI_NEARLINK_SQUEEZE)
         }
 
         try {
@@ -221,6 +229,14 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
             val count = safeGetIntExtra(intent, "count", safeGetIntExtra(intent, "click_count", safeGetIntExtra(intent, "clickCount", -1)))
             val clickType = safeGetIntExtra(intent, "click_type", safeGetIntExtra(intent, "clickType", safeGetIntExtra(intent, "type", -1)))
 
+            val isSqueezeAction = when (action) {
+                ACTION_HUAWEI_SQUEEZE,
+                ACTION_HUAWEI_PINCH,
+                ACTION_HUAWEI_PENCIL_SQUEEZE,
+                ACTION_HUAWEI_NEARLINK_SQUEEZE -> true
+                else -> false
+            }
+
             val isDoubleTapAction = when (action) {
                 ACTION_HUAWEI_BUTTON_DOUBLE_PRESSED,
                 ACTION_HUAWEI_DOUBLE_CLICK,
@@ -240,7 +256,9 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
                 }
             }
 
-            if (isDoubleTapAction) {
+            if (isSqueezeAction) {
+                handleSqueeze(vm, fm)
+            } else if (isDoubleTapAction) {
                 handleDoubleTap(vm, fm)
             } else {
                 handleSingleClick(vm, fm)
@@ -283,7 +301,7 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
     }
 
     fun detectModel(context: Context): HuaweiPencilModel {
-        // 1. 扫描已连接输入设备，精确匹配 M-Pencil 第三代 (星闪 NearLink)
+        // 1. 扫描已连接输入设备，精确匹配 M-Pencil Pro 或 第三代 (星闪 NearLink)
         try {
             val inputManager = context.getSystemService(Context.INPUT_SERVICE) as? InputManager
             if (inputManager != null) {
@@ -291,6 +309,9 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
                     val dev = inputManager.getInputDevice(id) ?: continue
                     val name = dev.name.lowercase()
                     if (name.contains("m-pencil") || name.contains("mpencil") || name.contains("huawei") || name.contains("pen")) {
+                        if (name.contains("pro") || name.contains("cd-mp04") || name.contains("mp04")) {
+                            return HuaweiPencilModel.PRO
+                        }
                         if (name.contains("3rd") || name.contains("gen3") || name.contains("cd-mp03") ||
                             name.contains("mp03") || name.contains("nearlink") || name.contains("starflash") ||
                             name.contains("星闪") || name.contains("sle")
@@ -322,6 +343,10 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
         val product = Build.PRODUCT.uppercase()
         val hardware = Build.HARDWARE.uppercase()
 
+        // 2024~2025 年新款 MatePad Pro (如 12.2、13.2 等) 首发或标配 M-Pencil Pro
+        val isProCompatibleDevice = model.contains("12.2") || model.contains("12 X") || model.contains("12X") ||
+                device.contains("PCE") || device.contains("BTU")
+
         val isNearLinkDevice = hasNearLinkProp ||
                 model.contains("11.5S") || model.contains("11.5") || model.contains("13.2") ||
                 model.contains("12.2") || model.contains("12 X") || model.contains("12X") ||
@@ -332,10 +357,10 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
                 device.contains("BTU") || device.contains("MRX") ||
                 product.contains("NEARLINK") || device.contains("NEARLINK") || hardware.contains("NEARLINK")
 
-        return if (isNearLinkDevice) {
-            HuaweiPencilModel.GEN3_NEARLINK
-        } else {
-            HuaweiPencilModel.GEN2
+        return when {
+            isProCompatibleDevice -> HuaweiPencilModel.PRO
+            isNearLinkDevice -> HuaweiPencilModel.GEN3_NEARLINK
+            else -> HuaweiPencilModel.GEN2
         }
     }
 
@@ -497,7 +522,18 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
         Log.d(TAG, "onStylusKeyEvent: action=${event.action}, keyCode=$keyCode, repeat=${event.repeatCount}")
 
         if (event.action == KeyEvent.ACTION_UP) {
-            // M-Pencil 2/3 代 (隐形触控/星闪双击): 硬件固件在笔身双击后派发按键，收到即代表双击手势触发
+            val isSqueezeKey = keyCode == KeyEvent.KEYCODE_STYLUS_BUTTON_SECONDARY ||
+                    keyCode == KeyEvent.KEYCODE_BUTTON_2 ||
+                    keyCode == KeyEvent.KEYCODE_PAGE_DOWN ||
+                    keyCode == KeyEvent.KEYCODE_F20
+
+            // 若当前型号支持挤压/轻捏且按下的属于副键/挤压键，则优先分发轻捏动作
+            if (vm.huaweiPencilModel.hasSqueeze && isSqueezeKey) {
+                Log.i(TAG, "M-Pencil squeeze/pinch hardware key triggered directly (keyCode=$keyCode)")
+                return handleSqueeze(vm, feedbackManager)
+            }
+
+            // M-Pencil 2/3 代 / Pro (隐形触控/星闪双击): 硬件固件在笔身双击后派发按键，收到即代表双击手势触发
             if (vm.huaweiPencilModel.hasDoubleTap) {
                 Log.i(TAG, "M-Pencil double-tap hardware key triggered directly (keyCode=$keyCode)")
                 return handleDoubleTap(vm, feedbackManager)
@@ -552,6 +588,32 @@ class HuaweiStylusAdapter : StylusBrandAdapter {
         val action = StylusAction.fromActionId(resolvedActionId)
         if (action != StylusAction.NONE) {
             Log.i(TAG, "handleDoubleTap executing action: ${action.name} (actionId=$resolvedActionId)")
+            if (vm.huaweiHapticsEnabled) {
+                feedbackManager?.triggerActionConfirmation()
+            }
+            vm.executeStylusAction(action)
+            return true
+        }
+        return false
+    }
+
+    fun handleSqueeze(vm: PaintViewModel, feedbackManager: StylusFeedbackManager?): Boolean {
+        val now = SystemClock.uptimeMillis()
+        if (now - lastDoubleTapTriggerTime < DEDUPLICATE_WINDOW_MS) {
+            Log.d(TAG, "Squeeze ignored due to deduplication (${now - lastDoubleTapTriggerTime}ms)")
+            return true
+        }
+        lastDoubleTapTriggerTime = now
+
+        val actionId = vm.huaweiSqueezeAction
+        if (actionId.trim().equals("none", ignoreCase = true)) {
+            Log.d(TAG, "Squeeze ignored: configured as 'none'")
+            return false
+        }
+
+        val action = StylusAction.fromActionId(actionId)
+        if (action != StylusAction.NONE) {
+            Log.i(TAG, "handleSqueeze executing action: ${action.name} (actionId=$actionId)")
             if (vm.huaweiHapticsEnabled) {
                 feedbackManager?.triggerActionConfirmation()
             }

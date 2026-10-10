@@ -1410,6 +1410,18 @@ class PaintViewModel : ViewModel() {
      * 关闭时回到上游原版行为 (仅"超低延迟笔迹预测"开关的 OEM 硬件尾线)。
      */
     var frontBufferPredictionEnabled by mutableStateOf(false)
+
+    /**
+     * 笔迹预测总开关: 任一预测开启即视为开启
+     */
+    val stylusPredictionMasterEnabled: Boolean
+        get() = stylusStrokePredictionEnabled || frontBufferPredictionEnabled
+
+    /**
+     * 笔迹预测算法模式: "HARDWARE" (硬件SDK算法) 或 "SOFTWARE" (APP软件算法)
+     */
+    val stylusPredictionAlgorithmType: String
+        get() = if (frontBufferPredictionEnabled) "SOFTWARE" else "HARDWARE"
     // Samsung Notes 标准语义: 按住侧键落笔 = 临时橡皮 (默认开, 可在三星 S Pen 专属设置中关闭)
     var samsungSideButtonErase by mutableStateOf(true)
     var samsungSingleClickAction by mutableStateOf("toggle_eraser")
@@ -1417,17 +1429,19 @@ class PaintViewModel : ViewModel() {
     var samsungLongPressAction by mutableStateOf("tool_picker")
 
     // HUAWEI M-Pencil 适配参数
-    var huaweiPencilModelMode by mutableStateOf("AUTO") // "AUTO", "GEN3_NEARLINK", "GEN2", "GEN1"
+    var huaweiPencilModelMode by mutableStateOf("AUTO") // "AUTO", "PRO", "GEN3_NEARLINK", "GEN2", "GEN1"
     val detectedHuaweiPencilModel: com.reverie.paint.core.stylus.HuaweiPencilModel
         get() = stylusDriver?.detectHuaweiPencilModel() ?: com.reverie.paint.core.stylus.HuaweiPencilModel.GEN2
     val huaweiPencilModel: com.reverie.paint.core.stylus.HuaweiPencilModel
         get() = when (huaweiPencilModelMode) {
+            "PRO" -> com.reverie.paint.core.stylus.HuaweiPencilModel.PRO
             "GEN3_NEARLINK" -> com.reverie.paint.core.stylus.HuaweiPencilModel.GEN3_NEARLINK
             "GEN2" -> com.reverie.paint.core.stylus.HuaweiPencilModel.GEN2
             "GEN1" -> com.reverie.paint.core.stylus.HuaweiPencilModel.GEN1
             else -> detectedHuaweiPencilModel
         }
     var huaweiDoubleTapAction by mutableStateOf("toggle_eraser")
+    var huaweiSqueezeAction by mutableStateOf("tool_color")
     var huaweiSingleClickAction by mutableStateOf("none")
     var huaweiLongPressAction by mutableStateOf("tool_color")
     var huaweiSideButtonErase by mutableStateOf(true)
@@ -2404,6 +2418,37 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun updateStylusPredictionMaster(enabled: Boolean) {
+        if (!enabled) {
+            updateStylusStrokePredictionEnabled(false)
+            updateFrontBufferPredictionEnabled(false)
+        } else {
+            // 重新开启时默认优先选择当前记忆的算法，或默认开启硬件 SDK 预测
+            val prefAlgo = if (::appContext.isInitialized) {
+                appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                    .getString("stylusPredictionLastAlgorithm", "HARDWARE") ?: "HARDWARE"
+            } else "HARDWARE"
+
+            if (prefAlgo == "SOFTWARE") {
+                updateFrontBufferPredictionEnabled(true)
+            } else {
+                updateStylusStrokePredictionEnabled(true)
+            }
+        }
+    }
+
+    fun updateStylusPredictionAlgorithm(algoType: String) {
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("stylusPredictionLastAlgorithm", algoType).apply()
+        }
+        if (algoType == "SOFTWARE") {
+            updateFrontBufferPredictionEnabled(true)
+        } else {
+            updateStylusStrokePredictionEnabled(true)
+        }
+    }
+
     fun updateSamsungSideButtonErase(enabled: Boolean) {
         samsungSideButtonErase = enabled
         if (::appContext.isInitialized) {
@@ -2449,6 +2494,14 @@ class PaintViewModel : ViewModel() {
         if (::appContext.isInitialized) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("huaweiDoubleTapAction", actionId).apply()
+        }
+    }
+
+    fun updateHuaweiSqueezeAction(actionId: String) {
+        huaweiSqueezeAction = actionId
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putString("huaweiSqueezeAction", actionId).apply()
         }
     }
 
@@ -3154,6 +3207,7 @@ class PaintViewModel : ViewModel() {
             samsungLongPressAction = prefs.getString("samsungLongPressAction", "tool_picker") ?: "tool_picker"
             huaweiPencilModelMode = prefs.getString("huaweiPencilModelMode", "AUTO") ?: "AUTO"
             huaweiDoubleTapAction = prefs.getString("huaweiDoubleTapAction", "toggle_eraser") ?: "toggle_eraser"
+            huaweiSqueezeAction = prefs.getString("huaweiSqueezeAction", "tool_color") ?: "tool_color"
             huaweiSingleClickAction = prefs.getString("huaweiSingleClickAction", "none") ?: "none"
             huaweiLongPressAction = prefs.getString("huaweiLongPressAction", "tool_color") ?: "tool_color"
             huaweiSideButtonErase = prefs.getBoolean("huaweiSideButtonErase", true)

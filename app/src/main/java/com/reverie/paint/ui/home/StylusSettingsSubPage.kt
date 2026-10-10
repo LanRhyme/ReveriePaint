@@ -110,12 +110,14 @@ internal fun StylusSettingsSubPage(
             // 1. 触控与光标设置
             SettingCategoryTitle(stringResource(R.string.stylus_touch_and_cursor))
             SettingGroup {
+                val isPredictionOn = vm.stylusPredictionMasterEnabled
+                val touchTotal = if (isPredictionOn) 8 else 6
                 SettingSwitchGroupItem(
                     icon = Icons.Rounded.Edit,
                     title = stringResource(R.string.settings_pen_mode),
                     summary = stringResource(R.string.stylus_pen_mode_desc),
                     checked = vm.penOnlyMode,
-                    shape = settingGroupShape(0, 7),
+                    shape = settingGroupShape(0, touchTotal),
                     onCheckedChange = { vm.updatePenOnlyMode(it) },
                 )
                 SettingSwitchGroupItem(
@@ -123,36 +125,41 @@ internal fun StylusSettingsSubPage(
                     title = stringResource(R.string.settings_pen_mode_single_finger_pan_title),
                     summary = stringResource(R.string.settings_pen_mode_single_finger_pan_desc),
                     checked = vm.penModeSingleFingerPanEnabled,
-                    shape = settingGroupShape(1, 7),
+                    shape = settingGroupShape(1, touchTotal),
                     onCheckedChange = { vm.updatePenModeSingleFingerPan(it) },
                 )
                 SettingSwitchGroupItem(
                     icon = Icons.Rounded.Speed,
                     title = stringResource(R.string.stylus_prediction_title),
-                    summary = stringResource(
-                        if (vm.frontBufferPredictionEnabled) R.string.stylus_prediction_superseded_desc
-                        else R.string.stylus_prediction_desc
-                    ),
-                    checked = vm.stylusStrokePredictionEnabled,
-                    enabled = !vm.frontBufferPredictionEnabled,
-                    shape = settingGroupShape(2, 7),
-                    onCheckedChange = { vm.updateStylusStrokePredictionEnabled(it) },
+                    summary = stringResource(R.string.stylus_prediction_desc),
+                    checked = isPredictionOn,
+                    shape = settingGroupShape(2, touchTotal),
+                    onCheckedChange = { vm.updateStylusPredictionMaster(it) },
                 )
-                SettingSwitchGroupItem(
-                    icon = Icons.Rounded.Bolt,
-                    title = stringResource(R.string.stylus_front_buffer_prediction_title),
-                    summary = stringResource(R.string.stylus_front_buffer_prediction_desc),
-                    checked = vm.frontBufferPredictionEnabled,
-                    shape = settingGroupShape(3, 7),
-                    onCheckedChange = { vm.updateFrontBufferPredictionEnabled(it) },
-                )
+                if (isPredictionOn) {
+                    SettingRadioGroupItem(
+                        title = stringResource(R.string.stylus_prediction_algo_hardware),
+                        summary = stringResource(R.string.stylus_prediction_algo_hardware_desc),
+                        selected = vm.stylusPredictionAlgorithmType == "HARDWARE",
+                        shape = settingGroupShape(3, touchTotal),
+                        onClick = { vm.updateStylusPredictionAlgorithm("HARDWARE") },
+                    )
+                    SettingRadioGroupItem(
+                        title = stringResource(R.string.stylus_prediction_algo_software),
+                        summary = stringResource(R.string.stylus_prediction_algo_software_desc),
+                        selected = vm.stylusPredictionAlgorithmType == "SOFTWARE",
+                        shape = settingGroupShape(4, touchTotal),
+                        onClick = { vm.updateStylusPredictionAlgorithm("SOFTWARE") },
+                    )
+                }
+                val cursorOffset = if (isPredictionOn) 5 else 3
                 SettingDropdownGroupItem(
                     icon = Icons.Rounded.Brush,
                     title = stringResource(R.string.stylus_brush_cursor),
                     summary = stringResource(R.string.stylus_brush_cursor_desc),
                     currentText = cursorModeOptions.getOrElse(vm.brushCursorMode) { cursorModeOptions[0] },
                     options = cursorModeOptions,
-                    shape = settingGroupShape(4, 7),
+                    shape = settingGroupShape(cursorOffset, touchTotal),
                     onSelect = { vm.updateBrushCursorMode(it) },
                 )
                 SettingDropdownGroupItem(
@@ -161,7 +168,7 @@ internal fun StylusSettingsSubPage(
                     summary = stringResource(R.string.stylus_eraser_cursor_desc),
                     currentText = cursorModeOptions.getOrElse(vm.eraserCursorMode) { cursorModeOptions.last() },
                     options = cursorModeOptions,
-                    shape = settingGroupShape(5, 7),
+                    shape = settingGroupShape(cursorOffset + 1, touchTotal),
                     onSelect = { vm.updateEraserCursorMode(it) },
                 )
                 SettingDropdownGroupItem(
@@ -170,7 +177,7 @@ internal fun StylusSettingsSubPage(
                     summary = stringResource(R.string.stylus_cursor_style_desc),
                     currentText = cursorStyleOptions.getOrElse(vm.cursorStyleMode) { cursorStyleOptions[0] },
                     options = cursorStyleOptions,
-                    shape = settingGroupShape(6, 7),
+                    shape = settingGroupShape(cursorOffset + 2, touchTotal),
                     onSelect = { vm.updateCursorStyleMode(it) },
                 )
             }

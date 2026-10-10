@@ -195,23 +195,33 @@ class StylusModelsTest {
     @Test
     fun `huawei pencil models correctly specified`() {
         val models = com.reverie.paint.core.stylus.HuaweiPencilModel.entries
-        assertEquals(3, models.size)
+        assertEquals(4, models.size)
+
+        val pro = com.reverie.paint.core.stylus.HuaweiPencilModel.PRO
+        assertEquals(16384, pro.maxPressure)
+        assertTrue("Pro has NearLink", pro.isNearLink)
+        assertTrue("Pro has double tap", pro.hasDoubleTap)
+        assertTrue("Pro has squeeze", pro.hasSqueeze)
 
         val gen3 = com.reverie.paint.core.stylus.HuaweiPencilModel.GEN3_NEARLINK
         assertEquals(16384, gen3.maxPressure)
         assertTrue("Gen 3 has NearLink", gen3.isNearLink)
         assertTrue("Gen 3 has double tap", gen3.hasDoubleTap)
+        assertFalse("Gen 3 does not have squeeze", gen3.hasSqueeze)
 
         val gen2 = com.reverie.paint.core.stylus.HuaweiPencilModel.GEN2
         assertEquals(4096, gen2.maxPressure)
         assertFalse(gen2.isNearLink)
         assertTrue(gen2.hasDoubleTap)
+        assertFalse(gen2.hasSqueeze)
 
         val gen1 = com.reverie.paint.core.stylus.HuaweiPencilModel.GEN1
         assertEquals(4096, gen1.maxPressure)
         assertFalse(gen1.isNearLink)
         assertFalse(gen1.hasDoubleTap)
+        assertFalse(gen1.hasSqueeze)
 
+        assertEquals(pro, com.reverie.paint.core.stylus.HuaweiPencilModel.fromKey("PRO"))
         assertEquals(gen3, com.reverie.paint.core.stylus.HuaweiPencilModel.fromKey("GEN3_NEARLINK"))
         assertEquals(gen3, com.reverie.paint.core.stylus.HuaweiPencilModel.fromKey("NEARLINK"))
         assertEquals(gen2, com.reverie.paint.core.stylus.HuaweiPencilModel.fromKey("GEN2"))

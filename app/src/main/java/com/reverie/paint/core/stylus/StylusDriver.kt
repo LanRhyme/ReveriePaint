@@ -243,6 +243,7 @@ class StylusDriver(
             return true
         }
 
+        // 检查输入设备是否为手写笔或蓝牙/星闪笔类
         val src = event.source
         if ((src and android.view.InputDevice.SOURCE_STYLUS) != 0 ||
             (src and android.view.InputDevice.SOURCE_BLUETOOTH_STYLUS) != 0
@@ -261,10 +262,21 @@ class StylusDriver(
             val name = dev.name.lowercase()
             if (name.contains("stylus") || name.contains("pen") || name.contains("pencil") ||
                 name.contains("focus") || name.contains("nearlink") || name.contains("starflash") ||
-                name.contains("星闪")
+                name.contains("星闪") || name.contains("cd-mp") || name.contains("mp0")
             ) {
                 return true
             }
+        }
+
+        // 部分厂商 (如华为星闪/蓝牙双击或轻捏) 将快捷键映射为 PAGE_UP / PAGE_DOWN / F19 / F20
+        // 若当前激活了专用手写笔适配器且按键落在这些扩展快捷键范围，允许进入分发
+        if (hasDedicatedActiveStylus && (
+            keyCode == KeyEvent.KEYCODE_PAGE_UP ||
+            keyCode == KeyEvent.KEYCODE_PAGE_DOWN ||
+            keyCode == KeyEvent.KEYCODE_F19 ||
+            keyCode == KeyEvent.KEYCODE_F20
+        )) {
+            return true
         }
 
         return false

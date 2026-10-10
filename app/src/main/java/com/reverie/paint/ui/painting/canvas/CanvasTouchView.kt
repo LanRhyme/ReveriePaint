@@ -840,9 +840,16 @@ class CanvasTouchView(context: Context) : View(context) {
 
     // ---- 笔尖前向超前预测 (OEM Hardware & Universal Kalman Motion Prediction) ----
     private var oplusPredictor: OplusMotionPredictor? = null
-    // vivo/iQOO 官方笔迹预测引擎 (penengine-simplify SDK): 与 OPPO 预测共用
-    // 预测消费管线, 二者互斥存在 (见 onAttachedToWindow 设备门控)
+    // vivo/iQOO 官方笔迹预测引擎 (penengine-simplify SDK)
     private var vivoPredictor: com.vivo.penengine.impl.VivoAlgorithmManagerImpl? = null
+    // 华为 官方笔迹预测引擎 (HwStrokeEstimate 反射包装)
+    private var huaweiPredictor: com.reverie.paint.core.stylus.HuaweiMotionPredictor? = null
+    // 小米 官方笔迹预测引擎 (MiuiStrokeEstimate 反射包装)
+    private var xiaomiPredictor: com.reverie.paint.core.stylus.XiaomiMotionPredictor? = null
+
+    // Android 原生系统级运动预测器 (androidx.input:input-motionprediction, 适用于华为、三星、小米、各品牌手写笔通用硬件层)
+    private var systemMotionPredictor: androidx.input.motionprediction.MotionEventPredictor? = null
+    private val tempOemPoint = FloatArray(3)
 
     private val universalPredictor = com.reverie.paint.core.stylus.UniversalKalmanPredictor(
         predictionTargetMs = 40.0f,
@@ -1076,6 +1083,12 @@ class CanvasTouchView(context: Context) : View(context) {
         resetTouchHistory()
         try {
             oplusPredictor?.reset()
+        } catch (_: Throwable) {}
+        try {
+            huaweiPredictor?.reset()
+        } catch (_: Throwable) {}
+        try {
+            xiaomiPredictor?.reset()
         } catch (_: Throwable) {}
         universalPredictor.reset()
         if (triggerInvalidate && had) {
@@ -2079,6 +2092,37 @@ class CanvasTouchView(context: Context) : View(context) {
                 vivoPredictor = null
             }
         }
+        if (huaweiPredictor == null && com.reverie.paint.core.stylus.HuaweiMotionPredictor.isHuaweiDeviceSupported()) {
+            try {
+                val hp = com.reverie.paint.core.stylus.HuaweiMotionPredictor(context.applicationContext)
+                if (hp.isValid) {
+                    huaweiPredictor = hp
+                    android.util.Log.i("ReveriePerf", "HuaweiMotionPredictor initialized")
+                }
+            } catch (t: Throwable) {
+                android.util.Log.w("ReveriePerf", "Failed to init HuaweiMotionPredictor: ${t.message}")
+            }
+        }
+        if (xiaomiPredictor == null && com.reverie.paint.core.stylus.XiaomiMotionPredictor.isXiaomiDeviceSupported()) {
+            try {
+                val xp = com.reverie.paint.core.stylus.XiaomiMotionPredictor(context.applicationContext)
+                if (xp.isValid) {
+                    xiaomiPredictor = xp
+                    android.util.Log.i("ReveriePerf", "XiaomiMotionPredictor initialized")
+                }
+            } catch (t: Throwable) {
+                android.util.Log.w("ReveriePerf", "Failed to init XiaomiMotionPredictor: ${t.message}")
+            }
+        }
+        if (systemMotionPredictor == null) {
+            try {
+                systemMotionPredictor = androidx.input.motionprediction.MotionEventPredictor.newInstance(this)
+                android.util.Log.i("ReveriePerf", "MotionEventPredictor initialized successfully")
+            } catch (t: Throwable) {
+                android.util.Log.w("ReveriePerf", "Failed to init MotionEventPredictor: ${t.message}")
+                systemMotionPredictor = null
+            }
+        }
         post { updateSystemGestureExclusion() }
     }
 
@@ -2226,6 +2270,11 @@ class CanvasTouchView(context: Context) : View(context) {
             vivoPredictor?.release()
         } catch (_: Throwable) {}
         vivoPredictor = null
+        huaweiPredictor?.destroy()
+        huaweiPredictor = null
+        xiaomiPredictor?.destroy()
+        xiaomiPredictor = null
+        systemMotionPredictor = null
         clearPredictionState(triggerInvalidate = false)
         safeEndSymmetryUndoMacro()
         resetMirrorBranches()
@@ -4942,7 +4991,66 @@ class CanvasTouchView(context: Context) : View(context) {
                         } catch (_: Throwable) {}
                     }
 
-                    // 通用 4 阶卡尔曼前向预测（适用于三星 S Pen、Wacom、小米、通用手写笔及触控）
+                    val hp = huaweiPredictor
+                    if (!predictionObtained && hp != null && hp.isValid) {
+                        try {
+                            if (hp.predictPoint(event, pointerIndex, tempOemPoint)) {
+                                val hx = tempOemPoint[0]
+                                val hy = tempOemPoint[1]
+                                val hpVal = tempOemPoint[2]
+                                if (hx.isFinite() && hy.isFinite() && (hx != 0f || hy != 0f) &&
+                                    (hx != event.getX(pointerIndex) || hy != event.getY(pointerIndex))) {
+                                    setPredictedScreenPoint(hx, hy)
+                                    predictedPressure = if (hpVal.isFinite()) hpVal.coerceIn(0.01f, 1f) else 1f
+                                    predictionObtained = true
+                                }
+                            }
+                        } catch (_: Throwable) {}
+                    }
+
+                    val xp = xiaomiPredictor
+                    if (!predictionObtained && xp != null && xp.isValid) {
+                        try {
+                            if (xp.predictPoint(event, pointerIndex, tempOemPoint)) {
+                                val xx = tempOemPoint[0]
+                                val xy = tempOemPoint[1]
+                                val xpVal = tempOemPoint[2]
+                                if (xx.isFinite() && xy.isFinite() && (xx != 0f || xy != 0f) &&
+                                    (xx != event.getX(pointerIndex) || xy != event.getY(pointerIndex))) {
+                                    setPredictedScreenPoint(xx, xy)
+                                    predictedPressure = if (xpVal.isFinite()) xpVal.coerceIn(0.01f, 1f) else 1f
+                                    predictionObtained = true
+                                }
+                            }
+                        } catch (_: Throwable) {}
+                    }
+
+                    // Android 原生系统级运动预测器 (适用于华为、三星、小米、各品牌手写笔通用硬件层)
+                    val smp = systemMotionPredictor
+                    if (!predictionObtained && smp != null) {
+                        try {
+                            smp.record(event)
+                            val predEvent = smp.predict()
+                            if (predEvent != null) {
+                                try {
+                                    if (pointerIndex in 0 until predEvent.pointerCount) {
+                                        val px = predEvent.getX(pointerIndex)
+                                        val py = predEvent.getY(pointerIndex)
+                                        val pp = predEvent.getPressure(pointerIndex)
+                                        if (px.isFinite() && py.isFinite() && (px != 0f || py != 0f) && (px != event.getX(pointerIndex) || py != event.getY(pointerIndex))) {
+                                            setPredictedScreenPoint(px, py)
+                                            predictedPressure = if (pp.isFinite()) pp.coerceIn(0.01f, 1f) else 1f
+                                            predictionObtained = true
+                                        }
+                                    }
+                                } finally {
+                                    predEvent.recycle()
+                                }
+                            }
+                        } catch (_: Throwable) {}
+                    }
+
+                    // 通用 4 阶卡尔曼前向预测（纯 Kotlin 几何外推兜底）
                     if (!predictionObtained) {
                         try {
                             if (pointerIndex in 0 until event.pointerCount) {
@@ -5086,28 +5194,20 @@ class CanvasTouchView(context: Context) : View(context) {
                             clearPredictedScreenPoint()
                         }
                     } else {
-                        val op = oplusPredictor
-                        if (op != null && op.isValid) {
+                        val hp = huaweiPredictor
+                        if (hp != null && hp.isValid) {
                             try {
-                                for (i in 0 until event.historySize) {
-                                    cachedTouchPointInfo.x = event.getHistoricalX(pointerIndex, i)
-                                    cachedTouchPointInfo.y = event.getHistoricalY(pointerIndex, i)
-                                    cachedTouchPointInfo.pressure = if (isStylus) event.getHistoricalPressure(pointerIndex, i).coerceIn(0f, 1f) else 1f
-                                    cachedTouchPointInfo.axisTilt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, pointerIndex, i) else 0f
-                                    cachedTouchPointInfo.timestamp = event.getHistoricalEventTime(i)
-                                    op.pushTouchPoint(cachedTouchPointInfo)
-                                }
-                                cachedTouchPointInfo.x = event.getX(pointerIndex)
-                                cachedTouchPointInfo.y = event.getY(pointerIndex)
-                                cachedTouchPointInfo.pressure = pressure
-                                cachedTouchPointInfo.axisTilt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) event.getAxisValue(MotionEvent.AXIS_TILT, pointerIndex) else 0f
-                                cachedTouchPointInfo.timestamp = event.eventTime
-                                op.pushTouchPoint(cachedTouchPointInfo)
-
-                                val pred = op.predictTouchPoint()
-                                if (pred != null) {
-                                    setPredictedScreenPoint(pred.x, pred.y)
-                                    predictedPressure = pred.pressure.coerceIn(0.01f, 1f)
+                                if (hp.predictPoint(event, pointerIndex, tempOemPoint)) {
+                                    val hx = tempOemPoint[0]
+                                    val hy = tempOemPoint[1]
+                                    val hpVal = tempOemPoint[2]
+                                    if (hx.isFinite() && hy.isFinite() && (hx != 0f || hy != 0f) &&
+                                        (hx != event.getX(pointerIndex) || hy != event.getY(pointerIndex))) {
+                                        setPredictedScreenPoint(hx, hy)
+                                        predictedPressure = if (hpVal.isFinite()) hpVal.coerceIn(0.01f, 1f) else 1f
+                                    } else {
+                                        clearPredictedScreenPoint()
+                                    }
                                 } else {
                                     clearPredictedScreenPoint()
                                 }
@@ -5115,7 +5215,90 @@ class CanvasTouchView(context: Context) : View(context) {
                                 clearPredictedScreenPoint()
                             }
                         } else {
-                            clearPredictedScreenPoint()
+                            val xp = xiaomiPredictor
+                            if (xp != null && xp.isValid) {
+                                try {
+                                    if (xp.predictPoint(event, pointerIndex, tempOemPoint)) {
+                                        val xx = tempOemPoint[0]
+                                        val xy = tempOemPoint[1]
+                                        val xpVal = tempOemPoint[2]
+                                        if (xx.isFinite() && xy.isFinite() && (xx != 0f || xy != 0f) &&
+                                            (xx != event.getX(pointerIndex) || xy != event.getY(pointerIndex))) {
+                                            setPredictedScreenPoint(xx, xy)
+                                            predictedPressure = if (xpVal.isFinite()) xpVal.coerceIn(0.01f, 1f) else 1f
+                                        } else {
+                                            clearPredictedScreenPoint()
+                                        }
+                                    } else {
+                                        clearPredictedScreenPoint()
+                                    }
+                                } catch (_: Throwable) {
+                                    clearPredictedScreenPoint()
+                                }
+                            } else {
+                                val op = oplusPredictor
+                                if (op != null && op.isValid) {
+                                    try {
+                                        for (i in 0 until event.historySize) {
+                                            cachedTouchPointInfo.x = event.getHistoricalX(pointerIndex, i)
+                                            cachedTouchPointInfo.y = event.getHistoricalY(pointerIndex, i)
+                                            cachedTouchPointInfo.pressure = if (isStylus) event.getHistoricalPressure(pointerIndex, i).coerceIn(0f, 1f) else 1f
+                                            cachedTouchPointInfo.axisTilt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, pointerIndex, i) else 0f
+                                            cachedTouchPointInfo.timestamp = event.getHistoricalEventTime(i)
+                                            op.pushTouchPoint(cachedTouchPointInfo)
+                                        }
+                                        cachedTouchPointInfo.x = event.getX(pointerIndex)
+                                        cachedTouchPointInfo.y = event.getY(pointerIndex)
+                                        cachedTouchPointInfo.pressure = pressure
+                                        cachedTouchPointInfo.axisTilt = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) event.getAxisValue(MotionEvent.AXIS_TILT, pointerIndex) else 0f
+                                        cachedTouchPointInfo.timestamp = event.eventTime
+                                        op.pushTouchPoint(cachedTouchPointInfo)
+
+                                        val pred = op.predictTouchPoint()
+                                        if (pred != null) {
+                                            setPredictedScreenPoint(pred.x, pred.y)
+                                            predictedPressure = pred.pressure.coerceIn(0.01f, 1f)
+                                        } else {
+                                            clearPredictedScreenPoint()
+                                        }
+                                    } catch (_: Throwable) {
+                                        clearPredictedScreenPoint()
+                                    }
+                                } else {
+                                    val smp = systemMotionPredictor
+                                    if (smp != null) {
+                                        try {
+                                            smp.record(event)
+                                            val predEvent = smp.predict()
+                                            if (predEvent != null) {
+                                                try {
+                                                    if (pointerIndex in 0 until predEvent.pointerCount) {
+                                                        val px = predEvent.getX(pointerIndex)
+                                                        val py = predEvent.getY(pointerIndex)
+                                                        val pp = predEvent.getPressure(pointerIndex)
+                                                        if (px.isFinite() && py.isFinite() && (px != 0f || py != 0f) && (px != event.getX(pointerIndex) || py != event.getY(pointerIndex))) {
+                                                            setPredictedScreenPoint(px, py)
+                                                            predictedPressure = if (pp.isFinite()) pp.coerceIn(0.01f, 1f) else 1f
+                                                        } else {
+                                                            clearPredictedScreenPoint()
+                                                        }
+                                                    } else {
+                                                        clearPredictedScreenPoint()
+                                                    }
+                                                } finally {
+                                                    predEvent.recycle()
+                                                }
+                                            } else {
+                                                clearPredictedScreenPoint()
+                                            }
+                                        } catch (_: Throwable) {
+                                            clearPredictedScreenPoint()
+                                        }
+                                    } else {
+                                        clearPredictedScreenPoint()
+                                    }
+                                }
+                            }
                         }
                     }
                     if (frontBufferOverlay != null) {

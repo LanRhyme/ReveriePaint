@@ -214,6 +214,8 @@ dependencies {
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     // 超低延迟前缓冲渲染组件 (API 29+, 用于笔尖前沿单缓冲直出)
     implementation("androidx.graphics:graphics-core:1.0.4")
+    // Android 原生系统级运动预测库 (适用于华为、三星、通用及各家 Android 平板)
+    implementation("androidx.input:input-motionprediction:1.0.0")
 
     testImplementation("junit:junit:4.13.2")
 }

@@ -1623,8 +1623,11 @@
     <string name="stylus_touch_and_cursor">Touch &amp; Cursor</string>
     <string name="stylus_pen_mode_desc">Disable finger drawing. One finger pans, two fingers zoom and rotate</string>
     <string name="stylus_prediction_title">Ultra-low Latency Prediction</string>
-    <string name="stylus_prediction_desc">OEM hardware prediction trail, only effective on select devices (e.g. OPPO); auto-disabled when Front-Buffer Prediction is on</string>
-    <string name="stylus_prediction_superseded_desc">Auto-disabled while Front-Buffer Prediction is on</string>
+    <string name="stylus_prediction_desc">Reduce stroke latency with OEM hardware SDK or in-app software prediction</string>
+    <string name="stylus_prediction_algo_hardware">Hardware SDK Algorithm</string>
+    <string name="stylus_prediction_algo_hardware_desc">Leverages system and OEM SDK prediction (supports OPPO, vivo, HUAWEI, Xiaomi, etc.)</string>
+    <string name="stylus_prediction_algo_software">App Software Algorithm</string>
+    <string name="stylus_prediction_algo_software_desc">Predicts via Kalman filtering and front-buffer preview, closer to pen tip with universal compatibility</string>
     <string name="stylus_front_buffer_prediction_title">Front-Buffer Prediction</string>
     <string name="stylus_front_buffer_prediction_desc">Direct tip preview to screen, ink stays closer to the pen tip</string>
     <string name="stylus_brush_cursor">Brush Cursor</string>
@@ -1765,6 +1768,7 @@
     <string name="stylus_huawei_title">HUAWEI M-Pencil Settings</string>
     <string name="stylus_huawei_model">Stylus Hardware Model</string>
     <string name="stylus_huawei_auto_model">Auto Detect (%s)</string>
+    <string name="stylus_huawei_model_pro">HUAWEI M-Pencil Pro (NearLink/Pinch)</string>
     <string name="stylus_huawei_model_gen3">HUAWEI M-Pencil (3rd Gen NearLink)</string>
     <string name="stylus_huawei_model_gen2">HUAWEI M-Pencil (2nd Gen)</string>
     <string name="stylus_huawei_model_gen1">HUAWEI M-Pencil / M-Pen (1st Gen)</string>
@@ -1772,6 +1776,8 @@
     <string name="stylus_huawei_press_4k">4,096 Levels Pressure</string>
     <string name="stylus_huawei_double_tap">Barrel Double-Tap Gesture</string>
     <string name="stylus_huawei_double_tap_action">Double-Tap Action</string>
+    <string name="stylus_huawei_squeeze">Barrel Squeeze / Pinch Gesture</string>
+    <string name="stylus_huawei_squeeze_action">Squeeze / Pinch Action</string>
     <string name="stylus_huawei_side_key">Physical Side Button</string>
     <string name="stylus_huawei_hold_eraser">Hold Side Button to Erase</string>
     <string name="stylus_huawei_hold_eraser_desc">Holding the side button while touching turns stroke into temporary eraser</string>
@@ -1780,8 +1786,8 @@
     <string name="stylus_huawei_long_press_action">Long-Press Action</string>
     <string name="stylus_huawei_haptics">Haptic Feedback</string>
     <string name="stylus_huawei_haptics_title">Haptic Vibration on Gesture</string>
-    <string name="stylus_huawei_haptics_desc">Provide transient tactile vibration when double-tap or button action fires</string>
-    <string name="stylus_huawei_hint">Note: If double-tap does not respond, ensure double-tap gesture is enabled in System Settings -> Accessibility features -> Stylus</string>
+    <string name="stylus_huawei_haptics_desc">Provide transient tactile vibration when double-tap, squeeze, or button action fires</string>
+    <string name="stylus_huawei_hint">Note: If double-tap or squeeze does not respond, ensure the corresponding gestures are enabled in System Settings -> Accessibility features -> Stylus</string>
 
     <!-- HONOR Magic-Pencil -->
     <string name="stylus_honor_title">HONOR Magic-Pencil Settings</string>

@@ -1623,8 +1623,11 @@
     <string name="stylus_touch_and_cursor">触控与光标</string>
     <string name="stylus_pen_mode_desc">开启后禁止手指绘制，单指可平移画布，双指可缩放与旋转画布</string>
     <string name="stylus_prediction_title">超低延迟笔迹预测</string>
-    <string name="stylus_prediction_desc">OEM 硬件预测尾线，仅部分机型有效（如 OPPO 系）；开启前缓冲预测后自动停用</string>
-    <string name="stylus_prediction_superseded_desc">前缓冲预测已开启，此开关自动停用</string>
+    <string name="stylus_prediction_desc">降低运笔跟手延迟，支持选择硬件厂商 SDK 或软件自研算法</string>
+    <string name="stylus_prediction_algo_hardware">硬件SDK算法</string>
+    <string name="stylus_prediction_algo_hardware_desc">调用系统及厂商原生 SDK 预测（支持 OPPO、vivo、华为、小米等）</string>
+    <string name="stylus_prediction_algo_software">APP软件算法</string>
+    <string name="stylus_prediction_algo_software_desc">基于卡尔曼滤波与前缓冲直出，笔迹更贴近笔尖且通用性更高</string>
     <string name="stylus_front_buffer_prediction_title">前缓冲预测</string>
     <string name="stylus_front_buffer_prediction_desc">笔尖预览直出上屏，笔迹更贴近笔尖</string>
     <string name="stylus_brush_cursor">画笔光标</string>
@@ -1765,6 +1768,7 @@
     <string name="stylus_huawei_title">HUAWEI M-Pencil 专属设置</string>
     <string name="stylus_huawei_model">手写笔硬件型号</string>
     <string name="stylus_huawei_auto_model">自动匹配 (%s)</string>
+    <string name="stylus_huawei_model_pro">HUAWEI M-Pencil Pro (星闪/轻捏版)</string>
     <string name="stylus_huawei_model_gen3">HUAWEI M-Pencil 第三代 (星闪版)</string>
     <string name="stylus_huawei_model_gen2">HUAWEI M-Pencil 第二代</string>
     <string name="stylus_huawei_model_gen1">HUAWEI M-Pencil / M-Pen 第一代</string>
@@ -1772,6 +1776,8 @@
     <string name="stylus_huawei_press_4k">4096级标准压感</string>
     <string name="stylus_huawei_double_tap">笔身双击手势</string>
     <string name="stylus_huawei_double_tap_action">双击响应动作</string>
+    <string name="stylus_huawei_squeeze">笔身轻捏/挤压手势</string>
+    <string name="stylus_huawei_squeeze_action">轻捏响应动作</string>
     <string name="stylus_huawei_side_key">物理侧键行为</string>
     <string name="stylus_huawei_hold_eraser">按住侧键临时变橡皮</string>
     <string name="stylus_huawei_hold_eraser_desc">按住侧键下笔即为橡皮擦，松开侧键自动切回原工具</string>
@@ -1780,8 +1786,8 @@
     <string name="stylus_huawei_long_press_action">侧键长按动作</string>
     <string name="stylus_huawei_haptics">触觉反馈</string>
     <string name="stylus_huawei_haptics_title">手势触发微震反馈</string>
-    <string name="stylus_huawei_haptics_desc">双击或按键触发快捷功能时提供瞬态微触反馈</string>
-    <string name="stylus_huawei_hint">提示：若笔身双击无响应，请在系统设置 -> 辅助功能 -> 手写笔 -> 双击中开启双击手势支持</string>
+    <string name="stylus_huawei_haptics_desc">双击、轻捏或按键触发快捷功能时提供瞬态微触反馈</string>
+    <string name="stylus_huawei_hint">提示：若笔身双击或轻捏无响应，请在系统设置 -> 辅助功能 -> 手写笔中确认相关手势开关已开启</string>
 
     <!-- HONOR Magic-Pencil -->
     <string name="stylus_honor_title">荣耀 Magic-Pencil 专属设置</string>

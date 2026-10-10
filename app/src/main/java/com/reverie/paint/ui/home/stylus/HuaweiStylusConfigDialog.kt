@@ -55,6 +55,7 @@ internal fun HuaweiStylusConfigDialog(
 
     val modelOptions = listOf(
         "AUTO" to stringResource(R.string.stylus_huawei_auto_model, vm.detectedHuaweiPencilModel.editionName),
+        "PRO" to stringResource(R.string.stylus_huawei_model_pro),
         "GEN3_NEARLINK" to stringResource(R.string.stylus_huawei_model_gen3),
         "GEN2" to stringResource(R.string.stylus_huawei_model_gen2),
         "GEN1" to stringResource(R.string.stylus_huawei_model_gen1),
@@ -92,6 +93,7 @@ internal fun HuaweiStylusConfigDialog(
                     StylusDialogSectionTitle(stringResource(R.string.stylus_huawei_model))
                     StylusDialogCard {
                         val currentModelText = when (vm.huaweiPencilModelMode) {
+                            "PRO" -> stringResource(R.string.stylus_huawei_model_pro)
                             "GEN3_NEARLINK" -> stringResource(R.string.stylus_huawei_model_gen3)
                             "GEN2" -> stringResource(R.string.stylus_huawei_model_gen2)
                             "GEN1" -> stringResource(R.string.stylus_huawei_model_gen1)
@@ -127,9 +129,9 @@ internal fun HuaweiStylusConfigDialog(
                                 ) {
                                     Text(
                                         text = if (vm.huaweiPencilModel.isNearLink) {
-                                            stringResource(R.string.stylus_huawei_press_16k)
+                                             stringResource(R.string.stylus_huawei_press_16k)
                                         } else {
-                                            stringResource(R.string.stylus_huawei_press_4k)
+                                             stringResource(R.string.stylus_huawei_press_4k)
                                         },
                                         color = if (vm.huaweiPencilModel.isNearLink) colors.accent else colors.subText,
                                         fontSize = 10.5.sp,
@@ -147,7 +149,23 @@ internal fun HuaweiStylusConfigDialog(
                         }
                     }
 
-                    // 2. 笔身双击手势
+                    // 2. 笔身轻捏/挤压手势 (M-Pencil Pro)
+                    if (vm.huaweiPencilModel.hasSqueeze) {
+                        StylusDialogSectionTitle(stringResource(R.string.stylus_huawei_squeeze))
+                        StylusDialogCard {
+                            val squeezeTitle = actionOptions.find { it.second == vm.huaweiSqueezeAction }?.first ?: actionOptions.find { it.second == "tool_color" }?.first ?: actionOptions[0].first
+                            StylusDialogDropdownItem(
+                                title = stringResource(R.string.stylus_huawei_squeeze_action),
+                                currentText = squeezeTitle,
+                                options = actionOptions.map { it.first },
+                                onSelect = { idx ->
+                                    vm.updateHuaweiSqueezeAction(actionOptions[idx].second)
+                                },
+                            )
+                        }
+                    }
+
+                    // 3. 笔身双击手势
                     if (vm.huaweiPencilModel.hasDoubleTap) {
                         StylusDialogSectionTitle(stringResource(R.string.stylus_huawei_double_tap))
                         StylusDialogCard {
@@ -163,7 +181,7 @@ internal fun HuaweiStylusConfigDialog(
                         }
                     }
 
-                    // 3. 物理侧键行为 (仅第一代 / M-Pen 具备物理实体按键)
+                    // 4. 物理侧键行为 (仅第一代 / M-Pen 具备物理实体按键)
                     if (!vm.huaweiPencilModel.hasDoubleTap) {
                         StylusDialogSectionTitle(stringResource(R.string.stylus_huawei_side_key))
                         StylusDialogCard {
