@@ -2370,6 +2370,9 @@ class CanvasTouchView(context: Context) : View(context) {
 
         val tiles = largeBitmapTiles ?: return
         if (largeBitmapLastGenId != bmp.generationId) {
+            val tilePaint = Paint().apply {
+                xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC)
+            }
             for (r in 0 until rows) {
                 for (c in 0 until cols) {
                     val idx = r * cols + c
@@ -2381,7 +2384,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     largeBitmapSrcRect.set(sx, sy, sx + tw, sy + th)
                     largeBitmapDstRect.set(0, 0, tw, th)
                     val tileCanvas = Canvas(tile)
-                    tileCanvas.drawBitmap(bmp, largeBitmapSrcRect, largeBitmapDstRect, null)
+                    tileCanvas.drawColor(android.graphics.Color.TRANSPARENT, android.graphics.PorterDuff.Mode.CLEAR)
+                    tileCanvas.drawBitmap(bmp, largeBitmapSrcRect, largeBitmapDstRect, tilePaint)
                 }
             }
             largeBitmapLastGenId = bmp.generationId

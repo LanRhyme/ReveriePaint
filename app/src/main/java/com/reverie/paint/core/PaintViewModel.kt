@@ -188,13 +188,13 @@ class PaintViewModel : ViewModel() {
         }
 
         val timeElapsed = now - lastAutoSaveTimeMs >= intervalMs
-        val strokeThresholdReached = strokesSinceLastAutoSave >= 25 || hasPendingMajorOp
+        val strokeThresholdReached = (strokesSinceLastAutoSave >= 60 || hasPendingMajorOp) && (now - lastAutoSaveTimeMs >= 60_000L)
 
-        if (timeElapsed) {
-            // 定期兜底自动保存 (默认 5 分钟，带轻量 Toast 提示)
+        if (timeElapsed && sinceStrokeEnd >= 8_000L) {
+            // 定期兜底自动保存 (默认 5 分钟，带轻量 Toast 提示，抬笔空闲 8 秒后静默触发)
             autoSaveProject(isPeriodic = true)
-        } else if (strokeThresholdReached && sinceStrokeEnd >= 4_000L) {
-            // 笔画或重大操作触发的空闲静默快照 (静默无弹窗，完全不打扰绘画)
+        } else if (strokeThresholdReached && sinceStrokeEnd >= 15_000L) {
+            // 笔画或重大操作触发的空闲静默快照 (用户完全停笔休息 15 秒后触发，避免刚想画下一笔时撞上序列化)
             autoSaveProject(isPeriodic = false)
         }
     }
@@ -4015,7 +4015,9 @@ class PaintViewModel : ViewModel() {
     private val syncPaint = android.graphics.Paint().apply {
         xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC)
     }
-    private val lastWrittenRect = android.graphics.Rect()
+    // Cumulative dirty rects missing from backBuffer and frontBuffer to ensure 100% sync
+    private val backMissingRect = android.graphics.Rect()
+    private val frontMissingRect = android.graphics.Rect()
     private val renderDirty = IntArray(4)
     private var hasWrittenRect = false
 
@@ -4696,6 +4698,8 @@ class PaintViewModel : ViewModel() {
                 frontBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                 backBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                 displayBufferInvalid = false
+                frontMissingRect.setEmpty()
+                backMissingRect.setEmpty()
                 hasWrittenRect = false
                 // 缓冲重分配后旧脏区已无意义, 清掉免得 UI 侧拿它做局部失效
                 renderDirtySnapshot = null
@@ -4707,6 +4711,8 @@ class PaintViewModel : ViewModel() {
                     frontBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                     backBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                     displayBufferInvalid = false
+                    frontMissingRect.setEmpty()
+                    backMissingRect.setEmpty()
                     hasWrittenRect = false
                     renderDirtySnapshot = null
                 } catch (retryOom: OutOfMemoryError) {
@@ -4719,10 +4725,11 @@ class PaintViewModel : ViewModel() {
         val front = frontBuffer
         val back = backBuffer ?: return
 
-        // Synchronize previous frame's dirty region from front buffer to back buffer
-        if (!reallocated && hasWrittenRect && !lastWrittenRect.isEmpty && front != null) {
+        // Synchronize all cumulative regions missing from backBuffer using frontBuffer
+        if (!reallocated && !backMissingRect.isEmpty && front != null) {
             syncCanvas.setBitmap(back)
-            syncCanvas.drawBitmap(front, lastWrittenRect, lastWrittenRect, syncPaint)
+            syncCanvas.drawBitmap(front, backMissingRect, backMissingRect, syncPaint)
+            backMissingRect.setEmpty()
         }
 
         val forceFull = reallocated
@@ -4764,12 +4771,15 @@ class PaintViewModel : ViewModel() {
         }
 
         if (renderDirty[2] > 0 && renderDirty[3] > 0) {
-            lastWrittenRect.set(
-                renderDirty[0],
-                renderDirty[1],
-                renderDirty[0] + renderDirty[2],
-                renderDirty[1] + renderDirty[3]
-            )
+            val writtenLeft = renderDirty[0]
+            val writtenTop = renderDirty[1]
+            val writtenRight = renderDirty[0] + renderDirty[2]
+            val writtenBottom = renderDirty[1] + renderDirty[3]
+            if (frontMissingRect.isEmpty) {
+                frontMissingRect.set(writtenLeft, writtenTop, writtenRight, writtenBottom)
+            } else {
+                frontMissingRect.union(writtenLeft, writtenTop, writtenRight, writtenBottom)
+            }
             hasWrittenRect = true
             publishRenderDirtySnapshot()
         } else {
@@ -4777,11 +4787,17 @@ class PaintViewModel : ViewModel() {
             renderDirtySnapshot = null
         }
 
-        // Swap front and back buffers
+        // Swap front and back buffers, and swap their missing tracking
         val rendered = back
         backBuffer = front
         frontBuffer = rendered
         displayBitmap = rendered
+        val tempL = backMissingRect.left
+        val tempT = backMissingRect.top
+        val tempR = backMissingRect.right
+        val tempB = backMissingRect.bottom
+        backMissingRect.set(frontMissingRect)
+        frontMissingRect.set(tempL, tempT, tempR, tempB)
         liquifyPresentation.publish(liquifyPresentationGesture, rendered)
 
         // 纹理重传代理量: 每翻转一次, 下一帧 HWUI 都要把整张 Bitmap 纹理重传一遍
