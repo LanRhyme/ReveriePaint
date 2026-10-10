@@ -180,6 +180,8 @@ class CanvasTouchView(context: Context) : View(context) {
     var livePressure: MutableState<Float>? = null
     var measureStart: MutableState<Offset?>? = null
     var measureEnd: MutableState<Offset?>? = null
+    /** 测量工具当前激活的手柄: 0 表示起点, 1 表示终点, -1 表示新建或未命中手柄 */
+    private var activeMeasureHandle: Int = -1
     var wandFlash: MutableState<Offset?>? = null
     var pickerActive: MutableState<Boolean>? = null
     var pickerScreenPos: MutableState<Offset>? = null
@@ -1836,6 +1838,11 @@ class CanvasTouchView(context: Context) : View(context) {
     private val systemGrabPointer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
         PointerIcon.getSystemIcon(context, PointerIcon.TYPE_GRAB)
     } else null
+
+    fun clearMeasure() {
+        measureStart?.value = null
+        measureEnd?.value = null
+    }
 
     companion object {
         @Volatile
@@ -4630,8 +4637,33 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
             }
             Tool.MEASURE -> {
-                measureStart?.value = docPos
-                measureEnd?.value = docPos
+                val s = measureStart?.value
+                val e = measureEnd?.value
+                val currentScale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
+                val hitThresholdDoc = (28f * density) / currentScale
+                if (s != null && e != null) {
+                    val dStart = hypot(docPos.x - s.x, docPos.y - s.y)
+                    val dEnd = hypot(docPos.x - e.x, docPos.y - e.y)
+                    when {
+                        dStart <= hitThresholdDoc && dStart <= dEnd -> {
+                            activeMeasureHandle = 0
+                            measureStart?.value = docPos
+                        }
+                        dEnd <= hitThresholdDoc -> {
+                            activeMeasureHandle = 1
+                            measureEnd?.value = docPos
+                        }
+                        else -> {
+                            activeMeasureHandle = -1
+                            measureStart?.value = docPos
+                            measureEnd?.value = docPos
+                        }
+                    }
+                } else {
+                    activeMeasureHandle = -1
+                    measureStart?.value = docPos
+                    measureEnd?.value = docPos
+                }
             }
             Tool.TRANSFORM -> {
                 val state = tfState
@@ -5171,7 +5203,10 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
             }
             Tool.MEASURE -> {
-                measureEnd?.value = docPos
+                when (activeMeasureHandle) {
+                    0 -> measureStart?.value = docPos
+                    else -> measureEnd?.value = docPos
+                }
             }
             Tool.TRANSFORM -> {
                 shapeEndDocPos = docPos
@@ -5908,6 +5943,9 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                     lassoPoints.clear()
                 }
+            }
+            Tool.MEASURE -> {
+                activeMeasureHandle = -1
             }
             Tool.TRANSFORM -> {
                 tfState?.handle = -1

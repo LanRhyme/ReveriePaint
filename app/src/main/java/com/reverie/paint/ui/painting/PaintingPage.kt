@@ -1425,6 +1425,27 @@ fun PaintingPage(
                 },
             )
         }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = filterController == null && tool == Tool.MEASURE,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = 24.dp),
+            enter =
+                androidx.compose.animation.fadeIn(Motion.enterSpring()),
+            exit =
+                androidx.compose.animation.fadeOut(
+                    androidx.compose.animation.core
+                        .tween(200),
+                ),
+        ) {
+            MeasurePanel(
+                vm = vm,
+                strokeWidth = vm.measureStrokeWidth,
+                onStrokeWidth = { vm.measureStrokeWidth = it },
+                onClear = {
+                    com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.clearMeasure()
+                },
+                hazeState = hazeState,
+            )
+        }
 
         if (canvasEditMenuOpen) {
             CanvasEditMenu(

@@ -385,6 +385,8 @@
     <string name="tool_text">Text</string>
     <string name="tool_liquify">Liquify</string>
     <string name="tool_measure">Measure</string>
+    <string name="measure_clear">Clear</string>
+    <string name="measure_stroke_width">Width</string>
     <string name="tool_path">Path</string>
     <string name="tool_reference">Reference</string>
     <string name="tool_symmetry">Symmetry</string>

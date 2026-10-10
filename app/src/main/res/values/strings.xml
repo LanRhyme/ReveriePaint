@@ -385,6 +385,8 @@
     <string name="tool_text">文本</string>
     <string name="tool_liquify">液化</string>
     <string name="tool_measure">测量</string>
+    <string name="measure_clear">清除</string>
+    <string name="measure_stroke_width">粗细</string>
     <string name="tool_path">路径</string>
     <string name="tool_reference">参考</string>
     <string name="tool_symmetry">对称</string>

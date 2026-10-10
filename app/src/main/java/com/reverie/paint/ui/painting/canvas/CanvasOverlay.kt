@@ -363,7 +363,7 @@ internal fun CanvasOverlay(
                     )
                 }
 
-                // Measure tool: white line + distance/angle text
+                // Measure tool: customizable color/width, constant physical screen size, contrast stroke & badge
                 if (tool == Tool.MEASURE && measureStart.value != null && measureEnd.value != null) {
                     val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
                     val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
@@ -371,18 +371,53 @@ internal fun CanvasOverlay(
                     val e = measureEnd.value!!
                     val p1 = Offset(s.x * scX - bmp.width / 2f, s.y * scY - bmp.height / 2f)
                     val p2 = Offset(e.x * scX - bmp.width / 2f, e.y * scY - bmp.height / 2f)
-                    drawLine(Color.White, p1, p2, strokeWidth = 2.dp.toPx())
-                    drawCircle(Color.White, radius = 3.dp.toPx(), center = p1)
-                    drawCircle(Color.White, radius = 3.dp.toPx(), center = p2)
+
+                    // 恒定屏幕物理像素: 除以当前缩放比例 scale，消除随画布放大变粗/过大问题
+                    val currentScale = (zoom.value * fitScale).coerceAtLeast(0.001f)
+                    val userStrokePx = vm.measureStrokeWidth.dp.toPx()
+                    val strokeW = userStrokePx / currentScale
+                    val circleR = maxOf(userStrokePx * 1.6f, 4.5.dp.toPx()) / currentScale
+                    val innerCircleR = maxOf(1f / currentScale, circleR * 0.45f)
+
+                    // 底部颜色反相渲染 (BlendMode.Difference + 白色 = 底部像素绝对反相，黑变白，白变黑，彩色变为互补色)
+                    drawLine(
+                        color = Color.White,
+                        start = p1,
+                        end = p2,
+                        strokeWidth = strokeW,
+                        blendMode = androidx.compose.ui.graphics.BlendMode.Difference,
+                    )
+                    // 端点外圈反相实心圆
+                    drawCircle(
+                        color = Color.White,
+                        radius = circleR,
+                        center = p1,
+                        blendMode = androidx.compose.ui.graphics.BlendMode.Difference,
+                    )
+                    drawCircle(
+                        color = Color.White,
+                        radius = circleR,
+                        center = p2,
+                        blendMode = androidx.compose.ui.graphics.BlendMode.Difference,
+                    )
+                    // 端点圆心小靶心反相点 (增强控制柄定位清晰度)
+                    drawCircle(
+                        color = Color.White,
+                        radius = innerCircleR,
+                        center = p1,
+                        blendMode = androidx.compose.ui.graphics.BlendMode.Difference,
+                    )
+                    drawCircle(
+                        color = Color.White,
+                        radius = innerCircleR,
+                        center = p2,
+                        blendMode = androidx.compose.ui.graphics.BlendMode.Difference,
+                    )
+
                     val dist = hypot(e.x - s.x, e.y - s.y)
                     val ang = Math.toDegrees(atan2((e.y - s.y).toDouble(), (e.x - s.x).toDouble())).toFloat()
-                    val label =
-                        "%.0f px  %.1f°".format(dist, ang)
-                    // 读数标签是 UI chrome, 不能跟着画面一起镜像 (否则 "px / °"
-                    // 会反着写)。绕锚点 p2 再镜像一次即可抵消: 合成后线性部分从
-                    // R·S(scale)·M 回到 R·S(scale), 而 p2 仍落在它的镜像屏幕
-                    // 位置上 (withTransform 推导: S(m)·T(p)·S(m)·T(-p) 等价于
-                    // 平移 m·p - p, 对 q=p 恰好得到 m·p)。
+                    val label = "%.0f px  %.1f°".format(dist, ang)
+
                     withTransform({
                         if (flipX || flipY) {
                             scale(
@@ -392,16 +427,45 @@ internal fun CanvasOverlay(
                             )
                         }
                     }) {
-                        drawContext.canvas.nativeCanvas.drawText(
-                            label,
-                            (p2.x + 8.dp.toPx()),
-                            (p2.y - 8.dp.toPx()),
-                            android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
-                                color = android.graphics.Color.WHITE
-                                textSize = 13.dp.toPx()
-                                isFakeBoldText = true
-                            },
-                        )
+                        val nativeCanvas = drawContext.canvas.nativeCanvas
+                        val textSizePx = 13.dp.toPx() / currentScale
+                        val textPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                            color = android.graphics.Color.WHITE
+                            textSize = textSizePx
+                            isFakeBoldText = true
+                        }
+                        val textW = textPaint.measureText(label)
+                        val fm = textPaint.fontMetrics
+                        val textH = fm.descent - fm.ascent
+
+                        val padX = 6.dp.toPx() / currentScale
+                        val padY = 3.dp.toPx() / currentScale
+                        val offsetX = 8.dp.toPx() / currentScale
+                        val offsetY = 8.dp.toPx() / currentScale
+
+                        val badgeLeft = p2.x + offsetX
+                        val badgeBottom = p2.y - offsetY
+                        val badgeTop = badgeBottom - textH - padY * 2
+                        val badgeRight = badgeLeft + textW + padX * 2
+                        val badgeRadius = 4.dp.toPx() / currentScale
+
+                        // 半透明深色圆角胶囊底衬 + 细边框，确保在任何复杂背景上均清晰可读
+                        val bgPaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                            color = android.graphics.Color.argb(200, 20, 20, 20)
+                            style = android.graphics.Paint.Style.FILL
+                        }
+                        val strokePaint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+                            color = android.graphics.Color.argb(120, 255, 255, 255)
+                            style = android.graphics.Paint.Style.STROKE
+                            strokeWidth = 1.dp.toPx() / currentScale
+                        }
+                        val badgeRect = android.graphics.RectF(badgeLeft, badgeTop, badgeRight, badgeBottom)
+                        nativeCanvas.drawRoundRect(badgeRect, badgeRadius, badgeRadius, bgPaint)
+                        nativeCanvas.drawRoundRect(badgeRect, badgeRadius, badgeRadius, strokePaint)
+
+                        // 绘制标签文本
+                        val textY = badgeBottom - padY - fm.descent
+                        nativeCanvas.drawText(label, badgeLeft + padX, textY, textPaint)
                     }
                 }
 

@@ -2382,6 +2382,7 @@ internal fun PaintViewModel.saveToolOptions() {
         o.put("sel_expand", selectionExpand)
         o.put("lasso_sub_mode", lassoSubMode)
         o.put("picker_sample", pickerSampleLayers)
+        o.put("measure_stroke_w", measureStrokeWidth.toDouble())
         prefs().edit().putString("tool_options", o.toString()).apply()
     } catch (_: Exception) {
     }
@@ -2415,6 +2416,7 @@ internal fun PaintViewModel.loadToolOptions() {
         selectionExpand = o.optInt("sel_expand", 0)
         pickerSampleLayers = o.optInt("picker_sample", 1)
         pickerCurrentLayerOnly = pickerSampleLayers == 0
+        measureStrokeWidth = o.optDouble("measure_stroke_w", 2.5).toFloat().coerceIn(1f, 10f)
     } catch (_: Exception) {
     }
 }

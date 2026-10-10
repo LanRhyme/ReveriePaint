@@ -1705,6 +1705,8 @@ class PaintViewModel : ViewModel() {
     var shapeKeepAspect by mutableStateOf(false)
     val shapeState = ShapeState()
 
+    var measureStrokeWidth by mutableFloatStateOf(2.5f)
+
     var selectionMode by mutableIntStateOf(0) // 0: 替换, 1: 添加, 2: 减去, 3: 相交
     var lassoSubMode by mutableIntStateOf(LassoSubMode.FREEHAND) // 0: 自由描画, 1: 折线, 2: 自由+折线
     var lassoMultiPoints by mutableStateOf<List<Pair<Int, Int>>>(emptyList())
