@@ -568,10 +568,9 @@ fun QuickActionWindow(
                 if (toastText != null) {
                     Box(
                         modifier = Modifier
-                            .shadow(8.dp, RoundedCornerShape(12.dp), spotColor = Color.Black.copy(alpha = 0.25f))
-                            .clip(RoundedCornerShape(12.dp))
+                            .shadow(8.dp, RoundedCornerShape(10.dp), spotColor = Color.Black.copy(alpha = 0.25f))
+                            .clip(RoundedCornerShape(10.dp))
                             .background(Morandi.panelHi.copy(alpha = 0.96f))
-                            .border(1.dp, Morandi.border.copy(alpha = 0.65f), RoundedCornerShape(12.dp))
                             .padding(horizontal = 10.dp, vertical = 5.dp),
                         contentAlignment = Alignment.Center,
                     ) {
