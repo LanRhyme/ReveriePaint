@@ -818,64 +818,17 @@ fun PaintingPage(
             }
         }
 
-        // Primary Exit Save Confirmation Dialog
-        if (showExitSaveDialog) {
-            val exitContext = androidx.compose.ui.platform.LocalContext.current
-            ExitSaveDialog(
-                vm = vm,
-                onDiscard = {
-                    showExitSaveDialog = false
-                    showDiscardConfirmDialog = true
-                },
-                onSaveAndExit = {
-                    showExitSaveDialog = false
-                    vm.saveProject(vm.docName) {
-                        android.widget.Toast
-                            .makeText(exitContext, exitContext.getString(R.string.toast_project_saved), android.widget.Toast.LENGTH_SHORT)
-                            .show()
-                        vm.goHome()
-                    }
-                },
-                onDismiss = { showExitSaveDialog = false },
-            )
-        }
-
-        if (showDiscardConfirmDialog) {
-            DiscardConfirmDialog(
-                onDiscard = {
-                    showDiscardConfirmDialog = false
-                    vm.discardAndExit()
-                },
-                onDismiss = { showDiscardConfirmDialog = false },
-            )
-        }
-
-        val droppedImageUri = vm.pendingExternalImageUri
-        if (droppedImageUri != null) {
-            ExternalImageImportDialog(
-                uri = droppedImageUri,
-                vm = vm,
-                onDismiss = { vm.pendingExternalImageUri = null },
-            )
-        }
-
-        if (vm.showToolbarSqueezedDialog) {
-            ToolbarSqueezedDialog(
-                vm = vm,
-                onDismiss = { vm.showToolbarSqueezedDialog = false },
-            )
-        }
-
-        if (vm.showLowStorageDialog) {
-            LowStorageDialog(
-                message = vm.lowStorageMessage,
-                onDismiss = { vm.showLowStorageDialog = false },
-            )
-        }
-
-        vm.brushImportProgress?.let { progress ->
-            BrushImportProgressDialog(progress = progress)
-        }
+        PaintingGlobalDialogs(
+            vm = vm,
+            showExitSaveDialog = showExitSaveDialog,
+            showDiscardConfirmDialog = showDiscardConfirmDialog,
+            onCloseExitSaveDialog = { showExitSaveDialog = false },
+            onDiscardFromExitSave = {
+                showExitSaveDialog = false
+                showDiscardConfirmDialog = true
+            },
+            onCloseDiscardConfirmDialog = { showDiscardConfirmDialog = false },
+        )
 
         com.reverie.paint.ui.components.DragHoverOverlay(
             visible = vm.isDraggingExternal,
@@ -2008,95 +1961,11 @@ fun PaintingPage(
             )
         }
 
-        // ---- Persistent Floating Reference Window (常态固定显示参考窗口) ----
-        AnimatedVisibility(
-            visible = vm.referenceWindowOpen,
-            enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
-            exit = fadeOut(Motion.exitTween(150)) + androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
-            modifier = Modifier.zIndex(70f),
-        ) {
-            ReferenceWindow(
-                vm = vm,
-                onClose = { vm.referenceWindowOpen = false; vm.persistReferenceState() },
-                hazeState = hazeState,
-                opacity = vm.popupPanelOpacity,
-            )
-        }
-
-        // ---- Persistent Floating Quick Action Window (常驻悬浮快捷操作小窗) ----
-        AnimatedVisibility(
-            visible = vm.quickActionWindowOpen,
-            enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
-            exit = fadeOut(Motion.exitTween(150)) + androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
-            modifier = Modifier.zIndex(75f),
-        ) {
-            com.reverie.paint.ui.painting.quickaction.QuickActionWindow(
-                vm = vm,
-                onClose = {
-                    vm.quickActionWindowOpen = false
-                    vm.persistQuickActionsState()
-                },
-                hazeState = hazeState,
-                opacity = vm.popupPanelOpacity,
-            )
-        }
-
-        // ---- Persistent Floating Quick Brush Window (常驻悬浮快捷笔刷小窗) ----
-        AnimatedVisibility(
-            visible = vm.quickBrushWindowOpen,
-            enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
-            exit = fadeOut(Motion.exitTween(150)) + androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
-            modifier = Modifier.zIndex(76f),
-        ) {
-            com.reverie.paint.ui.painting.quickbrush.QuickBrushWindow(
-                vm = vm,
-                onClose = {
-                    vm.quickBrushWindowOpen = false
-                    vm.persistQuickBrushState()
-                },
-                hazeState = hazeState,
-                opacity = vm.popupPanelOpacity,
-            )
-        }
-
-        // ---- Persistent Floating Quick Color Window (常驻悬浮快捷颜色小窗) ----
-        AnimatedVisibility(
-            visible = vm.quickColorWindowOpen,
-            enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
-            exit = fadeOut(Motion.exitTween(150)) + androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
-            modifier = Modifier.zIndex(77f),
-        ) {
-            com.reverie.paint.ui.painting.quickcolor.QuickColorWindow(
-                vm = vm,
-                onClose = {
-                    vm.quickColorWindowOpen = false
-                    vm.persistQuickColorState()
-                },
-                hazeState = hazeState,
-                opacity = vm.popupPanelOpacity,
-            )
-        }
-
-        // ---- Persistent Floating Quick Layer Window (常驻悬浮快捷图层小窗) ----
-        AnimatedVisibility(
-            visible = vm.quickLayerWindowOpen,
-            enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
-            exit = fadeOut(Motion.exitTween(150)) + androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
-            modifier = Modifier.zIndex(78f),
-        ) {
-            com.reverie.paint.ui.painting.quicklayer.QuickLayerWindow(
-                vm = vm,
-                onClose = {
-                    vm.quickLayerWindowOpen = false
-                    vm.persistQuickLayerState()
-                },
-                onOpenFullLayerPanel = {
-                    layerPanelOpen = true
-                },
-                hazeState = hazeState,
-                opacity = vm.popupPanelOpacity,
-            )
-        }
+        PaintingQuickWindows(
+            vm = vm,
+            hazeState = hazeState,
+            onOpenFullLayerPanel = { layerPanelOpen = true },
+        )
 
         // Brush Studio full-screen dedicated page
         androidx.compose.animation.AnimatedVisibility(
@@ -2324,88 +2193,4 @@ fun PaintingPage(
         }
     }
 }
-}
-
-/** Text input dialog for the text tool (MVP). */
-@Composable
-fun TextInputDialog(
-    onConfirm: (String, Double) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var text by remember { mutableStateOf("") }
-    var fontSize by remember { mutableStateOf(48f) }
-    androidx.compose.material3.AlertDialog(
-        onDismissRequest = onDismiss,
-        title = { Text(stringResource(R.string.text_input_dialog_title), color = Morandi.text) },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                androidx.compose.material3.OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    singleLine = true,
-                    placeholder = { Text(stringResource(R.string.text_input_placeholder), color = Morandi.subText) },
-                    colors =
-                        androidx.compose.material3.OutlinedTextFieldDefaults.colors(
-                            focusedBorderColor = Morandi.accent,
-                            unfocusedBorderColor = Color.Transparent,
-                            focusedContainerColor = Morandi.panelHi,
-                            unfocusedContainerColor = Morandi.panelHi,
-                            cursorColor = Morandi.accent,
-                        ),
-                )
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    Text(stringResource(R.string.text_font_size), color = Morandi.text, fontSize = 12.sp, modifier = Modifier.width(40.dp))
-                    ReSlider(
-                        value = ((fontSize - 8f) / 192f).coerceIn(0f, 1f),
-                        onValue = { frac -> fontSize = 8f + frac * 192f },
-                        modifier = Modifier.weight(1f),
-                    )
-                    Text("${fontSize.roundToInt()}", color = Morandi.text, fontSize = 12.sp, modifier = Modifier.width(36.dp))
-                }
-            }
-        },
-        confirmButton = {
-            ReTextButton(stringResource(R.string.common_confirm), { onConfirm(text, fontSize.toDouble()) }, textColor = Morandi.accentHi)
-        },
-        dismissButton = {
-            ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = Morandi.subText)
-        },
-        containerColor = Morandi.panelHi,
-    )
-}
-
-private fun smoothPathPoints(points: List<Pair<Int, Int>>): List<Pair<Int, Int>> {
-    if (points.size < 3) return points
-    val result = mutableListOf<Pair<Int, Int>>()
-    for (i in 0 until points.size - 1) {
-        val p0 = points[maxOf(0, i - 1)]
-        val p1 = points[i]
-        val p2 = points[i + 1]
-        val p3 = points[minOf(points.size - 1, i + 2)]
-        for (step in 0 until 16) {
-            val u = step / 16f
-            val u2 = u * u
-            val u3 = u2 * u
-            val x =
-                0.5f * (
-                    (2 * p1.first) +
-                        (-p0.first + p2.first) * u +
-                        (2 * p0.first - 5 * p1.first + 4 * p2.first - p3.first) * u2 +
-                        (-p0.first + 3 * p1.first - 3 * p2.first + p3.first) * u3
-                )
-            val y =
-                0.5f * (
-                    (2 * p1.second) +
-                        (-p0.second + p2.second) * u +
-                        (2 * p0.second - 5 * p1.second + 4 * p2.second - p3.second) * u2 +
-                        (-p0.second + 3 * p1.second - 3 * p2.second + p3.second) * u3
-                )
-            result += x.toInt() to y.toInt()
-        }
-    }
-    result += points.last()
-    return result.distinct()
 }

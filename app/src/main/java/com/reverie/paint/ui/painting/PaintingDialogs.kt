@@ -4,6 +4,8 @@
 
 package com.reverie.paint.ui.painting
 
+import androidx.compose.ui.unit.sp
+
 import androidx.compose.foundation.Image
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.core.animateFloatAsState
@@ -649,3 +651,55 @@ internal fun LowStorageDialog(
 
 
 
+
+
+/** Text input dialog for the text tool (MVP). */
+@Composable
+fun TextInputDialog(
+    onConfirm: (String, Double) -> Unit,
+    onDismiss: () -> Unit,
+) {
+    var text by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf("") }
+    var fontSize by androidx.compose.runtime.remember { androidx.compose.runtime.mutableStateOf(48f) }
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.text_input_dialog_title), color = com.reverie.paint.ui.theme.Morandi.text) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                androidx.compose.material3.OutlinedTextField(
+                    value = text,
+                    onValueChange = { text = it },
+                    singleLine = true,
+                    placeholder = { Text(stringResource(R.string.text_input_placeholder), color = com.reverie.paint.ui.theme.Morandi.subText) },
+                    colors =
+                        androidx.compose.material3.OutlinedTextFieldDefaults.colors(
+                            focusedBorderColor = com.reverie.paint.ui.theme.Morandi.accent,
+                            unfocusedBorderColor = androidx.compose.ui.graphics.Color.Transparent,
+                            focusedContainerColor = com.reverie.paint.ui.theme.Morandi.panelHi,
+                            unfocusedContainerColor = com.reverie.paint.ui.theme.Morandi.panelHi,
+                            cursorColor = com.reverie.paint.ui.theme.Morandi.accent,
+                        ),
+                )
+                Row(
+                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                ) {
+                    Text(stringResource(R.string.text_font_size), color = com.reverie.paint.ui.theme.Morandi.text, fontSize = 12.sp, modifier = Modifier.width(40.dp))
+                    ReSlider(
+                        value = ((fontSize - 8f) / 192f).coerceIn(0f, 1f),
+                        onValue = { frac -> fontSize = 8f + frac * 192f },
+                        modifier = Modifier.weight(1f),
+                    )
+                    Text("${fontSize.roundToInt()}", color = com.reverie.paint.ui.theme.Morandi.text, fontSize = 12.sp, modifier = Modifier.width(36.dp))
+                }
+            }
+        },
+        confirmButton = {
+            ReTextButton(stringResource(R.string.common_confirm), { onConfirm(text, fontSize.toDouble()) }, textColor = com.reverie.paint.ui.theme.Morandi.accentHi)
+        },
+        dismissButton = {
+            ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = com.reverie.paint.ui.theme.Morandi.subText)
+        },
+        containerColor = com.reverie.paint.ui.theme.Morandi.panelHi,
+    )
+}
