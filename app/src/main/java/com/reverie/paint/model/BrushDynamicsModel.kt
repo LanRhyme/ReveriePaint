@@ -84,10 +84,10 @@ enum class BrushSensor(
     PRESSURE("pressure", R.string.brush_sensor_pressure, R.drawable.ic_hand),
     SPEED("speed", R.string.brush_sensor_speed, R.drawable.ic_line),
     DRAWING_ANGLE("drawingangle", R.string.brush_sensor_drawingangle, R.drawable.ic_rotate_cw),
-    TILT_ELEVATION("tilt-elevation", R.string.brush_sensor_tilt_elevation, R.drawable.ic_pencil),
-    TILT_DIRECTION("tilt-direction", R.string.brush_sensor_tilt_direction, R.drawable.ic_rotate_ccw),
-    TILT_X("tilt-x", R.string.brush_sensor_tilt_x, R.drawable.ic_flip_h),
-    TILT_Y("tilt-y", R.string.brush_sensor_tilt_y, R.drawable.ic_flip_v),
+    TILT_ELEVATION("declination", R.string.brush_sensor_tilt_elevation, R.drawable.ic_pencil),
+    TILT_DIRECTION("ascension", R.string.brush_sensor_tilt_direction, R.drawable.ic_rotate_ccw),
+    TILT_X("xtilt", R.string.brush_sensor_tilt_x, R.drawable.ic_flip_h),
+    TILT_Y("ytilt", R.string.brush_sensor_tilt_y, R.drawable.ic_flip_v),
     ROTATION("rotation", R.string.brush_sensor_rotation, R.drawable.ic_refresh),
     TANGENTIAL_PRESSURE("tangentialpressure", R.string.brush_sensor_tangential_pressure, R.drawable.ic_sliders),
     FADE("fade", R.string.brush_sensor_fade, R.drawable.ic_droplet),
@@ -98,7 +98,13 @@ enum class BrushSensor(
     companion object {
         fun fromId(id: String): BrushSensor {
             val normalized = id.trim().lowercase()
-            return entries.firstOrNull { it.id == normalized } ?: PRESSURE
+            return when (normalized) {
+                "declination", "tilt-elevation", "tiltelevation" -> TILT_ELEVATION
+                "ascension", "tilt-direction", "tiltdirection" -> TILT_DIRECTION
+                "xtilt", "tilt-x", "tiltx" -> TILT_X
+                "ytilt", "tilt-y", "tilty" -> TILT_Y
+                else -> entries.firstOrNull { it.id == normalized } ?: PRESSURE
+            }
         }
     }
 }

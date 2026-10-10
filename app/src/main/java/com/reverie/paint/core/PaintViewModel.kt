@@ -624,6 +624,8 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    internal var brushStudioInitialKppBytes: ByteArray? = null
+
     fun updateBrushDynamicOption(config: com.reverie.paint.model.DynamicOptionConfig) {
         updateBrushDynamicOption(config.optionKey, config)
     }
@@ -642,6 +644,7 @@ class PaintViewModel : ViewModel() {
                 strength = config.strength.toDouble(),
             )
         }
+        saveBrushParam(dynamicsChanged = true)
     }
 
     val effectiveBrushMaxSize: Double
@@ -5064,6 +5067,8 @@ data class BrushParams(
     val airbrushRate: Double = 30.0,
     val smudgeRate: Double = 0.5,
     val smudgeLength: Double = 0.5,
+    val colorRate: Double = 0.5,
+    val smudgeMode: Int = 0,
     val spikes: Int = 2,
     val jitterAngle: Double = 0.0,
     val jitterSize: Double = 0.0,

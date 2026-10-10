@@ -1648,10 +1648,13 @@ void ReverieCore::setBrushTexture(bool enabled, qreal scale, qreal strength, con
     s->setProperty("Texture/Pattern/Scale", scale);
     s->setProperty("Texture/Pattern/Strength", strength);
     QString modeCode = QStringLiteral("0");
-    if (mode.compare(QStringLiteral("screen"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("1");
-    else if (mode.compare(QStringLiteral("overlay"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("4");
-    else if (mode.compare(QStringLiteral("dodge"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("5");
-    else if (mode.compare(QStringLiteral("subtract"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("2");
+    if (mode.compare(QStringLiteral("subtract"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("1");
+    else if (mode.compare(QStringLiteral("darken"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("4");
+    else if (mode.compare(QStringLiteral("overlay"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("5");
+    else if (mode.compare(QStringLiteral("dodge"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("6");
+    else if (mode.compare(QStringLiteral("burn"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("7");
+    else if (mode.compare(QStringLiteral("hard_light"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("10");
+    else if (mode.compare(QStringLiteral("soft_light"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("11");
     s->setProperty("Texture/Pattern/TexturingMode", modeCode);
     if (!patternName.isEmpty()) {
         s->setProperty("Texture/Pattern/PatternFileName", patternName);

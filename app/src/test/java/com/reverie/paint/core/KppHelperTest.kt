@@ -99,7 +99,8 @@ class KppHelperTest {
         val updatedXml = KppHelper.injectParamsIntoXml(originalXml, "Test", params)
         assertTrue(updatedXml.contains("""filename="my_tip.gbr""""))
         assertTrue(updatedXml.contains("""spacing="0.35""""))
-        assertTrue(updatedXml.contains("""angle="120.0""""))
+        assertTrue(updatedXml.contains("""angle="2.09440""""))
+        assertTrue(updatedXml.contains("""paintopAngle"><![CDATA[120.0]]>"""))
     }
 
     @Test
@@ -368,7 +369,7 @@ class KppHelperTest {
         assertTrue(updatedXml.contains("""name="Texture/Pattern/Enabled"><![CDATA[true]]></param>"""))
         assertTrue(updatedXml.contains("""name="Texture/Pattern/Scale"><![CDATA[2.5]]></param>"""))
         assertTrue(updatedXml.contains("""name="Texture/Pattern/Strength"><![CDATA[0.85]]></param>"""))
-        assertTrue(updatedXml.contains("""name="Texture/Pattern/TexturingMode"><![CDATA[4]]></param>"""))
+        assertTrue(updatedXml.contains("""name="Texture/Pattern/TexturingMode"><![CDATA[5]]></param>"""))
         assertTrue(updatedXml.contains("""name="Pressureh"><![CDATA[true]]></param>"""))
         assertTrue(updatedXml.contains("""name="hValue"><![CDATA[0.4]]></param>"""))
         assertTrue(updatedXml.contains("""name="sValue"><![CDATA[0.3]]></param>"""))

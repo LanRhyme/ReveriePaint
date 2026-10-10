@@ -682,9 +682,14 @@ object KppHelper {
         val texStrength = Regex("""<param[^>]*name="Texture/Pattern/Strength"[^>]*>(?:<!\[CDATA\[)?([^<\]]+)""").find(xml)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
         val texModeRaw = Regex("""<param[^>]*name="Texture/Pattern/TexturingMode"[^>]*>(?:<!\[CDATA\[)?([^<\]]+)""").find(xml)?.groupValues?.getOrNull(1)?.trim()
         val textureMode = when (texModeRaw) {
-            "1" -> "screen"
-            "4" -> "overlay"
-            "5" -> "dodge"
+            "0" -> "multiply"
+            "1" -> "subtract"
+            "4" -> "darken"
+            "5" -> "overlay"
+            "6" -> "dodge"
+            "7" -> "burn"
+            "10" -> "hard_light"
+            "11" -> "soft_light"
             else -> if (texModeRaw != null) "multiply" else null
         }
 
@@ -913,9 +918,13 @@ object KppHelper {
         xml = updateParam(xml, "Texture/Pattern/Scale", params.textureScale.toString())
         xml = updateParam(xml, "Texture/Pattern/Strength", params.textureStrength.toString())
         val texModeCode = when (params.textureMode.lowercase()) {
-            "screen" -> "1"
-            "overlay" -> "4"
-            "dodge" -> "5"
+            "subtract" -> "1"
+            "darken" -> "4"
+            "overlay" -> "5"
+            "dodge" -> "6"
+            "burn" -> "7"
+            "hard_light" -> "10"
+            "soft_light" -> "11"
             else -> "0"
         }
         xml = updateParam(xml, "Texture/Pattern/TexturingMode", texModeCode)
@@ -1003,6 +1012,7 @@ object KppHelper {
         val aaVal = if (params.antiAliasing > 0) 1 else 0
         val spikesVal = params.spikes.coerceAtLeast(2)
 
+        val brushAngleRad = String.format(java.util.Locale.US, "%.5f", Math.toRadians(params.angle))
         if (params.tipAsset.isNotBlank()) {
             val tipFile = params.tipAsset
             val ext = tipFile.substringAfterLast(".").lowercase()
@@ -1016,7 +1026,7 @@ object KppHelper {
             // When the caller knows the right value (ABR import) we use it; otherwise we keep
             // whatever the file already had instead of forcing it back to 1.
             val scaleAttr = tipScale?.let { formatScale(it) } ?: existingBrushScale(xml)
-            val brushDef = """<param type="string" name="brush_definition"><![CDATA[<Brush scale="$scaleAttr" type="$tipType" useAutoSpacing="0" BrushVersion="2" filename="$tipFile" spacing="${params.spacing}" angle="${params.angle}" brushApplication="0"/> ]]></param>"""
+            val brushDef = """<param type="string" name="brush_definition"><![CDATA[<Brush scale="$scaleAttr" type="$tipType" useAutoSpacing="0" BrushVersion="2" filename="$tipFile" spacing="${params.spacing}" angle="$brushAngleRad" brushApplication="0"/> ]]></param>"""
             if (mainBrushDefPattern.containsMatchIn(xml)) {
                 xml = mainBrushDefPattern.replace(xml, brushDef)
             } else {
@@ -1038,9 +1048,9 @@ object KppHelper {
                     """$attrs spacing="${params.spacing}""""
                 }
                 attrs = if (attrs.contains("angle=")) {
-                    attrs.replace(Regex("""angle="[^"]*""""), """angle="${params.angle}"""")
+                    attrs.replace(Regex("""angle="[^"]*""""), """angle="$brushAngleRad"""")
                 } else {
-                    """$attrs angle="${params.angle}""""
+                    """$attrs angle="$brushAngleRad""""
                 }
                 "<Brush$attrs>"
             }
@@ -1050,7 +1060,7 @@ object KppHelper {
             xml = xml.replaceRange(m.range, """<param type="string" name="brush_definition"><![CDATA[$newInner]]></param>""")
         } else {
             // No brush_definition at all, insert auto_brush
-            val autoDef = """<param type="string" name="brush_definition"><![CDATA[<Brush scale="1" type="auto_brush" BrushVersion="2" spacing="${params.spacing}" angle="${params.angle}"> <MaskGenerator diameter="${params.size}" hfade="$fadeVal" vfade="$fadeVal" id="default" spikes="$spikesVal" type="$tipTypeAttr" ratio="${params.ratio}" antialiasEdges="$aaVal"/> </Brush> ]]></param>"""
+            val autoDef = """<param type="string" name="brush_definition"><![CDATA[<Brush scale="1" type="auto_brush" BrushVersion="2" spacing="${params.spacing}" angle="$brushAngleRad"> <MaskGenerator diameter="${params.size}" hfade="$fadeVal" vfade="$fadeVal" id="default" spikes="$spikesVal" type="$tipTypeAttr" ratio="${params.ratio}" antialiasEdges="$aaVal"/> </Brush> ]]></param>"""
             xml = xml.replace("</Preset>", " $autoDef\n</Preset>")
         }
 
@@ -1172,16 +1182,17 @@ object KppHelper {
         val aaVal = if (params.antiAliasing > 0) 1 else 0
         val spikesVal = params.spikes.coerceAtLeast(2)
 
+        val brushAngleRad = String.format(java.util.Locale.US, "%.5f", Math.toRadians(params.angle))
         val tipDef = if (params.tipAsset.isNotBlank()) {
             val ext = params.tipAsset.substringAfterLast(".").lowercase()
             val tipType = if (ext == "gbr") "gbr_brush" else "png_brush"
             // Freshly built XML has no previous scale to preserve, so fall back to 1.
             val scaleAttr = tipScale?.let { formatScale(it) } ?: "1"
-            """<param type="string" name="brush_definition"><![CDATA[<Brush scale="$scaleAttr" type="$tipType" useAutoSpacing="0" BrushVersion="2" filename="${params.tipAsset}" spacing="${params.spacing}" angle="${params.angle}" brushApplication="0"/> ]]></param>
+            """<param type="string" name="brush_definition"><![CDATA[<Brush scale="$scaleAttr" type="$tipType" useAutoSpacing="0" BrushVersion="2" filename="${params.tipAsset}" spacing="${params.spacing}" angle="$brushAngleRad" brushApplication="0"/> ]]></param>
   <param type="string" name="requiredBrushFile"><![CDATA[${params.tipAsset}]]></param>
   <param type="string" name="requiredBrushFilesList"><![CDATA[${params.tipAsset}]]></param>"""
         } else {
-            """<param type="string" name="brush_definition"><![CDATA[<Brush scale="1" type="auto_brush" BrushVersion="2" spacing="${params.spacing}" angle="${params.angle}"> <MaskGenerator diameter="${params.size}" hfade="$fadeVal" vfade="$fadeVal" id="default" spikes="$spikesVal" type="$tipShapeType" ratio="${params.ratio}" antialiasEdges="$aaVal"/> </Brush> ]]></param>"""
+            """<param type="string" name="brush_definition"><![CDATA[<Brush scale="1" type="auto_brush" BrushVersion="2" spacing="${params.spacing}" angle="$brushAngleRad"> <MaskGenerator diameter="${params.size}" hfade="$fadeVal" vfade="$fadeVal" id="default" spikes="$spikesVal" type="$tipShapeType" ratio="${params.ratio}" antialiasEdges="$aaVal"/> </Brush> ]]></param>"""
         }
 
         val useSize = params.pressureEnabled && (params.pressureSize > 0.001)
