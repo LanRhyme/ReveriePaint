@@ -7,6 +7,7 @@ package com.reverie.paint.ui.painting
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalContext
 import android.widget.Toast
+import androidx.compose.ui.res.stringResource
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 
@@ -26,13 +27,14 @@ internal fun PaintingGlobalDialogs(
 ) {
     if (showExitSaveDialog) {
         val exitContext = LocalContext.current
+        val savedToastMsg = stringResource(R.string.toast_project_saved)
         ExitSaveDialog(
             vm = vm,
             onDiscard = onDiscardFromExitSave,
             onSaveAndExit = {
                 onCloseExitSaveDialog()
                 vm.saveProject(vm.docName) {
-                    Toast.makeText(exitContext, exitContext.getString(R.string.toast_project_saved), Toast.LENGTH_SHORT).show()
+                    Toast.makeText(exitContext, savedToastMsg, Toast.LENGTH_SHORT).show()
                     vm.goHome()
                 }
             },
