@@ -26,6 +26,8 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -44,6 +46,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
@@ -94,12 +97,15 @@ fun QuickLayerWindow(
     opacity: Float = 0.94f,
     onClose: () -> Unit,
     onOpenFullLayerPanel: () -> Unit,
+    onOpenLayerDetails: (Long) -> Unit = { onOpenFullLayerPanel() },
 ) {
     val context = LocalContext.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
+    val windowHeight = with(density) { LocalWindowInfo.current.containerSize.height.toDp() }
 
     val isCollapsed = vm.quickLayerCollapsed
+    val selectedLayer = vm.layers.firstOrNull { it.index == vm.currentLayerIndex }
     var windowSize by remember { mutableStateOf(IntSize.Zero) }
 
     val dm = context.resources.displayMetrics
@@ -400,16 +406,68 @@ fun QuickLayerWindow(
                             .background(Morandi.border.copy(alpha = 0.35f))
                     )
 
+                    // Reuse the same model operations as the full panel, including recording and undo.
+                    // Keep 48dp targets in a separate header row instead of shrinking the drag handle.
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 6.dp),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        // Masks are KisMask nodes, so the engine's KisLayer-only switches do not apply.
+                        val canChangeClipping = selectedLayer != null && !selectedLayer.isBackground &&
+                            selectedLayer.index > 0 && selectedLayer.nodeType !in 10..13
+                        QuickLayerToggle(
+                            icon = R.drawable.ic_clip,
+                            description = stringResource(R.string.layer_op_clip),
+                            checked = selectedLayer?.clipped == true,
+                            enabled = canChangeClipping,
+                        ) {
+                            vm.layers.firstOrNull {
+                                it.index == vm.currentLayerIndex && it.index > 0 &&
+                                    !it.isBackground && it.nodeType !in 10..13
+                            }?.let {
+                                vm.setLayerClipped(it.index, !it.clipped)
+                            }
+                        }
+                        QuickLayerToggle(
+                            icon = R.drawable.ic_alpha_inherit,
+                            description = stringResource(R.string.layer_op_alpha_inherit),
+                            checked = selectedLayer?.alphaInherited == true,
+                            enabled = canChangeClipping,
+                        ) {
+                            vm.layers.firstOrNull {
+                                it.index == vm.currentLayerIndex && it.index > 0 &&
+                                    !it.isBackground && it.nodeType !in 10..13
+                            }?.let {
+                                vm.setLayerAlphaInherited(it.index, !it.alphaInherited)
+                            }
+                        }
+                        IconButton(
+                            onClick = {
+                                vm.layers.firstOrNull { it.index == vm.currentLayerIndex }?.let {
+                                    onOpenLayerDetails(it.id)
+                                }
+                            },
+                            enabled = selectedLayer != null,
+                            modifier = Modifier.size(48.dp),
+                        ) {
+                            Icon(
+                                painterResource(R.drawable.ic_sliders),
+                                contentDescription = stringResource(R.string.layer_settings_title),
+                                tint = if (selectedLayer != null) Morandi.icon else Morandi.subText.copy(alpha = 0.35f),
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+
                     // 2. 纵向图层列表 (每个图层高度 46dp, 独立左侧眼睛显隐区 + 右侧预览区与名称)
-                    var selectedIndex by remember(vm.currentLayerIndex) { mutableIntStateOf(vm.currentLayerIndex) }
 
                     LazyColumn(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = 280.dp),
+                            .heightIn(max = (windowHeight - 120.dp).coerceIn(46.dp, 280.dp)),
                     ) {
                         items(displayLayers, key = { it.id }) { layer ->
-                            val isSelected = layer.index == selectedIndex
+                            val isSelected = layer.index == vm.currentLayerIndex
                             val rowSource = remember { MutableInteractionSource() }
                             val labelColor = if (layer.colorLabel > 0) layerLabelColor(layer.colorLabel) else Color.Transparent
 
@@ -503,8 +561,14 @@ fun QuickLayerWindow(
                                                 indication = null,
                                             ) {
                                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                selectedIndex = layer.index
-                                                vm.setCurrentLayer(layer.index)
+                                                // Resolve the stable ID again: indices can change after delete/undo.
+                                                vm.layers.firstOrNull { it.id == layer.id }?.let { current ->
+                                                    if (current.index == vm.currentLayerIndex) {
+                                                        onOpenLayerDetails(current.id)
+                                                    } else {
+                                                        vm.setCurrentLayer(current.index)
+                                                    }
+                                                }
                                             },
                                         contentAlignment = Alignment.CenterStart,
                                     ) {
@@ -740,5 +804,36 @@ fun QuickLayerWindow(
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun QuickLayerToggle(
+    icon: Int,
+    description: String,
+    checked: Boolean,
+    enabled: Boolean,
+    onClick: () -> Unit,
+) {
+    IconToggleButton(
+        checked = checked,
+        onCheckedChange = { onClick() },
+        enabled = enabled,
+        modifier = Modifier.size(48.dp),
+    ) {
+        Icon(
+            painterResource(icon),
+            contentDescription = description,
+            tint = when {
+                !enabled -> Morandi.subText.copy(alpha = 0.35f)
+                checked -> Morandi.accent
+                else -> Morandi.icon
+            },
+            modifier = Modifier
+                .clip(RoundedCornerShape(8.dp))
+                .background(if (checked) Morandi.accent.copy(alpha = 0.16f) else Color.Transparent)
+                .padding(6.dp)
+                .size(18.dp),
+        )
     }
 }

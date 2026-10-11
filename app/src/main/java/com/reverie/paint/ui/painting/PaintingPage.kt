@@ -227,12 +227,14 @@ fun PaintingPage(
     var brushPanelOpen by remember { mutableStateOf(false) }
     var layerPanelOpen by remember { mutableStateOf(false) }
     var targetFilterLayers by remember { mutableStateOf<List<Int>?>(null) }
+    var targetLayerDetailId by remember { mutableStateOf<Long?>(null) }
     LaunchedEffect(layerPanelOpen) {
         vm.layerPanelOpen = layerPanelOpen
         if (layerPanelOpen) {
             vm.refreshLayerThumbs(force = true)
         } else {
             targetFilterLayers = null
+            targetLayerDetailId = null
         }
     }
     var settingsPanelOpen by remember { mutableStateOf(false) }
@@ -1798,6 +1800,8 @@ fun PaintingPage(
                 opacity = vm.popupPanelOpacity,
                 hazeState = hazeState,
                 initialTargetFilters = targetFilterLayers,
+                initialDetailLayerId = targetLayerDetailId,
+                onInitialDetailConsumed = { targetLayerDetailId = null },
                 initialFilterCategoryId = filterCategoryHint,
                 onStartFilterSession = { session ->
                     layerPanelOpen = false
@@ -1965,6 +1969,22 @@ fun PaintingPage(
             vm = vm,
             hazeState = hazeState,
             onOpenFullLayerPanel = { layerPanelOpen = true },
+            onOpenLayerDetails = { layerId ->
+                targetFilterLayers = null
+                filterCategoryHint = null
+                targetLayerDetailId = layerId
+                layerPanelOpen = true
+                if (!(vm.panelPinningEnabled && vm.isLayerPanelPinned)) {
+                    vm.layerPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                }
+                if (!(vm.panelPinningEnabled && vm.isBrushPanelPinned)) {
+                    brushPanelOpen = false
+                    vm.brushPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                }
+                if (!vm.isColorPanelPinned) colorPanelOpen = false
+                settingsPanelOpen = false
+                moreToolsOpen = false
+            },
         )
 
         // Brush Studio full-screen dedicated page

@@ -203,6 +203,8 @@ fun LayerPanel(
     initialTargetFilters: List<Int>? = null,
     initialFilterCategoryId: String? = null,
     onStartFilterSession: ((FilterSession) -> Unit)? = null,
+    initialDetailLayerId: Long? = null,
+    onInitialDetailConsumed: () -> Unit = {},
 ) {
     var view by remember(initialTargetFilters) {
         mutableStateOf<LayerView>(
@@ -214,6 +216,14 @@ fun LayerPanel(
         )
     }
     var renameTarget by remember { mutableStateOf<LayerRenameTarget?>(null) }
+
+    // One-shot navigation from Quick Layers, also while this panel is already pinned open.
+    // Resolve by ID here rather than retaining an index across an asynchronous layer refresh.
+    LaunchedEffect(initialDetailLayerId) {
+        val id = initialDetailLayerId ?: return@LaunchedEffect
+        view = vm.layers.firstOrNull { it.id == id }?.let { LayerView.Detail(it.index) } ?: LayerView.List
+        onInitialDetailConsumed()
+    }
 
     val context = androidx.compose.ui.platform.LocalContext.current
     val panelShape = RoundedCornerShape(14.dp)

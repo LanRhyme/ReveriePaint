@@ -25,6 +25,7 @@ internal fun BoxScope.PaintingQuickWindows(
     vm: PaintViewModel,
     hazeState: HazeState,
     onOpenFullLayerPanel: () -> Unit,
+    onOpenLayerDetails: (Long) -> Unit,
 ) {
     // ---- Persistent Floating Reference Window (常态固定显示参考窗口) ----
     AnimatedVisibility(
@@ -109,6 +110,7 @@ internal fun BoxScope.PaintingQuickWindows(
                 vm.persistQuickLayerState()
             },
             onOpenFullLayerPanel = onOpenFullLayerPanel,
+            onOpenLayerDetails = onOpenLayerDetails,
             hazeState = hazeState,
             opacity = vm.popupPanelOpacity,
         )
