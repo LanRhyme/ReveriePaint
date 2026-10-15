@@ -229,6 +229,8 @@ internal class AnimationState {
     /** 后一参考帧的高清位图 (用于 Overlay 硬件加速渲染) */
     var shiftTraceNextBitmap by mutableStateOf<Bitmap?>(null)
 
+    internal val storyboard = StoryboardState()
+
     /** 导入的音频资源名列表 (随 .revp assets 持久化, 播放动画时同步播放) */
     var audioAssets by mutableStateOf<List<String>>(emptyList())
 
@@ -320,6 +322,7 @@ internal class AnimationState {
 
     /** 重置动画状态为初始默认值 (新建静态画布或关闭工程时调用) */
     fun reset() {
+        storyboard.reset()
         enabled = false
         panelOpen = false
         currentTime = 0
@@ -415,6 +418,7 @@ internal fun PaintViewModel.syncAnimationFromNative() {
     anim.lastFrameHold = holdsMap
 
     syncAnimationLayerMarkers()
+    syncStoryboardFromNative()
 
     anim.revision++
     if (anim.shiftTraceActive) {
@@ -691,6 +695,7 @@ internal fun PaintViewModel.ensureKeyframeForPaintOnRenderThread(): Boolean {
     if (anim.isPlaying || anim.manualKeyframes) return false
     val layer = selectedTrackIndex()
     if (layer < 0) return false
+    if (isStoryboardTrackOnRenderThread(layer)) return false
     // 轨道没开动画 = 用户没把这一层当动画层用, 不擅自开启
     if (!ReverieCoreBridge.layerAnimated(layer)) return false
     val time = ReverieCoreBridge.animationCurrentTime().coerceAtLeast(0)

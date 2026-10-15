@@ -2691,5 +2691,25 @@
     <string name="crash_recovery_time_prefix">备份时间：%1$s</string>
     <string name="crash_recovery_size_prefix">文件大小：%1$s</string>
     <string name="auto_save_snapshot_meta">%1$d 笔画 · %2$d 图层 · %3$s</string>
+
+    <!-- SRT storyboard import -->
+    <string name="srt_import_title">导入 SRT 分镜</string>
+    <string name="srt_import_description">每条字幕按顺序生成一个关键帧，默认长度为 1 帧，可拖动帧格右边缘调整时长。SRT 轨道绘画不会自动切分关键帧。原始时间码只作参考，不决定帧的位置或长度。重新导入会新增轨道并替换字幕参考，不压缩或删除已有画面。请保存为 REVP 工程</string>
+    <string name="srt_choose_file">选择 SRT 文件</string>
+    <string name="srt_close">关闭</string>
+    <string name="srt_layer_name">SRT 分镜</string>
+    <string name="srt_import_success">SRT 分镜已导入，点击字幕栏可跳转分镜</string>
+    <string name="srt_error_invalid">SRT 格式无效：请检查编码、字幕正文及 24 小时内的起止时间</string>
+    <string name="srt_error_large">SRT 超过限制：最多 1 MB、1000 条字幕</string>
+    <string name="srt_error_overlap">字幕时间重叠，请调整为不重叠的分镜后重新导入</string>
+    <string name="srt_error_frames">字幕在当前帧率下发生帧冲突，请提高帧率或调整字幕时间</string>
+    <string name="srt_error_import">无法导入 SRT，请检查文件并重试</string>
+    <string name="srt_reference_count">分镜 %1$d / %2$d · 点击查看字幕与时间</string>
+    <string name="srt_reference_gap">当前处于字幕间隙</string>
+    <string name="srt_open_list">点击选择分镜</string>
+    <string name="srt_list_title">SRT 分镜 · 导入帧率 %1$d fps</string>
+    <string name="srt_single_frame_title">SRT 分镜 · 原始时间仅供参考</string>
+    <string name="srt_single_frame_hint">拖右边缘调时长 · SRT 轨道绘画不切帧</string>
+    <string name="srt_mapping_changed">关键帧数量已改变，字幕定位暂停</string>
 </resources>
 

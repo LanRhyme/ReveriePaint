@@ -46,12 +46,30 @@ class AnimationStateResetTest {
         anim.backgroundMarkerIndex = 7
         anim.foregroundMarkerIndex = 8
         anim.revision = 12
+        anim.storyboard.cues = listOf(com.reverie.paint.model.SrtCue(0, 1000, "shot"))
+        anim.storyboard.importing = true
+        anim.storyboard.probed = true
+        anim.storyboard.fps = 24
+        anim.storyboard.singleFrameMode = true
+        anim.storyboard.trackId = 123L
+        anim.storyboard.trackIndex = 2
+        anim.storyboard.frames = com.reverie.paint.model.SrtStoryboard.oneFrameShots(anim.storyboard.cues)
+        val oldStoryboardGeneration = anim.storyboard.generation
         val oldPlayGen = anim.playGen
 
         // Call reset
         anim.reset()
 
         // Verify all states are reset
+        assertTrue(anim.storyboard.cues.isEmpty())
+        assertFalse(anim.storyboard.importing)
+        assertFalse(anim.storyboard.probed)
+        assertFalse(anim.storyboard.singleFrameMode)
+        assertEquals(0L, anim.storyboard.trackId)
+        assertEquals(-1, anim.storyboard.trackIndex)
+        assertTrue(anim.storyboard.frames.isEmpty())
+        assertEquals(DEFAULT_ANIMATION_FPS, anim.storyboard.fps)
+        assertEquals(oldStoryboardGeneration + 1, anim.storyboard.generation)
         assertFalse(anim.enabled)
         assertFalse(anim.panelOpen)
         assertEquals(0, anim.currentTime)

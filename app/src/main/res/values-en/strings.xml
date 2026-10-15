@@ -2691,5 +2691,25 @@
     <string name="crash_recovery_time_prefix">Backup Time: %1$s</string>
     <string name="crash_recovery_size_prefix">File Size: %1$s</string>
     <string name="auto_save_snapshot_meta">%1$d strokes · %2$d layers · %3$s</string>
+
+    <!-- SRT storyboard import -->
+    <string name="srt_import_title">Import SRT storyboard</string>
+    <string name="srt_import_description">Create one keyframe per subtitle in script order, initially one frame long. Drag its right edge to change the duration. Drawing on the SRT track never auto-splits a keyframe. Original timestamps are reference-only. Reimport creates a new track and replaces the reference list; existing drawings are not shortened or deleted. Save as REVP.</string>
+    <string name="srt_choose_file">Choose SRT file</string>
+    <string name="srt_close">Close</string>
+    <string name="srt_layer_name">SRT storyboard</string>
+    <string name="srt_import_success">Storyboard imported. Tap the caption bar to navigate</string>
+    <string name="srt_error_invalid">Invalid SRT: check encoding, caption text and timestamps within 24 hours</string>
+    <string name="srt_error_large">SRT exceeds the limit: 1 MB and 1,000 cues</string>
+    <string name="srt_error_overlap">Subtitle times overlap. Use non-overlapping shots and import again</string>
+    <string name="srt_error_frames">Cues collide on the current frame grid. Increase FPS or adjust timestamps</string>
+    <string name="srt_error_import">Could not import SRT. Check the file and try again</string>
+    <string name="srt_reference_count">Shot %1$d / %2$d · Tap for captions and times</string>
+    <string name="srt_reference_gap">No subtitle at this frame</string>
+    <string name="srt_open_list">Tap to choose a shot</string>
+    <string name="srt_list_title">SRT storyboard · imported at %1$d fps</string>
+    <string name="srt_single_frame_title">SRT storyboard · source times are reference-only</string>
+    <string name="srt_single_frame_hint">Drag the right edge for duration · drawing does not split SRT frames</string>
+    <string name="srt_mapping_changed">Keyframe count changed; caption positioning paused</string>
 </resources>
 

@@ -171,6 +171,8 @@ internal fun AnimationTimelinePanel(
             }
         }
 
+        if (mode != "bar") StoryboardReferenceBar(vm)
+
         TimelinePanelSurface(
             vm = vm,
             hazeState = hazeState,

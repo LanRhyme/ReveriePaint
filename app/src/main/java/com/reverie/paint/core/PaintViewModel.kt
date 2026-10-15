@@ -5547,6 +5547,7 @@ class PaintViewModel : ViewModel() {
             )
         }
         layers = list
+        syncStoryboardTrackFromNative()
         currentLayerIndex = ReverieCoreBridge.currentLayerIndex()
         if (selectedLayerIndices.isNotEmpty()) {
             selectedLayerIndices = selectedLayerIndices.filter { it in 1 until n }.toSet()

@@ -389,6 +389,7 @@ internal fun TimelineSettings(
 
         ReSectionTitle(text = stringResource(R.string.anim_settings_import), modifier = Modifier.padding(start = 12.dp))
         TimelineImportRow(vm = vm)
+        StoryboardImportButton(vm = vm)
 
         ReSectionTitle(text = stringResource(R.string.common_export), modifier = Modifier.padding(start = 12.dp))
         Row(
