@@ -2750,7 +2750,9 @@
     <string name="shading_assist_apply">生成阴影图层</string>
     <string name="shading_assist_generating">正在生成阴影图层...</string>
     <string name="shading_assist_model_ready">AI 神经网络模型已就绪</string>
-    <string name="shading_assist_model_synthetic">2.5D 几何算法模式 (未检测到 AI 模型)</string>
+    <string name="shading_assist_model_synthetic">内置 2.5D 几何光影引擎</string>
+    <string name="shading_assist_engine_desc">推荐: 纯净二次元赛璐珞曲面，零噪点、顺线稿自然过渡</string>
+    <string name="shading_assist_use_ai_model">启用 AI 模型</string>
     <string name="shading_assist_download_model">下载推荐 AI 模型</string>
     <string name="shading_assist_import_model">导入本地 .onnx</string>
     <string name="shading_assist_downloading">正在下载推荐模型 (%1$d%%)</string>
