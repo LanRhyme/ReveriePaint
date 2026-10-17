@@ -1487,6 +1487,7 @@ bool ReverieCore::loadRevp(const QString &path)
     m_renderBufW = -1;
     m_renderBufH = -1;
     clearDirtyRegions();
+    invalidateStaticUnderlay();
     m_bitmapInited = false;
     m_lastDirty = QRect();
     endStrokeBatch();
@@ -1904,6 +1905,7 @@ bool ReverieCore::loadPsd(const QString &path)
     m_renderBufW = -1;
     m_renderBufH = -1;
     clearDirtyRegions();
+    invalidateStaticUnderlay();
     m_bitmapInited = false;
     m_lastDirty = QRect();
     endStrokeBatch();

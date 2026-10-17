@@ -51,6 +51,11 @@ class KisMaskedFreehandStrokePainter;
 class KisFreehandStrokeInfo;
 class KoStore;
 
+// 运笔静态底图的上界 (实现在 StrokePresentFastPath.h, 要读 m_drawing / m_layers /
+// m_currentLayer, 所以在这里前置声明并授予友元)。
+class ReverieCore;
+int strokeStaticUnderlayStop(const ReverieCore &core);
+
 class ReverieCore
 {
 public:
@@ -1305,10 +1310,14 @@ private:
 
     /** 复用的拼装设备; 保证 [r] 范围是干净的 */
     KisPaintDeviceSP strokeMergeScratch(const QRect &r);
+    /** 同一台拼装设备, 不清 (调用方会用 COMPOSITE_COPY 整块覆盖) */
+    KisPaintDeviceSP strokeMergeScratchDevice();
     KisPaintDeviceSP strokeOutScratch(const QRect &r);
 
     /** 丢弃笔触洋葱皮缓存 (切帧 / 改配置 / 关键帧结构变化时调) */
     void invalidateStrokeOnionCache() {
+        // 下层的洋葱皮也烤在静态底图里 (切帧 / 改配置后叠影变了)
+        invalidateStaticUnderlay();
         m_strokeOnionCache.clear();
         m_strokeOnionCacheTime = -1;
         m_strokeOnionCacheSeq = -1;
@@ -1356,6 +1365,8 @@ private:
     void flipCanvasCommon(bool horizontal); // flipCanvasHorizontal/Vertical shared body
 
     void markDirty() {
+        // 文档级改动 (滤镜/变换/撤销/图层操作) 说不清改了哪层, 静态底图无条件作废
+        invalidateStaticUnderlay();
         markRegionDirty(QRect(0, 0, m_docWidth, m_docHeight));
         // A document-wide content change invalidates every layer thumbnail:
         // filters/transforms/undo-redo/layer ops cannot say which layer
@@ -1365,6 +1376,10 @@ private:
         }
     }
     void markRegionDirty(const QRect &r) {
+        // 运笔期间的脏区来自当前层 (位于底图上界之上), 不碰底图; 其余来源一律按区域作废。
+        if (!m_drawing || m_currentLayer < m_staticUnderlayTop) {
+            invalidateStaticUnderlayRect(r);
+        }
         m_dirtyRect = m_dirtyRect.isNull() ? r : m_dirtyRect.united(r);
         addDirtyRegion(r);
         if (m_dirtyCb) m_dirtyCb(m_dirtyCtx);
@@ -1379,6 +1394,7 @@ private:
     }
     // 整幅画布标脏 (缓冲重置 / 文档尺寸变化), 列表同步收敛成这一整块。
     void setDirtyFullFrame(const QRect &full) {
+        invalidateStaticUnderlay();
         m_dirtyRect = full;
         m_dirtyRects.clear();
         if (!full.isEmpty()) {
@@ -1388,6 +1404,47 @@ private:
     void setDirtyFullFrame() { setDirtyFullFrame(QRect(0, 0, m_docWidth, m_docHeight)); }
     // 逐块把脏区 (m_dirtyRects, 为空时为 m_dirtyRect) 重新合成到 out。
     void compositeDirtyRegions(KisPaintDeviceSP out);
+
+    // ---- 运笔静态底图 ----
+    // 运笔期间 [0, b) 那摞下层不变 (b 见 strokeStaticUnderlayStop), 把它的合成结果按 512 宏瓦片
+    // 懒烘焙进 m_staticUnderlay, 出帧时 COPY 上来再只合成 [b, size), 不必每帧重算全栈。
+    // 跨笔保留; 任何可能改动下层的路径都会作废: markRegionDirty (运笔以外的来源, 按区域),
+    // markDirty / setDirtyFullFrame / recompositeProjection / syncLayersFromImage /
+    // markBlendChanged / invalidateStrokeOnionCache (整体), 换文档、上界或文档对象变化 (整体)。
+    void bakeStaticUnderlay(const QRect &r);
+    void invalidateStaticUnderlay() {
+        m_staticUnderlay = nullptr;
+        m_staticUnderlayTiles.clear();
+        m_staticUnderlayTop = -1;
+        m_staticUnderlayDoc = nullptr;
+    }
+    // 只作废与 r 相交的宏瓦片 (像素留着, 下次烘焙前会先清掉再重算); 覆盖整幅时整体作废。
+    void invalidateStaticUnderlayRect(const QRect &r) {
+        if (m_staticUnderlayTiles.isEmpty() || r.isEmpty()) {
+            return;
+        }
+        if (r.contains(QRect(0, 0, m_docWidth, m_docHeight))) {
+            invalidateStaticUnderlay();
+            return;
+        }
+        const QRect c = r.intersected(QRect(0, 0, m_docWidth, m_docHeight));
+        if (c.isEmpty()) {
+            return;
+        }
+        const int tile = kStaticUnderlayTile;
+        for (int ty = c.top() / tile; ty <= c.bottom() / tile; ++ty) {
+            for (int tx = c.left() / tile; tx <= c.right() / tile; ++tx) {
+                m_staticUnderlayTiles.remove((quint64(quint32(ty)) << 32) | quint64(quint32(tx)));
+            }
+        }
+    }
+    static const int kStaticUnderlayTile = 512;
+    KisPaintDeviceSP m_staticUnderlay;
+    QSet<quint64> m_staticUnderlayTiles;  // 已烘焙的宏瓦片 (ty << 32 | tx)
+    int m_staticUnderlayTop = -1;         // 烘焙时的上界 b, 变了整体作废
+    const void *m_staticUnderlayDoc = nullptr;  // 防止换文档后复用旧像素
+
+    friend int strokeStaticUnderlayStop(const ReverieCore &core);
     // A stroke paints one layer: bump the thumbnail generation of the painted
     // node AND every ancestor group (their thumbs show the merged composite,
     // so editing a child must also refresh the group thumb). Strokes are the

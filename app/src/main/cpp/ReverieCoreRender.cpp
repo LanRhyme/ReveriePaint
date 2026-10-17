@@ -11,6 +11,7 @@
 #include "PixelAlpha.h"
 #include "ReverieCoreFilterKernels.h"
 #include "ReverieCoreColorSpaceHook.h"
+#include "StrokePresentFastPath.h"
 #include <KisEncloseAndFillPainter.h>
 #include <android/log.h>
 #include <kis_image_animation_interface.h>
@@ -73,13 +74,96 @@ void ReverieCore::addDirtyRegion(const QRect &r)
     }
 }
 
+// ============================================================
+// 运笔静态底图
+// ============================================================
+
+void ReverieCore::bakeStaticUnderlay(const QRect &r)
+{
+    const int stopIdx = strokeStaticUnderlayStop(*this);
+    if (!m_document || r.isEmpty() || stopIdx <= 0) {
+        return;
+    }
+
+    // 底图记的是 [0, stopIdx) 那摞下层的像素: 上界换了 (或换了文档) 就整体作废。
+    if (m_staticUnderlayTop != stopIdx || m_staticUnderlayDoc != m_document.data()) {
+        invalidateStaticUnderlay();
+        m_staticUnderlayTop = stopIdx;
+        m_staticUnderlayDoc = m_document.data();
+    }
+    if (!m_staticUnderlay) {
+        m_staticUnderlay = new KisPaintDevice(m_document->colorSpace());
+    }
+
+    const QRect docRect(0, 0, m_document->width(), m_document->height());
+    const QRect clip = r.intersected(docRect);
+    if (clip.isEmpty()) {
+        return;
+    }
+
+    // 一行里连续缺失的宏瓦片并成一段一起合成; 碰到已烘焙的瓦片先把攒着的那段冲掉,
+    // 否则段会跨过已烘焙的瓦片, 把它也清掉重算 (白算一遍)。
+    const int tile = kStaticUnderlayTile;
+    for (int ty = clip.top() / tile; ty <= clip.bottom() / tile; ++ty) {
+        QRect rowSpan;
+        for (int tx = clip.left() / tile; tx <= clip.right() / tile; ++tx) {
+            const quint64 key = (quint64(quint32(ty)) << 32) | quint64(quint32(tx));
+            if (m_staticUnderlayTiles.contains(key)) {
+                if (!rowSpan.isEmpty()) {
+                    m_staticUnderlay->clear(rowSpan);
+                    compositeLayersRange(m_staticUnderlay, 0, stopIdx, rowSpan);
+                    rowSpan = QRect();
+                }
+                continue;
+            }
+            m_staticUnderlayTiles.insert(key);
+            const QRect tc = QRect(tx * tile, ty * tile, tile, tile).intersected(docRect);
+            if (!tc.isEmpty()) {
+                rowSpan = rowSpan.isEmpty() ? tc : rowSpan.united(tc);
+            }
+        }
+        if (!rowSpan.isEmpty()) {
+            m_staticUnderlay->clear(rowSpan);
+            compositeLayersRange(m_staticUnderlay, 0, stopIdx, rowSpan);
+        }
+    }
+}
+
 void ReverieCore::compositeDirtyRegions(KisPaintDeviceSP out)
 {
     if (!out || !m_document) {
         return;
     }
     const QRect docRect(0, 0, m_document->width(), m_document->height());
+    const int stopIdx = strokeStaticUnderlayStop(*this);
     const int n = dirtyRegionCount(m_dirtyRects, m_dirtyRect);
+
+    if (stopIdx > 0) {
+        // [0, stopIdx) 由静态底图提供: COMPOSITE_COPY 覆盖 r 内全部像素 (不必先 clear), 再从
+        // stopIdx 往上合成当前单元与上方可见层, 与从 0 全量合成逐像素一致。
+        // COPY 的 painter 只在循环外建一次; bakeStaticUnderlay 会按需创建底图, 所以先烘焙再判空。
+        // 每块必须"COPY 之后紧接着合成上层": 离散脏区合并后可能互相重叠, 若先把所有块 COPY 完
+        // 再统一合成上层, 重叠处的上层会被叠两遍 (半透明/叠加模式下颜色错)。
+        KisPainter copyPainter(out);
+        copyPainter.setCompositeOpId(COMPOSITE_COPY);
+        for (int i = 0; i < n; ++i) {
+            const QRect r = dirtyRegionAt(m_dirtyRects, m_dirtyRect, i).intersected(docRect);
+            if (r.isEmpty()) {
+                continue;
+            }
+            bakeStaticUnderlay(r);
+            if (m_staticUnderlay) {
+                copyPainter.bitBlt(r.topLeft(), m_staticUnderlay, r);
+                compositeLayersRange(out, stopIdx, m_layers.size(), r);
+            } else {
+                out->clear(r);
+                compositeLayersRange(out, 0, m_layers.size(), r);
+            }
+        }
+        copyPainter.end();
+        return;
+    }
+
     for (int i = 0; i < n; ++i) {
         const QRect r = dirtyRegionAt(m_dirtyRects, m_dirtyRect, i).intersected(docRect);
         if (r.isEmpty()) {
@@ -156,13 +240,19 @@ QRect ReverieCore::strokeOnionExtent(int layerIndex)
 //   - 但 clear 只需覆盖这次的脏区 r, 不必清整块画布。
 // 复用设备本身省掉的是 KisPaintDevice 的构造/析构 (tile manager 那一坨),
 // 那才是掉帧的主因; clear(r) 走的是 tile 级 memset, 相对廉价。
-KisPaintDeviceSP ReverieCore::strokeMergeScratch(const QRect &r)
+KisPaintDeviceSP ReverieCore::strokeMergeScratchDevice()
 {
-    if (!m_strokeMergeScratch || !m_document) {
+    if (!m_strokeMergeScratch) {
         m_strokeMergeScratch = new KisPaintDevice(m_document->colorSpace());
     }
-    m_strokeMergeScratch->clear(r);
     return m_strokeMergeScratch;
+}
+
+KisPaintDeviceSP ReverieCore::strokeMergeScratch(const QRect &r)
+{
+    KisPaintDeviceSP scratch = strokeMergeScratchDevice();
+    scratch->clear(r);
+    return scratch;
 }
 
 KisPaintDeviceSP ReverieCore::strokeOutScratch(const QRect &r)
@@ -1236,7 +1326,9 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
             painter.bitBlt(r.topLeft(), dev, r);
             painter.end();
         } else {
-            KisPaintDeviceSP scratch = strokeMergeScratch(r);
+            // 没有洋葱皮时本层直接 COMPOSITE_COPY 进暂存 (覆盖 r 内全部像素), 与"先 clear 再 normal
+            // 叠到全透明上"结果相同, 省掉一次 clear(r) 遍历。
+            KisPaintDeviceSP scratch = src ? strokeMergeScratch(r) : strokeMergeScratchDevice();
             if (src) {
                 KisPainter onionPainter(scratch);
                 onionPainter.setCompositeOpId(QStringLiteral("behind"));
@@ -1245,7 +1337,7 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
             }
             {
                 KisPainter basePainter(scratch);
-                basePainter.setCompositeOpId(QStringLiteral("normal"));
+                basePainter.setCompositeOpId(src ? QStringLiteral("normal") : QString(COMPOSITE_COPY));
                 basePainter.bitBlt(r.topLeft(), dev, r);
                 basePainter.end();
             }
