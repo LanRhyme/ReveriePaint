@@ -32,10 +32,12 @@ object ShadingModelManager {
     private const val DEFAULT_MODEL_NAME = "anime_normal_v1.onnx"
     private const val CUSTOM_MODEL_NAME = "custom_shading.onnx"
 
-    /** 官方推荐模型备选下载节点 (HuggingFace CDN / 国内镜像) */
-    private const val PRIMARY_MODEL_URL =
-        "https://hf-mirror.com/longtimedevs/sprite2normal/resolve/main/sprite2normal.onnx"
-    private const val MIRROR_MODEL_URL =
+    /** 官方推荐模型多线路备选下载节点 (GitHub Release 资产镜像 / 官方 Release / HuggingFace CDN) */
+    private const val MIRROR_URL_1 =
+        "https://ghproxy.net/https://github.com/LanRhyme/ReveriePaint/releases/download/v1.5.0/sprite2normal.onnx"
+    private const val GITHUB_RELEASE_URL =
+        "https://github.com/LanRhyme/ReveriePaint/releases/download/v1.5.0/sprite2normal.onnx"
+    private const val HUGGINGFACE_URL =
         "https://huggingface.co/longtimedevs/sprite2normal/resolve/main/sprite2normal.onnx"
 
     var modelStatus: ModelStatus by mutableStateOf(ModelStatus.NotDownloaded)
@@ -112,7 +114,7 @@ object ShadingModelManager {
             var downloadSuccess = false
             var lastError = ""
 
-            val urls = listOf(PRIMARY_MODEL_URL, MIRROR_MODEL_URL)
+            val urls = listOf(MIRROR_URL_1, GITHUB_RELEASE_URL, HUGGINGFACE_URL)
             for (url in urls) {
                 try {
                     val request = Request.Builder()

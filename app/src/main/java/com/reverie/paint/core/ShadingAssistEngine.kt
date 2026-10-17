@@ -379,8 +379,15 @@ object ShadingAssistEngine {
                                 if (sampleX in 0 until outWidth && sampleY in 0 until outHeight) {
                                     val lp = linePixels[sampleY * outWidth + sampleX]
                                     val la = (lp ushr 24) and 0xFF
-                                    if (la > 40) {
-                                        illumination *= 0.35f
+                                    if (la > 20) {
+                                        val r = (lp shr 16) and 0xFF
+                                        val g = (lp shr 8) and 0xFF
+                                        val b = lp and 0xFF
+                                        val darkness = (255 - (r * 299 + g * 587 + b * 114) / 1000) / 255.0f
+                                        val lineStrength = (la / 255.0f) * darkness
+                                        if (lineStrength > 0.3f) {
+                                            illumination *= (1.0f - lineStrength * 0.65f)
+                                        }
                                     }
                                 }
                             }

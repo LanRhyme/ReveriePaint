@@ -217,6 +217,7 @@ fun ShadingAssistDialog(
                             ) {
                                 val baseBmp = vm.shadingAssistBaseBitmap
                                 val shadowBmp = vm.shadingAssistPreviewBitmap
+                                val lineBmp = vm.shadingAssistLineBitmap
 
                                 if (baseBmp != null && !baseBmp.isRecycled) {
                                     Image(
@@ -229,6 +230,14 @@ fun ShadingAssistDialog(
                                 if (shadowBmp != null && !shadowBmp.isRecycled) {
                                     Image(
                                         bitmap = shadowBmp.asImageBitmap(),
+                                        contentDescription = null,
+                                        modifier = Modifier.fillMaxSize()
+                                    )
+                                }
+
+                                if (lineBmp != null && !lineBmp.isRecycled) {
+                                    Image(
+                                        bitmap = lineBmp.asImageBitmap(),
                                         contentDescription = null,
                                         modifier = Modifier.fillMaxSize()
                                     )
@@ -292,6 +301,7 @@ fun ShadingAssistDialog(
 
                                 LineArtLayerPicker(
                                     layers = vm.layers,
+                                    excludeLayerId = vm.currentLayerIndex,
                                     selectedLayerId = config.referenceLineLayerId,
                                     onSelect = { layerId ->
                                         vm.updateShadingConfig(
@@ -756,12 +766,13 @@ private fun ModelStatusCard(
 @Composable
 private fun LineArtLayerPicker(
     layers: List<PaintViewModel.LayerUiState>,
+    excludeLayerId: Int,
     selectedLayerId: Int?,
     onSelect: (Int?) -> Unit
 ) {
     var expanded by remember { mutableStateOf(false) }
-    val candidateLayers = remember(layers) {
-        layers.filter { !it.isGroup && it.nodeType == 0 }
+    val candidateLayers = remember(layers, excludeLayerId) {
+        layers.filter { it.index != excludeLayerId && !it.isGroup && it.nodeType == 0 }
     }
 
     val selectedName = if (selectedLayerId == null) {

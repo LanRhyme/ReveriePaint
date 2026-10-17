@@ -2485,6 +2485,47 @@ bool ReverieCore::renderLayerThumb(int index, int w, int h, void *dstPixels, int
     return true;
 }
 
+bool ReverieCore::renderLayerCanvas(int index, int w, int h, void *dstPixels, int dstStride)
+{
+    if (!m_document || index < 0 || index >= m_layers.size() || !dstPixels || w <= 0 || h <= 0 || dstStride < w * 4) {
+        return false;
+    }
+    memset(dstPixels, 0, size_t(dstStride) * h);
+    if (m_layers[index].nodeType == NodeTypeAdjustment) {
+        return false;
+    }
+    KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
+    if (!dev) {
+        return false;
+    }
+    const QRect ext = dev->exactBounds().intersected(QRect(0, 0, m_docWidth, m_docHeight));
+    if (ext.isEmpty()) {
+        return true;
+    }
+
+    try {
+        const QImage img = dev->convertToQImage(nullptr, 0, 0, m_docWidth, m_docHeight);
+        if (img.isNull()) {
+            return false;
+        }
+
+        const QImage scaled = (img.width() == w && img.height() == h)
+            ? img.convertToFormat(QImage::Format_RGBA8888_Premultiplied)
+            : img.scaled(w, h, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                  .convertToFormat(QImage::Format_RGBA8888_Premultiplied);
+
+        const int copyH = qMin(h, scaled.height());
+        const int copyW = qMin(w, scaled.width());
+        for (int y = 0; y < copyH; ++y) {
+            memcpy(static_cast<char *>(dstPixels) + size_t(y) * dstStride,
+                   scaled.constScanLine(y), size_t(copyW) * 4);
+        }
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 int ReverieCore::docWidth() const
 {
     return m_docWidth;

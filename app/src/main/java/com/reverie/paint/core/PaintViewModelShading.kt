@@ -34,8 +34,11 @@ internal fun PaintViewModel.openShadingAssist() {
     // 检查并刷新 ONNX 模型状态
     ShadingModelManager.checkStatus(appContext)
 
-    // 自动寻找潜在的线稿图层：优先寻找底色图层上方最近的一个可见普通绘制图层
-    val candidateLineLayer = layers.filter {
+    // 自动寻找潜在的线稿图层：优先寻找含“线/line”命名的图层，或底色图层上方最近的一个可见普通绘制图层
+    val candidateLineLayer = layers.firstOrNull {
+        it.index != currentIdx && !it.isGroup && it.nodeType == 0 &&
+        (it.name.contains("线", ignoreCase = true) || it.name.contains("line", ignoreCase = true))
+    } ?: layers.filter {
         it.index > currentIdx && !it.isGroup && it.nodeType == 0 && it.visible
     }.minByOrNull { it.index }
 
@@ -48,9 +51,9 @@ internal fun PaintViewModel.openShadingAssist() {
     val previewW = (coreW * previewScale).toInt().coerceAtLeast(64)
     val previewH = (coreH * previewScale).toInt().coerceAtLeast(64)
 
-    // 采样底色图层缩略位图
+    // 采样底色图层画布空间位图
     val baseBmp = Bitmap.createBitmap(previewW, previewH, Bitmap.Config.ARGB_8888)
-    if (!ReverieCoreBridge.renderLayerThumb(currentIdx, baseBmp)) {
+    if (!renderLayerPixels(currentIdx, baseBmp)) {
         baseBmp.recycle()
         Toast.makeText(appContext, R.string.shading_assist_toast_need_layer, Toast.LENGTH_SHORT).show()
         return
@@ -58,12 +61,12 @@ internal fun PaintViewModel.openShadingAssist() {
     shadingAssistBaseBitmap?.recycle()
     shadingAssistBaseBitmap = baseBmp
 
-    // 采样线稿图层缩略位图 (如有)
+    // 采样线稿图层画布空间位图 (如有)
     shadingAssistLineBitmap?.recycle()
     shadingAssistLineBitmap = null
     if (initialLineLayerId != null) {
         val lineBmp = Bitmap.createBitmap(previewW, previewH, Bitmap.Config.ARGB_8888)
-        if (ReverieCoreBridge.renderLayerThumb(initialLineLayerId, lineBmp)) {
+        if (renderLayerPixels(initialLineLayerId, lineBmp)) {
             shadingAssistLineBitmap = lineBmp
         } else {
             lineBmp.recycle()
@@ -128,7 +131,7 @@ internal fun PaintViewModel.updateShadingConfig(
         val lineId = newConfig.referenceLineLayerId
         if (lineId != null) {
             val lineBmp = Bitmap.createBitmap(baseBmp.width, baseBmp.height, Bitmap.Config.ARGB_8888)
-            if (ReverieCoreBridge.renderLayerThumb(lineId, lineBmp)) {
+            if (renderLayerPixels(lineId, lineBmp)) {
                 shadingAssistLineBitmap = lineBmp
             } else {
                 lineBmp.recycle()
@@ -223,9 +226,9 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
         val fullW = coreW
         val fullH = coreH
 
-        // 1. 全分辨率采样底色与线稿
+        // 1. 全分辨率采样底色与线稿 (严格按画布原点与尺寸 1:1 空间映射)
         val fullBase = Bitmap.createBitmap(fullW, fullH, Bitmap.Config.ARGB_8888)
-        if (!ReverieCoreBridge.renderLayerThumb(baseLayerIdx, fullBase)) {
+        if (!renderLayerPixels(baseLayerIdx, fullBase)) {
             fullBase.recycle()
             withContext(Dispatchers.Main) {
                 shadingAssistIsProcessing = false
@@ -237,7 +240,7 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
         val lineId = shadingAssistConfig.referenceLineLayerId
         val fullLine = if (lineId != null) {
             val lb = Bitmap.createBitmap(fullW, fullH, Bitmap.Config.ARGB_8888)
-            if (ReverieCoreBridge.renderLayerThumb(lineId, lb)) lb else {
+            if (renderLayerPixels(lineId, lb)) lb else {
                 lb.recycle()
                 null
             }
@@ -281,7 +284,7 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
             val shadowName = appContext.getString(R.string.shading_assist_layer_name)
             // 新建图层默认插入在当前激活图层 (底色图层) 之上
             ReverieCoreBridge.addLayer(shadowName)
-            val newLayerIdx = currentLayerIndex
+            val newLayerIdx = ReverieCoreBridge.currentLayerIndex()
             // 设定正片叠底
             ReverieCoreBridge.setLayerBlendMode(newLayerIdx, "multiply")
             // 开启剪贴蒙版 (Clipped Mask)
@@ -293,5 +296,16 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
                 stampBmp.recycle()
             }
         }
+    }
+}
+
+/**
+ * 采样图层在画布坐标空间中的像素内容 (优先使用 1:1 画布空间映射以保证图层间像素无偏移)
+ */
+private fun renderLayerPixels(layerIndex: Int, bitmap: Bitmap): Boolean {
+    return try {
+        ReverieCoreBridge.renderLayerCanvas(layerIndex, bitmap)
+    } catch (e: UnsatisfiedLinkError) {
+        ReverieCoreBridge.renderLayerThumb(layerIndex, bitmap)
     }
 }
