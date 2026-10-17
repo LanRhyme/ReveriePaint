@@ -34,16 +34,24 @@ internal fun PaintViewModel.openShadingAssist() {
     // 检查并刷新 ONNX 模型状态
     ShadingModelManager.checkStatus(appContext)
 
-    // 自动寻找潜在的线稿图层：优先寻找含“线/line”命名的图层，或底色图层上方最近的一个可见普通绘制图层
-    val candidateLineLayer = layers.firstOrNull {
-        it.index != currentIdx && !it.isGroup && it.nodeType == 0 &&
-        (it.name.contains("线", ignoreCase = true) || it.name.contains("line", ignoreCase = true))
-    } ?: layers.filter {
-        it.index > currentIdx && !it.isGroup && it.nodeType == 0 && it.visible
-    }.minByOrNull { it.index }
+    // 自动寻找潜在的线稿图层：优先保留用户已选图层，若未选或失效则智能推测
+    val existingLineId = shadingAssistConfig.referenceLineLayerId
+    val isExistingValid = existingLineId != null && existingLineId != currentIdx &&
+        layers.any { it.index == existingLineId && !it.isGroup && it.nodeType == 0 }
 
-    val initialLineLayerId = candidateLineLayer?.index
-    shadingAssistConfig = shadingAssistConfig.copy(referenceLineLayerId = initialLineLayerId)
+    val activeLineLayerId = if (isExistingValid) {
+        existingLineId
+    } else {
+        val candidateLineLayer = layers.firstOrNull {
+            it.index != currentIdx && !it.isGroup && it.nodeType == 0 &&
+            (it.name.contains("线", ignoreCase = true) || it.name.contains("line", ignoreCase = true))
+        } ?: layers.filter {
+            it.index > currentIdx && !it.isGroup && it.nodeType == 0 && it.visible
+        }.minByOrNull { it.index }
+        candidateLineLayer?.index
+    }
+
+    shadingAssistConfig = shadingAssistConfig.copy(referenceLineLayerId = activeLineLayerId)
 
     // 计算交互预览尺寸 (最大边 512px，保证流畅 60fps 实时光源拖动)
     val maxDim = max(coreW, coreH).coerceAtLeast(1)
@@ -64,9 +72,9 @@ internal fun PaintViewModel.openShadingAssist() {
     // 采样线稿图层画布空间位图 (如有)
     shadingAssistLineBitmap?.recycle()
     shadingAssistLineBitmap = null
-    if (initialLineLayerId != null) {
+    if (activeLineLayerId != null) {
         val lineBmp = Bitmap.createBitmap(previewW, previewH, Bitmap.Config.ARGB_8888)
-        if (renderLayerPixels(initialLineLayerId, lineBmp)) {
+        if (renderLayerPixels(activeLineLayerId, lineBmp)) {
             shadingAssistLineBitmap = lineBmp
         } else {
             lineBmp.recycle()
@@ -83,6 +91,7 @@ internal fun PaintViewModel.openShadingAssist() {
             lineBitmap = shadingAssistLineBitmap,
             modelFile = modelFile,
             useAiModel = shadingAssistConfig.useAiModel,
+            volumeSmoothness = shadingAssistConfig.volumeSmoothness,
             targetResolution = previewW
         )
         shadingAssistNormalField = normalField
@@ -124,10 +133,11 @@ internal fun PaintViewModel.updateShadingConfig(
 ) {
     val lineLayerChanged = reloadLineart || (newConfig.referenceLineLayerId != shadingAssistConfig.referenceLineLayerId)
     val modelModeChanged = newConfig.useAiModel != shadingAssistConfig.useAiModel
+    val smoothnessChanged = newConfig.volumeSmoothness != shadingAssistConfig.volumeSmoothness
     shadingAssistConfig = newConfig
 
     val baseBmp = shadingAssistBaseBitmap ?: return
-    if (lineLayerChanged || modelModeChanged) {
+    if (lineLayerChanged || modelModeChanged || smoothnessChanged) {
         if (lineLayerChanged) {
             shadingAssistLineBitmap?.recycle()
             shadingAssistLineBitmap = null
@@ -151,6 +161,7 @@ internal fun PaintViewModel.updateShadingConfig(
                 lineBitmap = shadingAssistLineBitmap,
                 modelFile = modelFile,
                 useAiModel = newConfig.useAiModel,
+                volumeSmoothness = newConfig.volumeSmoothness,
                 targetResolution = baseBmp.width
             )
             shadingAssistNormalField = normalField
@@ -260,6 +271,7 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
             lineBitmap = fullLine,
             modelFile = modelFile,
             useAiModel = shadingAssistConfig.useAiModel,
+            volumeSmoothness = shadingAssistConfig.volumeSmoothness,
             targetResolution = min(fullW, fullH).coerceIn(512, shadingAssistConfig.downsampleTargetSize)
         )
 

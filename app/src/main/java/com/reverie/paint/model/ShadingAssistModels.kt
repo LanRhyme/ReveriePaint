@@ -36,18 +36,21 @@ enum class CelSteps(val count: Int) {
  * 智能阴影辅助核心配置模型
  */
 data class ShadingAssistConfig(
-    val lightAzimuthDeg: Float = 45f,
+    val lightAzimuthDeg: Float = 120f,
     val lightElevationDeg: Float = 45f,
     val mode: ShadingMode = ShadingMode.CEL,
     val celSteps: CelSteps = CelSteps.ONE_STEP,
     val threshold1: Float = 0.50f,
     val threshold2: Float = 0.25f,
-    val softness: Float = 0.15f,
+    val softness: Float = 0.05f,
     val shadowColor: Long = 0xFF5A4D6EL,
-    val shadowOpacity: Float = 0.65f,
+    val shadowOpacity: Float = 0.55f,
     val lineArtOcclusion: Boolean = false,
+    val lineCastDistance: Float = 15.0f,
+    val lineCastIntensity: Float = 0.8f,
+    val volumeSmoothness: Float = 30.0f,
     val referenceLineLayerId: Int? = null,
-    val useAiModel: Boolean = false,
+    val useAiModel: Boolean = true,
     val downsampleTargetSize: Int = 1024
 ) {
     /**

@@ -2747,11 +2747,21 @@
     <string name="shading_assist_lineart_layer">参考线稿图层</string>
     <string name="shading_assist_lineart_none">不参考线稿 (仅底色)</string>
     <string name="shading_assist_lineart_occlusion">线稿投射自遮挡</string>
+    <string name="shading_assist_line_cast_dist">线稿投射距离</string>
+    <string name="shading_assist_line_cast_intensity">线稿投射强度</string>
+    <string name="shading_assist_volume_smoothness">体积平滑度</string>
+    <string name="shading_assist_preset_front_left">前左侧光</string>
+    <string name="shading_assist_preset_front_right">前右侧光</string>
+    <string name="shading_assist_preset_top">正顶光</string>
+    <string name="shading_assist_preset_side">正侧光</string>
+    <string name="shading_assist_preset_back">逆光</string>
+    <string name="shading_assist_engine_csp">CSP 赛璐珞体积</string>
+    <string name="shading_assist_engine_ai">Depth Anything V2</string>
     <string name="shading_assist_apply">生成阴影图层</string>
     <string name="shading_assist_generating">正在生成阴影图层...</string>
-    <string name="shading_assist_model_ready">AI 神经网络模型已就绪</string>
-    <string name="shading_assist_model_synthetic">内置 2.5D 几何光影引擎</string>
-    <string name="shading_assist_engine_desc">推荐: 纯净二次元赛璐珞曲面，零噪点、顺线稿自然过渡</string>
+    <string name="shading_assist_model_ready">Depth Anything V2 深度模型已就绪</string>
+    <string name="shading_assist_model_synthetic">CSP 纯净赛璐珞体积场</string>
+    <string name="shading_assist_engine_desc">Depth Anything V2: 真实 3D 深度与立体光照 | CSP: 纯净宏观体积光照</string>
     <string name="shading_assist_use_ai_model">启用 AI 模型</string>
     <string name="shading_assist_download_model">下载推荐 AI 模型</string>
     <string name="shading_assist_import_model">导入本地 .onnx</string>
@@ -2761,6 +2771,6 @@
     <string name="shading_assist_layer_name">智能阴影</string>
     <string name="shading_assist_toast_success">已在底色图层上方生成剪贴阴影</string>
     <string name="shading_assist_toast_need_layer">请先选择包含色彩内容的图层</string>
-    <string name="shading_assist_ai_hint">支持导入外部深度/表面法线 ONNX 神经网络模型 (如 MiDaS / Surface Normal)</string>
+    <string name="shading_assist_ai_hint">内置 SOTA 级 Depth Anything V2 深度神经网络，支持导入外部 ONNX 模型</string>
 </resources>
 
