@@ -232,7 +232,7 @@ void ReverieCore::touchStrokeEnd()
             gc.setChannelFlags(pl->alphaLocked() ? pl->channelLockFlags() : QBitArray());
             gc.bitBlt(ext.topLeft(), tempTarget, ext);
             gc.end();
-            markRegionDirty(ext);
+            markStrokeDirty(ext);
             bumpLayerThumbGen(pl);
         }
         pl->setTemporaryTarget(nullptr);
@@ -285,7 +285,7 @@ void ReverieCore::touchStrokeEnd()
             -margin, -margin, margin, margin).intersected(
             QRect(0, 0, m_document->width(), m_document->height()));
         if (!totalDirty.isEmpty()) {
-            markRegionDirty(totalDirty);
+            markStrokeDirty(totalDirty);
         }
     }
 
@@ -312,7 +312,7 @@ void ReverieCore::touchStrokeCancel()
         tempTarget->clear();
         if (!ext.isEmpty()) {
             pl->setDirty(ext);
-            markRegionDirty(ext);
+            markStrokeDirty(ext);
             recompositeProjection();
             markDirty();
         }
@@ -788,7 +788,7 @@ bool ReverieCore::flushStrokeBatch()
         }
         const QRect tr = QRect(int(p.x()) - tw, int(p.y()) - tw, 2 * tw, 2 * tw).intersected(
             QRect(0, 0, m_docWidth, m_docHeight));
-        markRegionDirty(strokeDirty.isNull() ? tr : strokeDirty);
+        markStrokeDirty(strokeDirty.isNull() ? tr : strokeDirty);
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
         m_strokeCarryCount = 1;
         return true;
@@ -1393,7 +1393,7 @@ bool ReverieCore::strokeAirbrushTick()
             tickDirty = tickDirty.adjusted(-extra, -extra, extra, extra).intersected(
                 QRect(0, 0, m_docWidth, m_docHeight));
         }
-        markRegionDirty(tickDirty);
+        markStrokeDirty(tickDirty);
     }
     return true;
 }

@@ -89,6 +89,9 @@ internal class DisplayTileState {
         }
     }
 
+    // 瓦片渲染重试连续失败计数 (用于熔断防护，避免 OOM 期间全速空转烧 CPU)
+    var consecutiveRetryFailures = 0
+
     // 网格每帧复用的一次性缓冲 (热路径零分配)。
     var needsFullWrite = BooleanArray(0)
         private set
@@ -169,6 +172,7 @@ internal class DisplayTileState {
         spareCoolingStage2.clear()
         snapshots[0] = null
         snapshots[1] = null
+        consecutiveRetryFailures = 0
     }
 
     /** 渲染线程: 每帧开头推移多帧冷却阶段，最老的 stage2 晋升进入 spareReady。 */

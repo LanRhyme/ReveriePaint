@@ -1201,10 +1201,8 @@ private:
     KisRandomSourceSP m_randomSource;
     KisPerStrokeRandomSourceSP m_perStrokeRandomSource;
     QElapsedTimer m_strokeTimer;
-    // Synchronous executor for the async dab-rendering pipeline (Krita uses
-    // this in its own tests; on-device it keeps dab rendering deterministic)
-    // 同步的保序并行执行器: 连续的 CONCURRENT 条带在 reverieBackgroundPool() 上 fork-join,
-    // SEQUENTIAL / BARRIER 任务仍在调用线程上严格按序执行。
+    // 保序条带并行执行器: 连续的 CONCURRENT dab 条带在 reverieBackgroundPool() 上 fork-join,
+    // SEQUENTIAL / BARRIER 任务仍在调用线程上严格按序执行，兼顾大笔刷吞吐与绘制确定性。
     struct ParallelStrokeJobsExecutor : public KisFakeRunnableStrokeJobsExecutor {
         void addRunnableJobs(const QVector<KisRunnableStrokeJobDataBase *> &list) override;
     };
@@ -1379,12 +1377,17 @@ private:
             ++it->gen;
         }
     }
-    void markRegionDirty(const QRect &r) {
-        // 非笔画直接标脏一律按区域作废底图, 杜绝切图层/切帧/动画更新残留旧像素
-        invalidateStaticUnderlayRect(r);
+    // 运笔内部标脏: 本笔只改当前层 k, 而底图是 [0, b) 且 b <= k (见 strokeStaticUnderlayStop),
+    // 底图不受影响, 只登记脏区。
+    void markStrokeDirty(const QRect &r) {
         m_dirtyRect = m_dirtyRect.isNull() ? r : m_dirtyRect.united(r);
         addDirtyRegion(r);
         if (m_dirtyCb) m_dirtyCb(m_dirtyCtx);
+    }
+    void markRegionDirty(const QRect &r) {
+        // 非笔画直接标脏一律按区域作废底图, 杜绝切图层/切帧/动画更新残留旧像素
+        invalidateStaticUnderlayRect(r);
+        markStrokeDirty(r);
     }
     // 把 r 并入离散脏区列表 (先裁剪到画布, 空矩形忽略), 不更新 m_dirtyRect、不回调。
     void addDirtyRegion(const QRect &r);

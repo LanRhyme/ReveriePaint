@@ -180,7 +180,19 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
         clearRenderWrittenRect()
         onTileRenderNoWork()
         if (retryNeeded) {
-            scheduleRender(immediate = false)
+            st.consecutiveRetryFailures++
+            if (st.consecutiveRetryFailures <= 3) {
+                scheduleRender(immediate = false)
+            } else {
+                android.util.Log.w(
+                    "DisplayTiles",
+                    "Tile render retry failed ${st.consecutiveRetryFailures} times consecutively, aborting retry spin",
+                )
+                st.needsFullWrite.fill(false)
+                st.consecutiveRetryFailures = 0
+            }
+        } else {
+            st.consecutiveRetryFailures = 0
         }
         return
     }
@@ -227,7 +239,21 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
     notifyCanvasFramePublished(keptOnFrontBuffer = kept)
     // 被撕裂的那张瓦片在前缓冲上是完整的, 但主画布的纹理可能是半张: 补一次失效让 HWUI 重传。
     if (kept && tornInPlace) invalidateCanvasFromRender()
-    if (retryNeeded) scheduleRender(immediate = false)
+    if (retryNeeded) {
+        st.consecutiveRetryFailures++
+        if (st.consecutiveRetryFailures <= 3) {
+            scheduleRender(immediate = false)
+        } else {
+            android.util.Log.w(
+                "DisplayTiles",
+                "Tile render retry failed ${st.consecutiveRetryFailures} times consecutively, aborting retry spin",
+            )
+            st.needsFullWrite.fill(false)
+            st.consecutiveRetryFailures = 0
+        }
+    } else {
+        st.consecutiveRetryFailures = 0
+    }
 
     TilePerfLog.frame(
         tAfterCompositeNs - tStartNs,

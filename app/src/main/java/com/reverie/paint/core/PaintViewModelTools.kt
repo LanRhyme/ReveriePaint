@@ -309,8 +309,9 @@ internal fun PaintViewModel.touchMove(
     tiltX: Double = 0.0,
     tiltY: Double = 0.0,
     rotation: Double = 0.0,
-    predictedDocX: Float = Float.NaN,
-    predictedDocY: Float = Float.NaN,
+    // predictedDocX/Y 保留参数，供上层前缓冲极速呈现/手势预测链路对齐扩展，真实笔画与录制不消费预测点
+    @Suppress("UNUSED_PARAMETER") predictedDocX: Float = Float.NaN,
+    @Suppress("UNUSED_PARAMETER") predictedDocY: Float = Float.NaN,
 ) {
     if (x.isNaN() || y.isNaN()) return
     val safePressure = if (pressure.isNaN() || pressure < 0.0) 1.0 else pressure.coerceIn(0.0, 1.0)
