@@ -51,6 +51,7 @@ import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -1120,6 +1121,8 @@ fun ReSlider(
     onRelease: (() -> Unit)? = null,
 ) {
     val colors = Theme.current
+    val currentOnValue by rememberUpdatedState(onValue)
+    val currentOnRelease by rememberUpdatedState(onRelease)
     var interacting by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableStateOf<Float?>(null) }
     val trackScale by animateFloatAsState(if (interacting) 1.14f else 1f, Motion.springSnap, label = "sliderTrackScale")
@@ -1157,9 +1160,9 @@ fun ReSlider(
                                         if (!isDragging) {
                                             // 原地点击滑块
                                             val tapVal = (change.position.x / w0).coerceIn(0f, 1f)
-                                            onValue(tapVal)
+                                            currentOnValue(tapVal)
                                         }
-                                        onRelease?.invoke()
+                                        currentOnRelease?.invoke()
                                     }
                                     break
                                 }
@@ -1190,7 +1193,7 @@ fun ReSlider(
                                     change.consume()
                                     val curVal = (change.position.x / w0).coerceIn(0f, 1f)
                                     dragFraction = curVal
-                                    onValue(curVal)
+                                    currentOnValue(curVal)
                                 }
                             }
                         } finally {

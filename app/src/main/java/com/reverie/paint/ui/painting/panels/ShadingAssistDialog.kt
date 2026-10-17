@@ -305,7 +305,7 @@ fun ShadingAssistDialog(
                                     selectedLayerId = config.referenceLineLayerId,
                                     onSelect = { layerId ->
                                         vm.updateShadingConfig(
-                                            config.copy(referenceLineLayerId = layerId),
+                                            vm.shadingAssistConfig.copy(referenceLineLayerId = layerId),
                                             reloadLineart = true
                                         )
                                     }
@@ -324,7 +324,7 @@ fun ShadingAssistDialog(
                                     ReSwitch(
                                         checked = config.lineArtOcclusion,
                                         onChecked = {
-                                            vm.updateShadingConfig(config.copy(lineArtOcclusion = it))
+                                            vm.updateShadingConfig(vm.shadingAssistConfig.copy(lineArtOcclusion = it))
                                         }
                                     )
                                 }
@@ -347,7 +347,7 @@ fun ShadingAssistDialog(
                                         .weight(1f)
                                         .clip(RoundedCornerShape(6.dp))
                                         .background(if (isCel) Morandi.accent else Color.Transparent)
-                                        .clickable { vm.updateShadingConfig(config.copy(mode = ShadingMode.CEL)) }
+                                        .clickable { vm.updateShadingConfig(vm.shadingAssistConfig.copy(mode = ShadingMode.CEL)) }
                                         .padding(vertical = 6.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -364,7 +364,7 @@ fun ShadingAssistDialog(
                                         .weight(1f)
                                         .clip(RoundedCornerShape(6.dp))
                                         .background(if (!isCel) Morandi.accent else Color.Transparent)
-                                        .clickable { vm.updateShadingConfig(config.copy(mode = ShadingMode.SMOOTH)) }
+                                        .clickable { vm.updateShadingConfig(vm.shadingAssistConfig.copy(mode = ShadingMode.SMOOTH)) }
                                         .padding(vertical = 6.dp),
                                     contentAlignment = Alignment.Center
                                 ) {
@@ -386,7 +386,7 @@ fun ShadingAssistDialog(
                                     val isTwoStep = config.celSteps == CelSteps.TWO_STEP
                                     FilterChip(
                                         selected = !isTwoStep,
-                                        onClick = { vm.updateShadingConfig(config.copy(celSteps = CelSteps.ONE_STEP)) },
+                                        onClick = { vm.updateShadingConfig(vm.shadingAssistConfig.copy(celSteps = CelSteps.ONE_STEP)) },
                                         label = { Text(stringResource(R.string.shading_assist_steps_1), fontSize = 11.sp) },
                                         colors = FilterChipDefaults.filterChipColors(
                                             selectedContainerColor = Morandi.accent.copy(alpha = 0.25f),
@@ -395,7 +395,7 @@ fun ShadingAssistDialog(
                                     )
                                     FilterChip(
                                         selected = isTwoStep,
-                                        onClick = { vm.updateShadingConfig(config.copy(celSteps = CelSteps.TWO_STEP)) },
+                                        onClick = { vm.updateShadingConfig(vm.shadingAssistConfig.copy(celSteps = CelSteps.TWO_STEP)) },
                                         label = { Text(stringResource(R.string.shading_assist_steps_2), fontSize = 11.sp) },
                                         colors = FilterChipDefaults.filterChipColors(
                                             selectedContainerColor = Morandi.accent.copy(alpha = 0.25f),
@@ -424,7 +424,7 @@ fun ShadingAssistDialog(
                                 }
                                 ReSlider(
                                     value = config.threshold1,
-                                    onValue = { vm.updateShadingConfig(config.copy(threshold1 = it)) }
+                                    onValue = { vm.updateShadingConfig(vm.shadingAssistConfig.copy(threshold1 = it)) }
                                 )
                             }
 
@@ -448,7 +448,7 @@ fun ShadingAssistDialog(
                                     }
                                     ReSlider(
                                         value = config.threshold2,
-                                        onValue = { vm.updateShadingConfig(config.copy(threshold2 = it)) }
+                                        onValue = { vm.updateShadingConfig(vm.shadingAssistConfig.copy(threshold2 = it)) }
                                     )
                                 }
                             }
@@ -472,7 +472,7 @@ fun ShadingAssistDialog(
                                 }
                                 ReSlider(
                                     value = config.softness,
-                                    onValue = { vm.updateShadingConfig(config.copy(softness = it)) }
+                                    onValue = { vm.updateShadingConfig(vm.shadingAssistConfig.copy(softness = it)) }
                                 )
                             }
 
@@ -495,7 +495,7 @@ fun ShadingAssistDialog(
                                 }
                                 ReSlider(
                                     value = config.shadowOpacity,
-                                    onValue = { vm.updateShadingConfig(config.copy(shadowOpacity = it)) }
+                                    onValue = { vm.updateShadingConfig(vm.shadingAssistConfig.copy(shadowOpacity = it)) }
                                 )
                             }
 
@@ -530,7 +530,7 @@ fun ShadingAssistDialog(
                                                     shape = CircleShape
                                                 )
                                                 .clickable {
-                                                    vm.updateShadingConfig(config.copy(shadowColor = colorVal))
+                                                    vm.updateShadingConfig(vm.shadingAssistConfig.copy(shadowColor = colorVal))
                                                 }
                                         )
                                     }
