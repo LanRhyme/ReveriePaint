@@ -205,6 +205,42 @@ fun ShadingAssistDialog(
                                 )
                             }
 
+                            // 常用打光预设快捷标签
+                            val presetsList = remember {
+                                listOf(
+                                    Triple(R.string.shading_assist_preset_front_left, 120f, 45f),
+                                    Triple(R.string.shading_assist_preset_front_right, 60f, 45f),
+                                    Triple(R.string.shading_assist_preset_top, 90f, 75f),
+                                    Triple(R.string.shading_assist_preset_side, 180f, 45f),
+                                    Triple(R.string.shading_assist_preset_back, 270f, 40f)
+                                )
+                            }
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                presetsList.forEach { (labelRes, az, el) ->
+                                    val isSel = abs(config.lightAzimuthDeg - az) < 15f && abs(config.lightElevationDeg - el) < 15f
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (isSel) Morandi.accent else Morandi.panelHi)
+                                            .clickable { vm.updateShadingLight(az, el) }
+                                            .padding(vertical = 4.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = stringResource(labelRes),
+                                            fontSize = 10.sp,
+                                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSel) Color.White else Morandi.subText,
+                                            maxLines = 1
+                                        )
+                                    }
+                                }
+                            }
+
                             // 实时预览视口
                             Box(
                                 modifier = Modifier
@@ -457,6 +493,76 @@ fun ShadingAssistDialog(
                                 }
                             }
 
+                            // 线稿投射距离 (CSP 核心微调参数)
+                            if (config.lineArtOcclusion) {
+                                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.shading_assist_line_cast_dist),
+                                            fontSize = 11.sp,
+                                            color = Morandi.subText
+                                        )
+                                        Text(
+                                            text = "${config.lineCastDistance.toInt()} px",
+                                            fontSize = 11.sp,
+                                            color = Morandi.text
+                                        )
+                                    }
+                                    ReSlider(
+                                        value = (config.lineCastDistance / 40.0f).coerceIn(0f, 1f),
+                                        onValue = { vm.updateShadingConfig(vm.shadingAssistConfig.copy(lineCastDistance = it * 40.0f)) }
+                                    )
+                                }
+
+                                Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                    Row(
+                                        modifier = Modifier.fillMaxWidth(),
+                                        horizontalArrangement = Arrangement.SpaceBetween
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.shading_assist_line_cast_intensity),
+                                            fontSize = 11.sp,
+                                            color = Morandi.subText
+                                        )
+                                        Text(
+                                            text = "${(config.lineCastIntensity * 100).toInt()}%",
+                                            fontSize = 11.sp,
+                                            color = Morandi.text
+                                        )
+                                    }
+                                    ReSlider(
+                                        value = (config.lineCastIntensity / 2.0f).coerceIn(0f, 1f),
+                                        onValue = { vm.updateShadingConfig(vm.shadingAssistConfig.copy(lineCastIntensity = it * 2.0f)) }
+                                    )
+                                }
+                            }
+
+                            // 体积平滑度 (消除局部斑块并决定宏观光影圆润度)
+                            Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.shading_assist_volume_smoothness),
+                                        fontSize = 11.sp,
+                                        color = Morandi.subText
+                                    )
+                                    Text(
+                                        text = "${config.volumeSmoothness.toInt()} px",
+                                        fontSize = 11.sp,
+                                        color = Morandi.text
+                                    )
+                                }
+                                ReSlider(
+                                    value = ((config.volumeSmoothness - 10.0f) / 50.0f).coerceIn(0f, 1f),
+                                    onValue = { vm.updateShadingConfig(vm.shadingAssistConfig.copy(volumeSmoothness = 10.0f + it * 50.0f)) }
+                                )
+                            }
+
                             // 边缘平滑度
                             Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                 Row(
@@ -672,44 +778,46 @@ private fun ModelStatusCard(
         colors = CardDefaults.cardColors(containerColor = Morandi.panelHi)
     ) {
         Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            // 顶栏：引擎标识与模式切换
+            // 顶栏：算法引擎选择分段按钮
             Row(
-                modifier = Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.SpaceBetween
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Morandi.panel)
+                    .padding(3.dp),
+                horizontalArrangement = Arrangement.spacedBy(4.dp)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Box(
-                        modifier = Modifier
-                            .size(8.dp)
-                            .clip(CircleShape)
-                            .background(if (useAiModel) Color(0xFF3B82F6) else Color(0xFF10B981))
-                    )
-                    Spacer(Modifier.width(6.dp))
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (!useAiModel) Morandi.accent else Color.Transparent)
+                        .clickable { onToggleAiModel(false) }
+                        .padding(vertical = 6.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
-                        text = if (useAiModel) {
-                            stringResource(R.string.shading_assist_model_ready)
-                        } else {
-                            stringResource(R.string.shading_assist_model_synthetic)
-                        },
+                        text = stringResource(R.string.shading_assist_engine_csp),
                         fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                        color = Morandi.text
+                        fontWeight = if (!useAiModel) FontWeight.Bold else FontWeight.Normal,
+                        color = if (!useAiModel) Color.White else Morandi.subText
                     )
                 }
 
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(if (useAiModel) Morandi.accent else Color.Transparent)
+                        .clickable { onToggleAiModel(true) }
+                        .padding(vertical = 6.dp),
+                    contentAlignment = Alignment.Center
                 ) {
                     Text(
-                        text = stringResource(R.string.shading_assist_use_ai_model),
+                        text = stringResource(R.string.shading_assist_engine_ai),
                         fontSize = 11.sp,
-                        color = Morandi.subText
-                    )
-                    ReSwitch(
-                        checked = useAiModel,
-                        onChecked = onToggleAiModel
+                        fontWeight = if (useAiModel) FontWeight.Bold else FontWeight.Normal,
+                        color = if (useAiModel) Color.White else Morandi.subText
                     )
                 }
             }

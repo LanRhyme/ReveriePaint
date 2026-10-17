@@ -2747,11 +2747,21 @@
     <string name="shading_assist_lineart_layer">Reference Line Art</string>
     <string name="shading_assist_lineart_none">None (Base layer only)</string>
     <string name="shading_assist_lineart_occlusion">Line Art Occlusion (Cast Shadow)</string>
+    <string name="shading_assist_line_cast_dist">Line Art Cast Distance</string>
+    <string name="shading_assist_line_cast_intensity">Line Art Cast Intensity</string>
+    <string name="shading_assist_volume_smoothness">Volume Smoothness</string>
+    <string name="shading_assist_preset_front_left">Front-Left</string>
+    <string name="shading_assist_preset_front_right">Front-Right</string>
+    <string name="shading_assist_preset_top">Top</string>
+    <string name="shading_assist_preset_side">Side</string>
+    <string name="shading_assist_preset_back">Backlight</string>
+    <string name="shading_assist_engine_csp">CSP Cel Volume</string>
+    <string name="shading_assist_engine_ai">Depth Anything V2</string>
     <string name="shading_assist_apply">Generate Shadow Layer</string>
     <string name="shading_assist_generating">Generating shadow layer...</string>
-    <string name="shading_assist_model_ready">AI Neural Model Ready</string>
-    <string name="shading_assist_model_synthetic">Built-in 2.5D Shading Engine</string>
-    <string name="shading_assist_engine_desc">Recommended: Clean anime cel shading, zero noise, smooth line art flow</string>
+    <string name="shading_assist_model_ready">Depth Anything V2 Model Ready</string>
+    <string name="shading_assist_model_synthetic">CSP Clean Stylized Volume Field</string>
+    <string name="shading_assist_engine_desc">Depth Anything V2: 3D neural depth &amp; lighting | CSP: Stylized macro volume</string>
     <string name="shading_assist_use_ai_model">Enable AI Model</string>
     <string name="shading_assist_download_model">Download Recommended AI Model</string>
     <string name="shading_assist_import_model">Import Local .onnx</string>
@@ -2761,6 +2771,6 @@
     <string name="shading_assist_layer_name">Smart Shadow</string>
     <string name="shading_assist_toast_success">Clipped shadow layer generated above base layer</string>
     <string name="shading_assist_toast_need_layer">Please select a layer with color content first</string>
-    <string name="shading_assist_ai_hint">Supports importing external Depth / Surface Normal ONNX models (e.g. MiDaS / Surface Normal)</string>
+    <string name="shading_assist_ai_hint">Built-in SOTA Depth Anything V2 neural network, supports external ONNX models</string>
 </resources>
 

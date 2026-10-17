@@ -49,26 +49,27 @@ object ShadingAssistEngine {
     }
 
     /**
-     * 生成表面法线向量场：若开启 useAiModel 且模型就绪则尝试 ONNX 推理，默认使用零噪点、饱满圆润的 2.5D 高性能合成曲面
+     * 生成表面法线/梯度向量场：若开启 useAiModel 且模型就绪则尝试 ONNX 推理，默认使用 CSP 宏观平滑体积梯度场
      */
     suspend fun generateNormalField(
         baseBitmap: Bitmap,
         lineBitmap: Bitmap?,
         modelFile: File?,
         useAiModel: Boolean = false,
+        volumeSmoothness: Float = 30.0f,
         targetResolution: Int = 1024
     ): NormalField = withContext(Dispatchers.Default) {
         if (useAiModel && modelFile != null && modelFile.exists() && modelFile.length() > 0) {
             try {
-                val onnxResult = runOnnxInference(baseBitmap, lineBitmap, modelFile, targetResolution)
+                val onnxResult = runOnnxInference(baseBitmap, lineBitmap, modelFile, volumeSmoothness, targetResolution)
                 if (onnxResult != null) {
                     return@withContext onnxResult
                 }
             } catch (e: Throwable) {
-                Log.w(TAG, "ONNX inference failed, smoothly falling back to synthetic normal field", e)
+                Log.w(TAG, "ONNX inference failed, smoothly falling back to CSP normal field", e)
             }
         }
-        generateSyntheticNormalField(baseBitmap, lineBitmap, targetResolution)
+        generateCspNormalField(baseBitmap, volumeSmoothness, targetResolution)
     }
 
     /**
@@ -78,11 +79,12 @@ object ShadingAssistEngine {
         baseBitmap: Bitmap,
         lineBitmap: Bitmap?,
         modelFile: File,
+        volumeSmoothness: Float,
         targetResolution: Int
     ): NormalField? {
         val env = OrtEnvironment.getEnvironment()
         val opts = OrtSession.SessionOptions().apply {
-            setIntraOpNumThreads(2)
+            setIntraOpNumThreads(4)
         }
         val session = env.createSession(modelFile.absolutePath, opts)
         session.use { sess ->
@@ -90,40 +92,78 @@ object ShadingAssistEngine {
             if (inputInfo.isEmpty()) return null
             val inputName = inputInfo.keys.first()
 
-            // UNet 下采样通常要求输入尺寸为 32 的整数倍
-            val alignW = (((min(baseBitmap.width, targetResolution).coerceAtLeast(64)) / 32) * 32).coerceAtLeast(64)
-            val alignH = (((min(baseBitmap.height, targetResolution).coerceAtLeast(64)) / 32) * 32).coerceAtLeast(64)
+            val isDepthAnything = modelFile.name.contains("depth_anything", ignoreCase = true)
+            val patchSize = if (isDepthAnything) 14 else 32
+            val maxRes = if (isDepthAnything) 518 else targetResolution
 
-            val scaledBase = if (baseBitmap.width == alignW && baseBitmap.height == alignH) {
+            // 等比例缩放并对齐为 patchSize 的整数倍 (Depth Anything V2 严格要求宽高为 14 的倍数)
+            val scale = min(maxRes.toFloat() / baseBitmap.width, maxRes.toFloat() / baseBitmap.height).coerceAtMost(1.0f)
+            val alignW = (((baseBitmap.width * scale).toInt() / patchSize) * patchSize).coerceAtLeast(patchSize)
+            val alignH = (((baseBitmap.height * scale).toInt() / patchSize) * patchSize).coerceAtLeast(patchSize)
+
+            // 读取模型期望的固定尺寸 (如有)
+            val inTensorInfo = inputInfo.values.first().info as? ai.onnxruntime.TensorInfo
+            val inShape = inTensorInfo?.shape
+            val modelReqH = if (inShape != null && inShape.size >= 4 && inShape[2] > 0) inShape[2].toInt() else -1
+            val modelReqW = if (inShape != null && inShape.size >= 4 && inShape[3] > 0) inShape[3].toInt() else -1
+
+            val targetW = if (modelReqW > 0) modelReqW else alignW
+            val targetH = if (modelReqH > 0) modelReqH else alignH
+
+            val scaledBase = if (baseBitmap.width == targetW && baseBitmap.height == targetH) {
                 baseBitmap
             } else {
-                Bitmap.createScaledBitmap(baseBitmap, alignW, alignH, true)
+                Bitmap.createScaledBitmap(baseBitmap, targetW, targetH, true)
             }
 
-            val scaledPixels = IntArray(alignW * alignH)
-            scaledBase.getPixels(scaledPixels, 0, alignW, 0, 0, alignW, alignH)
+            // 合成底色与线稿 (白底 + 底色 + 线稿)，确保神经网络能完整感知发丝、五官面部与衣褶细节
+            val compBmp = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
+            val compCanvas = android.graphics.Canvas(compBmp)
+            compCanvas.drawColor(android.graphics.Color.WHITE)
+            compCanvas.drawBitmap(scaledBase, 0f, 0f, null)
+            if (scaledBase != baseBitmap) scaledBase.recycle()
 
-            // NCHW: 1 x 3 x H x W (归一化至 [0, 1] 适应现代残差法线网络)
-            val floatBuffer = FloatBuffer.allocate(1 * 3 * alignH * alignW)
-            val channelSize = alignW * alignH
+            if (lineBitmap != null) {
+                val scaledLine = if (lineBitmap.width == targetW && lineBitmap.height == targetH) {
+                    lineBitmap
+                } else {
+                    Bitmap.createScaledBitmap(lineBitmap, targetW, targetH, true)
+                }
+                compCanvas.drawBitmap(scaledLine, 0f, 0f, null)
+                if (scaledLine != lineBitmap) scaledLine.recycle()
+            }
+
+            val scaledPixels = IntArray(targetW * targetH)
+            compBmp.getPixels(scaledPixels, 0, targetW, 0, 0, targetW, targetH)
+            compBmp.recycle()
+
+            // NCHW: 1 x 3 x H x W
+            val floatBuffer = FloatBuffer.allocate(1 * 3 * targetH * targetW)
+            val channelSize = targetW * targetH
+
+            val isImageNet = (modelReqH == 256 && modelReqW == 256) ||
+                modelFile.name.contains("midas", ignoreCase = true) ||
+                isDepthAnything
+            val mean = if (isImageNet) floatArrayOf(0.485f, 0.456f, 0.406f) else floatArrayOf(0f, 0f, 0f)
+            val std = if (isImageNet) floatArrayOf(0.229f, 0.224f, 0.225f) else floatArrayOf(1f, 1f, 1f)
 
             // R channel
             for (i in 0 until channelSize) {
-                val r = (scaledPixels[i] shr 16) and 0xFF
-                floatBuffer.put(i, r / 255.0f)
+                val r = ((scaledPixels[i] shr 16) and 0xFF) / 255.0f
+                floatBuffer.put(i, (r - mean[0]) / std[0])
             }
             // G channel
             for (i in 0 until channelSize) {
-                val g = (scaledPixels[i] shr 8) and 0xFF
-                floatBuffer.put(channelSize + i, g / 255.0f)
+                val g = ((scaledPixels[i] shr 8) and 0xFF) / 255.0f
+                floatBuffer.put(channelSize + i, (g - mean[1]) / std[1])
             }
             // B channel
             for (i in 0 until channelSize) {
-                val b = scaledPixels[i] and 0xFF
-                floatBuffer.put(channelSize * 2 + i, b / 255.0f)
+                val b = (scaledPixels[i] and 0xFF) / 255.0f
+                floatBuffer.put(channelSize * 2 + i, (b - mean[2]) / std[2])
             }
 
-            val tensor = OnnxTensor.createTensor(env, floatBuffer, longArrayOf(1, 3, alignH.toLong(), alignW.toLong()))
+            val tensor = OnnxTensor.createTensor(env, floatBuffer, longArrayOf(1, 3, targetH.toLong(), targetW.toLong()))
             tensor.use { inTensor ->
                 val results = sess.run(mapOf(inputName to inTensor))
                 results.use { res ->
@@ -132,35 +172,95 @@ object ShadingAssistEngine {
                     if (outTensor != null) {
                         val fb = outTensor.floatBuffer
                         val shape = outTensor.info.shape
-                        val outH = if (shape.size >= 4) shape[2].toInt() else alignH
-                        val outW = if (shape.size >= 4) shape[3].toInt() else alignW
+                        val channels = if (shape.size >= 4) shape[1].toInt() else if (shape.size == 3 && shape[0] == 1L) 1 else 3
+                        val outH = if (shape.size >= 4) shape[2].toInt() else if (shape.size >= 3) shape[1].toInt() else targetH
+                        val outW = if (shape.size >= 4) shape[3].toInt() else if (shape.size >= 3) shape[2].toInt() else targetW
                         val planeSize = outH * outW
 
-                        // 自动判别模型输出格式：[0, 1] 切线图编码 vs [-1, 1] 单位法线
-                        var sampleMin = Float.MAX_VALUE
-                        var sampleMax = -Float.MAX_VALUE
-                        val checkCount = min(1000, planeSize)
-                        for (k in 0 until checkCount) {
-                            val v = fb.get(k)
-                            if (v < sampleMin) sampleMin = v
-                            if (v > sampleMax) sampleMax = v
-                        }
-                        // 若存在负数 (如 -0.05f 以下)，则肯定直接是 [-1, 1] 矢量输出 (如 sprite2normal)
-                        val isUnitEncoding = sampleMin >= -0.02f && sampleMax <= 1.05f && sampleMax > 0.6f
-
                         val normalArray = FloatArray(outW * outH * 3)
-                        var idx = 0
-                        for (y in 0 until outH) {
-                            val yOffset = y * outW
-                            for (x in 0 until outW) {
-                                val pIdx = yOffset + x
-                                val rawX = fb.get(pIdx)
-                                val rawY = fb.get(planeSize + pIdx)
-                                val rawZ = fb.get(planeSize * 2 + pIdx)
 
-                                val nx = if (isUnitEncoding) rawX * 2.0f - 1.0f else rawX
-                                val ny = if (isUnitEncoding) rawY * 2.0f - 1.0f else rawY
-                                val nz = (if (isUnitEncoding) rawZ * 2.0f - 1.0f else rawZ).coerceAtLeast(0.01f)
+                        if (channels >= 3) {
+                            // 3 通道直接法线图输出
+                            var sampleMin = Float.MAX_VALUE
+                            var sampleMax = -Float.MAX_VALUE
+                            val checkCount = min(1000, planeSize)
+                            for (k in 0 until checkCount) {
+                                val v = fb.get(k)
+                                if (v < sampleMin) sampleMin = v
+                                if (v > sampleMax) sampleMax = v
+                            }
+                            val isUnitEncoding = sampleMin >= -0.05f && sampleMax <= 1.05f
+
+                            var idx = 0
+                            for (y in 0 until outH) {
+                                val yOffset = y * outW
+                                for (x in 0 until outW) {
+                                    val pIdx = yOffset + x
+                                    val rawX = fb.get(pIdx)
+                                    val rawY = fb.get(planeSize + pIdx)
+                                    val rawZ = fb.get(planeSize * 2 + pIdx)
+
+                                    val nx = if (isUnitEncoding) rawX * 2.0f - 1.0f else rawX
+                                    val ny = if (isUnitEncoding) rawY * 2.0f - 1.0f else rawY
+                                    val nz = (if (isUnitEncoding) rawZ * 2.0f - 1.0f else rawZ).coerceAtLeast(0.01f)
+
+                                    val len = sqrt(nx * nx + ny * ny + nz * nz).coerceAtLeast(1e-4f)
+                                    normalArray[idx++] = nx / len
+                                    normalArray[idx++] = ny / len
+                                    normalArray[idx++] = nz / len
+                                }
+                            }
+                        } else {
+                            // 1 通道深度图输出 (Depth Anything V2 / MiDaS)
+                            val depthMap = FloatArray(planeSize)
+                            val tempBuffer = FloatArray(planeSize)
+                            for (k in 0 until planeSize) {
+                                depthMap[k] = fb.get(k)
+                            }
+
+                            // 1. 小半径平滑消除模型输出的量化台阶
+                            boxBlurHorizontal(depthMap, tempBuffer, outW, outH, 2)
+                            boxBlurVertical(tempBuffer, depthMap, outW, outH, 2)
+
+                            // 2. 梯度计算
+                            val gradX = FloatArray(planeSize)
+                            val gradY = FloatArray(planeSize)
+                            for (y in 0 until outH) {
+                                val yPrev = max(0, y - 1) * outW
+                                val yCurr = y * outW
+                                val yNext = min(outH - 1, y + 1) * outW
+
+                                for (x in 0 until outW) {
+                                    val xPrev = max(0, x - 1)
+                                    val xNext = min(outW - 1, x + 1)
+
+                                    gradX[yCurr + x] = depthMap[yCurr + xNext] - depthMap[yCurr + xPrev]
+                                    gradY[yCurr + x] = depthMap[yNext + x] - depthMap[yPrev + x]
+                                }
+                            }
+
+                            // 3. 宏观体积平滑 (由 volumeSmoothness 控制，使光影过渡丝滑自然，完全消除斑块)
+                            val blurRadius = ((volumeSmoothness * outW) / 512.0f).toInt().coerceIn(6, 40)
+                            repeat(2) {
+                                boxBlurHorizontal(gradX, tempBuffer, outW, outH, blurRadius)
+                                boxBlurVertical(tempBuffer, gradX, outW, outH, blurRadius)
+                                boxBlurHorizontal(gradY, tempBuffer, outW, outH, blurRadius)
+                                boxBlurVertical(tempBuffer, gradY, outW, outH, blurRadius)
+                            }
+
+                            // 4. 计算标准差并自适应缩放梯度
+                            var sumGrad = 0.0f
+                            for (k in 0 until planeSize) {
+                                sumGrad += abs(gradX[k]) + abs(gradY[k])
+                            }
+                            val avgGrad = sumGrad / (planeSize * 2.0f)
+                            val normalScale = if (avgGrad > 1e-5f) (1.0f / (3.0f * avgGrad)) else 10.0f
+
+                            var idx = 0
+                            for (i in 0 until planeSize) {
+                                val nx = gradX[i] * normalScale
+                                val ny = gradY[i] * normalScale
+                                val nz = 1.0f
 
                                 val len = sqrt(nx * nx + ny * ny + nz * nz).coerceAtLeast(1e-4f)
                                 normalArray[idx++] = nx / len
@@ -168,6 +268,7 @@ object ShadingAssistEngine {
                                 normalArray[idx++] = nz / len
                             }
                         }
+
                         return NormalField(outW, outH, normalArray)
                     }
                 }
@@ -176,13 +277,73 @@ object ShadingAssistEngine {
         return null
     }
 
+    /** 对法线场进行轻度各向同性盒状平滑并重新归一化 */
+    private fun smoothNormalField(normals: FloatArray, w: Int, h: Int, radius: Int) {
+        if (radius <= 0) return
+        val count = w * h
+        val temp = FloatArray(count * 3)
+        val span = (radius * 2 + 1)
+        val ispan = 1.0f / span
+
+        // 水平平滑
+        for (y in 0 until h) {
+            val row = y * w
+            for (c in 0..2) {
+                var sum = 0f
+                for (kx in -radius..radius) {
+                    val px = kx.coerceIn(0, w - 1)
+                    sum += normals[(row + px) * 3 + c]
+                }
+                temp[(row + 0) * 3 + c] = sum * ispan
+
+                for (x in 1 until w) {
+                    val addX = min(w - 1, x + radius)
+                    val subX = max(0, x - radius - 1)
+                    sum += normals[(row + addX) * 3 + c] - normals[(row + subX) * 3 + c]
+                    temp[(row + x) * 3 + c] = sum * ispan
+                }
+            }
+        }
+
+        // 垂直平滑并重新归一化
+        for (x in 0 until w) {
+            for (c in 0..2) {
+                var sum = 0f
+                for (ky in -radius..radius) {
+                    val py = ky.coerceIn(0, h - 1)
+                    sum += temp[(py * w + x) * 3 + c]
+                }
+                normals[(0 * w + x) * 3 + c] = sum * ispan
+
+                for (y in 1 until h) {
+                    val addY = min(h - 1, y + radius)
+                    val subY = max(0, y - radius - 1)
+                    sum += temp[(addY * w + x) * 3 + c] - temp[(subY * w + x) * 3 + c]
+                    normals[(y * w + x) * 3 + c] = sum * ispan
+                }
+            }
+        }
+
+        // 重新单位化
+        for (i in 0 until count) {
+            val baseIdx = i * 3
+            val nx = normals[baseIdx]
+            val ny = normals[baseIdx + 1]
+            val nz = normals[baseIdx + 2]
+            val len = sqrt(nx * nx + ny * ny + nz * nz).coerceAtLeast(1e-4f)
+            normals[baseIdx] = nx / len
+            normals[baseIdx + 1] = ny / len
+            normals[baseIdx + 2] = nz / len
+        }
+    }
+
     /**
-     * 高性能 2.5D 几何曲面法线生成器 (无需神经网络，瞬时零延迟生成)
-     * 利用局部色块岛屿距离场与全局外轮廓融合，生成细腻饱满的发丝、面部与衣褶立体体积，彻底消除沟壑与变形
+     * CSP 风格宏观体积曲面梯度场生成器 (Clip Studio Paint 纯净赛璐珞核心算法)
+     * 仅基于底色外轮廓距离场与大半径平滑，彻底消除局部斑块、噪点与凹陷
      */
-    fun generateSyntheticNormalField(
+    fun generateCspNormalField(
         baseBitmap: Bitmap,
-        lineBitmap: Bitmap?,
+        volumeSmoothness: Float = 30.0f,
         targetResolution: Int = 1024
     ): NormalField {
         val w = min(baseBitmap.width, targetResolution).coerceAtLeast(64)
@@ -196,32 +357,70 @@ object ShadingAssistEngine {
 
         val basePixels = IntArray(w * h)
         scaledBase.getPixels(basePixels, 0, w, 0, 0, w, h)
+        if (scaledBase != baseBitmap) scaledBase.recycle()
 
-        val linePixels = if (lineBitmap != null) {
-            val scaledLine = if (lineBitmap.width == w && lineBitmap.height == h) {
-                lineBitmap
-            } else {
-                Bitmap.createScaledBitmap(lineBitmap, w, h, true)
+        // 1. 构建底色外部边界并求解欧氏距离场 (从画布透明处向内扩散)
+        val dist = FloatArray(w * h) {
+            val a = (basePixels[it] ushr 24) and 0xFF
+            if (a < 25) 0.0f else 1e6f
+        }
+        computeDistanceField(dist, w, h)
+
+        // 2. Sobel 梯度
+        val gradX = FloatArray(w * h)
+        val gradY = FloatArray(w * h)
+        for (y in 0 until h) {
+            val yPrev = max(0, y - 1) * w
+            val yCurr = y * w
+            val yNext = min(h - 1, y + 1) * w
+            for (x in 0 until w) {
+                val xPrev = max(0, x - 1)
+                val xNext = min(w - 1, x + 1)
+
+                val dx = (dist[yPrev + xNext] + 2f * dist[yCurr + xNext] + dist[yNext + xNext]) -
+                         (dist[yPrev + xPrev] + 2f * dist[yCurr + xPrev] + dist[yPrev + xNext])
+                val dy = (dist[yNext + xPrev] + 2f * dist[yNext + x] + dist[yNext + xNext]) -
+                         (dist[yPrev + xPrev] + 2f * dist[yPrev + x] + dist[yPrev + xNext])
+
+                val p = yCurr + x
+                gradX[p] = dx
+                gradY[p] = dy
             }
-            val arr = IntArray(w * h)
-            scaledLine.getPixels(arr, 0, w, 0, 0, w, h)
-            arr
-        } else {
-            null
         }
 
-        // 1. 构建整体外轮廓边界标记 (仅以画布透明底 a < 25 为界，彻底杜绝颜色微小波动带来的噪点与斑块)
-        val boundary = BooleanArray(w * h)
+        // 3. 宏观高阶平滑 (利用 3 轮可分离盒状平滑近似高斯滤波)
+        val blurRadius = ((volumeSmoothness * w) / 512.0f).toInt().coerceIn(6, 60)
+        val tempMap = FloatArray(w * h)
+        repeat(3) {
+            boxBlurHorizontal(gradX, tempMap, w, h, blurRadius)
+            boxBlurVertical(tempMap, gradX, w, h, blurRadius)
+            boxBlurHorizontal(gradY, tempMap, w, h, blurRadius)
+            boxBlurVertical(tempMap, gradY, w, h, blurRadius)
+        }
+
+        // 4. 归一化为平面法线场 (Nz=0.0f)
+        val normals = FloatArray(w * h * 3)
         for (i in 0 until w * h) {
-            val a = (basePixels[i] ushr 24) and 0xFF
-            if (a < 25) {
-                boundary[i] = true
-            }
+            val gx = gradX[i]
+            val gy = gradY[i]
+            val len = sqrt(gx * gx + gy * gy).coerceAtLeast(1e-4f)
+            val baseIdx = i * 3
+            normals[baseIdx] = gx / len
+            normals[baseIdx + 1] = gy / len
+            normals[baseIdx + 2] = 0.0f
         }
 
-        // 2. 连续欧氏距离场双向快速推进
-        val dist = FloatArray(w * h) { if (boundary[it]) 0.0f else 1e6f }
+        return NormalField(w, h, normals)
+    }
 
+    /** 兼容历史签名的合成法线入口 */
+    fun generateSyntheticNormalField(
+        baseBitmap: Bitmap,
+        lineBitmap: Bitmap?,
+        targetResolution: Int = 1024
+    ): NormalField = generateCspNormalField(baseBitmap, 30.0f, targetResolution)
+
+    private fun computeDistanceField(dist: FloatArray, w: Int, h: Int) {
         // 前向扫描
         for (y in 0 until h) {
             val row = y * w
@@ -239,7 +438,6 @@ object ShadingAssistEngine {
                 }
             }
         }
-
         // 反向扫描
         for (y in h - 1 downTo 0) {
             val row = y * w
@@ -257,52 +455,6 @@ object ShadingAssistEngine {
                 }
             }
         }
-
-        // 3. 仿立体气囊饱满隆起高度场 (抛物线/球体过渡，不截断 plateau)
-        val maxDist = (min(w, h) * 0.18f).coerceIn(60.0f, 150.0f)
-        val heightMap = FloatArray(w * h)
-        for (i in 0 until w * h) {
-            val d = dist[i]
-            if (d > 0f) {
-                val normD = (d / maxDist).coerceIn(0.0f, 1.0f)
-                heightMap[i] = sqrt(normD)
-            }
-        }
-
-        // 4. 三重盒状滤波 (数学等价于大半径高斯平滑，彻底消除 Voronoi 中轴棱角与沟壑)
-        val blurRadius = (min(w, h) / 45).coerceIn(8, 20)
-        val tempMap = FloatArray(w * h)
-        repeat(3) {
-            boxBlurHorizontal(heightMap, tempMap, w, h, blurRadius)
-            boxBlurVertical(tempMap, heightMap, w, h, blurRadius)
-        }
-
-        // 5. 梯度偏导数计算连续空间法线场
-        val normals = FloatArray(w * h * 3)
-        val normalScale = 12.0f
-
-        for (y in 0 until h) {
-            val yPrev = max(0, y - 1) * w
-            val yCurr = y * w
-            val yNext = min(h - 1, y + 1) * w
-
-            for (x in 0 until w) {
-                val xPrev = max(0, x - 1)
-                val xNext = min(w - 1, x + 1)
-
-                val dx = (heightMap[yCurr + xNext] - heightMap[yCurr + xPrev]) * normalScale
-                val dy = (heightMap[yNext + x] - heightMap[yPrev + x]) * normalScale
-                val dz = 1.0f
-
-                val len = sqrt(dx * dx + dy * dy + dz * dz)
-                val idx = (yCurr + x) * 3
-                normals[idx] = -dx / len
-                normals[idx + 1] = -dy / len
-                normals[idx + 2] = dz / len
-            }
-        }
-
-        return NormalField(w, h, normals)
     }
 
     private fun boxBlurHorizontal(src: FloatArray, dst: FloatArray, w: Int, h: Int, r: Int) {
@@ -354,6 +506,15 @@ object ShadingAssistEngine {
         val ly = lightVec[1]
         val lz = lightVec[2]
 
+        // 2D 平面朝向光源单位向量 (用于光线逆向投射检测遮挡物)
+        val len2D = sqrt(lx * lx + ly * ly).coerceAtLeast(1e-4f)
+        val rayDx = lx / len2D
+        val rayDy = ly / len2D
+
+        val castDistPx = (config.lineCastDistance * outWidth / 512f).coerceIn(0f, 60f)
+        val castSteps = castDistPx.toInt()
+        val castIntensity = config.lineCastIntensity.coerceIn(0f, 3.0f)
+
         val shadowArgb = config.shadowColor.toInt()
         val shadowR = (shadowArgb shr 16) and 0xFF
         val shadowG = (shadowArgb shr 8) and 0xFF
@@ -362,9 +523,10 @@ object ShadingAssistEngine {
 
         val threshold1 = config.threshold1.coerceIn(0.01f, 0.99f)
         val threshold2 = config.threshold2.coerceIn(0.01f, threshold1)
-        val softness = config.softness.coerceIn(0.01f, 1.0f)
+        val softness = config.softness.coerceIn(0.0f, 1.0f)
         val isCel = config.mode == ShadingMode.CEL
         val isTwoStep = config.celSteps == CelSteps.TWO_STEP
+        val isAi = config.useAiModel
 
         // 采样缩放比例
         val scaleNormX = normalField.width.toFloat() / outWidth
@@ -421,72 +583,28 @@ object ShadingAssistEngine {
                             val normX = (x * scaleNormX).toInt().coerceIn(0, normalField.width - 1)
                             normalField.getNormal(normX, normY, normalVec)
 
-                            // 2D 平面定向光照：dot2D = Nx * Lx + Ny * Ly
-                            // 受光面 dot2D > 0, 背光面 dot2D < 0, 平坦正面 dot2D = 0
-                            val dot2D = normalVec[0] * lx + normalVec[1] * ly
+                            // 1. 本体体积阴影评分
+                            val formScore: Float
+                            val cutoff: Float
 
-                            // 阴影覆盖范围滑块映射：0.50 (50%) 居中时，背光面落入阴影，平坦正面受光
-                            val cutoff = (threshold1 - 0.50f) * 1.6f
-
-                            // 本体体积阴影因子
-                            val formShadow: Float = if (isCel) {
-                                if (isTwoStep) {
-                                    val cutoff2 = cutoff - 0.25f
-                                    if (dot2D < cutoff2) {
-                                        1.0f
-                                    } else if (dot2D < cutoff) {
-                                        0.55f
-                                    } else {
-                                        0.0f
-                                    }
-                                } else {
-                                    val halfSoft = softness * 0.15f
-                                    if (dot2D < cutoff - halfSoft) {
-                                        1.0f
-                                    } else if (dot2D < cutoff + halfSoft && halfSoft > 0.001f) {
-                                        (cutoff + halfSoft - dot2D) / (2f * halfSoft)
-                                    } else {
-                                        0.0f
-                                    }
-                                }
+                            if (isAi) {
+                                // 真实 3D 表面定向光照：dot3D = Nx * Lx + Ny * Ly + Nz * Lz
+                                val dot3D = normalVec[0] * lx + normalVec[1] * ly + normalVec[2] * lz
+                                cutoff = 0.0f
+                                val formCutoff = (threshold1 - 0.50f) * 1.0f + 0.35f
+                                formScore = formCutoff - dot3D
                             } else {
-                                val span = (softness * 0.5f).coerceAtLeast(0.05f)
-                                ((cutoff - dot2D) / span + 0.5f).coerceIn(0.0f, 1.0f)
+                                // CSP 宏观体积梯度光照：formDot = GradX * Lx + GradY * Ly
+                                // 当曲面背光时，formDot < 0，因此 -formDot > 0 对应阴影倾向
+                                val formDot = normalVec[0] * lx + normalVec[1] * ly
+                                cutoff = (threshold1 - 0.50f) * 0.8f + 0.20f
+                                formScore = -formDot
                             }
 
-                            // 线稿单向投射接触微阴影 (仅在用户显式开启时生效，步长限制在 1..3 像素微接触，避免拉出长条斑块)
-                            var lineCastShadow = 0.0f
-                            if (linePixels != null && config.lineArtOcclusion) {
-                                val maxSteps = 3
-                                for (step in 1..maxSteps) {
-                                    val sx = (x + lx * step).toInt()
-                                    val sy = (y + ly * step).toInt()
-                                    if (sx !in 0 until outWidth || sy !in 0 until outHeight) break
+                            // 2. 线稿接触与投射阴影 (CSP 核心定向投射)
+                            var lineCast = 0.0f
+                            var currentLineAlpha = 0.0f
 
-                                    val lp = linePixels[sy * outWidth + sx]
-                                    val la = (lp ushr 24) and 0xFF
-                                    if (la > 30) {
-                                        val r = (lp shr 16) and 0xFF
-                                        val g = (lp shr 8) and 0xFF
-                                        val b = lp and 0xFF
-                                        val darkness = (255 - (r * 299 + g * 587 + b * 114) / 1000) / 255.0f
-                                        val lineStr = (la / 255.0f) * darkness
-                                        if (lineStr > 0.35f) {
-                                            val falloff = 1.0f - (step.toFloat() / (maxSteps + 1))
-                                            val occ = lineStr * falloff * 0.5f
-                                            if (occ > lineCastShadow) {
-                                                lineCastShadow = occ
-                                            }
-                                        }
-                                    }
-                                }
-                            }
-
-                            // 阴影融合 (取本体阴影与投射阴影并集，自然平滑无二次叠黑)
-                            val combinedShadow = max(formShadow, lineCastShadow)
-
-                            // 线稿自身处阴影完全消隐：杜绝在线条正上方重复叠加深色阴影导致线条脏化变粗
-                            var lineFade = 1.0f
                             if (linePixels != null) {
                                 val lp = linePixels[pixelIdx]
                                 val la = (lp ushr 24) and 0xFF
@@ -495,15 +613,69 @@ object ShadingAssistEngine {
                                     val g = (lp shr 8) and 0xFF
                                     val b = lp and 0xFF
                                     val darkness = (255 - (r * 299 + g * 587 + b * 114) / 1000) / 255.0f
-                                    val lineStrength = (la / 255.0f) * darkness
-                                    if (lineStrength > 0.08f) {
-                                        // 快速截止，当线稿强度达到 0.4 时阴影完全归零 (fade = 0.0)
-                                        lineFade = (1.0f - lineStrength * 2.5f).coerceIn(0.0f, 1.0f)
+                                    currentLineAlpha = (la / 255.0f) * darkness
+                                }
+
+                                if (config.lineArtOcclusion && castSteps > 1 && currentLineAlpha < 0.25f) {
+                                    var maxCast = 0.0f
+                                    for (step in 2..castSteps) {
+                                        val sx = (x + rayDx * step + 0.5f).toInt()
+                                        val sy = (y + rayDy * step + 0.5f).toInt()
+                                        if (sx !in 0 until outWidth || sy !in 0 until outHeight) break
+
+                                        val sampleLp = linePixels[sy * outWidth + sx]
+                                        val sampleLa = (sampleLp ushr 24) and 0xFF
+                                        if (sampleLa > 30) {
+                                            val r = (sampleLp shr 16) and 0xFF
+                                            val g = (sampleLp shr 8) and 0xFF
+                                            val b = sampleLp and 0xFF
+                                            val darkness = (255 - (r * 299 + g * 587 + b * 114) / 1000) / 255.0f
+                                            val sampleStr = (sampleLa / 255.0f) * darkness
+                                            if (sampleStr > 0.20f) {
+                                                val falloff = 1.0f - (step.toFloat() / castSteps) * 0.5f
+                                                val castVal = sampleStr * falloff
+                                                if (castVal > maxCast) {
+                                                    maxCast = castVal
+                                                }
+                                            }
+                                        }
                                     }
+                                    lineCast = maxCast * castIntensity
                                 }
                             }
 
-                            val finalAlpha = (combinedShadow * baseOpacity * (baseAlpha / 255.0f) * lineFade * 255.0f + 0.5f)
+                            // 3. 阴影综合评分 (取本体体积阴影与线稿投射阴影并集)
+                            val shadowScore = if (isAi) max(formScore, lineCast * 0.5f) else max(formScore, lineCast)
+
+                            // 4. 风格模式切分 (赛璐珞硬切 / 柔和过渡)
+                            val shadowFactor: Float
+                            if (isCel) {
+                                if (isTwoStep) {
+                                    val cutoff2 = cutoff + 0.22f
+                                    shadowFactor = if (shadowScore > cutoff2) {
+                                        1.0f
+                                    } else if (shadowScore > cutoff) {
+                                        0.55f
+                                    } else {
+                                        0.0f
+                                    }
+                                } else {
+                                    val halfSoft = softness * 0.15f
+                                    shadowFactor = if (halfSoft <= 0.005f) {
+                                        if (shadowScore > cutoff) 1.0f else 0.0f
+                                    } else {
+                                        ((shadowScore - cutoff + halfSoft) / (2f * halfSoft)).coerceIn(0.0f, 1.0f)
+                                    }
+                                }
+                            } else {
+                                val span = (softness * 0.5f).coerceAtLeast(0.12f)
+                                shadowFactor = ((shadowScore - cutoff + span) / (2f * span)).coerceIn(0.0f, 1.0f)
+                            }
+
+                            // 5. 线稿自身处阴影消隐：杜绝在线条正上方重复叠加深色阴影导致线条脏化变粗
+                            val lineFade = (1.0f - currentLineAlpha * 2.5f).coerceIn(0.0f, 1.0f)
+
+                            val finalAlpha = (shadowFactor * baseOpacity * (baseAlpha / 255.0f) * lineFade * 255.0f + 0.5f)
                                 .toInt().coerceIn(0, 255)
 
                             outPixels[pixelIdx] = if (finalAlpha > 0) {

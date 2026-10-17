@@ -1232,6 +1232,10 @@ fun PaintingPage(
                                     }
                                     moreToolsOpen = false
                                 }
+                                Tool.SHADING_ASSIST -> {
+                                    vm.openShadingAssist()
+                                    moreToolsOpen = false
+                                }
                                 else -> {
                                     vm.applyTool(it.id)
                                     if (it in selectionTools) {
@@ -1438,6 +1442,10 @@ fun PaintingPage(
                                         drawingGuidePanelOpen = true
                                         vm.applyTool(Tool.BRUSH.id)
                                     }
+                                    moreToolsOpen = false
+                                }
+                                Tool.SHADING_ASSIST -> {
+                                    vm.openShadingAssist()
                                     moreToolsOpen = false
                                 }
                                 else -> {
