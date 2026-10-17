@@ -218,11 +218,14 @@ object ShadingAssistEngine {
                                 depthMap[k] = fb.get(k)
                             }
 
-                            // 1. 小半径平滑消除模型输出的量化台阶
-                            boxBlurHorizontal(depthMap, tempBuffer, outW, outH, 2)
-                            boxBlurVertical(tempBuffer, depthMap, outW, outH, 2)
+                            // 1. 深度图多轮滤波，消除 ViT 14x14 Patch 的离散量化阶梯
+                            val blurRadiusDepth = ((volumeSmoothness * outW) / 512.0f).toInt().coerceIn(3, 12)
+                            repeat(3) {
+                                boxBlurHorizontal(depthMap, tempBuffer, outW, outH, blurRadiusDepth)
+                                boxBlurVertical(tempBuffer, depthMap, outW, outH, blurRadiusDepth)
+                            }
 
-                            // 2. 梯度计算
+                            // 2. 梯度计算 (中心差分)
                             val gradX = FloatArray(planeSize)
                             val gradY = FloatArray(planeSize)
                             for (y in 0 until outH) {
@@ -234,32 +237,36 @@ object ShadingAssistEngine {
                                     val xPrev = max(0, x - 1)
                                     val xNext = min(outW - 1, x + 1)
 
-                                    gradX[yCurr + x] = depthMap[yCurr + xNext] - depthMap[yCurr + xPrev]
-                                    gradY[yCurr + x] = depthMap[yNext + x] - depthMap[yPrev + x]
+                                    gradX[yCurr + x] = (depthMap[yCurr + xNext] - depthMap[yCurr + xPrev]) * 0.5f
+                                    gradY[yCurr + x] = (depthMap[yNext + x] - depthMap[yPrev + x]) * 0.5f
                                 }
                             }
 
-                            // 3. 宏观体积平滑 (由 volumeSmoothness 控制，使光影过渡丝滑自然，完全消除斑块)
-                            val blurRadius = ((volumeSmoothness * outW) / 512.0f).toInt().coerceIn(6, 40)
-                            repeat(2) {
-                                boxBlurHorizontal(gradX, tempBuffer, outW, outH, blurRadius)
-                                boxBlurVertical(tempBuffer, gradX, outW, outH, blurRadius)
-                                boxBlurHorizontal(gradY, tempBuffer, outW, outH, blurRadius)
-                                boxBlurVertical(tempBuffer, gradY, outW, outH, blurRadius)
-                            }
+                            // 3. 梯度微平滑消除导数毛刺
+                            boxBlurHorizontal(gradX, tempBuffer, outW, outH, 2)
+                            boxBlurVertical(tempBuffer, gradX, outW, outH, 2)
+                            boxBlurHorizontal(gradY, tempBuffer, outW, outH, 2)
+                            boxBlurVertical(tempBuffer, gradY, outW, outH, 2)
 
-                            // 4. 计算标准差并自适应缩放梯度
-                            var sumGrad = 0.0f
+                            // 4. 标准差自适应缩放梯度
+                            var sumSqX = 0.0
+                            var sumSqY = 0.0
                             for (k in 0 until planeSize) {
-                                sumGrad += abs(gradX[k]) + abs(gradY[k])
+                                val gx = gradX[k].toDouble()
+                                val gy = gradY[k].toDouble()
+                                sumSqX += gx * gx
+                                sumSqY += gy * gy
                             }
-                            val avgGrad = sumGrad / (planeSize * 2.0f)
-                            val normalScale = if (avgGrad > 1e-5f) (1.0f / (3.0f * avgGrad)) else 10.0f
+                            val stdX = sqrt(sumSqX / planeSize).toFloat()
+                            val stdY = sqrt(sumSqY / planeSize).toFloat()
+                            val maxStd = max(stdX, stdY).coerceAtLeast(1e-5f)
+                            val normalScale = 1.0f / (2.0f * maxStd)
 
                             var idx = 0
                             for (i in 0 until planeSize) {
-                                val nx = gradX[i] * normalScale
-                                val ny = gradY[i] * normalScale
+                                // 深度图中数值越大离相机越近 (视差)，表面法线向外指，梯度必须取反 (-dz/dx, -dz/dy)
+                                val nx = -gradX[i] * normalScale
+                                val ny = -gradY[i] * normalScale
                                 val nz = 1.0f
 
                                 val len = sqrt(nx * nx + ny * ny + nz * nz).coerceAtLeast(1e-4f)
@@ -378,7 +385,7 @@ object ShadingAssistEngine {
                 val xNext = min(w - 1, x + 1)
 
                 val dx = (dist[yPrev + xNext] + 2f * dist[yCurr + xNext] + dist[yNext + xNext]) -
-                         (dist[yPrev + xPrev] + 2f * dist[yCurr + xPrev] + dist[yPrev + xNext])
+                         (dist[yPrev + xPrev] + 2f * dist[yCurr + xPrev] + dist[yNext + xPrev])
                 val dy = (dist[yNext + xPrev] + 2f * dist[yNext + x] + dist[yNext + xNext]) -
                          (dist[yPrev + xPrev] + 2f * dist[yPrev + x] + dist[yPrev + xNext])
 
@@ -399,10 +406,11 @@ object ShadingAssistEngine {
         }
 
         // 4. 归一化为平面法线场 (Nz=0.0f)
+        // 距离场向内递增，表面朝外法线方向取反 (-dx, -dy)
         val normals = FloatArray(w * h * 3)
         for (i in 0 until w * h) {
-            val gx = gradX[i]
-            val gy = gradY[i]
+            val gx = -gradX[i]
+            val gy = -gradY[i]
             val len = sqrt(gx * gx + gy * gy).coerceAtLeast(1e-4f)
             val baseIdx = i * 3
             normals[baseIdx] = gx / len
@@ -584,22 +592,12 @@ object ShadingAssistEngine {
                             normalField.getNormal(normX, normY, normalVec)
 
                             // 1. 本体体积阴影评分
-                            val formScore: Float
-                            val cutoff: Float
+                            // 表面法线在 2D 投影平面上与光源方向的点积 (rayDx, rayDy 即归一化光源投影方向)
+                            val formDot = normalVec[0] * rayDx + normalVec[1] * rayDy
 
-                            if (isAi) {
-                                // 真实 3D 表面定向光照：dot3D = Nx * Lx + Ny * Ly + Nz * Lz
-                                val dot3D = normalVec[0] * lx + normalVec[1] * ly + normalVec[2] * lz
-                                cutoff = 0.0f
-                                val formCutoff = (threshold1 - 0.50f) * 1.0f + 0.35f
-                                formScore = formCutoff - dot3D
-                            } else {
-                                // CSP 宏观体积梯度光照：formDot = GradX * Lx + GradY * Ly
-                                // 当曲面背光时，formDot < 0，因此 -formDot > 0 对应阴影倾向
-                                val formDot = normalVec[0] * lx + normalVec[1] * ly
-                                cutoff = (threshold1 - 0.50f) * 0.8f + 0.20f
-                                formScore = -formDot
-                            }
+                            // threshold1 对应阴影覆盖范围，默认 0.50f 正好对应明暗分界线 (formDot = 0)
+                            val cutoff = (threshold1 - 0.50f) * 1.2f
+                            val formScore = -formDot
 
                             // 2. 线稿接触与投射阴影 (CSP 核心定向投射)
                             var lineCast = 0.0f
@@ -645,13 +643,13 @@ object ShadingAssistEngine {
                             }
 
                             // 3. 阴影综合评分 (取本体体积阴影与线稿投射阴影并集)
-                            val shadowScore = if (isAi) max(formScore, lineCast * 0.5f) else max(formScore, lineCast)
+                            val shadowScore = if (isAi) max(formScore, lineCast * 0.6f) else max(formScore, lineCast)
 
                             // 4. 风格模式切分 (赛璐珞硬切 / 柔和过渡)
                             val shadowFactor: Float
                             if (isCel) {
                                 if (isTwoStep) {
-                                    val cutoff2 = cutoff + 0.22f
+                                    val cutoff2 = cutoff + (threshold1 - threshold2).coerceAtLeast(0.05f) * 1.2f
                                     shadowFactor = if (shadowScore > cutoff2) {
                                         1.0f
                                     } else if (shadowScore > cutoff) {
@@ -660,12 +658,8 @@ object ShadingAssistEngine {
                                         0.0f
                                     }
                                 } else {
-                                    val halfSoft = softness * 0.15f
-                                    shadowFactor = if (halfSoft <= 0.005f) {
-                                        if (shadowScore > cutoff) 1.0f else 0.0f
-                                    } else {
-                                        ((shadowScore - cutoff + halfSoft) / (2f * halfSoft)).coerceIn(0.0f, 1.0f)
-                                    }
+                                    val halfSoft = (softness * 0.12f).coerceAtLeast(0.005f)
+                                    shadowFactor = ((shadowScore - cutoff + halfSoft) / (2f * halfSoft)).coerceIn(0.0f, 1.0f)
                                 }
                             } else {
                                 val span = (softness * 0.5f).coerceAtLeast(0.12f)

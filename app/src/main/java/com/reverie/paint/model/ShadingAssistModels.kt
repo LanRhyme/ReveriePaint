@@ -36,8 +36,8 @@ enum class CelSteps(val count: Int) {
  * 智能阴影辅助核心配置模型
  */
 data class ShadingAssistConfig(
-    val lightAzimuthDeg: Float = 120f,
-    val lightElevationDeg: Float = 45f,
+    val lightAzimuthDeg: Float = 140f,
+    val lightElevationDeg: Float = 50f,
     val mode: ShadingMode = ShadingMode.CEL,
     val celSteps: CelSteps = CelSteps.ONE_STEP,
     val threshold1: Float = 0.50f,
