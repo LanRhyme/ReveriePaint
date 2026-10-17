@@ -1651,6 +1651,17 @@ class PaintViewModel : ViewModel() {
     var leftHandMode by mutableStateOf(false) // 左手模式: 快捷工具栏与滑块镜像停靠在右侧
     /** 自由悬浮布局配置 (平板专属) */
     var floatingUiConfig by mutableStateOf(com.reverie.paint.model.FloatingUiConfig())
+
+    /**
+     * 顶栏 / 工具栏按钮 / 滑块栏的实测屏幕边界 (root 坐标, px), 由 Compose 侧用
+     * onGloballyPositioned 写入。画布视图的前缓冲 UI 避让区用它取代硬编码的 dp 矩形
+     * (悬浮/贴边/左手/横竖屏下真实几何差异很大)。UI 线程写、触控/渲染线程读; null = 尚未测量。
+     */
+    @Volatile var measuredTopBarRect: android.graphics.RectF? = null
+
+    @Volatile var measuredToolRailRect: android.graphics.RectF? = null
+
+    @Volatile var measuredSliderRailRect: android.graphics.RectF? = null
     var selectionMaskColorHex by mutableStateOf("#141416") // 选区蒙版遮罩颜色 (默认深空灰黑)
     var selectionMaskOpacity by mutableFloatStateOf(0.47f) // 选区蒙版遮罩不透明度 (0.10 - 0.90, 默认 0.47)
 
@@ -4731,7 +4742,16 @@ class PaintViewModel : ViewModel() {
     init {
         currentInstance = this
         startRenderThread()
+        // 前缓冲内容保留能力的后台探测 (十毫秒级), 进入画布前结论早已就绪。
+        com.reverie.paint.core.stylus.FrontBufferProbe.warmUpPreservedContentCheck()
     }
+
+    /**
+     * 前缓冲真墨呈现 (续 #81) 的渲染线程接口, 由画布视图注册。core 只认 [RealInkSink],
+     * 不引用 ui 包; 为 null 时一切照旧 (主画布逐帧失效)。
+     */
+    @Volatile
+    internal var realInkSink: RealInkSink? = null
 
     var stylusDriver: com.reverie.paint.core.stylus.StylusDriver? = null
 
@@ -4955,6 +4975,9 @@ class PaintViewModel : ViewModel() {
         )
         const val PRESENT_ESTIMATE_MS = 14L // 补偿 UI draw + SurfaceFlinger 合成上屏延迟 (~1~1.5 帧 VSYNC)
         const val PRESENT_TAIL_MS = 8L      // onDraw 提交 + HWUI/SF 合成 ~1 帧 @120Hz (保守常数)
+
+        /** 真墨由前缓冲直出时的上屏延迟估计 (单缓冲, 绕过 HWUI/SF 的排队)。 */
+        const val FRONT_BUFFER_PRESENT_MS = 4L
         const val STROKE_BATCH_CAPACITY = 256
         const val STROKE_SAMPLE_STRIDE = 6
 
@@ -5114,6 +5137,8 @@ class PaintViewModel : ViewModel() {
      */
     val presentLagEstimateMs: Long
         get() {
+            // 真墨按住期间笔迹由前缓冲呈现, 不再经过主画布的 HWUI/SF 合成。
+            if (realInkSink?.wantsHold() == true) return FRONT_BUFFER_PRESENT_MS
             val measuredPresent = PerfTrace.presentWaitP50Ms
             return if (measuredPresent in 2L..35L) {
                 (measuredPresent + PRESENT_TAIL_MS).coerceAtLeast(PRESENT_ESTIMATE_MS)
@@ -5237,6 +5262,23 @@ class PaintViewModel : ViewModel() {
             pendingCoreOps.incrementAndGet()
             h.post(strokeBatchRunnable) // 预建 Runnable 直接投递, 每样本零分配
         }
+    }
+
+    /**
+     * 渲染线程上, 在提交 touchStrokeEnd 之前把还排在队列里的运笔补点跑完 (防御性)。
+     *
+     * 正常情况下这是空操作: 补点的 [strokeBatchRunnable] 由 UI 线程先于收尾任务投递, 按 FIFO
+     * 早已跑完。万一它排在收尾任务之后, 那一截笔尾会在笔画提交之后才进引擎 (丢墨、以错误的
+     * 合成状态重画)。只在确认 runnable 确实还在队列里时摘下来手动跑一次, 计数只减一次;
+     * API < 29 没有 hasCallbacks, 无法确认, 不做。只允许在渲染线程调用。
+     */
+    internal fun drainPendingStrokeBatchOnRenderThread() {
+        if (!strokeBatchQueued) return
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return
+        val h = renderHandler ?: return
+        if (!h.hasCallbacks(strokeBatchRunnable)) return
+        h.removeCallbacks(strokeBatchRunnable)
+        strokeBatchRunnable.run()
     }
 
     /** Drop undelivered stroke samples (cancel path: they must not reach the
@@ -5516,6 +5558,8 @@ class PaintViewModel : ViewModel() {
         // 走 invalidateFromRender: 视图侧能证明画面其他部分不受影响时只失效脏区,
         // 否则 (光标/预测笔迹/旋转/大脏区等) 自动回退为整屏重绘。
         // Compose 观察者只在回放页或参考窗口打开时通知。整图帧与瓦片帧共用这一出口。
+        // 整图路径不呈现真墨, 但要回报"这一帧没留在前缓冲上", 抬笔后的追赶清除才不会悬着。
+        realInkSink?.finishFrame(false)
         notifyCanvasFramePublished()
     }
 
@@ -5564,11 +5608,16 @@ class PaintViewModel : ViewModel() {
     /** 笔画批次仍在排队或引擎任务未完成 (运笔中)。 */
     internal fun isStrokeRenderActive(): Boolean = strokeBatchQueued || (pendingCoreOps.get() > 0)
 
-    /** 新一帧像素已发布: 失效画布, 并通知参考窗口/回放页这类 Compose 观察者。与 doRender 尾部同语义。 */
-    internal fun notifyCanvasFramePublished() {
-        invalidateCanvasFromRender()
-        if (!isStrokeRenderActive()) {
-            mainHandler.post(postedCanvasInvalidate)
+    /**
+     * 新一帧像素已发布: 失效画布, 并通知参考窗口/回放页这类 Compose 观察者。与 doRender 尾部同语义。
+     * [keptOnFrontBuffer] = 这一帧已由前缓冲真墨接住, 主画布不失效 (省掉一次 HWUI 纹理上传)。
+     */
+    internal fun notifyCanvasFramePublished(keptOnFrontBuffer: Boolean = false) {
+        if (!keptOnFrontBuffer) {
+            invalidateCanvasFromRender()
+            if (!isStrokeRenderActive()) {
+                mainHandler.post(postedCanvasInvalidate)
+            }
         }
         if (referenceWindowOpen || currentPage == Page.REPLAY) {
             mainHandler.post {

@@ -78,6 +78,7 @@ import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReVerticalSlider
 import com.reverie.paint.ui.components.ReHorizontalSlider
 import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.components.reportUiBounds
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import com.reverie.paint.ui.theme.parseColor
@@ -278,6 +279,8 @@ fun ToolButtonsContent(
 
     Box(
         modifier = modifier
+            // 工具栏按钮真实屏幕边界回写 ViewModel (CanvasTouchView 前缓冲 UI 避让用)
+            .reportUiBounds { vm.measuredToolRailRect = it }
             .shadow(10.dp, shape, spotColor = Color.Black.copy(alpha = 0.5f))
             .clip(shape)
             .then(
@@ -577,6 +580,8 @@ fun SlidersPanelContent(
     isHorizontal: Boolean = false,
 ) {
     val contentModifier = modifier
+        // 滑块栏真实屏幕边界回写 ViewModel (CanvasTouchView 前缓冲 UI 避让用)
+        .reportUiBounds { vm.measuredSliderRailRect = it }
         .shadow(10.dp, shape, spotColor = Color.Black.copy(alpha = 0.5f))
         .clip(shape)
         .then(

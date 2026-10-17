@@ -4,6 +4,7 @@
 
 package com.reverie.paint.ui.components
 
+import android.graphics.RectF
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -59,6 +60,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -1796,3 +1799,15 @@ fun ReDropdownMenuItem(
     )
 }
 
+/**
+ * 把本节点的 root 坐标系实测边界 (px) 写回 [setter], 供 CanvasTouchView 做前缓冲的 UI 避让。
+ *
+ * 避让区必须用真实布局边界: 悬浮/贴边/左手/横竖屏下顶栏与工具栏的位置尺寸差异极大, 原先的
+ * 硬编码 dp 矩形会在画布上挖掉不属于 UI 的区域 (按住运笔时前缓冲被裁出矩形空缺)。
+ * 节点移除时不会回调, 上次的边界会留着 (只会多避让, 不会让墨盖到 UI 上)。
+ */
+internal fun Modifier.reportUiBounds(setter: (RectF?) -> Unit): Modifier =
+    onGloballyPositioned { coords ->
+        val b = coords.boundsInRoot()
+        setter(RectF(b.left, b.top, b.right, b.bottom))
+    }

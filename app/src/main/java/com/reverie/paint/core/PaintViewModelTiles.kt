@@ -97,6 +97,8 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
     var writtenBottom = Int.MIN_VALUE
     var wrotePixels = 0L
     var anyFull = false
+    // 就地写期间 onDraw 恰好画了这张瓦片: HWUI 可能上传了写到一半的像素, 本帧要补一次主画布失效。
+    var tornInPlace = false
     val written = st.written
     val cols = grid.cols
     val drawn = target.drawnByView
@@ -133,11 +135,11 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
                 android.util.Log.e("PaintViewModel", "renderTileToBuffer failed at ($tx,$ty)", t)
                 false
             }
-        if (inPlace) {
+        if (inPlace &&
+            !drawn.compareAndSet(idx, PublishedTiles.TILE_WRITING, PublishedTiles.TILE_UNDRAWN)
+        ) {
             // CAS 失败 = 写的过程中 onDraw 把它标成了已画: 标记保持 DRAWN, 下一帧起走 COW。
-            // HWUI 可能上传了写到一半的像素; 本帧照常失效主画布, unlockPixels 换了 generationId,
-            // 下一次绘制会整张重传, 最多一帧新旧混合。
-            drawn.compareAndSet(idx, PublishedTiles.TILE_WRITING, PublishedTiles.TILE_UNDRAWN)
+            tornInPlace = true
         }
         if (!ok) {
             // 本帧这块确实没有像素要写: 后备位图还回冷却区, 旧瓦片原样留着。
@@ -194,7 +196,25 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
     }
 
     publishTileSnapshotIfNeeded(grid, tiles)
-    notifyCanvasFramePublished()
+    // 前缓冲真墨: 运笔按住时把本帧离散脏区从瓦片烤好贴上前缓冲, 接住了就不失效主画布。
+    val sink = realInkSink
+    val published = st.published
+    val kept =
+        sink != null && published != null &&
+            sink.presentTileFrame(
+                published,
+                dirtyRects,
+                dirtyCount,
+                writtenLeft,
+                writtenTop,
+                writtenRight,
+                writtenBottom,
+                anyFull,
+            )
+    sink?.finishFrame(kept)
+    notifyCanvasFramePublished(keptOnFrontBuffer = kept)
+    // 被撕裂的那张瓦片在前缓冲上是完整的, 但主画布的纹理可能是半张: 补一次失效让 HWUI 重传。
+    if (kept && tornInPlace) invalidateCanvasFromRender()
 
     TilePerfLog.frame(
         tAfterCompositeNs - tStartNs,

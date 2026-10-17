@@ -101,7 +101,16 @@ private const val FIELD_DAB_STRIDE = 7
  */
 class CanvasTouchView(context: Context) : View(context) {
 
+    /** 前缓冲真墨呈现 (续 #81), 渲染线程通过 [PaintViewModel.realInkSink] 回调它。 */
+    internal val realInk = RealInkController(this)
+
     var vm: PaintViewModel? = null
+        set(value) {
+            val old = field
+            if (old != null && old !== value && old.realInkSink === realInk) old.realInkSink = null
+            field = value
+            value?.realInkSink = realInk
+        }
     var tool: Tool = Tool.BRUSH
         set(value) {
             if (field != value) {
@@ -208,7 +217,13 @@ class CanvasTouchView(context: Context) : View(context) {
     /** True while any full-screen overlay panel is open (see isHoverOverUi). */
     @Volatile var overlayPanelsOpen: Boolean = false
     var liquifyMode: Int = 0
+    @Volatile
     var frontBufferOverlay: FrontBufferPreviewOverlay? = null
+        set(value) {
+            if (field !== value) realInk.release()
+            field = value
+            value?.realInk = realInk
+        }
 
     // 滤镜实时调节与手势驱动
     var filterSessionActive: Boolean = false
@@ -229,7 +244,9 @@ class CanvasTouchView(context: Context) : View(context) {
 
     // 触控交互锁 (手指接触期间，阻止外部 Compose 状态回冲覆盖)
     var isInteracting = false
-    var isTransformActive = false
+
+    /** 渲染线程会读它, 判断这一笔还能不能留在前缓冲。 */
+    @Volatile var isTransformActive = false
     var isPinchMotion = false
 
     /**
@@ -826,6 +843,7 @@ class CanvasTouchView(context: Context) : View(context) {
         if (activeLongPressToken == longPressToken && isPendingLongPress && !isTransformActive && maxTouchPointers <= 1) {
             isPendingLongPress = false
             if (strokeStarted) {
+                realInk.release()
                 v.touchCancel()
                 strokeStarted = false
                 clearPredictionState(triggerInvalidate = true)
@@ -970,18 +988,32 @@ class CanvasTouchView(context: Context) : View(context) {
         val list = ArrayList<android.graphics.RectF>(6)
         // 顶部操作栏 (380dp x 56dp): 左右手镜像 —— 左手模式顶栏在左上角,
         // 原 isHoverOverUi 只判了右侧, 此处补上 (PR #82 review 问题 3)。
+        // 优先用 Compose 侧实测边界 (root 坐标, px): 悬浮/贴边/左手/横竖屏下真实几何与硬编码
+        // 差异很大 (工具栏实宽 36dp、顶栏与工具栏之间露出画布), 硬编码会在画布上挖掉不属于 UI
+        // 的区域 —— 真墨按住期间那块矩形里不落墨, 抬笔才恢复。尚未测量到时退回硬编码估计。
         val isLeft = v?.leftHandMode == true
-        val barW = 380f * d
-        val barH = 56f * d
-        if (isLeft) {
-            list.add(android.graphics.RectF(0f, 0f, barW, barH))
+        val measuredBar = v?.measuredTopBarRect
+        val measuredRail = v?.measuredToolRailRect
+        if (measuredBar != null) {
+            list.add(android.graphics.RectF(measuredBar))
         } else {
-            list.add(android.graphics.RectF(w - barW, 0f, w, barH))
+            val barW = 380f * d
+            val barH = 56f * d
+            if (isLeft) {
+                list.add(android.graphics.RectF(0f, 0f, barW, barH))
+            } else {
+                list.add(android.graphics.RectF(w - barW, 0f, w, barH))
+            }
         }
-        // 快捷工具栏 (宽 56dp, 全高): 左手模式下位于屏幕右侧 (PaintingPage.kt ToolRail)
-        val railLeft = if (isLeft) (w - 56f * d).coerceAtLeast(0f) else 0f
-        val railRight = if (isLeft) w else 56f * d
-        list.add(android.graphics.RectF(railLeft, 0f, railRight, h))
+        if (measuredRail != null) {
+            list.add(android.graphics.RectF(measuredRail))
+        } else {
+            // 快捷工具栏 (宽 56dp, 全高): 左手模式下位于屏幕右侧 (PaintingPage.kt ToolRail)
+            val railLeft = if (isLeft) (w - 56f * d).coerceAtLeast(0f) else 0f
+            val railRight = if (isLeft) w else 56f * d
+            list.add(android.graphics.RectF(railLeft, 0f, railRight, h))
+        }
+        v?.measuredSliderRailRect?.let { list.add(android.graphics.RectF(it)) }
         if (v != null) {
             // 参考浮窗 (若打开)
             if (v.referenceWindowOpen) {
@@ -2010,19 +2042,28 @@ class CanvasTouchView(context: Context) : View(context) {
 
         val d = density
         val isLeft = v.leftHandMode
-        // 顶部操作栏区域 (宽约 380dp，高约 56dp)
-        if (isLeft) {
+        // 顶栏 / 工具栏 / 滑块栏优先用 Compose 侧实测边界 (与 rebuildUiExclusionRects 同源, root 坐标 px):
+        // 写死的 dp 矩形在悬浮/停靠/左手/横竖屏下和真实几何对不上。还没测到时退回写死的估计。
+        val measuredBar = v.measuredTopBarRect
+        if (measuredBar != null) {
+            if (measuredBar.contains(x, y)) return true
+        } else if (isLeft) {
+            // 顶部操作栏区域 (宽约 380dp，高约 56dp)
             if (y <= 56f * d && x <= 380f * d) return true
         } else {
             if (y <= 56f * d && x >= width - 380f * d) return true
         }
 
-        // 快捷工具栏 (宽 56dp): 左手模式下位于右侧
-        if (isLeft) {
+        val measuredRail = v.measuredToolRailRect
+        if (measuredRail != null) {
+            if (measuredRail.contains(x, y)) return true
+        } else if (isLeft) {
+            // 快捷工具栏 (宽 56dp): 左手模式下位于右侧
             if (x >= width - 56f * d) return true
         } else {
             if (x <= 56f * d) return true
         }
+        if (v.measuredSliderRailRect?.contains(x, y) == true) return true
 
         // 参考浮窗区域 (若打开)
         if (v.referenceWindowOpen) {
@@ -2194,6 +2235,7 @@ class CanvasTouchView(context: Context) : View(context) {
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         activeTouchView = this
+        vm?.realInkSink = realInk
         getOrCreateStylusDriver()?.syncSettings()
         applyHighRefreshRateAndUnbuffered()
         val maxFps = if (Build.VERSION.SDK_INT >= 30) {
@@ -2398,7 +2440,10 @@ class CanvasTouchView(context: Context) : View(context) {
         isLongPressPickerActive = false
         longPressToken++
         if (activeTouchView == this) activeTouchView = null
+        realInk.release()
+        vm?.let { if (it.realInkSink === realInk) it.realInkSink = null }
         if (strokeStarted) {
+            realInk.release()
             vm?.touchCancel()
             strokeStarted = false
         }
@@ -2684,6 +2729,7 @@ class CanvasTouchView(context: Context) : View(context) {
             // 绘制真实画布像素
             directBitmapPaint.isFilterBitmap = v.magnificationInterpolation
             directBitmapPaint.isAntiAlias = v.magnificationInterpolation
+            realInk.interpolate = v.magnificationInterpolation
             if (tiles != null) {
                 if (largeBitmapTiles != null) {
                     releaseLargeBitmapTiles()
@@ -2756,6 +2802,8 @@ class CanvasTouchView(context: Context) : View(context) {
             }
 
             canvas.restore()
+            // 画布已经画出这一帧的瓦片: 抬笔后的真墨追赶到此为止, 这一帧提交后清前缓冲。
+            realInk.clearIfViewCaughtUp()
         }
 
         // Phase 2B: AGSL 形变预览覆盖层。引擎在"主机侧绘制"模式下不生成也不叠加 CPU 预览,
@@ -3333,6 +3381,109 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
+    // ---- 前缓冲真墨 (续 #81) ----
+
+    /**
+     * 落笔时决定这一笔是否把真墨留在前缓冲 (之后主画布不再逐帧失效, 见 [RealInkController])。
+     *
+     * 不按住的情形 (这一笔走主画布正常刷新, 前缓冲仍可画 #81 的前沿段): 前缓冲开关关闭或
+     * API < 29、对称辅助 (镜像分支由 onDraw 实时绘制)、画布走整图路径 (墨源只有显示瓦片)、
+     * 设备不保留前缓冲内容 (见 [FrontBufferProbe.realInkHoldAllowed])。
+     */
+    private fun armRealInkHold(v: PaintViewModel, hasSymmetry: Boolean, x: Float, y: Float, pressure: Float) {
+        ensureViewTransform()
+        val allowed = v.frontBufferPredictionEnabled && !hasSymmetry &&
+            v.displayTiles.drawable() != null && FrontBufferProbe.realInkHoldAllowed()
+        val t = effTool()
+        val cursorMode = if (t == Tool.ERASER) v.eraserCursorMode else v.brushCursorMode
+        val cursorWhileDrawing = (cursorMode == 1 || cursorMode == 3) && v.cursorStyleMode != 4
+        val extras = cursorWhileDrawing || predictedTipEligible(v)
+        if (realInk.arm(allowed, extras, uiExclusionRects)) {
+            noteHoldCursor(x, y, pressure)
+        }
+    }
+
+    /** 预测笔尖圆点只给纯色高不透明的一级预测笔刷 (半透明/水彩/纹理笔刷上画点会露馅)。 */
+    private fun predictedTipEligible(v: PaintViewModel): Boolean =
+        tool == Tool.BRUSH && effTool() == Tool.BRUSH &&
+            v.effectivePredictionTier == PaintViewModel.PredictionFidelityTier.TIER_1 &&
+            v.brushOpacity >= 0.85 && (v.brushFlow <= 0.0 || v.brushFlow >= 0.85)
+
+    /**
+     * 按住期间的预测笔尖: 沿预测方向从当前触点外推, 最多 0.85 倍笔宽 (与真墨末端重叠衔接,
+     * 不脱节成孤立点)。只写快照, 不进引擎, 零分配。
+     */
+    private fun updatePredictedTip(v: PaintViewModel, rawX: Float, rawY: Float) {
+        if (!hasPredictedScreenPoint || !predictedTipEligible(v)) {
+            realInk.tipWidth = 0f
+            return
+        }
+        val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
+        val pForWidth =
+            if (predictedPressure.isFinite() && predictedPressure > 0.02f) predictedPressure else localPressure
+        val pFrac = if (v.brushPressureEnabled) pressureFractionCached(pForWidth) else 1f
+        val w = (v.brushSize.toFloat() * scale * pFrac).coerceAtLeast(1.5f)
+        val dx = predictedScreenX - rawX
+        val dy = predictedScreenY - rawY
+        val dist = hypot(dx, dy)
+        if (!dist.isFinite() || dist < 1.5f) {
+            realInk.tipWidth = 0f
+            return
+        }
+        val maxLead = maxOf(w * 0.85f, 6f * density).coerceAtMost(28f * density)
+        val d = dist.coerceAtMost(maxLead)
+        realInk.tipX = rawX + dx / dist * d
+        realInk.tipY = rawY + dy / dist * d
+        realInk.tipColor = (resolveBrushColorCached(v.brushColor) and 0x00FFFFFF) or (0xFF shl 24)
+        realInk.tipWidth = w
+    }
+
+    /** 按住期间光标不走视图失效, 位置/半径记进快照, 由前缓冲随墨一起画。 */
+    private fun noteHoldCursor(screenX: Float, screenY: Float, pressure: Float) {
+        val v = vm
+        var cx = screenX
+        var cy = screenY
+        if (hasPredictedScreenPoint && predictedScreenX.isFinite() && predictedScreenY.isFinite()) {
+            val dx = predictedScreenX - screenX
+            val dy = predictedScreenY - screenY
+            val dist = hypot(dx, dy)
+            val maxLead = 24f * density
+            if (dist in 0.5f..maxLead) {
+                cx = screenX + dx * 0.65f
+                cy = screenY + dy * 0.65f
+            } else if (dist > maxLead) {
+                val s = (maxLead * 0.65f) / dist
+                cx = screenX + dx * s
+                cy = screenY + dy * s
+            }
+        }
+        realInk.cursorX = cx
+        realInk.cursorY = cy
+        if (!realInk.held || v == null) {
+            realInk.cursorR = 0f
+            return
+        }
+        val t = effTool()
+        val cursorMode = if (t == Tool.ERASER) v.eraserCursorMode else v.brushCursorMode
+        val style = v.cursorStyleMode
+        realInk.cursorStyle = style
+        val showWhileDrawing = cursorMode == 1 || cursorMode == 3
+        if (!showWhileDrawing || style == 4 || (t != Tool.BRUSH && t != Tool.ERASER && t != Tool.SMUDGE)) {
+            realInk.cursorR = 0f
+            return
+        }
+        val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
+        val size = if (t == Tool.ERASER && tool != Tool.ERASER) {
+            v.getToolEffectiveSize("eraser").toFloat()
+        } else {
+            v.brushSize.toFloat()
+        }
+        val sample = if (pressure.isFinite()) pressure.coerceIn(0f, 1f) else 1f
+        smoothedCursorPressure =
+            if (smoothedCursorPressure < 0f) sample else smoothedCursorPressure * 0.65f + sample * 0.35f
+        realInk.cursorR = (size * scale * 0.5f * pressureFractionCached(smoothedCursorPressure)).coerceAtLeast(2f)
+    }
+
     /** 刷新缓存的视图变换 (参数未变化时内部直接返回, 几乎零开销) */
     private fun ensureViewTransform() {
         val v = vm
@@ -3343,7 +3494,7 @@ class CanvasTouchView(context: Context) : View(context) {
         val bmpH = grid?.height ?: bmp?.height ?: v?.docHeight ?: 1
         val dw = v?.docWidth ?: bmpW
         val dh = v?.docHeight ?: bmpH
-        viewTransform.update(
+        val dirty = viewTransform.update(
             viewW,
             viewH,
             canvasPanX,
@@ -3358,6 +3509,26 @@ class CanvasTouchView(context: Context) : View(context) {
             canvasFlipX,
             canvasFlipY,
         )
+        if (dirty || realInk.pose == null) publishCanvasPose(bmpW, bmpH)
+    }
+
+    /** 与 onDraw 同一套位图→屏幕变换的快照, 渲染线程烤真墨时只读它。 */
+    private fun publishCanvasPose(bmpW: Int, bmpH: Int) {
+        val bw = maxOf(1, bmpW)
+        val bh = maxOf(1, bmpH)
+        val pose = CanvasPose(
+            centerX = viewW / 2f + canvasPanX,
+            centerY = viewH / 2f + canvasPanY,
+            scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f),
+            rotation = canvasRotation,
+            signX = if (canvasFlipX) -1f else 1f,
+            signY = if (canvasFlipY) -1f else 1f,
+            halfW = bw / 2f,
+            halfH = bh / 2f,
+            bmpW = bw,
+            bmpH = bh,
+        )
+        if (pose != realInk.pose) realInk.pose = pose
     }
 
     private fun screenToDoc(screenPos: Offset): Offset {
@@ -3917,6 +4088,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 if (strokeStarted) {
                     cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
                     cachedDriver?.feedbackManager?.stopStrokeSound()
+                    realInk.release()
                     v.touchCancel()
                     strokeStarted = false
                     safeEndSymmetryUndoMacro()
@@ -4024,8 +4196,9 @@ class CanvasTouchView(context: Context) : View(context) {
             localIsTouching = true
             localIsHovering = false
             localPressure = pressure
-            // 前缓冲 UI 避让注册表: 每笔重建 (布局/浮窗/左右手状态快照, 非逐事件热路径)
-            rebuildUiExclusionRects()
+            // 前缓冲 UI 避让注册表: 每笔落笔时重建 (布局/浮窗/左右手状态快照)。
+            // 240Hz 的 ACTION_MOVE 上重建会每事件新建 ArrayList<RectF>, 白白制造 GC 压力。
+            if (isDown) rebuildUiExclusionRects()
 
             val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
                 v.cursorStyleMode != 4
@@ -4076,7 +4249,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     // 笔尖接触瞬间立即启动绘图，彻底消除长按判定位移容差带来的起笔延迟
                     updateStylusSensors(event, stylusPointerIndex, isStylus = true)
                     handleToolDown(screenPos, docPos, pressure, isStylus = true, touchTiltX, touchTiltY, touchRotation)
-                    invalidate()
+                    // 真墨按住时这一笔由前缓冲呈现, 不再整屏失效主画布。
+                    if (!realInk.wantsHold()) invalidate()
 
                     if (canEyedrop) {
                         isPendingLongPress = true
@@ -4119,7 +4293,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     val isDrawingTool = tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE
                     if (!isDrawingTool) {
                         invalidate()
-                    } else {
+                    } else if (!realInk.wantsHold()) {
                         val isEraser = tool == Tool.ERASER
                         val cursorMode = if (isEraser) v.eraserCursorMode else v.brushCursorMode
                         val hasAssist = v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing
@@ -4211,6 +4385,7 @@ class CanvasTouchView(context: Context) : View(context) {
             removeCallbacks(continuousUndoRunnable)
             removeCallbacks(continuousRedoRunnable)
             if (strokeStarted) {
+                realInk.release()
                 v.touchCancel()
                 strokeStarted = false
                 safeEndSymmetryUndoMacro()
@@ -4272,6 +4447,7 @@ class CanvasTouchView(context: Context) : View(context) {
             if (strokeStarted) {
                 cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
                 cachedDriver?.feedbackManager?.stopStrokeSound()
+                realInk.release()
                 v.touchCancel()
                 strokeStarted = false
                 safeEndSymmetryUndoMacro()
@@ -4605,6 +4781,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     if (strokeStarted) {
                         cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
                         cachedDriver?.feedbackManager?.stopStrokeSound()
+                        realInk.release()
                         v.touchCancel()
                         strokeStarted = false
                         safeEndSymmetryUndoMacro()
@@ -4701,13 +4878,14 @@ class CanvasTouchView(context: Context) : View(context) {
                     localIsTouching = true
                     localIsHovering = false
                     localPressure = 1f
-                    invalidate()
                     // 点击型工具 (油漆桶/魔棒/相似选区): 手指触摸下延后至 ACTION_UP 确认单指轻点时触发，
                     // 防止双指撤回时第一根手指先落下的毫秒级微差误触发新填充并顶掉撤销堆栈
                     val isTapCommitTool = tool == Tool.FILL || tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR
                     if (!isTapCommitTool) {
                         handleToolDown(screenPos, docPos, 1f, isStylus = false)
                     }
+                    // 真墨按住时这一笔由前缓冲呈现, 不再整屏失效主画布。
+                    if (!realInk.wantsHold()) invalidate()
                 }
                 return true
             }
@@ -4745,7 +4923,7 @@ class CanvasTouchView(context: Context) : View(context) {
                             localPressure = 1f
                             handleToolDown(downScreen, downDoc, 1f, isStylus = false)
                             handleToolMove(event, 0, docPos, 1f, isStylus = false)
-                            invalidate()
+                            if (!realInk.wantsHold()) invalidate()
                             return true
                         }
                     } else {
@@ -4766,7 +4944,7 @@ class CanvasTouchView(context: Context) : View(context) {
                             localIsTouching = true
                             handleToolDown(pendingDownScreenPos, pendingDownDocPos, pendingDownPressure, isStylus = false)
                             handleToolMove(event, 0, docPos, 1f, isStylus = false)
-                            invalidate()
+                            if (!realInk.wantsHold()) invalidate()
                             return true
                         }
                     } else {
@@ -4816,7 +4994,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     updateCursorAngleFromDocMove(docPos.x, docPos.y, false)
                     localIsTouching = true
                     handleToolMove(event, 0, docPos, 1f, isStylus = false)
-                    invalidate()
+                    if (!realInk.wantsHold()) invalidate()
                     return true
                 }
             }
@@ -4974,6 +5152,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 } else {
                     resetMirrorBranches()
                 }
+                if (strokeStarted) armRealInkHold(v, hasSymmetry, screenPos.x, screenPos.y, pressure)
             }
             Tool.LIQUIFY -> {
                 liquifyFlushPosted = false
@@ -5251,6 +5430,7 @@ class CanvasTouchView(context: Context) : View(context) {
         when (effTool()) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 val hasSymmetry = (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing)
+                val startedNow = !strokeStarted
                 if (!strokeStarted) {
                     val startDoc = if (firstDocPos != Offset.Zero) firstDocPos else docPos
                     firstDocPos = startDoc
@@ -5279,6 +5459,10 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                 }
                 if (!strokeStarted) return
+                // 迟到的笔画起点 (首帧被历史点吞掉) 在这里才真正落笔。
+                if (startedNow && pointerIndex in 0 until event.pointerCount) {
+                    armRealInkHold(v, hasSymmetry, event.getX(pointerIndex), event.getY(pointerIndex), pressure)
+                }
 
                 v.quickShapeCapture?.let { capture ->
                     if (capture.moved(event.getX(pointerIndex), event.getY(pointerIndex),
@@ -5551,7 +5735,11 @@ class CanvasTouchView(context: Context) : View(context) {
                     // 门控与 onDraw 软件回退互补 (canRenderPreview 为 false 时由软件回退接管,
                     // 见 FrontBufferProbe.softwareFallbackRequired): 渲染器初始化失败时不能在此
                     // 置 drew=true, 否则直出与回退两边都不画。
-                    if (frontBufferOverlay?.canRenderPreview == true && pointerIndex in 0 until event.pointerCount) {
+                    // 真墨按住期间前缓冲上是引擎真墨 (渲染线程呈现), 不再叠 #81 的前沿段假线;
+                    // 光标与预测笔尖在本分支末尾记下快照, 由前缓冲随墨一起画。
+                    if (!realInk.held && frontBufferOverlay?.canRenderPreview == true &&
+                        pointerIndex in 0 until event.pointerCount
+                    ) {
                         val curX = event.getX(pointerIndex)
                         val curY = event.getY(pointerIndex)
                         val curPos = Offset(curX, curY)
@@ -5743,6 +5931,12 @@ class CanvasTouchView(context: Context) : View(context) {
                         hasActivePredictedTip = false
                         hasDrawnPrediction = false
                     }
+                }
+                if (realInk.held && pointerIndex in 0 until event.pointerCount) {
+                    val sx = event.getX(pointerIndex)
+                    val sy = event.getY(pointerIndex)
+                    updatePredictedTip(v, sx, sy)
+                    noteHoldCursor(sx, sy, pressure)
                 }
             }
             Tool.LIQUIFY -> {
@@ -6408,10 +6602,12 @@ class CanvasTouchView(context: Context) : View(context) {
                     v.quickShapeCapture = null
                     quickShapeCandidate = null
                     if (!isCancel && v.quickShapeEnabled && candidate != null && capture != null && !capture.overflowed) {
+                        realInk.release()
                         v.beginQuickShape(candidate, capture.snapshot())
                         resetMirrorBranches()
                         safeEndSymmetryUndoMacro()
                     } else if (isCancel) {
+                        realInk.release()
                         v.touchCancel()
                         resetMirrorBranches()
                         safeEndSymmetryUndoMacro()
@@ -6422,6 +6618,8 @@ class CanvasTouchView(context: Context) : View(context) {
                         // 仅当没有镜像分支重放时主笔才立即全量渲染且立即还原覆盖状态；有分支则在镜像分支执行完毕后统一渲染与还原
                         v.touchEnd(render = !hasBranchesToReplay, deferOverrideRestore = hasBranchesToReplay)
                         if (hasBranchesToReplay) {
+                            // 镜像分支重放走主画布刷新, 前缓冲这一笔就此交还。
+                            realInk.release()
                             isSymmetryReplaying = true
                             v.replaySymmetricBranches(
                                 mirroredSamples,

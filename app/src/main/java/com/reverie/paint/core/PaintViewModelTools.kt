@@ -579,14 +579,20 @@ internal fun PaintViewModel.touchEnd(render: Boolean = true, deferOverrideRestor
             scheduleRender(immediate = true)
             refreshLayerThumbs()
         }) {
+            drainPendingStrokeBatchOnRenderThread()
             ReverieCoreBridge.touchStrokeEnd()
+            // 收尾点已全部交给引擎: 松开前缓冲, 接下来的帧照常失效主画布追平。
+            realInkSink?.onStrokeCommitted()
             if (hadOverride && !deferOverrideRestore) {
                 restoreCurrentBrushToNative(reloadPreset = presetSwitched)
             }
         }
     } else {
         runCore(render = false) {
+            drainPendingStrokeBatchOnRenderThread()
             ReverieCoreBridge.touchStrokeEnd()
+            // 收尾点已全部交给引擎: 松开前缓冲, 接下来的帧照常失效主画布追平。
+            realInkSink?.onStrokeCommitted()
             if (hadOverride && !deferOverrideRestore) {
                 restoreCurrentBrushToNative(reloadPreset = presetSwitched)
             }
