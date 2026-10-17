@@ -2728,5 +2728,36 @@
     <string name="srt_single_frame_title">SRT storyboard · source times are reference-only</string>
     <string name="srt_single_frame_hint">Drag the right edge for duration · drawing does not split SRT frames</string>
     <string name="srt_mapping_changed">Keyframe count changed; caption positioning paused</string>
+
+    <!-- 智能阴影辅助 Shading Assist -->
+    <string name="shading_assist_title">Shading Assist</string>
+    <string name="shading_assist_desc">Intelligent lighting &amp; normal estimation, generates clipped multiply shadow layer</string>
+    <string name="shading_assist_light_source">Light Source &amp; Elevation</string>
+    <string name="shading_assist_azimuth">Azimuth %1$d°</string>
+    <string name="shading_assist_elevation">Elevation %1$d°</string>
+    <string name="shading_assist_mode_cel">Cel Shading</string>
+    <string name="shading_assist_mode_smooth">Smooth</string>
+    <string name="shading_assist_steps_1">1-Step</string>
+    <string name="shading_assist_steps_2">2-Step</string>
+    <string name="shading_assist_threshold">Shadow Coverage</string>
+    <string name="shading_assist_threshold_sub">2nd Step Threshold</string>
+    <string name="shading_assist_softness">Edge Softness</string>
+    <string name="shading_assist_opacity">Shadow Opacity</string>
+    <string name="shading_assist_shadow_color">Shadow Color</string>
+    <string name="shading_assist_lineart_layer">Reference Line Art</string>
+    <string name="shading_assist_lineart_none">None (Base layer only)</string>
+    <string name="shading_assist_lineart_occlusion">Line Art Occlusion (Cast Shadow)</string>
+    <string name="shading_assist_apply">Generate Shadow Layer</string>
+    <string name="shading_assist_generating">Generating shadow layer...</string>
+    <string name="shading_assist_model_ready">AI Neural Model Ready</string>
+    <string name="shading_assist_model_synthetic">2.5D Synthetic Mode (No AI model detected)</string>
+    <string name="shading_assist_download_model">Download Recommended AI Model</string>
+    <string name="shading_assist_import_model">Import Local .onnx</string>
+    <string name="shading_assist_downloading">Downloading model (%1$d%%)</string>
+    <string name="shading_assist_custom_model_active">Custom model: %s</string>
+    <string name="shading_assist_reset_model">Reset to Default</string>
+    <string name="shading_assist_layer_name">Smart Shadow</string>
+    <string name="shading_assist_toast_success">Clipped shadow layer generated above base layer</string>
+    <string name="shading_assist_toast_need_layer">Please select a layer with color content first</string>
 </resources>
 
