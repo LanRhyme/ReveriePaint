@@ -406,11 +406,10 @@ object ShadingAssistEngine {
         }
 
         // 4. 归一化为平面法线场 (Nz=0.0f)
-        // 距离场向内递增，表面朝外法线方向取反 (-dx, -dy)
         val normals = FloatArray(w * h * 3)
         for (i in 0 until w * h) {
-            val gx = -gradX[i]
-            val gy = -gradY[i]
+            val gx = gradX[i]
+            val gy = gradY[i]
             val len = sqrt(gx * gx + gy * gy).coerceAtLeast(1e-4f)
             val baseIdx = i * 3
             normals[baseIdx] = gx / len
@@ -595,8 +594,8 @@ object ShadingAssistEngine {
                             // 表面法线在 2D 投影平面上与光源方向的点积 (rayDx, rayDy 即归一化光源投影方向)
                             val formDot = normalVec[0] * rayDx + normalVec[1] * rayDy
 
-                            // threshold1 对应阴影覆盖范围，默认 0.50f 正好对应明暗分界线 (formDot = 0)
-                            val cutoff = (threshold1 - 0.50f) * 1.2f
+                            // threshold1 对应阴影覆盖范围，0.50f 对应经典赛璐珞黄金明暗比
+                            val cutoff = (threshold1 - 0.35f) * 1.2f
                             val formScore = -formDot
 
                             // 2. 线稿接触与投射阴影 (CSP 核心定向投射)
@@ -614,23 +613,23 @@ object ShadingAssistEngine {
                                     currentLineAlpha = (la / 255.0f) * darkness
                                 }
 
-                                if (config.lineArtOcclusion && castSteps > 1 && currentLineAlpha < 0.25f) {
+                                if (config.lineArtOcclusion && castSteps > 0 && currentLineAlpha < 0.25f) {
                                     var maxCast = 0.0f
-                                    for (step in 2..castSteps) {
+                                    for (step in 1..castSteps) {
                                         val sx = (x + rayDx * step + 0.5f).toInt()
                                         val sy = (y + rayDy * step + 0.5f).toInt()
                                         if (sx !in 0 until outWidth || sy !in 0 until outHeight) break
 
                                         val sampleLp = linePixels[sy * outWidth + sx]
                                         val sampleLa = (sampleLp ushr 24) and 0xFF
-                                        if (sampleLa > 30) {
+                                        if (sampleLa > 25) {
                                             val r = (sampleLp shr 16) and 0xFF
                                             val g = (sampleLp shr 8) and 0xFF
                                             val b = sampleLp and 0xFF
                                             val darkness = (255 - (r * 299 + g * 587 + b * 114) / 1000) / 255.0f
                                             val sampleStr = (sampleLa / 255.0f) * darkness
-                                            if (sampleStr > 0.20f) {
-                                                val falloff = 1.0f - (step.toFloat() / castSteps) * 0.5f
+                                            if (sampleStr > 0.15f) {
+                                                val falloff = 1.0f - (step.toFloat() / castSteps) * 0.40f
                                                 val castVal = sampleStr * falloff
                                                 if (castVal > maxCast) {
                                                     maxCast = castVal
@@ -643,7 +642,7 @@ object ShadingAssistEngine {
                             }
 
                             // 3. 阴影综合评分 (取本体体积阴影与线稿投射阴影并集)
-                            val shadowScore = if (isAi) max(formScore, lineCast * 0.6f) else max(formScore, lineCast)
+                            val shadowScore = max(formScore, lineCast)
 
                             // 4. 风格模式切分 (赛璐珞硬切 / 柔和过渡)
                             val shadowFactor: Float

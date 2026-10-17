@@ -208,11 +208,11 @@ fun ShadingAssistDialog(
                             // 常用打光预设快捷标签
                             val presetsList = remember {
                                 listOf(
-                                    Triple(R.string.shading_assist_preset_front_left, 140f, 50f),
-                                    Triple(R.string.shading_assist_preset_front_right, 40f, 50f),
+                                    Triple(R.string.shading_assist_preset_front_left, 150f, 50f),
+                                    Triple(R.string.shading_assist_preset_front_right, 30f, 50f),
                                     Triple(R.string.shading_assist_preset_top, 90f, 75f),
                                     Triple(R.string.shading_assist_preset_side, 180f, 40f),
-                                    Triple(R.string.shading_assist_preset_back, 270f, 45f)
+                                    Triple(R.string.shading_assist_preset_back, 300f, 45f)
                                 )
                             }
                             Row(
