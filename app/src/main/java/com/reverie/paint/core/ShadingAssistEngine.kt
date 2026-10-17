@@ -102,24 +102,24 @@ object ShadingAssistEngine {
             val scaledPixels = IntArray(alignW * alignH)
             scaledBase.getPixels(scaledPixels, 0, alignW, 0, 0, alignW, alignH)
 
-            // NCHW: 1 x 3 x H x W, 归一化到 [-1, 1]
+            // NCHW: 1 x 3 x H x W (归一化至 [0, 1] 适应现代残差法线网络)
             val floatBuffer = FloatBuffer.allocate(1 * 3 * alignH * alignW)
             val channelSize = alignW * alignH
 
             // R channel
             for (i in 0 until channelSize) {
                 val r = (scaledPixels[i] shr 16) and 0xFF
-                floatBuffer.put(i, (r / 127.5f) - 1.0f)
+                floatBuffer.put(i, r / 255.0f)
             }
             // G channel
             for (i in 0 until channelSize) {
                 val g = (scaledPixels[i] shr 8) and 0xFF
-                floatBuffer.put(channelSize + i, (g / 127.5f) - 1.0f)
+                floatBuffer.put(channelSize + i, g / 255.0f)
             }
             // B channel
             for (i in 0 until channelSize) {
                 val b = scaledPixels[i] and 0xFF
-                floatBuffer.put(channelSize * 2 + i, (b / 127.5f) - 1.0f)
+                floatBuffer.put(channelSize * 2 + i, b / 255.0f)
             }
 
             val tensor = OnnxTensor.createTensor(env, floatBuffer, longArrayOf(1, 3, alignH.toLong(), alignW.toLong()))
@@ -135,15 +135,31 @@ object ShadingAssistEngine {
                         val outW = if (shape.size >= 4) shape[3].toInt() else alignW
                         val planeSize = outH * outW
 
+                        // 自动判别模型输出格式：[0, 1] 切线图编码 vs [-1, 1] 单位法线
+                        var sampleMin = Float.MAX_VALUE
+                        var sampleMax = -Float.MAX_VALUE
+                        val checkCount = min(500, planeSize)
+                        for (k in 0 until checkCount) {
+                            val v = fb.get(k)
+                            if (v < sampleMin) sampleMin = v
+                            if (v > sampleMax) sampleMax = v
+                        }
+                        val isUnitEncoding = sampleMin >= -0.05f && sampleMax <= 1.05f
+
                         val normalArray = FloatArray(outW * outH * 3)
                         var idx = 0
                         for (y in 0 until outH) {
                             val yOffset = y * outW
                             for (x in 0 until outW) {
                                 val pIdx = yOffset + x
-                                val nx = fb.get(pIdx)
-                                val ny = fb.get(planeSize + pIdx)
-                                val nz = fb.get(planeSize * 2 + pIdx).coerceAtLeast(0.01f)
+                                val rawX = fb.get(pIdx)
+                                val rawY = fb.get(planeSize + pIdx)
+                                val rawZ = fb.get(planeSize * 2 + pIdx)
+
+                                val nx = if (isUnitEncoding) rawX * 2.0f - 1.0f else rawX
+                                val ny = if (isUnitEncoding) rawY * 2.0f - 1.0f else rawY
+                                val nz = (if (isUnitEncoding) rawZ * 2.0f - 1.0f else rawZ).coerceAtLeast(0.01f)
+
                                 val len = sqrt(nx * nx + ny * ny + nz * nz).coerceAtLeast(1e-4f)
                                 normalArray[idx++] = nx / len
                                 normalArray[idx++] = ny / len
@@ -160,7 +176,7 @@ object ShadingAssistEngine {
 
     /**
      * 高性能 2.5D 几何曲面法线生成器 (无需神经网络，瞬时零延迟生成)
-     * 利用多级距离场近似生成圆润饱满的肢体/衣物体积表面，同时结合线稿生成压折凹陷法线
+     * 利用全画幅欧氏距离场 (Chamfer Distance Transform) 拟合饱满圆润的立体体积曲面，彻底杜绝线条死凹沟壑
      */
     fun generateSyntheticNormalField(
         baseBitmap: Bitmap,
@@ -179,56 +195,66 @@ object ShadingAssistEngine {
         val basePixels = IntArray(w * h)
         scaledBase.getPixels(basePixels, 0, w, 0, 0, w, h)
 
-        val linePixels = if (lineBitmap != null) {
-            val scaledLine = if (lineBitmap.width == w && lineBitmap.height == h) {
-                lineBitmap
-            } else {
-                Bitmap.createScaledBitmap(lineBitmap, w, h, true)
-            }
-            val arr = IntArray(w * h)
-            scaledLine.getPixels(arr, 0, w, 0, 0, w, h)
-            arr
-        } else {
-            null
+        // 1. 构建全画幅欧氏/切比雪夫距离场 (Chamfer Distance Field)
+        // 距离边界越远（肢体/面部中心）高度越高，生成完美平滑凸起曲面
+        val distMap = FloatArray(w * h) {
+            val a = (basePixels[it] ushr 24) and 0xFF
+            if (a > 25) 1e6f else 0.0f
         }
 
-        // 1. 构建初始高度图 H(x, y): 基于底色 Alpha
-        val heightMap = FloatArray(w * h)
-        for (i in 0 until w * h) {
-            val a = (basePixels[i] ushr 24) and 0xFF
-            heightMap[i] = a / 255.0f
-        }
-
-        // 2. 双重平滑以生成圆柱/球体隆起体积感 (模拟高斯模糊 / 距离场)
-        val tempMap = FloatArray(w * h)
-        boxBlurHorizontal(heightMap, tempMap, w, h, 8)
-        boxBlurVertical(tempMap, heightMap, w, h, 8)
-
-        // 3. 叠加线稿凹陷深度 (Lineart Creases: 平滑过渡以避免尖锐沟壑)
-        if (linePixels != null) {
-            val creaseMap = FloatArray(w * h)
-            for (i in 0 until w * h) {
-                val lp = linePixels[i]
-                val la = (lp ushr 24) and 0xFF
-                if (la > 10) {
-                    val r = (lp shr 16) and 0xFF
-                    val g = (lp shr 8) and 0xFF
-                    val b = lp and 0xFF
-                    val darkness = (255 - (r * 299 + g * 587 + b * 114) / 1000) / 255.0f
-                    creaseMap[i] = (la / 255f) * darkness * 0.35f
+        // 前向扫描: 从左上到右下
+        for (y in 0 until h) {
+            val row = y * w
+            for (x in 0 until w) {
+                val idx = row + x
+                if (distMap[idx] == 0.0f) continue
+                var d = distMap[idx]
+                if (x > 0) d = min(d, distMap[idx - 1] + 1.0f)
+                if (y > 0) {
+                    d = min(d, distMap[idx - w] + 1.0f)
+                    if (x > 0) d = min(d, distMap[idx - w - 1] + 1.414f)
+                    if (x < w - 1) d = min(d, distMap[idx - w + 1] + 1.414f)
                 }
-            }
-            val tempCrease = FloatArray(w * h)
-            boxBlurHorizontal(creaseMap, tempCrease, w, h, 2)
-            boxBlurVertical(tempCrease, creaseMap, w, h, 2)
-            for (i in 0 until w * h) {
-                heightMap[i] = max(0f, heightMap[i] - creaseMap[i])
+                distMap[idx] = d
             }
         }
 
-        // 4. 计算梯度偏导数并归一化为法线向量
+        // 反向扫描: 从右下到左上
+        var maxDist = 1.0f
+        for (y in h - 1 downTo 0) {
+            val row = y * w
+            for (x in w - 1 downTo 0) {
+                val idx = row + x
+                if (distMap[idx] == 0.0f) continue
+                var d = distMap[idx]
+                if (x < w - 1) d = min(d, distMap[idx + 1] + 1.0f)
+                if (y < h - 1) {
+                    d = min(d, distMap[idx + w] + 1.0f)
+                    if (x > 0) d = min(d, distMap[idx + w - 1] + 1.414f)
+                    if (x < w - 1) d = min(d, distMap[idx + w + 1] + 1.414f)
+                }
+                distMap[idx] = d
+                if (d > maxDist) maxDist = d
+            }
+        }
+
+        // 2. 将距离场映射为半球圆润高度图 H = sqrt(d / maxDist)
+        val heightMap = FloatArray(w * h)
+        val invMax = 1.0f / maxDist.coerceAtLeast(1.0f)
+        for (i in 0 until w * h) {
+            if (distMap[i] > 0.0f) {
+                heightMap[i] = sqrt(distMap[i] * invMax)
+            }
+        }
+
+        // 3. 双重平滑以生成自然圆润的体积曲面 (消除距离场折角与山脊线)
+        val tempMap = FloatArray(w * h)
+        boxBlurHorizontal(heightMap, tempMap, w, h, 6)
+        boxBlurVertical(tempMap, heightMap, w, h, 6)
+
+        // 4. 计算梯度偏导数并归一化为连续法线向量场
         val normals = FloatArray(w * h * 3)
-        val normalScale = 3.5f
+        val normalScale = 2.4f
 
         for (y in 0 until h) {
             val yPrev = max(0, y - 1) * w
