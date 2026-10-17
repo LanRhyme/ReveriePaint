@@ -1,4 +1,4 @@
-From be41a252577819f2db5e12bc26fb0b5071708ff6 Mon Sep 17 00:00:00 2001
+From fd451c125409a048980e265e481b6677e7a88541 Mon Sep 17 00:00:00 2001
 From: LanRhyme <xiao_ren233@foxmail.com>
 Date: Tue, 6 Oct 2026 17:56:05 +0800
 Subject: [PATCH 4/4] =?UTF-8?q?fix(roundmarker):=20=E5=9C=86=E5=A4=B4?=
@@ -10,15 +10,23 @@ MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
 
+ReveriePaint: 圆头马克笔的 dab 边缘像素原先用裸 memcpy 覆盖, 笔画交叉处会把
+已有像素抹成纯色, 出现白边。改为走 COMPOSITE_OVER 混合。
+
+性能补充: KoCompositeOp::composite 是为整行连续像素设计的向量化虚函数, 以
+rows=1/cols=1 粒度逐像素调用时每个像素都要付一次虚表派发与函数序言, 500px 笔刷
+单次移动就是几十万次调用。8-bit RGBA (内存序 BGRA) 直接内联展开 COMPOSITE_OVER
+的标量实现 (srcAlpha == 255 时 4 字节直接覆盖, 其余抗锯齿带按非预乘 over 公式
+混合); 其余色彩空间 (含同为 4 字节的 GrayA16) 仍走原虚函数路径, 行为不变。
 ---
- libs/image/kis_marker_painter.cpp | 21 ++++++++++++++-------
- 1 file changed, 14 insertions(+), 7 deletions(-)
+ libs/image/kis_marker_painter.cpp | 72 +++++++++++++++++++++++++++----
+ 1 file changed, 64 insertions(+), 8 deletions(-)
 
 diff --git a/libs/image/kis_marker_painter.cpp b/libs/image/kis_marker_painter.cpp
-index c93cc2f1..1a6362f7 100644
+index c93cc2f1..59bf6a7c 100644
 --- a/libs/image/kis_marker_painter.cpp
 +++ b/libs/image/kis_marker_painter.cpp
-@@ -8,6 +8,7 @@
+@@ -8,12 +8,15 @@
  
  #include <KoColor.h>
  #include <KoColorSpace.h>
@@ -26,23 +34,82 @@ index c93cc2f1..1a6362f7 100644
  
  #include "kis_paint_device.h"
  
-@@ -72,6 +73,8 @@ void KisMarkerPainter::fillHalfBrushDiff(const QPointF &p1, const QPointF &p2, c
+ #include "kis_algebra_2d.h"
+ #include "kis_sequential_iterator.h"
+ 
++#include <algorithm>
++
+ 
+ struct KisMarkerPainter::Private
+ {
+@@ -32,6 +35,46 @@ KisMarkerPainter::~KisMarkerPainter()
+ {
+ }
+ 
++namespace {
++
++/**
++ * 8-bit BGRA (pixelSize == 4) 的直通 alpha 混合。
++ *
++ * ReveriePaint: 圆头马克笔的 dab 逐个像素写入, 走 KoCompositeOp::composite() 的
++ * rows=1/cols=1 路径时每个像素都要付一次虚表派发 + 整行向量化框架的函数序言,
++ * 500px 笔刷单次移动就是几十万次调用。8-bit BGRA 是 Android 上唯一的设备格式,
++ * 这里直接把 COMPOSITE_OVER 展开成标量代码:
++ *   srcAlpha == 255 -> 结果就是源像素 (直接 4 字节覆盖, 与裸 memcpy 等价)
++ *   否则按非预乘 BGRA 的 over 公式混合
++ * 其余色彩空间仍回退到 KoCompositeOp。
++ */
++inline void markerBlendBgra8(quint8 *dst, const quint8 *src, quint8 srcAlpha)
++{
++    if (srcAlpha == 0) {
++        return;
++    }
++    if (srcAlpha == 255 || dst[3] == 0) {
++        dst[0] = src[0];
++        dst[1] = src[1];
++        dst[2] = src[2];
++        dst[3] = srcAlpha;
++        return;
++    }
++    const unsigned a = srcAlpha;
++    const unsigned dstA = dst[3];
++    const unsigned invA = 255u - a;
++    const unsigned outA = a + (dstA * invA + 127u) / 255u;
++    if (outA == 0) {
++        return;
++    }
++    const unsigned dstW = (dstA * invA + 127u) / 255u;
++    dst[0] = quint8(std::min(255u, (unsigned(src[0]) * a + unsigned(dst[0]) * dstW + outA / 2) / outA));
++    dst[1] = quint8(std::min(255u, (unsigned(src[1]) * a + unsigned(dst[1]) * dstW + outA / 2) / outA));
++    dst[2] = quint8(std::min(255u, (unsigned(src[2]) * a + unsigned(dst[2]) * dstW + outA / 2) / outA));
++    dst[3] = quint8(std::min(255u, outA));
++}
++
++} // namespace
+ 
+ 
+ bool KisMarkerPainter::isNumberInValidRange(qint32 number)
+@@ -72,6 +115,10 @@ void KisMarkerPainter::fillHalfBrushDiff(const QPointF &p1, const QPointF &p2, c
  
      KIS_SAFE_ASSERT_RECOVER_RETURN(isRectInValidRange(alignedRect));
  
 +    const KoCompositeOp *op = cs->compositeOp(COMPOSITE_OVER);
++    // 只有 8-bit RGBA (KoBgrU8, 内存序 BGRA) 走内联混合; 同为 4 字节的 GrayA16 等仍走 KoCompositeOp
++    const bool bgra8 = pixelSize == 4 && cs->id() == QLatin1String("RGBA");
 +
      KisSequentialIterator it(m_d->device, alignedRect);
  
      while (it.nextPixel()) {
-@@ -93,9 +96,12 @@ void KisMarkerPainter::fillHalfBrushDiff(const QPointF &p1, const QPointF &p2, c
+@@ -93,9 +140,14 @@ void KisMarkerPainter::fillHalfBrushDiff(const QPointF &p1, const QPointF &p2, c
  
          const quint8 srcAlpha = fadePos > 0 ? quint8((1.0 - fadePos) * 255.0) : 255;
  
 -        // ReveriePaint: standard overwrite behaviour (see fillFullCircle)
          currentColor.setOpacity(srcAlpha);
 -        memcpy(it.rawData(), currentColor.data(), pixelSize);
-+        if (op) {
++        if (bgra8) {
++            markerBlendBgra8(it.rawData(), currentColor.data(), srcAlpha);
++        } else if (op) {
 +            op->composite(it.rawData(), pixelSize, currentColor.data(), pixelSize, nullptr, 0, 1, 1, OPACITY_OPAQUE_F);
 +        } else {
 +            memcpy(it.rawData(), currentColor.data(), pixelSize);
@@ -50,15 +117,17 @@ index c93cc2f1..1a6362f7 100644
      }
  }
  
-@@ -105,6 +111,7 @@ void KisMarkerPainter::fillFullCircle(const QPointF &center, qreal radius)
+@@ -105,6 +157,9 @@ void KisMarkerPainter::fillFullCircle(const QPointF &center, qreal radius)
  
      const int pixelSize = m_d->device->pixelSize();
      const KoColorSpace *cs = m_d->device->colorSpace();
 +    const KoCompositeOp *op = cs->compositeOp(COMPOSITE_OVER);
++    // 只有 8-bit RGBA (KoBgrU8, 内存序 BGRA) 走内联混合; 同为 4 字节的 GrayA16 等仍走 KoCompositeOp
++    const bool bgra8 = pixelSize == 4 && cs->id() == QLatin1String("RGBA");
  
      const qreal fadedRadius = radius + 1;
      QRectF boundRect(center.x() - fadedRadius, center.y() - fadedRadius,
-@@ -125,12 +132,12 @@ void KisMarkerPainter::fillFullCircle(const QPointF &center, qreal radius)
+@@ -125,12 +180,14 @@ void KisMarkerPainter::fillFullCircle(const QPointF &center, qreal radius)
  
          const quint8 srcAlpha = value3 > 0 ? quint8((1.0 - value3) * 255.0) : 255;
  
@@ -68,7 +137,9 @@ index c93cc2f1..1a6362f7 100644
 -        // perceived as broken colour layering)
          currentColor.setOpacity(srcAlpha);
 -        memcpy(it.rawData(), currentColor.data(), pixelSize);
-+        if (op) {
++        if (bgra8) {
++            markerBlendBgra8(it.rawData(), currentColor.data(), srcAlpha);
++        } else if (op) {
 +            op->composite(it.rawData(), pixelSize, currentColor.data(), pixelSize, nullptr, 0, 1, 1, OPACITY_OPAQUE_F);
 +        } else {
 +            memcpy(it.rawData(), currentColor.data(), pixelSize);
@@ -76,6 +147,11 @@ index c93cc2f1..1a6362f7 100644
      }
  }
  
+@@ -152,4 +209,3 @@ void KisMarkerPainter::fillCirclesDiff(const QPointF &c1, qreal r1,
+         fillHalfBrushDiff(q, p, n[1], c2, r2);
+     }
+ }
+-
 -- 
-2.55.0
+2.34.1
 
