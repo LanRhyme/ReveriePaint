@@ -49,6 +49,12 @@ private const val STROKE_BATCH_CAPACITY = 256
 /** Delay before the stroke-start idle kick flushes a pen-down dot. */
 private const val STROKE_START_KICK_MS = 24L
 
+/** 批内合并: 上一批「引擎 flush + 瓦片渲染」超过这个耗时 (一整帧 60Hz 预算) 才把新样本并进同一批 (ms)。 */
+private const val STROKE_MERGE_TRIGGER_MS = 16L
+
+/** 批内合并: 合并后单批样本数上限 (与引擎 appendStrokeSample 的 32 样本分段对齐)。 */
+private const val STROKE_MERGE_MAX_SAMPLES = 32
+
 internal fun java.util.concurrent.atomic.AtomicInteger.decrementPositive() {
     while (true) {
         val cur = get()
@@ -5154,6 +5160,9 @@ class PaintViewModel : ViewModel() {
         get() = (lastE2ePipelineMs + presentLagEstimateMs).coerceIn(4L, 85L)
     private var perfLogCounter = 0
 
+    /** 上一批「引擎 flush + 瓦片渲染」的实际耗时 (ns), 批内合并的触发依据。只在渲染线程读写。 */
+    private var lastStrokeBatchWorkNs = 0L
+
     private val strokeBatchRunnable = Runnable {
         val tDispatch = android.os.SystemClock.uptimeMillis()
         strokeBatchQueued = false
@@ -5173,9 +5182,50 @@ class PaintViewModel : ViewModel() {
         } catch (_: Throwable) {
             false
         }
-        val dtKritaNs = android.os.SystemClock.elapsedRealtimeNanos() - tKritaStartNs
-        val dtKrita = dtKritaNs / 1_000_000L
+        var dtKritaNs = android.os.SystemClock.elapsedRealtimeNanos() - tKritaStartNs
         var dtRenderNs = 0L
+
+        // ---- 批内合并 (渲染线程) ----
+        // 上一批 (引擎 flush + 瓦片渲染) 超过一整帧 16ms 预算说明渲染线程已落后于手写采样, 队列里又积了
+        // 新样本。与其让它们各自触发一轮完整的 doRender (compositeDirtyRegions + 瓦片拷贝 + 前缓冲贴图),
+        // 不如在这里并进同一批, 只做一轮 doRender。限合并一次、最多 8 个、合并后 <= 32 个样本
+        // (与引擎 appendStrokeSample 的 32 样本分段对齐), 上屏不会被无限推迟。
+        // 只把新增样本拷到 strokeDrainCoords 头部送增量, 绝不把已画过的前 n 个点重送 (否则笔迹折返重画)。
+        // 刻意不动 strokeBatchQueued / pendingCoreOps: 为新样本投递的 runnable 稍后跑到时队列已空
+        // (n == 0, 不渲染), 退化成一次空转, 不存在"摘掉 runnable 却漏减计数"或"新样本搁浅"的竞态。
+        var lastDocX = if (n > 0) strokeDrainCoords[(n - 1) * STROKE_SAMPLE_STRIDE] else 0f
+        var lastDocY = if (n > 0) strokeDrainCoords[(n - 1) * STROKE_SAMPLE_STRIDE + 1] else 0f
+        var lastSampleTime = if (n > 0) strokeDrainTimes[n - 1] else 0L
+        var merged = 0
+        if (painted && n in 1 until STROKE_MERGE_MAX_SAMPLES &&
+            lastStrokeBatchWorkNs > STROKE_MERGE_TRIGGER_MS * 1_000_000L
+        ) {
+            var extra = 0
+            val maxExtra = minOf(8, STROKE_MERGE_MAX_SAMPLES - n)
+            synchronized(strokeBatchLock) {
+                if (strokeBatchCount in 1..maxExtra) {
+                    extra = strokeBatchCount
+                    System.arraycopy(strokeBatchCoords, 0, strokeDrainCoords, 0, extra * STROKE_SAMPLE_STRIDE)
+                    System.arraycopy(strokeBatchTimes, 0, strokeDrainTimes, 0, extra)
+                    strokeBatchCount = 0
+                }
+            }
+            if (extra > 0) {
+                lastDocX = strokeDrainCoords[(extra - 1) * STROKE_SAMPLE_STRIDE]
+                lastDocY = strokeDrainCoords[(extra - 1) * STROKE_SAMPLE_STRIDE + 1]
+                lastSampleTime = strokeDrainTimes[extra - 1]
+                val tMergeStartNs = android.os.SystemClock.elapsedRealtimeNanos()
+                try {
+                    ReverieCoreBridge.touchStrokeMoveBatch(strokeDrainCoords, extra)
+                } catch (_: Throwable) {
+                    // 与首批一致: 引擎异常不影响本帧照常渲染已落墨的部分
+                }
+                // 合并那一次的引擎耗时也算进本批, 否则度量低报
+                dtKritaNs += android.os.SystemClock.elapsedRealtimeNanos() - tMergeStartNs
+                merged = extra
+            }
+        }
+        val dtKrita = dtKritaNs / 1_000_000L
         // Render immediately in-place after ink landed to eliminate message queue roundtrip latency
         if (painted) {
             val tRenderStartNs = android.os.SystemClock.elapsedRealtimeNanos()
@@ -5190,21 +5240,19 @@ class PaintViewModel : ViewModel() {
                 // 2:1 滑动平均: 单帧抖动不直接改写延迟估计
                 lastE2ePipelineMs = ((lastE2ePipelineMs * 2L) + e2e) / 3L
             }
-            val lastSampleIdx = n - 1
-            val lastCoordIdx = lastSampleIdx * STROKE_SAMPLE_STRIDE
-            updateRenderedFrontier(
-                strokeDrainCoords[lastCoordIdx],
-                strokeDrainCoords[lastCoordIdx + 1],
-                strokeDrainTimes[lastSampleIdx]
-            )
+            updateRenderedFrontier(lastDocX, lastDocY, lastSampleTime)
 
             if (++perfLogCounter % 5 == 0) {
                 android.util.Log.i(
                     "ReveriePerf",
-                    "StrokePerf: n=$n queueWait=${queueWait}ms krita=${dtKrita}ms render=${dtRender}ms e2e=${e2e}ms effectiveDelay=${effectivePipelineDelayMs}ms presentWait=${PerfTrace.presentWaitP50Ms}ms frontierErr=${"%.1f".format(PerfTrace.frontierErrP50Px)}px"
+                    "StrokePerf: n=$n merged=$merged queueWait=${queueWait}ms krita=${dtKrita}ms " +
+                        "render=${dtRender}ms e2e=${e2e}ms effectiveDelay=${effectivePipelineDelayMs}ms " +
+                        "presentWait=${PerfTrace.presentWaitP50Ms}ms " +
+                        "frontierErr=${"%.1f".format(PerfTrace.frontierErrP50Px)}px"
                 )
             }
         }
+        lastStrokeBatchWorkNs = dtKritaNs + dtRenderNs
         if (n > 0) {
             reportRenderWorkDuration(dtKritaNs + dtRenderNs)
         }
