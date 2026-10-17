@@ -14,7 +14,64 @@
 #include <KisFreehandStrokeInfo.h>
 #include <KoCompositeOpRegistry.h>
 #include <filter/kis_filter_registry.h>
+#include <QtConcurrent/QtConcurrentMap>
 #include <cmath>
+
+namespace {
+
+// doAsynchronousUpdate 把大笔刷的单个 dab 切成多条 KisStrokeJobData::CONCURRENT
+// 水平条带。原先逐条串行跑, 大直径湿笔 (colorsmudge) 单批耗时随直径平方增长。
+// 这里按 sequentiality() 严格保序: 连续 CONCURRENT 条带 >= 3 条时在
+// reverieBackgroundPool() 上 fork-join; 直径 >= 96px 时单条已够重, 2 条也并行。
+// SEQUENTIAL / UNIQUELY_CONCURRENT / BARRIER 仍在当前线程按序执行。
+// 同时用于 ParallelStrokeJobsExecutor (paintop 经 runnable 接口投递的任务): 那里拿到的是
+// const 列表, 所以并行段拷一份切片给 blockingMap。跑完即释放, 与 Krita 的假执行器语义一致。
+template <typename Job>
+void runStrokeJobsBatch(const QVector<Job *> &jobs, qreal brushSize = 0.0)
+{
+    const int n = jobs.size();
+    int i = 0;
+    while (i < n) {
+        Job *first = jobs[i];
+        if (!first) {
+            ++i;
+            continue;
+        }
+        if (first->sequentiality() != KisStrokeJobData::CONCURRENT) {
+            first->run();
+            delete first;
+            ++i;
+            continue;
+        }
+        int j = i + 1;
+        while (j < n && jobs[j] && jobs[j]->sequentiality() == KisStrokeJobData::CONCURRENT) {
+            ++j;
+        }
+        const int count = j - i;
+        if (count >= 3 || (count == 2 && brushSize >= 96.0)) {
+            const QVector<Job *> slice = jobs.mid(i, count);
+            QtConcurrent::blockingMap(reverieBackgroundPool(), slice, [](Job *job) { job->run(); });
+        } else {
+            for (int k = i; k < j; ++k) {
+                jobs[k]->run();
+            }
+        }
+        for (int k = i; k < j; ++k) {
+            delete jobs[k];
+        }
+        i = j;
+    }
+}
+
+} // namespace
+
+// paintop 经 KisRunnableStrokeJobsInterface 投递的任务 (例如大笔刷 dab 的条带) 原先由
+// KisFakeRunnableStrokeJobsExecutor 逐个串行跑; 这里改走同一套保序的 fork-join。
+// 直径未知, 按默认门槛 (>= 3 条才并行)。
+void ReverieCore::ParallelStrokeJobsExecutor::addRunnableJobs(const QVector<KisRunnableStrokeJobDataBase *> &list)
+{
+    runStrokeJobsBatch(list);
+}
 
 void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation, qreal timeSeconds)
 {
@@ -344,14 +401,14 @@ bool ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure, qrea
         s.time = m_strokeTimer.elapsed() / 1000.0;
     }
     m_strokeSamples.append(s);
-    // 144Hz / 120Hz 高刷新率自适应刷新门槛：实时绘制 4ms / 32 样本；
+    // 实时绘制由 JNI touchStrokeMoveBatch 在本批样本全部入队后统一 flush 一次; 这里只在单批
+    // 攒到 32 个样本时分段防溢出。原先另有 ">= 4ms 提前 flush": 批内首个样本常常单独被冲掉,
+    // 一帧里 flush 两次 (第二次只有剩下的几个点), 白白多一轮 dab 渲染与脏区上报。
     // 回放模式按记录的仿真相对时间步进 (>8ms 或 32 样本)，确保 1x/32x/seek 分批完全确定性对齐。
-    const qint64 now = QDateTime::currentMSecsSinceEpoch();
     const bool shouldFlush = (timeSeconds >= 0.0)
         ? ((s.time - m_lastSimulatedFlushTime >= 0.008) || m_strokeSamples.size() >= 32)
-        : (now - m_lastFlushMs >= 4 || m_strokeSamples.size() >= 32);
+        : (m_strokeSamples.size() >= 32);
     if (shouldFlush) {
-        m_lastFlushMs = now;
         if (timeSeconds >= 0.0) {
             m_lastSimulatedFlushTime = s.time;
         }
@@ -470,6 +527,16 @@ bool ReverieCore::flushStrokeBatch()
     // Krita-style: reuse one KisPainter for the whole stroke.
     if (m_snapshotPending || (!m_strokePainter && !m_maskedStrokePainter) || m_strokeDevice != (void *)target.data()) {
         endStrokeBatch();
+        // interstrokeData (湿笔颜料厚度高度图) 跨笔保留 (见 endStrokeBatch), 所以换成
+        // 非 colorsmudge 笔刷时在这里丢弃: 留着会让下次切回湿笔时按陈旧高度图累积厚度。
+        // 换图层天然安全: 高度图挂在各自的 KisPaintDevice 上。
+        if (!isSmudgeOp && target->interstrokeData()) {
+            KUndo2Command *cmd = target->createChangeInterstrokeDataCommand(KisInterstrokeDataSP());
+            if (cmd) {
+                cmd->redo();
+                delete cmd;
+            }
+        }
         m_strokeDevice = (void *)target.data();
         // 特效笔刷 (deform/filter/spray/particle...) 无效果的排查埋点: 一条笔画只打一次,
         // 输出引擎 id / 增量绘制判定 / 间接绘制判定 / 绘制目标是否为临时图层。
@@ -500,15 +567,13 @@ bool ReverieCore::flushStrokeBatch()
             KisInterstrokeDataFactory *interstrokeDataFactory = nullptr;
             const bool isColorSmudge = (m_toolMode == ToolSmudge) ||
                 (m_brushPreset && m_brushPreset->paintOp().id() == QStringLiteral("colorsmudge"));
-            if (m_brushPreset) {
-                if (isColorSmudge) {
-                    KisPaintOpFactory *f = KisPaintOpRegistry::instance()->value(QStringLiteral("colorsmudge"));
-                    if (f) {
-                        interstrokeDataFactory = f->createInterstrokeDataFactory(m_brushPreset->settings(), m_brushPreset->resourcesInterface());
-                    }
-                }
-                if (!interstrokeDataFactory) {
-                    interstrokeDataFactory = KisPaintOpRegistry::instance()->createInterstrokeDataFactory(m_brushPreset);
+            // 只有 colorsmudge 实现了 createInterstrokeDataFactory (其余引擎的基类实现
+            // 返回 nullptr), 不再对所有笔刷在落笔首帧查一次注册表、构造临时配置。
+            if (m_brushPreset && isColorSmudge) {
+                KisPaintOpFactory *f = KisPaintOpRegistry::instance()->value(QStringLiteral("colorsmudge"));
+                if (f) {
+                    interstrokeDataFactory =
+                        f->createInterstrokeDataFactory(m_brushPreset->settings(), m_brushPreset->resourcesInterface());
                 }
             }
             KisInterstrokeDataTransactionWrapperFactory *wrapper = nullptr;
@@ -607,7 +672,9 @@ bool ReverieCore::flushStrokeBatch()
                 if (!factory) {
                     factory.reset(KisPaintOpRegistry::instance()->createInterstrokeDataFactory(m_brushPreset));
                 }
-                if (factory) {
+                if (factory && !target->interstrokeData()) {
+                    // 同一图层连续用同一支湿笔时复用既有高度图; 不兼容时的替换由上面
+                    // KisInterstrokeDataTransactionWrapperFactory 的兼容性判定负责。
                     KUndo2Command *cmd = target->createChangeInterstrokeDataCommand(toQShared(factory->create(target)));
                     if (cmd) {
                         cmd->redo();
@@ -680,10 +747,7 @@ bool ReverieCore::flushStrokeBatch()
             while (true) {
                 QVector<KisRunnableStrokeJobData *> jobs;
                 auto result = m_maskedStrokePainter->doAsynchronousUpdate(jobs);
-                for (auto *j : jobs) {
-                    j->run();
-                    delete j;
-                }
+                runStrokeJobsBatch(jobs, m_brushSize);
                 if (jobs.isEmpty() || !result.second) {
                     break;
                 }
@@ -704,10 +768,7 @@ bool ReverieCore::flushStrokeBatch()
             while (true) {
                 QVector<KisRunnableStrokeJobData *> jobs;
                 auto result = m_strokeOp->doAsynchronousUpdate(jobs);
-                for (auto *j : jobs) {
-                    j->run();
-                    delete j;
-                }
+                runStrokeJobsBatch(jobs, m_brushSize);
                 if (jobs.isEmpty() || !result.second) {
                     break;
                 }
@@ -763,10 +824,7 @@ bool ReverieCore::flushStrokeBatch()
         while (true) {
             QVector<KisRunnableStrokeJobData *> jobs;
             auto result = m_maskedStrokePainter->doAsynchronousUpdate(jobs);
-            for (auto *j : jobs) {
-                j->run();
-                delete j;
-            }
+            runStrokeJobsBatch(jobs, m_brushSize);
             if (jobs.isEmpty() || !result.second) {
                 break;
             }
@@ -835,10 +893,7 @@ bool ReverieCore::flushStrokeBatch()
         while (true) {
             QVector<KisRunnableStrokeJobData *> jobs;
             auto result = m_strokeOp->doAsynchronousUpdate(jobs);
-            for (auto *j : jobs) {
-                j->run();
-                delete j;
-            }
+            runStrokeJobsBatch(jobs, m_brushSize);
             if (jobs.isEmpty() || !result.second) {
                 break;
             }
@@ -1003,15 +1058,10 @@ bool ReverieCore::flushStrokeBatch()
 
 void ReverieCore::endStrokeBatch()
 {
-    if (KisPaintDeviceSP target = currentPaintDevice()) {
-        if (target->interstrokeData()) {
-            KUndo2Command *cmd = target->createChangeInterstrokeDataCommand(KisInterstrokeDataSP());
-            if (cmd) {
-                cmd->redo();
-                delete cmd;
-            }
-        }
-    }
+    // 不再在每笔结束时清空 interstrokeData: 原先同一图层连续画湿笔时每笔都要
+    // "销毁旧高度图 -> 分配新高度图", 既白付重建开销, 又破坏跨笔颜料厚度混合。
+    // 与 Krita 一致, 只在换笔刷引擎 (flushStrokeBatch 的笔画准备段) 或不兼容
+    // (KisInterstrokeDataTransactionWrapperFactory) 时丢弃。
     delete m_maskedStrokePainter;
     m_maskedStrokePainter = nullptr;
     delete m_strokeInfo;
@@ -1273,10 +1323,7 @@ bool ReverieCore::strokeAirbrushTick()
         while (true) {
             QVector<KisRunnableStrokeJobData *> jobs;
             auto result = m_maskedStrokePainter->doAsynchronousUpdate(jobs);
-            for (auto *j : jobs) {
-                j->run();
-                delete j;
-            }
+            runStrokeJobsBatch(jobs, m_brushSize);
             if (jobs.isEmpty() || !result.second) {
                 break;
             }
@@ -1293,10 +1340,7 @@ bool ReverieCore::strokeAirbrushTick()
         while (true) {
             QVector<KisRunnableStrokeJobData *> jobs;
             auto result = m_strokeOp->doAsynchronousUpdate(jobs);
-            for (auto *j : jobs) {
-                j->run();
-                delete j;
-            }
+            runStrokeJobsBatch(jobs, m_brushSize);
             if (jobs.isEmpty() || !result.second) {
                 break;
             }

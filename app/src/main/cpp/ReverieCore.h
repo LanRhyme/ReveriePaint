@@ -1198,7 +1198,12 @@ private:
     QElapsedTimer m_strokeTimer;
     // Synchronous executor for the async dab-rendering pipeline (Krita uses
     // this in its own tests; on-device it keeps dab rendering deterministic)
-    KisFakeRunnableStrokeJobsExecutor m_fakeExecutor;
+    // 同步的保序并行执行器: 连续的 CONCURRENT 条带在 reverieBackgroundPool() 上 fork-join,
+    // SEQUENTIAL / BARRIER 任务仍在调用线程上严格按序执行。
+    struct ParallelStrokeJobsExecutor : public KisFakeRunnableStrokeJobsExecutor {
+        void addRunnableJobs(const QVector<KisRunnableStrokeJobDataBase *> &list) override;
+    };
+    ParallelStrokeJobsExecutor m_fakeExecutor;
 
     // Stroke batching
     QVector<StrokeSample> m_strokeSamples;
@@ -1212,7 +1217,6 @@ private:
     // doubled the opacity there (darker bands for paint, over-erased bands
     // for the eraser) at every 8ms flush boundary.
     int m_strokeCarryCount = 0;
-    qint64 m_lastFlushMs = 0;
     // True when touchStrokeKickIdle already painted the stroke-start dot and
     // cleared the sample list: touchStrokeEnd must not re-append the start
     // point (it would dab the same spot a second time, doubling ink density).
