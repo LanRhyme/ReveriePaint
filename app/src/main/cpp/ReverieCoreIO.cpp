@@ -1486,7 +1486,7 @@ bool ReverieCore::loadRevp(const QString &path)
     m_selection = KisSelectionSP();
     m_renderBufW = -1;
     m_renderBufH = -1;
-    m_dirtyRect = QRect();
+    clearDirtyRegions();
     m_bitmapInited = false;
     m_lastDirty = QRect();
     endStrokeBatch();
@@ -1903,7 +1903,7 @@ bool ReverieCore::loadPsd(const QString &path)
     m_selection = KisSelectionSP();
     m_renderBufW = -1;
     m_renderBufH = -1;
-    m_dirtyRect = QRect();
+    clearDirtyRegions();
     m_bitmapInited = false;
     m_lastDirty = QRect();
     endStrokeBatch();

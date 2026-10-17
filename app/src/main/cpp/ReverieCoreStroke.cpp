@@ -731,6 +731,14 @@ bool ReverieCore::flushStrokeBatch()
     }
 
     QRect strokeDirty;
+    // 本批每个 dab 的脏矩形先在本地有界列表里合并 (上限 8 块, 规则见 DirtyRectList.h),
+    // 批末逐块并入引擎脏区, 不再先合并成一个总包围盒。strokeDirty 仍是本批并集,
+    // 只用来判断本批是否落墨。
+    reverie::DirtyRectList batchDirty;
+    const auto addBatchDirty = [&](const QRect &r) {
+        strokeDirty = strokeDirty.isNull() ? r : strokeDirty.united(r);
+        reverie::appendOrCoalesce(batchDirty, reverie::DirtyRect{r.x(), r.y(), r.width(), r.height()});
+    };
     if (m_maskedStrokePainter) {
         const int firstNewSegment = qBound(1, m_strokeCarryCount, qMax(1, m_strokeSamples.size()));
         for (int i = firstNewSegment; i < m_strokeSamples.size(); ++i) {
@@ -767,7 +775,7 @@ bool ReverieCore::flushStrokeBatch()
             const QVector<QRect> exactDirty = m_maskedStrokePainter->takeDirtyRegion();
             for (const QRect &r : exactDirty) {
                 m_maskingBrushRenderer->updateProjection(r);
-                strokeDirty = strokeDirty.isNull() ? r : strokeDirty.united(r);
+                addBatchDirty(r);
             }
         }
     } else if (m_brushPreset && m_strokeOp && m_strokePainter) {
@@ -866,31 +874,40 @@ bool ReverieCore::flushStrokeBatch()
         if (isPathEngine) {
             const int margin = int(m_brushSize) + 8;
             const QRect pathDirty = m_accumulatedStrokeBounds.toAlignedRect().adjusted(-margin, -margin, margin, margin);
-            strokeDirty = strokeDirty.isNull() ? pathDirty : strokeDirty.united(pathDirty);
+            addBatchDirty(pathDirty);
         }
         const QVector<QRect> exactDirty = painter.takeDirtyRegion();
+        QRect exactUnion;
         for (const QRect &r : exactDirty) {
-            strokeDirty = strokeDirty.isNull() ? r : strokeDirty.united(r);
+            addBatchDirty(r);
+            if (!r.isEmpty()) {
+                exactUnion = exactUnion.isNull() ? r : exactUnion.united(r);
+            }
         }
-        if (!isPathEngine && (engineBypassesSelection || exactDirty.isEmpty())) {
+        // 部分引擎 (鬃毛/散布类) 的 takeDirtyRegion() 不为空, 却只回报几像素见方的中心块:
+        // 按它标脏, 运笔期间画布上缺墨, 要等抬笔整笔刷新才出现。并集明显小于笔径时
+        // 视为低报, 和"引擎不回报"同样按样本段兜底标脏。
+        const int minExpectedSpan = qMax(4, int(m_brushSize * 0.25));
+        const bool exactUnderReported = !exactDirty.isEmpty() && m_brushSize >= 6.0 &&
+            (exactUnion.width() < minExpectedSpan || exactUnion.height() < minExpectedSpan);
+        if (!isPathEngine && (engineBypassesSelection || exactDirty.isEmpty() || exactUnderReported)) {
+            // 逐段 (相邻两个样本) 各标一块, 不并成整批包围盒: 斜向长笔画的包围盒
+            // 远大于实际落墨, 而离散列表本身会按上限合并相邻块。
             const int startIndex = qMax(0, firstNewSegment - 1);
-            if (startIndex < m_strokeSamples.size()) {
-                qreal minX = m_strokeSamples[startIndex].imgPos.x();
-                qreal maxX = minX;
-                qreal minY = m_strokeSamples[startIndex].imgPos.y();
-                qreal maxY = minY;
+            const int w = int(m_brushSize) + 2;
+            if (startIndex + 1 < m_strokeSamples.size()) {
                 for (int si = startIndex + 1; si < m_strokeSamples.size(); ++si) {
-                    const qreal sx = m_strokeSamples[si].imgPos.x();
-                    const qreal sy = m_strokeSamples[si].imgPos.y();
-                    if (sx < minX) minX = sx;
-                    if (sx > maxX) maxX = sx;
-                    if (sy < minY) minY = sy;
-                    if (sy > maxY) maxY = sy;
+                    const QPointF &pa = m_strokeSamples[si - 1].imgPos;
+                    const QPointF &pb = m_strokeSamples[si].imgPos;
+                    const int minX = int(qMin(pa.x(), pb.x()));
+                    const int maxX = int(qMax(pa.x(), pb.x()));
+                    const int minY = int(qMin(pa.y(), pb.y()));
+                    const int maxY = int(qMax(pa.y(), pb.y()));
+                    addBatchDirty(QRect(minX - w, minY - w, (maxX - minX) + 2 * w, (maxY - minY) + 2 * w));
                 }
-                const int w = int(m_brushSize) + 2;
-                const QRect r(int(minX) - w, int(minY) - w,
-                              int(maxX - minX) + 2 * w, int(maxY - minY) + 2 * w);
-                strokeDirty = strokeDirty.isNull() ? r : strokeDirty.united(r);
+            } else if (startIndex < m_strokeSamples.size()) {
+                const QPointF &p0 = m_strokeSamples[startIndex].imgPos;
+                addBatchDirty(QRect(int(p0.x()) - w, int(p0.y()) - w, 2 * w, 2 * w));
             }
         }
     } else if (m_strokePainter) {
@@ -900,7 +917,7 @@ bool ReverieCore::flushStrokeBatch()
             painter.paintEllipse(QRectF(p.x() - w / 2.0, p.y() - w / 2.0, w, w));
             const QRect r(int(p.x()) - int(w) - 1, int(p.y()) - int(w) - 1,
                           2 * int(w) + 2, 2 * int(w) + 2);
-            strokeDirty = strokeDirty.isNull() ? r : strokeDirty.united(r);
+            addBatchDirty(r);
         };
         QPointF prev = m_strokeSamples.first().imgPos;
         qreal prevP = m_strokeSamples.first().pressure;
@@ -966,12 +983,19 @@ bool ReverieCore::flushStrokeBatch()
     // Hot path: propagate the dirty region for fast synchronous compositing without
     // scheduling background jobs in Krita's thread pool during active stroke
     if (!strokeDirty.isNull()) {
-        if (m_currentLayer >= 0 && m_currentLayer < m_layers.size() && m_layers[m_currentLayer].isStrokeLayer) {
-            const int extra = m_layers[m_currentLayer].strokeSize + 4;
-            strokeDirty = strokeDirty.adjusted(-extra, -extra, extra, extra).intersected(
-                QRect(0, 0, m_docWidth, m_docHeight));
+        const bool strokeLayer = m_currentLayer >= 0 && m_currentLayer < m_layers.size() &&
+                                 m_layers[m_currentLayer].isStrokeLayer;
+        const int extra = strokeLayer ? m_layers[m_currentLayer].strokeSize + 4 : 0;
+        const QRect docRect(0, 0, m_docWidth, m_docHeight);
+        for (int i = 0; i < batchDirty.count; ++i) {
+            const reverie::DirtyRect &d = batchDirty.rects[i];
+            const QRect r = QRect(d.x, d.y, d.w, d.h).adjusted(-extra, -extra, extra, extra).intersected(docRect);
+            if (!r.isEmpty()) {
+                m_dirtyRect = m_dirtyRect.isNull() ? r : m_dirtyRect.united(r);
+                addDirtyRegion(r);
+            }
         }
-        markRegionDirty(strokeDirty);
+        if (m_dirtyCb) m_dirtyCb(m_dirtyCtx);
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
     }
     return !strokeDirty.isNull();
@@ -1127,7 +1151,7 @@ void ReverieCore::undo()
         m_docHeight = newH;
         m_renderBufW = -1;
         m_renderBufH = -1;
-        m_dirtyRect = QRect(0, 0, m_docWidth, m_docHeight);
+        setDirtyFullFrame();
         m_bitmapInited = false;
         m_lastDirty = QRect();
     }
@@ -1182,7 +1206,7 @@ void ReverieCore::redo()
         m_docHeight = newH;
         m_renderBufW = -1;
         m_renderBufH = -1;
-        m_dirtyRect = QRect(0, 0, m_docWidth, m_docHeight);
+        setDirtyFullFrame();
         m_bitmapInited = false;
         m_lastDirty = QRect();
     }

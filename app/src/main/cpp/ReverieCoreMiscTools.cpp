@@ -36,7 +36,7 @@ void ReverieCore::cropCanvas(int x, int y, int w, int h)
     m_docHeight = image->height();
     m_renderBufW = -1;
     m_renderBufH = -1;
-    m_dirtyRect = QRect(0, 0, m_docWidth, m_docHeight);
+    setDirtyFullFrame();
     m_bitmapInited = false;
     m_lastDirty = QRect();
     if (m_undoStore) {
@@ -71,7 +71,7 @@ void ReverieCore::scaleImage(int w, int h, int filterStrategyType)
     m_docHeight = image->height();
     m_renderBufW = -1;
     m_renderBufH = -1;
-    m_dirtyRect = QRect(0, 0, m_docWidth, m_docHeight);
+    setDirtyFullFrame();
     m_bitmapInited = false;
     m_lastDirty = QRect();
     if (m_undoStore) {
@@ -1376,9 +1376,10 @@ void ReverieCore::liquifyPreviewBuildLocked()
     // 预览区必须进入脏区: renderToBuffer 的增量路径只重读脏区, 不标脏就永远叠不上去。
     // (1:1 路径的整帧分支与缓冲重置分支本来就全量重读, 这里只是把增量分支补齐。)
     if (m_document) {
-        m_dirtyRect = m_dirtyRect.isNull()
-                ? b.intersected(QRect(0, 0, m_document->width(), m_document->height()))
-                : m_dirtyRect.united(b.intersected(QRect(0, 0, m_document->width(), m_document->height())));
+        const QRect previewDirty = b.intersected(QRect(0, 0, m_document->width(), m_document->height()));
+        m_dirtyRect = m_dirtyRect.isNull() ? previewDirty : m_dirtyRect.united(previewDirty);
+        // 离散列表也要跟上, 否则逐块的增量路径读不到这块预览区
+        addDirtyRegion(previewDirty);
     }
     ++m_liquifyPreviewSeq;
 }

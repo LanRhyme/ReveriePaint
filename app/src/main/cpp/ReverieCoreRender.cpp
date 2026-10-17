@@ -15,6 +15,81 @@
 #include <android/log.h>
 #include <kis_image_animation_interface.h>
 
+namespace {
+// 逐块处理的输入: 优先离散列表, 列表为空时退回总包围盒单块。
+inline int dirtyRegionCount(const QVector<QRect> &list, const QRect &fallback)
+{
+    if (!list.isEmpty()) {
+        return list.size();
+    }
+    return fallback.isEmpty() ? 0 : 1;
+}
+
+inline QRect dirtyRegionAt(const QVector<QRect> &list, const QRect &fallback, int i)
+{
+    return list.isEmpty() ? fallback : list.at(i);
+}
+} // namespace
+
+// ============================================================
+// 离散脏区列表
+// ============================================================
+
+void ReverieCore::addDirtyRegion(const QRect &r)
+{
+    if (r.isEmpty()) {
+        return;
+    }
+    const int docW = m_document ? m_document->width() : m_docWidth;
+    const int docH = m_document ? m_document->height() : m_docHeight;
+    if (docW <= 0 || docH <= 0) {
+        return;
+    }
+    const QRect docRect(0, 0, docW, docH);
+    const QRect clipped = r.intersected(docRect);
+    if (clipped.isEmpty()) {
+        return;
+    }
+    // 整幅画布脏: 列表收敛成这一块 (其余块都是它的子集, 留着只会重复合成)
+    if (clipped == docRect) {
+        m_dirtyRects.clear();
+        m_dirtyRects.append(clipped);
+        return;
+    }
+
+    reverie::DirtyRectList list;
+    list.count = qMin(m_dirtyRects.size(), reverie::DirtyRectList::kCapacity);
+    for (int i = 0; i < list.count; ++i) {
+        const QRect &q = m_dirtyRects.at(i);
+        list.rects[i] = reverie::DirtyRect{q.x(), q.y(), q.width(), q.height()};
+    }
+    reverie::appendOrCoalesce(list,
+                              reverie::DirtyRect{clipped.x(), clipped.y(), clipped.width(), clipped.height()},
+                              reverie::DirtyRectList::kCapacity);
+    m_dirtyRects.resize(list.count);
+    for (int i = 0; i < list.count; ++i) {
+        const reverie::DirtyRect &d = list.rects[i];
+        m_dirtyRects[i] = QRect(d.x, d.y, d.w, d.h);
+    }
+}
+
+void ReverieCore::compositeDirtyRegions(KisPaintDeviceSP out)
+{
+    if (!out || !m_document) {
+        return;
+    }
+    const QRect docRect(0, 0, m_document->width(), m_document->height());
+    const int n = dirtyRegionCount(m_dirtyRects, m_dirtyRect);
+    for (int i = 0; i < n; ++i) {
+        const QRect r = dirtyRegionAt(m_dirtyRects, m_dirtyRect, i).intersected(docRect);
+        if (r.isEmpty()) {
+            continue;
+        }
+        out->clear(r);
+        compositeLayersRange(out, 0, m_layers.size(), r);
+    }
+}
+
 // ============================================================
 // 笔触进行中的洋葱皮
 // ============================================================
@@ -150,7 +225,7 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
         m_renderBufW = w;
         m_renderBufH = h;
         m_bitmapInited = false;
-        m_dirtyRect = QRect(0, 0, iw, ih);
+        setDirtyFullFrame(QRect(0, 0, iw, ih));
     }
 
     // Solo mode is a pure render-time filter: composite only the keep layers
@@ -186,11 +261,8 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
                 }
             }
             if (m_drawing || hasSpecialCompositeLayer || !m_dirtyRect.isEmpty()) {
-                const QRect r = m_dirtyRect.intersected(QRect(0, 0, iw, ih));
-                if (!r.isEmpty()) {
-                    proj->clear(r);
-                    compositeLayersRange(proj, 0, m_layers.size(), r);
-                }
+                // 逐块合成离散脏区, 不再先把几处笔迹并成一个大包围盒再整体合成。
+                compositeDirtyRegions(proj);
             }
         }
     }
@@ -200,6 +272,13 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
 
     // 1:1 Native Resolution Rendering Path (Direct Krita GPU Engine Alignment)
     if (w == iw && h == ih) {
+        // 预览基座(残影修复): 液化预览期间目标图层的像素由预览自己提供, 所以这里必须先把
+        // "不含目标图层"的底图写回这块区域 —— 顺序在 blendLiquifyPreview / 覆盖层之前。
+        // 少了这一步, 被形变搬走的原始像素会留在原地透出来(透明画布上就是残影)。
+        // Phase 2A-2: 预览叠加 (只有在 debug 开关打开且预览有内容时才非空) —— 把低分辨率形变
+        // 预览混进刚写好的缓冲区域, 于是旋转/缩放/平移都沿用画布自身的变换。
+        // Phase 2B: 主机侧(AGSL)绘制时引擎不叠加, 否则会和 GPU 覆盖层叠两次。
+        const bool blendPreview = !m_liquifyPreviewOut.isEmpty() && !liquifyPreviewHostDraw();
         // Solo mode always re-composites the full frame: the filtered
         // composite is rebuilt every call, so a dirty sub-region read would
         // only refresh part of the raw-mode switch and leave the rest stale
@@ -209,18 +288,29 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
             PixelAlpha::toDisplayRows(buffer, iw * 4, buffer, w * 4, iw, ih);
             m_bitmapInited = true;
             m_lastWrittenRect = QRect(0, 0, w, h);
+            if (blendPreview) {
+                blendLiquifyPreview(buffer, w, h, m_lastWrittenRect);
+            }
         } else if (m_dirtyRect.isNull()) {
             // Nothing painted since the last render and the buffer already
             // holds a complete frame: skip the write and report a no-op so
             // the caller can drop the (identical) display flip instead of
             // re-drawing the canvas for unchanged pixels.
-            m_dirtyRect = QRect();
+            clearDirtyRegions();
             m_lastWrittenRect = QRect();
             return false;
         } else {
-            // Sub-region dirty update with exact pixel boundaries (0 rounding seams/misalignment)
-            const QRect r = m_dirtyRect.intersected(QRect(0, 0, iw, ih));
-            if (!r.isEmpty()) {
+            // 逐块增量更新, 每块按自己的精确像素边界读回并转换 (无取整缝隙/错位)。
+            // 预览也逐块叠加: 并集里的空洞本帧没有重读, 在那里再叠一次会重复混合。
+            // m_lastWrittenRect 是本帧实际写过的并集。
+            const QRect imageRect(0, 0, iw, ih);
+            QRect written;
+            const int count = dirtyRegionCount(m_dirtyRects, m_dirtyRect);
+            for (int i = 0; i < count; ++i) {
+                const QRect r = dirtyRegionAt(m_dirtyRects, m_dirtyRect, i).intersected(imageRect);
+                if (r.isEmpty()) {
+                    continue;
+                }
                 const size_t req = size_t(r.width()) * r.height() * 4;
                 if (size_t(m_subRegionBuffer.size()) < req) {
                     m_subRegionBuffer.resize(req);
@@ -229,21 +319,14 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
                 quint8 *dst = buffer + size_t(r.y()) * (w * 4) + size_t(r.x()) * 4;
                 PixelAlpha::toDisplayRows(reinterpret_cast<const quint8 *>(m_subRegionBuffer.constData()), r.width() * 4,
                                    dst, w * 4, r.width(), r.height());
-                m_lastWrittenRect = r;
-            } else {
-                m_lastWrittenRect = QRect();
+                if (blendPreview) {
+                    blendLiquifyPreview(buffer, w, h, r);
+                }
+                written = written.isNull() ? r : written.united(r);
             }
+            m_lastWrittenRect = written;
         }
-        // 预览基座(残影修复): 液化预览期间目标图层的像素由预览自己提供, 所以这里必须先把
-        // "不含目标图层"的底图写回这块区域 —— 顺序在 blendLiquifyPreview / 覆盖层之前。
-        // 少了这一步, 被形变搬走的原始像素会留在原地透出来(透明画布上就是残影)。
-        // Phase 2A-2: 预览叠加 (只有在 debug 开关打开且预览有内容时才非空) —— 把低分辨率形变
-        // 预览混进刚写好的缓冲区域, 于是旋转/缩放/平移都沿用画布自身的变换。
-        // Phase 2B: 主机侧(AGSL)绘制时引擎不叠加, 否则会和 GPU 覆盖层叠两次。
-        if (!m_liquifyPreviewOut.isEmpty() && !m_lastWrittenRect.isNull() && !liquifyPreviewHostDraw()) {
-            blendLiquifyPreview(buffer, w, h, m_lastWrittenRect);
-        }
-        m_dirtyRect = QRect();
+        clearDirtyRegions();
         return true;
     }
 
@@ -263,52 +346,56 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
         return false;
     }
 
-    const QRect r = m_dirtyRect.intersected(QRect(0, 0, iw, ih));
-    if (!r.isEmpty()) {
-        const auto mapX = [&](int v) { return qRound(v * sx); };
-        const auto mapY = [&](int v) { return qRound(v * sy); };
+    // 逐块缩放后贴回, 每块的两端都走同一条 round(edge*scale) 映射规则。
+    // 预览逐块叠加 (理由同 1:1 路径); m_lastWrittenRect 是本帧实际写过的并集。
+    const auto mapX = [&](int v) { return qRound(v * sx); };
+    const auto mapY = [&](int v) { return qRound(v * sy); };
+    const QRect imageRect(0, 0, iw, ih);
+    QRect written;
+    const int count = dirtyRegionCount(m_dirtyRects, m_dirtyRect);
+    for (int i = 0; i < count; ++i) {
+        const QRect r = dirtyRegionAt(m_dirtyRects, m_dirtyRect, i).intersected(imageRect);
+        if (r.isEmpty()) {
+            continue;
+        }
         const int targetX = mapX(r.x());
         const int targetY = mapY(r.y());
         const int targetW = mapX(r.x() + r.width()) - targetX;
         const int targetH = mapY(r.y() + r.height()) - targetY;
-        if (targetW > 0 && targetH > 0) {
-            const size_t req = size_t(r.width()) * r.height() * 4;
-            if (size_t(m_subRegionBuffer.size()) < req) {
-                m_subRegionBuffer.resize(req);
-            }
-            quint8 *scratch = reinterpret_cast<quint8 *>(m_subRegionBuffer.data());
-            readLiquifyDisplayRegion(proj, scratch, r);
-            QImage subBgra(scratch, r.width(), r.height(), r.width() * 4, QImage::Format_RGBA8888_Premultiplied);
-            PixelAlpha::toDisplayRows(scratch, r.width() * 4, scratch, r.width() * 4, r.width(), r.height());
-            const QImage scaled = (subBgra.width() != targetW || subBgra.height() != targetH)
-                    ? subBgra.scaled(targetW, targetH, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
-                    : subBgra;
-            if (!scaled.isNull()) {
-                const QRect vp(targetX, targetY, scaled.width(), scaled.height());
-                const QRect clip = vp.intersected(QRect(0, 0, w, h));
-                if (!clip.isEmpty()) {
-                    for (int y = clip.top(); y <= clip.bottom(); ++y) {
-                        memcpy(buffer + size_t(y) * (w * 4) + clip.left() * 4,
-                               scaled.constScanLine(y - vp.y()) + (clip.left() - vp.x()) * 4,
-                               size_t(clip.width()) * 4);
-                    }
-                    m_lastWrittenRect = clip;
-                    if (!m_liquifyPreviewOut.isEmpty() && !liquifyPreviewHostDraw()) {
-                        blendLiquifyPreview(buffer, w, h, clip);
-                    }
-                } else {
-                    m_lastWrittenRect = QRect();
-                }
-            } else {
-                m_lastWrittenRect = QRect();
-            }
-        } else {
-            m_lastWrittenRect = QRect();
+        if (targetW <= 0 || targetH <= 0) {
+            continue;
         }
-    } else {
-        m_lastWrittenRect = QRect();
+        const size_t req = size_t(r.width()) * r.height() * 4;
+        if (size_t(m_subRegionBuffer.size()) < req) {
+            m_subRegionBuffer.resize(req);
+        }
+        quint8 *scratch = reinterpret_cast<quint8 *>(m_subRegionBuffer.data());
+        readLiquifyDisplayRegion(proj, scratch, r);
+        QImage subBgra(scratch, r.width(), r.height(), r.width() * 4, QImage::Format_RGBA8888_Premultiplied);
+        PixelAlpha::toDisplayRows(scratch, r.width() * 4, scratch, r.width() * 4, r.width(), r.height());
+        const QImage scaled = (subBgra.width() != targetW || subBgra.height() != targetH)
+                ? subBgra.scaled(targetW, targetH, Qt::IgnoreAspectRatio, Qt::SmoothTransformation)
+                : subBgra;
+        if (scaled.isNull()) {
+            continue;
+        }
+        const QRect vp(targetX, targetY, scaled.width(), scaled.height());
+        const QRect clip = vp.intersected(QRect(0, 0, w, h));
+        if (clip.isEmpty()) {
+            continue;
+        }
+        for (int y = clip.top(); y <= clip.bottom(); ++y) {
+            memcpy(buffer + size_t(y) * (w * 4) + clip.left() * 4,
+                   scaled.constScanLine(y - vp.y()) + (clip.left() - vp.x()) * 4,
+                   size_t(clip.width()) * 4);
+        }
+        if (!m_liquifyPreviewOut.isEmpty() && !liquifyPreviewHostDraw()) {
+            blendLiquifyPreview(buffer, w, h, clip);
+        }
+        written = written.isNull() ? clip : written.united(clip);
     }
-    m_dirtyRect = QRect();
+    m_lastWrittenRect = written;
+    clearDirtyRegions();
     return true;
 }
 

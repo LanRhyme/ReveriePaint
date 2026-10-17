@@ -65,7 +65,7 @@ bool ReverieCore::newDocument(int width, int height, bool infiniteCanvas)
     // full bitmap copy.
     m_renderBufW = -1;
     m_renderBufH = -1;
-    m_dirtyRect = QRect();
+    clearDirtyRegions();
     m_bitmapInited = false;
     m_lastDirty = QRect();
     // Reset ALL per-document engine state. g_core is a process-lifetime
@@ -196,7 +196,7 @@ void ReverieCore::closeDocument()
     // Display pipeline: force full re-init on the next open (same as newDocument)
     m_renderBufW = -1;
     m_renderBufH = -1;
-    m_dirtyRect = QRect();
+    clearDirtyRegions();
     m_bitmapInited = false;
     m_lastDirty = QRect();
 

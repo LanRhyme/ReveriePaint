@@ -12,6 +12,7 @@
 #define REVERIECORE_H
 
 #include "LiquifyInverseField.h"
+#include "DirtyRectList.h"
 #include <QImage>
 #include <QPointF>
 #include <QVector>
@@ -1319,6 +1320,10 @@ private:
     int m_renderBufW = -1;
     int m_renderBufH = -1;
     QRect m_dirtyRect;
+    // 有界离散脏区列表 (上限 8 块, 合并策略见 DirtyRectList.h), 与 m_dirtyRect 同步维护。
+    // m_dirtyRect 仍是总包围盒 (既有调用方与查询沿用), m_dirtyRects 是逐块合成与
+    // 逐块转换上屏的输入; 列表为空时回退到 m_dirtyRect 单块。
+    QVector<QRect> m_dirtyRects;
     QByteArray m_subRegionBuffer;
     void markBlendChanged(int index);  // blend-only change: targeted thumb invalidation
     void flipCanvasCommon(bool horizontal); // flipCanvasHorizontal/Vertical shared body
@@ -1334,8 +1339,28 @@ private:
     }
     void markRegionDirty(const QRect &r) {
         m_dirtyRect = m_dirtyRect.isNull() ? r : m_dirtyRect.united(r);
+        addDirtyRegion(r);
         if (m_dirtyCb) m_dirtyCb(m_dirtyCtx);
     }
+    // 把 r 并入离散脏区列表 (先裁剪到画布, 空矩形忽略), 不更新 m_dirtyRect、不回调。
+    void addDirtyRegion(const QRect &r);
+    // 同时清空总包围盒与离散列表。不要再直接写 m_dirtyRect = QRect(),
+    // 否则列表会残留上一帧的矩形, 被下一帧当成脏区重复合成。
+    void clearDirtyRegions() {
+        m_dirtyRect = QRect();
+        m_dirtyRects.clear();
+    }
+    // 整幅画布标脏 (缓冲重置 / 文档尺寸变化), 列表同步收敛成这一整块。
+    void setDirtyFullFrame(const QRect &full) {
+        m_dirtyRect = full;
+        m_dirtyRects.clear();
+        if (!full.isEmpty()) {
+            m_dirtyRects.append(full);
+        }
+    }
+    void setDirtyFullFrame() { setDirtyFullFrame(QRect(0, 0, m_docWidth, m_docHeight)); }
+    // 逐块把脏区 (m_dirtyRects, 为空时为 m_dirtyRect) 重新合成到 out。
+    void compositeDirtyRegions(KisPaintDeviceSP out);
     // A stroke paints one layer: bump the thumbnail generation of the painted
     // node AND every ancestor group (their thumbs show the merged composite,
     // so editing a child must also refresh the group thumb). Strokes are the
