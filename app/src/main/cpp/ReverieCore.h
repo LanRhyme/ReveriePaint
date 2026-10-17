@@ -938,6 +938,10 @@ public:
     // aspect ratio, centered. Returns true on success.
     bool renderLayerThumb(int index, int w, int h, void *dstPixels, int dstStride);
 
+    // Render a single layer's content in canvas document coordinates (0, 0, docW, docH)
+    // scaled to (w, h). Perfect 1:1 spatial alignment with the canvas.
+    bool renderLayerCanvas(int index, int w, int h, void *dstPixels, int dstStride);
+
     // Load a PNG into a new document (single background layer).
     bool loadPng(const QString &path);
     int docWidth() const;

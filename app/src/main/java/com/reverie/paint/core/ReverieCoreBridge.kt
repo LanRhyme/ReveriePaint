@@ -988,6 +988,11 @@ object ReverieCoreBridge {
         bitmap: Bitmap,
     ): Boolean
 
+    external fun renderLayerCanvas(
+        index: Int,
+        bitmap: Bitmap,
+    ): Boolean
+
     external fun startTransformPreview(bitmap: Bitmap): Boolean
 
     external fun startTransformPreviewLayers(
