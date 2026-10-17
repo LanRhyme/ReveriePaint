@@ -779,24 +779,18 @@ private fun ModelStatusCard(
                     }
 
                     else -> {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp)
-                        ) {
-                            ReTextButton(
-                                text = stringResource(R.string.shading_assist_download_model),
-                                onClick = onDownload,
-                                primary = true,
-                                fontSize = 11.sp,
-                                modifier = Modifier.weight(1f)
-                            )
-                            ReTextButton(
-                                text = stringResource(R.string.shading_assist_import_model),
-                                onClick = onImportLocal,
-                                fontSize = 11.sp,
-                                modifier = Modifier.weight(1f)
-                            )
-                        }
+                        Text(
+                            text = stringResource(R.string.shading_assist_ai_hint),
+                            fontSize = 10.sp,
+                            color = Morandi.subText
+                        )
+                        ReTextButton(
+                            text = stringResource(R.string.shading_assist_import_model),
+                            onClick = onImportLocal,
+                            primary = true,
+                            fontSize = 11.sp,
+                            modifier = Modifier.fillMaxWidth()
+                        )
                     }
                 }
             }

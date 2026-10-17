@@ -2761,5 +2761,6 @@
     <string name="shading_assist_layer_name">Smart Shadow</string>
     <string name="shading_assist_toast_success">Clipped shadow layer generated above base layer</string>
     <string name="shading_assist_toast_need_layer">Please select a layer with color content first</string>
+    <string name="shading_assist_ai_hint">Supports importing external Depth / Surface Normal ONNX models (e.g. MiDaS / Surface Normal)</string>
 </resources>
 

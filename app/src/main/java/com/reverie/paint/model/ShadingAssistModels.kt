@@ -45,7 +45,7 @@ data class ShadingAssistConfig(
     val softness: Float = 0.15f,
     val shadowColor: Long = 0xFF5A4D6EL,
     val shadowOpacity: Float = 0.65f,
-    val lineArtOcclusion: Boolean = true,
+    val lineArtOcclusion: Boolean = false,
     val referenceLineLayerId: Int? = null,
     val useAiModel: Boolean = false,
     val downsampleTargetSize: Int = 1024

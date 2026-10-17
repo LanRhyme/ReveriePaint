@@ -210,96 +210,32 @@ object ShadingAssistEngine {
             null
         }
 
-        // 1. 构建局部色块边界与线稿边界标记 (局部立体感) 与全局外轮廓 (全局大体块)
-        val localBoundary = BooleanArray(w * h)
-        val macroBoundary = BooleanArray(w * h)
-
-        for (y in 0 until h) {
-            val row = y * w
-            for (x in 0 until w) {
-                val idx = row + x
-                val p = basePixels[idx]
-                val a = (p ushr 24) and 0xFF
-                if (a < 25) {
-                    macroBoundary[idx] = true
-                    localBoundary[idx] = true
-                    continue
-                }
-
-                // 检查是否为线稿像素
-                if (linePixels != null) {
-                    val lp = linePixels[idx]
-                    val la = (lp ushr 24) and 0xFF
-                    if (la > 30) {
-                        val lr = (lp shr 16) and 0xFF
-                        val lg = (lp shr 8) and 0xFF
-                        val lb = lp and 0xFF
-                        val dark = (255 - (lr * 299 + lg * 587 + lb * 114) / 1000) / 255f
-                        if ((la / 255f) * dark > 0.25f) {
-                            localBoundary[idx] = true
-                            continue
-                        }
-                    }
-                }
-
-                // 检查与相邻像素的色彩跳变 (检测发束、肤色、服饰分块边缘)
-                if (x > 0) {
-                    val pLeft = basePixels[idx - 1]
-                    val aLeft = (pLeft ushr 24) and 0xFF
-                    if (aLeft >= 25) {
-                        val diff = abs(((p shr 16) and 0xFF) - ((pLeft shr 16) and 0xFF)) +
-                                abs(((p shr 8) and 0xFF) - ((pLeft shr 8) and 0xFF)) +
-                                abs((p and 0xFF) - (pLeft and 0xFF))
-                        if (diff > 42) {
-                            localBoundary[idx] = true
-                            continue
-                        }
-                    }
-                }
-                if (y > 0) {
-                    val pUp = basePixels[idx - w]
-                    val aUp = (pUp ushr 24) and 0xFF
-                    if (aUp >= 25) {
-                        val diff = abs(((p shr 16) and 0xFF) - ((pUp shr 16) and 0xFF)) +
-                                abs(((p shr 8) and 0xFF) - ((pUp shr 8) and 0xFF)) +
-                                abs((p and 0xFF) - (pUp and 0xFF))
-                        if (diff > 42) {
-                            localBoundary[idx] = true
-                            continue
-                        }
-                    }
-                }
+        // 1. 构建整体外轮廓边界标记 (仅以画布透明底 a < 25 为界，彻底杜绝颜色微小波动带来的噪点与斑块)
+        val boundary = BooleanArray(w * h)
+        for (i in 0 until w * h) {
+            val a = (basePixels[i] ushr 24) and 0xFF
+            if (a < 25) {
+                boundary[i] = true
             }
         }
 
-        // 2. 双轨距离场计算：localDist (局部圆柱/球体隆起) + macroDist (躯体整体隆起)
-        val localDist = FloatArray(w * h) { if (localBoundary[it]) 0.0f else 1e6f }
-        val macroDist = FloatArray(w * h) { if (macroBoundary[it]) 0.0f else 1e6f }
+        // 2. 连续欧氏距离场双向快速推进
+        val dist = FloatArray(w * h) { if (boundary[it]) 0.0f else 1e6f }
 
         // 前向扫描
         for (y in 0 until h) {
             val row = y * w
             for (x in 0 until w) {
                 val idx = row + x
-                var dL = localDist[idx]
-                var dM = macroDist[idx]
-                if (dL > 0f) {
-                    if (x > 0) dL = min(dL, localDist[idx - 1] + 1.0f)
+                var d = dist[idx]
+                if (d > 0f) {
+                    if (x > 0) d = min(d, dist[idx - 1] + 1.0f)
                     if (y > 0) {
-                        dL = min(dL, localDist[idx - w] + 1.0f)
-                        if (x > 0) dL = min(dL, localDist[idx - w - 1] + 1.414f)
-                        if (x < w - 1) dL = min(dL, localDist[idx - w + 1] + 1.414f)
+                        d = min(d, dist[idx - w] + 1.0f)
+                        if (x > 0) d = min(d, dist[idx - w - 1] + 1.414f)
+                        if (x < w - 1) d = min(d, dist[idx - w + 1] + 1.414f)
                     }
-                    localDist[idx] = dL
-                }
-                if (dM > 0f) {
-                    if (x > 0) dM = min(dM, macroDist[idx - 1] + 1.0f)
-                    if (y > 0) {
-                        dM = min(dM, macroDist[idx - w] + 1.0f)
-                        if (x > 0) dM = min(dM, macroDist[idx - w - 1] + 1.414f)
-                        if (x < w - 1) dM = min(dM, macroDist[idx - w + 1] + 1.414f)
-                    }
-                    macroDist[idx] = dM
+                    dist[idx] = d
                 }
             }
         }
@@ -309,51 +245,41 @@ object ShadingAssistEngine {
             val row = y * w
             for (x in w - 1 downTo 0) {
                 val idx = row + x
-                var dL = localDist[idx]
-                var dM = macroDist[idx]
-                if (dL > 0f) {
-                    if (x < w - 1) dL = min(dL, localDist[idx + 1] + 1.0f)
+                var d = dist[idx]
+                if (d > 0f) {
+                    if (x < w - 1) d = min(d, dist[idx + 1] + 1.0f)
                     if (y < h - 1) {
-                        dL = min(dL, localDist[idx + w] + 1.0f)
-                        if (x > 0) dL = min(dL, localDist[idx + w - 1] + 1.414f)
-                        if (x < w - 1) dL = min(dL, localDist[idx + w + 1] + 1.414f)
+                        d = min(d, dist[idx + w] + 1.0f)
+                        if (x > 0) d = min(d, dist[idx + w - 1] + 1.414f)
+                        if (x < w - 1) d = min(d, dist[idx + w + 1] + 1.414f)
                     }
-                    localDist[idx] = dL
-                }
-                if (dM > 0f) {
-                    if (x < w - 1) dM = min(dM, macroDist[idx + 1] + 1.0f)
-                    if (y < h - 1) {
-                        dM = min(dM, macroDist[idx + w] + 1.0f)
-                        if (x > 0) dM = min(dM, macroDist[idx + w - 1] + 1.414f)
-                        if (x < w - 1) dM = min(dM, macroDist[idx + w + 1] + 1.414f)
-                    }
-                    macroDist[idx] = dM
+                    dist[idx] = d
                 }
             }
         }
 
-        // 3. 高度图融合：局部发丝/面颊隆起半径 20px，全局大体块半径 100px
+        // 3. 仿立体气囊饱满隆起高度场 (抛物线/球体过渡，不截断 plateau)
+        val maxDist = (min(w, h) * 0.18f).coerceIn(60.0f, 150.0f)
         val heightMap = FloatArray(w * h)
-        val maxLocalR = 20.0f
-        val maxMacroR = 100.0f
         for (i in 0 until w * h) {
-            val dL = localDist[i]
-            val dM = macroDist[i]
-            if (dM > 0f) {
-                val hLocal = sqrt(min(dL, maxLocalR) / maxLocalR)
-                val hMacro = sqrt(min(dM, maxMacroR) / maxMacroR)
-                heightMap[i] = hLocal * 0.70f + hMacro * 0.30f
+            val d = dist[i]
+            if (d > 0f) {
+                val normD = (d / maxDist).coerceIn(0.0f, 1.0f)
+                heightMap[i] = sqrt(normD)
             }
         }
 
-        // 4. 双重平滑以消除棱角
+        // 4. 三重盒状滤波 (数学等价于大半径高斯平滑，彻底消除 Voronoi 中轴棱角与沟壑)
+        val blurRadius = (min(w, h) / 45).coerceIn(8, 20)
         val tempMap = FloatArray(w * h)
-        boxBlurHorizontal(heightMap, tempMap, w, h, 4)
-        boxBlurVertical(tempMap, heightMap, w, h, 4)
+        repeat(3) {
+            boxBlurHorizontal(heightMap, tempMap, w, h, blurRadius)
+            boxBlurVertical(tempMap, heightMap, w, h, blurRadius)
+        }
 
-        // 5. 计算梯度偏导数并归一化为连续法线向量场
+        // 5. 梯度偏导数计算连续空间法线场
         val normals = FloatArray(w * h * 3)
-        val normalScale = 8.0f
+        val normalScale = 12.0f
 
         for (y in 0 until h) {
             val yPrev = max(0, y - 1) * w
@@ -528,10 +454,10 @@ object ShadingAssistEngine {
                                 ((cutoff - dot2D) / span + 0.5f).coerceIn(0.0f, 1.0f)
                             }
 
-                            // 线稿单向投射阴影 (向光侧完全无阴影，背光侧顺着线稿走，无沟壑)
+                            // 线稿单向投射接触微阴影 (仅在用户显式开启时生效，步长限制在 1..3 像素微接触，避免拉出长条斑块)
                             var lineCastShadow = 0.0f
                             if (linePixels != null && config.lineArtOcclusion) {
-                                val maxSteps = (4 + (softness * 8).toInt()).coerceIn(4, 12)
+                                val maxSteps = 3
                                 for (step in 1..maxSteps) {
                                     val sx = (x + lx * step).toInt()
                                     val sy = (y + ly * step).toInt()
@@ -539,15 +465,15 @@ object ShadingAssistEngine {
 
                                     val lp = linePixels[sy * outWidth + sx]
                                     val la = (lp ushr 24) and 0xFF
-                                    if (la > 25) {
+                                    if (la > 30) {
                                         val r = (lp shr 16) and 0xFF
                                         val g = (lp shr 8) and 0xFF
                                         val b = lp and 0xFF
                                         val darkness = (255 - (r * 299 + g * 587 + b * 114) / 1000) / 255.0f
                                         val lineStr = (la / 255.0f) * darkness
-                                        if (lineStr > 0.20f) {
+                                        if (lineStr > 0.35f) {
                                             val falloff = 1.0f - (step.toFloat() / (maxSteps + 1))
-                                            val occ = lineStr * falloff
+                                            val occ = lineStr * falloff * 0.5f
                                             if (occ > lineCastShadow) {
                                                 lineCastShadow = occ
                                             }

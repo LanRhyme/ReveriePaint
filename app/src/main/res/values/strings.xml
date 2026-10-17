@@ -2761,5 +2761,6 @@
     <string name="shading_assist_layer_name">智能阴影</string>
     <string name="shading_assist_toast_success">已在底色图层上方生成剪贴阴影</string>
     <string name="shading_assist_toast_need_layer">请先选择包含色彩内容的图层</string>
+    <string name="shading_assist_ai_hint">支持导入外部深度/表面法线 ONNX 神经网络模型 (如 MiDaS / Surface Normal)</string>
 </resources>
 
