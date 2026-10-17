@@ -29,16 +29,16 @@ import java.util.concurrent.TimeUnit
  */
 object ShadingModelManager {
 
-    private const val DEFAULT_MODEL_NAME = "anime_normal_v2.onnx"
+    private const val DEFAULT_MODEL_NAME = "sprite2normal.onnx"
     private const val CUSTOM_MODEL_NAME = "custom_shading.onnx"
 
     /** 官方推荐模型多线路备选下载节点 (GitHub Release 资产镜像 / 官方 Release / HuggingFace CDN) */
     private const val MIRROR_URL_1 =
-        "https://ghproxy.net/https://github.com/LanRhyme/ReveriePaint/releases/download/v1.5.0/anime_normal_v2.onnx"
+        "https://ghproxy.net/https://github.com/LanRhyme/ReveriePaint/releases/download/v1.5.0/sprite2normal.onnx"
     private const val GITHUB_RELEASE_URL =
-        "https://github.com/LanRhyme/ReveriePaint/releases/download/v1.5.0/anime_normal_v2.onnx"
+        "https://github.com/LanRhyme/ReveriePaint/releases/download/v1.5.0/sprite2normal.onnx"
     private const val HUGGINGFACE_URL =
-        "https://huggingface.co/fernandotonon/QtMeshEditor-pbrify-onnx/resolve/main/1x-PBRify_NormalV3.onnx"
+        "https://huggingface.co/longtimedevs/sprite2normal/resolve/main/sprite2normal.onnx"
 
     var modelStatus: ModelStatus by mutableStateOf(ModelStatus.NotDownloaded)
         private set
@@ -65,10 +65,14 @@ object ShadingModelManager {
     /** 检查并刷新当前模型就绪状态 */
     fun checkStatus(context: Context) {
         val dir = getModelDir(context)
-        // 清理过时的 v1 模型以触发推荐升级
+        // 清理过时的 v1/v2 模型以触发推荐升级
         val oldV1 = File(dir, "anime_normal_v1.onnx")
         if (oldV1.exists()) {
             oldV1.delete()
+        }
+        val oldV2 = File(dir, "anime_normal_v2.onnx")
+        if (oldV2.exists()) {
+            oldV2.delete()
         }
 
         val custom = File(dir, CUSTOM_MODEL_NAME)
