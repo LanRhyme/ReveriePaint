@@ -2755,15 +2755,18 @@
     <string name="shading_assist_preset_top">Top</string>
     <string name="shading_assist_preset_side">Side</string>
     <string name="shading_assist_preset_back">Backlight</string>
-    <string name="shading_assist_engine_csp">CSP Cel Volume</string>
-    <string name="shading_assist_engine_ai">Depth Anything V2</string>
     <string name="shading_assist_apply">Generate Shadow Layer</string>
     <string name="shading_assist_generating">Generating shadow layer...</string>
-    <string name="shading_assist_model_ready">Depth Anything V2 Model Ready</string>
-    <string name="shading_assist_model_synthetic">CSP Clean Stylized Volume Field</string>
-    <string name="shading_assist_engine_desc">Depth Anything V2: 3D neural depth &amp; lighting | CSP: Stylized macro volume</string>
-    <string name="shading_assist_use_ai_model">Enable AI Model</string>
-    <string name="shading_assist_download_model">Download Recommended AI Model</string>
+    <string name="shading_assist_model_ready">Depth Model Ready</string>
+    <string name="shading_assist_model_download">Download Model (26MB)</string>
+    <string name="shading_assist_model_uninstall">Uninstall Model</string>
+    <string name="shading_assist_model_uninstalled">Model uninstalled</string>
+    <string name="shading_assist_model_card_title">Neural Depth Model</string>
+    <string name="shading_assist_model_status_ready">Ready</string>
+    <string name="shading_assist_model_status_not_downloaded">Not Installed</string>
+    <string name="shading_assist_model_status_downloading">Downloading</string>
+    <string name="shading_assist_model_not_installed">Depth model not installed</string>
+    <string name="shading_assist_model_not_installed_desc">Requires 26MB neural network model to estimate 3D depth and shadows</string>
     <string name="shading_assist_import_model">Import Local .onnx</string>
     <string name="shading_assist_downloading">Downloading model (%1$d%%)</string>
     <string name="shading_assist_custom_model_active">Custom model: %s</string>
@@ -2771,6 +2774,6 @@
     <string name="shading_assist_layer_name">Smart Shadow</string>
     <string name="shading_assist_toast_success">Clipped shadow layer generated above base layer</string>
     <string name="shading_assist_toast_need_layer">Please select a layer with color content first</string>
-    <string name="shading_assist_ai_hint">Built-in SOTA Depth Anything V2 neural network, supports external ONNX models</string>
+    <string name="shading_assist_ai_hint">Depth Anything V2 neural network, on-device inference</string>
 </resources>
 
