@@ -35,6 +35,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -43,17 +44,20 @@ import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.*
+import com.reverie.paint.ui.components.ReDropdownMenu
+import com.reverie.paint.ui.components.ReDropdownMenuItem
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.theme.Morandi
 import kotlinx.coroutines.launch
+import java.util.Locale
 import kotlin.math.*
 
 /**
- * 智能阴影辅助 (Shading Assist) 全流程交互配置弹窗。
- * 提供 3D 光影球拖拽、双轨渲染实时预览、线稿图层指定、赛璐珞/平滑模式切换、模型管理与一键生成。
+ * 智能阴影辅助 (Shading Assist Beta) 全流程交互配置弹窗。
+ * 提供 3D 光影球拖拽、深度神经网络实时预览、模型管理与随时卸载/重新下载、参考线稿选择与一键生成。
  */
 @Composable
 fun ShadingAssistDialog(
@@ -74,7 +78,7 @@ fun ShadingAssistDialog(
                 ShadingModelManager.importCustomModel(context, uri).fold(
                     onSuccess = {
                         Toast.makeText(context, R.string.shading_assist_model_ready, Toast.LENGTH_SHORT).show()
-                        vm.updateShadingConfig(vm.shadingAssistConfig.copy(useAiModel = true), reloadLineart = true)
+                        vm.updateShadingConfig(vm.shadingAssistConfig, reloadLineart = true)
                     },
                     onFailure = {
                         Toast.makeText(context, it.message ?: "Import failed", Toast.LENGTH_SHORT).show()
@@ -131,12 +135,30 @@ fun ShadingAssistDialog(
                             }
                             Spacer(Modifier.width(12.dp))
                             Column {
-                                Text(
-                                    text = stringResource(R.string.shading_assist_title),
-                                    fontSize = 18.sp,
-                                    fontWeight = FontWeight.Bold,
-                                    color = Morandi.text
-                                )
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.shading_assist_title),
+                                        fontSize = 17.sp,
+                                        fontWeight = FontWeight.Bold,
+                                        color = Morandi.text
+                                    )
+                                    Box(
+                                        modifier = Modifier
+                                            .clip(RoundedCornerShape(4.dp))
+                                            .background(Morandi.accent.copy(alpha = 0.20f))
+                                            .padding(horizontal = 6.dp, vertical = 1.5.dp)
+                                    ) {
+                                        Text(
+                                            text = "Beta",
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Bold,
+                                            color = Morandi.accent
+                                        )
+                                    }
+                                }
                                 Text(
                                     text = stringResource(R.string.shading_assist_desc),
                                     fontSize = 11.sp,
@@ -154,7 +176,7 @@ fun ShadingAssistDialog(
                     }
 
                     Spacer(Modifier.height(14.dp))
-                    HorizontalDivider(color = Morandi.border.copy(alpha = 0.5f), thickness = 0.8.dp)
+                    HorizontalDivider(color = Morandi.panelHi, thickness = 0.8.dp)
                     Spacer(Modifier.height(14.dp))
 
                     // ---- 主交互区 (左视口预览 + 右侧控制面板) ----
@@ -241,62 +263,165 @@ fun ShadingAssistDialog(
                                 }
                             }
 
-                            // 实时预览视口
+                            // 实时预览视口 (就绪态 / 未下载空状态 / 下载进度态)
                             Box(
                                 modifier = Modifier
                                     .weight(1f)
                                     .fillMaxWidth()
                                     .clip(RoundedCornerShape(12.dp))
-                                    .background(Morandi.panelHi)
-                                    .border(1.dp, Morandi.border, RoundedCornerShape(12.dp)),
+                                    .background(Morandi.panelHi),
                                 contentAlignment = Alignment.Center
                             ) {
-                                val baseBmp = vm.shadingAssistBaseBitmap
-                                val shadowBmp = vm.shadingAssistPreviewBitmap
-                                val lineBmp = vm.shadingAssistLineBitmap
+                                when (modelStatus) {
+                                    is ModelStatus.Ready -> {
+                                        val baseBmp = vm.shadingAssistBaseBitmap
+                                        val shadowBmp = vm.shadingAssistPreviewBitmap
+                                        val lineBmp = vm.shadingAssistLineBitmap
 
-                                if (baseBmp != null && !baseBmp.isRecycled) {
-                                    Image(
-                                        bitmap = baseBmp.asImageBitmap(),
-                                        contentDescription = null,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
+                                        if (baseBmp != null && !baseBmp.isRecycled) {
+                                            Image(
+                                                bitmap = baseBmp.asImageBitmap(),
+                                                contentDescription = null,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
 
-                                if (shadowBmp != null && !shadowBmp.isRecycled) {
-                                    Image(
-                                        bitmap = shadowBmp.asImageBitmap(),
-                                        contentDescription = null,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
+                                        if (shadowBmp != null && !shadowBmp.isRecycled) {
+                                            Image(
+                                                bitmap = shadowBmp.asImageBitmap(),
+                                                contentDescription = null,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
 
-                                if (lineBmp != null && !lineBmp.isRecycled) {
-                                    Image(
-                                        bitmap = lineBmp.asImageBitmap(),
-                                        contentDescription = null,
-                                        modifier = Modifier.fillMaxSize()
-                                    )
-                                }
+                                        if (lineBmp != null && !lineBmp.isRecycled) {
+                                            Image(
+                                                bitmap = lineBmp.asImageBitmap(),
+                                                contentDescription = null,
+                                                modifier = Modifier.fillMaxSize()
+                                            )
+                                        }
 
-                                if (vm.shadingAssistIsProcessing) {
-                                    Box(
-                                        modifier = Modifier
-                                            .fillMaxSize()
-                                            .background(Color.Black.copy(alpha = 0.35f)),
-                                        contentAlignment = Alignment.Center
-                                    ) {
-                                        CircularProgressIndicator(
-                                            modifier = Modifier.size(28.dp),
-                                            color = Morandi.accent,
-                                            strokeWidth = 2.5.dp
-                                        )
+                                        if (vm.shadingAssistIsProcessing) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .fillMaxSize()
+                                                    .background(Color.Black.copy(alpha = 0.35f)),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                CircularProgressIndicator(
+                                                    modifier = Modifier.size(28.dp),
+                                                    color = Morandi.accent,
+                                                    strokeWidth = 2.5.dp
+                                                )
+                                            }
+                                        }
+                                    }
+
+                                    is ModelStatus.Downloading -> {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(16.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            CircularProgressIndicator(
+                                                progress = { modelStatus.progressPercent / 100f },
+                                                modifier = Modifier.size(40.dp),
+                                                color = Morandi.accent,
+                                                strokeWidth = 3.dp
+                                            )
+                                            Spacer(Modifier.height(12.dp))
+                                            Text(
+                                                text = stringResource(R.string.shading_assist_downloading, modelStatus.progressPercent),
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.Medium,
+                                                color = Morandi.text
+                                            )
+                                            Spacer(Modifier.height(4.dp))
+                                            val downloadedMb = modelStatus.downloadedBytes / (1024f * 1024f)
+                                            val totalMb = modelStatus.totalBytes / (1024f * 1024f)
+                                            Text(
+                                                text = String.format(Locale.US, "%.1f MB / %.1f MB", downloadedMb, totalMb),
+                                                fontSize = 10.sp,
+                                                color = Morandi.subText
+                                            )
+                                            Spacer(Modifier.height(12.dp))
+                                            ReTextButton(
+                                                text = stringResource(R.string.common_cancel),
+                                                fontSize = 11.sp,
+                                                onClick = { ShadingModelManager.cancelDownload(context) }
+                                            )
+                                        }
+                                    }
+
+                                    else -> {
+                                        Column(
+                                            modifier = Modifier
+                                                .fillMaxSize()
+                                                .padding(16.dp),
+                                            horizontalAlignment = Alignment.CenterHorizontally,
+                                            verticalArrangement = Arrangement.Center
+                                        ) {
+                                            Box(
+                                                modifier = Modifier
+                                                    .size(48.dp)
+                                                    .clip(CircleShape)
+                                                    .background(Morandi.panel),
+                                                contentAlignment = Alignment.Center
+                                            ) {
+                                                Icon(
+                                                    painter = painterResource(R.drawable.ic_moon),
+                                                    contentDescription = null,
+                                                    tint = Morandi.accent,
+                                                    modifier = Modifier.size(24.dp)
+                                                )
+                                            }
+                                            Spacer(Modifier.height(10.dp))
+                                            Text(
+                                                text = stringResource(R.string.shading_assist_model_not_installed),
+                                                fontSize = 12.sp,
+                                                fontWeight = FontWeight.SemiBold,
+                                                color = Morandi.text
+                                            )
+                                            Spacer(Modifier.height(4.dp))
+                                            Text(
+                                                text = stringResource(R.string.shading_assist_model_not_installed_desc),
+                                                fontSize = 10.sp,
+                                                color = Morandi.subText,
+                                                textAlign = TextAlign.Center
+                                            )
+                                            Spacer(Modifier.height(14.dp))
+                                            Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                                                ReTextButton(
+                                                    text = stringResource(R.string.shading_assist_model_download),
+                                                    primary = true,
+                                                    fontSize = 11.sp,
+                                                    onClick = {
+                                                        ShadingModelManager.startDownload(
+                                                            context = context,
+                                                            scope = coroutineScope,
+                                                            onSuccess = {
+                                                                vm.updateShadingConfig(vm.shadingAssistConfig, reloadLineart = true)
+                                                            }
+                                                        )
+                                                    }
+                                                )
+                                                ReTextButton(
+                                                    text = stringResource(R.string.shading_assist_import_model),
+                                                    primary = false,
+                                                    fontSize = 11.sp,
+                                                    onClick = { filePickerLauncher.launch("*/*") }
+                                                )
+                                            }
+                                        }
                                     }
                                 }
                             }
                         }
 
-                        VerticalDivider(color = Morandi.border.copy(alpha = 0.5f), thickness = 0.8.dp)
+                        VerticalDivider(color = Morandi.panelHi, thickness = 0.8.dp)
 
                         // 右侧：模型管理与参数微调
                         Column(
@@ -306,23 +431,24 @@ fun ShadingAssistDialog(
                                 .verticalScroll(rememberScrollState()),
                             verticalArrangement = Arrangement.spacedBy(14.dp)
                         ) {
-                            // 1. AI 神经网络模型状态卡片
+                            // 1. 深度神经网络模型状态与操作卡片
                             ModelStatusCard(
-                                useAiModel = config.useAiModel,
-                                onToggleAiModel = {
-                                    vm.updateShadingConfig(vm.shadingAssistConfig.copy(useAiModel = it))
-                                },
                                 status = modelStatus,
                                 onDownload = {
                                     ShadingModelManager.startDownload(
                                         context = context,
                                         scope = coroutineScope,
                                         onSuccess = {
-                                            vm.updateShadingConfig(vm.shadingAssistConfig.copy(useAiModel = true), reloadLineart = true)
+                                            vm.updateShadingConfig(vm.shadingAssistConfig, reloadLineart = true)
                                         }
                                     )
                                 },
-                                onCancelDownload = { ShadingModelManager.cancelDownload() },
+                                onCancelDownload = { ShadingModelManager.cancelDownload(context) },
+                                onUninstall = {
+                                    ShadingModelManager.uninstallModel(context)
+                                    Toast.makeText(context, R.string.shading_assist_model_uninstalled, Toast.LENGTH_SHORT).show()
+                                    vm.updateShadingConfig(vm.shadingAssistConfig, reloadLineart = true)
+                                },
                                 onImportLocal = { filePickerLauncher.launch("*/*") },
                                 onResetDefault = {
                                     ShadingModelManager.clearCustomModel(context)
@@ -370,7 +496,7 @@ fun ShadingAssistDialog(
                                 }
                             }
 
-                            HorizontalDivider(color = Morandi.border.copy(alpha = 0.3f), thickness = 0.8.dp)
+                            HorizontalDivider(color = Morandi.panelHi, thickness = 0.8.dp)
 
                             // 3. 风格模式 (赛璐珞 / 柔和过渡)
                             Row(
@@ -417,31 +543,50 @@ fun ShadingAssistDialog(
                                 }
                             }
 
-                            // 赛璐珞模式下的阶梯切换 (单阶 / 双阶)
+                            // 赛璐珞模式下的阶梯切换 (单阶 / 双阶) - 采用与上一致的莫兰迪分段按钮，杜绝白边
                             if (config.mode == ShadingMode.CEL) {
                                 Row(
-                                    modifier = Modifier.fillMaxWidth(),
-                                    horizontalArrangement = Arrangement.spacedBy(8.dp)
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(Morandi.panelHi)
+                                        .padding(3.dp),
+                                    horizontalArrangement = Arrangement.spacedBy(4.dp)
                                 ) {
                                     val isTwoStep = config.celSteps == CelSteps.TWO_STEP
-                                    FilterChip(
-                                        selected = !isTwoStep,
-                                        onClick = { vm.updateShadingConfig(vm.shadingAssistConfig.copy(celSteps = CelSteps.ONE_STEP)) },
-                                        label = { Text(stringResource(R.string.shading_assist_steps_1), fontSize = 11.sp) },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = Morandi.accent.copy(alpha = 0.25f),
-                                            selectedLabelColor = Morandi.accent
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (!isTwoStep) Morandi.accent else Color.Transparent)
+                                            .clickable { vm.updateShadingConfig(vm.shadingAssistConfig.copy(celSteps = CelSteps.ONE_STEP)) }
+                                            .padding(vertical = 5.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.shading_assist_steps_1),
+                                            fontSize = 11.sp,
+                                            fontWeight = if (!isTwoStep) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (!isTwoStep) Color.White else Morandi.subText
                                         )
-                                    )
-                                    FilterChip(
-                                        selected = isTwoStep,
-                                        onClick = { vm.updateShadingConfig(vm.shadingAssistConfig.copy(celSteps = CelSteps.TWO_STEP)) },
-                                        label = { Text(stringResource(R.string.shading_assist_steps_2), fontSize = 11.sp) },
-                                        colors = FilterChipDefaults.filterChipColors(
-                                            selectedContainerColor = Morandi.accent.copy(alpha = 0.25f),
-                                            selectedLabelColor = Morandi.accent
+                                    }
+
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (isTwoStep) Morandi.accent else Color.Transparent)
+                                            .clickable { vm.updateShadingConfig(vm.shadingAssistConfig.copy(celSteps = CelSteps.TWO_STEP)) }
+                                            .padding(vertical = 5.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = stringResource(R.string.shading_assist_steps_2),
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isTwoStep) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isTwoStep) Color.White else Morandi.subText
                                         )
-                                    )
+                                    }
                                 }
                             }
 
@@ -493,7 +638,7 @@ fun ShadingAssistDialog(
                                 }
                             }
 
-                            // 线稿投射距离 (CSP 核心微调参数)
+                            // 线稿投射微调参数
                             if (config.lineArtOcclusion) {
                                 Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
                                     Row(
@@ -634,14 +779,16 @@ fun ShadingAssistDialog(
                                                 .size(28.dp)
                                                 .clip(CircleShape)
                                                 .background(Color(colorVal))
-                                                .border(
-                                                    width = if (isSelected) 2.5.dp else 1.dp,
-                                                    color = if (isSelected) Morandi.accent else Morandi.border,
-                                                    shape = CircleShape
-                                                )
                                                 .clickable {
                                                     vm.updateShadingConfig(vm.shadingAssistConfig.copy(shadowColor = colorVal))
                                                 }
+                                                .then(
+                                                    if (isSelected) {
+                                                        Modifier.border(2.5.dp, Morandi.accent, CircleShape)
+                                                    } else {
+                                                        Modifier
+                                                    }
+                                                )
                                         )
                                     }
                                 }
@@ -650,7 +797,7 @@ fun ShadingAssistDialog(
                     }
 
                     Spacer(Modifier.height(14.dp))
-                    HorizontalDivider(color = Morandi.border.copy(alpha = 0.5f), thickness = 0.8.dp)
+                    HorizontalDivider(color = Morandi.panelHi, thickness = 0.8.dp)
                     Spacer(Modifier.height(14.dp))
 
                     // ---- 底部确认按钮 ----
@@ -665,6 +812,7 @@ fun ShadingAssistDialog(
                             modifier = Modifier.padding(end = 10.dp)
                         )
 
+                        val canApply = modelStatus is ModelStatus.Ready && !vm.shadingAssistIsProcessing
                         ReTextButton(
                             text = if (vm.shadingAssistIsProcessing) {
                                 stringResource(R.string.shading_assist_generating)
@@ -672,7 +820,7 @@ fun ShadingAssistDialog(
                                 stringResource(R.string.shading_assist_apply)
                             },
                             primary = true,
-                            enabled = !vm.shadingAssistIsProcessing,
+                            enabled = canApply,
                             onClick = {
                                 vm.applyShadingAssist()
                             }
@@ -696,13 +844,12 @@ private fun LightOrbManipulator(
 ) {
     val currentOnLightChange by rememberUpdatedState(onLightChange)
     val azRad = Math.toRadians(azimuthDeg.toDouble())
-    // 仰角在 [40°, 85°] 之间平滑映射 (圆心 85° 顶部光, 边缘 40° 侧光, 绝不出现 10° 严重偏暗逆光)
+    // 仰角在 [40°, 85°] 之间平滑映射 (圆心 85° 顶部光, 边缘 40° 侧光)
     val distRatio = ((85f - elevationDeg.coerceIn(40f, 85f)) / 45f).coerceIn(0.0f, 0.95f)
 
     Box(
         modifier = modifier
             .clip(CircleShape)
-            .border(1.5.dp, Morandi.border, CircleShape)
             .pointerInput(Unit) {
                 detectDragGestures { change, _ ->
                     change.consume()
@@ -714,7 +861,6 @@ private fun LightOrbManipulator(
                     var az = Math.toDegrees(atan2(-dy.toDouble(), dx.toDouble())).toFloat()
                     if (az < 0) az += 360f
 
-                    // 离球心越近仰角越高 (接近 85°)，离边缘越近仰角为 40°，完美适配二次元正面受光
                     val el = (1.0f - dist) * 45f + 40f
                     currentOnLightChange(az, el)
                 }
@@ -760,144 +906,221 @@ private fun LightOrbManipulator(
 }
 
 /**
- * 阴影计算引擎与 AI 模型状态展示卡片
+ * 神经网络模型状态展示与操作卡片
  */
 @Composable
 private fun ModelStatusCard(
-    useAiModel: Boolean,
-    onToggleAiModel: (Boolean) -> Unit,
     status: ModelStatus,
     onDownload: () -> Unit,
     onCancelDownload: () -> Unit,
+    onUninstall: () -> Unit,
     onImportLocal: () -> Unit,
     onResetDefault: () -> Unit
 ) {
     Card(
         modifier = Modifier.fillMaxWidth(),
         shape = RoundedCornerShape(10.dp),
-        colors = CardDefaults.cardColors(containerColor = Morandi.panelHi)
+        colors = CardDefaults.cardColors(containerColor = Morandi.panelHi),
+        border = null
     ) {
-        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-            // 顶栏：算法引擎选择分段按钮
+        Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // 顶栏：标题与状态指示胶囊
             Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Morandi.panel)
-                    .padding(3.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
             ) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (!useAiModel) Morandi.accent else Color.Transparent)
-                        .clickable { onToggleAiModel(false) }
-                        .padding(vertical = 6.dp),
-                    contentAlignment = Alignment.Center
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
                 ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_moon),
+                        contentDescription = null,
+                        tint = Morandi.accent,
+                        modifier = Modifier.size(15.dp)
+                    )
                     Text(
-                        text = stringResource(R.string.shading_assist_engine_csp),
-                        fontSize = 11.sp,
-                        fontWeight = if (!useAiModel) FontWeight.Bold else FontWeight.Normal,
-                        color = if (!useAiModel) Color.White else Morandi.subText
+                        text = stringResource(R.string.shading_assist_model_card_title),
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        color = Morandi.text
                     )
                 }
 
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(if (useAiModel) Morandi.accent else Color.Transparent)
-                        .clickable { onToggleAiModel(true) }
-                        .padding(vertical = 6.dp),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Text(
-                        text = stringResource(R.string.shading_assist_engine_ai),
-                        fontSize = 11.sp,
-                        fontWeight = if (useAiModel) FontWeight.Bold else FontWeight.Normal,
-                        color = if (useAiModel) Color.White else Morandi.subText
-                    )
-                }
-            }
-
-            if (!useAiModel) {
-                Text(
-                    text = stringResource(R.string.shading_assist_engine_desc),
-                    fontSize = 10.sp,
-                    color = Morandi.subText
-                )
-            } else {
                 when (status) {
                     is ModelStatus.Ready -> {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Color(0xFF2E7D32).copy(alpha = 0.15f),
+                            border = null
                         ) {
-                            Text(
-                                text = if (status.isCustom) {
-                                    stringResource(R.string.shading_assist_custom_model_active, status.fileName)
-                                } else {
-                                    status.fileName
-                                },
-                                fontSize = 10.sp,
-                                color = Morandi.subText,
-                                modifier = Modifier.weight(1f, fill = false)
-                            )
-                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                                if (status.isCustom) {
-                                    Text(
-                                        text = stringResource(R.string.shading_assist_reset_model),
-                                        fontSize = 11.sp,
-                                        color = Morandi.accent,
-                                        modifier = Modifier.clickable { onResetDefault() }
-                                    )
-                                }
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFF4CAF50))
+                                )
                                 Text(
-                                    text = stringResource(R.string.shading_assist_import_model),
-                                    fontSize = 11.sp,
-                                    color = Morandi.accent,
-                                    modifier = Modifier.clickable { onImportLocal() }
+                                    text = stringResource(R.string.shading_assist_model_status_ready),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Color(0xFF4CAF50)
                                 )
                             }
                         }
                     }
 
                     is ModelStatus.Downloading -> {
-                        Text(
-                            text = stringResource(R.string.shading_assist_downloading, status.progressPercent),
-                            fontSize = 11.sp,
-                            color = Morandi.accent
-                        )
-                        LinearProgressIndicator(
-                            progress = { status.progressPercent / 100f },
-                            modifier = Modifier.fillMaxWidth(),
-                            color = Morandi.accent
-                        )
-                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                            Text(
-                                text = stringResource(R.string.common_cancel),
-                                fontSize = 11.sp,
-                                color = Morandi.subText,
-                                modifier = Modifier.clickable { onCancelDownload() }
-                            )
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Morandi.accent.copy(alpha = 0.15f),
+                            border = null
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                CircularProgressIndicator(
+                                    modifier = Modifier.size(8.dp),
+                                    color = Morandi.accent,
+                                    strokeWidth = 1.5.dp
+                                )
+                                Text(
+                                    text = stringResource(R.string.shading_assist_model_status_downloading),
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    color = Morandi.accent
+                                )
+                            }
                         }
                     }
 
                     else -> {
+                        Surface(
+                            shape = RoundedCornerShape(12.dp),
+                            color = Morandi.panel,
+                            border = null
+                        ) {
+                            Text(
+                                text = stringResource(R.string.shading_assist_model_status_not_downloaded),
+                                fontSize = 10.sp,
+                                color = Morandi.subText,
+                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp)
+                            )
+                        }
+                    }
+                }
+            }
+
+            // 内容与交互区
+            when (status) {
+                is ModelStatus.Ready -> {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
                         Text(
-                            text = stringResource(R.string.shading_assist_ai_hint),
+                            text = if (status.isCustom) {
+                                stringResource(R.string.shading_assist_custom_model_active, status.fileName)
+                            } else {
+                                status.fileName
+                            },
+                            fontSize = 11.sp,
+                            color = Morandi.subText,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false)
+                        )
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            if (status.isCustom) {
+                                Text(
+                                    text = stringResource(R.string.shading_assist_reset_model),
+                                    fontSize = 11.sp,
+                                    color = Morandi.accent,
+                                    modifier = Modifier.clickable { onResetDefault() }
+                                )
+                            }
+                            Text(
+                                text = stringResource(R.string.shading_assist_import_model),
+                                fontSize = 11.sp,
+                                color = Morandi.accent,
+                                modifier = Modifier.clickable { onImportLocal() }
+                            )
+                            Text(
+                                text = stringResource(R.string.shading_assist_model_uninstall),
+                                fontSize = 11.sp,
+                                color = Color(0xFFE57373),
+                                modifier = Modifier.clickable { onUninstall() }
+                            )
+                        }
+                    }
+                }
+
+                is ModelStatus.Downloading -> {
+                    LinearProgressIndicator(
+                        progress = { status.progressPercent / 100f },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(6.dp)
+                            .clip(RoundedCornerShape(3.dp)),
+                        color = Morandi.accent,
+                        trackColor = Morandi.panel
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween
+                    ) {
+                        val downloadedMb = status.downloadedBytes / (1024f * 1024f)
+                        val totalMb = status.totalBytes / (1024f * 1024f)
+                        Text(
+                            text = String.format(Locale.US, "%.1f MB / %.1f MB (%d%%)", downloadedMb, totalMb, status.progressPercent),
                             fontSize = 10.sp,
                             color = Morandi.subText
+                        )
+                        Text(
+                            text = stringResource(R.string.common_cancel),
+                            fontSize = 11.sp,
+                            color = Morandi.accent,
+                            modifier = Modifier.clickable { onCancelDownload() }
+                        )
+                    }
+                }
+
+                else -> {
+                    Text(
+                        text = stringResource(R.string.shading_assist_model_not_installed_desc),
+                        fontSize = 11.sp,
+                        color = Morandi.subText
+                    )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp)
+                    ) {
+                        ReTextButton(
+                            text = stringResource(R.string.shading_assist_model_download),
+                            onClick = onDownload,
+                            primary = true,
+                            fontSize = 11.sp,
+                            modifier = Modifier.weight(1f)
                         )
                         ReTextButton(
                             text = stringResource(R.string.shading_assist_import_model),
                             onClick = onImportLocal,
-                            primary = true,
+                            primary = false,
                             fontSize = 11.sp,
-                            modifier = Modifier.fillMaxWidth()
+                            modifier = Modifier.weight(1f)
                         )
                     }
                 }
@@ -907,7 +1130,7 @@ private fun ModelStatusCard(
 }
 
 /**
- * 线稿图层下拉选择器
+ * 线稿图层下拉选择器 (纯净无白边，支持深色模式高对比度文字)
  */
 @Composable
 private fun LineArtLayerPicker(
@@ -933,20 +1156,19 @@ private fun LineArtLayerPicker(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(8.dp))
-                .clickable { expanded = true }
-                .border(1.dp, Morandi.border, RoundedCornerShape(8.dp)),
+                .clickable { expanded = true },
             color = Morandi.panelHi
         ) {
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(horizontal = 10.dp, vertical = 7.dp),
+                    .padding(horizontal = 12.dp, vertical = 9.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween
             ) {
                 Text(
                     text = selectedName,
-                    fontSize = 11.sp,
+                    fontSize = 12.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                     color = Morandi.text
@@ -960,21 +1182,25 @@ private fun LineArtLayerPicker(
             }
         }
 
-        DropdownMenu(
+        ReDropdownMenu(
             expanded = expanded,
             onDismissRequest = { expanded = false },
-            modifier = Modifier.background(Morandi.panel)
+            modifier = Modifier.widthIn(min = 220.dp)
         ) {
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.shading_assist_lineart_none), fontSize = 12.sp) },
+            val isNoneSelected = selectedLayerId == null
+            ReDropdownMenuItem(
+                text = stringResource(R.string.shading_assist_lineart_none),
+                selected = isNoneSelected,
                 onClick = {
                     onSelect(null)
                     expanded = false
                 }
             )
             candidateLayers.forEach { layer ->
-                DropdownMenuItem(
-                    text = { Text(layer.name, fontSize = 12.sp) },
+                val isSelected = layer.index == selectedLayerId
+                ReDropdownMenuItem(
+                    text = layer.name,
+                    selected = isSelected,
                     onClick = {
                         onSelect(layer.index)
                         expanded = false

@@ -12,6 +12,9 @@ import androidx.compose.runtime.setValue
 import com.reverie.paint.model.ModelStatus
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
@@ -19,15 +22,20 @@ import java.io.InputStream
 
 /**
  * 智能阴影辅助 ONNX 神经网络模型管理器。
- * 负责模型的本地存储、官方推荐模型下载流转、自定义模型从系统 SAF 导入与状态查询。
+ * 负责模型的本地存储、官方推荐模型下载流转、自定义模型从系统 SAF 导入、随时卸载与状态查询。
  */
 object ShadingModelManager {
 
     private const val DEFAULT_MODEL_NAME = "depth_anything_v2_small.onnx"
     private const val CUSTOM_MODEL_NAME = "custom_shading.onnx"
+    private const val PREFS_NAME = "shading_model_prefs"
+    private const val KEY_USER_UNINSTALLED = "user_uninstalled"
+    const val DEFAULT_MODEL_SIZE_BYTES = 27_258_801L // 26MB
 
     var modelStatus: ModelStatus by mutableStateOf(ModelStatus.NotDownloaded)
         private set
+
+    private var downloadJob: Job? = null
 
     private fun getModelDir(context: Context): File {
         val dir = File(context.filesDir, "models/shading")
@@ -58,21 +66,23 @@ object ShadingModelManager {
             return
         }
 
-        // 检查并解压 assets 内置的 SOTA 深度神经网络模型 (Depth Anything V2 26MB)
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val uninstalled = prefs.getBoolean(KEY_USER_UNINSTALLED, false)
+
         val defaultFile = File(dir, DEFAULT_MODEL_NAME)
-        if (!defaultFile.exists() || defaultFile.length() < 1024 * 1024) {
-            try {
-                context.assets.open("models/$DEFAULT_MODEL_NAME").use { input ->
-                    FileOutputStream(defaultFile).use { output ->
-                        input.copyTo(output)
-                        output.flush()
-                    }
-                }
-            } catch (_: Exception) {}
+        if (uninstalled) {
+            if (modelStatus !is ModelStatus.Downloading) {
+                modelStatus = ModelStatus.NotDownloaded
+            }
+            return
         }
 
-        if (defaultFile.exists() && defaultFile.length() > 0) {
-            modelStatus = ModelStatus.Ready(defaultFile.absolutePath, isCustom = false, fileName = "Depth Anything V2 (26MB)")
+        if (defaultFile.exists() && defaultFile.length() > 1024 * 1024) {
+            modelStatus = ModelStatus.Ready(
+                defaultFile.absolutePath,
+                isCustom = false,
+                fileName = "Depth Anything V2 (26MB)"
+            )
             return
         }
 
@@ -87,19 +97,122 @@ object ShadingModelManager {
         val custom = File(dir, CUSTOM_MODEL_NAME)
         if (custom.exists() && custom.length() > 0) return custom
         val defaultFile = File(dir, DEFAULT_MODEL_NAME)
-        if (defaultFile.exists() && defaultFile.length() > 0) return defaultFile
+        if (defaultFile.exists() && defaultFile.length() > 1024 * 1024) return defaultFile
         return null
     }
 
-    /** 启动在线下载推荐模型 */
+    /** 卸载模型：删除已下载或导入的模型文件，释放存储空间 */
+    fun uninstallModel(context: Context) {
+        downloadJob?.cancel()
+        downloadJob = null
+        val dir = getModelDir(context)
+        val defaultFile = File(dir, DEFAULT_MODEL_NAME)
+        if (defaultFile.exists()) defaultFile.delete()
+        val custom = File(dir, CUSTOM_MODEL_NAME)
+        if (custom.exists()) custom.delete()
+        val tmpDownload = File(dir, "$DEFAULT_MODEL_NAME.download")
+        if (tmpDownload.exists()) tmpDownload.delete()
+
+        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        prefs.edit().putBoolean(KEY_USER_UNINSTALLED, true).apply()
+
+        modelStatus = ModelStatus.NotDownloaded
+    }
+
+    /** 启动下载/解压推荐模型 */
     fun startDownload(
         context: Context,
         scope: CoroutineScope,
         onSuccess: () -> Unit = {},
         onError: (String) -> Unit = {}
     ) {
-        // 当前默认推荐 100% 纯净零延迟的内置 2.5D 几何光影引擎，或通过下方直接导入本地 ONNX 模型
-        onError("请直接导入本地 .onnx 深度/法线模型")
+        downloadJob?.cancel()
+        val dir = getModelDir(context)
+        val targetFile = File(dir, DEFAULT_MODEL_NAME)
+        val tempFile = File(dir, "$DEFAULT_MODEL_NAME.download")
+
+        modelStatus = ModelStatus.Downloading(0, 0L, DEFAULT_MODEL_SIZE_BYTES)
+
+        downloadJob = scope.launch(Dispatchers.IO) {
+            try {
+                val hasAsset = try {
+                    context.assets.list("models")?.contains(DEFAULT_MODEL_NAME) == true
+                } catch (_: Exception) {
+                    false
+                }
+
+                if (hasAsset) {
+                    context.assets.open("models/$DEFAULT_MODEL_NAME").use { input ->
+                        val total = DEFAULT_MODEL_SIZE_BYTES
+                        FileOutputStream(tempFile).use { output ->
+                            val buffer = ByteArray(128 * 1024)
+                            var readTotal = 0L
+                            var bytesRead: Int
+                            while (input.read(buffer).also { bytesRead = it } != -1) {
+                                output.write(buffer, 0, bytesRead)
+                                readTotal += bytesRead
+                                val progress = ((readTotal * 100) / total).toInt().coerceIn(0, 100)
+                                withContext(Dispatchers.Main) {
+                                    modelStatus = ModelStatus.Downloading(progress, readTotal, total)
+                                }
+                                delay(12)
+                            }
+                            output.flush()
+                        }
+                    }
+                } else {
+                    val remoteUrl = "https://github.com/LanRhyme/ReveriePaint/releases/download/v1.4.0/depth_anything_v2_small.onnx"
+                    val conn = java.net.URL(remoteUrl).openConnection() as java.net.HttpURLConnection
+                    conn.connectTimeout = 15000
+                    conn.readTimeout = 30000
+                    conn.connect()
+                    val total = conn.contentLengthLong.let { if (it > 0) it else DEFAULT_MODEL_SIZE_BYTES }
+                    conn.inputStream.use { input ->
+                        FileOutputStream(tempFile).use { output ->
+                            val buffer = ByteArray(64 * 1024)
+                            var readTotal = 0L
+                            var bytesRead: Int
+                            while (input.read(buffer).also { bytesRead = it } != -1) {
+                                output.write(buffer, 0, bytesRead)
+                                readTotal += bytesRead
+                                val progress = ((readTotal * 100) / total).toInt().coerceIn(0, 100)
+                                withContext(Dispatchers.Main) {
+                                    modelStatus = ModelStatus.Downloading(progress, readTotal, total)
+                                }
+                            }
+                            output.flush()
+                        }
+                    }
+                }
+
+                if (tempFile.exists() && tempFile.length() > 1024 * 1024) {
+                    if (targetFile.exists()) targetFile.delete()
+                    if (tempFile.renameTo(targetFile)) {
+                        val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+                        prefs.edit().putBoolean(KEY_USER_UNINSTALLED, false).apply()
+
+                        withContext(Dispatchers.Main) {
+                            modelStatus = ModelStatus.Ready(
+                                modelPath = targetFile.absolutePath,
+                                isCustom = false,
+                                fileName = "Depth Anything V2 (26MB)"
+                            )
+                            onSuccess()
+                        }
+                    } else {
+                        throw IllegalStateException("Failed to move completed download file")
+                    }
+                } else {
+                    throw IllegalStateException("Downloaded model file is corrupted or empty")
+                }
+            } catch (e: Exception) {
+                tempFile.delete()
+                withContext(Dispatchers.Main) {
+                    modelStatus = ModelStatus.Error(e.message ?: "Download failed")
+                    onError(e.message ?: "Download failed")
+                }
+            }
+        }
     }
 
     /** 从本地存储 (SAF Uri) 导入自定义 .onnx 模型 */
@@ -129,6 +242,9 @@ object ShadingModelManager {
                 throw IllegalStateException("Failed to save imported model")
             }
 
+            val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+            prefs.edit().putBoolean(KEY_USER_UNINSTALLED, false).apply()
+
             withContext(Dispatchers.Main) {
                 modelStatus = ModelStatus.Ready(targetFile.absolutePath, isCustom = true, fileName = targetFile.name)
             }
@@ -147,7 +263,14 @@ object ShadingModelManager {
     }
 
     /** 取消当前正在进行的下载 */
-    fun cancelDownload() {
+    fun cancelDownload(context: Context? = null) {
+        downloadJob?.cancel()
+        downloadJob = null
+        if (context != null) {
+            val dir = getModelDir(context)
+            val tempFile = File(dir, "$DEFAULT_MODEL_NAME.download")
+            if (tempFile.exists()) tempFile.delete()
+        }
         modelStatus = ModelStatus.NotDownloaded
     }
 }

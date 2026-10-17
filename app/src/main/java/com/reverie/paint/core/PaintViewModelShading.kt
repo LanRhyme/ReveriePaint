@@ -86,11 +86,20 @@ internal fun PaintViewModel.openShadingAssist() {
 
     viewModelScope.launch(Dispatchers.Default) {
         val modelFile = ShadingModelManager.getActiveModelFile(appContext)
+        if (modelFile == null) {
+            withContext(Dispatchers.Main) {
+                shadingAssistNormalField = null
+                shadingAssistPreviewBitmap?.recycle()
+                shadingAssistPreviewBitmap = null
+                shadingAssistIsProcessing = false
+            }
+            return@launch
+        }
         val normalField = ShadingAssistEngine.generateNormalField(
             baseBitmap = baseBmp,
             lineBitmap = shadingAssistLineBitmap,
             modelFile = modelFile,
-            useAiModel = shadingAssistConfig.useAiModel,
+            useAiModel = true,
             volumeSmoothness = shadingAssistConfig.volumeSmoothness,
             targetResolution = previewW
         )
@@ -156,11 +165,20 @@ internal fun PaintViewModel.updateShadingConfig(
         shadingAssistIsProcessing = true
         viewModelScope.launch(Dispatchers.Default) {
             val modelFile = ShadingModelManager.getActiveModelFile(appContext)
+            if (modelFile == null) {
+                withContext(Dispatchers.Main) {
+                    shadingAssistNormalField = null
+                    shadingAssistPreviewBitmap?.recycle()
+                    shadingAssistPreviewBitmap = null
+                    shadingAssistIsProcessing = false
+                }
+                return@launch
+            }
             val normalField = ShadingAssistEngine.generateNormalField(
                 baseBitmap = baseBmp,
                 lineBitmap = shadingAssistLineBitmap,
                 modelFile = modelFile,
-                useAiModel = newConfig.useAiModel,
+                useAiModel = true,
                 volumeSmoothness = newConfig.volumeSmoothness,
                 targetResolution = baseBmp.width
             )
@@ -266,11 +284,20 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
 
         // 2. 生成高精度全尺寸法线场
         val modelFile = ShadingModelManager.getActiveModelFile(appContext)
+        if (modelFile == null) {
+            fullBase.recycle()
+            fullLine?.recycle()
+            withContext(Dispatchers.Main) {
+                shadingAssistIsProcessing = false
+                Toast.makeText(appContext, R.string.shading_assist_model_not_installed, Toast.LENGTH_SHORT).show()
+            }
+            return@launch
+        }
         val normalField = ShadingAssistEngine.generateNormalField(
             baseBitmap = fullBase,
             lineBitmap = fullLine,
             modelFile = modelFile,
-            useAiModel = shadingAssistConfig.useAiModel,
+            useAiModel = true,
             volumeSmoothness = shadingAssistConfig.volumeSmoothness,
             targetResolution = min(fullW, fullH).coerceIn(512, shadingAssistConfig.downsampleTargetSize)
         )

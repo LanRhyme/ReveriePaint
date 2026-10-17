@@ -50,7 +50,7 @@ data class ShadingAssistConfig(
     val lineCastIntensity: Float = 1.2f,
     val volumeSmoothness: Float = 30.0f,
     val referenceLineLayerId: Int? = null,
-    val useAiModel: Boolean = false,
+    val useAiModel: Boolean = true,
     val downsampleTargetSize: Int = 1024
 ) {
     /**
