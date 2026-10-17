@@ -1222,6 +1222,18 @@ void ReverieCore::undo()
     if (structureChanged) {
         recompositeProjection();
     }
+    for (const auto &e : m_layers) {
+        if (e.node) {
+            auto dev = e.node->paintDevice();
+            if (dev && dev->interstrokeData()) {
+                KUndo2Command *cmd = dev->createChangeInterstrokeDataCommand(KisInterstrokeDataSP());
+                if (cmd) {
+                    cmd->redo();
+                    delete cmd;
+                }
+            }
+        }
+    }
     markDirty();
     m_snapshotPending = false;
 }
@@ -1276,6 +1288,18 @@ void ReverieCore::redo()
 
     if (structureChanged) {
         recompositeProjection();
+    }
+    for (const auto &e : m_layers) {
+        if (e.node) {
+            auto dev = e.node->paintDevice();
+            if (dev && dev->interstrokeData()) {
+                KUndo2Command *cmd = dev->createChangeInterstrokeDataCommand(KisInterstrokeDataSP());
+                if (cmd) {
+                    cmd->redo();
+                    delete cmd;
+                }
+            }
+        }
     }
     markDirty();
     m_snapshotPending = false;

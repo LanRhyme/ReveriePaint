@@ -349,25 +349,9 @@ internal fun PaintViewModel.touchMove(
     lastStrokeX = x
     lastStrokeY = y
 
-    // 受控预测前馈: 仅当预测点有效、且与当前真实位移方向夹角 <= 35° (cos >= 0.82) 时, 沿预测方向
-    // 前推 min(预测距离 * 0.45, 真实步长 * 0.65, max(2px, 笔刷直径 * 0.45)), 抵消采样与平滑相位滞后。
-    // 前馈点进入实际笔画与录制; 抬笔收尾仍以真实落点 (lastStrokeX/Y) 为终点。
-    var targetX = x
-    var targetY = y
-    if (predictedDocX.isFinite() && predictedDocY.isFinite() && dist > 0.8) {
-        val pdx = (predictedDocX - x).toDouble()
-        val pdy = (predictedDocY - y).toDouble()
-        val pLen = Math.hypot(pdx, pdy)
-        if (pLen > 0.5) {
-            val cosTheta = (dx * pdx + dy * pdy) / (dist * pLen)
-            if (cosTheta >= 0.82) {
-                val maxLead = minOf(dist * 0.65, maxOf(2.0, brushSize * 0.45))
-                val clampedLead = minOf(pLen * 0.45, maxLead)
-                targetX = (x + (pdx / pLen) * clampedLead).toFloat()
-                targetY = (y + (pdy / pLen) * clampedLead).toFloat()
-            }
-        }
-    }
+    // 真实笔触与录制严格走真实物理采样点 (对齐 CSP/Procreate 标准, 预测只上前缓冲显示, 绝不进文档与录制)
+    val targetX = x
+    val targetY = y
 
     var effX = targetX
     var effY = targetY

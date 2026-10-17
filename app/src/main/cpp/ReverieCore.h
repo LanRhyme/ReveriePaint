@@ -1380,10 +1380,8 @@ private:
         }
     }
     void markRegionDirty(const QRect &r) {
-        // 运笔期间的脏区来自当前层 (位于底图上界之上), 不碰底图; 其余来源一律按区域作废。
-        if (!m_drawing || m_currentLayer < m_staticUnderlayTop) {
-            invalidateStaticUnderlayRect(r);
-        }
+        // 非笔画直接标脏一律按区域作废底图, 杜绝切图层/切帧/动画更新残留旧像素
+        invalidateStaticUnderlayRect(r);
         m_dirtyRect = m_dirtyRect.isNull() ? r : m_dirtyRect.united(r);
         addDirtyRegion(r);
         if (m_dirtyCb) m_dirtyCb(m_dirtyCtx);

@@ -99,6 +99,7 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
     var anyFull = false
     // 就地写期间 onDraw 恰好画了这张瓦片: HWUI 可能上传了写到一半的像素, 本帧要补一次主画布失效。
     var tornInPlace = false
+    var retryNeeded = false
     val written = st.written
     val cols = grid.cols
     val drawn = target.drawnByView
@@ -118,7 +119,13 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
         // onDraw 画过的位图不在任何 DisplayList 里, 占住 (CAS 到 WRITING) 之后就地写。
         val inPlace =
             validOld && drawn.compareAndSet(idx, PublishedTiles.TILE_UNDRAWN, PublishedTiles.TILE_WRITING)
-        val dst = if (inPlace) old!! else (st.obtainSpare(tw, th) ?: continue)
+        val dst = if (inPlace) old!! else st.obtainSpare(tw, th)
+        if (dst == null) {
+            // OOM 获取后备位图失败: 标记整块重写并触发低优先级重试
+            needsFull[idx] = true
+            retryNeeded = true
+            continue
+        }
         val ok =
             try {
                 if (full) {
@@ -142,15 +149,17 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
             tornInPlace = true
         }
         if (!ok) {
-            // 本帧这块确实没有像素要写: 后备位图还回冷却区, 旧瓦片原样留着。
-            if (!inPlace) st.spareCooling.add(dst)
+            // 本帧写失败 (JNI 失败/格式不符): 后备位图还回冷却区, 标记整块重写以防脏区丢失。
+            if (!inPlace) st.retireToCooling(dst)
+            needsFull[idx] = true
+            retryNeeded = true
             continue
         }
         if (!inPlace) {
             // 先清标记再换入: onDraw 是"先取位图再标记", 这样它拿到新位图之后的标记一定不会被这里覆盖。
             drawn.set(idx, PublishedTiles.TILE_UNDRAWN)
             tiles.set(idx, dst)
-            if (old != null) st.spareCooling.add(old)
+            if (old != null) st.retireToCooling(old)
         }
         if (needsFull[idx]) anyFull = true
         needsFull[idx] = false
@@ -170,6 +179,9 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
         // 命中了但一块都没写成 (JNI 失败/OOM): 当作无操作。
         clearRenderWrittenRect()
         onTileRenderNoWork()
+        if (retryNeeded) {
+            scheduleRender(immediate = false)
+        }
         return
     }
     publishRenderWrittenRect(writtenLeft, writtenTop, writtenRight, writtenBottom)
@@ -215,6 +227,7 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
     notifyCanvasFramePublished(keptOnFrontBuffer = kept)
     // 被撕裂的那张瓦片在前缓冲上是完整的, 但主画布的纹理可能是半张: 补一次失效让 HWUI 重传。
     if (kept && tornInPlace) invalidateCanvasFromRender()
+    if (retryNeeded) scheduleRender(immediate = false)
 
     TilePerfLog.frame(
         tAfterCompositeNs - tStartNs,

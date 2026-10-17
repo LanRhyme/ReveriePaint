@@ -109,6 +109,7 @@ art/        # 图标素材
 1. **文档真身在 C++**: 所有文档操作 (笔画/图层/撤销/渲染) 通过 JNI 进入 ReverieCore，Kotlin 侧只持有 UI 状态镜像 (`PaintViewModel` 的 `mutableStateOf` 字段), 不要在 Kotlin 侧复制像素数据
 2. **引擎调用禁止上 UI 线程**: Krita 投影重组合在真机上耗时 5ms+, 会阻塞触摸分发导致笔画成段，所有文档操作走专用 HandlerThread (见 `PaintViewModel` 头注释)
 3. **双缓冲渲染**: 写像素的线程与 Compose 读取的 Bitmap 必须是两个对象 (front/back buffer), 新增渲染路径必须维持此模式
+   - **例外条款 (512 显示瓦片路径)**: 瓦片位图采用 COW (写时复制) 与就地写结合的状态机 (`PublishedTiles.drawnByView` + 3 级多帧冷却队列)。仅当瓦片自换入后从未被 `onDraw` 读取 (保持 `TILE_UNDRAWN`, 绝不在任何 DisplayList 里) 时, 允许通过原子 CAS 状态机原地写入; 一旦被 `onDraw` 消费标记为 `TILE_DRAWN`, 必须从后备池取新位图 (COW), 换下的旧位图强制经历 2~3 帧冷却窗口, 确保 HWUI RenderThread 消费完毕后才允许被重写复用。详见 `DisplayTileState.kt`。
 4. **热路径零分配**: 笔画事件批处理、`RecordingEvents` 编解码、JNI 笔画提交路径上禁止每帧创建对象/字符串; 触摸采样以 ~8ms 批量 flush
 5. **手势处理不 key 在视口状态上**: `pointerInput` 不能以 zoom/pan/rotation 为 key, 否则手势第一帧后被取消 (见 `CanvasView` 头注释的历史教训)
 6. **单实例引擎**: `g_core` 全局唯一, UI 单窗口假设; JNI 方法不做重入防护, 调用时序由 ViewModel 保证

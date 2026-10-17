@@ -1569,24 +1569,25 @@ void ReverieCore::blendLiquifyPreviewScaled(quint8 *buffer, int w, int h, int or
     const QRect b = m_liquifyWorkerBounds;
     if (pw <= 0 || ph <= 0 || b.isEmpty()) return;
 
-    // 两端都走 round(edge*scale), 与缩放路径的 mapX/mapY 同一规则, 避免相邻帧漂移 1px
-    const int bx0 = qBound(0, qRound((b.left() - originX) * sx), w);
-    const int by0 = qBound(0, qRound((b.top() - originY) * sy), h);
-    const int bx1 = qBound(0, qRound((b.left() + b.width() - originX) * sx), w);
-    const int by1 = qBound(0, qRound((b.top() + b.height() - originY) * sy), h);
-    const QRect mapRect(bx0, by0, bx1 - bx0, by1 - by0);
+    const qreal mx0 = (b.left() - originX) * sx;
+    const qreal my0 = (b.top() - originY) * sy;
+    const qreal spanX = qMax<qreal>(1.0, qreal(b.width()) * sx);
+    const qreal spanY = qMax<qreal>(1.0, qreal(b.height()) * sy);
+    const QRect mapRect(qRound(mx0), qRound(my0),
+                        qRound((b.left() + b.width() - originX) * sx) - qRound(mx0),
+                        qRound((b.top() + b.height() - originY) * sy) - qRound(my0));
     const QRect area = mapRect.intersected(written).intersected(QRect(0, 0, w, h));
     if (area.isEmpty()) return;
 
-    const qreal invSpanX = qreal(pw) / qMax<qreal>(1.0, qreal(mapRect.width()));
-    const qreal invSpanY = qreal(ph) / qMax<qreal>(1.0, qreal(mapRect.height()));
+    const qreal invSpanX = qreal(pw) / spanX;
+    const qreal invSpanY = qreal(ph) / spanY;
     const quint8 *prev = m_liquifyPreviewOut.constData();
     for (int y = area.top(); y <= area.bottom(); ++y) {
-        const int py = qBound(0, int((y - mapRect.top()) * invSpanY), ph - 1);
+        const int py = qBound(0, int((y - my0) * invSpanY), ph - 1);
         const quint8 *prow = prev + size_t(py) * size_t(pw) * 4;
         quint8 *drow = buffer + size_t(y) * size_t(w) * 4 + size_t(area.left()) * 4;
         for (int x = area.left(); x <= area.right(); ++x, drow += 4) {
-            const int px = qBound(0, int((x - mapRect.left()) * invSpanX), pw - 1);
+            const int px = qBound(0, int((x - mx0) * invSpanX), pw - 1);
             const quint8 *s = prow + size_t(px) * 4;
             const int sa = s[3];
             if (sa == 0) continue; // 预览完全透明 = 无内容, 保留缓冲原像素

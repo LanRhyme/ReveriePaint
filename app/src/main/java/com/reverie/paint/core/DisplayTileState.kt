@@ -45,10 +45,14 @@ internal class PublishedTiles(
  *  - 除 [requestDiscard] 外的一切写操作只在渲染线程 (reverie-render) 上发生;
  *  - UI 线程只读 [drawable] 返回的发布快照, 以及调用 [requestDiscard]。
  *
- * 双缓冲铁律在瓦片粒度上成立: 交给过 HWUI 的瓦片位图不会被就地重写。一张瓦片要更新时,
- * 渲染线程从后备池取一张位图写好, 再整体换进数组; 换下来的旧位图先进冷却区,
- * 下一帧才允许被重写 (HWUI 可能还在读上一帧的 DisplayList)。自换入以来没被画过的位图
- * 例外 (见 [PublishedTiles.drawnByView]), 可以就地写。
+ * 双缓冲铁律在瓦片粒度上成立: 交给过 HWUI 的瓦片位图绝不会被就地重写。
+ * 1. 写时复制 (COW): 一张瓦片要更新且已被 UI 线程标记为 TILE_DRAWN 时，渲染线程必须从后备池取新位图，
+ *    写完后原子换进 tiles 数组;
+ * 2. 3 级多帧冷却队列 (Stage 0 -> Stage 1 -> Stage 2 -> spareReady):
+ *    Android HWUI 架构下 DisplayList 提交到 RenderThread 实际消费存在 2~3 帧时延。换下的旧位图
+ *    必须在冷却阶段完整推移至少 2 帧，确认 HWUI 已释放纹理引用后，才允许进入 spareReady 复用；
+ * 3. CAS 就地写例外: 仅当瓦片自换入以来从未被 onDraw 读取（保持 TILE_UNDRAWN，不存于任何 DisplayList）时，
+ *    允许通过 CAS 原子抢占为 TILE_WRITING 并原地增量写入。
  */
 internal class DisplayTileState {
     /** 当前发布给 onDraw 的网格; null = 画布走整图路径 (或网格尚未建立)。 */
@@ -71,7 +75,19 @@ internal class DisplayTileState {
     private var discardHandled = 0
 
     val spareReady = ArrayDeque<Bitmap>()
-    val spareCooling = ArrayList<Bitmap>(SPARE_CAP)
+    // 3 级多帧冷却队列：彻底覆盖 HWUI DisplayList 提交到 RenderThread 实际消费的 2~3 帧时延窗口。
+    // 新换下的位图先进入 stage0, 随后逐帧推移 stage0 -> stage1 -> stage2 -> spareReady。
+    // 确保任何从 COW 换下的位图在冷却区至少经历 2 次完整帧迭代才允许被重写复用。
+    val spareCoolingStage0 = ArrayList<Bitmap>(SPARE_CAP)
+    val spareCoolingStage1 = ArrayList<Bitmap>(SPARE_CAP)
+    val spareCoolingStage2 = ArrayList<Bitmap>(SPARE_CAP)
+
+    /** 退休一张位图进入冷却期 (从 stage0 开始)。 */
+    fun retireToCooling(b: Bitmap) {
+        if (!b.isRecycled) {
+            spareCoolingStage0.add(b)
+        }
+    }
 
     // 网格每帧复用的一次性缓冲 (热路径零分配)。
     var needsFullWrite = BooleanArray(0)
@@ -122,7 +138,9 @@ internal class DisplayTileState {
         hitList = IntArray(count)
         hitScratch = IntArray(2 * count)
         spareReady.clear()
-        spareCooling.clear()
+        spareCoolingStage0.clear()
+        spareCoolingStage1.clear()
+        spareCoolingStage2.clear()
     }
 
     /** 渲染线程: 暂存网格的像素全部写好, 发布给 onDraw。 */
@@ -146,18 +164,31 @@ internal class DisplayTileState {
         hitList = IntArray(0)
         hitScratch = IntArray(0)
         spareReady.clear()
-        spareCooling.clear()
+        spareCoolingStage0.clear()
+        spareCoolingStage1.clear()
+        spareCoolingStage2.clear()
         snapshots[0] = null
         snapshots[1] = null
     }
 
-    /** 渲染线程: 上一帧换下来的瓦片到这一帧才允许被重写。 */
+    /** 渲染线程: 每帧开头推移多帧冷却阶段，最老的 stage2 晋升进入 spareReady。 */
     fun promoteCooledSpares() {
-        if (spareCooling.isEmpty()) return
-        for (b in spareCooling) {
-            if (spareReady.size < SPARE_CAP) spareReady.addLast(b)
+        if (!spareCoolingStage2.isEmpty()) {
+            for (b in spareCoolingStage2) {
+                if (spareReady.size < SPARE_CAP && !b.isRecycled) {
+                    spareReady.addLast(b)
+                }
+            }
+            spareCoolingStage2.clear()
         }
-        spareCooling.clear()
+        if (!spareCoolingStage1.isEmpty()) {
+            spareCoolingStage2.addAll(spareCoolingStage1)
+            spareCoolingStage1.clear()
+        }
+        if (!spareCoolingStage0.isEmpty()) {
+            spareCoolingStage1.addAll(spareCoolingStage0)
+            spareCoolingStage0.clear()
+        }
     }
 
     /** 渲染线程: 从后备池取一张尺寸匹配的位图; 池里没有就新分配 (OOM 返回 null)。 */
