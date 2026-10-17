@@ -89,21 +89,22 @@ object ShadingAssistEngine {
             if (inputInfo.isEmpty()) return null
             val inputName = inputInfo.keys.first()
 
-            val w = min(baseBitmap.width, targetResolution).coerceAtLeast(64)
-            val h = min(baseBitmap.height, targetResolution).coerceAtLeast(64)
+            // UNet 下采样通常要求输入尺寸为 32 的整数倍
+            val alignW = (((min(baseBitmap.width, targetResolution).coerceAtLeast(64)) / 32) * 32).coerceAtLeast(64)
+            val alignH = (((min(baseBitmap.height, targetResolution).coerceAtLeast(64)) / 32) * 32).coerceAtLeast(64)
 
-            val scaledBase = if (baseBitmap.width == w && baseBitmap.height == h) {
+            val scaledBase = if (baseBitmap.width == alignW && baseBitmap.height == alignH) {
                 baseBitmap
             } else {
-                Bitmap.createScaledBitmap(baseBitmap, w, h, true)
+                Bitmap.createScaledBitmap(baseBitmap, alignW, alignH, true)
             }
 
-            val scaledPixels = IntArray(w * h)
-            scaledBase.getPixels(scaledPixels, 0, w, 0, 0, w, h)
+            val scaledPixels = IntArray(alignW * alignH)
+            scaledBase.getPixels(scaledPixels, 0, alignW, 0, 0, alignW, alignH)
 
             // NCHW: 1 x 3 x H x W, 归一化到 [-1, 1]
-            val floatBuffer = FloatBuffer.allocate(1 * 3 * h * w)
-            val channelSize = w * h
+            val floatBuffer = FloatBuffer.allocate(1 * 3 * alignH * alignW)
+            val channelSize = alignW * alignH
 
             // R channel
             for (i in 0 until channelSize) {
@@ -121,37 +122,35 @@ object ShadingAssistEngine {
                 floatBuffer.put(channelSize * 2 + i, (b / 127.5f) - 1.0f)
             }
 
-            val tensor = OnnxTensor.createTensor(env, floatBuffer, longArrayOf(1, 3, h.toLong(), w.toLong()))
+            val tensor = OnnxTensor.createTensor(env, floatBuffer, longArrayOf(1, 3, alignH.toLong(), alignW.toLong()))
             tensor.use { inTensor ->
                 val results = sess.run(mapOf(inputName to inTensor))
                 results.use { res ->
                     if (res.size() == 0) return null
-                    val outValue = res.get(0).value
+                    val outTensor = res.get(0) as? OnnxTensor
+                    if (outTensor != null) {
+                        val fb = outTensor.floatBuffer
+                        val shape = outTensor.info.shape
+                        val outH = if (shape.size >= 4) shape[2].toInt() else alignH
+                        val outW = if (shape.size >= 4) shape[3].toInt() else alignW
+                        val planeSize = outH * outW
 
-                    // 解析输出为 NormalField
-                    val normalArray = FloatArray(w * h * 3)
-                    if (outValue is Array<*>) {
-                        // 常见输出: [1, 3, H, W]
-                        @Suppress("UNCHECKED_CAST")
-                        val out4D = outValue as? Array<Array<Array<FloatArray>>>
-                        if (out4D != null && out4D.isNotEmpty() && out4D[0].size >= 3) {
-                            val rPlane = out4D[0][0]
-                            val gPlane = out4D[0][1]
-                            val bPlane = out4D[0][2]
-                            var idx = 0
-                            for (y in 0 until h) {
-                                for (x in 0 until w) {
-                                    val nx = rPlane[y][x]
-                                    val ny = gPlane[y][x]
-                                    val nz = bPlane[y][x].coerceAtLeast(0.01f)
-                                    val len = sqrt(nx * nx + ny * ny + nz * nz).coerceAtLeast(1e-4f)
-                                    normalArray[idx++] = nx / len
-                                    normalArray[idx++] = ny / len
-                                    normalArray[idx++] = nz / len
-                                }
+                        val normalArray = FloatArray(outW * outH * 3)
+                        var idx = 0
+                        for (y in 0 until outH) {
+                            val yOffset = y * outW
+                            for (x in 0 until outW) {
+                                val pIdx = yOffset + x
+                                val nx = fb.get(pIdx)
+                                val ny = fb.get(planeSize + pIdx)
+                                val nz = fb.get(planeSize * 2 + pIdx).coerceAtLeast(0.01f)
+                                val len = sqrt(nx * nx + ny * ny + nz * nz).coerceAtLeast(1e-4f)
+                                normalArray[idx++] = nx / len
+                                normalArray[idx++] = ny / len
+                                normalArray[idx++] = nz / len
                             }
-                            return NormalField(w, h, normalArray)
                         }
+                        return NormalField(outW, outH, normalArray)
                     }
                 }
             }
