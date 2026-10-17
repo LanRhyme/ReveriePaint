@@ -1705,6 +1705,9 @@ class CanvasTouchView(context: Context) : View(context) {
     private val viewTransform = CanvasViewTransform()
     private val pointScratch = FloatArray(2)
     private val boundsScratch = IntArray(4)
+    // 512 显示瓦片: 视口命中的瓦片列表 (复用) 与边缘 clamp 的着色器缓存
+    private var tileDrawScratch = IntArray(0)
+    private val clampedTiles = ClampedTileDrawer()
     private var gridLinesBuffer = FloatArray(4096)
     private val renderBoundsScratch = IntArray(4)
     private val pixelScratch = IntArray(1)
@@ -2591,6 +2594,53 @@ class CanvasTouchView(context: Context) : View(context) {
         largeBitmapLastGenId = -1
     }
 
+    /**
+     * 按视口裁剪逐瓦片画画布。变换由调用方 (drawCanvas) 设好 —— 这里发
+     * `tile @ (tileLeft - halfW, tileTop - halfH)`, 与整张 `drawBitmap(bmp, -imgW/2, -imgH/2)`
+     * 逐像素等价 (瓦片文档对齐且连续)。
+     *
+     * 视口外的瓦片连绘制命令都不发: 没被画过的位图不会被 HWUI 建纹理, 真正滚进视口时才上传;
+     * 已上传又没被重写的瓦片则直接命中纹理缓存。
+     */
+    private fun drawDisplayTiles(canvas: Canvas, tiles: com.reverie.paint.core.PublishedTiles) {
+        val grid = tiles.grid
+        ensureViewTransform()
+        visibleBitmapBounds(boundsScratch)
+        if (tileDrawScratch.size < 2 * grid.tileCount) {
+            tileDrawScratch = IntArray(2 * grid.tileCount)
+        }
+        val n =
+            grid.tilesIntersecting(
+                boundsScratch[0],
+                boundsScratch[1],
+                boundsScratch[2],
+                boundsScratch[3],
+                tileDrawScratch,
+            )
+        if (n <= 0) return
+        val halfW = grid.width / 2f
+        val halfH = grid.height / 2f
+        for (k in 0 until n) {
+            val tx = tileDrawScratch[k * 2]
+            val ty = tileDrawScratch[k * 2 + 1]
+            val idx = grid.tileIndex(tx, ty)
+            val tile = tiles.tiles.get(idx) ?: continue
+            if (tile.isRecycled) continue
+            // 交给 HWUI 之前登记: 之后渲染线程不再就地写这张位图 (见 PublishedTiles.drawnByView)。
+            tiles.markDrawn(idx)
+            // 过滤开着时不能直接 drawBitmap: 边上会采到瓦片外的透明, 棋盘格透成网格。
+            clampedTiles.draw(
+                canvas,
+                idx,
+                grid.tileCount,
+                tile,
+                grid.tileLeft(tx) - halfW,
+                grid.tileTop(ty) - halfH,
+                directBitmapPaint.isFilterBitmap,
+            )
+        }
+    }
+
     private fun drawCanvas(canvas: Canvas) {
         super.onDraw(canvas)
         val v = vm ?: return
@@ -2599,10 +2649,15 @@ class CanvasTouchView(context: Context) : View(context) {
         // 1. 硬件加速直出 Krita 渲染画布 (消除 Compose 重组调度延迟)
         // 统一单点呈现：阴影、透明棋盘格、位图与像素网格硬件加速直出
         // =========================================================================
-        val bmp = v.displayBitmap ?: docBitmap
-        if (bmp != null && !bmp.isRecycled && bmp.width > 0 && bmp.height > 0) {
-            val imgW = bmp.width.toFloat()
-            val imgH = bmp.height.toFloat()
+        // 1:1 路径下瓦片网格是画布的唯一来源; 整图 displayBitmap 只在整图路径 (缩放回退/
+        // 动画播放/超大画布) 或网格尚未建立时才画 —— 两者绝不同帧一起画。
+        val tiles = v.displayTiles.drawable()
+        val bmp = if (tiles != null) null else (v.displayBitmap ?: docBitmap)?.takeIf { !it.isRecycled }
+        val sceneW = tiles?.grid?.width ?: (bmp?.width ?: 0)
+        val sceneH = tiles?.grid?.height ?: (bmp?.height ?: 0)
+        if (sceneW > 0 && sceneH > 0) {
+            val imgW = sceneW.toFloat()
+            val imgH = sceneH.toFloat()
             val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
             val centerX = viewW / 2f + canvasPanX
             val centerY = viewH / 2f + canvasPanY
@@ -2629,15 +2684,25 @@ class CanvasTouchView(context: Context) : View(context) {
             // 绘制真实画布像素
             directBitmapPaint.isFilterBitmap = v.magnificationInterpolation
             directBitmapPaint.isAntiAlias = v.magnificationInterpolation
-            if (LargeBitmapTilingPolicy.isLargeBitmap(bmp.byteCount.toLong())) {
-                drawLargeBitmapTiled(canvas, bmp, -imgW / 2f, -imgH / 2f, directBitmapPaint)
-            } else {
+            if (tiles != null) {
                 if (largeBitmapTiles != null) {
                     releaseLargeBitmapTiles()
                 }
-                canvas.drawBitmap(bmp, -imgW / 2f, -imgH / 2f, directBitmapPaint)
+                drawDisplayTiles(canvas, tiles)
+                // 液化上屏用的整图快照 (只在液化等待上屏/参考窗口开着时才存在)
+                v.displayBitmap?.let { v.onLiquifyBitmapDrawn(it) }
+            } else if (bmp != null) {
+                clampedTiles.clear()
+                if (LargeBitmapTilingPolicy.isLargeBitmap(bmp.byteCount.toLong())) {
+                    drawLargeBitmapTiled(canvas, bmp, -imgW / 2f, -imgH / 2f, directBitmapPaint)
+                } else {
+                    if (largeBitmapTiles != null) {
+                        releaseLargeBitmapTiles()
+                    }
+                    canvas.drawBitmap(bmp, -imgW / 2f, -imgH / 2f, directBitmapPaint)
+                }
+                v.onLiquifyBitmapDrawn(bmp)
             }
-            v.onLiquifyBitmapDrawn(bmp)
 
             // 像素级网格高倍率缩放展示 (scale >= 4.0)
             if (v.pixelGridEnabled && scale >= 4f) {
@@ -2652,10 +2717,10 @@ class CanvasTouchView(context: Context) : View(context) {
                     // 跨越全图的数万像素超长线段加重 GPU 光栅化与裁剪负担
                     ensureViewTransform()
                     visibleBitmapBounds(boundsScratch)
-                    val gx0 = boundsScratch[0].coerceIn(0, bmp.width)
-                    val gx1 = boundsScratch[2].coerceIn(0, bmp.width)
-                    val gy0 = boundsScratch[1].coerceIn(0, bmp.height)
-                    val gy1 = boundsScratch[3].coerceIn(0, bmp.height)
+                    val gx0 = boundsScratch[0].coerceIn(0, sceneW)
+                    val gx1 = boundsScratch[2].coerceIn(0, sceneW)
+                    val gy0 = boundsScratch[1].coerceIn(0, sceneH)
+                    val gy1 = boundsScratch[3].coerceIn(0, sceneH)
                     val numV = (gx1 - gx0 + 1).coerceAtLeast(0)
                     val numH = (gy1 - gy0 + 1).coerceAtLeast(0)
                     val totalLines = numV + numH
@@ -3236,6 +3301,23 @@ class CanvasTouchView(context: Context) : View(context) {
         }
         pickerScreenPos?.value = samplePos
         val docPos = screenToDoc(samplePos)
+        val tiles = v.displayTiles.drawable()
+        if (tiles != null) {
+            // 瓦片路径下没有整图: 直接从覆盖该像素的瓦片取色 (瓦片坐标 = 文档坐标)
+            val ix = docPos.x.toInt()
+            val iy = docPos.y.toInt()
+            val idx = tiles.grid.tileIndexAt(ix, iy)
+            val tile = if (idx >= 0) tiles.tiles.get(idx) else null
+            if (tile != null && !tile.isRecycled) {
+                val lx = ix - tiles.grid.tileLeft(idx % tiles.grid.cols)
+                val ly = iy - tiles.grid.tileTop(idx / tiles.grid.cols)
+                if (lx in 0 until tile.width && ly in 0 until tile.height) {
+                    tile.getPixels(pixelScratch, 0, 1, lx, ly, 1, 1)
+                    pickerCurrentColor?.value = Color(pixelScratch[0])
+                }
+            }
+            return
+        }
         val bmp = v.displayBitmap ?: docBitmap
         if (bmp != null && bmp.width > 0 && bmp.height > 0) {
             val docW = if (v.docWidth > 0) v.docWidth else bmp.width
@@ -3254,9 +3336,11 @@ class CanvasTouchView(context: Context) : View(context) {
     /** 刷新缓存的视图变换 (参数未变化时内部直接返回, 几乎零开销) */
     private fun ensureViewTransform() {
         val v = vm
-        val bmp = v?.displayBitmap ?: docBitmap
-        val bmpW = bmp?.width ?: v?.docWidth ?: 1
-        val bmpH = bmp?.height ?: v?.docHeight ?: 1
+        // 瓦片网格生效时位图空间就是网格尺寸 (displayBitmap 此时可能是旧整图或参考窗口快照)
+        val grid = v?.displayTiles?.drawable()?.grid
+        val bmp = if (grid != null) null else (v?.displayBitmap ?: docBitmap)
+        val bmpW = grid?.width ?: bmp?.width ?: v?.docWidth ?: 1
+        val bmpH = grid?.height ?: bmp?.height ?: v?.docHeight ?: 1
         val dw = v?.docWidth ?: bmpW
         val dh = v?.docHeight ?: bmpH
         viewTransform.update(
@@ -6036,11 +6120,15 @@ class CanvasTouchView(context: Context) : View(context) {
             !only.clipped && !only.alphaLocked && only.opacity == 1.0 &&
             only.blendMode == "normal" && !v.hasSelection && !v.anim.enabled && !v.pixelGridEnabled)
             intArrayOf(0, 0, dw, dh) else null
-        val sceneBitmap = v.displayBitmap ?: docBitmap
-        if (sceneBitmap == null) liquifyWholeLayerRect = null
+        // 画布尺寸先看瓦片网格 (1:1 路径下它才是画布真身), 再看整图位图。
+        val sceneGrid = v.displayTiles.drawable()?.grid
+        val sceneBitmap = if (sceneGrid != null) null else (v.displayBitmap ?: docBitmap)
+        val sceneW = sceneGrid?.width ?: (sceneBitmap?.width ?: 0)
+        val sceneH = sceneGrid?.height ?: (sceneBitmap?.height ?: 0)
+        if (sceneW <= 0 || sceneH <= 0) liquifyWholeLayerRect = null
         LiquifyGlesPreview.configureOpaqueScene(
-            if (liquifyWholeLayerRect != null) sceneBitmap?.width ?: 0 else 0,
-            if (liquifyWholeLayerRect != null) sceneBitmap?.height ?: 0 else 0)
+            if (liquifyWholeLayerRect != null) sceneW else 0,
+            if (liquifyWholeLayerRect != null) sceneH else 0)
         liquifyDabCount = 0
         liquifyBasePolicy.reset()
         liquifyDrawRect = null

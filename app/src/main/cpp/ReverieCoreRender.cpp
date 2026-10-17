@@ -406,6 +406,160 @@ bool ReverieCore::renderPendingDirty() const
     return m_document && !m_dirtyRect.isNull();
 }
 
+// ============================================================
+// 512 显示瓦片网格
+//
+// renderToBuffer 是"一整张缓冲"的契约: 每帧 lockPixels 的是一整幅画布, HWUI 也就必须
+// 整张重传纹理 (4K 下 33 MB/帧)。下面两个入口把它拆成"一帧准备一次 + 每块瓦片各写各的":
+// 投影与脏区在一帧内只算一次, 但 lockPixels 的目标缓冲只有 512x512, 于是未被脏区命中
+// 的瓦片位图引用不变, HWUI 直接复用显存里的旧纹理。
+// ============================================================
+
+int ReverieCore::beginTileFrame(QRect *outRects, int cap)
+{
+    m_tileFrameProjection = KisPaintDeviceSP();
+    if (!outRects || cap <= 0) {
+        return 0;
+    }
+    KisImageSP image = m_document;
+    if (!image) {
+        return 0;
+    }
+    const int iw = image->width();
+    const int ih = image->height();
+    if (iw <= 0 || ih <= 0) {
+        return 0;
+    }
+
+    // 与 renderToBuffer 同一套准备: 异步合并没落定就等, 落定了就不必再合成
+    // (Krita 的 merger 已经把投影算干净了)。
+    const bool wasAsyncBusy = !image->isIdle();
+    if (wasAsyncBusy) {
+        image->waitForDone();
+    }
+
+    KisPaintDeviceSP proj;
+    if (m_soloedNode) {
+        proj = compositeSoloProjection();
+    } else {
+        proj = image->projection();
+        if (!wasAsyncBusy) {
+            bool hasSpecialCompositeLayer = false;
+            for (const LayerEntry &le : m_layers) {
+                if (le.visible && (le.isStrokeLayer || le.nodeType == NodeTypeStroke ||
+                                   le.nodeType == NodeTypeTransparencyMask)) {
+                    hasSpecialCompositeLayer = true;
+                    break;
+                }
+            }
+            if (m_drawing || hasSpecialCompositeLayer || !m_dirtyRect.isEmpty()) {
+                compositeDirtyRegions(proj);
+            }
+        }
+    }
+    if (!proj) {
+        return 0;
+    }
+    m_tileFrameProjection = proj;
+
+    int n = 0;
+    if (m_soloedNode) {
+        // solo 每次调用都重建整幅过滤投影, 说不上哪一块与上一帧相同: 只能整幅算脏。
+        outRects[0] = QRect(0, 0, iw, ih);
+        n = 1;
+    } else {
+        const QRect docRect(0, 0, iw, ih);
+        const int count = dirtyRegionCount(m_dirtyRects, m_dirtyRect);
+        for (int i = 0; i < count; ++i) {
+            const QRect r = dirtyRegionAt(m_dirtyRects, m_dirtyRect, i).intersected(docRect);
+            if (r.isEmpty()) {
+                continue;
+            }
+            if (n < cap) {
+                outRects[n++] = r;
+            } else {
+                // 块数超过调用方容量: 剩余部分并进最后一块, 不能丢脏区。
+                outRects[cap - 1] = outRects[cap - 1].united(r);
+            }
+        }
+    }
+    // 脏区在这里一次性取走: 同一帧后面的每个瓦片都拿同一份快照, 不会因为先写的
+    // 瓦片清了脏区而漏掉后面的。
+    clearDirtyRegions();
+    return n;
+}
+
+bool ReverieCore::renderTileToBuffer(quint8 *buffer, int bufW, int bufH, int docX, int docY,
+                                     const QRect *dirtyRects, int dirtyCount, QRect *outWritten)
+{
+    if (outWritten) {
+        *outWritten = QRect();
+    }
+    KisImageSP image = m_document;
+    KisPaintDeviceSP proj = m_tileFrameProjection;
+    if (!image || !proj || !buffer || bufW <= 0 || bufH <= 0) {
+        return false;
+    }
+    if (dirtyCount > 0 && !dirtyRects) {
+        return false;
+    }
+    const QRect docRect(0, 0, image->width(), image->height());
+    const QRect tileRect = QRect(docX, docY, bufW, bufH).intersected(docRect);
+    if (tileRect.isEmpty()) {
+        return false;
+    }
+
+    const bool blendPreview = !m_liquifyPreviewOut.isEmpty() && !liquifyPreviewHostDraw();
+    // dirtyCount <= 0 = 整块瓦片都要写 (新分配 / 刚从后备池取出, 内容已失效)。
+    const int steps = (dirtyCount > 0) ? dirtyCount : 1;
+    QRect writtenLocal;
+    QRect writtenDoc;
+    for (int i = 0; i < steps; ++i) {
+        const QRect r = ((dirtyCount > 0) ? dirtyRects[i] : tileRect).intersected(tileRect);
+        if (r.isEmpty()) {
+            continue;
+        }
+        const int localX = r.x() - docX;
+        const int localY = r.y() - docY;
+        quint8 *dst = buffer + size_t(localY) * size_t(bufW) * 4 + size_t(localX) * 4;
+        // 脏区宽度过半张瓦片时直接读整行带 (宽 = bufW, 行步长与瓦片缓冲一致) 并就地转码,
+        // 省掉暂存缓冲的二次搬运。条件:
+        //  - 只有内部瓦片 (tileRect 与瓦片同宽) 才能按 bufW 行步长读;
+        //  - 液化预览叠加时不走整带: 带内脏区以外的像素会被改回未叠加的投影。
+        const bool wholeBand = r.width() >= bufW / 2 && tileRect.width() == bufW && !blendPreview;
+        QRect local(localX, localY, r.width(), r.height());
+        if (wholeBand) {
+            const QRect band(docX, r.y(), bufW, r.height());
+            quint8 *bandDst = buffer + size_t(localY) * size_t(bufW) * 4;
+            readLiquifyDisplayRegion(proj, bandDst, band);
+            PixelAlpha::toDisplayRows(bandDst, bufW * 4, bandDst, bufW * 4, band.width(), band.height());
+            local = QRect(0, localY, bufW, r.height());
+        } else {
+            const int need = r.width() * r.height() * 4;
+            if (m_subRegionBuffer.size() < need) {
+                m_subRegionBuffer.resize(need);
+            }
+            readLiquifyDisplayRegion(proj, reinterpret_cast<quint8 *>(m_subRegionBuffer.data()), r);
+            PixelAlpha::toDisplayRows(reinterpret_cast<const quint8 *>(m_subRegionBuffer.constData()),
+                                      r.width() * 4, dst, bufW * 4, r.width(), r.height());
+        }
+        if (blendPreview) {
+            blendLiquifyPreviewScaled(buffer, bufW, bufH, docX, docY, 1.0, 1.0, local);
+        }
+        // outWritten 是瓦片局部坐标, Kotlin 侧再加上 tileLeft/tileTop 还原成文档坐标。
+        writtenLocal = writtenLocal.isNull() ? local : writtenLocal.united(local);
+        const QRect localDoc = local.translated(docX, docY);
+        writtenDoc = writtenDoc.isNull() ? localDoc : writtenDoc.united(localDoc);
+    }
+    if (outWritten) {
+        *outWritten = writtenLocal;
+    }
+    if (!writtenDoc.isNull()) {
+        m_lastWrittenRect = writtenDoc;
+    }
+    return !writtenLocal.isNull();
+}
+
 void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged, int expand, int feather, int closeGap)
 {
     ensureRgbU8DifferenceHook();

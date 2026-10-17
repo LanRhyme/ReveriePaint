@@ -753,6 +753,10 @@ private:
     void liquifyPreviewBuildLocked();   // 每次 dab 后重建低分辨率预览(反向采样)
     /** 把预览混合进刚写好的显示缓冲区域(缓冲像素坐标; 预览覆盖 m_liquifyWorkerBounds)。 */
     void blendLiquifyPreview(quint8 *buffer, int w, int h, const QRect &written);
+    /** blendLiquifyPreview 的通用形式: [originX, originY] 是缓冲原点对应的文档坐标,
+     *  [sx, sy] 是文档 -> 缓冲的缩放, written 是缓冲坐标。瓦片调用给 (瓦片原点, 1, 1)。 */
+    void blendLiquifyPreviewScaled(quint8 *buffer, int w, int h, int originX, int originY,
+                                   qreal sx, qreal sy, const QRect &written);
 
     // ---- 预览基座(见 setLiquifyPreviewBaseRect): 预览期间目标图层不参与画布合成 ----
     /** 把基座矩形的新增部分合成为"不含目标图层"的像素(内部会标脏, 让渲染重读)。 */
@@ -887,6 +891,22 @@ public:
     // render) so the caller can skip the display flip. forceFull forces a
     // full-frame write, used when a freshly allocated buffer is handed in.
     bool renderToBuffer(quint8 *buffer, int w, int h, bool forceFull = false);
+
+    // 512 显示瓦片网格的帧准备: 等异步合并落定 + 逐块合成脏区, 然后把本帧脏区
+    // **快照**进 outRects (文档坐标, 最多 cap 块) 并清空引擎侧脏区, 返回块数。
+    // 投影留在 m_tileFrameProjection 里, 供随后的 renderTileToBuffer 逐瓦片读取 ——
+    // 一帧内每个瓦片看到的是同一份脏区快照, 不会因为第一个瓦片清了脏区而丢掉后面的。
+    // 返回 0 表示这一帧没有新像素 (调用方按"无操作"处理)。
+    int beginTileFrame(QRect *outRects, int cap);
+
+    // 把文档坐标 [docX, docY] 起、尺寸 bufW x bufH 的一块像素写进**瓦片局部**缓冲
+    // (原点 0,0 = 瓦片左上角, 行步长 bufW * 4)。dirtyRects/dirtyCount 给出本帧脏区
+    // (文档坐标): 只写它们与瓦片矩形的交集; dirtyCount <= 0 表示整块瓦片都要写
+    // (新分配或从后备池取出、内容已失效的瓦片)。
+    // 与 renderToBuffer 的 1:1 路径同源 (readLiquifyDisplayRegion + PixelAlpha),
+    // 区别只在目标缓冲是瓦片而非整幅画布。outWritten 回传实际写过的并集 (瓦片局部坐标)。
+    bool renderTileToBuffer(quint8 *buffer, int bufW, int bufH, int docX, int docY,
+                            const QRect *dirtyRects, int dirtyCount, QRect *outWritten);
 
     // Sample the composited color at document-space coordinates;
     // returns "#rrggbb" or empty if outside the document.
@@ -1325,6 +1345,9 @@ private:
     // 逐块转换上屏的输入; 列表为空时回退到 m_dirtyRect 单块。
     QVector<QRect> m_dirtyRects;
     QByteArray m_subRegionBuffer;
+    // beginTileFrame 留下的投影引用, 供同一帧的 renderTileToBuffer 复用。
+    // KisPaintDeviceSP 只是 shared pointer 拷贝, 不持有额外像素。
+    KisPaintDeviceSP m_tileFrameProjection;
     void markBlendChanged(int index);  // blend-only change: targeted thumb invalidation
     void flipCanvasCommon(bool horizontal); // flipCanvasHorizontal/Vertical shared body
 

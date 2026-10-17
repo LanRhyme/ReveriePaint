@@ -4633,6 +4633,19 @@ class PaintViewModel : ViewModel() {
         viewH: Int,
     ) {
         if (viewW <= 0 || viewH <= 0) return
+        // coreW/coreH 由渲染线程在换文档 (loadProject/startPainting 的 newDocument) 时写入。
+        // 在 UI 线程上读会和它竞态, 把 renderW/renderH 写回旧尺寸, 首帧瓦片与文档尺寸错位。
+        // 投递到渲染线程, 与文档尺寸变更串行执行。渲染线程还没起来时不可能有换文档在跑,
+        // 就地应用 (不能丢掉: 之后不会再有 onSizeChanged 补这一次)。
+        val h = renderHandler
+        if (h == null) {
+            applyRenderViewport()
+        } else {
+            h.post { applyRenderViewport() }
+        }
+    }
+
+    private fun applyRenderViewport() {
         val nw = maxOf(1, coreW)
         val nh = maxOf(1, coreH)
         if (nw != renderW || nh != renderH) {
@@ -4659,6 +4672,16 @@ class PaintViewModel : ViewModel() {
     // backBuffer is rendered into by C++ ReverieCore on the render thread.
     internal var frontBuffer: Bitmap? = null
     internal var backBuffer: Bitmap? = null
+
+    // 512 显示瓦片网格 (1:1 渲染路径的画布来源, 见 PaintViewModelTiles.kt)。
+    internal val displayTiles = DisplayTileState()
+
+    /**
+     * 画布当前有可上屏的像素: 瓦片网格已发布, 或整图路径已有 [displayBitmap]。
+     * 液化这类"必须有画布画面"的功能用它做门 —— 瓦片路径下不一定存在整图位图。
+     */
+    internal val hasDisplaySurface: Boolean
+        get() = displayTiles.drawable() != null || displayBitmap != null
 
     // Cumulative dirty rect for large bitmap tiling (> 100MB) synchronization
     private val largeBitmapDirtyRect = android.graphics.Rect()
@@ -5353,6 +5376,13 @@ class PaintViewModel : ViewModel() {
         val w = renderW
         val h = renderH
         if (w <= 0 || h <= 0) return
+        // 文档与显示缓冲 1:1 时走 512 显示瓦片网格: 一帧只 lockPixels 脏区命中的那几张瓦片,
+        // 其余瓦片的位图引用原封不动, HWUI 直接复用显存纹理。其余情况维持整图双缓冲。
+        if (shouldRenderDisplayTiles(w, h)) {
+            doRenderTiles(w, h)
+            return
+        }
+        clearDisplayTileGrid()
 
         val sizeMismatch = backBuffer == null || backBuffer?.width != w || backBuffer?.height != h
         val reallocated = sizeMismatch || displayBufferInvalid
@@ -5485,22 +5515,61 @@ class PaintViewModel : ViewModel() {
         // Direct hardware invalidate from render thread (zero Handler hop, zero frame delay).
         // 走 invalidateFromRender: 视图侧能证明画面其他部分不受影响时只失效脏区,
         // 否则 (光标/预测笔迹/旋转/大脏区等) 自动回退为整屏重绘。
+        // Compose 观察者只在回放页或参考窗口打开时通知。整图帧与瓦片帧共用这一出口。
+        notifyCanvasFramePublished()
+    }
+
+    /** 瓦片帧: 把本帧写入的文档矩形 `[l, t, r, b)` 发布给 UI 线程做局部失效。 */
+    internal fun publishRenderWrittenRect(l: Int, t: Int, r: Int, b: Int) {
+        renderDirty[0] = l
+        renderDirty[1] = t
+        renderDirty[2] = r - l
+        renderDirty[3] = b - t
+        hasWrittenRect = true
+        publishRenderDirtySnapshot()
+    }
+
+    /** 瓦片帧: 本帧没有写入任何像素。 */
+    internal fun clearRenderWrittenRect() {
+        hasWrittenRect = false
+        renderDirtySnapshot = null
+    }
+
+    /** 瓦片网格发布后整图 front/back 缓冲用不上了: 丢掉引用 (不 recycle, HWUI 可能还持有)。 */
+    internal fun releaseFullCanvasBuffers() {
+        val showing = displayBitmap
+        if (showing != null && (showing === frontBuffer || showing === backBuffer)) displayBitmap = null
+        frontBuffer = null
+        backBuffer = null
+        frontMissingRect.setEmpty()
+        backMissingRect.setEmpty()
+        synchronized(largeBitmapDirtyRect) { largeBitmapDirtyRect.setEmpty() }
+    }
+
+    /** 主线程上的画布失效 (预建 Runnable, 每帧投递零分配)。 */
+    private val postedCanvasInvalidate = Runnable {
+        com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidateFromRender()
+    }
+
+    /** 让画布从渲染线程失效重绘 (视图未挂上时投递到主线程)。 */
+    internal fun invalidateCanvasFromRender() {
         val tv = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
         if (tv != null) {
             tv.invalidateFromRender()
         } else {
-            mainHandler.post {
-                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidateFromRender()
-            }
+            mainHandler.post(postedCanvasInvalidate)
         }
-        val isStrokeActive = strokeBatchQueued || (pendingCoreOps.get() > 0)
-        if (!isStrokeActive) {
-            mainHandler.post {
-                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidateFromRender()
-            }
-        }
+    }
 
-        // Notify Compose observers only when replay or reference window is active
+    /** 笔画批次仍在排队或引擎任务未完成 (运笔中)。 */
+    internal fun isStrokeRenderActive(): Boolean = strokeBatchQueued || (pendingCoreOps.get() > 0)
+
+    /** 新一帧像素已发布: 失效画布, 并通知参考窗口/回放页这类 Compose 观察者。与 doRender 尾部同语义。 */
+    internal fun notifyCanvasFramePublished() {
+        invalidateCanvasFromRender()
+        if (!isStrokeRenderActive()) {
+            mainHandler.post(postedCanvasInvalidate)
+        }
         if (referenceWindowOpen || currentPage == Page.REPLAY) {
             mainHandler.post {
                 displayRevision++

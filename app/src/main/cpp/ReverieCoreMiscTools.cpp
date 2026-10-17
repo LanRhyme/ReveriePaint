@@ -1549,19 +1549,31 @@ void ReverieCore::invalidateLiquifyPreviewBase()
 // 手感 —— 抬笔后仍由 Krita 精确重算并覆盖, 因此近似是可接受的。
 void ReverieCore::blendLiquifyPreview(quint8 *buffer, int w, int h, const QRect &written)
 {
+    if (w <= 0 || h <= 0) return;
+    // 整图/整视口缓冲: 原点就是文档原点, 缩放按 w/docW (1:1 路径下为 1)。
+    blendLiquifyPreviewScaled(buffer, w, h, 0, 0,
+                              qreal(w) / qreal(qMax(1, m_docWidth)),
+                              qreal(h) / qreal(qMax(1, m_docHeight)),
+                              written);
+}
+
+// 同上的通用形式: 缓冲可以是整幅画布, 也可以是显示网格里的一块瓦片。
+// [originX, originY] 是缓冲左上角对应的文档坐标, [sx, sy] 是文档 -> 缓冲的缩放
+// (瓦片走 1:1 显示路径, 两者都是 1)。written 是缓冲坐标。
+void ReverieCore::blendLiquifyPreviewScaled(quint8 *buffer, int w, int h, int originX, int originY,
+                                            qreal sx, qreal sy, const QRect &written)
+{
     if (!buffer || w <= 0 || h <= 0 || m_liquifyPreviewOut.isEmpty()) return;
     const int pw = m_liquifyPreviewW;
     const int ph = m_liquifyPreviewH;
     const QRect b = m_liquifyWorkerBounds;
     if (pw <= 0 || ph <= 0 || b.isEmpty()) return;
 
-    const qreal sx = qreal(w) / qreal(qMax(1, m_docWidth));
-    const qreal sy = qreal(h) / qreal(qMax(1, m_docHeight));
     // 两端都走 round(edge*scale), 与缩放路径的 mapX/mapY 同一规则, 避免相邻帧漂移 1px
-    const int bx0 = qBound(0, qRound(b.left() * sx), w);
-    const int by0 = qBound(0, qRound(b.top() * sy), h);
-    const int bx1 = qBound(0, qRound((b.left() + b.width()) * sx), w);
-    const int by1 = qBound(0, qRound((b.top() + b.height()) * sy), h);
+    const int bx0 = qBound(0, qRound((b.left() - originX) * sx), w);
+    const int by0 = qBound(0, qRound((b.top() - originY) * sy), h);
+    const int bx1 = qBound(0, qRound((b.left() + b.width() - originX) * sx), w);
+    const int by1 = qBound(0, qRound((b.top() + b.height() - originY) * sy), h);
     const QRect mapRect(bx0, by0, bx1 - bx0, by1 - by0);
     const QRect area = mapRect.intersected(written).intersected(QRect(0, 0, w, h));
     if (area.isEmpty()) return;

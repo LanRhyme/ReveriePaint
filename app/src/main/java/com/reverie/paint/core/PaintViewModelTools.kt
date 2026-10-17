@@ -1510,7 +1510,7 @@ internal fun PaintViewModel.liquifyBegin() {
         only.visible && only.depth == 0 && only.nodeType == 0 && !only.isGroup && !only.isStrokeLayer &&
         !only.locked && !only.isBackground && !only.clipped && !only.alphaLocked && only.opacity == 1.0 &&
         only.blendMode == "normal" && !hasSelection && !anim.enabled && !pixelGridEnabled &&
-        displayBitmap != null && this.layers.none { it.soloed } && LiquifyGlesPreview.fieldEnabled &&
+        hasDisplaySurface && this.layers.none { it.soloed } && LiquifyGlesPreview.fieldEnabled &&
         LiquifyGpuPreview.hostDrawOverride != LiquifyGpuPreview.HOST_OVERRIDE_AGSL
     val hostDrawMode = LiquifyGpuPreview.decideForGesture(allowHostDraw)
     runCore(render = false) {

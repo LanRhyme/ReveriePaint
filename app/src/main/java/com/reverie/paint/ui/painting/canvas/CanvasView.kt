@@ -263,6 +263,13 @@ fun CanvasView(
                 .onSizeChanged {
                     viewW = it.width
                     viewH = it.height
+                    // 首次布局时 fitScale 还是初值, 真正的值要等上面的 LaunchedEffect 下一帧才算出来:
+                    // 中间这一帧 canvasPose 用错的缩放, 瓦片/前缓冲和主画布对不上。先按新视口算好。
+                    val dw = vm.docWidth
+                    val dh = vm.docHeight
+                    if (dw > 0 && dh > 0 && it.width > 0 && it.height > 0) {
+                        onFitScale(min(it.width.toFloat() / dw, it.height.toFloat() / dh) * 0.88f)
+                    }
                     vm.setRenderViewport(it.width, it.height)
                 }.background(Morandi.canvasBg),
     ) {
