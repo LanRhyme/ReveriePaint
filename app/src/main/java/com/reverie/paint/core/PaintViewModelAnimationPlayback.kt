@@ -33,6 +33,8 @@ internal fun PaintViewModel.animationPlay() {
         // 播放时不显示洋葱皮: 与引擎同线程串行下发, 保证第一帧渲染前生效;
         // 暂停/停止经 animationPause 投递还原。
         ReverieCoreBridge.setOnionSkinSuppressed(true)
+        // 播放期间画布看整图 displayBitmap (帧缓存也按整图存), 瓦片网格整体让位。
+        clearDisplayTileGrid()
         val interval = 1000L / anim.framerate.coerceIn(1, 240)
         renderHandler?.postDelayed({ animationStep(gen) }, interval)
     }

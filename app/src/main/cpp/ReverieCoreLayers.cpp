@@ -699,6 +699,19 @@ void ReverieCore::setCurrentLayer(int index)
         return;
     }
     m_currentLayer = index;
+    // 切换图层时清理各层可能残留的湿笔高度图，防止常驻内存膨胀与陈旧跨层累积
+    for (const auto &e : m_layers) {
+        if (e.node) {
+            auto dev = e.node->paintDevice();
+            if (dev && dev->interstrokeData()) {
+                KUndo2Command *cmd = dev->createChangeInterstrokeDataCommand(KisInterstrokeDataSP());
+                if (cmd) {
+                    cmd->redo();
+                    delete cmd;
+                }
+            }
+        }
+    }
     if (m_onionSkinActive) {
         // 洋葱皮只渲染当前选中轨道: 换层后把渲染门搬到新层 (旧层擦掉叠影,
         // 新层画出叠影)。笔触洋葱皮缓存按图层索引作 key, 换层后同一索引

@@ -49,6 +49,12 @@ private const val STROKE_BATCH_CAPACITY = 256
 /** Delay before the stroke-start idle kick flushes a pen-down dot. */
 private const val STROKE_START_KICK_MS = 24L
 
+/** 批内合并: 上一批「引擎 flush + 瓦片渲染」超过这个耗时 (一整帧 60Hz 预算) 才把新样本并进同一批 (ms)。 */
+private const val STROKE_MERGE_TRIGGER_MS = 16L
+
+/** 批内合并: 合并后单批样本数上限 (与引擎 appendStrokeSample 的 32 样本分段对齐)。 */
+private const val STROKE_MERGE_MAX_SAMPLES = 32
+
 internal fun java.util.concurrent.atomic.AtomicInteger.decrementPositive() {
     while (true) {
         val cur = get()
@@ -1669,6 +1675,17 @@ class PaintViewModel : ViewModel() {
     var leftHandMode by mutableStateOf(false) // 左手模式: 快捷工具栏与滑块镜像停靠在右侧
     /** 自由悬浮布局配置 (平板专属) */
     var floatingUiConfig by mutableStateOf(com.reverie.paint.model.FloatingUiConfig())
+
+    /**
+     * 顶栏 / 工具栏按钮 / 滑块栏的实测屏幕边界 (root 坐标, px), 由 Compose 侧用
+     * onGloballyPositioned 写入。画布视图的前缓冲 UI 避让区用它取代硬编码的 dp 矩形
+     * (悬浮/贴边/左手/横竖屏下真实几何差异很大)。UI 线程写、触控/渲染线程读; null = 尚未测量。
+     */
+    @Volatile var measuredTopBarRect: android.graphics.RectF? = null
+
+    @Volatile var measuredToolRailRect: android.graphics.RectF? = null
+
+    @Volatile var measuredSliderRailRect: android.graphics.RectF? = null
     var selectionMaskColorHex by mutableStateOf("#141416") // 选区蒙版遮罩颜色 (默认深空灰黑)
     var selectionMaskOpacity by mutableFloatStateOf(0.47f) // 选区蒙版遮罩不透明度 (0.10 - 0.90, 默认 0.47)
 
@@ -4651,6 +4668,19 @@ class PaintViewModel : ViewModel() {
         viewH: Int,
     ) {
         if (viewW <= 0 || viewH <= 0) return
+        // coreW/coreH 由渲染线程在换文档 (loadProject/startPainting 的 newDocument) 时写入。
+        // 在 UI 线程上读会和它竞态, 把 renderW/renderH 写回旧尺寸, 首帧瓦片与文档尺寸错位。
+        // 投递到渲染线程, 与文档尺寸变更串行执行。渲染线程还没起来时不可能有换文档在跑,
+        // 就地应用 (不能丢掉: 之后不会再有 onSizeChanged 补这一次)。
+        val h = renderHandler
+        if (h == null) {
+            applyRenderViewport()
+        } else {
+            h.post { applyRenderViewport() }
+        }
+    }
+
+    private fun applyRenderViewport() {
         val nw = maxOf(1, coreW)
         val nh = maxOf(1, coreH)
         if (nw != renderW || nh != renderH) {
@@ -4677,6 +4707,16 @@ class PaintViewModel : ViewModel() {
     // backBuffer is rendered into by C++ ReverieCore on the render thread.
     internal var frontBuffer: Bitmap? = null
     internal var backBuffer: Bitmap? = null
+
+    // 512 显示瓦片网格 (1:1 渲染路径的画布来源, 见 PaintViewModelTiles.kt)。
+    internal val displayTiles = DisplayTileState()
+
+    /**
+     * 画布当前有可上屏的像素: 瓦片网格已发布, 或整图路径已有 [displayBitmap]。
+     * 液化这类"必须有画布画面"的功能用它做门 —— 瓦片路径下不一定存在整图位图。
+     */
+    internal val hasDisplaySurface: Boolean
+        get() = displayTiles.drawable() != null || displayBitmap != null
 
     // Cumulative dirty rect for large bitmap tiling (> 100MB) synchronization
     private val largeBitmapDirtyRect = android.graphics.Rect()
@@ -4726,7 +4766,16 @@ class PaintViewModel : ViewModel() {
     init {
         currentInstance = this
         startRenderThread()
+        // 前缓冲内容保留能力的后台探测 (十毫秒级), 进入画布前结论早已就绪。
+        com.reverie.paint.core.stylus.FrontBufferProbe.warmUpPreservedContentCheck()
     }
+
+    /**
+     * 前缓冲真墨呈现 (续 #81) 的渲染线程接口, 由画布视图注册。core 只认 [RealInkSink],
+     * 不引用 ui 包; 为 null 时一切照旧 (主画布逐帧失效)。
+     */
+    @Volatile
+    internal var realInkSink: RealInkSink? = null
 
     var stylusDriver: com.reverie.paint.core.stylus.StylusDriver? = null
 
@@ -4948,8 +4997,11 @@ class PaintViewModel : ViewModel() {
             com.reverie.paint.model.Tool.FILL,
             com.reverie.paint.model.Tool.LASSO,
         )
-        const val PRESENT_ESTIMATE_MS = 14L // 补偿 UI draw + SurfaceFlinger 合成上屏延迟 (~1~1.5 帧 VSYNC)
-        const val PRESENT_TAIL_MS = 8L      // onDraw 提交 + HWUI/SF 合成 ~1 帧 @120Hz (保守常数)
+        const val PRESENT_ESTIMATE_MS = 8L // 普通 View 路径: UI draw + SurfaceFlinger 合成上屏延迟
+        const val PRESENT_TAIL_MS = 4L // onDraw 提交 + HWUI/SF 合成尾
+
+        /** 真墨由前缓冲直出时的上屏延迟估计 (单缓冲, 绕过 HWUI/SF 的排队)。 */
+        const val FRONT_BUFFER_PRESENT_MS = 4L
         const val STROKE_BATCH_CAPACITY = 256
         const val STROKE_SAMPLE_STRIDE = 6
 
@@ -5071,7 +5123,9 @@ class PaintViewModel : ViewModel() {
     @Volatile private var strokeBatchQueued = false
     @Volatile private var lastQueuedInputEventTime = 0L
     @Volatile private var lastQueuedUptime = 0L
-    @Volatile var lastE2ePipelineMs: Long = 40L
+    // 初值取一帧量级: 原先 40L 配合 "e2e in 5L..250L" 的更新条件, 硬笔快速运笔时实测 e2e 只有
+    // 1~4ms, 永远更新不上, 延迟估计锁死在 40 + 14 = 54ms, 预览回填窗口过大 (拐角重影)。
+    @Volatile var lastE2ePipelineMs: Long = 8L
     data class RenderedFrontier(
         val docX: Float,
         val docY: Float,
@@ -5095,6 +5149,7 @@ class PaintViewModel : ViewModel() {
 
     fun resetRenderedFrontier() {
         currentRenderedFrontier = null
+        lastE2ePipelineMs = 8L
     }
 
     fun updateRenderedFrontier(docX: Float, docY: Float, timeMs: Long) {
@@ -5109,8 +5164,10 @@ class PaintViewModel : ViewModel() {
      */
     val presentLagEstimateMs: Long
         get() {
+            // 真墨按住期间笔迹由前缓冲呈现, 不再经过主画布的 HWUI/SF 合成。
+            if (realInkSink?.wantsHold() == true) return FRONT_BUFFER_PRESENT_MS
             val measuredPresent = PerfTrace.presentWaitP50Ms
-            return if (measuredPresent in 2L..35L) {
+            return if (measuredPresent in 1L..35L) {
                 (measuredPresent + PRESENT_TAIL_MS).coerceAtLeast(PRESENT_ESTIMATE_MS)
             } else {
                 PRESENT_ESTIMATE_MS
@@ -5118,8 +5175,11 @@ class PaintViewModel : ViewModel() {
         }
 
     val effectivePipelineDelayMs: Long
-        get() = (lastE2ePipelineMs + presentLagEstimateMs).coerceIn(20L, 85L)
+        get() = (lastE2ePipelineMs + presentLagEstimateMs).coerceIn(4L, 85L)
     private var perfLogCounter = 0
+
+    /** 上一批「引擎 flush + 瓦片渲染」的实际耗时 (ns), 批内合并的触发依据。只在渲染线程读写。 */
+    private var lastStrokeBatchWorkNs = 0L
 
     private val strokeBatchRunnable = Runnable {
         val tDispatch = android.os.SystemClock.uptimeMillis()
@@ -5140,9 +5200,50 @@ class PaintViewModel : ViewModel() {
         } catch (_: Throwable) {
             false
         }
-        val dtKritaNs = android.os.SystemClock.elapsedRealtimeNanos() - tKritaStartNs
-        val dtKrita = dtKritaNs / 1_000_000L
+        var dtKritaNs = android.os.SystemClock.elapsedRealtimeNanos() - tKritaStartNs
         var dtRenderNs = 0L
+
+        // ---- 批内合并 (渲染线程) ----
+        // 上一批 (引擎 flush + 瓦片渲染) 超过一整帧 16ms 预算说明渲染线程已落后于手写采样, 队列里又积了
+        // 新样本。与其让它们各自触发一轮完整的 doRender (compositeDirtyRegions + 瓦片拷贝 + 前缓冲贴图),
+        // 不如在这里并进同一批, 只做一轮 doRender。限合并一次、最多 8 个、合并后 <= 32 个样本
+        // (与引擎 appendStrokeSample 的 32 样本分段对齐), 上屏不会被无限推迟。
+        // 只把新增样本拷到 strokeDrainCoords 头部送增量, 绝不把已画过的前 n 个点重送 (否则笔迹折返重画)。
+        // 刻意不动 strokeBatchQueued / pendingCoreOps: 为新样本投递的 runnable 稍后跑到时队列已空
+        // (n == 0, 不渲染), 退化成一次空转, 不存在"摘掉 runnable 却漏减计数"或"新样本搁浅"的竞态。
+        var lastDocX = if (n > 0) strokeDrainCoords[(n - 1) * STROKE_SAMPLE_STRIDE] else 0f
+        var lastDocY = if (n > 0) strokeDrainCoords[(n - 1) * STROKE_SAMPLE_STRIDE + 1] else 0f
+        var lastSampleTime = if (n > 0) strokeDrainTimes[n - 1] else 0L
+        var merged = 0
+        if (painted && n in 1 until STROKE_MERGE_MAX_SAMPLES &&
+            lastStrokeBatchWorkNs > STROKE_MERGE_TRIGGER_MS * 1_000_000L
+        ) {
+            var extra = 0
+            val maxExtra = minOf(8, STROKE_MERGE_MAX_SAMPLES - n)
+            synchronized(strokeBatchLock) {
+                if (strokeBatchCount in 1..maxExtra) {
+                    extra = strokeBatchCount
+                    System.arraycopy(strokeBatchCoords, 0, strokeDrainCoords, 0, extra * STROKE_SAMPLE_STRIDE)
+                    System.arraycopy(strokeBatchTimes, 0, strokeDrainTimes, 0, extra)
+                    strokeBatchCount = 0
+                }
+            }
+            if (extra > 0) {
+                lastDocX = strokeDrainCoords[(extra - 1) * STROKE_SAMPLE_STRIDE]
+                lastDocY = strokeDrainCoords[(extra - 1) * STROKE_SAMPLE_STRIDE + 1]
+                lastSampleTime = strokeDrainTimes[extra - 1]
+                val tMergeStartNs = android.os.SystemClock.elapsedRealtimeNanos()
+                try {
+                    ReverieCoreBridge.touchStrokeMoveBatch(strokeDrainCoords, extra)
+                } catch (_: Throwable) {
+                    // 与首批一致: 引擎异常不影响本帧照常渲染已落墨的部分
+                }
+                // 合并那一次的引擎耗时也算进本批, 否则度量低报
+                dtKritaNs += android.os.SystemClock.elapsedRealtimeNanos() - tMergeStartNs
+                merged = extra
+            }
+        }
+        val dtKrita = dtKritaNs / 1_000_000L
         // Render immediately in-place after ink landed to eliminate message queue roundtrip latency
         if (painted) {
             val tRenderStartNs = android.os.SystemClock.elapsedRealtimeNanos()
@@ -5151,25 +5252,25 @@ class PaintViewModel : ViewModel() {
             val dtRender = dtRenderNs / 1_000_000L
             val tDone = android.os.SystemClock.uptimeMillis()
             val queueWait = tDispatch - lastQueuedUptime
-            val e2e = if (lastQueuedInputEventTime > 0) tDone - lastQueuedInputEventTime else 0L
-            if (e2e in 5L..250L) {
-                lastE2ePipelineMs = e2e
+            val e2e =
+                if (lastQueuedInputEventTime > 0) (tDone - lastQueuedInputEventTime).coerceAtLeast(1L) else 0L
+            if (e2e in 1L..250L) {
+                // 2:1 滑动平均: 单帧抖动不直接改写延迟估计
+                lastE2ePipelineMs = ((lastE2ePipelineMs * 2L) + e2e) / 3L
             }
-            val lastSampleIdx = n - 1
-            val lastCoordIdx = lastSampleIdx * STROKE_SAMPLE_STRIDE
-            updateRenderedFrontier(
-                strokeDrainCoords[lastCoordIdx],
-                strokeDrainCoords[lastCoordIdx + 1],
-                strokeDrainTimes[lastSampleIdx]
-            )
+            updateRenderedFrontier(lastDocX, lastDocY, lastSampleTime)
 
             if (++perfLogCounter % 5 == 0) {
                 android.util.Log.i(
                     "ReveriePerf",
-                    "StrokePerf: n=$n queueWait=${queueWait}ms krita=${dtKrita}ms render=${dtRender}ms e2e=${e2e}ms effectiveDelay=${effectivePipelineDelayMs}ms presentWait=${PerfTrace.presentWaitP50Ms}ms frontierErr=${"%.1f".format(PerfTrace.frontierErrP50Px)}px"
+                    "StrokePerf: n=$n merged=$merged queueWait=${queueWait}ms krita=${dtKrita}ms " +
+                        "render=${dtRender}ms e2e=${e2e}ms effectiveDelay=${effectivePipelineDelayMs}ms " +
+                        "presentWait=${PerfTrace.presentWaitP50Ms}ms " +
+                        "frontierErr=${"%.1f".format(PerfTrace.frontierErrP50Px)}px"
                 )
             }
         }
+        lastStrokeBatchWorkNs = dtKritaNs + dtRenderNs
         if (n > 0) {
             reportRenderWorkDuration(dtKritaNs + dtRenderNs)
         }
@@ -5232,6 +5333,23 @@ class PaintViewModel : ViewModel() {
             pendingCoreOps.incrementAndGet()
             h.post(strokeBatchRunnable) // 预建 Runnable 直接投递, 每样本零分配
         }
+    }
+
+    /**
+     * 渲染线程上, 在提交 touchStrokeEnd 之前把还排在队列里的运笔补点跑完 (防御性)。
+     *
+     * 正常情况下这是空操作: 补点的 [strokeBatchRunnable] 由 UI 线程先于收尾任务投递, 按 FIFO
+     * 早已跑完。万一它排在收尾任务之后, 那一截笔尾会在笔画提交之后才进引擎 (丢墨、以错误的
+     * 合成状态重画)。只在确认 runnable 确实还在队列里时摘下来手动跑一次, 计数只减一次;
+     * API < 29 没有 hasCallbacks, 无法确认, 不做。只允许在渲染线程调用。
+     */
+    internal fun drainPendingStrokeBatchOnRenderThread() {
+        if (!strokeBatchQueued) return
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return
+        val h = renderHandler ?: return
+        if (!h.hasCallbacks(strokeBatchRunnable)) return
+        h.removeCallbacks(strokeBatchRunnable)
+        strokeBatchRunnable.run()
     }
 
     /** Drop undelivered stroke samples (cancel path: they must not reach the
@@ -5371,6 +5489,13 @@ class PaintViewModel : ViewModel() {
         val w = renderW
         val h = renderH
         if (w <= 0 || h <= 0) return
+        // 文档与显示缓冲 1:1 时走 512 显示瓦片网格: 一帧只 lockPixels 脏区命中的那几张瓦片,
+        // 其余瓦片的位图引用原封不动, HWUI 直接复用显存纹理。其余情况维持整图双缓冲。
+        if (shouldRenderDisplayTiles(w, h)) {
+            doRenderTiles(w, h)
+            return
+        }
+        clearDisplayTileGrid()
 
         val sizeMismatch = backBuffer == null || backBuffer?.width != w || backBuffer?.height != h
         val reallocated = sizeMismatch || displayBufferInvalid
@@ -5503,22 +5628,68 @@ class PaintViewModel : ViewModel() {
         // Direct hardware invalidate from render thread (zero Handler hop, zero frame delay).
         // 走 invalidateFromRender: 视图侧能证明画面其他部分不受影响时只失效脏区,
         // 否则 (光标/预测笔迹/旋转/大脏区等) 自动回退为整屏重绘。
+        // Compose 观察者只在回放页或参考窗口打开时通知。整图帧与瓦片帧共用这一出口。
+        // 整图路径不呈现真墨, 但要回报"这一帧没留在前缓冲上", 抬笔后的追赶清除才不会悬着。
+        realInkSink?.finishFrame(false)
+        notifyCanvasFramePublished()
+    }
+
+    /** 瓦片帧: 把本帧写入的文档矩形 `[l, t, r, b)` 发布给 UI 线程做局部失效。 */
+    internal fun publishRenderWrittenRect(l: Int, t: Int, r: Int, b: Int) {
+        renderDirty[0] = l
+        renderDirty[1] = t
+        renderDirty[2] = r - l
+        renderDirty[3] = b - t
+        hasWrittenRect = true
+        publishRenderDirtySnapshot()
+    }
+
+    /** 瓦片帧: 本帧没有写入任何像素。 */
+    internal fun clearRenderWrittenRect() {
+        hasWrittenRect = false
+        renderDirtySnapshot = null
+    }
+
+    /** 瓦片网格发布后整图 front/back 缓冲用不上了: 丢掉引用 (不 recycle, HWUI 可能还持有)。 */
+    internal fun releaseFullCanvasBuffers() {
+        val showing = displayBitmap
+        if (showing != null && (showing === frontBuffer || showing === backBuffer)) displayBitmap = null
+        frontBuffer = null
+        backBuffer = null
+        frontMissingRect.setEmpty()
+        backMissingRect.setEmpty()
+        synchronized(largeBitmapDirtyRect) { largeBitmapDirtyRect.setEmpty() }
+    }
+
+    /** 主线程上的画布失效 (预建 Runnable, 每帧投递零分配)。 */
+    private val postedCanvasInvalidate = Runnable {
+        com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidateFromRender()
+    }
+
+    /** 让画布从渲染线程失效重绘 (视图未挂上时投递到主线程)。 */
+    internal fun invalidateCanvasFromRender() {
         val tv = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
         if (tv != null) {
             tv.invalidateFromRender()
         } else {
-            mainHandler.post {
-                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidateFromRender()
-            }
+            mainHandler.post(postedCanvasInvalidate)
         }
-        val isStrokeActive = strokeBatchQueued || (pendingCoreOps.get() > 0)
-        if (!isStrokeActive) {
-            mainHandler.post {
-                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidateFromRender()
-            }
-        }
+    }
 
-        // Notify Compose observers only when replay or reference window is active
+    /** 笔画批次仍在排队或引擎任务未完成 (运笔中)。 */
+    internal fun isStrokeRenderActive(): Boolean = strokeBatchQueued || (pendingCoreOps.get() > 0)
+
+    /**
+     * 新一帧像素已发布: 失效画布, 并通知参考窗口/回放页这类 Compose 观察者。与 doRender 尾部同语义。
+     * [keptOnFrontBuffer] = 这一帧已由前缓冲真墨接住, 主画布不失效 (省掉一次 HWUI 纹理上传)。
+     */
+    internal fun notifyCanvasFramePublished(keptOnFrontBuffer: Boolean = false) {
+        if (!keptOnFrontBuffer) {
+            invalidateCanvasFromRender()
+            if (!isStrokeRenderActive()) {
+                mainHandler.post(postedCanvasInvalidate)
+            }
+        }
         if (referenceWindowOpen || currentPage == Page.REPLAY) {
             mainHandler.post {
                 displayRevision++

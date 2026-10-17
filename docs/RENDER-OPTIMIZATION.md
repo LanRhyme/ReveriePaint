@@ -24,7 +24,7 @@
 | 液化 | V2 Phase 3 Commit 1(§4.18): rebase / materialize 生命周期埋点 —— 把"拖动中物化"拆成 rebase 边与节流边 | 已落地, 待真机取数 | HUD 第 4.5 行; 无行为变更 |
 | 内存 | 帧缓存按字节预算淘汰 + `ComponentCallbacks2` 内存压力释放; 缩略图给笔画让路 | 已落地 | 无(自动) |
 | 量测 | `PerfTrace`(Kotlin, 分桶统计) + `revpSaveStats`(C++ 阶段计时) + debug 专属 HUD | 已落地 | `setprop debug.reverie.perf 1` / debug 包设置页 |
-| 未做 | tile 化显示缓冲(整张纹理重传是最大带宽项) · 视口尺寸渲染缓冲 · 液化按 tile 增量 `run()` | 待立项 | 见 §9 |
+| 显示瓦片 | 512x512 显示瓦片网格 + 引擎离散脏区 (DirtyRectList) + COW/就地写状态机 + ClampedTileDrawer | 已落地 (PR #107) | 见 §9.3 |
 
 **目前仍有真机未回归项**: 液化分辨率保底窗口(132~134px) 与 release 包的整体回归 → §11 清单。
 
@@ -768,7 +768,7 @@ sha256sum third_party/android-native-libs/libreverie_jni.so
 
 | 优先级 | 项 | 说明 / 前置条件 |
 |---|---|---|
-| 1 | **tile 化显示缓冲** | 把缓冲切成 N 块 Bitmap, 只让脏块失效重传, 直击 §2.3 的整张纹理重传。前置: 用 §6 的 `脏比 / 重传 MB/帧` 先确认收益空间 |
+| 1 | **tile 化显示缓冲** | ✅ **已落地**(见 §9.3 / PR #107): 512x512 瓦片网格 + 离散脏区 + COW/原地写状态机 + ClampedTileDrawer |
 | 2 | **视口尺寸渲染缓冲** | 渲染缓冲改为"仅可见区域 + 缩放", 上传量按视口/文档面积下降。需 C++ 新入口 + Kotlin 绘制一起改 |
 | 3 | **液化按 tile 增量 `run()`** | 只重算真正变化的格子。需碰 Krita 内部 API, 风险高 |
 | 4 | **缓存非目标层的合成结果** | 液化手势期间 N 层合成降为 1 层(见 §4.6) |
@@ -776,6 +776,14 @@ sha256sum third_party/android-native-libs/libreverie_jni.so
 | 6 | **JNI 与拷贝面** | 复核 `renderToBuffer` 是否走 direct `ByteBuffer`; 笔画已按 ~8ms 批量 flush |
 | 7 | Kotlin 侧待办 | ✅ **已落地**(见 §9.2): `contentBounds()` 有界阻塞 500→120ms;参考图恢复 + 调色板导入改**采样解码**并加字节预算;静止 1.5s 后帧率请求降回 60Hz,一有输入立刻恢复面板最高 |
 | — | **已论证不做** | "推拉绕开网格做 memcpy"(§4.5); 收紧 Krita 投影瓦片回收上限(要碰 `KisTiledDataManager`, 风险高于收益) |
+
+### 9.3 RFC #106 落地记录: 512 显示瓦片网格与离散脏区 (PR #107)
+
+针对 4K 及高分辨率画布下 HWUI 整张纹理全量重传带来的严重瓶颈，完成全链路离散化改造：
+1. **引擎离散脏区 (DirtyRectList)**: C++ 引擎维护容量为 8 的紧凑脏区列表，笔触两端独立分段，杜绝对角线大包围盒误报；
+2. **512 显示瓦片网格 (DisplayTileGrid)**: 画布离散划分为 512x512 瓦片，未命中区域 HWUI 直接复用显存纹理，4K 画布慢上传次数由 80 次降至 14~17 次；
+3. **COW 与 CAS 就地写状态机**: `PublishedTiles.drawnByView` 严格跟踪位图生命周期，自换入未被 `onDraw` 读取的瓦片允许原地写，被画过则走写时复制并进入 3 级多帧冷却池，兼顾零拷贝与 HWUI DisplayList 消费安全；
+4. **接缝消除 (ClampedTileDrawer)**: 边缘 1px 像素夹取绘制，消除双线性过滤下的透明接缝。
 
 ### 9.2 B4 落地记录 (2026-09-26)
 

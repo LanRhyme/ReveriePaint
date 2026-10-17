@@ -662,6 +662,27 @@ object ReverieCoreBridge {
     /** Dirty content exists but the projection recomposite is still running. */
     external fun renderPendingDirty(): Boolean
 
+    /**
+     * 显示瓦片网格的帧准备: 合成脏区并把本帧脏区快照进 [outRects]
+     * (`x,y,w,h` x N, 文档坐标), 返回块数 (最多 8)。0 表示这一帧没有新像素。
+     * 必须在同一帧的 [renderTileToBuffer] 之前调用。
+     */
+    external fun beginRenderTiles(outRects: IntArray): Int
+
+    /**
+     * 把文档坐标 `(docX, docY)` 起、尺寸 = [bitmap] 的一块写进瓦片位图 (原点 0,0 = 瓦片左上角,
+     * 必须是 ARGB_8888 且行步长 = 宽 * 4)。[dirtyRects] 是本帧脏区 (`x,y,w,h` x N, 文档坐标);
+     * 空数组表示整块瓦片都要重写。[outWritten] 回传实际写过的区域 (瓦片局部坐标, `x,y,w,h`)。
+     * 返回 false 表示这块瓦片本帧没有像素要写, 调用方不要发布它。
+     */
+    external fun renderTileToBuffer(
+        bitmap: Bitmap,
+        docX: Int,
+        docY: Int,
+        dirtyRects: IntArray,
+        outWritten: IntArray,
+    ): Boolean
+
     external fun pickColorAt(
         x: Int,
         y: Int,

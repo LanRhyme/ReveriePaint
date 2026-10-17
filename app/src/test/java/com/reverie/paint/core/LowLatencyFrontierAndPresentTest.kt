@@ -100,34 +100,36 @@ class LowLatencyFrontierAndPresentTest {
     fun `effective pipeline compensation rule validates bounds`() {
         val defaultEstimate = PaintViewModel.PRESENT_ESTIMATE_MS
         val tailMs = PaintViewModel.PRESENT_TAIL_MS
-        assertEquals(14L, defaultEstimate)
-        assertEquals(8L, tailMs)
+        val frontBufferEstimate = PaintViewModel.FRONT_BUFFER_PRESENT_MS
+        assertEquals(8L, defaultEstimate)
+        assertEquals(4L, tailMs)
+        assertEquals(4L, frontBufferEstimate)
 
         fun calcEffective(lastE2e: Long, measuredPresent: Long): Long {
-            val presentComp = if (measuredPresent in 2L..35L) {
+            val presentComp = if (measuredPresent in 1L..35L) {
                 (measuredPresent + tailMs).coerceAtLeast(defaultEstimate)
             } else {
                 defaultEstimate
             }
-            return (lastE2e + presentComp).coerceIn(20L, 85L)
+            return (lastE2e + presentComp).coerceIn(4L, 85L)
         }
 
-        // Standard 144Hz scenario (measured ~5ms: 5 + 8 = 13ms, coerced to 14ms minimum)
-        assertEquals(54L, calcEffective(lastE2e = 40L, measuredPresent = 5L))
+        // Standard 144Hz scenario (measured ~5ms: 5 + 4 = 9ms, above the 8ms minimum)
+        assertEquals(17L, calcEffective(lastE2e = 8L, measuredPresent = 5L))
 
-        // Standard 60Hz scenario (measured ~16ms: 16 + 8 = 24ms)
-        assertEquals(64L, calcEffective(lastE2e = 40L, measuredPresent = 16L))
+        // Standard 60Hz scenario (measured ~16ms: 16 + 4 = 20ms)
+        assertEquals(28L, calcEffective(lastE2e = 8L, measuredPresent = 16L))
 
-        // Fallback when not enough samples (0L -> default 14L)
-        assertEquals(54L, calcEffective(lastE2e = 40L, measuredPresent = 0L))
+        // Fallback when not enough samples (0L -> default 8L)
+        assertEquals(16L, calcEffective(lastE2e = 8L, measuredPresent = 0L))
 
-        // Outlier abnormal delay (>35L) safely falls back to default 14L
-        assertEquals(54L, calcEffective(lastE2e = 40L, measuredPresent = 60L))
+        // Outlier abnormal delay (>35L) safely falls back to default 8L
+        assertEquals(16L, calcEffective(lastE2e = 8L, measuredPresent = 60L))
 
-        // Clamping bounds [20L, 85L]
-        // 5 + max(2 + 8, 14) = 5 + 14 = 19 -> clamped to 20L
-        assertEquals(20L, calcEffective(lastE2e = 5L, measuredPresent = 2L))
-        // 120 + 14 = 134 -> clamped to 85L
-        assertEquals(85L, calcEffective(lastE2e = 120L, measuredPresent = 14L))
+        // 硬笔极速完成时 e2e 低至 1ms: 1 + 8 = 9ms, 不再被下钳抬到 20ms
+        assertEquals(9L, calcEffective(lastE2e = 1L, measuredPresent = 0L))
+
+        // Clamping upper bound: 120 + 8 = 128 -> clamped to 85L
+        assertEquals(85L, calcEffective(lastE2e = 120L, measuredPresent = 0L))
     }
 }

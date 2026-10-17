@@ -402,6 +402,20 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     resetProjectReferences(loading = true)
     releaseReclaimableCaches(aggressive = true)
     val referenceLoadSession = referenceSession
+    // 进画面前先作废上一份文档的瓦片网格, 并把尺寸镜像同步成新文档的声明尺寸:
+    // 否则首帧 CanvasView.onSizeChanged 会拿旧 coreW/coreH 算 fitScale, 与渲染线程的
+    // newDocument(w, h) 并发覆写 renderW/renderH, 画布按旧尺寸拼出新文档的瓦片。
+    discardTileGridForDocumentSwitch()
+    val preW = if (p.width > 0) p.width else docWidth
+    val preH = if (p.height > 0) p.height else docHeight
+    if (preW > 0 && preH > 0) {
+        docWidth = preW
+        docHeight = preH
+        coreW = preW
+        coreH = preH
+        renderW = preW
+        renderH = preH
+    }
     // Navigate to painting page first, then show loading overlay while reading native file
     currentPage = Page.PAINTING
     isBlockingLoading = true
@@ -1310,6 +1324,16 @@ internal fun PaintViewModel.startPainting(
     canvasCreatedTime = System.currentTimeMillis()
     stopPaintingTimer()
     resetAnimationState()
+    // 同 loadProject: 进画面前作废旧网格, 尺寸镜像按新画布先同步好。
+    discardTileGridForDocumentSwitch()
+    if (w > 0 && h > 0) {
+        docWidth = w
+        docHeight = h
+        coreW = w
+        coreH = h
+        renderW = w
+        renderH = h
+    }
     currentPage = Page.PAINTING
     isBlockingLoading = true
     blockingLoadingMessage = getString(R.string.project_creating_canvas)
