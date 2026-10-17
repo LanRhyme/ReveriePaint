@@ -10,6 +10,7 @@
 #include "ReverieCoreInternal.h"
 #include "ReverieCoreColorSpaceHook.h"
 #include "ReverieCoreUndoStore.h"
+#include "RenderLockGate.h"
 
 #include <future>
 #include <QSet>
@@ -333,7 +334,12 @@ void ReverieCore::recompositeProjection()
         return;
     }
     image->refreshGraphAsync();
-    image->waitForDone();
+    // 图像被撤销宏锁住时只入队不等: 锁住的调度器排不空队列, waitForDone 会卡死
+    // (见 RenderLockGate.h)。任务在 endMacro -> unlock 时派发, 解锁后的第一帧
+    // 看到调度器忙会先 waitForDone 再出图。调用方不得在锁住期间指望投影已刷新。
+    if (reverie::mayWaitForImage(image->locked())) {
+        image->waitForDone();
+    }
 }
 
 void ReverieCore::waitForDocumentTasks()
@@ -346,6 +352,15 @@ void ReverieCore::waitForDocumentTasks()
     // 典型复现: 绘制 -> 撤销 -> 立刻新建画布/关闭文档。
     if (!m_document) {
         return;
+    }
+    // 文档要被替换/释放: 先关掉还开着的撤销宏 (对称笔画), 解除 barrierLock,
+    // 否则锁住的调度器排不空队列, 下面的 waitForDone 会卡死 (见 RenderLockGate.h);
+    // 也避免 m_macroDepth 残留到下一份文档。
+    while (m_macroDepth > 0) {
+        if (m_document->undoAdapter()) {
+            m_document->undoAdapter()->endMacro();
+        }
+        m_macroDepth--;
     }
     m_document->requestStrokeEnd();
     m_document->waitForDone();

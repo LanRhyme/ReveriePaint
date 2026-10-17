@@ -6,6 +6,7 @@
  * 配置属性 reverieType/p1..p4/lut(QByteArray, 仅曲线 LUT 与渐变映射使用)。
  */
 #include "ReverieCoreInternal.h"
+#include "RenderLockGate.h"
 
 #include <filter/kis_filter.h>
 #include <filter/kis_filter_registry.h>
@@ -166,7 +167,8 @@ bool ReverieCore::setAdjustmentLayerConfig(int index, int filterType,
     if (!recordUndo) {
         layer->setFilter(newCfg);
         layer->setDirty();
-        if (m_document) {
+        // 锁住 (对称笔画撤销宏) 时只入队不等, 否则卡死 (见 RenderLockGate.h)。
+        if (m_document && reverie::mayWaitForImage(m_document->locked())) {
             m_document->waitForDone();
         }
         markDirty();
@@ -204,7 +206,10 @@ bool ReverieCore::setAdjustmentLayerConfig(int index, int filterType,
     }
     if (m_document) {
         m_document->refreshGraphAsync();
-        m_document->waitForDone();
+        // 锁住 (对称笔画撤销宏) 时只入队不等, 否则卡死 (见 RenderLockGate.h)。
+        if (reverie::mayWaitForImage(m_document->locked())) {
+            m_document->waitForDone();
+        }
     }
     syncLayersFromImage();
     markDirty();

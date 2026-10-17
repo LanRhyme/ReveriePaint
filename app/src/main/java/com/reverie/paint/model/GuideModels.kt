@@ -60,6 +60,16 @@ data class Point2D(val x: Float, val y: Float) {
 data class SymStrokeSample(val x: Float, val y: Float, val pressure: Double = 1.0)
 
 /**
+ * 一个镜像分支的采样点 + 镜像后的笔尖姿态 (倾角与笔杆自转)
+ */
+data class SymmetricSample(
+    val point: Point2D,
+    val tiltX: Float,
+    val tiltY: Float,
+    val rotation: Float,
+)
+
+/**
  * QuickShape 几何拟合结果
  */
 data class QuickShapeResult(
@@ -118,25 +128,7 @@ data class DrawingGuideConfig(
         val lx = dx * cosR + dy * sinR
         val ly = -dx * sinR + dy * cosR
 
-        val localBranches = when (symmetryType) {
-            SymmetryType.VERTICAL -> listOf(Point2D(-lx, ly))
-            SymmetryType.HORIZONTAL -> listOf(Point2D(lx, -ly))
-            SymmetryType.QUADRANT -> listOf(
-                Point2D(-lx, ly),
-                Point2D(lx, -ly),
-                Point2D(-lx, -ly),
-            )
-            SymmetryType.RADIAL -> {
-                val r = hypot(lx, ly)
-                val baseAngle = atan2(ly, lx)
-                val branches = ArrayList<Point2D>(7)
-                for (k in 1..7) {
-                    val ang = baseAngle + k * (2f * PI.toFloat() / 8f)
-                    branches.add(Point2D(r * cos(ang), r * sin(ang)))
-                }
-                branches
-            }
-        }
+        val localBranches = symmetryBranchOffsets(lx, ly)
 
         // 旋转回文档坐标系 (绕中心点顺时针旋转 +rotRad)
         return localBranches.map { lp ->
@@ -144,6 +136,88 @@ data class DrawingGuideConfig(
             val wy = cy + (lp.x * sinR + lp.y * cosR)
             Point2D(wx, wy)
         }.filter { it.x.isFinite() && it.y.isFinite() }
+    }
+
+    /**
+     * 对称分支在**局部坐标系**里的线性变换: 点与倾角向量共用同一套。
+     *
+     * 反射分支的线性部分对向量和点完全一致; RADIAL 的"绕原点旋转 k*45°"对向量同样成立
+     * (r*cos(θ+k*45°) 展开就是向量的旋转)。共用它可保证点与姿态不会各写一份几何而漂移。
+     */
+    private fun symmetryBranchOffsets(lx: Float, ly: Float): List<Point2D> = when (symmetryType) {
+        SymmetryType.VERTICAL -> listOf(Point2D(-lx, ly))
+        SymmetryType.HORIZONTAL -> listOf(Point2D(lx, -ly))
+        SymmetryType.QUADRANT -> listOf(
+            Point2D(-lx, ly),
+            Point2D(lx, -ly),
+            Point2D(-lx, -ly),
+        )
+        SymmetryType.RADIAL -> {
+            val r = hypot(lx, ly)
+            val baseAngle = atan2(ly, lx)
+            val branches = ArrayList<Point2D>(7)
+            for (k in 1..7) {
+                val ang = baseAngle + k * (2f * PI.toFloat() / 8f)
+                branches.add(Point2D(r * cos(ang), r * sin(ang)))
+            }
+            branches
+        }
+    }
+
+    /**
+     * 与 [computeSymmetricPoints] 几何完全一致, 但每个分支额外带出镜像后的笔尖姿态。
+     *
+     * 倾角向量先随点一起做局部旋转 (与点同一套 [cosR]/[sinR]), 在局部坐标里按分支变换,
+     * 再转回文档坐标。rotation (笔杆自转, 度) 按分支直接变换: 反射取负, 径向加 k*45。
+     */
+    fun computeSymmetricSamples(
+        docPt: Point2D,
+        tiltX: Float,
+        tiltY: Float,
+        rotation: Float,
+        docWidth: Int,
+        docHeight: Int,
+    ): List<SymmetricSample> {
+        if (mode != GuideMode.SYMMETRY) return emptyList()
+        if (!docPt.x.isFinite() || !docPt.y.isFinite()) return emptyList()
+        val scX = symmetryCenterX.takeIf { it.isFinite() }?.coerceIn(0.01f, 0.99f) ?: 0.5f
+        val scY = symmetryCenterY.takeIf { it.isFinite() }?.coerceIn(0.01f, 0.99f) ?: 0.5f
+        val cx = docWidth * scX
+        val cy = docHeight * scY
+
+        val rotRad = (symmetryRotationDeg % 360f) * (PI.toFloat() / 180f)
+        val cosR = cos(rotRad)
+        val sinR = sin(rotRad)
+
+        val dx = docPt.x - cx
+        val dy = docPt.y - cy
+        val lx = dx * cosR + dy * sinR
+        val ly = -dx * sinR + dy * cosR
+        // 倾角向量: 同一套局部旋转 (与上面的点变换逐字一致)
+        val ltx = tiltX * cosR + tiltY * sinR
+        val lty = -tiltX * sinR + tiltY * cosR
+
+        val offsets = symmetryBranchOffsets(lx, ly)
+        val tiltOffsets = symmetryBranchOffsets(ltx, lty)
+
+        val out = ArrayList<SymmetricSample>(offsets.size)
+        for (i in offsets.indices) {
+            val lp = offsets[i]
+            val wx = cx + (lp.x * cosR - lp.y * sinR)
+            val wy = cy + (lp.x * sinR + lp.y * cosR)
+            if (!wx.isFinite() || !wy.isFinite()) continue
+            val lt = tiltOffsets[i]
+            val wtx = lt.x * cosR - lt.y * sinR
+            val wty = lt.x * sinR + lt.y * cosR
+            val branchRotation = when (symmetryType) {
+                SymmetryType.VERTICAL, SymmetryType.HORIZONTAL -> -rotation
+                // 第三支 (-lx, -ly) 是两次反射, 姿态回到原样
+                SymmetryType.QUADRANT -> if (i == 2) rotation else -rotation
+                SymmetryType.RADIAL -> rotation + (i + 1) * 45f
+            }
+            out.add(SymmetricSample(Point2D(wx, wy), wtx, wty, branchRotation))
+        }
+        return out
     }
 }
 

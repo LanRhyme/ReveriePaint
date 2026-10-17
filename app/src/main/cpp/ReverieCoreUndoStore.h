@@ -47,6 +47,8 @@ public:
 
 private:
     KUndo2Stack *m_undoStack;
+    // s13-C5: 自己记的宏嵌套深度 (只用来判断"刚关掉的是最外层宏"; 不匹配的 endMacro 不会误判)。
+    int m_macroDepth = 0;
 };
 
 #endif // REVERIE_CORE_UNDO_STORE_H

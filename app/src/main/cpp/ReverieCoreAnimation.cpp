@@ -17,6 +17,7 @@
 #include "ReverieCore.h"
 #include "ReverieCoreInternal.h"
 #include "ReverieCoreInbetween.h"
+#include "RenderLockGate.h"
 
 #include <kis_image.h>
 #include <kis_image_animation_interface.h>
@@ -200,8 +201,11 @@ void ReverieCore::setAnimationCurrentTime(int time, bool recordUndo)
         : KisImageAnimationInterface::STAO_NONE);
 
     // 时间切换经 image 调度器异步生效, 必须在返回前收敛: 否则紧随其后的
-    // renderToBuffer 会读到上一帧的投影 (按播放键会出现画面滞后一帧)
-    if (!image->isIdle()) {
+    // renderToBuffer 会读到上一帧的投影 (按播放键会出现画面滞后一帧)。
+    // 图像被撤销宏锁住 (对称笔画进行中) 时不等: 锁住时 isIdle() 恒为 false, 而切帧任务
+    // 排在锁住的调度器里永远派发不了, waitForDone 会卡死 (见 RenderLockGate.h)。
+    // 切帧在 endMacro -> unlock 后生效, 期间画面停在原帧。
+    if (reverie::mayWaitForImage(image->locked()) && !image->isIdle()) {
         image->waitForDone();
     }
 

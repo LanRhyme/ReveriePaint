@@ -11,6 +11,7 @@
 #include "PixelAlpha.h"
 #include "ReverieCoreFilterKernels.h"
 #include "ReverieCoreColorSpaceHook.h"
+#include "RenderLockGate.h"
 #include <KisEncloseAndFillPainter.h>
 #include <android/log.h>
 #include <kis_image_animation_interface.h>
@@ -159,8 +160,11 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
     // modified, so closing solo restores the document exactly and solo can
     // never corrupt the canvas render or the undo stack.
     KisPaintDeviceSP proj;
-    const bool wasAsyncBusy = !image->isIdle();
-    if (wasAsyncBusy) {
+    // 锁图 (对称笔画撤销宏) 时只读 locked() (无副作用), 不查询调度器, 也不 waitForDone
+    // (见 RenderLockGate.h)。锁住时放行同步合成, 保证主笔与实时镜像脏区每帧上屏。
+    const reverie::RenderGate gate =
+        reverie::renderGateFor(image->locked(), [&] { return image->isIdle(); });
+    if (gate.waitForMerger) {
         // If Krita's background async scheduler is actively updating projection (e.g. undo/redo,
         // committed layer opacity/blend/visibility), wait for it to settle first so projection tiles
         // are not concurrently written to by multiple threads (prevents KisTiledExtentManager SIGABRT).
@@ -171,13 +175,13 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
         proj = compositeSoloProjection();
     } else {
         proj = image->projection();
-        // If Krita's async merger just ran to completion (wasAsyncBusy), the projection device is already
+        // If Krita's async merger just ran to completion (gate.waitForMerger), the projection device is already
         // fully composited by Krita's native merger and clean. We do NOT need to re-clear and re-composite.
         // Fast synchronous compositeLayersRange is used when the background scheduler is idle:
         // 1) Active in-stroke drawing (m_drawing)
         // 2) Visible stroke layers requiring real-time stroke synchronization
         // 3) Pen-up final stroke completion or direct slider drag previews (!m_dirtyRect.isEmpty())
-        if (!wasAsyncBusy) {
+        if (!gate.waitForMerger) {
             bool hasSpecialCompositeLayer = false;
             for (const LayerEntry &le : m_layers) {
                 if (le.visible && (le.isStrokeLayer || le.nodeType == NodeTypeStroke || le.nodeType == NodeTypeTransparencyMask)) {
@@ -1270,7 +1274,9 @@ KisPaintDeviceSP ReverieCore::compositeSoloProjection()
             }
         }
     }
-    image->waitForDone();
+    if (reverie::mayWaitForImage(image->locked())) {
+        image->waitForDone();
+    }
 
     KisPaintDeviceSP out(new KisPaintDevice(image->colorSpace()));
     const QRect full(0, 0, image->width(), image->height());

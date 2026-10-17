@@ -171,4 +171,55 @@ class GuideModelsTest {
         assertEquals(500f, symPts[0].x, 0.01f)
         assertEquals(400f, symPts[0].y, 0.01f)
     }
+
+    @Test
+    fun `computeSymmetricSamples vertical mode mirrors point tilt and rotation`() {
+        val config = DrawingGuideConfig(
+            mode = GuideMode.SYMMETRY,
+            symmetryType = SymmetryType.VERTICAL,
+            symmetryCenterX = 0.5f,
+            symmetryCenterY = 0.5f
+        )
+        val samples = config.computeSymmetricSamples(
+            Point2D(600f, 500f), tiltX = 10f, tiltY = 3f, rotation = 30f,
+            docWidth = 1000, docHeight = 1000
+        )
+        assertEquals(1, samples.size)
+        assertEquals(400f, samples[0].point.x, 0.001f)
+        assertEquals(500f, samples[0].point.y, 0.001f)
+        // 倾角向量随点一起镜像, 笔杆自转在反射下取负
+        assertEquals(-10f, samples[0].tiltX, 0.001f)
+        assertEquals(3f, samples[0].tiltY, 0.001f)
+        assertEquals(-30f, samples[0].rotation, 0.001f)
+    }
+
+    @Test
+    fun `computeSymmetricSamples horizontal mode mirrors point tilt and rotation`() {
+        val config = DrawingGuideConfig(
+            mode = GuideMode.SYMMETRY,
+            symmetryType = SymmetryType.HORIZONTAL,
+            symmetryCenterX = 0.5f,
+            symmetryCenterY = 0.5f
+        )
+        val samples = config.computeSymmetricSamples(
+            Point2D(500f, 600f), tiltX = 10f, tiltY = 3f, rotation = 30f,
+            docWidth = 1000, docHeight = 1000
+        )
+        assertEquals(1, samples.size)
+        assertEquals(500f, samples[0].point.x, 0.001f)
+        assertEquals(400f, samples[0].point.y, 0.001f)
+        assertEquals(10f, samples[0].tiltX, 0.001f)
+        assertEquals(-3f, samples[0].tiltY, 0.001f)
+        assertEquals(-30f, samples[0].rotation, 0.001f)
+    }
+
+    @Test
+    fun `computeSymmetricSamples returns empty when symmetry mode is off`() {
+        val offConfig = DrawingGuideConfig(mode = GuideMode.OFF)
+        assertTrue(
+            offConfig.computeSymmetricSamples(
+                Point2D(600f, 500f), 10f, 3f, 30f, 1000, 1000
+            ).isEmpty()
+        )
+    }
 }

@@ -8,6 +8,7 @@
  * ReverieCoreInternal.h, public API in ReverieCore.h)
  * ============================================================ */
 #include "ReverieCoreInternal.h"
+#include "RenderLockGate.h"
 #include "ReverieCoreColorSpaceHook.h"
 
 void ReverieCore::selectShape(int kind, int x1, int y1, int x2, int y2)
@@ -189,7 +190,11 @@ void ReverieCore::selectSimilarAt(int x, int y, int tolerance, bool sampleMerged
     // Match against the visible composite (projection) or current layer
     KisPaintDeviceSP device = sampleMerged ? image->projection() : currentPaintDevice();
     if (!device) return;
-    image->waitForDone();
+    // 图像被撤销宏锁住 (对称笔画进行中) 时不等: 锁住的调度器排不空, waitForDone 会卡死;
+    // 锁住期间也没有 worker 在跑, 不存在要等的并发写者 (见 RenderLockGate.h)。
+    if (reverie::mayWaitForImage(image->locked())) {
+        image->waitForDone();
+    }
     QVector<quint8> bytes(size_t(iw) * ih * 4);
     device->readBytes(bytes.data(), 0, 0, iw, ih);
     const int tolSq = tolerance * tolerance;
@@ -395,7 +400,11 @@ QRect ReverieCore::contentBounds(const QVector<int> &layers)
     if (!image) {
         return QRect();
     }
-    image->waitForDone();
+    // 图像被撤销宏锁住 (对称笔画进行中) 时不等: 锁住的调度器排不空, waitForDone 会卡死;
+    // 锁住期间也没有 worker 在跑, 不存在要等的并发写者 (见 RenderLockGate.h)。
+    if (reverie::mayWaitForImage(image->locked())) {
+        image->waitForDone();
+    }
     // The edit target set (multi-select union, else the current layer) must
     // match applyTransformLayers so the rubber band + preview center agree
     // with the commit center

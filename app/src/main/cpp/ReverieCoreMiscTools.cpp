@@ -9,6 +9,7 @@
  * ============================================================ */
 #include "ReverieCoreInternal.h"
 #include "ReverieCoreUndoStore.h"
+#include "RenderLockGate.h"
 #include "PixelAlpha.h"
 #include "PixelRegion.h"
 #include "LiquifyMaterializeBatch.h"
@@ -21,6 +22,11 @@ void ReverieCore::cropCanvas(int x, int y, int w, int h)
 {
     KisImageSP image = m_document;
     if (!image || w <= 0 || h <= 0) {
+        return;
+    }
+    // 结构性操作必须等 resizeImage 的异步 stroke 落地才能读新尺寸; 图像被撤销宏锁住
+    // (对称笔画进行中) 时那个 stroke 永远派发不了, waitForDone 会卡死 -> 拒绝本次裁剪。
+    if (!reverie::mayWaitForImage(image->locked())) {
         return;
     }
     const QRect crop(x, y, w, h);
@@ -51,6 +57,10 @@ void ReverieCore::scaleImage(int w, int h, int filterStrategyType)
 {
     KisImageSP image = m_document;
     if (!image || w <= 0 || h <= 0) {
+        return;
+    }
+    // 同 cropCanvas: 锁住时 scaleImage 的 stroke 派发不了, 等待会卡死 -> 拒绝本次缩放。
+    if (!reverie::mayWaitForImage(image->locked())) {
         return;
     }
     const char *filterName = "Bicubic";

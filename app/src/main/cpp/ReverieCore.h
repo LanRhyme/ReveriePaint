@@ -12,6 +12,7 @@
 #define REVERIECORE_H
 
 #include "LiquifyInverseField.h"
+#include "MirrorLivePolicy.h"
 #include <QImage>
 #include <QPointF>
 #include <QVector>
@@ -813,6 +814,14 @@ public:
     // Returns true when this call flushed a batch and painted new ink (used
     // by the Kotlin transport to render only after real paint work).
     bool touchStrokeMove(qreal x, qreal y, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0, qreal timeSeconds = -1.0);
+    // 把一条镜像折线画进当前已经打开的原生笔触。不写入 m_strokeSamples，
+    // 因此不会和主笔连成一条跨轴的线。用各分支自己的距离累加器，不用 m_strokeDistance。
+    // 返回处理动作 (见 MirrorLivePolicy.h): Reject 时调用方走抬笔重放; Stale 表示
+    // [strokeSeq] 不是当前打开的笔画 (快速连笔时上一笔 / 下一笔的点), 整批丢弃。
+    reverie::MirrorBatchAction paintMirrorPolyline(const float *samples, int count, int stride, int branchIndex,
+                                                   int strokeSeq);
+    // s12-F1: Kotlin 在 touchStrokeStart 之后告知当前笔画的笔画号; start/end/cancel 清 0。
+    void setMirrorStrokeSeq(int strokeSeq);
     // Flush the pending stroke start as an ink dot when no movement arrived
     // yet (hold-still / slow-start latency fix). No-op once the stroke moved.
     // Returns true when a dot was painted.
@@ -1209,6 +1218,33 @@ private:
     qreal m_lastTiltX = 0.0;
     qreal m_lastTiltY = 0.0;
     qreal m_lastRotation = 0.0;
+    bool m_strokeUsedQuickPath = false;
+    bool m_strokeQuickPlanned = false;
+    // s12-F1: 当前打开笔画的笔画号 (Kotlin setMirrorStrokeSeq 设置, 0 = 不接受任何镜像批)。
+    int m_mirrorStrokeSeq = 0;
+    // 实时镜像折线的逐分支游标 (固定数组, 运笔热路径不分配)。
+    struct MirrorBranchCursor {
+        bool hasLast = false;
+        QPointF lastPos;
+        qreal lastPressure = 1.0;
+        qreal lastTiltX = 0.0;
+        qreal lastTiltY = 0.0;
+        qreal lastRotation = 0.0;
+        qreal lastTime = 0.0;
+        KisDistanceInformation distance;
+        // s12: 每个镜像分支自己的 painter + paintop (仿 Krita KisFreehandStrokeInfo /
+        // KisToolMultihand)。与主笔同一设备、同一 KisTransaction; 颜色/合成/选区每批从
+        // m_strokePainter 同步。由 releaseMirrorBranchOps() 释放 (endStrokeBatch 调用)。
+        KisPainter *painter = nullptr;
+        KisPaintOpSP op;
+    };
+    MirrorBranchCursor m_mirrorCursor[8];
+    // s12: 本笔已有镜像分支建过 paintop (实时出墨)。之后 paintMirrorPolyline 绝不再
+    // 返回 false, 否则 Kotlin 会在抬笔重放, 已实时画过的镜像墨被画第二遍。
+    bool m_mirrorLiveStarted = false;
+    bool m_mirrorDropLogged = false;
+    void releaseMirrorBranchOps();
+    KisPaintOpSP createStrokePaintOp(KisPainter *painter, KisImageSP image, int layerIndex, bool *fellBack);
     // Rendering: the last composited dirty region, used to copy only the
     // changed rows into the Android bitmap (m_bitmapInited gates the first
     // full copy).

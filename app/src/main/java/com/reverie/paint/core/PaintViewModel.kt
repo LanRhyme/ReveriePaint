@@ -4954,6 +4954,20 @@ class PaintViewModel : ViewModel() {
         const val STROKE_SAMPLE_STRIDE = 6
 
         /**
+         * 带时间的采样步进 (仅对称镜像重放使用): 前 6 个 float 与 [STROKE_SAMPLE_STRIDE]
+         * 相同, 第 7 个是相对笔锋起点的秒。JNI `touchStrokeMoveBatch` 按 stride 7 读取它,
+         * 让重放保留真实时间间隔而不是把整笔挤成 0 秒。实时运笔缓冲仍固定 6 元。
+         */
+        const val STROKE_SAMPLE_STRIDE_WITH_TIME = 7
+        /** 对称镜像实时队列: 最多 8 条分支, 每条 256 个 7 元采样点。 */
+        const val MIRROR_BRANCH_COUNT = 8
+        const val MIRROR_BRANCH_CAPACITY = 256
+        /** JNI touchStrokeMirrorBatch 返回值 (与 C++ reverie::MirrorBatchAction 映射一致)。 */
+        const val MIRROR_BATCH_ACCEPTED = 1
+        const val MIRROR_BATCH_REJECTED = 0
+        const val MIRROR_BATCH_STALE = -1
+
+        /**
          * 点刷家族判定: 印章/喷溅/飞溅/海绵/耙/噪点/粒子/网格/曲线/网点类预设。
          * 这类笔刷以大间距散点落墨, 连续盖印/连续假线都会失真, STAMP 与假线一律禁行。
          */
@@ -5068,6 +5082,30 @@ class PaintViewModel : ViewModel() {
     private val strokeDrainTimes = LongArray(STROKE_BATCH_CAPACITY)
     private var strokeBatchCount = 0
     private var batchOverflowLogCounter = 0 // queueStrokeMove 仅 UI 线程调用
+    // ---- 对称实时镜像队列 ----
+    // 镜像点由 UI 线程在 appendMirrorSample 里追加, 渲染线程独占 drain。
+    // s12-F1: 每个点带落笔时分配的笔画号; 渲染线程只取"引擎当前打开的那一笔"([engineMirrorSeq])
+    // 的点, 快速连笔时下一笔的点不会被上一笔收尾的 drain 画进上一笔的笔触。
+    private val mirrorQueue = MirrorSampleQueue(MIRROR_BRANCH_COUNT, MIRROR_BRANCH_CAPACITY, STROKE_SAMPLE_STRIDE_WITH_TIME)
+    private val mirrorDrainCoords = arrayOfNulls<FloatArray>(MIRROR_BRANCH_COUNT)
+    private val mirrorPushScratch = FloatArray(STROKE_SAMPLE_STRIDE_WITH_TIME) // 仅 UI 线程
+    private var mirrorOverflowLogCounter = 0
+    /** 笔画号计数 (仅 UI 线程, touchStart 递增; 0 表示"没有笔画")。 */
+    internal var mirrorStrokeSeqCounter = 0
+    /**
+     * 渲染线程: 引擎当前打开的笔画的笔画号 (touchStart 的 runCore 在 touchStrokeStart 之后设置,
+     * touchEnd / touchCancel 的 runCore 在 touchStrokeEnd / touchStrokeCancel 之后清 0)。
+     */
+    @Volatile internal var engineMirrorSeq = 0
+    /**
+     * s12: 本笔镜像的实时出墨状态门 (OFF / PENDING / LIVE / FALLBACK, 见 [MirrorLiveGate])。
+     * 引擎侧每个镜像分支有独立 painter + paintop, 接受后镜像与主笔同笔触实时出真墨。
+     */
+    internal val mirrorGate = MirrorLiveGate()
+    /** 镜像已实时画进打开的笔触 (预览关闭、抬笔不重放)。只读, 由 [mirrorGate] 决定。 */
+    val symmetryMirrorLive: Boolean get() = mirrorGate.isLive
+    /** s13-C5: 本笔已被撤销/重做/取消中止, 抬笔不得重放镜像 (见 [MirrorLiveGate.abort])。 */
+    val mirrorStrokeAborted: Boolean get() = mirrorGate.isAborted
     @Volatile private var strokeBatchQueued = false
     @Volatile private var lastQueuedInputEventTime = 0L
     @Volatile private var lastQueuedUptime = 0L
@@ -5140,11 +5178,14 @@ class PaintViewModel : ViewModel() {
         } catch (_: Throwable) {
             false
         }
+        // 镜像折线必须画在主笔同一批之后、doRender 之前。主笔这一批没落墨时也要 drain。
+        // 不为镜像单独再开一次 doRender。
+        val mirrorPainted = drainMirrorBatchesOnRenderThread()
         val dtKritaNs = android.os.SystemClock.elapsedRealtimeNanos() - tKritaStartNs
         val dtKrita = dtKritaNs / 1_000_000L
         var dtRenderNs = 0L
         // Render immediately in-place after ink landed to eliminate message queue roundtrip latency
-        if (painted) {
+        if (painted || mirrorPainted) {
             val tRenderStartNs = android.os.SystemClock.elapsedRealtimeNanos()
             doRender()
             dtRenderNs = android.os.SystemClock.elapsedRealtimeNanos() - tRenderStartNs
@@ -5155,13 +5196,15 @@ class PaintViewModel : ViewModel() {
             if (e2e in 5L..250L) {
                 lastE2ePipelineMs = e2e
             }
-            val lastSampleIdx = n - 1
-            val lastCoordIdx = lastSampleIdx * STROKE_SAMPLE_STRIDE
-            updateRenderedFrontier(
-                strokeDrainCoords[lastCoordIdx],
-                strokeDrainCoords[lastCoordIdx + 1],
-                strokeDrainTimes[lastSampleIdx]
-            )
+            if (n > 0) {
+                val lastSampleIdx = n - 1
+                val lastCoordIdx = lastSampleIdx * STROKE_SAMPLE_STRIDE
+                updateRenderedFrontier(
+                    strokeDrainCoords[lastCoordIdx],
+                    strokeDrainCoords[lastCoordIdx + 1],
+                    strokeDrainTimes[lastSampleIdx]
+                )
+            }
 
             if (++perfLogCounter % 5 == 0) {
                 android.util.Log.i(
@@ -5240,7 +5283,140 @@ class PaintViewModel : ViewModel() {
         synchronized(strokeBatchLock) {
             strokeBatchCount = 0
         }
+        // s12-F1: 取消 / 撤销 / 重做 / 离开页面都会让引擎关掉打开的笔触, 镜像门同步关掉,
+        // 否则后续镜像批被引擎按过期丢弃而 Kotlin 仍以为在实时出墨, 抬笔也不重放。
+        mirrorGate.abort()
+        mirrorQueue.clear()
         resetRenderedFrontier()
+    }
+
+    /**
+     * 渲染线程上把队列里还没跑的运笔补点一次跑完 (抬笔收尾专用)。
+     *
+     * 抬笔时 [PaintViewModel.touchEnd] 会补发 8 个追赶点 + 4 个收锋点, 它们要等
+     * [strokeBatchRunnable] 才进引擎; 而这个 runnable 可能是"上一批补丁渲染期间"才投递的,
+     * 排在收尾任务**之后** —— 直接提交 touchStrokeEnd 会把这一截尾端墨丢掉。
+     *
+     * 只允许在渲染线程调用 (调用点就是 runCore 的 op 里)。先把队列里那份还没执行的
+     * runnable 摘掉再手动跑, 免得它稍后带着空批再跑一次、把 pendingCoreOps 多减一遍。
+     */
+    internal fun drainPendingStrokeBatchOnRenderThread() {
+        if (!strokeBatchQueued) return
+        renderHandler?.removeCallbacks(strokeBatchRunnable)
+        strokeBatchRunnable.run()
+    }
+
+    /**
+     * UI 线程: 追加一个镜像采样点。队列满时丢弃最新的这个点 (不覆盖已入队的点),
+     * 也不在 UI 线程调用 JNI。
+     */
+    internal fun queueMirrorSample(
+        branchIndex: Int,
+        x: Float,
+        y: Float,
+        pressure: Float,
+        tiltX: Float,
+        tiltY: Float,
+        rotation: Float,
+        timeSeconds: Float,
+    ) {
+        if (!mirrorGate.isQueueing) return
+        if (branchIndex < 0 || branchIndex >= MIRROR_BRANCH_COUNT) return
+        if (x.isNaN() || y.isNaN()) return
+        val seq = mirrorGate.currentSeq
+        if (seq <= 0) return
+        val sc = mirrorPushScratch
+        sc[0] = x
+        sc[1] = y
+        sc[2] = if (pressure.isNaN()) 1f else pressure.coerceIn(0f, 1f)
+        // 与主笔 touchStart / queueStrokeMove 一致, 倾角夹到 ±60
+        sc[3] = if (tiltX.isNaN()) 0f else tiltX.coerceIn(-60f, 60f)
+        sc[4] = if (tiltY.isNaN()) 0f else tiltY.coerceIn(-60f, 60f)
+        sc[5] = if (rotation.isNaN()) 0f else rotation
+        sc[6] = if (timeSeconds.isNaN()) 0f else timeSeconds.coerceAtLeast(0f)
+        if (!mirrorQueue.push(branchIndex, seq, sc) && ++mirrorOverflowLogCounter % 60 == 1) {
+            android.util.Log.w(
+                "ReverieCore",
+                "MirrorBatch overflow: branch=$branchIndex dropped (capacity=$MIRROR_BRANCH_CAPACITY)"
+            )
+        }
+    }
+
+    /**
+     * 渲染线程: 把引擎当前打开那一笔 ([engineMirrorSeq]) 的镜像点画进笔触。返回是否送出了被引擎
+     * 接受的镜像墨 (调用方据此决定要不要 doRender)。
+     *
+     * - 只取本笔笔画号的点; 下一笔 (笔画号更大) 的点留在队列里, 更早的过期点丢弃。
+     * - 本笔还在 PENDING 时, 送墨在 [MirrorLiveGate.withLock] 内执行, 与 UI 线程抬笔判定
+     *   ([resolveMirrorLiveAtPenUp]) 互斥; 进入 LIVE 后不可能再回退, 其余分支在锁外送 (UI 不被整批阻塞)。
+     * - 引擎拒绝 (本笔还没有任何实时镜像墨) -> FALLBACK, 丢弃本笔剩余镜像点, 抬笔走 replaySymmetricBranches。
+     * - 引擎回报过期 (它已不在画这一笔) -> 丢弃本笔剩余镜像点, 状态不变。
+     */
+    internal fun drainMirrorBatchesOnRenderThread(): Boolean {
+        val seq = engineMirrorSeq
+        if (seq <= 0) return false
+        val st0 = mirrorGate.stateOf(seq)
+        if (st0 != MirrorLiveGate.State.PENDING && st0 != MirrorLiveGate.State.LIVE) {
+            if (st0 == MirrorLiveGate.State.FALLBACK) mirrorQueue.discardUpTo(seq)
+            return false
+        }
+        var painted = false
+        for (b in 0 until MIRROR_BRANCH_COUNT) {
+            val dst = mirrorQueue.take(b, seq, mirrorDrainCoords[b]) ?: continue
+            mirrorDrainCoords[b] = dst
+            val n = dst.size / STROKE_SAMPLE_STRIDE_WITH_TIME
+            val result: MirrorLiveGate.EngineResult? = when (mirrorGate.stateOf(seq)) {
+                MirrorLiveGate.State.LIVE -> sendMirrorBatch(dst, n, b, seq).also { mirrorGate.onEngineResult(seq, it) }
+                MirrorLiveGate.State.PENDING -> mirrorGate.withLock {
+                    // 锁内再看一次: UI 线程可能刚在抬笔时把本笔判成 FALLBACK
+                    when (mirrorGate.stateOf(seq)) {
+                        MirrorLiveGate.State.PENDING, MirrorLiveGate.State.LIVE ->
+                            sendMirrorBatch(dst, n, b, seq).also { mirrorGate.onEngineResult(seq, it) }
+                        else -> null
+                    }
+                }
+                else -> null
+            }
+            when (result) {
+                MirrorLiveGate.EngineResult.ACCEPTED -> painted = true
+                MirrorLiveGate.EngineResult.REJECTED -> {
+                    if (mirrorGate.stateOf(seq) != MirrorLiveGate.State.LIVE) {
+                        // 本笔还没有实时镜像墨: 抬笔重放 (镜像缓冲仍完整保存在 CanvasTouchView)
+                        mirrorQueue.discardUpTo(seq)
+                        return painted
+                    }
+                }
+                MirrorLiveGate.EngineResult.STALE, null -> {
+                    mirrorQueue.discardUpTo(seq)
+                    return painted
+                }
+            }
+        }
+        return painted
+    }
+
+    /** 渲染线程: 送一批镜像点并把 JNI 返回码映射成 [MirrorLiveGate.EngineResult]。 */
+    private fun sendMirrorBatch(coords: FloatArray, count: Int, branch: Int, seq: Int): MirrorLiveGate.EngineResult {
+        val r = try {
+            ReverieCoreBridge.touchStrokeMirrorBatch(coords, count, branch, seq)
+        } catch (_: Throwable) {
+            MIRROR_BATCH_REJECTED
+        }
+        return when (r) {
+            MIRROR_BATCH_ACCEPTED -> MirrorLiveGate.EngineResult.ACCEPTED
+            MIRROR_BATCH_STALE -> MirrorLiveGate.EngineResult.STALE
+            else -> MirrorLiveGate.EngineResult.REJECTED
+        }
+    }
+
+    /**
+     * UI 线程抬笔: 镜像是否已实时出墨。false 时 (含引擎还没来得及确认) 本笔停止入队并丢弃本笔
+     * 还在队列里的镜像点, 调用方走 replaySymmetricBranches; 保证不会既实时又重放。
+     */
+    internal fun resolveMirrorLiveAtPenUp(): Boolean {
+        val live = mirrorGate.resolveAtPenUp()
+        if (!live) mirrorQueue.discardUpTo(mirrorGate.currentSeq)
+        return live
     }
 
     // Airbrush hold-still ink flow: a self-rescheduling timer on the render
@@ -5310,7 +5486,9 @@ class PaintViewModel : ViewModel() {
         } catch (_: Throwable) {
             false
         }
-        if (painted) {
+        // s12: 落笔不动时镜像起笔点也要同帧出墨 (镜像分支实时 paintop), 否则镜像一侧要等第一批运笔。
+        val mirrorPainted = drainMirrorBatchesOnRenderThread()
+        if (painted || mirrorPainted) {
             scheduleRender()
         }
     }

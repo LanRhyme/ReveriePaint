@@ -8,6 +8,7 @@
  * ReverieCoreInternal.h, public API in ReverieCore.h)
  * ============================================================ */
 #include "ReverieCoreInternal.h"
+#include "RenderLockGate.h"
 #include <functional>
 #include <QSet>
 
@@ -320,7 +321,11 @@ int ReverieCore::copyLayer(int index)
     if (!image) return -1;
 
     // 关键1: 等待正在进行的渲染或重投影完成, 避免 clone 瓦片时并发冲突
-    image->waitForDone();
+    // 图像被撤销宏锁住 (对称笔画进行中) 时不等: 锁住的调度器排不空, waitForDone 会卡死;
+    // 锁住期间也没有 worker 在跑, 不存在要等的并发写者 (见 RenderLockGate.h)。
+    if (reverie::mayWaitForImage(image->locked())) {
+        image->waitForDone();
+    }
 
     KisNodeSP cloned = src.node->clone();
     if (!cloned) return -1;
@@ -472,7 +477,11 @@ int ReverieCore::copySelectionToNewLayer(bool cut)
     currentInsertPosition(m_layers, m_currentLayer, above, parent, image);
     pushUndoCommand(new KisImageLayerAddCommand(image, newLayer, parent, above));
 
-    image->waitForDone();
+    // 图像被撤销宏锁住 (对称笔画进行中) 时不等: 锁住的调度器排不空, waitForDone 会卡死;
+    // 锁住期间也没有 worker 在跑, 不存在要等的并发写者 (见 RenderLockGate.h)。
+    if (reverie::mayWaitForImage(image->locked())) {
+        image->waitForDone();
+    }
     recompositeProjection();
     syncLayersFromImage();
 
@@ -545,8 +554,12 @@ int ReverieCore::pasteCanvasClipboard()
     layer->paintDevice()->setDirty(bounds);
     // Paste at root level so a locked/hidden group cannot trap the new editable layer.
     pushUndoCommand(new KisImageLayerAddCommand(m_document, layer, m_document->rootLayer(),
-                                                m_document->rootLayer()->lastChild()));
-    m_document->waitForDone();
+                                                 m_document->rootLayer()->lastChild()));
+    // 图像被撤销宏锁住 (对称笔画进行中) 时不等: 锁住的调度器排不空, waitForDone 会卡死;
+    // 锁住期间也没有 worker 在跑, 不存在要等的并发写者 (见 RenderLockGate.h)。
+    if (reverie::mayWaitForImage(m_document->locked())) {
+        m_document->waitForDone();
+    }
     recompositeProjection();
     syncLayersFromImage();
     const int index = indexOfNode(layer.data());
@@ -829,7 +842,8 @@ void ReverieCore::setLayerOpacity(int index, qreal opacity)
         recompositeProjection();
     } else {
         m_layers[index].node->setDirty(QRect(0, 0, m_document->width(), m_document->height()));
-        if (m_document) {
+        // 锁住 (对称笔画撤销宏) 时只入队不等, 否则卡死; 解锁后第一帧会先等合并器 (见 RenderLockGate.h)。
+        if (m_document && reverie::mayWaitForImage(m_document->locked())) {
             m_document->waitForDone();
         }
     }
@@ -872,7 +886,8 @@ void ReverieCore::setLayerBlendMode(int index, const QString &opId)
         } else {
             m_layers[index].node->setDirty(
                 QRect(0, 0, m_document->width(), m_document->height()));
-            if (m_document) {
+            // 锁住 (对称笔画撤销宏) 时只入队不等, 否则卡死; 解锁后第一帧会先等合并器 (见 RenderLockGate.h)。
+            if (m_document && reverie::mayWaitForImage(m_document->locked())) {
                 m_document->waitForDone();
             }
         }

@@ -615,6 +615,16 @@ object ReverieCoreBridge {
      *  painted new ink — only then does the caller schedule a render. */
     external fun touchStrokeMoveBatch(coords: FloatArray, count: Int): Boolean
 
+    /** 对称实时镜像: 把一条 7 元镜像折线画进当前已经打开的原生笔触。
+     *  [coords] 长度必须精确等于 [count] * 7。[strokeSeq] 是这些点所属笔画的笔画号
+     *  (见 [setMirrorStrokeSeq])。返回 1 = 已接受 (实时出墨), 0 = 引擎拒绝 (调用方走抬笔重放),
+     *  -1 = 过期 (引擎当前没有打开这一笔, 点被丢弃)。 */
+    external fun touchStrokeMirrorBatch(coords: FloatArray, count: Int, branchIndex: Int, strokeSeq: Int): Int
+
+    /** s12-F1: 在 touchStrokeStart 之后 (同一渲染线程任务内) 告诉引擎当前打开笔画的笔画号。
+     *  touchStrokeStart / touchStrokeEnd / touchStrokeCancel 都会把它清 0。 */
+    external fun setMirrorStrokeSeq(strokeSeq: Int)
+
     /** Flush the pending stroke-start dot when no movement arrived yet
      *  (pen-down instant-ink feedback). Returns true when ink was painted. */
     external fun touchStrokeKickIdle(): Boolean
