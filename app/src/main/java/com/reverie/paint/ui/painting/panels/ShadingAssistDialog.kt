@@ -81,7 +81,7 @@ fun ShadingAssistDialog(
                         vm.updateShadingConfig(vm.shadingAssistConfig, reloadLineart = true)
                     },
                     onFailure = {
-                        Toast.makeText(context, it.message ?: "Import failed", Toast.LENGTH_SHORT).show()
+                        Toast.makeText(context, it.message ?: context.getString(R.string.shading_assist_import_failed), Toast.LENGTH_SHORT).show()
                     }
                 )
             }
@@ -876,7 +876,7 @@ private fun LightOrbManipulator(
             // 动态绘制带 3D 照亮高光与背光渐变的立体小球
             drawCircle(
                 brush = Brush.radialGradient(
-                    colors = listOf(Color(0xFFF3F4F6), Color(0xFF9CA3AF), Color(0xFF374151), Color(0xFF111827)),
+                    colors = listOf(Morandi.text, Morandi.subText, Morandi.panelHi, Morandi.bg),
                     center = Offset(pinX, pinY),
                     radius = center * 1.6f
                 ),
@@ -886,17 +886,17 @@ private fun LightOrbManipulator(
 
             // 绘制光源光晕与锚点
             drawCircle(
-                color = Color(0xFFFFD54F).copy(alpha = 0.50f),
+                color = Morandi.accent.copy(alpha = 0.40f),
                 radius = 14.dp.toPx(),
                 center = Offset(pinX, pinY)
             )
             drawCircle(
-                color = Color.White,
+                color = Morandi.onAccent,
                 radius = 6.dp.toPx(),
                 center = Offset(pinX, pinY)
             )
             drawCircle(
-                color = Color(0xFFFFB300),
+                color = Morandi.accentHi,
                 radius = 6.dp.toPx(),
                 center = Offset(pinX, pinY),
                 style = Stroke(width = 2.dp.toPx())
@@ -952,7 +952,7 @@ private fun ModelStatusCard(
                     is ModelStatus.Ready -> {
                         Surface(
                             shape = RoundedCornerShape(12.dp),
-                            color = Color(0xFF2E7D32).copy(alpha = 0.15f),
+                            color = Morandi.accent.copy(alpha = 0.15f),
                             border = null
                         ) {
                             Row(
@@ -964,13 +964,13 @@ private fun ModelStatusCard(
                                     modifier = Modifier
                                         .size(6.dp)
                                         .clip(CircleShape)
-                                        .background(Color(0xFF4CAF50))
+                                        .background(Morandi.accent)
                                 )
                                 Text(
                                     text = stringResource(R.string.shading_assist_model_status_ready),
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Medium,
-                                    color = Color(0xFF4CAF50)
+                                    color = Morandi.accent
                                 )
                             }
                         }
@@ -1060,7 +1060,7 @@ private fun ModelStatusCard(
                             Text(
                                 text = stringResource(R.string.shading_assist_model_uninstall),
                                 fontSize = 11.sp,
-                                color = Color(0xFFE57373),
+                                color = Morandi.error,
                                 modifier = Modifier.clickable { onUninstall() }
                             )
                         }

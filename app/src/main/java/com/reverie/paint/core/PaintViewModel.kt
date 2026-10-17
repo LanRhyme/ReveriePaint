@@ -743,6 +743,8 @@ class PaintViewModel : ViewModel() {
     internal var shadingAssistBaseBitmap: Bitmap? = null
     internal var shadingAssistLineBitmap: Bitmap? = null
     internal var shadingAssistRenderJob: kotlinx.coroutines.Job? = null
+    internal var shadingAssistComputeJob: kotlinx.coroutines.Job? = null
+    internal var shadingAssistRawDepth: ShadingAssistEngine.RawDepthData? = null
 
     fun toggleFavoriteBrush(name: String) {
         if (name.isBlank()) return
