@@ -65,15 +65,13 @@ object ShadingModelManager {
     /** 检查并刷新当前模型就绪状态 */
     fun checkStatus(context: Context) {
         val dir = getModelDir(context)
-        // 清理过时的 v1/v2 模型以触发推荐升级
+        // 清理过时的 v1/v2/sprite2normal 模型
         val oldV1 = File(dir, "anime_normal_v1.onnx")
-        if (oldV1.exists()) {
-            oldV1.delete()
-        }
+        if (oldV1.exists()) oldV1.delete()
         val oldV2 = File(dir, "anime_normal_v2.onnx")
-        if (oldV2.exists()) {
-            oldV2.delete()
-        }
+        if (oldV2.exists()) oldV2.delete()
+        val oldSprite = File(dir, "sprite2normal.onnx")
+        if (oldSprite.exists()) oldSprite.delete()
 
         val custom = File(dir, CUSTOM_MODEL_NAME)
         if (custom.exists() && custom.length() > 0) {

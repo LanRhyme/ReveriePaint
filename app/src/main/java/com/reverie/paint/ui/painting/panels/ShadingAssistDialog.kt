@@ -74,7 +74,7 @@ fun ShadingAssistDialog(
                 ShadingModelManager.importCustomModel(context, uri).fold(
                     onSuccess = {
                         Toast.makeText(context, R.string.shading_assist_model_ready, Toast.LENGTH_SHORT).show()
-                        vm.updateShadingConfig(vm.shadingAssistConfig, reloadLineart = true)
+                        vm.updateShadingConfig(vm.shadingAssistConfig.copy(useAiModel = true), reloadLineart = true)
                     },
                     onFailure = {
                         Toast.makeText(context, it.message ?: "Import failed", Toast.LENGTH_SHORT).show()
@@ -272,13 +272,17 @@ fun ShadingAssistDialog(
                         ) {
                             // 1. AI 神经网络模型状态卡片
                             ModelStatusCard(
+                                useAiModel = config.useAiModel,
+                                onToggleAiModel = {
+                                    vm.updateShadingConfig(vm.shadingAssistConfig.copy(useAiModel = it))
+                                },
                                 status = modelStatus,
                                 onDownload = {
                                     ShadingModelManager.startDownload(
                                         context = context,
                                         scope = coroutineScope,
                                         onSuccess = {
-                                            vm.updateShadingConfig(vm.shadingAssistConfig, reloadLineart = true)
+                                            vm.updateShadingConfig(vm.shadingAssistConfig.copy(useAiModel = true), reloadLineart = true)
                                         }
                                     )
                                 },
@@ -584,14 +588,14 @@ private fun LightOrbManipulator(
     onLightChange: (azimuth: Float, elevation: Float) -> Unit,
     modifier: Modifier = Modifier
 ) {
+    val currentOnLightChange by rememberUpdatedState(onLightChange)
+    val azRad = Math.toRadians(azimuthDeg.toDouble())
+    // 仰角在 [40°, 85°] 之间平滑映射 (圆心 85° 顶部光, 边缘 40° 侧光, 绝不出现 10° 严重偏暗逆光)
+    val distRatio = ((85f - elevationDeg.coerceIn(40f, 85f)) / 45f).coerceIn(0.0f, 0.95f)
+
     Box(
         modifier = modifier
             .clip(CircleShape)
-            .background(
-                Brush.radialGradient(
-                    colors = listOf(Color(0xFFE5E7EB), Color(0xFF6B7280), Color(0xFF1F2937))
-                )
-            )
             .border(1.5.dp, Morandi.border, CircleShape)
             .pointerInput(Unit) {
                 detectDragGestures { change, _ ->
@@ -600,29 +604,38 @@ private fun LightOrbManipulator(
                     val dx = (change.position.x - center) / center
                     val dy = (change.position.y - center) / center
 
-                    val dist = sqrt(dx * dx + dy * dy).coerceIn(0f, 0.98f)
+                    val dist = sqrt(dx * dx + dy * dy).coerceIn(0f, 0.95f)
                     var az = Math.toDegrees(atan2(-dy.toDouble(), dx.toDouble())).toFloat()
                     if (az < 0) az += 360f
 
-                    // 离球心越近仰角越高 (接近 85°)，离边缘越近仰角越低 (接近 10°)
-                    val el = (1.0f - dist) * 75f + 10f
-                    onLightChange(az, el)
+                    // 离球心越近仰角越高 (接近 85°)，离边缘越近仰角为 40°，完美适配二次元正面受光
+                    val el = (1.0f - dist) * 45f + 40f
+                    currentOnLightChange(az, el)
                 }
             }
     ) {
         Canvas(modifier = Modifier.fillMaxSize()) {
             val center = size.width / 2f
-            val azRad = Math.toRadians(azimuthDeg.toDouble())
-            val distRatio = (1.0f - (elevationDeg - 10f) / 75f).coerceIn(0.05f, 0.95f)
             val indicatorDist = center * distRatio
 
             val pinX = center + indicatorDist * cos(azRad).toFloat()
             val pinY = center - indicatorDist * sin(azRad).toFloat()
 
+            // 动态绘制带 3D 照亮高光与背光渐变的立体小球
+            drawCircle(
+                brush = Brush.radialGradient(
+                    colors = listOf(Color(0xFFF3F4F6), Color(0xFF9CA3AF), Color(0xFF374151), Color(0xFF111827)),
+                    center = Offset(pinX, pinY),
+                    radius = center * 1.6f
+                ),
+                radius = center,
+                center = Offset(center, center)
+            )
+
             // 绘制光源光晕与锚点
             drawCircle(
-                color = Color(0xFFFFD54F).copy(alpha = 0.45f),
-                radius = 12.dp.toPx(),
+                color = Color(0xFFFFD54F).copy(alpha = 0.50f),
+                radius = 14.dp.toPx(),
                 center = Offset(pinX, pinY)
             )
             drawCircle(
@@ -641,10 +654,12 @@ private fun LightOrbManipulator(
 }
 
 /**
- * AI 模型状态展示卡片
+ * 阴影计算引擎与 AI 模型状态展示卡片
  */
 @Composable
 private fun ModelStatusCard(
+    useAiModel: Boolean,
+    onToggleAiModel: (Boolean) -> Unit,
     status: ModelStatus,
     onDownload: () -> Unit,
     onCancelDownload: () -> Unit,
@@ -656,103 +671,132 @@ private fun ModelStatusCard(
         shape = RoundedCornerShape(10.dp),
         colors = CardDefaults.cardColors(containerColor = Morandi.panelHi)
     ) {
-        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-            when (status) {
-                is ModelStatus.Ready -> {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.SpaceBetween
-                    ) {
-                        Row(verticalAlignment = Alignment.CenterVertically) {
-                            Box(
-                                modifier = Modifier
-                                    .size(8.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFF10B981))
-                            )
-                            Spacer(Modifier.width(6.dp))
-                            Text(
-                                text = stringResource(R.string.shading_assist_model_ready),
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                color = Morandi.text
-                            )
-                        }
-
-                        if (status.isCustom) {
-                            Text(
-                                text = stringResource(R.string.shading_assist_reset_model),
-                                fontSize = 11.sp,
-                                color = Morandi.accent,
-                                modifier = Modifier.clickable { onResetDefault() }
-                            )
-                        }
-                    }
+        Column(modifier = Modifier.padding(10.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            // 顶栏：引擎标识与模式切换
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Box(
+                        modifier = Modifier
+                            .size(8.dp)
+                            .clip(CircleShape)
+                            .background(if (useAiModel) Color(0xFF3B82F6) else Color(0xFF10B981))
+                    )
+                    Spacer(Modifier.width(6.dp))
                     Text(
-                        text = if (status.isCustom) {
-                            stringResource(R.string.shading_assist_custom_model_active, status.fileName)
+                        text = if (useAiModel) {
+                            stringResource(R.string.shading_assist_model_ready)
                         } else {
-                            status.fileName
+                            stringResource(R.string.shading_assist_model_synthetic)
                         },
-                        fontSize = 10.sp,
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                        color = Morandi.text
+                    )
+                }
+
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(6.dp)
+                ) {
+                    Text(
+                        text = stringResource(R.string.shading_assist_use_ai_model),
+                        fontSize = 11.sp,
                         color = Morandi.subText
                     )
-                }
-
-                is ModelStatus.Downloading -> {
-                    Text(
-                        text = stringResource(R.string.shading_assist_downloading, status.progressPercent),
-                        fontSize = 11.sp,
-                        color = Morandi.accent
+                    ReSwitch(
+                        checked = useAiModel,
+                        onChecked = onToggleAiModel
                     )
-                    LinearProgressIndicator(
-                        progress = { status.progressPercent / 100f },
-                        modifier = Modifier.fillMaxWidth(),
-                        color = Morandi.accent
-                    )
-                    Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
-                        Text(
-                            text = stringResource(R.string.common_cancel),
-                            fontSize = 11.sp,
-                            color = Morandi.subText,
-                            modifier = Modifier.clickable { onCancelDownload() }
-                        )
-                    }
                 }
+            }
 
-                else -> {
-                    Row(verticalAlignment = Alignment.CenterVertically) {
-                        Box(
-                            modifier = Modifier
-                                .size(8.dp)
-                                .clip(CircleShape)
-                                .background(Color(0xFFF59E0B))
-                        )
-                        Spacer(Modifier.width(6.dp))
-                        Text(
-                            text = stringResource(R.string.shading_assist_model_synthetic),
-                            fontSize = 11.sp,
-                            color = Morandi.subText
-                        )
+            if (!useAiModel) {
+                Text(
+                    text = stringResource(R.string.shading_assist_engine_desc),
+                    fontSize = 10.sp,
+                    color = Morandi.subText
+                )
+            } else {
+                when (status) {
+                    is ModelStatus.Ready -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween
+                        ) {
+                            Text(
+                                text = if (status.isCustom) {
+                                    stringResource(R.string.shading_assist_custom_model_active, status.fileName)
+                                } else {
+                                    status.fileName
+                                },
+                                fontSize = 10.sp,
+                                color = Morandi.subText,
+                                modifier = Modifier.weight(1f, fill = false)
+                            )
+                            Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                                if (status.isCustom) {
+                                    Text(
+                                        text = stringResource(R.string.shading_assist_reset_model),
+                                        fontSize = 11.sp,
+                                        color = Morandi.accent,
+                                        modifier = Modifier.clickable { onResetDefault() }
+                                    )
+                                }
+                                Text(
+                                    text = stringResource(R.string.shading_assist_import_model),
+                                    fontSize = 11.sp,
+                                    color = Morandi.accent,
+                                    modifier = Modifier.clickable { onImportLocal() }
+                                )
+                            }
+                        }
                     }
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp)
-                    ) {
-                        ReTextButton(
-                            text = stringResource(R.string.shading_assist_download_model),
-                            onClick = onDownload,
-                            primary = true,
+
+                    is ModelStatus.Downloading -> {
+                        Text(
+                            text = stringResource(R.string.shading_assist_downloading, status.progressPercent),
                             fontSize = 11.sp,
-                            modifier = Modifier.weight(1f)
+                            color = Morandi.accent
                         )
-                        ReTextButton(
-                            text = stringResource(R.string.shading_assist_import_model),
-                            onClick = onImportLocal,
-                            fontSize = 11.sp,
-                            modifier = Modifier.weight(1f)
+                        LinearProgressIndicator(
+                            progress = { status.progressPercent / 100f },
+                            modifier = Modifier.fillMaxWidth(),
+                            color = Morandi.accent
                         )
+                        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                            Text(
+                                text = stringResource(R.string.common_cancel),
+                                fontSize = 11.sp,
+                                color = Morandi.subText,
+                                modifier = Modifier.clickable { onCancelDownload() }
+                            )
+                        }
+                    }
+
+                    else -> {
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp)
+                        ) {
+                            ReTextButton(
+                                text = stringResource(R.string.shading_assist_download_model),
+                                onClick = onDownload,
+                                primary = true,
+                                fontSize = 11.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                            ReTextButton(
+                                text = stringResource(R.string.shading_assist_import_model),
+                                onClick = onImportLocal,
+                                fontSize = 11.sp,
+                                modifier = Modifier.weight(1f)
+                            )
+                        }
                     }
                 }
             }

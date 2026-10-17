@@ -2750,7 +2750,9 @@
     <string name="shading_assist_apply">Generate Shadow Layer</string>
     <string name="shading_assist_generating">Generating shadow layer...</string>
     <string name="shading_assist_model_ready">AI Neural Model Ready</string>
-    <string name="shading_assist_model_synthetic">2.5D Synthetic Mode (No AI model detected)</string>
+    <string name="shading_assist_model_synthetic">Built-in 2.5D Shading Engine</string>
+    <string name="shading_assist_engine_desc">Recommended: Clean anime cel shading, zero noise, smooth line art flow</string>
+    <string name="shading_assist_use_ai_model">Enable AI Model</string>
     <string name="shading_assist_download_model">Download Recommended AI Model</string>
     <string name="shading_assist_import_model">Import Local .onnx</string>
     <string name="shading_assist_downloading">Downloading model (%1$d%%)</string>

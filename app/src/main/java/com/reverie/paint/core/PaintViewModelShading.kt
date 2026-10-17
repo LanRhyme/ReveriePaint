@@ -82,6 +82,7 @@ internal fun PaintViewModel.openShadingAssist() {
             baseBitmap = baseBmp,
             lineBitmap = shadingAssistLineBitmap,
             modelFile = modelFile,
+            useAiModel = shadingAssistConfig.useAiModel,
             targetResolution = previewW
         )
         shadingAssistNormalField = normalField
@@ -122,19 +123,22 @@ internal fun PaintViewModel.updateShadingConfig(
     reloadLineart: Boolean = false
 ) {
     val lineLayerChanged = reloadLineart || (newConfig.referenceLineLayerId != shadingAssistConfig.referenceLineLayerId)
+    val modelModeChanged = newConfig.useAiModel != shadingAssistConfig.useAiModel
     shadingAssistConfig = newConfig
 
     val baseBmp = shadingAssistBaseBitmap ?: return
-    if (lineLayerChanged) {
-        shadingAssistLineBitmap?.recycle()
-        shadingAssistLineBitmap = null
-        val lineId = newConfig.referenceLineLayerId
-        if (lineId != null) {
-            val lineBmp = Bitmap.createBitmap(baseBmp.width, baseBmp.height, Bitmap.Config.ARGB_8888)
-            if (renderLayerPixels(lineId, lineBmp)) {
-                shadingAssistLineBitmap = lineBmp
-            } else {
-                lineBmp.recycle()
+    if (lineLayerChanged || modelModeChanged) {
+        if (lineLayerChanged) {
+            shadingAssistLineBitmap?.recycle()
+            shadingAssistLineBitmap = null
+            val lineId = newConfig.referenceLineLayerId
+            if (lineId != null) {
+                val lineBmp = Bitmap.createBitmap(baseBmp.width, baseBmp.height, Bitmap.Config.ARGB_8888)
+                if (renderLayerPixels(lineId, lineBmp)) {
+                    shadingAssistLineBitmap = lineBmp
+                } else {
+                    lineBmp.recycle()
+                }
             }
         }
 
@@ -146,6 +150,7 @@ internal fun PaintViewModel.updateShadingConfig(
                 baseBitmap = baseBmp,
                 lineBitmap = shadingAssistLineBitmap,
                 modelFile = modelFile,
+                useAiModel = newConfig.useAiModel,
                 targetResolution = baseBmp.width
             )
             shadingAssistNormalField = normalField
@@ -254,6 +259,7 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
             baseBitmap = fullBase,
             lineBitmap = fullLine,
             modelFile = modelFile,
+            useAiModel = shadingAssistConfig.useAiModel,
             targetResolution = min(fullW, fullH).coerceIn(512, shadingAssistConfig.downsampleTargetSize)
         )
 

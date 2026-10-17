@@ -28,13 +28,13 @@ class ShadingAssistModelsTest {
         // Azimuth 0 -> along positive X axis (+cos(0) = 1)
         val configRight = ShadingAssistConfig(lightAzimuthDeg = 0f, lightElevationDeg = 0f)
         val vecRight = configRight.computeLightVector()
-        // Note: elevation 0f is coerced to 5f in computeLightVector, so X should dominate and > 0.99
-        assertTrue("X should be strongly positive", vecRight[0] > 0.95f)
+        // Note: elevation 0f is coerced to 30f in computeLightVector, so cos(30 deg) ~= 0.866
+        assertTrue("X should be strongly positive", vecRight[0] > 0.85f)
 
         // Azimuth 180 -> along negative X axis
         val configLeft = ShadingAssistConfig(lightAzimuthDeg = 180f, lightElevationDeg = 0f)
         val vecLeft = configLeft.computeLightVector()
-        assertTrue("X should be strongly negative", vecLeft[0] < -0.95f)
+        assertTrue("X should be strongly negative", vecLeft[0] < -0.85f)
     }
 
     @Test

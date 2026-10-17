@@ -49,15 +49,16 @@ object ShadingAssistEngine {
     }
 
     /**
-     * 生成表面法线向量场：优先尝试 ONNX 模型推理，若无模型或模型格式不匹配则自动无缝回退至 2.5D 高性能合成法线
+     * 生成表面法线向量场：若开启 useAiModel 且模型就绪则尝试 ONNX 推理，默认使用零噪点、饱满圆润的 2.5D 高性能合成曲面
      */
     suspend fun generateNormalField(
         baseBitmap: Bitmap,
         lineBitmap: Bitmap?,
         modelFile: File?,
+        useAiModel: Boolean = false,
         targetResolution: Int = 1024
     ): NormalField = withContext(Dispatchers.Default) {
-        if (modelFile != null && modelFile.exists() && modelFile.length() > 0) {
+        if (useAiModel && modelFile != null && modelFile.exists() && modelFile.length() > 0) {
             try {
                 val onnxResult = runOnnxInference(baseBitmap, lineBitmap, modelFile, targetResolution)
                 if (onnxResult != null) {
@@ -352,7 +353,7 @@ object ShadingAssistEngine {
 
         // 5. 计算梯度偏导数并归一化为连续法线向量场
         val normals = FloatArray(w * h * 3)
-        val normalScale = 2.2f
+        val normalScale = 8.0f
 
         for (y in 0 until h) {
             val yPrev = max(0, y - 1) * w
@@ -494,75 +495,69 @@ object ShadingAssistEngine {
                             val normX = (x * scaleNormX).toInt().coerceIn(0, normalField.width - 1)
                             normalField.getNormal(normX, normY, normalVec)
 
-                            // 朗伯光照 dot(N, L)
-                            val dot = normalVec[0] * lx + normalVec[1] * ly + normalVec[2] * lz
-                            // 映射到 [0, 1]: 1 为受光面，0 为背光面
-                            var illumination = (dot + 1.0f) * 0.5f
+                            // 2D 平面定向光照：dot2D = Nx * Lx + Ny * Ly
+                            // 受光面 dot2D > 0, 背光面 dot2D < 0, 平坦正面 dot2D = 0
+                            val dot2D = normalVec[0] * lx + normalVec[1] * ly
 
-                            // 线稿单向投射阴影 (顺着线稿走，向光侧完全无阴影，杜绝双侧沟壑)
-                            if (linePixels != null && config.lineArtOcclusion) {
-                                val len2D = sqrt(lx * lx + ly * ly)
-                                if (len2D > 0.05f) {
-                                    val dirX = lx / len2D
-                                    val dirY = ly / len2D
-                                    val maxSteps = 16
-                                    var maxOcclusion = 0.0f
+                            // 阴影覆盖范围滑块映射：0.50 (50%) 居中时，背光面落入阴影，平坦正面受光
+                            val cutoff = (threshold1 - 0.50f) * 1.6f
 
-                                    // 沿光源入射方向回溯检查遮挡 (从当前像素向光源方向探测是否有线稿遮挡)
-                                    for (step in 1..maxSteps) {
-                                        val sx = (x + dirX * step).toInt()
-                                        val sy = (y + dirY * step).toInt()
-                                        if (sx !in 0 until outWidth || sy !in 0 until outHeight) break
-
-                                        val lp = linePixels[sy * outWidth + sx]
-                                        val la = (lp ushr 24) and 0xFF
-                                        if (la > 25) {
-                                            val r = (lp shr 16) and 0xFF
-                                            val g = (lp shr 8) and 0xFF
-                                            val b = lp and 0xFF
-                                            val darkness = (255 - (r * 299 + g * 587 + b * 114) / 1000) / 255.0f
-                                            val lineStr = (la / 255.0f) * darkness
-                                            if (lineStr > 0.2f) {
-                                                val falloff = 1.0f - (step.toFloat() / (maxSteps + 1))
-                                                val occ = lineStr * falloff
-                                                if (occ > maxOcclusion) {
-                                                    maxOcclusion = occ
-                                                }
-                                            }
-                                        }
-                                    }
-                                    if (maxOcclusion > 0.0f) {
-                                        illumination = min(illumination, 1.0f - maxOcclusion * 0.65f)
-                                    }
-                                }
-                            }
-
-                            // 阴影强度 S in [0, 1]
-                            val shadowFactor: Float = if (isCel) {
+                            // 本体体积阴影因子
+                            val formShadow: Float = if (isCel) {
                                 if (isTwoStep) {
-                                    if (illumination < threshold2) {
-                                        1.0f // 深阶阴影
-                                    } else if (illumination < threshold1) {
-                                        0.55f // 浅阶阴影
+                                    val cutoff2 = cutoff - 0.25f
+                                    if (dot2D < cutoff2) {
+                                        1.0f
+                                    } else if (dot2D < cutoff) {
+                                        0.55f
                                     } else {
                                         0.0f
                                     }
                                 } else {
-                                    if (illumination < threshold1) {
+                                    val halfSoft = softness * 0.15f
+                                    if (dot2D < cutoff - halfSoft) {
                                         1.0f
-                                    } else if (illumination < threshold1 + softness * 0.15f) {
-                                        // 边缘微量平滑过渡
-                                        val t = (illumination - threshold1) / (softness * 0.15f)
-                                        1.0f - t
+                                    } else if (dot2D < cutoff + halfSoft && halfSoft > 0.001f) {
+                                        (cutoff + halfSoft - dot2D) / (2f * halfSoft)
                                     } else {
                                         0.0f
                                     }
                                 }
                             } else {
-                                // Smooth 柔和过渡
-                                val t = (threshold1 - illumination) / (softness * 0.8f) + 0.5f
-                                t.coerceIn(0.0f, 1.0f)
+                                val span = (softness * 0.5f).coerceAtLeast(0.05f)
+                                ((cutoff - dot2D) / span + 0.5f).coerceIn(0.0f, 1.0f)
                             }
+
+                            // 线稿单向投射阴影 (向光侧完全无阴影，背光侧顺着线稿走，无沟壑)
+                            var lineCastShadow = 0.0f
+                            if (linePixels != null && config.lineArtOcclusion) {
+                                val maxSteps = (4 + (softness * 8).toInt()).coerceIn(4, 12)
+                                for (step in 1..maxSteps) {
+                                    val sx = (x + lx * step).toInt()
+                                    val sy = (y + ly * step).toInt()
+                                    if (sx !in 0 until outWidth || sy !in 0 until outHeight) break
+
+                                    val lp = linePixels[sy * outWidth + sx]
+                                    val la = (lp ushr 24) and 0xFF
+                                    if (la > 25) {
+                                        val r = (lp shr 16) and 0xFF
+                                        val g = (lp shr 8) and 0xFF
+                                        val b = lp and 0xFF
+                                        val darkness = (255 - (r * 299 + g * 587 + b * 114) / 1000) / 255.0f
+                                        val lineStr = (la / 255.0f) * darkness
+                                        if (lineStr > 0.20f) {
+                                            val falloff = 1.0f - (step.toFloat() / (maxSteps + 1))
+                                            val occ = lineStr * falloff
+                                            if (occ > lineCastShadow) {
+                                                lineCastShadow = occ
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+
+                            // 阴影融合 (取本体阴影与投射阴影并集，自然平滑无二次叠黑)
+                            val combinedShadow = max(formShadow, lineCastShadow)
 
                             // 线稿自身处阴影完全消隐：杜绝在线条正上方重复叠加深色阴影导致线条脏化变粗
                             var lineFade = 1.0f
@@ -582,7 +577,7 @@ object ShadingAssistEngine {
                                 }
                             }
 
-                            val finalAlpha = (shadowFactor * baseOpacity * (baseAlpha / 255.0f) * lineFade * 255.0f + 0.5f)
+                            val finalAlpha = (combinedShadow * baseOpacity * (baseAlpha / 255.0f) * lineFade * 255.0f + 0.5f)
                                 .toInt().coerceIn(0, 255)
 
                             outPixels[pixelIdx] = if (finalAlpha > 0) {

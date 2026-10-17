@@ -47,6 +47,7 @@ data class ShadingAssistConfig(
     val shadowOpacity: Float = 0.65f,
     val lineArtOcclusion: Boolean = true,
     val referenceLineLayerId: Int? = null,
+    val useAiModel: Boolean = false,
     val downsampleTargetSize: Int = 1024
 ) {
     /**
@@ -55,7 +56,7 @@ data class ShadingAssistConfig(
      */
     fun computeLightVector(): FloatArray {
         val azRad = Math.toRadians(lightAzimuthDeg.toDouble())
-        val elRad = Math.toRadians(lightElevationDeg.coerceIn(5f, 85f).toDouble())
+        val elRad = Math.toRadians(lightElevationDeg.coerceIn(30f, 85f).toDouble())
         val cosEl = cos(elRad)
         val lx = (cosEl * cos(azRad)).toFloat()
         // 图像 Y 轴向下，方位角顺时针旋转
