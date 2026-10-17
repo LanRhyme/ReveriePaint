@@ -10,9 +10,11 @@ import androidx.lifecycle.viewModelScope
 import com.reverie.paint.R
 import com.reverie.paint.model.ShadingAssistConfig
 import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
+import kotlin.coroutines.resume
 import kotlin.math.max
 import kotlin.math.min
 
@@ -59,65 +61,93 @@ internal fun PaintViewModel.openShadingAssist() {
     val previewW = (coreW * previewScale).toInt().coerceAtLeast(64)
     val previewH = (coreH * previewScale).toInt().coerceAtLeast(64)
 
-    // 采样底色图层画布空间位图
-    val baseBmp = Bitmap.createBitmap(previewW, previewH, Bitmap.Config.ARGB_8888)
-    if (!renderLayerPixels(currentIdx, baseBmp)) {
-        baseBmp.recycle()
-        Toast.makeText(appContext, R.string.shading_assist_toast_need_layer, Toast.LENGTH_SHORT).show()
-        return
-    }
-    shadingAssistBaseBitmap?.recycle()
-    shadingAssistBaseBitmap = baseBmp
-
-    // 采样线稿图层画布空间位图 (如有)
-    shadingAssistLineBitmap?.recycle()
-    shadingAssistLineBitmap = null
-    if (activeLineLayerId != null) {
-        val lineBmp = Bitmap.createBitmap(previewW, previewH, Bitmap.Config.ARGB_8888)
-        if (renderLayerPixels(activeLineLayerId, lineBmp)) {
-            shadingAssistLineBitmap = lineBmp
-        } else {
-            lineBmp.recycle()
-        }
-    }
-
     shadingAssistDialogOpen = true
     shadingAssistIsProcessing = true
 
-    viewModelScope.launch(Dispatchers.Default) {
-        val modelFile = ShadingModelManager.getActiveModelFile(appContext)
-        if (modelFile == null) {
+    shadingAssistComputeJob?.cancel()
+    shadingAssistRenderJob?.cancel()
+
+    shadingAssistComputeJob = viewModelScope.launch(Dispatchers.Default) {
+        // 采样底色图层画布空间位图 (通过 runCore 在渲染线程安全执行，严禁阻塞 UI 线程)
+        val baseBmp = Bitmap.createBitmap(previewW, previewH, Bitmap.Config.ARGB_8888)
+        val baseOk = renderLayerPixels(currentIdx, baseBmp)
+        if (!baseOk || !isActive) {
+            baseBmp.recycle()
             withContext(Dispatchers.Main) {
-                shadingAssistNormalField = null
-                shadingAssistPreviewBitmap?.recycle()
-                shadingAssistPreviewBitmap = null
+                shadingAssistDialogOpen = false
                 shadingAssistIsProcessing = false
+                if (baseOk) {
+                    // cancelled
+                } else {
+                    Toast.makeText(appContext, R.string.shading_assist_toast_need_layer, Toast.LENGTH_SHORT).show()
+                }
             }
             return@launch
         }
-        val normalField = ShadingAssistEngine.generateNormalField(
-            baseBitmap = baseBmp,
-            lineBitmap = shadingAssistLineBitmap,
-            modelFile = modelFile,
-            useAiModel = true,
-            volumeSmoothness = shadingAssistConfig.volumeSmoothness,
-            targetResolution = previewW
-        )
+
+        withContext(Dispatchers.Main) {
+            shadingAssistBaseBitmap?.recycle()
+            shadingAssistBaseBitmap = baseBmp
+        }
+
+        // 采样线稿图层画布空间位图 (如有)
+        var lineBmp: Bitmap? = null
+        if (activeLineLayerId != null) {
+            val lb = Bitmap.createBitmap(previewW, previewH, Bitmap.Config.ARGB_8888)
+            if (renderLayerPixels(activeLineLayerId, lb)) {
+                lineBmp = lb
+            } else {
+                lb.recycle()
+            }
+        }
+
+        withContext(Dispatchers.Main) {
+            shadingAssistLineBitmap?.recycle()
+            shadingAssistLineBitmap = lineBmp
+        }
+
+        val modelFile = ShadingModelManager.getActiveModelFile(appContext)
+        val rawDepth = if (modelFile != null) {
+            ShadingAssistEngine.estimateRawDepth(
+                baseBitmap = baseBmp,
+                lineBitmap = lineBmp,
+                modelFile = modelFile,
+                targetResolution = previewW
+            )
+        } else {
+            null
+        }
+
+        if (!isActive) {
+            return@launch
+        }
+
+        shadingAssistRawDepth = rawDepth
+
+        val normalField = if (rawDepth != null) {
+            ShadingAssistEngine.computeNormalFieldFromDepth(rawDepth, shadingAssistConfig.volumeSmoothness)
+        } else {
+            ShadingAssistEngine.generateCspNormalField(baseBmp, shadingAssistConfig.volumeSmoothness, previewW)
+        }
         shadingAssistNormalField = normalField
 
         val preview = ShadingAssistEngine.renderShadingBitmap(
             normalField = normalField,
             baseBitmap = baseBmp,
-            lineBitmap = shadingAssistLineBitmap,
+            lineBitmap = lineBmp,
             config = shadingAssistConfig,
             outWidth = previewW,
             outHeight = previewH
         )
 
         withContext(Dispatchers.Main) {
-            shadingAssistPreviewBitmap?.recycle()
-            shadingAssistPreviewBitmap = preview
-            shadingAssistIsProcessing = false
+            if (!isActive) {
+                preview?.recycle()
+            } else {
+                shadingAssistPreviewBitmap?.recycle()
+                shadingAssistPreviewBitmap = preview
+                shadingAssistIsProcessing = false
+            }
         }
     }
 }
@@ -146,58 +176,101 @@ internal fun PaintViewModel.updateShadingConfig(
     shadingAssistConfig = newConfig
 
     val baseBmp = shadingAssistBaseBitmap ?: return
-    if (lineLayerChanged || modelModeChanged || smoothnessChanged) {
-        if (lineLayerChanged) {
-            shadingAssistLineBitmap?.recycle()
-            shadingAssistLineBitmap = null
-            val lineId = newConfig.referenceLineLayerId
-            if (lineId != null) {
-                val lineBmp = Bitmap.createBitmap(baseBmp.width, baseBmp.height, Bitmap.Config.ARGB_8888)
-                if (renderLayerPixels(lineId, lineBmp)) {
-                    shadingAssistLineBitmap = lineBmp
-                } else {
-                    lineBmp.recycle()
-                }
-            }
-        }
+    if (baseBmp.isRecycled) return
 
-        // 重新计算表面法线场
+    if (lineLayerChanged || modelModeChanged) {
+        shadingAssistComputeJob?.cancel()
         shadingAssistIsProcessing = true
-        viewModelScope.launch(Dispatchers.Default) {
-            val modelFile = ShadingModelManager.getActiveModelFile(appContext)
-            if (modelFile == null) {
-                withContext(Dispatchers.Main) {
-                    shadingAssistNormalField = null
-                    shadingAssistPreviewBitmap?.recycle()
-                    shadingAssistPreviewBitmap = null
-                    shadingAssistIsProcessing = false
+        shadingAssistComputeJob = viewModelScope.launch(Dispatchers.Default) {
+            if (lineLayerChanged) {
+                val lineId = newConfig.referenceLineLayerId
+                val lineBmp = if (lineId != null) {
+                    val lb = Bitmap.createBitmap(baseBmp.width, baseBmp.height, Bitmap.Config.ARGB_8888)
+                    if (renderLayerPixels(lineId, lb)) lb else {
+                        lb.recycle()
+                        null
+                    }
+                } else {
+                    null
                 }
-                return@launch
+                withContext(Dispatchers.Main) {
+                    shadingAssistLineBitmap?.recycle()
+                    shadingAssistLineBitmap = lineBmp
+                }
             }
-            val normalField = ShadingAssistEngine.generateNormalField(
-                baseBitmap = baseBmp,
-                lineBitmap = shadingAssistLineBitmap,
-                modelFile = modelFile,
-                useAiModel = true,
-                volumeSmoothness = newConfig.volumeSmoothness,
-                targetResolution = baseBmp.width
-            )
+
+            val curLineBmp = shadingAssistLineBitmap
+            val modelFile = ShadingModelManager.getActiveModelFile(appContext)
+            val rawDepth = if (modelFile != null && newConfig.useAiModel) {
+                ShadingAssistEngine.estimateRawDepth(
+                    baseBitmap = baseBmp,
+                    lineBitmap = curLineBmp,
+                    modelFile = modelFile,
+                    targetResolution = baseBmp.width
+                )
+            } else {
+                null
+            }
+
+            if (!isActive) return@launch
+
+            shadingAssistRawDepth = rawDepth
+            val normalField = if (rawDepth != null) {
+                ShadingAssistEngine.computeNormalFieldFromDepth(rawDepth, newConfig.volumeSmoothness)
+            } else {
+                ShadingAssistEngine.generateCspNormalField(baseBmp, newConfig.volumeSmoothness, baseBmp.width)
+            }
             shadingAssistNormalField = normalField
 
             val preview = ShadingAssistEngine.renderShadingBitmap(
                 normalField = normalField,
                 baseBitmap = baseBmp,
-                lineBitmap = shadingAssistLineBitmap,
+                lineBitmap = curLineBmp,
                 config = shadingAssistConfig,
                 outWidth = baseBmp.width,
                 outHeight = baseBmp.height
             )
 
             withContext(Dispatchers.Main) {
-                shadingAssistPreviewBitmap?.recycle()
-                shadingAssistPreviewBitmap = preview
-                shadingAssistIsProcessing = false
+                if (!isActive) {
+                    preview?.recycle()
+                } else {
+                    shadingAssistPreviewBitmap?.recycle()
+                    shadingAssistPreviewBitmap = preview
+                    shadingAssistIsProcessing = false
+                }
             }
+        }
+    } else if (smoothnessChanged) {
+        // 仅平滑度改变：直接使用已缓存的原始深度图重算法线场 (耗时 ~3ms，无需重复执行 ONNX 推理)
+        val rawDepth = shadingAssistRawDepth
+        if (rawDepth != null) {
+            shadingAssistComputeJob?.cancel()
+            shadingAssistComputeJob = viewModelScope.launch(Dispatchers.Default) {
+                val normalField = ShadingAssistEngine.computeNormalFieldFromDepth(rawDepth, newConfig.volumeSmoothness)
+                if (!isActive) return@launch
+                shadingAssistNormalField = normalField
+
+                val preview = ShadingAssistEngine.renderShadingBitmap(
+                    normalField = normalField,
+                    baseBitmap = baseBmp,
+                    lineBitmap = shadingAssistLineBitmap,
+                    config = shadingAssistConfig,
+                    outWidth = baseBmp.width,
+                    outHeight = baseBmp.height
+                )
+
+                withContext(Dispatchers.Main) {
+                    if (!isActive) {
+                        preview?.recycle()
+                    } else {
+                        shadingAssistPreviewBitmap?.recycle()
+                        shadingAssistPreviewBitmap = preview
+                    }
+                }
+            }
+        } else {
+            triggerShadingPreviewRender()
         }
     } else {
         triggerShadingPreviewRender()
@@ -210,6 +283,7 @@ internal fun PaintViewModel.updateShadingConfig(
 private fun PaintViewModel.triggerShadingPreviewRender() {
     val normalField = shadingAssistNormalField ?: return
     val baseBmp = shadingAssistBaseBitmap ?: return
+    if (baseBmp.isRecycled) return
 
     shadingAssistRenderJob?.cancel()
     shadingAssistRenderJob = viewModelScope.launch(Dispatchers.Default) {
@@ -221,9 +295,17 @@ private fun PaintViewModel.triggerShadingPreviewRender() {
             outWidth = baseBmp.width,
             outHeight = baseBmp.height
         )
+        if (!isActive) {
+            preview?.recycle()
+            return@launch
+        }
         withContext(Dispatchers.Main) {
-            shadingAssistPreviewBitmap?.recycle()
-            shadingAssistPreviewBitmap = preview
+            if (!isActive) {
+                preview?.recycle()
+            } else {
+                shadingAssistPreviewBitmap?.recycle()
+                shadingAssistPreviewBitmap = preview
+            }
         }
     }
 }
@@ -233,8 +315,11 @@ private fun PaintViewModel.triggerShadingPreviewRender() {
  */
 internal fun PaintViewModel.closeShadingAssist() {
     shadingAssistDialogOpen = false
+    shadingAssistComputeJob?.cancel()
+    shadingAssistComputeJob = null
     shadingAssistRenderJob?.cancel()
     shadingAssistRenderJob = null
+    shadingAssistRawDepth = null
     shadingAssistNormalField = null
 
     shadingAssistPreviewBitmap?.recycle()
@@ -255,14 +340,14 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
     if (coreW <= 0 || coreH <= 0 || shadingAssistIsProcessing) return
 
     shadingAssistIsProcessing = true
-
-    viewModelScope.launch(Dispatchers.Default) {
+    shadingAssistComputeJob?.cancel()
+    shadingAssistComputeJob = viewModelScope.launch(Dispatchers.Default) {
         val fullW = coreW
         val fullH = coreH
 
-        // 1. 全分辨率采样底色与线稿 (严格按画布原点与尺寸 1:1 空间映射)
+        // 1. 全分辨率采样底色与线稿 (通过 runCore 在渲染线程安全执行，严禁直接调用 JNI)
         val fullBase = Bitmap.createBitmap(fullW, fullH, Bitmap.Config.ARGB_8888)
-        if (!renderLayerPixels(baseLayerIdx, fullBase)) {
+        if (!renderLayerPixels(baseLayerIdx, fullBase) || !isActive) {
             fullBase.recycle()
             withContext(Dispatchers.Main) {
                 shadingAssistIsProcessing = false
@@ -284,7 +369,7 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
 
         // 2. 生成高精度全尺寸法线场
         val modelFile = ShadingModelManager.getActiveModelFile(appContext)
-        if (modelFile == null) {
+        if (modelFile == null && shadingAssistConfig.useAiModel) {
             fullBase.recycle()
             fullLine?.recycle()
             withContext(Dispatchers.Main) {
@@ -293,14 +378,30 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
             }
             return@launch
         }
-        val normalField = ShadingAssistEngine.generateNormalField(
-            baseBitmap = fullBase,
-            lineBitmap = fullLine,
-            modelFile = modelFile,
-            useAiModel = true,
-            volumeSmoothness = shadingAssistConfig.volumeSmoothness,
-            targetResolution = min(fullW, fullH).coerceIn(512, shadingAssistConfig.downsampleTargetSize)
-        )
+
+        val targetRes = min(fullW, fullH).coerceIn(512, shadingAssistConfig.downsampleTargetSize)
+        val rawDepth = if (modelFile != null && shadingAssistConfig.useAiModel) {
+            ShadingAssistEngine.estimateRawDepth(
+                baseBitmap = fullBase,
+                lineBitmap = fullLine,
+                modelFile = modelFile,
+                targetResolution = targetRes
+            )
+        } else {
+            null
+        }
+
+        if (!isActive) {
+            fullBase.recycle()
+            fullLine?.recycle()
+            return@launch
+        }
+
+        val normalField = if (rawDepth != null) {
+            ShadingAssistEngine.computeNormalFieldFromDepth(rawDepth, shadingAssistConfig.volumeSmoothness)
+        } else {
+            ShadingAssistEngine.generateCspNormalField(fullBase, shadingAssistConfig.volumeSmoothness, targetRes)
+        }
 
         // 3. 全分辨率光照与线稿遮挡计算
         val fullShadow = ShadingAssistEngine.renderShadingBitmap(
@@ -314,6 +415,14 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
 
         fullBase.recycle()
         fullLine?.recycle()
+
+        if (fullShadow == null || !isActive) {
+            fullShadow?.recycle()
+            withContext(Dispatchers.Main) {
+                shadingAssistIsProcessing = false
+            }
+            return@launch
+        }
 
         // 4. 转换 R/B 通道适配 Krita 原生内存布局
         val stampBmp = ImageImportHelper.swapRedAndBlueForStamp(fullShadow)
@@ -345,12 +454,18 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
 }
 
 /**
- * 采样图层在画布坐标空间中的像素内容 (优先使用 1:1 画布空间映射以保证图层间像素无偏移)
+ * 采样图层在画布坐标空间中的像素内容 (必须在 runCore 渲染线程执行以保证底层 KisPaintDevice 线程安全)
  */
-private fun renderLayerPixels(layerIndex: Int, bitmap: Bitmap): Boolean {
-    return try {
-        ReverieCoreBridge.renderLayerCanvas(layerIndex, bitmap)
-    } catch (e: UnsatisfiedLinkError) {
-        ReverieCoreBridge.renderLayerThumb(layerIndex, bitmap)
+private suspend fun PaintViewModel.renderLayerPixels(layerIndex: Int, bitmap: Bitmap): Boolean =
+    suspendCancellableCoroutine { cont ->
+        runCore(render = false) {
+            val success = try {
+                ReverieCoreBridge.renderLayerCanvas(layerIndex, bitmap)
+            } catch (e: UnsatisfiedLinkError) {
+                ReverieCoreBridge.renderLayerThumb(layerIndex, bitmap)
+            }
+            if (cont.isActive) {
+                cont.resume(success)
+            }
+        }
     }
-}

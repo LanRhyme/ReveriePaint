@@ -2774,6 +2774,7 @@
     <string name="shading_assist_layer_name">智能阴影</string>
     <string name="shading_assist_toast_success">已在底色图层上方生成剪贴阴影</string>
     <string name="shading_assist_toast_need_layer">请先选择包含色彩内容的图层</string>
+    <string name="shading_assist_import_failed">导入自定义模型失败</string>
     <string name="shading_assist_ai_hint">Depth Anything V2 深度神经网络，离线端侧推理</string>
 </resources>
 

@@ -14,6 +14,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
@@ -119,6 +120,20 @@ object ShadingModelManager {
         modelStatus = ModelStatus.NotDownloaded
     }
 
+    private val DOWNLOAD_MIRRORS = listOf(
+        "https://github.com/LanRhyme/ReveriePaint/releases/download/v1.5.0/depth_anything_v2_small.onnx",
+        "https://ghfast.top/https://github.com/LanRhyme/ReveriePaint/releases/download/v1.5.0/depth_anything_v2_small.onnx"
+    )
+
+    private val okHttpClient: okhttp3.OkHttpClient by lazy {
+        okhttp3.OkHttpClient.Builder()
+            .connectTimeout(15, java.util.concurrent.TimeUnit.SECONDS)
+            .readTimeout(60, java.util.concurrent.TimeUnit.SECONDS)
+            .followRedirects(true)
+            .followSslRedirects(true)
+            .build()
+    }
+
     /** 启动下载/解压推荐模型 */
     fun startDownload(
         context: Context,
@@ -149,40 +164,72 @@ object ShadingModelManager {
                             var readTotal = 0L
                             var bytesRead: Int
                             while (input.read(buffer).also { bytesRead = it } != -1) {
+                                if (!isActive) break
                                 output.write(buffer, 0, bytesRead)
                                 readTotal += bytesRead
                                 val progress = ((readTotal * 100) / total).toInt().coerceIn(0, 100)
                                 withContext(Dispatchers.Main) {
                                     modelStatus = ModelStatus.Downloading(progress, readTotal, total)
                                 }
-                                delay(12)
                             }
                             output.flush()
                         }
                     }
                 } else {
-                    val remoteUrl = "https://github.com/LanRhyme/ReveriePaint/releases/download/v1.4.0/depth_anything_v2_small.onnx"
-                    val conn = java.net.URL(remoteUrl).openConnection() as java.net.HttpURLConnection
-                    conn.connectTimeout = 15000
-                    conn.readTimeout = 30000
-                    conn.connect()
-                    val total = conn.contentLengthLong.let { if (it > 0) it else DEFAULT_MODEL_SIZE_BYTES }
-                    conn.inputStream.use { input ->
-                        FileOutputStream(tempFile).use { output ->
-                            val buffer = ByteArray(64 * 1024)
-                            var readTotal = 0L
-                            var bytesRead: Int
-                            while (input.read(buffer).also { bytesRead = it } != -1) {
-                                output.write(buffer, 0, bytesRead)
-                                readTotal += bytesRead
-                                val progress = ((readTotal * 100) / total).toInt().coerceIn(0, 100)
-                                withContext(Dispatchers.Main) {
-                                    modelStatus = ModelStatus.Downloading(progress, readTotal, total)
+                    var downloadedOk = false
+                    var lastException: Exception? = null
+
+                    for (url in DOWNLOAD_MIRRORS) {
+                        if (!isActive) break
+                        try {
+                            val request = okhttp3.Request.Builder().url(url).build()
+                            val response = okHttpClient.newCall(request).execute()
+                            response.use { res ->
+                                if (!res.isSuccessful) {
+                                    throw IllegalStateException("HTTP ${res.code}")
+                                }
+                                val body = res.body ?: throw IllegalStateException("Empty response body")
+                                val total = body.contentLength().let { if (it > 0) it else DEFAULT_MODEL_SIZE_BYTES }
+                                body.byteStream().use { input ->
+                                    FileOutputStream(tempFile).use { output ->
+                                        val buffer = ByteArray(64 * 1024)
+                                        var readTotal = 0L
+                                        var bytesRead: Int
+                                        while (input.read(buffer).also { bytesRead = it } != -1) {
+                                            if (!isActive) break
+                                            output.write(buffer, 0, bytesRead)
+                                            readTotal += bytesRead
+                                            val progress = ((readTotal * 100) / total).toInt().coerceIn(0, 100)
+                                            withContext(Dispatchers.Main) {
+                                                modelStatus = ModelStatus.Downloading(progress, readTotal, total)
+                                            }
+                                        }
+                                        output.flush()
+                                    }
                                 }
                             }
-                            output.flush()
+                            if (isActive && tempFile.exists() && tempFile.length() > 1024 * 1024) {
+                                downloadedOk = true
+                                break
+                            }
+                        } catch (e: Exception) {
+                            if (e is kotlinx.coroutines.CancellationException) throw e
+                            lastException = e
+                            if (tempFile.exists()) tempFile.delete()
                         }
                     }
+
+                    if (!downloadedOk && isActive) {
+                        throw lastException ?: IllegalStateException("All download mirrors failed")
+                    }
+                }
+
+                if (!isActive) {
+                    if (tempFile.exists()) tempFile.delete()
+                    withContext(Dispatchers.Main) {
+                        modelStatus = ModelStatus.NotDownloaded
+                    }
+                    return@launch
                 }
 
                 if (tempFile.exists() && tempFile.length() > 1024 * 1024) {
@@ -206,10 +253,20 @@ object ShadingModelManager {
                     throw IllegalStateException("Downloaded model file is corrupted or empty")
                 }
             } catch (e: Exception) {
-                tempFile.delete()
-                withContext(Dispatchers.Main) {
-                    modelStatus = ModelStatus.Error(e.message ?: "Download failed")
-                    onError(e.message ?: "Download failed")
+                if (tempFile.exists()) tempFile.delete()
+                if (e is kotlinx.coroutines.CancellationException) {
+                    withContext(Dispatchers.Main) {
+                        modelStatus = ModelStatus.NotDownloaded
+                    }
+                } else {
+                    withContext(Dispatchers.Main) {
+                        modelStatus = ModelStatus.Error(e.message ?: "Download failed")
+                        onError(e.message ?: "Download failed")
+                    }
+                }
+            } finally {
+                if (tempFile.exists()) {
+                    tempFile.delete()
                 }
             }
         }

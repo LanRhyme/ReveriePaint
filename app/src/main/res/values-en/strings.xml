@@ -2774,6 +2774,7 @@
     <string name="shading_assist_layer_name">Smart Shadow</string>
     <string name="shading_assist_toast_success">Clipped shadow layer generated above base layer</string>
     <string name="shading_assist_toast_need_layer">Please select a layer with color content first</string>
+    <string name="shading_assist_import_failed">Failed to import custom model</string>
     <string name="shading_assist_ai_hint">Depth Anything V2 neural network, on-device inference</string>
 </resources>
 

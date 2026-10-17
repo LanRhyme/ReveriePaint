@@ -16,6 +16,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
 import kotlinx.coroutines.coroutineScope
+import kotlinx.coroutines.isActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.nio.FloatBuffer
@@ -49,6 +50,17 @@ object ShadingAssistEngine {
     }
 
     /**
+     * 神经网络输出的原始深度与法线数据缓存容器
+     */
+    data class RawDepthData(
+        val width: Int,
+        val height: Int,
+        val rawDepth: FloatArray,
+        val isDirectNormals: Boolean = false,
+        val rawNormals: FloatArray? = null
+    )
+
+    /**
      * 生成表面法线/梯度向量场：若开启 useAiModel 且模型就绪则尝试 ONNX 推理，默认使用 CSP 宏观平滑体积梯度场
      */
     suspend fun generateNormalField(
@@ -61,9 +73,9 @@ object ShadingAssistEngine {
     ): NormalField = withContext(Dispatchers.Default) {
         if (useAiModel && modelFile != null && modelFile.exists() && modelFile.length() > 0) {
             try {
-                val onnxResult = runOnnxInference(baseBitmap, lineBitmap, modelFile, volumeSmoothness, targetResolution)
-                if (onnxResult != null) {
-                    return@withContext onnxResult
+                val rawDepth = estimateRawDepth(baseBitmap, lineBitmap, modelFile, targetResolution)
+                if (rawDepth != null) {
+                    return@withContext computeNormalFieldFromDepth(rawDepth, volumeSmoothness)
                 }
             } catch (e: Throwable) {
                 Log.w(TAG, "ONNX inference failed, smoothly falling back to CSP normal field", e)
@@ -73,103 +85,102 @@ object ShadingAssistEngine {
     }
 
     /**
-     * 执行 ONNX Runtime Mobile 端侧推理
+     * 执行端侧神经网络推理并提取原始深度或法线数据 (仅在图像内容改变时执行一次)
      */
-    private fun runOnnxInference(
+    suspend fun estimateRawDepth(
         baseBitmap: Bitmap,
         lineBitmap: Bitmap?,
         modelFile: File,
-        volumeSmoothness: Float,
-        targetResolution: Int
-    ): NormalField? {
+        targetResolution: Int = 1024
+    ): RawDepthData? = withContext(Dispatchers.Default) {
+        if (baseBitmap.isRecycled) return@withContext null
+        if (!modelFile.exists() || modelFile.length() <= 0) return@withContext null
+
         val env = OrtEnvironment.getEnvironment()
-        val opts = OrtSession.SessionOptions().apply {
-            setIntraOpNumThreads(4)
-        }
-        val session = env.createSession(modelFile.absolutePath, opts)
-        session.use { sess ->
-            val inputInfo = sess.inputInfo
-            if (inputInfo.isEmpty()) return null
-            val inputName = inputInfo.keys.first()
+        val opts = OrtSession.SessionOptions()
+        try {
+            opts.setIntraOpNumThreads(4)
+            env.createSession(modelFile.absolutePath, opts).use { sess ->
+                val inputInfo = sess.inputInfo
+                if (inputInfo.isEmpty()) return@withContext null
+                val inputName = inputInfo.keys.first()
 
-            val isDepthAnything = modelFile.name.contains("depth_anything", ignoreCase = true)
-            val patchSize = if (isDepthAnything) 14 else 32
-            val maxRes = if (isDepthAnything) 518 else targetResolution
+                val isDepthAnything = modelFile.name.contains("depth_anything", ignoreCase = true)
+                val patchSize = if (isDepthAnything) 14 else 32
+                val maxRes = if (isDepthAnything) 518 else targetResolution
 
-            // 等比例缩放并对齐为 patchSize 的整数倍 (Depth Anything V2 严格要求宽高为 14 的倍数)
-            val scale = min(maxRes.toFloat() / baseBitmap.width, maxRes.toFloat() / baseBitmap.height).coerceAtMost(1.0f)
-            val alignW = (((baseBitmap.width * scale).toInt() / patchSize) * patchSize).coerceAtLeast(patchSize)
-            val alignH = (((baseBitmap.height * scale).toInt() / patchSize) * patchSize).coerceAtLeast(patchSize)
+                // 等比例缩放并对齐为 patchSize 的整数倍 (Depth Anything V2 严格要求宽高为 14 的倍数)
+                val scale = min(maxRes.toFloat() / baseBitmap.width, maxRes.toFloat() / baseBitmap.height).coerceAtMost(1.0f)
+                val alignW = (((baseBitmap.width * scale).toInt() / patchSize) * patchSize).coerceAtLeast(patchSize)
+                val alignH = (((baseBitmap.height * scale).toInt() / patchSize) * patchSize).coerceAtLeast(patchSize)
 
-            // 读取模型期望的固定尺寸 (如有)
-            val inTensorInfo = inputInfo.values.first().info as? ai.onnxruntime.TensorInfo
-            val inShape = inTensorInfo?.shape
-            val modelReqH = if (inShape != null && inShape.size >= 4 && inShape[2] > 0) inShape[2].toInt() else -1
-            val modelReqW = if (inShape != null && inShape.size >= 4 && inShape[3] > 0) inShape[3].toInt() else -1
+                // 读取模型期望的固定尺寸 (如有)
+                val inTensorInfo = inputInfo.values.first().info as? ai.onnxruntime.TensorInfo
+                val inShape = inTensorInfo?.shape
+                val modelReqH = if (inShape != null && inShape.size >= 4 && inShape[2] > 0) inShape[2].toInt() else -1
+                val modelReqW = if (inShape != null && inShape.size >= 4 && inShape[3] > 0) inShape[3].toInt() else -1
 
-            val targetW = if (modelReqW > 0) modelReqW else alignW
-            val targetH = if (modelReqH > 0) modelReqH else alignH
+                val targetW = if (modelReqW > 0) modelReqW else alignW
+                val targetH = if (modelReqH > 0) modelReqH else alignH
 
-            val scaledBase = if (baseBitmap.width == targetW && baseBitmap.height == targetH) {
-                baseBitmap
-            } else {
-                Bitmap.createScaledBitmap(baseBitmap, targetW, targetH, true)
-            }
-
-            // 合成底色与线稿 (白底 + 底色 + 线稿)，确保神经网络能完整感知发丝、五官面部与衣褶细节
-            val compBmp = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
-            val compCanvas = android.graphics.Canvas(compBmp)
-            compCanvas.drawColor(android.graphics.Color.WHITE)
-            compCanvas.drawBitmap(scaledBase, 0f, 0f, null)
-            if (scaledBase != baseBitmap) scaledBase.recycle()
-
-            if (lineBitmap != null) {
-                val scaledLine = if (lineBitmap.width == targetW && lineBitmap.height == targetH) {
-                    lineBitmap
+                val scaledBase = if (baseBitmap.width == targetW && baseBitmap.height == targetH) {
+                    baseBitmap
                 } else {
-                    Bitmap.createScaledBitmap(lineBitmap, targetW, targetH, true)
+                    Bitmap.createScaledBitmap(baseBitmap, targetW, targetH, true)
                 }
-                compCanvas.drawBitmap(scaledLine, 0f, 0f, null)
-                if (scaledLine != lineBitmap) scaledLine.recycle()
-            }
 
-            val scaledPixels = IntArray(targetW * targetH)
-            compBmp.getPixels(scaledPixels, 0, targetW, 0, 0, targetW, targetH)
-            compBmp.recycle()
+                // 合成底色与线稿 (白底 + 底色 + 线稿)，确保神经网络能完整感知发丝、五官面部与衣褶细节
+                val compBmp = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
+                val compCanvas = android.graphics.Canvas(compBmp)
+                compCanvas.drawColor(android.graphics.Color.WHITE)
+                compCanvas.drawBitmap(scaledBase, 0f, 0f, null)
+                if (scaledBase != baseBitmap) scaledBase.recycle()
 
-            // NCHW: 1 x 3 x H x W
-            val floatBuffer = FloatBuffer.allocate(1 * 3 * targetH * targetW)
-            val channelSize = targetW * targetH
+                if (lineBitmap != null && !lineBitmap.isRecycled) {
+                    val scaledLine = if (lineBitmap.width == targetW && lineBitmap.height == targetH) {
+                        lineBitmap
+                    } else {
+                        Bitmap.createScaledBitmap(lineBitmap, targetW, targetH, true)
+                    }
+                    compCanvas.drawBitmap(scaledLine, 0f, 0f, null)
+                    if (scaledLine != lineBitmap) scaledLine.recycle()
+                }
 
-            val isImageNet = (modelReqH == 256 && modelReqW == 256) ||
-                modelFile.name.contains("midas", ignoreCase = true) ||
-                isDepthAnything
-            val mean = if (isImageNet) floatArrayOf(0.485f, 0.456f, 0.406f) else floatArrayOf(0f, 0f, 0f)
-            val std = if (isImageNet) floatArrayOf(0.229f, 0.224f, 0.225f) else floatArrayOf(1f, 1f, 1f)
+                val scaledPixels = IntArray(targetW * targetH)
+                compBmp.getPixels(scaledPixels, 0, targetW, 0, 0, targetW, targetH)
+                compBmp.recycle()
 
-            // R channel
-            for (i in 0 until channelSize) {
-                val r = ((scaledPixels[i] shr 16) and 0xFF) / 255.0f
-                floatBuffer.put(i, (r - mean[0]) / std[0])
-            }
-            // G channel
-            for (i in 0 until channelSize) {
-                val g = ((scaledPixels[i] shr 8) and 0xFF) / 255.0f
-                floatBuffer.put(channelSize + i, (g - mean[1]) / std[1])
-            }
-            // B channel
-            for (i in 0 until channelSize) {
-                val b = (scaledPixels[i] and 0xFF) / 255.0f
-                floatBuffer.put(channelSize * 2 + i, (b - mean[2]) / std[2])
-            }
+                // NCHW: 1 x 3 x H x W
+                val floatBuffer = FloatBuffer.allocate(1 * 3 * targetH * targetW)
+                val channelSize = targetW * targetH
 
-            val tensor = OnnxTensor.createTensor(env, floatBuffer, longArrayOf(1, 3, targetH.toLong(), targetW.toLong()))
-            tensor.use { inTensor ->
-                val results = sess.run(mapOf(inputName to inTensor))
-                results.use { res ->
-                    if (res.size() == 0) return null
-                    val outTensor = res.get(0) as? OnnxTensor
-                    if (outTensor != null) {
+                val isImageNet = (modelReqH == 256 && modelReqW == 256) ||
+                    modelFile.name.contains("midas", ignoreCase = true) ||
+                    isDepthAnything
+                val mean = if (isImageNet) floatArrayOf(0.485f, 0.456f, 0.406f) else floatArrayOf(0f, 0f, 0f)
+                val std = if (isImageNet) floatArrayOf(0.229f, 0.224f, 0.225f) else floatArrayOf(1f, 1f, 1f)
+
+                // R channel
+                for (i in 0 until channelSize) {
+                    val r = ((scaledPixels[i] shr 16) and 0xFF) / 255.0f
+                    floatBuffer.put(i, (r - mean[0]) / std[0])
+                }
+                // G channel
+                for (i in 0 until channelSize) {
+                    val g = ((scaledPixels[i] shr 8) and 0xFF) / 255.0f
+                    floatBuffer.put(channelSize + i, (g - mean[1]) / std[1])
+                }
+                // B channel
+                for (i in 0 until channelSize) {
+                    val b = (scaledPixels[i] and 0xFF) / 255.0f
+                    floatBuffer.put(channelSize * 2 + i, (b - mean[2]) / std[2])
+                }
+
+                val tensor = OnnxTensor.createTensor(env, floatBuffer, longArrayOf(1, 3, targetH.toLong(), targetW.toLong()))
+                tensor.use { inTensor ->
+                    sess.run(mapOf(inputName to inTensor)).use { res ->
+                        if (res.size() == 0) return@withContext null
+                        val outTensor = res.get(0) as? OnnxTensor ?: return@withContext null
                         val fb = outTensor.floatBuffer
                         val shape = outTensor.info.shape
                         val channels = if (shape.size >= 4) shape[1].toInt() else if (shape.size == 3 && shape[0] == 1L) 1 else 3
@@ -177,10 +188,9 @@ object ShadingAssistEngine {
                         val outW = if (shape.size >= 4) shape[3].toInt() else if (shape.size >= 3) shape[2].toInt() else targetW
                         val planeSize = outH * outW
 
-                        val normalArray = FloatArray(outW * outH * 3)
-
                         if (channels >= 3) {
                             // 3 通道直接法线图输出
+                            val normalArray = FloatArray(outW * outH * 3)
                             var sampleMin = Float.MAX_VALUE
                             var sampleMax = -Float.MAX_VALUE
                             val checkCount = min(1000, planeSize)
@@ -210,78 +220,100 @@ object ShadingAssistEngine {
                                     normalArray[idx++] = nz / len
                                 }
                             }
+                            return@withContext RawDepthData(outW, outH, FloatArray(0), isDirectNormals = true, rawNormals = normalArray)
                         } else {
                             // 1 通道深度图输出 (Depth Anything V2 / MiDaS)
                             val depthMap = FloatArray(planeSize)
-                            val tempBuffer = FloatArray(planeSize)
                             for (k in 0 until planeSize) {
                                 depthMap[k] = fb.get(k)
                             }
-
-                            // 1. 深度图多轮滤波，消除 ViT 14x14 Patch 的离散量化阶梯
-                            val blurRadiusDepth = ((volumeSmoothness * outW) / 512.0f).toInt().coerceIn(3, 12)
-                            repeat(3) {
-                                boxBlurHorizontal(depthMap, tempBuffer, outW, outH, blurRadiusDepth)
-                                boxBlurVertical(tempBuffer, depthMap, outW, outH, blurRadiusDepth)
-                            }
-
-                            // 2. 梯度计算 (中心差分)
-                            val gradX = FloatArray(planeSize)
-                            val gradY = FloatArray(planeSize)
-                            for (y in 0 until outH) {
-                                val yPrev = max(0, y - 1) * outW
-                                val yCurr = y * outW
-                                val yNext = min(outH - 1, y + 1) * outW
-
-                                for (x in 0 until outW) {
-                                    val xPrev = max(0, x - 1)
-                                    val xNext = min(outW - 1, x + 1)
-
-                                    gradX[yCurr + x] = (depthMap[yCurr + xNext] - depthMap[yCurr + xPrev]) * 0.5f
-                                    gradY[yCurr + x] = (depthMap[yNext + x] - depthMap[yPrev + x]) * 0.5f
-                                }
-                            }
-
-                            // 3. 梯度微平滑消除导数毛刺
-                            boxBlurHorizontal(gradX, tempBuffer, outW, outH, 2)
-                            boxBlurVertical(tempBuffer, gradX, outW, outH, 2)
-                            boxBlurHorizontal(gradY, tempBuffer, outW, outH, 2)
-                            boxBlurVertical(tempBuffer, gradY, outW, outH, 2)
-
-                            // 4. 标准差自适应缩放梯度
-                            var sumSqX = 0.0
-                            var sumSqY = 0.0
-                            for (k in 0 until planeSize) {
-                                val gx = gradX[k].toDouble()
-                                val gy = gradY[k].toDouble()
-                                sumSqX += gx * gx
-                                sumSqY += gy * gy
-                            }
-                            val stdX = sqrt(sumSqX / planeSize).toFloat()
-                            val stdY = sqrt(sumSqY / planeSize).toFloat()
-                            val maxStd = max(stdX, stdY).coerceAtLeast(1e-5f)
-                            val normalScale = 1.0f / (2.0f * maxStd)
-
-                            var idx = 0
-                            for (i in 0 until planeSize) {
-                                // 深度图中数值越大离相机越近 (视差)，表面法线向外指，梯度必须取反 (-dz/dx, -dz/dy)
-                                val nx = -gradX[i] * normalScale
-                                val ny = -gradY[i] * normalScale
-                                val nz = 1.0f
-
-                                val len = sqrt(nx * nx + ny * ny + nz * nz).coerceAtLeast(1e-4f)
-                                normalArray[idx++] = nx / len
-                                normalArray[idx++] = ny / len
-                                normalArray[idx++] = nz / len
-                            }
+                            return@withContext RawDepthData(outW, outH, depthMap, isDirectNormals = false)
                         }
-
-                        return NormalField(outW, outH, normalArray)
                     }
                 }
             }
+        } finally {
+            opts.close()
         }
-        return null
+    }
+
+    /**
+     * 根据缓存的原始深度图快速重算法线场 (耗时约 3ms，无须重新执行 ONNX 模型推理)
+     */
+    fun computeNormalFieldFromDepth(
+        rawDepthData: RawDepthData,
+        volumeSmoothness: Float = 30.0f
+    ): NormalField {
+        val outW = rawDepthData.width
+        val outH = rawDepthData.height
+        val planeSize = outW * outH
+
+        if (rawDepthData.isDirectNormals && rawDepthData.rawNormals != null) {
+            return NormalField(outW, outH, rawDepthData.rawNormals)
+        }
+
+        val depthMap = rawDepthData.rawDepth.clone()
+        val tempBuffer = FloatArray(planeSize)
+
+        // 1. 深度图多轮滤波，消除 ViT 14x14 Patch 的离散量化阶梯
+        val blurRadiusDepth = ((volumeSmoothness * outW) / 512.0f).toInt().coerceIn(3, 12)
+        repeat(3) {
+            boxBlurHorizontal(depthMap, tempBuffer, outW, outH, blurRadiusDepth)
+            boxBlurVertical(tempBuffer, depthMap, outW, outH, blurRadiusDepth)
+        }
+
+        // 2. 梯度计算 (中心差分)
+        val gradX = FloatArray(planeSize)
+        val gradY = FloatArray(planeSize)
+        for (y in 0 until outH) {
+            val yPrev = max(0, y - 1) * outW
+            val yCurr = y * outW
+            val yNext = min(outH - 1, y + 1) * outW
+
+            for (x in 0 until outW) {
+                val xPrev = max(0, x - 1)
+                val xNext = min(outW - 1, x + 1)
+
+                gradX[yCurr + x] = (depthMap[yCurr + xNext] - depthMap[yCurr + xPrev]) * 0.5f
+                gradY[yCurr + x] = (depthMap[yNext + x] - depthMap[yPrev + x]) * 0.5f
+            }
+        }
+
+        // 3. 梯度微平滑消除导数毛刺
+        boxBlurHorizontal(gradX, tempBuffer, outW, outH, 2)
+        boxBlurVertical(tempBuffer, gradX, outW, outH, 2)
+        boxBlurHorizontal(gradY, tempBuffer, outW, outH, 2)
+        boxBlurVertical(tempBuffer, gradY, outW, outH, 2)
+
+        // 4. 标准差自适应缩放梯度
+        var sumSqX = 0.0
+        var sumSqY = 0.0
+        for (k in 0 until planeSize) {
+            val gx = gradX[k].toDouble()
+            val gy = gradY[k].toDouble()
+            sumSqX += gx * gx
+            sumSqY += gy * gy
+        }
+        val stdX = sqrt(sumSqX / planeSize).toFloat()
+        val stdY = sqrt(sumSqY / planeSize).toFloat()
+        val maxStd = max(stdX, stdY).coerceAtLeast(1e-5f)
+        val normalScale = 1.0f / (2.0f * maxStd)
+
+        var idx = 0
+        val normalArray = FloatArray(planeSize * 3)
+        for (i in 0 until planeSize) {
+            // 深度图中数值越大离相机越近 (视差)，表面法线向外指，梯度必须取反 (-dz/dx, -dz/dy)
+            val nx = -gradX[i] * normalScale
+            val ny = -gradY[i] * normalScale
+            val nz = 1.0f
+
+            val len = sqrt(nx * nx + ny * ny + nz * nz).coerceAtLeast(1e-4f)
+            normalArray[idx++] = nx / len
+            normalArray[idx++] = ny / len
+            normalArray[idx++] = nz / len
+        }
+
+        return NormalField(outW, outH, normalArray)
     }
 
     /** 对法线场进行轻度各向同性盒状平滑并重新归一化 */
@@ -506,7 +538,7 @@ object ShadingAssistEngine {
         config: ShadingAssistConfig,
         outWidth: Int = baseBitmap.width,
         outHeight: Int = baseBitmap.height
-    ): Bitmap = withContext(Dispatchers.Default) {
+    ): Bitmap? = withContext(Dispatchers.Default) {
         val outBitmap = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888)
         val lightVec = config.computeLightVector()
         val lx = lightVec[0]
@@ -535,6 +567,8 @@ object ShadingAssistEngine {
         val isTwoStep = config.celSteps == CelSteps.TWO_STEP
         val isAi = config.useAiModel
 
+        if (baseBitmap.isRecycled) return@withContext null
+
         // 采样缩放比例
         val scaleNormX = normalField.width.toFloat() / outWidth
         val scaleNormY = normalField.height.toFloat() / outHeight
@@ -546,16 +580,22 @@ object ShadingAssistEngine {
         } else {
             val scaled = Bitmap.createScaledBitmap(baseBitmap, outWidth, outHeight, true)
             scaled.getPixels(basePixels, 0, outWidth, 0, 0, outWidth, outHeight)
+            if (scaled != baseBitmap) {
+                scaled.recycle()
+            }
         }
 
         // 读取线稿像素 (用于光线投射自遮挡与阴影消隐)
-        val linePixels = if (lineBitmap != null) {
+        val linePixels = if (lineBitmap != null && !lineBitmap.isRecycled) {
             val arr = IntArray(outWidth * outHeight)
             if (lineBitmap.width == outWidth && lineBitmap.height == outHeight) {
                 lineBitmap.getPixels(arr, 0, outWidth, 0, 0, outWidth, outHeight)
             } else {
                 val scaled = Bitmap.createScaledBitmap(lineBitmap, outWidth, outHeight, true)
                 scaled.getPixels(arr, 0, outWidth, 0, 0, outWidth, outHeight)
+                if (scaled != lineBitmap) {
+                    scaled.recycle()
+                }
             }
             arr
         } else {
@@ -683,6 +723,10 @@ object ShadingAssistEngine {
             jobs.awaitAll()
         }
 
+        if (!isActive) {
+            outBitmap.recycle()
+            return@withContext null
+        }
         outBitmap.setPixels(outPixels, 0, outWidth, 0, 0, outWidth, outHeight)
         outBitmap
     }
