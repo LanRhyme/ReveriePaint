@@ -204,8 +204,9 @@ object ShadingAssistEngine {
         boxBlurHorizontal(heightMap, tempMap, w, h, 8)
         boxBlurVertical(tempMap, heightMap, w, h, 8)
 
-        // 3. 叠加线稿凹陷深度 (Lineart Creases)
+        // 3. 叠加线稿凹陷深度 (Lineart Creases: 平滑过渡以避免尖锐沟壑)
         if (linePixels != null) {
+            val creaseMap = FloatArray(w * h)
             for (i in 0 until w * h) {
                 val lp = linePixels[i]
                 val la = (lp ushr 24) and 0xFF
@@ -214,9 +215,14 @@ object ShadingAssistEngine {
                     val g = (lp shr 8) and 0xFF
                     val b = lp and 0xFF
                     val darkness = (255 - (r * 299 + g * 587 + b * 114) / 1000) / 255.0f
-                    // 线稿处高度向下凹陷
-                    heightMap[i] = max(0f, heightMap[i] - (la / 255f) * darkness * 0.45f)
+                    creaseMap[i] = (la / 255f) * darkness * 0.35f
                 }
+            }
+            val tempCrease = FloatArray(w * h)
+            boxBlurHorizontal(creaseMap, tempCrease, w, h, 2)
+            boxBlurVertical(tempCrease, creaseMap, w, h, 2)
+            for (i in 0 until w * h) {
+                heightMap[i] = max(0f, heightMap[i] - creaseMap[i])
             }
         }
 
@@ -372,21 +378,23 @@ object ShadingAssistEngine {
                             // 线稿光线遮挡 (自投影)
                             if (linePixels != null && illumination > 0.05f) {
                                 // 沿光源入射反方向步进采样线稿
-                                val stepX = (lx * 3.5f).toInt()
-                                val stepY = (ly * 3.5f).toInt()
-                                val sampleX = x - stepX
-                                val sampleY = y - stepY
-                                if (sampleX in 0 until outWidth && sampleY in 0 until outHeight) {
-                                    val lp = linePixels[sampleY * outWidth + sampleX]
-                                    val la = (lp ushr 24) and 0xFF
-                                    if (la > 20) {
-                                        val r = (lp shr 16) and 0xFF
-                                        val g = (lp shr 8) and 0xFF
-                                        val b = lp and 0xFF
-                                        val darkness = (255 - (r * 299 + g * 587 + b * 114) / 1000) / 255.0f
-                                        val lineStrength = (la / 255.0f) * darkness
-                                        if (lineStrength > 0.3f) {
-                                            illumination *= (1.0f - lineStrength * 0.65f)
+                                val stepX = (lx * 4.0f).toInt()
+                                val stepY = (ly * 4.0f).toInt()
+                                if (stepX != 0 || stepY != 0) {
+                                    val sampleX = x - stepX
+                                    val sampleY = y - stepY
+                                    if (sampleX in 0 until outWidth && sampleY in 0 until outHeight) {
+                                        val lp = linePixels[sampleY * outWidth + sampleX]
+                                        val la = (lp ushr 24) and 0xFF
+                                        if (la > 20) {
+                                            val r = (lp shr 16) and 0xFF
+                                            val g = (lp shr 8) and 0xFF
+                                            val b = lp and 0xFF
+                                            val darkness = (255 - (r * 299 + g * 587 + b * 114) / 1000) / 255.0f
+                                            val lineStrength = (la / 255.0f) * darkness
+                                            if (lineStrength > 0.3f) {
+                                                illumination *= (1.0f - lineStrength * 0.65f)
+                                            }
                                         }
                                     }
                                 }
@@ -419,7 +427,24 @@ object ShadingAssistEngine {
                                 t.coerceIn(0.0f, 1.0f)
                             }
 
-                            val finalAlpha = (shadowFactor * baseOpacity * (baseAlpha / 255.0f) * 255.0f + 0.5f)
+                            // 线稿自身处阴影消隐：避免在线条正上方重复叠加深色阴影导致线条脏化变粗
+                            var lineFade = 1.0f
+                            if (linePixels != null) {
+                                val lp = linePixels[pixelIdx]
+                                val la = (lp ushr 24) and 0xFF
+                                if (la > 10) {
+                                    val r = (lp shr 16) and 0xFF
+                                    val g = (lp shr 8) and 0xFF
+                                    val b = lp and 0xFF
+                                    val darkness = (255 - (r * 299 + g * 587 + b * 114) / 1000) / 255.0f
+                                    val lineStrength = (la / 255.0f) * darkness
+                                    if (lineStrength > 0.15f) {
+                                        lineFade = max(0.0f, 1.0f - lineStrength * 1.2f)
+                                    }
+                                }
+                            }
+
+                            val finalAlpha = (shadowFactor * baseOpacity * (baseAlpha / 255.0f) * lineFade * 255.0f + 0.5f)
                                 .toInt().coerceIn(0, 255)
 
                             outPixels[pixelIdx] = if (finalAlpha > 0) {
