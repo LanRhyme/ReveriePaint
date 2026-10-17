@@ -625,12 +625,15 @@ bool ReverieCore::renderTileToBuffer(quint8 *buffer, int bufW, int bufH, int doc
             PixelAlpha::toDisplayRows(bandDst, bufW * 4, bandDst, bufW * 4, band.width(), band.height());
             local = QRect(0, localY, bufW, r.height());
         } else {
+            // 转码暂存用线程局部缓冲, 不再依赖成员 m_subRegionBuffer (compositeLayersRange 的蒙版
+            // 调制也用它): 瓦片转码不再和合成共用状态, 日后多线程转码互不踩踏。
+            static thread_local QByteArray tlSubRegionBuf;
             const int need = r.width() * r.height() * 4;
-            if (m_subRegionBuffer.size() < need) {
-                m_subRegionBuffer.resize(need);
+            if (tlSubRegionBuf.size() < need) {
+                tlSubRegionBuf.resize(need);
             }
-            readLiquifyDisplayRegion(proj, reinterpret_cast<quint8 *>(m_subRegionBuffer.data()), r);
-            PixelAlpha::toDisplayRows(reinterpret_cast<const quint8 *>(m_subRegionBuffer.constData()),
+            readLiquifyDisplayRegion(proj, reinterpret_cast<quint8 *>(tlSubRegionBuf.data()), r);
+            PixelAlpha::toDisplayRows(reinterpret_cast<const quint8 *>(tlSubRegionBuf.constData()),
                                       r.width() * 4, dst, bufW * 4, r.width(), r.height());
         }
         if (blendPreview) {
@@ -1307,6 +1310,17 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
             }
         }
 
+        // Wash 模式 (间接绘制, hasTemp) 在 100% 不透明、normal、无 Alpha 锁的图层上走直通:
+        //   Over(Over(out, dev, 1), temp, tempOpacity) == Over(out, Over(dev, temp, tempOpacity), 1)
+        // 按次序把 dev 与临时目标直接合到 target, 省掉拼装暂存的整块写入与读出 (两次 bitBlt)。
+        // 数学上等价; 8 位整数下两种结合次序的舍入可能差 1 LSB (只影响运笔中的显示, 抬笔后
+        // 由 Krita 自己的合成接管)。洋葱皮 / 图层蒙版 / 半透明 / 非 normal 混合 / 通道锁 /
+        // Alpha 锁 / 橡皮擦 / 非 normal 的临时算子任一成立就退回暂存路径。
+        const bool canDirectTempOver = !src && hasTemp && pl && !maskDev && opacity >= 0.999 &&
+            (opId.isEmpty() || opId == QLatin1String("normal")) && chanFlags.isEmpty() &&
+            !pl->alphaLocked() && m_toolMode != ToolEraser &&
+            (m_indirectTempCompositeOp.isEmpty() || m_indirectTempCompositeOp == QLatin1String("normal"));
+
         if (!src && !hasTemp && !maskDev) {
             const QRect devExt = dev->extent();
             const KoColorSpace *cs = dev->colorSpace();
@@ -1325,6 +1339,25 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
             }
             painter.bitBlt(r.topLeft(), dev, r);
             painter.end();
+        } else if (canDirectTempOver) {
+            KisPainter devPainter(target);
+            devPainter.setCompositeOpId(QStringLiteral("normal"));
+            devPainter.setOpacityToUnit();
+            devPainter.bitBlt(r.topLeft(), dev, r);
+            devPainter.end();
+            // 临时目标的合成设置与暂存路径完全一致 (setupTemporaryPainter + 同样的覆盖), 只是直接落在 target 上
+            if (KisPaintDeviceSP tempTarget = pl->temporaryTarget()) {
+                KisPainter tempPainter(target);
+                pl->setupTemporaryPainter(&tempPainter);
+                if (tempPainter.compositeOpId().isEmpty()) {
+                    tempPainter.setCompositeOpId(QStringLiteral("normal"));
+                }
+                if (m_selection) {
+                    tempPainter.setSelection(m_selection);
+                }
+                tempPainter.bitBlt(r.topLeft(), tempTarget, r);
+                tempPainter.end();
+            }
         } else {
             // 没有洋葱皮时本层直接 COMPOSITE_COPY 进暂存 (覆盖 r 内全部像素), 与"先 clear 再 normal
             // 叠到全透明上"结果相同, 省掉一次 clear(r) 遍历。

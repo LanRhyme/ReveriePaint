@@ -237,6 +237,7 @@ void ReverieCore::touchStrokeEnd()
         }
         pl->setTemporaryTarget(nullptr);
         pl->setTemporaryChannelFlags(QBitArray());
+        m_indirectTempCompositeOp.clear();
         tempTarget->clear();
     }
 
@@ -307,6 +308,7 @@ void ReverieCore::touchStrokeCancel()
         KisPaintDeviceSP tempTarget = pl->temporaryTarget();
         const QRect ext = tempTarget->exactBounds();
         pl->setTemporaryTarget(nullptr);
+        m_indirectTempCompositeOp.clear();
         tempTarget->clear();
         if (!ext.isEmpty()) {
             pl->setDirty(ext);
@@ -497,6 +499,7 @@ bool ReverieCore::flushStrokeBatch()
             tempTarget->setParentNode(pl);
             pl->setTemporaryTarget(tempTarget);
             pl->setTemporaryCompositeOp(effectiveOp);
+            m_indirectTempCompositeOp = effectiveOp;
             pl->setTemporaryOpacity(qBound<qreal>(0.0, m_strokeOpacity, 1.0));
             pl->setTemporarySelection(m_selection);
             pl->setTemporaryChannelFlags(pl->alphaLocked() ? pl->channelLockFlags() : QBitArray());

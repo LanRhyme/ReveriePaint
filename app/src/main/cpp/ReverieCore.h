@@ -1262,6 +1262,10 @@ private:
     QColor m_backgroundColor = Qt::white;
     QColor m_strokeColor;
     qreal m_strokeOpacity = 1.0;
+    // 间接绘制 (Wash 模式) 时挂到图层上的临时合成算子。KisPaintLayer::temporaryCompositeOp()
+    // 是 protected 取不到, 而 compositeLayersRange 的直通快路径要知道它是不是 normal, 所以在
+    // setTemporaryCompositeOp 的同一步镜像下来, 释放临时目标时清掉。只在 hasTemporaryTarget() 时读。
+    QString m_indirectTempCompositeOp;
     bool m_drawing = false;
     bool m_lastLoadHealed = false;
 
