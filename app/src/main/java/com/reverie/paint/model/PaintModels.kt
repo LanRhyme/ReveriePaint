@@ -71,6 +71,7 @@ enum class Tool(
     QUICK_LAYER("quick_layer", "快捷图层", ToolGroup.VIEW),
     SYMMETRY("symmetry", "对称", ToolGroup.OTHER),
     PERSPECTIVE("perspective", "透视", ToolGroup.OTHER),
+    SHADING_ASSIST("shading_assist", "阴影辅助", ToolGroup.OTHER),
     ;
 
     companion object {

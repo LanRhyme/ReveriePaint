@@ -78,4 +78,11 @@ internal fun PaintingGlobalDialogs(
     vm.brushImportProgress?.let { progress ->
         BrushImportProgressDialog(progress = progress)
     }
+
+    if (vm.shadingAssistDialogOpen) {
+        com.reverie.paint.ui.painting.panels.ShadingAssistDialog(
+            vm = vm,
+            onDismiss = { vm.closeShadingAssist() }
+        )
+    }
 }

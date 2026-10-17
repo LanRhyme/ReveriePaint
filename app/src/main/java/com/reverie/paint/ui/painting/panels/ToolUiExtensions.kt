@@ -58,6 +58,7 @@ fun Tool.labelRes(): Int = when (this) {
     Tool.QUICK_LAYER -> R.string.tool_quick_layer
     Tool.SYMMETRY -> R.string.tool_symmetry
     Tool.PERSPECTIVE -> R.string.tool_perspective
+    Tool.SHADING_ASSIST -> R.string.shading_assist_title
 }
 
 @StringRes

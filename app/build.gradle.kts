@@ -239,6 +239,8 @@ dependencies {
     implementation("androidx.graphics:graphics-core:1.0.4")
     // Android 原生系统级运动预测库 (适用于华为、三星、通用及各家 Android 平板)
     implementation("androidx.input:input-motionprediction:1.0.0")
+    // ONNX Runtime Mobile 端侧轻量神经网络推理引擎 (用于智能阴影辅助等端侧 AI 特性)
+    implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
 
     testImplementation("junit:junit:4.13.2")
 }

@@ -2728,5 +2728,36 @@
     <string name="srt_single_frame_title">SRT 分镜 · 原始时间仅供参考</string>
     <string name="srt_single_frame_hint">拖右边缘调时长 · SRT 轨道绘画不切帧</string>
     <string name="srt_mapping_changed">关键帧数量已改变，字幕定位暂停</string>
+
+    <!-- 智能阴影辅助 Shading Assist -->
+    <string name="shading_assist_title">阴影辅助</string>
+    <string name="shading_assist_desc">根据光源方向与表面法线，自动生成正片叠底剪贴阴影图层</string>
+    <string name="shading_assist_light_source">光源方向与仰角</string>
+    <string name="shading_assist_azimuth">方位角 %1$d°</string>
+    <string name="shading_assist_elevation">仰角 %1$d°</string>
+    <string name="shading_assist_mode_cel">赛璐珞</string>
+    <string name="shading_assist_mode_smooth">柔和过渡</string>
+    <string name="shading_assist_steps_1">单阶阴影</string>
+    <string name="shading_assist_steps_2">双阶阴影</string>
+    <string name="shading_assist_threshold">阴影覆盖范围</string>
+    <string name="shading_assist_threshold_sub">二阶深色阈值</string>
+    <string name="shading_assist_softness">边缘平滑度</string>
+    <string name="shading_assist_opacity">阴影不透明度</string>
+    <string name="shading_assist_shadow_color">阴影色彩</string>
+    <string name="shading_assist_lineart_layer">参考线稿图层</string>
+    <string name="shading_assist_lineart_none">不参考线稿 (仅底色)</string>
+    <string name="shading_assist_lineart_occlusion">线稿投射自遮挡</string>
+    <string name="shading_assist_apply">生成阴影图层</string>
+    <string name="shading_assist_generating">正在生成阴影图层...</string>
+    <string name="shading_assist_model_ready">AI 神经网络模型已就绪</string>
+    <string name="shading_assist_model_synthetic">2.5D 几何算法模式 (未检测到 AI 模型)</string>
+    <string name="shading_assist_download_model">下载推荐 AI 模型</string>
+    <string name="shading_assist_import_model">导入本地 .onnx</string>
+    <string name="shading_assist_downloading">正在下载推荐模型 (%1$d%%)</string>
+    <string name="shading_assist_custom_model_active">自定义模型: %s</string>
+    <string name="shading_assist_reset_model">恢复默认</string>
+    <string name="shading_assist_layer_name">智能阴影</string>
+    <string name="shading_assist_toast_success">已在底色图层上方生成剪贴阴影</string>
+    <string name="shading_assist_toast_need_layer">请先选择包含色彩内容的图层</string>
 </resources>
 

@@ -734,6 +734,16 @@ class PaintViewModel : ViewModel() {
     var targetExportAnimation by mutableStateOf(false)
     var layerRevision by mutableStateOf(0)
 
+    // 智能阴影辅助状态
+    var shadingAssistDialogOpen by mutableStateOf(false)
+    var shadingAssistConfig by mutableStateOf(com.reverie.paint.model.ShadingAssistConfig())
+    var shadingAssistPreviewBitmap by mutableStateOf<Bitmap?>(null)
+    var shadingAssistIsProcessing by mutableStateOf(false)
+    internal var shadingAssistNormalField: ShadingAssistEngine.NormalField? = null
+    internal var shadingAssistBaseBitmap: Bitmap? = null
+    internal var shadingAssistLineBitmap: Bitmap? = null
+    internal var shadingAssistRenderJob: kotlinx.coroutines.Job? = null
+
     fun toggleFavoriteBrush(name: String) {
         if (name.isBlank()) return
         favoriteBrushNames = if (favoriteBrushNames.contains(name)) {
@@ -1482,6 +1492,9 @@ class PaintViewModel : ViewModel() {
             com.reverie.paint.model.QuickAction.TOGGLE_QUICK_LAYER -> {
                 toggleQuickLayer()
             }
+            com.reverie.paint.model.QuickAction.SHADING_ASSIST -> {
+                openShadingAssist()
+            }
         }
     }
 
@@ -1513,6 +1526,7 @@ class PaintViewModel : ViewModel() {
             com.reverie.paint.model.QuickAction.TOGGLE_ERASER -> currentToolId == "eraser"
             com.reverie.paint.model.QuickAction.ALPHA_LOCK -> isCurrentLayerAlphaLocked()
             com.reverie.paint.model.QuickAction.DISABLE_TOUCH -> isCanvasTouchDisabled
+            com.reverie.paint.model.QuickAction.SHADING_ASSIST -> shadingAssistDialogOpen
             else -> false
         }
 

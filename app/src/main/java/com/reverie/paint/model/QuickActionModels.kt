@@ -37,6 +37,7 @@ enum class QuickAction(
     TOGGLE_QUICK_COLOR("toggle_quick_color", R.string.quick_action_toggle_quick_color, R.drawable.ic_palette),
     TOGGLE_QUICK_OKLCH("toggle_quick_oklch", R.string.quick_action_toggle_quick_oklch, R.drawable.ic_oklch),
     TOGGLE_QUICK_LAYER("toggle_quick_layer", R.string.quick_action_toggle_quick_layer, R.drawable.ic_layers),
+    SHADING_ASSIST("shading_assist", R.string.shading_assist_title, R.drawable.ic_moon),
     ;
 
     companion object {
