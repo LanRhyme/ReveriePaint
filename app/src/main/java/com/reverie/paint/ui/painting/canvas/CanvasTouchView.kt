@@ -1202,7 +1202,7 @@ class CanvasTouchView(context: Context) : View(context) {
         val historyCount = touchHistoryCount
         if (historyCount > 1) {
             var estimatedStep = 0
-            val lagWindowMs = v.effectivePipelineDelayMs.coerceIn(20L, 80L)
+            val lagWindowMs = v.effectivePipelineDelayMs.coerceIn(4L, 80L)
             val latestIdx = (touchHistoryHead - 1 + 64) % 64
             val targetFrontierTime = touchHistoryTime[latestIdx] - lagWindowMs
             for (step in 1 until historyCount) {
@@ -5497,28 +5497,6 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                 }
 
-                updateStylusSensors(event, pointerIndex, isStylus, historyPos = -1)
-                v.touchMove(effectiveDocPos.x, effectiveDocPos.y, pressure.toDouble(), event.eventTime, touchTiltX, touchTiltY, touchRotation)
-
-                // 纸张摩擦音效: 按文档坐标瞬时速度与压感动态调制增益与共振 (零分配, 单次 volatile 写)
-                val soundDt = event.eventTime - lastSoundTimeMs
-                if (lastSoundTimeMs != 0L && soundDt > 0) {
-                    val sdx = effectiveDocPos.x - lastSoundDocPos.x
-                    val sdy = effectiveDocPos.y - lastSoundDocPos.y
-                    val speedPxPerMs = kotlin.math.sqrt(sdx * sdx + sdy * sdy) / soundDt
-                    getOrCreateStylusDriver()?.feedbackManager?.updateStrokeSound(speedPxPerMs, pressure.toFloat())
-                }
-                lastSoundDocPos = effectiveDocPos
-                lastSoundTimeMs = event.eventTime
-
-                if (hasSymmetry) {
-                    appendPrimarySample(v.smoothedStrokeX, v.smoothedStrokeY, v.smoothedStrokePressure)
-                    val symPts = computeAllSymmetricPoints(Point2D(v.smoothedStrokeX, v.smoothedStrokeY))
-                    for (idx in symPts.indices) {
-                        appendMirrorSample(idx, symPts[idx].x, symPts[idx].y, v.smoothedStrokePressure)
-                    }
-                }
-
                 // Dual-track replacement: immediately clear old prediction upon real event reception
                 clearPredictedScreenPoint()
 
@@ -5930,6 +5908,51 @@ class CanvasTouchView(context: Context) : View(context) {
                         }
                         hasActivePredictedTip = false
                         hasDrawnPrediction = false
+                    }
+                }
+
+                // 受控预测前馈的输入: 本事件的预测笔尖 (文档坐标)。辅助绘图 (参考线吸附) 与非画笔
+                // 工具不前馈; 是否采用、前推多少由 touchMove 按夹角与步长上限决定。
+                // 预测在上面的分派里按本事件算好, 所以真实采样点在预测之后才提交。
+                // 按实际生效的工具判断 (笔尾橡皮 / 临时擦除时选中的工具不是 ERASER, 但画的是橡皮)。
+                var predDocX = Float.NaN
+                var predDocY = Float.NaN
+                val ffTool = effTool()
+                if (!isAssist && hasPredictedScreenPoint && (ffTool == Tool.BRUSH || ffTool == Tool.ERASER)) {
+                    val pDoc = screenToDoc(Offset(predictedScreenX, predictedScreenY))
+                    predDocX = pDoc.x
+                    predDocY = pDoc.y
+                }
+
+                updateStylusSensors(event, pointerIndex, isStylus, historyPos = -1)
+                v.touchMove(
+                    effectiveDocPos.x,
+                    effectiveDocPos.y,
+                    pressure.toDouble(),
+                    event.eventTime,
+                    touchTiltX,
+                    touchTiltY,
+                    touchRotation,
+                    predDocX,
+                    predDocY,
+                )
+
+                // 纸张摩擦音效: 按文档坐标瞬时速度与压感动态调制增益与共振 (零分配, 单次 volatile 写)
+                val soundDt = event.eventTime - lastSoundTimeMs
+                if (lastSoundTimeMs != 0L && soundDt > 0) {
+                    val sdx = effectiveDocPos.x - lastSoundDocPos.x
+                    val sdy = effectiveDocPos.y - lastSoundDocPos.y
+                    val speedPxPerMs = kotlin.math.sqrt(sdx * sdx + sdy * sdy) / soundDt
+                    getOrCreateStylusDriver()?.feedbackManager?.updateStrokeSound(speedPxPerMs, pressure.toFloat())
+                }
+                lastSoundDocPos = effectiveDocPos
+                lastSoundTimeMs = event.eventTime
+
+                if (hasSymmetry) {
+                    appendPrimarySample(v.smoothedStrokeX, v.smoothedStrokeY, v.smoothedStrokePressure)
+                    val symPts = computeAllSymmetricPoints(Point2D(v.smoothedStrokeX, v.smoothedStrokeY))
+                    for (idx in symPts.indices) {
+                        appendMirrorSample(idx, symPts[idx].x, symPts[idx].y, v.smoothedStrokePressure)
                     }
                 }
                 if (realInk.held && pointerIndex in 0 until event.pointerCount) {

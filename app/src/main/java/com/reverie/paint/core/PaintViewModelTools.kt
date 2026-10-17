@@ -309,6 +309,8 @@ internal fun PaintViewModel.touchMove(
     tiltX: Double = 0.0,
     tiltY: Double = 0.0,
     rotation: Double = 0.0,
+    predictedDocX: Float = Float.NaN,
+    predictedDocY: Float = Float.NaN,
 ) {
     if (x.isNaN() || y.isNaN()) return
     val safePressure = if (pressure.isNaN() || pressure < 0.0) 1.0 else pressure.coerceIn(0.0, 1.0)
@@ -318,7 +320,13 @@ internal fun PaintViewModel.touchMove(
 
     onPaintingActivity()
     val now = android.os.SystemClock.uptimeMillis()
-    val dt = (now - lastStrokeTimeMs).coerceAtLeast(1)
+    // dt 优先用输入事件时间戳: 同一帧内被批处理的多点采样, uptimeMillis 差值会全部坍缩成 1ms,
+    // 速度估计被放大 8~16 倍 (brushSpeedSize 的粗细调制因此失真)。拿不到事件时间时按 240Hz 取 4ms。
+    val dt = if (lastInputEventTimeMs > 0L && inputEventTimeMs > lastInputEventTimeMs) {
+        (inputEventTimeMs - lastInputEventTimeMs).coerceIn(1L, 100L)
+    } else {
+        4L
+    }
     val dx = x - lastStrokeX
     val dy = y - lastStrokeY
     lastStrokeDeltaX = dx
@@ -336,26 +344,47 @@ internal fun PaintViewModel.touchMove(
         effPressure = (effPressure * speedFactor).coerceIn(0.01, 1.0)
     }
 
-
     lastStrokeTimeMs = now
+    // lastStrokeX/Y 严格保存真实物理落点: 抬笔 touchEnd 收尾补点以它为终点, 绝不过冲
     lastStrokeX = x
     lastStrokeY = y
 
-    var effX = x
-    var effY = y
+    // 受控预测前馈: 仅当预测点有效、且与当前真实位移方向夹角 <= 35° (cos >= 0.82) 时, 沿预测方向
+    // 前推 min(预测距离 * 0.45, 真实步长 * 0.65, max(2px, 笔刷直径 * 0.45)), 抵消采样与平滑相位滞后。
+    // 前馈点进入实际笔画与录制; 抬笔收尾仍以真实落点 (lastStrokeX/Y) 为终点。
+    var targetX = x
+    var targetY = y
+    if (predictedDocX.isFinite() && predictedDocY.isFinite() && dist > 0.8) {
+        val pdx = (predictedDocX - x).toDouble()
+        val pdy = (predictedDocY - y).toDouble()
+        val pLen = Math.hypot(pdx, pdy)
+        if (pLen > 0.5) {
+            val cosTheta = (dx * pdx + dy * pdy) / (dist * pLen)
+            if (cosTheta >= 0.82) {
+                val maxLead = minOf(dist * 0.65, maxOf(2.0, brushSize * 0.45))
+                val clampedLead = minOf(pLen * 0.45, maxLead)
+                targetX = (x + (pdx / pLen) * clampedLead).toFloat()
+                targetY = (y + (pdy / pLen) * clampedLead).toFloat()
+            }
+        }
+    }
+
+    var effX = targetX
+    var effY = targetY
     var effP = effPressure
 
     when (strokeSmoothingType) {
         PaintViewModel.SMOOTHING_OFF -> {
-            smoothedStrokeX = x
-            smoothedStrokeY = y
+            smoothedStrokeX = targetX
+            smoothedStrokeY = targetY
             smoothedStrokePressure = effPressure
+            lastInputEventTimeMs = inputEventTimeMs
         }
         PaintViewModel.SMOOTHING_WEIGHTED -> {
             val count = smoothingHistCount
             val prevX = smoothingHistX[count - 1]
             val prevY = smoothingHistY[count - 1]
-            val curDist = Math.hypot((x - prevX).toDouble(), (y - prevY).toDouble())
+            val curDist = Math.hypot((targetX - prevX).toDouble(), (targetY - prevY).toDouble())
 
             val lastIdx: Int
             if (count < PaintViewModel.SMOOTHING_HISTORY_CAPACITY) {
@@ -368,8 +397,9 @@ internal fun PaintViewModel.touchMove(
                 System.arraycopy(smoothingHistDist, 1, smoothingHistDist, 0, PaintViewModel.SMOOTHING_HISTORY_CAPACITY - 1)
                 lastIdx = PaintViewModel.SMOOTHING_HISTORY_CAPACITY - 1
             }
-            smoothingHistX[lastIdx] = x
-            smoothingHistY[lastIdx] = y
+            // 严禁把平滑后的输出写回 smoothingHistX/Y (否则 FIR 退化为高滞后 IIR 自回归滤波)
+            smoothingHistX[lastIdx] = targetX
+            smoothingHistY[lastIdx] = targetY
             smoothingHistP[lastIdx] = effPressure
             smoothingHistDist[lastIdx] = curDist
 
@@ -385,19 +415,19 @@ internal fun PaintViewModel.touchMove(
                 val effectiveZoom = (tv?.canvasZoom ?: 1f).toDouble() * (tv?.canvasFitScale ?: 1f).toDouble()
                 val zoomCoeff = if (strokeScalableDistance && effectiveZoom > 0.001) 1.0 / effectiveZoom else 1.0
 
-                // Normalized speed in range [0.0, 1.0] (0 = slow/fine lines, 1 = rapid sweep)
-                val speed = ((dist * (if (strokeScalableDistance) effectiveZoom else 1.0)) / eventDt.toDouble() / 2.5).coerceIn(0.0, 1.0)
+                // Normalized speed in range [0.0, 1.0] (分母由 2.5 调至 1.6, 中速即可激活低滞后响应)
+                val scaledDist = dist * (if (strokeScalableDistance) effectiveZoom else 1.0)
+                val speed = (scaledDist / eventDt.toDouble() / 1.6).coerceIn(0.0, 1.0)
                 val effDist = zoomCoeff * ((1.0 - speed) * strokeSmoothnessDistanceMax + speed * strokeSmoothnessDistanceMin)
                 val baseSigma = effDist / 3.0
-                // Adaptive sigma floor ensures multi-point smoothing even when stylus moves fast or on high-DPI screens
-                val minSigma = maxOf(2.5, curDist * 0.6)
-                val sigma = maxOf(baseSigma, minSigma * (effDist / 40.0).coerceIn(0.3, 1.8))
+                val speedDecay = 1.0 - speed * 0.88
+                val minSigma = maxOf(1.2 * speedDecay, curDist * 0.16 * speedDecay)
+                val sigma = maxOf(baseSigma * speedDecay, minSigma * (effDist / 40.0).coerceIn(0.20, 1.0))
 
                 if (sigma > 0.001) {
                     val gaussianWeight = 1.0 / (Math.sqrt(2.0 * Math.PI) * sigma)
                     val gaussianWeight2 = sigma * sigma
 
-                    // Current point (i = lastIdx) has distance 0.0 from itself
                     val w0 = gaussianWeight
                     var scaleSum = w0
                     var weightedX = w0 * smoothingHistX[lastIdx]
@@ -431,19 +461,11 @@ internal fun PaintViewModel.touchMove(
                     }
 
                     if (scaleSum > 0.0) {
-                        val finalX = (weightedX / scaleSum).toFloat()
-                        val finalY = (weightedY / scaleSum).toFloat()
-                        val finalP = if (strokeSmoothPressure) (weightedP / scaleSum) else effPressure
-
-                        effX = finalX
-                        effY = finalY
-                        effP = finalP
-
-                        // Update current sample in history with the smoothed position
-                        smoothingHistX[lastIdx] = finalX
-                        smoothingHistY[lastIdx] = finalY
+                        effX = (weightedX / scaleSum).toFloat()
+                        effY = (weightedY / scaleSum).toFloat()
+                        effP = if (strokeSmoothPressure) (weightedP / scaleSum) else effPressure
                         if (strokeSmoothPressure) {
-                            smoothingHistP[lastIdx] = finalP
+                            smoothingHistP[lastIdx] = effP
                         }
                     }
                 }
@@ -453,26 +475,30 @@ internal fun PaintViewModel.touchMove(
             smoothedStrokePressure = effP
         }
         else -> {
+            lastInputEventTimeMs = inputEventTimeMs
             val stabFactor = maxOf(strokeStabilizer.toDouble(), brushStreamline).coerceIn(0.0, 1.0)
             if (stabFactor > 0.0) {
-                // High-precision non-linear stabilizer curve:
-                // Exponential response with adaptive distance boost provides rock-solid jitter removal
-                // when drawing slow/fine lines while remaining responsive during rapid sweeps.
-                val baseAlpha = kotlin.math.exp(-stabFactor * 5.2) * 0.994 + 0.006
-                val distToTarget = Math.hypot((x - smoothedStrokeX).toDouble(), (y - smoothedStrokeY).toDouble())
-                val adaptiveBoost = (distToTarget / 150.0).coerceIn(0.0, 1.0) * 0.015
-                val alpha = (baseAlpha + adaptiveBoost).toFloat().coerceIn(0.006f, 1.0f)
+                // 基础平滑: 慢速精细勾线保持稳固防抖, 一旦滞后距离超过 4~22px 或运笔速度提升,
+                // 迅速抬升 alpha 至 0.65~0.96, 斩断中高速扫笔的橡皮筋拖尾。
+                val baseAlpha = kotlin.math.exp(-stabFactor * 4.2) * 0.98 + 0.02
+                val distToTarget =
+                    Math.hypot((targetX - smoothedStrokeX).toDouble(), (targetY - smoothedStrokeY).toDouble())
+                val normLag = (distToTarget / 22.0).coerceIn(0.0, 1.0)
+                val speedPxPerMs = dist / dt.toDouble()
+                val normSpeed = (speedPxPerMs / 1.5).coerceIn(0.0, 1.0)
+                val adaptiveBoost = maxOf(normLag * normLag, normSpeed * 0.75) * (0.82 * (1.0 - stabFactor * 0.35))
+                val alpha = (baseAlpha + adaptiveBoost).toFloat().coerceIn(0.02f, 0.96f)
 
-                smoothedStrokeX += (x - smoothedStrokeX) * alpha
-                smoothedStrokeY += (y - smoothedStrokeY) * alpha
-                val pressureAlpha = maxOf(alpha * 2.5f, 0.06f).coerceAtMost(1.0f)
+                smoothedStrokeX += (targetX - smoothedStrokeX) * alpha
+                smoothedStrokeY += (targetY - smoothedStrokeY) * alpha
+                val pressureAlpha = maxOf(alpha * 2.5f, 0.08f).coerceAtMost(1.0f)
                 smoothedStrokePressure += (effPressure - smoothedStrokePressure) * pressureAlpha.toDouble()
                 effX = smoothedStrokeX
                 effY = smoothedStrokeY
                 effP = smoothedStrokePressure
             } else {
-                smoothedStrokeX = x
-                smoothedStrokeY = y
+                smoothedStrokeX = targetX
+                smoothedStrokeY = targetY
                 smoothedStrokePressure = effPressure
             }
         }

@@ -4973,8 +4973,8 @@ class PaintViewModel : ViewModel() {
             com.reverie.paint.model.Tool.FILL,
             com.reverie.paint.model.Tool.LASSO,
         )
-        const val PRESENT_ESTIMATE_MS = 14L // 补偿 UI draw + SurfaceFlinger 合成上屏延迟 (~1~1.5 帧 VSYNC)
-        const val PRESENT_TAIL_MS = 8L      // onDraw 提交 + HWUI/SF 合成 ~1 帧 @120Hz (保守常数)
+        const val PRESENT_ESTIMATE_MS = 8L // 普通 View 路径: UI draw + SurfaceFlinger 合成上屏延迟
+        const val PRESENT_TAIL_MS = 4L // onDraw 提交 + HWUI/SF 合成尾
 
         /** 真墨由前缓冲直出时的上屏延迟估计 (单缓冲, 绕过 HWUI/SF 的排队)。 */
         const val FRONT_BUFFER_PRESENT_MS = 4L
@@ -5099,7 +5099,9 @@ class PaintViewModel : ViewModel() {
     @Volatile private var strokeBatchQueued = false
     @Volatile private var lastQueuedInputEventTime = 0L
     @Volatile private var lastQueuedUptime = 0L
-    @Volatile var lastE2ePipelineMs: Long = 40L
+    // 初值取一帧量级: 原先 40L 配合 "e2e in 5L..250L" 的更新条件, 硬笔快速运笔时实测 e2e 只有
+    // 1~4ms, 永远更新不上, 延迟估计锁死在 40 + 14 = 54ms, 预览回填窗口过大 (拐角重影)。
+    @Volatile var lastE2ePipelineMs: Long = 8L
     data class RenderedFrontier(
         val docX: Float,
         val docY: Float,
@@ -5123,6 +5125,7 @@ class PaintViewModel : ViewModel() {
 
     fun resetRenderedFrontier() {
         currentRenderedFrontier = null
+        lastE2ePipelineMs = 8L
     }
 
     fun updateRenderedFrontier(docX: Float, docY: Float, timeMs: Long) {
@@ -5140,7 +5143,7 @@ class PaintViewModel : ViewModel() {
             // 真墨按住期间笔迹由前缓冲呈现, 不再经过主画布的 HWUI/SF 合成。
             if (realInkSink?.wantsHold() == true) return FRONT_BUFFER_PRESENT_MS
             val measuredPresent = PerfTrace.presentWaitP50Ms
-            return if (measuredPresent in 2L..35L) {
+            return if (measuredPresent in 1L..35L) {
                 (measuredPresent + PRESENT_TAIL_MS).coerceAtLeast(PRESENT_ESTIMATE_MS)
             } else {
                 PRESENT_ESTIMATE_MS
@@ -5148,7 +5151,7 @@ class PaintViewModel : ViewModel() {
         }
 
     val effectivePipelineDelayMs: Long
-        get() = (lastE2ePipelineMs + presentLagEstimateMs).coerceIn(20L, 85L)
+        get() = (lastE2ePipelineMs + presentLagEstimateMs).coerceIn(4L, 85L)
     private var perfLogCounter = 0
 
     private val strokeBatchRunnable = Runnable {
@@ -5181,9 +5184,11 @@ class PaintViewModel : ViewModel() {
             val dtRender = dtRenderNs / 1_000_000L
             val tDone = android.os.SystemClock.uptimeMillis()
             val queueWait = tDispatch - lastQueuedUptime
-            val e2e = if (lastQueuedInputEventTime > 0) tDone - lastQueuedInputEventTime else 0L
-            if (e2e in 5L..250L) {
-                lastE2ePipelineMs = e2e
+            val e2e =
+                if (lastQueuedInputEventTime > 0) (tDone - lastQueuedInputEventTime).coerceAtLeast(1L) else 0L
+            if (e2e in 1L..250L) {
+                // 2:1 滑动平均: 单帧抖动不直接改写延迟估计
+                lastE2ePipelineMs = ((lastE2ePipelineMs * 2L) + e2e) / 3L
             }
             val lastSampleIdx = n - 1
             val lastCoordIdx = lastSampleIdx * STROKE_SAMPLE_STRIDE
