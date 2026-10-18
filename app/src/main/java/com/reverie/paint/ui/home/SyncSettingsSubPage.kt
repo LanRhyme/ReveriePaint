@@ -51,6 +51,7 @@ import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.core.sync.SyncCredentials
+import com.reverie.paint.core.sync.SyncException
 import com.reverie.paint.core.sync.SyncTimeFormat
 import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.theme.Theme
@@ -140,21 +141,27 @@ internal fun SyncSettingsSubPage(
                         )
                     }
 
+                    val testing = state.status == SyncConnectionStatus.TESTING
                     Spacer(Modifier.height(8.dp))
                     SettingGroup {
                         SyncActionRow(
                             index = 0,
                             total = 2,
-                            text = stringResource(R.string.sync_connect_action),
+                            text = stringResource(if (testing) R.string.sync_status_testing else R.string.sync_connect_action),
                             color = colors.accent,
+                            enabled = !testing,
                         ) { vm.connectSync(draftServer, draftUser, draftPass) }
                         SyncActionRow(
                             index = 1,
                             total = 2,
                             text = stringResource(R.string.cancel),
                             color = colors.subText,
+                            enabled = !testing,
                         ) { vm.closeSyncEditor() }
                     }
+                    Spacer(Modifier.height(8.dp))
+                    // 编辑态同样要显示连接状态/失败原因, 否则连接失败时界面毫无反馈
+                    SyncStatusLine(vm)
                 }
 
                 state.connected -> {
@@ -468,12 +475,7 @@ private fun SyncStatusLine(vm: PaintViewModel) {
             SyncConnectionStatus.IDLE -> return
             SyncConnectionStatus.TESTING -> stringResource(R.string.sync_status_testing) to colors.subText
             SyncConnectionStatus.OK -> connected to colors.accent
-            SyncConnectionStatus.FAILED ->
-                if (state.statusDetail == SYNC_DETAIL_NOT_CONFIGURED) {
-                    stringResource(R.string.sync_error_not_configured) to Color(0xFFE05555)
-                } else {
-                    stringResource(R.string.sync_status_failed) + " (" + state.statusDetail + ")" to Color(0xFFE05555)
-                }
+            SyncConnectionStatus.FAILED -> syncFailureText(state.statusDetail) to Color(0xFFE05555)
         }
     Text(
         text = text,
@@ -482,6 +484,24 @@ private fun SyncStatusLine(vm: PaintViewModel) {
         modifier = Modifier.padding(start = 6.dp),
     )
 }
+
+/** 把 connectSync/testSyncConnection 写入的失败码翻译成可读原因。 */
+@Composable
+private fun syncFailureText(detail: String): String =
+    when (detail) {
+        SYNC_DETAIL_NOT_CONFIGURED -> stringResource(R.string.sync_error_not_configured)
+        SYNC_DETAIL_PASSWORD_REQUIRED -> stringResource(R.string.sync_error_password_required)
+        SyncException.Kind.AUTH.name -> stringResource(R.string.sync_error_auth)
+        SyncException.Kind.NETWORK.name -> stringResource(R.string.sync_error_network)
+        SyncException.Kind.NOT_FOUND.name -> stringResource(R.string.sync_error_not_found)
+        SyncException.Kind.PROTOCOL.name -> stringResource(R.string.sync_error_protocol)
+        else ->
+            if (detail.contains("SSL", ignoreCase = true) || detail.contains("Cert", ignoreCase = true)) {
+                stringResource(R.string.sync_error_tls)
+            } else {
+                stringResource(R.string.sync_status_failed) + " (" + detail + ")"
+            }
+    }
 
 @Composable
 private fun SyncResultLine(vm: PaintViewModel) {

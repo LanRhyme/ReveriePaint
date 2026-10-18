@@ -2508,6 +2508,12 @@
     <string name="sync_status_ok">连接成功</string>
     <string name="sync_status_failed">连接失败</string>
     <string name="sync_error_not_configured">请先填写有效的服务器地址与用户名</string>
+    <string name="sync_error_password_required">请输入密码或应用专用密码</string>
+    <string name="sync_error_auth">认证失败：请检查用户名与密码，坚果云等服务需使用应用专用密码</string>
+    <string name="sync_error_network">网络连接失败：请检查服务器地址与网络连接</string>
+    <string name="sync_error_not_found">路径不存在：请检查 WebDAV 地址</string>
+    <string name="sync_error_protocol">服务器响应异常：请确认地址指向标准 WebDAV 服务</string>
+    <string name="sync_error_tls">证书校验失败：自建服务器可开启「信任自签名证书」后重试</string>
     <string name="sync_info_title">说明</string>
     <string name="sync_info_text">同步采用无账号设计, 工程保存在你自有的服务器。密码经系统密钥库加密后仅存于本机, 不会上传</string>
     <string name="sync_category_backup">同步与备份</string>

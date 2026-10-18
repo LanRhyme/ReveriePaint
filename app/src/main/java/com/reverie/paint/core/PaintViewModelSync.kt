@@ -84,6 +84,7 @@ private const val PREF_SYNC = "paint_prefs"
 private const val MANIFEST_FILE = "sync_manifest.txt"
 
 internal const val SYNC_DETAIL_NOT_CONFIGURED = "NOT_CONFIGURED"
+internal const val SYNC_DETAIL_PASSWORD_REQUIRED = "PASSWORD_REQUIRED"
 
 private fun PaintViewModel.syncPrefs() =
     appContext.getSharedPreferences(PREF_SYNC, android.content.Context.MODE_PRIVATE)
@@ -245,6 +246,11 @@ internal fun PaintViewModel.connectSync(
     val user = username
     val existing = savedPassword()
     val effectivePassword = passwordDraft.ifBlank { existing }
+    if (effectivePassword.isBlank()) {
+        syncState.status = SyncConnectionStatus.FAILED
+        syncState.statusDetail = SYNC_DETAIL_PASSWORD_REQUIRED
+        return
+    }
     syncState.status = SyncConnectionStatus.TESTING
     syncState.statusDetail = ""
 

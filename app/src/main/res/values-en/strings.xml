@@ -2508,6 +2508,12 @@
     <string name="sync_status_ok">Connected</string>
     <string name="sync_status_failed">Connection failed</string>
     <string name="sync_error_not_configured">Enter a valid server address and username first</string>
+    <string name="sync_error_password_required">Enter the password or app-specific password</string>
+    <string name="sync_error_auth">Authentication failed: check the username and password; services like Nutstore require an app-specific password</string>
+    <string name="sync_error_network">Network error: check the server address and your connection</string>
+    <string name="sync_error_not_found">Path not found: check the WebDAV address</string>
+    <string name="sync_error_protocol">Unexpected server response: make sure the address points to a standard WebDAV service</string>
+    <string name="sync_error_tls">Certificate verification failed: enable &quot;Trust self-signed certificate&quot; for self-hosted servers</string>
     <string name="sync_info_title">About</string>
     <string name="sync_info_text">Sync is account-free and keeps projects on your own server. The password is encrypted with the system keystore and never leaves this device</string>
     <string name="sync_category_backup">Sync &amp; Backup</string>
