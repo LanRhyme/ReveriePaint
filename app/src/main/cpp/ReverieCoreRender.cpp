@@ -525,10 +525,10 @@ int ReverieCore::beginTileFrame(QRect *outRects, int cap)
         return 0;
     }
 
-    // 与 renderToBuffer 同一套准备: 异步合并没落定就等, 落定了就不必再合成
-    // (Krita 的 merger 已经把投影算干净了)。
-    const bool wasAsyncBusy = !image->isIdle();
-    if (wasAsyncBusy) {
+    // 与 renderToBuffer 同一套准备: 锁图时放行同步合成脏区, 未锁且调度器忙才等待
+    const reverie::RenderGate gate =
+        reverie::renderGateFor(image->locked(), [&] { return image->isIdle(); });
+    if (gate.waitForMerger) {
         image->waitForDone();
     }
 
@@ -537,7 +537,7 @@ int ReverieCore::beginTileFrame(QRect *outRects, int cap)
         proj = compositeSoloProjection();
     } else {
         proj = image->projection();
-        if (!wasAsyncBusy) {
+        if (!gate.waitForMerger) {
             bool hasSpecialCompositeLayer = false;
             for (const LayerEntry &le : m_layers) {
                 if (le.visible && (le.isStrokeLayer || le.nodeType == NodeTypeStroke ||

@@ -3032,9 +3032,16 @@ class CanvasTouchView(context: Context) : View(context) {
         //   不可用时在此软件回退绘制 (回退空洞见 FrontBufferProbe.softwareFallbackRequired)
         // - 前缓冲预测关闭: 上游原版 OEM 硬件预测渐隐尾线 (仅 OPPO 硬件预测器有效)
         // =========================================================================
-        var drewPrediction = hasDrawnPrediction
+        val hasSymmetry = v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing
+        var drewPrediction = if (hasSymmetry) false else hasDrawnPrediction
         if (v.frontBufferPredictionEnabled) {
-            if (FrontBufferProbe.softwareFallbackRequired(frontBufferOverlay != null, frontBufferOverlay?.canRenderPreview == true)) {
+            if (hasSymmetry) {
+                // 对称模式: C++ SymmetryMirrorLive 独立出墨 + RealInkController 前缓冲直出。
+                // 抑制单侧单笔软件回退预览线 (避免出现单边假线)。
+                drewPrediction = false
+                hasDrawnPrediction = false
+                hasActivePredictedTip = false
+            } else if (FrontBufferProbe.softwareFallbackRequired(frontBufferOverlay != null, frontBufferOverlay?.canRenderPreview == true)) {
                 val fidelityTier = v.effectivePredictionTier
                 val isDrawingTool = tool == Tool.BRUSH
                 var fallbackDrew = false
@@ -3144,6 +3151,25 @@ class CanvasTouchView(context: Context) : View(context) {
                                 android.graphics.Shader.TileMode.CLAMP
                             )
                             canvas.drawLine(localCursorX, localCursorY, endX, endY, tipShaderPaint)
+
+                            // 对称模式: 将硬件预测尾线同步镜像绘制到所有对称分支
+                            if (hasSymmetry) {
+                                val docStart = screenToDoc(Offset(localCursorX, localCursorY))
+                                val docEnd = screenToDoc(Offset(endX, endY))
+                                val symStarts = computeAllSymmetricPoints(Point2D(docStart.x, docStart.y))
+                                val symEnds = computeAllSymmetricPoints(Point2D(docEnd.x, docEnd.y))
+                                val symCount = minOf(symStarts.size, symEnds.size)
+                                for (i in 0 until symCount) {
+                                    val sStart = docToScreen(Offset(symStarts[i].x, symStarts[i].y))
+                                    val sEnd = docToScreen(Offset(symEnds[i].x, symEnds[i].y))
+                                    tipShaderPaint.shader = android.graphics.LinearGradient(
+                                        sStart.x, sStart.y, sEnd.x, sEnd.y,
+                                        startColor, endColor,
+                                        android.graphics.Shader.TileMode.CLAMP
+                                    )
+                                    canvas.drawLine(sStart.x, sStart.y, sEnd.x, sEnd.y, tipShaderPaint)
+                                }
+                            }
                         }
                     }
                 } catch (_: Throwable) {}
@@ -3388,8 +3414,8 @@ class CanvasTouchView(context: Context) : View(context) {
         // Phase 2: 记录本帧光标环的屏幕位置与半径 —— 下一帧做局部失效时要把环的"旧位置"也覆盖掉
         lqRingValid = false
         if (shouldShow && isDrawTool && v.cursorStyleMode != 4) {
-            // 绘画中且前缓冲预测生效时，光标圆心自动对齐至预测延伸笔尖
-            val effectiveCursorPos = if (v.frontBufferPredictionEnabled && localIsTouching && drewPrediction && hasActivePredictedTip) {
+            // 绘画中且前缓冲预测生效时，光标圆心自动对齐至预测延伸笔尖 (对称模式下不使用预测笔尖)
+            val effectiveCursorPos = if (!hasSymmetry && v.frontBufferPredictionEnabled && localIsTouching && drewPrediction && hasActivePredictedTip) {
                 Offset(activePredictedTipScreenX, activePredictedTipScreenY)
             } else {
                 pos
@@ -3562,7 +3588,7 @@ class CanvasTouchView(context: Context) : View(context) {
 
     private fun armRealInkHold(v: PaintViewModel, hasSymmetry: Boolean, x: Float, y: Float, pressure: Float) {
         ensureViewTransform()
-        val allowed = v.frontBufferPredictionEnabled && !hasSymmetry &&
+        val allowed = v.frontBufferPredictionEnabled && (!hasSymmetry || v.mirrorGate.isQueueing) &&
             v.displayTiles.drawable() != null && FrontBufferProbe.realInkHoldAllowed() &&
             frontBufferSettled(v)
         val t = effTool()
@@ -3585,7 +3611,8 @@ class CanvasTouchView(context: Context) : View(context) {
      * 不脱节成孤立点)。只写快照, 不进引擎, 零分配。
      */
     private fun updatePredictedTip(v: PaintViewModel, rawX: Float, rawY: Float) {
-        if (!hasPredictedScreenPoint || !predictedTipEligible(v)) {
+        val hasSymmetry = v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing
+        if (hasSymmetry || !hasPredictedScreenPoint || !predictedTipEligible(v)) {
             realInk.tipWidth = 0f
             return
         }
@@ -3632,6 +3659,7 @@ class CanvasTouchView(context: Context) : View(context) {
         realInk.cursorY = cy
         if (!realInk.held || v == null) {
             realInk.cursorR = 0f
+            realInk.symCursorCount = 0
             return
         }
         val t = effTool()
@@ -3641,6 +3669,7 @@ class CanvasTouchView(context: Context) : View(context) {
         val showWhileDrawing = cursorMode == 1 || cursorMode == 3
         if (!showWhileDrawing || style == 4 || (t != Tool.BRUSH && t != Tool.ERASER && t != Tool.SMUDGE)) {
             realInk.cursorR = 0f
+            realInk.symCursorCount = 0
             return
         }
         val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
@@ -3653,6 +3682,21 @@ class CanvasTouchView(context: Context) : View(context) {
         smoothedCursorPressure =
             if (smoothedCursorPressure < 0f) sample else smoothedCursorPressure * 0.65f + sample * 0.35f
         realInk.cursorR = (size * scale * 0.5f * pressureFractionCached(smoothedCursorPressure)).coerceAtLeast(2f)
+
+        // 记入对称镜像分支光标位置 (由前缓冲随墨一起在 GL 线程直出)
+        if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing) {
+            val docPt = screenToDoc(Offset(cx, cy))
+            val symPts = computeAllSymmetricPoints(Point2D(docPt.x, docPt.y))
+            val count = minOf(symPts.size, 16)
+            for (i in 0 until count) {
+                val symScreen = docToScreen(Offset(symPts[i].x, symPts[i].y))
+                realInk.symCursorX[i] = symScreen.x
+                realInk.symCursorY[i] = symScreen.y
+            }
+            realInk.symCursorCount = count
+        } else {
+            realInk.symCursorCount = 0
+        }
     }
 
     /** 刷新缓存的视图变换 (参数未变化时内部直接返回, 几乎零开销) */
@@ -4401,7 +4445,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     previousSinglePos = screenPos
                     priorStrokeScreenPos = screenPos
                     val downP = pressure.coerceIn(0.01f, 1f)
-                    if (v.frontBufferPredictionEnabled && tool == Tool.BRUSH && screenPos.x.isFinite() && screenPos.y.isFinite()) {
+                    val hasSymmetry = v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing
+                    if (!hasSymmetry && v.frontBufferPredictionEnabled && tool == Tool.BRUSH && screenPos.x.isFinite() && screenPos.y.isFinite()) {
                         universalPredictor.addPoint(screenPos.x, screenPos.y, downP, event.eventTime)
                         recordTouchSample(screenPos.x, screenPos.y, event.eventTime)
                     }
@@ -4991,7 +5036,8 @@ class CanvasTouchView(context: Context) : View(context) {
                 previousSinglePos = screenPos
                 priorStrokeScreenPos = screenPos
                 clearPredictionState(triggerInvalidate = false)
-                if (v.frontBufferPredictionEnabled && tool == Tool.BRUSH && screenPos.x.isFinite() && screenPos.y.isFinite()) {
+                val hasSymmetry = v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing
+                if (!hasSymmetry && v.frontBufferPredictionEnabled && tool == Tool.BRUSH && screenPos.x.isFinite() && screenPos.y.isFinite()) {
                     universalPredictor.addPoint(screenPos.x, screenPos.y, 1f, event.eventTime)
                     recordTouchSample(screenPos.x, screenPos.y, event.eventTime)
                 }
@@ -5290,6 +5336,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 strokeAbortedUntilUp = false
                 if (hasSymmetry) {
                     safeBeginSymmetryUndoMacro()
+                    clearPredictionState(triggerInvalidate = false)
                 }
                 smoothedPressure = pressure
                 currentStrokeDocPos = docPos
@@ -5616,6 +5663,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     updateStylusSensors(event, pointerIndex, isStylus, historyPos = -1)
                     if (hasSymmetry) {
                         safeBeginSymmetryUndoMacro()
+                        clearPredictionState(triggerInvalidate = false)
                     }
                     val overrideTool = if (effTool() == Tool.ERASER && tool != Tool.ERASER) "eraser" else null
                     strokeStarted = v.touchStart(startDoc.x, startDoc.y, pressure.toDouble(), touchTiltX, touchTiltY, touchRotation, toolOverride = overrideTool)
@@ -5688,7 +5736,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 // 双系统分派:
                 // - 前缓冲预测开启 (默认): 卡尔曼训练 + 空窗回填 + 前缓冲直出 (本次低延迟技术)
                 // - 前缓冲预测关闭: 上游原版"超低延迟笔迹预测" (OEM 硬件预测器渐隐尾线, 仅 OPPO 有效)
-                val frontBufferPrediction = v.frontBufferPredictionEnabled && tool == Tool.BRUSH
+                val frontBufferPrediction = !hasSymmetry && v.frontBufferPredictionEnabled && tool == Tool.BRUSH
                 val fidelityTier = if (frontBufferPrediction) v.effectivePredictionTier else PaintViewModel.PredictionFidelityTier.NONE
 
                 if (frontBufferPrediction && fidelityTier != PaintViewModel.PredictionFidelityTier.NONE) {
@@ -6140,6 +6188,9 @@ class CanvasTouchView(context: Context) : View(context) {
                         touchTiltX.toFloat(), touchTiltY.toFloat(), touchRotation.toFloat(),
                         eventTimeMs = event.eventTime
                     )
+                    if (!v.symmetryMirrorLive) {
+                        invalidate()
+                    }
                 }
                 if (realInk.held && pointerIndex in 0 until event.pointerCount) {
                     val sx = event.getX(pointerIndex)
