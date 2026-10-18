@@ -3556,10 +3556,15 @@ class CanvasTouchView(context: Context) : View(context) {
      * API < 29、对称辅助 (镜像分支由 onDraw 实时绘制)、画布走整图路径 (墨源只有显示瓦片)、
      * 设备不保留前缓冲内容 (见 [FrontBufferProbe.realInkHoldAllowed])。
      */
+    /** 新建画布后的静默窗内返回 false。比较的是已有时间戳，热路径不分配。 */
+    private fun frontBufferSettled(v: PaintViewModel): Boolean =
+        android.os.SystemClock.uptimeMillis() >= v.frontBufferQuietUntilMs
+
     private fun armRealInkHold(v: PaintViewModel, hasSymmetry: Boolean, x: Float, y: Float, pressure: Float) {
         ensureViewTransform()
         val allowed = v.frontBufferPredictionEnabled && !hasSymmetry &&
-            v.displayTiles.drawable() != null && FrontBufferProbe.realInkHoldAllowed()
+            v.displayTiles.drawable() != null && FrontBufferProbe.realInkHoldAllowed() &&
+            frontBufferSettled(v)
         val t = effTool()
         val cursorMode = if (t == Tool.ERASER) v.eraserCursorMode else v.brushCursorMode
         val cursorWhileDrawing = (cursorMode == 1 || cursorMode == 3) && v.cursorStyleMode != 4
@@ -5895,7 +5900,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     // 置 drew=true, 否则直出与回退两边都不画。
                     // 真墨按住期间前缓冲上是引擎真墨 (渲染线程呈现), 不再叠 #81 的前沿段假线;
                     // 光标与预测笔尖在本分支末尾记下快照, 由前缓冲随墨一起画。
-                    if (!realInk.held && frontBufferOverlay?.canRenderPreview == true &&
+                    if (!realInk.held && frontBufferSettled(v) &&
+                        frontBufferOverlay?.canRenderPreview == true &&
                         pointerIndex in 0 until event.pointerCount
                     ) {
                         val curX = event.getX(pointerIndex)

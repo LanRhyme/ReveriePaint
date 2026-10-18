@@ -1347,6 +1347,9 @@ internal fun PaintViewModel.startPainting(
             docDpi = dpi
             docName = actualName
             checkBrushSizeLimit()
+            // 加载层关掉之后用户才能落笔。前缓冲要再静默一段时间，见 frontBufferQuietUntilMs。
+            frontBufferQuietUntilMs =
+                android.os.SystemClock.uptimeMillis() + PaintViewModel.NEW_CANVAS_FRONT_BUFFER_QUIET_MS
             isBlockingLoading = false
             startPaintingTimer()
             if (animation) {

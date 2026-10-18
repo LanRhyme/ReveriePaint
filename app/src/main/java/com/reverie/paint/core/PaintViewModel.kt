@@ -1857,6 +1857,14 @@ class PaintViewModel : ViewModel() {
     var frontBufferPredictionEnabled by mutableStateOf(false)
 
     /**
+     * 新建画布后，前缓冲在这段 uptime 之前不贴真墨、也不贴 #81 预览。
+     * Tab S9 实测：画布刚出来的约 3 秒内落笔，笔迹会裂开并叠一层错位副本；等过这段再画则正常。
+     * 尺寸对齐挡不住，因为这段时间里缓冲宽高已经等于 View。
+     */
+    @Volatile
+    var frontBufferQuietUntilMs: Long = 0L
+
+    /**
      * 笔迹预测总开关: 任一预测开启即视为开启
      */
     val stylusPredictionMasterEnabled: Boolean
@@ -4982,6 +4990,9 @@ class PaintViewModel : ViewModel() {
     // lost pressure detail. Buffers are allocated once: zero allocation on
     // the hot path (架构铁律 §4).
     companion object {
+        /** 见 [frontBufferQuietUntilMs]。取实测窗口的上沿，避免卡在 3 秒边界上仍裂开。 */
+        const val NEW_CANVAS_FRONT_BUFFER_QUIET_MS = 3_200L
+
         @Volatile var currentInstance: PaintViewModel? = null
         const val SMOOTHING_OFF = 0
         const val SMOOTHING_BASIC = 1
