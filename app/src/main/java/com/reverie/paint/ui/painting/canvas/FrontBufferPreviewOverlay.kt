@@ -84,6 +84,11 @@ class FrontBufferPathPacket(
     var cursorR: Float = 0f
     var cursorStyle: Int = 0
 
+    /** 对称辅助镜像光标 (前缓冲直出同步绘制) */
+    val symCursorX: FloatArray = FloatArray(16)
+    val symCursorY: FloatArray = FloatArray(16)
+    var symCursorCount: Int = 0
+
     /** 这一笔会画光标/预测笔尖: 从首帧起维护备份层。 */
     var wantsExtras: Boolean = false
     val uiClips: Array<RectF> = Array(MAX_UI_CLIPS) { RectF() }
@@ -521,6 +526,9 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
         slotOriginX: Int,
         slotOriginY: Int,
         canvasBounds: IntArray,
+        symCursorX: FloatArray? = null,
+        symCursorY: FloatArray? = null,
+        symCursorCount: Int = 0,
     ): Boolean {
         if (!isRendererInitialized) return false
         if (Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return false
@@ -546,6 +554,12 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
             packet.cursorY = cursorY
             packet.cursorR = cursorR
             packet.cursorStyle = cursorStyle
+            val sc = if (symCursorX != null && symCursorY != null) minOf(symCursorCount, 16) else 0
+            packet.symCursorCount = sc
+            if (sc > 0 && symCursorX != null && symCursorY != null) {
+                System.arraycopy(symCursorX, 0, packet.symCursorX, 0, sc)
+                System.arraycopy(symCursorY, 0, packet.symCursorY, 0, sc)
+            }
             packet.wantsExtras = wantsExtras
             var clips = 0
             for (r in uiRects) {
@@ -883,6 +897,13 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
         if (cursorDrawn) {
             val half = maxOf(param.cursorR, 7f * density) + 2f
             prevOverlay.set(param.cursorX - half, param.cursorY - half, param.cursorX + half, param.cursorY + half)
+            for (i in 0 until param.symCursorCount) {
+                val sx = param.symCursorX[i]
+                val sy = param.symCursorY[i]
+                if (sx.isFinite() && sy.isFinite()) {
+                    prevOverlay.union(sx - half, sy - half, sx + half, sy + half)
+                }
+            }
             has = true
         }
         if (lastTipValid) {
@@ -926,10 +947,17 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
 
     private fun drawHoldCursor(canvas: Canvas, param: FrontBufferPathPacket) {
         val r = param.cursorR
-        val x = param.cursorX
-        val y = param.cursorY
+        if (r <= 0f) return
+        drawSingleCursor(canvas, param.cursorX, param.cursorY, r, param.cursorStyle)
+        for (i in 0 until param.symCursorCount) {
+            drawSingleCursor(canvas, param.symCursorX[i], param.symCursorY[i], r, param.cursorStyle)
+        }
+    }
+
+    private fun drawSingleCursor(canvas: Canvas, x: Float, y: Float, r: Float, cursorStyle: Int) {
+        if (!x.isFinite() || !y.isFinite()) return
         val d = density
-        when (param.cursorStyle) {
+        when (cursorStyle) {
             1 -> {
                 val len = 7f * d
                 canvas.drawLine(x - len, y, x + len, y, cursorBlack)
@@ -944,7 +972,7 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
             else -> {
                 canvas.drawCircle(x, y, r + 0.8f, cursorBlack)
                 canvas.drawCircle(x, y, r, cursorWhite)
-                if (param.cursorStyle == 5) {
+                if (cursorStyle == 5) {
                     val len = 4.5f * d
                     canvas.drawLine(x - len, y, x + len, y, cursorBlack)
                     canvas.drawLine(x, y - len, x, y + len, cursorBlack)

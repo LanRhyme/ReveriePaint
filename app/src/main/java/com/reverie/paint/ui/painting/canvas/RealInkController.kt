@@ -59,6 +59,11 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
 
     @Volatile var cursorStyle: Int = 0
 
+    // 对称镜像分支光标 (UI 线程写, 渲染线程打包时读)
+    @Volatile var symCursorCount: Int = 0
+    val symCursorX: FloatArray = FloatArray(16)
+    val symCursorY: FloatArray = FloatArray(16)
+
     // 真墨之上的单个预测笔尖圆点 (只锚一个点, 不进引擎)。UI 线程写, GL 线程读。
     @Volatile var tipX: Float = Float.NaN
 
@@ -144,11 +149,13 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
             held = false
             cursorR = 0f
             tipWidth = 0f
+            symCursorCount = 0
             return false
         }
         uiClips = clips
         strokeWantsOverlayExtras = wantsExtras
         tipWidth = 0f
+        symCursorCount = 0
         overlay!!.onInkFrameDone = frameDoneCallback
         overlay.beginStroke()
         held = true
@@ -160,6 +167,7 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
         held = false
         cursorR = 0f
         tipWidth = 0f
+        symCursorCount = 0
     }
 
     /**
@@ -212,6 +220,10 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
 
     override fun wantsHold(): Boolean {
         if (!held || view.isTransformActive || view.overlayPanelsOpen) return false
+        val v = view.vm
+        if (v != null && v.drawingGuide.mode == com.reverie.paint.model.GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing) {
+            if (v.mirrorGate.state == com.reverie.paint.core.MirrorLiveGate.State.FALLBACK) return false
+        }
         val overlay = view.frontBufferOverlay ?: return false
         if (!overlay.canRenderPreview) return false
         val p = pose ?: return false
@@ -409,6 +421,7 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
                 slotBitmap, screenRects, bmpRects, baked, p,
                 cursorX, cursorY, cursorR, cursorStyle, strokeWantsOverlayExtras,
                 uiClips, slot.busy, minL, minT, canvasBounds,
+                symCursorX, symCursorY, symCursorCount,
             )
         if (!shown) {
             slot.busy.set(false)
