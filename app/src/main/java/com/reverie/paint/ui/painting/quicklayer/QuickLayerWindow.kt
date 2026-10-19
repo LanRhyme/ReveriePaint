@@ -65,6 +65,8 @@ import com.reverie.paint.ui.components.ReDropdownMenu
 import com.reverie.paint.ui.components.ReDropdownMenuItem
 import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.components.reportUiSlot
+import com.reverie.paint.ui.components.evadablePanelContent
+import com.reverie.paint.ui.components.evadablePanelSurface
 import com.reverie.paint.ui.painting.layers.LightCheckerboard
 import com.reverie.paint.ui.painting.layers.layerDisplayName
 import com.reverie.paint.ui.painting.layers.layerLabelColor
@@ -191,17 +193,14 @@ fun QuickLayerWindow(
                 .shadow(14.dp, windowShape)
                 .systemHoverIcon(context)
                 .clip(windowShape)
-                .then(
-                    if (vm.blurBackground && hazeState != null) {
-                        Modifier.hazeChild(
-                            state = hazeState,
-                            style = com.reverie.paint.ui.theme.Glass.popupStyle(if (opacity >= 0.99f) 0.92f else opacity),
-                        )
-                    } else {
-                        Modifier.background(Morandi.panel.copy(alpha = opacity))
-                    }
+                .evadablePanelSurface(
+                    vm = vm,
+                    slot = UiPanelSlot.QUICK_LAYER,
+                    shape = windowShape,
+                    baseOpacity = opacity,
+                    hazeState = hazeState,
                 )
-                .glassBorder(windowShape)
+                .evadablePanelContent(vm, UiPanelSlot.QUICK_LAYER)
                 .animateContentSize(Motion.enterSpring())
         ) {
             if (isCollapsed) {

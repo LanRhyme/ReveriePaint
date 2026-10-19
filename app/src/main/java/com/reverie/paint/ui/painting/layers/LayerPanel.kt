@@ -140,6 +140,8 @@ import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.components.reportUiSlot
+import com.reverie.paint.ui.components.evadablePanelContent
+import com.reverie.paint.ui.components.evadablePanelSurface
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import kotlin.math.abs
@@ -244,17 +246,16 @@ fun LayerPanel(
                     .heightIn(max = (LocalConfiguration.current.screenHeightDp * 3 / 4).dp)
                     .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.5f))
                     .clip(panelShape)
-                    .then(
-                        if (vm.blurBackground && hazeState != null) {
-                            Modifier.hazeChild(
-                                state = hazeState,
-                                style = Glass.barStyle(if (opacity >= 0.99f) 0.92f else opacity),
-                            )
-                        } else {
-                            Modifier.background(Morandi.panel.copy(alpha = opacity))
-                        }
+                    .evadablePanelSurface(
+                        vm = vm,
+                        slot = UiPanelSlot.PINNED_LAYER_PANEL,
+                        shape = panelShape,
+                        baseOpacity = opacity,
+                        hazeState = hazeState,
+                        isBarStyle = true,
+                        drawBorder = vm.panelPinningEnabled && vm.isLayerPanelPinned,
                     )
-                    .glassBorder(panelShape)
+                    .evadablePanelContent(vm, UiPanelSlot.PINNED_LAYER_PANEL)
                     .clickable(
                         interactionSource = remember { MutableInteractionSource() },
                         indication = null,

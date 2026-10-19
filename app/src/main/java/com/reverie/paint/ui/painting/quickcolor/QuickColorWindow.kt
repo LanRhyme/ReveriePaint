@@ -62,6 +62,8 @@ import com.reverie.paint.ui.components.DragPillHandle
 import com.reverie.paint.ui.components.PanelCloseButton
 import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.components.reportUiSlot
+import com.reverie.paint.ui.components.evadablePanelContent
+import com.reverie.paint.ui.components.evadablePanelSurface
 import com.reverie.paint.ui.painting.panels.CompactHsvSlider
 import com.reverie.paint.ui.painting.panels.RainbowHueColors
 import com.reverie.paint.ui.painting.panels.SquarePaletteSwatchesGrid
@@ -198,17 +200,14 @@ fun QuickColorWindow(
                 .shadow(16.dp, windowShape, spotColor = Color.Black.copy(alpha = 0.5f))
                 .systemHoverIcon(context)
                 .clip(windowShape)
-                .then(
-                    if (vm.blurBackground && hazeState != null) {
-                        Modifier.hazeChild(
-                            state = hazeState,
-                            style = Glass.popupStyle(if (opacity >= 0.99f) 0.90f else opacity),
-                        )
-                    } else {
-                        Modifier.background(Morandi.panel.copy(alpha = opacity))
-                    }
+                .evadablePanelSurface(
+                    vm = vm,
+                    slot = UiPanelSlot.QUICK_COLOR,
+                    shape = windowShape,
+                    baseOpacity = opacity,
+                    hazeState = hazeState,
                 )
-                .glassBorder(windowShape)
+                .evadablePanelContent(vm, UiPanelSlot.QUICK_COLOR)
                 .animateContentSize(Motion.enterSpring())
         ) {
             if (isCollapsed) {

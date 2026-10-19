@@ -89,6 +89,8 @@ import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.PanelCloseButton
 import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.components.reportUiSlot
+import com.reverie.paint.ui.components.evadablePanelContent
+import com.reverie.paint.ui.components.evadablePanelSurface
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.Motion
@@ -222,17 +224,14 @@ fun QuickOklchWindow(
                 .shadow(16.dp, windowShape, spotColor = Color.Black.copy(alpha = 0.5f))
                 .systemHoverIcon(context)
                 .clip(windowShape)
-                .then(
-                    if (vm.blurBackground && hazeState != null) {
-                        Modifier.hazeChild(
-                            state = hazeState,
-                            style = Glass.popupStyle(if (opacity >= 0.99f) 0.90f else opacity),
-                        )
-                    } else {
-                        Modifier.background(Morandi.panel.copy(alpha = opacity))
-                    }
+                .evadablePanelSurface(
+                    vm = vm,
+                    slot = UiPanelSlot.QUICK_OKLCH,
+                    shape = windowShape,
+                    baseOpacity = opacity,
+                    hazeState = hazeState,
                 )
-                .glassBorder(windowShape)
+                .evadablePanelContent(vm, UiPanelSlot.QUICK_OKLCH)
                 .animateContentSize(Motion.enterSpring())
         ) {
             if (isCollapsed) {

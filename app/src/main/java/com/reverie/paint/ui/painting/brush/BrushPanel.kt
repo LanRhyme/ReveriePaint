@@ -86,6 +86,8 @@ import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.components.reportUiSlot
+import com.reverie.paint.ui.components.evadablePanelContent
+import com.reverie.paint.ui.components.evadablePanelSurface
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.DragPillHandle
 import com.reverie.paint.ui.components.PanelCloseButton
@@ -448,16 +450,16 @@ fun BrushPanel(
                 .fillMaxHeight(0.75f)
                 .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.45f))
                 .clip(panelShape)
-                .then(
-                    if (vm.blurBackground && hazeState != null) {
-                        Modifier.hazeEffect(
-                            state = hazeState,
-                            style = Glass.barStyle(if (opacity >= 0.99f) 0.92f else opacity),
-                        )
-                    } else {
-                        Modifier.background(Morandi.panel.copy(alpha = opacity))
-                    }
+                .evadablePanelSurface(
+                    vm = vm,
+                    slot = UiPanelSlot.PINNED_BRUSH_PANEL,
+                    shape = panelShape,
+                    baseOpacity = opacity,
+                    hazeState = hazeState,
+                    isBarStyle = true,
+                    drawBorder = vm.panelPinningEnabled && vm.isBrushPanelPinned,
                 )
+                .evadablePanelContent(vm, UiPanelSlot.PINNED_BRUSH_PANEL)
                 .clickable(
                     interactionSource = remember { MutableInteractionSource() },
                     indication = null,
