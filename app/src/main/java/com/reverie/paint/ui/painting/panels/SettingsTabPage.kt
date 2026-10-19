@@ -206,6 +206,34 @@ internal fun SettingsTabPage(
 
                         SettingsInnerDivider()
 
+                        // 运笔靠近面板时半透明避让（50% 内容/背景 + 100% 边框/阴影）
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                Text(
+                                    text = stringResource(R.string.auto_hide_panels_on_stroke_title),
+                                    color = Morandi.text,
+                                    fontSize = 13.sp,
+                                )
+                                Text(
+                                    text = stringResource(R.string.auto_hide_panels_on_stroke_desc),
+                                    color = Morandi.subText,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                            ReSwitch(
+                                checked = vm.autoHidePanelsOnStroke,
+                                onChecked = { vm.updateAutoHidePanelsOnStroke(it) },
+                            )
+                        }
+
+                        SettingsInnerDivider()
+
                         // 图层面板顶部按钮行为 (默认关闭为剪切蒙版，开启为继承透明度)
                         Row(
                             modifier = Modifier

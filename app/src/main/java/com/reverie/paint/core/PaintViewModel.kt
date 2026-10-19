@@ -10,6 +10,7 @@ import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
 import androidx.annotation.StringRes
+import androidx.compose.animation.core.Animatable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableDoubleStateOf
 import androidx.compose.runtime.mutableFloatStateOf
@@ -1704,20 +1705,57 @@ class PaintViewModel : ViewModel() {
     /** 21 个面板槽位的实测边界与 owner token (UI 线程独占)。 */
     val panelOcclusion = com.reverie.paint.model.UiPanelOcclusionTracker()
 
-    // 注意: 裁剪状态的唯一真身是 panelOcclusion tracker; 以下 mask 镜像仅为 Phase 2 API 保留。
-    /** 本笔已进入内圈、已从快照移除的面板位 (Phase 2 使用)。 */
-    @Volatile
-    internal var unclippedPanelMask: Int = 0
-
-    /** 本笔已进入外圈的面板位 (Phase 2 使用)。 */
-    @Volatile
-    internal var evadingPanelMask: Int = 0
-
-    /** 每个槽位独立的 Compose 状态, 避免全局 mask 牵连所有面板重组 (Phase 2 使用)。 */
+    /** 每个槽位独立的 Compose 状态, 避免全局 mask 牵连所有面板重组。 */
     internal val slotEvading =
         Array(com.reverie.paint.model.UiPanelSlot.COUNT) { mutableStateOf(false) }
-    internal val slotSnapZero =
-        Array(com.reverie.paint.model.UiPanelSlot.COUNT) { mutableStateOf(false) }
+
+    /**
+     * 每个槽位唯一的透明度动画（1.0f <-> 0.5f, 70ms）。
+     *
+     * `evadablePanelSurface` 与 `evadablePanelContent` 必须共享同一个
+     * [Animatable]，禁止两处各自 `animateFloatAsState` 造成相位差。
+     */
+    internal val slotEvadeAlpha =
+        Array(com.reverie.paint.model.UiPanelSlot.COUNT) { Animatable(1f) }
+
+    /** 运笔时自动避让悬浮面板（设置 -> 视图显示, 默认开启, 与预测模式无关）。 */
+    var autoHidePanelsOnStroke by mutableStateOf(true)
+
+    /**
+     * 当前是否存在活跃笔画会话。绘画态优先协议：为 true 时面板只做被动避让，
+     * 不消费额外指针事件；为 false 时面板恢复正常点击/拖拽。
+     */
+    @Volatile
+    var isStrokeSessionActive: Boolean = false
+
+    /** 更新单个槽位的避让状态（动画由 Compose 侧共享 [slotEvadeAlpha] 驱动）。 */
+    internal fun setSlotEvading(slot: com.reverie.paint.model.UiPanelSlot, evading: Boolean) {
+        val index = slot.ordinal
+        if (slotEvading[index].value != evading) slotEvading[index].value = evading
+    }
+
+    /** 立即清除全部避让状态（12 条强制复位路径共用）。 */
+    internal fun clearAllSlotEvasion() {
+        panelOcclusion.clearAllEvasion()
+        for (i in slotEvading.indices) {
+            if (slotEvading[i].value) slotEvading[i].value = false
+        }
+        // 复位路径要求立即恢复 100%，跳过 70ms 过渡。
+        viewModelScope.launch {
+            for (i in slotEvadeAlpha.indices) {
+                slotEvadeAlpha[i].snapTo(1f)
+            }
+        }
+    }
+
+    fun updateAutoHidePanelsOnStroke(enabled: Boolean) {
+        autoHidePanelsOnStroke = enabled
+        if (!enabled) clearAllSlotEvasion()
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putBoolean("autoHidePanelsOnStroke", enabled).apply()
+        }
+    }
 
     /** 画布背景是否不透明: 背景层可见且 opacity≈1。保留备用, 不参与 ShiftTrace 门控。 */
     val canvasBackgroundOpaque: Boolean
@@ -3782,6 +3820,7 @@ class PaintViewModel : ViewModel() {
             panelPinningEnabled = prefs.getBoolean("panelPinningEnabled", false)
             layerHeaderInheritAlpha = prefs.getBoolean("layerHeaderInheritAlpha", false)
             leftHandMode = prefs.getBoolean("leftHandMode", false)
+            autoHidePanelsOnStroke = prefs.getBoolean("autoHidePanelsOnStroke", true)
             val isTabletDevice = DeviceUtils.isTablet(appContext)
             val floatingSavedEnabled = prefs.getBoolean("floatingUi_enabled", isTabletDevice)
             val topBarEdgeName = prefs.getString("floatingUi_topBarEdge", "TOP") ?: "TOP"

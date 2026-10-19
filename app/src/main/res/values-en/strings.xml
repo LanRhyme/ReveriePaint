@@ -1806,6 +1806,8 @@
     <string name="stylus_prediction_algo_software_desc">Predicts via Kalman filtering and front-buffer preview, closer to pen tip with universal compatibility</string>
     <string name="stylus_front_buffer_prediction_title">Front-Buffer Prediction</string>
     <string name="stylus_front_buffer_prediction_desc">Direct tip preview to screen, ink stays closer to the pen tip</string>
+    <string name="auto_hide_panels_on_stroke_title">Translucent panel evasion while drawing</string>
+    <string name="auto_hide_panels_on_stroke_desc">Fade panel content to 50% while keeping borders when the brush approaches, and restore immediately on exit</string>
     <string name="stylus_brush_cursor">Brush Cursor</string>
     <string name="stylus_brush_cursor_desc">Cursor display policy when hovering or painting</string>
     <string name="stylus_eraser_cursor">Eraser Cursor</string>
