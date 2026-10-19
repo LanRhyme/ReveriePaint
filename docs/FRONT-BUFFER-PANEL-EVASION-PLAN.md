@@ -1,714 +1,791 @@
-# ReveriePaint 前缓冲笔迹预测与悬浮面板遮挡/空白根因剖析及智能渐隐避让执行计划
+# ReveriePaint 前缓冲笔迹预测与悬浮面板遮挡/空白根因剖析及智能渐隐避让执行计划（v3 终版）
 
-> **适用工程**：`E:\gongju\ReveriePaint` (`com.reverie.paint`)  
-> **关联模块**：`FrontBufferPreviewOverlay.kt` / `RealInkController.kt` / `CanvasTouchView.kt` / `PaintingPage.kt` / `PaintingQuickWindows.kt` / `ReComponents.kt`  
-> **设计目标**：在不降低当前 120/144Hz 帧率、4~8ms 单缓冲直出延迟、512 瓦片 `TILE_UNDRAWN` 就地写优化与热路径零分配铁律（`AGENTS.md §4`）的前提下：
-> 1. 彻底根治“开启 App 软件预测算法后不抬笔时，快捷操作、颜色、图层等面板被笔迹与锯齿状背景覆盖”的缺陷；
-> 2. 彻底根治“快捷操作面板右侧（及下侧）出现无形空白在抬笔前挡住笔迹、抬笔后恢复”的缺陷；
-> 3. 修复同源排查发现的 7 项隐藏边界缺陷（手指落笔漏刷、界面缩放 `paintingUiScale` 密度错位、`MAX_UI_CLIPS=6` 截断、组件卸载残留拒墨洞等）；
-> 4. 实现零重组、零分配、零瓦片退化的 **“运笔靠近面板自动平滑渐隐避让（Smart Stroke-Proximity Auto-Evade）”** 特性。
+> **适用工程**：`E:\gongju\ReveriePaint`（`com.reverie.paint`）
+> **分支**：`feat/front-buffer-panel-evasion`
+> **状态**：计划终版（只读审查已完成，业务代码未改动）
+> **审查基线**：2026-10-19 当前源码；文中行号以该基线为准，若后续漂移请以函数名/锚点为准
+> **关联模块**：`FrontBufferPreviewOverlay.kt` / `RealInkController.kt` / `model/RealInkPresent.kt` / `CanvasTouchView.kt` / `PaintingPage.kt` / `PaintViewModel*.kt` / `ReComponents.kt`
 
 ---
 
-## 一、已知问题与深层根因全链路解剖
+## 0. 终版结论与六条不可违反的不变量
 
-### 1.1 为什么开启“笔迹预测（App软件算法）”后，不抬笔时面板会被“笔迹 + 锯齿状背景”覆盖（开透明画布则只被笔迹覆盖）？
+初版方案的方向正确，但存在 6 个阻断级问题与多项高风险。v3 的核心变化是：
 
-#### （1）物理层级根因：`SurfaceView.setZOrderOnTop(true)` 位于整个 Compose 窗口之上
-- 当开启“笔迹预测 -> APP软件算法”时，`PaintViewModel.frontBufferPredictionEnabled = true`（`PaintViewModel.kt:1857, 1877`）。
-- `CanvasView.kt:393-409` 会挂载 `FrontBufferPreviewOverlay`（继承自 `android.view.SurfaceView`），其 `init` 块（`FrontBufferPreviewOverlay.kt:238-239`）执行了：
+> **把“Compose 动画结束回调 → 跨线程补烤面板矩形”这条异步链路彻底拆掉，改为“双圈同步前馈状态机”：外圈预警淡出，内圈接触的同一帧、在把触摸点提交给引擎之前，同步撤除该面板的 `uiClip` 并发布新的不可变裁剪快照。**
+
+由此：
+
+- 第一个真正落入面板范围的 dab 从未被裁剪过，主路径**不需要** `uncoverScreenRect`；
+- 不再有整块面板矩形塞进 8 槽 `pendingRects` 的槽位膨胀；
+- 不再需要 Compose 动画回调跨线程调用 `CanvasTouchView`，`core → ui` 反向依赖消失；
+- 快速运笔时也不会出现“笔尖先撞上半透明面板、面板下是旧画布”的断层。
+
+### 0.1 六条不变量
+
+1. **单一裁剪数据源**：只保留一份不可变 `UiClipSnapshot`（扁平 `FloatArray` + `count`），`arm`、`previewEnvelopeHitsUi`、`RealInkController`、`renderInkScreenRegions` 全部读它；禁止同时维护 `uiExclusionRects` 与 `uiExclusionPool` 两套数据。
+2. **跨线程只传不可变快照**：UI 线程构建并 `@Volatile` 发布；渲染线程只读。禁止共享可变 `RectF`，禁止渲染线程读取 UI 线程正在原地改写的数组。
+3. **接触前同步撤 Clip**：在 `handleToolDown` 首行、`handleToolMove` 的 `startedNow`/`historySize` 循环/当前 `touchMove` 之前完成内圈判定与快照发布。先撤 Clip，再提交触摸点。
+4. **动画回调不参与裁剪正确性**：`animateFloatAsState` 只负责视觉 alpha；裁剪的移除由内圈接触同步完成，不依赖动画结束回调。
+5. **热路径零分配、零逐帧重组**：240Hz `ACTION_MOVE` 只做标量比较；alpha 用 `State` 对象在 draw 阶段读取，禁止 `val alpha by animateFloatAsState(...)` 这种在 composition 阶段拆箱的写法。
+6. **可测逻辑与 Android 粘合层分离**：槽位表、快照生成、双圈碰撞、位掩码状态机全部放入 `model/` 纯 Kotlin 类，用纯 JUnit4 测试；不引入 Robolectric，不违反 `AGENTS.md §8`。
+
+---
+
+## 1. 根因解剖（已逐条对照源码核验）
+
+### 1.1 物理层级：`setZOrderOnTop(true)` 的前缓冲层位于同一应用窗口的 HWUI 内容之上
+
+- `FrontBufferPreviewOverlay` 继承 `SurfaceView`（`FrontBufferPreviewOverlay.kt:108-111`），`init` 在 `232-242`，其中：
+  - `234`：`setZOrderOnTop(true)`
+  - `235`：`holder.setFormat(PixelFormat.TRANSLUCENT)`
+- `CanvasView.kt:393` 在 `vm.frontBufferPredictionEnabled && FrontBufferProbe.isSupported()` 时挂载该 overlay；`FrontBufferProbe` 还要求 API 29+ 且 `CanvasFrontBufferedRenderer` 可加载（`FrontBufferProbe.kt:23-37`）。**并非开关为 true 就必然挂载。**
+- `PaintViewModel.kt:1857`：`frontBufferPredictionEnabled` 默认 `false`；`1876-1877`：开启后 `stylusPredictionAlgorithmType = "SOFTWARE"`（即“APP 软件算法”）。
+- 该 SurfaceView 位于**同一应用窗口的 HWUI 内容之上**，但不高于独立 `Dialog`/`Popup` 窗口；其边界是 `CanvasView` 的 `fillMaxSize` 区域（`CanvasView.kt:260-275`、`393-412`；`PaintingPage.kt:629-663`）。`immersiveMode` 默认 `false`（`PaintViewModel.kt:3307`），非沉浸时 `MainActivity.kt:83-89` 调用 `setDecorFitsSystemWindows(true)`，所以**不是无条件覆盖整个物理屏幕**。overlay 自身没有 insets 处理。
+- 抬笔清层不是 `onStrokeCommitted` 直接 `clearInk()`：
+  - `RealInkController.onStrokeCommitted()`（`279-287`）只做 `release()`、`finishFrame(false)`、`view.postInvalidate()`；
+  - 主画布 `drawCanvas` 末尾调用 `clearIfViewCaughtUp()`（`CanvasTouchView.kt:2996`），后者在 `177-201` 用 `registerFrameCommitCallback` 等主画布这一帧提交后再 `frontBufferOverlay.clearInk()`；
+  - `clearInk → clearInternal`（`FrontBufferPreviewOverlay.kt:1003-1031`）最终 `commit()` 隐藏单缓冲层。
+- 结论：**抬笔后恢复正常的机制成立**，但文档初版把 `onStrokeCommitted` 与 `clearIfViewCaughtUp` 混为一段，行号也需修正。
+
+### 1.2 不透明画布的“阶梯底色块”与透明画布的“只盖笔迹”
+
+- 前缓冲贴图用 `PorterDuff.Mode.SRC`：`FrontBufferPreviewOverlay.kt:197-201` 设置 `screenInkPaint.xfermode = PorterDuffXfermode(PorterDuff.Mode.SRC)`；`blitInk`（`782-819`）逐块 `canvas.drawBitmap(..., screenInkPaint)`。
+- `bakeRect`（`RealInkController.kt:434-478`）明确**不铺棋盘格**：`436-437` 注释“没有文档像素的地方保持透明，SRC 之后由下层主画布透出”；棋盘格只在 `CanvasTouchView.kt:2914-2917` 绘制。
+- 不透明底色来自背景层：`ReverieCore.h:78` 注明 layer 0 是白色、alpha-locked、锁定的背景层；`ReverieCoreDocument.cpp:508-523` 设置背景层与 `defaultProjectionColor`；`ReverieCoreRender.cpp:593,628-641` 从投影读像素。
+- 透明画布：背景不可见时 `ReverieCoreDocument.cpp:518-522` 设置 `Qt::transparent`；`PixelAlpha.h:34-37` premultiply 后 `a=0` 时 RGB 也为 0。**前提是画布只有透明背景+笔迹层**；若还有其他可见图层/滤镜/液化预览，非笔迹像素不保证全透明。
+- `appendDiscrete` 的真实规则（`model/RealInkPresent.kt`，**注意文件在 `model/`，不在 `canvas/`**）：
+  - `21`：`PAD_PX = 2`；`24`：`MAX_DISCRETE_RECTS = 8`；
+  - 普通追加在 `188` 用 `hollow * 4 < merged` 判断，即空心面积 < 25% 才合并；
+  - **但列表满 8 块时**，`202-203` 调用 `mergeCheapestPair` **无条件**合并面积增益最小的一对，**不检查 25% 阈值**；文档初版“绝不合并”不成立；
+  - `PAD_PX` 用在 `RealInkController.presentPending` 的 `bmpRectToScreenBounds`（`342-345`）与 `bakeSrcRect` 的 `PAD_PX + 2`（`RealInkPresent.kt:121`），**不是 `appendDiscrete` 的外扩**。
+- 512 瓦片：`DisplayTileGrid.kt:113-115` `TILE = 512`；`DisplayTileState.kt:27` `drawnByView`，`30-32` `markDrawn` 置 `TILE_DRAWN`，`35` `TILE_UNDRAWN = 0`；`PaintViewModelTiles.kt:105,120-121` 用 CAS 就地写；`CanvasTouchView.kt:2864-2865` 在 `drawDisplayTiles` 里 `markDrawn`。
+- **`TILE_UNDRAWN` 不是绝对保证**：只有主画布尚未 `onDraw` 该瓦片时才保持 `TILE_UNDRAWN`；一旦 `drawDisplayTiles` 执行即置 `TILE_DRAWN`。文档初版“全程保持”需改为条件性结论。
+
+### 1.3 两套面板机制：为什么速创/设置不被覆盖，快捷操作/颜色/图层会被覆盖
+
+#### 第一类：模态/半模态面板（不会被覆盖）
+
+- `PaintingPage.kt:700-703`：
   ```kotlin
-  setZOrderOnTop(true)
-  holder.setFormat(PixelFormat.TRANSLUCENT)
+  overlayPanelsOpen =
+      (brushPanelOpen && !(vm.panelPinningEnabled && vm.isBrushPanelPinned)) ||
+      (layerPanelOpen && !(vm.panelPinningEnabled && vm.isLayerPanelPinned)) ||
+      (colorPanelOpen && !vm.isColorPanelPinned) ||
+      settingsPanelOpen || moreToolsOpen || drawingGuidePanelOpen
   ```
-- 在 Android `WindowManager` / `SurfaceFlinger` 硬件合成树中，`setZOrderOnTop(true)` 创建的 `FrontBufferedSurfaceControl` 单缓冲层**物理位于整个应用主窗口（Application Window）的正上方**，而所有 Jetpack Compose 面板（快捷浮窗、固定面板、工具栏等）均绘制在底下的主窗口 HWUI 层中。
-- 因此，在落笔到抬笔期间（`ACTION_DOWN` ~ `ACTION_UP`），只要 `FrontBufferPreviewOverlay` 向某块屏幕坐标写入了非透明像素，且没有通过 `canvas.clipOutRect(...)` 挖掉 UI 面板所在的矩形，前缓冲像素就会**直接在屏幕最顶层盖住 Compose 面板**。
-- 抬笔瞬间（`ACTION_UP`），`RealInkController.onStrokeCommitted()` 触发主画布 `postInvalidate()`，并在主画布帧提交回调（`registerFrameCommitCallback`）中调用 `frontBufferOverlay.clearInk()` -> `renderer.commit()` 清空并隐藏单缓冲层（`RealInkController.kt:178-189`），画面交还给位于 Compose 面板下方的 `CanvasTouchView`，所以**抬笔后立刻恢复正常**。
+  注意：`color` 项只判断 `!vm.isColorPanelPinned`，没有 `panelPinningEnabled` 前缀；`brushStudioOpen`/`moreSettingsOpen` 不在 `overlayPanelsOpen` 内，只在 `isHoverOverUi` 的 `2227` 单独判断。
+- `CanvasView.kt:345-349` 把该值写入 `touchView.overlayPanelsOpen`，随后更新系统手势排除区并 `invalidate()`。
+- `CanvasTouchView.kt:220` 声明 `@Volatile var overlayPanelsOpen`；`2231` `if (overlayPanelsOpen) return true`。
+- `RealInkController.kt:207`（`predictedTip`）与 `:222`（`wantsHold`）首行均为：
+  ```kotlin
+  if (!held || view.isTransformActive || view.overlayPanelsOpen) return false
+  ```
+- 速创：`CanvasTouchView.kt:6865` 在抬笔识别分支先 `realInk.release()` 再 `beginQuickShape(...)`；`PaintViewModelQuickShape.kt:30` 置 `isQuickShapeEditing = true`；`CanvasTouchView.kt:4210` 在 `isQuickShapeEditing` 时吞掉全部触摸。**`release` 由 `CanvasTouchView` 的抬笔识别分支调用，不是 `QuickShapeEditor` 组件调用。**
 
-#### （2）为什么不透明画布下会有“锯齿状（阶梯状）背景块”，而透明画布下“只被笔迹覆盖”？
-- 在运笔按住期间，`RealInkController`（`RealInkController.kt:267-436`）每当后台渲染线程（`reverie-render`）更新完 512×512 显示瓦片（`PublishedTiles`），就会将本帧的离散脏区（最多 `RealInkPresent.MAX_DISCRETE_RECTS = 8` 块轴对齐矩形）从显示瓦片烘焙（`bakeRect`）进屏幕分辨率的 `slotBitmap`，再由 `FrontBufferPreviewOverlay.blitInk()` 用 **`PorterDuff.Mode.SRC`** 逐块贴到顶层 `SurfaceView` 上。
-- 为防止斜向运笔时单一包围盒四角空白把已有前缓冲墨迹擦成透明洞，`RealInkPresent.appendDiscrete()`（`RealInkPresent.kt:158-206`）规定：**当两个脏区合并后的空心面积 ≥ 25% 时绝不合并，而是保留最多 8 个沿笔画轨迹呈阶梯状排列的独立轴对齐小矩形块**（每块外扩 `PAD_PX = 2`）。
-- **不透明画布 vs 透明画布的像素差异**：
-  - **不透明画布**：Krita 投影瓦片（`PublishedTiles`）包含**不透明的画布背景层（如白纸底色）+ 笔迹像素**。当这组沿斜线排列的阶梯状矩形块通过 `PorterDuff.Mode.SRC` 贴到最顶层 `SurfaceView` 时，每个小矩形内部的不透明画布底色与笔迹一起盖在了面板上，视觉上就形成了**沿笔画边缘呈锯齿状/阶梯状拼接的背景色块 + 笔迹覆盖面板**的现象。
-  - **透明画布**：Krita 投影瓦片中无画布底色，笔迹以外的像素全部是 `0x00000000`（全透明），且 `RealInkController.bakeRect()`（第 442 行）特意设计为**不绘制透明棋盘格**（棋盘格仅在底层 `CanvasTouchView.onDraw` 中绘制）。因此 `slotBitmap` 矩形块内除笔迹外的区域保持全透明，贴到顶层后自然透出下方的 Compose 面板，故**只会被笔迹本身覆盖**。
+#### 第二类：常驻浮窗与钉住面板（会被覆盖，依赖裁剪）
+
+- 当前 `rebuildUiExclusionRects()`（`CanvasTouchView.kt:1018-1093`）只登记：
+  - `TopBar` / `ToolRail`（有实测值优先，否则硬编码）；
+  - `SliderRail`（仅当 `measuredSliderRailRect != null`）；
+  - `ReferenceWindow`；
+  - `QuickActionWindow`；
+  - `QuickBrushWindow`。
+- **完全漏掉**：`QuickColorWindow`、`QuickOklchWindow`、`QuickLayerWindow`、钉住态 `ColorPanel`/`LayerPanel`/`BrushPanel`。
+- **当前最多正好 6 项**（TopBar、ToolRail 无条件；SliderRail 条件；reference/quickAction/quickBrush 各 0/1），所以 `MAX_UI_CLIPS = 6` 的 `break`（`FrontBufferPreviewOverlay.kt:36,564-570`）**当前不会触发**；容量问题是在补齐漏登面板后才会出现。文档初版“多开面板时已被静默丢弃”需改为“补齐后会触发”。
+- 手指 `ACTION_DOWN`（`CanvasTouchView.kt:5033-5105`）没有调用 `rebuildUiExclusionRects()`；边缘延迟落笔（`5131-5144`、`5249-5256`）也没有；手写笔路径在 `4409-4416` 有 `if (isDown) rebuildUiExclusionRects()`；`armRealInkHold`（`3589-3600`）直接 `realInk.arm(allowed, extras, uiExclusionRects)`，自身不 rebuild。
+- 长按吸色（`878-895`、`5120-5122`、`5231-5246`）先 `realInk.release()`，移动只采样颜色，**不产生笔迹**，不需要为 ink 裁剪 rebuild；文档初版把它列为缺陷不成立。
+
+### 1.4 快捷操作面板右侧/下侧“幽灵拒墨区”
+
+- `CanvasTouchView.kt:1064-1069`（`rebuildUiExclusionRects`）仍然：
+  ```kotlin
+  val qw = if (v.quickActionCollapsed) 90f * d else 380f * d
+  val qh = if (v.quickActionCollapsed) 50f * d else 380f * d
+  ```
+- `isHoverOverUi`（`2269-2297`）已优先读取 `v.quickActionWindowWidth/Height`（实测 px，由 `QuickActionWindow.kt:164-167` 的 `onSizeChanged` 写入）。
+- **右侧幽灵区成立**：默认 `COLUMN` 实宽约 56dp、`GRID_2` 约 108dp、`GRID_3` 约 156dp、折叠约 72×42dp，均小于硬编码 380×380dp；右侧凭空多出最高约 324dp 的裁剪禁区。
+- **下侧不普遍是幽灵区**：默认 `COLUMN` + 8 个默认动作实测高度约 412dp（`QuickActionWindow.kt:259-262` padding 6、`:266-276` 顶栏 24、`:394-398` Spacer 4、`:417-446` 8×38 按钮+8×4 间距+36 齿轮），大于硬编码 380dp，底部约 32dp 是**欠裁剪**（墨会盖住面板），不是幽灵区。`GRID/ROW/折叠`或动作较少时才是下方幽灵区。
+- `ROW` 实宽不是 180~240dp：无标签约 `42N + 8` dp（默认 8 个动作约 344dp），有标签约 `56N + 8` dp（约 456dp）。默认配置右侧幽灵只有约 36dp；动作多或开标签时硬编码矩形反而偏小，是欠裁剪。
+- 历史归因：当前仓库是**浅克隆（depth 110）**，`61d51c32` 是边界提交，无法验证“之前的提交改了 `isHoverOverUi` 但漏改 `rebuild`”的因果；只能确认两者当前不一致。文档应改为“当前不一致已确认；历史归因无法验证”。
+
+### 1.5 同源隐患（逐条核验后的准确表述）
+
+| 隐患 | 核验结果 | 准确描述 |
+|---|---|---|
+| A. `paintingUiScale` 密度错位 | **成立，但范围需收窄** | `PaintingPage.kt:870-880` 用 `scaledDensity` 应用 `paintingUiScale`；`CanvasTouchView` 用原始 `density`（`245`）做 dp 推导。三栏和已测量的快捷窗使用 px 实测值，错位集中在 `ReferenceWindow`（`1058-1061`）与快捷窗回退尺寸（`1065-1086`）。快捷窗自身 `screenWidthPx` 也用 `scaledDensity`（`PaintingQuickWindows.kt:41-44`），而 offset 用原始 px。实际 clamp 是 **0.70-1.40**；两个滑块分别是 0.70-1.30 与 0.75-1.35。 |
+| B. `reportUiBounds` 卸载不清空 | **成立** | `ReComponents.kt:1802-1813`，`1807` 注释明确“节点移除时不会回调，上次的边界会留着”。当前只有 3 个调用点：`TopBar.kt:78`、`ToolRail.kt:283`、`ToolRail.kt:584`；旧 `measured*Rect` 的消费者只有 `CanvasTouchView`。 |
+| C. 其余浮动 UI 漏登 | **成立，且需拆分** | `AnimationTimelinePanel`、`ShiftTraceCapsule`、Global Active Selection Pill、Solo-mode `ToolFloatPanel`、`SavedSelectionsPopup`、Action Toast、`TransformIndicatorHud` 均真实存在且在主 Compose 树（`SavedSelectionsPopup` 主 Box 在主树，只有重命名子对话框是 `Dialog`）。其中 `TOP_STATUS_PILL` 不能同时给 Global pill 与 ShiftTraceCapsule；`BOTTOM_TOOL_PANEL` 不能给所有 `ToolFloatPanel` 实例共用；Action Toast 与 TransformIndicatorHud 互斥（`PaintingPage.kt:2125` 在 `hasActionToast` 时隐藏 Transform HUD）。 |
+| D. 动画期间几何滞后 | **不成立/弱** | 5 个快捷窗用 `animateContentSize`，时间轴用 `animateDpAsState`；`onSizeChanged` 位于 `animateContentSize` 之外（外层），能观察到动画中的实际尺寸。真正的问题是 dp 估算与实测混用，而不是动画滞后。 |
+| E. 不透明画布下前缓冲盖住 `ShiftTraceOverlay` | **成立** | `ShiftTraceOverlay` 在主窗口 Compose 层；前缓冲 `setZOrderOnTop` 在其上；`shiftTraceActive` 是透光台对位模式；当前 `wantsHold` 没有该判断。 |
+| F. 运笔中途渐隐后的旧画布空洞 | **成立** | 前缓冲 `clipOutUi` 不写入面板区域；主画布在 held/kept 期间不失效（例外：`tornInPlace` 等仍会补一次失效）；裁剪区下方是上一帧主画布（透明画布为棋盘格）。 |
+| G. 异常中断路径状态锁死 | **成立** | `ACTION_CANCEL`、双指撤销、三指菜单、禁用画布触控、长按吸色、`abortActiveStrokeForHistory` 等存在绕过 `handleToolUp` 的直接 `release()` 路径；`localIsTouching` 在多指分支不复位。计划初版虽列出双指/三指/速创，但没有给出具体调用点，且 180ms runnable 的 guard 可能空转不重投。 |
+
+### 1.6 v3 新增的 5 个深层盲区（本次二次核实）
+
+#### 盲区 1：父节点拦截不能把触控透传给下层画布
+
+- `PaintingPage.kt` 中浮窗 `zIndex` 为 50~100（`1034`、`1168`、`1280`、`2168`、`2202`、`2234` 等），`CanvasView` 是同级兄弟。
+- Compose `LayoutNode.hitTest` 从高 `zIndex` 向下遍历；只要浮窗子树中任意子节点（按钮 `.clickable`、拖拽 `.pointerInput`、`.systemHoverIcon`）命中坐标且 `sharePointerInputWithSiblings() == false`（默认），`Box.hitTest` 就停止向下遍历，`CanvasTouchView` 收不到 `ACTION_DOWN`。
+- 因此只在父节点挂 `PointerInputModifierNode` 只能吞点击，不能让触控穿透；画师在刚渐隐的面板原区域连续排线时，第 2 笔可能画不出笔迹。
+- 终版方案：`UiSlotModifierNode` 在面板完全透明（`alpha <= 0.03f`）时把内层 `placeable` 放到屏幕外（有界偏移，不用 `1_000_000f`），使子树 `hitTest` 落空；半透明过渡期（`0.03 < alpha < 0.90`）用 `PointerEventPass.Initial` 消费点击防误触。**该方案必须先做 Compose spike 验证**（见 Task 0）。
+
+#### 盲区 2：`strokeLayer` 是无裁剪的 CPU 备份层，可作为 GL 线程安全网
+
+- `FrontBufferPreviewOverlay.kt:181-187` 声明 `strokeLayer: Bitmap?`、`strokeCanvas: Canvas?`、`strokeLayerDirty: Rect`。
+- `drawInkPacket`（`718`）在 `748` 先 `blitInk(sc, param, bmp)` 写入 `strokeLayer`（**没有 `clipOutUi`**），并在 `751-758` 把每块屏幕矩形并入 `strokeLayerDirty`；随后 `758-761` 才对屏幕 `canvas` 执行 `clipOutUi + blitInk`。
+- `ensureStrokeLayer`（`921-936`）分配 **全屏 `ARGB_8888`** 位图；`clearStrokeLayerDirty`（`938-946`）只清记过账的区域。
+- 结论：`strokeLayer` 确实保存了当前笔画“未被 UI 裁剪”的像素，可在 GL 线程把 `pendingUncover ∩ strokeLayerDirty` 直接拷回屏幕，避免 `pendingRects` 竞态与大位图分配。
+- **代价**：全屏 ARGB 位图（例如 1440×3200×4 ≈ 18MB）。当前只在 `needsBackup`（`wantsExtras`/光标/预测笔尖/`prevOverlayValid`）时分配。若自动渐隐强制 `extras=true`，会让每一笔都常驻这张全屏位图。**必须实测内存/帧耗时；必要时改为按脏区分配的分块备份层。**
+
+#### 盲区 3：历史采样点在当前点之前提交给引擎
+
+- `handleToolMove`（`5647`）：
+  - `5659` `startedNow = !strokeStarted`；
+  - `5696` 左右 `armRealInkHold(...)`；
+  - `5712` `for (i in 0 until event.historySize)`；
+  - `5722` 历史点 `v.touchMove(...)`；
+  - `6162` 当前点 `v.touchMove(...)`。
+- 若只在 `6162` 之前做避让检测，历史点已经以旧 `uiClips` 入队；高速划过折叠浮球时，历史线段可能穿过浮球而当前点已跨过。
+- 终版方案：**物理轨迹同步**放在 `handleToolDown` 首行与 `handleToolMove` 的 `startedNow`/`historySize` 循环之前；**预测前瞻**只用于外圈预警，放在预测点算出后、`#81` 预览与 `6162` 当前点提交之前。
+
+#### 盲区 4：`AnimationTimelinePanel` 外层是全宽容器
+
+- `AnimationTimelinePanel.kt:152` 的外层 `Column(fillMaxWidth)` 包含：
+  - `164` `AnimationSettingsCard`（在 `Box(fillMaxWidth, CenterEnd)` 内，`TimelineSettingsCard.kt:83` 宽 320dp 或竖屏 `screenWidth - 44`）；
+  - `174` `StoryboardReferenceBar`；
+  - `176` `TimelinePanelSurface`。
+- 若把 `ANIMATION_TIMELINE` 挂在外层 `Column`，展开动画设置时 `boundsInRoot()` 会把左侧 75% 的透明画布一起算进去，形成巨型隐形 `clipOutRect`。
+- 终版方案：`ANIMATION_TIMELINE` 挂在内层只包 `StoryboardReferenceBar + TimelinePanelSurface` 的容器；`AnimationSettingsCard` 单独挂 `ANIMATION_SETTINGS_CARD`。
+
+#### 盲区 5：绕过 `handleToolUp` 的提前 return 与同槽位新旧节点竞争
+
+- `CanvasTouchView` 中至少这些路径直接 `release()` 或提前 return，不经过 `handleToolUp`：
+  - `draggingGuideHandleIndex != -1`（`4534`、`5226`）；
+  - 长按吸色结束 `isLongPressPickerActive`（`4543`、`5231`）；
+  - `isPendingEdgeFinger`（`5250`）；
+  - `isPendingLongPress`（`5263`）；
+  - `penOnlyMode`（`5275`）；
+  - 双指/三指手势中断（`4604`、`4635`、`4666`、`4986`、`5000`）；
+  - `isCanvasTouchDisabled`（`4306`）；
+  - `abortActiveStrokeForHistory`（`413`）。
+- `floatingUiConfig.enabled` 在停靠/悬浮间切换，或 `ToolFloatPanel` 在不同工具间切换时，旧节点 `onDetach` 可能晚于新节点 `onGloballyPositioned`，误清新节点坐标。
+- 终版方案：统一 `scheduleRestoreEvadedPanels()` 在 `ACTION_UP`/`CANCEL` 最顶部（所有提前 return 之前）及上述路径调用；`restoreEvadedPanelsRunnable` 用 `strokeStarted || realInk.held` 判定活跃笔画并自重排；每个槽位用单调 `ownerToken`，`clearUiSlotBounds(slot, ownerToken)` 只在 token 匹配时清零。
+
+### 1.7 文档事实修正表
+
+| 类别 | 初版写法 | 修正 |
+|---|---|---|
+| 行号漂移 | `setZOrderOnTop` 238-239；`onStrokeCommitted` 178-189；`appendDiscrete` 158-206；`isHoverOverUi` 2258-2380；`wantsHold` 207；`rebuild` 1065-1071 | 以本文件当前行号为准；建议后续用“函数名 + 锚点”引用 |
+| 文件路径 | `RealInkPresent.kt` 在 `canvas/` | 实际在 `app/src/main/java/com/reverie/paint/model/` |
+| 合并规则 | `appendDiscrete` “绝不合并” | 普通追加受 25% 空心约束；满 8 块时 `mergeCheapestPair` 无条件合并最小增益对 |
+| `PAD_PX` | `appendDiscrete` 的外扩 | 用于 `bmpRectToScreenBounds` 与 `bakeSrcRect` 阶段 |
+| TILE_UNDRAWN | “全程保持” | 仅在主画布未 `onDraw` 该瓦片时保持；`drawDisplayTiles` 后置 `TILE_DRAWN` |
+| 缩放范围 | 0.75-1.35；验收 0.80/1.30 | 实际 clamp 0.70-1.40；验收覆盖 0.70/1.0/1.40 |
+| QuickShape | “停顿 650ms 进入 QuickShapeEditor” | 650ms 只识别并弹 toast；`beginQuickShape` 在抬笔 `handleToolUp` |
+| Popup/Dialog | “所有 Compose 面板都在主窗口 HWUI 层” | 改为“主窗口内的 Compose 面板”；`CanvasEditMenu`、`TimelineMenuPopup`、`ReferenceSettingsPopup`、`CanvasEditMenuCustomizeDialog` 是独立窗口；`SavedSelectionsPopup` 主 Box 在主树，只有重命名子对话框是 Dialog |
+| 快捷窗布局 | `ROW` 180-240dp；下侧普遍幽灵区 | 默认 8 动作 `ROW` 约 344dp（无标签）/456dp（有标签）；默认 `COLUMN` 高约 412dp，底部是欠裁剪 |
+| `MAX_UI_CLIPS` | 当前已静默丢弃 | 当前最多 6 项，`break` 不触发；补齐后才会触发 |
+| 槽位容量 | “24 个槽位” | 池固定为 `UiPanelSlot.entries.size`（终版 21）；`MAX_UI_CLIPS=24` 只是 packet 上限冗余 |
+| 历史归因 | 之前提交漏改 | 浅克隆无法验证；只确认当前不一致 |
+| 长按吸色 | 漏调 rebuild 的缺陷 | 该路径不产生笔迹，不需要 rebuild |
+| 零重组 | `graphicsLayer` lambda 读取状态 | 初版代码用 `by` 在 composition 阶段读取，会逐帧重组；终版改用 `State` 对象 + draw 阶段读取 |
 
 ---
 
-### 1.2 为什么“速创面板”和“普通的设置面板”不会被覆盖，而“快捷操作、颜色、图层等面板”会被覆盖？
+## 2. 总体架构
 
-您的怀疑完全准确：**这两类面板在代码中确实走了两套截然不同的渲染互斥与防遮挡机制**，而“快捷浮窗 / 钉住面板”所依赖的第二套机制存在多处漏登与容量截断：
+### 2.1 Phase 1：精确裁剪底座（必做，零行为风险）
 
-| 面板类别 | 包含的具体面板 | 当前防遮挡机制 | 为什么不会/会被覆盖（源码定位） |
-|---|---|---|---|
-| **第一类：模态/半模态覆盖面板**<br>（不会被覆盖） | 1. 普通设置面板 (`SettingsPanel`)<br>2. 绘图辅助与速创设置面板 (`DrawingGuidePanel`，内含 `QuickShapeSettingRow`)<br>3. 速创形状编辑顶栏 (`QuickShapeEditor` + `QuickShapeTopBar`)<br>4. 更多工具面板 (`AllToolsPanel`)<br>5. **未钉住**的画笔/图层/颜色面板 | **短路前缓冲真墨 (`overlayPanelsOpen = true`) + 全屏遮罩拦截** | 1. `PaintingPage.kt:700-703` 将 `settingsPanelOpen`、`drawingGuidePanelOpen`、`moreToolsOpen` 及未钉住的三大面板汇总为 `overlayPanelsOpen = true` 传入 `CanvasView`。<br>2. `RealInkController.kt:195, 207` 在 `wantsHold()` 和 `predictedTip()` 首行检查 `if (!held \|\| view.isTransformActive \|\| view.overlayPanelsOpen) return false`，**直接关闭前缓冲真墨驻留**，回退至位于 Compose 下层的 `CanvasTouchView` 常规渲染。<br>3. 速创形状识别触发时（`CanvasTouchView.kt:6865`）立即调用 `realInk.release()` 并进入 `isQuickShapeEditing` 全屏手势接管态，期间不走前缓冲绘制。 |
-| **第二类：可边看边画的常驻浮窗与钉住态面板**<br>（会被覆盖） | 1. 快捷颜色浮窗 (`QuickColorWindow`)<br>2. OKLCH 调色浮窗 (`QuickOklchWindow`)<br>3. 快捷图层浮窗 (`QuickLayerWindow`)<br>4. **已钉住 (Pinned)** 的颜色面板 (`ColorPanel`)、图层面板 (`LayerPanel`)、画笔面板 (`BrushPanel`)<br>5. 快捷操作浮窗 (`QuickActionWindow`) | **保持 `overlayPanelsOpen = false`，依赖 `rebuildUiExclusionRects()` 传入 `clipOutRect` 裁剪** | 为了允许用户边开面板边画画，这些面板不设 `overlayPanelsOpen = true`，而是靠 `CanvasTouchView.rebuildUiExclusionRects()`（第 1018~1093 行）收集矩形并在 `FrontBufferPreviewOverlay.clipOutUi()` 中挖空。但代码中存在 **6 处直接 Bug** 导致裁剪失效（详列于下）。 |
+目标：在不引入自动渐隐的前提下，100% 修好遮挡与右侧/下侧空白。
 
-#### 导致第二类面板被覆盖的 6 处具体代码缺陷：
-1. **【缺陷 1：3 个常驻快捷浮窗在 `rebuildUiExclusionRects()` 中完全漏写】**  
-   对比 `CanvasTouchView.kt` 的 `isHoverOverUi()`（第 2258~2380 行）与 `rebuildUiExclusionRects()`（第 1056~1091 行）：`rebuildUiExclusionRects()` 仅写入了 `referenceWindowOpen`、`quickActionWindowOpen`、`quickBrushWindowOpen`，**完全漏掉了 `v.quickColorWindowOpen`（快捷颜色）、`v.quickOklchWindowOpen`（OKLCH 调色）、`v.quickLayerWindowOpen`（快捷图层）**！这 3 个面板在前缓冲层没有任何裁剪保护，100% 被覆盖。
-2. **【缺陷 2：钉住态（Pinned）的画笔、图层、颜色三大主面板完全漏写】**  
-   当用户在 `ColorPanel`、`LayerPanel`、`BrushPanel` 上点击图钉固定面板后，`PaintingPage.kt:700-703` 将它们的 `overlayPanelsOpen` 置为 `false` 以放行画布绘画；但这 3 个组件既没有调用 `.reportUiBounds` 上报边界，`rebuildUiExclusionRects()` 中也完全没有它们的矩形，导致**固定后的颜色、图层、画笔面板 100% 被前缓冲覆盖**。
-3. **【缺陷 3：`MAX_UI_CLIPS = 6` 硬编码容量过小导致后续面板被静默丢弃】**  
-   `FrontBufferPreviewOverlay.kt:36` 定义了 `private const val MAX_UI_CLIPS = 6`，并在第 566 行执行 `if (clips >= MAX_UI_CLIPS) break`。而 `rebuildUiExclusionRects()` 前 3 项固定塞入了 `TopBar`、`ToolRail`、`SliderRail`，**留给所有浮动面板的槽位仅剩 3 个**！一旦同时打开超过 3 个浮窗或补齐上述漏登面板，超出的面板直接被截断丢弃。
-4. **【缺陷 4：手指单指作画路径 `ACTION_DOWN` 完全漏调 `rebuildUiExclusionRects()`】**  
-   在 `CanvasTouchView.kt:4416` 手写笔分支中有 `if (isDown) rebuildUiExclusionRects()`；但在第 `5027` 行的单指触控 `ACTION_DOWN`（以及第 `5115` 行边缘延迟落笔、第 `5134` 行长按吸色移动落笔）中**完全漏调了 `rebuildUiExclusionRects()`**。只要用户在进入画布后才打开或移动了快捷操作等浮窗，用手指（或被识别为 Touch 的输入源）绘制时使用的仍是 `onSizeChanged` 时的空表或旧坐标，导致快捷操作面板被覆盖！
-5. **【缺陷 5：`QuickActionWindow` 按钮较多或首次打开未落笔时的尺寸/坐标越界】**  
-   当快捷操作面板处于单行模式 (`ROW`) 且配置了较多按钮（宽度 > `380dp`）或单列模式 (`COLUMN`) 高度 > `380dp` 时，超出硬编码 `380dp` 的部分无裁剪保护而被覆盖。
-6. **【缺陷 6：`#81` 折线/戳印预览路径 `drawPreviewPacket` 未执行 `clipOutUi`】**  
-   在 `FrontBufferPreviewOverlay.kt:340` 的 `drawPreviewPacket()` 中，没有像 `drawInkPacket()` 那样调用 `clipOutUi(canvas, param)`，且 `renderPreviewPath` / `renderStampPreview` 未携带 `uiClips`。
+1. 建立单一不可变 `UiClipSnapshot`，替换 `uiExclusionRects` / `uiExclusionPool` 双轨。
+2. 21 个槽位全部接入 `reportUiSlot` / `UiSlotModifierNode`，用 `boundsInRoot()` 实测 px 取代所有 dp 估算。
+3. 所有落笔路径（手写笔、手指、边缘延迟、`armRealInkHold`）在提交前刷新并发布快照。
+4. `renderInkScreenRegions` 接收 `count`，只遍历有效项；每次提交重置 `packet.uiClipCount`。
+5. `#81` 预览包携带快照并执行 `clipOutUi`。
+6. `presentPending` 改为“取快照即消费”，失败时把本次快照归还 `pendingRects`。
+7. `ShiftTrace` 在 `armRealInkHold` 阶段按不透明背景门控，保留 `#81` 预览。
+8. 修复所有绕过 `handleToolUp` 的恢复出口（Phase 1 只做裁剪与状态清理，不做渐隐）。
+
+**Phase 1 完成后即可关闭初版报告中的全部遮挡/空白 Bug。**
+
+### 2.2 Phase 2：双圈同步前馈渐隐避让
+
+1. 外圈 `R_warn = R_P` 外扩 `64dp + 有效笔刷屏幕半径`：置位 `isEvading`，70ms 极速淡出；此时面板仍在 `uiClips` 中。
+2. 内圈 `R_contact = R_P` 外扩 `有效笔刷屏幕半径 + 4dp`：在把本帧任何触摸点提交给引擎之前，同步：
+   - `snapZero = true`（当帧 alpha=0，避免半透明面板上出现锯齿底色）；
+   - 从快照中移除该槽位并 `@Volatile` 发布；
+   - 再执行 `historySize` 循环与当前 `v.touchMove`。
+3. 因为第一个落入面板的 dab 从未被裁剪，主路径**不需要** `uncoverScreenRect`。
+4. 抬笔后 180ms 防抖恢复；新笔落下时若不在该面板预警圈内，立即清除该面板的隐藏位（per-stroke re-evaluation）。
+5. `restoreEvadedPanelsRunnable` 若发现 `strokeStarted || realInk.held`，`postDelayed(this, 60L)` 自重排，不丢弃。
+6. 完全透明期间通过 `UiSlotModifierNode` 把面板移出命中测试，保证“看不见就点不到”。
+
+### 2.3 为什么主路径不再需要 `uncoverScreenRect`
+
+- 初版的问题链是：面板在 `uiClips` 中 → 笔迹进入面板 → 被 `clipOutRect` 挖空 → 90ms 后动画回调 → 跨线程补烤 → `pendingCount = 0` 吞掉 / `slotBitmap` 膨胀。
+- v3 把“撤 Clip”提前到第一个 dab 之前：笔迹从未在面板区域被裁剪，因此没有“需要补烤的历史空洞”。
+- 唯一可能的例外是：面板在笔画中途才出现/移动，或触摸点到引擎的提交顺序被其他路径打乱。为此保留 `strokeLayer` 安全网（2.4），但它不是主路径，不参与正确性闭环。
+
+### 2.4 `strokeLayer` GL 线程安全网（可选，默认关闭，先做 spike）
+
+- 强制 `wantsExtras = cursorWhileDrawing || predictedTipEligible(v) || autoHidePanelsOnStroke`，使 `strokeLayer` 从首帧起可用。
+- 面板 `alpha <= 0.03f` 时，UI 线程调用 `frontBufferOverlay.requestUncoverRect(l, t, r, b, snapshot)`；在 `submitLock` 内并入 `pendingUncover`。
+- GL 线程在 `drawInkPacket` 末尾：
+  - 计算 `pendingUncover ∩ strokeLayerDirty`；
+  - 从 `strokeLayer` 直接 `drawBitmap` 到屏幕 `canvas`；
+  - 清空 `pendingUncover`。
+- 这样不经过 `pendingRects`，不触发 `presentPending` 的 `pendingCount` 清零，也不产生大位图分配。
+- **必须实测**：全屏 `strokeLayer` 的内存峰值、首帧分配耗时、`drawBitmap` 拷贝耗时。若不可接受，改为按脏区分块备份层，或直接放弃安全网（Phase 2 的主路径不依赖它）。
+
+### 2.5 数据流与线程协议
+
+```
+UI 线程 (CanvasTouchView / Compose)
+  ├─ handleToolDown/Move:
+  │    ├─ 物理轨迹包络 → UiPanelOcclusionTracker
+  │    ├─ 外圈: 置 isEvading (per-slot State) → Compose 70ms fade
+  │    ├─ 内圈: 置 snapZero + 从快照移除槽位
+  │    └─ @Volatile publish UiClipSnapshot
+  ├─ armRealInkHold: realInk.arm(allowed, extras, snapshot)
+  └─ reportUiSlot: onGloballyPositioned → tracker.update(slot, ownerToken, bounds)
+
+渲染线程 (reverie-render)
+  ├─ presentTileFrame → appendDiscrete(pendingRects)
+  ├─ presentPending:
+  │    ├─ 锁内: append reclaimed + snapshotRects + pendingCount = 0 (消费)
+  │    ├─ 锁外: bakeRect
+  │    └─ 失败: 锁内把 snapshot 归还 pendingRects
+  └─ renderInkScreenRegions(snapshot): 只读 [0, count)，packet.uiClipCount = count
+
+GL 线程
+  ├─ drawInkPacket: clipOutUi(packet) + blitInk
+  ├─ drawPreviewPacket: clipOutUi(packet) + path/stamp
+  └─ (可选) pendingUncover: strokeLayer → canvas
+```
 
 ---
 
-### 1.3 为什么“快捷操作面板的右侧会出现空白，在抬笔前挡住笔迹，抬笔后笔迹正常”？
+## 3. 数据模型
 
-根因直接定位在 **`CanvasTouchView.kt` 第 1065~1071 行 (`rebuildUiExclusionRects`)**：
+### 3.1 `model/UiPanelSlot.kt`（21 个槽位，零共享冲突）
 
 ```kotlin
-// CanvasTouchView.kt:1065-1071 (问题代码)
-// 快捷操作浮窗 (若打开)
-if (v.quickActionWindowOpen) {
-    val qw = if (v.quickActionCollapsed) 90f * d else 380f * d
-    val qh = if (v.quickActionCollapsed) 50f * d else 380f * d
-    val qx = if (v.quickActionWindowX >= 0f) v.quickActionWindowX else ((w - qw) / 2f).coerceAtLeast(0f)
-    val qy = if (v.quickActionWindowY >= 0f) v.quickActionWindowY else ((h - qh) / 2f).coerceAtLeast(0f)
-    list.add(android.graphics.RectF(qx, qy, qx + qw, qy + qh))
-}
-```
-
-#### 形成机制复盘：
-1. **历史修改不同步**：在之前的提交中，为修复“快捷操作面板右侧悬浮时光标变成系统箭头”的问题，开发者将 `isHoverOverUi()`（第 2297~2316 行）改成了优先读取实测像素 `v.quickActionWindowWidth` 和 `v.quickActionWindowHeight`，但**遗漏了第 1066 行的 `rebuildUiExclusionRects()`**，使其仍然保留着硬编码的 **`380dp × 380dp`**！
-2. **右侧与下侧的“幽灵拒墨区”**：
-   - 快捷操作面板在单列模式 (`COLUMN`) 下实宽仅 **`56dp`**，双列网格 (`GRID_2`) 实宽约 **`110dp`**，三列网格 (`GRID_3`) 实宽约 **`160dp`**，短单行模式 (`ROW`) 实宽约 **`180~240dp`**（哪怕折叠态实宽也只有 `64~72dp`，小于硬编码的 `90dp`）。
-   - 因为 `rebuildUiExclusionRects()` 硬塞了一个 `380dp` 宽、`380dp` 高的矩形给 `RealInkController.uiClips`，所以在快捷操作面板右侧（宽度差最高达 **`324dp`**）及下方区域，形成了一块肉眼看不见的 **`clipOutRect` 裁剪禁区**。
-3. **为什么抬笔前挡住笔迹、抬笔后正常**：
-   - **抬笔前**：`RealInkController.held == true`，新笔迹只在顶层 `FrontBufferPreviewOverlay` 上渲染，而底层 `CanvasTouchView` 在按住期间不触发 `invalidate()`。当笔迹划过快捷操作面板右侧的 `380dp` 幽灵禁区时，`FrontBufferPreviewOverlay` 执行 `canvas.clipOutRect` 把这段真墨裁掉了，底层 `CanvasTouchView` 又还没画这一笔，于是屏幕上就像有一块透明白板把笔迹挡住了一样！
-   - **抬笔后**：`onStrokeCommitted()` 唤醒底层 `CanvasTouchView.postInvalidate()` 并清掉顶层前缓冲，底层主画布不受 `uiClips` 裁剪，完整画出整条笔画，笔迹瞬间恢复正常。
-
----
-
-### 1.4 深度排查：还有哪些您尚未发现但同源的潜在隐患？（共 7 项）
-
-通过对全工程 `ui/painting` 与 `core/` 的交叉排查，还存在以下 7 个同源隐患，必须在本次计划中一并根治：
-
-1. **【隐患 A：`paintingUiScale`（界面缩放）导致参考窗与快捷笔刷窗排除区错位】**  
-   `PaintingPage.kt:865-875` 使用 `CompositionLocalProvider(LocalDensity provides scaledDensity)` 将 UI 密度乘以了 `vm.paintingUiScale`（0.75x ~ 1.35x）。但 `CanvasTouchView.rebuildUiExclusionRects()` 和 `isHoverOverUi()` 中的 `val d = density` 是 View 原始系统密度（未乘 `paintingUiScale`）！  
-   这导致 `ReferenceWindow`（`val rw = v.referenceWindowWidth * d`，第 1060 行）在界面缩放 ≠ 1.0 时，计算的排除框比真实参考窗偏小（缩放 > 1 时右下边缘被笔迹覆盖）或偏大（缩放 < 1 时右下侧出现空白挡笔迹）！
-2. **【隐患 B：`Modifier.reportUiBounds` 在组件隐藏/销毁时未清空旧矩形，留下“隐形拒墨空洞”】**  
-   `ReComponents.kt:1809` 的注释写道：`节点移除时不会回调, 上次的边界会留着`。当进入滤镜全屏调节 (`filterController != null`)、画布尺寸裁切 (`isCanvasAdjustActive`) 或关闭某个通过 `reportUiBounds` 注册的面板时，旧的 `RectF` 依然残留在 `PaintViewModel` 中，导致原本面板所在位置的画布在抬笔前无法显示新笔迹！
-3. **【隐患 C：其余 7 个可在绘画时共存的浮动 UI 组件未纳入避让注册表】**  
-   在画布处于画笔/橡皮/涂抹工具时，以下可能同时显示的 UI 组件均未纳入 `uiExclusionRects`：
-   - 动画时间轴面板 (`AnimationTimelinePanel`, `vm.anim.enabled && vm.anim.panelOpen`)
-   - 透光台对位胶囊 (`ShiftTraceCapsule`, `vm.anim.shiftTraceActive`)
-   - 全局活跃选区提示胶囊 (`Global Active Selection Pill`, `vm.hasSelection && tool !in selectionTools`)
-   - 独显模式底部胶囊 (`Solo-mode ToolFloatPanel`, `vm.soloActive`)
-   - 选区历史悬浮面板 (`SavedSelectionsPopup`, `vm.savedSelectionsPopupOpen`)
-   - 撤销/重做顶部胶囊提示 (`Action Toast`, `vm.undoToastEnabled && vm.actionToastMessage != null`)与缩放旋转指示器 (`TransformIndicatorHud`)
-4. **【隐患 D：`QuickActionWindow` / `QuickBrushWindow` 折叠或展开动画期间的几何同步滞后】**  
-   浮窗带有 `.animateContentSize()`。若仅靠 `windowWidth/Height` 字段拼接 `windowX/Y`（且当 `windowX < 0f` 初次居中时计算公式分散在多处），极易因初始值 `-1f` 或动画过渡态产生偏移。全部改为在浮窗实体 `Box`（不含外挂微型 Toast）上挂载 `Modifier.reportUiBounds` 直接读取 `coords.boundsInRoot()`，即可 100% 与屏幕真实渲染位置逐像素对齐。
-5. **【隐患 E：不透明画布下，前缓冲真墨会局部盖住 `ShiftTraceOverlay`（透光台参考图）】**  
-   在 `CanvasView.kt:356` 中，`ShiftTraceOverlay` 在 Compose 层绘制参考帧叠影。当 `vm.anim.shiftTraceActive == true` 且画布为不透明背景时，如果 `RealInkController.wantsHold()` 返回 `true`，顶层前缓冲贴上的不透明底色块会在运笔途把透光台参考图盖住。因此当 `vm.anim.shiftTraceActive` 开启且画布含不透明背景时，`RealInkController.wantsHold()` 应让位给主画布（仅保留 `#81` 笔尖前沿预览线），确保透光台叠影始终清晰可见。
-6. **【隐患 F：若面板在运笔中途动态渐隐，前缓冲曾被 `clipOutRect` 裁掉的区域会出现“墨迹空洞”】**  
-   当笔迹刚划过面板边缘、面板尚处于渐隐动画中时，`clipOutUi` 阻止了该区域的真墨写入前缓冲；等 90ms 后面板完全透明时，由于主画布在 `held` 期间未刷新、前缓冲该处又是透明的，面板消失后会露出没有当前笔画的旧画布，直到抬笔才闪出笔画。必须在面板完全透明移除 `uiClip` 的那一刻，把该面板矩形交集推入 `RealInkController` 补烤一次前缓冲（或从 `strokeLayer` 回填），实现无缝衔接。
-7. **【隐患 G：异常中断路径（`ACTION_CANCEL` / 双指撤销 / 三指下滑菜单 / 速创长按成形）下面板避让状态锁死风险】**  
-   若运笔触发了面板渐隐，随后用户未正常 `ACTION_UP` 而是双指轻点撤销、三指下滑呼出编辑菜单、或停顿 650ms 进入 `QuickShapeEditor`，必须在所有这些退出路径上兜底重置面板避让状态，严禁面板卡在 `alpha = 0f` 隐身状态。
-
----
-
-## 二、方案权衡与总体架构设计
-
-针对您的核心诉求——**“既要彻底修好遮挡与右侧空白 Bug，又想把笔迹画到面板时变成平滑自动渐变隐藏不挡视野，且绝不降低当前性能优化与延迟”**，我们采用 **“双层解耦架构：精确几何裁剪底座 + 零开销运笔智能渐隐避让”**：
-
-```
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ 第一层（必做底座）：统一实测 UI 边界注册表 (UiBoundsRegistry)                  │
-│  • 废除一切手写 380dp / dp*density 估算公式                                   │
-│  • 所有常驻欄、快捷浮窗、固定面板统一挂载生命周期安全的 reportUiBounds(slot)    │
-│  • 组件退出组合 (onDispose) 自动清空对应槽位，彻底消灭“右侧空白”与“漏登被盖”   │
-│  • FrontBufferPreviewOverlay.MAX_UI_CLIPS 从 6 扩容至 24，全路径(含#81)裁剪   │
-└───────────────────────────────────────┬──────────────────────────────────────┘
-                                        │
-                                        ▼
-┌──────────────────────────────────────────────────────────────────────────────┐
-│ 第二层（核心特性）：运笔智能渐隐避让引擎 (Smart Stroke-Proximity Auto-Evade)   │
-│  • 落笔/运笔时，在 CanvasTouchView 用纯标量检测笔尖/预测点是否进入浮动面板的   │
-│    外扩预警圈 R_enter (面板边界外扩 56dp + 笔刷屏幕半径)                       │
-│  • 阶段 1 [预警渐隐期 ~90ms]：笔尖尚在外围 56dp 缓冲区内，置位位掩码           │
-│    evadingPanelMask，Compose 侧仅通过 Modifier.graphicsLayer { alpha }        │
-│    在 RenderThread 执行 90ms 极速淡出（零重组、零测量）；此期间面板仍在        │
-│    uiClips 中，绝不让锯齿背景画到半透明面板脸上                               │
-│  • 阶段 2 [完全穿透期 alpha=0f]：面板淡出完成的瞬间，从 RealInkController      │
-│    动态移除该面板的 uiClip，并将面板矩形交集投递给 renderHandler 补烤一次      │
-│    前缓冲槽位（不触发 CanvasTouchView.invalidate，100% 保留瓦片 TILE_UNDRAWN  │
-│    就地写优化与 4~8ms 超低延迟！）                                            │
-│  • 阶段 3 [抬笔防抖恢复]：本笔期间保持隐藏不反复横跳；抬笔并完成前缓冲追赶后   │
-│    延迟 180ms（防高频排线闪烁），以 160ms 平滑淡入恢复 alpha = 1f             │
-└──────────────────────────────────────────────────────────────────────────────┘
-```
-
-### 为什么这套架构能做到“零性能回退、零额外延迟”？
-
-1. **热路径 100% 零对象分配（符合 `AGENTS.md §4.4`）**：
-   - 240Hz `ACTION_MOVE` 中只遍历预分配的固定长度数组（24 个槽位的 `FloatArray` 扁平坐标 `left, top, right, bottom`），做简单的浮点数大小比较。
-   - 仅当某个面板从“未避让”首次变为“避让”的那 **1 帧**，才执行一次 `vm.evadingPanelMask = newMask`（位掩码写操作，每笔每面板最多触发 1 次，其余 99.9% 的 `ACTION_MOVE` 事件因位掩码已置位直接短路跳过）。
-2. **Compose 侧零 Recomposition、零 Layout（符合高刷渲染规范）**：
-   - 面板渐隐透明度通过 `Modifier.graphicsLayer { alpha = evadeAlphaState.value }`（Lambda 写法）注入。Compose 编译器对此仅在 **Draw / RenderNode 属性更新阶段** 读取状态，不会触发面板内部（如色轮、图层列表、按钮）的任何重组或重新测量！
-3. **100% 保住 512 瓦片 `TILE_UNDRAWN` 原地写快速路径（符合 `AGENTS.md §4.3`）**：
-   - 在面板渐隐穿透后，**绝不调用 `CanvasTouchView.invalidate()`**，而是直接复用 `RealInkController` 把该面板挡住的脏区补烤到 `FrontBufferPreviewOverlay`（并在 `strokeLayer` 已启用时直接从 `strokeLayer` 内存拷贝）。`PublishedTiles.drawnByView` 全程保持 `TILE_UNDRAWN`，无任何额外 COW 位图分配或 HWUI 整片纹理上传。
-
----
-
-## 三、分步可执行修改计划（精确到文件、函数与代码实现）
-
-### Task 1：升级 `UiBoundsRegistry` 与生命周期安全的 `Modifier.reportUiBounds`
-
-**目标**：建立统一的、预分配的 UI 边界槽位注册表，彻底取代散落在 `PaintViewModel` 的零散 `measured*Rect` 字段与 `CanvasTouchView` 的手写 dp 估算，并保证组件卸载时自动清零槽位。
-
-**涉及文件**：
-- 新建：`app/src/main/java/com/reverie/paint/model/UiPanelSlot.kt`
-- 修改：`app/src/main/java/com/reverie/paint/core/PaintViewModel.kt`
-- 修改：`app/src/main/java/com/reverie/paint/ui/components/ReComponents.kt`
-
-- [ ] **Step 1.1：新建 `model/UiPanelSlot.kt` 定义全部 UI 避让槽位与可渐隐属性**
-
-```kotlin
-/*
- * SPDX-License-Identifier: GPL-3.0-or-later
- */
-
 package com.reverie.paint.model
 
-/**
- * 画布顶层 UI 面板边界槽位定义。
- *
- * - [evadable] = true 表示该面板属于悬浮小窗或钉住态面板，当开启“运笔靠近面板自动渐隐”时，
- *   笔迹靠近会自动平滑淡出让出画布视野；
- * - [evadable] = false 表示常驻边缘栏（顶栏、工具栏、滑块栏等），仅做精确前缓冲裁剪，不自动隐藏。
- */
-enum class UiPanelSlot(val evadable: Boolean, val defaultReferenceStyle: Boolean = false) {
-    // 1. 常驻边缘停靠栏 / 胶囊 (不自动渐隐，仅精确裁剪前缓冲)
-    TOP_BAR(evadable = false),
-    TOOL_RAIL(evadable = false),
-    SLIDER_RAIL(evadable = false),
-    ANIMATION_TIMELINE(evadable = false),
-    BOTTOM_TOOL_PANEL(evadable = false),
-    TOP_STATUS_PILL(evadable = false),
+enum class UiPanelSlot(
+    val evadable: Boolean = false,
+    /** 仅 5 个 Quick* 小窗默认参与自动渐隐。 */
+    val defaultEvade: Boolean = false,
+    /** 钉住大面板/参考窗：受 autoHidePinnedAndRefOnStroke 二级开关控制。 */
+    val pinnedOrReference: Boolean = false,
+) {
+    // 常驻/非渐隐（10）
+    TOP_BAR,
+    TOOL_RAIL,
+    SLIDER_RAIL,
+    ANIMATION_TIMELINE,
+    BOTTOM_TOOL_PANEL,      // ToolFloatPanel 通用槽位；ToolFloatPanel 增加 slot 参数
+    SOLO_MODE_BAR,          // Solo-mode ToolFloatPanel 专用
+    PICKER_SOURCE_BAR,      // PickerLayerSourceBar (PaintingPage.kt:2037)
+    ACTIVE_SELECTION_PILL,
+    SHIFT_TRACE_CAPSULE,
+    TOP_HUD_TOAST,          // ActionToast 与 TransformIndicatorHud 互斥
 
-    // 2. 常驻悬浮快捷小窗 (支持精确裁剪 + 运笔靠近自动渐隐)
-    QUICK_ACTION(evadable = true),
-    QUICK_BRUSH(evadable = true),
-    QUICK_COLOR(evadable = true),
-    QUICK_OKLCH(evadable = true),
-    QUICK_LAYER(evadable = true),
-    REFERENCE_WINDOW(evadable = true, defaultReferenceStyle = true),
+    // 快捷小窗（7；其中 SAVED_SELECTIONS_POPUP / ANIMATION_SETTINGS_CARD 默认值待确认）
+    QUICK_ACTION(evadable = true, defaultEvade = true),
+    QUICK_BRUSH(evadable = true, defaultEvade = true),
+    QUICK_COLOR(evadable = true, defaultEvade = true),
+    QUICK_OKLCH(evadable = true, defaultEvade = true),
+    QUICK_LAYER(evadable = true, defaultEvade = true),
+    SAVED_SELECTIONS_POPUP(evadable = true, defaultEvade = false),
+    ANIMATION_SETTINGS_CARD(evadable = true, defaultEvade = false),
 
-    // 3. 钉住态 (Pinned) 三大主面板 + 选区历史浮窗 (支持精确裁剪 + 运笔靠近自动渐隐)
-    PINNED_BRUSH_PANEL(evadable = true),
-    PINNED_LAYER_PANEL(evadable = true),
-    PINNED_COLOR_PANEL(evadable = true),
-    SAVED_SELECTIONS_POPUP(evadable = true),
+    // 钉住大面板与参考窗（4）
+    REFERENCE_WINDOW(evadable = true, pinnedOrReference = true),
+    PINNED_BRUSH_PANEL(evadable = true, pinnedOrReference = true),
+    PINNED_LAYER_PANEL(evadable = true, pinnedOrReference = true),
+    PINNED_COLOR_PANEL(evadable = true, pinnedOrReference = true),
     ;
 
     val bit: Int get() = 1 shl ordinal
 
     companion object {
-        const val COUNT = 16
+        val COUNT: Int get() = entries.size
     }
 }
 ```
 
-- [ ] **Step 1.2：在 `PaintViewModel.kt` 中维护零分配槽位表与避让状态掩码**
+说明：
 
-在 `PaintViewModel.kt` 的 `measuredTopBarRect` 所在位置（约第 1684 行），扩展为固定数组槽位（保留旧属性兼容访问，内部全部指向同一套槽位数组）：
+- `TOP_HUD_TOAST` 共享是安全的，因为 `PaintingPage.kt:2125` 在 `hasActionToast` 时隐藏 `TransformIndicatorHud`；若未来允许同时显示，必须拆成两个槽位。
+- `BOTTOM_TOOL_PANEL` 共享是安全的，因为工具面板同一时刻只显示一个；但 `ToolFloatPanel` 必须增加 `slot: UiPanelSlot = BOTTOM_TOOL_PANEL` 参数，Solo 调用传 `SOLO_MODE_BAR`。若发现两个工具面板可同时可见，再拆分。
+- **槽位总数是 21，不是 23**。初版讨论中的 22/23 是把 `TOOL_FLOAT_PANEL`/`SELECTION_FLOAT_PANEL`/`ACTION_TOAST_PILL`/`TRANSFORM_HUD_PILL` 分别计数；终版按实际互斥关系合并。`MAX_UI_CLIPS = 24` 留 3 个冗余。
+- `SAVED_SELECTIONS_POPUP` 与 `ANIMATION_SETTINGS_CARD` 的默认渐隐值存在产品口径冲突（见 §7），先按 `defaultEvade = false` 落地，待确认。
+
+### 3.2 `model/UiClipSnapshot.kt`
 
 ```kotlin
-    // ---- 前缓冲 UI 边界注册表 & 运笔靠近自动渐隐控制 ----
-    // 每个槽位 4 个 float: [left, top, right, bottom] (root 屏幕像素坐标), right <= left 表示槽位未激活
-    internal val uiSlotBounds = FloatArray(com.reverie.paint.model.UiPanelSlot.COUNT * 4)
-    @Volatile
-    internal var uiSlotVersion: Int = 0
-        private set
+package com.reverie.paint.model
 
-    /** 运笔靠近悬浮面板时自动渐隐避让总开关 (默认开启，可在手写笔/界面设置中开关) */
-    var autoHidePanelsOnStroke by mutableStateOf(true)
-
-    /** 参考窗是否参与运笔自动渐隐 (默认关闭：画师通常需要边看参考窗边画，仅裁剪不隐藏；开启则同样渐隐) */
-    var autoHideReferenceOnStroke by mutableStateOf(false)
-
-    /** 当前正处于“运笔渐隐预警/隐藏态”的面板位掩码 (bit = 1 shl UiPanelSlot.ordinal) */
-    var evadingPanelMask by mutableIntStateOf(0)
-
-    /** 当前已完成淡出动画 (alpha <= 0.02f)、可从前缓冲 clipOutRect 中移除并穿透显示笔迹的面板位掩码 */
-    @Volatile
-    var fullyEvadedPanelMask: Int = 0
-
-    internal fun updateUiSlotBounds(slot: com.reverie.paint.model.UiPanelSlot, l: Float, t: Float, r: Float, b: Float) {
-        val base = slot.ordinal * 4
-        if (uiSlotBounds[base] == l && uiSlotBounds[base + 1] == t &&
-            uiSlotBounds[base + 2] == r && uiSlotBounds[base + 3] == b
-        ) {
-            return
+/**
+ * 不可变裁剪快照。flat 每项 4 个 float: left, top, right, bottom（root 屏幕像素）。
+ * 构建后禁止修改；UI 线程构建并通过 @Volatile 发布，渲染线程只读。
+ */
+class UiClipSnapshot private constructor(
+    val flat: FloatArray,
+    val count: Int,
+) {
+    fun intersects(l: Float, t: Float, r: Float, b: Float): Boolean {
+        var i = 0
+        while (i < count * 4) {
+            if (r >= flat[i] && l <= flat[i + 2] && b >= flat[i + 1] && t <= flat[i + 3]) return true
+            i += 4
         }
-        uiSlotBounds[base] = l
-        uiSlotBounds[base + 1] = t
-        uiSlotBounds[base + 2] = r
-        uiSlotBounds[base + 3] = b
-        uiSlotVersion++
+        return false
     }
 
-    internal fun clearUiSlotBounds(slot: com.reverie.paint.model.UiPanelSlot) {
-        val base = slot.ordinal * 4
-        if (uiSlotBounds[base + 2] <= uiSlotBounds[base]) return
-        uiSlotBounds[base] = 0f
-        uiSlotBounds[base + 1] = 0f
-        uiSlotBounds[base + 2] = 0f
-        uiSlotBounds[base + 3] = 0f
-        evadingPanelMask = evadingPanelMask and slot.bit.inv()
-        fullyEvadedPanelMask = fullyEvadedPanelMask and slot.bit.inv()
-        uiSlotVersion++
+    fun contains(x: Float, y: Float): Boolean {
+        var i = 0
+        while (i < count * 4) {
+            if (x >= flat[i] && x <= flat[i + 2] && y >= flat[i + 1] && y <= flat[i + 3]) return true
+            i += 4
+        }
+        return false
     }
+
+    companion object {
+        val EMPTY = UiClipSnapshot(FloatArray(0), 0)
+
+        /** 从工作数组复制有效项；仅在低频边沿调用。 */
+        fun copyOf(src: FloatArray, count: Int, max: Int): UiClipSnapshot {
+            val n = count.coerceIn(0, minOf(max, src.size / 4))
+            if (n == 0) return EMPTY
+            val out = FloatArray(n * 4)
+            System.arraycopy(src, 0, out, 0, n * 4)
+            return UiClipSnapshot(out, n)
+        }
+    }
+}
 ```
 
-- [ ] **Step 1.3：升级 `ReComponents.kt` 中的 `Modifier.reportUiBounds` 支持槽位绑定与 `onDispose` 自动清理**
+### 3.3 `model/UiPanelOcclusionTracker.kt`（纯 Kotlin，可单测）
 
-修改 `app/src/main/java/com/reverie/paint/ui/components/ReComponents.kt`（第 1809 行）：
+职责：
+
+- 维护 21 个槽位的 `FloatArray(COUNT * 4)` 与 `IntArray(COUNT)` 的 `ownerToken`；
+- `update(slot, ownerToken, l, t, r, b)`：只有 token 匹配才写入；bounds 变化时递增 `version`；
+- `clear(slot, ownerToken)`：只有 token 匹配才清零，并清掉该槽位的 evading/snapZero 位；
+- `snapshot(evadedMask, unclippedMask)`：把“激活且未被 unclip”的槽位复制成 `UiClipSnapshot`；
+- `hitTest(x, y)` / `intersects(l,t,r,b)`：供 `isHoverOverUi` 与 `previewEnvelopeHitsUi` 使用；
+- `ringState(x, y, brushRadiusPx, warnPx, contactPx)`：返回 `WARN` / `CONTACT` / `NONE`，纯标量、零分配；
+- 所有方法不依赖 Android；`RectF` 只在 UI 层做临时转换，或完全用 `FloatArray`。
+
+单测覆盖：
+
+- 槽位生命周期：打开/移动/折叠/关闭/重开；
+- `ownerToken` 竞争：旧节点 `clear` 不影响新节点；
+- 快照：4 项→3 项、池尾不残留、count 正确；
+- 双圈：外圈只 warn、内圈 contact、笔刷半径/密度/缩放；
+- 掩码：evaded/unclipped 位在抬笔/取消/切工具后归零。
+
+### 3.4 `PaintViewModel` 状态
 
 ```kotlin
-/**
- * 将当前 Composable 节点的真实屏幕边界 (boundsInRoot, px) 注册到 [PaintViewModel] 的指定 [slot]，
- * 并在节点退出组合 (onDispose) 时自动清空该槽位，杜绝面板关闭后残留“隐形拒墨空洞”。
- *
- * 若该槽位支持运笔自动渐隐 ([UiPanelSlot.evadable] == true)，同时自动挂载基于 RenderNode 的
- * `graphicsLayer { alpha }` 平滑渐隐动画（零 Recomposition、零 Layout 开销）。
- */
+// core/PaintViewModel.kt（只持有纯数据与 Compose 状态，不引用 CanvasTouchView）
+val panelOcclusion = com.reverie.paint.model.UiPanelOcclusionTracker()
+
+/** 每个槽位独立的 Compose 状态，避免全局 mask 牵连所有面板重组。 */
+internal val slotEvading = Array(UiPanelSlot.COUNT) { mutableStateOf(false) }
+internal val slotSnapZero = Array(UiPanelSlot.COUNT) { mutableStateOf(false) }
+
+/** 供渲染线程读取的不可变裁剪快照。 */
+@Volatile
+internal var uiClipSnapshot: UiClipSnapshot = UiClipSnapshot.EMPTY
+
+/** 本笔已进入内圈、已从快照移除的面板位。 */
+@Volatile
+internal var unclippedPanelMask: Int = 0
+
+/** 本笔已进入外圈的面板位。 */
+@Volatile
+internal var evadingPanelMask: Int = 0
+
+/** 自动渐隐总开关（默认 true，持久化）。 */
+var autoHidePanelsOnStroke by mutableStateOf(true)
+
+/** 钉住面板/参考窗是否参与渐隐（默认 false，持久化）。 */
+var autoHidePinnedAndRefOnStroke by mutableStateOf(false)
+```
+
+设置持久化：
+
+- `updateAutoHidePanelsOnStroke(enabled)` / `updateAutoHidePinnedAndRefOnStroke(enabled)` 写 `paint_prefs`；
+- 启动时读回；默认值如上；
+- 新增中英文 `strings.xml` 文案（`values/` 与 `values-en/`）。
+
+### 3.5 `canvasBackgroundOpaque`（替代不存在的 `isBackgroundTransparent`）
+
+源码中**没有** `isBackgroundTransparent` 字段。终版用背景图层镜像派生：
+
+```kotlin
+/** 画布背景是否不透明：背景层可见且 opacity≈1（背景层是 alpha-locked 的白色层）。 */
+val canvasBackgroundOpaque: Boolean
+    get() = layers.firstOrNull { it.isBackground }
+        ?.let { it.visible && it.opacity >= 0.999 } ?: false
+```
+
+- `LayerUiState` 已有 `isBackground` / `visible` / `opacity`（`PaintViewModel.kt:4611-4638`）。
+- 若后续发现背景层可能是非白色/半透明，再补 `fillColor` 的 alpha 判断。
+- 该属性只在 `armRealInkHold` 与 ShiftTrace 门控中读取，不在 240Hz 热路径。
+
+---
+
+## 4. 任务拆解
+
+### Task 0（Phase 2 前置）：Compose 命中穿透 spike
+
+**目的**：验证 `UiSlotModifierNode` 的“完全透明时把内层 placeable 移到屏幕外”是否真的能让子树不参与命中测试，同时不影响 `boundsInRoot`、布局、无障碍与动画。
+
+**验收**：
+
+1. 写一个最小 Compose demo：`Box` 里放一个 `zIndex` 高的可点击面板，下面放一个可点击画布；面板 alpha=0 且移出屏幕后，点击必须落到画布；alpha=0.5 时点击被面板的 `Initial` 消费，不落到画布。
+2. `onGloballyPositioned` 上报的 bounds 在透明/非透明两种状态下都与真实视觉位置一致。
+3. 用有界偏移（如 `-screenWidth - width`），不要用 `1_000_000f`；确认 RenderNode 无异常、无过度绘制。
+4. 若 spike 失败：回退方案为 `LocalUiPanelInteractive` CompositionLocal + 面板交互层条件禁用（见 Task 6），并在文档记录结论。
+
+**只有 Task 0 通过，Phase 2 的“输入穿透”才可开工。**
+
+### Task 1（Phase 1）：纯 Kotlin 数据模型与单测
+
+**文件**：
+
+- 新建 `app/src/main/java/com/reverie/paint/model/UiPanelSlot.kt`
+- 新建 `app/src/main/java/com/reverie/paint/model/UiClipSnapshot.kt`
+- 新建 `app/src/main/java/com/reverie/paint/model/UiPanelOcclusionTracker.kt`
+- 新建 `app/src/test/java/com/reverie/paint/model/UiPanelOcclusionTrackerTest.kt`
+- 新建 `app/src/test/java/com/reverie/paint/model/UiClipSnapshotTest.kt`
+- 新建 `app/src/test/java/com/reverie/paint/model/UiRingDetectorTest.kt`
+
+**验收**：
+
+- `./gradlew :app:testDebugUnitTest` 全绿；
+- 覆盖 §3.3 列出的边界；
+- 不引入 Robolectric / Android 依赖。
+
+### Task 2（Phase 1）：槽位接入
+
+**原则**：
+
+- 全部用 `boundsInRoot()` 实测 px，不再用 `dp * density` 估算；
+- `reportUiSlot` / `UiSlotModifierNode` 必须挂在**最外层视觉容器首部**（在 `.shadow`、`.clip`、`.background`、`.hazeChild` 之前），确保 alpha 作用于阴影、背景、边框与内容整体；
+- 每个槽位带 `ownerToken`，避免新旧节点竞争；
+- `DisposableEffect.onDispose` 只在 token 匹配时清槽。
+
+**接入点（当前源码）**：
+
+| 槽位 | 组件 / 位置 | 备注 |
+|---|---|---|
+| `TOP_BAR` | `TopBar.kt:78` | 替换 `reportUiBounds` |
+| `TOOL_RAIL` | `ToolRail.kt:283` | 替换 `reportUiBounds` |
+| `SLIDER_RAIL` | `ToolRail.kt:584` | 替换 `reportUiBounds` |
+| `ANIMATION_TIMELINE` | `AnimationTimelinePanel.kt` 内层容器（`174` 的 `StoryboardReferenceBar` + `176` 的 `TimelinePanelSurface` 外层，**不要挂 `152` 的外层 Column**） | 避免全宽空洞 |
+| `ANIMATION_SETTINGS_CARD` | `TimelineSettingsCard.kt:73` 的 `AnimationSettingsCard` 根容器 | evadable |
+| `BOTTOM_TOOL_PANEL` | `ToolFloatPanel` 增加 `slot` 参数，默认 `BOTTOM_TOOL_PANEL`；各工具调用点不变 | 通用工具面板 |
+| `SOLO_MODE_BAR` | `PaintingPage.kt:1785` 的 Solo 调用传 `slot = SOLO_MODE_BAR` | 与通用面板分离 |
+| `PICKER_SOURCE_BAR` | `PaintingPage.kt:2037` / `PaintingSelectionPanels.kt:95` | |
+| `ACTIVE_SELECTION_PILL` | `PaintingPage.kt:1985` 的 Box | |
+| `SHIFT_TRACE_CAPSULE` | `ShiftTraceCapsule.kt:57` / `PaintingPage.kt:2142` | |
+| `TOP_HUD_TOAST` | `PaintingPage.kt:2059` ActionToast 与 `2122` TransformIndicatorHud | 二者互斥；若同时显示需拆分 |
+| `QUICK_ACTION` | `QuickActionWindow.kt:162` 实体 Box | 替换 380dp 硬编码 |
+| `QUICK_BRUSH` | `QuickBrushWindow.kt:150` 实体 Box | |
+| `QUICK_COLOR` | `QuickColorWindow.kt:188` 内层实体 Box | |
+| `QUICK_OKLCH` | `QuickOklchWindow.kt:211` 内层实体 Box | |
+| `QUICK_LAYER` | `QuickLayerWindow.kt:181` 内层实体 Box | |
+| `SAVED_SELECTIONS_POPUP` | `panels/SavedSelectionsPopup.kt:75` 根 Box | 主 Box 在主树；重命名 Dialog 不注册 |
+| `REFERENCE_WINDOW` | `ReferenceWindow.kt:155` 的 `.size(...)` 容器 | evadable，默认不渐隐 |
+| `PINNED_COLOR_PANEL` | `ColorPanel.kt:254` 的 `if (vm.isColorPanelPinned)` 分支 | **注意：没有 `panelPinningEnabled` 前缀** |
+| `PINNED_LAYER_PANEL` | `LayerPanel.kt:424` 的 `if (vm.panelPinningEnabled && vm.isLayerPanelPinned)` 分支 | |
+| `PINNED_BRUSH_PANEL` | `BrushPanel.kt:1450` 的 `if (vm.panelPinningEnabled && vm.isBrushPanelPinned)` 分支 | |
+
+**不注册的独立窗口**：`CanvasEditMenu`、`TimelineMenuPopup`、`ReferenceSettingsPopup`、`CanvasEditMenuCustomizeDialog`，以及 `SavedSelectionsPopup` 的重命名子 `Dialog`。它们是 WindowManager 独立窗口，`boundsInRoot` 是弹窗局部坐标，不能直接当画布坐标。
+
+### Task 3（Phase 1）：`CanvasTouchView` 单一快照与全落笔路径同步
+
+1. 删除 `uiExclusionRects` 与 `uiExclusionPool` 双轨，改为 `@Volatile var uiClipSnapshot: UiClipSnapshot`。
+2. `rebuildUiExclusionSnapshot()`：
+   - 从 `vm.panelOcclusion.snapshot(evadingMask, unclippedMask)` 构建；
+   - 只在 `slotVersion` 变化、`arm`、内圈撤 Clip、槽位 `onDispose` 时调用；
+   - 构建后 `realInk.updateActiveUiClips(snapshot)`（若 `held`）。
+3. `armRealInkHold` 首行 `rebuildUiExclusionSnapshot()`，并把 snapshot 传给 `realInk.arm(allowed, extras, snapshot)`。
+4. 手写笔 `ACTION_DOWN`（`4409-4416`）、手指 `ACTION_DOWN`（`5033-5105`）、边缘延迟落笔（`5131-5144`、`5249-5256`）统一在提交前刷新。
+5. `previewEnvelopeHitsUi` 改读同一份 snapshot；`isHoverOverUi` 改为读 tracker / snapshot，不再读 `measured*Rect`。
+6. `measuredTopBarRect` / `measuredToolRailRect` / `measuredSliderRailRect` 保留为兼容 getter（从 tracker 派生）或彻底删除并同步改 `isHoverOverUi`；二选一，不能留下“只删写入点、不补读取”的半实现。
+
+### Task 4（Phase 1）：`FrontBufferPreviewOverlay` / `RealInkController` 线程协议
+
+1. `RealInkController.uiClips` 改为 `@Volatile var uiClips: UiClipSnapshot = UiClipSnapshot.EMPTY`；`arm` 接收 snapshot。
+2. `renderInkScreenRegions(..., uiClips: UiClipSnapshot, ...)`：
+   - 只遍历 `[0, min(uiClips.count, MAX_UI_CLIPS))`；
+   - 每次提交无条件 `packet.uiClipCount = n`（n 可为 0），并 `System.arraycopy` 有效项；
+   - 禁止残留上一包的 `uiClips`。
+3. `presentPending`：
+   - 锁内完成 `reclaim` + `appendDiscrete` + `System.arraycopy` 到 `snapshotRects` 后，**在锁内 `pendingCount = 0`**（取快照即消费）；
+   - 若后续 `!allBaked` / `!shown` / `claimSlot()==null` / OOM，在锁内把 `snapshotRects[0 until snapCount]` 通过 `appendDiscrete` 归还 `pendingRects`；
+   - 这样 UI 线程期间新增的矩形不会被无条件清零吞掉。
+4. `#81` 预览：
+   - `FrontBufferPathPacket` 增加/复用 `uiClipCount`，每次提交重置；
+   - `renderPreviewPath` / `renderStampPreview` 增加 `clips: UiClipSnapshot` 参数，全部调用点（`CanvasTouchView.kt:5971-5978`）同步；
+   - `drawPreviewPacket` 增加 `canvas.save(); clipOutUi(canvas, param); ... finally restore()`；
+   - `CanvasTouchView.kt:5965` 的 `overUi` 改为“起点与终点都落在未渐隐 UI 内才整帧跳过”，靠近边缘时由 `clipOutUi` 精准裁剪，消除预览线闪烁。
+5. `clipOutUi` 增加包围盒相交预筛：只有 `uiClip` 与当前包绘制包围盒相交才 `canvas.clipOutRect`，把每帧裁剪调用从 16~32 次压到 0~2 次。
+
+### Task 5（Phase 1）：ShiftTrace 门控
+
+1. 在 `PaintViewModel` 增加 `canvasBackgroundOpaque`（§3.5）。
+2. `armRealInkHold`：
+   ```kotlin
+   val shiftTraceOpaqueConflict = v.anim.shiftTraceActive && v.canvasBackgroundOpaque
+   val allowed = v.frontBufferPredictionEnabled &&
+       (!hasSymmetry || v.mirrorGate.isQueueing) &&
+       v.displayTiles.drawable() != null &&
+       FrontBufferProbe.realInkHoldAllowed() &&
+       frontBufferSettled(v) &&
+       !shiftTraceOpaqueConflict
+   ```
+3. 若 `shiftTraceOpaqueConflict`：`realInk.release()`（或确保 `arm` 返回 false）、`frontBufferOverlay?.clearPreview()`；因为 `held=false`，`#81` 预览门控 `!realInk.held` 仍然成立。
+4. **不要只在 `wantsHold()` 里返回 false**：那会让 `arm` 已置 `held=true`，导致旧前缓冲墨不清、`#81` 预览不画、主画布可能整屏重绘。
+5. 若 `canvasBackgroundOpaque` 不可靠，保守回退为“`shiftTraceActive` 时始终 `allowed=false`”，并在验收中记录对位模式下的主画布重绘成本。
+
+### Task 6（Phase 2）：双圈同步前馈
+
+**位置**：
+
+- `handleToolDown` 首行；
+- `handleToolMove` 的 `startedNow`（`5659`）与 `historySize` 循环（`5712`）**之前**；
+- 预测点算出后、`#81` 预览与当前 `v.touchMove`（`6162`）之前（只做外圈预警）。
+
+**算法**：
+
+```kotlin
+// 纯标量、零分配
+val brushR = effectiveBrushScreenRadius(v, density) // eraser override 用 getToolEffectiveSize("eraser")
+val warnR = 64f * density + brushR
+val contactR = brushR + 4f * density
+
+// 包络 = priorStrokeScreenPos + 全部 history 点 + 当前点 + 辅助绘图落点
+val env = expandEnvelope(prior, history, cur, assist, max(warnR, contactR))
+
+for (slot in evadableSlots) {
+    val b = tracker.bounds(slot)
+    if (!b.active) continue
+    if (env intersects b.expand(warnR)) {
+        if (!isEvading(slot)) setEvading(slot, true)
+        if (env intersects b.expand(contactR)) {
+            setSnapZero(slot, true)
+            tracker.unclip(slot)              // 从快照移除
+            publishSnapshot()                 // @Volatile 发布
+            // 必须在 v.touchMove 之前完成
+        }
+    }
+}
+```
+
+**规则**：
+
+- 外圈只启动淡出，不撤 Clip；
+- 内圈撤 Clip 必须在本帧所有 `v.touchMove` 之前；
+- 预测点只参与外圈，不参与内圈（避免误撤）；
+- `DOWN` 落在面板内时，外圈+内圈同时命中，首帧即撤 Clip；
+- `snapZero=true` 时 `graphicsLayer` 当帧 alpha=0；不做 0ms 硬跳之外的花哨过渡，避免半透明面板上出现底色；
+- 抬笔后 180ms 防抖恢复；新笔落下时 per-stroke re-evaluation：若新笔不在该面板预警圈内，立即清 `isEvading/snapZero` 并恢复；
+- `restoreEvadedPanelsRunnable` 用 `strokeStarted || realInk.held` 判定，活跃时 `postDelayed(this, 60L)` 自重排；
+- 所有绕过 `handleToolUp` 的路径（§1.6 盲区 5）统一调度恢复；
+- `fullyEvaded` 期间通过 `UiSlotModifierNode` 移出命中测试（Task 0 通过后）。
+
+### Task 7（Phase 2）：`reportUiSlot` / `UiSlotModifierNode` 与命中穿透
+
+**代码草案（`composed` 回退版；Task 0 通过后优先用 `Modifier.Node`）**：
+
+```kotlin
+private val EvadeFadeOutSpec = tween<Float>(70, easing = FastOutLinearInEasing)
+private val EvadeFadeInSpec = tween<Float>(160, easing = FastOutSlowInEasing)
+
 internal fun Modifier.reportUiSlot(
-    vm: com.reverie.paint.core.PaintViewModel?,
-    slot: com.reverie.paint.model.UiPanelSlot,
+    vm: PaintViewModel?,
+    slot: UiPanelSlot,
+    ownerToken: Int,
 ): Modifier = composed {
     if (vm == null) return@composed this
-    DisposableEffect(vm, slot) {
-        onDispose {
-            vm.clearUiSlotBounds(slot)
-        }
+    DisposableEffect(vm, slot, ownerToken) {
+        onDispose { vm.panelOcclusion.clear(slot, ownerToken) }
     }
-    val isEvading = slot.evadable && ((vm.evadingPanelMask and slot.bit) != 0)
-    val targetAlpha = if (isEvading) 0f else 1f
-    val animAlpha by androidx.compose.animation.core.animateFloatAsState(
-        targetValue = targetAlpha,
-        animationSpec = if (isEvading) {
-            // 笔迹靠近淡出：90ms 极速响应，确保笔尖跨过 56dp 预警圈到达面板前已完成透明化
-            androidx.compose.animation.core.tween(
-                durationMillis = 90,
-                easing = androidx.compose.animation.core.FastOutLinearInEasing,
-            )
-        } else {
-            // 抬笔恢复淡入：160ms 柔和归位
-            androidx.compose.animation.core.tween(
-                durationMillis = 160,
-                easing = androidx.compose.animation.core.FastOutSlowInEasing,
-            )
-        },
-        finishedListener = { finalAlpha ->
-            if (finalAlpha <= 0.02f && ((vm.evadingPanelMask and slot.bit) != 0)) {
-                vm.onPanelFullyEvaded(slot)
-            }
-        },
-        label = "evadeAlpha_${slot.name}",
+    val isEvading = if (slot.evadable) vm.slotEvading[slot.ordinal].value else false
+    val snapZero = if (slot.evadable) vm.slotSnapZero[slot.ordinal].value else false
+    // 关键：用 `=` 而非 `by`，不在 composition 阶段读取 Float
+    val alphaState = animateFloatAsState(
+        targetValue = if (isEvading) 0f else 1f,
+        animationSpec = if (isEvading) EvadeFadeOutSpec else EvadeFadeInSpec,
+        label = "EvadeAlpha",
     )
-    // 当动画过程中 alpha 已经低于 0.02f 时提前放行穿透，无需干等动画末帧回调
-    SideEffect {
-        if (isEvading && animAlpha <= 0.02f && ((vm.fullyEvadedPanelMask and slot.bit) == 0)) {
-            vm.onPanelFullyEvaded(slot)
-        } else if (!isEvading && ((vm.fullyEvadedPanelMask and slot.bit) != 0)) {
-            vm.fullyEvadedPanelMask = vm.fullyEvadedPanelMask and slot.bit.inv()
-        }
-    }
     this
         .onGloballyPositioned { coords ->
             if (coords.isAttached) {
                 val b = coords.boundsInRoot()
-                vm.updateUiSlotBounds(slot, b.left, b.top, b.right, b.bottom)
+                vm.panelOcclusion.update(slot, ownerToken, b.left, b.top, b.right, b.bottom)
             }
         }
         .then(
             if (slot.evadable) {
                 Modifier.graphicsLayer {
-                    alpha = animAlpha
+                    // 仅在 draw/RenderNode 阶段读取
+                    alpha = if (snapZero) 0f else alphaState.value
                 }
-            } else {
-                Modifier
-            }
+            } else Modifier
         )
 }
 ```
 
----
+**注意**：
 
-### Task 2：全量接入所有面板槽位，彻底消除“漏登被覆盖”与“380dp 空白挡笔迹”
+- `slotEvading` / `slotSnapZero` 必须是 `Array(UiPanelSlot.COUNT) { mutableStateOf(false) }`，不能每次调用新建；
+- `ownerToken` 由 `UiPanelOcclusionTracker` 分配单调递增值；
+- `reportUiSlot` 必须挂在卡片最外层视觉容器首部；
+- 非 evadable 槽位也读取 `isEvading=false`，但不要创建无意义的动画（可在 `if (slot.evadable)` 内调用 `animateFloatAsState`；Compose 不允许条件调用 composable，需拆成两个 modifier 分支或始终调用但 target=1）；
+- 若用 `Modifier.Node`：`GlobalPositionAwareModifierNode` 上报 bounds，`DrawModifierNode` 读 `alphaState.value`，`LayoutModifierNode` 在 `alpha <= 0.03f` 时把 placeable 移到屏幕外，`PointerInputModifierNode` 在半透明期消费 `Initial`。
 
-**目标**：为所有常驻栏、6 个快捷悬浮窗、3 个钉住态大面板及底部浮动胶囊挂上 `.reportUiSlot(vm, UiPanelSlot.*)`，确保 **100% 实测屏幕像素边界同源**。
+### Task 8（Phase 2）：设置、i18n、恢复状态机
 
-**涉及文件**：
-- 修改：`app/src/main/java/com/reverie/paint/ui/painting/TopBar.kt`
-- 修改：`app/src/main/java/com/reverie/paint/ui/painting/panels/ToolRail.kt`
-- 修改：`app/src/main/java/com/reverie/paint/ui/painting/quickaction/QuickActionWindow.kt`
-- 修改：`app/src/main/java/com/reverie/paint/ui/painting/quickbrush/QuickBrushWindow.kt`
-- 修改：`app/src/main/java/com/reverie/paint/ui/painting/quickcolor/QuickColorWindow.kt`
-- 修改：`app/src/main/java/com/reverie/paint/ui/painting/quickoklch/QuickOklchWindow.kt`
-- 修改：`app/src/main/java/com/reverie/paint/ui/painting/quicklayer/QuickLayerWindow.kt`
-- 修改：`app/src/main/java/com/reverie/paint/ui/painting/ReferenceWindow.kt`
-- 修改：`app/src/main/java/com/reverie/paint/ui/painting/panels/ColorPanel.kt`
-- 修改：`app/src/main/java/com/reverie/paint/ui/painting/layers/LayerPanel.kt`
-- 修改：`app/src/main/java/com/reverie/paint/ui/painting/brush/BrushPanel.kt`
-- 修改：`app/src/main/java/com/reverie/paint/ui/painting/PaintingPage.kt`
-
-- [ ] **Step 2.1：常驻三栏（`TopBar` / `ToolRail` / `SliderRail`）切换至 `reportUiSlot`**
-  - `TopBar.kt:78`：將 `.reportUiBounds { vm.measuredTopBarRect = it }` 替换为 `.reportUiSlot(vm, UiPanelSlot.TOP_BAR)`。
-  - `ToolRail.kt:283`：将 `.reportUiBounds { vm.measuredToolRailRect = it }` 替换为 `.reportUiSlot(vm, UiPanelSlot.TOOL_RAIL)`。
-  - `ToolRail.kt:584`：将 `.reportUiBounds { vm.measuredSliderRailRect = it }` 替换为 `.reportUiSlot(vm, UiPanelSlot.SLIDER_RAIL)`。
-
-- [ ] **Step 2.2：6 大常驻悬浮小窗挂载 `reportUiSlot`（注意挂在悬浮窗实体 `Box` 上，避开外挂微型 Toast）**
-  - `QuickActionWindow.kt:153`（`// ---- 悬浮窗实体 ----` 的 `Box`）：在 `.onSizeChanged { ... }` 后追加 `.reportUiSlot(vm, UiPanelSlot.QUICK_ACTION)`。
-  - `QuickBrushWindow.kt:146`（`// ---- 悬浮窗实体 ----` 的 `Box`）：在 `.onSizeChanged { ... }` 后追加 `.reportUiSlot(vm, UiPanelSlot.QUICK_BRUSH)`。
-  - `QuickColorWindow.kt:187`（内层实体 `Box`）：在 `.onSizeChanged { ... }` 后追加 `.reportUiSlot(vm, UiPanelSlot.QUICK_COLOR)`。
-  - `QuickOklchWindow.kt:228`（内层实体 `Box`）：在 `.onSizeChanged { ... }` 后追加 `.reportUiSlot(vm, UiPanelSlot.QUICK_OKLCH)`。
-  - `QuickLayerWindow.kt:190`（内层实体 `Box`）：在 `.onSizeChanged { ... }` 后追加 `.reportUiSlot(vm, UiPanelSlot.QUICK_LAYER)`。
-  - `ReferenceWindow.kt:149`（`// Floating Window Container` 的 `Box`）：在 `.size(vm.referenceWindowWidth.dp, vm.referenceWindowHeight.dp)` 后追加 `.reportUiSlot(vm, UiPanelSlot.REFERENCE_WINDOW)`。
-
-- [ ] **Step 2.3：三大可钉住面板（`ColorPanel` / `LayerPanel` / `BrushPanel`）挂载 `reportUiSlot`**
-  - `ColorPanel.kt:115`（`cardContent` 的根 `Column`）：当 `vm.isColorPanelPinned` 为 `true` 时，附加 `.reportUiSlot(vm, UiPanelSlot.PINNED_COLOR_PANEL)`（未钉住时由 `overlayPanelsOpen = true` 拦截，且调用 `vm.clearUiSlotBounds(UiPanelSlot.PINNED_COLOR_PANEL)`）。
-  - `LayerPanel.kt:234`（`cardContent` 的根 `Column`）：当 `vm.panelPinningEnabled && vm.isLayerPanelPinned` 时，附加 `.reportUiSlot(vm, UiPanelSlot.PINNED_LAYER_PANEL)`。
-  - `BrushPanel.kt:440`（`cardContent` 的根 `Column`）：当 `vm.panelPinningEnabled && vm.isBrushPanelPinned` 时，附加 `.reportUiSlot(vm, UiPanelSlot.PINNED_BRUSH_PANEL)`。
-
-- [ ] **Step 2.4：其余画布共存浮动条（时间轴、选区历史、底部工具胶囊、顶部选区/透光台胶囊）挂载 `reportUiSlot`**
-  - `PaintingPage.kt:2051` (`AnimationTimelinePanel` 容器)：附加 `.reportUiSlot(vm, UiPanelSlot.ANIMATION_TIMELINE)`。
-  - `SavedSelectionsPopup.kt:76` (根 `Box`)：附加 `.reportUiSlot(vm, UiPanelSlot.SAVED_SELECTIONS_POPUP)`。
-  - `ToolFloatPanel.kt:79` (根 `Row`)：附加 `.reportUiSlot(vm, UiPanelSlot.BOTTOM_TOOL_PANEL)`。
-  - `PaintingPage.kt:1985` (Global Active Selection Pill) 与 `ShiftTraceCapsule.kt`：附加 `.reportUiSlot(vm, UiPanelSlot.TOP_STATUS_PILL)`。
+1. `autoHidePanelsOnStroke` 默认 true，持久化；
+2. `autoHidePinnedAndRefOnStroke` 默认 false，持久化；
+3. `SAVED_SELECTIONS_POPUP` / `ANIMATION_SETTINGS_CARD` 默认值待确认；
+4. `values/strings.xml` 与 `values-en/strings.xml` 同步；
+5. 恢复状态机：
+   - 每笔 DOWN 重判；
+   - 180ms 防抖；
+   - `strokeStarted || realInk.held` 自重排；
+   - 所有中断出口统一；
+   - `onDetachedFromWindow` 移除 callbacks；
+6. 关闭总开关时立即清 `evading/snapZero` 并恢复所有面板。
 
 ---
 
-### Task 3：扩容 `FrontBufferPreviewOverlay` 裁剪槽位并补齐 `#81` 预览裁剪与动态揭开（Uncover）
+## 5. 测试与验收
 
-**目标**：
-1. 将 `MAX_UI_CLIPS` 从 `6` 提升至 `24`（彻底消除多面板打开时的静默截断）；
-2. 在 `#81` 预览路径（`drawPreviewPacket`）中也携带并应用 `clipOutUi`，防止整图回退路径下预览假线画到面板上；
-3. 支持面板在运笔途中完全渐隐（`alpha == 0f`）时，在 GL 线程立即用 `strokeLayer` 备份层（若有）或渲染线程补烤脏区回填刚才被 `clipOutRect` 挖空的面板区域，杜绝面板渐隐后露出旧画布空洞。
-
-**涉及文件**：
-- 修改：`app/src/main/java/com/reverie/paint/ui/painting/canvas/FrontBufferPreviewOverlay.kt`
-- 修改：`app/src/main/java/com/reverie/paint/ui/painting/canvas/RealInkController.kt`
-
-- [ ] **Step 3.1：在 `FrontBufferPreviewOverlay.kt` 中将 `MAX_UI_CLIPS` 扩容至 `24` 并为预览包补齐 `clipOutUi`**
-
-```kotlin
-// FrontBufferPreviewOverlay.kt:36
-/** 前缓冲包最多携带的 UI 避让矩形 (覆盖全部 16 个 UiPanelSlot 并留冗余)。 */
-private const val MAX_UI_CLIPS = 24
-```
-
-在 `drawPreviewPacket(canvas: Canvas, param: FrontBufferPathPacket)`（第 340 行）中补齐 `clipOutUi`：
-
-```kotlin
-    @RequiresApi(Build.VERSION_CODES.Q)
-    private fun drawPreviewPacket(canvas: Canvas, param: FrontBufferPathPacket) {
-        canvas.save()
-        clipOutUi(canvas, param)
-        try {
-            // 2a. STAMP 分级: 逐 dab 盖印真实笔尖位图
-            if (param.stampCount > 0) {
-                val stampBmp = param.stampBitmap
-                val stampN = param.stampCount.coerceAtMost(MAX_STAMPS)
-                if (stampBmp != null && !stampBmp.isRecycled) {
-                    for (i in 0 until stampN) {
-                        val s = param.stampSize[i]
-                        if (s <= 0f) continue
-                        val cx = param.stampX[i]
-                        val cy = param.stampY[i]
-                        stampPaint.alpha =
-                            (param.stampAlpha[i] * 255f).toInt().coerceIn(0, 255)
-                        val half = s / 2f
-                        stampDst.set(cx - half, cy - half, cx + half, cy + half)
-                        canvas.drawBitmap(stampBmp, null, stampDst, stampPaint)
-                    }
-                }
-                return
-            }
-
-            // 2b. TIER_1/2: 绘制当前最新笔尖前沿段 (单色折线)
-            val path = param.path ?: return
-            previewPaint.color = param.color
-            previewPaint.strokeWidth = param.strokeWidth.coerceAtLeast(1.5f)
-            canvas.drawPath(path, previewPaint)
-        } finally {
-            canvas.restore()
-        }
-    }
-```
-
-同时在 `renderPreviewPath` 和 `renderStampPreview` 中传入当前有效的 `uiRects: Array<RectF>` 与 `uiRectCount: Int`，拷入 `packet.uiClips`。
-
-- [ ] **Step 3.2：在 `RealInkController.kt` 中支持动态更新 `uiClips` 并对刚渐隐完成的面板区域补烤真墨**
-
-当某个面板在运笔途中完成 90ms 渐隐动画（`alpha <= 0.02f`）时，调用 `RealInkController.onPanelUncovered(screenRect: RectF)`：
-1. 更新 `RealInkController.uiClips`（剔除已隐藏的面板矩形）；
-2. 将 `screenRect` 逆变换回显示位图坐标矩形 `[bl, bt, br, bb]`，调用 `RealInkPresent.appendDiscrete(pendingRects, pendingCount, bl, bt, br, bb)` 并触发一次 `renderHandler.post(repostRunnable)`！
-3. 后台渲染线程立即将 `PublishedTiles` 中该面板下方的最新瓦片像素烤入 `slotBitmap` 并贴上 `FrontBufferPreviewOverlay`——**无需 `CanvasTouchView.invalidate()`，毫秒级无缝补齐面板下方的已画笔迹**！
-
-```kotlin
-    // RealInkController.kt 新增方法
-    fun updateActiveUiClips(clips: Array<RectF>, count: Int) {
-        uiClipCount = count
-        uiClips = clips
-    }
-
-    /**
-     * 当某个悬浮面板在运笔途中完成淡出 (alpha == 0f) 时调用：
-     * 将该面板原先遮挡的屏幕矩形逆映射回位图坐标并加入 pendingRects 补烤一帧，
-     * 使得此前被 clipOutRect 挡住的笔画立即在前缓冲层显现，且不触发主画布 invalidate。
-     */
-    fun uncoverScreenRect(screenL: Float, screenT: Float, screenR: Float, screenB: Float) {
-        if (!held) return
-        val p = pose ?: return
-        if (p.scale <= 0.001f || p.bmpW <= 0 || p.bmpH <= 0) return
-        // 将屏幕矩形四角逆变换回位图坐标包围盒
-        val radians = -Math.toRadians(p.rotation.toDouble())
-        val cosR = kotlin.math.cos(radians).toFloat()
-        val sinR = kotlin.math.sin(radians).toFloat()
-        val invSx = 1f / (p.scale * p.signX)
-        val invSy = 1f / (p.scale * p.signY)
-        var minBx = Float.MAX_VALUE
-        var minBy = Float.MAX_VALUE
-        var maxBx = -Float.MAX_VALUE
-        var maxBy = -Float.MAX_VALUE
-        for (i in 0 until 4) {
-            val sx = (if (i == 0 || i == 2) screenL else screenR) - p.centerX
-            val sy = (if (i < 2) screenT else screenB) - p.centerY
-            val rx = sx * cosR - sy * sinR
-            val ry = sx * sinR + sy * cosR
-            val bx = rx * invSx + p.halfW
-            val by = ry * invSy + p.halfH
-            if (bx < minBx) minBx = bx
-            if (bx > maxBx) maxBx = bx
-            if (by < minBy) minBy = by
-            if (by > maxBy) maxBy = by
-        }
-        val bl = kotlin.math.floor(minBx).toInt().coerceIn(0, p.bmpW)
-        val bt = kotlin.math.floor(minBy).toInt().coerceIn(0, p.bmpH)
-        val br = kotlin.math.ceil(maxBx).toInt().coerceIn(0, p.bmpW)
-        val bb = kotlin.math.ceil(maxBy).toInt().coerceIn(0, p.bmpH)
-        if (br <= bl || bb <= bt) return
-        synchronized(pendingLock) {
-            pendingCount = RealInkPresent.appendDiscrete(pendingRects, pendingCount, bl, bt, br, bb)
-        }
-        frameDoneCallback()
-    }
-```
-
----
-
-### Task 4：重构 `CanvasTouchView` 的 `rebuildUiExclusionRects`、`isHoverOverUi` 与运笔智能渐隐触发器
-
-**目标**：
-1. 彻底删除 `rebuildUiExclusionRects()` 中硬编码的 `380f * d` 及漏项代码，直接从 `vm.uiSlotBounds` 零分配同步激活槽位（排除已完全渐隐的槽位 `fullyEvadedPanelMask`）；
-2. 在**手写笔落笔**与**手指单指落笔**（含边缘延迟落笔、长按吸色移动落笔）以及 `armRealInkHold` 中统一调用 `syncUiExclusionRects()`；
-3. 实现零分配的 `checkStrokePanelEvade(curX, curY, predX, predY)`，在笔尖靠近可避让面板外围 `56dp + 笔刷半径` 时触发平滑渐隐，抬笔后带 `180ms` 防抖恢复。
-
-**涉及文件**：
-- 修改：`app/src/main/java/com/reverie/paint/ui/painting/canvas/CanvasTouchView.kt`
-
-- [ ] **Step 4.1：用预分配池重构 `rebuildUiExclusionRects()` 与 `isHoverOverUi()`**
-
-在 `CanvasTouchView.kt`（第 1013~1095 行）中，预分配 `MAX_UI_CLIPS` 个 `RectF` 槽位，彻底消除每次落笔新建 `ArrayList<RectF>` 的堆分配，并从 `vm.uiSlotBounds` 读取真实测量边界：
-
-```kotlin
-    // 预分配 UI 避让矩形池 (容量 24, 热路径零分配)
-    private val uiExclusionPool = Array( com.reverie.paint.model.UiPanelSlot.COUNT) { android.graphics.RectF() }
-    @Volatile
-    private var uiExclusionCount: Int = 0
-    private var lastSyncedSlotVersion: Int = -1
-    private var lastSyncedEvadedMask: Int = 0
-
-    // 抬笔后恢复面板显示的防抖延迟任务 (180ms 防高频排线/连续点画导致面板反复闪烁)
-    private val restoreEvadedPanelsRunnable = Runnable {
-        val v = vm ?: return@Runnable
-        if (!localIsTouching && !realInk.held) {
-            v.evadingPanelMask = 0
-            v.fullyEvadedPanelMask = 0
-        }
-    }
-
-    /**
-     * 从 ViewModel 的实测槽位表同步当前需要裁剪的 UI 矩形（零对象分配）。
-     * 已经完成淡出隐藏 (fullyEvadedPanelMask 对应 bit 为 1) 的面板不再裁剪，允许笔迹直接穿透显示。
-     */
-    internal fun rebuildUiExclusionRects() {
-        val v = vm
-        val w = width.toFloat()
-        val h = height.toFloat()
-        if (v == null || w <= 0f || h <= 0f) {
-            uiExclusionCount = 0
-            return
-        }
-        val bounds = v.uiSlotBounds
-        val evadedMask = v.fullyEvadedPanelMask
-        var count = 0
-        val slots = com.reverie.paint.model.UiPanelSlot.entries
-        for (i in 0 until slots.size) {
-            val slot = slots[i]
-            // 已完全透明避让的面板不再从前缓冲挖空
-            if (slot.evadable && ((evadedMask and slot.bit) != 0)) continue
-            val base = i * 4
-            val l = bounds[base]
-            val t = bounds[base + 1]
-            val r = bounds[base + 2]
-            val b = bounds[base + 3]
-            if (r > l && b > t) {
-                uiExclusionPool[count].set(l, t, r, b)
-                count++
-            }
-        }
-        uiExclusionCount = count
-        lastSyncedSlotVersion = v.uiSlotVersion
-        lastSyncedEvadedMask = evadedMask
-        if (realInk.held) {
-            realInk.updateActiveUiClips(uiExclusionPool, count)
-        }
-    }
-```
-
-- [ ] **Step 4.2：实现零分配的运笔靠近检测 `updateStrokePanelEvasion(curX, curY)`**
-
-```kotlin
-    /**
-     * 运笔期间 (ACTION_DOWN / ACTION_MOVE) 检测笔尖及预测端点是否进入可避让面板的外扩预警区。
-     * 纯标量计算，零对象分配；仅在位掩码发生 0 -> 1 跳变的那一帧写一次 ViewModel 状态。
-     */
-    private fun updateStrokePanelEvasion(curX: Float, curY: Float) {
-        val v = vm ?: return
-        if (!v.autoHidePanelsOnStroke) return
-        val bounds = v.uiSlotBounds
-        val curMask = v.evadingPanelMask
-        var newMask = curMask
-
-        // 预警外扩半径 = 56dp + 当前笔刷屏幕半径 (大笔刷提前避让，防止笔刷边缘先蹭到面板)
-        val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
-        val brushScreenR = (v.brushSize.toFloat() * scale * 0.5f).coerceIn(0f, 120f * density)
-        val approachHaloPx = 56f * density + brushScreenR
-
-        val tipX = if (hasPredictedScreenPoint && predictedScreenX.isFinite()) predictedScreenX else curX
-        val tipY = if (hasPredictedScreenPoint && predictedScreenY.isFinite()) predictedScreenY else curY
-        val envMinX = minOf(curX, tipX) - approachHaloPx
-        val envMaxX = maxOf(curX, tipX) + approachHaloPx
-        val envMinY = minOf(curY, tipY) - approachHaloPx
-        val envMaxY = maxOf(curY, tipY) + approachHaloPx
-
-        val slots = com.reverie.paint.model.UiPanelSlot.entries
-        for (i in 0 until slots.size) {
-            val slot = slots[i]
-            if (!slot.evadable) continue
-            if (slot.defaultReferenceStyle && !v.autoHideReferenceOnStroke) continue
-            val bit = slot.bit
-            // 本笔已进入避让态的面板保持隐藏直到抬笔，不做中途反复横跳
-            if ((newMask and bit) != 0) continue
-            val base = i * 4
-            val l = bounds[base]
-            val t = bounds[base + 1]
-            val r = bounds[base + 2]
-            val b = bounds[base + 3]
-            if (r <= l || b <= t) continue
-            if (envMaxX >= l && envMinX <= r && envMaxY >= t && envMinY <= b) {
-                newMask = newMask or bit
-            }
-        }
-        if (newMask != curMask) {
-            removeCallbacks(restoreEvadedPanelsRunnable)
-            v.evadingPanelMask = newMask
-        }
-    }
-```
-
-- [ ] **Step 4.3：打通 `PaintViewModel.onPanelFullyEvaded(slot)` 到 `CanvasTouchView` 的实时揭开回调**
-
-在 `PaintViewModel.kt` 中实现 `onPanelFullyEvaded(slot: UiPanelSlot)`：
-```kotlin
-    internal fun onPanelFullyEvaded(slot: com.reverie.paint.model.UiPanelSlot) {
-        if ((evadingPanelMask and slot.bit) == 0) return
-        if ((fullyEvadedPanelMask and slot.bit) != 0) return
-        fullyEvadedPanelMask = fullyEvadedPanelMask or slot.bit
-        val base = slot.ordinal * 4
-        val l = uiSlotBounds[base]
-        val t = uiSlotBounds[base + 1]
-        val r = uiSlotBounds[base + 2]
-        val b = uiSlotBounds[base + 3]
-        val touchView = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
-        if (touchView != null) {
-            touchView.rebuildUiExclusionRects()
-            if (r > l && b > t) {
-                touchView.realInk.uncoverScreenRect(l, t, r, b)
-            }
-        }
-    }
-```
-
-- [ ] **Step 4.4：补齐所有落笔、运笔、抬笔与异常中断入口**
-  1. **`armRealInkHold`（`CanvasTouchView.kt:3589`）**：首行调用 `rebuildUiExclusionRects()`，确保无论手写笔、手指单指、边缘延迟落笔还是长按吸色取消后落笔，100% 刷新最新 `uiExclusionPool`！
-  2. **运笔移动（`handleToolMove` 中 `Tool.BRUSH, Tool.ERASER, Tool.SMUDGE` 分支）**：
-     - 若 `v.uiSlotVersion != lastSyncedSlotVersion || v.fullyEvadedPanelMask != lastSyncedEvadedMask`，调用 `rebuildUiExclusionRects()`；
-     - 调用 `updateStrokePanelEvasion(event.getX(pointerIndex), event.getY(pointerIndex))`。
-  3. **抬笔与所有中断出口（`handleToolUp`、`ACTION_CANCEL`、双指撤销、三指菜单触发、`beginQuickShape`）**：
-     - 统一调用 `scheduleRestoreEvadedPanels(immediate = isCancel)`：正常抬笔延迟 `180ms` 执行 `restoreEvadedPanelsRunnable`（若 180ms 内下一笔再次落下并命中预警区，`removeCallbacks(restoreEvadedPanelsRunnable)` 自动续期，排线/点画绝不闪烁！）；取消或切工具时立即恢复。
-  4. **透光台保护（`RealInkController.wantsHold`）**：
-     - 在 `RealInkController.kt:207` 的 `wantsHold()` 中增加：`if (v != null && v.anim.shiftTraceActive) return false`，防止不透明画布下前缓冲块遮挡透光台参考图。
-
----
-
-### Task 5：设置项开关与国际化文案补充
-
-**目标**：在设置面板（手写笔设置 / 界面设置）中提供“运笔靠近浮动面板时自动渐隐”及“参考窗同步渐隐”开关，遵循 `AGENTS.md §6` 国际化规范（同步更新 `values/strings.xml` 与 `values-en/strings.xml`）。
-
-**涉及文件**：
-- 修改：`app/src/main/res/values/strings.xml`
-- 修改：`app/src/main/res/values-en/strings.xml`
-- 修改：`app/src/main/java/com/reverie/paint/ui/painting/panels/SettingsTabPage.kt`
-
-- [ ] **Step 5.1：补充中英文 `strings.xml` 资源**
-  - `values/strings.xml`：
-    ```xml
-    <string name="settings_auto_hide_panels_on_stroke">运笔靠近时自动渐隐浮动面板</string>
-    <string name="settings_auto_hide_panels_on_stroke_desc">绘画笔迹靠近快捷浮窗或已固定的面板时平滑淡出避让，抬笔后自动恢复，避免遮挡视野</string>
-    <string name="settings_auto_hide_reference_on_stroke">参考窗参与运笔自动渐隐</string>
-    <string name="settings_auto_hide_reference_on_stroke_desc">开启后笔迹靠近参考窗时同样自动淡出；关闭则保持参考窗常亮显示</string>
-    ```
-  - `values-en/strings.xml`：
-    ```xml
-    <string name="settings_auto_hide_panels_on_stroke">Auto-Fade Floating Panels Near Stroke</string>
-    <string name="settings_auto_hide_panels_on_stroke_desc">Smoothly fade out floating windows and pinned panels when drawing nearby, restoring them after pen-up</string>
-    <string name="settings_auto_hide_reference_on_stroke">Auto-Fade Reference Window on Stroke</string>
-    <string name="settings_auto_hide_reference_on_stroke_desc">Also fade out the Reference Window when drawing nearby; keep off to always show references</string>
-    ```
-
----
-
-## 四、机械验证与真机回归验收清单（遵循 `AGENTS.md §9`）
-
-### 4.1 机械编译与单元测试门禁
-每次完成代码修改后，必须在项目根目录依次执行并通过以下命令：
+### 5.1 机械门禁
 
 ```bash
 ./gradlew :app:compileDebugKotlin
 ./gradlew :app:testDebugUnitTest
+./gradlew :app:lintDebug
+./gradlew assembleDebug
 ```
 
-### 4.2 新增单元测试用例（`app/src/test/java/com/reverie/paint/model/UiPanelEvasionTest.kt`）
-- [ ] **测试 1（槽位生命周期）**：验证 `updateUiSlotBounds` 与 `clearUiSlotBounds` 在面板打开、移动、折叠、关闭时的坐标正确性，关闭后槽位宽高归零，无残留拒墨框。
-- [ ] **测试 2（容量上限测试）**：验证同时激活 12 个 `UiPanelSlot`（顶栏 + 工具栏 + 滑块栏 + 6 个快捷浮窗 + 3 个固定面板）时，`uiExclusionCount == 12` 且无任何面板被截断丢弃。
-- [ ] **测试 3（渐隐两阶段状态机）**：验证笔尖进入外扩预警区 `56dp + brushRadius` 时 `evadingPanelMask` 置位但 `fullyEvadedPanelMask` 未置位（此时面板仍受 `clipOutRect` 保护）；当 `onPanelFullyEvaded` 触发后该面板从 `uiExclusionPool` 移除，且逆变换计算出的补烤位图矩形 `[bl, bt, br, bb]` 精确覆盖面板区域。
+### 5.2 纯 Kotlin 单测（不引入 Robolectric）
 
-### 4.3 真机逐项回归验收矩阵
-- [ ] **场景 1（快捷操作面板右侧空白修复验证）**：打开快捷操作面板（分别切换单列、双列、三列、单行、折叠态），开启“笔迹预测 -> APP软件算法”，紧贴快捷操作面板右侧 2px 处连续运笔不抬笔，确认**笔迹 100% 实时跟手显示，无任何右侧或下侧空白遮挡**。
-- [ ] **场景 2（全部面板防覆盖与锯齿背景消除验证）**：在不透明画布和透明画布下，同时打开快捷操作、快捷颜色、OKLCH 调色、快捷图层、快捷笔刷、参考窗，并将颜色/图层/画笔主面板钉住在画布上：
-  - 关闭“运笔自动渐隐”开关时：手写笔与手指划过任意面板，确认**笔迹与锯齿底色块绝不盖在任何面板表面**，抬笔后笔画完整出现在面板下方的画布上；
-  - 开启“运笔自动渐隐”开关时：运笔靠近面板约 `56dp` 处面板在 `90ms` 内丝滑渐隐至完全透明，笔迹在面板原位置以 4~8ms 满血前缓冲直出，**无任何锯齿背景切割半透明面板，也无旧画布空白断层**；抬笔 `180ms` 后面板平滑淡入恢复。
-- [ ] **场景 3（高频排线防闪烁与异常手势中断验证）**：在悬浮面板位置快速连续点画/排线（抬笔间隔 < 150ms），确认面板保持隐藏不反复闪现；运笔中途触发双指撤销、三指下滑菜单或停顿 650ms 触发速创形状，确认面板均能正常恢复显示。
-- [ ] **场景 4（界面缩放 `paintingUiScale` 一致性验证）**：在设置中将界面缩放分别调至最小（0.80x）与最大（1.30x），验证所有浮窗与参考窗的裁剪边界依然 100% 贴合视觉边缘。
-- [ ] **场景 5（性能标尺零退化验证）**：在 Debug 包开启 `PerfHud`，对比改动前后的前缓冲帧耗时与 `TILE_UNDRAWN` 就地写命中率，确认 240Hz 触控采样下零 GC 分配、120/144Hz 帧率无掉帧。
+- `UiPanelOcclusionTrackerTest`：
+  - 21 槽位写入/清空/重开；
+  - `ownerToken` 竞争；
+  - 快照 4→3 项、池尾无残留、count 正确；
+  - evading/unclipped 位在抬笔/取消/切工具后归零。
+- `UiClipSnapshotTest`：
+  - `intersects` / `contains` 边界（含边界相等）；
+  - `EMPTY`；
+  - `copyOf` clamp。
+- `UiRingDetectorTest`：
+  - 外圈只 warn、内圈 contact；
+  - 笔刷半径/密度/缩放；
+  - eraser override 的有效尺寸；
+  - 历史点/预测点的时序（用纯函数模拟）。
+
+### 5.3 真机矩阵
+
+- 手写笔 / 手指 / 边缘延迟落笔 / 长按吸色；
+- `paintingUiScale` 0.70 / 1.0 / 1.40；
+- 竖屏 / 横屏 / 左手模式；
+- 5 个 Quick* 全部打开 + 参考窗 + 3 个钉住面板 + 时间轴 + 动画设置卡 + 选区胶囊 + 透光台胶囊 + Action Toast / Transform HUD + Picker 来源条 + Solo + Fill；
+- 透明画布 / 不透明画布；
+- ShiftTrace 对位模式；
+- 快速运笔 2000 / 4000 px/s；
+- 双指撤销 / 三指菜单 / ACTION_CANCEL / 切工具 / 后台切换；
+- 面板拖动 / 折叠 / 展开 / 关闭 / 重开；
+- Popup/Dialog 打开时不误裁；
+- 连续排线（抬笔间隔 < 150ms）不闪烁；
+- 隐身面板区域点击必须穿透到画布。
+
+### 5.4 性能指标
+
+- PerfHud 前缓冲帧耗时：Phase 1 前后无回退；Phase 2 渐隐期间不超预算；
+- 每帧 `clipOutRect` 次数：扩容后 0~2 次（相交预筛后）；
+- GC：240Hz 移动期间零分配；
+- `TILE_UNDRAWN` 命中率：不低于改动前；
+- `strokeLayer` 内存峰值：若启用安全网，记录并设上限；
+- 面板渐隐期间无 Compose 逐帧重组（可用 Layout Inspector / recomposition counter 验证）。
+
+---
+
+## 6. 实施顺序与回滚
+
+1. **Phase 1**：Task 1 → Task 2 → Task 3 → Task 4 → Task 5 → 机械门禁 + 真机矩阵。
+2. **Phase 2**：Task 0 spike → Task 6 → Task 7 → Task 8 → 机械门禁 + 真机矩阵。
+3. 每个 Phase 独立 commit/PR；Phase 1 可单独发布，Phase 2 通过设置开关灰度。
+4. 回滚：Phase 2 只需关闭 `autoHidePanelsOnStroke`；Phase 1 的裁剪修复可保留，不回退。
+
+---
+
+## 7. 风险与待拍板项
+
+| # | 事项 | 现状 | 建议 |
+|---|---|---|---|
+| 1 | `UiSlotModifierNode` 移出命中测试 | 未验证的 Compose 行为 | **Task 0 spike 必须先做**；失败则回退到 `LocalUiPanelInteractive` 条件禁用交互层 |
+| 2 | `strokeLayer` 全屏 ARGB 内存 | 约 18MB（1440×3200） | 先测内存/首帧分配；不可接受则改分块备份层，或放弃安全网（主路径不依赖） |
+| 3 | 槽位数 | 终版 21，不是 23 | 统一 `COUNT = entries.size`；`MAX_UI_CLIPS=24` 留冗余 |
+| 4 | `SAVED_SELECTIONS_POPUP` / `ANIMATION_SETTINGS_CARD` 默认渐隐 | 产品文案写“仅 5 个 Quick*”，终版槽位表曾列 7 个 | **待你确认**；当前按 `defaultEvade=false` 落地 |
+| 5 | 钉住面板/参考窗默认渐隐 | 你已拍板默认关闭，二级开关控制 | 按此落地 |
+| 6 | ShiftTrace 不透明背景判定 | 源码无 `isBackgroundTransparent` | 用 `layers.firstOrNull { it.isBackground }` 的 `visible && opacity≈1` 派生；不可靠时保守关闭 hold |
+| 7 | Popup/Dialog | 独立窗口，`boundsInRoot` 是弹窗局部坐标 | 明确排除；若未来要纳入，需 window/screen 坐标换算 |
+| 8 | 快速运笔 70ms 淡出 | 4000px/s 时 64dp 仅约 48ms | 内圈接触 `snapZero` 兜底；真机 2000/4000 px/s 验证 |
+| 9 | `BOTTOM_TOOL_PANEL` 共享 | 工具面板同一时刻一个；Solo 可并存 | `ToolFloatPanel` 增加 `slot` 参数；Solo 用 `SOLO_MODE_BAR`；若发现两个工具面板并存再拆分 |
+| 10 | 90ms/70ms 视觉验收 | 快速运笔可能仍有极短过渡 | 以 `snapZero` 保证无半透明锯齿；若视觉突兀，再评估 32ms 加速淡出 |
+
+---
+
+## 8. 终版交付定义（Definition of Done）
+
+- [ ] Phase 1：21 槽位全部用 `boundsInRoot` 实测；无 380dp/90dp 硬编码；所有落笔路径发布快照；`renderInkScreenRegions` 按 count 遍历；`#81` 预览裁剪；`presentPending` 消费/归还协议；ShiftTrace 门控。
+- [ ] Phase 2：双圈状态机；内圈接触前同步撤 Clip；无 `uncoverScreenRect` 主路径；抬笔 180ms 防抖 + per-stroke 重判 + 自重排；完全透明移出命中测试（Task 0 通过）。
+- [ ] 纯 Kotlin 单测全绿；`compileDebugKotlin` / `testDebugUnitTest` / `lintDebug` / `assembleDebug` 全绿。
+- [ ] 真机矩阵全部通过；PerfHud 无回退；GC 零分配；`TILE_UNDRAWN` 命中率不降。
+- [ ] 文档行号/机制/路径与源码一致；所有开放产品项已确认。
+
+---
+
+## 附：本次审查中已确认的关键源码锚点
+
+| 主题 | 锚点 |
+|---|---|
+| 前缓冲层级 | `FrontBufferPreviewOverlay.kt:108-111, 232-242` |
+| 挂载条件 | `CanvasView.kt:393`；`FrontBufferProbe.kt:23-37` |
+| 软件预测开关 | `PaintViewModel.kt:1857, 1876-1877` |
+| 抬笔清层 | `RealInkController.kt:177-201, 279-287`；`CanvasTouchView.kt:2996` |
+| SRC 贴图 | `FrontBufferPreviewOverlay.kt:197-201, 782-819` |
+| bakeRect 不铺棋盘格 | `RealInkController.kt:434-478` |
+| appendDiscrete | `model/RealInkPresent.kt:21, 24, 171-211, 221-257` |
+| 512 瓦片 / TILE_UNDRAWN | `DisplayTileGrid.kt:113-115`；`DisplayTileState.kt:27-35`；`CanvasTouchView.kt:2864-2865` |
+| overlayPanelsOpen | `PaintingPage.kt:700-703`；`CanvasView.kt:345-349`；`RealInkController.kt:207, 222` |
+| 漏登/硬编码 | `CanvasTouchView.kt:1018-1093, 1064-1069, 2269-2297` |
+| 手指落笔 | `CanvasTouchView.kt:5033-5105, 5131-5144, 5249-5256` |
+| 手写笔落笔 | `CanvasTouchView.kt:4409-4416` |
+| arm | `CanvasTouchView.kt:3589-3600`；`RealInkController.kt:143-163` |
+| renderInkScreenRegions | `FrontBufferPreviewOverlay.kt:513-580` |
+| presentPending | `RealInkController.kt:293-432` |
+| strokeLayer | `FrontBufferPreviewOverlay.kt:181-187, 718-770, 921-946` |
+| 预览路径 | `FrontBufferPreviewOverlay.kt:342-368, 388-452`；`CanvasTouchView.kt:5964-5988` |
+| 历史点时序 | `CanvasTouchView.kt:5647, 5659, 5712, 5722, 6162` |
+| 时间轴结构 | `AnimationTimelinePanel.kt:152, 164, 174, 176`；`TimelineSettingsCard.kt:73, 83` |
+| 钉住条件 | `ColorPanel.kt:254`；`LayerPanel.kt:424`；`BrushPanel.kt:1450` |
+| ToolFloatPanel | `ToolFloatPanel.kt:62-105`；`PaintingPage.kt:1785` |
+| 图层镜像 | `PaintViewModel.kt:4611-4638, 5886` |
+| 设置持久化模式 | `PaintViewModel.kt:2886-2899, 3808-3813` |
+| 缩放范围 | `PaintViewModel.kt:3333`；`PaintingDialogs.kt:481-484`；`ThemeSettingsSubPage.kt:469-473` |
