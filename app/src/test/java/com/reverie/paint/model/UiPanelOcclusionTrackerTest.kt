@@ -150,7 +150,7 @@ class UiPanelOcclusionTrackerTest {
     }
 
     @Test
-    fun `clear of a non-current owner leaves current owner masks untouched`() {
+    fun `clear of a non-current owner leaves current owner evasion untouched`() {
         val tracker = UiPanelOcclusionTracker()
         val tokenA = tracker.nextToken()
         tracker.update(UiPanelSlot.TOP_HUD_TOAST, tokenA, 0f, 0f, 100f, 100f)
@@ -158,38 +158,31 @@ class UiPanelOcclusionTrackerTest {
         tracker.update(UiPanelSlot.TOP_HUD_TOAST, tokenB, 0f, 0f, 200f, 200f)
 
         tracker.setEvaded(UiPanelSlot.TOP_HUD_TOAST, true)
-        tracker.setUnclipped(UiPanelSlot.TOP_HUD_TOAST, true)
 
         assertTrue(tracker.clear(UiPanelSlot.TOP_HUD_TOAST, tokenA))
         assertTrue(tracker.isEvaded(UiPanelSlot.TOP_HUD_TOAST))
-        assertTrue(tracker.isUnclipped(UiPanelSlot.TOP_HUD_TOAST))
         assertEquals(tokenB, tracker.ownerToken(UiPanelSlot.TOP_HUD_TOAST))
 
         // 当前 owner 清除时才清掩码。
         assertTrue(tracker.clear(UiPanelSlot.TOP_HUD_TOAST, tokenB))
         assertFalse(tracker.isEvaded(UiPanelSlot.TOP_HUD_TOAST))
-        assertFalse(tracker.isUnclipped(UiPanelSlot.TOP_HUD_TOAST))
     }
 
     @Test
-    fun `clear removes evading and unclipped bits for the slot`() {
+    fun `clear removes evading bit for the slot`() {
         val tracker = UiPanelOcclusionTracker()
         val token = tracker.nextToken()
         tracker.update(UiPanelSlot.QUICK_COLOR, token, 0f, 0f, 100f, 100f)
         tracker.setEvaded(UiPanelSlot.QUICK_COLOR, true)
-        tracker.setUnclipped(UiPanelSlot.QUICK_COLOR, true)
         assertTrue(tracker.isEvaded(UiPanelSlot.QUICK_COLOR))
-        assertTrue(tracker.isUnclipped(UiPanelSlot.QUICK_COLOR))
 
         assertTrue(tracker.clear(UiPanelSlot.QUICK_COLOR, token))
         assertFalse(tracker.isEvaded(UiPanelSlot.QUICK_COLOR))
-        assertFalse(tracker.isUnclipped(UiPanelSlot.QUICK_COLOR))
         assertEquals(0, tracker.evadedMask)
-        assertEquals(0, tracker.unclippedMask)
     }
 
     @Test
-    fun `snapshot drops unclipped slots and has no stale tail`() {
+    fun `snapshot drops cleared slots and has no stale tail`() {
         val tracker = UiPanelOcclusionTracker()
         val slots = listOf(
             UiPanelSlot.TOP_BAR,
@@ -204,23 +197,23 @@ class UiPanelOcclusionTrackerTest {
         }
         assertEquals(4, tracker.snapshot().count)
 
-        tracker.setUnclipped(UiPanelSlot.TOOL_RAIL, true)
-        val three = tracker.snapshot()
-        assertEquals(3, three.count)
-        assertFalse(three.contains(150f, 25f))
-        assertTrue(three.contains(50f, 25f))
+        // 渐隐态不参与排除：50% 面板的孔径必须保留。
+        tracker.setEvaded(UiPanelSlot.TOOL_RAIL, true)
+        val stillFour = tracker.snapshot()
+        assertEquals(4, stillFour.count)
+        assertTrue(stillFour.contains(150f, 25f))
 
         // 清掉中间槽位后，快照不得残留旧项。
         tracker.clear(UiPanelSlot.QUICK_ACTION, tracker.ownerToken(UiPanelSlot.QUICK_ACTION))
-        val two = tracker.snapshot()
-        assertEquals(2, two.count)
-        assertFalse(two.contains(250f, 25f))
-        assertTrue(two.contains(50f, 25f))
-        assertTrue(two.contains(350f, 25f))
+        val three = tracker.snapshot()
+        assertEquals(3, three.count)
+        assertFalse(three.contains(250f, 25f))
+        assertTrue(three.contains(50f, 25f))
+        assertTrue(three.contains(350f, 25f))
     }
 
     @Test
-    fun `version increments on bounds and mask changes but not on identical update`() {
+    fun `version increments on bounds and evasion changes but not on identical update`() {
         val tracker = UiPanelOcclusionTracker()
         val token = tracker.nextToken()
         val v0 = tracker.version
@@ -289,20 +282,17 @@ class UiPanelOcclusionTrackerTest {
     }
 
     @Test
-    fun `invalid bounds removal of current owner falls back and clears masks`() {
+    fun `invalid bounds removal of current owner falls back and clears evasion`() {
         val tracker = UiPanelOcclusionTracker()
         val tokenA = tracker.nextToken()
         assertTrue(tracker.update(UiPanelSlot.TOP_HUD_TOAST, tokenA, 0f, 0f, 100f, 100f))
         val tokenB = tracker.nextToken()
         assertTrue(tracker.update(UiPanelSlot.TOP_HUD_TOAST, tokenB, 200f, 200f, 300f, 300f))
         tracker.setEvaded(UiPanelSlot.TOP_HUD_TOAST, true)
-        tracker.setUnclipped(UiPanelSlot.TOP_HUD_TOAST, true)
 
         assertTrue(tracker.update(UiPanelSlot.TOP_HUD_TOAST, tokenB, Float.NaN, 0f, 10f, 10f))
         assertEquals(tokenA, tracker.ownerToken(UiPanelSlot.TOP_HUD_TOAST))
         assertFalse(tracker.isEvaded(UiPanelSlot.TOP_HUD_TOAST))
-        assertFalse(tracker.isUnclipped(UiPanelSlot.TOP_HUD_TOAST))
-        assertEquals(0, tracker.unclippedMask)
 
         val snapshot = tracker.snapshot()
         assertEquals(1, snapshot.count)
@@ -313,7 +303,7 @@ class UiPanelOcclusionTrackerTest {
     }
 
     @Test
-    fun `hitTest and intersects respect unclipped slots`() {
+    fun `hitTest and intersects are independent of evasion state`() {
         val tracker = UiPanelOcclusionTracker()
         val token = tracker.nextToken()
         tracker.update(UiPanelSlot.QUICK_LAYER, token, 100f, 100f, 200f, 200f)
@@ -322,63 +312,11 @@ class UiPanelOcclusionTrackerTest {
         assertTrue(tracker.intersects(180f, 180f, 300f, 300f))
         assertFalse(tracker.hitTest(250f, 250f))
 
-        tracker.setUnclipped(UiPanelSlot.QUICK_LAYER, true)
-        assertFalse(tracker.hitTest(150f, 150f))
-        assertFalse(tracker.intersects(180f, 180f, 300f, 300f))
-    }
-
-    @Test
-    fun `ringState returns contact inside and warn outside`() {
-        val tracker = UiPanelOcclusionTracker()
-        val token = tracker.nextToken()
-        tracker.update(UiPanelSlot.QUICK_BRUSH, token, 100f, 100f, 200f, 200f)
-
-        // 面板内部 = CONTACT
-        assertEquals(UiRingState.CONTACT, tracker.ringState(150f, 150f, 0f, 64f, 4f))
-        // 距右边界 5px，contactR = 0 + 4 → 外圈
-        assertEquals(UiRingState.WARN, tracker.ringState(205f, 150f, 0f, 64f, 4f))
-        // 距右边界 50px，warnR = 64 → WARN
-        assertEquals(UiRingState.WARN, tracker.ringState(250f, 150f, 0f, 64f, 4f))
-        // 距右边界 100px → NONE
-        assertEquals(UiRingState.NONE, tracker.ringState(300f, 150f, 0f, 64f, 4f))
-    }
-
-    @Test
-    fun `ringState adds brush radius to both rings`() {
-        val tracker = UiPanelOcclusionTracker()
-        val token = tracker.nextToken()
-        tracker.update(UiPanelSlot.QUICK_BRUSH, token, 100f, 100f, 200f, 200f)
-
-        // contactR = 20 + 4 = 24；距右边界 20px → CONTACT
-        assertEquals(UiRingState.CONTACT, tracker.ringState(220f, 150f, 20f, 64f, 4f))
-        // warnR = 20 + 64 = 84；距右边界 80px → WARN
-        assertEquals(UiRingState.WARN, tracker.ringState(280f, 150f, 20f, 64f, 4f))
-        // 距右边界 90px → NONE
-        assertEquals(UiRingState.NONE, tracker.ringState(290f, 150f, 20f, 64f, 4f))
-    }
-
-    @Test
-    fun `ringState prefers contact over warn across slots`() {
-        val tracker = UiPanelOcclusionTracker()
-        val tokenA = tracker.nextToken()
-        tracker.update(UiPanelSlot.QUICK_ACTION, tokenA, 0f, 0f, 100f, 100f)
-        val tokenB = tracker.nextToken()
-        tracker.update(UiPanelSlot.QUICK_COLOR, tokenB, 100f, 0f, 200f, 100f)
-
-        // 点在 B 内部（CONTACT），同时距 A 右边界 0px（也是 CONTACT）。
-        assertEquals(UiRingState.CONTACT, tracker.ringState(100f, 50f, 0f, 64f, 4f))
-        // 点在 A 外圈、远离 B。
-        assertEquals(UiRingState.WARN, tracker.ringState(140f, 160f, 0f, 64f, 4f))
-    }
-
-    @Test
-    fun `unclipped slots are ignored by ringState`() {
-        val tracker = UiPanelOcclusionTracker()
-        val token = tracker.nextToken()
-        tracker.update(UiPanelSlot.QUICK_BRUSH, token, 100f, 100f, 200f, 200f)
-        tracker.setUnclipped(UiPanelSlot.QUICK_BRUSH, true)
-
-        assertEquals(UiRingState.NONE, tracker.ringState(150f, 150f, 0f, 64f, 4f))
+        // 50% 渐隐不改变本体命中范围，也不撤除裁剪孔径。
+        tracker.setEvaded(UiPanelSlot.QUICK_LAYER, true)
+        assertTrue(tracker.hitTest(150f, 150f))
+        assertTrue(tracker.intersects(180f, 180f, 300f, 300f))
+        assertEquals(1, tracker.snapshot().count)
     }
 
     @Test
@@ -387,13 +325,11 @@ class UiPanelOcclusionTrackerTest {
         val token = tracker.nextToken()
         tracker.update(UiPanelSlot.TOP_BAR, token, 0f, 0f, 100f, 100f)
         tracker.setEvaded(UiPanelSlot.TOP_BAR, true)
-        tracker.setUnclipped(UiPanelSlot.TOP_BAR, true)
         tracker.clear(UiPanelSlot.TOP_BAR, token)
 
         val newToken = tracker.nextToken()
         tracker.update(UiPanelSlot.TOP_BAR, newToken, 10f, 10f, 110f, 110f)
         assertFalse(tracker.isEvaded(UiPanelSlot.TOP_BAR))
-        assertFalse(tracker.isUnclipped(UiPanelSlot.TOP_BAR))
         assertEquals(newToken, tracker.ownerToken(UiPanelSlot.TOP_BAR))
     }
 
@@ -415,19 +351,19 @@ class UiPanelOcclusionTrackerTest {
     }
 
     @Test
-    fun `newer token takeover clears masks and restores snapshot`() {
+    fun `newer token takeover clears evasion and keeps snapshot`() {
         val tracker = UiPanelOcclusionTracker()
         val tokenA = tracker.nextToken()
         tracker.update(UiPanelSlot.QUICK_BRUSH, tokenA, 10f, 20f, 110f, 120f)
-        tracker.setUnclipped(UiPanelSlot.QUICK_BRUSH, true)
-        assertEquals(0, tracker.snapshot().count)
+        tracker.setEvaded(UiPanelSlot.QUICK_BRUSH, true)
+        assertEquals(1, tracker.snapshot().count)
 
         val versionBefore = tracker.version
         val tokenB = tracker.nextToken()
         // 当前 owner 切换：即使 bounds 相同也要清掉旧 owner 的掩码并 bump 版本。
         assertTrue(tracker.update(UiPanelSlot.QUICK_BRUSH, tokenB, 10f, 20f, 110f, 120f))
         assertTrue(tracker.version > versionBefore)
-        assertFalse(tracker.isUnclipped(UiPanelSlot.QUICK_BRUSH))
+        assertFalse(tracker.isEvaded(UiPanelSlot.QUICK_BRUSH))
         val snapshot = tracker.snapshot()
         assertEquals(1, snapshot.count)
         assertTrue(snapshot.contains(50f, 50f))
@@ -435,7 +371,7 @@ class UiPanelOcclusionTrackerTest {
         // B 清除后回退到 A，但旧 owner 的掩码不会被恢复。
         assertTrue(tracker.clear(UiPanelSlot.QUICK_BRUSH, tokenB))
         assertEquals(tokenA, tracker.ownerToken(UiPanelSlot.QUICK_BRUSH))
-        assertFalse(tracker.isUnclipped(UiPanelSlot.QUICK_BRUSH))
+        assertFalse(tracker.isEvaded(UiPanelSlot.QUICK_BRUSH))
         assertEquals(1, tracker.snapshot().count)
     }
 
@@ -478,19 +414,18 @@ class UiPanelOcclusionTrackerTest {
     }
 
     @Test
-    fun `clearAllEvasion clears both masks and increments version once`() {
+    fun `clearAllEvasion clears evasion and increments version once`() {
         val tracker = UiPanelOcclusionTracker()
         val tokenA = tracker.nextToken()
         tracker.update(UiPanelSlot.TOP_BAR, tokenA, 0f, 0f, 100f, 100f)
         val tokenB = tracker.nextToken()
         tracker.update(UiPanelSlot.QUICK_BRUSH, tokenB, 200f, 0f, 300f, 100f)
         tracker.setEvaded(UiPanelSlot.TOP_BAR, true)
-        tracker.setUnclipped(UiPanelSlot.QUICK_BRUSH, true)
+        tracker.setEvaded(UiPanelSlot.QUICK_BRUSH, true)
 
         val versionBefore = tracker.version
         tracker.clearAllEvasion()
         assertEquals(0, tracker.evadedMask)
-        assertEquals(0, tracker.unclippedMask)
         assertEquals(versionBefore + 1, tracker.version)
         assertTrue(tracker.isActive(UiPanelSlot.TOP_BAR))
         assertTrue(tracker.isActive(UiPanelSlot.QUICK_BRUSH))
@@ -501,23 +436,19 @@ class UiPanelOcclusionTrackerTest {
     }
 
     @Test
-    fun `clearEvasion only clears the target slot bits`() {
+    fun `clearEvasion only clears the target slot bit`() {
         val tracker = UiPanelOcclusionTracker()
         val tokenA = tracker.nextToken()
         tracker.update(UiPanelSlot.TOP_BAR, tokenA, 0f, 0f, 100f, 100f)
         val tokenB = tracker.nextToken()
         tracker.update(UiPanelSlot.QUICK_BRUSH, tokenB, 200f, 0f, 300f, 100f)
         tracker.setEvaded(UiPanelSlot.TOP_BAR, true)
-        tracker.setUnclipped(UiPanelSlot.TOP_BAR, true)
         tracker.setEvaded(UiPanelSlot.QUICK_BRUSH, true)
-        tracker.setUnclipped(UiPanelSlot.QUICK_BRUSH, true)
 
         val versionBefore = tracker.version
         tracker.clearEvasion(UiPanelSlot.TOP_BAR)
         assertFalse(tracker.isEvaded(UiPanelSlot.TOP_BAR))
-        assertFalse(tracker.isUnclipped(UiPanelSlot.TOP_BAR))
         assertTrue(tracker.isEvaded(UiPanelSlot.QUICK_BRUSH))
-        assertTrue(tracker.isUnclipped(UiPanelSlot.QUICK_BRUSH))
         assertEquals(versionBefore + 1, tracker.version)
 
         // 该槽位已无位可清：不得再递增 version。
@@ -581,20 +512,16 @@ class UiPanelOcclusionTrackerTest {
     }
 
     @Test
-    fun `snapshot honors explicit masks regardless of internal mask`() {
+    fun `snapshot always includes evaded slots`() {
         val tracker = UiPanelOcclusionTracker()
         val token = tracker.nextToken()
         tracker.update(UiPanelSlot.TOP_BAR, token, 0f, 0f, 100f, 100f)
-        assertFalse(tracker.isUnclipped(UiPanelSlot.TOP_BAR))
         assertFalse(tracker.isEvaded(UiPanelSlot.TOP_BAR))
 
-        val excluded = tracker.snapshot(unclippedMask = UiPanelSlot.TOP_BAR.bit)
-        assertEquals(0, excluded.count)
-
-        // evaded 不参与排除：显式 evadedMask 仍然包含该槽位。
-        val included = tracker.snapshot(evadedMask = UiPanelSlot.TOP_BAR.bit)
-        assertEquals(1, included.count)
-        assertTrue(included.contains(50f, 50f))
+        tracker.setEvaded(UiPanelSlot.TOP_BAR, true)
+        val snapshot = tracker.snapshot()
+        assertEquals(1, snapshot.count)
+        assertTrue(snapshot.contains(50f, 50f))
     }
 
     @Test
@@ -644,17 +571,5 @@ class UiPanelOcclusionTrackerTest {
 
         assertEquals(versionBefore, tracker.version)
         assertFalse(tracker.isActive(UiPanelSlot.TOP_BAR))
-    }
-
-    @Test
-    fun `ringState prefers contact on B while A is only warn`() {
-        val tracker = UiPanelOcclusionTracker()
-        val tokenA = tracker.nextToken()
-        tracker.update(UiPanelSlot.QUICK_ACTION, tokenA, 0f, 0f, 100f, 100f)
-        val tokenB = tracker.nextToken()
-        tracker.update(UiPanelSlot.QUICK_COLOR, tokenB, 150f, 0f, 250f, 100f)
-
-        // (160,50): B 内部 CONTACT；A 距右边界 60px（warnR=64）只算 WARN。
-        assertEquals(UiRingState.CONTACT, tracker.ringState(160f, 50f, 0f, 64f, 4f))
     }
 }

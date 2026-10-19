@@ -6,13 +6,6 @@ package com.reverie.paint.model
 
 import kotlin.math.hypot
 
-/** 笔尖与面板的双圈状态。 */
-enum class UiRingState {
-    NONE,
-    WARN,
-    CONTACT,
-}
-
 /**
  * 21 个 UI 槽位的遮挡状态机（纯 Kotlin，可单测）。
  *
@@ -25,15 +18,28 @@ enum class UiRingState {
  * [clear] 移除指定 token 后自动回退到剩余 owner 中最高 token 者，因此旧
  * owner 无需重新登记即可恢复。
  *
- * 裁剪相关查询（[snapshot]/[hitTest]/[intersects]/[ringState]）使用槽位内
- * 所有 owner 的并集矩形：退出动画期间新旧面板同时可见，只裁当前 owner 会
- * 让旧面板漏到前缓冲上。并集是保守裁剪，可能把两个 owner 之间的空隙也一并
- * 裁掉；这是有意的取舍（宁可多裁，不可漏裁），每个槽位仍只产生一个矩形。
+ * 本类同时维护两套矩形：
+ * - [slotBounds]：所有 owner 的并集本体边界，供 32dp/40dp 避让距离判定与
+ *   [hitTest] 使用（阴影外扩不得虚增触发距离）；
+ * - [slotClipBounds]：本体并集再向四周外扩该槽位的真实软阴影裙边，供
+ *   [snapshot] 导出给前缓冲 `clipOutUi` 使用。
+ *
+ * 关键铁律：50% 渐隐态的面板绝不从裁剪快照中移除。前缓冲处于窗口最顶层，
+ * 若撤掉孔径，`PorterDuff.Mode.SRC` 的不透明画布底色会重新盖住面板圆角、
+ * 软阴影与 50% 本体。渐隐只改变 Compose 侧透明度，与裁剪孔径无关。
  */
 class UiPanelOcclusionTracker {
 
-    /** 槽位内所有 owner 的并集 bounds（裁剪查询使用，可能大于当前 owner）。 */
+    /** 槽位内所有 owner 的并集本体 bounds（距离判定与 hitTest 使用）。 */
     private val slotBounds = FloatArray(UiPanelSlot.COUNT * 4)
+
+    /** 本体并集 + 阴影外扩后的孔径 bounds（裁剪快照使用）。 */
+    private val slotClipBounds = FloatArray(UiPanelSlot.COUNT * 4)
+
+    /** 每个槽位当前生效的阴影外扩像素（由 Compose 侧按 density 换算后传入）。 */
+    private val slotPadH = FloatArray(UiPanelSlot.COUNT)
+    private val slotPadT = FloatArray(UiPanelSlot.COUNT)
+    private val slotPadB = FloatArray(UiPanelSlot.COUNT)
 
     /** 当前（最高 token）owner 的 bounds，供 [bounds]/[left] 等快速读取。 */
     private val currentOwnerBounds = FloatArray(UiPanelSlot.COUNT * 4)
@@ -53,7 +59,6 @@ class UiPanelOcclusionTracker {
     private var nextTokenValue = 1
     private var versionValue = 0
     private var evadedMaskValue = 0
-    private var unclippedMaskValue = 0
 
     /**
      * 槽位状态变化回调，只在 UI 线程触发。
@@ -68,8 +73,6 @@ class UiPanelOcclusionTracker {
 
     val evadedMask: Int get() = evadedMaskValue
 
-    val unclippedMask: Int get() = unclippedMaskValue
-
     /** 单调递增的 owner token；0 保留给“未注册”。 */
     fun nextToken(): Int {
         val token = nextTokenValue
@@ -80,11 +83,14 @@ class UiPanelOcclusionTracker {
     /**
      * 写入某个 owner 的槽位 bounds。
      *
+     * [padH]/[padT]/[padB] 是该槽位的阴影外扩像素（左右 / 顶 / 底），用于生成
+     * [snapshot] 的裁剪孔径；距离判定始终只使用本体 bounds。
+     *
      * token == 0 时忽略。token 未登记时追加到该槽位的 owner 栈（栈满时替换
      * 其中最小的 token，即最旧 owner）。写入后重新选出最高 token 作为当前
      * owner，并更新当前 owner 的快速读取区与槽位并集。当前 owner 从旧 token
-     * 切换到新 token 时清掉该槽位的渐隐/撤裁剪位，避免新接管的可见面板继承
-     * 旧 owner 的状态。
+     * 切换到新 token 时清掉该槽位的渐隐位，避免新接管的可见面板继承旧
+     * owner 的状态。
      *
      * bounds 非法（非有限值或零/负尺寸）时：token 已在栈中则移除该 owner
      * （面板折叠后不得留下过期 bounds），否则忽略。
@@ -98,6 +104,9 @@ class UiPanelOcclusionTracker {
         top: Float,
         right: Float,
         bottom: Float,
+        padH: Float = 0f,
+        padT: Float = 0f,
+        padB: Float = 0f,
     ): Boolean {
         if (ownerToken == 0) return false
 
@@ -121,6 +130,10 @@ class UiPanelOcclusionTracker {
             removeOwner(ordinal, index, ownerToken)
             return true
         }
+
+        slotPadH[ordinal] = if (padH.isFinite()) padH.coerceAtLeast(0f) else 0f
+        slotPadT[ordinal] = if (padT.isFinite()) padT.coerceAtLeast(0f) else 0f
+        slotPadB[ordinal] = if (padB.isFinite()) padB.coerceAtLeast(0f) else 0f
 
         val added = index < 0
         if (added) {
@@ -154,9 +167,9 @@ class UiPanelOcclusionTracker {
     /**
      * 注销指定 owner。
      *
-     * 被移除的是当前 owner 时清掉该槽位的渐隐/撤裁剪位；不是当前 owner 时
-     * 掩码保持不变。移除后自动回退到剩余 owner 中最高 token 者；没有剩余
-     * owner 时槽位失活并清零 bounds。
+     * 被移除的是当前 owner 时清掉该槽位的渐隐位；不是当前 owner 时掩码保持不变。
+     * 移除后自动回退到剩余 owner 中最高 token 者；没有剩余 owner 时槽位失活
+     * 并清零 bounds。
      * @return token 是否存在于该槽位的 owner 栈。
      */
     fun clear(slot: UiPanelSlot, ownerToken: Int): Boolean {
@@ -180,7 +193,7 @@ class UiPanelOcclusionTracker {
 
     /**
      * 从 owner 栈移除指定下标并压缩存储，然后重算当前 owner 与并集。
-     * 被移除的是当前 owner 时清掉该槽位的渐隐/撤裁剪位；否则掩码保持不变。
+     * 被移除的是当前 owner 时清掉该槽位的渐隐位；否则掩码保持不变。
      */
     private fun removeOwner(ordinal: Int, index: Int, ownerToken: Int) {
         val tokens = ownerTokens[ordinal]
@@ -188,7 +201,6 @@ class UiPanelOcclusionTracker {
 
         if (currentTokens[ordinal] == ownerToken) {
             evadedMaskValue = evadedMaskValue and SLOTS[ordinal].bit.inv()
-            unclippedMaskValue = unclippedMaskValue and SLOTS[ordinal].bit.inv()
         }
 
         val last = count - 1
@@ -220,13 +232,12 @@ class UiPanelOcclusionTracker {
     fun activeCount(): Int {
         var n = 0
         for (ordinal in SLOTS.indices) {
-            val slot = SLOTS[ordinal]
-            if (currentTokens[slot.ordinal] != 0) n++
+            if (currentTokens[ordinal] != 0) n++
         }
         return n
     }
 
-    /** 复制当前 owner 的 bounds 到 [out] 的前 4 项；槽位未激活时返回 false。 */
+    /** 复制当前 owner 的本体 bounds 到 [out] 的前 4 项；槽位未激活时返回 false。 */
     fun bounds(slot: UiPanelSlot, out: FloatArray): Boolean {
         require(out.size >= 4) { "out must hold 4 floats" }
         val ordinal = slot.ordinal
@@ -247,7 +258,7 @@ class UiPanelOcclusionTracker {
 
     fun bottom(slot: UiPanelSlot): Float = currentOwnerBounds[slot.ordinal * 4 + 3]
 
-    /** 设置外圈渐隐位；槽位未激活时忽略。 */
+    /** 设置渐隐位；槽位未激活时忽略。 */
     fun setEvaded(slot: UiPanelSlot, evaded: Boolean): Boolean {
         if (!isActive(slot)) return false
         val old = evadedMaskValue
@@ -261,87 +272,94 @@ class UiPanelOcclusionTracker {
         return true
     }
 
-    /** 设置内圈撤裁剪位；槽位未激活时忽略。 */
-    fun setUnclipped(slot: UiPanelSlot, unclipped: Boolean): Boolean {
-        if (!isActive(slot)) return false
-        val old = unclippedMaskValue
-        unclippedMaskValue = if (unclipped) {
-            unclippedMaskValue or slot.bit
-        } else {
-            unclippedMaskValue and slot.bit.inv()
-        }
-        if (old == unclippedMaskValue) return false
-        bumpVersion()
-        return true
-    }
-
     fun isEvaded(slot: UiPanelSlot): Boolean = (evadedMaskValue and slot.bit) != 0
 
-    fun isUnclipped(slot: UiPanelSlot): Boolean = (unclippedMaskValue and slot.bit) != 0
-
-    /** 清除单个槽位的渐隐/撤裁剪位。 */
+    /** 清除单个槽位的渐隐位。 */
     fun clearEvasion(slot: UiPanelSlot) {
         val oldEvaded = evadedMaskValue
-        val oldUnclipped = unclippedMaskValue
         evadedMaskValue = evadedMaskValue and slot.bit.inv()
-        unclippedMaskValue = unclippedMaskValue and slot.bit.inv()
-        if (oldEvaded != evadedMaskValue || oldUnclipped != unclippedMaskValue) {
-            bumpVersion()
-        }
+        if (oldEvaded != evadedMaskValue) bumpVersion()
     }
 
     /** 抬笔/取消/切工具后清除全部渐隐状态。 */
     fun clearAllEvasion() {
-        if (evadedMaskValue == 0 && unclippedMaskValue == 0) return
+        if (evadedMaskValue == 0) return
         evadedMaskValue = 0
-        unclippedMaskValue = 0
         bumpVersion()
     }
 
     /**
-     * 生成不可变裁剪快照：包含所有激活且未被内圈撤裁剪的槽位。
+     * 双向滞后评估指定槽位是否应处于 50% 避让态（零分配）。
      *
-     * 每个槽位只输出一个矩形，取该槽位所有 owner bounds 的并集（见类
-     * KDoc 的保守裁剪说明）。[evadedMask] 仅保留给 Phase 2 的诊断/未来
-     * 策略；外圈渐隐不撤 Clip，因此当前实现不会因 evaded 位排除槽位。
-     * 真正决定是否排除的是 [unclippedMask]。
+     * - 包络到槽位本体 bounds 的距离 <= [enterRadiusPx]：进入避让（true）；
+     * - 距离 > [exitRadiusPx]：离开避让（false）；
+     * - 处于 (enterRadiusPx, exitRadiusPx] 滞后带内：保持当前 [isEvaded] 状态。
+     *
+     * 槽位未激活或不可避让时强制回到非避让态并返回 false。
      */
-    fun snapshot(
-        evadedMask: Int = evadedMaskValue,
-        unclippedMask: Int = unclippedMaskValue,
-    ): UiClipSnapshot {
-        // evadedMask 当前不参与排除，见上方 KDoc。
+    fun evaluateSlotEvasion(
+        slot: UiPanelSlot,
+        left: Float,
+        top: Float,
+        right: Float,
+        bottom: Float,
+        enterRadiusPx: Float,
+        exitRadiusPx: Float,
+    ): Boolean {
+        val ordinal = slot.ordinal
+        if (!slot.evadable || currentTokens[ordinal] == 0) {
+            setEvaded(slot, false)
+            return false
+        }
+        val i = ordinal * 4
+        val dist = distanceBetweenRects(
+            left, top, right, bottom,
+            slotBounds[i], slotBounds[i + 1], slotBounds[i + 2], slotBounds[i + 3],
+        )
+        val currentlyEvaded = isEvaded(slot)
+        val nextEvaded = when {
+            dist <= enterRadiusPx -> true
+            dist > exitRadiusPx -> false
+            else -> currentlyEvaded
+        }
+        setEvaded(slot, nextEvaded)
+        return nextEvaded
+    }
+
+    /**
+     * 生成不可变裁剪快照：包含**所有**激活槽位的阴影外扩孔径。
+     *
+     * 渐隐态（[evadedMask]）不参与排除：50% 面板仍必须通过孔径裁剪保护其
+     * 圆角、软阴影与 50% 本体不被前缓冲 `SRC` 覆盖。
+     *
+     * 每个槽位只输出一个矩形，取该槽位所有 owner 本体并集再统一外扩阴影
+     * 裙边（见类 KDoc 的保守裁剪说明）。
+     */
+    fun snapshot(): UiClipSnapshot {
         var n = 0
         for (ordinal in SLOTS.indices) {
-            val slot = SLOTS[ordinal]
-            if (currentTokens[slot.ordinal] == 0) continue
-            if ((unclippedMask and slot.bit) != 0) continue
-            n++
+            if (currentTokens[ordinal] != 0) n++
         }
         if (n == 0) return UiClipSnapshot.EMPTY
 
         val out = FloatArray(n * 4)
         var w = 0
         for (ordinal in SLOTS.indices) {
-            val slot = SLOTS[ordinal]
-            if (currentTokens[slot.ordinal] == 0) continue
-            if ((unclippedMask and slot.bit) != 0) continue
+            if (currentTokens[ordinal] == 0) continue
             val i = ordinal * 4
-            out[w] = slotBounds[i]
-            out[w + 1] = slotBounds[i + 1]
-            out[w + 2] = slotBounds[i + 2]
-            out[w + 3] = slotBounds[i + 3]
+            out[w] = slotClipBounds[i]
+            out[w + 1] = slotClipBounds[i + 1]
+            out[w + 2] = slotClipBounds[i + 2]
+            out[w + 3] = slotClipBounds[i + 3]
             w += 4
         }
         return UiClipSnapshot.fromOwned(out, n)
     }
 
-    /** 点是否命中任一“可见且仍参与裁剪”的槽位。 */
+    /** 点是否命中任一激活槽位的本体 bounds。 */
     fun hitTest(x: Float, y: Float): Boolean {
         for (ordinal in SLOTS.indices) {
-            val slot = SLOTS[ordinal]
             if (currentTokens[ordinal] == 0) continue
-            if ((unclippedMaskValue and slot.bit) != 0) continue
             val i = ordinal * 4
             if (x >= slotBounds[i] && x <= slotBounds[i + 2] &&
                 y >= slotBounds[i + 1] && y <= slotBounds[i + 3]
@@ -352,12 +370,10 @@ class UiPanelOcclusionTracker {
         return false
     }
 
-    /** 矩形是否与任一“可见且仍参与裁剪”的槽位相交。 */
+    /** 矩形是否与任一激活槽位的本体 bounds 相交。 */
     fun intersects(left: Float, top: Float, right: Float, bottom: Float): Boolean {
         for (ordinal in SLOTS.indices) {
-            val slot = SLOTS[ordinal]
             if (currentTokens[ordinal] == 0) continue
-            if ((unclippedMaskValue and slot.bit) != 0) continue
             val i = ordinal * 4
             if (right >= slotBounds[i] && left <= slotBounds[i + 2] &&
                 bottom >= slotBounds[i + 1] && top <= slotBounds[i + 3]
@@ -368,43 +384,13 @@ class UiPanelOcclusionTracker {
         return false
     }
 
-    /**
-     * 双圈检测：点到槽位矩形的最短距离。
-     *
-     * [warnPx] / [contactPx] 是基础外扩距离，函数内部再叠加 [brushRadiusPx]，
-     * 与计划中的 `warnR = 64dp + brushR`、`contactR = brushR + 4dp` 一致。
-     * 已撤裁剪的槽位不参与检测。
-     */
-    fun ringState(
-        x: Float,
-        y: Float,
-        brushRadiusPx: Float,
-        warnPx: Float,
-        contactPx: Float,
-    ): UiRingState {
-        val contactRadius = brushRadiusPx + contactPx
-        val warnRadius = maxOf(brushRadiusPx + warnPx, contactRadius)
-        var warnHit = false
-
-        for (ordinal in SLOTS.indices) {
-            val slot = SLOTS[ordinal]
-            if (currentTokens[ordinal] == 0) continue
-            if ((unclippedMaskValue and slot.bit) != 0) continue
-
-            val i = ordinal * 4
-            val distance = distanceToRect(
-                x, y,
-                slotBounds[i], slotBounds[i + 1], slotBounds[i + 2], slotBounds[i + 3],
-            )
-            if (distance <= contactRadius) return UiRingState.CONTACT
-            if (distance <= warnRadius) warnHit = true
-        }
-        return if (warnHit) UiRingState.WARN else UiRingState.NONE
-    }
-
     /** 清空所有槽位与掩码（测试/切工程使用）。 */
     fun reset() {
         slotBounds.fill(0f)
+        slotClipBounds.fill(0f)
+        slotPadH.fill(0f)
+        slotPadT.fill(0f)
+        slotPadB.fill(0f)
         currentOwnerBounds.fill(0f)
         currentTokens.fill(0)
         for (ordinal in SLOTS.indices) {
@@ -413,13 +399,12 @@ class UiPanelOcclusionTracker {
         }
         ownerCounts.fill(0)
         evadedMaskValue = 0
-        unclippedMaskValue = 0
         bumpVersion()
     }
 
     /**
-     * 重新计算槽位当前 owner（最高 token）与所有 owner 的并集 bounds，
-     * 仅在当前 owner、当前 owner bounds 或并集实际变化时递增版本。
+     * 重新计算槽位当前 owner（最高 token）、所有 owner 的本体并集与阴影外扩
+     * 孔径，仅在当前 owner、bounds 或孔径实际变化时递增版本。
      */
     private fun updateCurrentOwner(ordinal: Int) {
         val tokens = ownerTokens[ordinal]
@@ -430,6 +415,10 @@ class UiPanelOcclusionTracker {
         val oldTop = slotBounds[si + 1]
         val oldRight = slotBounds[si + 2]
         val oldBottom = slotBounds[si + 3]
+        val oldClipLeft = slotClipBounds[si]
+        val oldClipTop = slotClipBounds[si + 1]
+        val oldClipRight = slotClipBounds[si + 2]
+        val oldClipBottom = slotClipBounds[si + 3]
         val oldCurLeft = currentOwnerBounds[si]
         val oldCurTop = currentOwnerBounds[si + 1]
         val oldCurRight = currentOwnerBounds[si + 2]
@@ -445,6 +434,10 @@ class UiPanelOcclusionTracker {
             slotBounds[si + 1] = 0f
             slotBounds[si + 2] = 0f
             slotBounds[si + 3] = 0f
+            slotClipBounds[si] = 0f
+            slotClipBounds[si + 1] = 0f
+            slotClipBounds[si + 2] = 0f
+            slotClipBounds[si + 3] = 0f
         } else {
             var current = 0
             for (i in 1 until count) {
@@ -474,15 +467,21 @@ class UiPanelOcclusionTracker {
             slotBounds[si + 1] = unionTop
             slotBounds[si + 2] = unionRight
             slotBounds[si + 3] = unionBottom
+
+            val padH = slotPadH[ordinal]
+            val padT = slotPadT[ordinal]
+            val padB = slotPadB[ordinal]
+            slotClipBounds[si] = unionLeft - padH
+            slotClipBounds[si + 1] = unionTop - padT
+            slotClipBounds[si + 2] = unionRight + padH
+            slotClipBounds[si + 3] = unionBottom + padB
         }
 
         val newToken = currentTokens[ordinal]
         // 当前 owner 真正切换（非 0 → 另一个非 0）时清掉槽位掩码，
-        // 避免新接管的可见面板继承旧 owner 的 unclipped 状态。
+        // 避免新接管的可见面板继承旧 owner 的渐隐状态。
         if (oldToken != 0 && newToken != 0 && oldToken != newToken) {
-            val bit = SLOTS[ordinal].bit
-            evadedMaskValue = evadedMaskValue and bit.inv()
-            unclippedMaskValue = unclippedMaskValue and bit.inv()
+            evadedMaskValue = evadedMaskValue and SLOTS[ordinal].bit.inv()
         }
 
         val changed = oldToken != currentTokens[ordinal] ||
@@ -490,6 +489,10 @@ class UiPanelOcclusionTracker {
             oldTop != slotBounds[si + 1] ||
             oldRight != slotBounds[si + 2] ||
             oldBottom != slotBounds[si + 3] ||
+            oldClipLeft != slotClipBounds[si] ||
+            oldClipTop != slotClipBounds[si + 1] ||
+            oldClipRight != slotClipBounds[si + 2] ||
+            oldClipBottom != slotClipBounds[si + 3] ||
             oldCurLeft != currentOwnerBounds[si] ||
             oldCurTop != currentOwnerBounds[si + 1] ||
             oldCurRight != currentOwnerBounds[si + 2] ||
@@ -502,22 +505,29 @@ class UiPanelOcclusionTracker {
         onChanged?.invoke()
     }
 
-    private fun distanceToRect(
-        x: Float,
-        y: Float,
-        left: Float,
-        top: Float,
-        right: Float,
-        bottom: Float,
+    /**
+     * 两个轴对齐矩形之间的最短距离；相交或相切时为 0。
+     *
+     * 零尺寸矩形（点）同样适用：此时另一矩形上的最近点即点到矩形的距离。
+     */
+    private fun distanceBetweenRects(
+        aLeft: Float,
+        aTop: Float,
+        aRight: Float,
+        aBottom: Float,
+        bLeft: Float,
+        bTop: Float,
+        bRight: Float,
+        bBottom: Float,
     ): Float {
         val dx = when {
-            x < left -> left - x
-            x > right -> x - right
+            aRight < bLeft -> bLeft - aRight
+            bRight < aLeft -> aLeft - bRight
             else -> 0f
         }
         val dy = when {
-            y < top -> top - y
-            y > bottom -> y - bottom
+            aBottom < bTop -> bTop - aBottom
+            bBottom < aTop -> aTop - bBottom
             else -> 0f
         }
         return when {

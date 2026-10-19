@@ -34,6 +34,44 @@ class UiClipSnapshot private constructor(
         return false
     }
 
+    /**
+     * 若 [l, t, r, b] 与任一裁剪孔径相交，将相交部分并入 [outBounds]
+     * （`[minL, minT, maxR, maxB]`）并返回 true；完全不相交时返回 false。零分配。
+     *
+     * 调用方负责把 [outBounds] 初始化为空集（左/上 = Int.MAX_VALUE，
+     * 右/下 = Int.MIN_VALUE）。返回 true 时 [outBounds] 一定是合法非空矩形。
+     */
+    fun accumulateIntersection(l: Int, t: Int, r: Int, b: Int, outBounds: IntArray): Boolean {
+        require(outBounds.size >= 4) { "outBounds must hold 4 ints" }
+        val fl = l.toFloat()
+        val ft = t.toFloat()
+        val fr = r.toFloat()
+        val fb = b.toFloat()
+        var hit = false
+        var i = 0
+        while (i < count * 4) {
+            val cl = flat[i]
+            val ct = flat[i + 1]
+            val cr = flat[i + 2]
+            val cb = flat[i + 3]
+            if (fr > cl && fl < cr && fb > ct && ft < cb) {
+                val il = maxOf(l, kotlin.math.floor(cl).toInt())
+                val it = maxOf(t, kotlin.math.floor(ct).toInt())
+                val ir = minOf(r, kotlin.math.ceil(cr).toInt())
+                val ib = minOf(b, kotlin.math.ceil(cb).toInt())
+                if (ir > il && ib > it) {
+                    if (il < outBounds[0]) outBounds[0] = il
+                    if (it < outBounds[1]) outBounds[1] = it
+                    if (ir > outBounds[2]) outBounds[2] = ir
+                    if (ib > outBounds[3]) outBounds[3] = ib
+                    hit = true
+                }
+            }
+            i += 4
+        }
+        return hit
+    }
+
     /** 点是否落在任一矩形内；边界相等视为命中。 */
     fun contains(x: Float, y: Float): Boolean {
         var i = 0
