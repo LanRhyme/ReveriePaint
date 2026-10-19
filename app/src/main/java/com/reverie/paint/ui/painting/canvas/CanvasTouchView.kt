@@ -86,6 +86,15 @@ private const val IDLE_DOWNCLOCK_MS = 1500L
 /** B4 · 静止时请求的帧率(Hz): 不画的时候没必要把屏幕钉在 144Hz 上。 */
 private const val IDLE_FRAME_RATE_HZ = 60f
 
+/** 50% 面板避让：进入半径 = 32dp + 笔刷屏幕半径。 */
+private const val EVADE_ENTER_DP = 32f
+
+/** 50% 面板避让：离开半径 = 40dp + 笔刷屏幕半径（32dp + 8dp 双向滞后）。 */
+private const val EVADE_EXIT_DP = 40f
+
+/** 抬笔后保持 50% 的延续窗口，消除高频排线/点画时的 50% <-> 100% 闪烁。 */
+private const val POST_UP_CONTINUATION_MS = 80L
+
 /** Phase 5 · C3-2: 本地补点列表的步长(px, py, nx, ny, mode, strength, size)。 */
 private const val FIELD_DAB_STRIDE = 7
 
@@ -121,6 +130,8 @@ class CanvasTouchView(context: Context) : View(context) {
             if (field != value) {
                 field = value
                 clearPredictionState(triggerInvalidate = true)
+                // 12 条强制复位路径之一：切换工具。
+                vm?.let { clearAllEvasionState(it) }
             }
         }
     var tfState: TransformState? = null
@@ -220,12 +231,23 @@ class CanvasTouchView(context: Context) : View(context) {
     var liquifyBrushSize: Float = 60f
 
     /** True while any full-screen overlay panel is open (see isHoverOverUi). */
-    @Volatile var overlayPanelsOpen: Boolean = false
+    @Volatile
+    var overlayPanelsOpen: Boolean = false
+        set(value) {
+            if (field != value) {
+                field = value
+                // 12 条强制复位路径之一：打开任一模态/半模态覆盖面板。
+                if (value) vm?.let { clearAllEvasionState(it) }
+            }
+        }
     var liquifyMode: Int = 0
     @Volatile
     var frontBufferOverlay: FrontBufferPreviewOverlay? = null
         set(value) {
-            if (field !== value) realInk.release()
+            if (field !== value) {
+                realInk.release()
+                vm?.let { clearAllEvasionState(it) }
+            }
             field = value
             value?.realInk = realInk
         }
@@ -402,6 +424,11 @@ class CanvasTouchView(context: Context) : View(context) {
 
     // 绘制状态 (手写笔专属)
     private var strokeStarted = false
+        set(value) {
+            field = value
+            // 绘画态优先协议的唯一真源：面板据此决定是否被动避让。
+            vm?.isStrokeSessionActive = value
+        }
     /**
      * s13-C5: 本笔被笔画中的撤销/重做中止 ([abortActiveStrokeForHistory])。抬笔前的后续移动
      * 不再迟到起笔 (否则撤销后笔尖继续移动会画出一条新笔画); 落笔 / 抬笔时复位。
@@ -429,6 +456,7 @@ class CanvasTouchView(context: Context) : View(context) {
         quickShapeCandidate = null
         v.touchCancel()
         realInk.release()
+        clearAllEvasionState(v)
         strokeStarted = false
         strokeAbortedUntilUp = true
         safeEndSymmetryUndoMacro()
@@ -442,6 +470,12 @@ class CanvasTouchView(context: Context) : View(context) {
     private var shapeEndDocPos = Offset.Zero
     private var previousSinglePos = Offset.Zero
     private var priorStrokeScreenPos = Offset.Zero
+    // 本帧已用于避让评估的屏幕包络（含历史/辅助点），供预测点并入后二次评估。
+    private var evasionEnvL = 0f
+    private var evasionEnvT = 0f
+    private var evasionEnvR = 0f
+    private var evasionEnvB = 0f
+    private var hasEvasionEnv = false
     private val lassoPoints = mutableListOf<Offset>()
     private var lastLassoPreviewNs = 0L
     // Phase 5 · C3-2 (docs/LIQUIFY-C3-FIELD-PLAN.md §3): 场通路的"拖动期零引擎解算"状态。
@@ -883,6 +917,8 @@ class CanvasTouchView(context: Context) : View(context) {
         val v = vm ?: return@Runnable
         if (activeLongPressToken == longPressToken && isPendingLongPress && !isTransformActive && maxTouchPointers <= 1) {
             isPendingLongPress = false
+            // 12 条强制复位路径之一：长按吸色打断笔画。
+            clearAllEvasionState(v)
             if (strokeStarted) {
                 realInk.release()
                 v.touchCancel()
@@ -1042,10 +1078,17 @@ class CanvasTouchView(context: Context) : View(context) {
         }
         val version = v.panelOcclusion.version
         if (!force && version == lastUiClipVersion) return
-        // tracker 是裁剪状态的唯一真身; ViewModel 的 mask 字段仅为 Phase 2 API 保留。
+        // tracker 是裁剪状态的唯一真身。
         val snapshot = v.panelOcclusion.snapshot()
         lastUiClipVersion = version
         uiClipSnapshot = snapshot
+        // tracker 可能因 owner 接管/移除而清掉渐隐位: 同步清掉 Compose 侧残留状态。
+        for (i in UiPanelSlot.EVADABLE_ARRAY.indices) {
+            val slot = UiPanelSlot.EVADABLE_ARRAY[i]
+            if (!v.panelOcclusion.isEvaded(slot) && v.slotEvading[slot.ordinal].value) {
+                v.slotEvading[slot.ordinal].value = false
+            }
+        }
         if (realInk.held) {
             if (snapshot != realInk.uiClips) {
                 // 笔画中途裁剪集合变化: 前缓冲已有像素无法回擦, 交给主画布重新合成。
@@ -1054,6 +1097,70 @@ class CanvasTouchView(context: Context) : View(context) {
                 realInk.updateActiveUiClips(snapshot)
             }
         }
+    }
+
+    private fun effectiveBrushScreenRadius(v: PaintViewModel, pressure: Float): Float {
+        val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
+        val size = if (effTool() == Tool.ERASER && tool != Tool.ERASER) {
+            v.getToolEffectiveSize("eraser").toFloat()
+        } else {
+            v.brushSize.toFloat()
+        }
+        val pFrac = if (v.brushPressureEnabled) pressureFractionCached(pressure) else 1f
+        return (size * scale * 0.5f * pFrac).coerceAtLeast(0.75f)
+    }
+
+    /**
+     * 50% 双向滞后评估：对 9 个可避让槽位逐个独立判定。
+     *
+     * - 包络到面板本体距离 <= 32dp + brushR：进入 50%；
+     * - 距离 > 40dp + brushR：立即恢复 100%，不等抬笔；
+     * - 中间滞后带保持上一状态，防边界抖动。
+     *
+     * 240Hz `ACTION_MOVE` 热路径：纯标量运算，零分配。
+     */
+    private fun evaluateUiEvasion50(
+        v: PaintViewModel,
+        left: Float,
+        top: Float,
+        right: Float,
+        bottom: Float,
+        brushRadiusPx: Float,
+    ) {
+        if (!left.isFinite() || !top.isFinite() || !right.isFinite() || !bottom.isFinite()) return
+        if (!brushRadiusPx.isFinite() || brushRadiusPx < 0f) return
+        if (!v.autoHidePanelsOnStroke) return
+        val enterRadiusPx = EVADE_ENTER_DP * density + brushRadiusPx
+        val exitRadiusPx = EVADE_EXIT_DP * density + brushRadiusPx
+        for (i in UiPanelSlot.EVADABLE_ARRAY.indices) {
+            val slot = UiPanelSlot.EVADABLE_ARRAY[i]
+            val shouldEvade = v.panelOcclusion.evaluateSlotEvasion(
+                slot, left, top, right, bottom, enterRadiusPx, exitRadiusPx,
+            )
+            v.setSlotEvading(slot, shouldEvade)
+        }
+    }
+
+    /**
+     * 立即清除全部避让状态（12 条强制复位路径共用）。
+     *
+     * 50% 渐隐只影响 Compose 透明度，绝不撤除 [uiClipSnapshot] 中的孔径裁剪。
+     */
+    private fun clearAllEvasionState(v: PaintViewModel) {
+        removeCallbacks(clearEvasionAfterUpRunnable)
+        v.clearAllSlotEvasion()
+    }
+
+    /** 正常抬笔后的 80ms 延续窗口；下一笔落点仍在 40dp 内则无缝保持 50%。 */
+    private val clearEvasionAfterUpRunnable = Runnable {
+        if (!strokeStarted) {
+            vm?.let { clearAllEvasionState(it) }
+        }
+    }
+
+    private fun scheduleClearEvasionAfterUp() {
+        removeCallbacks(clearEvasionAfterUpRunnable)
+        postDelayed(clearEvasionAfterUpRunnable, POST_UP_CONTINUATION_MS)
     }
 
     private val tipShaderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
@@ -2381,7 +2488,10 @@ class CanvasTouchView(context: Context) : View(context) {
     override fun onDetachedFromWindow() {
         vm?.panelOcclusion?.onChanged = null
         removeCallbacks(snapshotRebuildRunnable)
+        removeCallbacks(clearEvasionAfterUpRunnable)
         snapshotRebuildPending = false
+        // 12 条强制复位路径之一：视图卸载。
+        vm?.clearAllSlotEvasion()
         releaseLargeBitmapTiles()
         removeCallbacks(quickShapeHold)
         vm?.quickShapeCapture = null
@@ -3354,6 +3464,7 @@ class CanvasTouchView(context: Context) : View(context) {
         // 走 #81 前沿预览 + 主画布实时刷新。透明/不透明画布行为一致。
         if (v.anim.shiftTraceActive) {
             realInk.release()
+            clearAllEvasionState(v)
             frontBufferOverlay?.clearPreview()
         }
         rebuildUiExclusionSnapshot()
@@ -4070,6 +4181,8 @@ class CanvasTouchView(context: Context) : View(context) {
         if (v.isCanvasTouchDisabled) {
             if (stylusPointerIndex < 0) {
                 // 纯手指接触：静默丢弃所有事件（无反馈、无弹窗、不作画、不手势）
+                // 12 条强制复位路径之一：开启“禁用画布触控”拦截手指笔画。
+                clearAllEvasionState(v)
                 if (strokeStarted) {
                     cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
                     cachedDriver?.feedbackManager?.stopStrokeSound()
@@ -4199,6 +4312,9 @@ class CanvasTouchView(context: Context) : View(context) {
 
             when (event.actionMasked) {
                 MotionEvent.ACTION_DOWN, MotionEvent.ACTION_POINTER_DOWN -> {
+                    // 不在此处取消抬笔延续窗口: 手势/仅笔模式的 DOWN 未必真正落笔 (如参考线手柄、
+                    // 长按取色提前返回), 这些路径不会重新调度, 面板会永久停留在回避态。
+                    // 真正起笔时由 handleToolDown 的 BRUSH/ERASER/SMUDGE 分支负责取消。
                     // 若是多指接触，只有当刚按下的指针就是手写笔自身时才触发落笔起画；
                     // 手写笔画画时手掌压在屏幕上产生的 ACTION_POINTER_DOWN 直接忽略，不打断笔画
                     if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN && event.actionIndex != stylusPointerIndex) {
@@ -4370,6 +4486,8 @@ class CanvasTouchView(context: Context) : View(context) {
             isPendingLongPress = false
             removeCallbacks(continuousUndoRunnable)
             removeCallbacks(continuousRedoRunnable)
+            // 12 条强制复位路径之一：三指编辑菜单/三指轻点重做接管。
+            clearAllEvasionState(v)
             if (strokeStarted) {
                 realInk.release()
                 v.touchCancel()
@@ -4430,6 +4548,8 @@ class CanvasTouchView(context: Context) : View(context) {
                 isPendingEdgeFinger = false
             }
 
+            // 12 条强制复位路径之一：双指捏合/旋转/双指轻点撤销接管。
+            clearAllEvasionState(v)
             if (strokeStarted) {
                 cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
                 cachedDriver?.feedbackManager?.stopStrokeSound()
@@ -4768,6 +4888,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
                         cachedDriver?.feedbackManager?.stopStrokeSound()
                         realInk.release()
+                        clearAllEvasionState(v)
                         v.touchCancel()
                         strokeStarted = false
                         safeEndSymmetryUndoMacro()
@@ -4801,6 +4922,9 @@ class CanvasTouchView(context: Context) : View(context) {
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                // 不在此处取消 180ms 恢复: 双指撤销/重做等多指手势的 DOWN 不经过 handleToolUp,
+                // 取消后没有路径重新调度, 面板会永久停留在回避态。
+                // 真正起笔时由 handleToolDown 的 BRUSH/ERASER/SMUDGE 分支负责取消。
                 // 手指落笔同样要在提交前刷新裁剪快照 (此前只覆盖了手写笔路径)。
                 rebuildUiExclusionSnapshot()
                 touchDownTimeMs = nowMs
@@ -4994,6 +5118,8 @@ class CanvasTouchView(context: Context) : View(context) {
                 longPressToken++
                 removeCallbacks(flushEdgeFingerRunnable)
                 isInteracting = false
+                // 12 条强制复位路径之一：手势取消（含边缘侧滑/长按待定等提前返回路径）。
+                if (event.actionMasked == MotionEvent.ACTION_CANCEL) clearAllEvasionState(v)
 
                 if (draggingGuideHandleIndex != -1) {
                     draggingGuideHandleIndex = -1
@@ -5074,7 +5200,16 @@ class CanvasTouchView(context: Context) : View(context) {
     ) {
         val v = vm ?: return
         // 不变式: 先发布裁剪快照, 再把触摸点提交给引擎。
-        rebuildUiExclusionSnapshot()
+        val et = effTool()
+        if (et == Tool.BRUSH || et == Tool.ERASER || et == Tool.SMUDGE) {
+            // 80ms 内新落笔：落点仍在 40dp 内则无缝保持 50%，否则当帧恢复。
+            removeCallbacks(clearEvasionAfterUpRunnable)
+            rebuildUiExclusionSnapshot(force = true)
+            val brushR = effectiveBrushScreenRadius(v, pressure)
+            evaluateUiEvasion50(v, screenPos.x, screenPos.y, screenPos.x, screenPos.y, brushR)
+        } else {
+            rebuildUiExclusionSnapshot()
+        }
         removeCallbacks(quickShapeHold)
         quickShapeCandidate = null
         v.quickShapeCapture = null
@@ -5432,6 +5567,48 @@ class CanvasTouchView(context: Context) : View(context) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 // s13-C5: 本笔已被笔画中的撤销/重做中止, 抬笔前不再迟到起笔
                 if (strokeAbortedUntilUp) return
+                val brushR = effectiveBrushScreenRadius(v, pressure)
+                hasEvasionEnv = false
+                if (v.autoHidePanelsOnStroke) {
+                    var anyActive = false
+                    for (i in UiPanelSlot.EVADABLE_ARRAY.indices) {
+                        if (v.panelOcclusion.isActive(UiPanelSlot.EVADABLE_ARRAY[i])) { anyActive = true; break }
+                    }
+                    if (anyActive) {
+                        val curX = event.getX(pointerIndex)
+                        val curY = event.getY(pointerIndex)
+                        var envL = curX
+                        var envT = curY
+                        var envR = curX
+                        var envB = curY
+                        val prior = priorStrokeScreenPos
+                        if (prior.x.isFinite() && prior.y.isFinite() && (prior.x != 0f || prior.y != 0f)) {
+                            envL = minOf(envL, prior.x); envT = minOf(envT, prior.y)
+                            envR = maxOf(envR, prior.x); envB = maxOf(envB, prior.y)
+                        }
+                        for (i in 0 until event.historySize) {
+                            val hx = event.getHistoricalX(pointerIndex, i)
+                            val hy = event.getHistoricalY(pointerIndex, i)
+                            if (!hx.isFinite() || !hy.isFinite()) continue
+                            envL = minOf(envL, hx); envT = minOf(envT, hy)
+                            envR = maxOf(envR, hx); envB = maxOf(envB, hy)
+                        }
+                        if (firstDocPos != Offset.Zero) {
+                            val assisted = applyAssistedDrawing(firstDocPos, docPos)
+                            if (assisted.x.isFinite() && assisted.y.isFinite()) {
+                                val asScreen = docToScreen(assisted)
+                                envL = minOf(envL, asScreen.x); envT = minOf(envT, asScreen.y)
+                                envR = maxOf(envR, asScreen.x); envB = maxOf(envB, asScreen.y)
+                            }
+                        }
+                        evasionEnvL = envL
+                        evasionEnvT = envT
+                        evasionEnvR = envR
+                        evasionEnvB = envB
+                        hasEvasionEnv = true
+                        evaluateUiEvasion50(v, envL, envT, envR, envB, brushR)
+                    }
+                }
                 val hasSymmetry = (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing)
                 val startedNow = !strokeStarted
                 if (!strokeStarted) {
@@ -5685,6 +5862,25 @@ class CanvasTouchView(context: Context) : View(context) {
                     // 门控与 onDraw 软件回退互补 (canRenderPreview 为 false 时由软件回退接管,
                     // 见 FrontBufferProbe.softwareFallbackRequired): 渲染器初始化失败时不能在此
                     // 置 drew=true, 否则直出与回退两边都不画。
+                    if (hasPredictedScreenPoint) {
+                        // 预测点并入本帧包络：只提前触发避让，不允许把已避让面板误判为离开。
+                        if (hasEvasionEnv) {
+                            evaluateUiEvasion50(
+                                v,
+                                minOf(evasionEnvL, predictedScreenX),
+                                minOf(evasionEnvT, predictedScreenY),
+                                maxOf(evasionEnvR, predictedScreenX),
+                                maxOf(evasionEnvB, predictedScreenY),
+                                brushR,
+                            )
+                        } else {
+                            evaluateUiEvasion50(
+                                v, predictedScreenX, predictedScreenY,
+                                predictedScreenX, predictedScreenY, brushR,
+                            )
+                        }
+                    }
+
                     // 真墨按住期间前缓冲上是引擎真墨 (渲染线程呈现), 不再叠 #81 的前沿段假线;
                     // 光标与预测笔尖在本分支末尾记下快照, 由前缓冲随墨一起画。
                     if (!realInk.held && frontBufferSettled(v) &&
@@ -6538,9 +6734,11 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     private fun handleToolUp(event: MotionEvent, docPos: Offset, isCancel: Boolean, isStylus: Boolean = false) {
+        val v = vm ?: return
+        // 正常抬笔走 80ms 延续窗口（防高频排线闪烁）；取消则立即复位。
+        if (isCancel) clearAllEvasionState(v) else scheduleClearEvasionAfterUp()
         removeCallbacks(quickShapeHold)
         removeCallbacks(liquifyHoldRunnable)
-        val v = vm ?: return
 
         if (draggingGuideHandleIndex != -1) {
             draggingGuideHandleIndex = -1
@@ -6559,6 +6757,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     quickShapeCandidate = null
                     if (!isCancel && v.quickShapeEnabled && candidate != null && capture != null && !capture.overflowed) {
                         realInk.release()
+                        // 12 条强制复位路径之一：停顿进入 QuickShapeEditor。
+                        clearAllEvasionState(v)
                         v.beginQuickShape(candidate, capture.snapshot())
                         resetMirrorBranches()
                         safeEndSymmetryUndoMacro()

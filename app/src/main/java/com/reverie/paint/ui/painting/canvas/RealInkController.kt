@@ -103,6 +103,8 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
     private val bmpRects = IntArray(RealInkPresent.MAX_DISCRETE_RECTS * 4)
     private val screenBounds = IntArray(4)
     private val canvasBounds = IntArray(4)
+    /** 本帧脏区与面板孔径交集的屏幕包围盒（渲染线程复用，零分配）。 */
+    private val clipOverlapBounds = IntArray(4)
     private val bakeSrc = IntArray(4)
     private val bakeSrcRect = Rect()
     private val bakeDstRect = RectF()
@@ -463,6 +465,38 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
             slot.busy.set(false)
             returnPending(snapCount, seq)
             return false
+        }
+        // 孔径外的新墨已由前缓冲 4~8ms 直出；若本帧脏区侵入了面板/阴影孔径，
+        // 孔径内前缓冲已被 clipOut 为全透明，必须唤醒主窗口 HWUI 在该交集区域
+        // 重绘 CanvasTouchView，让真实圆角、软阴影与 50% 面板原生合成在新墨之上。
+        // 未侵入时不触发任何主画布失效，PublishedTiles 保持 100% TILE_UNDRAWN。
+        if (!clipsSnapshot.isEmpty) {
+            clipOverlapBounds[0] = Int.MAX_VALUE
+            clipOverlapBounds[1] = Int.MAX_VALUE
+            clipOverlapBounds[2] = Int.MIN_VALUE
+            clipOverlapBounds[3] = Int.MIN_VALUE
+            var hasClipOverlap = false
+            for (i in 0 until baked) {
+                val d = i * 4
+                if (clipsSnapshot.accumulateIntersection(
+                        screenRects[d],
+                        screenRects[d + 1],
+                        screenRects[d + 2],
+                        screenRects[d + 3],
+                        clipOverlapBounds,
+                    )
+                ) {
+                    hasClipOverlap = true
+                }
+            }
+            if (hasClipOverlap) {
+                view.postInvalidateOnAnimation(
+                    clipOverlapBounds[0].coerceAtLeast(0),
+                    clipOverlapBounds[1].coerceAtLeast(0),
+                    clipOverlapBounds[2].coerceAtMost(viewW),
+                    clipOverlapBounds[3].coerceAtMost(viewH),
+                )
+            }
         }
         return true
     }
