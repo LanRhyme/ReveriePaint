@@ -54,7 +54,9 @@ import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.applyTool
 import com.reverie.paint.core.selectBrushPreset
 import com.reverie.paint.model.Tool
+import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.pressScale
+import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.painting.brush.rememberPresetThumb
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.Motion
@@ -149,6 +151,7 @@ fun QuickBrushWindow(
         // ---- 悬浮窗实体 ----
         Box(
             modifier = Modifier
+                .reportUiSlot(vm, UiPanelSlot.QUICK_BRUSH)
                 .onSizeChanged { size ->
                     windowSize = size
                     vm.quickBrushWindowWidth = size.width.toFloat()

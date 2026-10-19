@@ -17,6 +17,7 @@ import com.reverie.paint.core.PublishedTiles
 import com.reverie.paint.core.RealInkSink
 import com.reverie.paint.model.CanvasPose
 import com.reverie.paint.model.RealInkPresent
+import com.reverie.paint.model.UiClipSnapshot
 import com.reverie.paint.perf.FbGeomLog
 import java.util.concurrent.atomic.AtomicBoolean
 
@@ -78,9 +79,9 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
     var strokeWantsOverlayExtras: Boolean = false
         private set
 
-    /** 落笔时抓的 UI 避让区快照 (覆盖层置顶, 墨不能盖到 UI 上)。 */
+    /** 落笔时抓的 UI 避让区快照 (不可变; 覆盖层置顶, 墨不能盖到 UI 上)。 */
     @Volatile
-    var uiClips: Array<RectF> = emptyArray()
+    var uiClips: UiClipSnapshot = UiClipSnapshot.EMPTY
         private set
 
     // ---- 追赶清除: 抬笔后主画布画完同一帧才清前缓冲 ----
@@ -132,6 +133,7 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
             if (h == null) repostPending.set(false) else h.post(repostRunnable)
         }
     }
+    @Volatile
     private var strokeSeq = 0L
 
     // ================= UI 线程 =================
@@ -140,13 +142,14 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
      * 落笔时决定这一笔要不要按住前缓冲。[allowed] 由调用方综合开关/对称/瓦片路径/设备能力给出。
      * 返回最终是否按住。
      */
-    fun arm(allowed: Boolean, wantsExtras: Boolean, clips: Array<RectF>): Boolean {
+    fun arm(allowed: Boolean, wantsExtras: Boolean, clips: UiClipSnapshot): Boolean {
         val overlay = view.frontBufferOverlay
         val hold = allowed && overlay != null && overlay.canRenderPreview
         FbGeomLog.strokeBegin(++strokeSeq, hold, view.width, view.height, pose)
         synchronized(pendingLock) { pendingCount = 0 }
         if (!hold) {
             held = false
+            uiClips = UiClipSnapshot.EMPTY
             cursorR = 0f
             tipWidth = 0f
             symCursorCount = 0
@@ -162,12 +165,27 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
         return true
     }
 
+    /** 笔画中途 UI 槽位变化时更新裁剪快照 (UI 线程; 渲染线程通过 @Volatile 读取)。 */
+    fun updateActiveUiClips(clips: UiClipSnapshot) {
+        if (held) uiClips = clips
+    }
+
     /** 松开前缓冲 (抬笔、取消、让位给变换等)。任一线程可调。 */
     fun release() {
         held = false
+        uiClips = UiClipSnapshot.EMPTY
         cursorR = 0f
         tipWidth = 0f
         symCursorCount = 0
+    }
+
+    /** 中途释放并登记一次追赶: 主画布下一帧画完后清前缓冲, 避免停顿期间旧墨留在面板上。 */
+    fun releaseAndCatchUp() {
+        release()
+        if (view.frontBufferOverlay?.hasInk == true) {
+            finishFrame(false)
+            view.postInvalidate()
+        }
     }
 
     /**
@@ -295,6 +313,8 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
         val overlay = view.frontBufferOverlay ?: return false
         if (!overlay.isIdleForInk()) return false
         val p = pose ?: return false
+        val seq = strokeSeq
+        val clipsSnapshot = uiClips
         val grid = tiles.grid
         if (grid.width != p.bmpW || grid.height != p.bmpH) return false
         val viewW = view.width
@@ -317,9 +337,14 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
                         reclaimedRects[o + 3],
                     )
             }
-            System.arraycopy(pendingRects, 0, snapshotRects, 0, pendingCount * 4)
-            pendingCount
+            val n = pendingCount
+            System.arraycopy(pendingRects, 0, snapshotRects, 0, n * 4)
+            // 锁内取快照即消费: 烘焙期间 UI/渲染线程新追加的矩形留在 pendingRects,
+            // 不会被本帧无条件清零吞掉。失败时再用 returnPending 把本次快照还回去。
+            pendingCount = 0
+            n
         }
+        if (seq != strokeSeq) return false
         if (snapCount <= 0) return false
         val srcW = p.bmpW
         val srcH = p.bmpH
@@ -327,7 +352,7 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
         if (!RealInkPresent.bmpRectToScreenBounds(p, 0f, 0f, srcW.toFloat(), srcH.toFloat(), viewW, viewH, 0,
                 canvasBounds)
         ) {
-            synchronized(pendingLock) { pendingCount = 0 }
+            // 整张画布都不在视口: 本次快照没有可贴区域, 直接丢弃。
             return false
         }
         var baked = 0
@@ -366,8 +391,7 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
             baked++
         }
         if (baked <= 0) {
-            // 整帧没有一块落在视口里: 没什么可贴, 丢掉积压免得越滚越大。
-            synchronized(pendingLock) { pendingCount = 0 }
+            // 整帧没有一块落在视口里: 没什么可贴, 丢弃本次快照免得越滚越大。
             return false
         }
         var minL = Int.MAX_VALUE
@@ -385,14 +409,21 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
         val reqH = (maxB - minT).coerceIn(1, viewH)
         val slot = claimSlot() ?: run {
             // 槽位都还在被 GL 读: 顶掉还没开始画的排队包, 它的槽位随之归还。
-            if (!overlay.discardQueuedInk()) return false
-            claimSlot() ?: return false
+            if (!overlay.discardQueuedInk()) {
+                returnPending(snapCount, seq)
+                return false
+            }
+            claimSlot() ?: run {
+                returnPending(snapCount, seq)
+                return false
+            }
         }
         val slotBitmap =
             try {
                 ensureSlotBitmap(slot, reqW, reqH, viewW, viewH)
             } catch (_: OutOfMemoryError) {
                 slot.busy.set(false)
+                returnPending(snapCount, seq)
                 return false
             }
         bakeCanvas.setBitmap(slotBitmap)
@@ -413,22 +444,51 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
         if (!allBaked) {
             // 部分贴会让已清空的脏区永久缺失 (按住期间主画布不兜底): 整帧放弃, 下一帧重来。
             slot.busy.set(false)
+            returnPending(snapCount, seq)
             return false
         }
         synchronized(epochLock) { epoch += 1 }
+        if (!held || seq != strokeSeq) {
+            slot.busy.set(false)
+            return false
+        }
         val shown =
             overlay.renderInkScreenRegions(
                 slotBitmap, screenRects, bmpRects, baked, p,
                 cursorX, cursorY, cursorR, cursorStyle, strokeWantsOverlayExtras,
-                uiClips, slot.busy, minL, minT, canvasBounds,
+                clipsSnapshot, slot.busy, minL, minT, canvasBounds,
                 symCursorX, symCursorY, symCursorCount,
             )
         if (!shown) {
             slot.busy.set(false)
+            returnPending(snapCount, seq)
             return false
         }
-        synchronized(pendingLock) { pendingCount = 0 }
         return true
+    }
+
+    /**
+     * 本帧烘焙/提交失败: 把锁内消费掉的快照矩形逐块归还 pendingRects。
+     * 必须在锁内 append, 与渲染线程的新增脏区合并; 已满 8 块时 appendDiscrete 会自动并块。
+     * [seq] 是本帧快照对应的笔画代次; 若期间已换笔, 旧笔的矩形直接丢弃, 不污染新笔。
+     */
+    private fun returnPending(count: Int, seq: Long) {
+        if (count <= 0) return
+        synchronized(pendingLock) {
+            if (seq != strokeSeq) return
+            for (i in 0 until count) {
+                val o = i * 4
+                pendingCount =
+                    RealInkPresent.appendDiscrete(
+                        pendingRects,
+                        pendingCount,
+                        snapshotRects[o],
+                        snapshotRects[o + 1],
+                        snapshotRects[o + 2],
+                        snapshotRects[o + 3],
+                    )
+            }
+        }
     }
 
     /**

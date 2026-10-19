@@ -107,9 +107,14 @@ class CanvasTouchView(context: Context) : View(context) {
     var vm: PaintViewModel? = null
         set(value) {
             val old = field
-            if (old != null && old !== value && old.realInkSink === realInk) old.realInkSink = null
+            if (old === value) return
+            if (old != null && old.realInkSink === realInk) old.realInkSink = null
+            old?.panelOcclusion?.onChanged = null
             field = value
             value?.realInkSink = realInk
+            value?.panelOcclusion?.onChanged = { scheduleSnapshotRebuild() }
+            // VM 换人后强制重建, 不沿用旧 VM 的槽位版本。
+            lastUiClipVersion = -1
         }
     var tool: Tool = Tool.BRUSH
         set(value) {
@@ -423,6 +428,7 @@ class CanvasTouchView(context: Context) : View(context) {
         v.quickShapeCapture = null
         quickShapeCandidate = null
         v.touchCancel()
+        realInk.release()
         strokeStarted = false
         strokeAbortedUntilUp = true
         safeEndSymmetryUndoMacro()
@@ -997,113 +1003,59 @@ class CanvasTouchView(context: Context) : View(context) {
     private val stampVX = FloatArray(128)
     private val stampVY = FloatArray(128)
 
-    // ---- 前缓冲 UI 避让注册表 (PR #82 review 问题 3) ----
-    // setZOrderOnTop(true) 把前缓冲层置于整个 Window 之上, 预览假线可能画到
-    // Compose 控件表面。仅判触点端点不够: 高速运笔一帧可跨过 56dp 顶栏,
-    // 线段穿过 UI 区而两端都在外面。此处用包络矩形做保守相交判定, 命中即整帧跳过。
-    // 不可变数组 + @Volatile 发布: 布局/浮窗/左右手切换时 UI 线程重建, 热路径只读。
-    // 几何与 isHoverOverUi 同源 (见该函数注释), 改一处记得同步另一处。
+    // ---- 前缓冲 UI 裁剪快照 (Phase 1) ----
+    // 所有面板的实测 bounds 由 Compose 侧 reportUiSlot 写入 vm.panelOcclusion;
+    // 这里只在槽位版本变化/DOWN/arm/onSizeChanged 时构建不可变快照并 @Volatile 发布。
+    // 渲染线程只读快照, 不接触任何可变 RectF。
     @Volatile
-    private var uiExclusionRects: Array<android.graphics.RectF> = emptyArray()
+    private var uiClipSnapshot: UiClipSnapshot = UiClipSnapshot.EMPTY
+    private var lastUiClipVersion: Int = -1
+
+    // tracker.onChanged 在 UI 线程触发, 但 KDoc 禁止回调内同步重入 tracker;
+    // 这里只置位并 post 一次, 同一帧内的多次槽位变化合并为一次快照重建。
+    @Volatile
+    private var snapshotRebuildPending = false
+    private val snapshotRebuildRunnable = Runnable {
+        snapshotRebuildPending = false
+        rebuildUiExclusionSnapshot()
+    }
+
+    private fun scheduleSnapshotRebuild() {
+        if (snapshotRebuildPending) return
+        snapshotRebuildPending = true
+        if (!post(snapshotRebuildRunnable)) snapshotRebuildPending = false
+    }
 
     /**
-     * 重建 UI 避让注册表。每笔 DOWN 时 + onSizeChanged 时调用 (UI 线程, 非逐事件热路径)。
+     * 重建 UI 裁剪快照。仅当 tracker.version 变化或 [force] 时真正构建;
+     * 每笔 DOWN / arm / onSizeChanged 调用 (UI 线程, 非逐事件热路径)。
      */
-    private fun rebuildUiExclusionRects() {
+    private fun rebuildUiExclusionSnapshot(force: Boolean = false) {
         val v = vm
-        val d = density
-        val w = width.toFloat()
-        val h = height.toFloat()
-        if (w <= 0f || h <= 0f) {
-            uiExclusionRects = emptyArray()
+        if (v == null) {
+            if (uiClipSnapshot !== UiClipSnapshot.EMPTY) {
+                uiClipSnapshot = UiClipSnapshot.EMPTY
+                lastUiClipVersion = -1
+            }
+            if (realInk.held) realInk.release()
             return
         }
-        val list = ArrayList<android.graphics.RectF>(6)
-        // 顶部操作栏 (380dp x 56dp): 左右手镜像 —— 左手模式顶栏在左上角,
-        // 原 isHoverOverUi 只判了右侧, 此处补上 (PR #82 review 问题 3)。
-        // 优先用 Compose 侧实测边界 (root 坐标, px): 悬浮/贴边/左手/横竖屏下真实几何与硬编码
-        // 差异很大 (工具栏实宽 36dp、顶栏与工具栏之间露出画布), 硬编码会在画布上挖掉不属于 UI
-        // 的区域 —— 真墨按住期间那块矩形里不落墨, 抬笔才恢复。尚未测量到时退回硬编码估计。
-        val isLeft = v?.leftHandMode == true
-        val measuredBar = v?.measuredTopBarRect
-        val measuredRail = v?.measuredToolRailRect
-        if (measuredBar != null) {
-            list.add(android.graphics.RectF(measuredBar))
-        } else {
-            val barW = 380f * d
-            val barH = 56f * d
-            if (isLeft) {
-                list.add(android.graphics.RectF(0f, 0f, barW, barH))
+        val version = v.panelOcclusion.version
+        if (!force && version == lastUiClipVersion) return
+        // tracker 是裁剪状态的唯一真身; ViewModel 的 mask 字段仅为 Phase 2 API 保留。
+        val snapshot = v.panelOcclusion.snapshot()
+        lastUiClipVersion = version
+        uiClipSnapshot = snapshot
+        if (realInk.held) {
+            if (snapshot != realInk.uiClips) {
+                // 笔画中途裁剪集合变化: 前缓冲已有像素无法回擦, 交给主画布重新合成。
+                realInk.releaseAndCatchUp()
             } else {
-                list.add(android.graphics.RectF(w - barW, 0f, w, barH))
+                realInk.updateActiveUiClips(snapshot)
             }
         }
-        if (measuredRail != null) {
-            list.add(android.graphics.RectF(measuredRail))
-        } else {
-            // 快捷工具栏 (宽 56dp, 全高): 左手模式下位于屏幕右侧 (PaintingPage.kt ToolRail)
-            val railLeft = if (isLeft) (w - 56f * d).coerceAtLeast(0f) else 0f
-            val railRight = if (isLeft) w else 56f * d
-            list.add(android.graphics.RectF(railLeft, 0f, railRight, h))
-        }
-        v?.measuredSliderRailRect?.let { list.add(android.graphics.RectF(it)) }
-        if (v != null) {
-            // 参考浮窗 (若打开)
-            if (v.referenceWindowOpen) {
-                val rw = v.referenceWindowWidth * d
-                val rh = v.referenceWindowHeight * d
-                list.add(android.graphics.RectF(v.referenceWindowX, v.referenceWindowY, v.referenceWindowX + rw, v.referenceWindowY + rh))
-            }
-            // 快捷操作浮窗 (若打开)
-            if (v.quickActionWindowOpen) {
-                val qw = if (v.quickActionCollapsed) 90f * d else 380f * d
-                val qh = if (v.quickActionCollapsed) 50f * d else 380f * d
-                val qx = if (v.quickActionWindowX >= 0f) v.quickActionWindowX else ((w - qw) / 2f).coerceAtLeast(0f)
-                val qy = if (v.quickActionWindowY >= 0f) v.quickActionWindowY else ((h - qh) / 2f).coerceAtLeast(0f)
-                list.add(android.graphics.RectF(qx, qy, qx + qw, qy + qh))
-            }
-            // 快捷笔刷浮窗 (若打开)
-            if (v.quickBrushWindowOpen) {
-                val isVert = v.quickBrushOrientation == "vertical"
-                val favCount = v.favoriteBrushNames.size
-                val visibleCount = if (favCount == 0) 1 else favCount.coerceAtMost(v.quickBrushMaxLength)
-                val listDim = if (favCount == 0) 130f else (visibleCount * 43f - 1f)
-                val bw = when {
-                    v.quickBrushCollapsed -> 90f * d
-                    isVert -> 56f * d
-                    else -> (70f + listDim + 36f) * d
-                }
-                val bh = when {
-                    v.quickBrushCollapsed -> 50f * d
-                    isVert -> (28f + (if (favCount == 0) 48f else (visibleCount * 43f - 1f)) + 36f) * d
-                    else -> 56f * d
-                }
-                val bx = if (v.quickBrushWindowX >= 0f) v.quickBrushWindowX else ((w - bw) / 2f).coerceAtLeast(0f)
-                val by = if (v.quickBrushWindowY >= 0f) v.quickBrushWindowY else ((h - bh) / 2f).coerceAtLeast(0f)
-                list.add(android.graphics.RectF(bx, by, bx + bw, by + bh))
-            }
-        }
-        uiExclusionRects = list.toTypedArray()
     }
 
-    /**
-     * 本帧预览包络 (回填起点 → 当前点 → 笔尖终点, 外扩笔宽/8dp 裕度覆盖二次曲线隆起)
-     * 是否触碰任一 UI 避让区。包络相交是线段相交的保守上界: 漏判为零, 误判至多跳过一帧
-     * 预览 (下一触控事件 ~4ms 后即到), 宁可少画, 不画到 UI 脸上。
-     */
-    private fun previewEnvelopeHitsUi(curX: Float, curY: Float): Boolean {
-        val rects = uiExclusionRects
-        if (rects.isEmpty()) return false
-        val margin = maxOf(previewStrokeWidth, 8f * density)
-        val minX = minOf(previewBackfillStartX, curX, previewTipEndX) - margin
-        val maxX = maxOf(previewBackfillStartX, curX, previewTipEndX) + margin
-        val minY = minOf(previewBackfillStartY, curY, previewTipEndY) - margin
-        val maxY = maxOf(previewBackfillStartY, curY, previewTipEndY) + margin
-        for (r in rects) {
-            if (maxX >= r.left && minX <= r.right && maxY >= r.top && minY <= r.bottom) return true
-        }
-        return false
-    }
     private val tipShaderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
         style = Paint.Style.STROKE
         strokeCap = Paint.Cap.ROUND
@@ -2221,146 +2173,7 @@ class CanvasTouchView(context: Context) : View(context) {
         // panel booleans into this field via CanvasView's update block.
         if (overlayPanelsOpen) return true
 
-        val d = density
-        val isLeft = v.leftHandMode
-        // 顶栏 / 工具栏 / 滑块栏优先用 Compose 侧实测边界 (与 rebuildUiExclusionRects 同源, root 坐标 px):
-        // 写死的 dp 矩形在悬浮/停靠/左手/横竖屏下和真实几何对不上。还没测到时退回写死的估计。
-        val measuredBar = v.measuredTopBarRect
-        if (measuredBar != null) {
-            if (measuredBar.contains(x, y)) return true
-        } else if (isLeft) {
-            // 顶部操作栏区域 (宽约 380dp，高约 56dp)
-            if (y <= 56f * d && x <= 380f * d) return true
-        } else {
-            if (y <= 56f * d && x >= width - 380f * d) return true
-        }
-
-        val measuredRail = v.measuredToolRailRect
-        if (measuredRail != null) {
-            if (measuredRail.contains(x, y)) return true
-        } else if (isLeft) {
-            // 快捷工具栏 (宽 56dp): 左手模式下位于右侧
-            if (x >= width - 56f * d) return true
-        } else {
-            if (x <= 56f * d) return true
-        }
-        if (v.measuredSliderRailRect?.contains(x, y) == true) return true
-
-        // 参考浮窗区域 (若打开)
-        if (v.referenceWindowOpen) {
-            val rx = v.referenceWindowX
-            val ry = v.referenceWindowY
-            val rw = v.referenceWindowWidth * d
-            val rh = v.referenceWindowHeight * d
-            if (x >= rx && x <= rx + rw && y >= ry && y <= ry + rh) {
-                return true
-            }
-        }
-
-        // 快捷操作浮窗区域 (若打开)
-        if (v.quickActionWindowOpen) {
-            val qw = if (v.quickActionWindowWidth > 0f) {
-                v.quickActionWindowWidth
-            } else {
-                if (v.quickActionCollapsed) 72f * d
-                else when (v.quickActionsConfig.layoutMode) {
-                    QuickActionLayoutMode.COLUMN -> 56f * d
-                    QuickActionLayoutMode.ROW -> 240f * d
-                    QuickActionLayoutMode.GRID_2 -> 110f * d
-                    QuickActionLayoutMode.GRID_3 -> 160f * d
-                }
-            }
-            val qh = if (v.quickActionWindowHeight > 0f) {
-                v.quickActionWindowHeight
-            } else {
-                if (v.quickActionCollapsed) 44f * d
-                else when (v.quickActionsConfig.layoutMode) {
-                    QuickActionLayoutMode.COLUMN -> 280f * d
-                    QuickActionLayoutMode.ROW -> 76f * d
-                    QuickActionLayoutMode.GRID_2, QuickActionLayoutMode.GRID_3 -> 160f * d
-                }
-            }
-            val qx = if (v.quickActionWindowX >= 0f) v.quickActionWindowX else ((width - qw) / 2f).coerceAtLeast(0f)
-            val qy = if (v.quickActionWindowY >= 0f) v.quickActionWindowY else ((height - qh) / 2f).coerceAtLeast(0f)
-            if (x >= qx && x <= qx + qw && y >= qy && y <= qy + qh) {
-                return true
-            }
-        }
-
-        // 快捷笔刷浮窗区域 (若打开)
-        if (v.quickBrushWindowOpen) {
-            val bw = if (v.quickBrushWindowWidth > 0f) {
-                v.quickBrushWindowWidth
-            } else {
-                val isVert = v.quickBrushOrientation == "vertical"
-                val favCount = v.favoriteBrushNames.size
-                val visibleCount = if (favCount == 0) 1 else favCount.coerceAtMost(v.quickBrushMaxLength)
-                val listDim = if (favCount == 0) 130f else (visibleCount * 43f - 1f)
-                when {
-                    v.quickBrushCollapsed -> 90f * d
-                    isVert -> 56f * d
-                    else -> (70f + listDim + 36f) * d
-                }
-            }
-            val bh = if (v.quickBrushWindowHeight > 0f) {
-                v.quickBrushWindowHeight
-            } else {
-                val isVert = v.quickBrushOrientation == "vertical"
-                val favCount = v.favoriteBrushNames.size
-                val visibleCount = if (favCount == 0) 1 else favCount.coerceAtMost(v.quickBrushMaxLength)
-                when {
-                    v.quickBrushCollapsed -> 50f * d
-                    isVert -> (28f + (if (favCount == 0) 48f else (visibleCount * 43f - 1f)) + 36f) * d
-                    else -> 56f * d
-                }
-            }
-            val bx = if (v.quickBrushWindowX >= 0f) v.quickBrushWindowX else ((width - bw) / 2f).coerceAtLeast(0f)
-            val by = if (v.quickBrushWindowY >= 0f) v.quickBrushWindowY else ((height - bh) / 2f).coerceAtLeast(0f)
-            if (x >= bx && x <= bx + bw && y >= by && y <= by + bh) {
-                return true
-            }
-        }
-
-        // 快捷颜色浮窗区域 (若打开)
-        if (v.quickColorWindowOpen) {
-            val cw = if (v.quickColorWindowWidth > 0f) v.quickColorWindowWidth
-                     else if (v.quickColorCollapsed) 48f * d else 212f * d
-            val ch = if (v.quickColorWindowHeight > 0f) v.quickColorWindowHeight
-                     else if (v.quickColorCollapsed) 48f * d else 270f * d
-            val cx = if (v.quickColorWindowX >= 0f) v.quickColorWindowX else ((width - cw) / 2f).coerceAtLeast(0f)
-            val cy = if (v.quickColorWindowY >= 0f) v.quickColorWindowY else ((height - ch) / 2f).coerceAtLeast(0f)
-            if (x >= cx && x <= cx + cw && y >= cy && y <= cy + ch) {
-                return true
-            }
-        }
-
-        // OKLCH 调色浮窗区域 (若打开)
-        if (v.quickOklchWindowOpen) {
-            val ow = if (v.quickOklchWindowWidth > 0f) v.quickOklchWindowWidth
-                     else if (v.quickOklchCollapsed) 48f * d else 244f * d
-            val oh = if (v.quickOklchWindowHeight > 0f) v.quickOklchWindowHeight
-                     else if (v.quickOklchCollapsed) 48f * d else 330f * d
-            val ox = if (v.quickOklchWindowX >= 0f) v.quickOklchWindowX else ((width - ow) / 2f).coerceAtLeast(0f)
-            val oy = if (v.quickOklchWindowY >= 0f) v.quickOklchWindowY else ((height - oh) / 2f).coerceAtLeast(0f)
-            if (x >= ox && x <= ox + ow && y >= oy && y <= oy + oh) {
-                return true
-            }
-        }
-
-        // 快捷图层浮窗区域 (若打开)
-        if (v.quickLayerWindowOpen) {
-            val lw = if (v.quickLayerWindowWidth > 0f) v.quickLayerWindowWidth
-                     else if (v.quickLayerCollapsed) 48f * d else 156f * d
-            val lh = if (v.quickLayerWindowHeight > 0f) v.quickLayerWindowHeight
-                     else if (v.quickLayerCollapsed) 48f * d else 320f * d
-            val lx = if (v.quickLayerWindowX >= 0f) v.quickLayerWindowX else ((width - lw) / 2f).coerceAtLeast(0f)
-            val ly = if (v.quickLayerWindowY >= 0f) v.quickLayerWindowY else ((height - lh) / 2f).coerceAtLeast(0f)
-            if (x >= lx && x <= lx + lw && y >= ly && y <= ly + lh) {
-                return true
-            }
-        }
-
-        return false
+        return v.panelOcclusion.hitTest(x, y)
     }
 
     // 系统手势侧滑返回排除区状态 (API 29+ Android 10: 绘画页面全高全局排除两侧返回手势)
@@ -2410,13 +2223,16 @@ class CanvasTouchView(context: Context) : View(context) {
             universalPredictor.setScreenDiagonal(kotlin.math.hypot(w.toFloat(), h.toFloat()))
         }
         updateSystemGestureExclusion()
-        rebuildUiExclusionRects()
+        rebuildUiExclusionSnapshot(force = true)
     }
 
     override fun onAttachedToWindow() {
         super.onAttachedToWindow()
         activeTouchView = this
         vm?.realInkSink = realInk
+        // 重新挂载时 VM 通常未变 (setter 会提前返回), 这里补挂回 detach 时摘掉的回调。
+        vm?.panelOcclusion?.onChanged = { scheduleSnapshotRebuild() }
+        lastUiClipVersion = -1
         getOrCreateStylusDriver()?.syncSettings()
         applyHighRefreshRateAndUnbuffered()
         val maxFps = if (Build.VERSION.SDK_INT >= 30) {
@@ -2563,6 +2379,9 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     override fun onDetachedFromWindow() {
+        vm?.panelOcclusion?.onChanged = null
+        removeCallbacks(snapshotRebuildRunnable)
+        snapshotRebuildPending = false
         releaseLargeBitmapTiles()
         removeCallbacks(quickShapeHold)
         vm?.quickShapeCapture = null
@@ -3531,15 +3350,22 @@ class CanvasTouchView(context: Context) : View(context) {
         android.os.SystemClock.uptimeMillis() >= v.frontBufferQuietUntilMs
 
     private fun armRealInkHold(v: PaintViewModel, hasSymmetry: Boolean, x: Float, y: Float, pressure: Float) {
+        // 透光台对位模式: 前缓冲置顶会盖住 ShiftTraceOverlay, 统一不按住真墨,
+        // 走 #81 前沿预览 + 主画布实时刷新。透明/不透明画布行为一致。
+        if (v.anim.shiftTraceActive) {
+            realInk.release()
+            frontBufferOverlay?.clearPreview()
+        }
+        rebuildUiExclusionSnapshot()
         ensureViewTransform()
         val allowed = v.frontBufferPredictionEnabled && (!hasSymmetry || v.mirrorGate.isQueueing) &&
             v.displayTiles.drawable() != null && FrontBufferProbe.realInkHoldAllowed() &&
-            frontBufferSettled(v)
+            frontBufferSettled(v) && !v.anim.shiftTraceActive
         val t = effTool()
         val cursorMode = if (t == Tool.ERASER) v.eraserCursorMode else v.brushCursorMode
         val cursorWhileDrawing = (cursorMode == 1 || cursorMode == 3) && v.cursorStyleMode != 4
         val extras = cursorWhileDrawing || predictedTipEligible(v)
-        if (realInk.arm(allowed, extras, uiExclusionRects)) {
+        if (realInk.arm(allowed, extras, uiClipSnapshot)) {
             noteHoldCursor(x, y, pressure)
         }
     }
@@ -4355,9 +4181,9 @@ class CanvasTouchView(context: Context) : View(context) {
             localIsTouching = true
             localIsHovering = false
             localPressure = pressure
-            // 前缓冲 UI 避让注册表: 每笔落笔时重建 (布局/浮窗/左右手状态快照)。
-            // 240Hz 的 ACTION_MOVE 上重建会每事件新建 ArrayList<RectF>, 白白制造 GC 压力。
-            if (isDown) rebuildUiExclusionRects()
+            // 前缓冲 UI 裁剪快照: 每笔落笔时刷新 (布局/浮窗/左右手状态快照)。
+            // 240Hz 的 ACTION_MOVE 上只在 tracker.version 变化时重建。
+            if (isDown) rebuildUiExclusionSnapshot()
 
             val hideCursor = (tool == Tool.BRUSH || tool == Tool.ERASER || tool == Tool.SMUDGE || tool == Tool.LIQUIFY) &&
                 v.cursorStyleMode != 4
@@ -4975,6 +4801,8 @@ class CanvasTouchView(context: Context) : View(context) {
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                // 手指落笔同样要在提交前刷新裁剪快照 (此前只覆盖了手写笔路径)。
+                rebuildUiExclusionSnapshot()
                 touchDownTimeMs = nowMs
                 maxTouchPointers = 1
                 previousSinglePos = screenPos
@@ -5245,6 +5073,8 @@ class CanvasTouchView(context: Context) : View(context) {
         rotation: Double = 0.0,
     ) {
         val v = vm ?: return
+        // 不变式: 先发布裁剪快照, 再把触摸点提交给引擎。
+        rebuildUiExclusionSnapshot()
         removeCallbacks(quickShapeHold)
         quickShapeCandidate = null
         v.quickShapeCapture = null
@@ -5590,6 +5420,9 @@ class CanvasTouchView(context: Context) : View(context) {
 
     private fun handleToolMove(event: MotionEvent, pointerIndex: Int, docPos: Offset, pressure: Float, isStylus: Boolean) {
         val v = vm ?: return
+        // 面板在笔画中途移动/开关时, tracker.version 变化才重建快照;
+        // 必须在本帧任何 v.touchMove 之前完成。
+        rebuildUiExclusionSnapshot()
 
         if (draggingGuideHandleIndex != -1) {
             if (handleGuideHandleDrag(docPos)) return
@@ -5864,24 +5697,26 @@ class CanvasTouchView(context: Context) : View(context) {
                         var drew = false
                         // 不再要求 hasPredictedScreenPoint: 预测被抑制时回填段照画
                         if (computePreviewStrokePath(curPos, previewStrokePath)) {
-                            // 前缓冲层位于窗口 z 序最顶层 (setZOrderOnTop): 笔尖或前瞻端点落在
-                            // 工具栏/浮窗等 UI 区域上时跳过绘制, 避免预览墨迹盖在 UI 之上。
-                            // 端点判定不够: 高速运笔一帧可跨过顶栏, 包络相交做保守整段判定
-                            // (左手模式顶栏已纳入注册表, 见 rebuildUiExclusionRects)。
-                            val overUi = isHoverOverUi(curX, curY) ||
-                                isHoverOverUi(previewTipEndX, previewTipEndY) ||
-                                previewEnvelopeHitsUi(curX, curY)
+                            // 前缓冲层位于窗口 z 序最顶层 (setZOrderOnTop): 起点与终点都落在
+                            // 未渐隐 UI 内才整帧跳过; 靠近边缘时由预览包内的 clipOutUi 精准裁剪,
+                            // 避免整帧闪烁。几何统一来自 vm.panelOcclusion 快照。
+                            val overUi = isHoverOverUi(previewBackfillStartX, previewBackfillStartY) &&
+                                isHoverOverUi(previewTipEndX, previewTipEndY)
                             if (!overUi) {
+                                val clips = uiClipSnapshot
                                 if (previewUsedStamp && previewStampBitmap != null && previewStampCount > 0) {
                                     // STAMP 分级: 真实笔尖戳印直出 (水彩/纹理/绘画类)
                                     frontBufferOverlay?.renderStampPreview(
                                         previewStampBitmap!!,
                                         previewStampX, previewStampY,
                                         previewStampSize, previewStampAlpha,
-                                        previewStampCount
+                                        previewStampCount,
+                                        clips,
                                     )
                                 } else {
-                                    frontBufferOverlay?.renderPreviewPath(previewStrokePath, previewStrokeWidth, previewStrokeColor)
+                                    frontBufferOverlay?.renderPreviewPath(
+                                        previewStrokePath, previewStrokeWidth, previewStrokeColor, clips,
+                                    )
                                 }
                                 drew = true
                                 activePredictedTipScreenX = previewTipEndX

@@ -42,6 +42,8 @@ import com.reverie.paint.core.ShiftTraceGestureMode
 import com.reverie.paint.core.ShiftTraceTarget
 import com.reverie.paint.core.animationResetShiftTrace
 import com.reverie.paint.core.animationToggleShiftTrace
+import com.reverie.paint.model.UiPanelSlot
+import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.theme.Morandi
 
 /**
@@ -69,6 +71,7 @@ internal fun ShiftTraceCapsule(
     ) {
         Row(
             modifier = Modifier
+                .reportUiSlot(vm, UiPanelSlot.SHIFT_TRACE_CAPSULE)
                 .shadow(16.dp, shape, ambientColor = Color.Black.copy(alpha = 0.3f), spotColor = Color.Black.copy(alpha = 0.4f))
                 .clip(shape)
                 .background(Morandi.panelHi.copy(alpha = 0.94f))

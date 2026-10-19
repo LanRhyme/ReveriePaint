@@ -81,9 +81,11 @@ import dev.chrisbanes.haze.hazeEffect
 import com.reverie.paint.ui.theme.Glass
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.core.*
+import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.DragPillHandle
 import com.reverie.paint.ui.components.PanelCloseButton
@@ -1450,7 +1452,7 @@ fun BrushPanel(
 }
 
     if (vm.panelPinningEnabled && vm.isBrushPanelPinned) {
-        cardContent(modifier)
+        cardContent(modifier.reportUiSlot(vm, UiPanelSlot.PINNED_BRUSH_PANEL))
     } else {
         Box(
             modifier = modifier

@@ -81,6 +81,7 @@ import androidx.compose.ui.zIndex
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.ToolGroup
+import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.min
 
@@ -118,7 +119,7 @@ internal fun PickerLayerSourceBar(
                     targetOffsetY = { it / 2 }
                 )
     ) {
-        ToolFloatPanel(vm = vm, hazeState = hazeState) {
+        ToolFloatPanel(vm = vm, hazeState = hazeState, slot = UiPanelSlot.PICKER_SOURCE_BAR) {
             ToolBubbleDropdown(
                 items = listOf(
                     ToolDropdownItemData(0, R.drawable.ic_layers, stringResource(R.string.selection_current_layer)),

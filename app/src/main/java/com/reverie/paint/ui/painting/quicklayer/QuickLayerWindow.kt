@@ -59,10 +59,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.PanelCloseButton
 import com.reverie.paint.ui.components.ReDropdownMenu
 import com.reverie.paint.ui.components.ReDropdownMenuItem
 import com.reverie.paint.ui.components.pressScale
+import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.painting.layers.LightCheckerboard
 import com.reverie.paint.ui.painting.layers.layerDisplayName
 import com.reverie.paint.ui.painting.layers.layerLabelColor
@@ -180,6 +182,7 @@ fun QuickLayerWindow(
     ) {
         Box(
             modifier = Modifier
+                .reportUiSlot(vm, UiPanelSlot.QUICK_LAYER)
                 .onSizeChanged { size ->
                     windowSize = size
                     vm.quickLayerWindowWidth = size.width.toFloat()

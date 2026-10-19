@@ -43,10 +43,12 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.DragPillHandle
 import com.reverie.paint.ui.components.PanelCloseButton
 import com.reverie.paint.ui.components.PinButton
 import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
@@ -252,7 +254,7 @@ fun ColorPanel(
     }
 
     if (vm.isColorPanelPinned) {
-        cardContent(modifier)
+        cardContent(modifier.reportUiSlot(vm, UiPanelSlot.PINNED_COLOR_PANEL))
     } else {
         Box(
             modifier = modifier

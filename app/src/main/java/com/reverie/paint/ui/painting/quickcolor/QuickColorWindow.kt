@@ -57,9 +57,11 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.DragPillHandle
 import com.reverie.paint.ui.components.PanelCloseButton
 import com.reverie.paint.ui.components.pressScale
+import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.painting.panels.CompactHsvSlider
 import com.reverie.paint.ui.painting.panels.RainbowHueColors
 import com.reverie.paint.ui.painting.panels.SquarePaletteSwatchesGrid
@@ -187,6 +189,7 @@ fun QuickColorWindow(
     ) {
         Box(
             modifier = Modifier
+                .reportUiSlot(vm, UiPanelSlot.QUICK_COLOR)
                 .onSizeChanged { size ->
                     windowSize = size
                     vm.quickColorWindowWidth = size.width.toFloat()

@@ -58,7 +58,9 @@ import com.reverie.paint.core.loadStoredSelectionAction
 import com.reverie.paint.core.renameStoredSelectionAction
 import com.reverie.paint.core.saveCurrentSelectionAction
 import com.reverie.paint.core.updateStoredSelectionAction
+import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.painting.TextInputGuard
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.glassBorder
@@ -74,6 +76,7 @@ internal fun SavedSelectionsPopup(
 
     Box(
         modifier = modifier
+            .reportUiSlot(vm, UiPanelSlot.SAVED_SELECTIONS_POPUP)
             .width(290.dp)
             .shadow(16.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.35f))
             .clip(RoundedCornerShape(16.dp))

@@ -51,6 +51,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.refreshFrameThumbs
+import com.reverie.paint.model.UiPanelSlot
+import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.Morandi
 import dev.chrisbanes.haze.HazeState
@@ -171,33 +173,37 @@ internal fun AnimationTimelinePanel(
             }
         }
 
-        if (mode != "bar") StoryboardReferenceBar(vm)
+        Column(
+            modifier = Modifier.reportUiSlot(vm, UiPanelSlot.ANIMATION_TIMELINE),
+        ) {
+            if (mode != "bar") StoryboardReferenceBar(vm)
 
-        TimelinePanelSurface(
-            vm = vm,
-            hazeState = hazeState,
-            panelHeight = panelHeight,
-            useHaze = useHaze,
-            panelAlpha = panelAlpha,
-            rowDp = rowDp,
-            rowPx = rowPx,
-            maxScrollY = maxScrollY,
-            scrollY = scrollY,
-            onScrollYChange = { scrollY = it },
-            onTrackViewportChange = { trackViewportPx = it },
-            onToggleSettings = { vm.anim.toolbarExpanded = !vm.anim.toolbarExpanded },
-            mode = mode,
-            onModeChange = { mode = it },
-            panelHeightPx = panelHeightPx,
-            onPanelHeightPxChange = { panelHeightPx = it },
-            dragging = dragging,
-            onDraggingChange = { dragging = it },
-            d = d,
-            minPx = minPx,
-            maxPx = maxPx,
-            mediumHeightDp = mediumHeightDp,
-            trackHeaderW = trackHeaderW,
-        )
+            TimelinePanelSurface(
+                vm = vm,
+                hazeState = hazeState,
+                panelHeight = panelHeight,
+                useHaze = useHaze,
+                panelAlpha = panelAlpha,
+                rowDp = rowDp,
+                rowPx = rowPx,
+                maxScrollY = maxScrollY,
+                scrollY = scrollY,
+                onScrollYChange = { scrollY = it },
+                onTrackViewportChange = { trackViewportPx = it },
+                onToggleSettings = { vm.anim.toolbarExpanded = !vm.anim.toolbarExpanded },
+                mode = mode,
+                onModeChange = { mode = it },
+                panelHeightPx = panelHeightPx,
+                onPanelHeightPxChange = { panelHeightPx = it },
+                dragging = dragging,
+                onDraggingChange = { dragging = it },
+                d = d,
+                minPx = minPx,
+                maxPx = maxPx,
+                mediumHeightDp = mediumHeightDp,
+                trackHeaderW = trackHeaderW,
+            )
+        }
     }
 }
 

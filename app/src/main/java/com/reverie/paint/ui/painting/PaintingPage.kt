@@ -93,9 +93,11 @@ import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.ToolGroup
+import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import com.reverie.paint.ui.painting.animation.AnimationTimelinePanel
@@ -1782,7 +1784,7 @@ fun PaintingPage(
                         targetScale = 0.95f,
                     ),
         ) {
-            ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState) {
+            ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState, slot = UiPanelSlot.SOLO_MODE_BAR) {
                 androidx.compose.foundation.layout.Row(
                     horizontalArrangement =
                         androidx.compose.foundation.layout.Arrangement
@@ -1994,6 +1996,7 @@ fun PaintingPage(
         ) {
             Box(
                 modifier = Modifier
+                    .reportUiSlot(vm, UiPanelSlot.ACTIVE_SELECTION_PILL)
                     .shadow(10.dp, CircleShape, spotColor = Color.Black.copy(alpha = 0.3f))
                     .clip(CircleShape)
                     .background(Morandi.panelHi)
@@ -2089,6 +2092,7 @@ fun PaintingPage(
             Box(
                 modifier =
                     Modifier
+                        .reportUiSlot(vm, UiPanelSlot.TOP_HUD_TOAST)
                         .shadow(8.dp, RoundedCornerShape(10.dp), spotColor = Color.Black.copy(alpha = 0.3f))
                         .clip(RoundedCornerShape(10.dp))
                         .background(Morandi.panelHi.copy(alpha = 0.94f))
@@ -2120,6 +2124,7 @@ fun PaintingPage(
 
         // ---- Transform indicator (top-center, animated pill) ----
         TransformIndicatorHud(
+            vm = vm,
             indicatorState = indicatorState,
             isFilterAdjustActive = vm.isFilterAdjustActive,
             hasActionToast = vm.actionToastMessage != null,
@@ -2701,6 +2706,7 @@ private class TransformIndicatorState {
 
 @Composable
 private fun TransformIndicatorHud(
+    vm: PaintViewModel,
     indicatorState: TransformIndicatorState,
     isFilterAdjustActive: Boolean,
     hasActionToast: Boolean,
@@ -2748,6 +2754,7 @@ private fun TransformIndicatorHud(
         Box(
             modifier =
                 Modifier
+                    .reportUiSlot(vm, UiPanelSlot.TOP_HUD_TOAST)
                     .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.3f))
                     .clip(RoundedCornerShape(8.dp))
                     .background(Morandi.panelHi.copy(alpha = 0.94f))

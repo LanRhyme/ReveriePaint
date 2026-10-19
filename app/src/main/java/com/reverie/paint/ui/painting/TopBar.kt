@@ -30,8 +30,9 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.ReIconButton
-import com.reverie.paint.ui.components.reportUiBounds
+import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.Morandi
 
@@ -75,7 +76,7 @@ fun TopBar(
     val contentModifier = modifier
         .then(sizeModifier)
         // 顶栏真实屏幕边界 (root 坐标) 回写 ViewModel, 供 CanvasTouchView 做前缓冲的 UI 避让
-        .reportUiBounds { vm.measuredTopBarRect = it }
+        .reportUiSlot(vm, UiPanelSlot.TOP_BAR)
         .pointerHoverIcon(com.reverie.paint.ui.theme.systemDefaultPointerIcon(context), overrideDescendants = true)
         .shadow(10.dp, shape, spotColor = Color.Black.copy(alpha = 0.5f))
         .clip(shape)

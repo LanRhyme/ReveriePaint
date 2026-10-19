@@ -136,8 +136,10 @@ import com.reverie.paint.ui.components.PanelCloseButton
 import com.reverie.paint.ui.components.PinButton
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import kotlin.math.abs
@@ -422,7 +424,7 @@ fun LayerPanel(
     }
 
     if (vm.panelPinningEnabled && vm.isLayerPanelPinned) {
-        cardContent(modifier)
+        cardContent(modifier.reportUiSlot(vm, UiPanelSlot.PINNED_LAYER_PANEL))
     } else {
         Box(
             modifier =

@@ -4,7 +4,6 @@
 
 package com.reverie.paint.ui.components
 
-import android.graphics.RectF
 import androidx.annotation.DrawableRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -61,7 +60,9 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.node.GlobalPositionAwareModifierNode
+import androidx.compose.ui.node.ModifierNodeElement
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -103,6 +104,7 @@ import androidx.compose.foundation.layout.offset
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.Motion
 import com.reverie.paint.ui.theme.Theme
@@ -1800,14 +1802,65 @@ fun ReDropdownMenuItem(
 }
 
 /**
- * 把本节点的 root 坐标系实测边界 (px) 写回 [setter], 供 CanvasTouchView 做前缓冲的 UI 避让。
+ * 把面板的 root 实测边界登记到 [PaintViewModel.panelOcclusion]。
  *
- * 避让区必须用真实布局边界: 悬浮/贴边/左手/横竖屏下顶栏与工具栏的位置尺寸差异极大, 原先的
- * 硬编码 dp 矩形会在画布上挖掉不属于 UI 的区域 (按住运笔时前缓冲被裁出矩形空缺)。
- * 节点移除时不会回调, 上次的边界会留着 (只会多避让, 不会让墨盖到 UI 上)。
+ * ownerToken 只在 Modifier.Node 生命周期内申请与清除, 调用点不得传入, 避免父组件
+ * 每次重组都换 token。必须挂在面板最外层视觉容器上, 且在 `.shadow` / `.clip` /
+ * `.background` / `.hazeChild` 之前, 保证 bounds 覆盖阴影与背景整体。
  */
-internal fun Modifier.reportUiBounds(setter: (RectF?) -> Unit): Modifier =
-    onGloballyPositioned { coords ->
-        val b = coords.boundsInRoot()
-        setter(RectF(b.left, b.top, b.right, b.bottom))
+internal fun Modifier.reportUiSlot(vm: PaintViewModel?, slot: UiPanelSlot): Modifier =
+    if (vm == null) this else this.then(UiSlotElement(vm, slot))
+
+private data class UiSlotElement(
+    val vm: PaintViewModel,
+    val slot: UiPanelSlot,
+) : ModifierNodeElement<UiSlotNode>() {
+    override fun create(): UiSlotNode = UiSlotNode(vm, slot)
+
+    override fun update(node: UiSlotNode) {
+        if (node.vm !== vm || node.slot != slot) {
+            node.unregister()
+            node.vm = vm
+            node.slot = slot
+            if (node.isAttached) node.register()
+        }
     }
+}
+
+private class UiSlotNode(
+    var vm: PaintViewModel,
+    var slot: UiPanelSlot,
+) : Modifier.Node(), GlobalPositionAwareModifierNode {
+
+    private var ownerToken = 0
+
+    override fun onAttach() {
+        register()
+    }
+
+    override fun onDetach() {
+        unregister()
+    }
+
+    override fun onReset() {
+        unregister()
+    }
+
+    fun register() {
+        ownerToken = vm.panelOcclusion.nextToken()
+    }
+
+    fun unregister() {
+        if (ownerToken != 0) {
+            vm.panelOcclusion.clear(slot, ownerToken)
+            ownerToken = 0
+        }
+    }
+
+    override fun onGloballyPositioned(coordinates: LayoutCoordinates) {
+        if (!coordinates.isAttached) return
+        if (ownerToken == 0) return
+        val b = coordinates.boundsInRoot()
+        vm.panelOcclusion.update(slot, ownerToken, b.left, b.top, b.right, b.bottom)
+    }
+}

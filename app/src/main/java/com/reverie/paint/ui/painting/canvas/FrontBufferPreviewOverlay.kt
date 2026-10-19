@@ -27,13 +27,14 @@ import androidx.graphics.surface.SurfaceControlCompat
 import com.reverie.paint.core.stylus.FrontBufferProbe
 import com.reverie.paint.model.CanvasPose
 import com.reverie.paint.model.RealInkPresent
+import com.reverie.paint.model.UiClipSnapshot
 import java.util.concurrent.atomic.AtomicBoolean
 
 /** 单包最大 dab 戳印数 (预分配, 热路径零分配)。 */
 private const val MAX_STAMPS = 64
 
-/** 真墨包最多携带的 UI 避让矩形。 */
-private const val MAX_UI_CLIPS = 6
+/** 真墨/预览包最多携带的 UI 避让矩形 (UiPanelSlot 21 项 + 3 项冗余)。 */
+private const val MAX_UI_CLIPS = 24
 
 /**
  * 前缓冲载荷 (传递给 CanvasFrontBufferedRenderer 渲染线程)。两种:
@@ -91,7 +92,9 @@ class FrontBufferPathPacket(
 
     /** 这一笔会画光标/预测笔尖: 从首帧起维护备份层。 */
     var wantsExtras: Boolean = false
-    val uiClips: Array<RectF> = Array(MAX_UI_CLIPS) { RectF() }
+
+    /** UI 裁剪矩形 (l, t, r, b), 共 [uiClipCount] 项; 只在 GL 线程读取。 */
+    val uiClipRects: FloatArray = FloatArray(MAX_UI_CLIPS * 4)
     var uiClipCount: Int = 0
 }
 
@@ -171,6 +174,7 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
     // STAMP 分级: 戳印绘制 (位图缩放盖印, 预分配零分配)
     private val stampPaint = Paint(Paint.FILTER_BITMAP_FLAG)
     private val stampDst = RectF()
+    private val previewPathBounds = RectF()
 
     // ---- 以下只在 GL 线程使用 ----
 
@@ -245,6 +249,7 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
     private fun initRenderer() {
         try {
             val callback = object : CanvasFrontBufferedRenderer.Callback<FrontBufferPathPacket> {
+                @RequiresApi(Build.VERSION_CODES.Q)
                 override fun onDrawFrontBufferedLayer(
                     canvas: Canvas,
                     bufferWidth: Int,
@@ -339,22 +344,42 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
     }
 
     /** #81 预览包的绘制 (戳印或折线)。GL 线程。 */
+    @RequiresApi(Build.VERSION_CODES.Q)
     private fun drawPreviewPacket(canvas: Canvas, param: FrontBufferPathPacket) {
         // 2a. STAMP 分级: 逐 dab 盖印真实笔尖位图
         if (param.stampCount > 0) {
             val stampBmp = param.stampBitmap
             val stampN = param.stampCount.coerceAtMost(MAX_STAMPS)
             if (stampBmp != null && !stampBmp.isRecycled) {
+                var minX = Float.MAX_VALUE
+                var minY = Float.MAX_VALUE
+                var maxX = -Float.MAX_VALUE
+                var maxY = -Float.MAX_VALUE
                 for (i in 0 until stampN) {
                     val s = param.stampSize[i]
                     if (s <= 0f) continue
-                    val cx = param.stampX[i]
-                    val cy = param.stampY[i]
-                    stampPaint.alpha =
-                        (param.stampAlpha[i] * 255f).toInt().coerceIn(0, 255)
                     val half = s / 2f
-                    stampDst.set(cx - half, cy - half, cx + half, cy + half)
-                    canvas.drawBitmap(stampBmp, null, stampDst, stampPaint)
+                    minX = minOf(minX, param.stampX[i] - half)
+                    minY = minOf(minY, param.stampY[i] - half)
+                    maxX = maxOf(maxX, param.stampX[i] + half)
+                    maxY = maxOf(maxY, param.stampY[i] + half)
+                }
+                if (minX <= maxX) {
+                    canvas.save()
+                    // FILTER_BITMAP_FLAG 的双线性采样可能外溢 <1px, 裁剪边界外扩 1px。
+                    clipOutUi(canvas, param, minX - 1f, minY - 1f, maxX + 1f, maxY + 1f)
+                    for (i in 0 until stampN) {
+                        val s = param.stampSize[i]
+                        if (s <= 0f) continue
+                        val cx = param.stampX[i]
+                        val cy = param.stampY[i]
+                        stampPaint.alpha =
+                            (param.stampAlpha[i] * 255f).toInt().coerceIn(0, 255)
+                        val half = s / 2f
+                        stampDst.set(cx - half, cy - half, cx + half, cy + half)
+                        canvas.drawBitmap(stampBmp, null, stampDst, stampPaint)
+                    }
+                    canvas.restore()
                 }
             }
             return
@@ -362,9 +387,18 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
 
         // 2b. TIER_1/2: 绘制当前最新笔尖前沿段 (单色折线)
         val path = param.path ?: return
+        path.computeBounds(previewPathBounds, true)
+        val margin = param.strokeWidth.coerceAtLeast(1.5f) / 2f + 1f
+        canvas.save()
+        clipOutUi(
+            canvas, param,
+            previewPathBounds.left - margin, previewPathBounds.top - margin,
+            previewPathBounds.right + margin, previewPathBounds.bottom + margin,
+        )
         previewPaint.color = param.color
         previewPaint.strokeWidth = param.strokeWidth.coerceAtLeast(1.5f)
         canvas.drawPath(path, previewPaint)
+        canvas.restore()
     }
 
     /**
@@ -385,7 +419,7 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
     /**
      * 投递最新前沿预览路径至前缓冲渲染线程 (热路径零分配)。
      */
-    fun renderPreviewPath(path: Path, strokeWidth: Float, color: Int) {
+    fun renderPreviewPath(path: Path, strokeWidth: Float, color: Int, clips: UiClipSnapshot) {
         if (!isRendererInitialized) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             // 先确认渲染器可用再占槽: 否则占了槽却投递失败, inFlight 永久泄漏。
@@ -401,10 +435,12 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
                 packet.isClear = false
                 packet.stampCount = 0 // 复用槽位: 清除残留戳印
                 packet.ink = false
+                packet.uiClipCount = clips.copyInto(packet.uiClipRects, MAX_UI_CLIPS)
                 hasContent = true
                 renderer.renderFrontBufferedLayer(packet)
             } catch (t: Throwable) {
                 // 提交失败: 立即释放槽位, 否则泄漏为永久 inFlight
+                packet.uiClipCount = 0
                 packet.inFlight.set(false)
                 Log.w(TAG, "renderPreviewPath error: ${t.message}")
             }
@@ -422,6 +458,7 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
         sizes: FloatArray,
         alphas: FloatArray,
         count: Int,
+        clips: UiClipSnapshot,
     ) {
         if (!isRendererInitialized) return
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
@@ -441,10 +478,12 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
                 packet.path?.rewind()
                 packet.isClear = false
                 packet.ink = false
+                packet.uiClipCount = clips.copyInto(packet.uiClipRects, MAX_UI_CLIPS)
                 hasContent = true
                 renderer.renderFrontBufferedLayer(packet)
             } catch (t: Throwable) {
                 // 提交失败: 立即释放槽位, 否则泄漏为永久 inFlight
+                packet.uiClipCount = 0
                 packet.inFlight.set(false)
                 Log.w(TAG, "renderStampPreview error: ${t.message}")
             }
@@ -521,7 +560,7 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
         cursorR: Float,
         cursorStyle: Int,
         wantsExtras: Boolean,
-        uiRects: Array<RectF>,
+        uiClips: UiClipSnapshot,
         slotBusy: AtomicBoolean,
         slotOriginX: Int,
         slotOriginY: Int,
@@ -561,18 +600,14 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
                 System.arraycopy(symCursorY, 0, packet.symCursorY, 0, sc)
             }
             packet.wantsExtras = wantsExtras
-            var clips = 0
-            for (r in uiRects) {
-                if (clips >= MAX_UI_CLIPS) break
-                if (r.isEmpty) continue
-                packet.uiClips[clips++].set(r)
-            }
-            packet.uiClipCount = clips
+            // 每次提交无条件重置: 空快照也必须写 0, 不能残留上一包的裁剪矩形。
+            packet.uiClipCount = uiClips.copyInto(packet.uiClipRects, MAX_UI_CLIPS)
             packet.inkSlotBusy = slotBusy
             return submitInkPacket(packet)
         } catch (t: Throwable) {
             packet.inkSlotBusy = null
             packet.inkBitmap = null
+            packet.uiClipCount = 0
             packet.inFlight.set(false)
             Log.w(TAG, "renderInkScreenRegions error: ${t.message}")
             return false
@@ -742,6 +777,21 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
         if (layer != null && prevOverlayValid) erasePrevOverlay(canvas, layer, param)
 
         val bmp = param.inkBitmap
+        var inkL = Float.MAX_VALUE
+        var inkT = Float.MAX_VALUE
+        var inkR = -Float.MAX_VALUE
+        var inkB = -Float.MAX_VALUE
+        for (i in 0 until param.rectCount) {
+            val s = i * 4
+            val l = param.screenRects[s].toFloat()
+            val t = param.screenRects[s + 1].toFloat()
+            val r = param.screenRects[s + 2].toFloat()
+            val b = param.screenRects[s + 3].toFloat()
+            if (l < inkL) inkL = l
+            if (t < inkT) inkT = t
+            if (r > inkR) inkR = r
+            if (b > inkB) inkB = b
+        }
         if (bmp != null && !bmp.isRecycled) {
             val sc = strokeCanvas
             if (layer != null && sc != null) {
@@ -757,12 +807,41 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
                 }
             }
             canvas.save()
-            clipOutUi(canvas, param)
+            if (inkL <= inkR) clipOutUi(canvas, param, inkL, inkT, inkR, inkB)
             blitInk(canvas, param, bmp)
             canvas.restore()
         }
+        var overlayL = Float.MAX_VALUE
+        var overlayT = Float.MAX_VALUE
+        var overlayR = -Float.MAX_VALUE
+        var overlayB = -Float.MAX_VALUE
+        if (lastTipValid) {
+            overlayL = lastTipX - lastTipHalf - 1f
+            overlayT = lastTipY - lastTipHalf - 1f
+            overlayR = lastTipX + lastTipHalf + 1f
+            overlayB = lastTipY + lastTipHalf + 1f
+        }
+        if (willDrawCursor) {
+            val half = maxOf(param.cursorR, 7f * density) + 2f
+            overlayL = minOf(overlayL, param.cursorX - half)
+            overlayT = minOf(overlayT, param.cursorY - half)
+            overlayR = maxOf(overlayR, param.cursorX + half)
+            overlayB = maxOf(overlayB, param.cursorY + half)
+            for (i in 0 until param.symCursorCount) {
+                val sx = param.symCursorX[i]
+                val sy = param.symCursorY[i]
+                if (sx.isFinite() && sy.isFinite()) {
+                    overlayL = minOf(overlayL, sx - half)
+                    overlayT = minOf(overlayT, sy - half)
+                    overlayR = maxOf(overlayR, sx + half)
+                    overlayB = maxOf(overlayB, sy + half)
+                }
+            }
+        }
         canvas.save()
-        clipOutUi(canvas, param)
+        if (overlayL <= overlayR) {
+            clipOutUi(canvas, param, overlayL, overlayT, overlayR, overlayB)
+        }
         if (lastTipValid) canvas.drawCircle(lastTipX, lastTipY, lastTipHalf, tipPaint)
         if (willDrawCursor) drawHoldCursor(canvas, param)
         canvas.restore()
@@ -770,8 +849,28 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
-    private fun clipOutUi(canvas: Canvas, param: FrontBufferPathPacket) {
-        for (i in 0 until param.uiClipCount) canvas.clipOutRect(param.uiClips[i])
+    private fun clipOutUi(
+        canvas: Canvas,
+        param: FrontBufferPathPacket,
+        l: Float,
+        t: Float,
+        r: Float,
+        b: Float,
+    ) {
+        for (i in 0 until param.uiClipCount) {
+            val o = i * 4
+            // 包围盒预筛: 只对与当前包绘制范围相交的 UI 矩形调用 clipOutRect。
+            if (r >= param.uiClipRects[o] && l <= param.uiClipRects[o + 2] &&
+                b >= param.uiClipRects[o + 1] && t <= param.uiClipRects[o + 3]
+            ) {
+                canvas.clipOutRect(
+                    param.uiClipRects[o],
+                    param.uiClipRects[o + 1],
+                    param.uiClipRects[o + 2],
+                    param.uiClipRects[o + 3],
+                )
+            }
+        }
     }
 
     /**
@@ -882,7 +981,7 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
         val b = minOf(layer.height, kotlin.math.ceil(prevOverlay.bottom.toDouble()).toInt())
         if (r <= l || b <= t) return
         canvas.save()
-        clipOutUi(canvas, param)
+        clipOutUi(canvas, param, l.toFloat(), t.toFloat(), r.toFloat(), b.toFloat())
         canvas.clipRect(l.toFloat(), t.toFloat(), r.toFloat(), b.toFloat())
         canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
         blitSrc.set(l, t, r, b)

@@ -85,8 +85,10 @@ import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.updateBrushColor
 import com.reverie.paint.model.OklchColor
+import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.PanelCloseButton
 import com.reverie.paint.ui.components.pressScale
+import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.Motion
@@ -211,6 +213,7 @@ fun QuickOklchWindow(
     ) {
         Box(
             modifier = Modifier
+                .reportUiSlot(vm, UiPanelSlot.QUICK_OKLCH)
                 .onSizeChanged { size ->
                     windowSize = size
                     vm.quickOklchWindowWidth = size.width.toFloat()

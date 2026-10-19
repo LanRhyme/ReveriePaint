@@ -44,7 +44,9 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import kotlin.math.roundToInt
@@ -63,6 +65,7 @@ fun ToolFloatPanel(
     modifier: Modifier = Modifier,
     vm: PaintViewModel? = null,
     hazeState: HazeState? = null,
+    slot: UiPanelSlot = UiPanelSlot.BOTTOM_TOOL_PANEL,
     content: @Composable () -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
@@ -77,6 +80,7 @@ fun ToolFloatPanel(
         Row(
             modifier = modifier
                 .offset { IntOffset(dragOffset.x.roundToInt(), dragOffset.y.roundToInt()) }
+                .reportUiSlot(vm, slot)
                 .pointerInput(Unit) {
                     detectDragGestures { change, dragAmount ->
                         change.consume()

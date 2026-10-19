@@ -1700,16 +1700,30 @@ class PaintViewModel : ViewModel() {
     /** 自由悬浮布局配置 (平板专属) */
     var floatingUiConfig by mutableStateOf(com.reverie.paint.model.FloatingUiConfig())
 
-    /**
-     * 顶栏 / 工具栏按钮 / 滑块栏的实测屏幕边界 (root 坐标, px), 由 Compose 侧用
-     * onGloballyPositioned 写入。画布视图的前缓冲 UI 避让区用它取代硬编码的 dp 矩形
-     * (悬浮/贴边/左手/横竖屏下真实几何差异很大)。UI 线程写、触控/渲染线程读; null = 尚未测量。
-     */
-    @Volatile var measuredTopBarRect: android.graphics.RectF? = null
+    // ---- 前缓冲 UI 裁剪槽位状态 (Phase 1) ----
+    /** 21 个面板槽位的实测边界与 owner token (UI 线程独占)。 */
+    val panelOcclusion = com.reverie.paint.model.UiPanelOcclusionTracker()
 
-    @Volatile var measuredToolRailRect: android.graphics.RectF? = null
+    // 注意: 裁剪状态的唯一真身是 panelOcclusion tracker; 以下 mask 镜像仅为 Phase 2 API 保留。
+    /** 本笔已进入内圈、已从快照移除的面板位 (Phase 2 使用)。 */
+    @Volatile
+    internal var unclippedPanelMask: Int = 0
 
-    @Volatile var measuredSliderRailRect: android.graphics.RectF? = null
+    /** 本笔已进入外圈的面板位 (Phase 2 使用)。 */
+    @Volatile
+    internal var evadingPanelMask: Int = 0
+
+    /** 每个槽位独立的 Compose 状态, 避免全局 mask 牵连所有面板重组 (Phase 2 使用)。 */
+    internal val slotEvading =
+        Array(com.reverie.paint.model.UiPanelSlot.COUNT) { mutableStateOf(false) }
+    internal val slotSnapZero =
+        Array(com.reverie.paint.model.UiPanelSlot.COUNT) { mutableStateOf(false) }
+
+    /** 画布背景是否不透明: 背景层可见且 opacity≈1。保留备用, 不参与 ShiftTrace 门控。 */
+    val canvasBackgroundOpaque: Boolean
+        get() = layers.firstOrNull { it.isBackground }
+            ?.let { it.visible && it.opacity >= 0.999 } ?: false
+
     var selectionMaskColorHex by mutableStateOf("#141416") // 选区蒙版遮罩颜色 (默认深空灰黑)
     var selectionMaskOpacity by mutableFloatStateOf(0.47f) // 选区蒙版遮罩不透明度 (0.10 - 0.90, 默认 0.47)
 

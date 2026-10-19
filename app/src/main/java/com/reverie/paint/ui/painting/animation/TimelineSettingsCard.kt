@@ -54,12 +54,14 @@ import com.reverie.paint.core.animationImportImages
 import com.reverie.paint.core.animationImportVideo
 import com.reverie.paint.core.animationSetFramerate
 import com.reverie.paint.core.animationSetLayerMarker
+import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.ReChip
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReSectionTitle
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.components.ReTextButton
+import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.painting.panels.CompactColorPickerPopup
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.Morandi
@@ -85,6 +87,7 @@ internal fun AnimationSettingsCard(
 
     Column(
         modifier = Modifier
+            .reportUiSlot(vm, UiPanelSlot.ANIMATION_SETTINGS_CARD)
             .padding(end = 8.dp, bottom = 8.dp)
             .shadow(16.dp, shape, spotColor = Color.Black.copy(alpha = 0.45f))
             .clip(shape)
