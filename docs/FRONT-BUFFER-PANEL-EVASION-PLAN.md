@@ -1,10 +1,17 @@
-# ReveriePaint 前缓冲笔迹预测与悬浮面板遮挡/空白根因剖析及智能渐隐避让执行计划（v3 终版）
+# ReveriePaint 前缓冲笔迹预测与悬浮面板遮挡/空白根因剖析及智能渐隐避让执行计划（v3.1 终版）
 
 > **适用工程**：`E:\gongju\ReveriePaint`（`com.reverie.paint`）
 > **分支**：`feat/front-buffer-panel-evasion`
 > **状态**：计划终版（只读审查已完成，业务代码未改动）
 > **审查基线**：2026-10-19 当前源码；文中行号以该基线为准，若后续漂移请以函数名/锚点为准
 > **关联模块**：`FrontBufferPreviewOverlay.kt` / `RealInkController.kt` / `model/RealInkPresent.kt` / `CanvasTouchView.kt` / `PaintingPage.kt` / `PaintViewModel*.kt` / `ReComponents.kt`
+
+### v3.1 修订说明（2026-10-19，已拍板）
+
+1. **`SAVED_SELECTIONS_POPUP` / `ANIMATION_SETTINGS_CARD` 默认不渐隐**：两者改为 `evadable = false`，只参与 Phase 1 精确裁剪，不参与 Phase 2 自动渐隐。仅 5 个 `QUICK_*` 悬浮小窗默认渐隐。
+2. **`ownerToken` 收进 Modifier 生命周期**：对外签名只保留 `reportUiSlot(vm, slot)`；`Modifier.Node` 在 `onAttach()` 取 token、`onDetach()` 清除，`composed` 回退在内部 `remember(vm, slot)` 取 token。调用点不得传入 token，避免父组件每次重组误清槽位。
+3. **Task 0 Spike 增加 A/B 两条路径**：A 为 Draw 阶段 `GraphicsLayerScope` 内 `translationX` 有界偏移；B 为 Layout 阶段 `placeWithLayer(x = offset)` + 布尔边沿 `invalidatePlacement()`。两条都验证后择优。
+4. **ShiftTrace 门控简化为 `!v.anim.shiftTraceActive`**：只要开启透光台对位模式，就统一不按住 `realInk.held`，走 `#81` 前沿预览 + 主画布实时刷新；透明/不透明画布行为一致。`canvasBackgroundOpaque` 派生属性保留备用，不再作为该门控条件。
 
 ---
 
@@ -170,7 +177,7 @@
   - `isCanvasTouchDisabled`（`4306`）；
   - `abortActiveStrokeForHistory`（`413`）。
 - `floatingUiConfig.enabled` 在停靠/悬浮间切换，或 `ToolFloatPanel` 在不同工具间切换时，旧节点 `onDetach` 可能晚于新节点 `onGloballyPositioned`，误清新节点坐标。
-- 终版方案：统一 `scheduleRestoreEvadedPanels()` 在 `ACTION_UP`/`CANCEL` 最顶部（所有提前 return 之前）及上述路径调用；`restoreEvadedPanelsRunnable` 用 `strokeStarted || realInk.held` 判定活跃笔画并自重排；每个槽位用单调 `ownerToken`，`clearUiSlotBounds(slot, ownerToken)` 只在 token 匹配时清零。
+- 终版方案：统一 `scheduleRestoreEvadedPanels()` 在 `ACTION_UP`/`CANCEL` 最顶部（所有提前 return 之前）及上述路径调用；`restoreEvadedPanelsRunnable` 用 `strokeStarted || realInk.held` 判定活跃笔画并自重排；每个槽位用单调 `ownerToken`（由 Modifier 的 `onAttach()`/`remember` 内部申请，调用点不得传入），`clearUiSlotBounds(slot, ownerToken)` 只在 token 匹配时清零。
 
 ### 1.7 文档事实修正表
 
@@ -293,14 +300,16 @@ enum class UiPanelSlot(
     SHIFT_TRACE_CAPSULE,
     TOP_HUD_TOAST,          // ActionToast 与 TransformIndicatorHud 互斥
 
-    // 快捷小窗（7；其中 SAVED_SELECTIONS_POPUP / ANIMATION_SETTINGS_CARD 默认值待确认）
+    // 快捷小窗（7；仅 5 个 QUICK_* 参与渐隐）
     QUICK_ACTION(evadable = true, defaultEvade = true),
     QUICK_BRUSH(evadable = true, defaultEvade = true),
     QUICK_COLOR(evadable = true, defaultEvade = true),
     QUICK_OKLCH(evadable = true, defaultEvade = true),
     QUICK_LAYER(evadable = true, defaultEvade = true),
-    SAVED_SELECTIONS_POPUP(evadable = true, defaultEvade = false),
-    ANIMATION_SETTINGS_CARD(evadable = true, defaultEvade = false),
+    // 只做 Phase 1 精确裁剪，不参与 Phase 2 自动渐隐（避免 defaultEvade=false 且
+    // pinnedOrReference=false 成为永远不触发的死分支）
+    SAVED_SELECTIONS_POPUP,
+    ANIMATION_SETTINGS_CARD,
 
     // 钉住大面板与参考窗（4）
     REFERENCE_WINDOW(evadable = true, pinnedOrReference = true),
@@ -322,7 +331,7 @@ enum class UiPanelSlot(
 - `TOP_HUD_TOAST` 共享是安全的，因为 `PaintingPage.kt:2125` 在 `hasActionToast` 时隐藏 `TransformIndicatorHud`；若未来允许同时显示，必须拆成两个槽位。
 - `BOTTOM_TOOL_PANEL` 共享是安全的，因为工具面板同一时刻只显示一个；但 `ToolFloatPanel` 必须增加 `slot: UiPanelSlot = BOTTOM_TOOL_PANEL` 参数，Solo 调用传 `SOLO_MODE_BAR`。若发现两个工具面板可同时可见，再拆分。
 - **槽位总数是 21，不是 23**。初版讨论中的 22/23 是把 `TOOL_FLOAT_PANEL`/`SELECTION_FLOAT_PANEL`/`ACTION_TOAST_PILL`/`TRANSFORM_HUD_PILL` 分别计数；终版按实际互斥关系合并。`MAX_UI_CLIPS = 24` 留 3 个冗余。
-- `SAVED_SELECTIONS_POPUP` 与 `ANIMATION_SETTINGS_CARD` 的默认渐隐值存在产品口径冲突（见 §7），先按 `defaultEvade = false` 落地，待确认。
+- **已拍板**：`SAVED_SELECTIONS_POPUP` 与 `ANIMATION_SETTINGS_CARD` 默认**不渐隐**，设为 `evadable = false`，只做 Phase 1 精确裁剪。这样也避免了 `defaultEvade = false && pinnedOrReference = false` 导致的“主开关/二级开关都不会触发”的死分支。仅 5 个 `QUICK_*` 默认渐隐。
 
 ### 3.2 `model/UiClipSnapshot.kt`
 
@@ -375,6 +384,7 @@ class UiClipSnapshot private constructor(
 职责：
 
 - 维护 21 个槽位的 `FloatArray(COUNT * 4)` 与 `IntArray(COUNT)` 的 `ownerToken`；
+- `nextToken()`：单调递增；**只由 Modifier 内部生命周期调用**（`Modifier.Node.onAttach()` 或 `composed` 的 `remember(vm, slot)`），调用点不得持有/传入 token；
 - `update(slot, ownerToken, l, t, r, b)`：只有 token 匹配才写入；bounds 变化时递增 `version`；
 - `clear(slot, ownerToken)`：只有 token 匹配才清零，并清掉该槽位的 evading/snapZero 位；
 - `snapshot(evadedMask, unclippedMask)`：把“激活且未被 unclip”的槽位复制成 `UiClipSnapshot`；
@@ -438,7 +448,7 @@ val canvasBackgroundOpaque: Boolean
 
 - `LayerUiState` 已有 `isBackground` / `visible` / `opacity`（`PaintViewModel.kt:4611-4638`）。
 - 若后续发现背景层可能是非白色/半透明，再补 `fillColor` 的 alpha 判断。
-- 该属性只在 `armRealInkHold` 与 ShiftTrace 门控中读取，不在 240Hz 热路径。
+- **v3.1 拍板**：ShiftTrace 门控已简化为 `!v.anim.shiftTraceActive`，不再依赖该属性。`canvasBackgroundOpaque` 保留在 ViewModel 中，供未来“仅在透明画布启用某优化”等场景使用；不在 240Hz 热路径读取。
 
 ---
 
@@ -452,8 +462,12 @@ val canvasBackgroundOpaque: Boolean
 
 1. 写一个最小 Compose demo：`Box` 里放一个 `zIndex` 高的可点击面板，下面放一个可点击画布；面板 alpha=0 且移出屏幕后，点击必须落到画布；alpha=0.5 时点击被面板的 `Initial` 消费，不落到画布。
 2. `onGloballyPositioned` 上报的 bounds 在透明/非透明两种状态下都与真实视觉位置一致。
-3. 用有界偏移（如 `-screenWidth - width`），不要用 `1_000_000f`；确认 RenderNode 无异常、无过度绘制。
-4. 若 spike 失败：回退方案为 `LocalUiPanelInteractive` CompositionLocal + 面板交互层条件禁用（见 Task 6），并在文档记录结论。
+3. 用有界偏移（如 `-(size.width + 4096f)`），不要用 `1_000_000f`；确认 RenderNode 无异常、无过度绘制。
+4. **两条触发路径都要跑，择优落地**：
+   - **路径 A（Draw 阶段 Layer 变换）**：在 `placeWithLayer(0, 0) { ... }` 的 `GraphicsLayerScope` 闭包内，当 `effectiveAlpha == 0f` 时设置 `translationX = -(size.width + 4096f)`。该闭包随 draw 阶段执行，`NodeCoordinator.fromParentPosition` 会调用 `layer.mapOffset(point, inverse = true)`，理论上无需重跑布局即可在当帧改变 hitTest 逆映射坐标。验证：alpha=0 时子树 `hitTest` 落空、alpha>0 时恢复、bounds 上报不变。
+   - **路径 B（Layout 阶段 Placement 偏移）**：仅在 `snapZero` 或动画结束的布尔边沿调用 `invalidatePlacement()`，重跑 `placeWithLayer(x = offset, y = 0)`。验证：每笔最多 2 次布局重放、面板内容不重组、无闪烁。
+   - **注意**：`alphaState.value` 是 draw 阶段逐帧变化的值，不能在 `measure`/placement 块中读取；路径 B 只依赖布尔边沿（`snapZero` / 动画完成），不依赖逐帧 alpha。
+5. 若 spike 失败：回退方案为 `LocalUiPanelInteractive` CompositionLocal + 面板交互层条件禁用（见 Task 6），并在文档记录结论。
 
 **只有 Task 0 通过，Phase 2 的“输入穿透”才可开工。**
 
@@ -480,7 +494,7 @@ val canvasBackgroundOpaque: Boolean
 
 - 全部用 `boundsInRoot()` 实测 px，不再用 `dp * density` 估算；
 - `reportUiSlot` / `UiSlotModifierNode` 必须挂在**最外层视觉容器首部**（在 `.shadow`、`.clip`、`.background`、`.hazeChild` 之前），确保 alpha 作用于阴影、背景、边框与内容整体；
-- 每个槽位带 `ownerToken`，避免新旧节点竞争；
+- 每个槽位带 `ownerToken`，避免新旧节点竞争；**token 由 Modifier 内部 `onAttach()` / `remember(vm, slot)` 申请，调用点不得传入**；
 - `DisposableEffect.onDispose` 只在 token 匹配时清槽。
 
 **接入点（当前源码）**：
@@ -491,7 +505,7 @@ val canvasBackgroundOpaque: Boolean
 | `TOOL_RAIL` | `ToolRail.kt:283` | 替换 `reportUiBounds` |
 | `SLIDER_RAIL` | `ToolRail.kt:584` | 替换 `reportUiBounds` |
 | `ANIMATION_TIMELINE` | `AnimationTimelinePanel.kt` 内层容器（`174` 的 `StoryboardReferenceBar` + `176` 的 `TimelinePanelSurface` 外层，**不要挂 `152` 的外层 Column**） | 避免全宽空洞 |
-| `ANIMATION_SETTINGS_CARD` | `TimelineSettingsCard.kt:73` 的 `AnimationSettingsCard` 根容器 | evadable |
+| `ANIMATION_SETTINGS_CARD` | `TimelineSettingsCard.kt:73` 的 `AnimationSettingsCard` 根容器 | **非渐隐（evadable=false）**，仅 Phase 1 精确裁剪 |
 | `BOTTOM_TOOL_PANEL` | `ToolFloatPanel` 增加 `slot` 参数，默认 `BOTTOM_TOOL_PANEL`；各工具调用点不变 | 通用工具面板 |
 | `SOLO_MODE_BAR` | `PaintingPage.kt:1785` 的 Solo 调用传 `slot = SOLO_MODE_BAR` | 与通用面板分离 |
 | `PICKER_SOURCE_BAR` | `PaintingPage.kt:2037` / `PaintingSelectionPanels.kt:95` | |
@@ -503,7 +517,7 @@ val canvasBackgroundOpaque: Boolean
 | `QUICK_COLOR` | `QuickColorWindow.kt:188` 内层实体 Box | |
 | `QUICK_OKLCH` | `QuickOklchWindow.kt:211` 内层实体 Box | |
 | `QUICK_LAYER` | `QuickLayerWindow.kt:181` 内层实体 Box | |
-| `SAVED_SELECTIONS_POPUP` | `panels/SavedSelectionsPopup.kt:75` 根 Box | 主 Box 在主树；重命名 Dialog 不注册 |
+| `SAVED_SELECTIONS_POPUP` | `panels/SavedSelectionsPopup.kt:75` 根 Box | **非渐隐（evadable=false）**，仅 Phase 1 精确裁剪；主 Box 在主树；重命名 Dialog 不注册 |
 | `REFERENCE_WINDOW` | `ReferenceWindow.kt:155` 的 `.size(...)` 容器 | evadable，默认不渐隐 |
 | `PINNED_COLOR_PANEL` | `ColorPanel.kt:254` 的 `if (vm.isColorPanelPinned)` 分支 | **注意：没有 `panelPinningEnabled` 前缀** |
 | `PINNED_LAYER_PANEL` | `LayerPanel.kt:424` 的 `if (vm.panelPinningEnabled && vm.isLayerPanelPinned)` 分支 | |
@@ -543,20 +557,23 @@ val canvasBackgroundOpaque: Boolean
 
 ### Task 5（Phase 1）：ShiftTrace 门控
 
-1. 在 `PaintViewModel` 增加 `canvasBackgroundOpaque`（§3.5）。
-2. `armRealInkHold`：
+**拍板结论**：只要开启透光台对位模式，就统一不按住 `realInk.held`；`canvasBackgroundOpaque` 派生属性保留备用，不作为该门控条件。
+
+理由：`ShiftTraceOverlay` 位于 `CanvasTouchView` 之上、`FrontBufferPreviewOverlay` 之下（`CanvasView.kt:356`）。即使透明画布，正常抬笔后洋葱皮参考线也叠在当前帧笔迹之上；按住期间 `held=true` 时，顶层前缓冲笔迹会反过来盖住参考线。统一 `!shiftTraceActive` 可让透明/不透明画布行为一致。
+
+1. `armRealInkHold`：
    ```kotlin
-   val shiftTraceOpaqueConflict = v.anim.shiftTraceActive && v.canvasBackgroundOpaque
    val allowed = v.frontBufferPredictionEnabled &&
        (!hasSymmetry || v.mirrorGate.isQueueing) &&
        v.displayTiles.drawable() != null &&
        FrontBufferProbe.realInkHoldAllowed() &&
        frontBufferSettled(v) &&
-       !shiftTraceOpaqueConflict
+       !v.anim.shiftTraceActive
    ```
-3. 若 `shiftTraceOpaqueConflict`：`realInk.release()`（或确保 `arm` 返回 false）、`frontBufferOverlay?.clearPreview()`；因为 `held=false`，`#81` 预览门控 `!realInk.held` 仍然成立。
-4. **不要只在 `wantsHold()` 里返回 false**：那会让 `arm` 已置 `held=true`，导致旧前缓冲墨不清、`#81` 预览不画、主画布可能整屏重绘。
-5. 若 `canvasBackgroundOpaque` 不可靠，保守回退为“`shiftTraceActive` 时始终 `allowed=false`”，并在验收中记录对位模式下的主画布重绘成本。
+2. 若 `v.anim.shiftTraceActive`：`realInk.release()`（或确保 `arm` 返回 false）、`frontBufferOverlay?.clearPreview()`；因为 `held=false`，`#81` 预览门控 `!realInk.held` 仍然成立，主画布实时刷新。
+3. **不要只在 `wantsHold()` 里返回 false**：那会让 `arm` 已置 `held=true`，导致旧前缓冲墨不清、`#81` 预览不画、主画布可能整屏重绘。
+4. `canvasBackgroundOpaque`（§3.5）仍保留在 ViewModel 中，供未来“仅在透明画布启用某优化”等场景使用；本任务不再读取它。
+5. 验收：透明画布/不透明画布下，透光台对位叠影均清晰；`#81` 前沿预览正常；主画布逐帧刷新成本记录在 PerfHud。
 
 ### Task 6（Phase 2）：双圈同步前馈
 
@@ -615,9 +632,11 @@ private val EvadeFadeInSpec = tween<Float>(160, easing = FastOutSlowInEasing)
 internal fun Modifier.reportUiSlot(
     vm: PaintViewModel?,
     slot: UiPanelSlot,
-    ownerToken: Int,
 ): Modifier = composed {
     if (vm == null) return@composed this
+    // ownerToken 必须在 Modifier 内部生命周期固定：调用点不得传入，
+    // 否则父组件每次重组都会分配新 token，DisposableEffect 会误触发 onDispose。
+    val ownerToken = remember(vm, slot) { vm.panelOcclusion.nextToken() }
     DisposableEffect(vm, slot, ownerToken) {
         onDispose { vm.panelOcclusion.clear(slot, ownerToken) }
     }
@@ -650,16 +669,16 @@ internal fun Modifier.reportUiSlot(
 **注意**：
 
 - `slotEvading` / `slotSnapZero` 必须是 `Array(UiPanelSlot.COUNT) { mutableStateOf(false) }`，不能每次调用新建；
-- `ownerToken` 由 `UiPanelOcclusionTracker` 分配单调递增值；
+- **`ownerToken` 由 Modifier 内部生命周期分配**：`Modifier.Node` 在 `onAttach()` 取 `nextToken()`、在 `onDetach()` 调 `clear(slot, ownerToken)`；`composed` 回退在 `remember(vm, slot)` 内取 token。对外签名只保留 `reportUiSlot(vm, slot)`，调用点**严禁**传入 `nextToken()`。
 - `reportUiSlot` 必须挂在卡片最外层视觉容器首部；
 - 非 evadable 槽位也读取 `isEvading=false`，但不要创建无意义的动画（可在 `if (slot.evadable)` 内调用 `animateFloatAsState`；Compose 不允许条件调用 composable，需拆成两个 modifier 分支或始终调用但 target=1）；
-- 若用 `Modifier.Node`：`GlobalPositionAwareModifierNode` 上报 bounds，`DrawModifierNode` 读 `alphaState.value`，`LayoutModifierNode` 在 `alpha <= 0.03f` 时把 placeable 移到屏幕外，`PointerInputModifierNode` 在半透明期消费 `Initial`。
+- 若用 `Modifier.Node`：`GlobalPositionAwareModifierNode` 上报 bounds，`DrawModifierNode` 读 `alphaState.value`，`LayoutModifierNode` 在完全透明时把 placeable 移到屏幕外（Task 0 的 A/B 路径择优），`PointerInputModifierNode` 在半透明期消费 `Initial`；`onAttach()`/`onDetach()` 管理 `ownerToken`，不要依赖外部调用点。
 
 ### Task 8（Phase 2）：设置、i18n、恢复状态机
 
 1. `autoHidePanelsOnStroke` 默认 true，持久化；
 2. `autoHidePinnedAndRefOnStroke` 默认 false，持久化；
-3. `SAVED_SELECTIONS_POPUP` / `ANIMATION_SETTINGS_CARD` 默认值待确认；
+3. `SAVED_SELECTIONS_POPUP` / `ANIMATION_SETTINGS_CARD` 已拍板**不渐隐**（`evadable = false`），只做精确裁剪；无需为它们提供渐隐设置项；
 4. `values/strings.xml` 与 `values-en/strings.xml` 同步；
 5. 恢复状态机：
    - 每笔 DOWN 重判；
@@ -686,7 +705,7 @@ internal fun Modifier.reportUiSlot(
 
 - `UiPanelOcclusionTrackerTest`：
   - 21 槽位写入/清空/重开；
-  - `ownerToken` 竞争；
+  - `ownerToken` 竞争；同一 Modifier 在父组件重组时 token 不变（不会误触发 `onDispose`）；
   - 快照 4→3 项、池尾无残留、count 正确；
   - evading/unclipped 位在抬笔/取消/切工具后归零。
 - `UiClipSnapshotTest`：
@@ -734,20 +753,20 @@ internal fun Modifier.reportUiSlot(
 
 ---
 
-## 7. 风险与待拍板项
+## 7. 已确认决策与剩余风险
 
-| # | 事项 | 现状 | 建议 |
+| # | 事项 | 状态 | 落地 |
 |---|---|---|---|
-| 1 | `UiSlotModifierNode` 移出命中测试 | 未验证的 Compose 行为 | **Task 0 spike 必须先做**；失败则回退到 `LocalUiPanelInteractive` 条件禁用交互层 |
-| 2 | `strokeLayer` 全屏 ARGB 内存 | 约 18MB（1440×3200） | 先测内存/首帧分配；不可接受则改分块备份层，或放弃安全网（主路径不依赖） |
-| 3 | 槽位数 | 终版 21，不是 23 | 统一 `COUNT = entries.size`；`MAX_UI_CLIPS=24` 留冗余 |
-| 4 | `SAVED_SELECTIONS_POPUP` / `ANIMATION_SETTINGS_CARD` 默认渐隐 | 产品文案写“仅 5 个 Quick*”，终版槽位表曾列 7 个 | **待你确认**；当前按 `defaultEvade=false` 落地 |
-| 5 | 钉住面板/参考窗默认渐隐 | 你已拍板默认关闭，二级开关控制 | 按此落地 |
-| 6 | ShiftTrace 不透明背景判定 | 源码无 `isBackgroundTransparent` | 用 `layers.firstOrNull { it.isBackground }` 的 `visible && opacity≈1` 派生；不可靠时保守关闭 hold |
-| 7 | Popup/Dialog | 独立窗口，`boundsInRoot` 是弹窗局部坐标 | 明确排除；若未来要纳入，需 window/screen 坐标换算 |
-| 8 | 快速运笔 70ms 淡出 | 4000px/s 时 64dp 仅约 48ms | 内圈接触 `snapZero` 兜底；真机 2000/4000 px/s 验证 |
-| 9 | `BOTTOM_TOOL_PANEL` 共享 | 工具面板同一时刻一个；Solo 可并存 | `ToolFloatPanel` 增加 `slot` 参数；Solo 用 `SOLO_MODE_BAR`；若发现两个工具面板并存再拆分 |
-| 10 | 90ms/70ms 视觉验收 | 快速运笔可能仍有极短过渡 | 以 `snapZero` 保证无半透明锯齿；若视觉突兀，再评估 32ms 加速淡出 |
+| 1 | `UiSlotModifierNode` 移出命中测试 | **已确认先做 Task 0** | 路径 A（Draw 阶段 layer 变换）与路径 B（Layout 阶段 placement + 布尔边沿）都验证后择优；失败回退 `LocalUiPanelInteractive` |
+| 2 | `strokeLayer` 全屏 ARGB 内存 | 待实测 | 约 18MB（1440×3200）；先测内存/首帧分配，不可接受则改分块备份层或放弃安全网（主路径不依赖） |
+| 3 | 槽位数 | **已定 21** | 统一 `COUNT = entries.size`；`MAX_UI_CLIPS=24` 留 3 个冗余 |
+| 4 | `SAVED_SELECTIONS_POPUP` / `ANIMATION_SETTINGS_CARD` | **已拍板默认不渐隐** | 改为 `evadable = false`，只做 Phase 1 精确裁剪；仅 5 个 `QUICK_*` 默认渐隐 |
+| 5 | 钉住面板/参考窗默认渐隐 | **已拍板默认关闭** | 二级开关 `autoHidePinnedAndRefOnStroke` 控制 |
+| 6 | ShiftTrace 门控 | **已拍板统一 `!shiftTraceActive`** | 不再依赖 `canvasBackgroundOpaque`；透明/不透明画布行为一致；属性保留备用 |
+| 7 | Popup/Dialog | 已明确排除 | 独立窗口，`boundsInRoot` 是弹窗局部坐标；若未来纳入需 window/screen 换算 |
+| 8 | 快速运笔 70ms 淡出 | 待真机验证 | 4000px/s 时 64dp 仅约 48ms；内圈接触 `snapZero` 兜底；真机 2000/4000 px/s 验证 |
+| 9 | `BOTTOM_TOOL_PANEL` 共享 | 已定方案 | `ToolFloatPanel` 增加 `slot` 参数；Solo 用 `SOLO_MODE_BAR`；若发现两个工具面板并存再拆分 |
+| 10 | 90ms/70ms 视觉验收 | 待真机验证 | 以 `snapZero` 保证无半透明锯齿；若视觉突兀，再评估 32ms 加速淡出 |
 
 ---
 
