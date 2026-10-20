@@ -1,6 +1,6 @@
 # ReveriePaint 前缓冲覆盖规则与 50% 面板避让执行计划（v5.0 可施工终版）
 
-> **适用工程**：`E:\gongju\ReveriePaint`（`com.reverie.paint`）
+> **适用工程**：`<workdir>\ReveriePaint`（`com.reverie.paint`）
 > **分支**：`feat/front-buffer-panel-evasion`
 > **Phase 1 基线提交**：`fcfbc7dd`（已提交的 21 槽位实测 bounds + 不可变 `UiClipSnapshot` 底座）
 > **文档版本**：v5.0（可施工终版，直接指导代码清理、实现、单测与真机验收）

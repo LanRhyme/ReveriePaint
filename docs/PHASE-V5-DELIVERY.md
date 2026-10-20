@@ -159,7 +159,7 @@ final = panel_border_shadow(alpha = 1.0)
 
 ## 5. 四道机械门禁
 
-均在工程根目录 `E:\gongju\ReveriePaint` 执行，最终提交 `1c760637`：
+均在工程根目录 `<workdir>\ReveriePaint` 执行，最终提交 `1c760637`：
 
 ```bash
 JAVA_HOME='D:/c-move/.jdks/jdk-17.0.20.1+1' ./gradlew :app:compileDebugKotlin

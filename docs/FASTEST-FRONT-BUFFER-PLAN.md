@@ -1,6 +1,6 @@
 # ReveriePaint 超低延迟前缓冲预览方案设计与实施规划 (Fastest Front-Buffer Plan)
 
-> **目标分支**: `feat/latency-prediction` (工作树: `E:\gongju\ReveriePaint-lowlatency`)  
+> **目标分支**: `feat/latency-prediction` (工作树: `<workdir>\ReveriePaint-lowlatency`)  
 > **核心组件**: `androidx.graphics:graphics-core:1.0.4` (Apache-2.0, API 29+)  
 > **设计定位**: 笔尖前沿孪生预览段 (Preview Segment) 单缓冲直出，将笔尖到墨迹感知延迟压至 4~8ms 硬件极限。
 
