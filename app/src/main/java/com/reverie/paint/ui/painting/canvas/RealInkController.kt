@@ -16,6 +16,7 @@ import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.PublishedTiles
 import com.reverie.paint.core.RealInkSink
 import com.reverie.paint.model.CanvasPose
+import com.reverie.paint.model.RealInkHoldPolicy
 import com.reverie.paint.model.RealInkPresent
 import com.reverie.paint.model.UiClipSnapshot
 import com.reverie.paint.perf.FbGeomLog
@@ -147,8 +148,11 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
     fun arm(allowed: Boolean, wantsExtras: Boolean, clips: UiClipSnapshot): Boolean {
         val overlay = view.frontBufferOverlay
         val hold = allowed && overlay != null && overlay.canRenderPreview
-        FbGeomLog.strokeBegin(++strokeSeq, hold, view.width, view.height, pose)
-        synchronized(pendingLock) { pendingCount = 0 }
+        val seq = synchronized(pendingLock) {
+            pendingCount = 0
+            ++strokeSeq
+        }
+        FbGeomLog.strokeBegin(seq, hold, view.width, view.height, pose)
         if (!hold) {
             held = false
             uiClips = UiClipSnapshot.EMPTY
@@ -240,9 +244,11 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
 
     override fun wantsHold(): Boolean {
         if (!held || view.isTransformActive || view.overlayPanelsOpen) return false
-        val v = view.vm
-        if (v != null && v.drawingGuide.mode == com.reverie.paint.model.GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing) {
-            if (v.mirrorGate.state == com.reverie.paint.core.MirrorLiveGate.State.FALLBACK) return false
+        if (view.filterSessionActive) return false
+        val vm = view.vm
+        if (vm != null && vm.anim.shiftTraceActive) return false
+        if (vm != null && vm.drawingGuide.mode == com.reverie.paint.model.GuideMode.SYMMETRY && vm.drawingGuide.assistedDrawing) {
+            if (vm.mirrorGate.state == com.reverie.paint.core.MirrorLiveGate.State.FALLBACK) return false
         }
         val overlay = view.frontBufferOverlay ?: return false
         if (!overlay.canRenderPreview) return false
@@ -261,6 +267,7 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
         anyFull: Boolean,
     ): Boolean {
         if (!wantsHold()) {
+            if (RealInkHoldPolicy.shouldReleaseOnReject(held, wantsHold = false)) release()
             synchronized(pendingLock) { pendingCount = 0 }
             return false
         }
@@ -311,11 +318,13 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
      * 全部成功才清空积压; 任何一步失败都保留积压并返回 false (调用方据此让主画布兜底)。
      */
     private fun presentPending(tiles: PublishedTiles): Boolean {
-        if (!wantsHold()) return false
+        if (!wantsHold()) {
+            if (RealInkHoldPolicy.shouldReleaseOnReject(held, wantsHold = false)) release()
+            return false
+        }
         val overlay = view.frontBufferOverlay ?: return false
         if (!overlay.isIdleForInk()) return false
         val p = pose ?: return false
-        val seq = strokeSeq
         val clipsSnapshot = uiClips
         val grid = tiles.grid
         if (grid.width != p.bmpW || grid.height != p.bmpH) return false
@@ -326,7 +335,9 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
         // 上一帧的包若还在排队 (GL 尚未取走), 把它的脏区逐块赎回并回积压, 一起重烤:
         // 否则它随后被最新一帧顶掉, 那一截墨既没上屏也不会再烤, 按住期间就是一段断口。
         val reclaimed = overlay.reclaimQueuedInkRegions(reclaimedRects)
+        var seq = 0L
         val snapCount = synchronized(pendingLock) {
+            seq = strokeSeq
             for (i in 0 until reclaimed) {
                 val o = i * 4
                 pendingCount =
@@ -449,7 +460,6 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
             returnPending(snapCount, seq)
             return false
         }
-        synchronized(epochLock) { epoch += 1 }
         if (!held || seq != strokeSeq) {
             slot.busy.set(false)
             return false
@@ -465,6 +475,9 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
             slot.busy.set(false)
             returnPending(snapCount, seq)
             return false
+        }
+        if (RealInkHoldPolicy.shouldBumpEpoch(shown)) {
+            synchronized(epochLock) { epoch += 1 }
         }
         // 孔径外的新墨已由前缓冲 4~8ms 直出；若本帧脏区侵入了面板/阴影孔径，
         // 孔径内前缓冲已被 clipOut 为全透明，必须唤醒主窗口 HWUI 在该交集区域
