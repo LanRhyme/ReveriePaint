@@ -423,9 +423,12 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     // 绘制状态 (手写笔专属)
+    private var strokeTool: Tool? = null
     private var strokeStarted = false
         set(value) {
+            if (value && !field) strokeTool = effTool()
             field = value
+            if (!value) strokeTool = null
             // 绘画态优先协议的唯一真源：面板据此决定是否被动避让。
             vm?.isStrokeSessionActive = value
         }
@@ -442,7 +445,7 @@ class CanvasTouchView(context: Context) : View(context) {
      */
     internal fun abortActiveStrokeForHistory(): Boolean {
         if (!strokeStarted) return false
-        when (effTool()) {
+        when (strokeTool) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> Unit
             else -> return false
         }
@@ -465,6 +468,36 @@ class CanvasTouchView(context: Context) : View(context) {
         clearPredictionState(triggerInvalidate = true)
         currentStrokeDocPos = Offset.Zero
         return true
+    }
+
+    private fun cancelActiveStroke(v: PaintViewModel) {
+        when (strokeTool) {
+            Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
+                cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
+                cachedDriver?.feedbackManager?.stopStrokeSound()
+                v.quickShapeCapture = null
+                quickShapeCandidate = null
+                realInk.release()
+                v.touchCancel()
+                resetMirrorBranches()
+                safeEndSymmetryUndoMacro()
+                clearPredictionState(triggerInvalidate = true)
+                strokeStarted = false
+            }
+            Tool.LIQUIFY -> {
+                removeCallbacks(liquifyFlushRunnable)
+                liquifyFlushPosted = false
+                liquifySession.reset()
+                liquifyFieldGesture = false
+                liquifyBasePolicy.reset()
+                liquifyDrawRect = null
+                v.liquifyCancel()
+                strokeStarted = false
+            }
+            else -> {
+                strokeStarted = false
+            }
+        }
     }
     private var firstDocPos = Offset.Zero
     private var shapeEndDocPos = Offset.Zero
@@ -3333,73 +3366,87 @@ class CanvasTouchView(context: Context) : View(context) {
             prevCursorBottom = effectiveCursorPos.y + lqRingR + 4f
             prevCursorRectValid = true
 
-            when (v.cursorStyleMode) {
-                0 -> { // 双对比圆环
-                    canvas.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen + 0.8f, cursorPaintBlack)
-                    canvas.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen, cursorPaintWhite)
-                }
-                1 -> { // 十字准星 (极细发丝相交线)
-                    val len = 7f * density
-                    canvas.drawLine(effectiveCursorPos.x - len, effectiveCursorPos.y, effectiveCursorPos.x + len, effectiveCursorPos.y, crosshairPaintBlack)
-                    canvas.drawLine(effectiveCursorPos.x, effectiveCursorPos.y - len, effectiveCursorPos.x, effectiveCursorPos.y + len, crosshairPaintBlack)
-                    canvas.drawLine(effectiveCursorPos.x - len, effectiveCursorPos.y, effectiveCursorPos.x + len, effectiveCursorPos.y, crosshairPaintWhite)
-                    canvas.drawLine(effectiveCursorPos.x, effectiveCursorPos.y - len, effectiveCursorPos.x, effectiveCursorPos.y + len, crosshairPaintWhite)
-                }
-                2 -> { // 精确点
-                    canvas.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, 3f * density, cursorPaintBlack)
-                    canvas.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, 1.8f * density, cursorPaintWhite)
-                }
-                5 -> { // 圆 + 十字
-                    canvas.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen + 0.8f, cursorPaintBlack)
-                    canvas.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen, cursorPaintWhite)
-                    val len = 4.5f * density
-                    canvas.drawLine(effectiveCursorPos.x - len, effectiveCursorPos.y, effectiveCursorPos.x + len, effectiveCursorPos.y, crosshairPaintBlack)
-                    canvas.drawLine(effectiveCursorPos.x, effectiveCursorPos.y - len, effectiveCursorPos.x, effectiveCursorPos.y + len, crosshairPaintBlack)
-                    canvas.drawLine(effectiveCursorPos.x - len, effectiveCursorPos.y, effectiveCursorPos.x + len, effectiveCursorPos.y, crosshairPaintWhite)
-                    canvas.drawLine(effectiveCursorPos.x, effectiveCursorPos.y - len, effectiveCursorPos.x, effectiveCursorPos.y + len, crosshairPaintWhite)
-                }
-                6 -> { // 笔刷真实轮廓 (Brush Outline)
-                    val polys = v.brushOutlinePolygons
-                    if (polys != null && polys.isNotEmpty()) {
-                        brushOutlinePath.rewind()
-                        for (poly in polys) {
-                            val count = poly.size / 2
-                            if (count >= 2) {
-                                val startX = poly[0] * brushRadiusScreen
-                                val startY = poly[1] * brushRadiusScreen
-                                brushOutlinePath.moveTo(startX, startY)
-                                for (i in 1 until count) {
-                                    val px = poly[i * 2] * brushRadiusScreen
-                                    val py = poly[i * 2 + 1] * brushRadiusScreen
-                                    brushOutlinePath.lineTo(px, py)
+            fun drawBrushCursor(c: Canvas) {
+                when (v.cursorStyleMode) {
+                    0 -> { // 双对比圆环
+                        c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen + 0.8f, cursorPaintBlack)
+                        c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen, cursorPaintWhite)
+                    }
+                    1 -> { // 十字准星 (极细发丝相交线)
+                        val len = 7f * density
+                        c.drawLine(effectiveCursorPos.x - len, effectiveCursorPos.y, effectiveCursorPos.x + len, effectiveCursorPos.y, crosshairPaintBlack)
+                        c.drawLine(effectiveCursorPos.x, effectiveCursorPos.y - len, effectiveCursorPos.x, effectiveCursorPos.y + len, crosshairPaintBlack)
+                        c.drawLine(effectiveCursorPos.x - len, effectiveCursorPos.y, effectiveCursorPos.x + len, effectiveCursorPos.y, crosshairPaintWhite)
+                        c.drawLine(effectiveCursorPos.x, effectiveCursorPos.y - len, effectiveCursorPos.x, effectiveCursorPos.y + len, crosshairPaintWhite)
+                    }
+                    2 -> { // 精确点
+                        c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, 3f * density, cursorPaintBlack)
+                        c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, 1.8f * density, cursorPaintWhite)
+                    }
+                    5 -> { // 圆 + 十字
+                        c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen + 0.8f, cursorPaintBlack)
+                        c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen, cursorPaintWhite)
+                        val len = 4.5f * density
+                        c.drawLine(effectiveCursorPos.x - len, effectiveCursorPos.y, effectiveCursorPos.x + len, effectiveCursorPos.y, crosshairPaintBlack)
+                        c.drawLine(effectiveCursorPos.x, effectiveCursorPos.y - len, effectiveCursorPos.x, effectiveCursorPos.y + len, crosshairPaintBlack)
+                        c.drawLine(effectiveCursorPos.x - len, effectiveCursorPos.y, effectiveCursorPos.x + len, effectiveCursorPos.y, crosshairPaintWhite)
+                        c.drawLine(effectiveCursorPos.x, effectiveCursorPos.y - len, effectiveCursorPos.x, effectiveCursorPos.y + len, crosshairPaintWhite)
+                    }
+                    6 -> { // 笔刷真实轮廓 (Brush Outline)
+                        val polys = v.brushOutlinePolygons
+                        if (polys != null && polys.isNotEmpty()) {
+                            brushOutlinePath.rewind()
+                            for (poly in polys) {
+                                val count = poly.size / 2
+                                if (count >= 2) {
+                                    val startX = poly[0] * brushRadiusScreen
+                                    val startY = poly[1] * brushRadiusScreen
+                                    brushOutlinePath.moveTo(startX, startY)
+                                    for (i in 1 until count) {
+                                        val px = poly[i * 2] * brushRadiusScreen
+                                        val py = poly[i * 2 + 1] * brushRadiusScreen
+                                        brushOutlinePath.lineTo(px, py)
+                                    }
+                                    brushOutlinePath.close()
                                 }
-                                brushOutlinePath.close()
                             }
-                        }
-                        val baseRot = (v.brushAngle + v.brushRotation).toFloat()
-                        val motionRot = if (v.brushFollowDirection || v.brushRotationSensor == "drawingangle") localCursorAngle else 0f
-                        val totalRot = baseRot + motionRot + canvasRotation
+                            val baseRot = (v.brushAngle + v.brushRotation).toFloat()
+                            val motionRot = if (v.brushFollowDirection || v.brushRotationSensor == "drawingangle") localCursorAngle else 0f
+                            val totalRot = baseRot + motionRot + canvasRotation
 
-                        canvas.save()
-                        canvas.translate(effectiveCursorPos.x, effectiveCursorPos.y)
-                        canvas.rotate(totalRot)
-                        canvas.drawPath(brushOutlinePath, brushOutlinePaintBlack)
-                        canvas.restore()
-                    } else {
-                        // 回退单黑细圆环
-                        canvas.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen, brushOutlinePaintBlack)
+                            c.save()
+                            c.translate(effectiveCursorPos.x, effectiveCursorPos.y)
+                            c.rotate(totalRot)
+                            c.drawPath(brushOutlinePath, brushOutlinePaintBlack)
+                            c.restore()
+                        } else {
+                            // 回退单黑细圆环
+                            c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen, brushOutlinePaintBlack)
+                        }
+                    }
+                }
+
+                // 对称辅助光标镜像绘制 (支持垂直/水平/四象限/径向多分支)
+                if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing) {
+                    val docPt = screenToDoc(effectiveCursorPos)
+                    val symPts = computeAllSymmetricPoints(Point2D(docPt.x, docPt.y))
+                    for (symPt in symPts) {
+                        val symScreen = docToScreen(Offset(symPt.x, symPt.y))
+                        c.drawCircle(symScreen.x, symScreen.y, brushRadiusScreen + 0.8f, cursorPaintBlack)
+                        c.drawCircle(symScreen.x, symScreen.y, brushRadiusScreen, cursorPaintWhite)
                     }
                 }
             }
 
-            // 对称辅助光标镜像绘制 (支持垂直/水平/四象限/径向多分支)
-            if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing) {
-                val docPt = screenToDoc(effectiveCursorPos)
-                val symPts = computeAllSymmetricPoints(Point2D(docPt.x, docPt.y))
-                for (symPt in symPts) {
-                    val symScreen = docToScreen(Offset(symPt.x, symPt.y))
-                    canvas.drawCircle(symScreen.x, symScreen.y, brushRadiusScreen + 0.8f, cursorPaintBlack)
-                    canvas.drawCircle(symScreen.x, symScreen.y, brushRadiusScreen, cursorPaintWhite)
+            val clips = uiClipSnapshot
+            if (!realInk.held || clips.isEmpty) {
+                drawBrushCursor(canvas)
+            } else {
+                for (i in 0 until clips.count) {
+                    canvas.save()
+                    canvas.clipRect(clips.left(i), clips.top(i), clips.right(i), clips.bottom(i))
+                    drawBrushCursor(canvas)
+                    canvas.restore()
                 }
             }
         }
@@ -3478,6 +3525,13 @@ class CanvasTouchView(context: Context) : View(context) {
         val extras = cursorWhileDrawing || predictedTipEligible(v)
         if (realInk.arm(allowed, extras, uiClipSnapshot)) {
             noteHoldCursor(x, y, pressure)
+            if (prevCursorRectValid) {
+                val l = floor(prevCursorLeft).toInt()
+                val t = floor(prevCursorTop).toInt()
+                val r = ceil(prevCursorRight).toInt()
+                val b = ceil(prevCursorBottom).toInt()
+                invalidate(l, t, r, b)
+            }
         }
     }
 
@@ -4267,6 +4321,15 @@ class CanvasTouchView(context: Context) : View(context) {
                             onFilterHoldingCompare?.invoke(false)
                         }
                         isFilterDragging = false
+                        if (strokeStarted) {
+                            val doc = screenToDoc(Offset(curX, curY))
+                            handleToolUp(
+                                event,
+                                doc,
+                                isCancel = event.actionMasked == MotionEvent.ACTION_CANCEL,
+                                isStylus = isStylusTouch,
+                            )
+                        }
                     }
                 }
                 return true
@@ -5123,6 +5186,7 @@ class CanvasTouchView(context: Context) : View(context) {
 
                 if (draggingGuideHandleIndex != -1) {
                     draggingGuideHandleIndex = -1
+                    if (strokeStarted) cancelActiveStroke(v)
                     return true
                 }
 
@@ -5563,7 +5627,7 @@ class CanvasTouchView(context: Context) : View(context) {
             if (handleGuideHandleDrag(docPos)) return
         }
 
-        when (effTool()) {
+        when (StrokeDispatch.toolForMove(strokeStarted, strokeTool, effTool())) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 // s13-C5: 本笔已被笔画中的撤销/重做中止, 抬笔前不再迟到起笔
                 if (strokeAbortedUntilUp) return
@@ -6080,7 +6144,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         touchTiltX.toFloat(), touchTiltY.toFloat(), touchRotation.toFloat(),
                         eventTimeMs = event.eventTime
                     )
-                    if (!v.symmetryMirrorLive) {
+                    if (!v.symmetryMirrorLive && !realInk.held) {
                         invalidate()
                     }
                 }
@@ -6742,10 +6806,20 @@ class CanvasTouchView(context: Context) : View(context) {
 
         if (draggingGuideHandleIndex != -1) {
             draggingGuideHandleIndex = -1
+            if (strokeStarted) cancelActiveStroke(v)
             return
         }
 
-        when (effTool()) {
+        when (StrokeDispatch.finish(strokeStarted, strokeTool, effTool(), isCancel)) {
+            StrokeFinish.NONE -> Unit
+            StrokeFinish.CANCEL -> {
+                cancelActiveStroke(v)
+                return
+            }
+            StrokeFinish.COMMIT -> Unit
+        }
+
+        when (StrokeDispatch.toolForMove(strokeStarted, strokeTool, effTool())) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 val hasSymmetry = v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing
                 if (strokeStarted) {
@@ -6776,8 +6850,8 @@ class CanvasTouchView(context: Context) : View(context) {
                         // s13-C5 兜底: 本笔的引擎笔触已被撤销/重做/取消清掉 (mirrorStrokeAborted),
                         // 镜像缓冲不能再整笔重放成一条只有镜像的新笔画
                         val hasBranchesToReplay = hasMirrorSamples && !liveMirror && !v.mirrorStrokeAborted
-                        val isEraserStroke = (effTool() == Tool.ERASER)
-                        val overrideTool = if (effTool() == Tool.ERASER && tool != Tool.ERASER) "eraser" else null
+                        val isEraserStroke = (strokeTool == Tool.ERASER)
+                        val overrideTool = if (strokeTool == Tool.ERASER && tool != Tool.ERASER) "eraser" else null
                         // touchEnd 会给主笔补发追赶点与尾锋点。这些点也必须进镜像分支, 否则镜像笔迹缺少收尾
                         if (hasMirrorSamples) {
                             appendMirrorCatchUpAndTaper(v, event.eventTime)
