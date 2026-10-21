@@ -2009,6 +2009,10 @@ class CanvasTouchView(context: Context) : View(context) {
     // 视图参数后整条笔迹共用一份变换, 并且只往复用数组里写结果, 全程零分配。
     private val viewTransform = CanvasViewTransform()
     private val pointScratch = FloatArray(2)
+    private val symScratchX = FloatArray(16)
+    private val symScratchY = FloatArray(16)
+    private val symEndScratchX = FloatArray(16)
+    private val symEndScratchY = FloatArray(16)
     private val boundsScratch = IntArray(4)
     // 512 显示瓦片: 视口命中的瓦片列表 (复用) 与边缘 clamp 的着色器缓存
     private var tileDrawScratch = IntArray(0)
@@ -3060,20 +3064,33 @@ class CanvasTouchView(context: Context) : View(context) {
 
                             // 对称模式: 将硬件预测尾线同步镜像绘制到所有对称分支
                             if (hasSymmetry) {
-                                val docStart = screenToDoc(Offset(localCursorX, localCursorY))
-                                val docEnd = screenToDoc(Offset(endX, endY))
-                                val symStarts = computeAllSymmetricPoints(Point2D(docStart.x, docStart.y))
-                                val symEnds = computeAllSymmetricPoints(Point2D(docEnd.x, docEnd.y))
-                                val symCount = minOf(symStarts.size, symEnds.size)
+                                ensureViewTransform()
+                                viewTransform.screenToDoc(localCursorX, localCursorY, pointScratch)
+                                val countStart = v.drawingGuide.writeSymmetricPoints(
+                                    pointScratch[0], pointScratch[1],
+                                    v.docWidth, v.docHeight,
+                                    symScratchX, symScratchY
+                                )
+                                viewTransform.screenToDoc(endX, endY, pointScratch)
+                                val countEnd = v.drawingGuide.writeSymmetricPoints(
+                                    pointScratch[0], pointScratch[1],
+                                    v.docWidth, v.docHeight,
+                                    symEndScratchX, symEndScratchY
+                                )
+                                val symCount = minOf(countStart, countEnd)
                                 for (i in 0 until symCount) {
-                                    val sStart = docToScreen(Offset(symStarts[i].x, symStarts[i].y))
-                                    val sEnd = docToScreen(Offset(symEnds[i].x, symEnds[i].y))
+                                    viewTransform.docToScreen(symScratchX[i], symScratchY[i], pointScratch)
+                                    val startSx = pointScratch[0]
+                                    val startSy = pointScratch[1]
+                                    viewTransform.docToScreen(symEndScratchX[i], symEndScratchY[i], pointScratch)
+                                    val endSx = pointScratch[0]
+                                    val endSy = pointScratch[1]
                                     tipShaderPaint.shader = android.graphics.LinearGradient(
-                                        sStart.x, sStart.y, sEnd.x, sEnd.y,
+                                        startSx, startSy, endSx, endSy,
                                         startColor, endColor,
                                         android.graphics.Shader.TileMode.CLAMP
                                     )
-                                    canvas.drawLine(sStart.x, sStart.y, sEnd.x, sEnd.y, tipShaderPaint)
+                                    canvas.drawLine(startSx, startSy, endSx, endSy, tipShaderPaint)
                                 }
                             }
                         }
@@ -3620,13 +3637,17 @@ class CanvasTouchView(context: Context) : View(context) {
 
         // 记入对称镜像分支光标位置 (由前缓冲随墨一起在 GL 线程直出)
         if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing) {
-            val docPt = screenToDoc(Offset(cx, cy))
-            val symPts = computeAllSymmetricPoints(Point2D(docPt.x, docPt.y))
-            val count = minOf(symPts.size, 16)
+            ensureViewTransform()
+            viewTransform.screenToDoc(cx, cy, pointScratch)
+            val count = v.drawingGuide.writeSymmetricPoints(
+                pointScratch[0], pointScratch[1],
+                v.docWidth, v.docHeight,
+                symScratchX, symScratchY
+            )
             for (i in 0 until count) {
-                val symScreen = docToScreen(Offset(symPts[i].x, symPts[i].y))
-                realInk.symCursorX[i] = symScreen.x
-                realInk.symCursorY[i] = symScreen.y
+                viewTransform.docToScreen(symScratchX[i], symScratchY[i], pointScratch)
+                realInk.symCursorX[i] = pointScratch[0]
+                realInk.symCursorY[i] = pointScratch[1]
             }
             realInk.symCursorCount = count
         } else {
@@ -5663,6 +5684,23 @@ class CanvasTouchView(context: Context) : View(context) {
                                 val asScreen = docToScreen(assisted)
                                 envL = minOf(envL, asScreen.x); envT = minOf(envT, asScreen.y)
                                 envR = maxOf(envR, asScreen.x); envB = maxOf(envB, asScreen.y)
+                            }
+                        }
+                        if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing) {
+                            val symCount = v.drawingGuide.writeSymmetricPoints(
+                                docPos.x, docPos.y,
+                                v.docWidth, v.docHeight,
+                                symScratchX, symScratchY
+                            )
+                            ensureViewTransform()
+                            for (i in 0 until symCount) {
+                                viewTransform.docToScreen(symScratchX[i], symScratchY[i], pointScratch)
+                                val sx = pointScratch[0]
+                                val sy = pointScratch[1]
+                                if (sx.isFinite() && sy.isFinite()) {
+                                    envL = minOf(envL, sx); envT = minOf(envT, sy)
+                                    envR = maxOf(envR, sx); envB = maxOf(envB, sy)
+                                }
                             }
                         }
                         evasionEnvL = envL

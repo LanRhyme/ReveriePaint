@@ -222,4 +222,129 @@ class GuideModelsTest {
             ).isEmpty()
         )
     }
+
+    @Test
+    fun `writeSymmetricPoints vertical mode matches computeSymmetricPoints`() {
+        val config = DrawingGuideConfig(
+            mode = GuideMode.SYMMETRY,
+            symmetryType = SymmetryType.VERTICAL,
+            symmetryCenterX = 0.5f,
+            symmetryCenterY = 0.5f
+        )
+        val docPt = Point2D(200f, 300f)
+        val expected = config.computeSymmetricPoints(docPt, docWidth = 1000, docHeight = 1000)
+        val outX = FloatArray(16)
+        val outY = FloatArray(16)
+        val count = config.writeSymmetricPoints(docPt.x, docPt.y, 1000, 1000, outX, outY)
+        assertEquals(expected.size, count)
+        for (i in 0 until count) {
+            assertEquals(expected[i].x, outX[i], 0.001f)
+            assertEquals(expected[i].y, outY[i], 0.001f)
+        }
+
+        val tinyX = FloatArray(1)
+        val tinyY = FloatArray(1)
+        val tinyCount = config.writeSymmetricPoints(docPt.x, docPt.y, 1000, 1000, tinyX, tinyY)
+        assertTrue(tinyCount <= 1)
+        assertEquals(1, tinyCount)
+        assertEquals(expected[0].x, tinyX[0], 0.001f)
+        assertEquals(expected[0].y, tinyY[0], 0.001f)
+    }
+
+    @Test
+    fun `writeSymmetricPoints horizontal mode matches computeSymmetricPoints`() {
+        val config = DrawingGuideConfig(
+            mode = GuideMode.SYMMETRY,
+            symmetryType = SymmetryType.HORIZONTAL,
+            symmetryCenterX = 0.5f,
+            symmetryCenterY = 0.5f
+        )
+        val docPt = Point2D(200f, 300f)
+        val expected = config.computeSymmetricPoints(docPt, docWidth = 1000, docHeight = 1000)
+        val outX = FloatArray(16)
+        val outY = FloatArray(16)
+        val count = config.writeSymmetricPoints(docPt.x, docPt.y, 1000, 1000, outX, outY)
+        assertEquals(expected.size, count)
+        for (i in 0 until count) {
+            assertEquals(expected[i].x, outX[i], 0.001f)
+            assertEquals(expected[i].y, outY[i], 0.001f)
+        }
+
+        val tinyX = FloatArray(1)
+        val tinyY = FloatArray(1)
+        val tinyCount = config.writeSymmetricPoints(docPt.x, docPt.y, 1000, 1000, tinyX, tinyY)
+        assertTrue(tinyCount <= 1)
+        assertEquals(1, tinyCount)
+        assertEquals(expected[0].x, tinyX[0], 0.001f)
+        assertEquals(expected[0].y, tinyY[0], 0.001f)
+    }
+
+    @Test
+    fun `writeSymmetricPoints quadrant mode matches computeSymmetricPoints`() {
+        val config = DrawingGuideConfig(
+            mode = GuideMode.SYMMETRY,
+            symmetryType = SymmetryType.QUADRANT,
+            symmetryCenterX = 0.5f,
+            symmetryCenterY = 0.5f
+        )
+        val docPt = Point2D(200f, 300f)
+        val expected = config.computeSymmetricPoints(docPt, docWidth = 1000, docHeight = 1000)
+        val outX = FloatArray(16)
+        val outY = FloatArray(16)
+        val count = config.writeSymmetricPoints(docPt.x, docPt.y, 1000, 1000, outX, outY)
+        assertEquals(expected.size, count)
+        for (i in 0 until count) {
+            assertEquals(expected[i].x, outX[i], 0.001f)
+            assertEquals(expected[i].y, outY[i], 0.001f)
+        }
+
+        val tinyX = FloatArray(1)
+        val tinyY = FloatArray(1)
+        val tinyCount = config.writeSymmetricPoints(docPt.x, docPt.y, 1000, 1000, tinyX, tinyY)
+        assertTrue(tinyCount <= 1)
+        assertEquals(1, tinyCount)
+        assertEquals(expected[0].x, tinyX[0], 0.001f)
+        assertEquals(expected[0].y, tinyY[0], 0.001f)
+    }
+
+    @Test
+    fun `writeSymmetricPoints radial mode matches computeSymmetricPoints`() {
+        val config = DrawingGuideConfig(
+            mode = GuideMode.SYMMETRY,
+            symmetryType = SymmetryType.RADIAL,
+            symmetryCenterX = 0.5f,
+            symmetryCenterY = 0.5f
+        )
+        val docPt = Point2D(600f, 500f)
+        val expected = config.computeSymmetricPoints(docPt, docWidth = 1000, docHeight = 1000)
+        val outX = FloatArray(16)
+        val outY = FloatArray(16)
+        val count = config.writeSymmetricPoints(docPt.x, docPt.y, 1000, 1000, outX, outY)
+        assertEquals(expected.size, count)
+        for (i in 0 until count) {
+            assertEquals(expected[i].x, outX[i], 0.001f)
+            assertEquals(expected[i].y, outY[i], 0.001f)
+        }
+
+        val tinyX = FloatArray(1)
+        val tinyY = FloatArray(1)
+        val tinyCount = config.writeSymmetricPoints(docPt.x, docPt.y, 1000, 1000, tinyX, tinyY)
+        assertTrue(tinyCount <= 1)
+        assertEquals(1, tinyCount)
+        assertEquals(expected[0].x, tinyX[0], 0.001f)
+        assertEquals(expected[0].y, tinyY[0], 0.001f)
+    }
+
+    @Test
+    fun `writeSymmetricPoints returns zero for mode off or non-finite coords`() {
+        val offConfig = DrawingGuideConfig(mode = GuideMode.OFF)
+        val outX = FloatArray(16)
+        val outY = FloatArray(16)
+        assertEquals(0, offConfig.writeSymmetricPoints(200f, 300f, 1000, 1000, outX, outY))
+
+        val symConfig = DrawingGuideConfig(mode = GuideMode.SYMMETRY)
+        assertEquals(0, symConfig.writeSymmetricPoints(Float.NaN, 300f, 1000, 1000, outX, outY))
+        assertEquals(0, symConfig.writeSymmetricPoints(200f, Float.POSITIVE_INFINITY, 1000, 1000, outX, outY))
+        assertEquals(0, symConfig.writeSymmetricPoints(200f, 300f, 1000, 1000, FloatArray(0), outY))
+    }
 }

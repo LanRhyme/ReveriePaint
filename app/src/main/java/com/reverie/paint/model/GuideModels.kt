@@ -139,6 +139,114 @@ data class DrawingGuideConfig(
     }
 
     /**
+     * 写入式计算输入点对应的对称镜像分支点 (零分配)
+     * 返回写入个数，不超过 min(outX.size, outY.size)。
+     */
+    fun writeSymmetricPoints(
+        docX: Float,
+        docY: Float,
+        docWidth: Int,
+        docHeight: Int,
+        outX: FloatArray,
+        outY: FloatArray,
+    ): Int {
+        if (mode != GuideMode.SYMMETRY) return 0
+        if (!docX.isFinite() || !docY.isFinite()) return 0
+        val cap = minOf(outX.size, outY.size)
+        if (cap <= 0) return 0
+
+        val scX = symmetryCenterX.takeIf { it.isFinite() }?.coerceIn(0.01f, 0.99f) ?: 0.5f
+        val scY = symmetryCenterY.takeIf { it.isFinite() }?.coerceIn(0.01f, 0.99f) ?: 0.5f
+        val cx = docWidth * scX
+        val cy = docHeight * scY
+
+        val rotRad = (symmetryRotationDeg % 360f) * (PI.toFloat() / 180f)
+        val cosR = cos(rotRad)
+        val sinR = sin(rotRad)
+
+        // 旋转至对称轴局部对齐坐标系 (绕中心点逆时针旋转 -rotRad)
+        val dx = docX - cx
+        val dy = docY - cy
+        val lx = dx * cosR + dy * sinR
+        val ly = -dx * sinR + dy * cosR
+
+        return when (symmetryType) {
+            SymmetryType.VERTICAL -> {
+                val wx = cx + (-lx * cosR - ly * sinR)
+                val wy = cy + (-lx * sinR + ly * cosR)
+                if (wx.isFinite() && wy.isFinite()) {
+                    outX[0] = wx
+                    outY[0] = wy
+                    1
+                } else 0
+            }
+            SymmetryType.HORIZONTAL -> {
+                val wx = cx + (lx * cosR - (-ly) * sinR)
+                val wy = cy + (lx * sinR + (-ly) * cosR)
+                if (wx.isFinite() && wy.isFinite()) {
+                    outX[0] = wx
+                    outY[0] = wy
+                    1
+                } else 0
+            }
+            SymmetryType.QUADRANT -> {
+                var count = 0
+                // branch 1: (-lx, ly)
+                if (count < cap) {
+                    val wx = cx + (-lx * cosR - ly * sinR)
+                    val wy = cy + (-lx * sinR + ly * cosR)
+                    if (wx.isFinite() && wy.isFinite()) {
+                        outX[count] = wx
+                        outY[count] = wy
+                        count++
+                    }
+                }
+                // branch 2: (lx, -ly)
+                if (count < cap) {
+                    val wx = cx + (lx * cosR - (-ly) * sinR)
+                    val wy = cy + (lx * sinR + (-ly) * cosR)
+                    if (wx.isFinite() && wy.isFinite()) {
+                        outX[count] = wx
+                        outY[count] = wy
+                        count++
+                    }
+                }
+                // branch 3: (-lx, -ly)
+                if (count < cap) {
+                    val wx = cx + (-lx * cosR - (-ly) * sinR)
+                    val wy = cy + (-lx * sinR + (-ly) * cosR)
+                    if (wx.isFinite() && wy.isFinite()) {
+                        outX[count] = wx
+                        outY[count] = wy
+                        count++
+                    }
+                }
+                count
+            }
+            SymmetryType.RADIAL -> {
+                val r = hypot(lx, ly)
+                val baseAngle = atan2(ly, lx)
+                val step = 2f * PI.toFloat() / 8f
+                var count = 0
+                for (k in 1..7) {
+                    if (count >= cap) break
+                    val ang = baseAngle + k * step
+                    val bx = r * cos(ang)
+                    val by = r * sin(ang)
+                    val wx = cx + (bx * cosR - by * sinR)
+                    val wy = cy + (bx * sinR + by * cosR)
+                    if (wx.isFinite() && wy.isFinite()) {
+                        outX[count] = wx
+                        outY[count] = wy
+                        count++
+                    }
+                }
+                count
+            }
+        }
+    }
+
+    /**
      * 对称分支在**局部坐标系**里的线性变换: 点与倾角向量共用同一套。
      *
      * 反射分支的线性部分对向量和点完全一致; RADIAL 的"绕原点旋转 k*45°"对向量同样成立
