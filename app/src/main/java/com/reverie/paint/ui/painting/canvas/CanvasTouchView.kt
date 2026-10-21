@@ -2013,6 +2013,8 @@ class CanvasTouchView(context: Context) : View(context) {
     private val symScratchY = FloatArray(16)
     private val symEndScratchX = FloatArray(16)
     private val symEndScratchY = FloatArray(16)
+    private val cursorSymScreenX = FloatArray(16)
+    private val cursorSymScreenY = FloatArray(16)
     private val boundsScratch = IntArray(4)
     // 512 显示瓦片: 视口命中的瓦片列表 (复用) 与边缘 clamp 的着色器缓存
     private var tileDrawScratch = IntArray(0)
@@ -3383,87 +3385,103 @@ class CanvasTouchView(context: Context) : View(context) {
             prevCursorBottom = effectiveCursorPos.y + lqRingR + 4f
             prevCursorRectValid = true
 
-            fun drawBrushCursor(c: Canvas) {
-                when (v.cursorStyleMode) {
-                    0 -> { // 双对比圆环
-                        c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen + 0.8f, cursorPaintBlack)
-                        c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen, cursorPaintWhite)
+            val clips = uiClipSnapshot
+            val shouldDraw = !realInk.held || !clips.isEmpty
+            if (shouldDraw) {
+                var symCursorCount = 0
+                if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing) {
+                    ensureViewTransform()
+                    viewTransform.screenToDoc(effectiveCursorPos.x, effectiveCursorPos.y, pointScratch)
+                    symCursorCount = v.drawingGuide.writeSymmetricPoints(
+                        pointScratch[0], pointScratch[1],
+                        v.docWidth, v.docHeight,
+                        symScratchX, symScratchY
+                    )
+                    for (i in 0 until symCursorCount) {
+                        viewTransform.docToScreen(symScratchX[i], symScratchY[i], pointScratch)
+                        cursorSymScreenX[i] = pointScratch[0]
+                        cursorSymScreenY[i] = pointScratch[1]
                     }
-                    1 -> { // 十字准星 (极细发丝相交线)
-                        val len = 7f * density
-                        c.drawLine(effectiveCursorPos.x - len, effectiveCursorPos.y, effectiveCursorPos.x + len, effectiveCursorPos.y, crosshairPaintBlack)
-                        c.drawLine(effectiveCursorPos.x, effectiveCursorPos.y - len, effectiveCursorPos.x, effectiveCursorPos.y + len, crosshairPaintBlack)
-                        c.drawLine(effectiveCursorPos.x - len, effectiveCursorPos.y, effectiveCursorPos.x + len, effectiveCursorPos.y, crosshairPaintWhite)
-                        c.drawLine(effectiveCursorPos.x, effectiveCursorPos.y - len, effectiveCursorPos.x, effectiveCursorPos.y + len, crosshairPaintWhite)
-                    }
-                    2 -> { // 精确点
-                        c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, 3f * density, cursorPaintBlack)
-                        c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, 1.8f * density, cursorPaintWhite)
-                    }
-                    5 -> { // 圆 + 十字
-                        c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen + 0.8f, cursorPaintBlack)
-                        c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen, cursorPaintWhite)
-                        val len = 4.5f * density
-                        c.drawLine(effectiveCursorPos.x - len, effectiveCursorPos.y, effectiveCursorPos.x + len, effectiveCursorPos.y, crosshairPaintBlack)
-                        c.drawLine(effectiveCursorPos.x, effectiveCursorPos.y - len, effectiveCursorPos.x, effectiveCursorPos.y + len, crosshairPaintBlack)
-                        c.drawLine(effectiveCursorPos.x - len, effectiveCursorPos.y, effectiveCursorPos.x + len, effectiveCursorPos.y, crosshairPaintWhite)
-                        c.drawLine(effectiveCursorPos.x, effectiveCursorPos.y - len, effectiveCursorPos.x, effectiveCursorPos.y + len, crosshairPaintWhite)
-                    }
-                    6 -> { // 笔刷真实轮廓 (Brush Outline)
-                        val polys = v.brushOutlinePolygons
-                        if (polys != null && polys.isNotEmpty()) {
-                            brushOutlinePath.rewind()
-                            for (poly in polys) {
-                                val count = poly.size / 2
-                                if (count >= 2) {
-                                    val startX = poly[0] * brushRadiusScreen
-                                    val startY = poly[1] * brushRadiusScreen
-                                    brushOutlinePath.moveTo(startX, startY)
-                                    for (i in 1 until count) {
-                                        val px = poly[i * 2] * brushRadiusScreen
-                                        val py = poly[i * 2 + 1] * brushRadiusScreen
-                                        brushOutlinePath.lineTo(px, py)
-                                    }
-                                    brushOutlinePath.close()
-                                }
-                            }
-                            val baseRot = (v.brushAngle + v.brushRotation).toFloat()
-                            val motionRot = if (v.brushFollowDirection || v.brushRotationSensor == "drawingangle") localCursorAngle else 0f
-                            val totalRot = baseRot + motionRot + canvasRotation
+                }
 
-                            c.save()
-                            c.translate(effectiveCursorPos.x, effectiveCursorPos.y)
-                            c.rotate(totalRot)
-                            c.drawPath(brushOutlinePath, brushOutlinePaintBlack)
-                            c.restore()
-                        } else {
-                            // 回退单黑细圆环
-                            c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen, brushOutlinePaintBlack)
+                fun drawBrushCursor(c: Canvas) {
+                    when (v.cursorStyleMode) {
+                        0 -> { // 双对比圆环
+                            c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen + 0.8f, cursorPaintBlack)
+                            c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen, cursorPaintWhite)
+                        }
+                        1 -> { // 十字准星 (极细发丝相交线)
+                            val len = 7f * density
+                            c.drawLine(effectiveCursorPos.x - len, effectiveCursorPos.y, effectiveCursorPos.x + len, effectiveCursorPos.y, crosshairPaintBlack)
+                            c.drawLine(effectiveCursorPos.x, effectiveCursorPos.y - len, effectiveCursorPos.x, effectiveCursorPos.y + len, crosshairPaintBlack)
+                            c.drawLine(effectiveCursorPos.x - len, effectiveCursorPos.y, effectiveCursorPos.x + len, effectiveCursorPos.y, crosshairPaintWhite)
+                            c.drawLine(effectiveCursorPos.x, effectiveCursorPos.y - len, effectiveCursorPos.x, effectiveCursorPos.y + len, crosshairPaintWhite)
+                        }
+                        2 -> { // 精确点
+                            c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, 3f * density, cursorPaintBlack)
+                            c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, 1.8f * density, cursorPaintWhite)
+                        }
+                        5 -> { // 圆 + 十字
+                            c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen + 0.8f, cursorPaintBlack)
+                            c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen, cursorPaintWhite)
+                            val len = 4.5f * density
+                            c.drawLine(effectiveCursorPos.x - len, effectiveCursorPos.y, effectiveCursorPos.x + len, effectiveCursorPos.y, crosshairPaintBlack)
+                            c.drawLine(effectiveCursorPos.x, effectiveCursorPos.y - len, effectiveCursorPos.x, effectiveCursorPos.y + len, crosshairPaintBlack)
+                            c.drawLine(effectiveCursorPos.x - len, effectiveCursorPos.y, effectiveCursorPos.x + len, effectiveCursorPos.y, crosshairPaintWhite)
+                            c.drawLine(effectiveCursorPos.x, effectiveCursorPos.y - len, effectiveCursorPos.x, effectiveCursorPos.y + len, crosshairPaintWhite)
+                        }
+                        6 -> { // 笔刷真实轮廓 (Brush Outline)
+                            val polys = v.brushOutlinePolygons
+                            if (polys != null && polys.isNotEmpty()) {
+                                brushOutlinePath.rewind()
+                                for (poly in polys) {
+                                    val count = poly.size / 2
+                                    if (count >= 2) {
+                                        val startX = poly[0] * brushRadiusScreen
+                                        val startY = poly[1] * brushRadiusScreen
+                                        brushOutlinePath.moveTo(startX, startY)
+                                        for (i in 1 until count) {
+                                            val px = poly[i * 2] * brushRadiusScreen
+                                            val py = poly[i * 2 + 1] * brushRadiusScreen
+                                            brushOutlinePath.lineTo(px, py)
+                                        }
+                                        brushOutlinePath.close()
+                                    }
+                                }
+                                val baseRot = (v.brushAngle + v.brushRotation).toFloat()
+                                val motionRot = if (v.brushFollowDirection || v.brushRotationSensor == "drawingangle") localCursorAngle else 0f
+                                val totalRot = baseRot + motionRot + canvasRotation
+
+                                c.save()
+                                c.translate(effectiveCursorPos.x, effectiveCursorPos.y)
+                                c.rotate(totalRot)
+                                c.drawPath(brushOutlinePath, brushOutlinePaintBlack)
+                                c.restore()
+                            } else {
+                                // 回退单黑细圆环
+                                c.drawCircle(effectiveCursorPos.x, effectiveCursorPos.y, brushRadiusScreen, brushOutlinePaintBlack)
+                            }
                         }
                     }
-                }
 
-                // 对称辅助光标镜像绘制 (支持垂直/水平/四象限/径向多分支)
-                if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing) {
-                    val docPt = screenToDoc(effectiveCursorPos)
-                    val symPts = computeAllSymmetricPoints(Point2D(docPt.x, docPt.y))
-                    for (symPt in symPts) {
-                        val symScreen = docToScreen(Offset(symPt.x, symPt.y))
-                        c.drawCircle(symScreen.x, symScreen.y, brushRadiusScreen + 0.8f, cursorPaintBlack)
-                        c.drawCircle(symScreen.x, symScreen.y, brushRadiusScreen, cursorPaintWhite)
+                    // 对称辅助光标镜像绘制 (支持垂直/水平/四象限/径向多分支，零分配复用预算屏幕坐标)
+                    for (i in 0 until symCursorCount) {
+                        val sx = cursorSymScreenX[i]
+                        val sy = cursorSymScreenY[i]
+                        c.drawCircle(sx, sy, brushRadiusScreen + 0.8f, cursorPaintBlack)
+                        c.drawCircle(sx, sy, brushRadiusScreen, cursorPaintWhite)
                     }
                 }
-            }
 
-            val clips = uiClipSnapshot
-            if (!realInk.held || clips.isEmpty) {
-                drawBrushCursor(canvas)
-            } else {
-                for (i in 0 until clips.count) {
-                    canvas.save()
-                    canvas.clipRect(clips.left(i), clips.top(i), clips.right(i), clips.bottom(i))
+                if (!realInk.held) {
                     drawBrushCursor(canvas)
-                    canvas.restore()
+                } else {
+                    for (i in 0 until clips.count) {
+                        canvas.save()
+                        canvas.clipRect(clips.left(i), clips.top(i), clips.right(i), clips.bottom(i))
+                        drawBrushCursor(canvas)
+                        canvas.restore()
+                    }
                 }
             }
         }
@@ -4501,6 +4519,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                     if (draggingGuideHandleIndex != -1) {
                         draggingGuideHandleIndex = -1
+                        if (strokeStarted) cancelActiveStroke(v)
                         isInteracting = false
                         invalidate()
                         return true
