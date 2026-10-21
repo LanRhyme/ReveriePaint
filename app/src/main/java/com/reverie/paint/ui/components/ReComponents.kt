@@ -1865,7 +1865,7 @@ internal fun Modifier.evadablePanelSurface(
     }
     val borderStrokePx = with(LocalDensity.current) { 1.dp.toPx() }
     val borderColor = Morandi.border
-    val useHaze = vm.blurBackground && hazeState != null && !isEvading
+    val useHaze = vm.blurBackground && hazeState != null && !isEvading && evadeAlpha.value >= 0.999f
     val hazeModifier = if (useHaze) {
         val style = if (isBarStyle) {
             Glass.barStyle(if (baseOpacity >= 0.99f) 0.92f else baseOpacity)
@@ -1899,7 +1899,7 @@ internal fun Modifier.evadablePanelSurface(
                     outline = outline,
                     color = borderColor,
                     alpha = 1f,
-                    style = Stroke(width = borderStrokePx),
+                    style = Stroke(width = borderStrokePx * 2f),
                 )
             }
         }

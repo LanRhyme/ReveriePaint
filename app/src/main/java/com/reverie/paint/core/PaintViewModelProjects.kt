@@ -20,6 +20,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.reverie.paint.R
 import com.reverie.paint.model.AutoSaveSnapshot
+import com.reverie.paint.model.FrontBufferQuiet
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -415,6 +416,14 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
         coreH = preH
         renderW = preW
         renderH = preH
+    }
+    if (currentPage != Page.PAINTING) {
+        frontBufferQuietUntilMs = FrontBufferQuiet.untilMs(
+            alreadyPainting = false,
+            nowUptimeMs = android.os.SystemClock.uptimeMillis(),
+            quietMs = PaintViewModel.NEW_CANVAS_FRONT_BUFFER_QUIET_MS,
+            existingUntilMs = frontBufferQuietUntilMs,
+        )
     }
     // Navigate to painting page first, then show loading overlay while reading native file
     currentPage = Page.PAINTING
