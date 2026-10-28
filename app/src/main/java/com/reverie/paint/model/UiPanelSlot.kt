@@ -5,7 +5,7 @@
 package com.reverie.paint.model
 
 /**
- * 前缓冲裁剪与 50% 运笔避让所用的 UI 槽位表（共 23 个槽位）。
+ * 前缓冲裁剪与 50% 运笔避让所用的 UI 槽位表（共 24 个槽位）。
  *
  * - [evadable]：是否参与运笔靠近 50% 半透明避让（共 10 个：5 个 QUICK_* + 4 个钉住/参考 + 绘图辅助面板）。
  * - [shadowPadHDp] / [shadowPadTopDp] / [shadowPadBottomDp]：面板外部软阴影
@@ -53,6 +53,9 @@ enum class UiPanelSlot(
     PINNED_LAYER_PANEL(evadable = true, shadowPadHDp = 18f, shadowPadTopDp = 12f, shadowPadBottomDp = 26f),
     PINNED_COLOR_PANEL(evadable = true, shadowPadHDp = 18f, shadowPadTopDp = 12f, shadowPadBottomDp = 26f),
     DRAWING_GUIDE_PANEL(evadable = true, shadowPadHDp = 18f, shadowPadTopDp = 12f, shadowPadBottomDp = 26f),
+
+    // 3. 临时浮条 (仅孔径裁剪, 不参与 50% 避让); 追加在末尾以保持既有槽位 ordinal 稳定
+    UNDO_SCRUB_BAR(evadable = false, shadowPadHDp = 18f, shadowPadTopDp = 12f, shadowPadBottomDp = 26f),
     ;
 
     val bit: Int get() = 1 shl ordinal

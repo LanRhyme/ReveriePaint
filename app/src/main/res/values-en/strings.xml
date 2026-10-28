@@ -3160,5 +3160,8 @@
     <string name="replay_export_stage_finalizing">Finalizing export file…</string>
     <string name="replay_export_stage_saving_gallery">Saving to system gallery…</string>
     <string name="replay_export_hint_4k">4K export takes longer, 1080p recommended</string>
+
+    <string name="undo_bar_a11y">Undo history slider</string>
+    <string name="undo_bar_position_a11y">History position %1$d of %2$d steps</string>
 </resources>
 

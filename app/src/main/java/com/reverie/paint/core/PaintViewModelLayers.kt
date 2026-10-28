@@ -272,6 +272,12 @@ internal fun PaintViewModel.notifyLayerChanged(
         runCore(render = false) { ReverieCoreBridge.flushOnionSkinCaches() }
     }
     scheduleRender(immediate = immediateRender)
+    // 撤回条刻度同步: undo/redo 之外的历史变化 (图层结构操作 / undoLimit 修剪
+    // 等经本函数出口的路径) 也可能改变 undo/redo 计数, 撤回条显示期间补一次
+    // 镜像刷新 (2 个 O(1) JNI 整数读); 不可见时不调, 隐藏态由打开路径对齐。
+    if (undoBarVisible) {
+        refreshUndoCounts()
+    }
 }
 
 internal fun PaintViewModel.generateDefaultLayerName(): String {

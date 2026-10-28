@@ -816,6 +816,11 @@ public:
     bool canRedo() const;
     void undo();
     void redo();
+    // Read-only undo stack depth (undo scrub bar). Semantics are self-consistent
+    // with canUndo/canRedo above: undoCount() == 0 <=> !canUndo(),
+    // redoCount() == 0 <=> !canRedo().
+    int undoCount() const;   // 可撤销步数 (KUndo2Stack index)
+    int redoCount() const;   // 可重做步数 (count - index)
     void beginUndoMacro(const QString &text = QString());
     void endUndoMacro();
     // Replay support: while undo capture is disabled, strokes and ops apply

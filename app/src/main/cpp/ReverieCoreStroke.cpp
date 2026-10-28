@@ -1583,6 +1583,16 @@ bool ReverieCore::canRedo() const
     return m_undoStore && m_undoStore->canRedo();
 }
 
+int ReverieCore::undoCount() const
+{
+    return m_undoStore ? m_undoStore->index() : 0;
+}
+
+int ReverieCore::redoCount() const
+{
+    return m_undoStore ? m_undoStore->count() - m_undoStore->index() : 0;
+}
+
 void ReverieCore::undo()
 {
     if (m_strokeBatchOpen) {

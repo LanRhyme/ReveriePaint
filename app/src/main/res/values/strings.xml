@@ -3160,5 +3160,8 @@
     <string name="replay_export_stage_finalizing">正在封装导出文件…</string>
     <string name="replay_export_stage_saving_gallery">正在写入系统相册…</string>
     <string name="replay_export_hint_4k">4K 分辨率导出耗时较长，建议优先选择 1080p</string>
+
+    <string name="undo_bar_a11y">撤销历史滑杆</string>
+    <string name="undo_bar_position_a11y">历史位置 %1$d，共 %2$d 步</string>
 </resources>
 

@@ -1710,7 +1710,7 @@ internal fun PaintViewModel.applyWarpMeshTransform(
     }
 }
 
-internal fun PaintViewModel.undo() {
+internal fun PaintViewModel.undo(settled: (() -> Unit)? = null) {
     val restoreTransformSel = transientTransformSelectionPending || canUndoTransformSelection
     if (isQuickShapeEditing) { cancelQuickShape(); return }
     if (customUndoHook?.invoke() == true) {
@@ -1767,6 +1767,10 @@ internal fun PaintViewModel.undo() {
         if (anim.enabled) {
             syncAnimationFromNativeAfter()
         }
+        // 本步撤销已在引擎侧落定且 UI 镜像同步完成 (撤回条追赶泵靠它链式续步)
+        // 刷新撤回条计数镜像: 普通撤销路径也要让滑杆数值与自动显隐看到最新深度
+        refreshUndoCounts()
+        settled?.invoke()
     }) {
         if (ReverieCoreBridge.canUndo()) {
             Breadcrumbs.record("History", "Undo")
@@ -1807,7 +1811,7 @@ internal fun PaintViewModel.undo() {
     }
 }
 
-internal fun PaintViewModel.redo() {
+internal fun PaintViewModel.redo(settled: (() -> Unit)? = null) {
     val restoreRedoSel = canRedoTransformSelection
     if (isQuickShapeEditing) return
     if (isCurrentLayer3D && canRedo3D) {
@@ -1847,6 +1851,10 @@ internal fun PaintViewModel.redo() {
         if (anim.enabled) {
             syncAnimationFromNativeAfter()
         }
+        // 本步重做已在引擎侧落定且 UI 镜像同步完成 (撤回条追赶泵靠它链式续步)
+        // 刷新撤回条计数镜像: 普通重做路径也要让滑杆数值与自动显隐看到最新深度
+        refreshUndoCounts()
+        settled?.invoke()
     }) {
         if (ReverieCoreBridge.canRedo()) {
             Breadcrumbs.record("History", "Redo")

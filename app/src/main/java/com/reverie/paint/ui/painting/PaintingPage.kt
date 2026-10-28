@@ -127,6 +127,7 @@ import com.reverie.paint.model.CanvasAdjustMode
 import com.reverie.paint.model.BackKeyAction
 import com.reverie.paint.model.RotationSnap
 import com.reverie.paint.ui.painting.canvas.CanvasAdjustOverlay
+import com.reverie.paint.ui.painting.canvas.UndoScrubBar
 import com.reverie.paint.ui.painting.panels.CanvasAdjustPanel
 import com.reverie.paint.ui.painting.panels.EncloseFillPanel
 import com.reverie.paint.ui.painting.panels.FillPanel
@@ -1978,6 +1979,15 @@ fun PaintingPage(
                 },
             )
         }
+
+        // ---- Undo History Scrub Bar (撤回条浮动滑杆: 显隐/空闲自动隐藏由组件自理) ----
+        UndoScrubBar(
+            vm = vm,
+            hazeState = hazeState,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = bottomDockPadding + 64.dp),
+        )
 
         // ---- Saved Selections Popup (选区历史悬浮面板) ----
         androidx.compose.animation.AnimatedVisibility(

@@ -746,6 +746,12 @@ object ReverieCoreBridge {
 
     external fun canRedo(): Boolean
 
+    /** 可撤销步数 (撤销栈 index), 与 canUndo 语义一致: 0 步 <=> !canUndo */
+    external fun undoCount(): Int
+
+    /** 可重做步数 (count - index), 与 canRedo 语义一致: 0 步 <=> !canRedo */
+    external fun redoCount(): Int
+
     external fun setUndoCaptureEnabled(on: Boolean)
 
     external fun clearUndoHistory()

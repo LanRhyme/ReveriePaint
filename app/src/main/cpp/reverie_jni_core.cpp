@@ -347,6 +347,18 @@ Java_com_reverie_paint_core_ReverieCoreBridge_canRedo(JNIEnv *, jobject)
     return core()->canRedo() ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_undoCount(JNIEnv *, jobject)
+{
+    return core()->undoCount();
+}
+
+JNIEXPORT jint JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_redoCount(JNIEnv *, jobject)
+{
+    return core()->redoCount();
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_setBackgroundColor(JNIEnv *, jobject, jint color, jboolean commit)
 {
