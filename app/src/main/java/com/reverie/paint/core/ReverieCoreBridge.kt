@@ -843,11 +843,13 @@ object ReverieCoreBridge {
 
     external fun setLiquifyBrushSize(size: Double)
 
-    /** Move several layers' content at once (one undo step). */
+    /** Move several layers' content at once (one undo step).
+     *  ignoreSelection=true 时忽略用户选区整层平移 (分格内容移动等工具路径)。 */
     external fun moveLayerContentLayers(
         layers: IntArray?,
         dx: Int,
         dy: Int,
+        ignoreSelection: Boolean = false,
     )
 
     external fun applyTransformLayers(
@@ -1203,6 +1205,22 @@ object ReverieCoreBridge {
         index: Int,
         clipped: Boolean,
     )
+
+    // ---- 漫画分格 (panel = 图层组 + 首子层裁剪蒙版) ----
+
+    /** 分格元数据 JSON (四角+样式); 无/非分格返回 null */
+    external fun panelMeta(layerIndex: Int): String?
+
+    /** 写入分格元数据; 空串表示清除分格标记 */
+    external fun setPanelMeta(layerIndex: Int, json: String)
+
+    /** 分格实线绘制: 在目标颜料层上填充四边形 (与用户笔刷/选区无关); eraseFill=true 时擦除 */
+    external fun paintPanelQuad(
+        layerIndex: Int,
+        cornersXY: FloatArray,
+        argb: Int,
+        eraseFill: Boolean,
+    ): Boolean
 
     external fun layerAlphaInherited(index: Int): Boolean
 

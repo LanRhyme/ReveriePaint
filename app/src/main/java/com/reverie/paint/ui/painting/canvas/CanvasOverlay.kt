@@ -96,6 +96,8 @@ internal fun CanvasOverlay(
     wandFlash: androidx.compose.runtime.MutableState<Offset?>,
     liveSelectionPath: androidx.compose.runtime.MutableState<androidx.compose.ui.graphics.Path?>,
     checkerboardPaint: android.graphics.Paint,
+    /** 分格工具手势预览状态 (CanvasView remember 后传给触摸层与本覆盖层); null = 不绘制 */
+    panelInteraction: PanelInteractionState? = null,
 ) {
     // 变换预览每帧都要做 setPolyToPoly / clipPath, 这些临时对象全部复用: 旧实现
     // 每格 new 一组 floatArray/Matrix/Path/Rect/RectF (网格模式 9 格 ≈ 每帧 50+
@@ -1570,6 +1572,19 @@ internal fun CanvasOverlay(
                     zoom = zoom.value,
                     fitScale = fitScale,
                 )
+
+                // 分格覆盖层 (轮廓/选中高亮/角手柄/拖动预览): 仅分格工具或存在分格选中时绘制
+                if (panelInteraction != null &&
+                    (tool == Tool.PANEL || vm.selectedPanelId != null || vm.panelMultiSelectedIds.isNotEmpty())
+                ) {
+                    drawPanelsOverlay(
+                        vm = vm,
+                        interaction = panelInteraction,
+                        bmpWidth = imgW,
+                        bmpHeight = imgH,
+                        viewScale = zoom.value * fitScale,
+                    )
+                }
 
             }
 

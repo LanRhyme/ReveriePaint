@@ -245,6 +245,11 @@ internal fun PaintViewModel.notifyLayerChanged(
     }
     onPaintingActivity()
     syncLayersFromNative()
+    // 分格镜像重扫: 分格会话中或已有分格/跨格容器时, 任何图层结构变化都可能让
+    // 分格索引漂移, 从引擎重扫一次 (无分格时零开销, 见 PaintViewModelPanels.kt)。
+    if (panelSessionActive() || panels.isNotEmpty() || panelCrossContainerIdx >= 0) {
+        refreshPanels()
+    }
     // Mirror the C++ solo raw-mode flag into Compose state so the solo
     // floating panel's chips re-highlight immediately after a toggle
     soloRawMode = ReverieCoreBridge.layerSoloRawMode()

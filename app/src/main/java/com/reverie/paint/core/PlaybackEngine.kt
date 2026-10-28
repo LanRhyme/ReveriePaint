@@ -48,6 +48,7 @@ import com.reverie.paint.model.RecordingEvents.L_MOVE_RELATIVE
 import com.reverie.paint.model.RecordingEvents.L_MOVE_TO_GROUP
 import com.reverie.paint.model.RecordingEvents.L_MOVE_UP
 import com.reverie.paint.model.RecordingEvents.L_OPACITY
+import com.reverie.paint.model.RecordingEvents.L_PANEL_META
 import com.reverie.paint.model.RecordingEvents.L_PASS_THROUGH
 import com.reverie.paint.model.RecordingEvents.L_RASTERIZE
 import com.reverie.paint.model.RecordingEvents.L_REMOVE
@@ -1156,6 +1157,18 @@ private fun PaintViewModel.dispatchLayerOpLocked(
 
         L_APPLY_FILTER -> {
             ReverieCoreBridge.applyFilter(i, arg.toIntOrNull() ?: 0)
+        }
+
+        L_PANEL_META -> {
+            // 漫画分格: 写元数据 + 重绘蒙版(黑底+白 quad)/填充/边框(外框+ERASE 内框)。
+            // 结构增删由既有 L_* 码负责; 内容层平移由 T_MOVE_CONTENT(LAYERS) 负责,
+            // 三者按事件流顺序回放即可复现录制时的文档状态。
+            val ev = PanelMetaCodec.decode(arg)
+            if (ev == null) {
+                android.util.Log.w("ReverieReplay", "L_PANEL_META undecodable: ${arg.take(120)}")
+            } else {
+                applyPanelMetaEvent(ev)
+            }
         }
     }
 }
