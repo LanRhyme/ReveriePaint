@@ -73,6 +73,7 @@ enum class Tool(
     SYMMETRY("symmetry", "对称", ToolGroup.OTHER),
     PERSPECTIVE("perspective", "透视", ToolGroup.OTHER),
     SHADING_ASSIST("shading_assist", "智能阴影 (Beta)", ToolGroup.OTHER),
+    PANEL("panel", "分格", ToolGroup.OTHER),
     ;
 
     companion object {

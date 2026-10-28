@@ -3160,5 +3160,36 @@
     <string name="replay_export_stage_finalizing">Finalizing export file…</string>
     <string name="replay_export_stage_saving_gallery">Saving to system gallery…</string>
     <string name="replay_export_hint_4k">4K export takes longer, 1080p recommended</string>
+
+    <!-- Comic panels (undo macro labels) -->
+    <string name="panel_op_create">Add panel</string>
+    <string name="panel_op_shape">Adjust panel shape</string>
+    <string name="panel_op_move">Move panel</string>
+    <string name="panel_op_delete">Delete panel</string>
+    <string name="panel_op_reorder">Reorder panel</string>
+    <string name="panel_op_duplicate">Duplicate panel</string>
+    <string name="panel_op_cross">Cross-panel content</string>
+    <string name="panel_op_crop">Panel crop</string>
+    <string name="panel_op_defaults">Panel defaults</string>
+    <string name="panel_op_style">Edit panel style</string>
+
+    <!-- Panel tool -->
+    <string name="tool_panel">Panel</string>
+    <string name="panel_defaults_border_width">Default border width</string>
+    <string name="panel_border_width">Border width</string>
+    <string name="panel_border_color">Border color</string>
+    <string name="panel_h_gap">Horizontal gap</string>
+    <string name="panel_v_gap">Vertical gap</string>
+    <string name="panel_fill">Panel fill</string>
+    <string name="panel_use_default">Use default</string>
+    <string name="panel_overridden">Overridden</string>
+    <string name="panel_crop">Crop</string>
+    <string name="panel_reset_style">Reset style</string>
+    <string name="panel_multi_selected">%1$d panels selected</string>
+    <string name="panel_cancel_multi">Cancel multi-select</string>
+    <string name="panel_menu_delete">Delete</string>
+    <string name="panel_menu_duplicate">Duplicate</string>
+    <string name="panel_menu_bring_top">Bring to front</string>
+    <string name="panel_menu_send_bottom">Send to back</string>
 </resources>
 

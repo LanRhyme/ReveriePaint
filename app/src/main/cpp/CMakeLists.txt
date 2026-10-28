@@ -249,6 +249,7 @@ add_library(reverie_core SHARED
     ReverieCoreColorSpaceHook.cpp
     ReverieCoreApi.cpp
     ReverieCoreLayerExtras.cpp
+    ReverieCorePanel.cpp
     ReverieCoreInstance.cpp
     ReverieCrashHandler.cpp
     ${KRITA_SRC_DIR}/plugins/impex/psd/psd_colormode_block.cpp
@@ -270,6 +271,7 @@ add_library(reverie_jni SHARED
     reverie_jni_brush.cpp
     reverie_jni_tools.cpp
     reverie_jni_io.cpp
+    reverie_jni_panel.cpp
     reverie_jni_animation.cpp
 )
 

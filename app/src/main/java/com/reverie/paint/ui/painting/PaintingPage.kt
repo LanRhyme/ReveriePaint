@@ -132,6 +132,7 @@ import com.reverie.paint.ui.painting.panels.EncloseFillPanel
 import com.reverie.paint.ui.painting.panels.FillPanel
 import com.reverie.paint.ui.painting.panels.GradientPanel
 import com.reverie.paint.ui.painting.panels.LiquifyPanel
+import com.reverie.paint.ui.painting.panels.PanelToolPanel
 import com.reverie.paint.ui.painting.panels.PickerLayerSourceBar
 import com.reverie.paint.ui.painting.panels.SelectionFloatPanel
 import com.reverie.paint.ui.painting.panels.SelectionMenuItem
@@ -1906,6 +1907,24 @@ fun PaintingPage(
                 onClear = {
                     com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.clearMeasure()
                 },
+                hazeState = hazeState,
+            )
+        }
+
+        // ---- Panel (comic) tool options panel ----
+        androidx.compose.animation.AnimatedVisibility(
+            visible = filterController == null && tool == Tool.PANEL,
+            modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomDockPadding),
+            enter =
+                androidx.compose.animation.fadeIn(Motion.enterSpring()),
+            exit =
+                androidx.compose.animation.fadeOut(
+                    androidx.compose.animation.core
+                        .tween(200),
+                ),
+        ) {
+            PanelToolPanel(
+                vm = vm,
                 hazeState = hazeState,
             )
         }

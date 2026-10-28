@@ -74,6 +74,14 @@ void writeCommonAttrs(QXmlStreamWriter &w, const ReverieCore::LayerEntry &e)
     if (e.nodeType == ReverieCore::NodeTypeTransparencyMask || (node && reverie::layerProperty(&*node, "reverie_is_transparency_mask").toBool())) {
         w.writeAttribute("is_transparency_mask", "1");
     }
+    // 分格元数据 (四角/样式 JSON): QString 原样存取, 转义交给 QXmlStreamWriter;
+    // 空串 = 非分格, 不写属性 (与 is_fill 等键的"去 reverie_ 前缀"属性命名一致)
+    if (node) {
+        const QString panelJson = reverie::layerProperty(&*node, "reverie_panel").toString();
+        if (!panelJson.isEmpty()) {
+            w.writeAttribute("panel", panelJson);
+        }
+    }
 }
 
 // reverie 注册表滤镜配置 → XML 属性 (filter/p1..p4/lut_b64)
@@ -197,6 +205,13 @@ bool ReverieCore::loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image,
     const KoColorSpace *cs = image->colorSpace();
     QVector<KisNodeSP> parents;
     parents.append(image->rootLayer());
+    // 元素嵌套栈 (只存元素名): transparencymask 需要知道自己是不是某个 group
+    // 元素的直接子元素 (writeLayersXml 把组级蒙版嵌套写进宿主 group 元素内部,
+    // 而子图层的蒙版嵌套写在子图层元素内, 二者靠此区分)。
+    QVector<QString> elemStack;
+    elemStack.append(QStringLiteral("layers"));
+    // 与 parents 平行: 每个打开 group 最近重挂的组级蒙版, 多蒙版按 XML 次序叠放
+    QVector<KisNodeSP> groupMaskAnchor;
     bool any = false;
     bool bg = false;
     // PNG 解码延迟到解析完成后多核并行 (见 LayerPixelLoader, ReverieCoreInternal.h)
@@ -258,17 +273,27 @@ bool ReverieCore::loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image,
         if (a.value("is_transparency_mask") == QLatin1String("1")) {
             reverie::setLayerProperty(&*node, "reverie_is_transparency_mask", true);
         }
+        // 分格元数据回填侧表 (空缺 = 非分格, 不设键); QXmlStreamReader 已自动反转义
+        const QString panelJson = a.value("panel").toString();
+        if (!panelJson.isEmpty()) {
+            reverie::setLayerProperty(&*node, "reverie_panel", panelJson);
+        }
     };
 
     while (!r.atEnd()) {
         r.readNext();
         if (r.isStartElement()) {
             const QStringView name = r.name();
+            // 先记嵌套栈再走分支: 分支内 continue (如滤镜缺失放弃节点) 不会破坏栈
+            const bool insideGroupElement = elemStack.last() == QLatin1String("group");
+            elemStack.append(name.toString());
             const QString nodeName = r.attributes().value("name").toString();
             KisNodeSP node;
             bool isGroup = false;
             // 有些分支需要在 stage 之前就应用属性 (见 paintlayer 分支的 offset 时序说明)
             bool attrsApplied = false;
+            // transparencymask 出现在 group 元素内部 (直接子元素) 时置位: 见挂载点
+            bool remountMaskAboveGroup = false;
 
             if (name == QLatin1String("paintlayer")) {
                 KisPaintLayerSP pl = new KisPaintLayer(image, nodeName.isEmpty() ? QStringLiteral("图层") : nodeName, 255, cs);
@@ -375,6 +400,8 @@ bool ReverieCore::loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image,
                 // 在现代架构中，透明度蒙版作为 KisPaintLayer 挂载在图层树中
                 KisPaintLayerSP tmask = new KisPaintLayer(image, nodeName.isEmpty() ? QStringLiteral("蒙版") : nodeName, 255, cs);
                 reverie::setLayerProperty(&*tmask, "reverie_is_transparency_mask", true);
+                // 直接子元素于 group => 旧存档的组级蒙版 (组的宿主蒙版), 见挂载点
+                remountMaskAboveGroup = insideGroupElement;
                 // offset 必须先于像素写回 (见 paintlayer 分支说明)
                 applyCommonAttrs(tmask);
                 attrsApplied = true;
@@ -420,13 +447,39 @@ bool ReverieCore::loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image,
                 if (!attrsApplied) {
                     applyCommonAttrs(node);
                 }
-                image->addNode(node, parents.last());
-                if (isGroup) parents.append(node);
+                if (remountMaskAboveGroup && parents.size() > 1) {
+                    // 旧存档兼容 (必须): writeLayersXml 按深度嵌套, 组级透明蒙版
+                    // (depth = 宿主组 + 1) 被写进宿主 group 元素内部; 若照元素
+                    // 层级挂成组的子层, 重载后 walk 会给它 group 深度 + 2, 合成器
+                    // 的 depth == e.depth + 1 查找 (ReverieCoreRender.cpp 主循环)
+                    // 失配, 分格裁剪全部失效。此处按运行时 addMaskToLayer 的挂载
+                    // 语义重挂为组的同级上方兄弟 (同一父节点, 组的视觉上方);
+                    // 蒙版自身像素已照常从其 layer 文件暂存加载。
+                    // groupMaskAnchor 保持多蒙版 (对同一组连续添加) 的 XML 次序。
+                    KisNodeSP hostGroup = parents.last();
+                    KisNodeSP hostParent = parents.at(parents.size() - 2);
+                    KisNodeSP above = groupMaskAnchor.last();
+                    if (!above) {
+                        above = hostGroup;
+                    }
+                    image->addNode(node, hostParent, above);
+                    groupMaskAnchor.last() = node;
+                } else {
+                    image->addNode(node, parents.last());
+                }
+                if (isGroup) {
+                    parents.append(node);
+                    groupMaskAnchor.append(KisNodeSP());
+                }
                 any = true;
             }
         } else if (r.isEndElement()) {
+            if (!elemStack.isEmpty()) {
+                elemStack.removeLast();
+            }
             if (r.name() == QLatin1String("group") && parents.size() > 1) {
                 parents.removeLast();
+                groupMaskAnchor.removeLast();
             } else if (r.name() == QLatin1String("layers")) {
                 break;
             }

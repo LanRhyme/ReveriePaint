@@ -746,8 +746,9 @@ public:
     }
 
     // Move the content of several layers at once (one undo step). An empty
-    // list moves the current layer only.
-    void moveLayerContentLayers(const QVector<int> &layers, int dx, int dy);
+    // list moves the current layer only. ignoreSelection=true 时忽略用户选区
+    // (整层平移; 分格内容移动等工具路径使用), false 时行为不变。
+    void moveLayerContentLayers(const QVector<int> &layers, int dx, int dy, bool ignoreSelection = false);
 
 private:
     void resetLiquifyWorker();
@@ -829,6 +830,18 @@ public:
     // push; applies to the live store and to every document created later.
     void setUndoLimit(int limit);
     void resetStrokeCounter() { m_strokeCounter = 0; }
+
+    // ---- Comic panel (分格) ----
+    // 分格 = 图层组容器, 元数据 (四角坐标/样式 JSON) 存节点侧表
+    // (reverie::NodeExtra, key "reverie_panel"), 写入经撤销栈 (SetPanelMetaCommand,
+    // 形状/样式宏打开时命令入当前宏), 撤销/重做同步回滚侧表值。
+    // 无蒙版元数据 / index 越界 / 非分格节点均返回空串。
+    QString panelMeta(int layerIndex) const;            // 无/非分格返回空串
+    void setPanelMeta(int layerIndex, const QString &json);
+    // 分格实线绘制: 工具行为, 不读 m_brushPreset/m_brushColor/m_selection/
+    // alphaLocked —— 直接在目标颜料层的 paintDevice 上栅格化四边形填充。
+    // eraseFill=true 时以 COMPOSITE_ERASE 合成 (擦除蒙版区域)。
+    bool paintPanelQuad(int layerIndex, const QVector<QPointF> &corners, quint32 argb, bool eraseFill);
     // Returns true when this call flushed a batch and painted new ink (used
     // by the Kotlin transport to render only after real paint work).
     bool touchStrokeMove(qreal x, qreal y, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0, qreal timeSeconds = -1.0);
@@ -1430,6 +1443,9 @@ private:
     /** 同一台拼装设备, 不清 (调用方会用 COMPOSITE_COPY 整块覆盖) */
     KisPaintDeviceSP strokeMergeScratchDevice();
     KisPaintDeviceSP strokeOutScratch(const QRect &r);
+    /** 组级透明蒙版设备解析 (分格裁剪): compositeLayersRange 的 applyGroupMask
+     *  与 compositeSoloRange 共用; 含蒙版临时笔迹 (temporaryTarget) 的合成。 */
+    KisPaintDeviceSP groupMaskDeviceFor(int maskIdx, const QRect &r);
 
     /** 丢弃笔触洋葱皮缓存 (切帧 / 改配置 / 关键帧结构变化时调) */
     void invalidateStrokeOnionCache() {

@@ -3160,5 +3160,36 @@
     <string name="replay_export_stage_finalizing">正在封装导出文件…</string>
     <string name="replay_export_stage_saving_gallery">正在写入系统相册…</string>
     <string name="replay_export_hint_4k">4K 分辨率导出耗时较长，建议优先选择 1080p</string>
+
+    <!-- 漫画分格 (撤销宏文案) -->
+    <string name="panel_op_create">新建分格</string>
+    <string name="panel_op_shape">调整分格形状</string>
+    <string name="panel_op_move">移动分格</string>
+    <string name="panel_op_delete">删除分格</string>
+    <string name="panel_op_reorder">调整分格顺序</string>
+    <string name="panel_op_duplicate">复制分格</string>
+    <string name="panel_op_cross">跨格内容</string>
+    <string name="panel_op_crop">分格裁剪</string>
+    <string name="panel_op_defaults">分格默认样式</string>
+    <string name="panel_op_style">调整分格样式</string>
+
+    <!-- 分格工具 -->
+    <string name="tool_panel">分格</string>
+    <string name="panel_defaults_border_width">默认边框粗细</string>
+    <string name="panel_border_width">边框粗细</string>
+    <string name="panel_border_color">边框颜色</string>
+    <string name="panel_h_gap">水平间隔</string>
+    <string name="panel_v_gap">垂直间隔</string>
+    <string name="panel_fill">格内填充</string>
+    <string name="panel_use_default">使用默认</string>
+    <string name="panel_overridden">已覆盖</string>
+    <string name="panel_crop">裁剪</string>
+    <string name="panel_reset_style">恢复默认样式</string>
+    <string name="panel_multi_selected">已选 %1$d 格</string>
+    <string name="panel_cancel_multi">取消多选</string>
+    <string name="panel_menu_delete">删除</string>
+    <string name="panel_menu_duplicate">复制</string>
+    <string name="panel_menu_bring_top">置顶</string>
+    <string name="panel_menu_send_bottom">置底</string>
 </resources>
 

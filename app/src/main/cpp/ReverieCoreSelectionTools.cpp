@@ -309,7 +309,9 @@ void ReverieCore::moveLayerContent(int dx, int dy)
 // step. An empty list moves the current layer only (same behaviour as
 // moveLayerContent). Selection handling mirrors the single-layer path; the
 // selection mask itself shifts only once for the whole group.
-void ReverieCore::moveLayerContentLayers(const QVector<int> &layers, int dx, int dy)
+// ignoreSelection=true 时忽略用户选区, 始终整层平移 (分格内容移动等工具路径
+// 使用, 避免工具行为被用户选区劫持); 默认 false 行为不变。
+void ReverieCore::moveLayerContentLayers(const QVector<int> &layers, int dx, int dy, bool ignoreSelection)
 {
     KisImageSP image = m_document;
     if (!image) return;
@@ -333,7 +335,7 @@ void ReverieCore::moveLayerContentLayers(const QVector<int> &layers, int dx, int
     }
     if (devices.isEmpty()) return;
 
-    const bool activeSel = hasSelection();
+    const bool activeSel = !ignoreSelection && hasSelection();
     QVector<KUndo2Command *> children;
     bool selectionShifted = false;
 

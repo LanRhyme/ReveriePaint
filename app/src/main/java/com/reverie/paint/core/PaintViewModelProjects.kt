@@ -171,6 +171,7 @@ internal fun PaintViewModel.saveProject(
                 "colorMode": "$colorMode",
                 "layerCount": ${layers.size},
                 "dpi": $docDpi,
+                "panelDefaults": ${panelDefaultsJson()},
                 "selectedLayerIndex": $currentLayerIndex,
                 "activeLayerIndex": $currentLayerIndex,
                 "collapsedGroups": [${collapsedGroupNames.joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }}],
@@ -253,6 +254,7 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
                 "masterFilePath": "$currentMasterPath",
                 "docName": "$name",
                 "dpi": $docDpi,
+                "panelDefaults": ${panelDefaultsJson()},
                 "selectedLayerIndex": $currentLayerIndex,
                 "activeLayerIndex": $currentLayerIndex,
                 "collapsedGroups": [${collapsedGroupNames.joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }}],
@@ -320,6 +322,7 @@ internal fun PaintViewModel.emergencySaveOnCrash() {
                 "masterFilePath": "$masterPath",
                 "docName": "$name",
                 "dpi": $docDpi,
+                "panelDefaults": ${panelDefaultsJson()},
                 "selectedLayerIndex": $currentLayerIndex,
                 "activeLayerIndex": $currentLayerIndex,
                 "active3DLayers": [$layers3DJson]
@@ -465,6 +468,7 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
 
     var loadedCollapsedGroups: Set<String> = emptySet()
     var loaded3DStates: List<com.reverie.paint.model.Model3DState> = emptyList()
+    var loadedPanelDefaults: com.reverie.paint.model.PanelDefaults? = null
     var documentLoaded = false
     var isHealed = false
     runCore(
@@ -481,6 +485,7 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 else referenceLoading = false
             }
             collapsedGroupNames = loadedCollapsedGroups
+            panelDefaults = loadedPanelDefaults ?: DEFAULT_PANEL_DEFAULTS
             initialStrokeCount = p.strokeCount
             totalStrokes = p.strokeCount
             isModified = isRecovered || isHealed // 异常恢复或自愈的工程标记为未保存
@@ -504,6 +509,8 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             canvasCreatedTime = if (p.lastModified > 0) p.lastModified else System.currentTimeMillis()
             colorMode = p.colorMode
             syncLayersFromNative()
+            // 文档加载完成后重建分格镜像 (工程里的分格结构/侧表元数据随 maindoc.xml 恢复)
+            refreshPanels()
             // 工程刚载入时图层面板可能早已打开: 面板打开时的强制刷新跑在 loadRevp 之前,
             // 那一刻 layerCount() 还是 0 (或旧文档), 之后没人再触发, 面板就停在透明缩略图上,
             // 直到第一次落笔 (afterLayerMutation) 才恢复。这里补一次。
@@ -625,6 +632,17 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                                         }
                                     }
                                     loaded3DStates = parsedStates
+                                }
+                                // 分格默认样式 (无则恢复为出厂默认)
+                                json.optJSONObject("panelDefaults")?.let { pdObj ->
+                                    loadedPanelDefaults = com.reverie.paint.model.PanelDefaults(
+                                        borderWidth = pdObj.optDouble("borderWidth", DEFAULT_PANEL_DEFAULTS.borderWidth.toDouble()).toFloat(),
+                                        borderColor = pdObj.optInt("borderColor", DEFAULT_PANEL_DEFAULTS.borderColor),
+                                        hGap = pdObj.optDouble("hGap", DEFAULT_PANEL_DEFAULTS.hGap.toDouble()).toFloat(),
+                                        vGap = pdObj.optDouble("vGap", DEFAULT_PANEL_DEFAULTS.vGap.toDouble()).toFloat(),
+                                        fillColor = pdObj.optInt("fillColor", DEFAULT_PANEL_DEFAULTS.fillColor),
+                                        fillEnabled = pdObj.optBoolean("fillEnabled", DEFAULT_PANEL_DEFAULTS.fillEnabled),
+                                    )
                                 }
                             }
                         }
@@ -1186,6 +1204,7 @@ internal fun PaintViewModel.exportDocument(
                             "createdTime": $canvasCreatedTime,
                             "colorMode": "$colorMode",
                             "layerCount": ${layers.size},
+                            "panelDefaults": ${panelDefaultsJson()},
                             "selectedLayerIndex": $currentLayerIndex,
                             "activeLayerIndex": $currentLayerIndex
                             $authorSnippet
