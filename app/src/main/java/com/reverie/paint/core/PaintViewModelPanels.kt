@@ -572,9 +572,7 @@ internal fun PaintViewModel.dividePanelsByLine(start: Point2D, end: Point2D) {
         ReverieCoreBridge.beginUndoMacro(appContext.getString(R.string.panel_op_divide))
         try {
             for (job in jobs) {
-                // 删旧格 (蒙版先删, 索引按 id 重定位)
-                removePanelNodesById(job.mirror)
-                // 建两半 (build 内部自行重扫, 索引新鲜)
+                // 先建两半 (build 内部自行重扫, 索引新鲜; 此时旧格仍在)
                 val panelIdA = nextPanelId()
                 val buildA = buildPanelStructureOp(
                     PanelMeta(quad = job.a, style = PanelStyle(), cropEnabled = true, panelId = panelIdA),
@@ -585,18 +583,27 @@ internal fun PaintViewModel.dividePanelsByLine(start: Point2D, end: Point2D) {
                     PanelMeta(quad = job.b, style = PanelStyle(), cropEnabled = true, panelId = panelIdB),
                     PanelStyle().resolve(panelDefaults),
                 ) ?: continue
-                // 内容层留在面积较大的一半 (索引按 id 重定位)
+                // 内容层留在面积较大的一半 (索引按 id 重定位)。必须先把内容搬出旧组
+                // 再删旧格 —— 删组会连同组内内容层一起删除, 顺序颠倒即丢内容。
                 val targetGroupId = if (job.a.area() >= job.b.area()) buildA.groupId else buildB.groupId
                 val targetGroupIdx = indexOfLayerId(targetGroupId)
-                if (targetGroupIdx < 0) continue
-                for (cid in job.contentIds) {
-                    val idx = indexOfLayerId(cid)
-                    if (idx < 0) continue
-                    if (recorder.recording) {
-                        recorder.layerOp(RecordingEvents.L_MOVE_TO_GROUP, idx, targetGroupIdx.toString())
+                if (targetGroupIdx >= 0) {
+                    for (cid in job.contentIds) {
+                        val idx = indexOfLayerId(cid)
+                        if (idx < 0) continue
+                        if (recorder.recording) {
+                            recorder.layerOp(RecordingEvents.L_MOVE_TO_GROUP, idx, targetGroupIdx.toString())
+                        }
+                        ReverieCoreBridge.moveLayerToGroup(idx, targetGroupIdx)
                     }
-                    ReverieCoreBridge.moveLayerToGroup(idx, targetGroupIdx)
                 }
+                // 内容搬出后再删旧格 (蒙版先删, 索引按 id 重定位)
+                removePanelNodesById(job.mirror)
+            }
+            // 跨格容器蒙版重同步: 格集变化后跨可见区域必须重画为剩余格并集
+            val after = scanPanelsFrom(LayerSnapshotProbe.read()?.layers ?: emptyList())
+            if (after.crossIdx >= 0 && after.mirrors.isNotEmpty()) {
+                repaintCrossMask(after.crossIdx, after.crossMaskIdx, after.mirrors.map { it.meta.quad })
             }
         } finally {
             ReverieCoreBridge.endUndoMacro()
@@ -661,6 +668,11 @@ internal fun PaintViewModel.mergePanels(ids: Set<Long>) {
             }
             // 删源格
             for (t in targets) removePanelNodesById(t)
+            // 跨格容器蒙版重同步: 格集变化后跨可见区域必须重画为剩余格并集
+            val after = scanPanelsFrom(LayerSnapshotProbe.read()?.layers ?: emptyList())
+            if (after.crossIdx >= 0 && after.mirrors.isNotEmpty()) {
+                repaintCrossMask(after.crossIdx, after.crossMaskIdx, after.mirrors.map { it.meta.quad })
+            }
         } finally {
             ReverieCoreBridge.endUndoMacro()
         }

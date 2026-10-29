@@ -341,6 +341,9 @@ data class PanelQuad(val corners: List<Point2D>) {
     companion object {
         const val MIN_VERTICES = 3
         const val MAX_VERTICES = 12
+
+        /** @Deprecated 泛化后角点数以 [corners].size 为准; 保留仅为兼容既有调用方, 禁止新代码引用。 */
+        @Deprecated("泛化后角点数以 corners.size 为准", ReplaceWith("corners.size"))
         const val CORNER_COUNT = 4
 
         /** 推荐构造入口: 按 p0→p1→p2→p3 周长顺序给出 4 个角点。 */
