@@ -56,6 +56,17 @@ private const val PANEL_DRAG_PENDING_CLEAR = 5 // 选中态压空白: UP 无位�
 private const val PANEL_DRAG_CREATE = 6      // 未选中态空白拖拽建格
 private const val PANEL_DRAG_MARQUEE = 7     // 长按后拖动框选多选
 private const val PANEL_DRAG_CONSUMED = 8    // 双击进格已消费, 本手势不再处理
+private const val PANEL_DRAG_DIVIDE = 9      // 未选中态边框带拖拽切分
+
+private fun minDistanceToEdges(quad: PanelQuad, p: Point2D): Float {
+    var minD = Float.MAX_VALUE
+    val n = quad.corners.size
+    for (i in 0 until n) {
+        val d = ShapeGeometry.distanceToSegment(p, quad.corners[i], quad.corners[(i + 1) % n])
+        if (d < minD) minD = d
+    }
+    return minD
+}
 /** 长按弹菜单延迟 (与系统长按观感一致) */
 private const val PANEL_LONG_PRESS_MS = 480L
 /** 双击进格: 两次 DOWN 同一格体的最大间隔 */
@@ -68,6 +79,8 @@ private const val PANEL_CREATE_MIN_DP = 24f
 private const val PANEL_MIN_EDGE = 8f
 /** 共享边判定: 角点重合容差 (doc px) */
 private const val PANEL_SHARED_EDGE_TOL = 1.5f
+/** 吸附磁吸阈值 (dp 屏幕距离, 换算 doc): gutter 对齐与边框标尺共用 */
+private const val PANEL_SNAP_TOLERANCE_DP = 8f
 
 /** 对称绘制最多需要的镜像分支数 (径向对称 7 个 + 主笔迹) */
 private const val MAX_MIRROR_BRANCHES = 8
@@ -1070,6 +1083,167 @@ class CanvasTouchView(context: Context) : View(context) {
         panelMarqueeArmed = false
         panelDragMode = PANEL_DRAG_NONE
         panelInteraction?.clearDrag()
+    }
+
+    /**
+     * 边框标尺吸附 (目标 B): 若落笔 doc 点距任一分格某条边线段的距离 < 8dp (换算 doc),
+     * 投影吸附到该边线段最近点; 分格不存在或超阈值时原样返回。
+     */
+    private fun snapPointToPanelBorders(docPos: Point2D): Point2D {
+        if (!docPos.x.isFinite() || !docPos.y.isFinite()) return docPos
+        val v = vm ?: return docPos
+        val mirrors = v.panels
+        if (mirrors.isEmpty()) return docPos
+
+        val currentScale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
+        val snapTolerance = (PANEL_SNAP_TOLERANCE_DP * density) / currentScale
+        val tolSq = snapTolerance * snapTolerance
+
+        var bestDistSq = Float.MAX_VALUE
+        var bestProjX = 0f
+        var bestProjY = 0f
+
+        for (m in mirrors) {
+            val corners = m.meta.quad.corners
+            val n = corners.size
+            for (i in 0 until n) {
+                val a = corners[i]
+                val b = corners[(i + 1) % n]
+                val dx = b.x - a.x
+                val dy = b.y - a.y
+                val lenSq = dx * dx + dy * dy
+                val px: Float
+                val py: Float
+                if (lenSq < 1e-6f) {
+                    px = a.x
+                    py = a.y
+                } else {
+                    val t = (((docPos.x - a.x) * dx + (docPos.y - a.y) * dy) / lenSq).coerceIn(0f, 1f)
+                    px = a.x + t * dx
+                    py = a.y + t * dy
+                }
+                val ddx = docPos.x - px
+                val ddy = docPos.y - py
+                val distSq = ddx * ddx + ddy * ddy
+                if (distSq < bestDistSq) {
+                    bestDistSq = distSq
+                    bestProjX = px
+                    bestProjY = py
+                }
+            }
+        }
+
+        return if (bestDistSq <= tolSq) Point2D(bestProjX, bestProjY) else docPos
+    }
+
+    /**
+     * 格体拖移 gutter 对齐吸附 (目标 A): 针对 movingQuad (单选或多选各格) 调 snapCandidates,
+     * 取与原始 delta 欧氏距离最近的候选 (单轴比较)。命中则修正 delta 并返回参考线。
+     */
+    private fun computeBodySnap(
+        rawDelta: Point2D,
+        currentScale: Float,
+    ): Pair<Point2D, PanelSnapGuide?> {
+        val v = vm ?: return Pair(rawDelta, null)
+        if (panelDragIds.isEmpty() || panelDragStartQuads.isEmpty()) return Pair(rawDelta, null)
+        val mirrors = v.panels
+        if (mirrors.isEmpty()) return Pair(rawDelta, null)
+
+        val neighbors = ArrayList<PanelQuad>(mirrors.size)
+        for (m in mirrors) {
+            if (m.panelId !in panelDragIds) {
+                neighbors.add(m.meta.quad)
+            }
+        }
+        if (neighbors.isEmpty()) return Pair(rawDelta, null)
+
+        val tolerance = (PANEL_SNAP_TOLERANCE_DP * density) / currentScale
+        val defaultGap = v.panelDefaults.hGap
+
+        var bestCandidate: PanelSnapCandidate? = null
+        var bestDiff = Float.MAX_VALUE
+
+        for (startQuad in panelDragStartQuads) {
+            val movedQuad = startQuad.movedBy(rawDelta)
+            val candidates = snapCandidates(movedQuad, neighbors, defaultGap, tolerance)
+            for (c in candidates) {
+                val diff = if (c.guideAxis == 0) abs(c.delta.x) else abs(c.delta.y)
+                if (diff < bestDiff) {
+                    bestDiff = diff
+                    bestCandidate = c
+                }
+            }
+        }
+
+        if (bestCandidate != null) {
+            val snappedDelta = Point2D(rawDelta.x + bestCandidate.delta.x, rawDelta.y + bestCandidate.delta.y)
+            val guide = PanelSnapGuide(bestCandidate.guideAxis, bestCandidate.guideCoord)
+            return Pair(snappedDelta, guide)
+        }
+        return Pair(rawDelta, null)
+    }
+
+    /**
+     * 共享边拖动 gutter 对齐吸附 (目标 A): 用任一格对非本次共享边的其余邻格调 snapCandidates,
+     * 命中则修正共享边 delta (两格联动保持)。
+     */
+    private fun computeEdgeSnap(
+        rawDelta: Point2D,
+        currentScale: Float,
+    ): Pair<Pair<PanelQuad, PanelQuad>?, PanelSnapGuide?> {
+        val v = vm ?: return Pair(null, null)
+        val q0 = panelDragStartQuads.getOrNull(0) ?: return Pair(null, null)
+        val q1 = panelDragStartQuads.getOrNull(1) ?: return Pair(null, null)
+        val aEdge = panelDragEdgePairs.getOrNull(0) ?: return Pair(null, null)
+        val bEdge = panelDragEdgePairs.getOrNull(1) ?: return Pair(null, null)
+
+        val rawPair = applyEdgeDrag(q0, q1, aEdge, bEdge, rawDelta, PANEL_MIN_EDGE)
+            ?: return Pair(null, null)
+
+        val mirrors = v.panels
+        if (mirrors.isEmpty() || panelDragIds.size < 2) return Pair(rawPair, null)
+
+        val id0 = panelDragIds[0]
+        val id1 = panelDragIds[1]
+        val otherNeighbors = ArrayList<PanelQuad>(mirrors.size)
+        for (m in mirrors) {
+            if (m.panelId != id0 && m.panelId != id1) {
+                otherNeighbors.add(m.meta.quad)
+            }
+        }
+        if (otherNeighbors.isEmpty()) return Pair(rawPair, null)
+
+        val tolerance = (PANEL_SNAP_TOLERANCE_DP * density) / currentScale
+        val defaultGap = v.panelDefaults.hGap
+
+        var bestCandidate: PanelSnapCandidate? = null
+        var bestDiff = Float.MAX_VALUE
+
+        val candidates0 = snapCandidates(rawPair.first, otherNeighbors, defaultGap, tolerance)
+        for (c in candidates0) {
+            val diff = if (c.guideAxis == 0) abs(c.delta.x) else abs(c.delta.y)
+            if (diff < bestDiff) {
+                bestDiff = diff
+                bestCandidate = c
+            }
+        }
+        val candidates1 = snapCandidates(rawPair.second, otherNeighbors, defaultGap, tolerance)
+        for (c in candidates1) {
+            val diff = if (c.guideAxis == 0) abs(c.delta.x) else abs(c.delta.y)
+            if (diff < bestDiff) {
+                bestDiff = diff
+                bestCandidate = c
+            }
+        }
+
+        if (bestCandidate != null) {
+            val snappedDelta = Point2D(rawDelta.x + bestCandidate.delta.x, rawDelta.y + bestCandidate.delta.y)
+            val snappedPair = applyEdgeDrag(q0, q1, aEdge, bEdge, snappedDelta, PANEL_MIN_EDGE)
+            if (snappedPair != null) {
+                return Pair(snappedPair, PanelSnapGuide(bestCandidate.guideAxis, bestCandidate.guideCoord))
+            }
+        }
+        return Pair(rawPair, null)
     }
 
     // 边缘侧滑返回手势与起笔防误画缓冲 (仅针对手指触控，压感笔完全不受影响)
@@ -5868,8 +6042,11 @@ class CanvasTouchView(context: Context) : View(context) {
                     safeBeginSymmetryUndoMacro()
                     clearPredictionState(triggerInvalidate = false)
                 }
+                val snappedDocPt = snapPointToPanelBorders(Point2D(docPos.x, docPos.y))
+                val targetDocPos = Offset(snappedDocPt.x, snappedDocPt.y)
+                firstDocPos = targetDocPos
                 smoothedPressure = pressure
-                currentStrokeDocPos = docPos
+                currentStrokeDocPos = targetDocPos
                 if (isStylus) {
                     getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (effTool() == Tool.ERASER))
                 }
@@ -5877,18 +6054,19 @@ class CanvasTouchView(context: Context) : View(context) {
                 if (v.quickShapeEnabled && effTool() == Tool.BRUSH && !v.brushAirbrush &&
                     !(v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing) && !v.anim.isPlaying) {
                     v.quickShapeCapture = QuickShapeStrokeCapture().also {
-                        it.begin(screenPos.x, screenPos.y, SystemClock.uptimeMillis())
+                        val startScreen = docToScreen(targetDocPos)
+                        it.begin(startScreen.x, startScreen.y, SystemClock.uptimeMillis())
                     }
                 }
                 val overrideTool = if (effTool() == Tool.ERASER && tool != Tool.ERASER) "eraser" else null
-                strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble(), tiltX, tiltY, rotation, toolOverride = overrideTool)
+                strokeStarted = v.touchStart(targetDocPos.x, targetDocPos.y, pressure.toDouble(), tiltX, tiltY, rotation, toolOverride = overrideTool)
                 if (strokeStarted) {
                     // 纸张摩擦音效: 落笔起振 (橡皮稍收音量, 附带初始落笔压感)
                     getOrCreateStylusDriver()?.feedbackManager?.startStrokeSound(effTool() == Tool.ERASER, pressure.toFloat())
                     lastSoundTimeMs = 0L
                 }
                 val isAssist = hasSymmetry || (v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing)
-                val assistedScreen = if (isAssist) docToScreen(docPos) else screenPos
+                val assistedScreen = if (isAssist) docToScreen(targetDocPos) else screenPos
 
                 if (hasSymmetry) {
                     updateSymmetryPressureLut(v)
@@ -6236,7 +6414,7 @@ class CanvasTouchView(context: Context) : View(context) {
                             if (oi == selIdx) continue
                             val aEdge = selQuad.sharedEdge(o.meta.quad, PANEL_SHARED_EDGE_TOL) ?: continue
                             val seg0 = selQuad.corners[aEdge]
-                            val seg1 = selQuad.corners[(aEdge + 1) % PanelQuad.CORNER_COUNT]
+                            val seg1 = selQuad.corners[(aEdge + 1) % selQuad.corners.size]
                             if (ShapeGeometry.distanceToSegment(docPoint, seg0, seg1) > thresholdDoc) continue
                             val bEdge = o.meta.quad.sharedEdge(selQuad, PANEL_SHARED_EDGE_TOL)
                             if (bEdge == null) continue
@@ -6246,6 +6424,28 @@ class CanvasTouchView(context: Context) : View(context) {
                             panelDragEdgePairs = listOf(aEdge, bEdge)
                             handled = true
                             break@edgeSearch
+                        }
+                    }
+                }
+                // 2.5) 边框带 (未选中态 → DIVIDE): 按压在任意格边框命中带, 且不在任何格的格体内部深处
+                if (!handled && !hasSelection && mirrors.isNotEmpty()) {
+                    val inDeepInterior = mirrors.any { m ->
+                        m.meta.quad.contains(docPoint) && minDistanceToEdges(m.meta.quad, docPoint) >= thresholdDoc
+                    }
+                    if (!inDeepInterior) {
+                        var closestDist = Float.MAX_VALUE
+                        var closestPanelId = -1L
+                        for (m in mirrors) {
+                            val d = minDistanceToEdges(m.meta.quad, docPoint)
+                            if (d < closestDist) {
+                                closestDist = d
+                                closestPanelId = m.panelId
+                            }
+                        }
+                        if (closestDist < thresholdDoc) {
+                            panelDragMode = PANEL_DRAG_DIVIDE
+                            panelPendingPanelId = if (bodyPanelId >= 0) bodyPanelId else closestPanelId
+                            handled = true
                         }
                     }
                 }
@@ -6967,8 +7167,9 @@ class CanvasTouchView(context: Context) : View(context) {
                 // MOVE 只更新本地预览 (供覆盖层绘制); 引擎调用统一留到 UP
                 when (panelDragMode) {
                     PANEL_DRAG_HANDLE -> {
+                        st.snapGuide = null
                         val q0 = panelDragStartQuads.firstOrNull()
-                        if (q0 != null && panelDragCorner in 0 until PanelQuad.CORNER_COUNT &&
+                        if (q0 != null && panelDragCorner in q0.corners.indices &&
                             panelDragIds.isNotEmpty()
                         ) {
                             val corners = q0.corners.toMutableList()
@@ -6977,12 +7178,9 @@ class CanvasTouchView(context: Context) : View(context) {
                         }
                     }
                     PANEL_DRAG_EDGE -> {
-                        val q0 = panelDragStartQuads.getOrNull(0) ?: return
-                        val q1 = panelDragStartQuads.getOrNull(1) ?: return
-                        val aEdge = panelDragEdgePairs.getOrNull(0) ?: return
-                        val bEdge = panelDragEdgePairs.getOrNull(1) ?: return
-                        val delta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
-                        val pair = applyEdgeDrag(q0, q1, aEdge, bEdge, delta, PANEL_MIN_EDGE)
+                        val rawDelta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
+                        val (pair, guide) = computeEdgeSnap(rawDelta, currentScale)
+                        st.snapGuide = guide
                         st.dragPreviews = if (pair != null) {
                             listOf(
                                 PanelPreviewEntry(panelDragIds[0], pair.first),
@@ -6994,12 +7192,27 @@ class CanvasTouchView(context: Context) : View(context) {
                         }
                     }
                     PANEL_DRAG_BODY -> {
-                        val delta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
+                        val rawDelta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
+                        val (snappedDelta, guide) = computeBodySnap(rawDelta, currentScale)
+                        st.snapGuide = guide
                         st.dragPreviews = panelDragIds.mapIndexed { i, id ->
-                            PanelPreviewEntry(id, panelDragStartQuads[i].movedBy(delta))
+                            PanelPreviewEntry(id, panelDragStartQuads[i].movedBy(snappedDelta))
                         }
                     }
+                    PANEL_DRAG_DIVIDE -> {
+                        st.snapGuide = null
+                        // 预览切线 + 高亮将被切分的格 (纯内存计算, 引擎调用统一留到 UP)
+                        val startDoc = Point2D(panelDragStartDoc.x, panelDragStartDoc.y)
+                        val endDoc = Point2D(docPos.x, docPos.y)
+                        st.divideLine = startDoc to endDoc
+                        val halfGap = v.panelDefaults.hGap / 2f
+                        st.divideHighlightPanelIds = v.panels
+                            .filter { it.meta.quad.cutByLine(startDoc, endDoc, halfGap) != null }
+                            .map { it.panelId }
+                            .toSet()
+                    }
                     PANEL_DRAG_CREATE, PANEL_DRAG_MARQUEE -> {
+                        st.snapGuide = null
                         val left = minOf(panelDragStartDoc.x, docPos.x)
                         val right = maxOf(panelDragStartDoc.x, docPos.x)
                         val top = minOf(panelDragStartDoc.y, docPos.y)
@@ -7007,7 +7220,9 @@ class CanvasTouchView(context: Context) : View(context) {
                         val rect = PanelBounds(left, top, right, bottom)
                         if (panelDragMode == PANEL_DRAG_CREATE) st.createRect = rect else st.marqueeRect = rect
                     }
-                    else -> Unit
+                    else -> {
+                        st.snapGuide = null
+                    }
                 }
             }
             else -> Unit
@@ -7509,7 +7724,14 @@ class CanvasTouchView(context: Context) : View(context) {
                         realInk.releaseAndCatchUp()
                         // 12 条强制复位路径之一：停顿进入 QuickShapeEditor。
                         clearAllEvasionState(v)
-                        val started = v.beginQuickShape(recognized, capture.snapshot())
+                        val snapRecognized = if (recognized.type == QuickShapeType.LINE && recognized.points.size == 2) {
+                            val p0 = snapPointToPanelBorders(recognized.points[0])
+                            val p1 = snapPointToPanelBorders(recognized.points[1])
+                            recognized.copy(points = listOf(p0, p1), center = Point2D((p0.x + p1.x) / 2f, (p0.y + p1.y) / 2f))
+                        } else {
+                            recognized
+                        }
+                        val started = v.beginQuickShape(snapRecognized, capture.snapshot())
                         resetMirrorBranches()
                         safeEndSymmetryUndoMacro()
                         if (!started) {
@@ -7741,19 +7963,24 @@ class CanvasTouchView(context: Context) : View(context) {
                             }
                         }
                         PANEL_DRAG_EDGE -> {
-                            val a = st.dragPreviews.getOrNull(0)
-                            val b = st.dragPreviews.getOrNull(1)
-                            if (a != null && b != null) {
+                            val rawDelta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
+                            val (pair, _) = computeEdgeSnap(rawDelta, currentScale)
+                            val finalPair = pair ?: run {
+                                val a = st.dragPreviews.getOrNull(0)?.quad
+                                val b = st.dragPreviews.getOrNull(1)?.quad
+                                if (a != null && b != null) Pair(a, b) else null
+                            }
+                            if (finalPair != null && panelDragIds.size >= 2) {
                                 // 两格各自入宏 → 两步撤销 (可接受)
-                                v.updatePanelShape(a.panelId, a.quad)
-                                v.updatePanelShape(b.panelId, b.quad)
+                                v.updatePanelShape(panelDragIds[0], finalPair.first)
+                                v.updatePanelShape(panelDragIds[1], finalPair.second)
                             }
                         }
                         PANEL_DRAG_BODY -> {
                             if (!isTap) {
-                                val dx = docPos.x - panelDragStartDoc.x
-                                val dy = docPos.y - panelDragStartDoc.y
-                                for (id in panelDragIds) v.movePanelBy(id, dx, dy)
+                                val rawDelta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
+                                val (snappedDelta, _) = computeBodySnap(rawDelta, currentScale)
+                                for (id in panelDragIds) v.movePanelBy(id, snappedDelta.x, snappedDelta.y)
                             }
                             // 多选态轻点: 保持多选不变
                         }
@@ -7763,9 +7990,9 @@ class CanvasTouchView(context: Context) : View(context) {
                                 v.selectedPanelId = panelPendingPanelId
                             } else {
                                 // 兜底 (正常已在 MOVE 转为 BODY 拖移)
-                                val dx = docPos.x - panelDragStartDoc.x
-                                val dy = docPos.y - panelDragStartDoc.y
-                                for (id in panelDragIds) v.movePanelBy(id, dx, dy)
+                                val rawDelta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
+                                val (snappedDelta, _) = computeBodySnap(rawDelta, currentScale)
+                                for (id in panelDragIds) v.movePanelBy(id, snappedDelta.x, snappedDelta.y)
                             }
                         }
                         PANEL_DRAG_PENDING_CLEAR -> {
@@ -7785,6 +8012,20 @@ class CanvasTouchView(context: Context) : View(context) {
                                 val d = v.panelDefaults
                                 // 矩形按默认间隔内缩后建格 (面积过小由 createPanelAt 拒绝)
                                 v.createPanelAt(insetForDefaultGaps(rect, d.hGap, d.vGap))
+                            }
+                        }
+                        PANEL_DRAG_DIVIDE -> {
+                            val startDoc = Point2D(panelDragStartDoc.x, panelDragStartDoc.y)
+                            val endDoc = Point2D(docPos.x, docPos.y)
+                            if (!isTap &&
+                                dragDist >= (PANEL_CREATE_MIN_DP * density) / currentScale
+                            ) {
+                                // 有效拖划 → 切开所有被切线穿过的格 (一个撤销宏)
+                                v.dividePanelsByLine(startDoc, endDoc)
+                            } else if (panelPendingPanelId >= 0) {
+                                // 位移不足 = 点选该格 (与建格手势的 24dp 规则一致)
+                                v.panelMultiSelectedIds = emptySet()
+                                v.selectedPanelId = panelPendingPanelId
                             }
                         }
                         PANEL_DRAG_MARQUEE -> {
@@ -8042,37 +8283,45 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
 
                     val targetType = defaultShapeType(tool, state.type)
-                    state.reset(targetType, docPos)
+                    val targetDoc = if (targetType == ShapeType.LINE) {
+                        val sp = snapPointToPanelBorders(Point2D(docPos.x, docPos.y))
+                        Offset(sp.x, sp.y)
+                    } else docPos
+                    state.reset(targetType, targetDoc)
                     if (state.strokeWidth <= 0f) {
                         state.strokeWidth = v.brushSize.toFloat().coerceIn(1f, 100f)
                     }
                     state.activeHandle = if (targetType == ShapeType.LINE) ShapeHandleId.LINE_P2 else ShapeHandleId.CORNER_BR
-                    state.dragStartDocPos = docPos
-                    state.dragP1 = docPos
-                    state.dragP2 = docPos
+                    state.dragStartDocPos = targetDoc
+                    state.dragP1 = targetDoc
+                    state.dragP2 = targetDoc
                     state.isCreatingNewNode = false
                     shapeCreatedOnCurrentTouch = true
                 }
             }
         } else {
             val targetType = defaultShapeType(tool, state.type)
-            state.reset(targetType, docPos)
+            val targetDoc = if (targetType == ShapeType.LINE) {
+                val sp = snapPointToPanelBorders(Point2D(docPos.x, docPos.y))
+                Offset(sp.x, sp.y)
+            } else docPos
+            state.reset(targetType, targetDoc)
             if (state.strokeWidth <= 0f) {
                 state.strokeWidth = v.brushSize.toFloat().coerceIn(1f, 100f)
             }
             if (targetType == ShapeType.POLYLINE || targetType == ShapeType.POLYGON || targetType == ShapeType.BEZIER) {
                 state.activeHandle = ShapeHandleId.NODE_ANCHOR_BASE + 0
                 state.selectedNodeIndex = 0
-                state.dragStartDocPos = docPos
+                state.dragStartDocPos = targetDoc
                 state.isCreatingNewNode = true
                 shapeCreatedOnCurrentTouch = false
                 lastShapeTapTimeMs = now
-                lastShapeTapDocPos = docPos
+                lastShapeTapDocPos = targetDoc
             } else {
                 state.activeHandle = if (targetType == ShapeType.LINE) ShapeHandleId.LINE_P2 else ShapeHandleId.CORNER_BR
-                state.dragStartDocPos = docPos
-                state.dragP1 = docPos
-                state.dragP2 = docPos
+                state.dragStartDocPos = targetDoc
+                state.dragP1 = targetDoc
+                state.dragP2 = targetDoc
                 state.isCreatingNewNode = false
                 shapeCreatedOnCurrentTouch = true
             }
@@ -8189,6 +8438,10 @@ class CanvasTouchView(context: Context) : View(context) {
 
     private fun handleShapeUp(docPos: Offset) {
         val v = vm ?: return
+        if (v.shapeState.active && v.shapeState.type == ShapeType.LINE) {
+            val sp = snapPointToPanelBorders(Point2D(docPos.x, docPos.y))
+            v.shapeState.p2 = Offset(sp.x, sp.y)
+        }
         v.shapeState.activeHandle = ShapeHandleId.NONE
         v.shapeState.dragStartDocPos = Offset.Zero
         v.shapeState.isCreatingNewNode = false
