@@ -1347,6 +1347,8 @@ private:
     bool m_strokeQuickPlanned = false;
     // s12-F1: 当前打开笔画的笔画号 (Kotlin setMirrorStrokeSeq 设置, 0 = 不接受任何镜像批)。
     int m_mirrorStrokeSeq = 0;
+    // 镜像分支容量上限 (放射对称最多 12 瓣 = 11 个镜像分支 + 主笔, 留 1 余量)。
+    static constexpr int kMaxMirrorBranches = 12;
     // 实时镜像折线的逐分支游标 (固定数组, 运笔热路径不分配)。
     struct MirrorBranchCursor {
         bool hasLast = false;
@@ -1363,7 +1365,7 @@ private:
         KisPainter *painter = nullptr;
         KisPaintOpSP op;
     };
-    MirrorBranchCursor m_mirrorCursor[8];
+    MirrorBranchCursor m_mirrorCursor[kMaxMirrorBranches];
     // s12: 本笔已有镜像分支建过 paintop (实时出墨)。之后 paintMirrorPolyline 绝不再
     // 返回 false, 否则 Kotlin 会在抬笔重放, 已实时画过的镜像墨被画第二遍。
     bool m_mirrorLiveStarted = false;

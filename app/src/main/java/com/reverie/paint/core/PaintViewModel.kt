@@ -5351,8 +5351,8 @@ class PaintViewModel : ViewModel() {
          * -> `paintMirrorPolyline(..., 7, ...)` 接受 7 维。实时运笔缓冲仍固定 6 元。
          */
         const val STROKE_SAMPLE_STRIDE_WITH_TIME = 7
-        /** 对称镜像实时队列: 最多 8 条分支, 每条 256 个 7 元采样点。 */
-        const val MIRROR_BRANCH_COUNT = 8
+        /** 对称镜像实时队列: 最多 12 条分支 (放射对称最多 11 镜像分支 + 余量), 每条 256 个 7 元采样点。 */
+        const val MIRROR_BRANCH_COUNT = 12
         const val MIRROR_BRANCH_CAPACITY = 256
         /** JNI touchStrokeMirrorBatch 返回值 (与 C++ reverie::MirrorBatchAction 映射一致)。 */
         const val MIRROR_BATCH_ACCEPTED = 1
