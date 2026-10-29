@@ -1707,6 +1707,8 @@
     <string name="guide_symmetry_horizontal">Horizontal</string>
     <string name="guide_symmetry_quadrant">Quadrant</string>
     <string name="guide_symmetry_radial">Radial</string>
+    <string name="guide_symmetry_radial_count">Radial Count</string>
+    <string name="guide_symmetry_radial_count_value">%1$d petals</string>
     <string name="guide_symmetry_center">Axis Center</string>
     <string name="guide_symmetry_rotation">Rotation Angle</string>
     <string name="guide_symmetry_reset_center">Reset Center</string>

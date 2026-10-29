@@ -287,11 +287,20 @@ internal fun DrawScope.drawDrawingGuides(
                                     drawRotatedLine(1f, 0f)
                                 }
                                 SymmetryType.RADIAL -> {
-                                    drawRotatedLine(0f, 1f)
-                                    drawRotatedLine(1f, 0f)
-                                    val diag = 0.70710678f
-                                    drawRotatedLine(diag, diag)
-                                    drawRotatedLine(-diag, diag)
+                                    val count = guide.symmetryRadialCount.coerceIn(3, 12)
+                                    val stepRad = 2f * PI.toFloat() / count
+                                    for (i in 0 until count) {
+                                        val ang = rotRad + i * stepRad
+                                        val endX = cx + cos(ang) * dMax
+                                        val endY = cy + sin(ang) * dMax
+                                        drawLine(
+                                            symCol,
+                                            Offset(cx, cy),
+                                            Offset(endX, endY),
+                                            strokeWidth = symStroke.width,
+                                            pathEffect = symStroke.pathEffect,
+                                        )
+                                    }
                                 }
                             }
 

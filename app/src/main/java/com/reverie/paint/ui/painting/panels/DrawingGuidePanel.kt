@@ -362,6 +362,22 @@ fun DrawingGuidePanel(
                         onSelect = { vm.drawingGuide = guide.copy(symmetryType = it) }
                     )
 
+                    if (guide.symmetryType == SymmetryType.RADIAL) {
+                        val radialLabel = androidx.compose.ui.res.stringResource(R.string.guide_symmetry_radial_count)
+                        val radialValueText = androidx.compose.ui.res.stringResource(
+                            R.string.guide_symmetry_radial_count_value,
+                            guide.symmetryRadialCount
+                        )
+                        CompactSliderItem(
+                            label = radialLabel,
+                            valueText = radialValueText,
+                            range = 3f..12f,
+                            value = guide.symmetryRadialCount.toFloat(),
+                            onValue = { vm.drawingGuide = guide.copy(symmetryRadialCount = it.roundToInt()) },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                    }
+
                     SegmentedOptionSelector(
                         options = listOf(
                             0 to "0°",

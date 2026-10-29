@@ -24,7 +24,7 @@ enum class SymmetryType(val title: String) {
     VERTICAL("垂直对称"),
     HORIZONTAL("水平对称"),
     QUADRANT("四分象限"),
-    RADIAL("径向(8瓣)"),
+    RADIAL("径向"),
 }
 
 /**
@@ -86,6 +86,10 @@ data class QuickShapeResult(
 const val PERSPECTIVE_RAY_COUNT_MIN = 6
 const val PERSPECTIVE_RAY_COUNT_MAX = 36
 
+const val SYMMETRY_RADIAL_COUNT_MIN = 3
+const val SYMMETRY_RADIAL_COUNT_MAX = 12
+const val DEFAULT_SYMMETRY_RADIAL_COUNT = 8
+
 /**
  * 绘图参考线配置
  */
@@ -99,6 +103,8 @@ data class DrawingGuideConfig(
     val symmetryCenterX: Float = 0.5f, // 归一化画布相对坐标
     val symmetryCenterY: Float = 0.5f,
     val symmetryRotationDeg: Float = 0f, // 对称轴旋转角度 (度数)
+    /** 仅放射模式使用，3..12 */
+    val symmetryRadialCount: Int = DEFAULT_SYMMETRY_RADIAL_COUNT,
     val perspectiveVanishingPoints: List<Point2D> = emptyList(), // 1~3 点透视点 (画布物理坐标)
     val perspectiveRayCount: Int = 16, // 透视灭点放射线密度 (PERSPECTIVE_RAY_COUNT_MIN ~ PERSPECTIVE_RAY_COUNT_MAX, 支持自由定义)
     val perspective3d: Boolean = false, // 启用 3D 空间透视网格模式 (自由旋转视角)
@@ -229,9 +235,10 @@ data class DrawingGuideConfig(
             SymmetryType.RADIAL -> {
                 val r = hypot(lx, ly)
                 val baseAngle = atan2(ly, lx)
-                val step = 2f * PI.toFloat() / 8f
+                val radialCount = symmetryRadialCount.coerceIn(SYMMETRY_RADIAL_COUNT_MIN, SYMMETRY_RADIAL_COUNT_MAX)
+                val step = 2f * PI.toFloat() / radialCount
                 var count = 0
-                for (k in 1..7) {
+                for (k in 1 until radialCount) {
                     if (count >= cap) break
                     val ang = baseAngle + k * step
                     val bx = r * cos(ang)
@@ -252,8 +259,8 @@ data class DrawingGuideConfig(
     /**
      * 对称分支在**局部坐标系**里的线性变换: 点与倾角向量共用同一套。
      *
-     * 反射分支的线性部分对向量和点完全一致; RADIAL 的"绕原点旋转 k*45°"对向量同样成立
-     * (r*cos(θ+k*45°) 展开就是向量的旋转)。共用它可保证点与姿态不会各写一份几何而漂移。
+     * 反射分支的线性部分对向量和点完全一致; RADIAL 的"绕原点旋转 k*step"对向量同样成立
+     * (r*cos(θ+k*step) 展开就是向量的旋转)。共用它可保证点与姿态不会各写一份几何而漂移。
      */
     private fun symmetryBranchOffsets(lx: Float, ly: Float): List<Point2D> = when (symmetryType) {
         SymmetryType.VERTICAL -> listOf(Point2D(-lx, ly))
@@ -266,9 +273,11 @@ data class DrawingGuideConfig(
         SymmetryType.RADIAL -> {
             val r = hypot(lx, ly)
             val baseAngle = atan2(ly, lx)
-            val branches = ArrayList<Point2D>(7)
-            for (k in 1..7) {
-                val ang = baseAngle + k * (2f * PI.toFloat() / 8f)
+            val radialCount = symmetryRadialCount.coerceIn(SYMMETRY_RADIAL_COUNT_MIN, SYMMETRY_RADIAL_COUNT_MAX)
+            val branches = ArrayList<Point2D>(radialCount - 1)
+            val step = 2f * PI.toFloat() / radialCount
+            for (k in 1 until radialCount) {
+                val ang = baseAngle + k * step
                 branches.add(Point2D(r * cos(ang), r * sin(ang)))
             }
             branches
@@ -279,7 +288,7 @@ data class DrawingGuideConfig(
      * 与 [computeSymmetricPoints] 几何完全一致, 但每个分支额外带出镜像后的笔尖姿态。
      *
      * 倾角向量先随点一起做局部旋转 (与点同一套 [cosR]/[sinR]), 在局部坐标里按分支变换,
-     * 再转回文档坐标。rotation (笔杆自转, 度) 按分支直接变换: 反射取负, 径向加 k*45。
+     * 再转回文档坐标。rotation (笔杆自转, 度) 按分支直接变换: 反射取负, 径向加 k*(360/count)。
      */
     fun computeSymmetricSamples(
         docPt: Point2D,
@@ -328,11 +337,20 @@ data class DrawingGuideConfig(
                 SymmetryType.VERTICAL, SymmetryType.HORIZONTAL -> -safeRotation
                 // 第三支 (-lx, -ly) 是两次反射, 姿态回到原样
                 SymmetryType.QUADRANT -> if (i == 2) safeRotation else -safeRotation
-                SymmetryType.RADIAL -> safeRotation + (i + 1) * 45f
+                SymmetryType.RADIAL -> {
+                    val radialCount = symmetryRadialCount.coerceIn(SYMMETRY_RADIAL_COUNT_MIN, SYMMETRY_RADIAL_COUNT_MAX)
+                    safeRotation + (i + 1) * (360f / radialCount)
+                }
             }
             out.add(SymmetricSample(Point2D(wx, wy), wtx, wty, branchRotation))
         }
         return out
+    }
+
+    companion object {
+        const val SYMMETRY_RADIAL_COUNT_MIN = com.reverie.paint.model.SYMMETRY_RADIAL_COUNT_MIN
+        const val SYMMETRY_RADIAL_COUNT_MAX = com.reverie.paint.model.SYMMETRY_RADIAL_COUNT_MAX
+        const val DEFAULT_SYMMETRY_RADIAL_COUNT = com.reverie.paint.model.DEFAULT_SYMMETRY_RADIAL_COUNT
     }
 }
 

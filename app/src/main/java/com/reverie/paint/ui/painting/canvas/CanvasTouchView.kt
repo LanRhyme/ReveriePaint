@@ -46,8 +46,8 @@ import kotlin.math.sin
 private const val MAX_VISIBLE_GRID_LINES = 6000
 private const val DYNAMIC_GUIDE_ABORT_FRAME = -1
 
-/** 对称绘制最多需要的镜像分支数 (径向对称 7 个 + 主笔迹) */
-private const val MAX_MIRROR_BRANCHES = 8
+/** 对称绘制最多需要的镜像分支数 (放射对称最多 11 个镜像分支 + 主笔迹) */
+private const val MAX_MIRROR_BRANCHES = 12
 
 private const val SYMMETRY_SAMPLE_STRIDE = PaintViewModel.STROKE_SAMPLE_STRIDE_WITH_TIME
 

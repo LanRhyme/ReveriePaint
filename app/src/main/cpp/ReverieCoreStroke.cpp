@@ -108,7 +108,7 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX
     m_strokeUsedQuickPath = false;
     m_strokeQuickPlanned = false;
     // 分支 painter/paintop 已在上面的 endStrokeBatch() 里释放, 这里只复位游标与标志
-    for (int i = 0; i < 8; ++i) {
+    for (int i = 0; i < kMaxMirrorBranches; ++i) {
         m_mirrorCursor[i].hasLast = false;
         m_mirrorCursor[i].distance = KisDistanceInformation();
     }
@@ -238,7 +238,7 @@ KisPaintOpSP ReverieCore::createStrokePaintOp(KisPainter *painter, KisImageSP im
 void ReverieCore::releaseMirrorBranchOps()
 {
     // paintop 持有 painter 的裸指针: 先放 paintop 再删 painter。
-    for (int i = 0; i < 8; ++i) {
+    for (int i = 0; i < kMaxMirrorBranches; ++i) {
         m_mirrorCursor[i].op = nullptr;
         delete m_mirrorCursor[i].painter;
         m_mirrorCursor[i].painter = nullptr;
@@ -258,7 +258,7 @@ reverie::MirrorBatchAction ReverieCore::paintMirrorPolyline(const float *samples
     if (!strokeOpen || !seqMatches) {
         return reverie::MirrorBatchAction::Stale;
     }
-    if (!samples || count < 1 || stride < 7 || branchIndex < 0 || branchIndex >= 8) {
+    if (!samples || count < 1 || stride < 7 || branchIndex < 0 || branchIndex >= kMaxMirrorBranches) {
         return m_mirrorLiveStarted ? reverie::MirrorBatchAction::DropAccepted : reverie::MirrorBatchAction::Reject;
     }
     MirrorBranchCursor &cursor = m_mirrorCursor[branchIndex];
