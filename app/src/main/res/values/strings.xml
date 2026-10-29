@@ -3175,6 +3175,9 @@
     <string name="panel_op_crop">分格裁剪</string>
     <string name="panel_op_defaults">分格默认样式</string>
     <string name="panel_op_style">调整分格样式</string>
+    <string name="panel_op_divide">切分分格</string>
+    <string name="panel_op_merge">合并分格</string>
+    <string name="panel_merge_not_adjacent">无法合并所选的格子</string>
 
     <!-- 分格工具 -->
     <string name="tool_panel">分格</string>
@@ -3194,5 +3197,6 @@
     <string name="panel_menu_duplicate">复制</string>
     <string name="panel_menu_bring_top">置顶</string>
     <string name="panel_menu_send_bottom">置底</string>
+    <string name="panel_menu_merge">合并</string>
 </resources>
 

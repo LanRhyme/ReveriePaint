@@ -3175,6 +3175,9 @@
     <string name="panel_op_crop">Panel crop</string>
     <string name="panel_op_defaults">Panel defaults</string>
     <string name="panel_op_style">Edit panel style</string>
+    <string name="panel_op_divide">Divide panels</string>
+    <string name="panel_op_merge">Merge panels</string>
+    <string name="panel_merge_not_adjacent">Cannot merge the selected panels</string>
 
     <!-- Panel tool -->
     <string name="tool_panel">Panel</string>
@@ -3194,5 +3197,6 @@
     <string name="panel_menu_duplicate">Duplicate</string>
     <string name="panel_menu_bring_top">Bring to front</string>
     <string name="panel_menu_send_bottom">Send to back</string>
+    <string name="panel_menu_merge">Merge</string>
 </resources>
 

@@ -43,7 +43,7 @@ Java_com_reverie_paint_core_ReverieCoreBridge_paintPanelQuad(JNIEnv *env, jobjec
 {
     if (!cornersXY) return JNI_FALSE;
     const jsize len = env->GetArrayLength(cornersXY);
-    if (len < 8) return JNI_FALSE; // 至少一个四边形: x0,y0,x1,y1,x2,y2,x3,y3
+    if (len < 6) return JNI_FALSE; // 至少一个三角形: x0,y0,x1,y1,x2,y2 (切分/合并可产出多边形)
     jfloat *xy = env->GetFloatArrayElements(cornersXY, nullptr);
     QVector<QPointF> corners;
     corners.reserve(len / 2);

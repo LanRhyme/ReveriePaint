@@ -14,6 +14,7 @@ import com.reverie.paint.model.PanelQuad
 import com.reverie.paint.model.PanelStyle
 import com.reverie.paint.model.Point2D
 import com.reverie.paint.model.RecordingEvents
+import com.reverie.paint.model.ResolvedPanelStyle
 import com.reverie.paint.model.parsePanelMeta
 import com.reverie.paint.model.resolve
 import com.reverie.paint.model.toJson
@@ -149,10 +150,8 @@ internal fun scanPanelsFrom(ls: List<SnapshotLayer>): PanelEngineScan {
         while (childEnd > i && ls[childEnd].nodeType == LayerNodeType.TRANSPARENCY_MASK) childEnd--
         val maskIdx = if (childEnd < end) childEnd + 1 else -1
         val direct = (i + 1..childEnd).filter { ls[it].depth == e.depth + 1 }
-        var fillIdx = direct.firstOrNull { ls[it].name.startsWith(FILL_LAYER_NAME) } ?: direct.firstOrNull() ?: -1
-        val borderIdx = direct.lastOrNull { ls[it].name.startsWith(BORDER_LAYER_NAME) } ?: direct.lastOrNull() ?: -1
-        if (fillIdx == borderIdx) fillIdx = -1
-        val contentIdx = direct.firstOrNull { it != fillIdx && it != borderIdx } ?: -1
+        val (fillIdx, borderIdx, contentIdxs) = classifyPanelChildren(ls, direct)
+        val contentIdx = contentIdxs.firstOrNull() ?: -1
         mirrors.add(
             PanelMirror(
                 panelId = meta.panelId,
@@ -196,6 +195,24 @@ private fun firstDirectChildIdxOf(ls: List<SnapshotLayer>, g: Int): Int {
     var childEnd = end
     while (childEnd > g && ls[childEnd].nodeType == LayerNodeType.TRANSPARENCY_MASK) childEnd--
     return (g + 1..childEnd).firstOrNull { ls[it].depth == d + 1 && !LayerNodeType.isMask(ls[it].nodeType) } ?: -1
+}
+
+/**
+ * 分格组直接子层的角色分类 (单一真相): 填充 = 带"格内填充"前缀的第一个直接子层
+ * (回退: 最底), 边框 = 带"格边框"前缀的最后一个直接子层 (回退: 最顶), 其余为内容。
+ * scanPanelsFrom 与切分/合并的内容搬移共用此分类, 防止两处口径漂移 —— 否则用户
+ * 重命名填充/边框层后, 内容搬移会把这些层当内容搬走, 造成视觉错乱。
+ * 返回 (fillIdx, borderIdx, contentIdxs), 索引为平铺列表下标; fill==border 时 fill = -1。
+ */
+private fun classifyPanelChildren(
+    ls: List<SnapshotLayer>,
+    direct: List<Int>,
+): Triple<Int, Int, List<Int>> {
+    var fillIdx = direct.firstOrNull { ls[it].name.startsWith(FILL_LAYER_NAME) } ?: direct.firstOrNull() ?: -1
+    val borderIdx = direct.lastOrNull { ls[it].name.startsWith(BORDER_LAYER_NAME) } ?: direct.lastOrNull() ?: -1
+    if (fillIdx == borderIdx) fillIdx = -1
+    val contents = direct.filter { it != fillIdx && it != borderIdx }
+    return Triple(fillIdx, borderIdx, contents)
 }
 
 /** 平铺列表里 [g] 的父组索引 (前方最近的更浅组); 无则 -1。 */
@@ -297,13 +314,9 @@ internal object PanelMetaCodec {
         if (f.size >= 10 && f[9].startsWith(QUADS_KEY)) {
             maskQuads = f[9].substring(QUADS_KEY.length).split(';').mapNotNull { seg ->
                 val xy = seg.split(',').mapNotNull { it.toFloatOrNull() }
-                if (xy.size == PanelQuad.CORNER_COUNT * 2) {
-                    PanelQuad.of(
-                        Point2D(xy[0], xy[1]),
-                        Point2D(xy[2], xy[3]),
-                        Point2D(xy[4], xy[5]),
-                        Point2D(xy[6], xy[7]),
-                    )
+                val n = xy.size / 2
+                if (xy.size % 2 == 0 && n in PanelQuad.MIN_VERTICES..PanelQuad.MAX_VERTICES) {
+                    PanelQuad.of(xy.chunked(2).map { Point2D(it[0], it[1]) })
                 } else {
                     null
                 }
@@ -367,10 +380,10 @@ internal fun applyPanelMetaEvent(e: PanelMetaEvent) {
     }
 }
 
-private fun quadToXY(q: PanelQuad): FloatArray = FloatArray(8).also { a ->
-    for (i in 0 until PanelQuad.CORNER_COUNT) {
-        a[i * 2] = q.corners[i].x
-        a[i * 2 + 1] = q.corners[i].y
+private fun quadToXY(q: PanelQuad): FloatArray = FloatArray(q.corners.size * 2).also { a ->
+    for ((i, c) in q.corners.withIndex()) {
+        a[i * 2] = c.x
+        a[i * 2 + 1] = c.y
     }
 }
 
@@ -410,78 +423,272 @@ private fun PaintViewModel.nextPanelId(): Long =
 internal fun PaintViewModel.createPanelAt(quad: PanelQuad) {
     if (coreW <= 0 || coreH <= 0) return
     if (quad.isDegenerate(MIN_PANEL_AREA)) return
-    val d = panelDefaults
     val panelId = nextPanelId()
     val meta = PanelMeta(quad = quad, style = PanelStyle(), cropEnabled = true, panelId = panelId)
-    val json = meta.toJson()
-    val resolved = meta.style.resolve(d)
     Breadcrumbs.record("Panel", "createPanelAt id=$panelId")
     runCore(after = {
         refreshPanels()
         selectedPanelId = panelId
         notifyLayerChanged(pixelChanged = true)
     }) {
-        val scan = scanEnginePanels()
         ReverieCoreBridge.beginUndoMacro(appContext.getString(R.string.panel_op_create))
         try {
-            // 1. 根组 (首个分格时自动创建; 挂在最顶的顶层图层上方)
-            var rootIdx = scan.rootIdx
-            if (rootIdx < 0) {
-                val topIdx = topmostRootLayerIdx()
-                if (topIdx >= 0) {
-                    if (recorder.recording) recorder.layerOp(RecordingEvents.L_SET_CURRENT, topIdx)
-                    ReverieCoreBridge.setCurrentLayer(topIdx)
-                }
-                if (recorder.recording) recorder.layerOp(RecordingEvents.L_ADD_GROUP)
-                rootIdx = ReverieCoreBridge.addGroupLayer(ROOT_GROUP_NAME)
-                if (rootIdx < 0) return@runCore
+            val build = buildPanelStructureOp(meta, meta.style.resolve(panelDefaults)) ?: return@runCore
+            // 停在内容层, 双击进格/直接作画的目标一致
+            if (build.contentIdx >= 0) {
+                if (recorder.recording) recorder.layerOp(RecordingEvents.L_SET_CURRENT, build.contentIdx)
+                ReverieCoreBridge.setCurrentLayer(build.contentIdx)
             }
-            // 2. 分格组挂到根组底部 (current=组 → 组内最底; 各格间 z 序由 reorderPanel 调整)
-            if (recorder.recording) recorder.layerOp(RecordingEvents.L_SET_CURRENT, rootIdx)
-            ReverieCoreBridge.setCurrentLayer(rootIdx)
-            if (recorder.recording) recorder.layerOp(RecordingEvents.L_ADD_GROUP)
-            val groupIdx = ReverieCoreBridge.addGroupLayer("格 ${scan.mirrors.size + 1}")
-            if (groupIdx < 0) return@runCore
-            val groupId = ReverieCoreBridge.layerId(groupIdx)
-            // 3. 组内自底向上: 填充 → 内容 → 边框 (current=组, 每层依次叠在上一层上方)
-            if (recorder.recording) recorder.layerOp(RecordingEvents.L_SET_CURRENT, groupIdx)
-            ReverieCoreBridge.setCurrentLayer(groupIdx)
-            for (name in listOf(FILL_LAYER_NAME, CONTENT_LAYER_NAME, BORDER_LAYER_NAME)) {
-                if (recorder.recording) {
-                    recorder.layerOp(
-                        RecordingEvents.L_ADD_LAYER_TYPE, 0, "$name|0|${0xFFFFFFFF.toInt()}",
-                    )
-                }
-                ReverieCoreBridge.addLayerWithType(name, 0, 0xFFFFFFFF.toInt())
-            }
-            // 4. 裁剪蒙版 = 分格组的同级上方兄弟 (addMaskToLayer 现有行为), 完成后 current=蒙版
-            if (!ReverieCoreBridge.addMaskToLayer(groupIdx, MASK_TYPE_TRANSPARENCY)) return@runCore
-            if (recorder.recording) recorder.layerOp(RecordingEvents.L_ADD_MASK, groupIdx, "0")
-            // 5. 重扫定位真实索引 (组/子层/蒙版都已稳定)
-            val groupNow = indexOfLayerId(groupId)
-            val page = LayerSnapshotProbe.read()
-            val direct = if (page != null && groupNow >= 0) directChildrenOf(page.layers, groupNow) else emptyList()
-            val ev = PanelMetaEvent(
-                groupIdx = groupNow,
-                maskIdx = ReverieCoreBridge.currentLayerIndex(),
-                fillIdx = direct.getOrNull(0) ?: -1,
-                borderIdx = direct.getOrNull(2) ?: -1,
-                metaJson = json,
-                borderWidth = resolved.borderWidth,
-                borderColor = resolved.borderColor,
-                fillColor = resolved.fillColor,
-                fillEnabled = resolved.fillEnabled,
+        } finally {
+            ReverieCoreBridge.endUndoMacro()
+        }
+    }
+}
+
+/** 一次分格结构构造的结果 (索引为构造完成时刻的快照, 后续结构变化会漂移; 长期定位用 id)。 */
+private class PanelBuildResult(
+    val groupIdx: Int,
+    val groupId: Long,
+    val contentIdx: Int,
+    val maskIdx: Int,
+)
+
+/**
+ * 在撤销宏内构造一个完整分格结构: 根组(若无) → 分格组 → 填充/内容/边框三层 → 裁剪蒙版 →
+ * 元数据 + 视觉重绘。渲染线程直连 Bridge, 调用方必须已处于 beginUndoMacro/endUndoMacro
+ * 之间; 含录制埋点; 内部自行重扫定位。失败返回 null。
+ */
+private fun PaintViewModel.buildPanelStructureOp(
+    meta: PanelMeta,
+    resolved: ResolvedPanelStyle,
+): PanelBuildResult? {
+    val json = meta.toJson()
+    val scan = scanEnginePanels()
+    // 1. 根组 (首个分格时自动创建; 挂在最顶的顶层图层上方)
+    var rootIdx = scan.rootIdx
+    if (rootIdx < 0) {
+        val topIdx = topmostRootLayerIdx()
+        if (topIdx >= 0) {
+            if (recorder.recording) recorder.layerOp(RecordingEvents.L_SET_CURRENT, topIdx)
+            ReverieCoreBridge.setCurrentLayer(topIdx)
+        }
+        if (recorder.recording) recorder.layerOp(RecordingEvents.L_ADD_GROUP)
+        rootIdx = ReverieCoreBridge.addGroupLayer(ROOT_GROUP_NAME)
+        if (rootIdx < 0) return null
+    }
+    // 2. 分格组挂到根组底部 (current=组 → 组内最底; 各格间 z 序由 reorderPanel 调整)
+    if (recorder.recording) recorder.layerOp(RecordingEvents.L_SET_CURRENT, rootIdx)
+    ReverieCoreBridge.setCurrentLayer(rootIdx)
+    if (recorder.recording) recorder.layerOp(RecordingEvents.L_ADD_GROUP)
+    val groupIdx = ReverieCoreBridge.addGroupLayer("格 ${scan.mirrors.size + 1}")
+    if (groupIdx < 0) return null
+    val groupId = ReverieCoreBridge.layerId(groupIdx)
+    // 3. 组内自底向上: 填充 → 内容 → 边框 (current=组, 每层依次叠在上一层上方)
+    if (recorder.recording) recorder.layerOp(RecordingEvents.L_SET_CURRENT, groupIdx)
+    ReverieCoreBridge.setCurrentLayer(groupIdx)
+    for (name in listOf(FILL_LAYER_NAME, CONTENT_LAYER_NAME, BORDER_LAYER_NAME)) {
+        if (recorder.recording) {
+            recorder.layerOp(
+                RecordingEvents.L_ADD_LAYER_TYPE, 0, "$name|0|${0xFFFFFFFF.toInt()}",
             )
-            // 6. 元数据 + 视觉重绘 (黑底白 quad 蒙版 / 填充 / 边框环)
-            applyPanelMetaEvent(ev)
-            if (recorder.recording) {
-                recorder.layerOp(RecordingEvents.L_PANEL_META, ev.groupIdx, PanelMetaCodec.encode(ev))
+        }
+        ReverieCoreBridge.addLayerWithType(name, 0, 0xFFFFFFFF.toInt())
+    }
+    // 4. 裁剪蒙版 = 分格组的同级上方兄弟 (addMaskToLayer 现有行为), 完成后 current=蒙版
+    if (!ReverieCoreBridge.addMaskToLayer(groupIdx, MASK_TYPE_TRANSPARENCY)) return null
+    if (recorder.recording) recorder.layerOp(RecordingEvents.L_ADD_MASK, groupIdx, "0")
+    // 5. 重扫定位真实索引 (组/子层/蒙版都已稳定)
+    val groupNow = indexOfLayerId(groupId)
+    val page = LayerSnapshotProbe.read()
+    val direct = if (page != null && groupNow >= 0) directChildrenOf(page.layers, groupNow) else emptyList()
+    val maskNow = ReverieCoreBridge.currentLayerIndex()
+    val ev = PanelMetaEvent(
+        groupIdx = groupNow,
+        maskIdx = maskNow,
+        fillIdx = direct.getOrNull(0) ?: -1,
+        borderIdx = direct.getOrNull(2) ?: -1,
+        metaJson = json,
+        borderWidth = resolved.borderWidth,
+        borderColor = resolved.borderColor,
+        fillColor = resolved.fillColor,
+        fillEnabled = resolved.fillEnabled,
+    )
+    // 6. 元数据 + 视觉重绘 (黑底白 quad 蒙版 / 填充 / 边框环)
+    applyPanelMetaEvent(ev)
+    if (recorder.recording) {
+        recorder.layerOp(RecordingEvents.L_PANEL_META, ev.groupIdx, PanelMetaCodec.encode(ev))
+    }
+    return PanelBuildResult(
+        groupIdx = groupNow,
+        groupId = groupId,
+        contentIdx = direct.getOrNull(1) ?: -1,
+        maskIdx = maskNow,
+    )
+}
+
+/**
+ * [groupIdx] 格的内容层节点 id (排除格内填充/格边框; 名字口径与 scanPanelsFrom 一致)。
+ * 渲染线程调用, 供切分/合并搬移内容。
+ */
+private fun contentLayerIdsOf(page: SnapshotPage, groupIdx: Int): List<Long> {
+    val direct = directChildrenOf(page.layers, groupIdx)
+    val (_, _, contents) = classifyPanelChildren(page.layers, direct)
+    return contents.map { page.layers[it].id }
+}
+
+/** 按节点 id 删一格 (先蒙版后组; 索引在删前按 id 重定位, 录制埋点照 deletePanel 惯例)。 */
+private fun PaintViewModel.removePanelNodesById(mirror: PanelMirror) {
+    val maskNow = indexOfLayerId(mirror.maskId)
+    if (maskNow >= 0) {
+        if (recorder.recording) recorder.layerOp(RecordingEvents.L_REMOVE, maskNow)
+        ReverieCoreBridge.removeLayer(maskNow)
+    }
+    val groupNow = indexOfLayerId(mirror.groupId)
+    if (groupNow >= 0) {
+        if (recorder.recording) recorder.layerOp(RecordingEvents.L_REMOVE, groupNow)
+        ReverieCoreBridge.removeLayer(groupNow)
+    }
+}
+
+/**
+ * 直线切分: 用 start→end 的无限直线切开所有被穿过的格, 每格变两格 (切线两侧各让
+ * hGap/2 间隙), 内容层留在面积较大的一半, 另一半空内容层。一个撤销宏; 录制全用
+ * 既有结构码 + L_PANEL_META, 回放零新码。
+ */
+internal fun PaintViewModel.dividePanelsByLine(start: Point2D, end: Point2D) {
+    if (coreW <= 0 || coreH <= 0) return
+    Breadcrumbs.record("Panel", "divideByLine")
+    runCore(after = {
+        refreshPanels()
+        selectedPanelId = null
+        notifyLayerChanged(pixelChanged = true)
+    }) {
+        val halfGap = panelDefaults.hGap / 2f
+        val scan = scanEnginePanels()
+        // 预筛 + 收集内容层 id (结构变化前快照)
+        data class CutJob(val mirror: PanelMirror, val a: PanelQuad, val b: PanelQuad, val contentIds: List<Long>)
+        val jobs = ArrayList<CutJob>()
+        for (m in scan.mirrors) {
+            val halves = m.meta.quad.cutByLine(start, end, halfGap) ?: continue
+            val page = LayerSnapshotProbe.read()
+            val contentIds = if (page != null && m.groupIdx in page.layers.indices) {
+                contentLayerIdsOf(page, m.groupIdx)
+            } else {
+                emptyList()
             }
-            // 7. 停在内容层, 双击进格/直接作画的目标一致
-            val contentNow = direct.getOrNull(1) ?: -1
-            if (contentNow >= 0) {
-                if (recorder.recording) recorder.layerOp(RecordingEvents.L_SET_CURRENT, contentNow)
-                ReverieCoreBridge.setCurrentLayer(contentNow)
+            jobs.add(CutJob(m, halves.first, halves.second, contentIds))
+        }
+        if (jobs.isEmpty()) return@runCore
+        ReverieCoreBridge.beginUndoMacro(appContext.getString(R.string.panel_op_divide))
+        try {
+            for (job in jobs) {
+                // 先建两半 (build 内部自行重扫, 索引新鲜; 此时旧格仍在)。
+                // 填充样式继承旧格的已解析值 (否则开过填充的格被切开后丢底色);
+                // 边框随新格默认样式重绘 (旧边框像素随旧层删除)。
+                val oldResolved = job.mirror.meta.style.resolve(panelDefaults)
+                val inheritedStyle = PanelStyle(
+                    fillColor = oldResolved.fillColor,
+                    fillEnabled = oldResolved.fillEnabled,
+                )
+                val panelIdA = nextPanelId()
+                val buildA = buildPanelStructureOp(
+                    PanelMeta(quad = job.a, style = inheritedStyle, cropEnabled = true, panelId = panelIdA),
+                    inheritedStyle.resolve(panelDefaults),
+                ) ?: continue
+                val panelIdB = nextPanelId()
+                val buildB = buildPanelStructureOp(
+                    PanelMeta(quad = job.b, style = inheritedStyle, cropEnabled = true, panelId = panelIdB),
+                    inheritedStyle.resolve(panelDefaults),
+                ) ?: continue
+                // 内容层留在面积较大的一半 (索引按 id 重定位)。必须先把内容搬出旧组
+                // 再删旧格 —— 删组会连同组内内容层一起删除, 顺序颠倒即丢内容。
+                val targetGroupId = if (job.a.area() >= job.b.area()) buildA.groupId else buildB.groupId
+                val targetGroupIdx = indexOfLayerId(targetGroupId)
+                if (targetGroupIdx >= 0) {
+                    for (cid in job.contentIds) {
+                        val idx = indexOfLayerId(cid)
+                        if (idx < 0) continue
+                        if (recorder.recording) {
+                            recorder.layerOp(RecordingEvents.L_MOVE_TO_GROUP, idx, targetGroupIdx.toString())
+                        }
+                        ReverieCoreBridge.moveLayerToGroup(idx, targetGroupIdx)
+                    }
+                }
+                // 内容搬出后再删旧格 (蒙版先删, 索引按 id 重定位)
+                removePanelNodesById(job.mirror)
+            }
+            // 跨格容器蒙版重同步: 格集变化后跨可见区域必须重画为剩余格并集
+            val after = scanPanelsFrom(LayerSnapshotProbe.read()?.layers ?: emptyList())
+            if (after.crossIdx >= 0 && after.mirrors.isNotEmpty()) {
+                repaintCrossMask(after.crossIdx, after.crossMaskIdx, after.mirrors.map { it.meta.quad })
+            }
+        } finally {
+            ReverieCoreBridge.endUndoMacro()
+        }
+    }
+}
+
+/**
+ * 合并多选格: 凸包为新格边界 (相邻性校验: 凸包面积明显大于各格面积和即拒绝),
+ * 所有源格内容层搬进新组, 删源格。一个撤销宏; 结构码 + L_PANEL_META 可回放。
+ */
+internal fun PaintViewModel.mergePanels(ids: Set<Long>) {
+    if (ids.size < 2) return
+    Breadcrumbs.record("Panel", "mergePanels n=${ids.size}")
+    var rejected = false
+    runCore(after = {
+        refreshPanels()
+        selectedPanelId = null
+        panelMultiSelectedIds = emptySet()
+        notifyLayerChanged(pixelChanged = true)
+        if (rejected) {
+            showActionToast(R.string.panel_merge_not_adjacent, R.drawable.ic_panel_frame)
+        }
+    }) {
+        val scan = scanEnginePanels()
+        val targets = ids.mapNotNull { id -> scan.mirrors.firstOrNull { it.panelId == id } }
+        if (targets.size < 2) return@runCore
+        val hull = PanelQuad.hullOf(targets.flatMap { it.meta.quad.corners })
+        val sumArea = targets.sumOf { it.meta.quad.area().toDouble() }.toFloat()
+        if (hull == null || hull.area() > sumArea * 1.15f + 1f) {
+            // 不相邻 (合并会圈进大空洞) → 拒绝, 主线程 toast
+            rejected = true
+            return@runCore
+        }
+        ReverieCoreBridge.beginUndoMacro(appContext.getString(R.string.panel_op_merge))
+        try {
+            // 内容层 id (结构变化前快照)
+            val contentIds = targets.flatMap { m ->
+                val page = LayerSnapshotProbe.read()
+                if (page != null && m.groupIdx in page.layers.indices) {
+                    contentLayerIdsOf(page, m.groupIdx)
+                } else {
+                    emptyList()
+                }
+            }
+            // 建合并后的新格 (样式回默认覆盖态, 用户可在面板再调)
+            val newPanelId = nextPanelId()
+            val build = buildPanelStructureOp(
+                PanelMeta(quad = hull, style = PanelStyle(), cropEnabled = true, panelId = newPanelId),
+                PanelStyle().resolve(panelDefaults),
+            ) ?: return@runCore
+            // 内容搬移 (索引按 id 重定位)
+            for (cid in contentIds) {
+                val idx = indexOfLayerId(cid)
+                if (idx < 0) continue
+                val groupNow = indexOfLayerId(build.groupId)
+                if (groupNow < 0) continue
+                if (recorder.recording) {
+                    recorder.layerOp(RecordingEvents.L_MOVE_TO_GROUP, idx, groupNow.toString())
+                }
+                ReverieCoreBridge.moveLayerToGroup(idx, groupNow)
+            }
+            // 删源格
+            for (t in targets) removePanelNodesById(t)
+            // 跨格容器蒙版重同步: 格集变化后跨可见区域必须重画为剩余格并集
+            val after = scanPanelsFrom(LayerSnapshotProbe.read()?.layers ?: emptyList())
+            if (after.crossIdx >= 0 && after.mirrors.isNotEmpty()) {
+                repaintCrossMask(after.crossIdx, after.crossMaskIdx, after.mirrors.map { it.meta.quad })
             }
         } finally {
             ReverieCoreBridge.endUndoMacro()

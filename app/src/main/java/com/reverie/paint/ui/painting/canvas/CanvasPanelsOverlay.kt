@@ -32,11 +32,13 @@ import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.panelMultiSelectedIds
 import com.reverie.paint.core.duplicatePanel
 import com.reverie.paint.core.deletePanel
+import com.reverie.paint.core.mergePanels
 import com.reverie.paint.core.panels
 import com.reverie.paint.core.reorderPanel
 import com.reverie.paint.core.selectedPanelId
 import com.reverie.paint.model.PanelBounds
 import com.reverie.paint.model.PanelQuad
+import com.reverie.paint.model.Point2D
 import com.reverie.paint.ui.painting.panels.ToolFloatChip
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.glassBorder
@@ -44,6 +46,13 @@ import kotlin.math.roundToInt
 
 /** 一条拖动预览: 某 格 的预览四角 (doc 坐标), 覆盖层用它替代该格镜像轮廓。 */
 internal class PanelPreviewEntry(val panelId: Long, val quad: PanelQuad)
+
+/**
+ * 吸附参考线: 贯穿移动后边位置的虚线 (Morandi.accent 色)。
+ * [axis]: 0 = x 轴向吸附 (垂直线 x = coord), 1 = y 轴向吸附 (水平线 y = coord)。
+ * [coord]: doc 坐标。
+ */
+internal data class PanelSnapGuide(val axis: Int, val coord: Float)
 
 /**
  * 分格工具手势 ↔ 覆盖层的共享预览状态 (CanvasTouchView 写, CanvasOverlay 读;
@@ -61,6 +70,15 @@ internal class PanelInteractionState {
     /** 新建格拖拽矩形 (doc 坐标, 未内缩)。 */
     var createRect: PanelBounds? by mutableStateOf(null)
 
+    /** 切分直线预览 (doc 坐标起点与终点)。 */
+    var divideLine: Pair<Point2D, Point2D>? by mutableStateOf(null)
+
+    /** 切分高亮格 panelId 集合 (与切线内部相交的格)。 */
+    var divideHighlightPanelIds: Set<Long> by mutableStateOf(emptySet())
+
+    /** 吸附参考线 (doc 坐标, 抬起/作废手势时清空)。 */
+    var snapGuide: PanelSnapGuide? by mutableStateOf(null)
+
     /** 长按菜单锚点 (画布视图内坐标) 与目标格。 */
     var menuScreenPos: Offset? by mutableStateOf(null)
     var menuPanelId: Long? by mutableStateOf(null)
@@ -70,6 +88,9 @@ internal class PanelInteractionState {
         dragPreviews = emptyList()
         marqueeRect = null
         createRect = null
+        divideLine = null
+        divideHighlightPanelIds = emptySet()
+        snapGuide = null
     }
 
     fun dismissMenu() {
@@ -145,7 +166,8 @@ internal fun DrawScope.drawPanelsOverlay(
     val mirrors = vm.panels
     val hasSelection = vm.selectedPanelId != null || vm.panelMultiSelectedIds.isNotEmpty()
     if (mirrors.isEmpty() && !hasSelection &&
-        interaction.createRect == null && interaction.marqueeRect == null
+        interaction.createRect == null && interaction.marqueeRect == null &&
+        interaction.divideLine == null && interaction.snapGuide == null
     ) {
         return
     }
@@ -162,7 +184,7 @@ internal fun DrawScope.drawPanelsOverlay(
         pathEffect = dashEffect,
     )
 
-    // 1. 建格 / 框选矩形 (半透明填充 + 虚线)
+    // 1. 建格 / 框选矩形 (半透明填充 + 虚线) / 切分预览线 (虚线) / 吸附参考线 (贯穿虚线)
     interaction.createRect?.let { rect ->
         val path = docBoundsPath(rect, bmpWidth, bmpHeight, scX, scY)
         drawPath(path, previewFill)
@@ -173,11 +195,35 @@ internal fun DrawScope.drawPanelsOverlay(
         drawPath(path, previewFill)
         drawPath(path, Morandi.accent, style = previewStroke)
     }
+    interaction.divideLine?.let { (p0, p1) ->
+        val start = Offset(p0.x * scX - bmpWidth / 2f, p0.y * scY - bmpHeight / 2f)
+        val end = Offset(p1.x * scX - bmpWidth / 2f, p1.y * scY - bmpHeight / 2f)
+        val linePath = Path().apply {
+            moveTo(start.x, start.y)
+            lineTo(end.x, end.y)
+        }
+        drawPath(linePath, Morandi.accent, style = previewStroke)
+    }
+    interaction.snapGuide?.let { guide ->
+        val linePath = Path()
+        if (guide.axis == 0) {
+            val x = guide.coord * scX - bmpWidth / 2f
+            linePath.moveTo(x, -bmpHeight / 2f)
+            linePath.lineTo(x, bmpHeight / 2f)
+        } else {
+            val y = guide.coord * scY - bmpHeight / 2f
+            linePath.moveTo(-bmpWidth / 2f, y)
+            linePath.lineTo(bmpWidth / 2f, y)
+        }
+        drawPath(linePath, Morandi.accent, style = previewStroke)
+    }
 
     // 2. 所有格轮廓 (拖动中的格画预览, 其余画镜像轮廓)
     for (m in mirrors) {
         val path = panelQuadPath(m.meta.quad, bmpWidth, bmpHeight, scX, scY)
         when {
+            m.panelId in interaction.divideHighlightPanelIds ->
+                drawPath(path, Morandi.accent, style = selStroke)
             m.panelId == vm.selectedPanelId ->
                 drawPath(path, Morandi.accent, style = selStroke)
             m.panelId in vm.panelMultiSelectedIds ->
@@ -245,6 +291,16 @@ internal fun PanelLongPressMenu(
                         interaction.dismissMenu()
                     },
                 )
+                if (vm.panelMultiSelectedIds.size >= 2) {
+                    ToolFloatChip(
+                        label = stringResource(R.string.panel_menu_merge),
+                        onClick = {
+                            val ids = vm.panelMultiSelectedIds
+                            vm.mergePanels(ids)
+                            interaction.dismissMenu()
+                        },
+                    )
+                }
             }
             if (panelId != null) {
                 ToolFloatChip(
