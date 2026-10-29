@@ -3929,7 +3929,10 @@ class PaintViewModel : ViewModel() {
         // 引擎侧撤销栈历史上限: 此前该设置从未传给 C++, 每笔的 tile 快照
         // 命令无限堆积导致内存持续增长 ("越画越卡")。渲染线程未启动时
         // runCore 静默跳过, 由文档创建点兜底应用 (C++ 默认同为 50)。
-        runCore(render = false) { ReverieCoreBridge.setUndoLimit(maxUndoSteps) }
+        // 引擎上限落定后立即刷新撤回条计数镜像, 消除滑条对齐的延迟窗口。
+        runCore(render = false, after = { refreshUndoCounts() }) {
+            ReverieCoreBridge.setUndoLimit(maxUndoSteps)
+        }
     }
 
     fun updatePromptSaveOnExit(prompt: Boolean) {

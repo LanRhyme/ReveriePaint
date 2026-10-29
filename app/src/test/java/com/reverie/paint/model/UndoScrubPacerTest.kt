@@ -140,7 +140,7 @@ class UndoScrubPacerTest {
     fun `alignTo 重建 max 与 position 但保留用户目标`() {
         val pacer = UndoScrubPacer()
         pacer.reset(3, 2)
-        pacer.dragTarget(0)
+        pacer.dragTarget(0) // armed: 追赶会话活跃
         // 泵外路径动过历史 (如又画了一笔), 真实计数变为 undo=1 redo=1
         pacer.alignTo(1, 1)
         assertEquals(2, pacer.max)
@@ -168,6 +168,8 @@ class UndoScrubPacerTest {
         pacer.alignTo(-1, -1)
         assertEquals(0, pacer.max)
         assertEquals(0, pacer.position)
+        // 未 armed: target 播种为 position, 不残留旧目标
+        assertEquals(0, pacer.target)
     }
 
     @Test
@@ -201,5 +203,60 @@ class UndoScrubPacerTest {
         pacer.dragTarget(5)
         assertEquals(0, pacer.target)
         assertTrue(drain(pacer).isEmpty())
+    }
+
+    @Test
+    fun `未拖动时外部变化将目标播种为当前位置`() {
+        val pacer = UndoScrubPacer()
+        pacer.reset(3, 2) // 从未 dragTarget, 未 armed
+        // 泵外路径动过历史 (又画了几笔把真实位置抬高), alignTo 对齐镜像
+        pacer.alignTo(4, 1)
+        assertEquals(5, pacer.max)
+        assertEquals(4, pacer.position)
+        // target 播种为 position: 泵不会被残留旧目标唤醒去追赶
+        assertEquals(4, pacer.target)
+        assertEquals(0, pacer.nextStep())
+    }
+
+    @Test
+    fun `disarmTarget 后 nextStep 归零且目标等于位置`() {
+        val pacer = UndoScrubPacer()
+        pacer.reset(3, 2)
+        pacer.dragTarget(0) // armed, 追赶目标 0
+        assertEquals(-1, pacer.nextStep())
+        pacer.disarmTarget() // 会话作废 (追平/被打断)
+        assertFalse(pacer.hasPendingWork)
+        assertEquals(3, pacer.position) // 簿记位置不动
+        assertEquals(3, pacer.target)
+        assertEquals(0, pacer.nextStep())
+    }
+
+    @Test
+    fun `armed 追赶中 alignTo 不丢目标`() {
+        val pacer = UndoScrubPacer()
+        pacer.reset(3, 2)
+        pacer.dragTarget(0) // armed, 用户拖到全撤销
+        // 追赶第一步发出前泵外又入一笔, 真实计数抬到 undo=4 redo=1
+        pacer.alignTo(4, 1)
+        assertEquals(4, pacer.position)
+        assertEquals(0, pacer.target) // 目标保留, 不被对齐覆盖
+        assertEquals(listOf(-1, -1, -1, -1), drain(pacer))
+        assertEquals(0, pacer.position)
+    }
+
+    @Test
+    fun `reset 丢弃会话`() {
+        val pacer = UndoScrubPacer()
+        pacer.reset(3, 2)
+        pacer.dragTarget(0) // armed
+        pacer.reset(2, 1) // 丢弃旧目标并作废会话
+        assertEquals(3, pacer.max)
+        assertEquals(2, pacer.position)
+        assertEquals(2, pacer.target)
+        assertEquals(0, pacer.nextStep())
+        // armed 已清: 后续外部对齐会把 target 播种为 position 而不是保留旧目标
+        pacer.alignTo(1, 1)
+        assertEquals(1, pacer.target)
+        assertEquals(1, pacer.position)
     }
 }
