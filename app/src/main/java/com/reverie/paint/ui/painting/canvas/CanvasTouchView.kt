@@ -6427,7 +6427,8 @@ class CanvasTouchView(context: Context) : View(context) {
                         }
                     }
                 }
-                // 2.5) 边框带 (未选中态 → DIVIDE): 按压在任意格边框命中带, 且不在任何格的格体内部深处
+                // 2.5) 边框带 (未选中态 → DIVIDE): 按压在格体内部的边框命中带, 且不在格体内部深处。
+                //  必须限定 contains: 两格间空隙里的起笔要留给建格手势, 否则建格可用区被切分侵蚀。
                 if (!handled && !hasSelection && mirrors.isNotEmpty()) {
                     val inDeepInterior = mirrors.any { m ->
                         m.meta.quad.contains(docPoint) && minDistanceToEdges(m.meta.quad, docPoint) >= thresholdDoc
@@ -6436,13 +6437,14 @@ class CanvasTouchView(context: Context) : View(context) {
                         var closestDist = Float.MAX_VALUE
                         var closestPanelId = -1L
                         for (m in mirrors) {
+                            if (!m.meta.quad.contains(docPoint)) continue
                             val d = minDistanceToEdges(m.meta.quad, docPoint)
                             if (d < closestDist) {
                                 closestDist = d
                                 closestPanelId = m.panelId
                             }
                         }
-                        if (closestDist < thresholdDoc) {
+                        if (closestPanelId >= 0 && closestDist < thresholdDoc) {
                             panelDragMode = PANEL_DRAG_DIVIDE
                             panelPendingPanelId = if (bodyPanelId >= 0) bodyPanelId else closestPanelId
                             handled = true

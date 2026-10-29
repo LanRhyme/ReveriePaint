@@ -3174,7 +3174,7 @@
     <string name="panel_op_style">调整分格样式</string>
     <string name="panel_op_divide">切分分格</string>
     <string name="panel_op_merge">合并分格</string>
-    <string name="panel_merge_not_adjacent">只能合并相邻的格子</string>
+    <string name="panel_merge_not_adjacent">无法合并所选的格子</string>
 
     <!-- 分格工具 -->
     <string name="tool_panel">分格</string>

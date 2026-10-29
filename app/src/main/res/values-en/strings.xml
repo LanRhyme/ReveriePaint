@@ -3174,7 +3174,7 @@
     <string name="panel_op_style">Edit panel style</string>
     <string name="panel_op_divide">Divide panels</string>
     <string name="panel_op_merge">Merge panels</string>
-    <string name="panel_merge_not_adjacent">Only adjacent panels can be merged</string>
+    <string name="panel_merge_not_adjacent">Cannot merge the selected panels</string>
 
     <!-- Panel tool -->
     <string name="tool_panel">Panel</string>

@@ -150,10 +150,8 @@ internal fun scanPanelsFrom(ls: List<SnapshotLayer>): PanelEngineScan {
         while (childEnd > i && ls[childEnd].nodeType == LayerNodeType.TRANSPARENCY_MASK) childEnd--
         val maskIdx = if (childEnd < end) childEnd + 1 else -1
         val direct = (i + 1..childEnd).filter { ls[it].depth == e.depth + 1 }
-        var fillIdx = direct.firstOrNull { ls[it].name.startsWith(FILL_LAYER_NAME) } ?: direct.firstOrNull() ?: -1
-        val borderIdx = direct.lastOrNull { ls[it].name.startsWith(BORDER_LAYER_NAME) } ?: direct.lastOrNull() ?: -1
-        if (fillIdx == borderIdx) fillIdx = -1
-        val contentIdx = direct.firstOrNull { it != fillIdx && it != borderIdx } ?: -1
+        val (fillIdx, borderIdx, contentIdxs) = classifyPanelChildren(ls, direct)
+        val contentIdx = contentIdxs.firstOrNull() ?: -1
         mirrors.add(
             PanelMirror(
                 panelId = meta.panelId,
@@ -197,6 +195,24 @@ private fun firstDirectChildIdxOf(ls: List<SnapshotLayer>, g: Int): Int {
     var childEnd = end
     while (childEnd > g && ls[childEnd].nodeType == LayerNodeType.TRANSPARENCY_MASK) childEnd--
     return (g + 1..childEnd).firstOrNull { ls[it].depth == d + 1 && !LayerNodeType.isMask(ls[it].nodeType) } ?: -1
+}
+
+/**
+ * 分格组直接子层的角色分类 (单一真相): 填充 = 带"格内填充"前缀的第一个直接子层
+ * (回退: 最底), 边框 = 带"格边框"前缀的最后一个直接子层 (回退: 最顶), 其余为内容。
+ * scanPanelsFrom 与切分/合并的内容搬移共用此分类, 防止两处口径漂移 —— 否则用户
+ * 重命名填充/边框层后, 内容搬移会把这些层当内容搬走, 造成视觉错乱。
+ * 返回 (fillIdx, borderIdx, contentIdxs), 索引为平铺列表下标; fill==border 时 fill = -1。
+ */
+private fun classifyPanelChildren(
+    ls: List<SnapshotLayer>,
+    direct: List<Int>,
+): Triple<Int, Int, List<Int>> {
+    var fillIdx = direct.firstOrNull { ls[it].name.startsWith(FILL_LAYER_NAME) } ?: direct.firstOrNull() ?: -1
+    val borderIdx = direct.lastOrNull { ls[it].name.startsWith(BORDER_LAYER_NAME) } ?: direct.lastOrNull() ?: -1
+    if (fillIdx == borderIdx) fillIdx = -1
+    val contents = direct.filter { it != fillIdx && it != borderIdx }
+    return Triple(fillIdx, borderIdx, contents)
 }
 
 /** 平铺列表里 [g] 的父组索引 (前方最近的更浅组); 无则 -1。 */
@@ -516,14 +532,8 @@ private fun PaintViewModel.buildPanelStructureOp(
  */
 private fun contentLayerIdsOf(page: SnapshotPage, groupIdx: Int): List<Long> {
     val direct = directChildrenOf(page.layers, groupIdx)
-    return direct.mapNotNull { i ->
-        val e = page.layers[i]
-        if (e.name.startsWith(FILL_LAYER_NAME) || e.name.startsWith(BORDER_LAYER_NAME)) {
-            null
-        } else {
-            e.id
-        }
-    }
+    val (_, _, contents) = classifyPanelChildren(page.layers, direct)
+    return contents.map { page.layers[it].id }
 }
 
 /** 按节点 id 删一格 (先蒙版后组; 索引在删前按 id 重定位, 录制埋点照 deletePanel 惯例)。 */
@@ -572,16 +582,23 @@ internal fun PaintViewModel.dividePanelsByLine(start: Point2D, end: Point2D) {
         ReverieCoreBridge.beginUndoMacro(appContext.getString(R.string.panel_op_divide))
         try {
             for (job in jobs) {
-                // 先建两半 (build 内部自行重扫, 索引新鲜; 此时旧格仍在)
+                // 先建两半 (build 内部自行重扫, 索引新鲜; 此时旧格仍在)。
+                // 填充样式继承旧格的已解析值 (否则开过填充的格被切开后丢底色);
+                // 边框随新格默认样式重绘 (旧边框像素随旧层删除)。
+                val oldResolved = job.mirror.meta.style.resolve(panelDefaults)
+                val inheritedStyle = PanelStyle(
+                    fillColor = oldResolved.fillColor,
+                    fillEnabled = oldResolved.fillEnabled,
+                )
                 val panelIdA = nextPanelId()
                 val buildA = buildPanelStructureOp(
-                    PanelMeta(quad = job.a, style = PanelStyle(), cropEnabled = true, panelId = panelIdA),
-                    PanelStyle().resolve(panelDefaults),
+                    PanelMeta(quad = job.a, style = inheritedStyle, cropEnabled = true, panelId = panelIdA),
+                    inheritedStyle.resolve(panelDefaults),
                 ) ?: continue
                 val panelIdB = nextPanelId()
                 val buildB = buildPanelStructureOp(
-                    PanelMeta(quad = job.b, style = PanelStyle(), cropEnabled = true, panelId = panelIdB),
-                    PanelStyle().resolve(panelDefaults),
+                    PanelMeta(quad = job.b, style = inheritedStyle, cropEnabled = true, panelId = panelIdB),
+                    inheritedStyle.resolve(panelDefaults),
                 ) ?: continue
                 // 内容层留在面积较大的一半 (索引按 id 重定位)。必须先把内容搬出旧组
                 // 再删旧格 —— 删组会连同组内内容层一起删除, 顺序颠倒即丢内容。
