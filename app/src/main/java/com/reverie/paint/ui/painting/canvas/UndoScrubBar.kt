@@ -17,13 +17,13 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -45,7 +45,6 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
-import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
@@ -85,9 +84,6 @@ private const val UNDO_BAR_HEIGHT = 40
 /** 胶囊最大宽度 (dp) */
 private const val UNDO_BAR_MAX_WIDTH = 420
 
-/** 把手区边长 (dp) */
-private const val UNDO_BAR_HANDLE = 40
-
 /** 滑轨左右留白 (dp): 轨道与拇指不顶到胶囊圆角 */
 private const val UNDO_BAR_RAIL_PAD = 12
 
@@ -103,7 +99,7 @@ private const val UNDO_BAR_BUBBLE = 36
  * - 拖拇指: 手指 x 线性映射到 0..max 调 [PaintViewModel.scrubTo], 拇指上方
  *   浮出圆形数字气泡显示目标步数 (纯 Compose 绘制, 无新窗口);
  * - 点轨道: 拇指右侧 = 前进一步, 左侧 = 后退一步;
- * - 拖左侧把手: 重新定位整条 (会话内记忆, 不持久化)。
+ * - 拖滑轨空白处 (拇指命中半径之外): 重新定位整条 (会话内记忆, 不持久化)。
  *
  * 显隐 (与 [PaintViewModelUndoBar] 的泵契约联动):
  * - 撤销/重做落定刷新镜像后, 总深度 > 5 且 [PaintViewModel.canShowUndoBar]
@@ -172,7 +168,6 @@ fun UndoScrubBar(
 
     val density = LocalDensity.current
     val barWidth = UNDO_BAR_MAX_WIDTH.dp
-    val handleDp = UNDO_BAR_HANDLE.dp
     val railPadDp = UNDO_BAR_RAIL_PAD.dp
     val capsuleShape = RoundedCornerShape(20.dp)
 
@@ -207,8 +202,8 @@ fun UndoScrubBar(
             if (scrubTarget >= 0) {
                 val bubbleDp = UNDO_BAR_BUBBLE.dp
                 val gapDp = 10.dp
-                val railSpanDp = effectiveBarWidth - handleDp
-                val bubbleCenterDp = handleDp + railPadDp + (railSpanDp - railPadDp * 2) * displayFrac
+                // 滑轨占满整条胶囊, 刻度范围 = 全宽 (左右各留 railPad)
+                val bubbleCenterDp = railPadDp + (effectiveBarWidth - railPadDp * 2) * displayFrac
                 val bubbleLeftPx = with(density) {
                     (bubbleCenterDp - bubbleDp / 2).coerceIn(0.dp, effectiveBarWidth - bubbleDp).toPx()
                 }
@@ -253,44 +248,13 @@ fun UndoScrubBar(
                     .semantics(mergeDescendants = true) { contentDescription = a11yDesc },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // 左侧圆形把手/图标区: 拖动重定位整条
-                Box(
-                    modifier = Modifier
-                        .size(handleDp)
-                        .pointerInput(Unit) {
-                            detectDragGestures(
-                                onDragStart = { vm.onUndoBarActivity() },
-                            ) { change, dragAmount ->
-                                change.consume()
-                                dragOffset += dragAmount
-                                vm.onUndoBarActivity()
-                            }
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .size(26.dp)
-                            .clip(CircleShape)
-                            .background(Morandi.panelHi),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_undo),
-                            contentDescription = null,
-                            tint = Morandi.icon,
-                            modifier = Modifier.size(15.dp),
-                        )
-                    }
-                }
-
-                // 滑轨: 点按步进 + 拇指拖动 scrub
+                // 滑轨: 点按步进 + 拇指拖动 scrub + 空白处拖动重定位整条
                 val positionA11y = stringResource(
                     R.string.undo_bar_position_a11y, undoBarPosition, undoBarMax
                 )
                 Box(
                     modifier = Modifier
-                        .weight(1f)
+                        .fillMaxWidth()
                         .fillMaxHeight()
                         .semantics { contentDescription = positionA11y }
                         .onSizeChanged { railWidthPx = it.width.toFloat() }
@@ -311,7 +275,8 @@ fun UndoScrubBar(
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = { start ->
-                                    // 只有命中拇指 (宽松半径) 才进入 scrub 拖动
+                                    // 模式以 onDragStart 判定为准, 拖动中途不切换:
+                                    // 命中拇指 (宽松半径) = scrub 拖动
                                     if (abs(start.x - thumbXHolder[0]) <=
                                         UNDO_BAR_THUMB_TOUCH_RADIUS.dp.toPx()
                                     ) {
@@ -321,17 +286,24 @@ fun UndoScrubBar(
                                             .coerceIn(0, undoBarMax)
                                         scrubTarget = t
                                         vm.scrubTo(t)
+                                    } else {
+                                        // 未命中拇指 = 整条重定位; 持续报活跃防拖动中被空闲计时藏掉
+                                        vm.onUndoBarActivity()
                                     }
                                 },
-                                onDrag = { change, _ ->
-                                    if (scrubTarget < 0) return@detectDragGestures
+                                onDrag = { change, dragAmount ->
                                     change.consume()
-                                    val pad = railPadDp.toPx()
-                                    val span = maxOf(1f, railWidthPx - 2 * pad)
-                                    val t = ((change.position.x - pad) / span * undoBarMax)
-                                        .roundToInt().coerceIn(0, undoBarMax)
-                                    scrubTarget = t
-                                    vm.scrubTo(t)
+                                    if (scrubTarget >= 0) {
+                                        val pad = railPadDp.toPx()
+                                        val span = maxOf(1f, railWidthPx - 2 * pad)
+                                        val t = ((change.position.x - pad) / span * undoBarMax)
+                                            .roundToInt().coerceIn(0, undoBarMax)
+                                        scrubTarget = t
+                                        vm.scrubTo(t)
+                                    } else {
+                                        dragOffset += dragAmount
+                                        vm.onUndoBarActivity()
+                                    }
                                 },
                                 onDragEnd = {
                                     scrubTarget = -1

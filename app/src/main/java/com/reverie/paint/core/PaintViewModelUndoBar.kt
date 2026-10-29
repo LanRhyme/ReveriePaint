@@ -44,10 +44,11 @@ internal fun PaintViewModel.onUndoBarActivity() {
 
 /**
  * 刷新滑杆刻度与位置镜像 (条出现/恢复、每步 settled、泵外历史变化后调用):
- * 用引擎真实计数对齐簿记。alignTo 保留用户拖动 target —— 若用 reset 覆盖, 松手后的
- * 最后几步会被簿记对齐吃掉而丢步。在途时只刷镜像不动簿记 (落定由
- * onStepDone 推进, 避免双计); settled 路径先 onStepDone 再到这里, 此时
- * 引擎计数已含刚落定的一步, 对齐结果与簿记推进一致。
+ * 用引擎真实计数对齐簿记。alignTo 两态: 追赶会话 armed 时保留用户拖动 target
+ * —— 若用 reset 覆盖, 松手后的最后几步会被簿记对齐吃掉而丢步; 未 armed 时把
+ * target 播种为 position, 外部历史变化不会唤醒泵。在途时只刷镜像不动簿记
+ * (落定由 onStepDone 推进, 避免双计); settled 路径先 onStepDone 再到这里,
+ * 此时引擎计数已含刚落定的一步, 对齐结果与簿记推进一致。
  */
 internal fun PaintViewModel.refreshUndoCounts() {
     val undoCount = ReverieCoreBridge.undoCount()
@@ -89,18 +90,32 @@ internal fun PaintViewModel.canShowUndoBar(): Boolean {
  * - 任何时刻在途的 undo/redo ≤ 1 —— pacer.hasPendingWork 挡本泵重复发步,
  *   pendingHistoryOps 检查尊重泵外单飞 (两者读写均在主线程, 检查与发步之间
  *   无竞态窗口);
- * - 被单飞挡住时延迟重试, 不丢追赶。
+ * - 被单飞挡住时延迟重试, 不丢追赶;
+ * - 泵只在「armed 追赶会话」存续期间工作: 条不可见/不可显示/追平时一律
+ *   [UndoScrubPacer.disarmTarget] 作废会话 —— target 是拖动会话态而非持久
+ *   意图, 条隐藏或用户开始画画/变换 (打断追赶) 后不再自动续跑, 否则残留
+ *   target 会在下一次镜像变化时经复活入口被泵追到 (表现为"连撤多步"与
+ *   "撤销键被泵弹回而失效")。
  * 只在主线程调用。
  */
 private fun PaintViewModel.pumpUndoBar() {
-    if (!undoBarVisible) return
-    if (!canShowUndoBar()) return
+    if (!undoBarVisible) {
+        undoScrubPacer.disarmTarget()
+        return
+    }
+    if (!canShowUndoBar()) {
+        undoScrubPacer.disarmTarget()
+        return
+    }
     if (pendingHistoryOps.get() != 0) {
         scheduleUndoBarPumpRetry()
         return
     }
     val step = undoScrubPacer.nextStep()
     if (step == 0) {
+        // 追平 = 会话结束; 先作废再刷新, refresh 的 alignTo (未 armed) 会把
+        // target 定格在 position, 镜像与簿记一致
+        undoScrubPacer.disarmTarget()
         refreshUndoCounts()
         return
     }
@@ -121,9 +136,11 @@ private fun PaintViewModel.onUndoBarStepSettled() {
 
 /**
  * 复活入口: 条恢复显示 (UI 把 [undoBarVisible] 写回 true) 后续跑被中断的
- * 追赶。pumpUndoBar 在不可见/不可显示时直接停车, 若此时 target 未追平,
- * 剩余步骤会悬到条再次可用 —— UI 的复活路径调用这里补上续跑: 无在途且
- * 未追平才发步 (有在途步则由 settled 落定链自行续跑, 不重复发)。
+ * 追赶。pumpUndoBar 在不可见/不可显示时直接停车并作废会话, 若此时 target
+ * 未追平, 剩余步骤会悬到条再次可用 —— UI 的复活路径调用这里补上续跑: 无
+ * 在途且未追平才发步 (有在途步则由 settled 落定链自行续跑, 不重复发)。
+ * 仅在 armed 会话未被作废时才会发步, 外部历史变化 (画新笔画/顶栏撤销等,
+ * 会经 alignTo 播种 target) 不会唤醒泵。
  * 只在主线程调用。
  */
 internal fun PaintViewModel.resumeUndoBarPumpIfPending() {

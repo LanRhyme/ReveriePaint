@@ -1986,7 +1986,9 @@ fun PaintingPage(
             hazeState = hazeState,
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = bottomDockPadding + 64.dp),
+                .padding(bottom = bottomDockPadding + 64.dp)
+                // 高于 ToolRail/TopBar (50f) 与时间轴 (20f), 低于选区浮窗 (65f) 与弹窗 (100f)
+                .zIndex(55f),
         )
 
         // ---- Saved Selections Popup (选区历史悬浮面板) ----
