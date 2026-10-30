@@ -1214,13 +1214,20 @@ object ReverieCoreBridge {
     /** 写入分格元数据; 空串表示清除分格标记 */
     external fun setPanelMeta(layerIndex: Int, json: String)
 
-    /** 分格实线绘制: 在目标颜料层上填充四边形 (与用户笔刷/选区无关); eraseFill=true 时擦除 */
+    /** 分格实线绘制: 在目标颜料层上填充四边形 (与用户笔刷/选区无关); eraseFill=true 时擦除;
+     *  antiAlias=false 关闭多边形填充抗锯齿 (硬边, 边界像素全覆盖) —— 老 quad 清除/涂黑
+     *  用, 避免 AA 边缘残留且与回放整幅黑底逐像素一致。常规调用用下方 4 参包装 */
     external fun paintPanelQuad(
         layerIndex: Int,
         cornersXY: FloatArray,
         argb: Int,
         eraseFill: Boolean,
+        antiAlias: Boolean,
     ): Boolean
+
+    /** [paintPanelQuad] 默认开启多边形抗锯齿的包装 (新 quad/边框/填充/ERASE 挖洞场景) */
+    fun paintPanelQuad(layerIndex: Int, cornersXY: FloatArray, argb: Int, eraseFill: Boolean): Boolean =
+        paintPanelQuad(layerIndex, cornersXY, argb, eraseFill, true)
 
     external fun layerAlphaInherited(index: Int): Boolean
 

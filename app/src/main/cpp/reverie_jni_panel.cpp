@@ -39,7 +39,7 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setPanelMeta(JNIEnv *env, jobject,
 JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_paintPanelQuad(JNIEnv *env, jobject, jint layerIndex,
                                                              jfloatArray cornersXY, jint argb,
-                                                             jboolean eraseFill)
+                                                             jboolean eraseFill, jboolean antiAlias)
 {
     if (!cornersXY) return JNI_FALSE;
     const jsize len = env->GetArrayLength(cornersXY);
@@ -52,7 +52,8 @@ Java_com_reverie_paint_core_ReverieCoreBridge_paintPanelQuad(JNIEnv *env, jobjec
     }
     env->ReleaseFloatArrayElements(cornersXY, xy, JNI_ABORT);
     const bool painted = core()->paintPanelQuad(layerIndex, corners,
-                                                quint32(argb), eraseFill == JNI_TRUE);
+                                                quint32(argb), eraseFill == JNI_TRUE,
+                                                antiAlias == JNI_TRUE);
     return painted ? JNI_TRUE : JNI_FALSE;
 }
 

@@ -1254,8 +1254,10 @@ static inline bool nodeIsPassThroughGroup(KisNodeWSP node)
 }
 
 // 组是否带分格元数据 (漫画分格): 组级透明蒙版 (分格裁剪) 的消费只对分格组
-// 生效 —— 无 meta 的既有文档组级蒙版保持改动前的忽略行为, 蒙版语义收窄由
-// 此单一谓词统一 (compositeLayersRange 分支 A/B 与 compositeSoloRange 共用)。
+// 生效 —— 无 meta 的既有文档组级蒙版保持改动前的忽略行为。合成热路径
+// (compositeLayersRange 分支 A/B 与 compositeSoloRange) 一律读 LayerEntry 的
+// panelGroup 缓存位 (syncLayersFromImage 时写入), 不再每遍查侧表; 本谓词保留
+// 给没有 LayerEntry 的场景 (如节点侧写/独立工具路径)。
 static inline bool nodeIsPanelGroup(const KisNode *node)
 {
     return node && !reverie::layerProperty(node, "reverie_panel").toString().isEmpty();
@@ -1265,23 +1267,24 @@ static inline bool nodeIsPanelGroup(const KisNode *node)
 // (白=透光, 黑/空=遮挡), 约定与 compositePaintLayer 暂存路径完全一致
 // (PixelAlpha::applyMaskModulation, 4 字节直通)。scratch 由调用方跨调用复用
 // (容量按需扩到 2*byteCount), 热路径零分配。
-// 早退: 组缓冲 extent 与 r 不相交 (r 内没有组内容, 调制是 no-op), 或组缓冲
-// 在 r 内 alpha 全 0 (applyMaskModulation 对 la==0 直接跳过) 时跳过全部读写,
+// 早退/裁剪: 调制只对组缓冲 extent 与 r 的交集 rr 生效 (交集外组缓冲没有内容,
+// 读写都是 no-op), 多格文档一次格操作只调制被改格的 bbox 而非 11 次全画布;
+// rr 内 alpha 全 0 (applyMaskModulation 对 la==0 直接跳过) 时同样跳过全部读写,
 // 省掉无效的蒙版 readBytes 与整块写回 (多格文档的常规情形)。
 static void applyGroupMaskModulation(KisPaintDeviceSP groupBuf, KisPaintDeviceSP maskDev,
                                      const QRect &r, QByteArray &scratch)
 {
     if (!groupBuf || !maskDev || r.isEmpty()) return;
-    const QRect bufExt = groupBuf->extent();
-    if (bufExt.isEmpty() || !bufExt.intersects(r)) return;
-    const size_t pixelCount = size_t(r.width()) * r.height();
+    const QRect rr = groupBuf->extent().intersected(r);
+    if (rr.isEmpty()) return;
+    const size_t pixelCount = size_t(rr.width()) * rr.height();
     const size_t byteCount = pixelCount * 4;
     if (size_t(scratch.size()) < byteCount * 2) {
         scratch.resize(byteCount * 2);
     }
     quint8 *lBuf = reinterpret_cast<quint8 *>(scratch.data());
     quint8 *mBuf = lBuf + byteCount;
-    groupBuf->readBytes(lBuf, r.x(), r.y(), r.width(), r.height());
+    groupBuf->readBytes(lBuf, rr.x(), rr.y(), rr.width(), rr.height());
     bool anyInk = false;
     for (size_t i = 0; i < pixelCount; ++i) {
         if (lBuf[i * 4 + 3] != 0) {
@@ -1290,9 +1293,9 @@ static void applyGroupMaskModulation(KisPaintDeviceSP groupBuf, KisPaintDeviceSP
         }
     }
     if (!anyInk) return;
-    maskDev->readBytes(mBuf, r.x(), r.y(), r.width(), r.height());
+    maskDev->readBytes(mBuf, rr.x(), rr.y(), rr.width(), rr.height());
     PixelAlpha::applyMaskModulation(lBuf, mBuf, pixelCount);
-    groupBuf->writeBytes(lBuf, r.x(), r.y(), r.width(), r.height());
+    groupBuf->writeBytes(lBuf, rr.x(), rr.y(), rr.width(), rr.height());
 }
 } // namespace
 
@@ -1318,7 +1321,7 @@ void ReverieCore::compositeSoloRange(KisPaintDeviceSP out, int startIdx, int end
                     break;
                 }
             }
-            const bool panelMasked = nodeIsPanelGroup(e.node) && maskEntryIdx >= 0;
+            const bool panelMasked = e.panelGroup && maskEntryIdx >= 0;
             // 穿透组: 子层直接合成到 out, 不套用组自身的混合模式/不透明度。
             // 例外与 compositeLayersRange 相同: 带蒙版的分格穿透组退化为下方
             // 隔离路径, 否则蒙版无处施加 (直接调制 out 会波及已合成的下层像素)。
@@ -1742,7 +1745,7 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
                 // 退化为下方 tmp 隔离路径 (蒙版调制见 applyGroupMask)。
                 // 该退化只对分格组 (reverie_panel 非空) 生效: 无 meta 的既有穿透
                 // 组文档回到改动前行为 (直接合成, 组级蒙版忽略)。
-                const bool eIsPanelGroup = nodeIsPanelGroup(e.node);
+                const bool eIsPanelGroup = e.panelGroup;
                 if (nodeIsPassThroughGroup(KisNodeWSP(e.node)) && (maskEntryIdx < 0 || !eIsPanelGroup)) {
                     compositeLayersRange(out, i + 1, eEnd, r, excludeIdx);
                 } else {
@@ -1792,7 +1795,7 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
         // 组作为剪切基底时同样消费组级蒙版 (分格): 先调制基底内容, 之后的剪切链
         // 以 alpha 锁叠加, 使整条"基底+剪切"都被组蒙版约束; 仅分格组消费,
         // 与分支 A 的口径一致 (无 meta 的既有文档组级蒙版保持改动前忽略行为)
-        if (e.isGroup && maskEntryIdx >= 0 && nodeIsPanelGroup(e.node)) {
+        if (e.isGroup && maskEntryIdx >= 0 && e.panelGroup) {
             applyGroupMask(clipScratch, maskEntryIdx);
         }
 
