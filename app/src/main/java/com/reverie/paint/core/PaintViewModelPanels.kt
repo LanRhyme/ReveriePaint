@@ -233,7 +233,9 @@ private fun PaintViewModel.scanEnginePanels(): PanelEngineScan {
 
 /** 按节点 id 找平铺索引 (渲染线程, 操作内部定位用)。 */
 private fun indexOfLayerId(id: Long): Int {
-    if (id < 0) return -1
+    // 节点 id 是 C++ 侧的 KisNode 指针 (layerId()), arm64 上堆地址可能高于 2^63,
+    // 转 Java Long 后为负数 —— 只能按位比较, 哨兵用 -1L 精确匹配, 禁止按符号过滤
+    if (id == -1L) return -1
     val n = ReverieCoreBridge.layerCount()
     for (i in 0 until n) {
         if (ReverieCoreBridge.layerId(i) == id) return i
@@ -948,7 +950,7 @@ internal fun PaintViewModel.reorderPanel(
             if (!ReverieCoreBridge.moveLayerRelative(cur.groupIdx, target, toTop)) return@runCore
             // 蒙版紧跟组上方; 组移动后按节点 id 重新定位
             val newGroupIdx = indexOfLayerId(cur.groupId)
-            if (newGroupIdx >= 0 && cur.maskId >= 0) {
+            if (newGroupIdx >= 0 && cur.maskId != -1L) {
                 val maskNow = indexOfLayerId(cur.maskId)
                 if (maskNow >= 0 && maskNow != newGroupIdx + 1) {
                     if (recorder.recording) {
