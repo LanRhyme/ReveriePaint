@@ -16,6 +16,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Switch
@@ -43,6 +44,7 @@ import com.reverie.paint.core.applyPanelDefaults
 import com.reverie.paint.core.deletePanel
 import com.reverie.paint.core.duplicatePanel
 import com.reverie.paint.core.panelDefaults
+import com.reverie.paint.core.panelDivideMode
 import com.reverie.paint.core.panelMultiSelectedIds
 import com.reverie.paint.core.panels
 import com.reverie.paint.core.reorderPanel
@@ -96,6 +98,33 @@ fun PanelToolPanel(
                 }
             }
 
+            // 模式段: 建格 | 切分 (互斥单选; 三命令显式分离, 对照 CSP)
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                PanelModeButton(
+                    label = stringResource(R.string.panel_mode_create),
+                    selected = !vm.panelDivideMode,
+                    onClick = { vm.panelDivideMode = false },
+                    modifier = Modifier.weight(1f),
+                )
+                PanelModeButton(
+                    label = stringResource(R.string.panel_mode_divide),
+                    selected = vm.panelDivideMode,
+                    onClick = { vm.panelDivideMode = true },
+                    modifier = Modifier.weight(1f),
+                )
+            }
+            if (vm.panelDivideMode) {
+                // 切分模式激活说明 (淡色小字)
+                Text(
+                    text = stringResource(R.string.panel_divide_hint),
+                    color = Morandi.subText,
+                    fontSize = 10.sp,
+                )
+            }
+
             if (mirror != null) {
                 PanelSelectedSection(vm = vm, mirror = mirror)
             } else {
@@ -113,6 +142,7 @@ private fun PanelDefaultsSection(vm: PaintViewModel) {
     // 滑条拖动草稿: 拖动中只改本地值跟随手指, 松手才入引擎
     // (applyPanelDefaults 会重绘所有未覆盖格, 逐帧调用会刷爆渲染队列)
     var borderWidthDraft by remember(d) { mutableStateOf(d.borderWidth) }
+    var cornerRadiusDraft by remember(d) { mutableStateOf(d.cornerRadius) }
     var hGapDraft by remember(d) { mutableStateOf(d.hGap) }
     var vGapDraft by remember(d) { mutableStateOf(d.vGap) }
 
@@ -133,6 +163,33 @@ private fun PanelDefaultsSection(vm: PaintViewModel) {
             label = stringResource(R.string.panel_border_color),
             colorArgb = d.borderColor,
             onPick = { argb -> vm.applyPanelDefaults(d.copy(borderColor = argb)) },
+            trailing = {
+                // 应用到所有格: applyPanelDefaults 只重绘"跟随默认"的格, 显式覆盖过
+                // 边框色的格需把覆盖清回 null, 让全部格吃到当前默认边框色
+                ToolFloatChip(
+                    label = stringResource(R.string.panel_apply_border_all),
+                    onClick = {
+                        vm.applyPanelDefaults(d)
+                        vm.panels
+                            .filter { it.meta.style.borderColor != null }
+                            .forEach { m ->
+                                vm.updatePanelStyle(m.panelId, m.meta.style.copy(borderColor = null))
+                            }
+                    },
+                )
+            },
+        )
+        ToolFloatSlider(
+            label = stringResource(R.string.panel_corner_radius),
+            valueText = "${cornerRadiusDraft.roundToInt()}px",
+            range = 0f..48f,
+            value = cornerRadiusDraft,
+            onValue = { cornerRadiusDraft = it },
+            onRelease = {
+                if (cornerRadiusDraft != d.cornerRadius) {
+                    vm.applyPanelDefaults(d.copy(cornerRadius = cornerRadiusDraft))
+                }
+            },
         )
         ToolFloatSlider(
             label = stringResource(R.string.panel_h_gap),
@@ -201,6 +258,10 @@ private fun PanelSelectedSection(
     // 边框粗细拖动草稿 (镜像异步刷新, 拖动中用本地值跟随手指)
     var borderWidthDraft by remember(mirror.panelId, style.borderWidth) {
         mutableStateOf(style.borderWidth ?: d.borderWidth)
+    }
+    // 圆角拖动草稿 (与边框粗细同款: 松手才入引擎, 拖动即视为覆盖)
+    var cornerRadiusDraft by remember(mirror.panelId, style.cornerRadius) {
+        mutableStateOf(style.cornerRadius ?: d.cornerRadius)
     }
 
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -281,6 +342,44 @@ private fun PanelSelectedSection(
                     },
                 )
             }
+        }
+
+        // 圆角: 滑条 + "已覆盖"圆点 + "使用默认"勾选 (与边框粗细行同构)
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Box(modifier = Modifier.weight(1f)) {
+                ToolFloatSlider(
+                    label = stringResource(R.string.panel_corner_radius),
+                    valueText = "${cornerRadiusDraft.roundToInt()}px",
+                    range = 0f..48f,
+                    value = cornerRadiusDraft,
+                    onValue = { cornerRadiusDraft = it },
+                    onRelease = {
+                        val effective = style.cornerRadius ?: d.cornerRadius
+                        if (cornerRadiusDraft != effective) {
+                            commit(style.copy(cornerRadius = cornerRadiusDraft))
+                        }
+                    },
+                )
+            }
+            if (style.cornerRadius != null) {
+                OverriddenDot()
+            }
+            UseDefaultCheckbox(
+                useDefault = style.cornerRadius == null,
+                onToggle = { useDefault ->
+                    commit(
+                        if (useDefault) {
+                            style.copy(cornerRadius = null)
+                        } else {
+                            style.copy(cornerRadius = style.cornerRadius ?: d.cornerRadius)
+                        },
+                    )
+                },
+            )
         }
 
         // 格内填充: 开关 + 颜色
@@ -365,6 +464,31 @@ private fun PanelSelectedSection(
 
 // ---- 通用小部件 ----
 
+/** 两段模式切换按钮 (建格|切分), 样式对齐 ToolFloatChip 的选中/未选中态。 */
+@Composable
+private fun PanelModeButton(
+    label: String,
+    selected: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .clip(RoundedCornerShape(8.dp))
+            .background(if (selected) Morandi.accent else Morandi.panelHi)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = label,
+            color = if (selected) Morandi.onAccent else Morandi.subText,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
 /** "已覆盖"标记圆点 (对应 style 字段非 null 时显示)。 */
 @Composable
 private fun OverriddenDot() {
@@ -403,12 +527,13 @@ private fun UseDefaultCheckbox(
     }
 }
 
-/** 颜色行: 标签 + 圆形色块 (点击弹 CompactColorPickerPopup)。 */
+/** 颜色行: 标签 + 圆形色块 (点击弹 CompactColorPickerPopup); [trailing] 可选行尾附加控件。 */
 @Composable
 private fun PanelColorRow(
     label: String,
     colorArgb: Int,
     onPick: (Int) -> Unit,
+    trailing: (@Composable () -> Unit)? = null,
 ) {
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -420,7 +545,13 @@ private fun PanelColorRow(
             color = Morandi.subText,
             fontSize = 12.sp,
         )
-        PanelColorSwatch(colorArgb = colorArgb, onPick = onPick)
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            PanelColorSwatch(colorArgb = colorArgb, onPick = onPick)
+            trailing?.invoke()
+        }
     }
 }
 

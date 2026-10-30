@@ -2,6 +2,8 @@
 
 package com.reverie.paint.model
 
+import com.reverie.paint.core.PanelMetaCodec
+import com.reverie.paint.core.PanelMetaEvent
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.math.sqrt
@@ -157,6 +159,36 @@ class PanelModelsTest {
         val inset = d.insetBorder(2f)
         assertTrue(inset.corners.all { it.x.isFinite() && it.y.isFinite() })
         assertTrue(inset.area() < d.area())
+    }
+
+    @Test
+    fun `expandBorder grows square uniformly and matches area formula`() {
+        val s = square(0f, 0f, 100f, 100f)
+        val expanded = s.expandBorder(10f)
+        assertEquals(
+            listOf(Point2D(-10f, -10f), Point2D(110f, -10f), Point2D(110f, 110f), Point2D(-10f, 110f)),
+            expanded.corners,
+        )
+        // 面积 = 原 + 周长*width + 4*width^2 = 10000 + 400*10 + 400
+        assertEquals(10000f + 400f * 10f + 4f * 100f, expanded.area(), 0.001f)
+    }
+
+    @Test
+    fun `expandBorder returns original for zero or negative or NaN width`() {
+        val s = square(0f, 0f, 100f, 100f)
+        assertSame(s, s.expandBorder(0f))
+        assertSame(s, s.expandBorder(-1f))
+        assertSame(s, s.expandBorder(Float.NaN))
+    }
+
+    @Test
+    fun `expandBorder then insetBorder with same width restores original corners`() {
+        val diamond = PanelQuad.of(Point2D(50f, 0f), Point2D(100f, 50f), Point2D(50f, 100f), Point2D(0f, 50f))
+        val restored = diamond.expandBorder(5f).insetBorder(5f)
+        for (i in diamond.corners.indices) {
+            assertEquals("corner[$i].x", diamond.corners[i].x, restored.corners[i].x, 0.01f)
+            assertEquals("corner[$i].y", diamond.corners[i].y, restored.corners[i].y, 0.01f)
+        }
     }
 
     @Test
@@ -689,5 +721,163 @@ class PanelModelsTest {
         val parsed = parsePanelMeta(json)
         assertNotNull(parsed)
         assertEquals(meta, parsed)
+    }
+
+    // =========================================================================
+    // roundedCorners (圆角渲染投影)
+    // =========================================================================
+
+    @Test
+    fun `roundedCorners radius zero or non finite returns original corner list`() {
+        val q = square(0f, 0f, 100f, 100f)
+        assertSame(q.corners, q.roundedCorners(0f))
+        assertSame(q.corners, q.roundedCorners(-5f))
+        assertSame(q.corners, q.roundedCorners(Float.NaN))
+    }
+
+    @Test
+    fun `roundedCorners densifies every corner into six arc points`() {
+        val q = square(0f, 0f, 100f, 100f)
+        val pts = q.roundedCorners(10f)
+        assertEquals(q.corners.size * 6, pts.size)
+        // 切线钳制: 每角切点距角点 10px (10 < 45% × 100); 角 0 (TL) 的第 6 个采样是
+        // 出切点 (s=1), 恰落在顶边 y=0 距左角 10px 处
+        assertEquals(10f, pts[5].x, 0.001f)
+        assertEquals(0f, pts[5].y, 0.001f)
+        // 所有采样点都在原四边形内且不越过边界
+        for (p in pts) {
+            assertTrue(p.x in 0f..100f && p.y in 0f..100f)
+        }
+    }
+
+    @Test
+    fun `roundedCorners keeps convexity for convex input`() {
+        val q = square(0f, 0f, 100f, 100f)
+        val pts = q.roundedCorners(24f)
+        var positive = 0
+        var negative = 0
+        for (i in pts.indices) {
+            val a = pts[(i + pts.size - 1) % pts.size]
+            val b = pts[i]
+            val c = pts[(i + 1) % pts.size]
+            val cross = (b.x - a.x) * (c.y - b.y) - (b.y - a.y) * (c.x - b.x)
+            if (cross > 1e-6f) positive++ else if (cross < -1e-6f) negative++
+        }
+        assertTrue("凸多边形圆角化后叉积应同号 (pos=$positive neg=$negative)", positive == 0 || negative == 0)
+    }
+
+    @Test
+    fun `roundedCorners clamps tangent when radius exceeds half edge length`() {
+        val q = square(0f, 0f, 100f, 100f)
+        // 切线长钳制到邻边长 45% = 45px, 圆角不越界、相邻角不重叠
+        for (p in q.roundedCorners(1000f)) {
+            assertTrue(p.x in 0f..100f && p.y in 0f..100f)
+        }
+        // 短边 quad (10px 边): 45% = 4.5px 切线, 采样点仍在原范围内
+        val small = square(0f, 0f, 10f, 10f)
+        for (p in small.roundedCorners(48f)) {
+            assertTrue(p.x in 0f..10f && p.y in 0f..10f)
+        }
+    }
+
+    // =========================================================================
+    // PanelStyle/PanelDefaults 圆角字段 + 元数据序列化兼容
+    // =========================================================================
+
+    @Test
+    fun `resolve falls corner radius back to page defaults`() {
+        val d = PanelDefaults(
+            borderWidth = 3f, borderColor = 1, hGap = 8f, vGap = 12f, fillColor = 2,
+            fillEnabled = true, cornerRadius = 20f,
+        )
+        assertEquals(20f, PanelStyle().resolve(d).cornerRadius, 0.001f)
+        assertEquals(7f, PanelStyle(cornerRadius = 7f).resolve(d).cornerRadius, 0.001f)
+    }
+
+    @Test
+    fun `panel meta json round trips with corner radius`() {
+        val meta = PanelMeta(
+            quad = square(0f, 0f, 80f, 40f),
+            style = PanelStyle(cornerRadius = 16f),
+            cropEnabled = true,
+            panelId = 9L,
+        )
+        assertTrue(meta.toJson().contains("\"cornerRadius\":16.0"))
+        assertEquals(meta, parsePanelMeta(meta.toJson()))
+        // 全默认 style 不写 cornerRadius 字段 (老格式天然兼容)
+        val plain = PanelMeta(square(0f, 0f, 80f, 40f), PanelStyle(), true, 9L)
+        assertFalse(plain.toJson().contains("cornerRadius"))
+        assertEquals(plain, parsePanelMeta(plain.toJson()))
+        // 显式 0f (直角覆盖) 也参与往返: 写 "cornerRadius":0.0 且读回 0f
+        val zero = PanelMeta(square(0f, 0f, 80f, 40f), PanelStyle(cornerRadius = 0f), true, 9L)
+        assertTrue(zero.toJson().contains("\"cornerRadius\":0.0"))
+        assertEquals(zero, parsePanelMeta(zero.toJson()))
+    }
+
+    @Test
+    fun `parsePanelMeta reads corner radius and keeps legacy json compatible`() {
+        val withRadius = "{\"panelId\":3,\"cropEnabled\":true," +
+            "\"quad\":{\"corners\":[[0,0],[10,0],[10,10],[0,10]]}," +
+            "\"style\":{\"cornerRadius\":12.5}}"
+        assertEquals(12.5f, parsePanelMeta(withRadius)?.style?.cornerRadius ?: -1f, 0.001f)
+        // 旧 JSON 无 cornerRadius → null (跟随页面默认, 默认 0 = 直角)
+        val legacy = "{\"panelId\":3,\"cropEnabled\":true," +
+            "\"quad\":{\"corners\":[[0,0],[10,0],[10,10],[0,10]]},\"style\":{\"borderWidth\":2}}"
+        assertNull(parsePanelMeta(legacy)?.style?.cornerRadius)
+        // 显式 0f = 直角覆盖, 原样读回 (不跟随页面默认); 键缺失 (上方 legacy 用例) /
+        // 负数 / 非有限 → null
+        assertEquals(0f, parsePanelMeta(withRadius.replace("12.5", "0"))?.style?.cornerRadius ?: -1f, 0.001f)
+        assertNull(parsePanelMeta(withRadius.replace("12.5", "-3"))?.style?.cornerRadius)
+        assertNull(parsePanelMeta(withRadius.replace("12.5", "NaN"))?.style?.cornerRadius)
+    }
+
+    // =========================================================================
+    // PanelMetaCodec 圆角尾段 (录制协议向后兼容)
+    // =========================================================================
+
+    @Test
+    fun `panel meta codec round trips corner radius including mask quads payload`() {
+        val ev = PanelMetaEvent(1, 2, 3, 4, "{}", 4f, -1, -1, true, null, 12f)
+        val decoded = PanelMetaCodec.decode(PanelMetaCodec.encode(ev))
+        assertNotNull(decoded)
+        assertEquals(1, decoded!!.groupIdx)
+        assertEquals(4, decoded.borderIdx)
+        assertEquals(12f, decoded.cornerRadius, 0.001f)
+        assertNull(decoded.maskQuads)
+        // 跨格容器新格式: maskQuads 段在前, 圆角尾段在后
+        val cross = PanelMetaEvent(
+            1, 2, -1, -1, null, 0f, 0, 0, false,
+            listOf(square(0f, 0f, 10f, 10f)), 8f,
+        )
+        val dec2 = PanelMetaCodec.decode(PanelMetaCodec.encode(cross))
+        assertNotNull(dec2)
+        assertEquals(8f, dec2!!.cornerRadius, 0.001f)
+        assertEquals(1, dec2.maskQuads?.size)
+        // 跨格容器逐格圆角: 尾段 = 逗号半径列表 (与 maskQuads 一一对应)
+        val crossRadii = PanelMetaEvent(
+            1, 2, -1, -1, null, 0f, 0, 0, false,
+            listOf(square(0f, 0f, 10f, 10f), square(0f, 0f, 20f, 20f)), 0f,
+            listOf(8f, 12.5f),
+        )
+        val dec3 = PanelMetaCodec.decode(PanelMetaCodec.encode(crossRadii))
+        assertNotNull(dec3)
+        assertEquals(listOf(8f, 12.5f), dec3!!.maskQuadRadii)
+        assertEquals(2, dec3.maskQuads?.size)
+    }
+
+    @Test
+    fun `panel meta codec decodes legacy payload without corner radius segment as zero`() {
+        // 旧 9 段 payload (无 maskQuads 无圆角)
+        val legacy = "1|2|3|4|-|4.0|-1|-1|1"
+        val decoded = PanelMetaCodec.decode(legacy)
+        assertNotNull(decoded)
+        assertEquals(0f, decoded!!.cornerRadius, 0.001f)
+        assertNull(decoded.maskQuads)
+        // 旧 10 段 payload (有 maskQuads, 无圆角段)
+        val legacyQuads = "1|2|-1|-1|-|0.0|0|0|0|maskQuads=0.0,0.0,10.0,0.0,10.0,10.0,0.0,10.0"
+        val dec2 = PanelMetaCodec.decode(legacyQuads)
+        assertNotNull(dec2)
+        assertEquals(0f, dec2!!.cornerRadius, 0.001f)
+        assertEquals(1, dec2.maskQuads?.size)
     }
 }

@@ -20,6 +20,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
@@ -29,6 +30,9 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.PanelMirror
+import com.reverie.paint.core.panelDefaults
+import com.reverie.paint.core.panelDivideMode
 import com.reverie.paint.core.panelMultiSelectedIds
 import com.reverie.paint.core.duplicatePanel
 import com.reverie.paint.core.deletePanel
@@ -37,6 +41,7 @@ import com.reverie.paint.core.panels
 import com.reverie.paint.core.reorderPanel
 import com.reverie.paint.core.selectedPanelId
 import com.reverie.paint.model.PanelBounds
+import com.reverie.paint.model.PanelDefaults
 import com.reverie.paint.model.PanelQuad
 import com.reverie.paint.model.Point2D
 import com.reverie.paint.ui.painting.panels.ToolFloatChip
@@ -99,9 +104,9 @@ internal class PanelInteractionState {
     }
 }
 
-/** doc 坐标四边形 → 覆盖层位图空间路径 (与 CanvasOverlay 其它覆盖物同一套映射)。 */
+/** doc 坐标多边形 (可为 PanelQuad.roundedCorners 的密化顶点) → 覆盖层位图空间路径。 */
 private fun DrawScope.panelQuadPath(
-    quad: PanelQuad,
+    points: List<Point2D>,
     bmpWidth: Float,
     bmpHeight: Float,
     scX: Float,
@@ -110,7 +115,7 @@ private fun DrawScope.panelQuadPath(
     val halfW = bmpWidth / 2f
     val halfH = bmpHeight / 2f
     val path = Path()
-    quad.corners.forEachIndexed { i, c ->
+    points.forEachIndexed { i, c ->
         val p = Offset(c.x * scX - halfW, c.y * scY - halfH)
         if (i == 0) path.moveTo(p.x, p.y) else path.lineTo(p.x, p.y)
     }
@@ -142,13 +147,58 @@ private fun DrawScope.docBoundsPath(
     return path
 }
 
+// ---- 逐帧绘制复用对象 (参照 CanvasOverlay.kt 的复用模板; 绘制只在主线程执行,
+// 顶层单实例复用安全) ----
+
+// Morandi 色值是常量语义, copy 结果预构建一次 (Color 是 inline value class, 原实现
+// 也不产生堆分配, 这里上提只为消除每次调用的重复计算)
+private val PANEL_OUTLINE_COLOR = Morandi.subText.copy(alpha = 0.75f)
+private val PANEL_PREVIEW_FILL = Morandi.accent.copy(alpha = 0.15f)
+private val PANEL_MULTI_SELECT_COLOR = Morandi.accent.copy(alpha = 0.7f)
+private val PANEL_BAND_HINT_COLOR = Morandi.subText.copy(alpha = 0.12f)
+private val PANEL_DIVIDE_HINT_FILL = Morandi.accent.copy(alpha = 0.25f)
+
+// Stroke/PathEffect 依赖 (density, viewScale): 按 (density, scale) 缓存, 拖格/悬停/
+// 平移期间 scale 恒定 → 命中缓存零分配; 仅捏合缩放的首帧重建一次 (与旧实现的逐帧
+// 重建相比, 缩放过程中行为等价)。Stroke 属性全 val 不可变, 只能整体换新。
+private var panelFxScale = -1f
+private var panelFxDensity = -1f
+private var panelDashEffect: PathEffect? = null
+private var panelOutlineStroke = Stroke(width = 1f)
+private var panelSelStroke = Stroke(width = 1f)
+private var panelHandleStroke = Stroke(width = 1f)
+private var panelPreviewStroke = Stroke(width = 1f)
+
+/** 缓存键任一变化才重建 (本函数即 DrawScope, 直接读 density 与 dp.toPx)。 */
+private fun DrawScope.ensurePanelDrawObjects(scale: Float) {
+    val density = density
+    if (panelFxScale == scale && panelFxDensity == density) return
+    panelFxScale = scale
+    panelFxDensity = density
+    panelDashEffect = PathEffect.dashPathEffect(
+        floatArrayOf(6.dp.toPx() / scale, 4.dp.toPx() / scale),
+    )
+    panelOutlineStroke = Stroke(width = 1.dp.toPx() / scale)
+    panelSelStroke = Stroke(width = 1.5.dp.toPx() / scale)
+    panelHandleStroke = Stroke(width = 1.2.dp.toPx() / scale)
+    panelPreviewStroke = Stroke(
+        width = 1.5.dp.toPx() / scale,
+        pathEffect = panelDashEffect,
+    )
+}
+
+/** 该格生效圆角半径 (px): 样式覆盖优先, 否则页面默认 (与引擎渲染同一取值口径)。 */
+private fun panelCornerRadius(m: PanelMirror, defaults: PanelDefaults): Float =
+    m.meta.style.cornerRadius ?: defaults.cornerRadius
+
 /**
  * 分格覆盖层: 所有格的边框轮廓 (细, subText), 选中格高亮 + 4 角手柄, 多选高亮,
- * 拖动预览 (半透明填充 + 虚线), 建格/框选矩形。坐标与 CanvasOverlay 其它覆盖物
- * 同一套 (doc → 位图空间 → withTransform 视图变换)。
+ * 拖动预览 (半透明填充 + 虚线), 建格/框选矩形, 切分手势可发现性提示。坐标与
+ * CanvasOverlay 其它覆盖物同一套 (doc → 位图空间 → withTransform 视图变换)。
  *
  * [viewScale] = zoom * fitScale (与 CanvasTouchView 手势阈值同一口径), 用于让
  * 线宽/手柄/虚线在屏幕上保持恒定尺寸。
+ * [toolActive] = 当前工具是否分格工具 (调用方传入; 决定是否画切分提示)。
  */
 internal fun DrawScope.drawPanelsOverlay(
     vm: PaintViewModel,
@@ -156,13 +206,13 @@ internal fun DrawScope.drawPanelsOverlay(
     bmpWidth: Float,
     bmpHeight: Float,
     viewScale: Float,
+    toolActive: Boolean,
 ) {
     val docW = vm.docWidth.coerceAtLeast(1)
     val docH = vm.docHeight.coerceAtLeast(1)
     val scX = bmpWidth / docW
     val scY = bmpHeight / docH
     val scale = viewScale.coerceAtLeast(0.001f)
-    val previews = interaction.dragPreviews.associateBy { it.panelId }
     val mirrors = vm.panels
     val hasSelection = vm.selectedPanelId != null || vm.panelMultiSelectedIds.isNotEmpty()
     if (mirrors.isEmpty() && !hasSelection &&
@@ -171,18 +221,16 @@ internal fun DrawScope.drawPanelsOverlay(
     ) {
         return
     }
-
-    val outlineCol = Morandi.subText.copy(alpha = 0.75f)
-    val outlineStroke = Stroke(width = 1.dp.toPx() / scale)
-    val selStroke = Stroke(width = 1.5.dp.toPx() / scale)
-    val dashEffect = PathEffect.dashPathEffect(
-        floatArrayOf(6.dp.toPx() / scale, 4.dp.toPx() / scale),
-    )
-    val previewFill = Morandi.accent.copy(alpha = 0.15f)
-    val previewStroke = Stroke(
-        width = 1.5.dp.toPx() / scale,
-        pathEffect = dashEffect,
-    )
+    val previews = if (interaction.dragPreviews.isEmpty()) {
+        emptyMap()
+    } else {
+        interaction.dragPreviews.associateBy { it.panelId }
+    }
+    ensurePanelDrawObjects(scale)
+    val outlineStroke = panelOutlineStroke
+    val selStroke = panelSelStroke
+    val previewStroke = panelPreviewStroke
+    val previewFill = PANEL_PREVIEW_FILL
 
     // 1. 建格 / 框选矩形 (半透明填充 + 虚线) / 切分预览线 (虚线) / 吸附参考线 (贯穿虚线)
     interaction.createRect?.let { rect ->
@@ -198,6 +246,7 @@ internal fun DrawScope.drawPanelsOverlay(
     interaction.divideLine?.let { (p0, p1) ->
         val start = Offset(p0.x * scX - bmpWidth / 2f, p0.y * scY - bmpHeight / 2f)
         val end = Offset(p1.x * scX - bmpWidth / 2f, p1.y * scY - bmpHeight / 2f)
+        // 预览线端点随手势实时变化, Path 必须逐帧重建 (Paint/Stroke 已复用)
         val linePath = Path().apply {
             moveTo(start.x, start.y)
             lineTo(end.x, end.y)
@@ -205,6 +254,7 @@ internal fun DrawScope.drawPanelsOverlay(
         drawPath(linePath, Morandi.accent, style = previewStroke)
     }
     interaction.snapGuide?.let { guide ->
+        // 吸附线随拖动位置实时变化, Path 必须逐帧重建 (Paint/Stroke 已复用)
         val linePath = Path()
         if (guide.axis == 0) {
             val x = guide.coord * scX - bmpWidth / 2f
@@ -218,24 +268,70 @@ internal fun DrawScope.drawPanelsOverlay(
         drawPath(linePath, Morandi.accent, style = previewStroke)
     }
 
-    // 2. 所有格轮廓 (拖动中的格画预览, 其余画镜像轮廓)
+    // 2. 所有格轮廓 (拖动中的格画预览, 其余画镜像轮廓)。轮廓与引擎渲染同源: 密化圆角
+    // 顶点 (radius 与 style.cornerRadius ?: panelDefaults.cornerRadius 一致)。
+    // 每格 Path 重建保留: quad 内容与 doc→位图映射 (缩放/平移) 都会变, 缓存失效
+    // 管理成本高于新建; Path 是本覆盖层逐帧的主要分配, 但其余一次性对象已清零
+    val defaults = vm.panelDefaults
     for (m in mirrors) {
-        val path = panelQuadPath(m.meta.quad, bmpWidth, bmpHeight, scX, scY)
+        val path = panelQuadPath(
+            m.meta.quad.roundedCorners(panelCornerRadius(m, defaults)),
+            bmpWidth, bmpHeight, scX, scY,
+        )
         when {
             m.panelId in interaction.divideHighlightPanelIds ->
                 drawPath(path, Morandi.accent, style = selStroke)
             m.panelId == vm.selectedPanelId ->
                 drawPath(path, Morandi.accent, style = selStroke)
             m.panelId in vm.panelMultiSelectedIds ->
-                drawPath(path, Morandi.accent.copy(alpha = 0.7f), style = selStroke)
+                drawPath(path, PANEL_MULTI_SELECT_COLOR, style = selStroke)
             else ->
-                drawPath(path, outlineCol, style = outlineStroke)
+                drawPath(path, PANEL_OUTLINE_COLOR, style = outlineStroke)
         }
     }
 
-    // 3. 拖动预览 (半透明填充 + 虚线, 盖在原轮廓上)
+    // 2.5) 切分手势可发现性提示 (仅分格工具 + 未选中态):
+    //  - 建格模式: 每格边框内侧 6dp 环带淡色填充, 提示"边框带可拖切分"
+    //  - 切分模式: 每格满格淡 accent 填充, 提示"格内任意拖线即可切开"
+    //  环带/填充 Path 随缩放平移变化, 与轮廓同口径逐帧重建 (Paint/Color 已复用)
+    if (toolActive && !hasSelection && mirrors.isNotEmpty()) {
+        if (vm.panelDivideMode) {
+            for (m in mirrors) {
+                val path = panelQuadPath(
+                    m.meta.quad.roundedCorners(panelCornerRadius(m, defaults)),
+                    bmpWidth, bmpHeight, scX, scY,
+                )
+                drawPath(path, PANEL_DIVIDE_HINT_FILL)
+            }
+        } else {
+            // 环带外沿 = 格轮廓, 内沿 = 内缩 6dp (屏幕尺寸, 换算回 doc 单位)
+            val bandDoc = (6f * density) / scale / scX.coerceAtLeast(1e-6f)
+            for (m in mirrors) {
+                val radius = panelCornerRadius(m, defaults)
+                val outer = panelQuadPath(
+                    m.meta.quad.roundedCorners(radius), bmpWidth, bmpHeight, scX, scY,
+                )
+                val innerQuad = m.meta.quad.insetBorder(bandDoc)
+                if (innerQuad === m.meta.quad) continue
+                val inner = panelQuadPath(
+                    innerQuad.roundedCorners(radius), bmpWidth, bmpHeight, scX, scY,
+                )
+                val band = Path().apply {
+                    fillType = PathFillType.EvenOdd
+                    addPath(outer)
+                    addPath(inner)
+                }
+                drawPath(band, PANEL_BAND_HINT_COLOR)
+            }
+        }
+    }
+
+    // 3. 拖动预览 (半透明填充 + 虚线, 盖在原轮廓上; 预览 quad 随手势变化, Path 逐帧重建;
+    // 圆角与目标格渲染同源, 避免拖动中直角/圆角跳变)
     for (entry in interaction.dragPreviews) {
-        val path = panelQuadPath(entry.quad, bmpWidth, bmpHeight, scX, scY)
+        val radius = mirrors.firstOrNull { it.panelId == entry.panelId }
+            ?.let { panelCornerRadius(it, defaults) } ?: 0f
+        val path = panelQuadPath(entry.quad.roundedCorners(radius), bmpWidth, bmpHeight, scX, scY)
         drawPath(path, previewFill)
         drawPath(path, Morandi.accent, style = previewStroke)
     }
@@ -252,7 +348,7 @@ internal fun DrawScope.drawPanelsOverlay(
                 Color.White,
                 radius = handleR,
                 center = center,
-                style = Stroke(width = 1.2.dp.toPx() / scale),
+                style = panelHandleStroke,
             )
         }
     }

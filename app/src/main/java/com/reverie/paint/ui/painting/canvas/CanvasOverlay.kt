@@ -1583,6 +1583,7 @@ internal fun CanvasOverlay(
                         bmpWidth = imgW,
                         bmpHeight = imgH,
                         viewScale = zoom.value * fitScale,
+                        toolActive = tool == Tool.PANEL,
                     )
                 }
 

@@ -192,6 +192,84 @@ data class PanelQuad(val corners: List<Point2D>) {
         return if (inset.area() < DEGENERATE_AREA_EPS) this else inset
     }
 
+    /**
+     * 边框外扩: [insetBorder] 的反向操作, 每条边沿**外**法向平移 [width], 新角点取相邻
+     * 两条外移直线的交点 (内外定向由有向面积决定)。对凸多边形正确; 深凹多边形外扩可能
+     * 自交, 本方法不做拓扑修复 (与 [insetBorder] 口径一致)。width<=0、非有限、原 quad
+     * 无定向、零长边或结果非有限时返回原样。
+     *
+     * 典型用途: 老 quad 硬边涂黑前外扩 ~1px, 盖住 AA-off 量化落在多边形外的 ≤50% 边缘
+     * 残留行 (外扩 1px 保证盖住 AA 边缘, 扩出区域本就是蒙版黑底, 多涂无副作用)。
+     */
+    fun expandBorder(width: Float): PanelQuad {
+        if (!width.isFinite() || width <= 0f) return this
+        val signed = signedArea()
+        if (!signed.isFinite() || abs(signed) < SIGNED_AREA_EPS) return this
+        if (corners.any { !it.x.isFinite() || !it.y.isFinite() }) return this
+        val n = corners.size
+        val lines = ArrayList<InsetLine>(n)
+        for (e in 0 until n) {
+            val a = corners[e]
+            val b = corners[(e + 1) % n]
+            val d = b - a
+            val len = hypot(d.x, d.y)
+            if (len < MIN_EDGE_EPS) return this // 零长边无法定义法向
+            // 外法向 = 内法向取反 (内法向见 insetBorder)
+            val norm = if (signed > 0f) Point2D(d.y / len, -d.x / len) else Point2D(-d.y / len, d.x / len)
+            lines.add(InsetLine(a + norm * width, d))
+        }
+        val out = ArrayList<Point2D>(n)
+        for (i in 0 until n) {
+            out.add(intersectInset(lines[(i + n - 1) % n], lines[i]))
+        }
+        val expanded = PanelQuad(out)
+        if (expanded.corners.any { !it.x.isFinite() || !it.y.isFinite() }) return this
+        return expanded
+    }
+
+    /**
+     * 渲染投影: 把每个拐角替换为圆角弧线, 返回密化顶点列表。**只用于渲染** (蒙版/填充/边框
+     * 像素绘制与覆盖层轮廓 Path), 元数据 (cutByLine/merge/hull 等) 一律继续用原始 [corners]。
+     *
+     * [radius] <= 0 或非有限时原样返回 [corners] (0 圆角 = 与旧渲染逐像素一致); 每角切线
+     * 长度 = min(radius, 前后邻边长各 45%) (相邻圆角不重叠, radius 大于半边长时自动钳制),
+     * 邻边过短 (< [MIN_EDGE_EPS]) 的角退化为原角点。弧线用以拐角为控制点、两切点为端点的
+     * 二次贝塞尔按 [SEGMENTS_PER_CORNER] 段离散。凸性保持: 输入凸则输出凸。
+     */
+    fun roundedCorners(radius: Float): List<Point2D> {
+        if (!radius.isFinite() || radius <= 0f) return corners
+        val n = corners.size
+        if (n < MIN_VERTICES) return corners
+        if (corners.any { !it.x.isFinite() || !it.y.isFinite() }) return corners
+        val out = ArrayList<Point2D>(n * SEGMENTS_PER_CORNER)
+        for (i in 0 until n) {
+            val c = corners[i]
+            val p = corners[(i + n - 1) % n]
+            val nxt = corners[(i + 1) % n]
+            val backLen = hypot(c.x - p.x, c.y - p.y)
+            val fwdLen = hypot(nxt.x - c.x, nxt.y - c.y)
+            val t = minOf(radius, backLen * CORNER_TANGENT_RATIO, fwdLen * CORNER_TANGENT_RATIO)
+            if (t <= 0f || backLen < MIN_EDGE_EPS || fwdLen < MIN_EDGE_EPS) {
+                out.add(c)
+                continue
+            }
+            val ax = c.x + (p.x - c.x) / backLen * t
+            val ay = c.y + (p.y - c.y) / backLen * t
+            val bx = c.x + (nxt.x - c.x) / fwdLen * t
+            val by = c.y + (nxt.y - c.y) / fwdLen * t
+            for (k in 1..SEGMENTS_PER_CORNER) {
+                val s = k / SEGMENTS_PER_CORNER.toFloat()
+                val u = 1f - s
+                // 二次贝塞尔: B(s) = u²·A + 2us·C + s²·B (控制点 = 拐角 C)
+                val w0 = u * u
+                val w1 = 2f * u * s
+                val w2 = s * s
+                out.add(Point2D(w0 * ax + w1 * c.x + w2 * bx, w0 * ay + w1 * c.y + w2 * by))
+            }
+        }
+        return out
+    }
+
     /** 整体平移 (delta 非有限时原样返回)。 */
     fun movedBy(delta: Point2D): PanelQuad {
         if (!delta.x.isFinite() || !delta.y.isFinite()) return this
@@ -341,6 +419,12 @@ data class PanelQuad(val corners: List<Point2D>) {
     companion object {
         const val MIN_VERTICES = 3
         const val MAX_VERTICES = 12
+
+        /** [roundedCorners] 每个拐角的离散段数 (顶点数 = 角数 × 6)。 */
+        private const val SEGMENTS_PER_CORNER = 6
+
+        /** [roundedCorners] 切线长度占邻边长比例上限 (45% × 2 邻角 < 1, 保证不重叠)。 */
+        private const val CORNER_TANGENT_RATIO = 0.45f
 
         /** @Deprecated 泛化后角点数以 [corners].size 为准; 保留仅为兼容既有调用方, 禁止新代码引用。 */
         @Deprecated("泛化后角点数以 corners.size 为准", ReplaceWith("corners.size"))
@@ -560,6 +644,8 @@ data class PanelStyle(
     val borderColor: Int? = null, // ARGB
     val fillColor: Int? = null, // ARGB
     val fillEnabled: Boolean? = null,
+    /** 圆角半径 (px); null = 跟随页面默认, 0 = 直角。 */
+    val cornerRadius: Float? = null,
 )
 
 /** 页面级分格默认值 (hGap/vGap 同时用于新建格相对页面边缘的内缩)。 */
@@ -570,14 +656,18 @@ data class PanelDefaults(
     val vGap: Float,
     val fillColor: Int,
     val fillEnabled: Boolean,
+    /** 页面默认圆角半径 (px, 0 = 直角)。 */
+    val cornerRadius: Float = 0f,
 )
 
-/** [PanelStyle.resolve] 的结果: 样式四元组全部非空。 */
+/** [PanelStyle.resolve] 的结果: 样式五元组全部非空。 */
 data class ResolvedPanelStyle(
     val borderWidth: Float,
     val borderColor: Int,
     val fillColor: Int,
     val fillEnabled: Boolean,
+    /** 已解析圆角半径 (px, 0 = 直角)。 */
+    val cornerRadius: Float = 0f,
 )
 
 /** 解析实际生效样式: [PanelStyle] 的 null 字段取页面默认。 */
@@ -586,6 +676,7 @@ fun PanelStyle.resolve(d: PanelDefaults): ResolvedPanelStyle = ResolvedPanelStyl
     borderColor = borderColor ?: d.borderColor,
     fillColor = fillColor ?: d.fillColor,
     fillEnabled = fillEnabled ?: d.fillEnabled,
+    cornerRadius = cornerRadius ?: d.cornerRadius,
 )
 
 /**
@@ -625,6 +716,7 @@ fun PanelMeta.toJson(): String {
     field("borderColor", style.borderColor)
     field("fillColor", style.fillColor)
     field("fillEnabled", style.fillEnabled)
+    field("cornerRadius", style.cornerRadius)
     sb.append("}}")
     return sb.toString()
 }
@@ -660,6 +752,10 @@ fun parsePanelMeta(json: String): PanelMeta? {
         borderColor = numText("borderColor")?.toIntOrNull(),
         fillColor = numText("fillColor")?.toIntOrNull(),
         fillEnabled = (styleObj?.fields?.get("fillEnabled") as? PanelJsonBoolean)?.value,
+        // 键缺失 (老文档/旧档) → null 跟随页面默认; 显式 0f = 直角覆盖, 原样保留
+        // (否则持久化往返后 0f 丢成 null, 直角覆盖悄悄变成跟随默认)
+        cornerRadius = numText("cornerRadius")?.toFloatOrNull()
+            ?.takeIf { it >= 0f && it.isFinite() },
     )
     return PanelMeta(PanelQuad(corners), style, cropEnabled, panelId)
 }

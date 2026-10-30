@@ -3200,5 +3200,10 @@
     <string name="panel_menu_bring_top">Bring to front</string>
     <string name="panel_menu_send_bottom">Send to back</string>
     <string name="panel_menu_merge">Merge</string>
+    <string name="panel_mode_create">Create frame</string>
+    <string name="panel_mode_divide">Divide</string>
+    <string name="panel_divide_hint">Drag a line across a frame to split it</string>
+    <string name="panel_corner_radius">Corner radius</string>
+    <string name="panel_apply_border_all">Apply border to all</string>
 </resources>
 

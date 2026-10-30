@@ -3200,5 +3200,10 @@
     <string name="panel_menu_bring_top">置顶</string>
     <string name="panel_menu_send_bottom">置底</string>
     <string name="panel_menu_merge">合并</string>
+    <string name="panel_mode_create">建格</string>
+    <string name="panel_mode_divide">切分</string>
+    <string name="panel_divide_hint">在格内拖一条线即可切开</string>
+    <string name="panel_corner_radius">圆角</string>
+    <string name="panel_apply_border_all">应用到所有格</string>
 </resources>
 

@@ -104,7 +104,7 @@ object RecordingEvents {
     const val L_INVERT_MASK = 40 // index=蒙版层号
     const val L_APPLY_MASK = 41 // index=蒙版层号或父层号
     // 漫画分格: index=分格组层号; arg 见 PanelMetaCodec (格式
-    // `groupIdx|maskIdx|fillIdx|borderIdx|panelJson|borderWidth|borderColor|fillColor|fillEnabled[|maskQuads=...]`,
+    // `groupIdx|maskIdx|fillIdx|borderIdx|panelJson|borderWidth|borderColor|fillColor|fillEnabled[|maskQuads=...][|cornerRadius]`,
     // panelJson 为 PanelMeta.toJson 产出 (不含 '|'), 可为 "-" 表示仅重绘蒙版 (跨格容器);
     // 回放端解析后 setPanelMeta + paintPanelQuad 重绘蒙版(黑底+白 quad)/填充/边框(外框+ERASE 内框)。
     // 结构增删仍复用既有 L_* 码, 本码只承载元数据与像素级重绘。
