@@ -116,9 +116,9 @@ bool ReverieCore::paintPanelQuad(int layerIndex, const QVector<QPointF> &corners
     painter.setStrokeStyle(KisPainter::StrokeStyleNone);
     painter.setOpacityF(1.0);
     // KisPainter 默认开启多边形填充抗锯齿 (kis_painter_p.h antiAliasPolygonFill=true),
-    // AA 填充在边界像素只按覆盖率部分写入 (残留 white·c(1-c)); 老 quad 清除/涂黑场景
-    // 传 antiAlias=false 走硬边, 量化可能残留有界 1px 边缘 (调用方 Kotlin 侧配合
-    // 老 quad 外扩 1px 后严格覆盖)
+    // AA 填充在边界像素只按覆盖率部分写入 (残留 white·c(1-c)); 老 quad 清除/ERASE
+    // 擦除场景传 antiAlias=false 走硬边, 量化可能残留有界 1px 边缘 (调用方 Kotlin
+    // 侧配合老 quad 外扩 1px 后严格覆盖)
     painter.setAntiAliasPolygonFill(antiAlias);
     if (eraseFill) {
         painter.setCompositeOpId(COMPOSITE_ERASE);

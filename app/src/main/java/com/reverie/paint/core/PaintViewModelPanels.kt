@@ -28,7 +28,9 @@ import kotlin.math.roundToInt
  *  - 根下建一个组「分格」(首个分格创建时自动创建), 所有分格组是它的子层;
  *  - 每格 = 一个图层组, 组内自底向上: 「格内填充」颜料层、「内容」颜料层、「格边框」颜料层;
  *  - 裁剪蒙版 = 分格组的**同级上方兄弟** (addMaskToLayer(groupIdx, 0) 的现有行为,
- *    侧表 flag reverie_is_transparency_mask 自动打上), 白=透光/黑=遮挡;
+ *    侧表 flag reverie_is_transparency_mask 自动打上), 白 quad=透光, 其余透明区域=遮挡
+ *    (PixelAlpha::applyMaskModulation 对蒙版 alpha==0 按 factor=0 处理, 蒙版保持稀疏
+ *    像素, 不铺全画布黑底);
  *  - 裁剪开关 = 蒙版层可见性 (setLayerVisible);
  *  - 格元数据 (PanelMeta.toJson) 存分格组的 reverie_panel 节点侧表, 随 maindoc.xml 持久化;
  *  - 跨格容器 = 「分格」根组顶部的组「跨格内容」+ 其上方蒙版 (白色 quad = 所有选中格并集),
@@ -58,8 +60,7 @@ private const val CROSS_LAYER_NAME = "跨格内容"
 private const val CROSS_MARKER_JSON = "{\"crossContent\":true}"
 private const val CROSS_MARKER_KEY = "\"crossContent\""
 private const val MASK_TYPE_TRANSPARENCY = 0
-/** 蒙版语义: 黑=遮挡, 白=透光。 */
-private const val MASK_BLOCK_ARGB = 0xFF000000.toInt()
+/** 蒙版语义: 透明=遮挡, 白=透光 (稀疏蒙版, 黑底与透明在调制语义下等价) */
 private const val MASK_SHOW_ARGB = 0xFFFFFFFF.toInt()
 /** 新建格的最小面积 (px²), 拖得太小直接忽略。 */
 private const val MIN_PANEL_AREA = 64f
@@ -395,17 +396,21 @@ internal object PanelMetaCodec {
 }
 
 /**
- * 执行一条 [PanelMetaEvent]: 写元数据 + 重绘蒙版(黑底+白 quad)/填充/边框(外框+ERASE 内框)。
+ * 执行一条 [PanelMetaEvent]: 写元数据 + 重绘蒙版(稀疏白 quad)/填充/边框(外框+ERASE 内框)。
  * 渲染线程直连 Bridge (live 操作的 op 体与回放 dispatch 共用此路径); index<0 的部分跳过。
  *
+ * 蒙版是稀疏的: 透明即遮挡 (PixelAlpha::applyMaskModulation 对蒙版 alpha==0 按
+ * factor=0 处理), 只需白色 quad 像素, 新白 quad 之外区域无需任何像素。
+ *
  * [oldQuad]: 蒙版上**已有的旧白 quad** (改形状/平移场景传入, 例如格镜像平移前的
- * meta.quad)。非 null 且重画后蒙版恰好只有一个 quad 时走增量重画: 老 quad 硬边涂黑
- * (antiAlias=false; 硬边量化可能残留有界 1px 边缘, 配合外扩 1px 后严格覆盖, 见
- * [PanelQuad.expandBorder]) + 新 quad 涂白,
- * 且填充/边框旧像素同样用老 quad 多边形 ERASE 清除, 避免整幅黑底/clearLayer 把全画布
+ * meta.quad)。非 null 且重画后蒙版恰好只有一个 quad 时走增量重画: 老 quad 硬边
+ * ERASE 擦成透明 (antiAlias=false; 硬边量化可能残留有界 1px 边缘, 配合外扩 1px 后
+ * 严格覆盖, 见 [PanelQuad.expandBorder]) + 新 quad 涂白,
+ * 且填充/边框旧像素同样用老 quad 多边形 ERASE 清除, 避免整幅 clearLayer 把全画布
  * 标脏成全帧重合成 (脏区收敛为新老 quad bbox 并集, bbox 标脏由 C++ 侧 paintPanelQuad
  * 负责)。创建/切分建新格/跨格容器/回放等"蒙版上没有旧白 quad"的场景不传 (null), 走
- * 整幅黑底 + clearLayer 兜底路径。
+ * clearLayerToTransparent 兜底路径: 先真清掉 addMaskToLayer 创建时的全画布白底
+ * (残留=全部显示; clearLayer 对蒙版是重置全白, 不能用), 再逐 quad 涂白。
  *
  * 两条前提 (由调用时序保证, 本函数不自行维护):
  * - ERASE 路径 (clearLayerPixels / 边框内圈挖洞) 不调 recompositeProjection, 投影
@@ -439,24 +444,23 @@ internal fun applyPanelMetaEvent(
     } ?: { idx: Int -> ReverieCoreBridge.clearLayer(idx) }
     if (!maskQuads.isNullOrEmpty()) {
         if (oldQuad != null && maskQuads.size == 1) {
-            // 增量: 老 quad 外扩 1px 硬边涂黑 (antiAlias=false; AA 填充会在边缘残留
-            // white·c(1-c), 硬边量化也可能让边缘行落在多边形外留下 ≤50% 残留, 外扩
-            // 1px 保证盖住 AA 边缘, 扩出区域本就是黑底) + 新 quad 涂白 (AA, 与回放一致)。
+            // 增量: 老 quad 外扩 1px 硬边 ERASE 擦成透明 (antiAlias=false; AA 填充会在
+            // 边缘残留 white·c(1-c), 硬边量化也可能让边缘行落在多边形外留下 ≤50% 残留,
+            // 外扩 1px 保证擦净 AA 边缘; ERASE 后该区域透明 ≡ 遮挡, 新白 quad 之外区域
+            // 无需任何像素) + 新 quad 涂白 (AA, 与回放一致)。
             // 老/新 quad 坐标都不做圆角密化: 老 quad ⊇ 圆角多边形 (擦除为超集, 无残影),
             // 新白 quad 的圆角由 cornerRadius 单独施加
-            ReverieCoreBridge.paintPanelQuad(e.maskIdx, quadToXY(oldQuad.expandBorder(1f)), MASK_BLOCK_ARGB, false, false)
+            ReverieCoreBridge.paintPanelQuad(e.maskIdx, quadToXY(oldQuad.expandBorder(1f)), 0, true, false)
             ReverieCoreBridge.paintPanelQuad(e.maskIdx, pointsToXY(maskQuads[0].roundedCorners(e.cornerRadius)), MASK_SHOW_ARGB, false)
         } else {
-            val w = ReverieCoreBridge.docWidth()
-            val h = ReverieCoreBridge.docHeight()
-            if (w > 0 && h > 0) {
-                // 黑底整幅覆盖 (白=透光/黑=遮挡), 再按 quad 画白 → 旧形状无需清除
-                ReverieCoreBridge.paintPanelQuad(e.maskIdx, canvasQuadXY(w, h), MASK_BLOCK_ARGB, false)
-                for ((qi, q) in maskQuads.withIndex()) {
-                    // 逐格圆角 (跨格容器各格 resolved 半径可不同); 缺项回落统一 cornerRadius
-                    val r = e.maskQuadRadii?.getOrNull(qi) ?: e.cornerRadius
-                    ReverieCoreBridge.paintPanelQuad(e.maskIdx, pointsToXY(q.roundedCorners(r)), MASK_SHOW_ARGB, false)
-                }
+            // 兜底: 先 clearLayerToTransparent 真清掉 addMaskToLayer 创建蒙版时的
+            // 全画布白底 (残留白底=全部显示=穿帮; clearLayer 对蒙版会铺全画布白,
+            // 用它等于关掉裁剪), 再逐 quad 画白; 其余透明区域天然=遮挡
+            ReverieCoreBridge.clearLayerToTransparent(e.maskIdx)
+            for ((qi, q) in maskQuads.withIndex()) {
+                // 逐格圆角 (跨格容器各格 resolved 半径可不同); 缺项回落统一 cornerRadius
+                val r = e.maskQuadRadii?.getOrNull(qi) ?: e.cornerRadius
+                ReverieCoreBridge.paintPanelQuad(e.maskIdx, pointsToXY(q.roundedCorners(r)), MASK_SHOW_ARGB, false)
             }
         }
     }
@@ -503,9 +507,6 @@ private fun pointsToXY(points: List<Point2D>): FloatArray = FloatArray(points.si
         a[i * 2 + 1] = c.y
     }
 }
-
-private fun canvasQuadXY(w: Int, h: Int): FloatArray =
-    floatArrayOf(0f, 0f, w.toFloat(), 0f, w.toFloat(), h.toFloat(), 0f, h.toFloat())
 
 // ---- 镜像重建 ----
 

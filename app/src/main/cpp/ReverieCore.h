@@ -86,6 +86,8 @@ public:
     int copyLayer(int index);                            // returns new index
     int stampVisibleLayers();                            // returns new layer index
     void clearLayer(int index);
+    // 透明蒙版专用真清空 (透明=遮挡语义, 释放全部瓦片): 与 clearLayer 的语义差异见实现
+    void clearLayerToTransparent(int index);
     void setCurrentLayer(int index);
     int layerCount() const { return m_layers.size(); }
     quint64 layerId(int index) const {
@@ -1458,6 +1460,13 @@ private:
     /** 组级透明蒙版设备解析 (分格裁剪): compositeLayersRange 的 applyGroupMask
      *  与 compositeSoloRange 共用; 含蒙版临时笔迹 (temporaryTarget) 的合成。 */
     KisPaintDeviceSP groupMaskDeviceFor(int maskIdx, const QRect &r);
+
+    /** 分格组蒙版钳制矩形 (T2): 把分格组的 组合/调制/blit 工作矩形收窄到
+     *  蒙版真实内容范围 (exactBounds); 各守卫不满足时原样返回 [r] (不钳)。 */
+    QRect panelMaskClampRect(int maskEntryIdx, const QRect &r) const;
+    /** entry 区间 [from, to) 内是否存在调整层 entry (不论可见性): 组 span 含
+     *  调整层时调用方放弃蒙版钳制 (滤镜 margin 越界读组缓冲, 见实现注释)。 */
+    bool spanHasAdjustment(int from, int to) const;
 
     /** 丢弃笔触洋葱皮缓存 (切帧 / 改配置 / 关键帧结构变化时调) */
     void invalidateStrokeOnionCache() {

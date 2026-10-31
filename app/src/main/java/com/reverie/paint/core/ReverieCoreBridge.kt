@@ -1100,7 +1100,13 @@ object ReverieCoreBridge {
     external fun copyCanvasToClipboard(cut: Boolean): Boolean
     external fun pasteCanvasClipboard(): Int
 
+    /** 清空图层像素; 对透明蒙版特判为重置全画布白 (清空=无遮罩=全部显示) */
     external fun clearLayer(index: Int)
+
+    /** 透明蒙版专用真清空 (透明=遮挡语义, 释放全部瓦片), 分格稀疏蒙版兜底重画用;
+     *  与 [clearLayer] 的语义差异: clearLayer 对透明蒙版会铺全画布白底 (等于关掉
+     *  分格裁剪), 本函数不做特判, 一律清成全透明 */
+    external fun clearLayerToTransparent(layerIndex: Int)
 
     external fun setLayerName(
         index: Int,
@@ -1215,8 +1221,8 @@ object ReverieCoreBridge {
     external fun setPanelMeta(layerIndex: Int, json: String)
 
     /** 分格实线绘制: 在目标颜料层上填充四边形 (与用户笔刷/选区无关); eraseFill=true 时擦除;
-     *  antiAlias=false 关闭多边形填充抗锯齿 (硬边, 边界像素全覆盖) —— 老 quad 清除/涂黑
-     *  用, 避免 AA 边缘残留且与回放整幅黑底逐像素一致。常规调用用下方 4 参包装 */
+     *  antiAlias=false 关闭多边形填充抗锯齿 (硬边, 边界像素全覆盖) —— 老 quad 清除/ERASE
+     *  用, 避免 AA 边缘残留 (蒙版透明≡遮挡, 见 PixelAlpha::applyMaskModulation)。常规调用用下方 4 参包装 */
     external fun paintPanelQuad(
         layerIndex: Int,
         cornersXY: FloatArray,

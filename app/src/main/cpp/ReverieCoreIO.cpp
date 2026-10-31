@@ -62,14 +62,27 @@ QImage ReverieCore::renderMergedQImage()
     }
 
     bool hasVisibleStroke = false;
+    // 存在任意可见透明蒙版层 (不限分格): 与 renderToBuffer 的 hasSpecialCompositeLayer
+    // 对透明蒙版的口径一致 (ReverieCoreRender.cpp) —— Krita 原生 projection 不认识
+    // "透明蒙版 paint 层" 的自研语义, 会把它当普通层画出黑白位图, 任何含可见透明
+    // 蒙版的文档直读 projection 导出 PNG/JPG/预览都会穿帮, 必须走
+    // compositeLayersRange 全画布自研合成
+    bool hasVisibleTransparencyMask = false;
     for (const LayerEntry &le : m_layers) {
-        if (le.visible && (le.isStrokeLayer || le.nodeType == NodeTypeStroke)) {
+        if (!le.visible) {
+            continue;
+        }
+        if (le.isStrokeLayer || le.nodeType == NodeTypeStroke) {
             hasVisibleStroke = true;
+        } else if (le.nodeType == NodeTypeTransparencyMask) {
+            hasVisibleTransparencyMask = true;
+        }
+        if (hasVisibleStroke && hasVisibleTransparencyMask) {
             break;
         }
     }
 
-    if (hasVisibleStroke) {
+    if (hasVisibleStroke || hasVisibleTransparencyMask) {
         KisPaintDeviceSP compDev(new KisPaintDevice(image->colorSpace()));
         const QRect fullRect(0, 0, image->width(), image->height());
         compDev->clear(fullRect);

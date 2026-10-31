@@ -1160,7 +1160,7 @@ private fun PaintViewModel.dispatchLayerOpLocked(
         }
 
         L_PANEL_META -> {
-            // 漫画分格: 写元数据 + 重绘蒙版(黑底+白 quad)/填充/边框(外框+ERASE 内框)。
+            // 漫画分格: 写元数据 + 重绘蒙版(稀疏白 quad, 透明=遮挡)/填充/边框(外框+ERASE 内框)。
             // 结构增删由既有 L_* 码负责; 内容层平移由 T_MOVE_CONTENT(LAYERS) 负责,
             // 三者按事件流顺序回放即可复现录制时的文档状态。
             val ev = PanelMetaCodec.decode(arg)
