@@ -37,6 +37,8 @@ import com.reverie.paint.core.panelMultiSelectedIds
 import com.reverie.paint.core.duplicatePanel
 import com.reverie.paint.core.deletePanel
 import com.reverie.paint.core.mergePanels
+import com.reverie.paint.core.movePanelZBy
+import com.reverie.paint.core.panelZMoveCapability
 import com.reverie.paint.core.panels
 import com.reverie.paint.core.selectedPanelId
 import com.reverie.paint.model.PanelBounds
@@ -354,7 +356,8 @@ internal fun DrawScope.drawPanelsOverlay(
 }
 
 /**
- * 分格长按极简菜单 (锚在按下点): 删除/复制/置顶/置底, 多选态追加"取消多选"。
+ * 分格长按极简菜单 (锚在按下点): 单选态为 上移一层/下移一层/删除/复制 (顶/底边界
+ * 时对应移动 chip 隐藏), 多选态追加 "取消多选/合并"。
  * 纯 UI: 动作全部走既有 VM 操作, 完成即收菜单。
  */
 @Composable
@@ -398,6 +401,28 @@ internal fun PanelLongPressMenu(
                 }
             }
             if (panelId != null) {
+                // 单选态: z 序单步移动 (相邻条目可能是格组或跨格内容组); 顶/底时隐藏; 多选态不加
+                if (vm.panelMultiSelectedIds.isEmpty()) {
+                    val (canMoveUp, canMoveDown) = vm.panelZMoveCapability(panelId)
+                    if (canMoveUp) {
+                        ToolFloatChip(
+                            label = stringResource(R.string.panel_menu_move_up),
+                            onClick = {
+                                vm.movePanelZBy(panelId, up = true)
+                                interaction.dismissMenu()
+                            },
+                        )
+                    }
+                    if (canMoveDown) {
+                        ToolFloatChip(
+                            label = stringResource(R.string.panel_menu_move_down),
+                            onClick = {
+                                vm.movePanelZBy(panelId, up = false)
+                                interaction.dismissMenu()
+                            },
+                        )
+                    }
+                }
                 ToolFloatChip(
                     label = stringResource(R.string.panel_menu_delete),
                     danger = true,

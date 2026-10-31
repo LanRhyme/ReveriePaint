@@ -126,6 +126,20 @@ internal var PaintViewModel.panelCrossContainerIdx: Int by mutableIntStateOf(-1)
 internal var PaintViewModel.panelCrossContentIdx: Int by mutableIntStateOf(-1)
 private var PaintViewModel.panelCrossContentId: Long by mutableLongStateOf(-1L)
 
+/** 跨格容器附属蒙版节点 id (-1 = 不存在); 分格蒙版行识别用 (见 panelCropStateFor)。 */
+internal var PaintViewModel.panelCrossMaskId: Long by mutableLongStateOf(-1L)
+
+/**
+ * 本会话已应用过默认折叠的组名 (「分格」根组/「跨格内容」组); 每会话每名只折叠一次,
+ * 用户手动展开/收起后不再自动改写。文档切换时由 resetPanelDefaultCollapse 清空。
+ */
+private val panelDefaultCollapseNames = mutableSetOf<String>()
+
+/** 文档切换/新建时清空分格组默认折叠会话标记 (PaintViewModelProjects 调用点)。 */
+internal fun PaintViewModel.resetPanelDefaultCollapse() {
+    panelDefaultCollapseNames.clear()
+}
+
 /** 已画进跨格蒙版的 quad 集 (去重绘; 空列表 + 容器存在 = 需要重画)。 */
 private var PaintViewModel.panelCrossMaskStamp: List<PanelQuad> by mutableStateOf(emptyList())
 
@@ -521,6 +535,10 @@ internal fun PaintViewModel.refreshPanels() {
     panelCrossContainerIdx = s.crossIdx
     panelCrossContentIdx = s.crossContentIdx
     panelCrossContentId = if (s.crossContentIdx in s.layers.indices) s.layers[s.crossContentIdx].id else -1L
+    panelCrossMaskId = if (s.crossMaskIdx in s.layers.indices) s.layers[s.crossMaskIdx].id else -1L
+    if (s.mirrors.isNotEmpty() || panelSessionActive()) {
+        ensurePanelGroupsDefaultCollapsed(s)
+    }
     if (selectedPanelId != null && s.mirrors.none { it.panelId == selectedPanelId }) {
         selectedPanelId = null
     }
@@ -532,6 +550,48 @@ internal fun PaintViewModel.refreshPanels() {
 
 private fun PaintViewModel.nextPanelId(): Long =
     (scanEnginePanels().mirrors.maxOfOrNull { it.meta.panelId } ?: 0L) + 1L
+
+/**
+ * 分格组默认折叠 (B2 降噪): 「分格」根组与「跨格内容」组在分格会话激活时默认收起。
+ * 每会话每名只应用一次 (panelDefaultCollapseNames 标记), 用户手动 toggle 后本会话
+ * 不再自动改写; 两者都走通用 collapsedGroupNames 名字 key 机制, 不做迁移。
+ */
+private fun PaintViewModel.ensurePanelGroupsDefaultCollapsed(s: PanelEngineScan) {
+    for (idx in listOf(s.rootIdx, s.crossIdx)) {
+        if (idx !in s.layers.indices) continue
+        val name = s.layers[idx].name
+        if (name in panelDefaultCollapseNames) continue
+        panelDefaultCollapseNames.add(name)
+        if (name !in collapsedGroupNames) {
+            collapsedGroupNames = collapsedGroupNames + name
+        }
+    }
+}
+
+/**
+ * 分格组行识别: [layerIndex] 命中某分格组 (镜像 groupId 按位相等匹配, 节点 id 是
+ * C++ 指针转 Long 可能为负, 只用 == 不做符号过滤) 时返回其 panelId; 否则 null。
+ * 每次结构变化后镜像由 refreshPanels 重建, groupId 随之重新匹配。
+ */
+internal fun PaintViewModel.panelIdForGroupRow(layerIndex: Int): Long? {
+    val id = layers.getOrNull(layerIndex)?.id ?: return null
+    return panels.firstOrNull { it.groupId == id }?.panelId
+}
+
+/**
+ * 分格蒙版行查询: [layerIndex] 命中某分格的裁剪蒙版时返回 (panelId, cropEnabled);
+ * 跨格容器蒙版返回 (-1L, 当前可见性) —— 跨格容器无 PanelMeta, 裁剪口径 = 可见性;
+ * 非蒙版/通用蒙版返回 null (UI 层完全走既有行为)。
+ */
+internal fun PaintViewModel.panelCropStateFor(layerIndex: Int): Pair<Long, Boolean>? {
+    val l = layers.getOrNull(layerIndex) ?: return null
+    if (!LayerNodeType.isMask(l.nodeType)) return null
+    for (m in panels) {
+        if (m.maskId == l.id) return m.panelId to m.meta.cropEnabled
+    }
+    if (panelCrossMaskId != -1L && panelCrossMaskId == l.id) return -1L to l.visible
+    return null
+}
 
 // ---- 操作 (每个 = beginUndoMacro/endUndoMacro 一条撤销步; 录制埋点齐全) ----
 
@@ -546,6 +606,8 @@ internal fun PaintViewModel.createPanelAt(quad: PanelQuad) {
     Breadcrumbs.record("Panel", "createPanelAt id=$panelId")
     runCore(after = {
         refreshPanels()
+        // 新格默认折叠 (B2 降噪); 用户后续可经图层树 chevron 手动展开
+        collapsedPanelIds = collapsedPanelIds + panelId
         selectedPanelId = panelId
         notifyLayerChanged(pixelChanged = true)
     }) {
@@ -678,8 +740,11 @@ private fun PaintViewModel.removePanelNodesById(mirror: PanelMirror) {
 internal fun PaintViewModel.dividePanelsByLine(start: Point2D, end: Point2D, extendDocPx: Float) {
     if (coreW <= 0 || coreH <= 0) return
     Breadcrumbs.record("Panel", "divideByLine")
+    val builtIds = mutableListOf<Long>()
     runCore(after = {
         refreshPanels()
+        // 切分出的新格 (一分为二) 默认折叠 (B2 降噪)
+        if (builtIds.isNotEmpty()) collapsedPanelIds = collapsedPanelIds + builtIds
         selectedPanelId = null
         notifyLayerChanged(pixelChanged = true)
     }) {
@@ -719,11 +784,13 @@ internal fun PaintViewModel.dividePanelsByLine(start: Point2D, end: Point2D, ext
                     PanelMeta(quad = job.a, style = inheritedStyle, cropEnabled = true, panelId = panelIdA),
                     inheritedStyle.resolve(panelDefaults),
                 ) ?: continue
+                builtIds.add(panelIdA)
                 val panelIdB = nextPanelId()
                 val buildB = buildPanelStructureOp(
                     PanelMeta(quad = job.b, style = inheritedStyle, cropEnabled = true, panelId = panelIdB),
                     inheritedStyle.resolve(panelDefaults),
                 ) ?: continue
+                builtIds.add(panelIdB)
                 // 内容层留在面积较大的一半 (索引按 id 重定位)。必须先把内容搬出旧组
                 // 再删旧格 —— 删组会连同组内内容层一起删除, 顺序颠倒即丢内容。
                 val targetGroupId = if (job.a.area() >= job.b.area()) buildA.groupId else buildB.groupId
@@ -760,8 +827,12 @@ internal fun PaintViewModel.mergePanels(ids: Set<Long>) {
     if (ids.size < 2) return
     Breadcrumbs.record("Panel", "mergePanels n=${ids.size}")
     var rejected = false
+    var mergedId: Long? = null
     runCore(after = {
         refreshPanels()
+        if (mergedId != null && !rejected) {
+            collapsedPanelIds = collapsedPanelIds + mergedId!!
+        }
         selectedPanelId = null
         panelMultiSelectedIds = emptySet()
         notifyLayerChanged(pixelChanged = true)
@@ -792,6 +863,7 @@ internal fun PaintViewModel.mergePanels(ids: Set<Long>) {
             }
             // 建合并后的新格 (样式回默认覆盖态, 用户可在面板再调)
             val newPanelId = nextPanelId()
+            mergedId = newPanelId
             val build = buildPanelStructureOp(
                 PanelMeta(quad = hull, style = PanelStyle(), cropEnabled = true, panelId = newPanelId),
                 PanelStyle().resolve(panelDefaults),
@@ -1228,6 +1300,98 @@ private fun siblingPanelGroupsOf(
 }
 
 /**
+ * [groupIdx] 所在父组 span 内的顶层组条目 (格组 + 跨格内容组, 底→顶) 的平铺索引序。
+ * depth/isGroup 取值由调用方按索引供给, 供 UI 镜像 (LayerUiState) 与引擎快照
+ * (SnapshotLayer) 两个数据源复用同一扫描口径。
+ */
+private fun panelZSiblingEntries(
+    size: Int,
+    groupIdx: Int,
+    depthAt: (Int) -> Int,
+    isGroupAt: (Int) -> Boolean,
+): List<Int> {
+    if (groupIdx !in 0 until size) return emptyList()
+    val d = depthAt(groupIdx)
+    if (d <= 0) return emptyList()
+    var parent = -1
+    for (i in groupIdx - 1 downTo 0) {
+        if (depthAt(i) < d - 1) break
+        if (depthAt(i) == d - 1 && isGroupAt(i)) {
+            parent = i
+            break
+        }
+    }
+    if (parent < 0) return emptyList()
+    var end = parent
+    while (end + 1 < size && depthAt(end + 1) > d - 1) end++
+    return (parent + 1..end).filter { isGroupAt(it) && depthAt(it) == d }
+}
+
+/**
+ * 分格 z 序单步移动能力: (可上移, 可下移)。上移 = 与 z 更高一级的相邻条目交换
+ * (条目可能是格组或跨格内容组, 见 panelZSiblingEntries); 已在 span 顶/底时为 false。
+ * 读 UI 图层镜像 (vm.layers), 供长按菜单构建时判断 chips 显隐。
+ */
+internal fun PaintViewModel.panelZMoveCapability(panelId: Long): Pair<Boolean, Boolean> {
+    val m = panels.firstOrNull { it.panelId == panelId } ?: return false to false
+    val ls = layers
+    val entries = panelZSiblingEntries(ls.size, m.groupIdx, { ls[it].depth }, { ls[it].isGroup })
+    val pos = entries.indexOf(m.groupIdx)
+    if (pos < 0) return false to false
+    return (pos < entries.lastIndex) to (pos > 0)
+}
+
+/**
+ * 分格 z 序上移/下移一层: 与根组 span 内相邻顶层条目 (格组或跨格内容组) 交换位置。
+ * 录制协议与 reorderPanel 相同的 L_MOVE_RELATIVE 埋点 (arg = "targetIdx:above",
+ * 载荷本就承载任意 (from, target, placeAbove), 回放零新码); 移动后蒙版兜底同款。
+ * 顶/底边界由 panelZMoveCapability 在 UI 端预判, 函数内相邻条目缺失时静默返回。
+ */
+internal fun PaintViewModel.movePanelZBy(
+    panelId: Long,
+    up: Boolean,
+) {
+    if (!panels.any { it.panelId == panelId }) return
+    Breadcrumbs.record("Panel", "movePanelZBy id=$panelId up=$up")
+    runCore(after = { notifyLayerChanged() }) {
+        val scan = scanEnginePanels()
+        val cur = scan.mirrors.firstOrNull { it.panelId == panelId } ?: return@runCore
+        if (scan.rootIdx < 0) return@runCore
+        val entries = panelZSiblingEntries(
+            scan.layers.size,
+            cur.groupIdx,
+            { scan.layers[it].depth },
+            { scan.layers[it].isGroup },
+        )
+        val pos = entries.indexOf(cur.groupIdx)
+        val target = if (up) entries.getOrNull(pos + 1) else entries.getOrNull(pos - 1)
+        if (target == null || target !in scan.layers.indices) return@runCore
+        ReverieCoreBridge.beginUndoMacro(appContext.getString(R.string.panel_op_reorder))
+        try {
+            if (recorder.recording) {
+                recorder.layerOp(
+                    RecordingEvents.L_MOVE_RELATIVE, cur.groupIdx, "$target:${if (up) 1 else 0}",
+                )
+            }
+            if (!ReverieCoreBridge.moveLayerRelative(cur.groupIdx, target, up)) return@runCore
+            // 蒙版紧跟组上方 (与 reorderPanel 同款按节点 id 兜底, 引擎成对移动外的保险)
+            val newGroupIdx = indexOfLayerId(cur.groupId)
+            if (newGroupIdx >= 0 && cur.maskId != -1L) {
+                val maskNow = indexOfLayerId(cur.maskId)
+                if (maskNow >= 0 && maskNow != newGroupIdx + 1) {
+                    if (recorder.recording) {
+                        recorder.layerOp(RecordingEvents.L_MOVE_RELATIVE, maskNow, "$newGroupIdx:1")
+                    }
+                    ReverieCoreBridge.moveLayerRelative(maskNow, newGroupIdx, true)
+                }
+            }
+        } finally {
+            ReverieCoreBridge.endUndoMacro()
+        }
+    }
+}
+
+/**
  * 复制一格: copyLayer 对组做**深拷贝** (子层 + 附着蒙版含像素与侧表 flag + reverie_panel
  * 侧表全部随拷, 见 ReverieCoreLayers.cpp copyLayer), 因此只需把新组的 panelId 换成新 id。
  */
@@ -1238,6 +1402,8 @@ internal fun PaintViewModel.duplicatePanel(id: Long) {
     Breadcrumbs.record("Panel", "duplicatePanel id=$id -> newId=$newId")
     runCore(after = {
         refreshPanels()
+        // 复制出的新格默认折叠 (B2 降噪)
+        collapsedPanelIds = collapsedPanelIds + newId
         selectedPanelId = newId
         notifyLayerChanged()
     }) {

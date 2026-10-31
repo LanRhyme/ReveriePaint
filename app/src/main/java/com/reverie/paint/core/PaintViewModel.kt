@@ -2363,6 +2363,18 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    // 分格组折叠状态 (key = 分格 panelId, 元数据随格持久化, 跨会话稳定; 与
+    // collapsedGroupNames 同渠道读写项目 extraJson 的 collapsedPanels 字段)
+    var collapsedPanelIds by mutableStateOf<Set<Long>>(emptySet())
+
+    fun togglePanelCollapsed(panelId: Long) {
+        collapsedPanelIds = if (panelId in collapsedPanelIds) {
+            collapsedPanelIds - panelId
+        } else {
+            collapsedPanelIds + panelId
+        }
+    }
+
     /** 检查指定图层自身是否隐藏，或其任意祖先图层组是否隐藏。 */
     fun isLayerEffectivelyHidden(layerIndex: Int): Boolean {
         val layer = layers.firstOrNull { it.index == layerIndex } ?: return false

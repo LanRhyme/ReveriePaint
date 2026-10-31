@@ -152,6 +152,14 @@ internal fun LayerListView(
     // closes this one (revealedIndex is the open row's layer index)
     var revealedIndex by remember { mutableStateOf<Int?>(null) }
     val collapsedGroupNames = vm.collapsedGroupNames
+    val collapsedPanelIds = vm.collapsedPanelIds
+
+    // 组行折叠态: 分格组行按 panelId (collapsedPanelIds), 其余组按名字 (collapsedGroupNames)
+    fun groupRowCollapsed(l: PaintViewModel.LayerUiState): Boolean {
+        if (!l.isGroup) return false
+        val pid = vm.panelIdForGroupRow(l.index)
+        return if (pid != null) pid in collapsedPanelIds else l.name in collapsedGroupNames
+    }
     val listState = rememberLazyListState()
     var draggingFrom by remember { mutableIntStateOf(-1) }
     var dragOver by remember { mutableStateOf<Pair<Int, DropMode>?>(null) }
@@ -173,7 +181,7 @@ internal fun LayerListView(
     // display list recursively: siblings are reversed, group rows keep their
     // whole subtree below them (nested groups included).
     val displayRows =
-        remember(vm.layers, collapsedGroupNames) {
+        remember(vm.layers, collapsedGroupNames, collapsedPanelIds, vm.panels) {
             val n = vm.layers.size
 
             fun collectBlock(
@@ -189,7 +197,7 @@ internal fun LayerListView(
                 for (j in siblings.reversed()) {
                     val c = vm.layers[j]
                     out.add(c)
-                    val isCollapsedGroup = c.isGroup && c.name in collapsedGroupNames
+                    val isCollapsedGroup = c.isGroup && groupRowCollapsed(c)
                     if (!isCollapsedGroup) {
                         val e = (j + 1 until hi).firstOrNull { vm.layers[it].depth <= c.depth } ?: hi
                         if (e > j + 1) {
@@ -216,7 +224,10 @@ internal fun LayerListView(
                 while (idx >= 0 && currentDepth > 0) {
                     val candidate = vm.layers.getOrNull(idx) ?: break
                     if (candidate.depth == currentDepth - 1 && candidate.isGroup) {
-                        if (candidate.name in vm.collapsedGroupNames) {
+                        // 分格组行默认折叠 (collapsedPanelIds), 不因新层自动展开
+                        if (vm.panelIdForGroupRow(candidate.index) == null &&
+                            candidate.name in vm.collapsedGroupNames
+                        ) {
                             toExpand.add(candidate.name)
                         }
                         currentDepth = candidate.depth
@@ -382,8 +393,15 @@ internal fun LayerListView(
                     vm.moveLayerToGroup(from, groupIdx)
                 }
                 val groupLayer = vm.layers.firstOrNull { it.index == groupIdx }
-                if (groupLayer != null && groupLayer.name in vm.collapsedGroupNames) {
-                    vm.collapsedGroupNames = vm.collapsedGroupNames - groupLayer.name
+                if (groupLayer != null) {
+                    val pid = vm.panelIdForGroupRow(groupIdx)
+                    if (pid != null) {
+                        if (pid in vm.collapsedPanelIds) {
+                            vm.collapsedPanelIds = vm.collapsedPanelIds - pid
+                        }
+                    } else if (groupLayer.name in vm.collapsedGroupNames) {
+                        vm.collapsedGroupNames = vm.collapsedGroupNames - groupLayer.name
+                    }
                 }
             } else if (insert >= 0) {
                 val nonDraggedPrev = remaining.take(insert).lastOrNull()
@@ -412,7 +430,7 @@ internal fun LayerListView(
                             } else {
                                 vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
                             }
-                        } else if (nonDraggedPrev.isGroup && (nonDraggedPrev.name !in collapsedGroupNames) && nonDraggedPrev.depth < nonDraggedNext.depth) {
+                        } else if (nonDraggedPrev.isGroup && !groupRowCollapsed(nonDraggedPrev) && nonDraggedPrev.depth < nonDraggedNext.depth) {
                             if (isIndented) {
                                 vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
                             } else {
@@ -939,12 +957,14 @@ internal fun LayerListView(
                             vm = vm,
                             layer = layer,
                             selected = layer.index == selectedIndex,
-                            collapsed = layer.name in collapsedGroupNames,
+                            collapsed = groupRowCollapsed(layer),
                             hasNextSibling = hasNextSibling,
                             openDepths = openDepths,
+                            panelCrop = vm.panelCropStateFor(layer.index),
                             onToggleCollapse = {
                                 revealedIndex = null
-                                vm.toggleGroupCollapsed(layer.name)
+                                val pid = vm.panelIdForGroupRow(layer.index)
+                                if (pid != null) vm.togglePanelCollapsed(pid) else vm.toggleGroupCollapsed(layer.name)
                             },
                             revealed = layer.index == revealedIndex,
                             onReveal = { revealedIndex = layer.index },
@@ -1081,7 +1101,7 @@ internal fun LayerListView(
                 nonDraggedPrev.depth > nonDraggedNext.depth -> {
                     if (isIndented) nonDraggedPrev.depth else nonDraggedNext.depth
                 }
-                nonDraggedPrev.isGroup && (nonDraggedPrev.name !in collapsedGroupNames) && nonDraggedPrev.depth < nonDraggedNext.depth -> {
+                nonDraggedPrev.isGroup && !groupRowCollapsed(nonDraggedPrev) && nonDraggedPrev.depth < nonDraggedNext.depth -> {
                     if (isIndented) nonDraggedNext.depth else nonDraggedPrev.depth
                 }
                 !isIndented && fromIsNested -> 0

@@ -3192,9 +3192,13 @@
     <string name="panel_use_default">Use default</string>
     <string name="panel_overridden">Overridden</string>
     <string name="panel_crop">Crop</string>
+    <string name="panel_crop_state_on">Crop · On</string>
+    <string name="panel_crop_state_off">Crop · Off</string>
     <string name="panel_reset_style">Reset style</string>
     <string name="panel_multi_selected">%1$d panels selected</string>
     <string name="panel_cancel_multi">Cancel multi-select</string>
+    <string name="panel_menu_move_up">Move Up</string>
+    <string name="panel_menu_move_down">Move Down</string>
     <string name="panel_menu_delete">Delete</string>
     <string name="panel_menu_duplicate">Duplicate</string>
     <string name="panel_menu_merge">Merge</string>

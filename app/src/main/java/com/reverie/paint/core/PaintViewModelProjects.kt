@@ -175,6 +175,7 @@ internal fun PaintViewModel.saveProject(
                 "selectedLayerIndex": $currentLayerIndex,
                 "activeLayerIndex": $currentLayerIndex,
                 "collapsedGroups": [${collapsedGroupNames.joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }}],
+                "collapsedPanels": [${collapsedPanelIds.joinToString(",")}],
                 "active3DLayers": [$layers3DJson]
             }
             """.trimIndent()
@@ -258,6 +259,7 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
                 "selectedLayerIndex": $currentLayerIndex,
                 "activeLayerIndex": $currentLayerIndex,
                 "collapsedGroups": [${collapsedGroupNames.joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }}],
+                "collapsedPanels": [${collapsedPanelIds.joinToString(",")}],
                 "active3DLayers": [$layers3DJson]
             }
             """.trimIndent()
@@ -467,6 +469,10 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     }
 
     var loadedCollapsedGroups: Set<String> = emptySet()
+    var loadedCollapsedPanels: Set<Long> = emptySet()
+    // 旧工程 extraJson 没有 collapsedPanels 字段: 首次打开按"每格默认折叠"补一次;
+    // 字段存在 (哪怕空数组 = 用户全部展开过) 则尊重存档, 不再回填
+    var loadedCollapsedPanelsPresent = false
     var loaded3DStates: List<com.reverie.paint.model.Model3DState> = emptyList()
     var loadedPanelDefaults: com.reverie.paint.model.PanelDefaults? = null
     var documentLoaded = false
@@ -485,6 +491,8 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 else referenceLoading = false
             }
             collapsedGroupNames = loadedCollapsedGroups
+            collapsedPanelIds = loadedCollapsedPanels
+            resetPanelDefaultCollapse()
             panelDefaults = loadedPanelDefaults ?: DEFAULT_PANEL_DEFAULTS
             initialStrokeCount = p.strokeCount
             totalStrokes = p.strokeCount
@@ -511,6 +519,10 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             syncLayersFromNative()
             // 文档加载完成后重建分格镜像 (工程里的分格结构/侧表元数据随 maindoc.xml 恢复)
             refreshPanels()
+            // 旧档没有 collapsedPanels: 现有格补一次默认折叠 (之后用户展开会写回字段, 不再回填)
+            if (!loadedCollapsedPanelsPresent && panels.isNotEmpty()) {
+                collapsedPanelIds = collapsedPanelIds + panels.map { it.panelId }
+            }
             // 工程刚载入时图层面板可能早已打开: 面板打开时的强制刷新跑在 loadRevp 之前,
             // 那一刻 layerCount() 还是 0 (或旧文档), 之后没人再触发, 面板就停在透明缩略图上,
             // 直到第一次落笔 (afterLayerMutation) 才恢复。这里补一次。
@@ -580,6 +592,16 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                                             set.add(arr.getString(i))
                                         }
                                         loadedCollapsedGroups = set
+                                    }
+                                    val panelArr = json.optJSONArray("collapsedPanels")
+                                    if (panelArr != null) {
+                                        loadedCollapsedPanelsPresent = true
+                                        val panelSet = mutableSetOf<Long>()
+                                        for (i in 0 until panelArr.length()) {
+                                            val v = panelArr.optLong(i, Long.MIN_VALUE)
+                                            if (v != Long.MIN_VALUE) panelSet.add(v)
+                                        }
+                                        loadedCollapsedPanels = panelSet
                                     }
                                 }
                             }
@@ -1484,6 +1506,8 @@ internal fun PaintViewModel.startPainting(
                 resetAnimationState()
             }
             collapsedGroupNames = emptySet()
+            collapsedPanelIds = emptySet()
+            resetPanelDefaultCollapse()
             active3DLayers = emptyMap()
             show3DPosePanel = false
         },
