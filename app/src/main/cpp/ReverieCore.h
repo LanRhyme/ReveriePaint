@@ -1040,6 +1040,13 @@ public:
     }
 
 private:
+    // Drop an in-progress stroke and a leftover undo macro before replaying
+    // history. A macro holds KisImage::barrierLock; waiting for the scheduler
+    // while that lock is held never returns.
+    void prepareHistoryReplay();
+    // Replay one undo or redo step with the image barrier held, so the async
+    // merger cannot touch tile mementos until the stack call returns.
+    void replayHistoryCommand(bool redoOp);
     void syncLayersFromImage();
     KisPaintDeviceSP currentPaintDevice();
     KisPaintDeviceSP layerPaintDeviceFor(const LayerEntry &e) const;

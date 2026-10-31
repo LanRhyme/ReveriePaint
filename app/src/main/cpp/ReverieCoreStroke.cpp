@@ -1593,13 +1593,55 @@ int ReverieCore::redoCount() const
     return m_undoStore ? m_undoStore->count() - m_undoStore->index() : 0;
 }
 
-void ReverieCore::undo()
+void ReverieCore::prepareHistoryReplay()
 {
     if (m_strokeBatchOpen) {
         touchStrokeCancel();
     }
+    // touchStrokeCancel only closes the macro when a stroke batch is open.
+    // A macro left open otherwise makes KUndo2QStack refuse the replay and
+    // keeps the image lock held.
+    while (m_macroDepth > 0) {
+        endUndoMacro();
+    }
+}
+
+void ReverieCore::replayHistoryCommand(bool redoOp)
+{
+    // KisLegacyUndoAdapter locks the image only when pushing a command.
+    // Replaying without the barrier lets KisTransactionData::setDirty run
+    // the async merger against the same tile mementos commit() is installing.
+    const bool takeLock = m_document && !m_document->locked();
+    if (takeLock) {
+        m_document->barrierLock();
+    }
+    if (redoOp) {
+        m_undoStore->redo();
+        --m_redoCount;
+    } else {
+        m_undoStore->undo();
+        ++m_redoCount;
+    }
+    if (takeLock) {
+        m_document->unlock();
+    }
+    // RenderLockGate: waitForDone spins forever while the image is locked.
+    if (m_document && !m_document->locked()) {
+        m_document->waitForDone();
+    }
+}
+
+void ReverieCore::undo()
+{
+    prepareHistoryReplay();
     if (!m_undoStore || !m_document || !canUndo()) {
         return;
+    }
+    // An open restore transaction leaves the paint device's memento index
+    // dirty. rollforward requires a clean index; drop the uncommitted patch
+    // only once we know this call will actually replay.
+    if (m_openRestoreTransaction) {
+        revertOpenRestorePatch();
     }
 
     QVector<KisNode *> oldNodes;
@@ -1622,9 +1664,7 @@ void ReverieCore::undo()
         std::lock_guard<std::mutex> lock(m_asyncUpdateMutex);
         m_lastAsyncUpdateRect = QRect();
     }
-    m_undoStore->undo();
-    ++m_redoCount;
-    m_document->waitForDone();
+    replayHistoryCommand(false);
     syncLayersFromImage();
 
     const int newW = m_document->width();
@@ -1688,11 +1728,12 @@ void ReverieCore::undo()
 
 void ReverieCore::redo()
 {
-    if (m_strokeBatchOpen) {
-        touchStrokeCancel();
-    }
+    prepareHistoryReplay();
     if (!m_undoStore || !m_document || !canRedo()) {
         return;
+    }
+    if (m_openRestoreTransaction) {
+        revertOpenRestorePatch();
     }
 
     QVector<KisNode *> oldNodes;
@@ -1710,9 +1751,7 @@ void ReverieCore::redo()
         std::lock_guard<std::mutex> lock(m_asyncUpdateMutex);
         m_lastAsyncUpdateRect = QRect();
     }
-    m_undoStore->redo();
-    --m_redoCount;
-    m_document->waitForDone();
+    replayHistoryCommand(true);
     syncLayersFromImage();
 
     const int newW = m_document->width();
