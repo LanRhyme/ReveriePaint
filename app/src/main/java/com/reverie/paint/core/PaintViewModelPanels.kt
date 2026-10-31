@@ -17,6 +17,7 @@ import com.reverie.paint.model.RecordingEvents
 import com.reverie.paint.model.ResolvedPanelStyle
 import com.reverie.paint.model.parsePanelMeta
 import com.reverie.paint.model.resolve
+import com.reverie.paint.model.segmentCutsQuad
 import com.reverie.paint.model.toJson
 import kotlin.math.roundToInt
 
@@ -100,6 +101,20 @@ internal var PaintViewModel.panelMultiSelectedIds: Set<Long> by mutableStateOf(e
  * false = 既有手势 (缝隙建格 + 边框带切分)。工具切离 Tool.PANEL 时由 CanvasTouchView 复位。
  */
 internal var PaintViewModel.panelDivideMode: Boolean by mutableStateOf(false)
+
+/**
+ * 进入/退出切分模式 (UI 唯一入口)。进入时清空全部选中: 切分模式 = 纯切分, 选中态手势
+ * (角点拖形/共享边/拖移/轻点选中) 全部禁用, 带着选中进入会让 DOWN 分支互相抢占。
+ */
+// @JvmName: 与 panelDivideMode 属性 setter 的 JVM 签名 (setPanelDivideMode) 冲突, 仅改 JVM 名
+@JvmName("enterPanelDivideMode")
+internal fun PaintViewModel.setPanelDivideMode(on: Boolean) {
+    panelDivideMode = on
+    if (on) {
+        selectedPanelId = null
+        panelMultiSelectedIds = emptySet()
+    }
+}
 
 internal var PaintViewModel.panelDefaults: PanelDefaults by mutableStateOf(DEFAULT_PANEL_DEFAULTS)
 
@@ -412,12 +427,15 @@ internal fun applyPanelMetaEvent(
         e.maskQuads != null -> e.maskQuads
         else -> metaQuad?.let { listOf(it) }
     }
-    // 填充/边框旧像素清除: oldQuad 非空 (改形状/平移增量路径) 时用老 quad 多边形
-    // ERASE (与边框内圈挖洞同机制), 标脏只有老 quad bbox, 避免 clearLayer 的整幅
+    // 填充/边框旧像素清除: oldQuad 非空 (改形状/平移增量路径) 时用老 quad 外扩 1px 的
+    // 多边形硬边 ERASE (antiAlias=false, AA 擦除与 AA 绘制覆盖率重合处会残留 c(1-c) 的
+    // 旧色, 与内圈挖洞白线同机制), 标脏只有老 quad bbox, 避免 clearLayer 的整幅
     // recomposite + 全画布标脏架空脏区收敛; oldQuad 为 null (创建/回放兜底) 时仍走
     // clearLayer
     val clearLayerPixels: (Int) -> Unit = oldQuad?.let { q ->
-        { idx: Int -> ReverieCoreBridge.paintPanelQuad(idx, quadToXY(q), 0, true) }
+        { idx: Int ->
+            ReverieCoreBridge.paintPanelQuad(idx, quadToXY(q.expandBorder(1f)), 0, true, false)
+        }
     } ?: { idx: Int -> ReverieCoreBridge.clearLayer(idx) }
     if (!maskQuads.isNullOrEmpty()) {
         if (oldQuad != null && maskQuads.size == 1) {
@@ -461,8 +479,11 @@ internal fun applyPanelMetaEvent(
             ReverieCoreBridge.paintPanelQuad(e.borderIdx, pointsToXY(quad.roundedCorners(e.cornerRadius)), e.borderColor, false)
             val inner = quad.insetBorder(e.borderWidth)
             if (inner !== quad) {
-                // ERASE 挖洞 → 边框环 (内圈同样圆角化; radius<=0 时 roundedCorners 恒等)
-                ReverieCoreBridge.paintPanelQuad(e.borderIdx, pointsToXY(inner.roundedCorners(e.cornerRadius)), e.borderColor, true)
+                // ERASE 挖洞 → 边框环 (内圈同样圆角化; radius<=0 时 roundedCorners 恒等)。
+                // antiAlias=false 硬边挖洞: AA 挖洞在内边界留下半透明过渡行, 白色边框与其
+                // 叠加后呈现为内圈残留亮线; 硬边挖净的代价是内边直角量化锯齿 (≤1px, 且被
+                // 边框环自身视觉掩盖), 取舍上挖净优先
+                ReverieCoreBridge.paintPanelQuad(e.borderIdx, pointsToXY(inner.roundedCorners(e.cornerRadius)), e.borderColor, true, false)
             }
         }
     }
@@ -648,11 +669,12 @@ private fun PaintViewModel.removePanelNodesById(mirror: PanelMirror) {
 }
 
 /**
- * 直线切分: 用 start→end 的无限直线切开所有被穿过的格, 每格变两格 (切线两侧各让
+ * 直线切分: 用 start→end 切开所有被**划过**的格 (线段语义, 两端各延伸 [extendDocPx] 兜底,
+ * 见 [segmentCutsQuad]; 切割几何本身仍是 cutByLine 的无限直线), 每格变两格 (切线两侧各让
  * hGap/2 间隙), 内容层留在面积较大的一半, 另一半空内容层。一个撤销宏; 录制全用
  * 既有结构码 + L_PANEL_META, 回放零新码。
  */
-internal fun PaintViewModel.dividePanelsByLine(start: Point2D, end: Point2D) {
+internal fun PaintViewModel.dividePanelsByLine(start: Point2D, end: Point2D, extendDocPx: Float) {
     if (coreW <= 0 || coreH <= 0) return
     Breadcrumbs.record("Panel", "divideByLine")
     runCore(after = {
@@ -666,6 +688,8 @@ internal fun PaintViewModel.dividePanelsByLine(start: Point2D, end: Point2D) {
         data class CutJob(val mirror: PanelMirror, val a: PanelQuad, val b: PanelQuad, val contentIds: List<Long>)
         val jobs = ArrayList<CutJob>()
         for (m in scan.mirrors) {
+            // 线段语义预筛: 只切实际划过的格 (无限直线扫过但线段没碰到的格不切)
+            if (!segmentCutsQuad(m.meta.quad, start, end, extendDocPx)) continue
             val halves = m.meta.quad.cutByLine(start, end, halfGap) ?: continue
             val page = LayerSnapshotProbe.read()
             val contentIds = if (page != null && m.groupIdx in page.layers.indices) {
@@ -1144,7 +1168,11 @@ internal fun PaintViewModel.deletePanel(id: Long) {
     if (selectedPanelId == id) selectedPanelId = null
 }
 
-/** 调整 z 序: 组与蒙版成对移动 (保持蒙版紧贴组上方); 跨格容器始终保持在最顶。 */
+/**
+ * 调整 z 序: 组与蒙版成对移动 (保持蒙版紧贴组上方); 跨格容器始终保持在最顶。
+ * UI 入口 (置顶/置底按钮) 已移除 (z 序仅重叠场景可见); 函数与 L_MOVE_RELATIVE 录制协议
+ * 保留, 供旧录制回放兼容。
+ */
 internal fun PaintViewModel.reorderPanel(
     id: Long,
     toTop: Boolean,

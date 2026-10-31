@@ -3,6 +3,7 @@ package com.reverie.paint.model
 
 import kotlin.math.abs
 import kotlin.math.hypot
+import kotlin.math.sin
 
 /**
  * 漫画分格工具的纯 Kotlin 几何/数据模型 (无 Android 依赖, 可单测)。
@@ -501,6 +502,48 @@ data class PanelQuad(val corners: List<Point2D>) {
 fun hullOf(points: List<Point2D>): PanelQuad? = PanelQuad.hullOf(points)
 
 /**
+ * 线段语义的切分命中判定: [a]→[b] 方向两端各延伸 [extendDocPx] (单位向量 × extendDocPx)
+ * 后, 判断延伸线段是否与 [quad] 相交 —— 任一延伸端点落在 quad 内 (用 [PanelQuad.contains])
+ * 或与 quad 任一条边正交穿越 (叉积符号跨立 + 参数范围)。
+ *
+ * 语义约定: **只切实际划过的格 + 两端 extendDocPx (≈12dp) 兜底** (差一点没碰到也能切),
+ * 但延伸止于延伸段本身 —— 延伸可以越过共享边触及紧邻格 (端点吸附边框的场景下常见,
+ * 见 PanelModelsTest 邻格可达对照用例), 但不可能跳过一个完整的格再触及更远的格
+ * (12dp 远小于实际格宽)。区别于 [PanelQuad.cutByLine] 的无限直线口径:
+ * cutByLine 是命中后的切割几何, 本函数决定哪些格有资格被切 (提交与 MOVE 预览共用)。
+ *
+ * a==b (零长线段) 或长度/参数非有限返回 false; 端点恰好落在边上 ( grazing 掠触) 不算
+ * 穿越, 宁可保守不切。每帧预览会调用, 仅标量运算 + 最多 2 个局部 Point2D。
+ */
+fun segmentCutsQuad(quad: PanelQuad, a: Point2D, b: Point2D, extendDocPx: Float): Boolean {
+    val dx = b.x - a.x
+    val dy = b.y - a.y
+    val len = hypot(dx, dy)
+    if (!len.isFinite() || len < MIN_EDGE_EPS) return false
+    if (!extendDocPx.isFinite() || extendDocPx < 0f) return false
+    if (quad.corners.any { !it.x.isFinite() || !it.y.isFinite() }) return false
+    val ux = dx / len
+    val uy = dy / len
+    val ax = a.x - ux * extendDocPx
+    val ay = a.y - uy * extendDocPx
+    val bx = b.x + ux * extendDocPx
+    val by = b.y + uy * extendDocPx
+    if (quad.contains(Point2D(ax, ay)) || quad.contains(Point2D(bx, by))) return true
+    val n = quad.corners.size
+    for (i in 0 until n) {
+        val p = quad.corners[i]
+        val q = quad.corners[(i + 1) % n]
+        val d1 = (bx - ax) * (p.y - ay) - (by - ay) * (p.x - ax)
+        val d2 = (bx - ax) * (q.y - ay) - (by - ay) * (q.x - ax)
+        if ((d1 > 0f) == (d2 > 0f)) continue // p、q 在线段同侧 (含共线掠触), 该边无正交穿越
+        val d3 = (q.x - p.x) * (ay - p.y) - (q.y - p.y) * (ax - p.x)
+        val d4 = (q.x - p.x) * (by - p.y) - (q.y - p.y) * (bx - p.x)
+        if ((d3 > 0f) != (d4 > 0f)) return true
+    }
+    return false
+}
+
+/**
  * 两格联动拖共享边: 对 a 的 [aEdge] 边与 b 的 [bEdge] 边同时应用 [delta] 平移; 任一侧违反
  * minSize (面积过小) 或参数非法则整体返回 null (两格都不动, 避免半更新)。
  */
@@ -636,6 +679,211 @@ fun snapCandidates(
     }
 
     return candidates.distinct()
+}
+
+/**
+ * 整边平行吸附候选 (斜边版 gutter 对齐)。
+ *
+ * 被拖边 [draggedEdgeIndex] (整边拖拽中角度不变) 与某邻格边方向差 < [angleToleranceRad]
+ * (弧度, 模 180°) 时, 沿两线公法线方向平移被拖边, 使其与目标边的法向距离等于 [defaultGap]
+ * (或 0 = 共线), 即得到一个候选。每对 (被拖边, 邻格边) 最多产 1 个候选 (共线与 ±gap 取
+ * 与零位移更近者, 与 [snapCandidates] 的 consider 模式一致); 法向平移量 |t| > [tolerance]
+ * 的丢弃。delta 为二维法向平移量, 与 [PanelQuad.draggedEdge] 的"边两端点整体平移"语义
+ * 匹配 (共享边拖动时作用于共享边两端点)。
+ *
+ * guideAxis 沿用 [PanelSnapCandidate] 语义并扩展: 被拖边近轴对齐 (与 [extractAlignedEdges]
+ * 同判据) 时给 0/1 与可画的轴对齐参考线坐标; 斜边无合适参考线形态时给 -1 (调用方不画)。
+ */
+fun parallelSnapCandidates(
+    moving: PanelQuad,
+    draggedEdgeIndex: Int,
+    neighbors: List<PanelQuad>,
+    defaultGap: Float,
+    tolerance: Float,
+    angleToleranceRad: Float,
+): List<PanelSnapCandidate> {
+    if (!tolerance.isFinite() || tolerance < 0f) return emptyList()
+    if (!angleToleranceRad.isFinite() || angleToleranceRad <= 0f) return emptyList()
+    if (!defaultGap.isFinite()) return emptyList()
+    if (moving.corners.any { !it.x.isFinite() || !it.y.isFinite() }) return emptyList()
+    if (moving.area() < DEGENERATE_AREA_EPS) return emptyList()
+    val n = moving.corners.size
+    if (draggedEdgeIndex !in 0 until n) return emptyList()
+
+    val a = moving.corners[draggedEdgeIndex]
+    val b = moving.corners[(draggedEdgeIndex + 1) % n]
+    val dx = b.x - a.x
+    val dy = b.y - a.y
+    val len = hypot(dx, dy)
+    if (!len.isFinite() || len < MIN_EDGE_EPS) return emptyList()
+    val ux = dx / len
+    val uy = dy / len
+    val nx = -uy // 单位法线 (被拖边方向逆时针旋转 90°)
+    val ny = ux
+    val sinTol = sin(angleToleranceRad)
+
+    // 参考线形态: 被拖边近轴对齐时可画轴对齐参考线, 斜边不画 (guideAxis = -1)
+    val adx = abs(dx)
+    val ady = abs(dy)
+    val guideAxis = when {
+        adx >= 4f * ady -> 1
+        ady >= 4f * adx -> 0
+        else -> -1
+    }
+    val midX = (a.x + b.x) * 0.5f
+    val midY = (a.y + b.y) * 0.5f
+
+    val candidates = ArrayList<PanelSnapCandidate>(3)
+    for (neighbor in neighbors) {
+        if (neighbor === moving) continue
+        if (neighbor.corners.any { !it.x.isFinite() || !it.y.isFinite() }) continue
+        if (neighbor.area() < DEGENERATE_AREA_EPS) continue
+
+        val m = neighbor.corners.size
+        for (j in 0 until m) {
+            val c = neighbor.corners[j]
+            val d = neighbor.corners[(j + 1) % m]
+            val ex = d.x - c.x
+            val ey = d.y - c.y
+            val elen = hypot(ex, ey)
+            if (!elen.isFinite() || elen < MIN_EDGE_EPS) continue
+            // 方向差 (模 180°): |cross(u, v)| = |sin 夹角|, 超过阈值直接跳过
+            val cross = ux * (ey / elen) - uy * (ex / elen)
+            if (abs(cross) >= sinTol) continue
+
+            // 目标边相对被拖边的有向法向偏移 (近平行时 ≈ 线到线有向距离)
+            val offset = (c.x - a.x) * nx + (c.y - a.y) * ny
+
+            var bestT = 0f
+            var bestAbs = Float.MAX_VALUE
+
+            fun consider(target: Float) {
+                val t = offset - target
+                val at = abs(t)
+                if (at < bestAbs) {
+                    bestAbs = at
+                    bestT = t
+                }
+            }
+
+            // 共线吸附 (法向距离 0)
+            consider(0f)
+            // gap 吸附 (法向距离 ±defaultGap)
+            if (defaultGap > 0f) {
+                consider(defaultGap)
+                consider(-defaultGap)
+            }
+
+            if (bestAbs <= tolerance) {
+                val deltaX = bestT * nx
+                val deltaY = bestT * ny
+                candidates.add(
+                    PanelSnapCandidate(
+                        delta = Point2D(deltaX, deltaY),
+                        guideAxis = guideAxis,
+                        guideCoord = when (guideAxis) {
+                            0 -> midX + deltaX
+                            1 -> midY + deltaY
+                            else -> 0f
+                        },
+                    )
+                )
+            }
+        }
+    }
+
+    return candidates.distinct()
+}
+
+/** 角点角度吸附结果: 吸附后的顶点坐标 + 可画的轴对齐参考线 ([PanelSnapGuide] 语义, -1 = 斜边不画)。 */
+data class PanelCornerSnap(
+    val corner: Point2D,
+    val guideAxis: Int,
+    val guideCoord: Float,
+)
+
+/**
+ * 角点角度吸附: 被拖顶点 [cornerIndex] 的相邻两边 (前一边 prev→V 与后一边 V→next) 分别与
+ * 目标方向集 [targetDirs] (单位方向对, 模 180°, 符号不限) 比较, 角度差 < [angleToleranceRad]
+ * 时把顶点吸附到"绕另一端点旋转使该边角度 = 目标方向"的射线上 (保持当前边长不变)。
+ * 两条相邻边都可吸附时取角度差更小者 (strict <, 前一边优先)。
+ *
+ * 纯标量运算无堆分配; 无可吸附目标或参数非法返回 null (调用方保持手指原位)。
+ */
+fun cornerAngleSnap(
+    corners: List<Point2D>,
+    cornerIndex: Int,
+    targetDirs: FloatArray,
+    angleToleranceRad: Float,
+): PanelCornerSnap? {
+    val n = corners.size
+    if (n < PanelQuad.MIN_VERTICES || cornerIndex !in 0 until n) return null
+    if (!angleToleranceRad.isFinite() || angleToleranceRad <= 0f) return null
+    if (targetDirs.size < 2 || targetDirs.size % 2 != 0) return null
+    if (corners.any { !it.x.isFinite() || !it.y.isFinite() }) return null
+    val sinTol = sin(angleToleranceRad)
+
+    val v = corners[cornerIndex]
+    var bestX = 0f
+    var bestY = 0f
+    var bestSin = Float.MAX_VALUE
+    var bestAxis = -1
+    var bestCoord = 0f
+
+    // 两条相邻边统一表示为 (固定端点 pivot, pivot→V 的单位方向, 边长):
+    // 吸附后 V' = pivot + 边长 * 吸附方向 (方向模 180° 取与当前边同向的一支)
+    for (edge in 0..1) {
+        val pivot = if (edge == 0) corners[(cornerIndex - 1 + n) % n] else corners[(cornerIndex + 1) % n]
+        val wx = v.x - pivot.x
+        val wy = v.y - pivot.y
+        val wlen = hypot(wx, wy)
+        if (!wlen.isFinite() || wlen < MIN_EDGE_EPS) continue
+        val wux = wx / wlen
+        val wuy = wy / wlen
+
+        var k = 0
+        while (k < targetDirs.size) {
+            var tx = targetDirs[k]
+            var ty = targetDirs[k + 1]
+            k += 2
+            val tlen = hypot(tx, ty)
+            if (!tlen.isFinite() || tlen < MIN_EDGE_EPS) continue
+            tx /= tlen
+            ty /= tlen
+            // 模 180°: 目标方向取与当前边同向 (点积 >= 0) 的一支
+            if (tx * wux + ty * wuy < 0f) {
+                tx = -tx
+                ty = -ty
+            }
+            val cross = wux * ty - wuy * tx
+            val ac = abs(cross)
+            if (ac < sinTol && ac < bestSin) {
+                bestSin = ac
+                bestX = pivot.x + wlen * tx
+                bestY = pivot.y + wlen * ty
+                // 参考线形态: 吸附后的边近轴对齐才可画 (与 extractAlignedEdges 同判据)
+                val atx = abs(tx)
+                val aty = abs(ty)
+                when {
+                    atx >= 4f * aty -> {
+                        bestAxis = 1
+                        bestCoord = pivot.y
+                    }
+                    aty >= 4f * atx -> {
+                        bestAxis = 0
+                        bestCoord = pivot.x
+                    }
+                    else -> {
+                        bestAxis = -1
+                        bestCoord = 0f
+                    }
+                }
+            }
+        }
+    }
+
+    if (bestSin == Float.MAX_VALUE) return null
+    return PanelCornerSnap(Point2D(bestX, bestY), bestAxis, bestCoord)
 }
 
 /** 分格样式; 可空字段 = 跟随页面默认 [PanelDefaults]。 */

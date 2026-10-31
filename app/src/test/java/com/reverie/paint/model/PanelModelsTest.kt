@@ -590,6 +590,76 @@ class PanelModelsTest {
     }
 
     // =========================================================================
+    // segmentCutsQuad 线段切分命中测试
+    // =========================================================================
+
+    @Test
+    fun `segmentCutsQuad true when segment crosses the quad without endpoints inside`() {
+        val s = square(0f, 0f, 100f, 100f)
+        // 横穿: 两端都在格外, 与左右两条边正交穿越 (extend=0 也不含端点在格内)
+        assertTrue(segmentCutsQuad(s, Point2D(-50f, 50f), Point2D(150f, 50f), 0f))
+        // 斜穿
+        assertTrue(segmentCutsQuad(s, Point2D(-20f, -20f), Point2D(150f, 150f), 0f))
+    }
+
+    @Test
+    fun `segmentCutsQuad false when fully outside the quad`() {
+        val s = square(0f, 0f, 100f, 100f)
+        // 格右侧的横线段
+        assertFalse(segmentCutsQuad(s, Point2D(150f, 50f), Point2D(180f, 50f), 0f))
+        // 格上方的斜线段
+        assertFalse(segmentCutsQuad(s, Point2D(10f, -50f), Point2D(90f, -30f), 0f))
+    }
+
+    @Test
+    fun `segmentCutsQuad true when an endpoint is inside the quad`() {
+        val s = square(0f, 0f, 100f, 100f)
+        // 起点在格心, 终点在格外
+        assertTrue(segmentCutsQuad(s, Point2D(50f, 50f), Point2D(150f, 80f), 0f))
+        // 终点在格内, 起点在格外
+        assertTrue(segmentCutsQuad(s, Point2D(-40f, 10f), Point2D(30f, 30f), 0f))
+    }
+
+    @Test
+    fun `segmentCutsQuad extension just reaching the quad counts and falling short does not`() {
+        val s = square(0f, 0f, 100f, 100f)
+        // 线段 (150,50)→(120,50) 指向格右边缘 x=100, 方向 (-1,0)
+        // 延伸 20.1 → 延伸端点 (99.9, 50) 刚好探入格内 0.1 → true
+        assertTrue(segmentCutsQuad(s, Point2D(150f, 50f), Point2D(120f, 50f), 20.1f))
+        // 延伸 19.9 → 延伸端点 (100.1, 50) 差 0.1 没碰到 → false
+        assertFalse(segmentCutsQuad(s, Point2D(150f, 50f), Point2D(120f, 50f), 19.9f))
+        // 无延伸时同一线段完全在外
+        assertFalse(segmentCutsQuad(s, Point2D(150f, 50f), Point2D(120f, 50f), 0f))
+    }
+
+    @Test
+    fun `segmentCutsQuad returns false for zero length segment or invalid extend`() {
+        val s = square(0f, 0f, 100f, 100f)
+        assertFalse(segmentCutsQuad(s, Point2D(50f, 50f), Point2D(50f, 50f), 12f))
+        assertFalse(segmentCutsQuad(s, Point2D(-50f, 50f), Point2D(150f, 50f), Float.NaN))
+        assertFalse(segmentCutsQuad(s, Point2D(-50f, 50f), Point2D(150f, 50f), -1f))
+    }
+
+    @Test
+    fun `segmentCutsQuad extension does not reach the adjacent panel`() {
+        // 两格紧邻: A = (0,0)-(100,100), B = (100,0)-(200,100)
+        val a = square(0f, 0f, 100f, 100f)
+        val b = square(100f, 0f, 200f, 100f)
+        // 线段只划过 A 内部, 两端各延伸 12 仍停在 x∈[18, 82], 到不了 B (x≥100)
+        val seg0 = Point2D(30f, 50f)
+        val seg1 = Point2D(70f, 50f)
+        assertTrue(segmentCutsQuad(a, seg0, seg1, 12f))
+        assertFalse(segmentCutsQuad(b, seg0, seg1, 12f))
+
+        // 对照: 线段划过 A 且端点落在共享边 x=100 上, 延伸 12 探入 B → B 也命中
+        // (12dp 兜底的预期行为, 非"延伸跨格"误伤)
+        val toBorder0 = Point2D(60f, 50f)
+        val toBorder1 = Point2D(100f, 50f)
+        assertTrue(segmentCutsQuad(a, toBorder0, toBorder1, 12f))
+        assertTrue(segmentCutsQuad(b, toBorder0, toBorder1, 12f))
+    }
+
+    // =========================================================================
     // hullOf 凸包合并测试
     // =========================================================================
 
@@ -694,6 +764,109 @@ class PanelModelsTest {
         val moving = square(0f, 0f, 100f, 100f)
         val candidates = snapCandidates(moving, listOf(moving), defaultGap = 10f, tolerance = 10f)
         assertTrue("不应与自身吸附", candidates.isEmpty())
+    }
+
+    // =========================================================================
+    // parallelSnapCandidates 整边平行吸附 (斜边版 gutter 对齐) 测试
+    // =========================================================================
+
+    /** 直角三角形 (0,0)(100,0)(100,100), 边 2 = 45° 斜边 (100,100)→(0,0)。 */
+    private fun rightTriangle(): PanelQuad = PanelQuad.of(
+        listOf(Point2D(0f, 0f), Point2D(100f, 0f), Point2D(100f, 100f)),
+    )
+
+    /** 与 rightTriangle 斜边平行 (方向 (1,1)) 的邻格三角形, 斜边 (250,100)→(150,0)。 */
+    private fun parallelTriangle(): PanelQuad = PanelQuad.of(
+        listOf(Point2D(150f, 0f), Point2D(250f, 0f), Point2D(250f, 100f)),
+    )
+
+    @Test
+    fun `parallelSnapCandidates snaps slanted edge to parallel neighbor at gutter distance`() {
+        val moving = rightTriangle()
+        val neighbor = parallelTriangle()
+
+        // 被拖斜边 (100,100)→(0,0), 法线 n = (0.7071, -0.7071); 邻格斜边上点 (250,100)
+        // 的有向法向偏移 = 150/sqrt(2) ≈ 106.066, 吸附到 gap 20 → 平移量 t = 86.066,
+        // delta = t*n ≈ (60.859, -60.859)
+        val candidates = parallelSnapCandidates(
+            moving, 2, listOf(neighbor), defaultGap = 20f, tolerance = 100f,
+            angleToleranceRad = 0.0436332f,
+        )
+        assertEquals(1, candidates.size)
+        val c = candidates[0]
+        assertEquals(60.859f, c.delta.x, 0.01f)
+        assertEquals(-60.859f, c.delta.y, 0.01f)
+        assertEquals("斜边无合适参考线形态, guideAxis = -1", -1, c.guideAxis)
+    }
+
+    @Test
+    fun `parallelSnapCandidates rejects neighbor edge beyond angle tolerance`() {
+        val moving = rightTriangle()
+        // 斜边 (250,120)→(150,0) 方向角 ≈ 50.2°, 与 45° 差 5.2° > 2.5°
+        val neighbor = PanelQuad.of(listOf(Point2D(150f, 0f), Point2D(250f, 0f), Point2D(250f, 120f)))
+
+        val candidates = parallelSnapCandidates(
+            moving, 2, listOf(neighbor), defaultGap = 20f, tolerance = 100f,
+            angleToleranceRad = 0.0436332f,
+        )
+        assertTrue("角度差超容差不应产生候选", candidates.isEmpty())
+    }
+
+    @Test
+    fun `parallelSnapCandidates ignores moving quad in neighbors list`() {
+        val moving = rightTriangle()
+        val candidates = parallelSnapCandidates(
+            moving, 2, listOf(moving), defaultGap = 20f, tolerance = 100f,
+            angleToleranceRad = 0.0436332f,
+        )
+        assertTrue("不应与自身吸附", candidates.isEmpty())
+    }
+
+    // =========================================================================
+    // cornerAngleSnap 角点角度吸附测试
+    // =========================================================================
+
+    @Test
+    fun `cornerAngleSnap snaps near horizontal adjacent edge to exact horizontal`() {
+        val corners = square(0f, 0f, 100f, 100f).corners
+        // 拖角点 2 (100,100) 到 (105,98): 后一边 V→(0,100) 近水平 (1.1° < 2.5°),
+        // 前一边 (100,0)→V 近垂直但差 2.9° > 2.5° 不吸附
+        val moved = listOf(corners[0], corners[1], Point2D(105f, 98f), corners[3])
+        val snap = cornerAngleSnap(
+            moved, 2, floatArrayOf(1f, 0f, 0f, 1f), angleToleranceRad = 0.0436332f,
+        )
+        assertNotNull(snap)
+        // 吸附后 V 绕固定端点 (0,100) 旋转, 边长不变: V' = (105.019, 100)
+        assertEquals(105.019f, snap!!.corner.x, 0.01f)
+        assertEquals(100f, snap.corner.y, 0.001f)
+        assertEquals(1, snap.guideAxis)
+        assertEquals(100f, snap.guideCoord, 0.001f)
+    }
+
+    @Test
+    fun `cornerAngleSnap snaps adjacent edge to slanted target without guide`() {
+        val corners = square(0f, 0f, 100f, 100f).corners
+        // 拖角点 2 到 (142,40): 前一边 (100,0)→V 方向 43.6°, 与 45° 目标差 1.4° < 2.5°,
+        // 边长 hypot(42,40) = 58 保持不变, V' = (100,0) + 58*(1,1)/sqrt(2) ≈ (141.012, 41.012)
+        val moved = listOf(corners[0], corners[1], Point2D(142f, 40f), corners[3])
+        val snap = cornerAngleSnap(
+            moved, 2, floatArrayOf(1f, 1f), angleToleranceRad = 0.0436332f,
+        )
+        assertNotNull(snap)
+        assertEquals(141.012f, snap!!.corner.x, 0.01f)
+        assertEquals(41.012f, snap.corner.y, 0.01f)
+        assertEquals("斜边目标无参考线形态", -1, snap.guideAxis)
+    }
+
+    @Test
+    fun `cornerAngleSnap returns null when no target within tolerance`() {
+        val corners = square(0f, 0f, 100f, 100f).corners
+        // 拖到 (150,50): 两相邻边均 45° 方向, 与水平/垂直目标差 45° 远超容差
+        val moved = listOf(corners[0], corners[1], Point2D(150f, 50f), corners[3])
+        val snap = cornerAngleSnap(
+            moved, 2, floatArrayOf(1f, 0f, 0f, 1f), angleToleranceRad = 0.0436332f,
+        )
+        assertNull(snap)
     }
 
     // =========================================================================

@@ -47,9 +47,9 @@ import com.reverie.paint.core.panelDefaults
 import com.reverie.paint.core.panelDivideMode
 import com.reverie.paint.core.panelMultiSelectedIds
 import com.reverie.paint.core.panels
-import com.reverie.paint.core.reorderPanel
 import com.reverie.paint.core.selectedPanelId
 import com.reverie.paint.core.setPanelCrop
+import com.reverie.paint.core.setPanelDivideMode
 import com.reverie.paint.core.updatePanelStyle
 import com.reverie.paint.model.PanelStyle
 import com.reverie.paint.ui.theme.Morandi
@@ -106,22 +106,14 @@ fun PanelToolPanel(
                 PanelModeButton(
                     label = stringResource(R.string.panel_mode_create),
                     selected = !vm.panelDivideMode,
-                    onClick = { vm.panelDivideMode = false },
+                    onClick = { vm.setPanelDivideMode(false) },
                     modifier = Modifier.weight(1f),
                 )
                 PanelModeButton(
                     label = stringResource(R.string.panel_mode_divide),
                     selected = vm.panelDivideMode,
-                    onClick = { vm.panelDivideMode = true },
+                    onClick = { vm.setPanelDivideMode(true) },
                     modifier = Modifier.weight(1f),
-                )
-            }
-            if (vm.panelDivideMode) {
-                // 切分模式激活说明 (淡色小字)
-                Text(
-                    text = stringResource(R.string.panel_divide_hint),
-                    color = Morandi.subText,
-                    fontSize = 10.sp,
                 )
             }
 
@@ -427,20 +419,12 @@ private fun PanelSelectedSection(
             )
         }
 
-        // 层级 + 复制/删除
+        // 复制/删除 (置顶/置底 UI 已移除: z 序仅重叠场景可见, 引擎入口 reorderPanel 保留供旧录制回放)
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(6.dp),
             verticalAlignment = Alignment.CenterVertically,
         ) {
-            ToolFloatChip(
-                label = stringResource(R.string.panel_menu_bring_top),
-                onClick = { vm.reorderPanel(mirror.panelId, toTop = true) },
-            )
-            ToolFloatChip(
-                label = stringResource(R.string.panel_menu_send_bottom),
-                onClick = { vm.reorderPanel(mirror.panelId, toTop = false) },
-            )
             ToolFloatChip(
                 label = stringResource(R.string.panel_menu_duplicate),
                 onClick = { vm.duplicatePanel(mirror.panelId) },

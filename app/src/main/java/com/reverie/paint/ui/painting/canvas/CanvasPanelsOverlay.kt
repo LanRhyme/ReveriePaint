@@ -38,7 +38,6 @@ import com.reverie.paint.core.duplicatePanel
 import com.reverie.paint.core.deletePanel
 import com.reverie.paint.core.mergePanels
 import com.reverie.paint.core.panels
-import com.reverie.paint.core.reorderPanel
 import com.reverie.paint.core.selectedPanelId
 import com.reverie.paint.model.PanelBounds
 import com.reverie.paint.model.PanelDefaults
@@ -411,20 +410,6 @@ internal fun PanelLongPressMenu(
                     label = stringResource(R.string.panel_menu_duplicate),
                     onClick = {
                         vm.duplicatePanel(panelId)
-                        interaction.dismissMenu()
-                    },
-                )
-                ToolFloatChip(
-                    label = stringResource(R.string.panel_menu_bring_top),
-                    onClick = {
-                        vm.reorderPanel(panelId, toTop = true)
-                        interaction.dismissMenu()
-                    },
-                )
-                ToolFloatChip(
-                    label = stringResource(R.string.panel_menu_send_bottom),
-                    onClick = {
-                        vm.reorderPanel(panelId, toTop = false)
                         interaction.dismissMenu()
                     },
                 )
