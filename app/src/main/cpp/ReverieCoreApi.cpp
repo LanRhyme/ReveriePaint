@@ -92,6 +92,10 @@ const rp_snapshot *rp_doc_snapshot(rp_doc *doc)
     }
 
     std::lock_guard<std::mutex> lock(g_snapshotMutex);
+    // 快照在主线程读, 图层表由核心线程重建; 两把锁缺一不可:
+    // g_snapshotMutex 串行化多次快照, layerMirrorMutex 串行化"重建 vs 读取"。
+    // m_layers 里是裸节点指针, 节点已被移出图层树但尚未重建时靠 m_layerMirrorRefs 保活。
+    std::lock_guard<std::mutex> mirrorLock(corePtr->layerMirrorMutex());
 
     auto *snap = new (std::nothrow) rp_snapshot();
     if (!snap) {

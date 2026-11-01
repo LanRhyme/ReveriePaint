@@ -1442,6 +1442,7 @@
     <string name="brush_studio_toast_imported">Brush imported successfully</string>
     <string name="brush_importing_title">Importing Brushes</string>
     <string name="brush_importing_progress">Unpacking presets (%1$d/%2$d)</string>
+    <string name="brush_import_too_large">Brush pack too large (over 64MB), split it on desktop first</string>
     <string name="brush_import_abr_success">Successfully imported %1$d brush presets into "%2$s"</string>
     <string name="brush_studio_toast_import_failed">Import failed, check file format</string>
     <string name="brush_studio_toast_tip_imported">Custom tip imported successfully</string>
@@ -3147,6 +3148,7 @@
     <string name="layer_3d_zoom_in">Zoom In</string>
     <string name="layer_3d_zoom_out">Zoom Out</string>
     <string name="layer_3d_zoom_reset">Reset Zoom</string>
+    <string name="toast_3d_model_too_large">Model too large for device memory, try a simpler one</string>
     <string name="toast_3d_layer_created">3D reference layer created</string>
     <string name="toast_3d_rasterized">3D reference layer rasterized</string>
     <string name="toast_3d_outline_extracted">3D outline extracted to new layer</string>

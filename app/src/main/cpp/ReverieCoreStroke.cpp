@@ -8,6 +8,7 @@
  * ReverieCoreInternal.h, public API in ReverieCore.h)
  * ============================================================ */
 #include "ReverieCoreInternal.h"
+#include "RenderLockGate.h"
 #include "ReverieCoreUndoStore.h"
 #include "PaintOpTraits.h"
 #include "StrokeTailFlush.h"
@@ -1608,25 +1609,43 @@ void ReverieCore::prepareHistoryReplay()
 
 void ReverieCore::replayHistoryCommand(bool redoOp)
 {
-    // KisLegacyUndoAdapter locks the image only when pushing a command.
-    // Replaying without the barrier lets KisTransactionData::setDirty run
-    // the async merger against the same tile mementos commit() is installing.
-    const bool takeLock = m_document && !m_document->locked();
-    if (takeLock) {
-        m_document->barrierLock();
+    if (!m_document || !m_undoStore) {
+        return;
     }
-    if (redoOp) {
-        m_undoStore->redo();
-        --m_redoCount;
-    } else {
-        m_undoStore->undo();
-        ++m_redoCount;
+
+    // 先把调度器/合并器排空再上屏障: 顺序反过来的话屏障会挡在已有任务前面, unlock 之后
+    // 它们才落盘, 正好与下一轮 rollforward 抢同一批 tile memento。
+    // RenderLockGate: 图像被撤销宏锁住时 waitForDone 会卡死, 这里只在未锁时排空。
+    if (reverie::mayWaitForImage(m_document->locked())) {
+        m_document->waitForDone();
     }
-    if (takeLock) {
-        m_document->unlock();
+
+    RPC_LOG("RPC historyReplay redo=%d locked=%d count=%d index=%d redoCount=%d",
+            int(redoOp), int(m_document->locked()), m_undoStore->count(),
+            m_undoStore->index(), m_redoCount);
+
+    // KisLegacyUndoAdapter 只在 push 命令时加 barrier; 重放期间不锁的话,
+    // KisTransactionData::setDirty 会让异步合并器对着 commit() 正在安装的同一批 memento 跑。
+    // 这里**无条件** barrierLock (图像已被别人锁住时走 lockCount 计数, 不会重复屏障),
+    // unlock 只释放我们自己这一层, 未锁时再排空一次把重放产物落盘。
+    // 已锁时传 readOnly=true: barrierLock 内部做 `lockedForReadOnly &= readOnly`,
+    // 传 false 会把别人的只读锁悄悄改成可写, 这里不能动既有语义。
+    m_document->barrierLock(m_document->locked());
+    {
+        // 异常路径也要解锁; 用 RAII 防中途 return
+        struct UnlockGuard {
+            KisImageSP image;
+            ~UnlockGuard() { if (image) image->unlock(); }
+        } guard{m_document};
+        if (redoOp) {
+            m_undoStore->redo();
+            --m_redoCount;
+        } else {
+            m_undoStore->undo();
+            ++m_redoCount;
+        }
     }
-    // RenderLockGate: waitForDone spins forever while the image is locked.
-    if (m_document && !m_document->locked()) {
+    if (!m_document->locked()) {
         m_document->waitForDone();
     }
 }

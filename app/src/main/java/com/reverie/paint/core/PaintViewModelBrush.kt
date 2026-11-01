@@ -892,6 +892,13 @@ import kotlinx.coroutines.withContext
         val count: Int = 1,
     )
 
+    /** 画笔包超出内存/解析预算时的统一提示 (IO 线程调用, 内部切回主线程) */
+    private suspend fun PaintViewModel.notifyImportTooLarge() {
+        withContext(Dispatchers.Main) {
+            showActionToast(R.string.brush_import_too_large)
+        }
+    }
+
     internal suspend fun PaintViewModel.importSingleBrushInternal(
         uri: android.net.Uri,
         targetGroup: String? = null,
@@ -901,12 +908,23 @@ import kotlinx.coroutines.withContext
         }
         return try {
             val resolver = appContext.contentResolver
-            val filename = runCatching {
+            // 同时取 DISPLAY_NAME 与 SIZE: 后者用于在读取前就挡住超大画笔包 (整包进内存)
+            val (queriedName, queriedSize) = runCatching {
                 resolver.query(uri, null, null, null, null)?.use { cursor ->
                     val nameIndex = cursor.getColumnIndex(android.provider.OpenableColumns.DISPLAY_NAME)
-                    if (cursor.moveToFirst() && nameIndex >= 0) cursor.getString(nameIndex) else null
+                    val sizeIndex = cursor.getColumnIndex(android.provider.OpenableColumns.SIZE)
+                    if (cursor.moveToFirst()) {
+                        val name = if (nameIndex >= 0 && !cursor.isNull(nameIndex)) cursor.getString(nameIndex) else null
+                        val size = if (sizeIndex >= 0 && !cursor.isNull(sizeIndex)) cursor.getLong(sizeIndex) else -1L
+                        name to size
+                    } else {
+                        null to -1L
+                    }
                 }
-            }.getOrNull() ?: uri.lastPathSegment?.substringAfterLast("/") ?: "import_${System.currentTimeMillis()}"
+            }.getOrNull() ?: (null to -1L)
+            val filename = queriedName ?: uri.lastPathSegment?.substringAfterLast("/")
+                ?: "import_${System.currentTimeMillis()}"
+            val fileSize = queriedSize
 
             val presetDir = ResourceDirs.presets(appContext.filesDir)
             if (!presetDir.exists()) presetDir.mkdirs()
@@ -918,9 +936,17 @@ import kotlinx.coroutines.withContext
             val chosenGroup = targetGroup?.trim()?.takeIf { it.isNotEmpty() }
 
             if (com.reverie.paint.core.brushstore.BrushImportPipeline.isPreset(filename)) {
+                if (fileSize > AbrParser.MAX_IMPORT_BYTES) {
+                    notifyImportTooLarge()
+                    return BrushImportResult(success = false)
+                }
                 // W-08：经统一管线落盘——撞名改名（绝不覆盖内置/已有）、建快照
-                val bytes = resolver.openInputStream(uri)?.use { it.readBytes() }
-                    ?: return BrushImportResult(success = false)
+                val stream = resolver.openInputStream(uri) ?: return BrushImportResult(success = false)
+                val bytes = stream.use { readImportBytes(it, fileSize) }
+                if (bytes == null) {
+                    notifyImportTooLarge()
+                    return BrushImportResult(success = false)
+                }
                 val imported = com.reverie.paint.core.brushstore.BrushImportPipeline
                     .importFile(filename, bytes, presetDir)
                     .imported.firstOrNull() ?: return BrushImportResult(success = false)
@@ -933,6 +959,10 @@ import kotlinx.coroutines.withContext
                 saveBrushGroups()
                 BrushImportResult(success = true, presetName = presetName, groupName = group)
             } else if (filename.endsWith(".abr", ignoreCase = true)) {
+                if (fileSize > AbrParser.MAX_IMPORT_BYTES) {
+                    notifyImportTooLarge()
+                    return BrushImportResult(success = false)
+                }
                 val packBaseName = filename.substringBeforeLast(".").trim().ifBlank { "ABR" }
                 val targetGroupName = chosenGroup ?: packBaseName
 
@@ -942,7 +972,7 @@ import kotlinx.coroutines.withContext
                 val tipShaMap = mutableMapOf<String, String>()
 
                 val parseResult = resolver.openInputStream(uri)?.use { inStream ->
-                    AbrParser.parse(inStream, basePackName = targetGroupName) { decodedTip ->
+                    AbrParser.parse(inStream, sizeHint = fileSize, basePackName = targetGroupName) { decodedTip ->
                         // 1. Tip SHA-256 去重: 若该笔尖像素已在当前包存在，直接复用文件
                         val sha = decodedTip.sha256
                         val existingTipName = if (sha.isNotBlank()) tipShaMap[sha] else null
@@ -963,6 +993,10 @@ import kotlinx.coroutines.withContext
                     }
                 }
 
+                if (parseResult?.tooLarge == true) {
+                    notifyImportTooLarge()
+                    return BrushImportResult(success = false)
+                }
                 if (parseResult == null || (parseResult.tips.isEmpty() && parseResult.presets.isEmpty())) {
                     return BrushImportResult(success = false)
                 }

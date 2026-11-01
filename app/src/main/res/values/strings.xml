@@ -1442,6 +1442,7 @@
     <string name="brush_studio_toast_imported">笔刷导入成功</string>
     <string name="brush_importing_title">正在导入画笔</string>
     <string name="brush_importing_progress">正在解包预设 (%1$d/%2$d)</string>
+    <string name="brush_import_too_large">画笔包太大 (超过 64MB), 请先在电脑上拆分后再导入</string>
     <string name="brush_import_abr_success">成功导入 %1$d 个画笔预设至分组「%2$s」</string>
     <string name="brush_studio_toast_import_failed">导入失败，请检查文件格式</string>
     <string name="brush_studio_toast_tip_imported">自定义笔尖导入成功</string>
@@ -3147,6 +3148,7 @@
     <string name="layer_3d_zoom_in">放大模型</string>
     <string name="layer_3d_zoom_out">缩小模型</string>
     <string name="layer_3d_zoom_reset">重置缩放</string>
+    <string name="toast_3d_model_too_large">模型太大, 超出内存预算, 请换用更简单的模型</string>
     <string name="toast_3d_layer_created">已创建 3D 参考图层</string>
     <string name="toast_3d_rasterized">3D 参考图层已栅格化</string>
     <string name="toast_3d_outline_extracted">已提取 3D 线稿到新图层</string>

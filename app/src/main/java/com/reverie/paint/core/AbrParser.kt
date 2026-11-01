@@ -190,7 +190,18 @@ object AbrParser {
         val tips: List<AbrDecodedTip>,
         val presets: List<AbrPresetInfo>,
         val patterns: List<AbrPatternResource> = emptyList(),
+        /** 输入超过 [MAX_IMPORT_BYTES], 没有解析 (调用方应给用户明确提示) */
+        val tooLarge: Boolean = false,
     )
+
+    /**
+     * 单个画笔包允许导入的最大字节数。
+     *
+     * ABR 会被整体读进内存解析, 而 Android 的 Java 堆上限通常只有 512MB; 线上有 130MB /
+     * 343MB 的单次分配直接把进程打崩 (b90269b9e4 / 1692c1904d)。64MB 足够覆盖绝大多数
+     * 商店画笔包, 再大的包请用户先在桌面端拆分。
+     */
+    const val MAX_IMPORT_BYTES = 64L * 1024 * 1024
 
     private val SUBVERSION_HEADER_SKIP = mapOf(1 to 47, 2 to 301)
 
@@ -276,13 +287,36 @@ object AbrParser {
      * If [onTipDecoded] is provided, each decoded tip is dispatched immediately and
      * the in-memory tip stores a lightweight thumbnail instead of the full raw pixel array,
      * drastically reducing peak heap memory usage to prevent OOM on large ABR files.
+     *
+     * 不知道输入长度时走有上限的增量读取 (见 [MAX_IMPORT_BYTES])。
      */
     fun parse(
         input: InputStream,
         basePackName: String = "ABR",
         onTipDecoded: ((AbrDecodedTip) -> Unit)? = null,
+    ): AbrParseResult = parseStream(input, -1L, basePackName, onTipDecoded)
+
+    /**
+     * 带长度提示的解析入口: 已知长度时一次分配到位, 避免 `readBytes()` 的双份峰值。
+     * [sizeHint] <= 0 表示未知, 走有上限的增量读取。
+     */
+    fun parse(
+        input: InputStream,
+        sizeHint: Long,
+        basePackName: String = "ABR",
+        onTipDecoded: ((AbrDecodedTip) -> Unit)? = null,
+    ): AbrParseResult = parseStream(input, sizeHint, basePackName, onTipDecoded)
+
+    private fun parseStream(
+        input: InputStream,
+        sizeHint: Long,
+        basePackName: String,
+        onTipDecoded: ((AbrDecodedTip) -> Unit)?,
     ): AbrParseResult {
-        val bytes = input.readBytes()
+        val bytes = readImportBytes(input, sizeHint) ?: return AbrParseResult(
+            version = 0, subversion = 0, tips = emptyList(), presets = emptyList(),
+            patterns = emptyList(), tooLarge = true,
+        )
         if (bytes.size < 4) {
             return AbrParseResult(0, 0, emptyList(), emptyList())
         }
@@ -1555,4 +1589,46 @@ object AbrParser {
 
     private fun encodeRgbaPng(width: Int, height: Int, rgbaBytes: ByteArray): ByteArray =
         PngChunks.encodeImage(width, height, 6, rgbaBytes)
+}
+
+/**
+ * 有上限地读完整条流, 避免 `readBytes()` 的"整份数据 + 一次 toByteArray 拷贝"双份峰值。
+ *
+ * - 已知长度: 一次分配到位, 不再增长 (常见路径, 峰值 = 文件大小)
+ * - 未知长度: 倍增增长, 一旦超过 [limit] 立即放弃 (峰值 <= 2 × limit)
+ *
+ * 超过上限返回 null; 调用方把它映射成"包太大"的提示。
+ */
+internal fun readImportBytes(
+    input: InputStream,
+    sizeHint: Long = -1L,
+    limit: Long = AbrParser.MAX_IMPORT_BYTES,
+): ByteArray? {
+    if (sizeHint in 1..limit) {
+        val exact = ByteArray(sizeHint.toInt())
+        var offset = 0
+        while (offset < exact.size) {
+            val read = input.read(exact, offset, exact.size - offset)
+            if (read < 0) break
+            offset += read
+        }
+        return if (offset == exact.size) exact else exact.copyOf(offset)
+    }
+    if (sizeHint > limit) return null
+
+    var buffer = ByteArray(1 shl 20)
+    var size = 0
+    while (true) {
+        if (size == buffer.size) {
+            if (buffer.size.toLong() >= limit) {
+                // 刚好读满上限: 再探一个字节, 确认是 EOF 而不是还有数据
+                return if (input.read() < 0) buffer else null
+            }
+            buffer = buffer.copyOf(minOf(buffer.size.toLong() * 2, limit).toInt())
+        }
+        val read = input.read(buffer, size, buffer.size - size)
+        if (read < 0) break
+        size += read
+    }
+    return if (size == buffer.size) buffer else buffer.copyOf(size)
 }

@@ -1082,6 +1082,12 @@ private:
 
     KisImageSP m_document;
     QVector<LayerEntry> m_layers;   // bottom -> top, tree traversal order
+    // m_layers 里存的是裸 KisNode*; 这份强引用保证"已被移出图层树、但 m_layers 还没重建"
+    // 的节点在快照线程读取期间仍然活着 (线上 3bfafaf734: 主线程快照读 node->opacity()
+    // 撞上核心线程删层 -> UAF)。syncLayersFromImage 重建 m_layers 时同步刷新。
+    QVector<KisNodeSP> m_layerMirrorRefs;
+    // 保护 m_layers / m_layerMirrorRefs 的重建与快照读取 (快照在主线程, 重建在核心线程)
+    mutable std::mutex m_layerMirrorMutex;
     // Layer thumbnail cache: keyed by node (survives index shifts from
     // add/remove/move). gen is bumped by markDirty (doc-wide ops) or
     // bumpLayerThumbGen (strokes); renderLayerThumb re-blits the cached
@@ -1610,6 +1616,11 @@ private:
     // adapter, so undo/redo restores Krita's own tile-level snapshots
     // (memory-efficient) and covers strokes, fills, shapes, layer
     // add/remove/move and layer attributes - not just brush strokes.
+public:
+    /// 图层快照线程与核心线程共享 m_layers 时使用 (见 m_layerMirrorMutex)
+    std::mutex &layerMirrorMutex() const { return m_layerMirrorMutex; }
+
+private:
     ReverieUndoStore *m_undoStore = nullptr;
     // 撤销历史上限 (命令条数, 0 = 无上限)。默认 50 与 Kotlin 侧
     // maxUndoSteps 的 prefs 默认值一致; 无 Kotlin 接线时也生效。
