@@ -29,6 +29,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -110,6 +113,7 @@ fun QuickActionWindow(
     }
 
     var windowSize by remember { mutableStateOf(IntSize.Zero) }
+    var windowCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
     val config = vm.quickActionsConfig
     val isCollapsed = vm.quickActionCollapsed
@@ -183,12 +187,23 @@ fun QuickActionWindow(
                 )
                 .evadablePanelContent(vm, UiPanelSlot.QUICK_ACTION)
                 .animateContentSize(Motion.enterSpring())
+                .onGloballyPositioned { windowCoords = it }
         ) {
         if (isCollapsed) {
+            DisposableEffect(Unit) {
+                onDispose { vm.quickActionGrip.clear() }
+            }
             // ---- 折叠微缩态 (流线型悬浮小球/胶囊) ----
             Row(
                 modifier = Modifier
                     .wrapContentSize()
+                    .onGloballyPositioned { coords ->
+                        val root = windowCoords ?: return@onGloballyPositioned
+                        val pos = root.localPositionOf(coords, Offset.Zero)
+                        vm.quickActionGrip.update(
+                            pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                        )
+                    }
                     .pointerInput(Unit) {
                         detectDragGestures(
                             onDragStart = {
@@ -207,6 +222,12 @@ fun QuickActionWindow(
                             change.consume()
                             vm.quickActionWindowX += dragAmount.x
                             vm.quickActionWindowY += dragAmount.y
+                            vm.clampQuickWindowsToSafeArea(
+                                vm.floatingHostWidthPx,
+                                vm.floatingHostHeightPx,
+                                density.density,
+                                persist = false,
+                            )
                         }
                     }
                     .padding(horizontal = 8.dp, vertical = 6.dp),
@@ -259,6 +280,9 @@ fun QuickActionWindow(
             }
         } else {
             // ---- 展开完整态 ----
+            DisposableEffect(Unit) {
+                onDispose { vm.quickActionGrip.clear() }
+            }
             Column(
                 modifier = Modifier
                     .wrapContentSize()
@@ -277,6 +301,13 @@ fun QuickActionWindow(
                             }
                         )
                         .height(24.dp)
+                        .onGloballyPositioned { coords ->
+                            val root = windowCoords ?: return@onGloballyPositioned
+                            val pos = root.localPositionOf(coords, Offset.Zero)
+                            vm.quickActionGrip.update(
+                                pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                            )
+                        }
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = {
@@ -295,6 +326,12 @@ fun QuickActionWindow(
                                 change.consume()
                                 vm.quickActionWindowX += dragAmount.x
                                 vm.quickActionWindowY += dragAmount.y
+                                vm.clampQuickWindowsToSafeArea(
+                                    vm.floatingHostWidthPx,
+                                    vm.floatingHostHeightPx,
+                                    density.density,
+                                    persist = false,
+                                )
                             }
                         },
                     verticalAlignment = Alignment.CenterVertically,

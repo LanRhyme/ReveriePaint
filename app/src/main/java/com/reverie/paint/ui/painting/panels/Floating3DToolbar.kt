@@ -25,6 +25,10 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -35,6 +39,7 @@ import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Interaction3DMode
 import com.reverie.paint.model.RenderMode3D
+import com.reverie.paint.model.clampPlacedWindowOrigin
 import com.reverie.paint.ui.components.ReDropdownMenu
 import com.reverie.paint.ui.components.ReDropdownMenuItem
 import com.reverie.paint.ui.theme.Morandi
@@ -53,8 +58,13 @@ fun Floating3DToolbar(
 ) {
     val state = vm.currentLayer3DState ?: return
 
+    val density = LocalDensity.current
     var offsetX by remember { mutableFloatStateOf(0f) }
     var offsetY by remember { mutableFloatStateOf(0f) }
+    var barW by remember { mutableFloatStateOf(0f) }
+    var barH by remember { mutableFloatStateOf(0f) }
+    var restX by remember { mutableFloatStateOf(0f) }
+    var restY by remember { mutableFloatStateOf(0f) }
 
     var showStyleMenu by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
@@ -68,13 +78,37 @@ fun Floating3DToolbar(
             .pointerInput(Unit) {
                 detectDragGestures { change, dragAmount ->
                     change.consume()
-                    offsetX += dragAmount.x
-                    offsetY += dragAmount.y
+                    val hostW = vm.floatingHostWidthPx
+                    val hostH = vm.floatingHostHeightPx
+                    if (hostW <= 0f || hostH <= 0f || barW <= 0f || barH <= 0f) {
+                        offsetX += dragAmount.x
+                        offsetY += dragAmount.y
+                    } else {
+                        val keep = 48f * density.density
+                        val (nx, ny) = clampPlacedWindowOrigin(
+                            restX + offsetX + dragAmount.x,
+                            restY + offsetY + dragAmount.y,
+                            hostW, hostH,
+                            0f, 0f, barW, barH,
+                            keep,
+                        )
+                        offsetX = nx - restX
+                        offsetY = ny - restY
+                    }
                 }
             },
     ) {
         Box(
             modifier = Modifier
+                .onSizeChanged {
+                    barW = it.width.toFloat()
+                    barH = it.height.toFloat()
+                }
+                .onGloballyPositioned { coords ->
+                    val pos = coords.positionInRoot()
+                    restX = pos.x - offsetX
+                    restY = pos.y - offsetY
+                }
                 .shadow(10.dp, RoundedCornerShape(22.dp), ambientColor = Color.Black.copy(alpha = 0.2f))
                 .clip(RoundedCornerShape(22.dp))
                 .background(Morandi.panel.copy(alpha = 0.94f))

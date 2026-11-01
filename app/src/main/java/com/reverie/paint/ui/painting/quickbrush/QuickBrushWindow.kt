@@ -35,6 +35,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -101,6 +104,7 @@ fun QuickBrushWindow(
     }
 
     var windowSize by remember { mutableStateOf(IntSize.Zero) }
+    var windowCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
     val isCollapsed = vm.quickBrushCollapsed
     val isVertical = vm.quickBrushOrientation == "vertical"
@@ -171,12 +175,23 @@ fun QuickBrushWindow(
                 )
                 .evadablePanelContent(vm, UiPanelSlot.QUICK_BRUSH)
                 .animateContentSize(Motion.enterSpring())
+                .onGloballyPositioned { windowCoords = it }
         ) {
             if (isCollapsed) {
+                DisposableEffect(Unit) {
+                    onDispose { vm.quickBrushGrip.clear() }
+                }
                 // ---- 折叠微缩态 (流线型悬浮微球/微胶囊) ----
                 Row(
                     modifier = Modifier
                         .wrapContentSize()
+                        .onGloballyPositioned { coords ->
+                            val root = windowCoords ?: return@onGloballyPositioned
+                            val pos = root.localPositionOf(coords, Offset.Zero)
+                            vm.quickBrushGrip.update(
+                                pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                            )
+                        }
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = {
@@ -195,6 +210,12 @@ fun QuickBrushWindow(
                                 change.consume()
                                 vm.quickBrushWindowX += dragAmount.x
                                 vm.quickBrushWindowY += dragAmount.y
+                                vm.clampQuickWindowsToSafeArea(
+                                    vm.floatingHostWidthPx,
+                                    vm.floatingHostHeightPx,
+                                    density.density,
+                                    persist = false,
+                                )
                             }
                         }
                         .padding(horizontal = 8.dp, vertical = 6.dp),
@@ -245,6 +266,9 @@ fun QuickBrushWindow(
             } else {
                 // ---- 展开完整态 ----
                 if (isVertical) {
+                    DisposableEffect(Unit) {
+                        onDispose { vm.quickBrushGrip.clear() }
+                    }
                     // ---- 垂直胶囊模式 ----
                     Column(
                         modifier = Modifier
@@ -258,6 +282,13 @@ fun QuickBrushWindow(
                             modifier = Modifier
                                 .width(42.dp)
                                 .height(20.dp)
+                                .onGloballyPositioned { coords ->
+                                    val root = windowCoords ?: return@onGloballyPositioned
+                                    val pos = root.localPositionOf(coords, Offset.Zero)
+                                    vm.quickBrushGrip.update(
+                                        pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                                    )
+                                }
                                 .pointerInput(Unit) {
                                     detectDragGestures(
                                         onDragStart = {
@@ -276,6 +307,12 @@ fun QuickBrushWindow(
                                         change.consume()
                                         vm.quickBrushWindowX += dragAmount.x
                                         vm.quickBrushWindowY += dragAmount.y
+                                        vm.clampQuickWindowsToSafeArea(
+                                            vm.floatingHostWidthPx,
+                                            vm.floatingHostHeightPx,
+                                            density.density,
+                                            persist = false,
+                                        )
                                     }
                                 }
                                 .clickable {
@@ -385,6 +422,9 @@ fun QuickBrushWindow(
                         }
                     }
                 } else {
+                    DisposableEffect(Unit) {
+                        onDispose { vm.quickBrushGrip.clear() }
+                    }
                     // ---- 水平横向胶囊模式 ----
                     Row(
                         modifier = Modifier
@@ -398,6 +438,13 @@ fun QuickBrushWindow(
                             modifier = Modifier
                                 .width(14.dp)
                                 .height(28.dp)
+                                .onGloballyPositioned { coords ->
+                                    val root = windowCoords ?: return@onGloballyPositioned
+                                    val pos = root.localPositionOf(coords, Offset.Zero)
+                                    vm.quickBrushGrip.update(
+                                        pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                                    )
+                                }
                                 .pointerInput(Unit) {
                                     detectDragGestures(
                                         onDragStart = {
@@ -416,6 +463,12 @@ fun QuickBrushWindow(
                                         change.consume()
                                         vm.quickBrushWindowX += dragAmount.x
                                         vm.quickBrushWindowY += dragAmount.y
+                                        vm.clampQuickWindowsToSafeArea(
+                                            vm.floatingHostWidthPx,
+                                            vm.floatingHostHeightPx,
+                                            density.density,
+                                            persist = false,
+                                        )
                                     }
                                 }
                                 .padding(horizontal = 2.dp),
