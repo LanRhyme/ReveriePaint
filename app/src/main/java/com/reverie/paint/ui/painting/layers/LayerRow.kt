@@ -67,6 +67,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.State
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -76,7 +77,6 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
@@ -132,6 +132,11 @@ import kotlin.math.roundToInt
 
 private val drawerWidth = 132.dp
 
+/** 没有滑动守卫时的共享哨兵 (恒为 0): 行可跳过重组, 不必为每行各建一个 State。 */
+private val NoScrollGuard: State<Long> = object : State<Long> {
+    override val value: Long = 0L
+}
+
 @Composable
 internal fun LayerRow(
     vm: PaintViewModel,
@@ -155,14 +160,13 @@ internal fun LayerRow(
     modifier: Modifier = Modifier,
     hasNextSibling: Boolean = false,
     openDepths: Set<Int> = emptySet(),
-    scrollGuardUntilMs: Long = 0L,
+    scrollGuardUntil: State<Long> = NoScrollGuard,
 ) {
     val rowHeight = vm.layerRowHeightDp.dp
     val index = layer.index
     val isBg = layer.isBackground
     val visible = layer.visible
     val viewConfiguration = LocalViewConfiguration.current
-    val scrollGuardState = rememberUpdatedState(scrollGuardUntilMs)
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
     // Right-swipe (multi-select) threshold to trigger selection (deliberate swipe, prevents accidental tap jitter)
@@ -272,7 +276,7 @@ internal fun LayerRow(
                         }
 
                         val isMask = com.reverie.paint.model.LayerNodeType.isMask(layer.nodeType)
-                        val scrollGuarded = android.os.SystemClock.uptimeMillis() < scrollGuardState.value
+                        val scrollGuarded = android.os.SystemClock.uptimeMillis() < scrollGuardUntil.value
                         if (earlyExit == null && !isDrawerOpen && !isMask && !scrollGuarded) {
                             // Phase 2: EXACTLY 300ms elapsed without movement exceeding slop -> TRIGGER DRAG!
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)

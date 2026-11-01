@@ -73,13 +73,13 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.runtime.withFrameNanos
 import androidx.compose.ui.Alignment
@@ -155,14 +155,15 @@ internal fun LayerListView(
     val collapsedGroupNames = vm.collapsedGroupNames
     val listState = rememberLazyListState()
     // 惯性滚动中，以及滚动刚停后的 300ms，行内长按不进入拖图层。
-    var layerScrollGuardUntilMs by remember { mutableLongStateOf(0L) }
+    // 以 State 下发给行: 值只在手势回调里读, 滚动起止不会连带重组可见行 (实例恒定, 行可跳过)。
+    val layerScrollGuard = remember { mutableLongStateOf(0L) }
     LaunchedEffect(listState) {
         var wasScrolling = false
         snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
             if (scrolling) {
-                layerScrollGuardUntilMs = Long.MAX_VALUE
+                layerScrollGuard.longValue = Long.MAX_VALUE
             } else if (wasScrolling) {
-                layerScrollGuardUntilMs = android.os.SystemClock.uptimeMillis() + 300L
+                layerScrollGuard.longValue = android.os.SystemClock.uptimeMillis() + 300L
             }
             wasScrolling = scrolling
         }
@@ -956,7 +957,7 @@ internal fun LayerListView(
                             collapsed = layer.name in collapsedGroupNames,
                             hasNextSibling = hasNextSibling,
                             openDepths = openDepths,
-                            scrollGuardUntilMs = layerScrollGuardUntilMs,
+                            scrollGuardUntil = layerScrollGuard,
                             onToggleCollapse = {
                                 revealedIndex = null
                                 vm.toggleGroupCollapsed(layer.name)
