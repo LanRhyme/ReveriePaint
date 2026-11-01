@@ -155,12 +155,14 @@ internal fun LayerRow(
     modifier: Modifier = Modifier,
     hasNextSibling: Boolean = false,
     openDepths: Set<Int> = emptySet(),
+    scrollGuardUntilMs: Long = 0L,
 ) {
     val rowHeight = vm.layerRowHeightDp.dp
     val index = layer.index
     val isBg = layer.isBackground
     val visible = layer.visible
     val viewConfiguration = LocalViewConfiguration.current
+    val scrollGuardState = rememberUpdatedState(scrollGuardUntilMs)
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
     // Right-swipe (multi-select) threshold to trigger selection (deliberate swipe, prevents accidental tap jitter)
@@ -270,7 +272,8 @@ internal fun LayerRow(
                         }
 
                         val isMask = com.reverie.paint.model.LayerNodeType.isMask(layer.nodeType)
-                        if (earlyExit == null && !isDrawerOpen && !isMask) {
+                        val scrollGuarded = android.os.SystemClock.uptimeMillis() < scrollGuardState.value
+                        if (earlyExit == null && !isDrawerOpen && !isMask && !scrollGuarded) {
                             // Phase 2: EXACTLY 300ms elapsed without movement exceeding slop -> TRIGGER DRAG!
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             scope.launch { rowInteraction.emit(androidx.compose.foundation.interaction.PressInteraction.Cancel(press)) }

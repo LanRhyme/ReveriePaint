@@ -73,6 +73,7 @@ import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
@@ -153,6 +154,19 @@ internal fun LayerListView(
     var revealedIndex by remember { mutableStateOf<Int?>(null) }
     val collapsedGroupNames = vm.collapsedGroupNames
     val listState = rememberLazyListState()
+    // 惯性滚动中，以及滚动刚停后的 300ms，行内长按不进入拖图层。
+    var layerScrollGuardUntilMs by remember { mutableLongStateOf(0L) }
+    LaunchedEffect(listState) {
+        var wasScrolling = false
+        snapshotFlow { listState.isScrollInProgress }.collect { scrolling ->
+            if (scrolling) {
+                layerScrollGuardUntilMs = Long.MAX_VALUE
+            } else if (wasScrolling) {
+                layerScrollGuardUntilMs = android.os.SystemClock.uptimeMillis() + 300L
+            }
+            wasScrolling = scrolling
+        }
+    }
     var draggingFrom by remember { mutableIntStateOf(-1) }
     var dragOver by remember { mutableStateOf<Pair<Int, DropMode>?>(null) }
     var dragFingerX by remember { mutableFloatStateOf(0f) }
@@ -942,6 +956,7 @@ internal fun LayerListView(
                             collapsed = layer.name in collapsedGroupNames,
                             hasNextSibling = hasNextSibling,
                             openDepths = openDepths,
+                            scrollGuardUntilMs = layerScrollGuardUntilMs,
                             onToggleCollapse = {
                                 revealedIndex = null
                                 vm.toggleGroupCollapsed(layer.name)
