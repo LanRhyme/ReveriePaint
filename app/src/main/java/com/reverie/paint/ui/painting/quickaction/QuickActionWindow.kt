@@ -49,6 +49,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.model.DragGripSpec
 import com.reverie.paint.model.QuickAction
 import com.reverie.paint.model.QuickActionLayoutMode
 import com.reverie.paint.model.UiPanelSlot
@@ -300,7 +301,7 @@ fun QuickActionWindow(
                                 QuickActionLayoutMode.GRID_3 -> Modifier.width(144.dp)
                             }
                         )
-                        .height(24.dp)
+                        .height(DragGripSpec.QUICK_ACTION_TOP_BAR_HEIGHT_DP.dp)
                         .onGloballyPositioned { coords ->
                             val root = windowCoords ?: return@onGloballyPositioned
                             val pos = root.localPositionOf(coords, Offset.Zero)

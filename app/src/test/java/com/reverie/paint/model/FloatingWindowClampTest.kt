@@ -4,109 +4,95 @@
 package com.reverie.paint.model
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertSame
 import org.junit.Test
 
 class FloatingWindowClampTest {
 
+    /** 默认父级 2560x1600、把手 400x200、留 48px, 各用例只覆盖自己关心的入参 */
+    private fun clamp(
+        x: Float,
+        y: Float,
+        parentW: Float = 2560f,
+        parentH: Float = 1600f,
+        gripLeft: Float = 0f,
+        gripTop: Float = 0f,
+        gripW: Float = 400f,
+        gripH: Float = 200f,
+        keepInsidePx: Float = 48f,
+        out: WindowOrigin = WindowOrigin(),
+    ): WindowOrigin = clampPlacedWindowOrigin(
+        x, y, parentW, parentH, gripLeft, gripTop, gripW, gripH, keepInsidePx, out,
+    )
+
     @Test
     fun `landscape parent lets the window travel past the old portrait width`() {
-        val (x, y) = clampPlacedWindowOrigin(
-            x = 2000f, y = 100f,
-            parentW = 2560f, parentH = 1600f,
-            gripLeft = 0f, gripTop = 0f, gripW = 400f, gripH = 200f,
-            keepInsidePx = 48f,
-        )
-        assertEquals(2000f, x)
-        assertEquals(100f, y)
+        val origin = clamp(x = 2000f, y = 100f)
+        assertEquals(2000f, origin.x)
+        assertEquals(100f, origin.y)
     }
 
     @Test
     fun `right and bottom keep forty eight pixels of the top handle inside`() {
-        val (x, y) = clampPlacedWindowOrigin(
-            x = 2700f, y = 1700f,
-            parentW = 2560f, parentH = 1600f,
-            gripLeft = 0f, gripTop = 0f, gripW = 400f, gripH = 200f,
-            keepInsidePx = 48f,
-        )
-        assertEquals(2512f, x)
-        assertEquals(1552f, y)
+        val origin = clamp(x = 2700f, y = 1700f)
+        assertEquals(2512f, origin.x)
+        assertEquals(1552f, origin.y)
     }
 
     @Test
     fun `left overflow keeps forty eight pixels inside and top handle cannot leave`() {
-        val (x, y) = clampPlacedWindowOrigin(
-            x = -400f, y = -20f,
-            parentW = 2560f, parentH = 1600f,
-            gripLeft = 0f, gripTop = 0f, gripW = 400f, gripH = 200f,
-            keepInsidePx = 48f,
-        )
-        assertEquals(-352f, x)
-        assertEquals(0f, y)
+        val origin = clamp(x = -400f, y = -20f)
+        assertEquals(-352f, origin.x)
+        assertEquals(0f, origin.y)
     }
 
     @Test
     fun `non positive parent returns origin unchanged`() {
-        val (x, y) = clampPlacedWindowOrigin(
-            x = -350f, y = 9999f,
-            parentW = 0f, parentH = 1600f,
-            gripLeft = 0f, gripTop = 0f, gripW = 200f, gripH = 100f,
-            keepInsidePx = 48f,
-        )
-        assertEquals(-350f, x)
-        assertEquals(9999f, y)
+        val origin = clamp(x = -350f, y = 9999f, parentW = 0f, gripW = 200f, gripH = 100f)
+        assertEquals(-350f, origin.x)
+        assertEquals(9999f, origin.y)
     }
 
     @Test
     fun `window smaller than the grip stays fully grabbable`() {
-        val (x, y) = clampPlacedWindowOrigin(
-            x = -10f, y = 2000f,
-            parentW = 2560f, parentH = 1600f,
-            gripLeft = 0f, gripTop = 0f, gripW = 40f, gripH = 30f,
-            keepInsidePx = 48f,
-        )
-        assertEquals(0f, x)
-        assertEquals(1570f, y)
+        val origin = clamp(x = -10f, y = 2000f, gripW = 40f, gripH = 30f)
+        assertEquals(0f, origin.x)
+        assertEquals(1570f, origin.y)
     }
 
     @Test
     fun `centered pill keeps forty eight pixels of the grip inside`() {
-        val (rightX, rightY) = clampPlacedWindowOrigin(
-            x = 3000f, y = 0f,
-            parentW = 2560f, parentH = 1600f,
-            gripLeft = 76f, gripTop = 0f, gripW = 60f, gripH = 16f,
-            keepInsidePx = 48f,
-        )
-        assertEquals(2436f, rightX)
-        assertEquals(0f, rightY)
+        val right = clamp(x = 3000f, y = 0f, gripLeft = 76f, gripW = 60f, gripH = 16f)
+        assertEquals(2436f, right.x)
+        assertEquals(0f, right.y)
 
-        val (leftX, leftY) = clampPlacedWindowOrigin(
-            x = -1000f, y = -20f,
-            parentW = 2560f, parentH = 1600f,
-            gripLeft = 76f, gripTop = 0f, gripW = 60f, gripH = 16f,
-            keepInsidePx = 48f,
-        )
-        assertEquals(-88f, leftX)
-        assertEquals(0f, leftY)
+        val left = clamp(x = -1000f, y = -20f, gripLeft = 76f, gripW = 60f, gripH = 16f)
+        assertEquals(-88f, left.x)
+        assertEquals(0f, left.y)
     }
 
     @Test
     fun `narrow left grip stays fully inside the parent`() {
-        val (leftX, leftY) = clampPlacedWindowOrigin(
-            x = -500f, y = -100f,
-            parentW = 2560f, parentH = 1600f,
-            gripLeft = 6f, gripTop = 13f, gripW = 14f, gripH = 28f,
-            keepInsidePx = 48f,
-        )
-        assertEquals(-6f, leftX)
-        assertEquals(-13f, leftY)
+        val left = clamp(x = -500f, y = -100f, gripLeft = 6f, gripTop = 13f, gripW = 14f, gripH = 28f)
+        assertEquals(-6f, left.x)
+        assertEquals(-13f, left.y)
 
-        val (rightX, rightY) = clampPlacedWindowOrigin(
-            x = 4000f, y = 4000f,
-            parentW = 2560f, parentH = 1600f,
-            gripLeft = 6f, gripTop = 13f, gripW = 14f, gripH = 28f,
-            keepInsidePx = 48f,
-        )
-        assertEquals(2540f, rightX)
-        assertEquals(1559f, rightY)
+        val right = clamp(x = 4000f, y = 4000f, gripLeft = 6f, gripTop = 13f, gripW = 14f, gripH = 28f)
+        assertEquals(2540f, right.x)
+        assertEquals(1559f, right.y)
+    }
+
+    @Test
+    fun `reused result holder is filled in place without allocating`() {
+        val reuse = WindowOrigin()
+        val first = clamp(x = 2700f, y = 1700f, out = reuse)
+        assertSame(reuse, first)
+        assertEquals(2512f, reuse.x)
+        assertEquals(1552f, reuse.y)
+
+        // 同一个容器再夹一次: 上次的结果不能残留
+        clamp(x = 100f, y = 200f, out = reuse)
+        assertEquals(100f, reuse.x)
+        assertEquals(200f, reuse.y)
     }
 }

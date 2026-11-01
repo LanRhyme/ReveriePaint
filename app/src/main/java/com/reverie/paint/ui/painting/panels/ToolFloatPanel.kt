@@ -50,6 +50,7 @@ import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.model.UiPanelSlot
+import com.reverie.paint.model.WindowOrigin
 import com.reverie.paint.model.clampPlacedWindowOrigin
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.components.reportUiSlot
@@ -81,6 +82,8 @@ fun ToolFloatPanel(
     var barH by remember { mutableFloatStateOf(0f) }
     var restX by remember { mutableFloatStateOf(0f) }
     var restY by remember { mutableFloatStateOf(0f) }
+    // 拖拽期每帧夹取, 复用一个结果容器, 不产生 Pair
+    val clampOut = remember { WindowOrigin() }
     val capsuleShape = RoundedCornerShape(18.dp)
 
     AnimatedVisibility(
@@ -110,14 +113,15 @@ fun ToolFloatPanel(
                             dragOffset += dragAmount
                         } else {
                             val keep = 48f * density.density
-                            val (nx, ny) = clampPlacedWindowOrigin(
+                            clampPlacedWindowOrigin(
                                 restX + dragOffset.x + dragAmount.x,
                                 restY + dragOffset.y + dragAmount.y,
                                 hostW, hostH,
                                 0f, 0f, barW, barH,
                                 keep,
+                                clampOut,
                             )
-                            dragOffset = Offset(nx - restX, ny - restY)
+                            dragOffset = Offset(clampOut.x - restX, clampOut.y - restY)
                         }
                     }
                 }

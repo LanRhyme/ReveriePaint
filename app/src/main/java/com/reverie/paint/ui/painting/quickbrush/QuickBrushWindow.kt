@@ -56,6 +56,7 @@ import com.reverie.paint.core.BrushPresetInfo
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.applyTool
 import com.reverie.paint.core.selectBrushPreset
+import com.reverie.paint.model.DragGripSpec
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.pressScale
@@ -280,8 +281,8 @@ fun QuickBrushWindow(
                         // 顶部拖动手柄与折叠
                         Box(
                             modifier = Modifier
-                                .width(42.dp)
-                                .height(20.dp)
+                                .width(DragGripSpec.QUICK_BRUSH_TOP_WIDTH_DP.dp)
+                                .height(DragGripSpec.QUICK_BRUSH_TOP_HEIGHT_DP.dp)
                                 .onGloballyPositioned { coords ->
                                     val root = windowCoords ?: return@onGloballyPositioned
                                     val pos = root.localPositionOf(coords, Offset.Zero)
@@ -426,18 +427,19 @@ fun QuickBrushWindow(
                         onDispose { vm.quickBrushGrip.clear() }
                     }
                     // ---- 水平横向胶囊模式 ----
+                    // 行内留白同时是左端握把的左缘偏移, 与 DragGripSpec.QUICK_BRUSH_SIDE_INSET_DP 同源
                     Row(
                         modifier = Modifier
                             .wrapContentSize()
-                            .padding(horizontal = 6.dp, vertical = 5.dp),
+                            .padding(horizontal = DragGripSpec.QUICK_BRUSH_SIDE_INSET_DP.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
                     ) {
                         // 独立拖拽手柄
                         Box(
                             modifier = Modifier
-                                .width(14.dp)
-                                .height(28.dp)
+                                .width(DragGripSpec.QUICK_BRUSH_SIDE_WIDTH_DP.dp)
+                                .height(DragGripSpec.QUICK_BRUSH_SIDE_HEIGHT_DP.dp)
                                 .onGloballyPositioned { coords ->
                                     val root = windowCoords ?: return@onGloballyPositioned
                                     val pos = root.localPositionOf(coords, Offset.Zero)

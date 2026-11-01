@@ -65,6 +65,7 @@ import com.reverie.paint.core.importLegacyProjectReferences
 import com.reverie.paint.core.ensureReferenceImagesLoaded
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.updateBrushColor
+import com.reverie.paint.model.DragGripSpec
 import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.components.reportUiSlot
@@ -492,7 +493,7 @@ fun ReferenceWindow(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .height(28.dp)
+                    .height(DragGripSpec.REFERENCE_STRIP_HEIGHT_DP.dp)
                     .onGloballyPositioned { coords ->
                         val root = windowCoords ?: return@onGloballyPositioned
                         val pos = root.localPositionOf(coords, Offset.Zero)
@@ -716,7 +717,7 @@ private fun ReferenceTopBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(38.dp)
+            .height(DragGripSpec.REFERENCE_TOP_BAR_HEIGHT_DP.dp)
             .onGloballyPositioned(onGripPositioned)
             .background(Morandi.panel.copy(alpha = 0.92f))
             .pointerInput(Unit) {

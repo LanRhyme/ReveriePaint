@@ -1443,13 +1443,24 @@ class PaintViewModel : ViewModel() {
     internal val quickOklchGrip = FloatingGrip()
     internal val quickLayerGrip = FloatingGrip()
 
+    /** 夹取结果复用容器: 拖拽期每帧要夹 6 个窗, 避免每帧分配 Pair 与装箱。仅主线程使用。 */
+    private val clampScratch = WindowOrigin()
+
+    /**
+     * 夹一个窗: 有实测把手就用实测矩形, 没有时用 [fallbackLeft]/[fallbackTop]/[fallbackW]/[fallbackH]。
+     *
+     * 实测把手总是缺一帧 —— 宿主 Box 在 measure 阶段就回调 onSizeChanged, 而子节点的把手要到
+     * place 阶段才 onGloballyPositioned, 所以首帧/方向切换时走兜底。兜底几何统一引用 DragGripSpec,
+     * 与 ui 侧实际尺寸同源, 不会悄悄漂移。
+     */
     private inline fun applyGripClamp(
         x: Float,
         y: Float,
-        gripLeft: Float,
-        gripTop: Float,
-        gripW: Float,
-        gripH: Float,
+        grip: FloatingGrip,
+        fallbackLeft: Float,
+        fallbackTop: Float,
+        fallbackW: Float,
+        fallbackH: Float,
         parentW: Float,
         parentH: Float,
         keepInside: Float,
@@ -1457,9 +1468,26 @@ class PaintViewModel : ViewModel() {
         write: (Float, Float) -> Unit,
         save: () -> Unit,
     ) {
-        val (nx, ny) = clampPlacedWindowOrigin(
-            x, y, parentW, parentH, gripLeft, gripTop, gripW, gripH, keepInside,
+        val gripLeft: Float
+        val gripTop: Float
+        val gripW: Float
+        val gripH: Float
+        if (grip.placed) {
+            gripLeft = grip.left
+            gripTop = grip.top
+            gripW = grip.width
+            gripH = grip.height
+        } else {
+            gripLeft = fallbackLeft
+            gripTop = fallbackTop
+            gripW = fallbackW
+            gripH = fallbackH
+        }
+        clampPlacedWindowOrigin(
+            x, y, parentW, parentH, gripLeft, gripTop, gripW, gripH, keepInside, clampScratch,
         )
+        val nx = clampScratch.x
+        val ny = clampScratch.y
         if (nx != x || ny != y) {
             write(nx, ny)
             if (persist) save()
@@ -1481,215 +1509,178 @@ class PaintViewModel : ViewModel() {
         if (parentW <= 0f || parentH <= 0f) return
         val keepInside = 48f * density
 
-        // 1. Reference Window: 顶栏整宽。未定位哨兵不夹。已测量把手走无分配路径。
+        // 1. Reference Window: 顶栏整宽 (展开 38dp / 收起 28dp 拖动条)。未定位哨兵不夹。
         if (!(referenceWindowX < 0f && referenceWindowY < 0f)) {
-            val grip = referenceGrip
-            if (grip.placed) {
-                applyGripClamp(
-                    referenceWindowX, referenceWindowY, grip.left, grip.top, grip.width, grip.height,
-                    parentW, parentH, keepInside, persist,
-                    { nx, ny -> referenceWindowX = nx; referenceWindowY = ny },
-                    ::persistReferenceState,
-                )
+            val w = referenceWindowWidth * density
+            val h = referenceWindowHeight * density
+            val barH = if (referenceBarsCollapsed) {
+                DragGripSpec.REFERENCE_STRIP_HEIGHT_DP
             } else {
-                val w = referenceWindowWidth * density
-                val h = referenceWindowHeight * density
-                applyGripClamp(
-                    referenceWindowX, referenceWindowY, 0f, 0f, w, minOf(38f * density, h),
-                    parentW, parentH, keepInside, persist,
-                    { nx, ny -> referenceWindowX = nx; referenceWindowY = ny },
-                    ::persistReferenceState,
-                )
+                DragGripSpec.REFERENCE_TOP_BAR_HEIGHT_DP
             }
+            applyGripClamp(
+                referenceWindowX, referenceWindowY, referenceGrip,
+                0f, 0f, w, minOf(barH * density, h),
+                parentW, parentH, keepInside, persist,
+                { nx, ny -> referenceWindowX = nx; referenceWindowY = ny },
+                ::persistReferenceState,
+            )
         }
 
-        // 2. Quick Action Window: 顶栏整宽, 折叠时把手就是整窗
+        // 2. Quick Action Window: 顶栏整宽 (展开 24dp), 折叠时把手就是整窗
         if (!(quickActionWindowX < 0f && quickActionWindowY < 0f)) {
-            val grip = quickActionGrip
-            if (grip.placed) {
-                applyGripClamp(
-                    quickActionWindowX, quickActionWindowY, grip.left, grip.top, grip.width, grip.height,
-                    parentW, parentH, keepInside, persist,
-                    { nx, ny -> quickActionWindowX = nx; quickActionWindowY = ny },
-                    ::persistQuickActionsState,
-                )
-            } else {
-                val fallbackW = when {
-                    quickActionCollapsed -> 64f * density
-                    quickActionsConfig.layoutMode == com.reverie.paint.model.QuickActionLayoutMode.COLUMN -> 56f * density
-                    quickActionsConfig.layoutMode == com.reverie.paint.model.QuickActionLayoutMode.ROW -> 240f * density
-                    quickActionsConfig.layoutMode == com.reverie.paint.model.QuickActionLayoutMode.GRID_2 -> 110f * density
-                    else -> 160f * density
-                }
-                val fallbackH = when {
-                    quickActionCollapsed -> 44f * density
-                    quickActionsConfig.layoutMode == com.reverie.paint.model.QuickActionLayoutMode.COLUMN -> 280f * density
-                    quickActionsConfig.layoutMode == com.reverie.paint.model.QuickActionLayoutMode.ROW -> 76f * density
-                    else -> 160f * density
-                }
-                val w = if (quickActionWindowWidth > 0f) quickActionWindowWidth else fallbackW
-                val h = if (quickActionWindowHeight > 0f) quickActionWindowHeight else fallbackH
-                val gripH = if (quickActionCollapsed) h else minOf(24f * density, h)
-                applyGripClamp(
-                    quickActionWindowX, quickActionWindowY, 0f, 0f, w, gripH,
-                    parentW, parentH, keepInside, persist,
-                    { nx, ny -> quickActionWindowX = nx; quickActionWindowY = ny },
-                    ::persistQuickActionsState,
-                )
+            val fallbackW = when {
+                quickActionCollapsed -> 64f * density
+                quickActionsConfig.layoutMode == com.reverie.paint.model.QuickActionLayoutMode.COLUMN -> 56f * density
+                quickActionsConfig.layoutMode == com.reverie.paint.model.QuickActionLayoutMode.ROW -> 240f * density
+                quickActionsConfig.layoutMode == com.reverie.paint.model.QuickActionLayoutMode.GRID_2 -> 110f * density
+                else -> 160f * density
             }
+            val fallbackH = when {
+                quickActionCollapsed -> 44f * density
+                quickActionsConfig.layoutMode == com.reverie.paint.model.QuickActionLayoutMode.COLUMN -> 280f * density
+                quickActionsConfig.layoutMode == com.reverie.paint.model.QuickActionLayoutMode.ROW -> 76f * density
+                else -> 160f * density
+            }
+            val w = if (quickActionWindowWidth > 0f) quickActionWindowWidth else fallbackW
+            val h = if (quickActionWindowHeight > 0f) quickActionWindowHeight else fallbackH
+            val gripH = if (quickActionCollapsed) {
+                h
+            } else {
+                minOf(DragGripSpec.QUICK_ACTION_TOP_BAR_HEIGHT_DP * density, h)
+            }
+            applyGripClamp(
+                quickActionWindowX, quickActionWindowY, quickActionGrip,
+                0f, 0f, w, gripH,
+                parentW, parentH, keepInside, persist,
+                { nx, ny -> quickActionWindowX = nx; quickActionWindowY = ny },
+                ::persistQuickActionsState,
+            )
         }
 
-        // 3. Quick Brush Window
+        // 3. Quick Brush Window: 折叠整窗; 竖向顶部握把; 横向左端握把
         if (!(quickBrushWindowX < 0f && quickBrushWindowY < 0f)) {
-            val grip = quickBrushGrip
-            if (grip.placed) {
-                applyGripClamp(
-                    quickBrushWindowX, quickBrushWindowY, grip.left, grip.top, grip.width, grip.height,
-                    parentW, parentH, keepInside, persist,
-                    { nx, ny -> quickBrushWindowX = nx; quickBrushWindowY = ny },
-                    ::persistQuickBrushState,
-                )
-            } else {
-                val fallbackW = when {
-                    quickBrushCollapsed -> 64f * density
-                    quickBrushOrientation == "vertical" -> 54f * density
-                    else -> (quickBrushMaxLength * 43f - 1f).coerceAtLeast(42f) * density
-                }
-                val fallbackH = when {
-                    quickBrushCollapsed -> 44f * density
-                    quickBrushOrientation == "vertical" -> 260f * density
-                    else -> 54f * density
-                }
-                val w = if (quickBrushWindowWidth > 0f) quickBrushWindowWidth else fallbackW
-                val h = if (quickBrushWindowHeight > 0f) quickBrushWindowHeight else fallbackH
-                val gripLeft: Float
-                val gripTop: Float
-                val gripW: Float
-                val gripH: Float
-                when {
-                    quickBrushCollapsed -> {
-                        gripLeft = 0f
-                        gripTop = 0f
-                        gripW = w
-                        gripH = h
-                    }
-                    quickBrushOrientation == "vertical" -> {
-                        gripW = minOf(42f * density, w)
-                        gripH = minOf(20f * density, h)
-                        gripLeft = ((w - 42f * density) / 2f).coerceAtLeast(0f)
-                        gripTop = 0f
-                    }
-                    else -> {
-                        gripW = minOf(14f * density, w)
-                        gripH = minOf(28f * density, h)
-                        gripLeft = 6f * density
-                        gripTop = ((h - 28f * density) / 2f).coerceAtLeast(0f)
-                    }
-                }
-                applyGripClamp(
-                    quickBrushWindowX, quickBrushWindowY, gripLeft, gripTop, gripW, gripH,
-                    parentW, parentH, keepInside, persist,
-                    { nx, ny -> quickBrushWindowX = nx; quickBrushWindowY = ny },
-                    ::persistQuickBrushState,
-                )
+            val fallbackW = when {
+                quickBrushCollapsed -> 64f * density
+                quickBrushOrientation == "vertical" -> 54f * density
+                else -> (quickBrushMaxLength * 43f - 1f).coerceAtLeast(42f) * density
             }
-        }
-
-        // 4. Quick Color Window: 折叠整窗 46dp; 展开居中 60x16
-        if (!(quickColorWindowX < 0f && quickColorWindowY < 0f)) {
-            val grip = quickColorGrip
-            if (grip.placed) {
-                applyGripClamp(
-                    quickColorWindowX, quickColorWindowY, grip.left, grip.top, grip.width, grip.height,
-                    parentW, parentH, keepInside, persist,
-                    { nx, ny -> quickColorWindowX = nx; quickColorWindowY = ny },
-                    ::persistQuickColorState,
-                )
-            } else {
-                val fallbackW = if (quickColorCollapsed) 46f * density else 212f * density
-                val fallbackH = if (quickColorCollapsed) 46f * density else 272f * density
-                val w = if (quickColorWindowWidth > 0f) quickColorWindowWidth else fallbackW
-                val h = if (quickColorWindowHeight > 0f) quickColorWindowHeight else fallbackH
-                val gripLeft: Float
-                val gripW: Float
-                val gripH: Float
-                if (quickColorCollapsed) {
+            val fallbackH = when {
+                quickBrushCollapsed -> 44f * density
+                quickBrushOrientation == "vertical" -> 260f * density
+                else -> 54f * density
+            }
+            val w = if (quickBrushWindowWidth > 0f) quickBrushWindowWidth else fallbackW
+            val h = if (quickBrushWindowHeight > 0f) quickBrushWindowHeight else fallbackH
+            val gripLeft: Float
+            val gripTop: Float
+            val gripW: Float
+            val gripH: Float
+            when {
+                quickBrushCollapsed -> {
                     gripLeft = 0f
+                    gripTop = 0f
                     gripW = w
                     gripH = h
-                } else {
-                    gripW = minOf(60f * density, w)
-                    gripH = minOf(16f * density, h)
-                    gripLeft = ((w - 60f * density) / 2f).coerceAtLeast(0f)
                 }
-                applyGripClamp(
-                    quickColorWindowX, quickColorWindowY, gripLeft, 0f, gripW, gripH,
-                    parentW, parentH, keepInside, persist,
-                    { nx, ny -> quickColorWindowX = nx; quickColorWindowY = ny },
-                    ::persistQuickColorState,
-                )
+                quickBrushOrientation == "vertical" -> {
+                    val barW = DragGripSpec.QUICK_BRUSH_TOP_WIDTH_DP * density
+                    gripW = minOf(barW, w)
+                    gripH = minOf(DragGripSpec.QUICK_BRUSH_TOP_HEIGHT_DP * density, h)
+                    gripLeft = ((w - barW) / 2f).coerceAtLeast(0f)
+                    gripTop = 0f
+                }
+                else -> {
+                    val barH = DragGripSpec.QUICK_BRUSH_SIDE_HEIGHT_DP * density
+                    gripW = minOf(DragGripSpec.QUICK_BRUSH_SIDE_WIDTH_DP * density, w)
+                    gripH = minOf(barH, h)
+                    gripLeft = DragGripSpec.QUICK_BRUSH_SIDE_INSET_DP * density
+                    gripTop = ((h - barH) / 2f).coerceAtLeast(0f)
+                }
             }
+            applyGripClamp(
+                quickBrushWindowX, quickBrushWindowY, quickBrushGrip,
+                gripLeft, gripTop, gripW, gripH,
+                parentW, parentH, keepInside, persist,
+                { nx, ny -> quickBrushWindowX = nx; quickBrushWindowY = ny },
+                ::persistQuickBrushState,
+            )
+        }
+
+        // 4. Quick Color Window: 折叠整窗 46dp; 展开居中 60x16 小横条
+        if (!(quickColorWindowX < 0f && quickColorWindowY < 0f)) {
+            val fallbackW = if (quickColorCollapsed) 46f * density else 212f * density
+            val fallbackH = if (quickColorCollapsed) 46f * density else 272f * density
+            val w = if (quickColorWindowWidth > 0f) quickColorWindowWidth else fallbackW
+            val h = if (quickColorWindowHeight > 0f) quickColorWindowHeight else fallbackH
+            val gripLeft: Float
+            val gripW: Float
+            val gripH: Float
+            if (quickColorCollapsed) {
+                gripLeft = 0f
+                gripW = w
+                gripH = h
+            } else {
+                val barW = DragGripSpec.PILL_WIDTH_DP * density
+                gripW = minOf(barW, w)
+                gripH = minOf(DragGripSpec.PILL_HEIGHT_DP * density, h)
+                gripLeft = ((w - barW) / 2f).coerceAtLeast(0f)
+            }
+            applyGripClamp(
+                quickColorWindowX, quickColorWindowY, quickColorGrip,
+                gripLeft, 0f, gripW, gripH,
+                parentW, parentH, keepInside, persist,
+                { nx, ny -> quickColorWindowX = nx; quickColorWindowY = ny },
+                ::persistQuickColorState,
+            )
         }
 
         // 5. Quick OKLCH Window: 折叠整窗 46dp; 展开宽 256dp, 把手同颜色窗
         if (!(quickOklchWindowX < 0f && quickOklchWindowY < 0f)) {
-            val grip = quickOklchGrip
-            if (grip.placed) {
-                applyGripClamp(
-                    quickOklchWindowX, quickOklchWindowY, grip.left, grip.top, grip.width, grip.height,
-                    parentW, parentH, keepInside, persist,
-                    { nx, ny -> quickOklchWindowX = nx; quickOklchWindowY = ny },
-                    ::persistQuickOklchState,
-                )
+            val fallbackW = if (quickOklchCollapsed) 46f * density else 256f * density
+            val fallbackH = if (quickOklchCollapsed) 46f * density else 320f * density
+            val w = if (quickOklchWindowWidth > 0f) quickOklchWindowWidth else fallbackW
+            val h = if (quickOklchWindowHeight > 0f) quickOklchWindowHeight else fallbackH
+            val gripLeft: Float
+            val gripW: Float
+            val gripH: Float
+            if (quickOklchCollapsed) {
+                gripLeft = 0f
+                gripW = w
+                gripH = h
             } else {
-                val fallbackW = if (quickOklchCollapsed) 46f * density else 256f * density
-                val fallbackH = if (quickOklchCollapsed) 46f * density else 320f * density
-                val w = if (quickOklchWindowWidth > 0f) quickOklchWindowWidth else fallbackW
-                val h = if (quickOklchWindowHeight > 0f) quickOklchWindowHeight else fallbackH
-                val gripLeft: Float
-                val gripW: Float
-                val gripH: Float
-                if (quickOklchCollapsed) {
-                    gripLeft = 0f
-                    gripW = w
-                    gripH = h
-                } else {
-                    gripW = minOf(60f * density, w)
-                    gripH = minOf(16f * density, h)
-                    gripLeft = ((w - 60f * density) / 2f).coerceAtLeast(0f)
-                }
-                applyGripClamp(
-                    quickOklchWindowX, quickOklchWindowY, gripLeft, 0f, gripW, gripH,
-                    parentW, parentH, keepInside, persist,
-                    { nx, ny -> quickOklchWindowX = nx; quickOklchWindowY = ny },
-                    ::persistQuickOklchState,
-                )
+                val barW = DragGripSpec.PILL_WIDTH_DP * density
+                gripW = minOf(barW, w)
+                gripH = minOf(DragGripSpec.PILL_HEIGHT_DP * density, h)
+                gripLeft = ((w - barW) / 2f).coerceAtLeast(0f)
             }
+            applyGripClamp(
+                quickOklchWindowX, quickOklchWindowY, quickOklchGrip,
+                gripLeft, 0f, gripW, gripH,
+                parentW, parentH, keepInside, persist,
+                { nx, ny -> quickOklchWindowX = nx; quickOklchWindowY = ny },
+                ::persistQuickOklchState,
+            )
         }
 
         // 6. Quick Layer Window: 折叠整窗 46dp; 展开顶栏 38dp
         if (!(quickLayerWindowX < 0f && quickLayerWindowY < 0f)) {
-            val grip = quickLayerGrip
-            if (grip.placed) {
-                applyGripClamp(
-                    quickLayerWindowX, quickLayerWindowY, grip.left, grip.top, grip.width, grip.height,
-                    parentW, parentH, keepInside, persist,
-                    { nx, ny -> quickLayerWindowX = nx; quickLayerWindowY = ny },
-                    ::persistQuickLayerState,
-                )
+            val fallbackW = if (quickLayerCollapsed) 46f * density else 156f * density
+            val fallbackH = if (quickLayerCollapsed) 46f * density else 290f * density
+            val w = if (quickLayerWindowWidth > 0f) quickLayerWindowWidth else fallbackW
+            val h = if (quickLayerWindowHeight > 0f) quickLayerWindowHeight else fallbackH
+            val gripH = if (quickLayerCollapsed) {
+                h
             } else {
-                val fallbackW = if (quickLayerCollapsed) 46f * density else 156f * density
-                val fallbackH = if (quickLayerCollapsed) 46f * density else 290f * density
-                val w = if (quickLayerWindowWidth > 0f) quickLayerWindowWidth else fallbackW
-                val h = if (quickLayerWindowHeight > 0f) quickLayerWindowHeight else fallbackH
-                val gripH = if (quickLayerCollapsed) h else minOf(38f * density, h)
-                applyGripClamp(
-                    quickLayerWindowX, quickLayerWindowY, 0f, 0f, w, gripH,
-                    parentW, parentH, keepInside, persist,
-                    { nx, ny -> quickLayerWindowX = nx; quickLayerWindowY = ny },
-                    ::persistQuickLayerState,
-                )
+                minOf(DragGripSpec.QUICK_LAYER_TOP_BAR_HEIGHT_DP * density, h)
             }
+            applyGripClamp(
+                quickLayerWindowX, quickLayerWindowY, quickLayerGrip,
+                0f, 0f, w, gripH,
+                parentW, parentH, keepInside, persist,
+                { nx, ny -> quickLayerWindowX = nx; quickLayerWindowY = ny },
+                ::persistQuickLayerState,
+            )
         }
     }
 

@@ -87,6 +87,7 @@ import androidx.compose.ui.window.Dialog
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.updateBrushColor
+import com.reverie.paint.model.DragGripSpec
 import com.reverie.paint.model.OklchColor
 import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.PanelCloseButton
@@ -316,7 +317,7 @@ fun QuickOklchWindow(
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
-                                .size(60.dp, 16.dp)
+                                .size(DragGripSpec.PILL_WIDTH_DP.dp, DragGripSpec.PILL_HEIGHT_DP.dp)
                                 .onGloballyPositioned { coords ->
                                     val root = windowCoords ?: return@onGloballyPositioned
                                     val pos = root.localPositionOf(coords, Offset.Zero)

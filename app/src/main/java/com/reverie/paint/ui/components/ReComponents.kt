@@ -111,6 +111,7 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 import dev.chrisbanes.haze.hazeEffect
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.model.DragGripSpec
 import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.Motion
@@ -1666,7 +1667,7 @@ fun DragPillHandle(
     val colors = Theme.current
     Box(
         modifier = modifier
-            .size(60.dp, 16.dp)
+            .size(DragGripSpec.PILL_WIDTH_DP.dp, DragGripSpec.PILL_HEIGHT_DP.dp)
             .pointerInput(Unit) {
                 detectDragGestures { change, dragAmount ->
                     change.consume()

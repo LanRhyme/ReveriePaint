@@ -39,6 +39,7 @@ import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Interaction3DMode
 import com.reverie.paint.model.RenderMode3D
+import com.reverie.paint.model.WindowOrigin
 import com.reverie.paint.model.clampPlacedWindowOrigin
 import com.reverie.paint.ui.components.ReDropdownMenu
 import com.reverie.paint.ui.components.ReDropdownMenuItem
@@ -65,6 +66,8 @@ fun Floating3DToolbar(
     var barH by remember { mutableFloatStateOf(0f) }
     var restX by remember { mutableFloatStateOf(0f) }
     var restY by remember { mutableFloatStateOf(0f) }
+    // 拖拽期每帧夹取, 复用一个结果容器, 不产生 Pair
+    val clampOut = remember { WindowOrigin() }
 
     var showStyleMenu by remember { mutableStateOf(false) }
     var showMoreMenu by remember { mutableStateOf(false) }
@@ -85,15 +88,16 @@ fun Floating3DToolbar(
                         offsetY += dragAmount.y
                     } else {
                         val keep = 48f * density.density
-                        val (nx, ny) = clampPlacedWindowOrigin(
+                        clampPlacedWindowOrigin(
                             restX + offsetX + dragAmount.x,
                             restY + offsetY + dragAmount.y,
                             hostW, hostH,
                             0f, 0f, barW, barH,
                             keep,
+                            clampOut,
                         )
-                        offsetX = nx - restX
-                        offsetY = ny - restY
+                        offsetX = clampOut.x - restX
+                        offsetY = clampOut.y - restY
                     }
                 }
             },

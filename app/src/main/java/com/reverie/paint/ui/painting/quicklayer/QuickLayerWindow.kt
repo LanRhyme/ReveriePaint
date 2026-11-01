@@ -61,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.model.DragGripSpec
 import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.PanelCloseButton
 import com.reverie.paint.ui.components.ReDropdownMenu
@@ -300,7 +301,7 @@ fun QuickLayerWindow(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(38.dp)
+                            .height(DragGripSpec.QUICK_LAYER_TOP_BAR_HEIGHT_DP.dp)
                             .onGloballyPositioned { coords ->
                                 val root = windowCoords ?: return@onGloballyPositioned
                                 val pos = root.localPositionOf(coords, Offset.Zero)
