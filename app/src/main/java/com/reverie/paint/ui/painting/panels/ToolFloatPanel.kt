@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -39,12 +40,17 @@ import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.layout.positionInRoot
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.model.UiPanelSlot
+import com.reverie.paint.model.clampPlacedWindowOrigin
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.theme.Morandi
@@ -69,7 +75,12 @@ fun ToolFloatPanel(
     content: @Composable () -> Unit,
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val density = LocalDensity.current
     var dragOffset by remember { mutableStateOf(Offset.Zero) }
+    var barW by remember { mutableFloatStateOf(0f) }
+    var barH by remember { mutableFloatStateOf(0f) }
+    var restX by remember { mutableFloatStateOf(0f) }
+    var restY by remember { mutableFloatStateOf(0f) }
     val capsuleShape = RoundedCornerShape(18.dp)
 
     AnimatedVisibility(
@@ -80,11 +91,34 @@ fun ToolFloatPanel(
         Row(
             modifier = modifier
                 .offset { IntOffset(dragOffset.x.roundToInt(), dragOffset.y.roundToInt()) }
+                .onSizeChanged {
+                    barW = it.width.toFloat()
+                    barH = it.height.toFloat()
+                }
+                .onGloballyPositioned { coords ->
+                    val pos = coords.positionInRoot()
+                    restX = pos.x - dragOffset.x
+                    restY = pos.y - dragOffset.y
+                }
                 .reportUiSlot(vm, slot)
                 .pointerInput(Unit) {
                     detectDragGestures { change, dragAmount ->
                         change.consume()
-                        dragOffset += dragAmount
+                        val hostW = vm?.floatingHostWidthPx ?: 0f
+                        val hostH = vm?.floatingHostHeightPx ?: 0f
+                        if (vm == null || hostW <= 0f || hostH <= 0f || barW <= 0f || barH <= 0f) {
+                            dragOffset += dragAmount
+                        } else {
+                            val keep = 48f * density.density
+                            val (nx, ny) = clampPlacedWindowOrigin(
+                                restX + dragOffset.x + dragAmount.x,
+                                restY + dragOffset.y + dragAmount.y,
+                                hostW, hostH,
+                                0f, 0f, barW, barH,
+                                keep,
+                            )
+                            dragOffset = Offset(nx - restX, ny - restY)
+                        }
                     }
                 }
                 .padding(horizontal = 12.dp, vertical = 8.dp)

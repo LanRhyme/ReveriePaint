@@ -43,6 +43,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -114,6 +116,7 @@ fun QuickColorWindow(
 
     val isCollapsed = vm.quickColorCollapsed
     var windowSize by remember { mutableStateOf(IntSize.Zero) }
+    var windowCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
@@ -209,12 +212,23 @@ fun QuickColorWindow(
                 )
                 .evadablePanelContent(vm, UiPanelSlot.QUICK_COLOR)
                 .animateContentSize(Motion.enterSpring())
+                .onGloballyPositioned { windowCoords = it }
         ) {
             if (isCollapsed) {
+                DisposableEffect(Unit) {
+                    onDispose { vm.quickColorGrip.clear() }
+                }
                 // ---- 折叠微缩态：高质感悬浮色球 ----
                 Box(
                     modifier = Modifier
                         .size(46.dp)
+                        .onGloballyPositioned { coords ->
+                            val root = windowCoords ?: return@onGloballyPositioned
+                            val pos = root.localPositionOf(coords, Offset.Zero)
+                            vm.quickColorGrip.update(
+                                pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                            )
+                        }
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = {
@@ -233,6 +247,12 @@ fun QuickColorWindow(
                                 change.consume()
                                 vm.quickColorWindowX += dragAmount.x
                                 vm.quickColorWindowY += dragAmount.y
+                                vm.clampQuickWindowsToSafeArea(
+                                    vm.floatingHostWidthPx,
+                                    vm.floatingHostHeightPx,
+                                    density.density,
+                                    persist = false,
+                                )
                             }
                         }
                         .clickable {
@@ -251,6 +271,9 @@ fun QuickColorWindow(
                     )
                 }
             } else {
+                DisposableEffect(Unit) {
+                    onDispose { vm.quickColorGrip.clear() }
+                }
                 // ---- 展开态：紧凑致密 ReveriePaint 颜色面板 ----
                 Column(
                     modifier = Modifier
@@ -275,9 +298,23 @@ fun QuickColorWindow(
                                 }
                                 vm.quickColorWindowX += dragAmount.x
                                 vm.quickColorWindowY += dragAmount.y
+                                vm.clampQuickWindowsToSafeArea(
+                                    vm.floatingHostWidthPx,
+                                    vm.floatingHostHeightPx,
+                                    density.density,
+                                    persist = false,
+                                )
                                 vm.persistQuickColorState()
                             },
-                            modifier = Modifier.align(Alignment.TopCenter),
+                            modifier = Modifier
+                                .align(Alignment.TopCenter)
+                                .onGloballyPositioned { coords ->
+                                    val root = windowCoords ?: return@onGloballyPositioned
+                                    val pos = root.localPositionOf(coords, Offset.Zero)
+                                    vm.quickColorGrip.update(
+                                        pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                                    )
+                                },
                         )
 
                         Row(

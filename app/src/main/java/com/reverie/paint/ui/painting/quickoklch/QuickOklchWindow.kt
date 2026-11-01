@@ -38,6 +38,7 @@ import androidx.compose.foundation.text.KeyboardActions
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -65,6 +66,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -145,6 +148,7 @@ fun QuickOklchWindow(
     val defaultH = with(density) { 320.dp.toPx() }
 
     var windowSize by remember { mutableStateOf(IntSize.Zero) }
+    var windowCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
     val isCollapsed = vm.quickOklchCollapsed
     val windowShape = remember(isCollapsed) {
         if (isCollapsed) CircleShape else RoundedCornerShape(16.dp)
@@ -233,12 +237,23 @@ fun QuickOklchWindow(
                 )
                 .evadablePanelContent(vm, UiPanelSlot.QUICK_OKLCH)
                 .animateContentSize(Motion.enterSpring())
+                .onGloballyPositioned { windowCoords = it }
         ) {
             if (isCollapsed) {
+                DisposableEffect(Unit) {
+                    onDispose { vm.quickOklchGrip.clear() }
+                }
                 // ---- 折叠微缩态：高质感悬浮取色胶囊 ----
                 Box(
                     modifier = Modifier
                         .size(46.dp)
+                        .onGloballyPositioned { coords ->
+                            val root = windowCoords ?: return@onGloballyPositioned
+                            val pos = root.localPositionOf(coords, Offset.Zero)
+                            vm.quickOklchGrip.update(
+                                pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                            )
+                        }
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = {
@@ -257,6 +272,12 @@ fun QuickOklchWindow(
                                 change.consume()
                                 vm.quickOklchWindowX += dragAmount.x
                                 vm.quickOklchWindowY += dragAmount.y
+                                vm.clampQuickWindowsToSafeArea(
+                                    vm.floatingHostWidthPx,
+                                    vm.floatingHostHeightPx,
+                                    density.density,
+                                    persist = false,
+                                )
                             }
                         }
                         .clickable {
@@ -275,6 +296,9 @@ fun QuickOklchWindow(
                     )
                 }
             } else {
+                DisposableEffect(Unit) {
+                    onDispose { vm.quickOklchGrip.clear() }
+                }
                 // ---- 展开态：专业 OKLCH 调色面板 ----
                 Column(
                     modifier = Modifier
@@ -293,6 +317,13 @@ fun QuickOklchWindow(
                             modifier = Modifier
                                 .align(Alignment.TopCenter)
                                 .size(60.dp, 16.dp)
+                                .onGloballyPositioned { coords ->
+                                    val root = windowCoords ?: return@onGloballyPositioned
+                                    val pos = root.localPositionOf(coords, Offset.Zero)
+                                    vm.quickOklchGrip.update(
+                                        pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                                    )
+                                }
                                 .pointerInput(Unit) {
                                     detectDragGestures(
                                         onDragStart = {
@@ -311,6 +342,12 @@ fun QuickOklchWindow(
                                         change.consume()
                                         vm.quickOklchWindowX += dragAmount.x
                                         vm.quickOklchWindowY += dragAmount.y
+                                        vm.clampQuickWindowsToSafeArea(
+                                            vm.floatingHostWidthPx,
+                                            vm.floatingHostHeightPx,
+                                            density.density,
+                                            persist = false,
+                                        )
                                     }
                                 }
                                 .pressScale(handleSource, pressedScale = 0.92f)
