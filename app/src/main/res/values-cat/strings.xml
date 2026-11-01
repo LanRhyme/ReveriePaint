@@ -100,7 +100,7 @@
     <string name="home_draft_untitled">还没起名的草稿</string>
     <string name="home_draft_modified">上次动爪</string>
     <string name="home_draft_delete_title">要一爪拍飞这个草稿吗？</string>
-    <string name="home_draft_delete_msg">拍飞就捡不回来了喵，确定吗？</string>
+    <string name="home_draft_delete_msg">拍飞就捡不回来了，确定要拍飞吗 喵？</string>
     <string name="home_draft_duplicate">变个分身</string>
     <string name="home_draft_export">叼出工程</string>
     <string name="home_draft_rename">换个猫名</string>
@@ -147,8 +147,19 @@
     <string name="gallery_toast_stack_deleted">画集已经拍飞啦</string>
     <string name="gallery_toast_artwork_deleted">作品已经拍飞啦</string>
     <string name="gallery_toast_batch_deleted">%d 项都拍飞啦</string>
+    <string name="gallery_action_set_as_cover">拿它当封面</string>
+    <string name="gallery_action_set_stack_cover">换个画集封面…</string>
+    <string name="gallery_action_clear_cover">把封面撤掉</string>
+    <string name="gallery_toast_cover_set">画集封面换成「%s」啦</string>
+    <string name="gallery_toast_cover_cleared">画集封面撤掉啦</string>
+    <string name="gallery_toast_moved_to_stack">%1$d 个作品都叼进「%2$s」啦</string>
     <string name="gallery_toast_batch_duplicated">%d 项作品都变出分身啦</string>
     <string name="gallery_select_all">全都要</string>
+    <string name="gallery_dialog_choose_cover_title">挑张画集封面</string>
+    <string name="gallery_cover_badge">封面</string>
+    <string name="gallery_drag_drop_to_stack">松爪就归进画集</string>
+    <string name="create_target_folder_chip">归进画集: %s</string>
+    <string name="create_target_folder_detach">挪出画集</string>
     <string name="gallery_deselect_all">全都不要</string>
     <string name="gallery_processing">小猫正忙着呢…</string>
 
@@ -312,7 +323,7 @@
     <string name="settings_lang_en">English</string>
     <string name="settings_lang_ja">日本語</string>
     <string name="settings_lang_zh_tw">繁體中文 (台灣)</string>
-    <string name="settings_lang_cat">猫猫语 (ฅ^ω^*ฅ)</string>
+    <string name="settings_lang_cat">猫猫语</string>
     <string name="settings_general">通用设置</string>
     <string name="settings_general_sub">悄悄藏好的节奏、倒退一爪的步数与退出习惯</string>
     <string name="settings_category_basic">基础偏好</string>
@@ -454,6 +465,7 @@
     <string name="tool_perspective">透视</string>
 
     <!-- Default Project & Layer Names -->
+    <string name="tool_pan">抓手</string>
     <string name="project_default_name">未命名作品</string>
     <string name="project_default_name_indexed">未命名作品 %d</string>
     <string name="project_default_copy_name">%s 副本</string>
@@ -497,7 +509,7 @@
     <string name="toast_project_healed_recovery">靠着自愈把工程图层捡回来了</string>
     <string name="toast_project_save_low_storage">存储空间不够了，先不藏了以免文件坏掉</string>
     <string name="dialog_storage_insufficient_title">存储空间不够啦</string>
-    <string name="dialog_storage_insufficient_desc">设备剩下的空间太少了，为了不把工程写坏，小猫先停爪。清一点空间再来</string>
+    <string name="dialog_storage_insufficient_desc">设备剩下的空间太少了，为了不把工程写坏，小猫先停爪；清一点空间再来喵</string>
     <string name="diagnostics_dialog_title">系统体检与日志</string>
     <string name="diagnostics_dialog_desc">包含设备软硬件信息、内存状态、操作轨迹和 Logcat，密码与 Token 已经自动遮住了</string>
     <string name="diagnostics_dialog_generating">正在抓体检日志…</string>
@@ -525,6 +537,30 @@
     <string name="crash_report_long_hint">现场日志太长，改成存成文件叼出去或分享，免得被系统剪贴板截断</string>
 
     <!-- Tool Action Toasts -->
+    <string name="crash_report_auto_reporting">崩溃报告会悄悄匿名上报，不想要可以在设置里关掉</string>
+    <string name="crash_report_auto_off">自动上报关掉了</string>
+    <string name="crash_report_upload_once">只上报这一条</string>
+    <string name="crash_report_uploaded">上报好啦</string>
+    <string name="crash_report_uploading">正在上报…</string>
+    <string name="crash_report_upload_ok">上报好啦，谢谢老大</string>
+    <string name="crash_report_upload_failed">上报翻车了，过会儿再试</string>
+    <string name="settings_category_privacy">隐私与诊断</string>
+    <string name="settings_telemetry_title">崩溃报告自动上报</string>
+    <string name="settings_telemetry_sub">只发崩溃堆栈、设备型号和版本号，不会带上画作、文件名和账号凭据</string>
+    <string name="settings_telemetry_off_toast">上报关掉了，本地标识也清干净了</string>
+    <string name="settings_category_advanced">进阶</string>
+    <string name="settings_developer_options">开发者选项</string>
+    <string name="settings_developer_options_sub">性能标尺、渲染实验和系统诊断，都在这儿</string>
+    <string name="settings_category_diagnostics_tools">诊断与日志</string>
+    <string name="settings_diagnostics_export">系统运行诊断与日志</string>
+    <string name="settings_diagnostics_export_sub">抓取软硬件环境、内存指标和脱敏后的运行日志</string>
+    <string name="settings_category_environment">环境与运行时</string>
+    <string name="settings_env_device">设备与系统</string>
+    <string name="settings_env_engine">核心架构</string>
+    <string name="telemetry_notice_title">崩溃报告会匿名上报</string>
+    <string name="telemetry_notice_body">用来定位闪退，只带崩溃堆栈和设备信息，不想要可以在设置里关掉</string>
+    <string name="telemetry_notice_ok">知道啦</string>
+    <string name="telemetry_notice_disable">别上报了</string>
     <string name="toast_undo">倒退了一爪</string>
     <string name="toast_redo">又抓回一爪</string>
     <string name="toast_selection_required">先圈一个选区喵</string>
@@ -578,6 +614,7 @@
     <string name="shortcut_def_gradient">渐变工具</string>
     <string name="shortcut_def_crop">裁剪工具</string>
     <string name="shortcut_def_transform">变换工具</string>
+    <string name="shortcut_def_tool_pan">抓手工具</string>
     <string name="shortcut_def_filter_hsv">色相/饱和度/明度</string>
     <string name="shortcut_def_filter_curves">色彩曲线</string>
     <string name="shortcut_def_filter_blur">高斯模糊</string>
@@ -768,7 +805,7 @@
     <string name="canvas_dialog_resize_desc">改画布的像素边界</string>
     <string name="canvas_dialog_resize_width">目标宽 (px)</string>
     <string name="canvas_dialog_resize_height">目标高 (px)</string>
-    <string name="canvas_toast_resized">画布已调整为 %1$d×%2$d</string>
+    <string name="canvas_toast_resized">画布调成 %1$d×%2$d 啦</string>
     <string name="canvas_toast_image_load_failed">这张图叼不进来喵</string>
     <string name="canvas_toast_project_saved">工程藏好啦 (%s.revp)</string>
     <string name="painting_dialog_save_project_title">藏好工程</string>
@@ -795,10 +832,10 @@
     <string name="reference_allow_rotate">允许旋转</string>
     <string name="reference_flip_h">水平翻肚皮</string>
     <string name="reference_album_title">相册</string>
-    <string name="reference_album_selected_count">已选 %1$d/50</string>
+    <string name="reference_album_selected_count">挑中 %1$d/50</string>
     <string name="reference_album_permission_needed">要读相册才能挑参考图，给个权限吧</string>
     <string name="reference_album_grant_permission">给相册权限</string>
-    <string name="reference_album_max_hint">最多选择 50 张参考图</string>
+    <string name="reference_album_max_hint">最多挑 50 张参考图</string>
     <string name="reference_album_system_picker">系统文件</string>
     <string name="reference_album_empty">相册里没有图</string>
     <string name="reference_album_selected_strip">挑中的参考 (%1$d)</string>
@@ -848,7 +885,7 @@
     <string name="settings_brush_size_scales_with_canvas_desc">笔刷最大尺寸自动定成画布长边的一半</string>
     <string name="settings_canvas_rotation">画布可旋转</string>
     <string name="settings_canvas_rotation_snap">旋转吸附到正投射角</string>
-    <string name="settings_canvas_rotation_snap_off">已关闭</string>
+    <string name="settings_canvas_rotation_snap_off">关掉</string>
     <string name="settings_canvas_rotation_snap_format">±%d°</string>
     <string name="settings_magnification_interpolation">放大插值</string>
     <string name="settings_pixel_grid">放大显示网格线</string>
@@ -899,8 +936,8 @@
     <string name="quick_action_window_title">快捷操作</string>
     <string name="quick_action_edit">自定义快捷操作</string>
     <string name="quick_action_edit_desc">自己排顺序、增删常用项、挑排布样式</string>
-    <string name="quick_action_active_list">已启用操作</string>
-    <string name="quick_action_available_list">可添加操作</string>
+    <string name="quick_action_active_list">已经能用的操作</string>
+    <string name="quick_action_available_list">还能加的操作</string>
     <string name="quick_action_preview">效果预览</string>
     <string name="quick_action_show_labels">显示按钮文字标签</string>
     <string name="quick_action_layout_title">排布模式</string>
@@ -944,6 +981,7 @@
     <string name="quick_action_disable_touch">禁用触控</string>
 
     <!-- Quick Color Strings -->
+    <string name="quick_action_pan">挪动画布</string>
     <string name="tool_quick_color">快捷颜色</string>
     <string name="quick_color_window_title">快捷颜色</string>
     <string name="color_window_title">颜色</string>
@@ -967,7 +1005,7 @@
     <string name="oklch_hue">色相 (H)</string>
     <string name="oklch_saturation">饱和度</string>
     <string name="oklch_out_of_gamut">超色域</string>
-    <string name="oklch_gamut_clipped">已裁切至 sRGB 边界</string>
+    <string name="oklch_gamut_clipped">超出 sRGB 的部分裁掉啦</string>
     <string name="oklch_copied">色值变好分身啦</string>
     <string name="oklch_direct_input">输入精确数值</string>
 
@@ -1001,9 +1039,9 @@
     <string name="settings_eyedropper_offset_desc">取色点挪到手指上方，免得手指挡住中心</string>
     <string name="settings_eyedropper_stylus_in_pen_mode_title">笔模式下允许手写笔长按取色</string>
     <string name="settings_eyedropper_stylus_in_pen_mode_desc">关掉后笔模式下只有手指长按能取色，手写笔长按不触发</string>
-    <string name="settings_eyedropper_footer_desc">说明：灵敏度越高，长按要等的时间越短；移动容差固定 1dp（挪出去就不触发）。开着笔模式时，长按取色会从手指无缝交给手写笔</string>
+    <string name="settings_eyedropper_footer_desc">说明：灵敏度越高，长按要等的时间越短；移动容差固定 1dp（挪出去就不触发）；开着笔模式时，长按取色会从手指无缝交给手写笔</string>
     <string name="settings_shortcut_dialog_title">设置快捷键</string>
-    <string name="settings_shortcut_press_key">请按下快捷键...</string>
+    <string name="settings_shortcut_press_key">请按下快捷键…</string>
     <string name="settings_shortcut_set_none">设为无</string>
     <string name="settings_shortcut_reset">从头再来</string>
     <string name="shortcut_none">无</string>
@@ -1034,7 +1072,7 @@
     <string name="color_tab_palette">色卡</string>
     <string name="color_tab_slider">滑块</string>
     <string name="color_num_title">数值</string>
-    <string name="color_num_dialog_title">设置 %s 数值</string>
+    <string name="color_num_dialog_title">调 %s 的数值</string>
     <string name="color_num_range_int">有效范围: %1$d ~ %2$d%3$s</string>
     <string name="color_num_range_float">有效范围: %1$s ~ %2$s%3$s</string>
     <string name="color_hex_dialog_title">输入十六进制色值</string>
@@ -1042,7 +1080,7 @@
     <string name="color_hex_toast_pasted">贴好啦 %s</string>
     <string name="color_hex_toast_no_value">剪贴板里没有色值喵</string>
     <string name="color_hex_toast_clipboard_empty">剪贴板是空的</string>
-    <string name="color_hex_toast_invalid">请输入 6 位有效十六进制颜色代码</string>
+    <string name="color_hex_toast_invalid">要填 6 位有效十六进制颜色代码喵</string>
     <string name="color_hex_edit">编辑 Hex</string>
     <string name="color_hex_toast_applied">色值 %s 用上啦</string>
     <string name="color_hex_toast_parse_failed">这个色值解不开喵</string>
@@ -1107,10 +1145,10 @@
     <string name="layer_fill_change">点击更换填充色</string>
     <string name="layer_fill_select_title">选择填充图层颜色</string>
     <string name="layer_filter_adjust_title">调整滤镜参数</string>
-    <string name="layer_filter_adjust_desc">配置或切换此图层应用的滤镜效果</string>
+    <string name="layer_filter_adjust_desc">给这层配滤镜，或者换个滤镜</string>
     <string name="layer_filters_and_color">滤镜与颜色调整</string>
     <string name="layer_rasterize_dialog_title">栅格化滤镜图层</string>
-    <string name="layer_rasterize_dialog_desc">栅格化会把这个滤镜永久烘焙进下方图层、变成普通绘画图层，不能反悔（但可以倒退一爪）。继续吗 喵？</string>
+    <string name="layer_rasterize_dialog_desc">栅格化会把这个滤镜永久烘焙进下方图层、变成普通绘画图层，不能反悔（但可以倒退一爪），继续吗 喵？</string>
     <string name="layer_rasterize_confirm">好喵！栅格化</string>
     <string name="layer_move_into_group_title">挪进图层组</string>
     <string name="layer_no_other_groups">这张画布上没有别的图层组</string>
@@ -1249,6 +1287,11 @@
     <string name="canvas_toast_selection_mask_not_drawable">局部选区蒙版是存选区用的，不能用笔刷画</string>
     <string name="canvas_toast_layer_locked">这层被爪爪按住了，改不了</string>
     <string name="canvas_toast_layer_hidden">这层藏起来了，改不了</string>
+    <string name="toast_layer_delete_background">背景层拍不飞</string>
+    <string name="toast_layer_delete_locked">图层锁着呢，先解锁才能拍飞</string>
+    <string name="toast_layer_delete_stale">图层列表刚更新过，再来一次</string>
+    <string name="toast_transform_nothing_applied">选区里空空的，这次变换什么也没改</string>
+    <string name="toast_transform_copy_overlaps">副本和原件叠在一起了，拖一下就能看到分身</string>
     <string name="canvas_toast_group_empty">图层组是空的，没法变换</string>
     <string name="quick_shape_title">速创形状: %s</string>
     <string name="quick_shape_to_ellipse">转为椭圆</string>
@@ -1331,6 +1374,8 @@
     <string name="brush_batch_move_success">%1$d 个笔刷挪进「%2$s」啦</string>
     <string name="brush_group_more_options">分组操作</string>
     <string name="brush_in_use_hint">正在用 · 点一下调参数</string>
+    <string name="brush_locate_current_preset">跳到当前笔刷的分组</string>
+    <string name="brush_located_toast">跳到分组: %s</string>
     <string name="brush_fav_add">加进常用</string>
     <string name="brush_fav_remove">不常用啦</string>
     <string name="brush_group_header">分类: %s</string>
@@ -1604,7 +1649,7 @@
     <string name="brush_dynamics_reset">重置曲线</string>
     <string name="brush_dynamics_point_x">输入 X</string>
     <string name="brush_dynamics_point_y">输出 Y</string>
-    <string name="brush_dynamics_add_point_hint">点击网格添加点，拖拽点微调曲率</string>
+    <string name="brush_dynamics_add_point_hint">点网格加点，拖点微调曲率</string>
     <string name="brush_dynamics_live_cursor">实时动态响应</string>
     <string name="brush_dynamics_strength">动态影响强度</string>
     <string name="brush_studio_revert_changes">退回原样</string>
@@ -1716,6 +1761,12 @@
     <string name="guide_symmetry_center">对称轴中心</string>
     <string name="guide_symmetry_rotation">旋转角度</string>
     <string name="guide_symmetry_reset_center">重置居中</string>
+    <string name="guide_symmetry_mode">对称模式</string>
+    <string name="guide_symmetry_mode_rotational">旋转对称</string>
+    <string name="guide_symmetry_mode_mirrored">万花筒镜像</string>
+    <string name="guide_symmetry_rays">对称轴数量</string>
+    <string name="guide_symmetry_rays_rotational_format">%d 瓣旋转</string>
+    <string name="guide_symmetry_rays_mirrored_format">%1$d 轴镜像 (%2$d 瓣)</string>
     <string name="guide_perspective_ray_density">参考线密度</string>
     <string name="guide_perspective_mode_3d">3D 空间网格</string>
     <string name="guide_perspective_mode_vanish">传统灭点射线</string>
@@ -1762,7 +1813,7 @@
     <string name="sponsor_loading">正在叼来爱发电的赞助数据…</string>
     <string name="sponsor_total">%d 位赞助者</string>
     <string name="sponsor_disclaimer">此处仅显示爱发电上对项目发起者个人 LanRhyme 的赞助</string>
-    <string name="sponsor_empty">还没有赞助者，等好心人路过 (｡•́︿•̀｡)</string>
+    <string name="sponsor_empty">还没有赞助者，好心人还在路上 (ฅ^ω^*ฅ)</string>
     <string name="sponsor_afdian_btn">前往爱发电赞助</string>
     <string name="sponsor_afdian_sponsor">爱发电赞助</string>
     <string name="sponsor_network_error">网络卡住了，看看是不是没联网，或者过会儿再试</string>
@@ -1955,6 +2006,32 @@
     <string name="stylus_samsung_hint">提示：若侧键在绘画中没反应，去三星系统设置 -&gt; 高级功能 -&gt; S Pen，关掉“使用画笔按钮打开浮空指令”，绘图应用才收得到按键事件</string>
 
     <!-- 小米灵感 / 焦点触控笔 -->
+    <string name="spen_air_title">S Pen 隔空手势</string>
+    <string name="spen_air_open_system_settings">去系统设置里开隔空操作</string>
+    <string name="spen_air_hint">要在系统 S Pen 设置里允许本应用用隔空操作，只有支持的 Galaxy 设备能用</string>
+    <string name="spen_air_reset_default">恢复默认映射</string>
+    <string name="spen_air_motion_title">隔空挥动手势</string>
+    <string name="spen_air_button_note">开了隔空操作时，单击和双击也管空中笔键；长按只在近屏生效</string>
+    <string name="spen_gesture_click">单击笔键</string>
+    <string name="spen_gesture_double_click">双击笔键</string>
+    <string name="spen_gesture_swipe_left">按住向左挥</string>
+    <string name="spen_gesture_swipe_right">按住向右挥</string>
+    <string name="spen_gesture_swipe_up">按住向上挥</string>
+    <string name="spen_gesture_swipe_down">按住向下挥</string>
+    <string name="spen_gesture_circle_cw">按住顺时针画圈</string>
+    <string name="spen_gesture_circle_ccw">按住逆时针画圈</string>
+    <string name="stylus_action_brush_size_inc">笔刷变粗</string>
+    <string name="stylus_action_brush_size_dec">笔刷变细</string>
+    <string name="stylus_action_brush_opacity_inc">不透明度调高</string>
+    <string name="stylus_action_brush_opacity_dec">不透明度调低</string>
+    <string name="stylus_action_zoom_in">画布放大</string>
+    <string name="stylus_action_zoom_out">画布缩小</string>
+    <string name="stylus_action_flip">翻转视图</string>
+    <string name="stylus_action_layer_prev">往上一层</string>
+    <string name="stylus_action_layer_next">往下一层</string>
+    <string name="stylus_action_quick_menu">快捷菜单</string>
+    <string name="stylus_action_ref_window">参考图浮窗</string>
+    <string name="stylus_action_pan">挪动画布</string>
     <string name="stylus_xiaomi_title">小米触控笔专属设置</string>
     <string name="stylus_xiaomi_model">手写笔硬件型号</string>
     <string name="stylus_xiaomi_auto_model">自动匹配 (%s)</string>
@@ -2221,6 +2298,8 @@
     <string name="selection_cancel">不要这个选区</string>
     <string name="canvas_zoom_format">缩放 %d%%</string>
     <string name="canvas_rotation_format">旋转 %d°</string>
+    <string name="canvas_orientation_landscape">横向</string>
+    <string name="canvas_orientation_portrait">竖向</string>
     <string name="nav_back_to_canvas">返回画布</string>
     <string name="settings_more_title">更多设置</string>
     <string name="loading_please_wait">给小猫一点时间喵…</string>
@@ -2244,7 +2323,7 @@
     <string name="curves_ch_blue">蓝 (B)</string>
     <string name="curves_in_out">入: %1$d 出: %2$d</string>
     <string name="curves_delete_point">拍飞点</string>
-    <string name="curves_hint">点击添加控制点，拖动平滑调整</string>
+    <string name="curves_hint">点一下加控制点，拖一拖调曲线</string>
     <string name="curves_reset_channel">重置通道</string>
     <string name="filter_multi_layers_format">%1$s (%2$d个图层)</string>
     <string name="filter_library_multi_layers">滤镜库 (%d个图层)</string>
@@ -2580,7 +2659,7 @@
     <!-- Shortcut Conflict & Toolbar Squeeze Warning -->
     <string name="shortcut_conflict_unbound">快捷键冲突：%1$s 占用的 %2$s 已自动解绑</string>
     <string name="toolbar_squeezed_title">工具栏挤不下了</string>
-    <string name="toolbar_squeezed_desc">屏幕高度不够把所有工具按钮摆出来。把界面缩放调小一点，或者缩短快捷滑块，工具栏就回来了</string>
+    <string name="toolbar_squeezed_desc">屏幕高度不够把所有工具按钮摆出来；把界面缩放调小一点，或者缩短快捷滑块，工具栏就回来了</string>
     <string name="toolbar_squeezed_slider_length">快捷滑块长度</string>
     <string name="toolbar_squeezed_ui_scale">界面缩放</string>
     <string name="toolbar_squeezed_dismiss_forever">不再提示</string>
@@ -2642,7 +2721,7 @@
     <string name="sync_error_protocol">服务器响应不对劲：确认地址指向标准 WebDAV 服务</string>
     <string name="sync_error_tls">证书没过：自建服务器可以先打开「信任自签名证书」再试</string>
     <string name="sync_info_title">说明</string>
-    <string name="sync_info_text">同步不需要账号，工程都存在你自己的服务器上。密码用系统密钥库加密后只留在本机，不会上传</string>
+    <string name="sync_info_text">同步不需要账号，工程都存在你自己的服务器上；密码用系统密钥库加密后只留在本机，不会上传</string>
     <string name="sync_category_backup">同步与备份</string>
     <string name="sync_now">现在就同步</string>
     <string name="sync_running">正在同步…</string>
@@ -2656,7 +2735,7 @@
     <string name="sync_result_conflicts">冲突 %1$d</string>
     <string name="sync_result_failed">翻车 %1$d</string>
     <string name="sync_backup_info_title">备份说明</string>
-    <string name="sync_backup_info_text">备份画作 (含自动保存草稿) 和你添加的笔刷，内置笔刷不上传。本地删掉的文件会从云端一起清掉；别的设备改过而本地没改的文件不会被覆盖，两边都改过时保留本地，云端那份另存成副本</string>
+    <string name="sync_backup_info_text">备份画作 (含自动保存草稿) 和你添加的笔刷，内置笔刷不上传；本地删掉的文件会从云端一起清掉；别的设备改过而本地没改的文件不会被覆盖，两边都改过时保留本地，云端那份另存成副本</string>
     <string name="sync_auto_backup">藏好后自动备份</string>
     <string name="sync_auto_backup_summary">每次保存工程后自动上传有变化的部分</string>
     <string name="sync_connected_badge">已连接</string>
@@ -2686,7 +2765,7 @@
     <string name="backup_export_dialog_title">创建本地备份</string>
     <string name="backup_export_dialog_desc">勾上要叼出去的数据模块，会打包成一个 .revpbak 归档</string>
     <string name="backup_restore_dialog_title">从本地备份恢复</string>
-    <string name="backup_restore_dialog_desc">解析完成，请勾选需要恢复的数据模块</string>
+    <string name="backup_restore_dialog_desc">解析好啦，勾上要恢复的数据模块</string>
     <string name="backup_select_all">全都要</string>
     <string name="backup_deselect_all">全都不要</string>
     <string name="backup_cat_projects">绘画工程作品</string>
@@ -2712,7 +2791,7 @@
     <string name="backup_meta_created_at">生成时间：%s</string>
     <string name="backup_meta_app_version">应用版本：%s</string>
     <string name="backup_progress_exporting">正在打包叼出去…</string>
-    <string name="backup_progress_restoring">正在还原数据...</string>
+    <string name="backup_progress_restoring">正在还原数据…</string>
     <string name="backup_export_btn">叼出去备份文件</string>
     <string name="backup_action_restore_confirm">开始恢复</string>
     <string name="backup_export_success_toast">本地备份已经叼出去啦</string>
@@ -2756,7 +2835,7 @@
     <string name="canvas_view_unlock">松开视图</string>
     <string name="settings_stroke_smoothing_advanced">高级</string>
     <string name="settings_smoothing_mode">平滑算法</string>
-    <string name="settings_smoothing_mode_off">关闭</string>
+    <string name="settings_smoothing_mode_off">关掉</string>
     <string name="settings_smoothing_mode_basic">基础平滑</string>
     <string name="settings_smoothing_mode_weighted">加权平滑 (Krita)</string>
     <string name="settings_smoothing_distance">平滑距离</string>
@@ -2839,7 +2918,7 @@
     <string name="reference_cache_title">参考图缓存</string>
     <string name="reference_cache_clear">扫干净参考图缓存</string>
     <string name="reference_cache_size">本机参考图占用 %1$s，不随作品文件传输</string>
-    <string name="reference_cache_confirm">会把本机所有作品的参考图副本、显示状态和旧版缓存都扫干净，当前作品也算在内。之后要重新添加参考图。作品文件、相册原图和窗口位置设置不会被拍飞</string>
+    <string name="reference_cache_confirm">会把本机所有作品的参考图副本、显示状态和旧版缓存都扫干净，当前作品也算在内；之后要重新添加参考图；作品文件、相册原图和窗口位置设置不会被拍飞</string>
     <string name="reference_cache_clearing">正在扫干净参考图缓存…</string>
     <string name="reference_cache_cleared">参考图缓存扫干净啦</string>
     <string name="reference_cache_failed">有部分缓存没扫掉，再试一次</string>
@@ -3166,6 +3245,8 @@
     <string name="replay_export_stage_finalizing">正在封装文件…</string>
     <string name="replay_export_stage_saving_gallery">正在写入系统相册…</string>
     <string name="replay_export_hint_4k">4K 导出要等挺久，先用 1080p 吧</string>
+    <string name="undo_bar_a11y">撤销历史滑杆</string>
+    <string name="undo_bar_position_a11y">历史位置 %1$d，共 %2$d 步</string>
     <string name="settings_abr_blend_policy_title">ABR 导入混合模式策略</string>
     <string name="settings_abr_blend_policy_desc">控制 ABR 导入时双重画笔与纹理模式映射算法</string>
     <string name="settings_abr_blend_policy_compat">柔和容错</string>
