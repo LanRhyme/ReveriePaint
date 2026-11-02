@@ -1141,16 +1141,18 @@ fun ReSlider(
     val currentOnRelease by rememberUpdatedState(onRelease)
     var interacting by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableStateOf<Float?>(null) }
-    val trackScale by animateFloatAsState(if (interacting) 1.14f else 1f, Motion.springSnap, label = "sliderTrackScale")
-    val glowAlpha by animateFloatAsState(if (interacting) 0.20f else 0f, Motion.springSnap, label = "sliderGlow")
+    val thumbScale by animateFloatAsState(if (interacting) 1.15f else 1f, Motion.springSnap, label = "sliderThumbScale")
+    val glowAlpha by animateFloatAsState(if (interacting) 0.22f else 0f, Motion.springSnap, label = "sliderGlow")
+
+    val density = LocalDensity.current
+    val thumbW = with(density) { 4.dp.toPx() }
+    val pad = thumbW / 2f + with(density) { 2.dp.toPx() }
+
     Box(
         modifier =
             modifier
                 .fillMaxWidth()
                 .height(height.dp)
-                .graphicsLayer { scaleY = trackScale }
-                .clip(RoundedCornerShape((height / 2).dp))
-                .background(colors.panelHi)
                 .pointerInput(Unit) {
                     // 支持与纵向滚动容器（LazyColumn/verticalScroll）完美协作的手势识别器：
                     // 1. 触摸按下不立即修改数值，防页面滚动时手指落点误触改值
@@ -1162,6 +1164,7 @@ fun ReSlider(
                         val w0 = size.width.toFloat()
                         if (w0 <= 0f) return@awaitEachGesture
 
+                        val span = maxOf(1f, w0 - 2 * pad)
                         val touchSlop = viewConfiguration.touchSlop
                         var isDragging = false
                         var isScrollingVertically = false
@@ -1175,7 +1178,7 @@ fun ReSlider(
                                     if (!isScrollingVertically) {
                                         if (!isDragging) {
                                             // 原地点击滑块
-                                            val tapVal = (change.position.x / w0).coerceIn(0f, 1f)
+                                            val tapVal = ((change.position.x - pad) / span).coerceIn(0f, 1f)
                                             currentOnValue(tapVal)
                                         }
                                         currentOnRelease?.invoke()
@@ -1207,7 +1210,7 @@ fun ReSlider(
 
                                 if (isDragging) {
                                     change.consume()
-                                    val curVal = (change.position.x / w0).coerceIn(0f, 1f)
+                                    val curVal = ((change.position.x - pad) / span).coerceIn(0f, 1f)
                                     dragFraction = curVal
                                     currentOnValue(curVal)
                                 }
@@ -1219,27 +1222,68 @@ fun ReSlider(
                     }
                 },
     ) {
-        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
+        Canvas(Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val cy = h / 2f
             val currentFraction = (dragFraction ?: value).coerceIn(0f, 1f)
-            val fillW = size.width * currentFraction
+
+            val trackH = (height * 0.65f).dp.toPx().coerceIn(6.dp.toPx(), h)
+            val trackCorner = androidx.compose.ui.geometry.CornerRadius(trackH / 2f, trackH / 2f)
+
+            val thumbH = (trackH + 4.dp.toPx()).coerceAtMost(h)
+            val currentThumbH = thumbH * thumbScale
+            val currentThumbW = thumbW * thumbScale
+            val thumbCorner = androidx.compose.ui.geometry.CornerRadius(currentThumbW / 2f, currentThumbW / 2f)
+
+            val span = maxOf(1f, w - 2 * pad)
+            val thumbX = pad + currentFraction * span
+            val gap = 4.dp.toPx()
+
+            // 1. 完整背景轨道 (未激活部分: panelHi 高表面色，与莫兰迪底色层次分明)
             drawRoundRect(
-                color = colors.accent,
-                size = androidx.compose.ui.geometry.Size(fillW, size.height),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2f, size.height / 2f),
+                color = colors.panelHi,
+                topLeft = Offset(0f, cy - trackH / 2f),
+                size = androidx.compose.ui.geometry.Size(w, trackH),
+                cornerRadius = trackCorner,
             )
-            // 拖动时填充端的柔光晕（无实心指示点）
-            if (glowAlpha > 0.01f && fillW > 1f) {
-                val c = androidx.compose.ui.geometry.Offset(fillW, size.height / 2f)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(Color.White.copy(alpha = glowAlpha), Color.Transparent),
-                        center = c,
-                        radius = size.height * 1.05f,
-                    ),
-                    radius = size.height * 1.05f,
-                    center = c,
+
+            // 2. 激活轨道 (走过部分，留出 gap 与滑块微间隙)
+            val activeEnd = maxOf(0f, thumbX - gap)
+            if (activeEnd > 0f) {
+                drawRoundRect(
+                    color = colors.accent,
+                    topLeft = Offset(0f, cy - trackH / 2f),
+                    size = androidx.compose.ui.geometry.Size(activeEnd, trackH),
+                    cornerRadius = trackCorner,
                 )
             }
+
+            // 3. 拖拽时呼吸外光晕
+            if (glowAlpha > 0.01f) {
+                drawCircle(
+                    color = colors.accent.copy(alpha = glowAlpha),
+                    radius = currentThumbH * 0.8f,
+                    center = Offset(thumbX, cy),
+                )
+            }
+
+            // 4. MD3 垂直圆角指示线滑块
+            drawRoundRect(
+                color = colors.accent,
+                topLeft = Offset(thumbX - currentThumbW / 2f, cy - currentThumbH / 2f),
+                size = androidx.compose.ui.geometry.Size(currentThumbW, currentThumbH),
+                cornerRadius = thumbCorner,
+            )
+
+            // 5. 滑块高光微边框
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.35f),
+                topLeft = Offset(thumbX - currentThumbW / 2f, cy - currentThumbH / 2f),
+                size = androidx.compose.ui.geometry.Size(currentThumbW, currentThumbH),
+                cornerRadius = thumbCorner,
+                style = Stroke(width = 1.dp.toPx()),
+            )
         }
     }
 }
