@@ -5,9 +5,14 @@
 package com.reverie.paint.ui.painting.canvas
 
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -15,14 +20,14 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.defaultMinSize
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.offset
-import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -42,6 +47,7 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -72,37 +78,35 @@ private const val UNDO_BAR_IDLE_HIDE_MS = 5000L
 /** canShowUndoBar 周期复查间隔: isInteracting 等触摸状态非 Compose 状态, 只能轮询 */
 private const val UNDO_BAR_GUARD_POLL_MS = 250L
 
-/** 拇指命中判定半径 (dp), 宽松以便快速拖动 */
-private const val UNDO_BAR_THUMB_TOUCH_RADIUS = 28f
+/** 拇指命中判定半径 (dp), 宽松以便快速抓取 */
+private const val UNDO_BAR_THUMB_TOUCH_RADIUS = 36f
 
 /** 胶囊高度 (dp) */
-private const val UNDO_BAR_HEIGHT = 40
+private const val UNDO_BAR_HEIGHT = 42
 
 /** 胶囊最大宽度 (dp) */
-private const val UNDO_BAR_MAX_WIDTH = 420
+private const val UNDO_BAR_MAX_WIDTH = 380
 
 /** 滑轨左右留白 (dp): 轨道与拇指不顶到胶囊圆角 */
-private const val UNDO_BAR_RAIL_PAD = 12
-
-/** 拖动数字气泡直径 (dp) */
-private const val UNDO_BAR_BUBBLE = 36
+private const val UNDO_BAR_RAIL_PAD = 16
 
 /**
- * 撤回条浮动滑杆 (Undo History scrub bar, 交互参考 Infinite Painter):
- * 水平胶囊, 满刻度 = 可撤销+可重做总深度, 拇指位置 = 还可撤销步数;
+ * 撤回条浮动滑杆 (Undo History scrub bar):
+ * 水平毛玻璃极简胶囊, 满刻度 = 可撤销+可重做总深度, 拇指位置 = 还可撤销步数;
  * 左端 = 全部撤销完, 右端 = 全部重做完。
  *
- * 交互:
- * - 拖拇指: 手指 x 线性映射到 0..max 调 [PaintViewModel.scrubTo], 拇指上方
- *   浮出圆形数字气泡显示目标步数 (纯 Compose 绘制, 无新窗口);
- * - 点轨道: 拇指右侧 = 前进一步, 左侧 = 后退一步;
- * - 拖滑轨空白处 (拇指命中半径之外): 重新定位整条 (会话内记忆, 不持久化)。
+ * 视觉与交互:
+ * - 纯粹单体胶囊: 始终贴合底部居中, 专注文档历史滑动, 避免误拖整条;
+ * - 轨道与刻度: 轨道依步数绘制微点刻度, 刻度具有凹陷/高亮层次感;
+ * - 滑块动效: 拖拽时呼吸放大并具有外层柔光与白色高光边框;
+ * - 相对步数药丸气泡: 拖动时在滑块上方弹性浮出药丸气泡, 动态显示 "-3 步" / "+2 步" / "当前";
+ * - 点轨道: 拇指右侧 = 重做一步, 左侧 = 撤销一步;
+ * - 拖滑块: 连续洗刷 (scrubTo)。
  *
- * 显隐 (与 [PaintViewModelUndoBar] 的泵契约联动):
- * - 仅在「面板按钮撤销」或「连续撤销/重做」时显现, 正常单次手势撤销不弹条打扰画布;
+ * 显隐联动:
+ * - 仅在「面板按钮撤销」或「连续撤销/重做」时显现;
  * - 空闲 5 秒自动淡出 (fade 200ms);
  * - 笔画/变换开始时立即隐藏停泵。
- * 可见性镜像写入顶层 undoBarVisible —— 追赶泵只在可见时发步, UI 隐藏即停泵。
  *
  * 防误触: 经 [reportUiSlot] 向画布手势层报备 bounds, 落笔不穿透。
  */
@@ -138,17 +142,21 @@ fun UndoScrubBar(
     }
 
     // —— 手势/布局状态 (组件自管, 不进 ViewModel) ——
-    // 整条拖动重定位偏移 (会话内记忆)
-    var dragOffset by remember { mutableStateOf(Offset.Zero) }
     // 拖动 scrub 的目标步数; -1 = 非拖动态
     var scrubTarget by remember { mutableIntStateOf(-1) }
+    // 拖动开始时的基准步数 (用于计算相对 "+X / -X" 步数); -1 = 非拖动态
+    var dragStartPos by remember { mutableIntStateOf(-1) }
+    // 是否正在拖动拇指
+    var isDraggingThumb by remember { mutableStateOf(false) }
     // 滑轨 Box 实测宽 (px)
     var railWidthPx by remember { mutableFloatStateOf(0f) }
+    // 气泡测量宽 (px)
+    var bubbleWidthPx by remember { mutableFloatStateOf(0f) }
 
     val density = LocalDensity.current
     val barWidth = UNDO_BAR_MAX_WIDTH.dp
     val railPadDp = UNDO_BAR_RAIL_PAD.dp
-    val capsuleShape = RoundedCornerShape(20.dp)
+    val capsuleShape = RoundedCornerShape((UNDO_BAR_HEIGHT / 2).dp)
 
     // 拇指中心 x (滑轨本地 px): 组合期计算后经 holder 供手势读取,
     // 手势保持 Unit key (铁律: 手势不 key 在高频状态上, 否则拖动中被取消)
@@ -163,43 +171,68 @@ fun UndoScrubBar(
     val displayPos = if (scrubTarget >= 0) scrubTarget else undoBarPosition
     val displayFrac = if (undoBarMax > 0) displayPos.toFloat() / undoBarMax else 0f
 
+    // 滑块呼吸放大微动效
+    val isDragging = scrubTarget >= 0
+    val thumbScale by animateFloatAsState(
+        targetValue = if (isDragging) 1.28f else 1.0f,
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMediumLow,
+        ),
+        label = "thumbScale",
+    )
+
     AnimatedVisibility(
         visible = undoBarVisible,
         enter = fadeIn(tween(200)),
         exit = fadeOut(tween(200)),
         modifier = modifier,
     ) {
-        BoxWithConstraints(
-            modifier = Modifier.offset {
-                IntOffset(dragOffset.x.roundToInt(), dragOffset.y.roundToInt())
-            }
-        ) {
+        BoxWithConstraints {
             val effectiveBarWidth = (maxWidth - 32.dp).coerceAtMost(barWidth)
             val a11yDesc = stringResource(R.string.undo_bar_a11y)
 
-            // 拖动中的目标步数气泡 (画在胶囊上方, 外层不 clip 所以不会被裁)
-            if (scrubTarget >= 0) {
-                val bubbleDp = UNDO_BAR_BUBBLE.dp
-                val gapDp = 10.dp
-                // 滑轨占满整条胶囊, 刻度范围 = 全宽 (左右各留 railPad)
+            // 拖动中的目标步数药丸气泡 (画在胶囊上方, 外层不 clip 避免被裁切)
+            AnimatedVisibility(
+                visible = isDragging,
+                enter = fadeIn(tween(150)) + scaleIn(
+                    tween(150),
+                    initialScale = 0.85f,
+                ),
+                exit = fadeOut(tween(120)) + scaleOut(
+                    tween(120),
+                    targetScale = 0.85f,
+                ),
+            ) {
                 val bubbleCenterDp = railPadDp + (effectiveBarWidth - railPadDp * 2) * displayFrac
-                val bubbleLeftPx = with(density) {
-                    (bubbleCenterDp - bubbleDp / 2).coerceIn(0.dp, effectiveBarWidth - bubbleDp).toPx()
+                val bubbleCenterPx = with(density) { bubbleCenterDp.toPx() }
+                val effectiveBarWidthPx = with(density) { effectiveBarWidth.toPx() }
+                val bubbleLeftPx = (bubbleCenterPx - bubbleWidthPx / 2f)
+                    .coerceIn(0f, maxOf(0f, effectiveBarWidthPx - bubbleWidthPx))
+                val bubbleTopPx = with(density) { (-36).dp.toPx() }
+
+                val delta = displayPos - (if (dragStartPos >= 0) dragStartPos else displayPos)
+                val bubbleText = when {
+                    delta < 0 -> stringResource(R.string.undo_bar_bubble_undo, -delta)
+                    delta > 0 -> stringResource(R.string.undo_bar_bubble_redo, delta)
+                    else -> stringResource(R.string.undo_bar_bubble_current)
                 }
-                val bubbleTopPx = with(density) { -(bubbleDp + gapDp).toPx() }
+
                 Box(
                     modifier = Modifier
                         .offset { IntOffset(bubbleLeftPx.roundToInt(), bubbleTopPx.roundToInt()) }
-                        .size(bubbleDp)
-                        .shadow(6.dp, CircleShape, spotColor = Color.Black.copy(alpha = 0.35f))
-                        .clip(CircleShape)
-                        .background(Morandi.accent),
+                        .onSizeChanged { bubbleWidthPx = it.width.toFloat() }
+                        .shadow(8.dp, RoundedCornerShape(14.dp), spotColor = Morandi.accent.copy(alpha = 0.45f))
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(Morandi.accent)
+                        .defaultMinSize(minWidth = 52.dp)
+                        .padding(horizontal = 10.dp, vertical = 5.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        text = displayPos.toString(),
+                        text = bubbleText,
                         color = Morandi.onAccent,
-                        fontSize = 13.sp,
+                        fontSize = 12.sp,
                         fontWeight = FontWeight.SemiBold,
                         textAlign = TextAlign.Center,
                     )
@@ -211,7 +244,7 @@ fun UndoScrubBar(
                     .width(effectiveBarWidth)
                     .height(UNDO_BAR_HEIGHT.dp)
                     .reportUiSlot(vm, UiPanelSlot.UNDO_SCRUB_BAR)
-                    .shadow(12.dp, capsuleShape, spotColor = Color.Black.copy(alpha = 0.35f))
+                    .shadow(12.dp, capsuleShape, spotColor = Color.Black.copy(alpha = 0.28f))
                     .clip(capsuleShape)
                     .then(
                         if (vm.blurBackground && hazeState != null) {
@@ -227,7 +260,7 @@ fun UndoScrubBar(
                     .semantics(mergeDescendants = true) { contentDescription = a11yDesc },
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // 滑轨: 点按步进 + 拇指拖动 scrub + 空白处拖动重定位整条
+                // 滑轨: 点按单步步进 + 拇指拖动连续洗刷 (始终居中固定, 无整条自由拖拽冲突)
                 val positionA11y = stringResource(
                     R.string.undo_bar_position_a11y, undoBarPosition, undoBarMax
                 )
@@ -239,7 +272,7 @@ fun UndoScrubBar(
                         .onSizeChanged { railWidthPx = it.width.toFloat() }
                         .pointerInput(Unit) {
                             detectTapGestures { pos ->
-                                // 点轨道不拖: 拇指右侧 = 前进一步, 左侧 = 后退一步
+                                // 点轨道单步步进: 拇指右侧 = 重做一步, 左侧 = 撤销一步
                                 val pad = railPadDp.toPx()
                                 val span = maxOf(1f, railWidthPx - 2 * pad)
                                 val t = ((pos.x - pad) / span * undoBarMax).roundToInt()
@@ -254,25 +287,25 @@ fun UndoScrubBar(
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = { start ->
-                                    // 模式以 onDragStart 判定为准, 拖动中途不切换:
-                                    // 命中拇指 (宽松半径) = scrub 拖动
-                                    if (abs(start.x - thumbXHolder[0]) <=
-                                        UNDO_BAR_THUMB_TOUCH_RADIUS.dp.toPx()
-                                    ) {
-                                        val pad = railPadDp.toPx()
-                                        val span = maxOf(1f, railWidthPx - 2 * pad)
+                                    val pad = railPadDp.toPx()
+                                    val span = maxOf(1f, railWidthPx - 2 * pad)
+                                    val thumbX = thumbXHolder[0]
+                                    val touchRadius = UNDO_BAR_THUMB_TOUCH_RADIUS.dp.toPx()
+                                    if (abs(start.x - thumbX) <= touchRadius) {
+                                        isDraggingThumb = true
+                                        dragStartPos = undoBarPosition
                                         val t = ((start.x - pad) / span * undoBarMax).roundToInt()
                                             .coerceIn(0, undoBarMax)
                                         scrubTarget = t
                                         vm.scrubTo(t)
                                     } else {
-                                        // 未命中拇指 = 整条重定位; 持续报活跃防拖动中被空闲计时藏掉
+                                        isDraggingThumb = false
                                         vm.onUndoBarActivity()
                                     }
                                 },
-                                onDrag = { change, dragAmount ->
-                                    change.consume()
-                                    if (scrubTarget >= 0) {
+                                onDrag = { change, _ ->
+                                    if (isDraggingThumb) {
+                                        change.consume()
                                         val pad = railPadDp.toPx()
                                         val span = maxOf(1f, railWidthPx - 2 * pad)
                                         val t = ((change.position.x - pad) / span * undoBarMax)
@@ -280,15 +313,18 @@ fun UndoScrubBar(
                                         scrubTarget = t
                                         vm.scrubTo(t)
                                     } else {
-                                        dragOffset += dragAmount
                                         vm.onUndoBarActivity()
                                     }
                                 },
                                 onDragEnd = {
+                                    isDraggingThumb = false
                                     scrubTarget = -1
+                                    dragStartPos = -1
                                 },
                                 onDragCancel = {
+                                    isDraggingThumb = false
                                     scrubTarget = -1
+                                    dragStartPos = -1
                                 },
                             )
                         },
@@ -297,16 +333,18 @@ fun UndoScrubBar(
                         val pad = railPadDp.toPx()
                         val span = maxOf(0f, size.width - 2 * pad)
                         val cy = size.height / 2f
-                        val trackH = 4.dp.toPx()
+                        val trackH = 6.dp.toPx()
                         val trackRadius = CornerRadius(trackH / 2f)
-                        // 未走过部分 (右段): subText 低透明度
+
+                        // 1. 轨道背景 (未走过/右段): subText 低透明度
                         drawRoundRect(
-                            color = Morandi.subText.copy(alpha = 0.35f),
+                            color = Morandi.subText.copy(alpha = 0.22f),
                             topLeft = Offset(pad, cy - trackH / 2f),
                             size = Size(span, trackH),
                             cornerRadius = trackRadius,
                         )
-                        // 已走过部分 (左段): accent 高亮
+
+                        // 2. 已走过轨道 (左段): accent 高亮
                         val walked = span * displayFrac.coerceIn(0f, 1f)
                         if (walked > 0f) {
                             drawRoundRect(
@@ -316,16 +354,73 @@ fun UndoScrubBar(
                                 cornerRadius = trackRadius,
                             )
                         }
-                        // 拇指 16dp 圆点
+
+                        // 3. 细腻刻度微点
+                        if (undoBarMax > 1 && span > 0f) {
+                            val stepSpan = span / undoBarMax
+                            val tickInterval = when {
+                                stepSpan >= 12.dp.toPx() -> 1
+                                stepSpan >= 6.dp.toPx() -> 2
+                                stepSpan >= 3.dp.toPx() -> 5
+                                else -> 10
+                            }
+                            val thumbCenter = pad + walked
+                            val thumbAvoidRadius = 11.dp.toPx() * thumbScale
+
+                            for (i in 0..undoBarMax step tickInterval) {
+                                val tx = pad + i * stepSpan
+                                if (abs(tx - thumbCenter) > thumbAvoidRadius) {
+                                    val isWalked = tx <= thumbCenter
+                                    val dotRadius = if (i % (tickInterval * 2) == 0) 1.4.dp.toPx() else 1.0.dp.toPx()
+                                    val dotColor = if (isWalked) {
+                                        Morandi.panel.copy(alpha = 0.55f)
+                                    } else {
+                                        Morandi.subText.copy(alpha = 0.35f)
+                                    }
+                                    drawCircle(
+                                        color = dotColor,
+                                        radius = dotRadius,
+                                        center = Offset(tx, cy),
+                                    )
+                                }
+                            }
+                        }
+
+                        // 4. 拇指滑块与呼吸高光动效
+                        val baseRadius = 8.5.dp.toPx()
+                        val currentRadius = baseRadius * thumbScale
+                        val thumbCenter = Offset(pad + walked, cy)
+
+                        // 呼吸外层光晕
+                        if (thumbScale > 1.0f) {
+                            val glowAlpha = ((thumbScale - 1.0f) / 0.28f).coerceIn(0f, 1f) * 0.32f
+                            drawCircle(
+                                color = Morandi.accent.copy(alpha = glowAlpha),
+                                radius = currentRadius + 5.dp.toPx(),
+                                center = thumbCenter,
+                            )
+                        }
+
+                        // 拇指主体
                         drawCircle(
                             color = Morandi.accentHi,
-                            radius = 8.dp.toPx(),
-                            center = Offset(pad + walked, cy),
+                            radius = currentRadius,
+                            center = thumbCenter,
                         )
+
+                        // 拇指高光外边框 (微质感玻璃边缘)
+                        drawCircle(
+                            color = Color.White.copy(alpha = 0.45f),
+                            radius = currentRadius,
+                            center = thumbCenter,
+                            style = Stroke(width = 1.4.dp.toPx()),
+                        )
+
+                        // 拇指中心微点
                         drawCircle(
                             color = Morandi.text,
-                            radius = 3.dp.toPx(),
-                            center = Offset(pad + walked, cy),
+                            radius = 2.8.dp.toPx() * thumbScale,
+                            center = thumbCenter,
                         )
                     }
                 }

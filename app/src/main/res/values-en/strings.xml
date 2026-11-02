@@ -3254,6 +3254,9 @@
     <string name="replay_export_hint_4k">4K export takes longer, 1080p recommended</string>
     <string name="undo_bar_a11y">Undo history slider</string>
     <string name="undo_bar_position_a11y">History position %1$d of %2$d steps</string>
+    <string name="undo_bar_bubble_current">Current</string>
+    <string name="undo_bar_bubble_undo">-%1$d steps</string>
+    <string name="undo_bar_bubble_redo">+%1$d steps</string>
 
     <string name="settings_abr_blend_policy_title">ABR Blend Mode Policy</string>
     <string name="settings_abr_blend_policy_desc">Mapping algorithm for dual brush and texture during ABR import</string>

@@ -3254,6 +3254,9 @@
     <string name="replay_export_hint_4k">4K 分辨率导出耗时较长，建议优先选择 1080p</string>
     <string name="undo_bar_a11y">撤销历史滑杆</string>
     <string name="undo_bar_position_a11y">历史位置 %1$d，共 %2$d 步</string>
+    <string name="undo_bar_bubble_current">当前</string>
+    <string name="undo_bar_bubble_undo">-%1$d 步</string>
+    <string name="undo_bar_bubble_redo">+%1$d 步</string>
 
     <string name="settings_abr_blend_policy_title">ABR 导入混合模式策略</string>
     <string name="settings_abr_blend_policy_desc">控制 ABR 导入时双重画笔与纹理模式映射算法</string>

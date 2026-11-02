@@ -1736,11 +1736,14 @@ internal fun PaintViewModel.applyWarpMeshTransform(
 /**
  * 变换进行中: 撤销/重做会把预览事务依赖的像素/选区回滚掉, 事务结束 (commit/cancel) 时
  * 直接撞 `KisTransactionData::endTransaction` 的一致性断言 (线上 7738948083 同类路径)。
- * 预览位图或画布上的 transform 激活态任一成立, 都视为"变换中"。
+ *
+ * 判据只有 [transformPreviewBitmap]: 它在 `startTransformPreview()` 成功时置位 (与变换框
+ * 同时出现), 在确认/取消变换时清空 —— 正是引擎里 `m_previewTransaction` 存活的那段窗口。
+ * **不要**用 `CanvasTouchView.isTransformActive`: 那是双指捏合/旋转手势的标志 (渲染线程
+ * 用它判断这一笔能否留在前缓冲), 双指轻点撤销本身就会把它置 true, 会让撤销把自己挡住。
  */
 internal val PaintViewModel.isHistoryBlockedByTransform: Boolean
-    get() = transformPreviewBitmap != null ||
-        com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.isTransformActive == true
+    get() = transformPreviewBitmap != null
 
 /**
  * 变换期间挡住撤销/重做: 给用户一句提示, 并把链式步 (撤回条泵) 的 settled 回调交还,
