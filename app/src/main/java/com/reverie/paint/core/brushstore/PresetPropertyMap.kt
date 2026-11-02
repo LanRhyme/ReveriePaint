@@ -189,7 +189,8 @@ object PresetPropertyMap {
         val curve = KppSensors.commonCurve(xml, option) ?: KppSensors.sensorCurve(sensor, id) ?: KppSensors.LINEAR
         // 只有抖动用的 fuzzy（归 jitterSize/jitterAngle 管）时，曲线本身视为未启用
         val enabled = checked && KppSensors.useCurve(xml, option) && !(ids.isNotEmpty() && primary == null)
-        val strength = if (option in CURVE_OWNS_VALUE) KppXml.getDouble(xml, "${option}Value") ?: 1.0 else 1.0
+        val strengthFromAttr = Regex("""\bstrength="([^"]*)"""").find(sensor ?: "")?.groupValues?.getOrNull(1)?.toDoubleOrNull()
+        val strength = strengthFromAttr ?: if (option in CURVE_OWNS_VALUE) (KppXml.getDouble(xml, "${option}Value") ?: 1.0) else 1.0
         return CurveValue(enabled, id, CurveValue.normalizeCurve(curve), strength)
     }
 
@@ -208,6 +209,14 @@ object PresetPropertyMap {
 
     private fun drawingAngleSensor(curve: String) =
         """<!DOCTYPE params><params fanCornersStep="30" fanCornersEnabled="0" angleOffset="0" id="drawingangle"><curve>$curve</curve></params>"""
+
+    private fun withSensorStrength(sensorXml: String, strength: Double): String {
+        val fmt = CurveValue.fmt(strength)
+        val paramsRegex = Regex("""<params\b([^>]*)>""")
+        val m = paramsRegex.find(sensorXml) ?: return sensorXml
+        val attrs = m.groupValues[1].replace(Regex("""\s*\bstrength="[^"]*""""), "")
+        return sensorXml.replaceRange(m.range, "<params$attrs strength=\"$fmt\">")
+    }
 
     fun writeCurve(xml: String, option: String, v: CurveValue): String {
         var x = xml
@@ -244,7 +253,8 @@ object PresetPropertyMap {
         } else {
             sensor
         }
-        x = KppSensors.writeSensor(x, option, finalSensor)
+        val sensorWithStrength = if (v.enabled) withSensorStrength(finalSensor, v.strength) else finalSensor
+        x = KppSensors.writeSensor(x, option, sensorWithStrength)
         // 编辑的未必是第一个子传感器：commonCurve 显式同步为本次写入的曲线
         if (KppSensors.commonCurve(x, option) != null) x = KppXml.set(x, "${option}commonCurve", curve)
         if (v.enabled) {
@@ -276,7 +286,7 @@ object PresetPropertyMap {
                 val c = CurveValue.parse(v as? String)
                 when {
                     c == null -> v
-                    opt in CURVE_OWNS_VALUE && c.enabled -> c.encode()
+                    c.enabled -> c.encode()
                     else -> c.copy(strength = 1.0).encode()
                 }
             },

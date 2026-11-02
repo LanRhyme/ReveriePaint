@@ -191,4 +191,60 @@ class BrushCurvePersistenceTest {
         assertEquals("speed", readFlowParams.flowSensor)
         assertTrue(readFlowParams.pressureFlow > 0.0)
     }
+
+    @Test
+    fun testOpacityAndFlowCurveStrengthPersistence() {
+        val baseXml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <Preset name="TestBrush" paintopid="paintbrush">
+              <param type="string" name="paintop"><![CDATA[paintbrush]]></param>
+              <param type="string" name="OpacityValue"><![CDATA[1.0]]></param>
+              <param type="string" name="OpacitySensor"><![CDATA[<!DOCTYPE params><params id="pressure"><curve>0,0;1,1;</curve></params>]]></param>
+              <param type="string" name="PressureOpacity"><![CDATA[true]]></param>
+              <param type="string" name="OpacityUseCurve"><![CDATA[true]]></param>
+              <param type="string" name="FlowValue"><![CDATA[1.0]]></param>
+              <param type="string" name="FlowSensor"><![CDATA[<!DOCTYPE params><params id="pressure"><curve>0,0;1,1;</curve></params>]]></param>
+              <param type="string" name="PressureFlow"><![CDATA[true]]></param>
+              <param type="string" name="FlowUseCurve"><![CDATA[true]]></param>
+            </Preset>
+        """.trimIndent()
+
+        // 1. Initial strength is 1.0
+        val initialOpacityCurve = PresetPropertyMap.readCurve(baseXml, "Opacity")
+        assertNotNull(initialOpacityCurve)
+        assertEquals(1.0, initialOpacityCurve!!.strength, 1e-3)
+
+        // 2. Adjust Opacity curve strength to 0.45
+        val adjustedOpacity = initialOpacityCurve.copy(strength = 0.45)
+        val isSameOpacity = PresetPropertyMap.same(ControlId.CURVE_OPACITY, initialOpacityCurve.encode(), adjustedOpacity.encode())
+        assertFalse("Adjusted opacity strength must not be treated as same", isSameOpacity)
+
+        // Write and read back
+        val xmlWithOp = PresetPropertyMap.writeCurve(baseXml, "Opacity", adjustedOpacity)
+        val readBackOp = PresetPropertyMap.readCurve(xmlWithOp, "Opacity")
+        assertNotNull(readBackOp)
+        assertEquals(0.45, readBackOp!!.strength, 1e-3)
+        // Ensure base OpacityValue is NOT corrupted (still 1.0)
+        assertEquals(1.0, KppXml.getDouble(xmlWithOp, "OpacityValue") ?: 0.0, 1e-3)
+
+        // 3. Adjust Flow curve strength to 0.65
+        val initialFlowCurve = PresetPropertyMap.readCurve(xmlWithOp, "Flow")
+        assertNotNull(initialFlowCurve)
+        val adjustedFlow = initialFlowCurve!!.copy(strength = 0.65)
+        val isSameFlow = PresetPropertyMap.same(ControlId.CURVE_FLOW, initialFlowCurve.encode(), adjustedFlow.encode())
+        assertFalse("Adjusted flow strength must not be treated as same", isSameFlow)
+
+        val xmlWithFlow = PresetPropertyMap.writeCurve(xmlWithOp, "Flow", adjustedFlow)
+        val readBackFlow = PresetPropertyMap.readCurve(xmlWithFlow, "Flow")
+        assertNotNull(readBackFlow)
+        assertEquals(0.65, readBackFlow!!.strength, 1e-3)
+        assertEquals(1.0, KppXml.getDouble(xmlWithFlow, "FlowValue") ?: 0.0, 1e-3)
+
+        // 4. Test normalize preserves strength when curve is enabled
+        val normOp = PresetPropertyMap.spec(ControlId.CURVE_OPACITY).normalize(adjustedOpacity.encode())
+        val parsedNormOp = CurveValue.parse(normOp as? String)
+        assertNotNull(parsedNormOp)
+        assertEquals(0.45, parsedNormOp!!.strength, 1e-3)
+    }
 }
+
