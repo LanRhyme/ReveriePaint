@@ -104,19 +104,40 @@ KisAnimatedOpacityProperty::get() ← ReverieCore::layerOpacity ← rp_doc_snaps
     与 `m_layers` 同步刷新，保证"已移出图层树、尚未重建"的节点在快照期间仍然存活；
   - `m_layerMirrorMutex` 串行化"重建 vs 快照读取"（快照额外持有原有 `g_snapshotMutex`）。
 
-## 6. 平台图形栈崩溃（5 条，非应用代码）
+## 6. 前缓冲拆除竞态：贯穿 1.6.1 / 1.6.2 / 1.6.3 的最大一簇
 
-- `d1c02e2849` / `ef01aeec77`（TCL T951K）: `abort ← libhwui ← libpng/libandroidfw`，
-  RenderThread 解码/绘制阶段终止，同机当天另有 ABR 导入 OOM。
-- `f047d7d9a2`（小米 2312DRA50C）: `libgui.so SurfaceComposerClient` SIGSEGV。
-- 三条栈上只有我们自己的信号处理器，其余全是系统库；暂列不可直接修复，
-  需要在对应机型复现后再定位是否由异常资源触发。
+近 2 天全版本数据里，四个签名是同一个类，与我们自己的代码无关、也**不是 1.6.3 引入**：
+
+| 签名 | 版本 | 设备 | 条数 | fault |
+|---|---|---|---|---|
+| `d8f74afe88` | 1.6.2 | vivo V2230A（SDK 33） | 6 | `0x8` |
+| `7f68bfcd44` | 1.6.1 | Xiaomi M2105K81AC（SDK 33） | 2 | `0x0` |
+| `f047d7d9a2` | 1.6.3 | Xiaomi 2312DRA50C（SDK 33） | 2 | `0x0` |
+| `8d5df3d6e2` | 1.6.3 | Xiaomi 23043RP34C（SDK 33） | 2 | `0x0` |
+
+共同点：全部 Android 13、SIGSEGV、栈只有信号处理器 + `libgui.so`×3 + `libandroid_runtime.so`，
+crumbs 末条几乎都是 `Navigation page`（离开绘画页）—— 即 Surface/SurfaceControl 拆除时
+事务仍打到已销毁的对象上（`androidx.graphics` 低延迟前缓冲的已知拆解竞态）。
+
+修复：
+
+- **隔离判定扩容**：新增 `FrontBufferCrashSignature`，除 `libgraphics-core.so` 外，也识别
+  「`FrontBuffer: pref=true` + `libgui.so` + `libandroid_runtime.so` + fault 0x0/0x8」
+  这一变体；`CrashHandler` 启动时据此隔离前缓冲。此前只认 `libgraphics-core.so`，
+  这些日志里没有该字符串，导致 vivo 那台机器连续 6 次崩溃都没被隔离。
+- **拆除时序**：`FrontBufferPreviewOverlay.onDetachedFromWindow` 在 surface 销毁前提前
+  `release()`，`release()` 改为可重入，`onAttachedToWindow` 负责重建渲染器，
+  避免「释放晚于 surfaceDestroyed」的最后一笔事务。
+
+另有 `d1c02e2849` / `ef01aeec77`（TCL T951K）: `abort ← libhwui ← libpng/libandroidfw`，
+RenderThread 解码/绘制阶段终止，同机当天另有 ABR 导入 OOM；目前没有应用栈，
+仍列不可直接修复，需要在对应机型复现后再定位是否由异常资源触发。
 
 ## 验证
 
 ```bash
 ./gradlew :app:compileDebugKotlin
-./gradlew :app:testDebugUnitTest          # 新增 Mesh3DWireframeTest
+./gradlew :app:testDebugUnitTest          # 新增 Mesh3DWireframeTest / FrontBufferCrashSignatureTest
 ./scripts/build_native.sh --abi armeabi-v7a
 ./scripts/build_native.sh                 # arm64 + assembleDebug
 ./scripts/refresh-prebuilt-jni.sh
@@ -126,4 +147,5 @@ KisAnimatedOpacityProperty::get() ← ReverieCore::layerOpacity ← rp_doc_snaps
 ```
 
 真机回归重点：大 ABR（>64MB 与正常包）、导入大 OBJ、工程载入含 OBJ 的 3D 图层、
-连续 undo/redo、动画项目里切帧时取消变换预览、图层面板快速增删。
+连续 undo/redo、动画项目里切帧时取消变换预览、图层面板快速增删、
+开启前缓冲后反复进出绘画页（验证 detach 释放时序）。

@@ -19,8 +19,9 @@ object FrontBufferProbe {
     const val MIN_SUPPORTED_API = Build.VERSION_CODES.Q
 
     /**
-     * 本机是否因"上一次原生崩溃落在 libgraphics-core.so"而被隔离 (见 [setCrashQuarantined])。
-     * 由 [com.reverie.paint.core.CrashHandler] 在进程启动时判定; 未判定前按不隔离处理。
+     * 本机是否因"上一次原生崩溃命中前缓冲签名"而被隔离 (见 [setCrashQuarantined] /
+     * [FrontBufferCrashSignature])。由 [com.reverie.paint.core.CrashHandler] 在进程启动时
+     * 判定; 未判定前按不隔离处理。
      */
     @Volatile
     private var crashQuarantined = false
@@ -39,8 +40,9 @@ object FrontBufferProbe {
         if (quarantined) {
             Log.w(
                 TAG,
-                "front buffer disabled for this app version: previous native crash stack referenced " +
-                    "libgraphics-core.so (override with debug.reverie.fb_force=1)",
+                "front buffer disabled for this app version: previous native crash matched the " +
+                    "front-buffer signature (libgraphics-core.so, or libgui + libandroid_runtime " +
+                    "with FrontBuffer: pref=true; override with debug.reverie.fb_force=1)",
             )
         }
     }
@@ -57,10 +59,12 @@ object FrontBufferProbe {
             return false
         }
 
-        // 2. 本机曾在前缓冲原生路径 (androidx.graphics 的 libgraphics-core.so) 崩过:
-        //    该库 1.0.4 的 SurfaceControl 拆解竞态是空指针崩溃 (fault addr 0x0, 发生在系统
-        //    libgui NdkDelegatorController 的事务完成回调线程上), 无法在 Kotlin 侧捕获, 只能隔离。
-        //    隔离按版本号生效, 升级版本后自动重试一次 (CrashHandler 负责读写)。
+        // 2. 本机曾在前缓冲原生路径崩过:
+        //    - androidx.graphics 的 libgraphics-core.so SurfaceControl 拆解竞态 (fault 0x0);
+        //    - 以及"页面切换时 Surface 已销毁、事务仍打到 libgui"这一种 (栈里只有
+        //      libgui + libandroid_runtime, 线上占比最大的一簇, 见 FrontBufferCrashSignature)。
+        //    两者都无法在 Kotlin 侧捕获, 只能隔离。隔离按版本号生效, 升级版本后自动重试
+        //    一次 (CrashHandler 负责读写)。
         if (isCrashQuarantined()) {
             return false
         }

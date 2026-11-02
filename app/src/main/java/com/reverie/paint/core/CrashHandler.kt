@@ -78,23 +78,27 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
     }
 
     /**
-     * 前缓冲 (androidx.graphics 的 `libgraphics-core.so`) 崩过一次就按"本次安装"隔离。
+     * 前缓冲 (androidx.graphics / 系统 libgui) 崩过一次就按"本次安装"隔离。
      *
-     * 该崩溃发生在系统 libgui 的事务完成回调线程上 (fault addr 0x0), Kotlin 侧无法捕获, 只能在
-     * 下次启动时把前缓冲入口关掉, 让笔画退回主画布软件预览。隔离与 `PackageManager.lastUpdateTime`
-     * 绑定: 发新版本 (或升级 graphics-core) 后旧日志失效, 自动重试一次。
+     * 该崩溃发生在系统图形栈里 (fault addr 0x0/0x8), Kotlin 侧无法捕获, 只能在下次启动时
+     * 把前缓冲入口关掉, 让笔画退回主画布软件预览。判据见 [FrontBufferCrashSignature]:
+     * 除了栈里点名 `libgraphics-core.so`, 也认"前缓冲开着 + libgui/libandroid_runtime
+     * + 页面上 Surface 拆解"这一种 (线上占比最大的一簇)。
+     *
+     * 隔离与 `PackageManager.lastUpdateTime` 绑定: 发新版本 (或升级 graphics-core) 后
+     * 旧日志失效, 自动重试一次。
      */
     private fun evaluateFrontBufferQuarantine(context: Context, logDir: File) {
-        val hit = hasGraphicsCoreCrashSinceInstall(context, logDir)
+        val hit = hasFrontBufferCrashSinceInstall(context, logDir)
         com.reverie.paint.core.stylus.FrontBufferProbe.setCrashQuarantined(hit)
         if (hit) {
-            Log.w(TAG, "Front buffer quarantined: previous native crash stack referenced libgraphics-core.so")
-            Breadcrumbs.record("FrontBuffer", "quarantined after libgraphics-core.so native crash")
+            Log.w(TAG, "Front buffer quarantined: previous native crash matched the front-buffer signature")
+            Breadcrumbs.record("FrontBuffer", "quarantined after front-buffer native crash")
         }
     }
 
-    /** 最近的原生崩溃日志里是否出现前缓冲库 (只读少量小文件, 启动期一次性开销)。 */
-    private fun hasGraphicsCoreCrashSinceInstall(context: Context, logDir: File): Boolean {
+    /** 最近的原生崩溃日志里是否有前缓冲签名 (只读少量小文件, 启动期一次性开销)。 */
+    private fun hasFrontBufferCrashSinceInstall(context: Context, logDir: File): Boolean {
         val installedAt = runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime
         }.getOrDefault(0L)
@@ -105,7 +109,11 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
             .filter { it.lastModified() >= installedAt }
             .sortedByDescending { it.lastModified() }
             .take(3)
-            .any { file -> runCatching { file.readText().contains("libgraphics-core.so") }.getOrDefault(false) }
+            .any { file ->
+                runCatching {
+                    com.reverie.paint.core.stylus.FrontBufferCrashSignature.matches(file.readText())
+                }.getOrDefault(false)
+            }
     }
 
     /**
