@@ -516,6 +516,7 @@ void ReverieCore::touchStrokeEnd()
                     m_strokeTxn = nullptr;
                     m_strokeTxnActive = false;
                 }
+                invalidateRedoState("stroke-end-temp-target");
                 m_strokeTxn = new KisTransaction(kundo2_i18n("Stroke"), pl->paintDevice());
                 m_strokeTxnActive = true;
             }
@@ -913,6 +914,9 @@ bool ReverieCore::flushStrokeBatch()
             if (interstrokeDataFactory) {
                 wrapper = new KisInterstrokeDataTransactionWrapperFactory(interstrokeDataFactory, true);
             }
+            // 暂定事务: 这一笔可能被取消/被历史回放打断, 先让重做区跟着失效
+            // (docs/INCIDENT-1.6.4-HISTORY-REDO-CRASH.md)
+            invalidateRedoState("stroke-begin");
             m_strokeTxn = new KisTransaction(
                 kundo2_i18n("Stroke"), target, nullptr, -1, wrapper);
             m_strokeTxnActive = true;
@@ -1572,6 +1576,41 @@ void ReverieCore::endUndoMacro()
         m_document->undoAdapter()->endMacro();
         m_macroDepth--;
     }
+    flushPendingRedoPurge();
+}
+
+void ReverieCore::invalidateRedoState(const char *reason)
+{
+    m_redoCount = 0;
+    if (!m_undoStore) {
+        return;
+    }
+    if (!m_undoStore->canRedo()) {
+        return;
+    }
+    RPC_LOG("RPC historyDropRedo reason=%s count=%d index=%d",
+            reason ? reason : "?",
+            m_undoStore->count(), m_undoStore->index());
+    m_undoStore->purgeRedoState();
+    if (m_undoStore->canRedo()) {
+        // KUndo2QStack::purgeRedoState() 在宏事务打开时直接 return; 记下待办,
+        // 等 endUndoMacro() 再补 (见 m_redoPurgePending)。
+        m_redoPurgePending = true;
+    }
+}
+
+void ReverieCore::flushPendingRedoPurge()
+{
+    if (!m_redoPurgePending) {
+        return;
+    }
+    m_redoPurgePending = false;
+    if (!m_undoStore || !m_undoStore->canRedo()) {
+        return;
+    }
+    RPC_LOG("RPC historyDropRedo deferred-apply count=%d index=%d",
+            m_undoStore->count(), m_undoStore->index());
+    m_undoStore->purgeRedoState();
 }
 
 bool ReverieCore::canUndo() const
@@ -2015,6 +2054,7 @@ bool ReverieCore::restoreStashedStrokePatchOpen()
         m_openRestoreTransaction = nullptr;
     }
 
+    invalidateRedoState("stroke-stash-restore");
     m_openRestoreTransaction = new KisTransaction(pl->paintDevice());
     if (m_strokeStash.wasIndirect) {
         KisPaintDeviceSP tempDevice = new KisPaintDevice(pl->colorSpace());

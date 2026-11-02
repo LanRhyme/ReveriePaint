@@ -249,13 +249,13 @@ void ReverieCore::moveLayerContent(int dx, int dy)
     if (activeSel) {
         // Krita MoveSelectionStrokeStrategy: cut selected pixels, shift them,
         // paste back, then shift the selection mask to follow.
-        KisTransaction txn(kundo2_i18n("Move"), device);
-
         QRect selBounds = m_selection->selectedExactRect()
                               .intersected(QRect(0, 0, image->width(), image->height()));
         if (selBounds.isEmpty()) {
             return;
         }
+        // 事务开在空选区校验之后(提前 return 会析构未提交事务并连带清掉撤销 revision)
+        KisTransaction txn(kundo2_i18n("Move"), device);
 
         // 1. Extract selected pixels into a temporary device
         KisPaintDeviceSP temp = new KisPaintDevice(image->colorSpace());
@@ -338,6 +338,7 @@ void ReverieCore::moveLayerContentLayers(const QVector<int> &layers, int dx, int
     bool selectionShifted = false;
 
     for (KisPaintDeviceSP device : devices) {
+        invalidateRedoState("move-selection");
         KisTransaction *txn = new KisTransaction(kundo2_i18n("Move"), device, nullptr, -1, nullptr);
         if (activeSel) {
             // Krita MoveSelectionStrokeStrategy: cut selected pixels, shift

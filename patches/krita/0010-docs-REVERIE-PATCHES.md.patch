@@ -1,7 +1,7 @@
 From 18671c55d59736a24e9cd477f4c1ef241d238c5a Mon Sep 17 00:00:00 2001
 From: LanRhyme <xiao_ren233@foxmail.com>
 Date: Wed, 28 Oct 2026 08:47:17 +0800
-Subject: [PATCH 10/10] =?UTF-8?q?docs:=20=E5=A2=9E=E5=8A=A0=E8=A1=A5?=
+Subject: [PATCH 10/11] =?UTF-8?q?docs:=20=E5=A2=9E=E5=8A=A0=E8=A1=A5?=
  =?UTF-8?q?=E4=B8=81=E5=B1=82=E8=AF=B4=E6=98=8E=20REVERIE-PATCHES.md?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
@@ -54,3 +54,6 @@ index 00000000..ebd323f2
 +  `kis_lockless_stack.h` 的 QtGlobal 包含
 +
 +同步流程与自动校验脚本见应用仓库的 `docs/KRITA-SYNC.md`（`scripts/check_krita_sync.sh`）。
+-- 
+2.56.0
+

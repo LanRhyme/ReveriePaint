@@ -112,7 +112,6 @@ void ReverieCore::stampBitmap(int x, int y, int bw, int bh, const void *rgbaPixe
         return;
     }
 
-    KisTransaction txn(kundo2_i18n("Stamp"), device);
     const int w = image->width();
     const int h = image->height();
     const QRect stampRect(x, y, bw, bh);
@@ -121,6 +120,9 @@ void ReverieCore::stampBitmap(int x, int y, int bw, int bh, const void *rgbaPixe
     if (region.isEmpty()) {
         return;
     }
+    // 事务开在空区域校验之后: 提前 return 会析构未提交的 KisTransaction,
+    // 连带清掉这台设备更早的撤销 revision(撤销栈错位)。
+    KisTransaction txn(kundo2_i18n("Stamp"), device);
 
     const int rw = region.width();
     const int rh = region.height();
@@ -844,6 +846,7 @@ void ReverieCore::liquifyBegin(const QVector<int> &layers)
         t.layer = dynamic_cast<KisPaintLayer *>(m_layers[idx].node);
         // 可见性以节点为准(m_layers 的镜像字段可能落后于引擎内的真实树)
         t.visible = m_layers[idx].node ? m_layers[idx].node->visible() : m_layers[idx].visible;
+        invalidateRedoState("liquify-begin");
         t.txn = new KisTransaction(kundo2_i18n("Liquify"), dev, nullptr, -1, nullptr);
         m_liquifyTargets.append(t);
     }

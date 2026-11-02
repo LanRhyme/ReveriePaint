@@ -450,6 +450,7 @@ int ReverieCore::copySelectionToNewLayer(bool cut)
     dstDev->setDirty(selBounds);
 
     if (cut) {
+        invalidateRedoState("cut-selection");
         KisTransaction *cutTxn = new KisTransaction(kundo2_i18n("Cut Selection"), srcDev, nullptr, -1, nullptr);
         srcDev->clearSelection(m_selection);
         srcDev->setDirty(selBounds);

@@ -1045,6 +1045,21 @@ public:
     }
 
 private:
+    // 丢掉撤销栈的重做区, 让"引擎的历史状态"和"Kotlin 看到的重做可用性"一起失效。
+    //
+    // 任何**暂定事务**(变换/液化的预览、笔刷暂存回滚、被取消的笔画)在创建时都会让
+    // KisTiledDataManager::getMemento() 清掉 KisMementoManager::m_cancelledRevisions
+    // (重做信息没了), 但 KUndo2QStack 的重做区还留着命令; 而 revert() 又会把一条
+    // "不进撤销栈"的本地 revision 塞进 cancelled 列表, 它随 ~KisTransactionData 被
+    // purgeHistory() 跳过(只查 m_revisions)后变成悬垂 KisMemento*。
+    // 之后点重做时 KisMementoManager::rollforward() 会拿这条错位 revision 当重做目标:
+    // 瓦片被滚进文档(用户看到的"莫名其妙出现笔仙"), 并对已释放的 KisMemento 做
+    // refcount, 在 commit() 的 m_currentMemento=0 处 delete[] 垃圾指针 -> SIGABRT。
+    // 所以: 开暂定事务之前必须先调用这里, 让两边一起失效。
+    // 详见 docs/INCIDENT-1.6.4-HISTORY-REDO-CRASH.md
+    void invalidateRedoState(const char *reason);
+    // 宏事务打开期间 KUndo2QStack::purgeRedoState() 是 no-op, 这里补一次延后的清理。
+    void flushPendingRedoPurge();
     // Drop an in-progress stroke and a leftover undo macro before replaying
     // history. A macro holds KisImage::barrierLock; waiting for the scheduler
     // while that lock is held never returns.
@@ -1629,6 +1644,9 @@ private:
     // maxUndoSteps 的 prefs 默认值一致; 无 Kotlin 接线时也生效。
     int m_undoLimit = 50;
     int m_redoCount = 0;   // redo depth tracked locally (store hides it)
+    // 有暂定事务作废过重做区, 但当时宏事务还开着 (purgeRedoState 是 no-op),
+    // 需要在宏关掉后补一次清理。见 invalidateRedoState()。
+    bool m_redoPurgePending = false;
     int m_macroDepth = 0;  // nested macro transaction depth
     bool m_undoCaptureEnabled = true; // false during replay (no history growth)
     quint64 m_strokeCounter = 0;

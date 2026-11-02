@@ -110,6 +110,7 @@ void ReverieCore::flipCanvasCommon(bool horizontal)
         if (!dev) {
             continue;
         }
+        invalidateRedoState("flip-canvas");
         KisTransaction *txn = new KisTransaction(magic, dev, nullptr, -1, nullptr);
         flipCanvasDevice(dev, horizontal, docW, docH);
         children << txn->endAndTake();

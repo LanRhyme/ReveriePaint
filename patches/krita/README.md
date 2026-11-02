@@ -21,6 +21,7 @@
 | 0008 | `fix-build-kis_lockless_stack.h-QtGlobal-Qt-6.6` | `kis_lockless_stack.h` 补 `<QtGlobal>`，修 Qt 6.6.3 下 `Q_DISABLE_COPY` 未定义 |
 | 0009 | `fix-android-kritaui` | Android 视频编码器改用空实现桩（无 MLT/FFmpeg），修复 `libkritaui.so` 链接失败 |
 | 0010 | `docs-REVERIE-PATCHES.md` | 在 fork 根目录加补丁层说明（提交清单 + 稳定契约） |
+| 0011 | `fix-memento-memento-SIGABRT` | 撤销/重做按 memento 身份校验：`rollforward()`/`rollback()` 身份不符时保持现状，`purgeHistory()` 摘掉 cancelled 里的悬垂条目；修「本地事务 revert 后重做」的瓦片装错帧（笔仙）与 `delete[]` SIGABRT |
 
 ## 应用与重建
 

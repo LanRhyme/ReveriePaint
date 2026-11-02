@@ -1,7 +1,7 @@
 From b1f178fbcc9ab6902899e63dd82e21eda1853d2c Mon Sep 17 00:00:00 2001
 From: LanRhyme <xiao_ren233@foxmail.com>
 Date: Tue, 27 Oct 2026 23:59:52 +0800
-Subject: [PATCH 06/10] =?UTF-8?q?feat(mypaint):=20=E9=9D=99=E6=80=81?=
+Subject: [PATCH 06/11] =?UTF-8?q?feat(mypaint):=20=E9=9D=99=E6=80=81?=
  =?UTF-8?q?=E6=B3=A8=E5=86=8C=E4=B8=8E=20Android=20=E6=9E=84=E5=BB=BA?=
  =?UTF-8?q?=E6=94=AF=E6=8C=81?=
 MIME-Version: 1.0
@@ -84,3 +84,6 @@ index 00000000..319ae1f2
 +{
 +    return new KisMyPaintPaintOpPreset(fileName);
 +}
+-- 
+2.56.0
+

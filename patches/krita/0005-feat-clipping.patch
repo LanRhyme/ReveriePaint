@@ -1,7 +1,7 @@
 From 35ad69db9b92ca3007f4fa78cd24998799cb41bc Mon Sep 17 00:00:00 2001
 From: LanRhyme <xiao_ren233@foxmail.com>
 Date: Tue, 27 Oct 2026 23:59:52 +0800
-Subject: [PATCH 05/10] =?UTF-8?q?feat(clipping):=20=E7=A7=BB=E6=A4=8D?=
+Subject: [PATCH 05/11] =?UTF-8?q?feat(clipping):=20=E7=A7=BB=E6=A4=8D?=
  =?UTF-8?q?=E5=B9=B6=E5=8A=A0=E5=9B=BA=E5=89=AA=E5=88=87=E8=92=99=E7=89=88?=
  =?UTF-8?q?=E5=BC=95=E6=93=8E=E6=94=AF=E6=8C=81?=
 MIME-Version: 1.0
@@ -591,3 +591,6 @@ index 0b3a0da4..175e6c8c 100644
              newLayer = layer;
  
          }
+-- 
+2.56.0
+

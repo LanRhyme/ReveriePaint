@@ -25,7 +25,7 @@ bool ReverieCore::applyPerspectiveTransform(
         cancelTransformPreview();
     }
 
-    KisTransaction txn(kundo2_i18n("Perspective Transform"), device);
+    invalidateRedoState("transform-perspective");
 
     QRect bounds(qRound(origX), qRound(origY), qRound(origW), qRound(origH));
     if (bounds.isEmpty() || !bounds.isValid()) {
@@ -57,6 +57,11 @@ bool ReverieCore::applyPerspectiveTransform(
     if (tf.isIdentity()) {
         return true;
     }
+
+    // 事务必须开在全部校验之后: 顺手 return 会把未提交的 KisTransaction 析构掉,
+    // ~KisTransactionData -> purgeHistory() 连带清掉这台设备更早的撤销 revision,
+    // 撤销栈从此错位(撤错帧/内容乱跳)。
+    KisTransaction txn(kundo2_i18n("Perspective Transform"), device);
 
     const bool activeSel = hasSelection();
     if (activeSel) {
@@ -137,6 +142,7 @@ bool ReverieCore::applyWarpMeshTransform(
         cancelTransformPreview();
     }
 
+    invalidateRedoState("transform-mesh-warp");
     KisTransaction txn(kundo2_i18n("Mesh Warp Transform"), device);
 
     KisWarpTransformWorker worker(
@@ -209,6 +215,7 @@ bool ReverieCore::applyTransform(double xscale, double yscale,
         cancelTransformPreview();
     }
 
+    invalidateRedoState("transform-apply");
     KisTransaction txn(kundo2_i18n("Transform"), device);
 
     QRect bounds = device->exactBounds().intersected(QRect(0, 0, image->width(), image->height()));
@@ -368,6 +375,9 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
     const double effectiveTy = center.y() - mappedC.y() + ytranslate;
 
     const bool activeSel = hasSelection();
+    // 每个目标设备都会开一个暂定事务 (创建时就会清掉引擎的重做信息),
+    // 循环前统一让重做区失效一次。
+    invalidateRedoState("transform-layers");
     QVector<KUndo2Command *> children;
     for (KisPaintDeviceSP device : devices) {
         KisTransaction *txn = nullptr;
@@ -394,6 +404,7 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
                 continue;
             }
 
+            // 重做区已在循环前由 invalidateRedoState("transform-layers") 作废
             txn = new KisTransaction(kundo2_i18n("Transform"), device, nullptr, -1, nullptr);
             if (!copyOnly) {
                 device->clearSelection(m_selection);
@@ -423,6 +434,7 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
                         effectiveTx, effectiveTy);
             }
         } else {
+            // 重做区已在循环前由 invalidateRedoState("transform-layers") 作废
             txn = new KisTransaction(kundo2_i18n("Transform"), device, nullptr, -1, nullptr);
             // Krita's transformAndMergeDevice pattern per device
             KisPaintDeviceSP src = new KisPaintDevice(*device);
@@ -541,6 +553,7 @@ bool ReverieCore::startTransformPreview(const QVector<int> &layers, QImage* outI
             int(targets.size()), int(devices.size()), activeSel ? 1 : 0, copyOnly ? 1 : 0);
 
     for (KisPaintDeviceSP device : devices) {
+        invalidateRedoState("transform-preview");
         KisTransaction *txn = new KisTransaction(kundo2_i18n("Transform Preview"), device, nullptr, -1, nullptr);
         m_previewTransactions.append(txn);
 
@@ -619,6 +632,10 @@ void ReverieCore::cancelTransformPreview()
         m_previewTransaction = nullptr;
     }
     m_previewTempDevice = nullptr;
+    // 预览事务被 revert() 之后, 引擎的 cancelled 列表里会多出一条"不进撤销栈"的
+    // 本地 revision; 撤销栈的重做区必须一起作废, 否则下一次重做会把它当目标滚进文档
+    // (笔仙) 并解引用已释放的 KisMemento (SIGABRT)。
+    invalidateRedoState("transform-preview-cancel");
 
     KisImageSP image = m_document;
     const QRect fullRect = image ? QRect(0, 0, image->width(), image->height()) : QRect();

@@ -1,0 +1,167 @@
+From e476af620e8dd5febaf69b6a72d9ac470efee911 Mon Sep 17 00:00:00 2001
+From: LanRhyme <xiao_ren233@foxmail.com>
+Date: Mon, 2 Nov 2026 23:32:37 +0800
+Subject: [PATCH 11/11] =?UTF-8?q?fix(memento):=20=E6=92=A4=E9=94=80/?=
+ =?UTF-8?q?=E9=87=8D=E5=81=9A=E6=8C=89=20memento=20=E8=BA=AB=E4=BB=BD?=
+ =?UTF-8?q?=E6=A0=A1=E9=AA=8C,=20=E4=BF=AE=E5=A4=8D=E5=8E=86=E5=8F=B2?=
+ =?UTF-8?q?=E9=94=99=E4=BD=8D=E5=AF=BC=E8=87=B4=E7=9A=84=E7=AC=94=E4=BB=99?=
+ =?UTF-8?q?=E4=B8=8E=20SIGABRT?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+线上 1.6.3/1.6.4 反复出现的同一栈崩溃:
+  KUndo2QStack::redo -> KisTransactionData::redo -> KisMementoManager::rollforward
+  -> commit -> KisMemento::~KisMemento -> delete[] -> SIGABRT
+根因是 cancelled(重做区)列表与 KUndo2QStack 的重做区错位:
+
+- KisMementoManager::getMemento() 会 m_cancelledRevisions.clear(), 但撤销栈
+  的重做区还留着命令; 不进撤销栈的"本地事务"(预览/暂存回滚/取消的笔画)一创建
+  就触发一次 clear。
+- KisTransaction::revert() 的 rollback() 会往 cancelled prepend 一条本地
+  revision; 随后 ~KisTransactionData -> purgeHistory() 用
+  findRevisionByMemento() 只查 m_revisions, 查不到就 return —— cancelled 里
+  留下指向已释放 KisMemento 的裸指针。
+- rollforward()/rollback() 直接 takeFirst()/takeLast() 并用
+  KIS_SAFE_ASSERT_RECOVER_NOOP 自检 (Release 下只有 qWarning), 于是下一次
+  redo 会把这条悬垂 revision 当重做目标: 瓦片被滚进文档(用户说的"笔仙"),
+  并对已释放的 KisMemento 做 refcount, 在 commit() 的 m_currentMemento=0 处
+  delete[] 垃圾指针 -> scudo 判非法 free -> abort。
+
+修复:
+- rollforward(): 要求 cancelled 队首的 memento 与目标身份一致, 不一致保持现状
+  (本次重做退化为 no-op) 并 warnKrita 留痕;
+- rollback(): 只有 m_revisions.last().memento 与目标一致才回滚, 否则保持现状;
+- purgeHistory(): 顺手摘掉 cancelled 里指向该 memento 的条目, 不留悬垂指针。
+
+验证: 桌面 Krita 21.0.0 最小复现程序 (画一笔 -> undo -> 落笔后取消 -> redo)
+补丁前 SIGSEGV 且栈与线上逐帧一致, 补丁后不崩且内容不再被装错; 正常
+undo/redo 回归 (3 笔 undo×3 redo×3) 逐帧像素符合预期。
+---
+ REVERIE-PATCHES.md                       |  5 ++
+ libs/image/tiles3/kis_memento_manager.cc | 67 ++++++++++++++++++++++++
+ 2 files changed, 72 insertions(+)
+
+diff --git a/REVERIE-PATCHES.md b/REVERIE-PATCHES.md
+index ebd323f2..2a8827c2 100644
+--- a/REVERIE-PATCHES.md
++++ b/REVERIE-PATCHES.md
+@@ -20,6 +20,7 @@
+ | 7 | `fix(mypaint)` | 传感器连接懒初始化，修复 Android 上 dlopen 阶段崩溃 |
+ | 8 | `fix(build)` | `kis_lockless_stack.h` 补 `<QtGlobal>`，修 Qt 6.6 下 `Q_DISABLE_COPY` 未定义 |
+ | 9 | `fix(android)` | 视频编码器空实现桩（Android 无 MLT / FFmpeg），修复 `libkritaui` 链接 |
++| 10 | `fix(memento)` | 撤销/重做按 memento 身份校验：`rollforward()`/`rollback()` 身份不符时保持现状，`purgeHistory()` 摘掉 cancelled 里的悬垂条目 |
+ 
+ ## 稳定契约（同步上游时这些入口必须还在）
+ 
+@@ -29,5 +30,9 @@
+   根 `CMakeLists.txt` 的 LibAV 禁用段、`libs/ui/CMakeLists.txt` 的 ANDROID 源列表
+ - 笔刷/存储：`kis_marker_painter.cpp` 的 COMPOSITE_OVER、swap 分配器不 qFatal、
+   `kis_lockless_stack.h` 的 QtGlobal 包含
++- 撤销历史：`KisMementoManager::rollforward()` / `rollback()` 的 **memento 身份校验**
++  （`reverieFindCancelledRevision()`），以及 `purgeHistory()` 对 `m_cancelledRevisions` 的清理。
++  少了这段，「本地事务 revert 后重做」会重新变成瓦片装错帧 + `delete[]` 非法 free。
++  详情见应用仓库 `docs/INCIDENT-1.6.4-HISTORY-REDO-CRASH.md`
+ 
+ 同步流程与自动校验脚本见应用仓库的 `docs/KRITA-SYNC.md`（`scripts/check_krita_sync.sh`）。
+diff --git a/libs/image/tiles3/kis_memento_manager.cc b/libs/image/tiles3/kis_memento_manager.cc
+index 1645e228..c62bd52f 100644
+--- a/libs/image/tiles3/kis_memento_manager.cc
++++ b/libs/image/tiles3/kis_memento_manager.cc
+@@ -262,12 +262,55 @@ KisMementoSP KisMementoManager::currentMemento() {
+         for(iter=list.end(); iter-- != list.begin();)
+ 
+ 
++/**
++ * REVERIE: 按 memento 身份在 cancelled 列表里找对应的 revision。
++ *
++ * 上游的 rollforward()/rollback() 直接 takeFirst()/takeLast(), 只用
++ * KIS_SAFE_ASSERT_RECOVER_NOOP 做"应该对得上"的自检 —— Release 下只有一条
++ * qWarning, 于是只要有不进撤销栈的"本地事务"(预览/暂存回滚/取消的笔画)碰过同一台
++ * 设备, 历史就会错位:
++ *
++ *   - KisMementoManager::getMemento() 会 m_cancelledRevisions.clear(), 重做信息
++ *     没了, 但 KUndo2QStack 的重做区还留着命令;
++ *   - KisTransaction::revert() 会 rollback() 出一条本地 revision 并 prepend 进
++ *     cancelled; 紧接着 ~KisTransactionData 调 purgeHistory(), 而它只查
++ *     m_revisions —— 于是这条 revision 留在 cancelled 里, 它唯一的强引用
++ *     (事务自己的 KisMementoSP) 一析构, KisMemento 就被释放, cancelled 里成了
++ *     悬垂指针。
++ *
++ * 之后任何一次 redo() 的 rollforward() 都会把这个悬垂 revision 当成重做目标:
++ * 瓦片被"滚进"文档(日志里"莫名其妙出现笔仙"就是这个), 并且
++ * `m_currentMemento = changeList.memento` 对已释放内存做 refcount, 在 commit() 的
++ * `m_currentMemento = 0` 处走到 KisMemento::~KisMemento 的 `delete[] m_oldDefaultPixel`,
++ * 拿垃圾指针 free() —— Android 上就是 scudo 的 SIGABRT。
++ *
++ * 因此这里改成按身份匹配: 对不上就不动历史, 让这次 undo/redo 变成 no-op,
++ * 宁可"什么都没发生"也不能把错位的瓦片装进文档。
++ */
++static int reverieFindCancelledRevision(const KisHistoryList &list, const KisMemento *memento)
++{
++    for (int i = 0; i < list.size(); ++i) {
++        if (list[i].memento == memento) return i;
++    }
++    return -1;
++}
++
+ void KisMementoManager::rollback(KisTileHashTable *ht, KisMementoSP memento)
+ {
+     commit();
+ 
+     if (! m_revisions.size()) return;
+ 
++    // REVERIE: 只有"历史头恰好就是这次要回滚的事务"时才回滚。错位时保持现状,
++    // 否则会把别的 revision 的瓦片撤销掉(画面上内容乱跳/消失)。
++    if (m_revisions.last().memento != memento.data()) {
++        warnKrita << "REVERIE: rollback() memento mismatch, history left untouched."
++                  << "revisions:" << m_revisions.size()
++                  << "index empty:" << m_index.isEmpty()
++                  << "cancelled:" << m_cancelledRevisions.size();
++        return;
++    }
++
+     KisHistoryItem changeList = m_revisions.takeLast();
+ 
+     // SANITY CHECK: the transaction's memento must be in sync with
+@@ -325,6 +368,18 @@ void KisMementoManager::rollforward(KisTileHashTable *ht, KisMementoSP memento)
+ 
+     if (!m_cancelledRevisions.size()) return;
+ 
++    // REVERIE: 重做目标必须是 cancelled 列表里真正属于这个事务的那条 revision。
++    // 上游直接 takeFirst(), 一旦重做区被本地事务污染(见上方注释), 就会把别的
++    // revision (甚至已释放的 KisMemento) 滚进文档。这里要求身份匹配且位于队首,
++    // 对不上就当这次重做无效。
++    const int cancelledIndex = reverieFindCancelledRevision(m_cancelledRevisions, memento.data());
++    if (cancelledIndex != 0) {
++        warnKrita << "REVERIE: rollforward() memento mismatch, redo state invalidated."
++                  << "cancelled:" << m_cancelledRevisions.size()
++                  << "matched index:" << cancelledIndex;
++        return;
++    }
++
+     KisHistoryItem changeList = m_cancelledRevisions.takeFirst();
+ 
+     // SANITY CHECK: the transaction's memento must be in sync with
+@@ -356,6 +411,18 @@ void KisMementoManager::purgeHistory(KisMementoSP oldestMemento)
+         commit();
+     }
+ 
++    /**
++     * REVERIE: 已取消(在重做区)的 revision 不在 m_revisions 里, 上游实现走到
++     * findRevisionByMemento() 返回 -1 就直接 return —— 于是 cancelled 里留下一条
++     * 指向即将析构的 KisMemento 的悬垂指针。这里先按身份把它摘掉: 事务都要没了,
++     * 它对应的重做信息本来也就失效了。
++     */
++    for (int i = m_cancelledRevisions.size() - 1; i >= 0; --i) {
++        if (m_cancelledRevisions[i].memento == oldestMemento.data()) {
++            m_cancelledRevisions.removeAt(i);
++        }
++    }
++
+     qint32 revisionIndex = findRevisionByMemento(oldestMemento);
+     if (revisionIndex < 0) return;
+ 
+-- 
+2.56.0
+

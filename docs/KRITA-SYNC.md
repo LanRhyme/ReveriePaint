@@ -14,7 +14,7 @@
 | 当前基线 | Krita `master` @ `72d3b1e3`（2026-10-27，6.1.0-prealpha） |
 | 安全锚点 | tag `pre-sync-20261027`（同步前状态）、fork 上的同名 tag |
 
-分支上是 **9 个线性提交**（不再保留 merge 提交），与 `patches/krita/0001-0009` 一一对应：
+分支上是 **11 个线性提交**（不再保留 merge 提交），与 `patches/krita/0001-0011` 一一对应：
 
 1. `feat(android)` 14 个笔刷引擎静态注册 + Android 构建兼容
 2. `fix(roundmarker)` KisMarkerPainter 改标准覆盖混合
@@ -25,6 +25,10 @@
 7. `fix(mypaint)` 传感器懒初始化，修复 dlopen 崩溃
 8. `fix(build)` `kis_lockless_stack.h` 补 `#include <QtGlobal>`，修 Qt 6.6.3 下 `Q_DISABLE_COPY` 未定义
 9. `fix(android)` 视频编码器空实现桩（Android 无 MLT/FFmpeg），修 `libkritaui.so` 链接失败
+10. `docs(REVERIE-PATCHES.md)` 补丁层说明（上一轮补的文档提交）
+11. `fix(memento)` 撤销/重做按 memento 身份校验：`rollforward()`/`rollback()` 身份不符时保持现状，
+    `purgeHistory()` 摘掉 `m_cancelledRevisions` 里的悬垂条目。修「本地事务 revert 后重做」的
+    瓦片装错帧（笔仙）与 `delete[]` 非法 free（SIGABRT），见 `docs/INCIDENT-1.6.4-HISTORY-REDO-CRASH.md`
 
 ## 2. 同步流程
 
@@ -214,6 +218,8 @@ Kotlin 侧 10-28 新增的 `nativeSnapshotMode` 在旧库里不存在，32 位�
 - 2026-07-26 之前：基线 `a4d196ef`（6.1.0-prealpha）
 - 2026-10-27：同步到 `72d3b1e3`（6.1.0-prealpha，+529 提交），合并 13 个双方都改过的文件、
   2 处手工解冲突，历史整理为线性提交并删除 `feat/clipping-mask`
+- 2026-11-02：新增第 10 个功能补丁 `fix(memento)`（撤销/重做历史错位加固），
+  双 ABI 重编 `libkritaimage.so` 并刷新预编译闭包（导出符号与旧库完全一致，只 +1.8KB 代码）
 - 2026-10-27 晚：补丁层收敛 —— fork 内新增 `REVERIE-PATCHES.md`（10 个提交，含该文档本身），
   应用仓库新增 `patches/krita/HOOKS.md`（按 A/B/C 分类的逐文件冲突策略）、
   `patches/krita/hooks.txt`（机器清单）与 `scripts/check_krita_sync.sh`（合并预演 + 30 项契约断言）；

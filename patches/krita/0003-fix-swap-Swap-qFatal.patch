@@ -1,7 +1,7 @@
 From 2ec15d5d9badb8e2dff5e5298838b95fbd8d4d6f Mon Sep 17 00:00:00 2001
 From: LanRhyme <xiao_ren233@foxmail.com>
 Date: Tue, 27 Oct 2026 23:59:51 +0800
-Subject: [PATCH 03/10] =?UTF-8?q?fix(swap):=20=E4=BF=AE=E5=A4=8D=E5=A4=9A?=
+Subject: [PATCH 03/11] =?UTF-8?q?fix(swap):=20=E4=BF=AE=E5=A4=8D=E5=A4=9A?=
  =?UTF-8?q?=E6=AD=A5=E6=92=A4=E9=94=80=E6=97=B6=20Swap=20=E6=BA=A2?=
  =?UTF-8?q?=E5=87=BA=E8=A7=A6=E5=8F=91=20qFatal=20=E5=B4=A9=E6=BA=83?=
 MIME-Version: 1.0
@@ -109,3 +109,6 @@ index a2065b1a..e8eb79b7 100644
          qWarning() << "swap out of tile failed";
          return false;
      }
+-- 
+2.56.0
+
