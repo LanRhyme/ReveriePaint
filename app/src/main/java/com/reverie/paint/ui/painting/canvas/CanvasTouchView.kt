@@ -488,10 +488,14 @@ class CanvasTouchView(context: Context) : View(context) {
         assistLockedRay = null
         clearPredictionState(triggerInvalidate = true)
         currentStrokeDocPos = Offset.Zero
+        firstDocPos = Offset.Zero
+        shapeEndDocPos = Offset.Zero
         return true
     }
 
     private fun cancelActiveStroke(v: PaintViewModel) {
+        firstDocPos = Offset.Zero
+        shapeEndDocPos = Offset.Zero
         when (strokeTool) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
@@ -4468,6 +4472,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     safeEndSymmetryUndoMacro()
                     resetMirrorBranches()
                     clearPredictionState(triggerInvalidate = true)
+                    firstDocPos = Offset.Zero
+                    shapeEndDocPos = Offset.Zero
                 }
                 cancelPendingShapeGesture()
                 isTransformActive = false
@@ -4910,6 +4916,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     localIsHovering = true
                     isInteracting = false
                     currentStrokeDocPos = Offset.Zero
+                    firstDocPos = Offset.Zero
+                    shapeEndDocPos = Offset.Zero
                     invalidate()
                 }
             }
@@ -5847,6 +5855,9 @@ class CanvasTouchView(context: Context) : View(context) {
             v.showActionToast(context.getString(R.string.canvas_toast_layer_hidden), R.drawable.ic_eye_off)
             return
         }
+
+        firstDocPos = docPos
+        shapeEndDocPos = docPos
 
         when (effTool()) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
@@ -7376,6 +7387,8 @@ class CanvasTouchView(context: Context) : View(context) {
                 assistLockedRay = null
                 clearPredictionState(triggerInvalidate = true)
                 currentStrokeDocPos = Offset.Zero
+                firstDocPos = Offset.Zero
+                shapeEndDocPos = Offset.Zero
                     }
             Tool.LIQUIFY -> {
                 if (strokeStarted) {
@@ -7568,6 +7581,8 @@ class CanvasTouchView(context: Context) : View(context) {
         if (isStylus) {
             tempEraseActive = false
         }
+        firstDocPos = Offset.Zero
+        shapeEndDocPos = Offset.Zero
     }
 
     private fun isShapeTool(t: Tool): Boolean =

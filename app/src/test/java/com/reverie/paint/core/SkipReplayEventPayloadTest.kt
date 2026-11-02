@@ -272,4 +272,52 @@ class SkipReplayEventPayloadTest {
         sub.u8(0x7E)
         assertEquals(-1L, ReplayTimeline.effectiveTotalMs(sub.data.copyOf(sub.size), 2, 1000L))
     }
+
+    @Test
+    fun `T_SELECT_ALL 无论是 2 字节还是 3 字节，后接事件流均不发生错位`() {
+        // 场景 1: 旧格式 / selectAllAction 写入的 2 字节 (u16 layer)，后接 CONTEXT 事件
+        val buf2Context = RecordingBuffer(64)
+        buf2Context.u8(TOOL_OP)
+        buf2Context.varint(10)
+        buf2Context.u8(T_SELECT_ALL)
+        buf2Context.u16(1) // 仅 2 字节
+        buf2Context.u8(CONTEXT)
+        buf2Context.varint(15)
+        buf2Context.u8(0) // toolMode
+        buf2Context.u16(0) // preset
+        buf2Context.f32(10f) // size
+        buf2Context.f32(1f) // opacity
+        buf2Context.f32(1f) // flow
+        buf2Context.str("normal")
+        buf2Context.str("#000000")
+        buf2Context.u16(1) // layer
+        assertEquals(25L, ReplayTimeline.effectiveTotalMs(buf2Context.data.copyOf(buf2Context.size), 2, 1000L, 2))
+
+        // 场景 2: 旧格式 / selectAllAction 写入的 2 字节，后接普通笔画
+        val buf2Stroke = RecordingBuffer(64)
+        buf2Stroke.u8(TOOL_OP)
+        buf2Stroke.varint(10)
+        buf2Stroke.u8(T_SELECT_ALL)
+        buf2Stroke.u16(1) // 仅 2 字节
+        buf2Stroke.u8(STROKE_MOVE)
+        buf2Stroke.varint(20)
+        buf2Stroke.f32(100f)
+        buf2Stroke.f32(200f)
+        buf2Stroke.f32(0.8f)
+        assertEquals(30L, ReplayTimeline.effectiveTotalMs(buf2Stroke.data.copyOf(buf2Stroke.size), 2, 1000L, 2))
+
+        // 场景 3: selectionFromLayer 写入的 3 字节 (u16 layer + u8 mode)，后接普通笔画
+        val buf3Stroke = RecordingBuffer(64)
+        buf3Stroke.u8(TOOL_OP)
+        buf3Stroke.varint(10)
+        buf3Stroke.u8(T_SELECT_ALL)
+        buf3Stroke.u16(1)
+        buf3Stroke.u8(2) // mode = SUBTRACT
+        buf3Stroke.u8(STROKE_MOVE)
+        buf3Stroke.varint(20)
+        buf3Stroke.f32(100f)
+        buf3Stroke.f32(200f)
+        buf3Stroke.f32(0.8f)
+        assertEquals(30L, ReplayTimeline.effectiveTotalMs(buf3Stroke.data.copyOf(buf3Stroke.size), 2, 1000L, 2))
+    }
 }

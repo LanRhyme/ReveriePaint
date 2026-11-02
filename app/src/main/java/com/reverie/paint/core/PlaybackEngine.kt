@@ -552,6 +552,58 @@ internal fun PaintViewModel.seekLocked(
 // ---- Event dispatch (render thread; direct bridge calls, no re-recording) ----
 
 /**
+ * 确定 T_SELECT_ALL 事件中是否存在可选的选区布尔运算模式 mode (u8)。
+ * 旧版或 selectAllAction 录制时仅写入 u16(layer) 共 2 字节；从图层菜单触发的 selectionFromLayer
+ * 则额外写入 mode 共 3 字节。如果此处盲目用 r.remaining() > 0 读入第 3 字节，会把后续紧邻的
+ * 下一条事件的 type 字节吃掉，导致整段录制流偏移错位。
+ * 该函数通过安全前瞻与试跳读判断 mode 字节是否存在：存在时消费并返回其值，不存在时返回 0 且游标不推进。
+ */
+internal fun resolveSelectAllMode(r: RecordingReader, version: Int): Int {
+    if (r.remaining() <= 0) return 0
+    val b0 = r.data[r.pos].toInt() and 0xFF
+    if (b0 > 3) return 0
+    if (r.remaining() == 1) return r.u8()
+
+    val b1 = r.data[r.pos + 1].toInt() and 0xFF
+    val validTypes = intArrayOf(
+        STROKE_START, STROKE_MOVE, STROKE_END, STROKE_CANCEL,
+        CONTEXT, CONTEXT_EXT, CONTEXT_FADE,
+        LAYER_OP, TOOL_OP, FILTER, FILTER_LUT,
+    )
+    if (b1 !in validTypes) return 0
+
+    val savedPos = r.pos
+    val validIfMode = try {
+        r.pos = savedPos + 1
+        val nextType = r.u8()
+        r.varint()
+        skipReplayEventPayload(nextType, r, version)
+        true
+    } catch (_: Exception) {
+        false
+    }
+    val validIfNotMode = try {
+        r.pos = savedPos
+        val nextType = r.u8()
+        r.varint()
+        skipReplayEventPayload(nextType, r, version)
+        true
+    } catch (_: Exception) {
+        false
+    } finally {
+        r.pos = savedPos
+    }
+
+    return if (validIfMode && !validIfNotMode) {
+        r.u8()
+    } else if (!validIfMode && validIfNotMode) {
+        0
+    } else {
+        r.u8()
+    }
+}
+
+/**
  * Advance [r] over a single event's binary payload without invoking native C++
  * or allocating arrays/strings. Used by timelapse export to pre-scan visual
  * checkpoints in < 1ms without executing strokes or filters twice.
@@ -657,7 +709,7 @@ internal fun skipReplayEventPayload(
                 }
                 T_SELECT_ALL -> {
                     r.skip(2)
-                    if (r.remaining() > 0) r.skip(1)
+                    resolveSelectAllMode(r, version)
                 }
                 T_FEATHER, T_EXPAND, T_CONTRACT, T_SMOOTH -> r.skip(2)
                 T_SELECT_MODE -> r.skip(1)
@@ -1018,7 +1070,7 @@ private fun PaintViewModel.dispatchLayerOpLocked(
             ReverieCoreBridge.flattenGroup(i)
         }
 
-        L_ADD_MASK -> {
+        L_ADD_MASK, L_ADD_MASK_TYPE -> {
             ReverieCoreBridge.addMaskToLayer(i, arg.toIntOrNull() ?: 0)
         }
 
@@ -1376,7 +1428,7 @@ private fun PaintViewModel.dispatchToolOpLocked(
 
         T_SELECT_ALL -> {
             val layer = r.u16()
-            val mode = if (r.remaining() > 0) r.u8() else 0
+            val mode = resolveSelectAllMode(r, currentReplayVersion)
             ReverieCoreBridge.selectionFromLayer(layer, mode)
         }
 
