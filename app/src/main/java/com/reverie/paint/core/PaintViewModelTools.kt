@@ -2330,9 +2330,15 @@ internal fun PaintViewModel.startTransformPreview() {
         val b = android.graphics.Bitmap.createBitmap(docWidth, docHeight, android.graphics.Bitmap.Config.ARGB_8888)
         b.setPremultiplied(true)
         val success = ReverieCoreBridge.startTransformPreviewLayersEx(targets, b, copyOnly)
+        if (!success) {
+            ReverieCoreBridge.cancelTransformPreview()
+        }
         mainHandler.post {
             if (success) {
                 transformPreviewBitmap = b.asImageBitmap()
+            } else {
+                transformPreviewBitmap = null
+                notifyLayerChanged(forceThumbs = true, immediateRender = true)
             }
         }
     }
@@ -2343,6 +2349,7 @@ internal fun PaintViewModel.cancelTransformPreview() {
         transformPreviewBitmap = null
         transformCopyOnly = false
         isSelectionTransformPending = false
+        notifyLayerChanged(forceThumbs = true, immediateRender = true)
     }) {
         ReverieCoreBridge.cancelTransformPreview()
     }

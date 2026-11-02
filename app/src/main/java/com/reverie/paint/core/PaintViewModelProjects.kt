@@ -241,7 +241,8 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
         },
     ) {
         val tv = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
-        if (tv?.isInteracting == true || tv?.isTransformActive == true) {
+        val isTransformToolActive = currentToolId == com.reverie.paint.model.Tool.TRANSFORM.id || transformPreviewBitmap != null
+        if (tv?.isInteracting == true || tv?.isTransformActive == true || isTransformToolActive) {
             return@runCore
         }
 
@@ -271,6 +272,13 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
             """.trimIndent()
         val recBlob = recorder.serialize()
         android.util.Log.d("RP_IO", "autoSaveRevpAsync blob=${recBlob?.size ?: 0} bytes to ${autoSaveFile.absolutePath}")
+        val backupFile = File(autoSaveFile.parentFile, "${autoSaveFile.name}.bak")
+        val oldFileSize = if (autoSaveFile.exists()) autoSaveFile.length() else 0L
+        if (oldFileSize > 50_000L) {
+            try {
+                autoSaveFile.copyTo(backupFile, overwrite = true)
+            } catch (_: Throwable) {}
+        }
         val saveStartTime = System.currentTimeMillis()
         val saved = ReverieCoreBridge.saveRevpAsync(autoSaveFile.absolutePath, extraJson, recBlob)
         android.util.Log.d("RP_IO", "autoSaveRevpAsync triggered=$saved")
@@ -288,6 +296,11 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
                             false
                         }
                         if (isValid) {
+                            if (backupFile.exists() && oldFileSize > 100_000L && autoSaveFile.length() < oldFileSize * 0.3) {
+                                android.util.Log.w("RP_IO", "autoSaveRevpAsync: size dropped drastically (${oldFileSize} -> ${autoSaveFile.length()}), backup preserved at ${backupFile.name}")
+                            } else if (backupFile.exists()) {
+                                backupFile.delete()
+                            }
                             referenceStore.bind(autoSaveFile.absolutePath, referenceProfile)
                             AutoSaveHistoryManager.recordSnapshot(
                                 context = appContext,

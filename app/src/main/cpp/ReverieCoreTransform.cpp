@@ -340,6 +340,8 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
         if (!dup) devices.append(dev);
     }
     if (devices.isEmpty()) return false;
+    RPC_LOG("applyTransformLayersEx: targets=%d devices=%d copyOnly=%d tx=%.1f ty=%.1f rot=%.2f",
+            int(targets.size()), int(devices.size()), copyOnly ? 1 : 0, xtranslate, ytranslate, rotationRad);
 
     const QRect canvasRect(0, 0, image->width(), image->height());
     QRect shared;
@@ -535,6 +537,8 @@ bool ReverieCore::startTransformPreview(const QVector<int> &layers, QImage* outI
     m_previewTempDevice = new KisPaintDevice(image->colorSpace());
     m_previewDevices = devices;
     const bool activeSel = hasSelection();
+    RPC_LOG("startTransformPreview: targets=%d devices=%d activeSel=%d copyOnly=%d",
+            int(targets.size()), int(devices.size()), activeSel ? 1 : 0, copyOnly ? 1 : 0);
 
     for (KisPaintDeviceSP device : devices) {
         KisTransaction *txn = new KisTransaction(kundo2_i18n("Transform Preview"), device, nullptr, -1, nullptr);
@@ -601,6 +605,7 @@ bool ReverieCore::isTransformPreviewOpen() const
 
 void ReverieCore::cancelTransformPreview()
 {
+    RPC_LOG("cancelTransformPreview: reverting %d preview txns", int(m_previewTransactions.size()));
     for (KisTransaction *txn : m_previewTransactions) {
         if (txn) {
             txn->revert();

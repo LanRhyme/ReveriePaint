@@ -708,6 +708,16 @@ fun PaintingPage(
         }
     }
 
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            if (tfState.active || vm.transformPreviewBitmap != null) {
+                vm.cancelTransformPreview()
+                tfState.active = false
+                vm.isImportTransformPending = false
+            }
+        }
+    }
+
     val hazeState = remember { HazeState() }
 
     Box(
