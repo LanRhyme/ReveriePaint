@@ -1733,7 +1733,38 @@ internal fun PaintViewModel.applyWarpMeshTransform(
     }
 }
 
+/**
+ * 变换进行中: 撤销/重做会把预览事务依赖的像素/选区回滚掉, 事务结束 (commit/cancel) 时
+ * 直接撞 `KisTransactionData::endTransaction` 的一致性断言 (线上 7738948083 同类路径)。
+ * 预览位图或画布上的 transform 激活态任一成立, 都视为"变换中"。
+ */
+internal val PaintViewModel.isHistoryBlockedByTransform: Boolean
+    get() = transformPreviewBitmap != null ||
+        com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.isTransformActive == true
+
+/**
+ * 变换期间挡住撤销/重做: 给用户一句提示, 并把链式步 (撤回条泵) 的 settled 回调交还,
+ * 避免泵卡在"一步在途"。
+ *
+ * @return true 表示已拦截, 调用方应立即 return
+ */
+private var lastTransformBlockToastAtMs = 0L
+
+private fun PaintViewModel.blockHistoryDuringTransform(settled: (() -> Unit)?): Boolean {
+    if (!isHistoryBlockedByTransform) return false
+    // 双指/三指连续撤销会每 120ms 调一次 undo: 提示必须节流, 否则整屏都是 toast
+    val now = android.os.SystemClock.uptimeMillis()
+    if (undoToastEnabled && now - lastTransformBlockToastAtMs >= 1500L) {
+        lastTransformBlockToastAtMs = now
+        showActionToast(R.string.toast_transform_blocks_undo, R.drawable.ic_tf_standard)
+    }
+    settled?.invoke()
+    return true
+}
+
 internal fun PaintViewModel.undo(fromPanel: Boolean = false, settled: (() -> Unit)? = null) {
+    // 变换预览是引擎里的长事务, 预览期间回滚历史会把它依赖的像素抽走 (见 isHistoryBlockedByTransform)
+    if (blockHistoryDuringTransform(settled)) return
     onHistoryActionTriggered(fromPanel)
     val restoreTransformSel = transientTransformSelectionPending || canUndoTransformSelection
     if (isQuickShapeEditing) { cancelQuickShape(); return }
@@ -1836,6 +1867,7 @@ internal fun PaintViewModel.undo(fromPanel: Boolean = false, settled: (() -> Uni
 }
 
 internal fun PaintViewModel.redo(fromPanel: Boolean = false, settled: (() -> Unit)? = null) {
+    if (blockHistoryDuringTransform(settled)) return
     onHistoryActionTriggered(fromPanel)
     val restoreRedoSel = canRedoTransformSelection
     if (isQuickShapeEditing) return

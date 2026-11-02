@@ -1292,6 +1292,7 @@
     <string name="toast_layer_delete_background">The background layer cannot be deleted</string>
     <string name="toast_layer_delete_locked">Layer is locked — unlock it before deleting</string>
     <string name="toast_layer_delete_stale">Layer list changed, please try again</string>
+    <string name="toast_transform_blocks_undo">Finish or cancel the transform first</string>
     <string name="toast_transform_nothing_applied">Nothing to transform — the selection has no pixels</string>
     <string name="toast_transform_copy_overlaps">Copy overlaps the original — drag it to see the duplicated content</string>
     <string name="canvas_toast_group_empty">Layer group is empty, cannot transform</string>

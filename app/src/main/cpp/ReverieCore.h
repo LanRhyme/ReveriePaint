@@ -599,6 +599,8 @@ public:
     // Transform preview mechanism (extracts target pixels and hides them in C++)
     bool startTransformPreview(const QVector<int> &layers, QImage* outImage, bool copyOnly = false);
     void cancelTransformPreview();
+    /** 是否有跨用户交互的长预览事务 (变换预览) 还开着; 开着时禁止回滚历史。 */
+    bool isTransformPreviewOpen() const;
 
     // Draw text at (x, y) with the current brush color/size
     void drawText(int x, int y, const QString &text, qreal fontSize);

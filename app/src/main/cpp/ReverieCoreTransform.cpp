@@ -594,6 +594,11 @@ bool ReverieCore::startTransformPreview(const QVector<int> &layers, QImage* outI
     return true;
 }
 
+bool ReverieCore::isTransformPreviewOpen() const
+{
+    return m_previewTransaction != nullptr || !m_previewTransactions.isEmpty();
+}
+
 void ReverieCore::cancelTransformPreview()
 {
     for (KisTransaction *txn : m_previewTransactions) {

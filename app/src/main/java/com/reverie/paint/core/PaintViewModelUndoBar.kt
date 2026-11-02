@@ -173,6 +173,8 @@ internal fun PaintViewModel.scrubTo(target: Int) {
  * 注意: 长按连续撤销期间手指按在画布上 (isContinuousUndoing=true), 此情况属于合法的撤回交互, 允许显示。
  */
 internal fun PaintViewModel.canShowUndoBar(): Boolean {
+    // 变换期间撤销/重做被引擎拒绝 (见 isHistoryBlockedByTransform), 泵发步会停摆, 一律不发
+    if (isHistoryBlockedByTransform) return false
     if (isQuickShapeEditing) return false
     if (customUndoHook != null) return false
     if (isCurrentLayer3D && (canUndo3D || canRedo3D)) return false

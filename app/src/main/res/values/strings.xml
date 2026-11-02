@@ -1292,6 +1292,7 @@
     <string name="toast_layer_delete_background">背景层不能删除</string>
     <string name="toast_layer_delete_locked">图层已锁定，先解锁再删除</string>
     <string name="toast_layer_delete_stale">图层列表已更新，请重试</string>
+    <string name="toast_transform_blocks_undo">变换进行中, 请先确认或取消变换</string>
     <string name="toast_transform_nothing_applied">选区里没有内容，这次变换没有产生任何改动</string>
     <string name="toast_transform_copy_overlaps">副本与原件重合了，拖动一下就能看到复制出来的那份</string>
     <string name="canvas_toast_group_empty">图层组为空，无法进行变换</string>

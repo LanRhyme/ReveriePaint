@@ -156,11 +156,14 @@ fun ReIconButton(
     size: androidx.compose.ui.unit.Dp = 32.dp,
     tint: Color? = null,
     iconSize: androidx.compose.ui.unit.Dp = Dimens.icon,
+    /** false = 置灰且不响应点击 (例如变换期间禁用撤销) */
+    enabled: Boolean = true,
 ) {
     val colors = Theme.current
     val interaction = remember { MutableInteractionSource() }
+    val baseTint = tint ?: if (selected) colors.accent else colors.icon
     val tintColor by animateColorAsState(
-        tint ?: if (selected) colors.accent else colors.icon,
+        if (enabled) baseTint else baseTint.copy(alpha = 0.32f),
         spring(dampingRatio = 0.90f, stiffness = 500f)
     )
 
@@ -171,7 +174,7 @@ fun ReIconButton(
             .liquidLean(interaction, maxOffset = 4.dp)
             .clip(RoundedCornerShape(8.dp))
             .liquidHighlight(interaction, Color.White, radius = 20.dp)
-            .clickable(interactionSource = interaction, indication = null) { onTap() },
+            .clickable(interactionSource = interaction, indication = null, enabled = enabled) { onTap() },
         contentAlignment = Alignment.Center,
     ) {
         Icon(

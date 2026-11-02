@@ -1652,6 +1652,13 @@ void ReverieCore::replayHistoryCommand(bool redoOp)
 
 void ReverieCore::undo()
 {
+    // 变换预览是跨用户交互的长事务: 预览期间回滚历史会把事务依赖的像素/选区抽走,
+    // 事务结束时直接撞 KisTransactionData::endTransaction 的一致性断言 (线上 7738948083
+    // 的同类路径)。UI 已经置灰并拦截, 这里兜住直接走 JNI 的调用方 (回放/脚本/旧入口)。
+    if (isTransformPreviewOpen()) {
+        RPC_LOG("RPC historyBlocked op=%s reason=transform-preview", "undo");
+        return;
+    }
     prepareHistoryReplay();
     if (!m_undoStore || !m_document || !canUndo()) {
         return;
@@ -1747,6 +1754,13 @@ void ReverieCore::undo()
 
 void ReverieCore::redo()
 {
+    // 变换预览是跨用户交互的长事务: 预览期间回滚历史会把事务依赖的像素/选区抽走,
+    // 事务结束时直接撞 KisTransactionData::endTransaction 的一致性断言 (线上 7738948083
+    // 的同类路径)。UI 已经置灰并拦截, 这里兜住直接走 JNI 的调用方 (回放/脚本/旧入口)。
+    if (isTransformPreviewOpen()) {
+        RPC_LOG("RPC historyBlocked op=%s reason=transform-preview", "redo");
+        return;
+    }
     prepareHistoryReplay();
     if (!m_undoStore || !m_document || !canRedo()) {
         return;
