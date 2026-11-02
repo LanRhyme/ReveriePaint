@@ -164,7 +164,10 @@ import kotlinx.coroutines.Job
     internal fun PaintViewModel.updateBrushPressureSize(v: Double) {
         brushParams = brushParams.copy(pressureSize = v)
         val opt = brushDynamicOptions["Size"]
-        val cfg = (opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Size")).copy(
+        val base = opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Size").copy(
+            sensorId = brushParams.sizeSensor.ifBlank { "pressure" },
+        )
+        val cfg = base.copy(
             strength = v.toFloat(),
             enabled = v > 0.001,
         )
@@ -175,7 +178,10 @@ import kotlinx.coroutines.Job
     internal fun PaintViewModel.updateBrushPressureOpacity(v: Double) {
         brushParams = brushParams.copy(pressureOpacity = v)
         val opt = brushDynamicOptions["Opacity"]
-        val cfg = (opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Opacity")).copy(
+        val base = opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Opacity").copy(
+            sensorId = brushParams.opacitySensor.ifBlank { "pressure" },
+        )
+        val cfg = base.copy(
             strength = v.toFloat(),
             enabled = v > 0.001,
         )
@@ -186,7 +192,10 @@ import kotlinx.coroutines.Job
     internal fun PaintViewModel.updateBrushPressureFlow(v: Double) {
         brushParams = brushParams.copy(pressureFlow = v)
         val opt = brushDynamicOptions["Flow"]
-        val cfg = (opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Flow")).copy(
+        val base = opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Flow").copy(
+            sensorId = brushParams.flowSensor.ifBlank { "pressure" },
+        )
+        val cfg = base.copy(
             strength = v.toFloat(),
             enabled = v > 0.001,
         )
@@ -328,29 +337,44 @@ import kotlinx.coroutines.Job
     }
 
     internal fun PaintViewModel.updateBrushSizeSensor(v: String) {
-        brushParams = brushParams.copy(sizeSensor = v)
-        val opt = (brushDynamicOptions["Size"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Size")).copy(sensorId = v)
-        brushDynamicOptions["Size"] = opt
-        BrushStoreVm.stage(this, ControlId.CURVE_SIZE, opt.toCurveXml())
+        val enabled = v.isNotBlank()
+        val opt = (brushDynamicOptions["Size"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Size"))
+        val newStrength = if (enabled && opt.strength <= 0.001f) 1.0f else opt.strength
+        val newOpt = opt.copy(sensorId = v, enabled = enabled, strength = newStrength)
+        val newPressureSize = if (enabled && brushParams.pressureSize <= 0.001) newStrength.toDouble() else brushParams.pressureSize
+        brushParams = brushParams.copy(sizeSensor = v, pressureSize = newPressureSize)
+        brushDynamicOptions["Size"] = newOpt
+        BrushStoreVm.stage(this, ControlId.CURVE_SIZE, newOpt.toCurveXml())
     }
 
     internal fun PaintViewModel.updateBrushOpacitySensor(v: String) {
-        brushParams = brushParams.copy(opacitySensor = v)
-        val opt = (brushDynamicOptions["Opacity"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Opacity")).copy(sensorId = v)
-        brushDynamicOptions["Opacity"] = opt
-        BrushStoreVm.stage(this, ControlId.CURVE_OPACITY, opt.toCurveXml())
+        val enabled = v.isNotBlank()
+        val opt = (brushDynamicOptions["Opacity"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Opacity"))
+        val newStrength = if (enabled && opt.strength <= 0.001f) 1.0f else opt.strength
+        val newOpt = opt.copy(sensorId = v, enabled = enabled, strength = newStrength)
+        val newPressureOpacity = if (enabled && brushParams.pressureOpacity <= 0.001) newStrength.toDouble() else brushParams.pressureOpacity
+        brushParams = brushParams.copy(opacitySensor = v, pressureOpacity = newPressureOpacity)
+        brushDynamicOptions["Opacity"] = newOpt
+        BrushStoreVm.stage(this, ControlId.CURVE_OPACITY, newOpt.toCurveXml())
     }
 
     internal fun PaintViewModel.updateBrushFlowSensor(v: String) {
-        brushParams = brushParams.copy(flowSensor = v)
-        val opt = (brushDynamicOptions["Flow"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Flow")).copy(sensorId = v)
-        brushDynamicOptions["Flow"] = opt
-        BrushStoreVm.stage(this, ControlId.CURVE_FLOW, opt.toCurveXml())
+        val enabled = v.isNotBlank()
+        val opt = (brushDynamicOptions["Flow"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Flow"))
+        val newStrength = if (enabled && opt.strength <= 0.001f) 1.0f else opt.strength
+        val newOpt = opt.copy(sensorId = v, enabled = enabled, strength = newStrength)
+        val newPressureFlow = if (enabled && brushParams.pressureFlow <= 0.001) newStrength.toDouble() else brushParams.pressureFlow
+        brushParams = brushParams.copy(flowSensor = v, pressureFlow = newPressureFlow)
+        brushDynamicOptions["Flow"] = newOpt
+        BrushStoreVm.stage(this, ControlId.CURVE_FLOW, newOpt.toCurveXml())
     }
 
     internal fun PaintViewModel.updateBrushScatterSensor(v: String) {
         brushParams = brushParams.copy(scatterSensor = v)
-        val opt = (brushDynamicOptions["Scatter"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Scatter")).copy(sensorId = v)
+        val opt = (brushDynamicOptions["Scatter"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Scatter")).copy(
+            sensorId = v,
+            enabled = v.isNotBlank(),
+        )
         brushDynamicOptions["Scatter"] = opt
         BrushStoreVm.stage(this, ControlId.CURVE_SCATTER, opt.toCurveXml())
     }

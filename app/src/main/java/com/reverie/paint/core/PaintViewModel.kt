@@ -715,7 +715,17 @@ class PaintViewModel : ViewModel() {
     var scratchpadLiveOutput by mutableFloatStateOf(-1f)
 
     fun getBrushDynamicOption(key: String): com.reverie.paint.model.DynamicOptionConfig {
-        return brushDynamicOptions[key] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor(key).also {
+        return brushDynamicOptions[key] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor(key).let { def ->
+            val sensor = when (key.lowercase()) {
+                "size" -> brushParams.sizeSensor
+                "opacity" -> brushParams.opacitySensor
+                "flow" -> brushParams.flowSensor
+                "rotation" -> brushParams.rotationSensor
+                "scatter" -> brushParams.scatterSensor
+                else -> def.sensorId
+            }
+            def.copy(sensorId = sensor.ifBlank { def.sensorId })
+        }.also {
             brushDynamicOptions[key] = it
         }
     }
@@ -733,26 +743,27 @@ class PaintViewModel : ViewModel() {
         key: String,
         config: com.reverie.paint.model.DynamicOptionConfig,
     ) {
-        brushDynamicOptions[key] = config
-        val strength = if (config.enabled) config.strength.toDouble() else 0.0
+        val finalConfig = if (config.enabled && config.strength <= 0.001f) config.copy(strength = 1.0f) else config
+        brushDynamicOptions[key] = finalConfig
+        val strength = if (finalConfig.enabled) finalConfig.strength.toDouble() else 0.0
         brushParams = when (key.lowercase()) {
             "size" -> brushParams.copy(
                 pressureSize = strength,
-                pressureEnabled = brushPressureEnabled || config.enabled,
-                sizeSensor = config.sensorId,
+                pressureEnabled = brushPressureEnabled || finalConfig.enabled,
+                sizeSensor = finalConfig.sensorId,
             )
             "opacity" -> brushParams.copy(
                 pressureOpacity = strength,
-                pressureEnabled = brushPressureEnabled || config.enabled,
-                opacitySensor = config.sensorId,
+                pressureEnabled = brushPressureEnabled || finalConfig.enabled,
+                opacitySensor = finalConfig.sensorId,
             )
             "flow" -> brushParams.copy(
                 pressureFlow = strength,
-                pressureEnabled = brushPressureEnabled || config.enabled,
-                flowSensor = config.sensorId,
+                pressureEnabled = brushPressureEnabled || finalConfig.enabled,
+                flowSensor = finalConfig.sensorId,
             )
-            "scatter" -> brushParams.copy(scatterSensor = config.sensorId)
-            "rotation" -> brushParams.copy(rotationSensor = config.sensorId)
+            "scatter" -> brushParams.copy(scatterSensor = finalConfig.sensorId)
+            "rotation" -> brushParams.copy(rotationSensor = finalConfig.sensorId)
             else -> brushParams
         }
         val cid = when (key.lowercase()) {
@@ -769,7 +780,7 @@ class PaintViewModel : ViewModel() {
             else -> null
         }
         if (cid != null) {
-            BrushStoreVm.stage(this, cid, config.toCurveXml())
+            BrushStoreVm.stage(this, cid, finalConfig.toCurveXml())
         }
     }
 

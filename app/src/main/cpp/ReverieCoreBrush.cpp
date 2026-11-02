@@ -9,6 +9,7 @@
  * ============================================================ */
 #include "ReverieCoreInternal.h"
 #include "PixelAlpha.h"
+#include "StrokeTimeContract.h"
 
 #include <KisInterstrokeDataFactory.h>
 #include <kundo2command.h>
@@ -861,22 +862,13 @@ bool ReverieCore::loadBrushPresetCommon(const QString &path, const QString &name
         m_brushPreset->settings()->setEraserMode(m_toolMode == ToolEraser);
         KisPaintOpSettingsSP s = m_brushPreset->settings();
         if (!s->hasProperty("PressureOpacity") && s->getBool("OpacityUseCurve", false)) {
-            const QString sensor = s->getString("OpacitySensor");
-            if (sensor.isEmpty() || sensor.contains(QStringLiteral("id=\"pressure\""))) {
-                s->setProperty("PressureOpacity", true);
-            }
+            s->setProperty("PressureOpacity", true);
         }
         if (!s->hasProperty("PressureFlow") && s->getBool("FlowUseCurve", false)) {
-            const QString sensor = s->getString("FlowSensor");
-            if (sensor.isEmpty() || sensor.contains(QStringLiteral("id=\"pressure\""))) {
-                s->setProperty("PressureFlow", true);
-            }
+            s->setProperty("PressureFlow", true);
         }
         if (!s->hasProperty("PressureSize") && s->getBool("SizeUseCurve", false)) {
-            const QString sensor = s->getString("SizeSensor");
-            if (sensor.isEmpty() || sensor.contains(QStringLiteral("id=\"pressure\""))) {
-                s->setProperty("PressureSize", true);
-            }
+            s->setProperty("PressureSize", true);
         }
         m_airbrushEnabled = s->getBool("PaintOpSettings/isAirbrushing",
                             s->getBool("AirbrushOption/isAirbrushing",
@@ -1123,22 +1115,13 @@ if (loadSingleBrushResource(sig.filename)) {
     }
     KisPaintOpSettingsSP s = preset->settings();
     if (!s->hasProperty("PressureOpacity") && s->getBool("OpacityUseCurve", false)) {
-        const QString sensor = s->getString("OpacitySensor");
-        if (sensor.isEmpty() || sensor.contains(QStringLiteral("id=\"pressure\""))) {
-            s->setProperty("PressureOpacity", true);
-        }
+        s->setProperty("PressureOpacity", true);
     }
     if (!s->hasProperty("PressureFlow") && s->getBool("FlowUseCurve", false)) {
-        const QString sensor = s->getString("FlowSensor");
-        if (sensor.isEmpty() || sensor.contains(QStringLiteral("id=\"pressure\""))) {
-            s->setProperty("PressureFlow", true);
-        }
+        s->setProperty("PressureFlow", true);
     }
     if (!s->hasProperty("PressureSize") && s->getBool("SizeUseCurve", false)) {
-        const QString sensor = s->getString("SizeSensor");
-        if (sensor.isEmpty() || sensor.contains(QStringLiteral("id=\"pressure\""))) {
-            s->setProperty("PressureSize", true);
-        }
+        s->setProperty("PressureSize", true);
     }
 
     CachedPresetInfo info;
@@ -1207,8 +1190,7 @@ if (loadSingleBrushResource(sig.filename)) {
     if (s->hasProperty("PressureSize")) {
         hasPressureSize = s->getBool("PressureSize", true);
     } else if (s->hasProperty("SizeUseCurve")) {
-        const QString sizeSensor = s->getString("SizeSensor");
-        hasPressureSize = s->getBool("SizeUseCurve", false) && (sizeSensor.isEmpty() || sizeSensor.contains(QStringLiteral("id=\"pressure\"")));
+        hasPressureSize = s->getBool("SizeUseCurve", false);
     }
     const double pressureSize = hasPressureSize ? 1.0 : 0.0;
 
@@ -1216,8 +1198,7 @@ if (loadSingleBrushResource(sig.filename)) {
     if (s->hasProperty("PressureOpacity")) {
         hasPressureOpacity = s->getBool("PressureOpacity", false) && s->getBool("OpacityUseCurve", true);
     } else if (s->hasProperty("OpacityUseCurve")) {
-        const QString opacitySensor = s->getString("OpacitySensor");
-        hasPressureOpacity = s->getBool("OpacityUseCurve", false) && (opacitySensor.isEmpty() || opacitySensor.contains(QStringLiteral("id=\"pressure\"")));
+        hasPressureOpacity = s->getBool("OpacityUseCurve", false);
     }
     const double pressureOpacity = hasPressureOpacity ? 1.0 : 0.0;
 
@@ -1225,8 +1206,7 @@ if (loadSingleBrushResource(sig.filename)) {
     if (s->hasProperty("PressureFlow")) {
         hasPressureFlow = s->getBool("PressureFlow", false) && s->getBool("FlowUseCurve", true);
     } else if (s->hasProperty("FlowUseCurve")) {
-        const QString flowSensor = s->getString("FlowSensor");
-        hasPressureFlow = s->getBool("FlowUseCurve", false) && (flowSensor.isEmpty() || flowSensor.contains(QStringLiteral("id=\"pressure\"")));
+        hasPressureFlow = s->getBool("FlowUseCurve", false);
     }
     const double pressureFlow = hasPressureFlow ? 1.0 : 0.0;
     const double followDirection = s->getBool("PressureRotation", false) ? 1.0 : 0.0;
@@ -1587,28 +1567,43 @@ void ReverieCore::setBrushPressureDynamics(bool enabled, qreal sizeStrength, qre
         break;
     }
 
-    const QString sensorXml = QStringLiteral("<!DOCTYPE params><params id=\"pressure\"><curve>%1</curve></params>").arg(curveStr);
+    auto makeSensorXml = [&](const char *sensorPropKey) {
+        QString current = s->getString(sensorPropKey);
+        QString sid = QStringLiteral("pressure");
+        if (!current.isEmpty()) {
+            QRegularExpression re(QStringLiteral("id=\"([^\"]+)\""));
+            auto m = re.match(current);
+            if (m.hasMatch()) {
+                sid = m.captured(1);
+            }
+        }
+        if (sid == QStringLiteral("drawingangle")) {
+            return QStringLiteral("<!DOCTYPE params><params fanCornersStep=\"30\" fanCornersEnabled=\"0\" angleOffset=\"0\" id=\"drawingangle\"><curve>%1</curve></params>").arg(curveStr);
+        } else {
+            return QStringLiteral("<!DOCTYPE params><params id=\"%1\"><curve>%2</curve></params>").arg(sid, curveStr);
+        }
+    };
 
     const bool useSize = (sizeStrength > 0.001);
     s->setProperty("PressureSize", useSize);
     s->setProperty("SizeUseCurve", useSize);
     s->setProperty("SizeValue", sizeStrength);
     if (useSize) {
-        s->setProperty("SizeSensor", sensorXml);
+        s->setProperty("SizeSensor", makeSensorXml("SizeSensor"));
     }
 
     const bool useOpacity = (opacityStrength > 0.001);
     s->setProperty("PressureOpacity", useOpacity);
     s->setProperty("OpacityUseCurve", useOpacity);
     if (useOpacity) {
-        s->setProperty("OpacitySensor", sensorXml);
+        s->setProperty("OpacitySensor", makeSensorXml("OpacitySensor"));
     }
 
     const bool useFlow = (flowStrength > 0.001);
     s->setProperty("PressureFlow", useFlow);
     s->setProperty("FlowUseCurve", useFlow);
     if (useFlow) {
-        s->setProperty("FlowSensor", sensorXml);
+        s->setProperty("FlowSensor", makeSensorXml("FlowSensor"));
     }
 }
 
@@ -1843,7 +1838,8 @@ bool ReverieCore::scratchpadStrokeStart(qreal x, qreal y, qreal pressure, qreal 
 
     const QPointF pt(x, y);
     m_scratchpadDistInfo = new KisDistanceInformation(pt, 0.0);
-    KisPaintInformation pi(pt, pressure, tiltX, tiltY, rotation);
+    m_scratchpadTimer.start();
+    KisPaintInformation pi(pt, pressure, tiltX, tiltY, rotation, 0.0, 1.0, 0.0, 0.0);
     m_scratchpadPainter->paintAt(pi, m_scratchpadDistInfo);
 
     if (KisPaintOp *op = m_scratchpadPainter->paintOp()) {
@@ -1869,8 +1865,16 @@ bool ReverieCore::scratchpadStrokeMove(qreal x, qreal y, qreal pressure, qreal t
 {
     if (!m_scratchpadStrokeActive || !m_scratchpadPainter || !m_scratchpadDistInfo) return false;
     const QPointF pt(x, y);
-    KisPaintInformation pi1(m_scratchpadLastSample.imgPos, m_scratchpadLastSample.pressure, m_scratchpadLastSample.tiltX, m_scratchpadLastSample.tiltY, m_scratchpadLastSample.rotation);
-    KisPaintInformation pi2(pt, pressure, tiltX, tiltY, rotation);
+    const qreal curTime = m_scratchpadTimer.nsecsElapsed() / 1e9;
+    const qreal dist = QLineF(m_scratchpadLastSample.imgPos, pt).length();
+    const qreal speed = reverie::StrokeTimeContract::speedPxPerMs(dist, m_scratchpadLastSample.time, curTime);
+    const qreal t0Ms = reverie::StrokeTimeContract::toKritaMs(m_scratchpadLastSample.time);
+    const qreal t1Ms = reverie::StrokeTimeContract::toKritaMs(curTime);
+
+    KisPaintInformation pi1(m_scratchpadLastSample.imgPos, m_scratchpadLastSample.pressure,
+                            m_scratchpadLastSample.tiltX, m_scratchpadLastSample.tiltY,
+                            m_scratchpadLastSample.rotation, 0.0, 1.0, t0Ms, speed);
+    KisPaintInformation pi2(pt, pressure, tiltX, tiltY, rotation, 0.0, 1.0, t1Ms, speed);
     m_scratchpadPainter->paintLine(pi1, pi2, m_scratchpadDistInfo);
 
     if (KisPaintOp *op = m_scratchpadPainter->paintOp()) {
@@ -1887,7 +1891,7 @@ bool ReverieCore::scratchpadStrokeMove(qreal x, qreal y, qreal pressure, qreal t
         }
     }
 
-    m_scratchpadLastSample = StrokeSample{pt, pressure, tiltX, tiltY, rotation, 0.0};
+    m_scratchpadLastSample = StrokeSample{pt, pressure, tiltX, tiltY, rotation, curTime};
     return true;
 }
 

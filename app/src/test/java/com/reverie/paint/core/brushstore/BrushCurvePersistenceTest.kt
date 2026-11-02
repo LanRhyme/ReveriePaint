@@ -145,4 +145,50 @@ class BrushCurvePersistenceTest {
             assertFalse("Non-empty curve XML should not match empty base for $cid", sameAsEmpty)
         }
     }
+
+    @Test
+    fun testOpacityAndFlowSensorChange() {
+        val baseXml = """
+            <?xml version="1.0" encoding="UTF-8"?>
+            <Preset name="TestBrush" paintopid="paintbrush">
+              <param type="string" name="paintop"><![CDATA[paintbrush]]></param>
+              <param type="string" name="OpacitySensor"><![CDATA[<!DOCTYPE params><params id="pressure"><curve>0,0;1,1;</curve></params>]]></param>
+              <param type="string" name="PressureOpacity"><![CDATA[true]]></param>
+              <param type="string" name="OpacityUseCurve"><![CDATA[true]]></param>
+              <param type="string" name="FlowSensor"><![CDATA[<!DOCTYPE params><params id="pressure"/>]]></param>
+              <param type="string" name="FlowUseCurve"><![CDATA[false]]></param>
+            </Preset>
+        """.trimIndent()
+
+        val baseParams = PresetPropertyMap.readParams(baseXml)
+        assertEquals("pressure", baseParams.opacitySensor)
+        assertEquals("pressure", baseParams.flowSensor)
+
+        // Change Opacity sensor to speed
+        val opSpeedCfg = DynamicOptionConfig(
+            optionKey = "Opacity",
+            enabled = true,
+            sensorId = "speed",
+            points = CurvePreset.LINEAR.createPoints(),
+            strength = 1.0f,
+        )
+        val opSpeedXml = opSpeedCfg.toCurveXml()
+        val xmlAfterOp = PresetPropertyMap.spec(ControlId.CURVE_OPACITY).write!!(baseXml, opSpeedXml, baseParams)
+        val readOpParams = PresetPropertyMap.readParams(xmlAfterOp)
+        assertEquals("speed", readOpParams.opacitySensor)
+
+        // Change Flow sensor to speed (with enabled = true)
+        val flowSpeedCfg = DynamicOptionConfig(
+            optionKey = "Flow",
+            enabled = true,
+            sensorId = "speed",
+            points = CurvePreset.LINEAR.createPoints(),
+            strength = 1.0f,
+        )
+        val flowSpeedXml = flowSpeedCfg.toCurveXml()
+        val xmlAfterFlow = PresetPropertyMap.spec(ControlId.CURVE_FLOW).write!!(xmlAfterOp, flowSpeedXml, readOpParams)
+        val readFlowParams = PresetPropertyMap.readParams(xmlAfterFlow)
+        assertEquals("speed", readFlowParams.flowSensor)
+        assertTrue(readFlowParams.pressureFlow > 0.0)
+    }
 }

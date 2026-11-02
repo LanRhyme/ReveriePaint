@@ -1470,6 +1470,7 @@ private:
     int m_scratchpadHeight{0};
     bool m_scratchpadStrokeActive{false};
     StrokeSample m_scratchpadLastSample;
+    QElapsedTimer m_scratchpadTimer;
 
     // Smudge engine state (colorsmudge paintop)
     qreal m_smudgeRate = 0.5;   // color mixing rate -> ColorRateValue/MixValue
