@@ -1287,17 +1287,6 @@ fun ReSlider(
                 size = androidx.compose.ui.geometry.Size(currentThumbW, currentThumbH),
                 cornerRadius = thumbCorner,
             )
-
-            // 5. 滑块高光微边框
-            if (enabled) {
-                drawRoundRect(
-                    color = Color.White.copy(alpha = 0.35f),
-                    topLeft = Offset(thumbX - currentThumbW / 2f, cy - currentThumbH / 2f),
-                    size = androidx.compose.ui.geometry.Size(currentThumbW, currentThumbH),
-                    cornerRadius = thumbCorner,
-                    style = Stroke(width = 1.dp.toPx()),
-                )
-            }
         }
     }
 }

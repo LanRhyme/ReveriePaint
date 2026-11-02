@@ -19,8 +19,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -41,6 +39,7 @@ import com.reverie.paint.core.push3DUndoState
 import com.reverie.paint.core.update3DState
 import com.reverie.paint.model.JointOffsetSpec
 import com.reverie.paint.perf.JointOffsetExport
+import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.roundToInt
 
@@ -176,7 +175,7 @@ fun JointOffsetPanel(
                     fontSize = 12.sp,
                     modifier = Modifier.width(96.dp),
                 )
-                com.reverie.paint.ui.components.ReSlider(
+                ReSlider(
                     value = current.coerceIn(-JointOffsetSpec.RANGE, JointOffsetSpec.RANGE),
                     onValue = { apply((it * 2f).roundToInt() / 2f) },
                     valueRange = -JointOffsetSpec.RANGE..JointOffsetSpec.RANGE,

@@ -26,14 +26,9 @@ import com.reverie.paint.model.labelRes
 import com.reverie.paint.model.descRes
 import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.foundation.focusable
-import androidx.compose.foundation.gestures.awaitEachGesture
-import androidx.compose.foundation.gestures.awaitFirstDown
-import androidx.compose.foundation.gestures.detectDragGestures
-import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
-import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ColumnScope
 import androidx.compose.foundation.layout.Row
@@ -1202,111 +1197,23 @@ internal fun SettingsTabPage(
                                 else -> vm.strokeStabilizer.coerceIn(0f, 1f)
                             }
 
-                            BoxWithConstraints(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .height(24.dp)
-                                    .pointerInput(vm.strokeSmoothingType) {
-                                        awaitEachGesture {
-                                            val down = awaitFirstDown(requireUnconsumed = false)
-                                            val w = size.width.toFloat()
-                                            if (w <= 0f) return@awaitEachGesture
-
-                                            val thumbRadiusPx = 8.dp.toPx()
-                                            val usableWidthPx = (w - thumbRadiusPx * 2).coerceAtLeast(1f)
-                                            val touchSlop = viewConfiguration.touchSlop
-                                            var isDragging = false
-                                            var isScrollingVertically = false
-
-                                            fun updateFromX(x: Float) {
-                                                val frac = ((x - thumbRadiusPx) / usableWidthPx).coerceIn(0f, 1f)
-                                                when (vm.strokeSmoothingType) {
-                                                    PaintViewModel.SMOOTHING_WEIGHTED -> {
-                                                        val dist = PaintViewModel.SMOOTHING_DISTANCE_MIN + frac * (PaintViewModel.SMOOTHING_DISTANCE_MAX - PaintViewModel.SMOOTHING_DISTANCE_MIN)
-                                                        vm.updateStrokeSmoothnessDistanceMin(dist)
-                                                    }
-                                                    else -> {
-                                                        if (vm.strokeSmoothingType == PaintViewModel.SMOOTHING_OFF) {
-                                                            vm.updateStrokeSmoothingType(PaintViewModel.SMOOTHING_BASIC)
-                                                        }
-                                                        vm.updateStrokeStabilizer(frac)
-                                                    }
-                                                }
-                                            }
-
-                                            while (true) {
-                                                val event = awaitPointerEvent()
-                                                val change = event.changes.firstOrNull() ?: break
-                                                if (!change.pressed) {
-                                                    if (!isScrollingVertically && !isDragging) {
-                                                        updateFromX(change.position.x)
-                                                    }
-                                                    break
-                                                }
-
-                                                if (isScrollingVertically) break
-
-                                                val dx = change.position.x - down.position.x
-                                                val dy = change.position.y - down.position.y
-                                                val absDx = kotlin.math.abs(dx)
-                                                val absDy = kotlin.math.abs(dy)
-
-                                                if (!isDragging) {
-                                                    if (absDy > touchSlop && absDy > absDx) {
-                                                        isScrollingVertically = true
-                                                        break
-                                                    } else if (absDx > touchSlop && absDx >= absDy) {
-                                                        isDragging = true
-                                                    }
-                                                }
-
-                                                if (isDragging) {
-                                                    change.consume()
-                                                    updateFromX(change.position.x)
-                                                }
-                                            }
+                            ReSlider(
+                                value = sliderFraction,
+                                onValue = { frac ->
+                                    when (vm.strokeSmoothingType) {
+                                        PaintViewModel.SMOOTHING_WEIGHTED -> {
+                                            val dist = PaintViewModel.SMOOTHING_DISTANCE_MIN + frac * (PaintViewModel.SMOOTHING_DISTANCE_MAX - PaintViewModel.SMOOTHING_DISTANCE_MIN)
+                                            vm.updateStrokeSmoothnessDistanceMin(dist)
                                         }
-                                    },
-                                contentAlignment = Alignment.CenterStart,
-                            ) {
-                                val trackWidth = maxWidth
-                                val thumbSize = 16.dp
-                                val maxTravel = (trackWidth - thumbSize).coerceAtLeast(0.dp)
-                                val thumbOffset = maxTravel * sliderFraction
-                                val activeTrackWidth = if (sliderFraction <= 0f) {
-                                    0.dp
-                                } else {
-                                    (thumbOffset + thumbSize / 2).coerceAtMost(trackWidth)
-                                }
-
-                                // Track
-                                Box(
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(6.dp)
-                                        .clip(RoundedCornerShape(3.dp))
-                                        .background(Morandi.panel),
-                                )
-                                // Active Track
-                                if (activeTrackWidth > 0.dp) {
-                                    Box(
-                                        modifier = Modifier
-                                            .width(activeTrackWidth)
-                                            .height(6.dp)
-                                            .clip(RoundedCornerShape(3.dp))
-                                            .background(Morandi.accent),
-                                    )
-                                }
-                                // Thumb
-                                Box(
-                                    modifier = Modifier
-                                        .padding(start = thumbOffset)
-                                        .size(thumbSize)
-                                        .shadow(2.dp, CircleShape)
-                                        .clip(CircleShape)
-                                        .background(Morandi.text),
-                                )
-                            }
+                                        else -> {
+                                            if (vm.strokeSmoothingType == PaintViewModel.SMOOTHING_OFF) {
+                                                vm.updateStrokeSmoothingType(PaintViewModel.SMOOTHING_BASIC)
+                                            }
+                                            vm.updateStrokeStabilizer(frac)
+                                        }
+                                    }
+                                },
+                            )
 
                             // ---- Advanced Smoothing Expandable Section ----
                             AnimatedVisibility(visible = smoothingAdvancedExpanded) {
