@@ -285,9 +285,9 @@ bool ReverieCore::moveLayer(int fromIndex, int toIndex)
         }
     }
     const quint32 index = parent->index(dst.node);
-    if (!m_document->moveNode(node, parent, index)) {
-        return false;
-    }
+    // 桌面 Krita 的图层拖拽排序是一步撤销 (KisImageLayerMoveCommand 的
+    // "移动到下标" 重载); 直接调 image->moveNode() 会把这一步从撤销栈里漏掉。
+    pushUndoCommand(new KisImageLayerMoveCommand(m_document, node, parent, index));
     syncLayersFromImage();
     recompositeProjection();
     markDirty();
@@ -996,13 +996,15 @@ bool ReverieCore::flattenGroup(int index)
 bool ReverieCore::setGroupPassThrough(int index, bool passThrough)
 {
     if (index <= 0 || index >= m_layers.size()) return false;
-    if (KisGroupLayer *grp = dynamic_cast<KisGroupLayer *>(m_layers[index].node)) {
-        grp->setPassThroughMode(passThrough);
-        recompositeProjection();
-        markDirty();
-        return true;
-    }
-    return false;
+    KisGroupLayer *grp = dynamic_cast<KisGroupLayer *>(m_layers[index].node);
+    if (!grp) return false;
+    if (grp->passThroughMode() == passThrough) return true;
+    // 穿透会改变整棵投影的合成结果 -> 交给命令顺带 refreshGraphAsync
+    pushUndoCommand(new ReverieGroupPassThroughCommand(
+        m_document, KisGroupLayerSP(grp), passThrough, kundo2_i18n("Pass Through")));
+    recompositeProjection();
+    markDirty();
+    return true;
 }
 
 bool ReverieCore::groupPassThrough(int index) const

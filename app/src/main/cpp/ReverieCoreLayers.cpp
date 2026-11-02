@@ -788,8 +788,12 @@ void ReverieCore::setLayerLocked(int index, bool locked)
     if (index <= 0 || index >= m_layers.size()) {
         return;  // background is always locked
     }
-    if (m_layers[index].node) {
-        m_layers[index].node->setUserLocked(locked);
+    // 以节点真实状态为准 (镜像可能落后), 与桌面端"状态没变就不入栈"一致
+    if (m_layers[index].node && m_layers[index].node->userLocked() != locked) {
+        // 桌面 Krita 把 userLocked 记进撤销栈 (KisNodePropertyListCommand); 这里同款
+        pushUndoCommand(new ReverieNodeFlagCommand(
+            KisNodeSP(m_layers[index].node), ReverieNodeFlagCommand::UserLocked, locked,
+            kundo2_i18n("Toggle Layer Lock")));
         m_layers[index].locked = locked;
     }
 }
@@ -810,7 +814,16 @@ void ReverieCore::setLayerAlphaLocked(int index, bool locked)
     KisPaintLayer *pl = m_layers[index].isGroup ? nullptr
                                                : dynamic_cast<KisPaintLayer *>(m_layers[index].node);
     if (pl) {
-        pl->setAlphaLocked(locked);
+        // 以节点真实状态为准 (镜像可能落后)
+        if (pl->alphaLocked() == locked) {
+            m_layers[index].alphaLocked = locked;
+            return;
+        }
+        // 桌面 Krita 的"锁定透明度"是撤销步; 命令只翻节点属性, 命令外的临时通道
+        // 位图重置照旧留在下面 (撤销/重做会各自走一遍)。
+        pushUndoCommand(new ReverieNodeFlagCommand(
+            KisNodeSP(m_layers[index].node), ReverieNodeFlagCommand::AlphaLocked, locked,
+            kundo2_i18n("Toggle Alpha Lock")));
         m_layers[index].alphaLocked = locked;
         if (!locked) {
             pl->setTemporaryChannelFlags(QBitArray());
@@ -915,7 +928,13 @@ void ReverieCore::setLayerColorLabel(int index, int label)
     if (index < 0 || index >= m_layers.size() || !m_layers[index].node) {
         return;
     }
-    m_layers[index].node->setColorLabelIndex(label);
+    // 以节点真实状态为准 (镜像可能落后)
+    if (m_layers[index].node->colorLabelIndex() == label) {
+        m_layers[index].colorLabel = label;
+        return;
+    }
+    pushUndoCommand(new ReverieNodeColorLabelCommand(
+        KisNodeSP(m_layers[index].node), label, kundo2_i18n("Color Label")));
     m_layers[index].colorLabel = label;
 }
 

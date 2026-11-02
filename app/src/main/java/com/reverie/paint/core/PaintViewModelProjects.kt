@@ -1610,8 +1610,15 @@ internal fun PaintViewModel.startPainting(
                 ReverieCoreBridge.setBrushColor(brushColor)
                 ReverieCoreBridge.setBrushSecondaryColor(brushSecondaryColor)
                 if (animation) {
-                    // 动画画布: 为最上面的可动画图层建关键帧通道并设帧率
-                    nativeInitAnimation(animationFps)
+                    // 动画画布: 为最上面的可动画图层建关键帧通道并设帧率。
+                    // 建工程阶段不计入撤销历史 (帧率现在是可撤销的文档设置,
+                    // 否则新文档一打开就自带一步"改帧率")
+                    ReverieCoreBridge.setUndoCaptureEnabled(false)
+                    try {
+                        nativeInitAnimation(animationFps)
+                    } finally {
+                        ReverieCoreBridge.setUndoCaptureEnabled(true)
+                    }
                 }
                 recorder.beginSession(w, h, snapshotSource = initialSnapshotFile, snapshotTempDir = recSessionDir())
             }

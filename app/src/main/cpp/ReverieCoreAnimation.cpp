@@ -249,7 +249,11 @@ void ReverieCore::setAnimationFramerate(int fps)
 {
     KisImageSP image = m_document;
     if (!image || fps <= 0 || fps > 240) return;
-    image->animationInterface()->setFramerate(fps);
+    if (!image->animationInterface()) return;
+    if (image->animationInterface()->framerate() == fps) return;
+    // 帧率是文档设置, 桌面 Krita 走 KisImageAnimSettingCommand 进撤销栈
+    pushUndoCommand(new ReverieAnimationFramerateCommand(
+        image, fps, kundo2_i18n("Animation Framerate")));
 }
 
 int ReverieCore::animationLength() const
@@ -285,8 +289,12 @@ void ReverieCore::setAnimationPlaybackRange(int start, int end)
 {
     KisImageSP image = m_document;
     if (!image || start < 0 || end < start) return;
+    if (!image->animationInterface()) return;
     // KisTimeSpan 的 (start, end) 构造函数是私有的, 必须走工厂方法
-    image->animationInterface()->setActivePlaybackRange(KisTimeSpan::fromTimeToTime(start, end));
+    const KisTimeSpan range = KisTimeSpan::fromTimeToTime(start, end);
+    if (image->animationInterface()->activePlaybackRange() == range) return;
+    pushUndoCommand(new ReverieAnimationRangeCommand(
+        image, range, kundo2_i18n("Animation Playback Range")));
 }
 
 // ============================================================

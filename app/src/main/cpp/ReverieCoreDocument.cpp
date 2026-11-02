@@ -335,8 +335,11 @@ void ReverieCore::fillBackground(const QString &colorName)
     if (!dev) {
         return;
     }
+    // 整层填充是文档修改, 桌面端一定可以撤销 (清空画布 = 填充白色)
+    KisTransaction txn(kundo2_i18n("Fill Background"), dev);
     dev->fill(QRect(0, 0, image->width(), image->height()), koColor);
     dev->setDirty();
+    pushUndoCommand(txn.endAndTake());
     markDirty();
 }
 

@@ -2620,8 +2620,12 @@ bool ReverieCore::loadRevp(const QString &path)
             loadLastFrameHold(it.key().toInt(), it.value().toInt(1));
         }
 
+        // 载入工程不产生撤销步: 帧率/播放范围是文档状态, 还原时就地生效
+        const bool prevUndoCapture = m_undoCaptureEnabled;
+        m_undoCaptureEnabled = false;
         if (fps > 0) setAnimationFramerate(fps);
         if (pbEnd > pbStart) setAnimationPlaybackRange(pbStart, pbEnd);
+        m_undoCaptureEnabled = prevUndoCapture;
         if (curTime > 0) setAnimationCurrentTime(curTime, false);
         bumpKeyframeThumbGen();
     }
