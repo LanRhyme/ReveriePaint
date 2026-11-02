@@ -1133,27 +1133,35 @@ fun ReSlider(
     value: Float,
     onValue: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
     height: Int = 20,
     onRelease: (() -> Unit)? = null,
 ) {
     val colors = Theme.current
-    val currentOnValue by rememberUpdatedState(onValue)
+    val rangeSpan = maxOf(0.0001f, valueRange.endInclusive - valueRange.start)
+    val currentOnValue by rememberUpdatedState { frac: Float ->
+        onValue(valueRange.start + frac * rangeSpan)
+    }
     val currentOnRelease by rememberUpdatedState(onRelease)
     var interacting by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableStateOf<Float?>(null) }
-    val thumbScale by animateFloatAsState(if (interacting) 1.15f else 1f, Motion.springSnap, label = "sliderThumbScale")
-    val glowAlpha by animateFloatAsState(if (interacting) 0.22f else 0f, Motion.springSnap, label = "sliderGlow")
+    val thumbScale by animateFloatAsState(if (interacting && enabled) 1.15f else 1f, Motion.springSnap, label = "sliderThumbScale")
+    val glowAlpha by animateFloatAsState(if (interacting && enabled) 0.22f else 0f, Motion.springSnap, label = "sliderGlow")
 
     val density = LocalDensity.current
     val thumbW = with(density) { 4.dp.toPx() }
     val pad = thumbW / 2f + with(density) { 2.dp.toPx() }
+
+    val normalizedVal = ((value - valueRange.start) / rangeSpan).coerceIn(0f, 1f)
 
     Box(
         modifier =
             modifier
                 .fillMaxWidth()
                 .height(height.dp)
-                .pointerInput(Unit) {
+                .pointerInput(enabled) {
+                    if (!enabled) return@pointerInput
                     // 支持与纵向滚动容器（LazyColumn/verticalScroll）完美协作的手势识别器：
                     // 1. 触摸按下不立即修改数值，防页面滚动时手指落点误触改值
                     // 2. 纵向位移优先判定为容器滚动，主动放弃并让渡事件
@@ -1226,7 +1234,7 @@ fun ReSlider(
             val w = size.width
             val h = size.height
             val cy = h / 2f
-            val currentFraction = (dragFraction ?: value).coerceIn(0f, 1f)
+            val currentFraction = (dragFraction ?: normalizedVal).coerceIn(0f, 1f)
 
             val trackH = (height * 0.65f).dp.toPx().coerceIn(6.dp.toPx(), h)
             val trackCorner = androidx.compose.ui.geometry.CornerRadius(trackH / 2f, trackH / 2f)
@@ -1240,9 +1248,13 @@ fun ReSlider(
             val thumbX = pad + currentFraction * span
             val gap = 4.dp.toPx()
 
+            val trackBgColor = if (enabled) colors.panelHi else colors.panelHi.copy(alpha = 0.5f)
+            val activeColor = if (enabled) colors.accent else colors.subText.copy(alpha = 0.4f)
+            val thumbColor = if (enabled) colors.accent else colors.subText.copy(alpha = 0.5f)
+
             // 1. 完整背景轨道 (未激活部分: panelHi 高表面色，与莫兰迪底色层次分明)
             drawRoundRect(
-                color = colors.panelHi,
+                color = trackBgColor,
                 topLeft = Offset(0f, cy - trackH / 2f),
                 size = androidx.compose.ui.geometry.Size(w, trackH),
                 cornerRadius = trackCorner,
@@ -1252,7 +1264,7 @@ fun ReSlider(
             val activeEnd = maxOf(0f, thumbX - gap)
             if (activeEnd > 0f) {
                 drawRoundRect(
-                    color = colors.accent,
+                    color = activeColor,
                     topLeft = Offset(0f, cy - trackH / 2f),
                     size = androidx.compose.ui.geometry.Size(activeEnd, trackH),
                     cornerRadius = trackCorner,
@@ -1260,9 +1272,9 @@ fun ReSlider(
             }
 
             // 3. 拖拽时呼吸外光晕
-            if (glowAlpha > 0.01f) {
+            if (glowAlpha > 0.01f && enabled) {
                 drawCircle(
-                    color = colors.accent.copy(alpha = glowAlpha),
+                    color = activeColor.copy(alpha = glowAlpha),
                     radius = currentThumbH * 0.8f,
                     center = Offset(thumbX, cy),
                 )
@@ -1270,20 +1282,22 @@ fun ReSlider(
 
             // 4. MD3 垂直圆角指示线滑块
             drawRoundRect(
-                color = colors.accent,
+                color = thumbColor,
                 topLeft = Offset(thumbX - currentThumbW / 2f, cy - currentThumbH / 2f),
                 size = androidx.compose.ui.geometry.Size(currentThumbW, currentThumbH),
                 cornerRadius = thumbCorner,
             )
 
             // 5. 滑块高光微边框
-            drawRoundRect(
-                color = Color.White.copy(alpha = 0.35f),
-                topLeft = Offset(thumbX - currentThumbW / 2f, cy - currentThumbH / 2f),
-                size = androidx.compose.ui.geometry.Size(currentThumbW, currentThumbH),
-                cornerRadius = thumbCorner,
-                style = Stroke(width = 1.dp.toPx()),
-            )
+            if (enabled) {
+                drawRoundRect(
+                    color = Color.White.copy(alpha = 0.35f),
+                    topLeft = Offset(thumbX - currentThumbW / 2f, cy - currentThumbH / 2f),
+                    size = androidx.compose.ui.geometry.Size(currentThumbW, currentThumbH),
+                    cornerRadius = thumbCorner,
+                    style = Stroke(width = 1.dp.toPx()),
+                )
+            }
         }
     }
 }

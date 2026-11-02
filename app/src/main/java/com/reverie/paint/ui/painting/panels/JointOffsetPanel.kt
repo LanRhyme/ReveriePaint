@@ -176,16 +176,11 @@ fun JointOffsetPanel(
                     fontSize = 12.sp,
                     modifier = Modifier.width(96.dp),
                 )
-                Slider(
+                com.reverie.paint.ui.components.ReSlider(
                     value = current.coerceIn(-JointOffsetSpec.RANGE, JointOffsetSpec.RANGE),
-                    onValueChange = { apply((it * 2f).roundToInt() / 2f) },
+                    onValue = { apply((it * 2f).roundToInt() / 2f) },
                     valueRange = -JointOffsetSpec.RANGE..JointOffsetSpec.RANGE,
                     modifier = Modifier.weight(1f),
-                    colors = SliderDefaults.colors(
-                        thumbColor = Morandi.accent,
-                        activeTrackColor = Morandi.accent,
-                        inactiveTrackColor = Morandi.border,
-                    ),
                 )
             }
 

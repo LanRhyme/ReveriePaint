@@ -49,10 +49,12 @@ internal fun PatternScaleDialog(
                     modifier = Modifier.fillMaxWidth().height(96.dp),
                     filterQuality = if (smooth) FilterQuality.Low else FilterQuality.None)
                 Text(stringResource(R.string.pattern_scale_value, percent.roundToInt(), width, height))
-                Slider(value = percent, onValueChange = { percent = it }, enabled = !busy,
+                com.reverie.paint.ui.components.ReSlider(
+                    value = percent,
+                    onValue = { percent = it },
+                    enabled = !busy,
                     valueRange = PatternScale.MIN_PERCENT..PatternScale.maxPercent(pattern.width, pattern.height),
-                    colors = SliderDefaults.colors(thumbColor = Morandi.accent,
-                        activeTrackColor = Morandi.accent, inactiveTrackColor = Morandi.panelHi))
+                )
                 Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
                     listOf(false, true).forEach { filtered ->
                         FilterChip(selected = smooth == filtered, onClick = { smooth = filtered }, enabled = !busy,

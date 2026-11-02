@@ -40,9 +40,9 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.RangeSlider
-import androidx.compose.material3.Slider
 import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
+import com.reverie.paint.ui.components.ReSlider
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -280,9 +280,9 @@ fun ReplayPage(vm: PaintViewModel) {
                         )
                         Spacer(Modifier.width(14.dp))
                         Column(Modifier.weight(1f)) {
-                            Slider(
+                            ReSlider(
                                 value = if (dragProgress >= 0f) dragProgress else s.progress,
-                                onValueChange = { v ->
+                                onValue = { v ->
                                     if (!isDragging) {
                                         // 拖动开始: 记住是否在播放并立即暂停, 拖动期间渲染线程不再步进
                                         isDragging = true
@@ -291,7 +291,7 @@ fun ReplayPage(vm: PaintViewModel) {
                                     }
                                     dragProgress = v
                                 },
-                                onValueChangeFinished = {
+                                onRelease = {
                                     isDragging = false
                                     val target = dragProgress
                                     if (target >= 0f) {
@@ -307,13 +307,7 @@ fun ReplayPage(vm: PaintViewModel) {
                                         }
                                     }
                                 },
-                                valueRange = 0f..1f,
-                                colors =
-                                    SliderDefaults.colors(
-                                        thumbColor = colors.accent,
-                                        activeTrackColor = colors.accent,
-                                        inactiveTrackColor = colors.panelHi,
-                                    ),
+                                height = 20,
                             )
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
@@ -946,9 +940,9 @@ private fun CustomSpeedDialog(
                     Text("x", color = colors.subText, fontSize = 16.sp, fontWeight = FontWeight.Bold)
                 }
                 Spacer(Modifier.height(14.dp))
-                Slider(
+                ReSlider(
                     value = sliderValue.coerceIn(0.5f, 64f),
-                    onValueChange = {
+                    onValue = {
                         sliderValue = it
                         textValue =
                             if (it >= 10f) {
@@ -958,12 +952,7 @@ private fun CustomSpeedDialog(
                             }
                     },
                     valueRange = 0.5f..64f,
-                    colors =
-                        SliderDefaults.colors(
-                            thumbColor = colors.accent,
-                            activeTrackColor = colors.accent,
-                            inactiveTrackColor = colors.panelHi,
-                        ),
+                    height = 20,
                 )
                 Spacer(Modifier.height(8.dp))
                 Row(
