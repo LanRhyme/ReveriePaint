@@ -48,6 +48,9 @@ import com.reverie.paint.core.*
 import com.reverie.paint.model.LargeBitmapTilingPolicy
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.theme.Theme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -63,23 +66,37 @@ fun CreatePage(vm: PaintViewModel) {
             configuration.screenHeightDp >= 500 &&
             configuration.screenWidthDp > configuration.screenHeightDp
 
+    // 导入图片的整条链路 (openInputStream -> ContentProvider binder -> 解码 -> 写临时 PNG)
+    // 全是阻塞 IO, 绝不能在主线程跑: 线上 ANR (Hanvon Ugee DP1311 / Android 16) 的栈就是
+    // CreatePage -> decodeUriSafely -> openAssetFileDescriptor -> BinderProxy.transact 卡住 5s+。
+    // 这里挪到 Dispatchers.IO, 回到主线程才碰 Compose 状态。
+    val importScope = rememberCoroutineScope()
+    // 解码期间忽略新的选择, 避免慢速 provider 上连点导入两次
+    var importingImage by remember { mutableStateOf(false) }
     val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.GetContent(),
     ) { uri: android.net.Uri? ->
-        if (uri != null) {
-            val bmp = ImageImportHelper.decodeUriSafely(context, uri)
-            if (bmp != null) {
-                val name = ImageImportHelper.getFileName(context, uri) ?: context.getString(R.string.canvas_action_import_image)
-                val snapFile = ImageImportHelper.writeTempPng(context, bmp)
-                vm.startPainting(
-                    w = bmp.width,
-                    h = bmp.height,
-                    name = name,
-                    initialBitmap = bmp,
-                    initialSnapshotFile = snapFile,
-                )
-            } else {
-                android.widget.Toast.makeText(context, context.getString(R.string.create_toast_image_failed), android.widget.Toast.LENGTH_SHORT).show()
+        if (uri != null && !importingImage) {
+            importingImage = true
+            importScope.launch {
+                val imported = withContext(Dispatchers.IO) {
+                    val bmp = ImageImportHelper.decodeUriSafely(context, uri) ?: return@withContext null
+                    val name = ImageImportHelper.getFileName(context, uri)
+                        ?: context.getString(R.string.canvas_action_import_image)
+                    Triple(bmp, name, ImageImportHelper.writeTempPng(context, bmp))
+                }
+                importingImage = false
+                if (imported != null) {
+                    vm.startPainting(
+                        w = imported.first.width,
+                        h = imported.first.height,
+                        name = imported.second,
+                        initialBitmap = imported.first,
+                        initialSnapshotFile = imported.third,
+                    )
+                } else {
+                    android.widget.Toast.makeText(context, context.getString(R.string.create_toast_image_failed), android.widget.Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
