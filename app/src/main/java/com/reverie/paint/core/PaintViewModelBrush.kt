@@ -517,6 +517,9 @@ import kotlinx.coroutines.withContext
     }
 
     internal fun PaintViewModel.selectBrushPreset(index: Int, recordToToolState: Boolean = true) {
+        if (isEraserMode) {
+            setEraserModeInternal(false, showToast = false)
+        }
         // brushPresetIndex and every native API are indexed by the NATIVE
         // preset table (filename-sorted). Resolve by BrushPresetInfo.index,
         // never by list position: the Compose list may be reordered by the

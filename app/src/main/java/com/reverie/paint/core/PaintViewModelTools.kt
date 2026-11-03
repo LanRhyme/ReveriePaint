@@ -234,8 +234,9 @@ internal fun PaintViewModel.touchStart(
         activeStrokePresetSwitched = false
     }
 
+    val isModeEraser = isEraserOverride || (isEraserMode && currentToolId == "brush")
     if (recorder.recording) {
-        val mode = if (isEraserOverride) 1 else when (currentToolId) {
+        val mode = if (isModeEraser) 1 else when (currentToolId) {
             "brush" -> 0
             "eraser" -> 1
             "smudge" -> 3
@@ -245,7 +246,7 @@ internal fun PaintViewModel.touchStart(
         val strokeSize = if (isEraserOverride) effEraserSize else brushSize
         val strokeOpacity = if (isEraserOverride) effEraserOpacity else brushOpacity
         val strokeFlow = if (isEraserOverride) effEraserFlow else brushFlow
-        val strokeOp = if (isEraserOverride) "erase" else brushCompositeOp
+        val strokeOp = if (isModeEraser) "erase" else brushCompositeOp
 
         recorder.captureContext(
             toolMode = mode,
@@ -279,7 +280,7 @@ internal fun PaintViewModel.touchStart(
         recorder.captureBrushFade(brushFade)
         recorder.strokeStart(x, y, effPressure.toFloat())
     }
-    val mode = if (isEraserOverride) 1 else when (currentToolId) {
+    val mode = if (isModeEraser) 1 else when (currentToolId) {
         "brush" -> 0
         "eraser" -> 1
         "smudge" -> 3
@@ -796,7 +797,7 @@ internal fun PaintViewModel.replaySymmetricBranches(
     // 与 recordMirroredBranchesOnly 共享同一份写入逻辑, 避免两处格式漂移。
     recordMirroredBranchesToRecorder(activeBranches, activeCounts, totalActive, isEraser)
 
-    val mode = if (isEraser) 1 else when (currentToolId) {
+    val mode = if (isEraser || (isEraserMode && currentToolId == "brush")) 1 else when (currentToolId) {
         "brush" -> 0
         "eraser" -> 1
         "smudge" -> 3
@@ -889,7 +890,7 @@ private fun PaintViewModel.recordMirroredBranchesToRecorder(
 ) {
     if (!recorder.recording) return
     val stride = PaintViewModel.STROKE_SAMPLE_STRIDE_WITH_TIME
-    val toolMode = if (isEraser) 1 else when (currentToolId) {
+    val toolMode = if (isEraser || (isEraserMode && currentToolId == "brush")) 1 else when (currentToolId) {
         "brush" -> 0
         "eraser" -> 1
         "smudge" -> 3
@@ -904,7 +905,7 @@ private fun PaintViewModel.recordMirroredBranchesToRecorder(
             size = brushSize,
             opacity = brushOpacity,
             flow = brushFlow,
-            compositeOp = if (isEraser) "erase" else brushCompositeOp,
+            compositeOp = if (isEraser || (isEraserMode && currentToolId == "brush")) "erase" else brushCompositeOp,
             color = brushColor,
             layer = currentLayerIndex,
         )
@@ -984,19 +985,62 @@ internal fun PaintViewModel.recordMirroredBranchesOnly(
  */
 internal fun PaintViewModel.reassertToolMode() {
     val mode =
-        when (currentToolId) {
-            "brush" -> 0
-            "eraser" -> 1
-            "smudge" -> 3
-            else -> -1
+        if (isEraserMode && currentToolId == "brush") {
+            1
+        } else {
+            when (currentToolId) {
+                "brush" -> 0
+                "eraser" -> 1
+                "smudge" -> 3
+                else -> -1
+            }
         }
     if (mode >= 0) {
         runCore(render = false) { com.reverie.paint.core.brushstore.BrushApply.applyToolMode(mode) }
     }
 }
 
+/**
+ * 切换橡皮模式 (Krita 风格): 当前笔刷不变, 仅将底层绘制模式切换为擦除
+ */
+fun PaintViewModel.toggleEraserMode() {
+    if (currentToolId != "brush") {
+        showActionToast(R.string.toast_eraser_mode_require_brush, R.drawable.ic_brush)
+        return
+    }
+    setEraserModeInternal(!isEraserMode, showToast = true)
+}
+
+internal fun PaintViewModel.setEraserModeInternal(enabled: Boolean, showToast: Boolean = false) {
+    if (isEraserMode == enabled) return
+    isEraserMode = enabled
+    if (enabled) {
+        runCore(render = false) {
+            com.reverie.paint.core.brushstore.BrushApply.applyToolMode(1)
+        }
+        if (showToast) {
+            showActionToast(R.string.toast_eraser_mode_on, R.drawable.ic_eraser_mode)
+        }
+    } else {
+        val mode = if (currentToolId == "brush") 0 else when (currentToolId) {
+            "eraser" -> 1
+            "smudge" -> 3
+            else -> 0
+        }
+        runCore(render = false) {
+            com.reverie.paint.core.brushstore.BrushApply.applyToolMode(mode)
+        }
+        if (showToast) {
+            showActionToast(R.string.toast_eraser_mode_off, R.drawable.ic_eraser_mode)
+        }
+    }
+}
+
 internal fun PaintViewModel.applyTool(toolId: String, force: Boolean = false) {
     if (isQuickShapeEditing) return
+    if (isEraserMode) {
+        setEraserModeInternal(false, showToast = false)
+    }
     if (toolId == currentToolId && !isTemporaryPicker && !force) {
         // 同一个工具再点一次: 仍然把工具态重推给引擎。引擎侧的工具态可能被临时橡皮
         // 快照还原、或上一次失败的预设加载改掉, 而 UI 这边 currentToolId 没变; 重推

@@ -7338,7 +7338,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         // s13-C5 兜底: 本笔的引擎笔触已被撤销/重做/取消清掉 (mirrorStrokeAborted),
                         // 镜像缓冲不能再整笔重放成一条只有镜像的新笔画
                         val hasBranchesToReplay = hasMirrorSamples && !liveMirror && !v.mirrorStrokeAborted
-                        val isEraserStroke = (strokeTool == Tool.ERASER)
+                        val isEraserStroke = (strokeTool == Tool.ERASER) || (v.isEraserMode && strokeTool == Tool.BRUSH)
                         val overrideTool = if (strokeTool == Tool.ERASER && tool != Tool.ERASER) "eraser" else null
                         // touchEnd 会给主笔补发追赶点与尾锋点。这些点也必须进镜像分支, 否则镜像笔迹缺少收尾
                         if (hasMirrorSamples) {

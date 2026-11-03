@@ -34,6 +34,7 @@ internal fun GenericStylusConfigDialog(
     val colors = Theme.current
     val actionOptions = listOf(
         stringResource(R.string.stylus_action_switch_brush_eraser) to "toggle_eraser",
+        stringResource(R.string.stylus_action_eraser_mode) to "eraser_mode",
         stringResource(R.string.stylus_action_undo) to "undo",
         stringResource(R.string.stylus_action_redo) to "redo",
         stringResource(R.string.stylus_action_quick_menu) to "toggle_quick_menu",

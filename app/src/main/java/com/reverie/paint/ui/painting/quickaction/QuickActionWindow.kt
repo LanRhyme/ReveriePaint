@@ -628,6 +628,7 @@ private fun QuickActionButton(
         QuickAction.FLIP_H -> vm.viewFlipX
         QuickAction.FLIP_V -> vm.viewFlipY
         QuickAction.TOGGLE_ERASER -> vm.currentToolId == "eraser"
+        QuickAction.ERASER_MODE -> vm.isEraserMode
         QuickAction.ALPHA_LOCK -> vm.isCurrentLayerAlphaLocked()
         QuickAction.DISABLE_TOUCH -> vm.isCanvasTouchDisabled
         else -> false
@@ -1604,6 +1605,15 @@ private fun getActionToastInfo(
         QuickAction.TOGGLE_ERASER -> {
             if (vm.currentToolId == "eraser") context.getString(R.string.tool_brush)
             else context.getString(R.string.tool_eraser)
+        }
+        QuickAction.ERASER_MODE -> {
+            if (vm.currentToolId != "brush") {
+                context.getString(R.string.toast_eraser_mode_require_brush)
+            } else if (!vm.isEraserMode) {
+                context.getString(R.string.toast_eraser_mode_on)
+            } else {
+                context.getString(R.string.toast_eraser_mode_off)
+            }
         }
         QuickAction.FLIP_H -> {
             if (!vm.viewFlipX) context.getString(R.string.toast_view_flip_h_on)

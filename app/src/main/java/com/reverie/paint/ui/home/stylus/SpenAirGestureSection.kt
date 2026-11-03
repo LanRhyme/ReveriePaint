@@ -39,6 +39,7 @@ import com.reverie.paint.ui.theme.Theme
 /** 全量动作选项 (18 项): actionId -> 文案资源, 供笔键动作与隔空挥动手势下拉共用 */
 internal fun stylusActionOptions(): List<Pair<String, Int>> = listOf(
     "toggle_eraser" to R.string.stylus_action_switch_brush_eraser,
+    "eraser_mode" to R.string.stylus_action_eraser_mode,
     "undo" to R.string.stylus_action_undo,
     "redo" to R.string.stylus_action_redo,
     "tool_picker" to R.string.stylus_action_eyedropper,

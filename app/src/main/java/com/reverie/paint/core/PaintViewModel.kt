@@ -949,6 +949,10 @@ class PaintViewModel : ViewModel() {
     var currentToolId by mutableStateOf("brush")
         internal set
 
+    /** 橡皮模式 (Krita 风格): 当前笔刷不变, 仅将底层绘制模式切换为擦除 */
+    var isEraserMode by mutableStateOf(false)
+        internal set
+
     /** 当前笔画临时覆盖工具 (如物理橡皮擦末端 TOOL_TYPE_ERASER 或侧键临时擦除生效时设为 "eraser") */
     var activeStrokeToolOverride by mutableStateOf<String?>(null)
         internal set
@@ -1735,6 +1739,9 @@ class PaintViewModel : ViewModel() {
                     applyTool("eraser")
                 }
             }
+            com.reverie.paint.model.QuickAction.ERASER_MODE -> {
+                toggleEraserMode()
+            }
             com.reverie.paint.model.QuickAction.LAST_TOOL -> {
                 val t = lastToolId
                 if (t.isNotEmpty() && t != currentToolId) {
@@ -1827,6 +1834,7 @@ class PaintViewModel : ViewModel() {
             com.reverie.paint.model.QuickAction.FLIP_H -> viewFlipX
             com.reverie.paint.model.QuickAction.FLIP_V -> viewFlipY
             com.reverie.paint.model.QuickAction.TOGGLE_ERASER -> currentToolId == "eraser"
+            com.reverie.paint.model.QuickAction.ERASER_MODE -> isEraserMode
             com.reverie.paint.model.QuickAction.ALPHA_LOCK -> isCurrentLayerAlphaLocked()
             com.reverie.paint.model.QuickAction.DISABLE_TOUCH -> isCanvasTouchDisabled
             com.reverie.paint.model.QuickAction.SHADING_ASSIST -> shadingAssistDialogOpen

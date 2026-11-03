@@ -664,7 +664,7 @@ internal fun PaintViewModel.handleKeyEvent(event: KeyEvent): Boolean {
             true
         }
         "B" -> { applyTool("brush"); true }
-        "E" -> { applyTool("eraser"); true }
+        "E" -> { toggleEraserMode(); true }
         "S" -> { applyTool("smudge"); true }
         "I" -> { applyTool("picker"); isTemporaryPicker = true; true }
         "G" -> { applyTool("fill"); true }
@@ -793,6 +793,7 @@ internal fun PaintViewModel.executeShortcutAction(id: String) {
                 applyTool("eraser")
             }
         }
+        "eraser_mode" -> toggleEraserMode()
         "layer_new" -> addLayer()
         "layer_delete" -> removeLayer(currentLayerIndex)
         "layer_duplicate" -> copyLayer(currentLayerIndex)

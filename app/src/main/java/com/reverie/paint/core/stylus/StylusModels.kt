@@ -16,6 +16,7 @@ enum class StylusBrand(val displayName: String, val subtitle: String) {
 
 enum class StylusAction(val title: String, val actionId: String) {
     TOGGLE_ERASER("切换画笔与橡皮", "toggle_eraser"),
+    ERASER_MODE("橡皮模式", "eraser_mode"),
     UNDO("撤销", "undo"),
     REDO("重做", "redo"),
     COLOR_PICKER("吸管取色", "tool_picker"),

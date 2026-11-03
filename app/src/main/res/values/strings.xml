@@ -579,6 +579,9 @@
     <string name="toast_brush_opacity">不透明度: %d%%</string>
     <string name="toast_switched_to_eraser">已切换为橡皮擦</string>
     <string name="toast_switched_to_brush">已切换为画笔</string>
+    <string name="toast_eraser_mode_on">已开启橡皮模式</string>
+    <string name="toast_eraser_mode_off">已关闭橡皮模式</string>
+    <string name="toast_eraser_mode_require_brush">请先选择画笔工具</string>
     <string name="toast_toggle_last_tool">切换上一工具</string>
     <string name="toast_color_palette">调色盘</string>
     <string name="toast_single_frame">当前仅有 1 帧</string>
@@ -970,6 +973,7 @@
     <string name="quick_action_undo">撤销</string>
     <string name="quick_action_redo">重做</string>
     <string name="quick_action_toggle_eraser">画笔/橡皮</string>
+    <string name="quick_action_eraser_mode">橡皮模式</string>
     <string name="quick_action_last_tool">上个工具</string>
     <string name="quick_action_pick_color">快速吸色</string>
     <string name="quick_action_swap_color">交换颜色</string>
@@ -2148,6 +2152,7 @@
     <string name="stylus_vivo_prediction_desc">vivo 算法引擎预测落笔轨迹，绘制时笔尖切线前向延伸；仅对纯色实心基础笔刷生效</string>
     <string name="stylus_vivo_hint">提示：双击与书写振动依赖系统手写笔服务，若双击无响应请在系统设置 -> 手写笔中开启双击手势</string>
     <string name="stylus_action_switch_brush_eraser">切换画笔与橡皮</string>
+    <string name="stylus_action_eraser_mode">橡皮模式</string>
     <string name="stylus_action_follow_system">跟随系统设置</string>
     <string name="stylus_action_undo">撤销</string>
     <string name="stylus_action_redo">重做</string>

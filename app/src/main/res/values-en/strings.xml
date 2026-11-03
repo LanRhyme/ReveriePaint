@@ -579,6 +579,9 @@
     <string name="toast_brush_opacity">Opacity: %d%%</string>
     <string name="toast_switched_to_eraser">Switched to eraser</string>
     <string name="toast_switched_to_brush">Switched to brush</string>
+    <string name="toast_eraser_mode_on">Eraser mode on</string>
+    <string name="toast_eraser_mode_off">Eraser mode off</string>
+    <string name="toast_eraser_mode_require_brush">Please select a brush tool first</string>
     <string name="toast_toggle_last_tool">Switch to previous tool</string>
     <string name="toast_color_palette">Color palette</string>
     <string name="toast_single_frame">Only 1 frame available</string>
@@ -970,6 +973,7 @@
     <string name="quick_action_undo">Undo</string>
     <string name="quick_action_redo">Redo</string>
     <string name="quick_action_toggle_eraser">Brush / Eraser</string>
+    <string name="quick_action_eraser_mode">Eraser Mode</string>
     <string name="quick_action_last_tool">Last Tool</string>
     <string name="quick_action_pick_color">Pick Color</string>
     <string name="quick_action_swap_color">Swap Color</string>
@@ -2148,6 +2152,7 @@
     <string name="stylus_vivo_prediction_desc">The vivo engine predicts pen trajectory and extends the tip tangent forward; only applied to solid plain brushes</string>
     <string name="stylus_vivo_hint">Note: Double-tap and writing vibration rely on the system stylus service. If double-tap does not respond, enable the double-tap gesture in System Settings -> Stylus</string>
     <string name="stylus_action_switch_brush_eraser">Switch Brush/Eraser</string>
+    <string name="stylus_action_eraser_mode">Eraser Mode</string>
     <string name="stylus_action_follow_system">Follow System</string>
     <string name="stylus_action_undo">Undo</string>
     <string name="stylus_action_redo">Redo</string>
