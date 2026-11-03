@@ -1129,7 +1129,7 @@ internal fun PaintViewModel.rasterizeLayer(i: Int) {
 internal fun PaintViewModel.flattenGroup(i: Int) {
     val groupLayer = layers.getOrNull(i)
     if (groupLayer != null && groupLayer.isGroup) {
-        collapsedGroupNames = collapsedGroupNames - groupLayer.name
+        setGroupCollapsed(groupLayer.id, collapsed = false)
     }
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_FLATTEN_GROUP, i)

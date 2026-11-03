@@ -132,7 +132,7 @@ fun QuickLayerWindow(
 
 
     // 层次排序逻辑 (倒序排列保持树形完整，顶层在最上方)
-    val displayLayers = remember(vm.layers, vm.collapsedGroupNames) {
+    val displayLayers = remember(vm.layers, vm.collapsedGroupKeys) {
         val n = vm.layers.size
         fun collectBlock(
             lo: Int,
@@ -148,7 +148,7 @@ fun QuickLayerWindow(
                 val c = vm.layers[j]
                 out.add(c)
                 if (c.isGroup) {
-                    if (c.name !in vm.collapsedGroupNames) {
+                    if (!vm.isGroupCollapsed(c.id)) {
                         val e = (j + 1 until hi).firstOrNull { vm.layers[it].depth <= c.depth } ?: hi
                         collectBlock(j + 1, e, c.depth, out)
                     }
@@ -669,7 +669,7 @@ fun QuickLayerWindow(
 
                                             // ---- 文件夹 / 组图层 (旋转动效) ----
                                             layer.isGroup || layer.nodeType == 1 -> {
-                                                val isGroupCollapsed = layer.name in vm.collapsedGroupNames
+                                                val isGroupCollapsed = vm.isGroupCollapsed(layer.id)
                                                 val chevronRot by animateFloatAsState(
                                                     targetValue = if (isGroupCollapsed) 0f else 90f,
                                                     animationSpec = Motion.enterSpring(),
@@ -695,7 +695,7 @@ fun QuickLayerWindow(
                                                             .rotate(chevronRot)
                                                             .clickable {
                                                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                                vm.toggleGroupCollapsed(layer.name)
+                                                                vm.toggleGroupCollapsed(layer.id)
                                                             },
                                                     )
                                                     Icon(

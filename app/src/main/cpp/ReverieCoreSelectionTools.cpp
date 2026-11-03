@@ -421,7 +421,13 @@ QRect ReverieCore::contentBounds(const QVector<int> &layers)
         }
     }
 
-    if (m_selection && m_selection->pixelSelection() && !m_selection->selectedRect().isEmpty()) {
+    // 注意: 这里**不能**用 selectedRect() 判空 —— 它的实现是 KisPixelSelection::extent()
+    // (设备范围, 缓存口径), 与"选区里到底有没有像素"不是一回事。早期拿它当闸门,
+    // 一旦 extent 为空/落后, 整个选区分支被跳过, 返回的是编辑目标层的像素包围盒:
+    // 变换工具的框与轴心就落在整层内容中心, 翻转/旋转会把选区内容甩到镜像位置
+    // (用户报的"选区的东西随机漂移", 纯平移不受影响所以拖动时看不出问题)。
+    // 直接看像素推出来的 exactRect。
+    if (m_selection && m_selection->pixelSelection()) {
         QRect sr = m_selection->selectedExactRect().intersected(QRect(0, 0, image->width(), image->height()));
         if (!sr.isEmpty() && sr.isValid()) {
             if (!unionRect.isNull() && !unionRect.isEmpty()) {

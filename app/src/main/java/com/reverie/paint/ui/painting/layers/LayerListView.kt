@@ -152,7 +152,8 @@ internal fun LayerListView(
     // Only one row may have its swipe drawer open; swiping another row
     // closes this one (revealedIndex is the open row's layer index)
     var revealedIndex by remember { mutableStateOf<Int?>(null) }
-    val collapsedGroupNames = vm.collapsedGroupNames
+    // 折叠键按层 id (同名组不再共享开关); 见 groupCollapseKey()
+    val collapsedGroupKeys = vm.collapsedGroupKeys
     val listState = rememberLazyListState()
     // 惯性滚动中，以及滚动刚停后的 300ms，行内长按不进入拖图层。
     // 以 State 下发给行: 值只在手势回调里读, 滚动起止不会连带重组可见行 (实例恒定, 行可跳过)。
@@ -188,7 +189,7 @@ internal fun LayerListView(
     // display list recursively: siblings are reversed, group rows keep their
     // whole subtree below them (nested groups included).
     val displayRows =
-        remember(vm.layers, collapsedGroupNames) {
+        remember(vm.layers, collapsedGroupKeys) {
             val n = vm.layers.size
 
             fun collectBlock(
@@ -204,7 +205,7 @@ internal fun LayerListView(
                 for (j in siblings.reversed()) {
                     val c = vm.layers[j]
                     out.add(c)
-                    val isCollapsedGroup = c.isGroup && c.name in collapsedGroupNames
+                    val isCollapsedGroup = c.isGroup && groupCollapseKey(c.id) in collapsedGroupKeys
                     if (!isCollapsedGroup) {
                         val e = (j + 1 until hi).firstOrNull { vm.layers[it].depth <= c.depth } ?: hi
                         if (e > j + 1) {
@@ -227,19 +228,19 @@ internal fun LayerListView(
             if (newLayer != null && newLayer.depth > 0) {
                 var currentDepth = newLayer.depth
                 var idx = vm.currentLayerIndex - 1
-                val toExpand = mutableSetOf<String>()
+                val toExpand = mutableSetOf<Long>()
                 while (idx >= 0 && currentDepth > 0) {
                     val candidate = vm.layers.getOrNull(idx) ?: break
                     if (candidate.depth == currentDepth - 1 && candidate.isGroup) {
-                        if (candidate.name in vm.collapsedGroupNames) {
-                            toExpand.add(candidate.name)
+                        if (vm.isGroupCollapsed(candidate.id)) {
+                            toExpand.add(candidate.id)
                         }
                         currentDepth = candidate.depth
                     }
                     idx--
                 }
-                if (toExpand.isNotEmpty()) {
-                    vm.collapsedGroupNames = vm.collapsedGroupNames - toExpand
+                for (id in toExpand) {
+                    vm.setGroupCollapsed(id, collapsed = false)
                 }
             }
             val visualIdx = displayRows.indexOfFirst { it.index == vm.currentLayerIndex }
@@ -397,15 +398,13 @@ internal fun LayerListView(
                     vm.moveLayerToGroup(from, groupIdx)
                 }
                 val groupLayer = vm.layers.firstOrNull { it.index == groupIdx }
-                if (groupLayer != null && groupLayer.name in vm.collapsedGroupNames) {
-                    vm.collapsedGroupNames = vm.collapsedGroupNames - groupLayer.name
+                if (groupLayer != null) {
+                    vm.setGroupCollapsed(groupLayer.id, collapsed = false)
                 }
             } else if (insert >= 0) {
                 val nonDraggedPrev = remaining.take(insert).lastOrNull()
                 val nonDraggedNext = remaining.drop(insert).firstOrNull()
-                val panelX = dragFingerX - listLeft
-                val isIndented = (dragStartX == 0f || dragFingerX >= dragStartX - with(density) { 24.dp.toPx() }) &&
-                    panelX >= with(density) { 130.dp.toPx() }
+                val isIndented = isLayerDragIndented(dragStartX, dragFingerX, density)
 
                 val fromLayer = vm.layers.firstOrNull { it.index == from }
                 val fromIsNested = (fromLayer?.depth ?: 0) > 0
@@ -427,7 +426,7 @@ internal fun LayerListView(
                             } else {
                                 vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
                             }
-                        } else if (nonDraggedPrev.isGroup && (nonDraggedPrev.name !in collapsedGroupNames) && nonDraggedPrev.depth < nonDraggedNext.depth) {
+                        } else if (nonDraggedPrev.isGroup && !vm.isGroupCollapsed(nonDraggedPrev.id) && nonDraggedPrev.depth < nonDraggedNext.depth) {
                             if (isIndented) {
                                 vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
                             } else {
@@ -954,13 +953,13 @@ internal fun LayerListView(
                             vm = vm,
                             layer = layer,
                             selected = layer.index == selectedIndex,
-                            collapsed = layer.name in collapsedGroupNames,
+                            collapsed = vm.isGroupCollapsed(layer.id),
                             hasNextSibling = hasNextSibling,
                             openDepths = openDepths,
                             scrollGuardUntil = layerScrollGuard,
                             onToggleCollapse = {
                                 revealedIndex = null
-                                vm.toggleGroupCollapsed(layer.name)
+                                vm.toggleGroupCollapsed(layer.id)
                             },
                             revealed = layer.index == revealedIndex,
                             onReveal = { revealedIndex = layer.index },
@@ -1081,9 +1080,7 @@ internal fun LayerListView(
 
             val nonDraggedPrev = if (showIndicator) remaining.take(dragTargetIdx).lastOrNull() else null
             val nonDraggedNext = if (showIndicator) remaining.drop(dragTargetIdx).firstOrNull() else null
-            val panelX = dragFingerX - listLeft
-            val isIndented = (dragStartX == 0f || dragFingerX >= dragStartX - with(density) { 24.dp.toPx() }) &&
-                panelX >= with(density) { 130.dp.toPx() }
+            val isIndented = isLayerDragIndented(dragStartX, dragFingerX, density)
 
             val fromLayer = vm.layers.firstOrNull { it.index == draggingFrom }
             val fromIsNested = (fromLayer?.depth ?: 0) > 0
@@ -1097,7 +1094,7 @@ internal fun LayerListView(
                 nonDraggedPrev.depth > nonDraggedNext.depth -> {
                     if (isIndented) nonDraggedPrev.depth else nonDraggedNext.depth
                 }
-                nonDraggedPrev.isGroup && (nonDraggedPrev.name !in collapsedGroupNames) && nonDraggedPrev.depth < nonDraggedNext.depth -> {
+                nonDraggedPrev.isGroup && !vm.isGroupCollapsed(nonDraggedPrev.id) && nonDraggedPrev.depth < nonDraggedNext.depth -> {
                     if (isIndented) nonDraggedNext.depth else nonDraggedPrev.depth
                 }
                 !isIndented && fromIsNested -> 0
@@ -1211,4 +1208,25 @@ internal fun LayerListView(
             }
         }
     }
+}
+
+/**
+ * 图层拖拽时"是否保持原层级"(不脱离所在图层组)。
+ *
+ * 判据只有**横向手势意图**: 手指相对起手点向左移动满一格缩进 (14dp) 才算往外拖。
+ * 这里曾经还有一条"距面板左边缘 >= 130dp"的绝对阈值 —— 它和真实缩进 (14dp/级)
+ * 毫无关系, 面板一窄一宽、横竖屏切换都会改变判定, 表现就是用户报的
+ * "拖动图层组里的图层时有概率跳到图层组外"。
+ *
+ * 起手点未知 (dragStartX == 0) 时按"保持原层级"处理: 宁可留在组里, 也不要把
+ * 图层意外甩出去 (要移出组还有右键菜单的"移出图层组")。
+ */
+internal fun isLayerDragIndented(
+    dragStartX: Float,
+    dragFingerX: Float,
+    density: androidx.compose.ui.unit.Density,
+): Boolean {
+    if (dragStartX == 0f) return true
+    val dedentPx = with(density) { LAYER_INDENT_STEP_DP.dp.toPx() }
+    return dragFingerX >= dragStartX - dedentPx
 }

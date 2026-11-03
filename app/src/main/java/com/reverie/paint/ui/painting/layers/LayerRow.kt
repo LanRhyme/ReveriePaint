@@ -130,6 +130,13 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+/**
+ * 图层树每级缩进 (dp)。拖拽时的"保持原层级"判定与这里画的引导线必须用同一个值,
+ * 否则手势阈值和视觉缩进对不上 (见 LayerListView.isLayerDragIndented)。
+ */
+internal const val LAYER_INDENT_STEP_DP = 14
+
+
 private val drawerWidth = 132.dp
 
 /** 没有滑动守卫时的共享哨兵 (恒为 0): 行可跳过重组, 不必为每行各建一个 State。 */
@@ -549,8 +556,8 @@ internal fun LayerRowContent(
 
         // 2. Group tree guide lines (depth > 0)
         if (layer.depth > 0) {
-            val stepDp = 14.dp
-            val treeWidth = (layer.depth * 14).dp
+            val stepDp = LAYER_INDENT_STEP_DP.dp
+            val treeWidth = (layer.depth * LAYER_INDENT_STEP_DP).dp
             Canvas(
                 modifier = Modifier
                     .width(treeWidth)

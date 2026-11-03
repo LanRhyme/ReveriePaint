@@ -200,6 +200,31 @@ bool ReverieCore::applyWarpMeshTransform(
     return true;
 }
 
+/**
+ * 变换轴心兜底: 有选区时, 轴心必须落在选区范围内。
+ *
+ * 为什么需要: 翻转/旋转/缩放都是"绕轴心"的 —— 轴心错位时内容会被甩到以错轴心镜像
+ * 的位置(纯平移不受影响, 所以"拖动后按完成"从来不出问题)。轴心来自 UI 的变换框,
+ * 而变换框是 contentBounds() = 编辑目标层的像素包围盒 ∩ 选区; 多选目标集、空图层、
+ * 选区刚刚重建等情况下它可能退化成整层甚至整画布, 于是轴心跑到选区外。
+ * 这里把轴心拉回选区中心 —— 至少保证"选区内容的轴心是它自己的中心", 并留痕方便
+ * 下次从日志确认是不是这条路径。
+ */
+void ReverieCore::clampTransformPivotToSelection(QPointF &center, const char *where)
+{
+    if (!m_document || !m_selection || !hasSelection()) return;
+    const QRect sel = m_selection->selectedExactRect().intersected(
+        QRect(0, 0, m_document->width(), m_document->height()));
+    if (sel.isEmpty() || !sel.isValid()) return;
+    if (sel.adjusted(-2, -2, 2, 2).contains(center.toPoint())) return;
+    RPC_LOG("RPC transformPivotClamped where=%s origin=%.1f,%.1f sel=%d,%d %dx%d -> %.1f,%.1f",
+            where ? where : "?",
+            center.x(), center.y(),
+            sel.x(), sel.y(), sel.width(), sel.height(),
+            sel.center().x() + 0.0, sel.center().y() + 0.0);
+    center = QPointF(sel.center());
+}
+
 bool ReverieCore::applyTransform(double xscale, double yscale,
                                  double xshear, double yshear,
                                  double rotationRad,
@@ -227,6 +252,7 @@ bool ReverieCore::applyTransform(double xscale, double yscale,
     } else {
         center = bounds.center();
     }
+    clampTransformPivotToSelection(center, "applyTransform");
 
     QTransform tf;
     tf.scale(xscale, yscale);
@@ -364,6 +390,10 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
     } else {
         center = shared.center();
     }
+    // 有选区时轴心必须落在选区里: 纯平移与轴心无关, 但翻转/旋转/缩放会把选区内容
+    // 甩到"以那个轴心镜像"的位置 —— 用户报的"做完变换选区的东西随机漂移"就是这类
+    // (UI 的变换框来自整层/多选目标的包围盒, 和真正的选区不是同一块时就会踩到)。
+    clampTransformPivotToSelection(center, "applyTransformLayers");
 
     QTransform tf;
     tf.scale(xscale, yscale);

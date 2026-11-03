@@ -2568,15 +2568,60 @@ class PaintViewModel : ViewModel() {
     // 图层面板多选（右滑选中）
     var selectedLayerIndices by mutableStateOf<Set<Int>>(emptySet())
 
-    // 图层组折叠状态（收起组名称集合，保存于项目元数据并在会话中记忆）
-    var collapsedGroupNames by mutableStateOf<Set<String>>(emptySet())
+    // 图层组折叠状态。键是**层的稳定 id**，不是名字 —— 同名组在图层树里完全合法
+    // (复制组、手动命名都可能撞名)，早期按名字存导致"打开一个同名组，别的组也跟着开合"。
+    var collapsedGroupKeys by mutableStateOf<Set<String>>(emptySet())
 
-    fun toggleGroupCollapsed(name: String) {
-        collapsedGroupNames = if (name in collapsedGroupNames) {
-            collapsedGroupNames - name
+    fun isGroupCollapsed(id: Long): Boolean = groupCollapseKey(id) in collapsedGroupKeys
+
+    fun toggleGroupCollapsed(id: Long) {
+        val key = groupCollapseKey(id)
+        collapsedGroupKeys = if (key in collapsedGroupKeys) {
+            collapsedGroupKeys - key
         } else {
-            collapsedGroupNames + name
+            collapsedGroupKeys + key
         }
+    }
+
+    fun setGroupCollapsed(id: Long, collapsed: Boolean) {
+        val key = groupCollapseKey(id)
+        if (collapsed == (key in collapsedGroupKeys)) return
+        collapsedGroupKeys = if (collapsed) collapsedGroupKeys + key else collapsedGroupKeys - key
+    }
+
+    /**
+     * 折叠状态写进工程元数据 (仍按**名字**序列化，保持旧工程可读)。
+     * 同名组用 `名字@序号` 消歧: 序号是"该名字在组里出现的第几个"，载入时按同样
+     * 规则还原，于是两个同名组不会挤到同一个键上。
+     */
+    internal fun collapsedGroupsForSave(): List<String> {
+        val seen = HashMap<String, Int>()
+        val out = ArrayList<String>()
+        for (l in layers) {
+            if (!l.isGroup) continue
+            val idx = seen[l.name] ?: 0
+            seen[l.name] = idx + 1
+            if (isGroupCollapsed(l.id)) out.add(if (idx == 0) l.name else "${l.name}@$idx")
+        }
+        return out
+    }
+
+    /** 载入工程时把"名字/名字@序号"还原成层 id 键 (必须在图层表就绪后调用)。 */
+    internal fun applyCollapsedGroupsFromFile(names: Collection<String>) {
+        if (names.isEmpty()) {
+            collapsedGroupKeys = emptySet()
+            return
+        }
+        val wanted = names.toHashSet()
+        val seen = HashMap<String, Int>()
+        val keys = HashSet<String>()
+        for (l in layers) {
+            if (!l.isGroup) continue
+            val idx = seen[l.name] ?: 0
+            seen[l.name] = idx + 1
+            if (l.name in wanted || "${l.name}@$idx" in wanted) keys.add(groupCollapseKey(l.id))
+        }
+        collapsedGroupKeys = keys
     }
 
     /** 检查指定图层自身是否隐藏，或其任意祖先图层组是否隐藏。 */
@@ -6699,4 +6744,10 @@ class PaintViewModel : ViewModel() {
 }
 
 enum class Page { HOME, CREATE, PAINTING, REPLAY }
+
+/**
+ * 图层组折叠状态的键：用层的稳定 id，而不是名字。
+ * 同名组是合法状态（复制组、手动重名），按名字存会让它们共享同一个折叠开关。
+ */
+internal fun groupCollapseKey(id: Long): String = "g$id"
 

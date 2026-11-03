@@ -180,7 +180,7 @@ internal fun PaintViewModel.saveProject(
                 "dpi": $docDpi,
                 "selectedLayerIndex": $currentLayerIndex,
                 "activeLayerIndex": $currentLayerIndex,
-                "collapsedGroups": [${collapsedGroupNames.joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }}],
+                "collapsedGroups": [${collapsedGroupsForSave().joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }}],
                 "active3DLayers": [$layers3DJson]
             }
             """.trimIndent()
@@ -266,7 +266,7 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
                 "dpi": $docDpi,
                 "selectedLayerIndex": $currentLayerIndex,
                 "activeLayerIndex": $currentLayerIndex,
-                "collapsedGroups": [${collapsedGroupNames.joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }}],
+                "collapsedGroups": [${collapsedGroupsForSave().joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }}],
                 "active3DLayers": [$layers3DJson]
             }
             """.trimIndent()
@@ -509,7 +509,7 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 if (documentLoaded) restoreLocalProjectReferences(p.filePath)
                 else referenceLoading = false
             }
-            collapsedGroupNames = loadedCollapsedGroups
+            // 折叠状态要等图层表同步后再还原 (见下方 syncLayersFromNative 之后)
             // 只在加载成功后交出方向；无记录时 pending 为 null，走默认横向。
             pendingCanvasOrientation = loadedCanvasOrientation
             initialStrokeCount = p.strokeCount
@@ -535,6 +535,9 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             canvasCreatedTime = if (p.lastModified > 0) p.lastModified else System.currentTimeMillis()
             colorMode = p.colorMode
             syncLayersFromNative()
+            // 折叠状态按"名字/名字@序号"还原成层 id 键 —— 必须晚于 syncLayersFromNative,
+            // 否则 layers 还是旧文档/空表, 一个都对不上
+            applyCollapsedGroupsFromFile(loadedCollapsedGroups)
             // 工程刚载入时图层面板可能早已打开: 面板打开时的强制刷新跑在 loadRevp 之前,
             // 那一刻 layerCount() 还是 0 (或旧文档), 之后没人再触发, 面板就停在透明缩略图上,
             // 直到第一次落笔 (afterLayerMutation) 才恢复。这里补一次。
@@ -1577,7 +1580,7 @@ internal fun PaintViewModel.startPainting(
             } else {
                 resetAnimationState()
             }
-            collapsedGroupNames = emptySet()
+            collapsedGroupKeys = emptySet()
             active3DLayers = emptyMap()
             show3DPosePanel = false
         },

@@ -599,6 +599,8 @@ public:
     // Transform preview mechanism (extracts target pixels and hides them in C++)
     bool startTransformPreview(const QVector<int> &layers, QImage* outImage, bool copyOnly = false);
     void cancelTransformPreview();
+    // 变换轴心兜底: 有选区时把跑到选区外的轴心拉回选区中心 (见 ReverieCoreTransform.cpp)
+    void clampTransformPivotToSelection(QPointF &center, const char *where);
     /** 是否有跨用户交互的长预览事务 (变换预览) 还开着; 开着时禁止回滚历史。 */
     bool isTransformPreviewOpen() const;
 
