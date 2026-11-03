@@ -315,6 +315,10 @@ fun ToolButtonsContent(
                                     onTool(t)
                                 } else if (t in listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE) && tool == t) {
                                     tooltipTool = null
+                                    // 再点一次当前绘制工具 = 打开笔刷面板, 顺手把工具态重推给引擎:
+                                    // 引擎可能被临时橡皮快照/失败的预设加载改成了别的模式, 而 UI 仍
+                                    // 认为它已选中, 这时点这个按钮只会开面板, 用户就永远切不过去
+                                    vm.reassertToolMode()
                                     onOpenBrush()
                                 } else if (tool == t) {
                                     tooltipTool = null
@@ -396,6 +400,10 @@ fun ToolButtonsContent(
                                     onTool(t)
                                 } else if (t in listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE) && tool == t) {
                                     tooltipTool = null
+                                    // 再点一次当前绘制工具 = 打开笔刷面板, 顺手把工具态重推给引擎:
+                                    // 引擎可能被临时橡皮快照/失败的预设加载改成了别的模式, 而 UI 仍
+                                    // 认为它已选中, 这时点这个按钮只会开面板, 用户就永远切不过去
+                                    vm.reassertToolMode()
                                     onOpenBrush()
                                 } else if (tool == t) {
                                     tooltipTool = null
@@ -435,6 +443,8 @@ fun ToolButtonsContent(
                                         .noRippleClickable {
                                             tooltipTool = null
                                             if (t in listOf(Tool.BRUSH, Tool.ERASER, Tool.SMUDGE) && tool == t) {
+                                                // 同 316 行: 再点当前绘制工具时自愈工具态
+                                                vm.reassertToolMode()
                                                 onOpenBrush()
                                             } else {
                                                 onTool(t)

@@ -973,9 +973,44 @@ internal fun PaintViewModel.recordMirroredBranchesOnly(
     recordMirroredBranchesToRecorder(activeBranches, activeCounts, totalActive, isEraser)
 }
 
+/**
+ * 把"当前工具"的工具态重新推给引擎（幂等，不重载预设）。
+ *
+ * 用于 UI 与引擎可能脱钩的自愈场景：引擎侧的工具态会被临时橡皮快照还原
+ * (endPresetOverrideSnapshot)、或上一次失败的预设加载改掉，而 UI 的
+ * currentToolId 没变。此时若用户再点同一个工具，工具栏走的是"打开笔刷面板"
+ * 分支、`applyTool` 又有"同工具直接返回"的短路，两边就永远对不上 ——
+ * 表现为"点了橡皮却还在画"。
+ */
+internal fun PaintViewModel.reassertToolMode() {
+    val mode =
+        when (currentToolId) {
+            "brush" -> 0
+            "eraser" -> 1
+            "smudge" -> 3
+            else -> -1
+        }
+    if (mode >= 0) {
+        runCore(render = false) { com.reverie.paint.core.brushstore.BrushApply.applyToolMode(mode) }
+    }
+}
+
 internal fun PaintViewModel.applyTool(toolId: String, force: Boolean = false) {
     if (isQuickShapeEditing) return
     if (toolId == currentToolId && !isTemporaryPicker && !force) {
+        // 同一个工具再点一次: 仍然把工具态重推给引擎。引擎侧的工具态可能被临时橡皮
+        // 快照还原、或上一次失败的预设加载改掉, 而 UI 这边 currentToolId 没变; 重推
+        // 一次就能自愈, 否则会出现"点了橡皮却还在画/点了画笔却还在擦"。
+        val againMode =
+            when (toolId) {
+                "brush" -> 0
+                "eraser" -> 1
+                "smudge" -> 3
+                else -> -1
+            }
+        if (againMode >= 0) {
+            runCore(render = false) { com.reverie.paint.core.brushstore.BrushApply.applyToolMode(againMode) }
+        }
         return
     }
     if (toolId != currentToolId) {

@@ -1512,14 +1512,30 @@ void ReverieCore::setBrushRotation(qreal v)
 void ReverieCore::setToolMode(int mode)
 {
     m_toolMode = ToolMode(mode);
+    // 离开橡皮工具时清掉"预设是橡皮"的显式覆盖:
+    // 这个覆盖是 UI 在加载预设后断言的 (setPresetIsEraser), 一旦那次加载失败 /
+    // 被上层跳过 / 临时橡皮快照没还原, 它就会顽固地留在 1, 于是普通画笔落笔时
+    // `erasing = (m_toolMode == ToolEraser) || isEraserPreset` 仍成立 ——
+    // 用户看到的就是"切回自定义画笔却变成橡皮"。工具态是 UI 每切一次都会重推的
+    // 权威状态, 回到非橡皮模式时让判断退回预设自身名字的启发式即可。
+    if (m_toolMode != ToolEraser) {
+        m_presetIsEraserOverride = -1;
+    }
     if (m_brushPreset && m_brushPreset->settings()) {
         m_brushPreset->settings()->setEraserMode(m_toolMode == ToolEraser);
     }
+    // 橡皮/画笔串台排查用: 一行看清"工具态 + 显式覆盖位 + 当前预设"
+    RPC_LOG("RPC toolMode mode=%d presetEraserOverride=%d presetIdx=%d preset=%s",
+            int(m_toolMode), m_presetIsEraserOverride, m_brushPresetIndex,
+            m_brushPreset ? m_brushPreset->name().toUtf8().constData() : "none");
 }
 
 void ReverieCore::setPresetIsEraser(bool eraser)
 {
     m_presetIsEraserOverride = eraser ? 1 : 0;
+    RPC_LOG("RPC presetIsEraser=%d presetIdx=%d preset=%s",
+            m_presetIsEraserOverride, m_brushPresetIndex,
+            m_brushPreset ? m_brushPreset->name().toUtf8().constData() : "none");
 }
 
 void ReverieCore::setBrushCompositeOp(const QString &op)

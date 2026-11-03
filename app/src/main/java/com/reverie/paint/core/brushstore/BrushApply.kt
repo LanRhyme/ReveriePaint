@@ -348,20 +348,25 @@ object BrushApply {
             vm.checkBrushSizeLimit()
             vm.fetchBrushOutlinePolygons()
         }) {
-            if (engine.loadBrushPreset(index)) {
+            val loaded = engine.loadBrushPreset(index)
+            if (loaded) {
                 com.reverie.paint.core.Breadcrumbs.record("Brush", "Load preset [$index]: ${preset?.name}")
-                val nonPreset = NonPresetState(
-                    isEraser = vm.currentToolId == "eraser" || isEraserPreset,
-                    color = vm.brushColor,
-                    secondaryColor = vm.brushSecondaryColor,
-                    compositeOverride = effectiveCompOp,
-                    size = finalSize,
-                    opacity = finalOpacity,
-                    flow = finalFlow,
-                    angleDeg = liveAngle(eff),
-                )
-                applyAfterLoad(engine, nonPreset)
             }
+            // 预设加载失败也**必须**把"是不是橡皮 / 混合模式"这两个引擎状态推下去:
+            // 引擎里"预设是橡皮"是个显式覆盖位 (setPresetIsEraser), 加载失败时若整段
+            // 跳过, 它会保留上一支笔(常常是橡皮)的值 —— 用户看到的就是"切回自定义画笔
+            // 却还在擦除"。加载成功与否只影响预设内部参数, 不影响这两项的归属。
+            val nonPreset = NonPresetState(
+                isEraser = vm.currentToolId == "eraser" || isEraserPreset,
+                color = vm.brushColor,
+                secondaryColor = vm.brushSecondaryColor,
+                compositeOverride = effectiveCompOp,
+                size = finalSize,
+                opacity = finalOpacity,
+                flow = finalFlow,
+                angleDeg = liveAngle(eff),
+            )
+            applyAfterLoad(engine, nonPreset)
         }
     }
 
