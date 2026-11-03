@@ -137,6 +137,27 @@ private fun PaintViewModel.copyBundledBrushAssets(): Pair<File, File> {
     val lastInstalledVersion = prefs.getInt("brush_assets_installed_version", -1)
     val isVersionMatched = lastInstalledVersion == com.reverie.paint.BuildConfig.VERSION_CODE
 
+    val assets = appContext.assets
+    val brushAssetNames = assets.list("brushes") ?: emptyArray()
+    val patternAssetNames = assets.list("patterns") ?: emptyArray()
+
+    // 缓存出厂素材清单供备份过滤使用（避免将出厂笔尖与纹理打包）
+    val storeRoot = com.reverie.paint.core.brushstore.BrushStoreBootstrap.storeRoot(appContext.filesDir)
+    val factoryResFile = File(storeRoot, com.reverie.paint.core.backup.BrushBackupMerge.FACTORY_RESOURCES_FILE)
+    if (!factoryResFile.exists() || !isVersionMatched) {
+        runCatching {
+            val presetNames = assets.list("paintoppresets")?.filter {
+                com.reverie.paint.core.brushstore.BrushImportPipeline.isPreset(it)
+            } ?: emptyList()
+            com.reverie.paint.core.backup.BrushBackupMerge.saveFactoryResources(
+                appContext.filesDir,
+                brushAssetNames.toList(),
+                patternAssetNames.toList(),
+                presetNames,
+            )
+        }
+    }
+
     // 若当前版本已拷贝过资源且目标目录健全，直接秒级快速返回，免去对 500+ 个 assets 文件的解压与遍历检查
     if (isVersionMatched && dir.exists() && brushDir.exists() && patternDir.exists()) {
         val presetCount = dir.list()?.size ?: 0
@@ -150,10 +171,9 @@ private fun PaintViewModel.copyBundledBrushAssets(): Pair<File, File> {
     if (!brushDir.exists()) brushDir.mkdirs()
     if (!patternDir.exists()) patternDir.mkdirs()
 
-    val assets = appContext.assets
     // kpp 预设由 materializeAll 生成，出厂 tip/pattern 统一经 ResourceStore 登记
     try {
-        for (name in assets.list("brushes") ?: emptyArray()) {
+        for (name in brushAssetNames) {
             val bytes = assets.open("brushes/$name").use { it.readBytes() }
             com.reverie.paint.core.brushstore.BrushStoreBootstrap.resourceStore(appContext.filesDir).register(
                 bytes,
@@ -166,7 +186,7 @@ private fun PaintViewModel.copyBundledBrushAssets(): Pair<File, File> {
     }
 
     try {
-        for (name in assets.list("patterns") ?: emptyArray()) {
+        for (name in patternAssetNames) {
             val bytes = assets.open("patterns/$name").use { it.readBytes() }
             com.reverie.paint.core.brushstore.BrushStoreBootstrap.resourceStore(appContext.filesDir).register(
                 bytes,

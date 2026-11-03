@@ -47,7 +47,24 @@ object LocalBackupEngine {
 
     fun estimateCategory(context: Context, category: BackupCategory): CategoryEstimate {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        ensureFactoryResourcesCached(context)
         return estimateCategory(context.filesDir, prefs.all, category)
+    }
+
+    fun ensureFactoryResourcesCached(context: Context) {
+        val storeRoot = File(context.filesDir, "brush_store")
+        val resFile = File(storeRoot, BrushBackupMerge.FACTORY_RESOURCES_FILE)
+        if (!resFile.exists()) {
+            runCatching {
+                val am = context.assets
+                val tips = am.list("brushes")?.toList().orEmpty()
+                val patterns = am.list("patterns")?.toList().orEmpty()
+                val presets = am.list("paintoppresets")?.filter {
+                    com.reverie.paint.core.brushstore.BrushImportPipeline.isPreset(it)
+                } ?: emptyList()
+                BrushBackupMerge.saveFactoryResources(context.filesDir, tips, patterns, presets)
+            }
+        }
     }
 
     fun estimateCategory(filesDir: File, prefsMap: Map<String, *>, category: BackupCategory): CategoryEstimate {
@@ -63,9 +80,18 @@ object LocalBackupEngine {
                 CategoryEstimate(files.size, files.sumOf { it.length() }, "${files.size} 个自动保存草稿")
             }
             BackupCategory.BRUSHES -> {
-                val presets = scanFiles(ResourceDirs.presets(filesDir)) { com.reverie.paint.core.brushstore.BrushImportPipeline.isPreset(it.name) }
-                val tips = scanFiles(ResourceDirs.tips(filesDir))
-                val patterns = scanFiles(ResourceDirs.patterns(filesDir))
+                val builtinPresets = BrushBackupMerge.collectBuiltinPresetNames(filesDir)
+                val (factoryTips, factoryPatterns) = BrushBackupMerge.collectFactoryResourceNames(filesDir)
+                val presets = scanFiles(ResourceDirs.presets(filesDir)) {
+                    com.reverie.paint.core.brushstore.BrushImportPipeline.isPreset(it.name) &&
+                        !BrushBackupMerge.isBuiltinPreset(it.name, builtinPresets)
+                }
+                val tips = scanFiles(ResourceDirs.tips(filesDir)) {
+                    it.name.lowercase() !in factoryTips
+                }
+                val patterns = scanFiles(ResourceDirs.patterns(filesDir)) {
+                    it.name.lowercase() !in factoryPatterns
+                }
                 val totalBytes = presets.sumOf { it.length() } + tips.sumOf { it.length() } + patterns.sumOf { it.length() }
                 CategoryEstimate(presets.size + tips.size + patterns.size, totalBytes, "${presets.size} 个预设, ${tips.size + patterns.size} 个笔尖纹理")
             }
@@ -100,6 +126,7 @@ object LocalBackupEngine {
         appVersion: String = "",
         onProgress: (done: Int, total: Int, label: String) -> Unit = { _, _, _ -> },
     ) {
+        ensureFactoryResourcesCached(context)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         createBackup(
             filesDir = context.filesDir,
@@ -129,16 +156,31 @@ object LocalBackupEngine {
             scanFiles(File(filesDir, "autosave")) { it.name.endsWith(".revp", ignoreCase = true) }
         } else emptyList()
 
+        val builtinPresets = if (selectedCategories.contains(BackupCategory.BRUSHES)) {
+            BrushBackupMerge.collectBuiltinPresetNames(filesDir)
+        } else emptySet()
+
+        val (factoryTips, factoryPatterns) = if (selectedCategories.contains(BackupCategory.BRUSHES)) {
+            BrushBackupMerge.collectFactoryResourceNames(filesDir)
+        } else (emptySet<String>() to emptySet<String>())
+
         val brushPresets = if (selectedCategories.contains(BackupCategory.BRUSHES)) {
-            scanFiles(ResourceDirs.presets(filesDir)) { com.reverie.paint.core.brushstore.BrushImportPipeline.isPreset(it.name) }
+            scanFiles(ResourceDirs.presets(filesDir)) {
+                com.reverie.paint.core.brushstore.BrushImportPipeline.isPreset(it.name) &&
+                    !BrushBackupMerge.isBuiltinPreset(it.name, builtinPresets)
+            }
         } else emptyList()
 
         val brushTips = if (selectedCategories.contains(BackupCategory.BRUSHES)) {
-            scanFiles(ResourceDirs.tips(filesDir))
+            scanFiles(ResourceDirs.tips(filesDir)) {
+                it.name.lowercase() !in factoryTips
+            }
         } else emptyList()
 
         val brushPatterns = if (selectedCategories.contains(BackupCategory.BRUSHES)) {
-            scanFiles(ResourceDirs.patterns(filesDir))
+            scanFiles(ResourceDirs.patterns(filesDir)) {
+                it.name.lowercase() !in factoryPatterns
+            }
         } else emptyList()
 
         val referenceFiles = if (selectedCategories.contains(BackupCategory.REFERENCES_FONTS)) {

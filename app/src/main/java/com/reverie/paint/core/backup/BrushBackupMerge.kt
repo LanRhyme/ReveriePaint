@@ -174,4 +174,102 @@ object BrushBackupMerge {
         for (key in GROUPS_KEYS) (groupsMap[key] as? String)?.takeIf { it.isNotEmpty() }?.let { o.put(key, it) }
         return if (o.length() == 0) null else o.toString()
     }
+
+    // ---------------- 排除出厂内置预设与材质 ----------------
+
+    const val FACTORY_RESOURCES_FILE = "factory_resources.json"
+
+    fun saveFactoryResources(
+        filesDir: File,
+        tips: Collection<String>,
+        patterns: Collection<String>,
+        presets: Collection<String> = emptyList(),
+    ) {
+        val storeRoot = File(filesDir, "brush_store")
+        storeRoot.mkdirs()
+        val resFile = File(storeRoot, FACTORY_RESOURCES_FILE)
+        val obj = JSONObject()
+            .put("tips", JSONArray(tips.map { it }))
+            .put("patterns", JSONArray(patterns.map { it }))
+        if (presets.isNotEmpty()) {
+            obj.put("presets", JSONArray(presets.map { it }))
+        }
+        com.reverie.paint.core.brushstore.AtomicFiles.writeText(resFile, obj.toString(1))
+    }
+
+    fun collectFactoryResourceNames(filesDir: File): Pair<Set<String>, Set<String>> {
+        val storeRoot = File(filesDir, "brush_store")
+        val resFile = File(storeRoot, FACTORY_RESOURCES_FILE)
+        if (!resFile.isFile) return emptySet<String>() to emptySet<String>()
+        return runCatching {
+            val obj = JSONObject(resFile.readText())
+            val tips = obj.optJSONArray("tips")?.let { arr ->
+                (0 until arr.length()).map { arr.getString(it).lowercase() }.toSet()
+            } ?: emptySet()
+            val patterns = obj.optJSONArray("patterns")?.let { arr ->
+                (0 until arr.length()).map { arr.getString(it).lowercase() }.toSet()
+            } ?: emptySet()
+            tips to patterns
+        }.getOrDefault(emptySet<String>() to emptySet<String>())
+    }
+
+    fun collectBuiltinPresetNames(filesDir: File): Set<String> {
+        val builtinNames = HashSet<String>()
+        // 1. identity.json
+        val idFile = identityFile(filesDir)
+        if (idFile.isFile) {
+            runCatching {
+                val presets = JSONObject(idFile.readText()).optJSONObject("presets")
+                if (presets != null) {
+                    for (id in presets.keys()) {
+                        if (BrushIdentity.isBuiltin(id)) {
+                            val obj = presets.optJSONObject(id) ?: continue
+                            val name = obj.optString("name")
+                            val ext = obj.optString("ext", "kpp")
+                            if (name.isNotEmpty()) {
+                                builtinNames.add("$name.$ext".lowercase())
+                                builtinNames.add(name.lowercase())
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        // 2. brush_store/snapshots/factory/*/*
+        val factoryDir = File(filesDir, "brush_store/snapshots/factory")
+        if (factoryDir.isDirectory) {
+            factoryDir.listFiles()?.filter { it.isDirectory }?.forEach { verDir ->
+                verDir.list()?.forEach { fn ->
+                    builtinNames.add(fn.lowercase())
+                    builtinNames.add(fn.substringBeforeLast('.').lowercase())
+                }
+            }
+        }
+        // 3. factory_resources.json
+        val storeRoot = File(filesDir, "brush_store")
+        val resFile = File(storeRoot, FACTORY_RESOURCES_FILE)
+        if (resFile.isFile) {
+            runCatching {
+                val arr = JSONObject(resFile.readText()).optJSONArray("presets")
+                if (arr != null) {
+                    for (i in 0 until arr.length()) {
+                        val fn = arr.optString(i)
+                        if (fn.isNotEmpty()) {
+                            builtinNames.add(fn.lowercase())
+                            builtinNames.add(fn.substringBeforeLast('.').lowercase())
+                        }
+                    }
+                }
+            }
+        }
+        return builtinNames
+    }
+
+    fun isBuiltinPreset(fileName: String, builtinNames: Set<String>): Boolean {
+        if (builtinNames.isEmpty()) return false
+        val lower = fileName.lowercase()
+        val stem = fileName.substringBeforeLast('.').lowercase()
+        return lower in builtinNames || stem in builtinNames
+    }
 }
+
