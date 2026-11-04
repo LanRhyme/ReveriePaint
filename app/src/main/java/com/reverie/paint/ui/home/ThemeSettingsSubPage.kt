@@ -72,6 +72,7 @@ import com.reverie.paint.ui.theme.Theme
 import com.reverie.paint.ui.theme.ThemeStyle
 import com.reverie.paint.ui.theme.colorToHsl
 import com.reverie.paint.ui.theme.hslToColor
+import com.reverie.paint.ui.theme.optimalTextColor
 import com.reverie.paint.ui.theme.parseColor
 
 @Composable
@@ -89,7 +90,7 @@ internal fun ThemeSettingsSubPage(
     var showFloatingLayoutDialog by remember { mutableStateOf(false) }
     var showSmallScreenWarningDialog by remember { mutableStateOf(false) }
     val presetSwatches = listOf(
-        "#5A6E8A", "#5A8A86", "#768A5A", "#A8B490", "#BDB79A",
+        "#879ED1", "#5A6E8A", "#5A8A86", "#768A5A", "#A8B490", "#BDB79A",
         "#BDA989", "#8A7A5A", "#8A665A", "#BD8D8B", "#8A5A66",
         "#825A8A", "#9D8BC9", "#625A8A", "#86E1FC"
     )
@@ -258,7 +259,7 @@ internal fun ThemeSettingsSubPage(
                                         Icon(
                                             painter = painterResource(R.drawable.ic_check),
                                             contentDescription = null,
-                                            tint = Color.White,
+                                            tint = swatchColor.optimalTextColor(),
                                             modifier = Modifier.size(16.dp),
                                         )
                                     }
@@ -291,7 +292,7 @@ internal fun ThemeSettingsSubPage(
                                     Icon(
                                         painter = painterResource(if (isCustomSelected) R.drawable.ic_check else R.drawable.ic_plus),
                                         contentDescription = stringResource(R.string.color_custom),
-                                        tint = if (isCustomSelected) Color.White else colors.icon,
+                                        tint = if (isCustomSelected) currentCustomColor.optimalTextColor() else colors.icon,
                                         modifier = Modifier.size(18.dp),
                                     )
                                 }
@@ -383,11 +384,10 @@ internal fun ThemeSettingsSubPage(
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         if (isSelected) {
-                                            val checkTint = if (swatchColor.red * 0.299 + swatchColor.green * 0.587 + swatchColor.blue * 0.114 > 0.6) Color.Black else Color.White
                                             Icon(
                                                 painter = painterResource(R.drawable.ic_check),
                                                 contentDescription = null,
-                                                tint = checkTint,
+                                                tint = swatchColor.optimalTextColor(),
                                                 modifier = Modifier.size(16.dp),
                                             )
                                         }
@@ -413,9 +413,7 @@ internal fun ThemeSettingsSubPage(
                                         .clickable { showCustomCanvasBgDialog = true },
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    val iconTint = if (isCustomSelected) {
-                                        if (currentCustomColor.red * 0.299 + currentCustomColor.green * 0.587 + currentCustomColor.blue * 0.114 > 0.6) Color.Black else Color.White
-                                    } else colors.icon
+                                    val iconTint = if (isCustomSelected) currentCustomColor.optimalTextColor() else colors.icon
                                     Icon(
                                         painter = painterResource(if (isCustomSelected) R.drawable.ic_check else R.drawable.ic_plus),
                                         contentDescription = stringResource(R.string.theme_custom_canvas_bg),

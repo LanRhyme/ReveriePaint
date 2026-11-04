@@ -9,6 +9,7 @@ import android.os.Build
 import androidx.compose.material3.dynamicDarkColorScheme
 import androidx.compose.material3.dynamicLightColorScheme
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -50,9 +51,9 @@ val MorandiDarkColors =
         bg = Color(0xFF141416), // Procreate deep graphite background
         panel = Color(0xFF1E1E22), // Sleek dark graphite panel (iPadOS dark chrome)
         panelHi = Color(0xFF2A2A2E), // Raised surfaces, cards, slider tracks
-        accent = Color(0xFF5A6E8A), // Morandi signature misty blue
-        accentHi = Color(0xFF78889F),
-        onAccent = Color(0xFFFFFFFF),
+        accent = Color(0xFF879ED1), // Morandi signature periwinkle blue
+        accentHi = Color(0xFFA5B8E2),
+        onAccent = Color(0xFF262D38),
         text = Color(0xFFF5F5F7), // Crisp readable off-white text
         subText = Color(0xFF8E8E93), // Apple secondary label gray
         canvasBg = Color(0xFF28282C), // Neutral studio workspace backdrop behind document
@@ -70,9 +71,9 @@ val MorandiLightColors =
         bg = Color(0xFFF2F2F7), // iOS Grouped Background: refined light gray
         panel = Color(0xFFF7F7F9), // Soft warm off-white panels (eliminates harsh pure white glare)
         panelHi = Color(0xFFEAEAEE), // Refined raised surface gray
-        accent = Color(0xFF5A6E8A), // Morandi signature misty blue
-        accentHi = Color(0xFF4A5C75),
-        onAccent = Color(0xFFFFFFFF),
+        accent = Color(0xFF879ED1), // Morandi signature periwinkle blue
+        accentHi = Color(0xFF6F86B8),
+        onAccent = Color(0xFF262D38),
         text = Color(0xFF242426), // Deep warm graphite text (replaces harsh #000000)
         subText = Color(0xFF8A8A8E), // Morandi balanced secondary label gray
         canvasBg = Color(0xFFE5E5EA), // Clean neutral workspace backdrop
@@ -154,6 +155,46 @@ fun hslToColor(h: Float, s: Float, l: Float, alpha: Float = 1f): Color {
     val b = hueToRgb(hNorm - 1f / 3f)
     return Color(red = r, green = g, blue = b, alpha = alpha)
 }
+
+/**
+ * Computes an optimal high-contrast foreground color (for text / icon) based on background luminance.
+ *
+ * - When [bg] is dark (luminance <= 0.45f): returns [lightText] (defaults to pure white [Color.White]).
+ * - When [bg] is light (luminance > 0.45f): returns [darkText] if provided, or an algorithmically
+ *   derived deeply-tinted dark tone (~12% lightness, subtle saturation of [bg]'s hue) to preserve
+ *   the Morandi aesthetic without harsh pitch-black glare.
+ */
+fun optimalTextColor(
+    bg: Color,
+    lightText: Color = Color.White,
+    darkText: Color? = null,
+): Color {
+    val lum = bg.luminance()
+    val hsl = colorToHsl(bg)
+    val isLight = lum > 0.30f || hsl[2] > 0.55f
+    if (!isLight) {
+        return lightText
+    }
+    if (darkText != null) {
+        return darkText
+    }
+    val hue = hsl[0]
+    val sat = hsl[1]
+    val tintSat = (sat * 0.35f).coerceIn(0.08f, 0.22f)
+    return hslToColor(hue, tintSat, 0.18f)
+}
+
+/**
+ * Computes the semantic onAccent color for the given accent color.
+ */
+fun computeOnAccent(accent: Color): Color = optimalTextColor(accent)
+
+/**
+ * Convenience extension to compute the optimal foreground text/icon color for this background.
+ */
+@JvmName("colorOptimalTextColor")
+fun Color.optimalTextColor(lightText: Color = Color.White, darkText: Color? = null): Color =
+    com.reverie.paint.ui.theme.optimalTextColor(this, lightText, darkText)
 
 /** Build theme colors with algorithmic style generation (Morandi Tinted, Neutral Studio, Warm Earthy, Vibrant Glow) */
 fun buildThemeColors(
@@ -552,6 +593,7 @@ fun buildThemeColors(
     return baseColors.copy(
         accent = accent,
         accentHi = accentHi,
+        onAccent = computeOnAccent(accent),
     )
 }
 
@@ -559,7 +601,7 @@ fun buildThemeColors(
 fun getMonetColors(
     context: Context,
     isDark: Boolean = true,
-    fallbackAccent: Color = Color(0xFF5A6E8A),
+    fallbackAccent: Color = Color(0xFF879ED1),
     contrast: String = "STANDARD",
     style: String = ThemeStyle.MORANDI_TINTED,
 ): AppColors {
@@ -614,7 +656,7 @@ val ColorSwatches =
         "#C9ADA7",
         "#F2F0EA",
         "#B4552D",
-        "#5A6E8A",
+        "#879ED1",
         "#9A8F7B",
         "#FFFFFF",
         "#000000",

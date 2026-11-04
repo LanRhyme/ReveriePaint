@@ -1173,7 +1173,7 @@ private fun AnimationExportSection(
                         ) {
                             Text(
                                 text = label,
-                                color = if (isSel) Color.White else Morandi.text,
+                                color = if (isSel) Morandi.onAccent else Morandi.text,
                                 fontSize = 11.sp,
                                 fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
                             )
@@ -1214,7 +1214,7 @@ private fun AnimationExportSection(
                             ) {
                                 Text(
                                     text = label,
-                                    color = if (isSel) Color.White else Morandi.text,
+                                    color = if (isSel) Morandi.onAccent else Morandi.text,
                                     fontSize = 11.sp,
                                     fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
                                 )

@@ -20,10 +20,10 @@ import org.junit.Test
 class StylusModelsTest {
 
     @Test
-    fun `default theme accent color matches Morandi misty blue 5A6E8A`() {
-        val expectedColor = androidx.compose.ui.graphics.Color(0xFF5A6E8A)
-        assertEquals("Dark mode default accent should be Morandi misty blue", expectedColor, MorandiDarkColors.accent)
-        assertEquals("Light mode default accent should be Morandi misty blue", expectedColor, MorandiLightColors.accent)
+    fun `default theme accent color matches Morandi periwinkle blue 879ED1`() {
+        val expectedColor = androidx.compose.ui.graphics.Color(0xFF879ED1)
+        assertEquals("Dark mode default accent should be Morandi periwinkle blue", expectedColor, MorandiDarkColors.accent)
+        assertEquals("Light mode default accent should be Morandi periwinkle blue", expectedColor, MorandiLightColors.accent)
     }
 
     @Test

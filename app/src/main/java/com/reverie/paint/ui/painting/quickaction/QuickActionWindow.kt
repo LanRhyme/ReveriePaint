@@ -1018,7 +1018,7 @@ private fun QuickActionsEditDialog(
                         ) {
                             Text(
                                 text = "${stringResource(R.string.quick_action_tab_actions)} (${currentActions.size})",
-                                color = if (selectedTab == 0) Color.White else Morandi.subText,
+                                color = if (selectedTab == 0) Morandi.onAccent else Morandi.subText,
                                 fontSize = 12.sp,
                                 fontWeight = if (selectedTab == 0) FontWeight.SemiBold else FontWeight.Normal,
                             )
@@ -1034,7 +1034,7 @@ private fun QuickActionsEditDialog(
                         ) {
                             Text(
                                 text = stringResource(R.string.quick_action_tab_style),
-                                color = if (selectedTab == 1) Color.White else Morandi.subText,
+                                color = if (selectedTab == 1) Morandi.onAccent else Morandi.subText,
                                 fontSize = 12.sp,
                                 fontWeight = if (selectedTab == 1) FontWeight.SemiBold else FontWeight.Normal,
                             )
@@ -1374,7 +1374,7 @@ private fun QuickActionsStyleSection(
                         ) {
                             Text(
                                 text = stringResource(mode.labelRes),
-                                color = if (isSelected) Color.White else Morandi.subText,
+                                color = if (isSelected) Morandi.onAccent else Morandi.subText,
                                 fontSize = 11.sp,
                                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                             )

@@ -667,7 +667,7 @@ internal fun LayerDetailPage(
                             ) {
                                 Text(
                                     label,
-                                    color = if (isSelected) Color.White else Morandi.text,
+                                    color = if (isSelected) Morandi.onAccent else Morandi.text,
                                     fontSize = 11.sp,
                                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                 )

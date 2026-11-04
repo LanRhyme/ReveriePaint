@@ -425,7 +425,7 @@ fun DrawingGuidePanel(
                                     ) {
                                         Text(
                                             text = "$presetRays",
-                                            color = if (isSelected) Color.White else Morandi.text,
+                                            color = if (isSelected) Morandi.onAccent else Morandi.text,
                                             fontSize = 11.5.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
                                         )
@@ -600,7 +600,7 @@ private fun SegmentedModeSelector(
             ) {
                 Text(
                     text = label,
-                    color = if (isSelected) Color.White else Morandi.text,
+                    color = if (isSelected) Morandi.onAccent else Morandi.text,
                     fontSize = 11.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                     maxLines = 1,
@@ -644,7 +644,7 @@ private fun PerspectiveSubModeSelector(
             ) {
                 Text(
                     text = label,
-                    color = if (isSelected) Color.White else Morandi.text,
+                    color = if (isSelected) Morandi.onAccent else Morandi.text,
                     fontSize = 11.5.sp,
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
@@ -685,7 +685,7 @@ private fun <T> SegmentedOptionSelector(
             ) {
                 Text(
                     text = label,
-                    color = if (isSelected) Color.White else Morandi.text,
+                    color = if (isSelected) Morandi.onAccent else Morandi.text,
                     fontSize = 11.5.sp,
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,

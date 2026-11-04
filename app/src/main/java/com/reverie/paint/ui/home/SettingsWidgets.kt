@@ -669,7 +669,7 @@ internal fun <T> SettingSegmentGroupItem(
                     ) {
                         Text(
                             text = label,
-                            color = if (isSelected) Color.White else colors.subText,
+                            color = if (isSelected) colors.onAccent else colors.subText,
                             fontSize = 12.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                         )

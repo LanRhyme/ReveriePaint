@@ -661,7 +661,7 @@ internal fun SettingsTabPage(
                                     ) {
                                         Text(
                                             stringResource(action.labelRes()),
-                                            color = if (isSelected) Color.White else Morandi.subText,
+                                            color = if (isSelected) Morandi.onAccent else Morandi.subText,
                                             fontSize = 11.sp,
                                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                         )
@@ -826,7 +826,7 @@ internal fun SettingsTabPage(
                                         ) {
                                             Text(
                                                 stringResource(R.string.settings_eyedropper_level_suffix, i),
-                                                color = if (isSelected) Color.White else Morandi.subText,
+                                                color = if (isSelected) Morandi.onAccent else Morandi.subText,
                                                 fontSize = 11.sp,
                                                 fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                                             )

@@ -1951,7 +1951,7 @@ class PaintViewModel : ViewModel() {
     var uiOpacity by mutableFloatStateOf(1.0f) // For Top and Left panels
     var popupPanelOpacity by mutableFloatStateOf(0.95f) // For floating panels
     var blurBackground by mutableStateOf(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) // 背景毛玻璃效果，默认开启（API<31 设备不支持模糊，自动回退实色）
-    var accentColorHex by mutableStateOf("#5A6E8A")
+    var accentColorHex by mutableStateOf("#879ED1")
     var monetEnabled by mutableStateOf(false) // 莫奈动态取色
     var themeMode by mutableStateOf("DARK") // "DARK", "LIGHT", "SYSTEM"
     var themeContrast by mutableStateOf("STANDARD") // "SOFT", "STANDARD", "HIGH"
@@ -4342,8 +4342,8 @@ class PaintViewModel : ViewModel() {
             selectionMaskOpacity = prefs.getFloat("selection_mask_opacity", 0.47f).coerceIn(0.10f, 0.90f)
             blurBackground = prefs.getBoolean("blurBackground", true) &&
                 android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
-            val savedAccent = prefs.getString("accentColor", "#5A6E8A") ?: "#5A6E8A"
-            accentColorHex = if (savedAccent.equals("#0A84FF", ignoreCase = true) || savedAccent.equals("#5E8BA8", ignoreCase = true)) "#5A6E8A" else savedAccent
+            val savedAccent = prefs.getString("accentColor", "#879ED1") ?: "#879ED1"
+            accentColorHex = if (savedAccent.equals("#0A84FF", ignoreCase = true) || savedAccent.equals("#5E8BA8", ignoreCase = true) || savedAccent.equals("#5A6E8A", ignoreCase = true)) "#879ED1" else savedAccent
             canvasBgColorHex = prefs.getString("canvasBgColor", "DEFAULT") ?: "DEFAULT"
             monetEnabled = prefs.getBoolean("monetEnabled", false)
             themeMode = prefs.getString("themeMode", "DARK") ?: "DARK"
