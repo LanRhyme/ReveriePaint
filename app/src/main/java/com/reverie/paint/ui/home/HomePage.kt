@@ -24,6 +24,7 @@ import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.BasicTextField
@@ -43,6 +44,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
@@ -53,7 +55,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
@@ -82,16 +83,22 @@ import com.reverie.paint.ui.dialog.RecentAutoSavesDialog
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Project
 import com.reverie.paint.ui.theme.AppColors
+import com.reverie.paint.ui.theme.Motion
 import com.reverie.paint.ui.theme.Theme
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
-import kotlinx.coroutines.delay
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
 // In-Memory LRU Cache for high-performance thumbnail rendering without disk jank
 private object ThumbnailCache {
+    /**
+     * 缩略图解码长边上限: 网格单元约 160dp, 4x 屏约 640px, 取 768px 覆盖到平板的大单元格;
+     * 不解码原尺寸可省下数倍位图内存, 滑动时少一次 GC 抖动。
+     */
+    private const val MAX_DECODE_EDGE = 768
+
     private val maxMemory = (Runtime.getRuntime().maxMemory() / 1024).toInt()
     private val cacheSize = (maxMemory / 8).coerceAtLeast(1024 * 16)
     private val lruCache =
@@ -107,6 +114,19 @@ private object ThumbnailCache {
         return if (cached != null && !cached.isRecycled) cached else null
     }
 
+    private fun sampleSizeFor(path: String): Int {
+        val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+        BitmapFactory.decodeFile(path, bounds)
+        if (bounds.outWidth <= 0 || bounds.outHeight <= 0) return 1
+        // 按长边收敛: 超宽画布也不会解出几十 MB 的位图
+        val longEdge = maxOf(bounds.outWidth, bounds.outHeight)
+        var sample = 1
+        while (longEdge / (sample * 2) >= MAX_DECODE_EDGE) {
+            sample *= 2
+        }
+        return sample
+    }
+
     fun get(
         path: String,
         lastModified: Long,
@@ -118,7 +138,8 @@ private object ThumbnailCache {
         val file = File(path)
         if (file.exists()) {
             return try {
-                val bmp = BitmapFactory.decodeFile(path)
+                val options = BitmapFactory.Options().apply { inSampleSize = sampleSizeFor(path) }
+                val bmp = BitmapFactory.decodeFile(path, options)
                 if (bmp != null) {
                     lruCache.put(key, bmp)
                 }
@@ -218,6 +239,29 @@ fun HomePage(vm: PaintViewModel) {
         if (selectedTab == 0) {
             vm.refreshProjects()
         }
+    }
+
+    // 滚动位置保留: 主页与画集各持一个网格状态, 进画集再返回时停在原处 (旧实现每次切页都回顶)
+    val rootGridState = rememberLazyGridState()
+    val folderGridState = rememberLazyGridState()
+
+    // 进入画集从顶部开始
+    LaunchedEffect(currentFolder?.filePath) {
+        if (currentFolder != null) folderGridState.scrollToItem(0)
+    }
+
+    // 搜索条件变化时回到顶部, 避免停在过滤后越界的旧索引上
+    LaunchedEffect(vm.searchQuery) {
+        if (vm.searchQuery.isNotEmpty()) {
+            if (currentFolder == null) rootGridState.scrollToItem(0) else folderGridState.scrollToItem(0)
+        }
+    }
+
+    // 拖拽命中表跟随数据清理, 避免已删除的画集留下"幽灵"投放区
+    LaunchedEffect(currentFolder?.filePath, displayProjects) {
+        val alive = HashSet<String>(displayProjects.size)
+        displayProjects.forEach { if (it.isFolder) alive.add(it.filePath) }
+        folderBoundsMap.keys.retainAll(alive)
     }
 
     // Handle back navigation for nested states (Folder, Selection Mode, Search Mode, Settings Subpage)
@@ -521,11 +565,21 @@ fun HomePage(vm: PaintViewModel) {
                                                     fontWeight = FontWeight.Bold,
                                                     letterSpacing = 0.5.sp,
                                                 )
-                                                Text(
-                                                    text = stringResource(R.string.gallery_items_count, displayProjects.size),
-                                                    color = colors.subText,
-                                                    fontSize = 11.sp,
-                                                )
+                                                // 数量变化 (删除/导入) 时交叉淡入, 不再原地闪一下
+                                                AnimatedContent(
+                                                    targetState = displayProjects.size,
+                                                    transitionSpec = {
+                                                        fadeIn(tween(220, easing = FastOutSlowInEasing))
+                                                            .togetherWith(fadeOut(tween(140)))
+                                                    },
+                                                    label = "GalleryItemCountAnim",
+                                                ) { count ->
+                                                    Text(
+                                                        text = stringResource(R.string.gallery_items_count, count),
+                                                        color = colors.subText,
+                                                        fontSize = 11.sp,
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -694,19 +748,37 @@ fun HomePage(vm: PaintViewModel) {
                             modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
                         )
 
-                        // Clean Animated Folder Transition with Staggered Per-Card Cascade Unfolding
+                        // 画集切换: 以路径作为状态键 (旧实现用 Project 整体相等, 画集内容一变就误触发切换动画)
                         AnimatedContent(
-                            targetState = currentFolder,
+                            targetState = currentFolder?.filePath,
                             transitionSpec = {
-                                (fadeIn(tween(220, easing = FastOutSlowInEasing)))
-                                    .togetherWith(fadeOut(tween(140, easing = FastOutSlowInEasing)))
+                                (
+                                    fadeIn(tween(240, easing = FastOutSlowInEasing)) +
+                                        scaleIn(tween(260, easing = FastOutSlowInEasing), initialScale = 0.97f)
+                                ).togetherWith(
+                                    fadeOut(tween(140, easing = FastOutSlowInEasing)) +
+                                        scaleOut(tween(160, easing = FastOutSlowInEasing), targetScale = 1.02f),
+                                )
                             },
                             modifier = Modifier.weight(1f),
                             label = "FolderTransition",
-                        ) { targetFolder ->
+                        ) { folderKey ->
+                            // 入场级联记录器: 每个画集视图各自持有一份, 重新进入时重新播一次入场
+                            val entranceTracker = remember(folderKey) { GalleryEntranceTracker() }
                             if (displayProjects.isEmpty()) {
+                                // 空状态: 整体淡入 + 轻微上浮, 不再硬切
+                                val emptyEnter = remember(folderKey) { Animatable(0f) }
+                                LaunchedEffect(folderKey) {
+                                    emptyEnter.animateTo(1f, tween(300, easing = FastOutSlowInEasing))
+                                }
                                 Box(
-                                    modifier = Modifier.fillMaxSize(),
+                                    modifier =
+                                        Modifier
+                                            .fillMaxSize()
+                                            .graphicsLayer {
+                                                alpha = emptyEnter.value
+                                                translationY = (1f - emptyEnter.value) * 18.dp.toPx()
+                                            },
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Column(
@@ -733,7 +805,7 @@ fun HomePage(vm: PaintViewModel) {
                                         Text(
                                             if (vm.searchQuery.isNotEmpty()) {
                                                 stringResource(R.string.gallery_empty_search_title)
-                                            } else if (targetFolder !=
+                                            } else if (folderKey !=
                                                 null
                                             ) {
                                                 stringResource(R.string.gallery_empty_stack_title)
@@ -748,7 +820,7 @@ fun HomePage(vm: PaintViewModel) {
                                         Text(
                                             if (vm.searchQuery.isNotEmpty()) {
                                                 stringResource(R.string.gallery_empty_search_desc)
-                                            } else if (targetFolder !=
+                                            } else if (folderKey !=
                                                 null
                                             ) {
                                                 stringResource(R.string.gallery_empty_stack_desc)
@@ -764,38 +836,32 @@ fun HomePage(vm: PaintViewModel) {
                             } else {
                                 LazyVerticalGrid(
                                     columns = GridCells.Adaptive(minSize = 160.dp),
+                                    state = if (folderKey == null) rootGridState else folderGridState,
                                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                                     verticalArrangement = Arrangement.spacedBy(16.dp),
                                     contentPadding = PaddingValues(top = 8.dp, bottom = 100.dp),
                                 ) {
-                                    itemsIndexed(displayProjects, key = { _, it -> it.filePath }) { index, p ->
+                                    itemsIndexed(
+                                        items = displayProjects,
+                                        key = { _, it -> it.filePath },
+                                        // 画集卡片与单图卡片是两套布局, 分开复用可减少滑动时的重组
+                                        contentType = { _, it -> if (it.isFolder) "stack" else "artwork" },
+                                    ) { index, p ->
                                         val isSelected = selectedProjects.contains(p)
 
-                                        // Staggered cascade entrance physics for each individual painting card
-                                        val enterProgress = remember(targetFolder?.filePath, p.filePath) { Animatable(0f) }
-                                        LaunchedEffect(targetFolder?.filePath, p.filePath) {
-                                            val delayMs = (index * 25L).coerceAtMost(200L)
-                                            delay(delayMs)
-                                            enterProgress.animateTo(
-                                                targetValue = 1f,
-                                                animationSpec =
-                                                    spring(
-                                                        dampingRatio = Spring.DampingRatioLowBouncy,
-                                                        stiffness = Spring.StiffnessMediumLow,
-                                                    ),
+                                        // 入场级联: 只在该卡片首次出现时播一次, 滚回来不再重播
+                                        val enterProgress =
+                                            rememberGalleryEntrance(
+                                                tracker = entranceTracker,
+                                                key = p.filePath,
+                                                index = index,
                                             )
-                                        }
-
-                                        val progress = enterProgress.value
-                                        val itemScale = 0.74f + 0.26f * progress
-                                        val itemOffsetY = 28.dp * (1f - progress)
                                         val initialFanAngle =
                                             remember(p.filePath) {
                                                 val hash = kotlin.math.abs(p.filePath.hashCode())
                                                 ((hash % 9) - 4).toFloat() * 1.5f // -6° to +6° fanned spread
                                             }
-                                        val itemRotation = (1f - progress) * initialFanAngle
 
                                         val interactionSource = remember { MutableInteractionSource() }
                                         val isPressed by interactionSource.collectIsPressedAsState()
@@ -810,7 +876,7 @@ fun HomePage(vm: PaintViewModel) {
                                         )
 
                                         val cardSelectScale by animateFloatAsState(
-                                            targetValue = if (isSelectMode && isSelected) 0.94f else 1.0f,
+                                            targetValue = if (isSelectMode && isSelected) 0.96f else 1.0f,
                                             animationSpec =
                                                 spring(
                                                     dampingRatio = Spring.DampingRatioMediumBouncy,
@@ -825,73 +891,47 @@ fun HomePage(vm: PaintViewModel) {
                                             label = "CardBorderWidth",
                                         )
 
+                                        // 选中蒙层: 与边框一起把"已选"画进卡面, 比单纯缩小更好认
+                                        val selectTint by animateColorAsState(
+                                            targetValue =
+                                                if (isSelectMode && isSelected) {
+                                                    colors.accent.copy(alpha = 0.16f)
+                                                } else {
+                                                    Color.Transparent
+                                                },
+                                            animationSpec = tween(180),
+                                            label = "CardSelectTint",
+                                        )
+
                                         val haptic = LocalHapticFeedback.current
 
-                                        // Organic tactile fan-out physics when pressing stack card
-                                        val fanBottomAngle by animateFloatAsState(
-                                            targetValue = if (isPressed) -12.5f else -7.0f,
+                                        // 长按托起: 长按触发/拖拽中把卡片托起并描边, 让"可以拖了"看得见
+                                        var holdLifted by remember { mutableStateOf(false) }
+                                        val holdLiftScale by animateFloatAsState(
+                                            targetValue = if (holdLifted) 1.045f else 1.0f,
                                             animationSpec =
                                                 spring(
                                                     dampingRatio = Spring.DampingRatioMediumBouncy,
                                                     stiffness = Spring.StiffnessMediumLow,
                                                 ),
-                                            label = "FanBottomAngle",
+                                            label = "CardHoldLift",
                                         )
-                                        val fanBottomOffsetX by animateDpAsState(
-                                            targetValue = if (isPressed) (-12).dp else (-7).dp,
-                                            animationSpec =
-                                                spring(
-                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                    stiffness = Spring.StiffnessMediumLow,
-                                                ),
-                                            label = "FanBottomOffsetX",
+                                        val holdRingWidth by animateDpAsState(
+                                            targetValue = if (holdLifted) 2.dp else 0.dp,
+                                            animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
+                                            label = "CardHoldRing",
                                         )
-                                        val fanBottomOffsetY by animateDpAsState(
-                                            targetValue = if (isPressed) 7.dp else 4.dp,
-                                            animationSpec =
-                                                spring(
-                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                    stiffness = Spring.StiffnessMediumLow,
-                                                ),
-                                            label = "FanBottomOffsetY",
-                                        )
+                                        val cardRingWidth = maxOf(borderStrokeWidth, holdRingWidth)
 
-                                        val fanMiddleAngle by animateFloatAsState(
-                                            targetValue = if (isPressed) 11.0f else 6.0f,
+                                        // 画集卡片按压扇形展开: 单个进度驱动三层, 数值只在图层阶段读取
+                                        val fanPress by animateFloatAsState(
+                                            targetValue = if (isPressed) 1f else 0f,
                                             animationSpec =
                                                 spring(
                                                     dampingRatio = Spring.DampingRatioMediumBouncy,
                                                     stiffness = Spring.StiffnessMediumLow,
                                                 ),
-                                            label = "FanMiddleAngle",
-                                        )
-                                        val fanMiddleOffsetX by animateDpAsState(
-                                            targetValue = if (isPressed) 11.dp else 6.dp,
-                                            animationSpec =
-                                                spring(
-                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                    stiffness = Spring.StiffnessMediumLow,
-                                                ),
-                                            label = "FanMiddleOffsetX",
-                                        )
-                                        val fanMiddleOffsetY by animateDpAsState(
-                                            targetValue = if (isPressed) (-5).dp else (-3).dp,
-                                            animationSpec =
-                                                spring(
-                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                    stiffness = Spring.StiffnessMediumLow,
-                                                ),
-                                            label = "FanMiddleOffsetY",
-                                        )
-
-                                        val fanTopAngle by animateFloatAsState(
-                                            targetValue = if (isPressed) -1.8f else -0.8f,
-                                            animationSpec =
-                                                spring(
-                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                    stiffness = Spring.StiffnessMediumLow,
-                                                ),
-                                            label = "FanTopAngle",
+                                            label = "FanPress",
                                         )
 
                                         val isFolderHovered = p.isFolder && hoveredFolderKey == p.filePath
@@ -909,12 +949,23 @@ fun HomePage(vm: PaintViewModel) {
                                         Box(
                                             modifier =
                                                 Modifier
+                                                    // 增删/筛选造成的重排做插值位移, 卡片不再硬跳
+                                                    .animateItem(
+                                                        fadeInSpec = null,
+                                                        placementSpec = Motion.enterSpring(),
+                                                        fadeOutSpec = tween(140, easing = FastOutSlowInEasing),
+                                                    )
                                                     .graphicsLayer {
-                                                        alpha = progress.coerceIn(0f, 1f)
-                                                        scaleX = itemScale * cardPressScale * cardSelectScale * folderHoverScale
-                                                        scaleY = itemScale * cardPressScale * cardSelectScale * folderHoverScale
-                                                        translationY = itemOffsetY.toPx()
-                                                        rotationZ = itemRotation
+                                                        // 入场/按压/选中/拖拽悬停全部在图层阶段取值, 逐帧不触发重组
+                                                        val enter = enterProgress.value.coerceIn(0f, 1f)
+                                                        val scale =
+                                                            (0.74f + 0.26f * enter) * cardPressScale *
+                                                                cardSelectScale * folderHoverScale * holdLiftScale
+                                                        alpha = enter
+                                                        scaleX = scale
+                                                        scaleY = scale
+                                                        rotationZ = (1f - enter) * initialFanAngle
+                                                        translationY = (1f - enter) * 28.dp.toPx()
                                                     }
                                                     .onGloballyPositioned { coords ->
                                                         itemCoordinates = coords
@@ -923,12 +974,35 @@ fun HomePage(vm: PaintViewModel) {
                                                         }
                                                     },
                                         ) {
-                                            val cardModifier = if (currentFolder == null && !p.isFolder) {
+                                            // 手势里读的是最新值: pointerInput 只按路径重建, 不能捕获旧闭包
+                                            val currentProject by rememberUpdatedState(p)
+                                            val currentSelectMode by rememberUpdatedState(isSelectMode)
+                                            val currentProjects by rememberUpdatedState(displayProjects)
+
+                                            val cardModifier = if (folderKey == null && !p.isFolder) {
                                                 Modifier
                                                     .fillMaxWidth()
-                                                    .pointerInput(p, isSelectMode, selectedProjects.size) {
+                                                    // 只按项目路径重建: 选中态变化不该重置正在进行的按压/长按
+                                                    .pointerInput(p.filePath) {
                                                         awaitEachGesture {
                                                             val down = awaitFirstDown(requireUnconsumed = false)
+                                                            // 自定义手势需自己发按压交互, 否则卡片拿不到按压缩放反馈
+                                                            // (combinedClickable 才会发, 旧实现下主画廊卡片点了没有任何反馈)
+                                                            val press = PressInteraction.Press(down.position)
+                                                            interactionSource.tryEmit(press)
+                                                            var pressEnded = false
+                                                            val endPress: (Boolean) -> Unit = { cancelled ->
+                                                                if (!pressEnded) {
+                                                                    pressEnded = true
+                                                                    interactionSource.tryEmit(
+                                                                        if (cancelled) {
+                                                                            PressInteraction.Cancel(press)
+                                                                        } else {
+                                                                            PressInteraction.Release(press)
+                                                                        },
+                                                                    )
+                                                                }
+                                                            }
                                                             val downRoot = itemCoordinates?.localToRoot(down.position) ?: down.position
                                                             val downPos = down.position
                                                             val touchSlop = viewConfiguration.touchSlop
@@ -936,113 +1010,132 @@ fun HomePage(vm: PaintViewModel) {
                                                             var currentPointer = down
 
                                                             try {
-                                                                withTimeout(viewConfiguration.longPressTimeoutMillis) {
+                                                                try {
+                                                                    withTimeout(viewConfiguration.longPressTimeoutMillis) {
+                                                                        while (true) {
+                                                                            val event = awaitPointerEvent()
+                                                                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                                                            currentPointer = change
+                                                                            if (change.isConsumed) {
+                                                                                // 已被父级滚动容器消费，放弃点击与长按
+                                                                                endPress(true)
+                                                                                return@withTimeout
+                                                                            }
+                                                                            val dist = (change.position - downPos).getDistance()
+                                                                            if (dist > touchSlop) {
+                                                                                // 移动距离超过滑动容差，属于滑动手势，放弃点击与长按
+                                                                                endPress(true)
+                                                                                return@withTimeout
+                                                                            }
+                                                                            if (change.changedToUpIgnoreConsumed()) {
+                                                                                // 手指在容差范围内正常抬起，属于纯正的点击
+                                                                                change.consume()
+                                                                                endPress(false)
+                                                                                if (currentSelectMode) {
+                                                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                                    val project = currentProject
+                                                                                    if (selectedProjects.contains(project)) {
+                                                                                        selectedProjects.remove(project)
+                                                                                    } else {
+                                                                                        selectedProjects.add(project)
+                                                                                    }
+                                                                                } else {
+                                                                                    vm.loadProject(currentProject)
+                                                                                }
+                                                                                return@withTimeout
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                } catch (_: PointerEventTimeoutCancellationException) {
+                                                                    // 长按时间已到且未移动，触发长按
+                                                                    isLongPressTriggered = true
+                                                                }
+
+                                                                if (isLongPressTriggered) {
+                                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                    // 托起卡片: 长按后能拖去画集, 先给出可见的"拿起来了"反馈
+                                                                    holdLifted = true
+                                                                    var dragStarted = false
+                                                                    var totalDrag = Offset.Zero
+                                                                    var currentPos = itemCoordinates?.localToRoot(currentPointer.position) ?: downRoot
+                                                                    val pointerId = currentPointer.id
+
                                                                     while (true) {
                                                                         val event = awaitPointerEvent()
-                                                                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                                                        currentPointer = change
-                                                                        if (change.isConsumed) {
-                                                                            // 已被父级滚动容器消费，放弃点击与长按
-                                                                            return@withTimeout
-                                                                        }
-                                                                        val dist = (change.position - downPos).getDistance()
-                                                                        if (dist > touchSlop) {
-                                                                            // 移动距离超过滑动容差，属于滑动手势，放弃点击与长按
-                                                                            return@withTimeout
-                                                                        }
+                                                                        val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                                                                        if (change.isConsumed) break
+
                                                                         if (change.changedToUpIgnoreConsumed()) {
-                                                                            // 手指在容差范围内正常抬起，属于纯正的点击
                                                                             change.consume()
-                                                                            if (isSelectMode) {
-                                                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                                                if (isSelected) selectedProjects.remove(p) else selectedProjects.add(p)
-                                                                            } else {
-                                                                                vm.loadProject(p)
-                                                                            }
-                                                                            return@withTimeout
+                                                                            break
                                                                         }
-                                                                    }
-                                                                }
-                                                            } catch (_: PointerEventTimeoutCancellationException) {
-                                                                // 长按时间已到且未移动，触发长按
-                                                                isLongPressTriggered = true
-                                                            }
 
-                                                            if (isLongPressTriggered) {
-                                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                                var dragStarted = false
-                                                                var totalDrag = Offset.Zero
-                                                                var currentPos = itemCoordinates?.localToRoot(currentPointer.position) ?: downRoot
-                                                                val pointerId = currentPointer.id
+                                                                        val dragDelta = change.position - change.previousPosition
+                                                                        totalDrag += dragDelta
 
-                                                                while (true) {
-                                                                    val event = awaitPointerEvent()
-                                                                    val change = event.changes.firstOrNull { it.id == pointerId } ?: break
-                                                                    if (change.isConsumed) break
+                                                                        if (!dragStarted && totalDrag.getDistance() > touchSlop) {
+                                                                            dragStarted = true
+                                                                            draggingProject = currentProject
+                                                                            dragStartRootPos = currentPos
+                                                                            dragTouchRootPos = currentPos
+                                                                        }
 
-                                                                    if (change.changedToUpIgnoreConsumed()) {
-                                                                        change.consume()
-                                                                        break
-                                                                    }
+                                                                        if (dragStarted) {
+                                                                            change.consume()
+                                                                            currentPos = itemCoordinates?.localToRoot(change.position) ?: (dragTouchRootPos + dragDelta)
+                                                                            dragTouchRootPos = currentPos
 
-                                                                    val dragDelta = change.position - change.previousPosition
-                                                                    totalDrag += dragDelta
-
-                                                                    if (!dragStarted && totalDrag.getDistance() > touchSlop) {
-                                                                        dragStarted = true
-                                                                        draggingProject = p
-                                                                        dragStartRootPos = currentPos
-                                                                        dragTouchRootPos = currentPos
+                                                                            val hit = folderBoundsMap.entries.firstOrNull { (_, rect) ->
+                                                                                rect.contains(dragTouchRootPos)
+                                                                            }
+                                                                            if (hit?.key != hoveredFolderKey) {
+                                                                                if (hit != null) {
+                                                                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                                                }
+                                                                                hoveredFolderKey = hit?.key
+                                                                            }
+                                                                        }
                                                                     }
 
                                                                     if (dragStarted) {
-                                                                        change.consume()
-                                                                        currentPos = itemCoordinates?.localToRoot(change.position) ?: (dragTouchRootPos + dragDelta)
-                                                                        dragTouchRootPos = currentPos
-
-                                                                        val hit = folderBoundsMap.entries.firstOrNull { (_, rect) ->
-                                                                            rect.contains(dragTouchRootPos)
-                                                                        }
-                                                                        if (hit?.key != hoveredFolderKey) {
-                                                                            if (hit != null) {
-                                                                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                                        val targetPath = hoveredFolderKey
+                                                                        if (targetPath != null) {
+                                                                            val targetFolder =
+                                                                                currentProjects.firstOrNull {
+                                                                                    it.isFolder && it.filePath == targetPath
+                                                                                }
+                                                                            if (targetFolder != null) {
+                                                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                                val toMove = if (currentSelectMode && selectedProjects.contains(currentProject)) {
+                                                                                    selectedProjects.toList()
+                                                                                } else {
+                                                                                    listOf(currentProject)
+                                                                                }
+                                                                                vm.moveProjectsToFolder(toMove, targetFolder.name)
+                                                                                Toast.makeText(
+                                                                                    context,
+                                                                                    String.format(toastMovedToStack, toMove.size, targetFolder.name),
+                                                                                    Toast.LENGTH_SHORT,
+                                                                                ).show()
+                                                                                if (currentSelectMode) {
+                                                                                    selectedProjects.clear()
+                                                                                    isSelectMode = false
+                                                                                }
                                                                             }
-                                                                            hoveredFolderKey = hit?.key
+                                                                        }
+                                                                        draggingProject = null
+                                                                        dragTouchRootPos = Offset.Zero
+                                                                        hoveredFolderKey = null
+                                                                    } else {
+                                                                        if (!currentSelectMode) {
+                                                                            longPressedProject = currentProject
                                                                         }
                                                                     }
                                                                 }
-
-                                                                if (dragStarted) {
-                                                                    val targetPath = hoveredFolderKey
-                                                                    if (targetPath != null) {
-                                                                        val targetFolder = displayProjects.firstOrNull { it.isFolder && it.filePath == targetPath }
-                                                                        if (targetFolder != null) {
-                                                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                                            val toMove = if (isSelectMode && isSelected) {
-                                                                                selectedProjects.toList()
-                                                                            } else {
-                                                                                listOf(p)
-                                                                            }
-                                                                            vm.moveProjectsToFolder(toMove, targetFolder.name)
-                                                                            Toast.makeText(
-                                                                                context,
-                                                                                String.format(toastMovedToStack, toMove.size, targetFolder.name),
-                                                                                Toast.LENGTH_SHORT,
-                                                                            ).show()
-                                                                            if (isSelectMode) {
-                                                                                selectedProjects.clear()
-                                                                                isSelectMode = false
-                                                                            }
-                                                                        }
-                                                                    }
-                                                                    draggingProject = null
-                                                                    dragTouchRootPos = Offset.Zero
-                                                                    hoveredFolderKey = null
-                                                                } else {
-                                                                    if (!isSelectMode) {
-                                                                        longPressedProject = p
-                                                                    }
-                                                                }
+                                                            } finally {
+                                                                // 兜底: 手势被滚动/取消打断时不能让按压态或托起态卡住
+                                                                endPress(true)
+                                                                holdLifted = false
                                                             }
                                                         }
                                                     }
@@ -1118,14 +1211,36 @@ fun HomePage(vm: PaintViewModel) {
                                                                 .aspectRatio(1f),
                                                         contentAlignment = Alignment.Center,
                                                     ) {
+                                                        // 拖拽悬停描边: 宽度与透明度一起插值, 不再硬切
+                                                        val hoverRingWidth by animateDpAsState(
+                                                            targetValue = if (isFolderHovered) 3.dp else 0.dp,
+                                                            animationSpec =
+                                                                spring(
+                                                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                                                    stiffness = Spring.StiffnessMedium,
+                                                                ),
+                                                            label = "FolderHoverRingWidth",
+                                                        )
+                                                        val hoverRingAlpha by animateFloatAsState(
+                                                            targetValue = if (isFolderHovered) 1f else 0f,
+                                                            animationSpec = tween(160),
+                                                            label = "FolderHoverRingAlpha",
+                                                        )
+                                                        // 选中时就按选中描边走, 否则跟随悬停淡入
+                                                        val ringAlpha = if (borderStrokeWidth > 0.dp) 1f else hoverRingAlpha
+
                                                         // Stacked layer 1 (bottom left loose tilt & offset with its own aspect ratio)
                                                         Box(
                                                             modifier =
                                                                 Modifier
                                                                     .fillMaxSize(0.86f)
                                                                     .aspectRatio(ratio2, matchHeightConstraintsFirst = ratio2 < 1.0f)
-                                                                    .offset { IntOffset(fanBottomOffsetX.roundToPx(), fanBottomOffsetY.roundToPx()) }
-                                                                    .rotate(fanBottomAngle)
+                                                                    .graphicsLayer {
+                                                                        // 按压时整摞扇形散开: 只读一个进度, 逐帧不重组
+                                                                        rotationZ = -7f - 5.5f * fanPress
+                                                                        translationX = (-7).dp.toPx() - 5.dp.toPx() * fanPress
+                                                                        translationY = 4.dp.toPx() + 3.dp.toPx() * fanPress
+                                                                    }
                                                                     .shadow(4.dp, RoundedCornerShape(8.dp), clip = false)
                                                                     .clip(RoundedCornerShape(8.dp))
                                                                     .background(Color(0xFFEDEDED)),
@@ -1155,8 +1270,11 @@ fun HomePage(vm: PaintViewModel) {
                                                                 Modifier
                                                                     .fillMaxSize(0.88f)
                                                                     .aspectRatio(ratio1, matchHeightConstraintsFirst = ratio1 < 1.0f)
-                                                                    .offset { IntOffset(fanMiddleOffsetX.roundToPx(), fanMiddleOffsetY.roundToPx()) }
-                                                                    .rotate(fanMiddleAngle)
+                                                                    .graphicsLayer {
+                                                                        rotationZ = 6f + 5f * fanPress
+                                                                        translationX = 6.dp.toPx() + 5.dp.toPx() * fanPress
+                                                                        translationY = (-3).dp.toPx() - 2.dp.toPx() * fanPress
+                                                                    }
                                                                     .shadow(6.dp, RoundedCornerShape(8.dp), clip = false)
                                                                     .clip(RoundedCornerShape(8.dp))
                                                                     .background(Color(0xFFF3F3F3)),
@@ -1186,16 +1304,22 @@ fun HomePage(vm: PaintViewModel) {
                                                                 Modifier
                                                                     .fillMaxSize(0.92f)
                                                                     .aspectRatio(ratio0, matchHeightConstraintsFirst = ratio0 < 1.0f)
-                                                                    .rotate(fanTopAngle)
+                                                                    .graphicsLayer {
+                                                                        rotationZ = -0.8f - 1.0f * fanPress
+                                                                    }
                                                                     .shadow(8.dp, RoundedCornerShape(8.dp), clip = false)
                                                                     .clip(RoundedCornerShape(8.dp))
                                                                     .background(Color.White)
                                                                     .then(
-                                                                        if (isFolderHovered) {
-                                                                            Modifier.border(3.dp, colors.accent, RoundedCornerShape(8.dp))
-                                                                        } else if (borderStrokeWidth > 0.dp) {
-                                                                            Modifier.border(borderStrokeWidth, colors.accent, RoundedCornerShape(8.dp))
-                                                                        } else Modifier
+                                                                        if (hoverRingWidth > 0.dp || borderStrokeWidth > 0.dp) {
+                                                                            Modifier.border(
+                                                                                width = maxOf(hoverRingWidth, borderStrokeWidth),
+                                                                                color = colors.accent.copy(alpha = ringAlpha),
+                                                                                shape = RoundedCornerShape(8.dp),
+                                                                            )
+                                                                        } else {
+                                                                            Modifier
+                                                                        },
                                                                     ),
                                                             contentAlignment = Alignment.Center,
                                                         ) {
@@ -1257,11 +1381,23 @@ fun HomePage(vm: PaintViewModel) {
                                                         }
 
                                                         // Drop hint badge when dragging project over folder
-                                                        if (isFolderHovered) {
+                                                        // (此处处于 BoxScope/ColumnScope 混合隐式接收者中, 需显式限定包级版本)
+                                                        androidx.compose.animation.AnimatedVisibility(
+                                                            visible = isFolderHovered,
+                                                            enter =
+                                                                scaleIn(
+                                                                    spring(
+                                                                        dampingRatio = Spring.DampingRatioMediumBouncy,
+                                                                        stiffness = Spring.StiffnessMediumLow,
+                                                                    ),
+                                                                    initialScale = 0.8f,
+                                                                ) + fadeIn(tween(140)),
+                                                            exit = scaleOut(tween(120), targetScale = 0.9f) + fadeOut(tween(100)),
+                                                            modifier = Modifier.align(Alignment.Center),
+                                                        ) {
                                                             Box(
                                                                 modifier =
                                                                     Modifier
-                                                                        .align(Alignment.Center)
                                                                         .shadow(6.dp, RoundedCornerShape(16.dp))
                                                                         .clip(RoundedCornerShape(16.dp))
                                                                         .background(colors.accent)
@@ -1299,6 +1435,12 @@ fun HomePage(vm: PaintViewModel) {
                                                 } else {
                                                     // Single artwork card in uniform 1:1 cell with pure canvas aspect ratio
                                                     val rawRatio = if (p.width > 0 && p.height > 0) p.width.toFloat() / p.height.toFloat() else 1.0f
+                                                    // 缩略图解码完成时淡入, 不再"啪"地弹出来
+                                                    val thumbFade by animateFloatAsState(
+                                                        targetValue = if (thumb != null) 1f else 0f,
+                                                        animationSpec = tween(220),
+                                                        label = "ThumbFade",
+                                                    )
                                                     Box(
                                                         modifier =
                                                             Modifier
@@ -1315,8 +1457,8 @@ fun HomePage(vm: PaintViewModel) {
                                                                     .clip(RoundedCornerShape(8.dp))
                                                                     .background(Color.White)
                                                                     .then(
-                                                                        if (borderStrokeWidth > 0.dp) {
-                                                                            Modifier.border(borderStrokeWidth, colors.accent, RoundedCornerShape(8.dp))
+                                                                        if (cardRingWidth > 0.dp) {
+                                                                            Modifier.border(cardRingWidth, colors.accent, RoundedCornerShape(8.dp))
                                                                         } else Modifier
                                                                     ),
                                                             contentAlignment = Alignment.Center,
@@ -1326,7 +1468,10 @@ fun HomePage(vm: PaintViewModel) {
                                                                     bitmap = thumb.asImageBitmap(),
                                                                     contentDescription = null,
                                                                     contentScale = ContentScale.Crop,
-                                                                    modifier = Modifier.fillMaxSize(),
+                                                                    modifier =
+                                                                        Modifier
+                                                                            .fillMaxSize()
+                                                                            .graphicsLayer { alpha = thumbFade },
                                                                 )
                                                             } else {
                                                                 Box(
@@ -1341,6 +1486,8 @@ fun HomePage(vm: PaintViewModel) {
                                                                     )
                                                                 }
                                                             }
+                                                            // 选中蒙层 (与边框一起指示"已选")
+                                                            Box(modifier = Modifier.fillMaxSize().background(selectTint))
                                                         }
 
                                                         // AutoSave recovery badge (自动保存 / 异常退出恢复草稿)
@@ -1676,6 +1823,10 @@ fun HomePage(vm: PaintViewModel) {
             val density = LocalDensity.current
             val halfSizePx = with(density) { (dragCardSize / 2).toPx() }
 
+            // 拿起来的一瞬间轻微弹出, 与源卡片的托起动画衔接
+            val dragLift = remember(dragProj.filePath) { Animatable(0.82f) }
+            LaunchedEffect(dragProj.filePath) { dragLift.animateTo(1f, Motion.snapBouncy) }
+
             Box(modifier = Modifier.fillMaxSize()) {
                 Box(
                     modifier =
@@ -1694,6 +1845,8 @@ fun HomePage(vm: PaintViewModel) {
                             .graphicsLayer {
                                 rotationZ = -4f
                                 alpha = 0.92f
+                                scaleX = dragLift.value
+                                scaleY = dragLift.value
                             },
                     contentAlignment = Alignment.Center,
                 ) {
