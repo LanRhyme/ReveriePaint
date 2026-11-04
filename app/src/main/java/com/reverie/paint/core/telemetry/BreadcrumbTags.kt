@@ -52,6 +52,18 @@ object BreadcrumbTags {
 
         "FrontBuffer" -> if (message.contains("quarantined")) "quarantined" else UNKNOWN
 
+        // 主线程卡顿看门狗 (MainThreadWatchdog): "stall 4200ms pkg.Class.method"
+        // 只带应用自己的类/方法名, 不含文件路径、行号与任何用户内容
+        "MainThread" -> when {
+            message.startsWith("stall") -> {
+                val frame = message.substringAfterLast(' ', "").trim()
+                val ms = message.removePrefix("stall ").substringBefore('m').trim().toIntOrNull()
+                val prefix = if (ms != null) "stall:${ms}ms:" else "stall:"
+                if (frame.isEmpty()) "stall" else (prefix + frame).take(96)
+            }
+            else -> UNKNOWN
+        }
+
         else -> UNKNOWN
     }
 

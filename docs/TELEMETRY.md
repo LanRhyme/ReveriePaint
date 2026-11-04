@@ -4,7 +4,8 @@
 > 相关文档: `docs/PRIVACY.md`(面向用户的隐私说明) · `AGENTS.md` §4(架构铁律) §12(安全与机密)
 >
 > 已完成: 客户端 `core/telemetry/` 全链路、设置开关、首启告知条、崩溃弹窗手动上报、
-> Worker + D1 + 本地 dev-server、native 帧偏移改造、20 项单测、契约端到端验证。
+> Worker + D1 + 本地 dev-server、native 帧偏移改造、20 项单测、契约端到端验证;
+> v1.6.5 起端点已上线, 并补上主线程卡顿看门狗(见 §5.4)。
 > 待办: 部署 Worker 与 D1 并注入 `TELEMETRY_ENDPOINT`/`TELEMETRY_KEY`; `-PbuildNative` 真机回归 C++ 帧格式;
 > 符号化流水线(见 §11)。
 
@@ -179,8 +180,25 @@ ANR 走另一条支路:启动时读 `ActivityManager.getHistoricalProcessExitRea
 | `History` / `Undo` / `Redo` | `History` / `undo` `redo` |
 | `Navigation` / `Current page: <page>` | `Navigation` / `page` |
 | `FrontBuffer` / `quarantined …` | `FrontBuffer` / `quarantined` |
+| `MainThread` / `stall <ms>ms <类.方法>` (看门狗) | `MainThread` / `stall:<ms>ms:<类.方法>` |
 
 > 这张表是**白名单**:新增 `Breadcrumbs.record` 若没在表里登记,上报侧只会得到 `other`,不会静默带出用户数据。
+
+**ANR 的面包屑来自下一次启动 —— 主线程卡点由看门狗补齐**
+
+ANR 是系统 kill 整个进程,命中后本进程的面包屑随进程一起消失;`TelemetryReporter.uploadAnrs()`
+能读到的 `Breadcrumbs.dump()` 全都是**重启之后**新会话的记录,对定位没有价值。
+
+为此加了 `core/telemetry/MainThreadWatchdog.kt`:主线程每 500ms 打卡,后台线程发现打卡停了
+≥2.5s,就把主线程栈里**第一条应用代码帧**记成一条面包屑,并**同时落盘**(`revp_anr_diag` prefs):
+
+```
+[HH:MM:SS.mmm] [MainThread] stall 4200ms canvas.CanvasTouchView.onTouchEvent
+```
+
+上报 ANR 时按「ANR 时刻 −10min ~ +1min」的时间窗把它取出来拼进 `crumbs`。这样即使系统
+tombstone 转储失败(线上常见 `failed to read status response from tombstoned`),报告里仍然
+能看出主线程最后卡在哪个函数。帧串只含应用自己的类名/方法名,不含文件路径、行号与任何用户内容。
 
 ### 5.5 `native` 字段
 

@@ -68,6 +68,7 @@ import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.UiAnimationSpeed
 import com.reverie.paint.ui.painting.panels.CompactColorPickerPopup
 import com.reverie.paint.ui.painting.panels.labelRes
+import com.reverie.paint.ui.theme.PresetAccentSwatches
 import com.reverie.paint.ui.theme.Theme
 import com.reverie.paint.ui.theme.ThemeStyle
 import com.reverie.paint.ui.theme.colorToHsl
@@ -89,11 +90,7 @@ internal fun ThemeSettingsSubPage(
     var customCanvasBgAnchorBounds by remember { mutableStateOf<Rect?>(null) }
     var showFloatingLayoutDialog by remember { mutableStateOf(false) }
     var showSmallScreenWarningDialog by remember { mutableStateOf(false) }
-    val presetSwatches = listOf(
-        "#879ED1", "#5A6E8A", "#5A8A86", "#768A5A", "#A8B490", "#BDB79A",
-        "#BDA989", "#8A7A5A", "#8A665A", "#BD8D8B", "#8A5A66",
-        "#825A8A", "#9D8BC9", "#625A8A", "#86E1FC"
-    )
+    val presetSwatches = PresetAccentSwatches
 
     val canvasPresetSwatches = listOf(
         "DEFAULT",

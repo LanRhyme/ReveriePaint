@@ -155,11 +155,8 @@ class ThemeSettingsTest {
 
     @Test
     fun `preset accent swatches list validity and contains default accent 879ED1`() {
-        val swatches = listOf(
-            "#879ED1", "#5A6E8A", "#5A8A86", "#768A5A", "#A8B490", "#BDB79A",
-            "#BDA989", "#8A7A5A", "#8A665A", "#BD8D8B", "#8A5A66",
-            "#825A8A", "#9D8BC9", "#625A8A", "#86E1FC"
-        )
+        val swatches = com.reverie.paint.ui.theme.PresetAccentSwatches
+        assertEquals("Preset accent swatches count should be 9 after removing unwanted colors", 9, swatches.size)
         assertEquals("First swatch should be default accent #879ED1", "#879ED1", swatches.first())
         swatches.forEach { hex ->
             assertTrue("Hex $hex must start with #", hex.startsWith("#"))

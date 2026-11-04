@@ -101,6 +101,77 @@ class BreadcrumbTagsTest {
     fun `malformed line yields null`() {
         assertNull(BreadcrumbTags.parseLine("no timestamp here"))
     }
+
+    @Test
+    fun `maps main thread stall to a tag carrying only app code frames`() {
+        val entry = BreadcrumbTags.parseLine(
+            "[14:20:30.500] [MainThread] stall 4200ms canvas.CanvasTouchView.onTouchEvent",
+        )
+        assertEquals("MainThread", entry?.category)
+        assertEquals("stall:4200ms:canvas.CanvasTouchView.onTouchEvent", entry?.tag)
+
+        // 帧缺失时退化成裸标签, 不会把整行消息带出去
+        val bare = BreadcrumbTags.parseLine("[14:20:30.500] [MainThread] stall")
+        assertEquals("stall", bare?.tag)
+    }
+}
+
+class StallDetectorTest {
+
+    @Test
+    fun `records a stall only after the beat goes quiet for the threshold`() {
+        val d = StallDetector(stallMs = 2_500L)
+        assertFalse("还没打过卡, 不该判定", d.poll(0L))
+        d.onBeat(1_000L)
+        assertFalse("2.4s 还不够", d.poll(3_400L))
+        assertTrue("2.6s 应该判定卡顿", d.poll(3_600L))
+        assertEquals(2_600L, d.stalledMs(3_600L))
+    }
+
+    @Test
+    fun `one stall episode reports once and re-arms after the next beat`() {
+        val d = StallDetector(stallMs = 2_500L)
+        // 打卡时间取非零基准: uptimeMillis 在应用运行期恒大于 0, 0 是"还没打过卡"的哨兵
+        d.onBeat(10_000L)
+        assertTrue("第一次判定到卡顿就该记", d.poll(13_000L))
+        assertFalse(d.poll(14_000L))
+        assertFalse("同一轮不该重复记", d.poll(19_000L))
+        d.onBeat(19_500L)
+        assertTrue("恢复后再次卡住要能再记", d.poll(22_500L))
+    }
+
+    @Test
+    fun `rate limits bursts to the per-window cap`() {
+        val d = StallDetector(stallMs = 2_500L, maxPerWindow = 3, windowMs = 60_000L)
+        var t = 10_000L
+        repeat(3) {
+            d.onBeat(t)
+            assertTrue(d.poll(t + 3_000L))
+            t += 4_000L
+        }
+        d.onBeat(t)
+        assertFalse(d.poll(t + 3_000L))
+        // 窗口过去之后恢复
+        d.onBeat(t + 90_000L)
+        assertTrue(d.poll(t + 93_000L))
+    }
+}
+
+class MainThreadWatchdogTest {
+
+    @Test
+    fun `stall record only counts when it belongs to the anr time window`() {
+        val anr = 1_700_000_000_000L
+        val minute = 60_000L
+        assertTrue(MainThreadWatchdog.isStallWithinWindow(anr - 5_000L, anr))
+        assertTrue(MainThreadWatchdog.isStallWithinWindow(anr - 9 * minute, anr))
+        assertTrue(MainThreadWatchdog.isStallWithinWindow(anr + 30_000L, anr))
+        // 陈旧记录 / 未来记录 / 缺时间戳都不认
+        assertFalse(MainThreadWatchdog.isStallWithinWindow(anr - 11 * minute, anr))
+        assertFalse(MainThreadWatchdog.isStallWithinWindow(anr + 2 * minute, anr))
+        assertFalse(MainThreadWatchdog.isStallWithinWindow(0L, anr))
+        assertFalse(MainThreadWatchdog.isStallWithinWindow(anr, 0L))
+    }
 }
 
 class CrashSignatureTest {

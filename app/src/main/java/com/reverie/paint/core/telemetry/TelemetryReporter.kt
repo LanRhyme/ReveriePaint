@@ -208,11 +208,17 @@ object TelemetryReporter {
         val liveCrumbs = runCatching { Breadcrumbs.dump() }.getOrDefault(emptyList())
         for (entry in entries) {
             if (prefs.todayCount() >= DAILY_LIMIT) return
+            // ANR 是系统 kill 整个进程: 本进程的面包屑随进程一起没了, 现在能读到的都是
+            // 重启后新会话的记录。看门狗在卡死时会把"主线程卡在哪"落盘一份, 这里对着 ANR
+            // 时间窗取出来, 让报告带上真正的卡点。
+            val stallCrumb = MainThreadWatchdog.lastStallLineFor(context, entry.timestampMs)
+            val crumbsForReport =
+                if (stallCrumb.isNullOrBlank()) liveCrumbs else liveCrumbs + stallCrumb
             val envelope = TelemetryPayload.fromAnr(
                 entry.timestampMs,
                 entry.trace,
                 payloadContext(context, prefs),
-                liveCrumbs,
+                crumbsForReport,
             )
             val code = post(envelope.toJson())
             if (code != null && code in 200..299) {

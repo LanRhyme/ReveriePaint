@@ -662,6 +662,19 @@ val ColorSwatches =
         "#000000",
     )
 
+val PresetAccentSwatches =
+    listOf(
+        "#879ED1",
+        "#768A5A",
+        "#A8B490",
+        "#BDB79A",
+        "#BDA989",
+        "#8A665A",
+        "#BD8D8B",
+        "#9D8BC9",
+        "#625A8A",
+    )
+
 /** Parse a "#rrggbb" hex string into a Compose Color. */
 fun parseColor(hex: String): Color = Color(android.graphics.Color.parseColor(hex))
 
