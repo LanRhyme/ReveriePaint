@@ -386,7 +386,7 @@ internal fun SavedSelectionsPopup(
                         ) {
                             Text(
                                 stringResource(R.string.common_confirm),
-                                color = if (text.isNotBlank()) Color.White else Morandi.subText,
+                                color = if (text.isNotBlank()) Morandi.onAccent else Morandi.subText,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.SemiBold,
                             )

@@ -309,7 +309,7 @@ internal fun FilterTopPillHUD(
             .shadow(12.dp, pillShape, spotColor = Color.Black.copy(alpha = 0.45f))
             .clip(pillShape)
             .then(
-                if (hazeState != null) {
+                if (vm?.blurBackground != false && hazeState != null) {
                     Modifier.hazeChild(state = hazeState, style = Glass.popupStyle(opacity))
                 } else {
                     Modifier.background(Morandi.panelHi.copy(alpha = opacity))
@@ -501,6 +501,7 @@ internal fun FilterBottomDock(
     modifier: Modifier = Modifier,
     hazeState: HazeState? = null,
     opacity: Float = 0.94f,
+    vm: PaintViewModel? = null,
 ) {
     val defs = remember(filterId) { filterParamDefinitions(filterId) }
     val hasMore = hasExpandableControls(filterId)
@@ -530,7 +531,7 @@ internal fun FilterBottomDock(
             .shadow(16.dp, dockShape, spotColor = Color.Black.copy(alpha = 0.5f))
             .clip(dockShape)
             .then(
-                if (hazeState != null) {
+                if (vm?.blurBackground != false && hazeState != null) {
                     Modifier.hazeChild(state = hazeState, style = Glass.popupStyle(opacity))
                 } else {
                     Modifier.background(Morandi.panelHi.copy(alpha = opacity))
@@ -664,6 +665,7 @@ internal fun FilterBottomDock(
         modifier = modifier,
         hazeState = hazeState,
         opacity = opacity,
+        vm = controller.vm,
     )
 }
 
@@ -684,7 +686,7 @@ private fun DockIconPill(
         else -> Morandi.panel.copy(alpha = 0.7f)
     }
     val contentColor = when {
-        primary -> Color.White
+        primary -> Morandi.onAccent
         danger -> Color(0xFFE57373)
         selected -> Morandi.accentHi
         else -> Morandi.text

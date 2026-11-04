@@ -532,13 +532,13 @@ private fun StaticExportSection(
             Icon(
                 painter = painterResource(R.drawable.ic_export),
                 contentDescription = null,
-                tint = Color.White,
+                tint = Morandi.onAccent,
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(8.dp))
             Text(
                 text = if (isExporting) stringResource(R.string.export_exporting) else stringResource(R.string.export_to_file_format, currentItem.format),
-                color = Color.White,
+                color = Morandi.onAccent,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
             )
@@ -1336,13 +1336,13 @@ private fun AnimationExportSection(
             Icon(
                 painter = painterResource(R.drawable.ic_export),
                 contentDescription = null,
-                tint = Color.White,
+                tint = Morandi.onAccent,
                 modifier = Modifier.size(18.dp),
             )
             Spacer(Modifier.width(8.dp))
             Text(
                 text = if (isExporting) stringResource(R.string.export_exporting) else stringResource(R.string.export_to_file_format, currentItem.format),
-                color = Color.White,
+                color = Morandi.onAccent,
                 fontSize = 13.sp,
                 fontWeight = FontWeight.SemiBold,
             )

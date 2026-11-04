@@ -1738,13 +1738,14 @@ fun PaintingPage(
 
         // ---- Filter Fullscreen HUD (Top Pill & Bottom Dock) ----
         if (filterController != null) {
+            val filterHaze = if (vm.blurBackground) hazeState else null
             FilterTopPillHUD(
                 controller = filterController,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 18.dp)
                     .zIndex(30f),
-                hazeState = hazeState,
+                hazeState = filterHaze,
                 opacity = vm.popupPanelOpacity,
             )
 
@@ -1754,7 +1755,7 @@ fun PaintingPage(
                     .align(Alignment.BottomCenter)
                     .padding(bottom = bottomDockPadding)
                     .zIndex(30f),
-                hazeState = hazeState,
+                hazeState = filterHaze,
                 opacity = vm.popupPanelOpacity,
             )
         }

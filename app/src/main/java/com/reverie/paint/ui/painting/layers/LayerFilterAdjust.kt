@@ -382,7 +382,7 @@ internal fun FilterAdjustPage(
                     Icon(
                         painterResource(R.drawable.ic_check),
                         contentDescription = stringResource(R.string.common_apply),
-                        tint = Color.White,
+                        tint = Morandi.onAccent,
                         modifier = Modifier.size(16.dp)
                     )
                 }

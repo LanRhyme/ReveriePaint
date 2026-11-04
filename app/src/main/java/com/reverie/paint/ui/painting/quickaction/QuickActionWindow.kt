@@ -1175,7 +1175,7 @@ private fun QuickActionsEditDialog(
                     ) {
                         Text(
                             text = stringResource(R.string.quick_action_done),
-                            color = Color.White,
+                            color = Morandi.onAccent,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
                         )

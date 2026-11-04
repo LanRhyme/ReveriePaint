@@ -460,7 +460,7 @@ fun FloatingLayoutConfigDialog(
                             ) {
                                 Text(
                                     text = stringResource(R.string.floating_tab_layout),
-                                    color = if (activeTab == 0) Color.White else colors.text,
+                                    color = if (activeTab == 0) colors.onAccent else colors.text,
                                     fontSize = 12.sp,
                                     fontWeight = if (activeTab == 0) FontWeight.Bold else FontWeight.Medium,
                                 )
@@ -480,7 +480,7 @@ fun FloatingLayoutConfigDialog(
                                 ) {
                                     Text(
                                         text = stringResource(R.string.floating_tab_shortcuts),
-                                        color = if (activeTab == 1) Color.White else colors.text,
+                                        color = if (activeTab == 1) colors.onAccent else colors.text,
                                         fontSize = 12.sp,
                                         fontWeight = if (activeTab == 1) FontWeight.Bold else FontWeight.Medium,
                                     )
@@ -489,12 +489,12 @@ fun FloatingLayoutConfigDialog(
                                             modifier = Modifier
                                                 .size(16.dp)
                                                 .clip(CircleShape)
-                                                .background(if (activeTab == 1) Color.White.copy(alpha = 0.25f) else colors.accent),
+                                                .background(if (activeTab == 1) colors.onAccent.copy(alpha = 0.2f) else colors.accent),
                                             contentAlignment = Alignment.Center,
                                         ) {
                                             Text(
                                                 text = "${currentTopBarActions.size}",
-                                                color = Color.White,
+                                                color = colors.onAccent,
                                                 fontSize = 10.sp,
                                                 fontWeight = FontWeight.Bold,
                                             )

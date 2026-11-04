@@ -799,7 +799,7 @@ internal fun LayerDetailPage(
                                     ) {
                                         Text(
                                             stringResource(R.string.layer_rasterize_confirm),
-                                            color = Color.White,
+                                            color = Morandi.onAccent,
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.SemiBold,
                                         )
@@ -1033,7 +1033,7 @@ internal fun LayerDetailPage(
                                         }
                                         .padding(horizontal = 14.dp, vertical = 7.dp),
                             ) {
-                                Text(stringResource(R.string.layer_rasterize_confirm), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.layer_rasterize_confirm), color = Morandi.onAccent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -1762,7 +1762,7 @@ private fun Layer3DDetailPage(
                         ) {
                             Text(
                                 stringResource(labelRes),
-                                color = if (isSel) Color.White else Morandi.text,
+                                color = if (isSel) Morandi.onAccent else Morandi.text,
                                 fontSize = 11.sp,
                                 fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal,
                             )
@@ -1925,7 +1925,7 @@ private fun Layer3DDetailPage(
                             ) {
                                 Text(
                                     stringResource(R.string.layer_rasterize_confirm),
-                                    color = Color.White,
+                                    color = Morandi.onAccent,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
                                 )
