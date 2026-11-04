@@ -602,15 +602,7 @@ fun ReverieApp(vm: PaintViewModel = viewModel()) {
                     androidx.compose.animation.fadeOut(
                         androidx.compose.animation.core
                             .tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                    ) +
-                        androidx.compose.animation.scaleOut(
-                            targetScale = 0.88f,
-                            animationSpec =
-                                androidx.compose.animation.core.tween(
-                                    220,
-                                    easing = androidx.compose.animation.core.FastOutSlowInEasing,
-                                ),
-                        ),
+                    ),
                 )
             } else {
                 (

@@ -51,6 +51,28 @@ object FrontBufferProbe {
     fun isCrashQuarantined(): Boolean = crashQuarantined && !forceEnabledByProp
 
     /**
+     * 已知存在系统级 libgui registerSurfaceControlForCallback 空指针缺陷的 ROM 组合:
+     * Android 13 (SDK 33) 的小米/红米与 vivo/iQOO 机型 (线上 d8f74afe88 / 7f68bfcd44 / f047d7d9a2 / 8d5df3d6e2)。
+     * 该系统缺陷在 SurfaceControl 拆解事务中解引用空指针导致 SIGSEGV (0x0/0x8), 需前置规避。
+     */
+    internal fun isKnownDefectiveVendorRom(
+        sdk: Int = Build.VERSION.SDK_INT,
+        brand: String = Build.BRAND ?: "",
+        mfg: String = Build.MANUFACTURER ?: "",
+    ): Boolean {
+        if (sdk == 33) {
+            val b = brand.lowercase()
+            val m = mfg.lowercase()
+            if (b.contains("xiaomi") || b.contains("redmi") || m.contains("xiaomi") ||
+                b.contains("vivo") || b.contains("iqoo") || m.contains("vivo")
+            ) {
+                return true
+            }
+        }
+        return false
+    }
+
+    /**
      * 判断当前设备是否具备运行 CanvasFrontBufferedRenderer 的基础软硬件条件。
      */
     fun isSupported(): Boolean {
@@ -69,7 +91,12 @@ object FrontBufferProbe {
             return false
         }
 
-        // 3. 探活 androidx.graphics 类库是否可正确加载
+        // 3. 针对已知存在系统级 libgui 空指针崩溃的厂商 ROM (Android 13 小米/vivo) 前置拦截
+        if (isKnownDefectiveVendorRom() && !forceEnabledByProp) {
+            return false
+        }
+
+        // 4. 探活 androidx.graphics 类库是否可正确加载
         return runCatching {
             Class.forName("androidx.graphics.lowlatency.CanvasFrontBufferedRenderer")
             true
@@ -231,7 +258,8 @@ object FrontBufferProbe {
         val supported = isSupported()
         val manufacturer = Build.MANUFACTURER
         val model = Build.MODEL
+        val defective = isKnownDefectiveVendorRom()
         return "FrontBuffer[supported=$supported, sdk=$sdk, device=$manufacturer $model, " +
-            "crashQuarantined=$crashQuarantined, force=$forceEnabledByProp]"
+            "crashQuarantined=$crashQuarantined, defectiveRom=$defective, force=$forceEnabledByProp]"
     }
 }
