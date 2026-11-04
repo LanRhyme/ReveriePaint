@@ -34,6 +34,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import java.io.File
+import java.util.Locale
 import java.util.zip.ZipFile
 
 internal fun PaintViewModel.projectDir(): java.io.File {
@@ -718,6 +719,37 @@ internal fun PaintViewModel.createFolder(name: String) {
         folder.mkdirs()
     }
     refreshProjects()
+}
+
+internal fun PaintViewModel.createStackWithProjects(
+    name: String,
+    projects: List<com.reverie.paint.model.Project>,
+) {
+    val root = projectDir()
+    val folder = File(root, name.trim())
+    if (!folder.exists()) {
+        folder.mkdirs()
+    }
+    moveProjectsToFolder(projects, name.trim())
+}
+
+internal fun generateDefaultStackName(
+    existingProjects: List<com.reverie.paint.model.Project>,
+    baseName: String,
+    indexedFormat: String,
+): String {
+    val existingNames = existingProjects.filter { it.isFolder }.map { it.name }.toSet()
+    if (!existingNames.contains(baseName)) {
+        return baseName
+    }
+    var i = 1
+    while (true) {
+        val candidate = String.format(Locale.getDefault(), indexedFormat, i)
+        if (!existingNames.contains(candidate)) {
+            return candidate
+        }
+        i++
+    }
 }
 
 internal fun PaintViewModel.moveProjectToFolder(
