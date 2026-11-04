@@ -6710,6 +6710,7 @@ class PaintViewModel : ViewModel() {
     var transformCopyOnly: Boolean by mutableStateOf(false)
     var isImportTransformPending: Boolean by mutableStateOf(false)
     var isSelectionTransformPending: Boolean by mutableStateOf(false)
+    var transformSessionToken: Int = 0
     var transientTransformSelectionPending: Boolean by mutableStateOf(false)
     var canUndoTransformSelection: Boolean by mutableStateOf(false)
     var canRedoTransformSelection: Boolean by mutableStateOf(false)

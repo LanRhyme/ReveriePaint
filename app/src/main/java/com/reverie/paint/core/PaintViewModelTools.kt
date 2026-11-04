@@ -2423,11 +2423,14 @@ internal fun PaintViewModel.startTransformPreview() {
     }
 }
 
-internal fun PaintViewModel.cancelTransformPreview() {
+internal fun PaintViewModel.cancelTransformPreview(resetCopyOnly: Boolean = true) {
+    val token = transformSessionToken
     runCore(render = true, after = {
         transformPreviewBitmap = null
-        transformCopyOnly = false
-        isSelectionTransformPending = false
+        if (resetCopyOnly && token == transformSessionToken) {
+            transformCopyOnly = false
+            isSelectionTransformPending = false
+        }
         notifyLayerChanged(forceThumbs = true, immediateRender = true)
     }) {
         ReverieCoreBridge.cancelTransformPreview()
@@ -2465,6 +2468,7 @@ internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean
             hasSelection = false
             selectionOverlayBitmap = null
             selectionOutlinePath = null
+            transformSessionToken++
             transformCopyOnly = false
             isSelectionTransformPending = true
             currentToolId = Tool.TRANSFORM.id
@@ -2488,6 +2492,7 @@ internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean
             showActionToast(R.string.toast_selection_empty_pixels, R.drawable.ic_lasso)
             return
         }
+        transformSessionToken++
         transformCopyOnly = !cut
         isSelectionTransformPending = true
         currentToolId = Tool.TRANSFORM.id

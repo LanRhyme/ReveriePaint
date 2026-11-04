@@ -488,7 +488,9 @@ fun PaintingPage(
 
     val commitTransform: () -> Unit = {
         if (tfState.active) {
-            when (tfState.mode) {
+            val isCopyOnly = vm.transformCopyOnly
+            val effectiveMode = if (isCopyOnly) TransformMode.STANDARD else tfState.mode
+            when (effectiveMode) {
                 TransformMode.PERSPECTIVE -> {
                     val corners = tfState.quadCorners
                     if (corners.size == 4) {
@@ -522,7 +524,7 @@ fun PaintingPage(
                     val rad = Math.toRadians(tfState.rotation.toDouble())
                     val c = tfState.bounds.center
                     if (tfState.rotation != 0f || tfState.scaleX != 1f || tfState.scaleY != 1f || tfState.tx != 0f ||
-                        tfState.ty != 0f
+                        tfState.ty != 0f || isCopyOnly
                     ) {
                         vm.applyTransform(
                             tfState.scaleX.toDouble(),
@@ -665,6 +667,9 @@ fun PaintingPage(
                 vm.showActionToast(context.getString(R.string.canvas_toast_group_empty), R.drawable.ic_folder)
                 return@LaunchedEffect
             }
+            if (!vm.isSelectionTransformPending) {
+                vm.transformCopyOnly = false
+            }
             val b = vm.contentBounds()
             if (b != null && b[2] > 0 && b[3] > 0) {
                 tfState.reset(
@@ -688,8 +693,10 @@ fun PaintingPage(
             vm.startTransformPreview()
         } else {
             if (tfState.active) {
+                val isCopyOnly = vm.transformCopyOnly
+                val effectiveMode = if (isCopyOnly) TransformMode.STANDARD else tfState.mode
                 // Real-time auto-commit on tool switch
-                when (tfState.mode) {
+                when (effectiveMode) {
                     TransformMode.PERSPECTIVE -> {
                         val corners = tfState.quadCorners
                         if (corners.size == 4) {
@@ -725,7 +732,7 @@ fun PaintingPage(
                         val rad = Math.toRadians(tfState.rotation.toDouble())
                         val c = tfState.bounds.center
                         if (tfState.rotation != 0f || tfState.scaleX != 1f || tfState.scaleY != 1f || tfState.tx != 0f ||
-                            tfState.ty != 0f
+                            tfState.ty != 0f || isCopyOnly
                         ) {
                             vm.applyTransform(
                                 tfState.scaleX.toDouble(),
@@ -1780,7 +1787,9 @@ fun PaintingPage(
                 tfState = tfState,
                 hazeState = hazeState,
                 onReset = {
-                    vm.cancelTransformPreview()
+                    val wasCopyOnly = vm.transformCopyOnly
+                    val wasPending = vm.isSelectionTransformPending
+                    vm.cancelTransformPreview(resetCopyOnly = false)
                     val b = vm.contentBounds()
                     if (b != null && b[2] > 0 && b[3] > 0) {
                         tfState.reset(
@@ -1792,6 +1801,8 @@ fun PaintingPage(
                             ),
                         )
                     }
+                    vm.transformCopyOnly = wasCopyOnly
+                    vm.isSelectionTransformPending = wasPending
                     vm.startTransformPreview()
                 },
                 onCommit = commitTransform,
