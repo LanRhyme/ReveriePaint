@@ -347,9 +347,9 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
         return DeviceInfo.getSystemProperty(key)
     }
 
-    private fun saveCrashReport(report: String) {
+    private fun saveCrashReport(report: String, prefix: String = "crash_java_") {
         val ctx = appContext ?: return
-        val fileName = "crash_java_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date()) + ".log"
+        val fileName = prefix + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date()) + ".log"
 
         val dirs = mutableListOf<File>()
         ctx.getExternalFilesDir("crash_logs")?.let { dirs.add(it) }
@@ -375,6 +375,37 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
                 .take(files.size - MAX_LOG_FILES)
                 .forEach { it.delete() }
         }
+    }
+
+    /**
+     * 记录一个**被兜住**的非致命异常 (例如触摸派发里抛出、但已 catch 住不让进程 abort 的那种)。
+     *
+     * 写进 crash_logs 让遥测下次一并带出 (文件名带 handled, 不会弹"上次崩溃"提示), 因为这类
+     * 异常否则完全不可见: 它发生在 Android 输入管线里, 既不进 UncaughtExceptionHandler,
+     * 也没有 Java 崩溃报告 —— 1.6.5 遥测的 SIGABRT (art::Thread::AssertNoPendingException)
+     * 就是这种形态, 只能靠这里把异常类型捞出来。
+     *
+     * 限流 60s 一条, 避免一次手势连抛把日志刷满。
+     */
+    @Volatile
+    private var lastHandledReportAt = 0L
+
+    fun recordHandledException(context: Context, throwable: Throwable, where: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastHandledReportAt < 60_000L) return
+        lastHandledReportAt = now
+        // 调用点常常在输入/UI 线程: 报告组装会执行 logcat 与设备信息采集, 绝不能就地做,
+        // 否则为了兜一个异常反而制造一次 ANR。这里只在当前线程取栈 (便宜), 其余丢后台。
+        val stack = Log.getStackTraceString(throwable)
+        val threadName = Thread.currentThread().name
+        Thread({
+            runCatching {
+                val header = "[handled] $where (进程未退出, 线程 $threadName)\n$stack\n"
+                val report = header + buildCrashReport(Thread.currentThread(), throwable)
+                saveCrashReport(report, "crash_java_handled_")
+            }.onFailure { Log.e(TAG, "recordHandledException failed: ${it.message}") }
+        }, "revp-handled-report").start()
+        Log.e(TAG, "[handled] $where: ${throwable.javaClass.name}: ${throwable.message}")
     }
 
     fun getCrashLogDirectory(context: Context): File {
@@ -403,7 +434,8 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
         val dir = getCrashLogDirectory(context)
         val files = dir.listFiles { f -> f.isFile && f.name.startsWith("crash_") && f.name.endsWith(".log") }
             ?: return null
-        val latest = files.maxByOrNull { it.lastModified() } ?: return null
+        // handled 日志是被兜住的异常, 只给诊断/遥测用, 不该弹"上次崩溃"
+        val latest = files.filter { !it.name.contains("handled") }.maxByOrNull { it.lastModified() } ?: return null
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         val lastSeen = prefs.getLong(KEY_LAST_SEEN_CRASH_TIME, 0L)
         if (latest.lastModified() <= lastSeen) {

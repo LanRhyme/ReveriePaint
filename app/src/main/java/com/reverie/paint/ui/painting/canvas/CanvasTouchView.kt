@@ -4367,6 +4367,23 @@ class CanvasTouchView(context: Context) : View(context) {
     // 2. 接触触控处理 (手写笔落笔绘画 vs 手指画布导航)
     // -------------------------------------------------------------
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // 触摸派发里任何未捕获异常都会一路抛到 Android 输入管线: 输入线程不持有可重抛的
+        // Java 栈, ART 在 MessageQueue::raiseAndClearException -> Thread::AssertNoPendingException
+        // 处直接 abort 整个进程 —— 1.6.5 遥测 7db7fd4204 (SM-X700, SIGABRT) 就是这条栈,
+        // 现场只有"载入工程 -> 切工具 -> 载入预设"三条面包屑, 看不出是谁抛的。
+        // 兜住: 记日志 + 写一条 handled 报告给遥测, 画笔不至于把整进程带走。
+        return try {
+            handleTouchEvent(event)
+        } catch (t: Throwable) {
+            android.util.Log.e("ReverieTouch", "onTouchEvent threw: ${t}", t)
+            runCatching {
+                com.reverie.paint.core.CrashHandler.recordHandledException(context, t, "CanvasTouchView.onTouchEvent")
+            }
+            true
+        }
+    }
+
+    private fun handleTouchEvent(event: MotionEvent): Boolean {
         val v = vm ?: return super.onTouchEvent(event)
         if (v.isQuickShapeEditing) return true
         if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN || event.actionMasked == MotionEvent.ACTION_CANCEL) {
