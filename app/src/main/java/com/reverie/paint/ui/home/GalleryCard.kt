@@ -196,10 +196,14 @@ internal fun ArtworkThumbnailBox(
                 )
                 .clip(RoundedCornerShape(8.dp))
                 .background(Color.White)
-                .border(
-                    width = if (isMergeTarget) 2.5.dp else if (cardRingWidth > 0.dp) cardRingWidth else 0.5.dp,
-                    color = if (isMergeTarget || cardRingWidth > 0.dp) colors.accent else colors.border.copy(alpha = 0.35f),
-                    shape = RoundedCornerShape(8.dp),
+                .then(
+                    if (isMergeTarget) {
+                        Modifier.border(2.5.dp, colors.accent, RoundedCornerShape(8.dp))
+                    } else if (cardRingWidth > 0.dp) {
+                        Modifier.border(cardRingWidth, colors.accent, RoundedCornerShape(8.dp))
+                    } else {
+                        Modifier
+                    }
                 ),
             contentAlignment = Alignment.Center,
         ) {
@@ -512,11 +516,7 @@ internal fun FolderThumbnailBox(
                             shape = RoundedCornerShape(8.dp),
                         )
                     } else {
-                        Modifier.border(
-                            width = 0.5.dp,
-                            color = colors.border.copy(alpha = 0.35f),
-                            shape = RoundedCornerShape(8.dp),
-                        )
+                        Modifier
                     },
                 ),
             contentAlignment = Alignment.Center,
