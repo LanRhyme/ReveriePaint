@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -68,6 +69,9 @@ import com.reverie.paint.model.UiAnimationSpeed
 import com.reverie.paint.ui.painting.panels.CompactColorPickerPopup
 import com.reverie.paint.ui.painting.panels.labelRes
 import com.reverie.paint.ui.theme.Theme
+import com.reverie.paint.ui.theme.ThemeStyle
+import com.reverie.paint.ui.theme.colorToHsl
+import com.reverie.paint.ui.theme.hslToColor
 import com.reverie.paint.ui.theme.parseColor
 
 @Composable
@@ -85,8 +89,9 @@ internal fun ThemeSettingsSubPage(
     var showFloatingLayoutDialog by remember { mutableStateOf(false) }
     var showSmallScreenWarningDialog by remember { mutableStateOf(false) }
     val presetSwatches = listOf(
-        "#5A6E8A", "#5A8A86", "#5A8A6A", "#768A5A", "#8A7A5A",
-        "#8A665A", "#8A5A66", "#825A8A", "#625A8A"
+        "#5A6E8A", "#5A8A86", "#768A5A", "#A8B490", "#BDB79A",
+        "#BDA989", "#8A7A5A", "#8A665A", "#BD8D8B", "#8A5A66",
+        "#825A8A", "#9D8BC9", "#625A8A", "#86E1FC"
     )
 
     val canvasPresetSwatches = listOf(
@@ -138,7 +143,7 @@ internal fun ThemeSettingsSubPage(
                         "SYSTEM" to stringResource(R.string.theme_mode_system),
                     ),
                     selected = vm.themeMode,
-                    shape = settingGroupShape(0, 3),
+                    shape = settingGroupShape(0, 4),
                     onSelect = { vm.updateThemeMode(it) },
                 )
 
@@ -152,8 +157,29 @@ internal fun ThemeSettingsSubPage(
                         "HIGH" to stringResource(R.string.theme_contrast_high),
                     ),
                     selected = vm.themeContrast,
-                    shape = settingGroupShape(1, 3),
+                    shape = settingGroupShape(1, 4),
                     onSelect = { vm.updateThemeContrast(it) },
+                )
+
+                SettingSegmentGroupItem(
+                    icon = Icons.Rounded.Palette,
+                    title = stringResource(R.string.theme_style_title),
+                    summary = when (vm.themeStyle) {
+                        ThemeStyle.MORANDI_TINTED -> stringResource(R.string.theme_style_morandi_tinted_desc)
+                        ThemeStyle.NEUTRAL_STUDIO -> stringResource(R.string.theme_style_neutral_studio_desc)
+                        ThemeStyle.WARM_EARTHY -> stringResource(R.string.theme_style_warm_earthy_desc)
+                        ThemeStyle.VIBRANT_GLOW -> stringResource(R.string.theme_style_vibrant_glow_desc)
+                        else -> stringResource(R.string.theme_style_summary)
+                    },
+                    options = listOf(
+                        ThemeStyle.MORANDI_TINTED to stringResource(R.string.theme_style_morandi_tinted),
+                        ThemeStyle.NEUTRAL_STUDIO to stringResource(R.string.theme_style_neutral_studio),
+                        ThemeStyle.WARM_EARTHY to stringResource(R.string.theme_style_warm_earthy),
+                        ThemeStyle.VIBRANT_GLOW to stringResource(R.string.theme_style_vibrant_glow),
+                    ),
+                    selected = vm.themeStyle,
+                    shape = settingGroupShape(2, 4),
+                    onSelect = { vm.updateThemeStyle(it) },
                 )
 
                 SettingSwitchGroupItem(
@@ -166,7 +192,7 @@ internal fun ThemeSettingsSubPage(
                     },
                     checked = vm.monetEnabled,
                     enabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
-                    shape = settingGroupShape(2, 3),
+                    shape = settingGroupShape(3, 4),
                     onCheckedChange = { vm.updateMonetEnabled(it) },
                 )
             }

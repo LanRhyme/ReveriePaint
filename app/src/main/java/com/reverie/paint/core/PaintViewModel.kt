@@ -1955,6 +1955,7 @@ class PaintViewModel : ViewModel() {
     var monetEnabled by mutableStateOf(false) // 莫奈动态取色
     var themeMode by mutableStateOf("DARK") // "DARK", "LIGHT", "SYSTEM"
     var themeContrast by mutableStateOf("STANDARD") // "SOFT", "STANDARD", "HIGH"
+    var themeStyle by mutableStateOf(com.reverie.paint.ui.theme.ThemeStyle.MORANDI_TINTED) // MORANDI_TINTED, NEUTRAL_STUDIO, WARM_EARTHY, VIBRANT_GLOW
     var paintingUiScale by mutableFloatStateOf(1.0f) // 绘画页面整体 UI 大小缩放 (0.75 - 1.35)
     var layerRowHeightDp by mutableIntStateOf(52) // 44: 紧凑, 52: 标准, 64: 舒适
     var layerHeaderInheritAlpha by mutableStateOf(false) // 图层面板顶部按钮行为: false 为剪切蒙版, true 为继承透明度
@@ -4074,6 +4075,18 @@ class PaintViewModel : ViewModel() {
         applyCurrentTheme()
     }
 
+    fun updateThemeStyle(style: String) {
+        themeStyle = style
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString("themeStyle", style)
+                .apply()
+        }
+        applyCurrentTheme()
+    }
+
     fun isCurrentlyDark(): Boolean {
         return when (themeMode) {
             "LIGHT" -> false
@@ -4095,9 +4108,9 @@ class PaintViewModel : ViewModel() {
         val dark = isCurrentlyDark()
         val parsedAccent = com.reverie.paint.ui.theme.parseColor(accentColorHex)
         val baseTheme = if (monetEnabled && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            com.reverie.paint.ui.theme.getMonetColors(appContext, isDark = dark, fallbackAccent = parsedAccent, contrast = themeContrast)
+            com.reverie.paint.ui.theme.getMonetColors(appContext, isDark = dark, fallbackAccent = parsedAccent, contrast = themeContrast, style = themeStyle)
         } else {
-            com.reverie.paint.ui.theme.buildThemeColors(isDark = dark, accent = parsedAccent, contrast = themeContrast)
+            com.reverie.paint.ui.theme.buildThemeColors(isDark = dark, accent = parsedAccent, contrast = themeContrast, style = themeStyle)
         }
 
         com.reverie.paint.ui.theme.Theme.current = if (canvasBgColorHex.isNotBlank() && canvasBgColorHex != "DEFAULT") {
@@ -4335,6 +4348,7 @@ class PaintViewModel : ViewModel() {
             monetEnabled = prefs.getBoolean("monetEnabled", false)
             themeMode = prefs.getString("themeMode", "DARK") ?: "DARK"
             themeContrast = prefs.getString("themeContrast", "STANDARD") ?: "STANDARD"
+            themeStyle = prefs.getString("themeStyle", com.reverie.paint.ui.theme.ThemeStyle.MORANDI_TINTED) ?: com.reverie.paint.ui.theme.ThemeStyle.MORANDI_TINTED
             val defaultImmersive = DeviceUtils.isTablet(appContext)
             immersiveMode = if (prefs.contains("immersiveMode")) {
                 prefs.getBoolean("immersiveMode", false)

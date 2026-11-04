@@ -2387,6 +2387,16 @@
     <string name="theme_contrast_soft">Soft</string>
     <string name="theme_contrast_standard">Standard</string>
     <string name="theme_contrast_high">High</string>
+    <string name="theme_style_title">Color Style</string>
+    <string name="theme_style_summary">Algorithmic surface depth and hue-tinting strategy</string>
+    <string name="theme_style_morandi_tinted">Morandi</string>
+    <string name="theme_style_morandi_tinted_desc">Subtly tints surfaces and cavity with primary hue for cohesive immersion</string>
+    <string name="theme_style_neutral_studio">Neutral</string>
+    <string name="theme_style_neutral_studio_desc">Zero-bias neutral graphite dark palette for color precision</string>
+    <string name="theme_style_warm_earthy">Earthy</string>
+    <string name="theme_style_warm_earthy_desc">Warm muted earthen and organic paper tone</string>
+    <string name="theme_style_vibrant_glow">Vibrant</string>
+    <string name="theme_style_vibrant_glow_desc">Deep rich contrast with luminous glass accents</string>
     <string name="theme_monet_title">Monet Dynamic Color</string>
     <string name="theme_monet_summary">Extract theme colors dynamically from system wallpaper and Material You</string>
     <string name="theme_monet_unsupported">Requires Android 12 or above</string>

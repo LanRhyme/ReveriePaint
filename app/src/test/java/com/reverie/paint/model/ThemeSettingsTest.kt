@@ -6,6 +6,7 @@ package com.reverie.paint.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -74,6 +75,36 @@ class ThemeSettingsTest {
         assertEquals("Border must remain identical to base", darkBase.border, themed.border)
         assertEquals("Text must remain identical to base", darkBase.text, themed.text)
         assertEquals("SubText must remain identical to base", darkBase.subText, themed.subText)
+    }
+
+    @Test
+    fun `ThemeStyle algorithmic generators produce distinct harmonious palettes`() {
+        val accent = androidx.compose.ui.graphics.Color(0xFFBDB79A) // Antigravity Gold
+        val morandi = com.reverie.paint.ui.theme.buildThemeColors(isDark = true, accent = accent, style = com.reverie.paint.ui.theme.ThemeStyle.MORANDI_TINTED)
+        val neutral = com.reverie.paint.ui.theme.buildThemeColors(isDark = true, accent = accent, style = com.reverie.paint.ui.theme.ThemeStyle.NEUTRAL_STUDIO)
+        val warm = com.reverie.paint.ui.theme.buildThemeColors(isDark = true, accent = accent, style = com.reverie.paint.ui.theme.ThemeStyle.WARM_EARTHY)
+        val vibrant = com.reverie.paint.ui.theme.buildThemeColors(isDark = true, accent = accent, style = com.reverie.paint.ui.theme.ThemeStyle.VIBRANT_GLOW)
+
+        assertEquals("Accent must be preserved across styles", accent, morandi.accent)
+        assertEquals("Accent must be preserved across styles", accent, neutral.accent)
+        assertEquals("Accent must be preserved across styles", accent, warm.accent)
+        assertEquals("Accent must be preserved across styles", accent, vibrant.accent)
+
+        // Morandi tinted background should have subtle chroma, neutral should be pure grey
+        assertNotEquals("Morandi tinted background must differ from neutral", neutral.bg, morandi.bg)
+        assertNotEquals("Warm earthy background must differ from neutral", neutral.bg, warm.bg)
+        assertNotEquals("Vibrant glow background must differ from neutral", neutral.bg, vibrant.bg)
+    }
+
+    @Test
+    fun `colorToHsl and hslToColor roundtrip accuracy`() {
+        val original = androidx.compose.ui.graphics.Color(0xFF5A6E8A)
+        val hsl = com.reverie.paint.ui.theme.colorToHsl(original)
+        val restored = com.reverie.paint.ui.theme.hslToColor(hsl[0], hsl[1], hsl[2])
+
+        assertEquals(original.red, restored.red, 0.02f)
+        assertEquals(original.green, restored.green, 0.02f)
+        assertEquals(original.blue, restored.blue, 0.02f)
     }
 
     @Test
