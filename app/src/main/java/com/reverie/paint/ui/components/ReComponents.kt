@@ -59,6 +59,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -675,9 +676,19 @@ fun ReVerticalSlider(
                     label = "capsuleGrow"
                 )
 
-                // Track Background (打孔嵌入式毛玻璃：独立0.6x毛玻璃轨道与下凹雕刻光影)
+                // Track Background (现代专业级内凹轨道：自然负向深度腔体与极简微透发光边框)
                 val panelAlpha = vm?.uiOpacity ?: 1f
-                val grooveAlpha = (panelAlpha * 0.60f).coerceIn(0.08f, 0.90f)
+                val isDark = vm?.isCurrentlyDark() ?: (colors.bg.luminance() < 0.5f)
+                val trackBgColor = if (isDark) {
+                    Color.Black.copy(alpha = (0.25f * panelAlpha).coerceIn(0.12f, 0.36f))
+                } else {
+                    Color.Black.copy(alpha = (0.05f * panelAlpha).coerceIn(0.02f, 0.08f))
+                }
+                val trackBorderColor = if (isDark) {
+                    Color.White.copy(alpha = (0.10f * panelAlpha).coerceIn(0.06f, 0.14f))
+                } else {
+                    Color.Black.copy(alpha = (0.08f * panelAlpha).coerceIn(0.04f, 0.12f))
+                }
                 Box(
                     modifier = Modifier
                         .width(trackWidth.dp)
@@ -688,15 +699,10 @@ fun ReVerticalSlider(
                             transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.5f)
                         }
                         .clip(RoundedCornerShape(capsuleRadius))
-                        .background(colors.panel.copy(alpha = grooveAlpha))
+                        .background(trackBgColor)
                         .border(
                             0.5.dp,
-                            Brush.verticalGradient(
-                                listOf(
-                                    Color.Black.copy(alpha = (0.35f * panelAlpha).coerceIn(0.10f, 0.45f)),
-                                    Color.White.copy(alpha = (0.12f * panelAlpha).coerceIn(0.04f, 0.18f)),
-                                )
-                            ),
+                            trackBorderColor,
                             RoundedCornerShape(capsuleRadius)
                         )
                 ) {
@@ -977,7 +983,17 @@ fun ReHorizontalSlider(
                 )
 
                 val panelAlpha = vm?.uiOpacity ?: 1f
-                val grooveAlpha = (panelAlpha * 0.60f).coerceIn(0.08f, 0.90f)
+                val isDark = vm?.isCurrentlyDark() ?: (colors.bg.luminance() < 0.5f)
+                val trackBgColor = if (isDark) {
+                    Color.Black.copy(alpha = (0.25f * panelAlpha).coerceIn(0.12f, 0.36f))
+                } else {
+                    Color.Black.copy(alpha = (0.05f * panelAlpha).coerceIn(0.02f, 0.08f))
+                }
+                val trackBorderColor = if (isDark) {
+                    Color.White.copy(alpha = (0.10f * panelAlpha).coerceIn(0.06f, 0.14f))
+                } else {
+                    Color.Black.copy(alpha = (0.08f * panelAlpha).coerceIn(0.04f, 0.12f))
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -988,15 +1004,10 @@ fun ReHorizontalSlider(
                             transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.5f)
                         }
                         .clip(RoundedCornerShape(capsuleRadius))
-                        .background(colors.panel.copy(alpha = grooveAlpha))
+                        .background(trackBgColor)
                         .border(
                             0.5.dp,
-                            Brush.horizontalGradient(
-                                listOf(
-                                    Color.Black.copy(alpha = (0.35f * panelAlpha).coerceIn(0.10f, 0.45f)),
-                                    Color.White.copy(alpha = (0.12f * panelAlpha).coerceIn(0.04f, 0.18f)),
-                                )
-                            ),
+                            trackBorderColor,
                             RoundedCornerShape(capsuleRadius)
                         )
                 ) {
