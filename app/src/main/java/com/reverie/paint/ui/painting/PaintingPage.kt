@@ -123,6 +123,7 @@ import com.reverie.paint.ui.painting.layers.LayerDragOverlay
 import com.reverie.paint.ui.painting.layers.FilterSession
 import com.reverie.paint.ui.painting.layers.FilterSessionController
 import com.reverie.paint.ui.painting.layers.FilterTopPillHUD
+import com.reverie.paint.ui.painting.layers.filterItemNameRes
 import com.reverie.paint.ui.painting.layers.FilterBottomDock
 import com.reverie.paint.model.CanvasAdjustMode
 import com.reverie.paint.model.BackKeyAction
@@ -176,6 +177,8 @@ fun PaintingPage(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    // 组合期解析文案: 选择栏的 lambda 里不能直接调 stringResource/查资源
+    val undoVertexText = stringResource(R.string.toast_undo_vertex)
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         try {
@@ -328,6 +331,62 @@ fun PaintingPage(
                 rotation = (rotation + 90f) % 360f
                 flashIndicator()
             }
+            "rotate_ccw_90" -> {
+                rotation = (rotation - 90f + 360f) % 360f
+                flashIndicator()
+            }
+            "rotate_reset" -> {
+                rotation = 0f
+                flashIndicator()
+            }
+            // 100% 缩放：只改倍率，保留当前旋转与中心
+            "zoom_100" -> {
+                zoom = 1f
+                flashIndicator()
+            }
+            // ---- 面板开关 (快捷键目录 PANELS) ----
+            "toggle_brush_panel" -> {
+                if (brushPanelOpen) {
+                    brushPanelOpen = false
+                } else {
+                    if (!(vm.panelPinningEnabled && vm.isLayerPanelPinned)) layerPanelOpen = false
+                    if (!vm.isColorPanelPinned) colorPanelOpen = false
+                    settingsPanelOpen = false
+                    brushPanelOpen = true
+                }
+            }
+            "toggle_layer_panel" -> {
+                if (layerPanelOpen) {
+                    layerPanelOpen = false
+                } else {
+                    if (!(vm.panelPinningEnabled && vm.isBrushPanelPinned)) brushPanelOpen = false
+                    if (!vm.isColorPanelPinned) colorPanelOpen = false
+                    settingsPanelOpen = false
+                    targetFilterLayers = null
+                    layerPanelOpen = true
+                }
+            }
+            "toggle_color_panel" -> {
+                if (colorPanelOpen) {
+                    colorPanelOpen = false
+                } else {
+                    if (!(vm.panelPinningEnabled && vm.isBrushPanelPinned)) brushPanelOpen = false
+                    if (!(vm.panelPinningEnabled && vm.isLayerPanelPinned)) layerPanelOpen = false
+                    settingsPanelOpen = false
+                    colorPanelOpen = true
+                }
+            }
+            "toggle_settings_panel" -> {
+                if (settingsPanelOpen) {
+                    settingsPanelOpen = false
+                } else {
+                    if (!(vm.panelPinningEnabled && vm.isBrushPanelPinned)) brushPanelOpen = false
+                    if (!vm.isColorPanelPinned) colorPanelOpen = false
+                    if (!(vm.panelPinningEnabled && vm.isLayerPanelPinned)) layerPanelOpen = false
+                    settingsPanelOpen = true
+                }
+            }
+            "toggle_drawing_guide" -> drawingGuidePanelOpen = !drawingGuidePanelOpen
             "reset_view" -> {
                 com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.animateFitCanvas() ?: run {
                     zoom = 1f
@@ -371,7 +430,21 @@ fun PaintingPage(
             }
             "open_color" -> colorPanelOpen = true
             else -> {
-                if (cmd.startsWith("open_filter:")) {
+                if (cmd.startsWith(com.reverie.paint.core.UI_CMD_FILTER_ITEM_PREFIX)) {
+                    // 快捷键直接打开某个滤镜: 跳过滤镜列表, 直接进该滤镜的调节浮窗
+                    val filterId = cmd.removePrefix(com.reverie.paint.core.UI_CMD_FILTER_ITEM_PREFIX).toIntOrNull()
+                    val nameRes = filterId?.let { filterItemNameRes(it) }
+                    val targets = vm.editTargetLayers().filter { it >= 0 }
+                    if (filterId != null && nameRes != null && targets.isNotEmpty()) {
+                        settingsPanelOpen = false
+                        layerPanelOpen = false
+                        targetFilterLayers = null
+                        vm.isLayerPanelPinned = false
+                        vm.layerPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                        activeFilterSession =
+                            FilterSession(targets, filterId, context.getString(nameRes))
+                    }
+                } else if (cmd.startsWith("open_filter:")) {
                     settingsPanelOpen = false
                     targetFilterLayers = vm.editTargetLayers()
                     filterCategoryHint = cmd.removePrefix("open_filter:")
@@ -493,7 +566,7 @@ fun PaintingPage(
             vm.customUndoHook = {
                 if (polyPoints.isNotEmpty()) {
                     polyPoints = polyPoints.dropLast(1)
-                    vm.showActionToast(context.getString(R.string.toast_undo_vertex), R.drawable.ic_undo)
+                    vm.showActionToast(undoVertexText, R.drawable.ic_undo)
                     true
                 } else {
                     false

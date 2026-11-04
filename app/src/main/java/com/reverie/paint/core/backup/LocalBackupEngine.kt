@@ -105,8 +105,9 @@ object LocalBackupEngine {
                 CategoryEstimate(size, 0L, "通用偏好、UI布局与主题设置")
             }
             BackupCategory.SHORTCUTS_STYLUS -> {
-                val shortcuts = (prefsMap["shortcut_bindings"] as? String) ?: "{}"
-                val count = runCatching { JSONObject(shortcuts).length() }.getOrDefault(0) +
+                // 快捷键表自 v1.7 起是制表符纯文本 (旧备份可能是 JSON), 解析器两种都认
+                val count = com.reverie.paint.model
+                    .decodeShortcutBindings(prefsMap["shortcut_bindings"] as? String).size +
                     prefsMap.keys.count(BackupPreferenceKeys::isStylus)
                 CategoryEstimate(count, 0L, "$count 组快捷键与按键绑定")
             }
@@ -210,8 +211,9 @@ object LocalBackupEngine {
                 runCatching { JSONArray(json).length() }.getOrDefault(0)
             } else 0,
             shortcutsCount = if (selectedCategories.contains(BackupCategory.SHORTCUTS_STYLUS)) {
-                val shortcuts = (prefsMap["shortcut_bindings"] as? String) ?: "{}"
-                runCatching { JSONObject(shortcuts).length() }.getOrDefault(0) +
+                com.reverie.paint.model.decodeShortcutBindings(
+                    prefsMap["shortcut_bindings"] as? String
+                ).size +
                     prefsMap.keys.count(BackupPreferenceKeys::isStylus)
             } else 0,
         )

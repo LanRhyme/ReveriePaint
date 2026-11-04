@@ -19,13 +19,10 @@ import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.RadioButton
 import androidx.compose.material3.RadioButtonDefaults
 import androidx.compose.material3.Surface
-import androidx.compose.ui.draw.shadow
 import com.reverie.paint.model.GestureAction
 import com.reverie.paint.model.GestureTrigger
 import com.reverie.paint.model.labelRes
 import com.reverie.paint.model.descRes
-import com.reverie.paint.ui.theme.glassBorder
-import androidx.compose.foundation.focusable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -50,7 +47,6 @@ import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
-import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -58,10 +54,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.focus.FocusRequester
-import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.input.key.onKeyEvent
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.input.pointer.pointerInput
@@ -70,7 +63,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import androidx.compose.ui.window.Dialog
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.BackKeyAction
@@ -87,7 +79,6 @@ internal fun SettingsTabPage(
     onClose: () -> Unit,
 ) {
     var currentSubPage by remember { mutableStateOf<String?>(null) }
-    var recordingShortcut by remember { mutableStateOf<ShortcutDefinition?>(null) }
     var smoothingAdvancedExpanded by remember { mutableStateOf(false) }
     var canvasEditMenuCustomizeOpen by remember { mutableStateOf(false) }
     var selectingActionForTrigger by remember { mutableStateOf<GestureAction?>(null) }
@@ -489,132 +480,9 @@ internal fun SettingsTabPage(
                 }
             }
 
-            // ---- 2. 快捷键设置 ----
+            // ---- 2. 快捷键设置 (独立页: 搜索/分类/多按键/方案/冲突) ----
             "SHORTCUTS" -> {
-                var activeCategory by remember { mutableStateOf(ShortcutCategory.PAINTING) }
-
-                Column(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalArrangement = Arrangement.spacedBy(10.dp),
-                ) {
-                    SubPageHeader(
-                        title = stringResource(R.string.settings_shortcuts_title),
-                        onBack = { currentSubPage = null },
-                        action = {
-                            Text(
-                                stringResource(R.string.settings_shortcut_reset),
-                                color = Morandi.accent,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(Morandi.panelHi)
-                                    .clickable { vm.resetShortcuts() }
-                                    .padding(horizontal = 8.dp, vertical = 4.dp),
-                            )
-                        }
-                    )
-
-                    // 4 Category Tabs in capsule bar
-                    Row(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Morandi.panelHi.copy(alpha = 0.6f))
-                            .padding(3.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        val tabs = listOf(
-                            ShortcutCategory.PAINTING to R.drawable.ic_brush,
-                            ShortcutCategory.TOOLS to R.drawable.ic_grid,
-                            ShortcutCategory.FILTERS to R.drawable.ic_magicwand,
-                            ShortcutCategory.LAYERS to R.drawable.ic_layers,
-                        )
-                        tabs.forEach { (cat, iconRes) ->
-                            val isSel = activeCategory == cat
-                            Row(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSel) Morandi.panel else Color.Transparent)
-                                    .then(
-                                        if (isSel) Modifier.border(1.dp, Morandi.border.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
-                                        else Modifier
-                                    )
-                                    .clickable { activeCategory = cat }
-                                    .padding(vertical = 6.dp),
-                                horizontalArrangement = Arrangement.Center,
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Icon(
-                                    painter = painterResource(iconRes),
-                                    contentDescription = stringResource(cat.titleRes),
-                                    tint = if (isSel) Morandi.accent else Morandi.subText,
-                                    modifier = Modifier.size(15.dp),
-                                )
-                                Spacer(Modifier.width(4.dp))
-                                Text(
-                                    stringResource(cat.titleRes),
-                                    color = if (isSel) Morandi.text else Morandi.subText,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                                )
-                            }
-                        }
-                    }
-
-                    // Shortcuts List Card
-                    val items = ALL_SHORTCUT_DEFINITIONS.filter { it.category == activeCategory }
-                    val noneStr = stringResource(R.string.shortcut_none)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(320.dp)
-                            .clip(RoundedCornerShape(12.dp))
-                            .background(Morandi.panelHi.copy(alpha = 0.55f))
-                            .border(1.dp, Morandi.border.copy(alpha = 0.4f), RoundedCornerShape(12.dp))
-                            .verticalScroll(rememberScrollState())
-                            .padding(horizontal = 10.dp, vertical = 4.dp),
-                    ) {
-                        items.forEachIndexed { idx, def ->
-                            val currentKey = vm.getShortcutKey(def.id)
-                            val isNone = currentKey == "无" || currentKey == "None"
-                            Row(
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .clickable { recordingShortcut = def }
-                                    .padding(horizontal = 4.dp, vertical = 7.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.SpaceBetween,
-                            ) {
-                                Text(
-                                    if (def.nameRes != null) stringResource(def.nameRes) else def.name,
-                                    color = Morandi.text,
-                                    fontSize = 12.sp,
-                                    modifier = Modifier.weight(1f),
-                                )
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Morandi.panel)
-                                        .border(1.dp, Morandi.border.copy(alpha = 0.5f), RoundedCornerShape(6.dp))
-                                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                                ) {
-                                    Text(
-                                        if (isNone) noneStr else currentKey,
-                                        color = if (isNone) Morandi.subText else Morandi.accent,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium,
-                                    )
-                                }
-                            }
-                            if (idx < items.lastIndex) {
-                                SettingsInnerDivider()
-                            }
-                        }
-                    }
-                }
+                ShortcutSettingsPage(vm = vm, onBack = { currentSubPage = null })
             }
 
             // ---- 3. 手势设置 ----
@@ -1420,126 +1288,6 @@ internal fun SettingsTabPage(
         }
     }
 
-    // ---- Key Recording Dialog ----
-    recordingShortcut?.let { def ->
-        androidx.compose.runtime.DisposableEffect(Unit) {
-            vm.isShortcutRecordingActive = true
-            onDispose {
-                vm.isShortcutRecordingActive = false
-            }
-        }
-        var recordedKey by remember { mutableStateOf(vm.getShortcutKey(def.id)) }
-        val dialogFocusRequester = remember { FocusRequester() }
-
-        Dialog(onDismissRequest = { recordingShortcut = null }) {
-            Box(
-                modifier = Modifier
-                    .width(300.dp)
-                    .shadow(16.dp, RoundedCornerShape(14.dp), spotColor = Color.Black.copy(alpha = 0.4f))
-                    .clip(RoundedCornerShape(14.dp))
-                    .background(Morandi.panelHi)
-                    .glassBorder(RoundedCornerShape(14.dp))
-                    .focusRequester(dialogFocusRequester)
-                    .focusable()
-                    .onKeyEvent { event ->
-                        val k = keyEventToString(event)
-                        if (k.isNotBlank()) {
-                            recordedKey = k
-                            true
-                        } else {
-                            false
-                        }
-                    }
-                    .padding(16.dp),
-            ) {
-                LaunchedEffect(Unit) {
-                    try {
-                        dialogFocusRequester.requestFocus()
-                    } catch (_: Exception) {}
-                }
-
-                Column(
-                    horizontalAlignment = Alignment.CenterHorizontally,
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                ) {
-                    Text(
-                        stringResource(R.string.settings_shortcut_dialog_title),
-                        color = Morandi.text,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        if (def.nameRes != null) stringResource(def.nameRes) else def.name,
-                        color = Morandi.accent,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-
-                    val isNone = recordedKey.isBlank() || recordedKey == "无" || recordedKey == "None"
-                    Box(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .height(44.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Morandi.panel)
-                            .border(1.5.dp, Morandi.accent.copy(alpha = 0.5f), RoundedCornerShape(8.dp)),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            if (isNone) stringResource(R.string.settings_shortcut_press_key) else recordedKey,
-                            color = if (isNone) Morandi.subText else Morandi.text,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
-                    }
-
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
-                    ) {
-                        Text(
-                            stringResource(R.string.settings_shortcut_set_none),
-                            color = Morandi.subText,
-                            fontSize = 12.sp,
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .clickable {
-                                    vm.setShortcutKey(def.id, "无")
-                                    recordingShortcut = null
-                                }
-                                .padding(8.dp),
-                        )
-
-                        Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Text(
-                                stringResource(R.string.common_cancel),
-                                color = Morandi.subText,
-                                fontSize = 12.sp,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .clickable { recordingShortcut = null }
-                                    .padding(8.dp),
-                            )
-                            Text(
-                                stringResource(R.string.common_save),
-                                color = Morandi.onAccent,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.Bold,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(6.dp))
-                                    .background(Morandi.accent)
-                                    .clickable {
-                                        vm.setShortcutKey(def.id, recordedKey)
-                                        recordingShortcut = null
-                                    }
-                                    .padding(horizontal = 12.dp, vertical = 8.dp),
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
 }
 
 @Composable

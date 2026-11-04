@@ -213,6 +213,8 @@ class PaintViewModel : ViewModel() {
     }
 
     fun onAppBackgrounded() {
+        // 切后台时按键的 KeyUp 可能永远不会到: 丢掉挂起的"临时工具"状态, 避免下次进前台莫名其妙回切
+        clearTemporaryToolHold()
         cancelQuickShape() // Restore the freehand draft before background backup is queued
         // 后台不再每秒唤醒: 计时与自动保存都只在绘画页前台有意义。
         // 必须放在下面几个早退之前 —— 否则"无未保存改动"时计时器会一直留在后台跑。
@@ -2141,7 +2143,18 @@ class PaintViewModel : ViewModel() {
     var strokeTailAggressiveness by mutableDoubleStateOf(0.5)
 
     // Keyboard Shortcuts (参考图 2)
-    var shortcutBindings by mutableStateOf<Map<String, String>>(emptyMap())
+    // actionId -> 按键列表; 键不存在 = 出厂默认, 空列表 = 用户显式解绑 (见 model/ShortcutCatalog.kt)
+    var shortcutBindings by mutableStateOf<Map<String, List<String>>>(emptyMap())
+    // 长按按键是否连发 (连续调节类动作; 关掉可避免按住不放连续触发)
+    var shortcutAutoRepeatEnabled by mutableStateOf(true)
+    // 工具键按住时临时切到该工具 (松开回到原工具), 见 PaintViewModelShortcuts.handleKeyEvent
+    var shortcutHoldTemporaryTools by mutableStateOf(true)
+
+    // ---- 一次性运行时状态: 正在按住的临时工具 (不参与持久化) ----
+    internal var holdTemporaryToolId: String? = null
+    internal var holdTemporaryBaseToolId: String? = null
+    internal var holdTemporaryKey: String? = null
+    internal var holdTemporaryStartMs: Long = 0L
 
     // Stylus Settings (画世界 Pro & Krita style, persisted)
     var penOnlyMode by mutableStateOf(false) // 笔模式 (禁止手指绘制，单指平移，双指缩放旋转)

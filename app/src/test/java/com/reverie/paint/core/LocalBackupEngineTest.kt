@@ -142,7 +142,8 @@ class LocalBackupEngineTest {
 
             val prefs = mapOf(
                 "userPalettes" to "[{\"id\":\"p1\",\"name\":\"Test\",\"colors\":[\"#FFFFFF\"]}]",
-                "shortcut_bindings" to "{\"undo\":\"LeftCtrl + Z\",\"redo\":\"LeftCtrl + Y\"}",
+                // 快捷键表是制表符纯文本 (多按键用整行展开)
+                "shortcut_bindings" to "#ReveriePaint Shortcuts v1\nundo\tLeftCtrl + Z\nredo\tLeftCtrl + Y",
                 "somePref" to 123,
             )
 

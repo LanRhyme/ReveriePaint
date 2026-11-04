@@ -4,7 +4,6 @@
 
 package com.reverie.paint.core
 
-import androidx.annotation.StringRes
 import androidx.compose.ui.input.key.Key
 import androidx.compose.ui.input.key.KeyEvent
 import androidx.compose.ui.input.key.KeyEventType
@@ -14,76 +13,21 @@ import androidx.compose.ui.input.key.isShiftPressed
 import androidx.compose.ui.input.key.key
 import androidx.compose.ui.input.key.type
 import com.reverie.paint.R
+import com.reverie.paint.model.ALL_SHORTCUT_DEFINITIONS
+import com.reverie.paint.model.NO_BINDING
 import com.reverie.paint.model.RotationSnap
-import com.reverie.paint.model.Tool
+import com.reverie.paint.model.ShortcutDefinition
+import com.reverie.paint.model.ShortcutPreset
+import com.reverie.paint.model.ShortcutRepeat
+import com.reverie.paint.model.decodeShortcutBindings
+import com.reverie.paint.model.encodeShortcutBindings
+import com.reverie.paint.model.findShortcutConflicts
+import com.reverie.paint.model.findShortcutDefinition
+import com.reverie.paint.model.mergeShortcutScheme
+import com.reverie.paint.model.resolveShortcutKeys
+import com.reverie.paint.model.shortcutBindingMatchesKey
+import com.reverie.paint.model.shortcutPresetOverrides
 import org.json.JSONObject
-
-enum class ShortcutCategory(
-    @param:StringRes val titleRes: Int,
-    val title: String,
-) {
-    PAINTING(R.string.shortcut_cat_painting, "绘画"),
-    TOOLS(R.string.shortcut_cat_tools, "工具"),
-    FILTERS(R.string.shortcut_cat_filters, "滤镜"),
-    LAYERS(R.string.shortcut_cat_layers, "图层"),
-}
-
-data class ShortcutDefinition(
-    val id: String,
-    val category: ShortcutCategory,
-    val name: String,
-    val defaultKey: String,
-    @param:StringRes val nameRes: Int? = null,
-)
-
-val ALL_SHORTCUT_DEFINITIONS = listOf(
-    // 绘画 (Painting)
-    ShortcutDefinition("tool_brush", ShortcutCategory.PAINTING, "画笔工具", "B", R.string.shortcut_def_brush),
-    ShortcutDefinition("brush_size_inc", ShortcutCategory.PAINTING, "增大画笔", "]", R.string.shortcut_def_brush_size_inc),
-    ShortcutDefinition("brush_size_dec", ShortcutCategory.PAINTING, "缩小画笔", "[", R.string.shortcut_def_brush_size_dec),
-    ShortcutDefinition("brush_opacity_inc", ShortcutCategory.PAINTING, "增大不透明度", "LeftCtrl + ]", R.string.shortcut_def_brush_opacity_inc),
-    ShortcutDefinition("brush_opacity_dec", ShortcutCategory.PAINTING, "缩小不透明度", "LeftCtrl + [", R.string.shortcut_def_brush_opacity_dec),
-    ShortcutDefinition("tool_eraser", ShortcutCategory.PAINTING, "橡皮工具", "E", R.string.shortcut_def_eraser),
-    ShortcutDefinition("tool_smudge", ShortcutCategory.PAINTING, "涂抹工具", "S", R.string.shortcut_def_smudge),
-    ShortcutDefinition("tool_color", ShortcutCategory.PAINTING, "颜色工具", "PageUp", R.string.shortcut_def_color),
-    ShortcutDefinition("swap_colors", ShortcutCategory.PAINTING, "交换主副颜色", "X", R.string.shortcut_def_swap_colors),
-    ShortcutDefinition("pan_canvas", ShortcutCategory.PAINTING, "移动画布", "Space(长按)", R.string.shortcut_def_pan_canvas),
-    ShortcutDefinition("zoom_in", ShortcutCategory.PAINTING, "放大画布", "LeftCtrl + =", R.string.shortcut_def_zoom_in),
-    ShortcutDefinition("zoom_out", ShortcutCategory.PAINTING, "缩小画布", "LeftCtrl + -", R.string.shortcut_def_zoom_out),
-    ShortcutDefinition("flip_canvas", ShortcutCategory.PAINTING, "视图水平翻转", "H", R.string.shortcut_def_flip_canvas),
-    ShortcutDefinition("rotate_canvas", ShortcutCategory.PAINTING, "旋转画布", "R", R.string.shortcut_def_rotate_canvas),
-    ShortcutDefinition("save_document", ShortcutCategory.PAINTING, "保存", "LeftCtrl + S", R.string.shortcut_def_save_document),
-    ShortcutDefinition("undo", ShortcutCategory.PAINTING, "撤销", "LeftCtrl + Z", R.string.shortcut_def_undo),
-    ShortcutDefinition("redo", ShortcutCategory.PAINTING, "重做", "LeftCtrl + LeftShift + Z", R.string.shortcut_def_redo),
-    ShortcutDefinition("toggle_eraser", ShortcutCategory.PAINTING, "画笔与橡皮切换", "PageDown", R.string.shortcut_def_toggle_eraser),
-    ShortcutDefinition("toggle_last_tool", ShortcutCategory.PAINTING, "当前工具与上次使用工具切换", "无", R.string.shortcut_def_toggle_last_tool),
-    ShortcutDefinition("deselect", ShortcutCategory.PAINTING, "取消选区", "LeftCtrl + D", R.string.shortcut_def_deselect),
-    ShortcutDefinition("disable_touch", ShortcutCategory.PAINTING, "禁用画布触控", "无", R.string.shortcut_def_disable_touch),
-
-    // 工具 (Tools)
-    ShortcutDefinition("tool_select_rect", ShortcutCategory.TOOLS, "矩形选区", "M", R.string.shortcut_def_select_rect),
-    ShortcutDefinition("tool_lasso", ShortcutCategory.TOOLS, "套索选区", "L", R.string.shortcut_def_lasso),
-    ShortcutDefinition("tool_magicwand", ShortcutCategory.TOOLS, "魔棒选区", "W", R.string.shortcut_def_magicwand),
-    ShortcutDefinition("tool_picker", ShortcutCategory.TOOLS, "吸管工具", "I", R.string.shortcut_def_picker),
-    ShortcutDefinition("tool_fill", ShortcutCategory.TOOLS, "填充工具", "G", R.string.shortcut_def_fill),
-    ShortcutDefinition("tool_gradient", ShortcutCategory.TOOLS, "渐变工具", "LeftShift + G", R.string.shortcut_def_gradient),
-    ShortcutDefinition("tool_crop", ShortcutCategory.TOOLS, "裁剪工具", "C", R.string.shortcut_def_crop),
-    ShortcutDefinition("tool_transform", ShortcutCategory.TOOLS, "变换工具", "V", R.string.shortcut_def_transform),
-    ShortcutDefinition("tool_pan", ShortcutCategory.TOOLS, "抓手工具", "无", R.string.shortcut_def_tool_pan),
-
-    // 滤镜 (Filters)
-    ShortcutDefinition("filter_hsv", ShortcutCategory.FILTERS, "色相/饱和度/明度", "LeftCtrl + U", R.string.shortcut_def_filter_hsv),
-    ShortcutDefinition("filter_curves", ShortcutCategory.FILTERS, "色彩曲线", "LeftCtrl + M", R.string.shortcut_def_filter_curves),
-    ShortcutDefinition("filter_blur", ShortcutCategory.FILTERS, "高斯模糊", "无", R.string.shortcut_def_filter_blur),
-    ShortcutDefinition("filter_sharpen", ShortcutCategory.FILTERS, "锐化", "无", R.string.shortcut_def_filter_sharpen),
-
-    // 图层 (Layers)
-    ShortcutDefinition("layer_new", ShortcutCategory.LAYERS, "新建图层", "LeftCtrl + LeftShift + N", R.string.shortcut_def_layer_new),
-    ShortcutDefinition("layer_delete", ShortcutCategory.LAYERS, "删除图层", "Delete", R.string.shortcut_def_layer_delete),
-    ShortcutDefinition("layer_duplicate", ShortcutCategory.LAYERS, "复制图层", "LeftCtrl + J", R.string.shortcut_def_layer_duplicate),
-    ShortcutDefinition("layer_merge_down", ShortcutCategory.LAYERS, "向下合并", "LeftCtrl + E", R.string.shortcut_def_layer_merge_down),
-    ShortcutDefinition("layer_toggle_vis", ShortcutCategory.LAYERS, "显隐当前图层", "LeftCtrl + H", R.string.shortcut_def_layer_toggle_vis),
-)
 
 // ---- View Settings Methods & Persistence ----
 
@@ -250,33 +194,42 @@ internal fun PaintViewModel.loadViewSettings() {
 }
 
 // ---- Shortcut Management & Persistence ----
+//
+// 绑定表语义 (见 model/ShortcutCatalog.kt):
+//   id 不存在 -> 使用出厂默认; id 存在且列表为空 -> 用户显式解绑; 否则为自定义按键。
+// 每个动作可挂多个按键 (Krita 的主按键 + 备选按键)。
+// 持久化键沿用 "shortcut_bindings" (备份/恢复与旧版本共用), 内容为制表符分隔的纯文本,
+// 旧版本写入的 JSON 对象在 [loadShortcuts] 里做一次性迁移。
 
-internal fun PaintViewModel.getShortcutKey(id: String): String {
-    return shortcutBindings[id] ?: ALL_SHORTCUT_DEFINITIONS.find { it.id == id }?.defaultKey ?: "无"
+internal fun PaintViewModel.getShortcutKeys(id: String): List<String> =
+    resolveShortcutKeys(shortcutBindings, id).filter { it.isNotBlank() && it != NO_BINDING }
+
+/**
+ * 写入一个动作的按键绑定（空列表 = 解绑）。
+ * 不自动解绑冲突动作: 由 UI 先调 [findShortcutConflictsFor] 弹冲突确认,
+ * 用户选择「替换」后再调 [unbindShortcut] 解绑对方。
+ */
+internal fun PaintViewModel.setShortcutKeys(id: String, keys: List<String>) {
+    val def = findShortcutDefinition(id) ?: return
+    val cleaned = keys.map { it.trim() }.filter { it.isNotEmpty() && it != NO_BINDING }
+        .distinctBy { com.reverie.paint.model.normalizeShortcut(it) }
+        .take(com.reverie.paint.model.MAX_SHORTCUT_KEYS_PER_ACTION)
+    val map = shortcutBindings.toMutableMap()
+    // 与出厂默认完全一致时直接清掉这条记录，避免"点开又原样保存"把动作标成已自定义
+    val sameAsDefault = cleaned.size == def.defaultKeys.size &&
+        cleaned.indices.all { com.reverie.paint.model.isShortcutMatch(cleaned[it], def.defaultKeys[it]) }
+    if (sameAsDefault) map.remove(id) else map[id] = cleaned
+    shortcutBindings = map
+    saveShortcuts()
 }
 
-internal fun PaintViewModel.setShortcutKey(id: String, keyStr: String) {
+internal fun PaintViewModel.unbindShortcut(id: String) = setShortcutKeys(id, emptyList())
+
+/** 单个动作恢复出厂绑定 (不改变其它动作)。 */
+internal fun PaintViewModel.resetShortcutBinding(id: String) {
+    if (!shortcutBindings.containsKey(id)) return
     val map = shortcutBindings.toMutableMap()
-    val targetKey = keyStr.trim()
-    if (targetKey.isBlank() || targetKey == "无" || targetKey.equals("none", ignoreCase = true)) {
-        map[id] = "无"
-    } else {
-        var overriddenDef: ShortcutDefinition? = null
-        for (def in ALL_SHORTCUT_DEFINITIONS) {
-            if (def.id != id) {
-                val current = map[def.id] ?: def.defaultKey
-                if (isShortcutMatch(current, targetKey)) {
-                    map[def.id] = "无"
-                    overriddenDef = def
-                }
-            }
-        }
-        map[id] = targetKey
-        if (overriddenDef != null) {
-            val defName = overriddenDef.nameRes?.let { getString(it) } ?: overriddenDef.name
-            showActionToast(R.string.shortcut_conflict_unbound, R.drawable.ic_alert_triangle, defName, targetKey)
-        }
-    }
+    map.remove(id)
     shortcutBindings = map
     saveShortcuts()
 }
@@ -289,82 +242,88 @@ internal fun PaintViewModel.resetShortcuts() {
     }
 }
 
+/** 应用某个快捷键方案：整表替换（未列出的动作回到出厂默认）。 */
+internal fun PaintViewModel.applyShortcutPreset(preset: ShortcutPreset) {
+    shortcutBindings = shortcutPresetOverrides(preset)
+    saveShortcuts()
+    showActionToast(R.string.shortcut_preset_applied, R.drawable.ic_grid, getString(preset.labelRes))
+}
+
+/** 与目标按键冲突的动作（给 UI 弹确认框用）。 */
+internal fun PaintViewModel.findShortcutConflictsFor(id: String, keys: List<String>): List<ShortcutDefinition> =
+    findShortcutConflicts(shortcutBindings, id, keys)
+
+internal fun PaintViewModel.updateShortcutHoldTemporaryTools(enabled: Boolean) {
+    shortcutHoldTemporaryTools = enabled
+    try {
+        prefs().edit().putBoolean("shortcut_hold_temporary", enabled).apply()
+    } catch (_: Exception) {
+    }
+}
+
+internal fun PaintViewModel.updateShortcutAutoRepeat(enabled: Boolean) {
+    shortcutAutoRepeatEnabled = enabled
+    try {
+        prefs().edit().putBoolean("shortcut_auto_repeat", enabled).apply()
+    } catch (_: Exception) {
+    }
+}
+
+/** 导出当前方案为可分享的纯文本（不含出厂默认项之外的信息，导入端按 id 覆盖）。 */
+internal fun PaintViewModel.exportShortcutScheme(): String = encodeShortcutBindings(shortcutBindings)
+
+/** 从纯文本导入方案（合并，返回实际导入的条目数）。 */
+internal fun PaintViewModel.importShortcutScheme(text: String?): Int {
+    val imported = decodeShortcutBindings(text)
+    if (imported.isEmpty()) return 0
+    shortcutBindings = mergeShortcutScheme(shortcutBindings, imported)
+    saveShortcuts()
+    return imported.size
+}
+
 internal fun PaintViewModel.saveShortcuts() {
     try {
-        val o = JSONObject()
-        for ((k, v) in shortcutBindings) {
-            o.put(k, v)
-        }
-        prefs().edit().putString("shortcut_bindings", o.toString()).apply()
+        prefs().edit().putString("shortcut_bindings", encodeShortcutBindings(shortcutBindings)).apply()
     } catch (_: Exception) {
     }
 }
 
 internal fun PaintViewModel.loadShortcuts() {
     try {
-        val raw = prefs().getString("shortcut_bindings", null) ?: return
-        val o = JSONObject(raw)
-        val map = mutableMapOf<String, String>()
-        val keys = o.keys()
-        while (keys.hasNext()) {
-            val k = keys.next()
-            map[k] = o.optString(k, "无")
+        val raw = prefs().getString("shortcut_bindings", null)
+        if (!raw.isNullOrBlank()) {
+            val decoded = decodeShortcutBindings(raw)
+            if (decoded.isNotEmpty()) {
+                shortcutBindings = decoded
+            } else if (raw.trimStart().startsWith("{")) {
+                // 旧版本格式: {"undo":"LeftCtrl + Z", ...} —— 一次性迁移成多按键绑定
+                val o = JSONObject(raw)
+                val map = mutableMapOf<String, List<String>>()
+                val keys = o.keys()
+                while (keys.hasNext()) {
+                    val k = keys.next()
+                    val v = o.optString(k, NO_BINDING)
+                    val cleaned = v.trim()
+                    map[k] = if (cleaned.isEmpty() || cleaned == NO_BINDING || cleaned.equals("none", ignoreCase = true)) {
+                        emptyList()
+                    } else {
+                        listOf(cleaned)
+                    }
+                }
+                shortcutBindings = map
+                saveShortcuts()
+            }
         }
-        shortcutBindings = map
+        shortcutAutoRepeatEnabled = prefs().getBoolean("shortcut_auto_repeat", true)
+        shortcutHoldTemporaryTools = prefs().getBoolean("shortcut_hold_temporary", true)
     } catch (_: Exception) {
     }
 }
 
 private var lastRepeatActionTime = 0L
 
-/**
- * 规范化快捷键组合字符串，统一修饰键名称并排序，消除 "LeftCtrl + Z" 与 "Ctrl + Z"、
- * "Ctrl + Shift + Z" 与 "Shift + Ctrl + Z" 的格式差异。
- */
-fun normalizeShortcut(shortcut: String): String {
-    val trimmed = shortcut.trim()
-    if (trimmed.isEmpty() || trimmed.equals("无", ignoreCase = true) || trimmed.equals("none", ignoreCase = true)) {
-        return ""
-    }
-    if (trimmed.equals("Space(长按)", ignoreCase = true)) {
-        return "SPACE(长按)"
-    }
-
-    val tokens = trimmed.split("+").map { it.trim() }.filter { it.isNotEmpty() }
-    if (tokens.isEmpty()) return ""
-
-    var hasCtrl = false
-    var hasAlt = false
-    var hasShift = false
-    val mainKeys = mutableListOf<String>()
-
-    for (token in tokens) {
-        val lower = token.lowercase()
-        when (lower) {
-            "ctrl", "leftctrl", "rightctrl", "control", "meta", "leftmeta", "rightmeta", "command", "win" -> hasCtrl = true
-            "alt", "leftalt", "rightalt", "option" -> hasAlt = true
-            "shift", "leftshift", "rightshift" -> hasShift = true
-            else -> mainKeys.add(token.uppercase())
-        }
-    }
-
-    val parts = mutableListOf<String>()
-    if (hasCtrl) parts.add("CTRL")
-    if (hasAlt) parts.add("ALT")
-    if (hasShift) parts.add("SHIFT")
-    parts.addAll(mainKeys)
-    return parts.joinToString("+")
-}
-
-/**
- * 判断两个快捷键组合在逻辑上是否等价 (忽略大小写、左右修饰键与修饰键顺序差异)
- */
-fun isShortcutMatch(shortcutA: String, shortcutB: String): Boolean {
-    val normA = normalizeShortcut(shortcutA)
-    val normB = normalizeShortcut(shortcutB)
-    if (normA.isEmpty() || normB.isEmpty()) return false
-    return normA == normB
-}
+private const val REPEAT_INTERVAL_FAST_MS = 50L
+private const val REPEAT_INTERVAL_SLOW_MS = 200L
 
 /**
  * Convert a Compose KeyEvent to a canonical key combination string like "LeftCtrl + S",
@@ -389,13 +348,18 @@ fun keyEventToString(event: KeyEvent): String {
         return ""
     }
 
+    val k = event.key
+    // "+" 在绝大多数键盘上就是 Shift+= (或小键盘 +)，Shift 在这里不是有意义的修饰键:
+    // 统一折算成 "="，这样 Ctrl+= / Ctrl+Shift+= / Ctrl+小键盘+ 都能命中同一条"放大"绑定。
+    val isIncreaseKey = k == Key.Equals || k == Key.NumPadEquals ||
+        k == Key.Plus || k == Key.NumPadAdd
+
     val parts = mutableListOf<String>()
     // 兼容外接蓝牙键盘的 Command / Win (Meta) 键，与 Ctrl 统一为主要修饰键
     if (event.isCtrlPressed || nativeEvent.isMetaPressed) parts.add("LeftCtrl")
     if (event.isAltPressed) parts.add("LeftAlt")
-    if (event.isShiftPressed) parts.add("LeftShift")
+    if (event.isShiftPressed && !isIncreaseKey) parts.add("LeftShift")
 
-    val k = event.key
     var keyName: String? = when (k) {
         Key.LeftBracket -> "["
         Key.RightBracket -> "]"
@@ -481,7 +445,7 @@ fun keyEventToString(event: KeyEvent): String {
         Key.NumPad7 -> "7"
         Key.NumPad8 -> "8"
         Key.NumPad9 -> "9"
-        Key.NumPadAdd, Key.Plus -> "+"
+        Key.NumPadAdd, Key.Plus -> "="
         Key.NumPadSubtract -> "-"
         Key.NumPadMultiply -> "*"
         Key.NumPadDivide -> "/"
@@ -531,6 +495,71 @@ fun keyEventToString(event: KeyEvent): String {
 }
 
 /**
+ * 找出命中某次按键的动作。
+ *
+ * 两轮匹配：
+ * 1. 用户改过的绑定（含显式解绑）优先 —— 解绑的动作在这里匹配不到，也不会在第二轮
+ *    被出厂默认重新激活，满足「解绑后彻底不响应」的预期；
+ * 2. 出厂默认只对**没有**自定义记录的动作生效。
+ */
+// ---- 工具键长按临时切换 (Krita transient tool) ----
+//
+// 语义: 按下立刻切到该工具（不延迟，保证"按到就能用"），松开时再决定去留：
+//   · 按住不足 [TEMPORARY_TOOL_HOLD_MS] -> 视为单击，保持切换（与改动前一致）
+//   · 按住超过阈值 -> 视为长按，回到按住之前的工具
+// 松开时若当前工具已经被别的操作改掉，则不再回切，避免抢用户的显式切换。
+
+private fun PaintViewModel.beginTemporaryToolHoldIfNeeded(
+    def: ShortcutDefinition,
+    keyStr: String,
+    now: Long,
+) {
+    if (!def.holdTemporary || !shortcutHoldTemporaryTools) return
+    val toolId = def.id.removePrefix("tool_")
+    if (currentToolId == toolId) return
+    holdTemporaryToolId = toolId
+    holdTemporaryBaseToolId = currentToolId
+    holdTemporaryKey = com.reverie.paint.model.normalizeShortcut(keyStr)
+    holdTemporaryStartMs = now
+}
+
+private fun PaintViewModel.endTemporaryToolHold(event: KeyEvent): Boolean {
+    val boundKey = holdTemporaryKey ?: return false
+    val keyStr = keyEventToString(event)
+    if (keyStr.isBlank() || !com.reverie.paint.model.isShortcutMatch(keyStr, boundKey)) return false
+    val toolId = holdTemporaryToolId
+    val baseToolId = holdTemporaryBaseToolId
+    val heldMs = android.os.SystemClock.uptimeMillis() - holdTemporaryStartMs
+    clearTemporaryToolHold()
+    if (baseToolId != null &&
+        com.reverie.paint.model.shouldRevertTemporaryTool(heldMs, currentToolId, toolId)
+    ) {
+        applyTool(baseToolId)
+    }
+    return true
+}
+
+/** 丢掉挂起的临时工具状态 (切后台/按键丢失时用, 不改变当前工具)。 */
+internal fun PaintViewModel.clearTemporaryToolHold() {
+    holdTemporaryToolId = null
+    holdTemporaryBaseToolId = null
+    holdTemporaryKey = null
+    holdTemporaryStartMs = 0L
+}
+
+private fun PaintViewModel.findShortcutDefinitionForKey(keyStr: String): ShortcutDefinition? {
+    val customized = ALL_SHORTCUT_DEFINITIONS.firstOrNull { def ->
+        val bound = shortcutBindings[def.id] ?: return@firstOrNull false
+        bound.any { shortcutBindingMatchesKey(it, keyStr) }
+    }
+    if (customized != null) return customized
+    return ALL_SHORTCUT_DEFINITIONS.firstOrNull { def ->
+        if (shortcutBindings.containsKey(def.id)) return@firstOrNull false
+        def.defaultKeys.any { shortcutBindingMatchesKey(it, keyStr) }
+    }
+}
+
+/**
  * Global Hardware Keyboard Event Dispatcher
  */
 internal fun PaintViewModel.handleKeyEvent(event: KeyEvent): Boolean {
@@ -550,7 +579,8 @@ internal fun PaintViewModel.handleKeyEvent(event: KeyEvent): Boolean {
         return false
     }
 
-    // 1. 空格键按住临时平移画布 (Spacebar Hold-to-Pan)
+    // 1. 空格键按住临时平移画布 (Spacebar Hold-to-Pan)。与 Krita 一致，这条通道固定在
+    //    按键层实现（需要 KeyDown/KeyUp 成对语义），不进入可重绑目录。
     if (event.key == Key.Spacebar) {
         if (event.type == KeyEventType.KeyDown) {
             if (!isSpacePanning) {
@@ -564,131 +594,47 @@ internal fun PaintViewModel.handleKeyEvent(event: KeyEvent): Boolean {
         return true
     }
 
+    // 2. 工具键松开: 长按期间临时切进来的工具要回到按住之前的工具
+    if (event.type == KeyEventType.KeyUp) return endTemporaryToolHold(event)
+
     if (event.type != KeyEventType.KeyDown) return false
     val keyStr = keyEventToString(event)
     if (keyStr.isBlank()) return false
 
-    // 2. 匹配注册/自定义快捷键 (优先匹配用户显式自定义的绑定，再匹配默认绑定)
-    val customMatch = ALL_SHORTCUT_DEFINITIONS.firstOrNull { def ->
-        val custom = shortcutBindings[def.id]
-        custom != null && !custom.equals("无", ignoreCase = true) && !custom.equals("none", ignoreCase = true) &&
-            (isShortcutMatch(custom, keyStr) || (custom == "Space(长按)" && isShortcutMatch(keyStr, "Space")))
-    }
-    val targetDef = customMatch ?: ALL_SHORTCUT_DEFINITIONS.firstOrNull { def ->
-        val bound = getShortcutKey(def.id)
-        if (bound.equals("无", ignoreCase = true) || bound.equals("none", ignoreCase = true)) false
-        else isShortcutMatch(bound, keyStr) || (bound == "Space(长按)" && isShortcutMatch(keyStr, "Space"))
-    }
+    val targetDef = findShortcutDefinitionForKey(keyStr)
 
     val repeatCount = event.nativeKeyEvent.repeatCount
     val now = android.os.SystemClock.uptimeMillis()
 
-    // 检查长按自动重复与防抖节流 (防止蓝牙键盘高频重复事件挤爆消息队列导致界面卡顿与按键滞后)
+    // 长按自动重复与防抖节流 (防止蓝牙键盘高频重复事件挤爆消息队列导致界面卡顿与按键滞后)
     if (repeatCount > 0) {
-        val actionId = targetDef?.id ?: ""
-        val isContinuous = actionId in listOf(
-            "brush_size_inc", "brush_size_dec",
-            "brush_opacity_inc", "brush_opacity_dec",
-            "zoom_in", "zoom_out",
-        ) || isShortcutMatch(keyStr, "[") || isShortcutMatch(keyStr, "]") ||
-            isShortcutMatch(keyStr, "LeftCtrl + [") || isShortcutMatch(keyStr, "LeftCtrl + ]") ||
-            isShortcutMatch(keyStr, "LeftCtrl + =") || isShortcutMatch(keyStr, "LeftCtrl + -") ||
-            isShortcutMatch(keyStr, "LeftCtrl + +") || isShortcutMatch(keyStr, "LeftCtrl + LeftShift + =") ||
-            isShortcutMatch(keyStr, "LeftCtrl + LeftShift + +") || isShortcutMatch(keyStr, "ZoomIn") ||
-            isShortcutMatch(keyStr, "ZoomOut") || isShortcutMatch(keyStr, "LeftCtrl + NumPadSubtract")
-
-        val isUndoRedo = actionId in listOf("undo", "redo") ||
-            isShortcutMatch(keyStr, "LeftCtrl + Z") || isShortcutMatch(keyStr, "LeftCtrl + LeftShift + Z") ||
-            isShortcutMatch(keyStr, "LeftCtrl + Y")
-
-        if (isContinuous) {
-            if (now - lastRepeatActionTime < 50L) {
+        // 用户关掉连发时吞掉全部重复事件，避免"按住不放连续撤销"之类的失控
+        if (!shortcutAutoRepeatEnabled) return true
+        when (targetDef?.repeat ?: ShortcutRepeat.NONE) {
+            ShortcutRepeat.NONE ->
+                // 工具切换、新建图层、保存等离散动作，长按只在初次按下时触发，连发直接吞掉
                 return true
+
+            ShortcutRepeat.FAST -> {
+                if (now - lastRepeatActionTime < REPEAT_INTERVAL_FAST_MS) return true
+                lastRepeatActionTime = now
             }
-            lastRepeatActionTime = now
-        } else if (isUndoRedo) {
-            if (now - lastRepeatActionTime < 200L) {
-                return true
+
+            ShortcutRepeat.SLOW -> {
+                if (now - lastRepeatActionTime < REPEAT_INTERVAL_SLOW_MS) return true
+                lastRepeatActionTime = now
             }
-            lastRepeatActionTime = now
-        } else {
-            // 工具切换、新建图层、保存等离散动作，长按只在初次按下时触发，连发直接吞掉
-            return true
         }
     } else {
         lastRepeatActionTime = now
     }
 
     if (targetDef != null) {
+        beginTemporaryToolHoldIfNeeded(targetDef, keyStr, now)
         executeShortcutAction(targetDef.id)
         return true
     }
-
-    // 检查用户是否显式解绑了此快捷键 (避免桌面兜底重新激活已解绑的热键)
-    val isExplicitlyDisabled = ALL_SHORTCUT_DEFINITIONS.any { def ->
-        val custom = shortcutBindings[def.id]
-        custom != null && (custom.equals("无", ignoreCase = true) || custom.equals("none", ignoreCase = true)) &&
-            isShortcutMatch(def.defaultKey, keyStr)
-    }
-    if (isExplicitlyDisabled) return false
-
-    // 3. 行业标准桌面快捷键兜底 (Photoshop / Krita 规范与数位板滚轮/常用按键)
-    val norm = normalizeShortcut(keyStr)
-    return when (norm) {
-        "CTRL+Z" -> { undo(); true }
-        "CTRL+SHIFT+Z", "CTRL+Y" -> { redo(); true }
-        "CTRL+S" -> { saveProject(docName); true }
-        "CTRL+D" -> { clearSelectionAction(); true }
-        "CTRL+J" -> { copyLayer(currentLayerIndex); true }
-        "CTRL+E" -> { mergeDown(currentLayerIndex); true }
-        "CTRL+T", "V" -> { applyTool("transform"); true }
-        "CTRL+=", "CTRL++", "CTRL+SHIFT+=", "CTRL+SHIFT++", "ZOOMIN" -> { requestUiCommand("zoom_in"); true }
-        "CTRL+-", "CTRL+NUMPADSUBTRACT", "ZOOMOUT" -> { requestUiCommand("zoom_out"); true }
-        "CTRL+0", "CTRL+NUMPAD0" -> { requestUiCommand("reset_view"); true }
-        "[" -> {
-            val minL = brushMinSizeLimit.coerceAtLeast(0.5)
-            updateBrushSize((brushSize / 1.25).coerceAtLeast(minL))
-            true
-        }
-        "]" -> {
-            val maxL = effectiveBrushMaxSize
-            updateBrushSize((brushSize * 1.25).coerceAtMost(maxL))
-            true
-        }
-        "CTRL+[" -> {
-            updateBrushOpacity((brushOpacity - 0.1).coerceAtLeast(0.01))
-            true
-        }
-        "CTRL+]" -> {
-            updateBrushOpacity((brushOpacity + 0.1).coerceAtMost(1.0))
-            true
-        }
-        "B" -> { applyTool("brush"); true }
-        "E" -> { toggleEraserMode(); true }
-        "S" -> { applyTool("smudge"); true }
-        "I" -> { applyTool("picker"); isTemporaryPicker = true; true }
-        "G" -> { applyTool("fill"); true }
-        "SHIFT+G" -> { applyTool("gradient"); true }
-        "M" -> { applyTool("select_rect"); true }
-        "L" -> { applyTool("lasso"); true }
-        "W" -> { applyTool("magicwand"); true }
-        "C" -> { applyTool("crop"); true }
-        "X" -> {
-            swapColors()
-            true
-        }
-        // 与画布面板一致: 快捷键/指令走**视图翻转** (只镜像显示, 零开销);
-        // 真正镜像像素的完全翻转在面板里长按触发, 没有默认快捷键
-        "H" -> { toggleViewFlipHorizontal(); true }
-        "R" -> { requestUiCommand("rotate_cw"); true }
-        "DELETE", "BACKSPACE" -> { removeLayer(currentLayerIndex); true }
-        "PAGEDOWN" -> {
-            if (currentToolId == "eraser") applyTool("brush") else applyTool("eraser")
-            true
-        }
-        "PAGEUP" -> { requestUiCommand("open_color"); true }
-        else -> false
-    }
+    return false
 }
 
 /**
@@ -711,7 +657,12 @@ internal fun PaintViewModel.handleNativeKeyEvent(event: android.view.KeyEvent): 
         return true
     }
 
-    if (event.action != android.view.KeyEvent.ACTION_DOWN) return false
+    // 工具键按住/松开要靠 ACTION_UP 收尾, 其余动作仍只在 ACTION_DOWN 触发
+    if (event.action != android.view.KeyEvent.ACTION_DOWN &&
+        event.action != android.view.KeyEvent.ACTION_UP
+    ) {
+        return false
+    }
 
     // 优先通过 Compose KeyEvent 抽象分发 (全量覆盖自定义与预设快捷键)
     try {
@@ -719,16 +670,29 @@ internal fun PaintViewModel.handleNativeKeyEvent(event: android.view.KeyEvent): 
             return true
         }
     } catch (_: Throwable) {}
-
     return false
 }
 
 /**
- * 一次性 UI 命令 token: 视口状态 (pan/zoom/rotation) 只有 UI 层持有, VM 想动
- * 它们只能发命令让 PaintingPage 代劳。
+ * 一次性 UI 命令 token: 视口状态 (pan/zoom/rotation) 与面板开关只有 UI 层持有,
+ * VM 想动它们只能发命令让 PaintingPage 代劳。
  */
 internal const val UI_CMD_VIEW_FLIP_X = "view_flip_x"
 internal const val UI_CMD_VIEW_FLIP_Y = "view_flip_y"
+internal const val UI_CMD_ZOOM_100 = "zoom_100"
+internal const val UI_CMD_ROTATE_RESET = "rotate_reset"
+internal const val UI_CMD_ROTATE_CCW_90 = "rotate_ccw_90"
+internal const val UI_CMD_ROTATE_FINE_CW = "view_rotate_cw"
+internal const val UI_CMD_ROTATE_FINE_CCW = "view_rotate_ccw"
+internal const val UI_CMD_TOGGLE_ZEN = "toggle_fullscreen"
+internal const val UI_CMD_TOGGLE_BRUSH_PANEL = "toggle_brush_panel"
+internal const val UI_CMD_TOGGLE_LAYER_PANEL = "toggle_layer_panel"
+internal const val UI_CMD_TOGGLE_COLOR_PANEL = "toggle_color_panel"
+internal const val UI_CMD_TOGGLE_SETTINGS_PANEL = "toggle_settings_panel"
+internal const val UI_CMD_TOGGLE_DRAWING_GUIDE = "toggle_drawing_guide"
+
+/** 打开滤镜页并直接预选某个滤镜: "open_filter_item:<filterId>"。 */
+internal const val UI_CMD_FILTER_ITEM_PREFIX = "open_filter_item:"
 
 /** 发一次性 UI 命令给 PaintingPage 消费 (视口/面板动作 UI 层才做得到)。 */
 internal fun PaintViewModel.requestUiCommand(cmd: String) {
@@ -738,101 +702,4 @@ internal fun PaintViewModel.requestUiCommand(cmd: String) {
 
 internal fun PaintViewModel.consumeUiCommand() {
     pendingUiCommand = null
-}
-
-internal fun PaintViewModel.executeShortcutAction(id: String) {
-    when (id) {
-        "tool_brush" -> applyTool("brush")
-        "tool_eraser" -> applyTool("eraser")
-        "tool_smudge" -> applyTool("smudge")
-        "tool_picker" -> {
-            applyTool("picker")
-            isTemporaryPicker = true
-        }
-        "tool_fill" -> applyTool("fill")
-        "tool_gradient" -> applyTool("gradient")
-        "tool_select_rect" -> applyTool("select_rect")
-        "tool_lasso" -> applyTool("lasso")
-        "tool_magicwand" -> applyTool("magicwand")
-        "tool_crop" -> applyTool("crop")
-        "tool_transform", "tool_move" -> applyTool("transform")
-        "tool_pan", "pan_canvas" -> {
-            if (currentToolId == "pan") {
-                applyTool(if (lastToolId.isNotEmpty() && lastToolId != "pan") lastToolId else "brush")
-            } else {
-                applyTool("pan")
-            }
-        }
-        "brush_size_inc" -> {
-            val maxL = effectiveBrushMaxSize
-            val newSize = (brushSize * 1.25).coerceAtMost(maxL)
-            updateBrushSize(newSize)
-        }
-        "brush_size_dec" -> {
-            val minL = brushMinSizeLimit.coerceAtLeast(0.5)
-            val newSize = (brushSize / 1.25).coerceAtLeast(minL)
-            updateBrushSize(newSize)
-        }
-        "brush_opacity_inc" -> {
-            val newOp = (brushOpacity + 0.1).coerceAtMost(1.0)
-            updateBrushOpacity(newOp)
-        }
-        "brush_opacity_dec" -> {
-            val newOp = (brushOpacity - 0.1).coerceAtLeast(0.01)
-            updateBrushOpacity(newOp)
-        }
-        "swap_colors" -> swapColors()
-        "undo" -> undo()
-        "redo" -> redo()
-        "save_document" -> saveProject(docName)
-        "deselect" -> clearSelectionAction()
-        "toggle_eraser" -> {
-            if (currentToolId == "eraser") {
-                applyTool("brush")
-            } else {
-                applyTool("eraser")
-            }
-        }
-        "eraser_mode" -> toggleEraserMode()
-        "layer_new" -> addLayer()
-        "layer_delete" -> removeLayer(currentLayerIndex)
-        "layer_duplicate" -> copyLayer(currentLayerIndex)
-        "layer_merge_down" -> mergeDown(currentLayerIndex)
-        "layer_toggle_vis" -> toggleLayerVisible(currentLayerIndex)
-        "layer_prev" -> {
-            if (layers.isNotEmpty()) {
-                setCurrentLayer((currentLayerIndex - 1).coerceIn(0, layers.lastIndex))
-            }
-            showActionToast(R.string.stylus_action_layer_prev, R.drawable.ic_layers)
-        }
-        "layer_next" -> {
-            if (layers.isNotEmpty()) {
-                setCurrentLayer((currentLayerIndex + 1).coerceIn(0, layers.lastIndex))
-            }
-            showActionToast(R.string.stylus_action_layer_next, R.drawable.ic_layers)
-        }
-        "zoom_in" -> requestUiCommand("zoom_in")
-        "zoom_out" -> requestUiCommand("zoom_out")
-        "rotate_canvas" -> requestUiCommand("rotate_cw")
-        "flip_canvas" -> toggleViewFlipHorizontal()
-        "toggle_last_tool" -> {
-            val t = lastToolId
-            if (t != currentToolId) applyTool(t)
-        }
-        "tool_color" -> toggleQuickColor(atPointer = true)
-        "toggle_quick_color" -> toggleQuickColor(atPointer = true)
-        "toggle_quick_layer" -> toggleQuickLayer()
-        "toggle_quick_menu" -> requestUiCommand("toggle_edit_menu")
-        "toggle_ref_window" -> {
-            referenceWindowOpen = !referenceWindowOpen
-            showActionToast(R.string.stylus_action_ref_window, R.drawable.ic_reference)
-        }
-        "disable_touch" -> toggleCanvasTouchDisabled()
-        // 打开滤镜页并预选对应分类 (color 含 HSV/曲线, blur 含高斯模糊,
-        // enhance 含锐化); 具体滤镜项仍需用户点选
-        "filter_hsv" -> requestUiCommand("open_filter:color")
-        "filter_curves" -> requestUiCommand("open_filter:color")
-        "filter_blur" -> requestUiCommand("open_filter:blur")
-        "filter_sharpen" -> requestUiCommand("open_filter:enhance")
-    }
 }

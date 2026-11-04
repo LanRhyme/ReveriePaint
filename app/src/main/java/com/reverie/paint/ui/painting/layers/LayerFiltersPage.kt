@@ -140,6 +140,95 @@ data class FilterCategoryDef(
     val filters: List<FilterItemDef>
 )
 
+/** 滤镜目录的唯一真身: 快捷键直开滤镜 (open_filter_item) 与滤镜页共用同一份 id 与名称。 */
+internal val FILTER_CATEGORY_DEFS: List<FilterCategoryDef> = listOf(
+    FilterCategoryDef(
+        id = "color",
+        nameRes = R.string.filter_cat_adjust_color,
+        iconRes = R.drawable.ic_image_adjust,
+        filters = listOf(
+            FilterItemDef(0, R.string.filter_name_hsv, true, R.string.filter_desc_hsv),
+            FilterItemDef(13, R.string.filter_name_curves, true, R.string.filter_desc_curves),
+            FilterItemDef(14, R.string.filter_name_levels, true, R.string.filter_desc_levels),
+            FilterItemDef(28, R.string.filter_name_vibrance, true, R.string.filter_desc_vibrance),
+            FilterItemDef(1, R.string.filter_name_color_balance, true, R.string.filter_desc_color_balance),
+            FilterItemDef(15, R.string.filter_name_temp_tint, true, R.string.filter_desc_temp_tint),
+            FilterItemDef(27, R.string.filter_name_shadow_highlight, true, R.string.filter_desc_shadow_highlight),
+            FilterItemDef(24, R.string.filter_name_exposure, true, R.string.filter_desc_exposure),
+            FilterItemDef(12, R.string.filter_name_desaturate, true, R.string.filter_desc_desaturate),
+            FilterItemDef(6, R.string.filter_name_invert, true, R.string.filter_desc_invert),
+            FilterItemDef(16, R.string.filter_name_threshold, true, R.string.filter_desc_threshold),
+        )
+    ),
+    FilterCategoryDef(
+        id = "blur",
+        nameRes = R.string.filter_cat_blur_smooth,
+        iconRes = R.drawable.ic_smudge,
+        filters = listOf(
+            FilterItemDef(2, R.string.filter_name_gaussian_blur, true, R.string.filter_desc_gaussian_blur),
+            FilterItemDef(3, R.string.filter_name_motion_blur, true, R.string.filter_desc_motion_blur),
+            FilterItemDef(22, R.string.filter_name_radial_blur, true, R.string.filter_desc_radial_blur),
+            FilterItemDef(33, R.string.filter_name_surface_blur, true, R.string.filter_desc_surface_blur),
+            FilterItemDef(26, R.string.filter_name_defocus, true, R.string.filter_desc_defocus),
+        )
+    ),
+    FilterCategoryDef(
+        id = "enhance",
+        nameRes = R.string.filter_cat_enhance,
+        iconRes = R.drawable.ic_magicwand,
+        filters = listOf(
+            FilterItemDef(18, R.string.filter_name_bloom, true, R.string.filter_desc_bloom),
+            FilterItemDef(4, R.string.filter_name_sharpen, true, R.string.filter_desc_sharpen),
+            FilterItemDef(19, R.string.filter_name_drop_shadow, true, R.string.filter_desc_drop_shadow),
+            FilterItemDef(25, R.string.filter_name_edge_glow, true, R.string.filter_desc_edge_glow),
+            FilterItemDef(8, R.string.filter_name_sobel, true, R.string.filter_desc_sobel),
+            FilterItemDef(9, R.string.filter_name_emboss, true, R.string.filter_desc_emboss),
+        )
+    ),
+    FilterCategoryDef(
+        id = "map",
+        nameRes = R.string.filter_cat_map_channels,
+        iconRes = R.drawable.ic_gradient,
+        filters = listOf(
+            FilterItemDef(30, R.string.filter_name_gradient_map, true, R.string.filter_desc_gradient_map),
+            FilterItemDef(7, R.string.filter_name_lum_to_alpha, true, R.string.filter_desc_lum_to_alpha),
+            FilterItemDef(29, R.string.filter_name_color_to_alpha, true, R.string.filter_desc_color_to_alpha),
+            FilterItemDef(20, R.string.filter_name_lum_to_opacity, true, R.string.filter_desc_lum_to_opacity),
+        )
+    ),
+    FilterCategoryDef(
+        id = "artistic",
+        nameRes = R.string.filter_cat_artistic,
+        iconRes = R.drawable.ic_brush,
+        filters = listOf(
+            FilterItemDef(10, R.string.filter_name_noise, true, R.string.filter_desc_noise),
+            FilterItemDef(21, R.string.filter_name_oil, true, R.string.filter_desc_oil),
+            FilterItemDef(17, R.string.filter_name_posterize, true, R.string.filter_desc_posterize),
+            FilterItemDef(5, R.string.filter_name_mosaic, true, R.string.filter_desc_mosaic),
+            FilterItemDef(23, R.string.filter_name_halftone, true, R.string.filter_desc_halftone),
+            FilterItemDef(34, R.string.filter_name_scanline, true, R.string.filter_desc_scanline),
+        )
+    ),
+    FilterCategoryDef(
+        id = "distort",
+        nameRes = R.string.filter_cat_distort,
+        iconRes = R.drawable.ic_crop,
+        filters = listOf(
+            FilterItemDef(11, R.string.filter_name_glitch, true, R.string.filter_desc_glitch),
+            FilterItemDef(31, R.string.filter_name_ripple, true, R.string.filter_desc_ripple),
+            FilterItemDef(32, R.string.filter_name_swirl, true, R.string.filter_desc_swirl),
+        )
+    ),
+)
+
+
+/** 按滤镜编号取名称资源 (快捷键直开滤镜时用作面板标题)。 */
+@StringRes
+internal fun filterItemNameRes(filterId: Int): Int? =
+    FILTER_CATEGORY_DEFS.firstNotNullOfOrNull { category ->
+        category.filters.firstOrNull { it.id == filterId }?.nameRes
+    }
+
 @Composable
 internal fun FiltersPage(
     vm: PaintViewModel,
@@ -149,87 +238,7 @@ internal fun FiltersPage(
     initialCategoryId: String? = null,
 ) {
     val context = LocalContext.current
-    val categories = remember {
-        listOf(
-            FilterCategoryDef(
-                id = "color",
-                nameRes = R.string.filter_cat_adjust_color,
-                iconRes = R.drawable.ic_image_adjust,
-                filters = listOf(
-                    FilterItemDef(0, R.string.filter_name_hsv, true, R.string.filter_desc_hsv),
-                    FilterItemDef(13, R.string.filter_name_curves, true, R.string.filter_desc_curves),
-                    FilterItemDef(14, R.string.filter_name_levels, true, R.string.filter_desc_levels),
-                    FilterItemDef(28, R.string.filter_name_vibrance, true, R.string.filter_desc_vibrance),
-                    FilterItemDef(1, R.string.filter_name_color_balance, true, R.string.filter_desc_color_balance),
-                    FilterItemDef(15, R.string.filter_name_temp_tint, true, R.string.filter_desc_temp_tint),
-                    FilterItemDef(27, R.string.filter_name_shadow_highlight, true, R.string.filter_desc_shadow_highlight),
-                    FilterItemDef(24, R.string.filter_name_exposure, true, R.string.filter_desc_exposure),
-                    FilterItemDef(12, R.string.filter_name_desaturate, true, R.string.filter_desc_desaturate),
-                    FilterItemDef(6, R.string.filter_name_invert, true, R.string.filter_desc_invert),
-                    FilterItemDef(16, R.string.filter_name_threshold, true, R.string.filter_desc_threshold),
-                )
-            ),
-            FilterCategoryDef(
-                id = "blur",
-                nameRes = R.string.filter_cat_blur_smooth,
-                iconRes = R.drawable.ic_smudge,
-                filters = listOf(
-                    FilterItemDef(2, R.string.filter_name_gaussian_blur, true, R.string.filter_desc_gaussian_blur),
-                    FilterItemDef(3, R.string.filter_name_motion_blur, true, R.string.filter_desc_motion_blur),
-                    FilterItemDef(22, R.string.filter_name_radial_blur, true, R.string.filter_desc_radial_blur),
-                    FilterItemDef(33, R.string.filter_name_surface_blur, true, R.string.filter_desc_surface_blur),
-                    FilterItemDef(26, R.string.filter_name_defocus, true, R.string.filter_desc_defocus),
-                )
-            ),
-            FilterCategoryDef(
-                id = "enhance",
-                nameRes = R.string.filter_cat_enhance,
-                iconRes = R.drawable.ic_magicwand,
-                filters = listOf(
-                    FilterItemDef(18, R.string.filter_name_bloom, true, R.string.filter_desc_bloom),
-                    FilterItemDef(4, R.string.filter_name_sharpen, true, R.string.filter_desc_sharpen),
-                    FilterItemDef(19, R.string.filter_name_drop_shadow, true, R.string.filter_desc_drop_shadow),
-                    FilterItemDef(25, R.string.filter_name_edge_glow, true, R.string.filter_desc_edge_glow),
-                    FilterItemDef(8, R.string.filter_name_sobel, true, R.string.filter_desc_sobel),
-                    FilterItemDef(9, R.string.filter_name_emboss, true, R.string.filter_desc_emboss),
-                )
-            ),
-            FilterCategoryDef(
-                id = "map",
-                nameRes = R.string.filter_cat_map_channels,
-                iconRes = R.drawable.ic_gradient,
-                filters = listOf(
-                    FilterItemDef(30, R.string.filter_name_gradient_map, true, R.string.filter_desc_gradient_map),
-                    FilterItemDef(7, R.string.filter_name_lum_to_alpha, true, R.string.filter_desc_lum_to_alpha),
-                    FilterItemDef(29, R.string.filter_name_color_to_alpha, true, R.string.filter_desc_color_to_alpha),
-                    FilterItemDef(20, R.string.filter_name_lum_to_opacity, true, R.string.filter_desc_lum_to_opacity),
-                )
-            ),
-            FilterCategoryDef(
-                id = "artistic",
-                nameRes = R.string.filter_cat_artistic,
-                iconRes = R.drawable.ic_brush,
-                filters = listOf(
-                    FilterItemDef(10, R.string.filter_name_noise, true, R.string.filter_desc_noise),
-                    FilterItemDef(21, R.string.filter_name_oil, true, R.string.filter_desc_oil),
-                    FilterItemDef(17, R.string.filter_name_posterize, true, R.string.filter_desc_posterize),
-                    FilterItemDef(5, R.string.filter_name_mosaic, true, R.string.filter_desc_mosaic),
-                    FilterItemDef(23, R.string.filter_name_halftone, true, R.string.filter_desc_halftone),
-                    FilterItemDef(34, R.string.filter_name_scanline, true, R.string.filter_desc_scanline),
-                )
-            ),
-            FilterCategoryDef(
-                id = "distort",
-                nameRes = R.string.filter_cat_distort,
-                iconRes = R.drawable.ic_crop,
-                filters = listOf(
-                    FilterItemDef(11, R.string.filter_name_glitch, true, R.string.filter_desc_glitch),
-                    FilterItemDef(31, R.string.filter_name_ripple, true, R.string.filter_desc_ripple),
-                    FilterItemDef(32, R.string.filter_name_swirl, true, R.string.filter_desc_swirl),
-                )
-            ),
-        )
-    }
+    val categories = FILTER_CATEGORY_DEFS
 
     // 快捷键 (filter_hsv/curves/blur/sharpen) 预选分类; 用户仍可返回重选
     var selectedCategory by remember(initialCategoryId) {
