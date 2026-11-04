@@ -1333,7 +1333,7 @@ fun ReSwitch(
                 .size(22.dp)
                 .shadow(2.dp, CircleShape, spotColor = Color.Black.copy(alpha = 0.35f))
                 .clip(CircleShape)
-                .background(colors.onAccent),
+                .background(Color.White),
         )
     }
 }
