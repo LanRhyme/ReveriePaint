@@ -276,7 +276,8 @@ function normalize(raw, nowSec) {
       .map((c) => ({
         t: clampInt(c.t, 0),
         c: clampText(c.c, 24),
-        e: clampText(c.e, 32),
+        // 32 会把 stall:2939ms:Class.method 这类标签截半个词, 放宽到 64
+        e: clampText(c.e, 64),
       })),
     stack: clampText(raw.stack, MAX_STACK),
     logcat: clampText(raw.logcat, MAX_LOGCAT),
