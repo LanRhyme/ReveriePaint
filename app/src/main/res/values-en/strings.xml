@@ -3535,5 +3535,26 @@
     <string name="settings_abr_blend_policy_desc">Mapping algorithm for dual brush and texture during ABR import</string>
     <string name="settings_abr_blend_policy_compat">Safe Compat</string>
     <string name="settings_abr_blend_policy_precision">Strict Precision</string>
+
+    <!-- Creation Stats AppWidgets -->
+    <string name="widget_dashboard_name">Creation Dashboard</string>
+    <string name="widget_dashboard_desc">Shows creation streaks, total duration and recent activity heatmap</string>
+    <string name="widget_compact_name">Creation Streak</string>
+    <string name="widget_compact_desc">Shows creation streak and today\'s progress</string>
+    <string name="widget_streak_days">%1$d days</string>
+    <string name="widget_streak_title">day streak</string>
+    <string name="widget_streak_active">Streak</string>
+    <string name="widget_today_done">%1$d strokes today</string>
+    <string name="widget_today_pending">Not drawn today</string>
+    <string name="widget_total_duration">%1$s drawn</string>
+    <string name="widget_total_strokes">%1$s strokes</string>
+    <string name="widget_new_canvas">New</string>
+    <string name="widget_recent_activity">Activity</string>
+    <string name="stats_pin_widget_title">Add Home Screen Widget</string>
+    <string name="stats_pin_widget_desc">Pin creation streak or stats dashboard to your home screen</string>
+    <string name="stats_pin_dashboard">Add Dashboard (4x2)</string>
+    <string name="stats_pin_compact">Add Streak Card (2x2)</string>
+    <string name="stats_pin_success">Home screen widget requested</string>
+    <string name="stats_pin_not_supported">Launcher does not support pinning widgets</string>
 </resources>
 

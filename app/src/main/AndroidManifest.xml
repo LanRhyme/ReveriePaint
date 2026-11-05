@@ -175,6 +175,32 @@
                 <action android:name="com.hihonor.intent.action.STYLUS_BUTTON_CLICK" />
             </intent-filter>
         </receiver>
+
+        <!-- Creation Stats Dashboard Widget (4x2) -->
+        <receiver
+            android:name=".ui.widget.CreationStatsDashboardWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_dashboard_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/creation_stats_dashboard_widget_info" />
+        </receiver>
+
+        <!-- Creation Stats Compact Widget (2x2) -->
+        <receiver
+            android:name=".ui.widget.CreationStatsCompactWidgetReceiver"
+            android:exported="true"
+            android:label="@string/widget_compact_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/creation_stats_compact_widget_info" />
+        </receiver>
     </application>
 
 </manifest>

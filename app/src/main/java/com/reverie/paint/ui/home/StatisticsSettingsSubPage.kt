@@ -4,9 +4,15 @@
 
 package com.reverie.paint.ui.home
 
+import android.appwidget.AppWidgetManager
+import android.content.ComponentName
+import android.os.Build
+import android.widget.Toast
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import com.reverie.paint.ui.widget.CreationStatsCompactWidgetReceiver
+import com.reverie.paint.ui.widget.CreationStatsDashboardWidgetReceiver
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -105,6 +111,12 @@ fun StatisticsSettingsSubPage(
             // Section 3: Creation Preferences (Canvas Aspect Ratios & Brushes)
             SettingCategoryTitle(stringResource(R.string.stats_category_preferences))
             CreationPreferencesCards(stats)
+
+            Spacer(Modifier.height(16.dp))
+
+            // Section 4: Desktop Widgets (Pin Widget to Home Screen)
+            SettingCategoryTitle(stringResource(R.string.stats_pin_widget_title))
+            PinWidgetsCard()
 
             Spacer(Modifier.height(32.dp))
         }
@@ -671,4 +683,103 @@ private fun CreationPreferencesCards(stats: CreationStatsSummary) {
             }
         }
     }
+}
+
+@Composable
+private fun PinWidgetsCard() {
+    val colors = Theme.current
+    val context = LocalContext.current
+    val visibleBorder = if (colors.border != Color.Transparent) colors.border else colors.subText.copy(alpha = 0.12f)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(colors.panel)
+            .border(1.dp, visibleBorder, RoundedCornerShape(20.dp))
+            .padding(18.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+            Text(
+                text = stringResource(R.string.stats_pin_widget_desc),
+                color = colors.subText,
+                fontSize = 12.sp,
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                // Dashboard button (4x2)
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(colors.accent.copy(alpha = 0.12f))
+                        .border(1.dp, colors.accent.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                        .clickable { requestPinWidget(context, isDashboard = true) }
+                        .padding(horizontal = 12.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_chart_bar),
+                        contentDescription = null,
+                        tint = colors.accent,
+                        modifier = Modifier.size(15.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = stringResource(R.string.stats_pin_dashboard),
+                        color = colors.text,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+
+                // Compact button (2x2)
+                Row(
+                    modifier = Modifier
+                        .weight(1f)
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(colors.accent.copy(alpha = 0.12f))
+                        .border(1.dp, colors.accent.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+                        .clickable { requestPinWidget(context, isDashboard = false) }
+                        .padding(horizontal = 12.dp, vertical = 11.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_star_filled),
+                        contentDescription = null,
+                        tint = colors.accent,
+                        modifier = Modifier.size(15.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = stringResource(R.string.stats_pin_compact),
+                        color = colors.text,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+        }
+    }
+}
+
+private fun requestPinWidget(context: android.content.Context, isDashboard: Boolean) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        val appWidgetManager = context.getSystemService(AppWidgetManager::class.java)
+        if (appWidgetManager != null && appWidgetManager.isRequestPinAppWidgetSupported) {
+            val provider = ComponentName(
+                context,
+                if (isDashboard) CreationStatsDashboardWidgetReceiver::class.java else CreationStatsCompactWidgetReceiver::class.java,
+            )
+            appWidgetManager.requestPinAppWidget(provider, null, null)
+            Toast.makeText(context, context.getString(R.string.stats_pin_success), Toast.LENGTH_SHORT).show()
+            return
+        }
+    }
+    Toast.makeText(context, context.getString(R.string.stats_pin_not_supported), Toast.LENGTH_SHORT).show()
 }

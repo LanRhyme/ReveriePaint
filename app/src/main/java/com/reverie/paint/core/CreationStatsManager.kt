@@ -47,6 +47,7 @@ object CreationStatsManager {
             val file = getFile(context)
             file.writeText(json.toString(), Charsets.UTF_8)
             cachedSummary = null
+            com.reverie.paint.ui.widget.CreationStatsWidgetHelper.notifyAllWidgets(context)
         } catch (_: Exception) {}
     }
 
@@ -167,7 +168,7 @@ object CreationStatsManager {
      * 生成创作数据看板全量统计摘要
      */
     @Synchronized
-    fun getSummary(context: Context, projects: List<Project>): CreationStatsSummary {
+    fun getSummary(context: Context, projects: List<Project> = emptyList()): CreationStatsSummary {
         backfillIfFirstTime(context, projects)
 
         val root = loadRaw(context)

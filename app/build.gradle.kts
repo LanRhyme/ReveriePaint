@@ -271,6 +271,9 @@ dependencies {
     implementation("androidx.input:input-motionprediction:1.0.0")
     // ONNX Runtime Mobile 端侧轻量神经网络推理引擎 (用于智能阴影辅助等端侧 AI 特性)
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
+    // 桌面小组件 (Jetpack Glance 声明式组件与 Material 3 动态取色)
+    implementation("androidx.glance:glance-appwidget:1.1.1")
+    implementation("androidx.glance:glance-material3:1.1.1")
 
     testImplementation("junit:junit:4.13.2")
     // android.jar 的 org.json 在 JVM 单测里是桩实现，brushstore 的 JSON 读写需要真实现

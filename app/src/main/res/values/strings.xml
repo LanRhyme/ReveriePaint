@@ -3535,5 +3535,26 @@
     <string name="settings_abr_blend_policy_desc">控制 ABR 导入时双重画笔与纹理模式映射算法</string>
     <string name="settings_abr_blend_policy_compat">柔和容错</string>
     <string name="settings_abr_blend_policy_precision">严格精准</string>
+
+    <!-- Creation Stats AppWidgets -->
+    <string name="widget_dashboard_name">创作数据看板</string>
+    <string name="widget_dashboard_desc">展示打卡连击天数、总时长与近期活跃热力图</string>
+    <string name="widget_compact_name">创作打卡卡片</string>
+    <string name="widget_compact_desc">展示打卡连击天数与今日创作进度</string>
+    <string name="widget_streak_days">%1$d天</string>
+    <string name="widget_streak_title">天连续打卡</string>
+    <string name="widget_streak_active">连续创作</string>
+    <string name="widget_today_done">今日已完成 %1$d 笔</string>
+    <string name="widget_today_pending">今日待打卡创作</string>
+    <string name="widget_total_duration">时长 %1$s</string>
+    <string name="widget_total_strokes">笔画 %1$s</string>
+    <string name="widget_new_canvas">新建</string>
+    <string name="widget_recent_activity">近期活跃度</string>
+    <string name="stats_pin_widget_title">添加到桌面小组件</string>
+    <string name="stats_pin_widget_desc">支持一键将打卡连击或数据看板固定在桌面</string>
+    <string name="stats_pin_dashboard">添加宽版看板 (4x2)</string>
+    <string name="stats_pin_compact">添加打卡卡片 (2x2)</string>
+    <string name="stats_pin_success">已请求将小组件添加到桌面</string>
+    <string name="stats_pin_not_supported">当前桌面启动器不支持直接钉选小组件</string>
 </resources>
 

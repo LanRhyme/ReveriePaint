@@ -41,6 +41,10 @@ class MainActivity : ComponentActivity() {
         @Volatile
         var currentViewModel: PaintViewModel? = null
 
+        const val EXTRA_ROUTE = "com.reverie.paint.EXTRA_ROUTE"
+        const val ROUTE_CREATE = "create"
+        const val ROUTE_STATS = "stats"
+
         /** Apply (or remove) immersive mode on the UI thread. Immersive =
          *  edge-to-edge content (decor fits windows = false) plus hidden
          *  system bars (status bar + navigation bar); a swipe shows them
@@ -237,6 +241,19 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIncomingIntent(intent: Intent?) {
         if (intent == null) return
+        val route = intent.getStringExtra(EXTRA_ROUTE)
+        if (route == ROUTE_CREATE) {
+            currentViewModel?.let { vm ->
+                vm.currentPage = Page.CREATE
+            }
+        } else if (route == ROUTE_STATS) {
+            currentViewModel?.let { vm ->
+                vm.currentPage = Page.HOME
+                vm.homeSelectedTab = 1
+                vm.settingsInitialSubPage = "STATISTICS"
+            }
+        }
+
         val action = intent.action ?: return
         val uris = mutableListOf<Uri>()
 
