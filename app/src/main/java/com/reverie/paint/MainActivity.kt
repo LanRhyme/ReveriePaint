@@ -177,6 +177,7 @@ class MainActivity : ComponentActivity() {
         // 冷启动后几秒内崩溃时, 光靠 Breadcrumbs 触发可能还没发生过任何用户操作
         com.reverie.paint.core.NativeCrashContext.requestRefresh()
         vm.appContext = applicationContext
+        vm.recordLaunch()
         vm.initPerformanceHintSession()
         vm.syncSettingsFromPrefs()
         // 提前在 onCreate 启动笔刷加载，与 Compose UI 挂载和首帧渲染并发执行，彻底消除冷启动进入画布时笔刷面板的延迟与白屏

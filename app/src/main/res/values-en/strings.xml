@@ -2390,6 +2390,17 @@
     <string name="author_tag_enabled">Enabled</string>
     <string name="author_tag_disabled">Disabled</string>
 
+    <!-- Sponsor Prompt Dialog -->
+    <string name="sponsor_prompt_title">Thank You for Creating with Us</string>
+    <string name="sponsor_prompt_milestone">You have launched ReveriePaint %1$d times and created %2$d artworks</string>
+    <string name="sponsor_prompt_body">ReveriePaint is a modern, fully open-source, and ad-free digital painting engine built by an independent developer. If it has brought convenience and inspiration to your artwork, please consider supporting the project with a coffee</string>
+    <string name="sponsor_prompt_action_afdian">Support on Afdian</string>
+    <string name="sponsor_prompt_action_view_list">View Sponsor Wall</string>
+    <string name="sponsor_prompt_next_time">Maybe Later</string>
+    <string name="sponsor_prompt_never">Already Supported / Don\'t Remind</string>
+    <string name="sponsor_prompt_toast_suppressed">Sponsorship reminders disabled, thank you for your support</string>
+    <string name="sponsor_prompt_toast_postponed">Thank you, we will remind you in the future</string>
+
     <!-- Theme Settings -->
     <string name="theme_settings_title">Theme Settings</string>
     <string name="theme_settings_subtitle">Global Morandi palette, dark mode, and UI scaling</string>

@@ -1412,6 +1412,7 @@ internal fun PaintViewModel.exportDocument(
                 ensure3DLayerClearedInCore(layerId)
             }
             if (ok && targetFile.exists() && targetFile.length() > 0) {
+                recordExport()
                 onSuccess(targetFile)
             } else {
                 onError(getString(R.string.toast_project_export_failed, format))
@@ -1576,6 +1577,7 @@ internal fun PaintViewModel.startPainting(
     val targetDir = currentFolder?.let { File(it.filePath) }?.takeIf { it.exists() && it.isDirectory }
         ?: projectDir()
     currentProjectFile = File(targetDir, "$actualName.revp").absolutePath
+    recordCanvasCreated()
     // 新建工程无记录：默认横向（0°），不继承上一工程的方向。
     pendingCanvasOrientation = null
     docName = actualName

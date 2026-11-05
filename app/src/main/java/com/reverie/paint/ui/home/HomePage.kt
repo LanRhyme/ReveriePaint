@@ -83,6 +83,8 @@ import com.reverie.paint.ui.components.TelemetryNoticeBar
 import com.reverie.paint.R
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.dialog.RecentAutoSavesDialog
+import com.reverie.paint.ui.dialog.SponsorPromptDialog
+import com.reverie.paint.ui.dialog.SponsorsDialog
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Project
 import com.reverie.paint.ui.theme.AppColors
@@ -169,10 +171,11 @@ fun HomePage(vm: PaintViewModel) {
             }
         }
 
-    // Refresh projects upon entering
+    // Refresh projects upon entering and check sponsor prompt
     LaunchedEffect(currentFolder, selectedTab, vm.currentPage) {
         if (selectedTab == 0) {
             vm.refreshProjects()
+            vm.checkSponsorPromptTrigger()
         }
     }
 
@@ -241,6 +244,23 @@ fun HomePage(vm: PaintViewModel) {
     val defaultStackBaseName = stringResource(R.string.gallery_new_stack_default)
     val defaultStackIndexedFormat = stringResource(R.string.gallery_new_stack_default_indexed)
     val defaultProcessingText = stringResource(R.string.gallery_processing)
+
+    var showSponsorsListDialog by remember { mutableStateOf(false) }
+
+    if (vm.showSponsorPromptDialog) {
+        SponsorPromptDialog(
+            vm = vm,
+            onViewSponsorList = {
+                vm.showSponsorPromptDialog = false
+                showSponsorsListDialog = true
+            },
+            onDismiss = { vm.showSponsorPromptDialog = false },
+        )
+    }
+
+    if (showSponsorsListDialog) {
+        SponsorsDialog(onDismiss = { showSponsorsListDialog = false })
+    }
 
     // Custom Styled Dialog: Create Stack / Folder (新建画集)
     if (showNewFolderDialog) {

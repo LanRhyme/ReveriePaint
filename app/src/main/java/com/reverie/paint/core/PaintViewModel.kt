@@ -1917,6 +1917,66 @@ class PaintViewModel : ViewModel() {
         } catch (_: Exception) {}
     }
 
+    // 赞助提示与使用里程碑统计
+    var showSponsorPromptDialog by mutableStateOf(false)
+    var launchCount by mutableIntStateOf(0)
+    var exportCount by mutableIntStateOf(0)
+    var createdCanvasCount by mutableIntStateOf(0)
+
+    fun recordLaunch() {
+        if (!::appContext.isInitialized) return
+        val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        val cur = prefs.getInt("launch_count", 0) + 1
+        prefs.edit().putInt("launch_count", cur).apply()
+        launchCount = cur
+        exportCount = prefs.getInt("export_count", 0)
+        createdCanvasCount = prefs.getInt("created_canvas_count", 0)
+    }
+
+    fun recordExport() {
+        if (!::appContext.isInitialized) return
+        val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        val cur = prefs.getInt("export_count", 0) + 1
+        prefs.edit().putInt("export_count", cur).apply()
+        exportCount = cur
+    }
+
+    fun recordCanvasCreated() {
+        if (!::appContext.isInitialized) return
+        val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        val cur = prefs.getInt("created_canvas_count", 0) + 1
+        prefs.edit().putInt("created_canvas_count", cur).apply()
+        createdCanvasCount = cur
+    }
+
+    fun checkSponsorPromptTrigger() {
+        if (!::appContext.isInitialized) return
+        val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        val suppressed = prefs.getBoolean("sponsor_prompt_suppressed", false)
+        if (suppressed) return
+        val launches = prefs.getInt("launch_count", 0)
+        val exports = prefs.getInt("export_count", 0)
+        val nextPromptLaunch = prefs.getInt("next_sponsor_prompt_launch_count", 15)
+        if (launches >= nextPromptLaunch || exports >= 3) {
+            showSponsorPromptDialog = true
+        }
+    }
+
+    fun postponeSponsorPrompt() {
+        if (!::appContext.isInitialized) return
+        val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        val currentLaunches = prefs.getInt("launch_count", 0)
+        prefs.edit().putInt("next_sponsor_prompt_launch_count", currentLaunches + 25).apply()
+        showSponsorPromptDialog = false
+    }
+
+    fun suppressSponsorPrompt() {
+        if (!::appContext.isInitialized) return
+        val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("sponsor_prompt_suppressed", true).apply()
+        showSponsorPromptDialog = false
+    }
+
     fun isQuickActionActivated(action: com.reverie.paint.model.QuickAction): Boolean =
         when (action) {
             com.reverie.paint.model.QuickAction.LOCK_VIEW -> isViewTransformLocked
