@@ -117,6 +117,7 @@ art/        # 图标素材
 5. **手势处理不 key 在视口状态上**: `pointerInput` 不能以 zoom/pan/rotation 为 key, 否则手势第一帧后被取消 (见 `CanvasView` 头注释的历史教训)
 6. **单实例引擎**: `g_core` 全局唯一, UI 单窗口假设; JNI 方法不做重入防护, 调用时序由 ViewModel 保证
 7. **Qt 无 GUI 运行**: 引擎是软件渲染, 首次使用时惰性创建 `QCoreApplication`; 禁止引入任何 QWidget 依赖
+8. **上游合并与预编译闭包铁律**: 凡是执行 `git merge / rebase / cherry-pick` 涉及上游对齐、修改 `ReverieCoreBridge.kt` 的 `external fun`、或触碰 `third_party/android-native-libs` 下的 `.so` 时，由于 Git 无法对二进制 `.so` 做三方合并，极易引发 JNI 符号断层或动态库依赖撕裂（如 `libkritacolor.so` 缺失）。合并或修改后，**必须立即连跑双门禁**：`./scripts/check_jni_symbols.sh`（查 Kotlin<->JNI 符号对齐）与 `./scripts/check_native_symbols.sh`（查 `.so` 间 `DT_NEEDED` 依赖闭包）。若本地缺少 NDK + Qt/Krita 交叉编译链无法重编 C++，而又出现了本地特性 `.so` 与上游新 `.so` 的符号冲突，必须立即向用户预警“二进制撕裂”并为缺失的新增实验性 JNI 符号做 `catch (e: UnsatisfiedLinkError)` 兜底，严禁在不跑双门禁的情况下盲目打包交付。
 
 ## 5. 解耦与健壮性要求
 
@@ -162,7 +163,7 @@ art/        # 图标素材
 1. **改动前 — 影响评估**: 定位目标域 → 全文搜索调用点 → 按 §5 列出"可能受影响的功能清单"; 同时核对 §4 铁律是否触及 (线程模型/双缓冲/零分配/手势 key)
 2. **改动中 — 最小 diff**: 只改与目标相关的代码, 不顺手重构无关部分; 保持每个中间步骤可编译
 3. **改动后 — 两轮自检**:
-   - **第一轮 (机械验证)**: 按改动范围运行 §2 命令 — 至少 `compileDebugKotlin`; 改 `model/` 或纯逻辑加跑 `testDebugUnitTest`; 大范围改动加跑 `lintDebug` 与 `assembleDebug`; 动过 JNI 边界 (`external fun` / `reverie_jni_*.cpp`) 必须加跑 `check_jni_symbols.sh`, arm64 与 armv7 都要绿
+   - **第一轮 (机械验证)**: 按改动范围运行 §2 命令 — 至少 `compileDebugKotlin`; 改 `model/` 或纯逻辑加跑 `testDebugUnitTest`; 大范围改动加跑 `lintDebug` 与 `assembleDebug`; 凡动过 JNI 边界 (`external fun` / `reverie_jni_*.cpp`)、触碰预编译 `.so`、或执行上游分支合并 (`git merge/rebase upstream`)，**必须立即连跑双门禁**：`./scripts/check_jni_symbols.sh` 与 `./scripts/check_native_symbols.sh`，arm64 与 armv7 都要绿。严禁仅凭 `assembleDebug` 或编译通过就认定二进制与 JNI 正常！
    - **第二轮 (回归审查)**: 对照第 1 步的影响清单, 逐一重新检查每个调用方行为是否被破坏; 重点确认新代码未违反 §4 铁律，发现问题必须修复后重跑第一轮
    - **引擎/C++ 改动**: 额外真机手动回归受影响路径 (笔画/图层/撤销/滤镜等), 结果写入 commit body
 4. **收尾**: 按需更新 §11 文档; commit 信息按 §10 规范注明验证方式
