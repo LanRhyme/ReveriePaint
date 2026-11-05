@@ -12,8 +12,13 @@ import com.reverie.paint.model.Project
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import com.reverie.paint.R
 import org.json.JSONObject
 import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Calendar
+import java.util.Date
+import java.util.Locale
 import java.util.zip.ZipFile
 
 /**
@@ -26,6 +31,9 @@ data class RecentProjectDisplayData(
     val height: Int,
     val elapsedSeconds: Long,
     val strokeCount: Int,
+    val layerCount: Int = 1,
+    val isAnimation: Boolean = false,
+    val isAutoSaved: Boolean = false,
     val lastModified: Long,
     val thumbnailBitmap: Bitmap?,
 )
@@ -35,6 +43,36 @@ data class RecentProjectDisplayData(
  */
 object RecentProjectWidgetHelper {
     private val scope = CoroutineScope(Dispatchers.IO)
+
+    /**
+     * 格式化最近更新相对时间
+     */
+    fun formatRelativeTime(context: Context, timeMs: Long): String {
+        if (timeMs <= 0L) return ""
+        val now = System.currentTimeMillis()
+        val diff = now - timeMs
+        if (diff < 0L) return context.getString(R.string.widget_time_just_now)
+
+        val calNow = Calendar.getInstance()
+        val calThen = Calendar.getInstance().apply { timeInMillis = timeMs }
+
+        return when {
+            diff < 60_000L -> context.getString(R.string.widget_time_just_now)
+            diff < 3600_000L -> context.getString(R.string.widget_time_minutes_ago, (diff / 60_000L).coerceAtLeast(1))
+            diff < 24 * 3600_000L && calNow.get(Calendar.DAY_OF_YEAR) == calThen.get(Calendar.DAY_OF_YEAR) -> {
+                context.getString(R.string.widget_time_today, SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timeMs)))
+            }
+            diff < 48 * 3600_000L && (calNow.get(Calendar.DAY_OF_YEAR) - calThen.get(Calendar.DAY_OF_YEAR) == 1 || calNow.get(Calendar.DAY_OF_YEAR) < calThen.get(Calendar.DAY_OF_YEAR)) -> {
+                context.getString(R.string.widget_time_yesterday, SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(timeMs)))
+            }
+            calNow.get(Calendar.YEAR) == calThen.get(Calendar.YEAR) -> {
+                SimpleDateFormat("MM/dd", Locale.getDefault()).format(Date(timeMs))
+            }
+            else -> {
+                SimpleDateFormat("yyyy/MM/dd", Locale.getDefault()).format(Date(timeMs))
+            }
+        }
+    }
 
     /**
      * 读取并生成最新创作项目的展示数据
@@ -76,6 +114,9 @@ object RecentProjectWidgetHelper {
             height = project.height,
             elapsedSeconds = project.elapsedSeconds,
             strokeCount = project.strokeCount,
+            layerCount = project.layerCount,
+            isAnimation = project.isAnimation,
+            isAutoSaved = project.isAutoSaved,
             lastModified = project.lastModified,
             thumbnailBitmap = thumbBitmap,
         )

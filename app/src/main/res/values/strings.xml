@@ -3567,5 +3567,18 @@
     <string name="widget_recent_no_project">开启新的创作吧</string>
     <string name="widget_recent_no_project_desc">暂无最近画作</string>
     <string name="widget_recent_duration_strokes">%1$s · %2$s笔</string>
+    <string name="widget_today_creation_title">今日创作</string>
+    <string name="widget_today_strokes_duration">%1$s 笔 · %2$s</string>
+    <string name="widget_lifetime_summary">累计 %1$s · %2$s笔</string>
+    <string name="widget_today_badge_done">今日已打卡</string>
+    <string name="widget_today_badge_pending">待打卡</string>
+    <string name="widget_recent_tag">最近编辑</string>
+    <string name="widget_recent_tag_autosave">恢复草稿</string>
+    <string name="widget_recent_tag_animation">动画项目</string>
+    <string name="widget_recent_layers_count">%1$d层</string>
+    <string name="widget_time_just_now">刚刚</string>
+    <string name="widget_time_minutes_ago">%1$d分钟前</string>
+    <string name="widget_time_today">今天 %1$s</string>
+    <string name="widget_time_yesterday">昨天 %1$s</string>
 </resources>
 

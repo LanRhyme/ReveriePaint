@@ -3567,5 +3567,18 @@
     <string name="widget_recent_no_project">Start a new creation</string>
     <string name="widget_recent_no_project_desc">No recent artwork</string>
     <string name="widget_recent_duration_strokes">%1$s · %2$s strokes</string>
+    <string name="widget_today_creation_title">Today</string>
+    <string name="widget_today_strokes_duration">%1$s strokes · %2$s</string>
+    <string name="widget_lifetime_summary">Total: %1$s · %2$s</string>
+    <string name="widget_today_badge_done">Done</string>
+    <string name="widget_today_badge_pending">Pending</string>
+    <string name="widget_recent_tag">Recent</string>
+    <string name="widget_recent_tag_autosave">Auto Draft</string>
+    <string name="widget_recent_tag_animation">Animation</string>
+    <string name="widget_recent_layers_count">%1$d layers</string>
+    <string name="widget_time_just_now">Just now</string>
+    <string name="widget_time_minutes_ago">%1$dm ago</string>
+    <string name="widget_time_today">Today %1$s</string>
+    <string name="widget_time_yesterday">Yesterday %1$s</string>
 </resources>
 

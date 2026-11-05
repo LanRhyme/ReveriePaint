@@ -146,9 +146,14 @@ class RecentProjectCompactWidget : GlanceAppWidget() {
                                 ),
                                 maxLines = 1,
                             )
-                            Spacer(modifier = GlanceModifier.height(1.dp))
+                            val strokesStr = when {
+                                data.strokeCount >= 10000 -> String.format(java.util.Locale.US, "%.1fw", data.strokeCount / 10000f)
+                                data.strokeCount >= 1000 -> String.format(java.util.Locale.US, "%.1fk", data.strokeCount / 1000f)
+                                else -> data.strokeCount.toString()
+                            }
+                            val subInfo = if (data.strokeCount > 0) "${data.width} × ${data.height} · $strokesStr" else "${data.width} × ${data.height}"
                             Text(
-                                text = "${data.width} × ${data.height}",
+                                text = subInfo,
                                 style = TextStyle(
                                     color = ColorProvider(Color(0xB3FFFFFF)),
                                     fontSize = 9.sp,

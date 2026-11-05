@@ -108,6 +108,21 @@ class CreationStatsDashboardWidget : GlanceAppWidget() {
             else -> summary.totalStrokes.toString()
         }
 
+        val todayStr = CreationStatsManager.getTodayString()
+        val todayActivity = summary.dailyActivities[todayStr]
+        val todayStrokes = todayActivity?.strokes ?: 0
+        val todayDuration = todayActivity?.durationSeconds ?: 0L
+        val isTodayDone = todayStrokes > 0 || todayDuration > 0L || (todayActivity?.canvasesCreated ?: 0) > 0
+
+        val todayHours = todayDuration / 3600
+        val todayMins = (todayDuration % 3600) / 60
+        val todayDurationStr = if (todayHours > 0) "${todayHours}h ${todayMins}m" else "${todayMins}m"
+        val todayStrokesStr = when {
+            todayStrokes >= 10000 -> String.format(Locale.US, "%.1fw", todayStrokes / 10000f)
+            todayStrokes >= 1000 -> String.format(Locale.US, "%.1fk", todayStrokes / 1000f)
+            else -> todayStrokes.toString()
+        }
+
         Box(
             modifier = GlanceModifier
                 .fillMaxSize()
@@ -121,11 +136,11 @@ class CreationStatsDashboardWidget : GlanceAppWidget() {
                 modifier = GlanceModifier.fillMaxSize(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Left Column: Metrics & Quick Action
+                // Left Column: Today's Focus & Quick Action
                 Column(
                     modifier = GlanceModifier
                         .fillMaxHeight()
-                        .width(112.dp)
+                        .width(132.dp)
                         .clickable(actionStartActivity(statsIntent)),
                     verticalAlignment = Alignment.Top,
                 ) {
@@ -148,36 +163,71 @@ class CreationStatsDashboardWidget : GlanceAppWidget() {
                                 fontWeight = FontWeight.Bold,
                             ),
                         )
+                        Spacer(modifier = GlanceModifier.width(4.dp))
+                        Text(
+                            text = context.getString(R.string.widget_streak_active),
+                            style = TextStyle(
+                                color = GlanceTheme.colors.onSurfaceVariant,
+                                fontSize = 10.sp,
+                            ),
+                        )
+                    }
+
+                    Spacer(modifier = GlanceModifier.height(6.dp))
+
+                    // Today's Creation Hero Card
+                    Box(
+                        modifier = GlanceModifier
+                            .fillMaxWidth()
+                            .cornerRadius(10.dp)
+                            .background(GlanceTheme.colors.surfaceVariant)
+                            .padding(horizontal = 8.dp, vertical = 6.dp),
+                    ) {
+                        Column {
+                            Text(
+                                text = context.getString(R.string.widget_today_creation_title),
+                                style = TextStyle(
+                                    color = GlanceTheme.colors.onSurfaceVariant,
+                                    fontSize = 10.sp,
+                                    fontWeight = FontWeight.Medium,
+                                ),
+                            )
+                            Spacer(modifier = GlanceModifier.height(2.dp))
+                            if (isTodayDone) {
+                                Text(
+                                    text = context.getString(
+                                        R.string.widget_today_strokes_duration,
+                                        todayStrokesStr,
+                                        todayDurationStr,
+                                    ),
+                                    style = TextStyle(
+                                        color = GlanceTheme.colors.onSurface,
+                                        fontSize = 11.sp,
+                                        fontWeight = FontWeight.Bold,
+                                    ),
+                                    maxLines = 1,
+                                )
+                            } else {
+                                Text(
+                                    text = context.getString(R.string.widget_today_pending),
+                                    style = TextStyle(
+                                        color = GlanceTheme.colors.onSurfaceVariant,
+                                        fontSize = 10.sp,
+                                    ),
+                                    maxLines = 1,
+                                )
+                            }
+                        }
                     }
 
                     Spacer(modifier = GlanceModifier.height(4.dp))
 
+                    // Lifetime Summary Caption
                     Text(
-                        text = context.getString(R.string.widget_streak_active),
+                        text = context.getString(R.string.widget_lifetime_summary, durationStr, strokesStr),
                         style = TextStyle(
                             color = GlanceTheme.colors.onSurfaceVariant,
-                            fontSize = 10.sp,
-                        ),
-                    )
-
-                    Spacer(modifier = GlanceModifier.height(8.dp))
-
-                    // Duration and strokes info
-                    Text(
-                        text = context.getString(R.string.widget_total_duration, durationStr),
-                        style = TextStyle(
-                            color = GlanceTheme.colors.onSurface,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                        ),
-                        maxLines = 1,
-                    )
-                    Spacer(modifier = GlanceModifier.height(2.dp))
-                    Text(
-                        text = context.getString(R.string.widget_total_strokes, strokesStr),
-                        style = TextStyle(
-                            color = GlanceTheme.colors.onSurfaceVariant,
-                            fontSize = 10.sp,
+                            fontSize = 9.sp,
                         ),
                         maxLines = 1,
                     )
@@ -189,7 +239,7 @@ class CreationStatsDashboardWidget : GlanceAppWidget() {
                         modifier = GlanceModifier
                             .cornerRadius(10.dp)
                             .background(GlanceTheme.colors.primary)
-                            .padding(horizontal = 10.dp, vertical = 6.dp)
+                            .padding(horizontal = 10.dp, vertical = 5.dp)
                             .clickable(actionStartActivity(createIntent)),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -211,9 +261,9 @@ class CreationStatsDashboardWidget : GlanceAppWidget() {
                     }
                 }
 
-                Spacer(modifier = GlanceModifier.width(8.dp))
+                Spacer(modifier = GlanceModifier.width(10.dp))
 
-                // Right Column: Mini Heatmap Display
+                // Right Column: Mini Heatmap Display & Today Badge
                 Column(
                     modifier = GlanceModifier
                         .fillMaxHeight()
@@ -233,6 +283,27 @@ class CreationStatsDashboardWidget : GlanceAppWidget() {
                                 fontWeight = FontWeight.Medium,
                             ),
                         )
+                        Spacer(modifier = GlanceModifier.defaultWeight())
+                        // Today status badge pill
+                        Box(
+                            modifier = GlanceModifier
+                                .cornerRadius(6.dp)
+                                .background(GlanceTheme.colors.surfaceVariant)
+                                .padding(horizontal = 5.dp, vertical = 2.dp),
+                        ) {
+                            Text(
+                                text = if (isTodayDone) {
+                                    context.getString(R.string.widget_today_badge_done)
+                                } else {
+                                    context.getString(R.string.widget_today_badge_pending)
+                                },
+                                style = TextStyle(
+                                    color = if (isTodayDone) GlanceTheme.colors.primary else GlanceTheme.colors.onSurfaceVariant,
+                                    fontSize = 9.sp,
+                                    fontWeight = if (isTodayDone) FontWeight.Bold else FontWeight.Normal,
+                                ),
+                            )
+                        }
                     }
 
                     Spacer(modifier = GlanceModifier.height(6.dp))
