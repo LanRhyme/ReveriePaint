@@ -940,13 +940,14 @@ import kotlinx.coroutines.withContext
         try {
             val pfd = resolver.openFileDescriptor(uri, "r")
             if (pfd != null) {
+                pfdToClose = pfd
                 val stat = android.system.Os.fstat(pfd.fileDescriptor)
                 if (android.system.OsConstants.S_ISREG(stat.st_mode) && stat.st_size >= 4L) {
-                    pfdToClose = pfd
                     val fis = java.io.FileInputStream(pfd.fileDescriptor)
                     fastPathSource = AbrSource.fromChannel(fis.channel)
                 } else {
                     pfd.close()
+                    pfdToClose = null
                 }
             }
         } catch (_: Throwable) {
@@ -971,6 +972,10 @@ import kotlinx.coroutines.withContext
             val usable = appContext.cacheDir.usableSpace
             if (usable < expectedSize + safetyMarginBytes) {
                 throw IOException("ENOSPC: cacheDir usable=$usable, required=${expectedSize + safetyMarginBytes}")
+            }
+        } else {
+            if (appContext.cacheDir.usableSpace < safetyMarginBytes) {
+                throw IOException("ENOSPC: cacheDir exhausted")
             }
         }
 
@@ -1135,9 +1140,6 @@ import kotlinx.coroutines.withContext
                         "file" to filename,
                         "msg" to e.message,
                     )
-                    withContext(Dispatchers.Main) {
-                        showActionToast(R.string.brush_studio_toast_import_failed)
-                    }
                     return BrushImportResult(success = false)
                 }
 

@@ -40,7 +40,7 @@ internal interface AbrSource : Closeable {
 
     /** 仅在按需提取单个笔尖/字符串时分配小数组 */
     fun sliceBytes(pos: Long, len: Int): ByteArray {
-        if (len < 0 || pos < 0L || pos + len > size) {
+        if (len < 0 || pos < 0L || pos > size || len > size - pos) {
             throw EOFException("sliceBytes out of bounds: pos=$pos len=$len size=$size")
         }
         if (len == 0) return ByteArray(0)
@@ -48,7 +48,7 @@ internal interface AbrSource : Closeable {
     }
 
     fun readString(pos: Long, byteLen: Int, charset: Charset): String {
-        if (byteLen <= 0 || pos < 0L || pos + byteLen > size) return ""
+        if (byteLen <= 0 || pos < 0L || pos > size || byteLen > size - pos) return ""
         return String(sliceBytes(pos, byteLen), charset)
     }
 
@@ -107,7 +107,7 @@ internal class ByteArraySource(private val bytes: ByteArray) : AbrSource {
     override val size: Long get() = bytes.size.toLong()
 
     private fun checkBounds(pos: Long, n: Int): Int {
-        if (pos < 0L || n < 0 || pos + n > bytes.size) {
+        if (pos < 0L || n < 0 || pos > bytes.size || n > bytes.size - pos) {
             throw EOFException("ByteArraySource EOF: pos=$pos need=$n size=${bytes.size}")
         }
         return pos.toInt()
@@ -160,7 +160,7 @@ internal class MappedFileSource(
 
     private fun buf(pos: Long, n: Int): MappedByteBuffer {
         val b = buffer ?: throw IllegalStateException("MappedFileSource already closed")
-        if (pos < 0L || n < 0 || pos + n > size) {
+        if (pos < 0L || n < 0 || pos > size || n > size - pos) {
             throw EOFException("MappedFileSource EOF: pos=$pos need=$n size=$size")
         }
         return b
@@ -211,7 +211,7 @@ internal class PagedChannelSource(
     private var pageValidLen: Int = 0
 
     private fun checkBounds(pos: Long, n: Int) {
-        if (pos < 0L || n < 0 || pos + n > size) {
+        if (pos < 0L || n < 0 || pos > size || n > size - pos) {
             throw EOFException("PagedChannelSource EOF: pos=$pos need=$n size=$size")
         }
     }
@@ -310,7 +310,11 @@ internal object DirectBufferUnmapper {
                         synchronized(this) {
                             if (!initialized) {
                                 runCatching {
-                                    val cm = buffer.javaClass.getMethod("cleaner").apply { isAccessible = true }
+                                    val cm = runCatching {
+                                        buffer.javaClass.getMethod("cleaner")
+                                    }.getOrElse {
+                                        buffer.javaClass.getDeclaredMethod("cleaner")
+                                    }.apply { isAccessible = true }
                                     cleanerMethod = cm
                                 }
                                 runCatching {

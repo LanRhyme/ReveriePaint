@@ -464,10 +464,10 @@ object AbrParser {
 
                 var brushName = "$basePackName ${i + 1}"
                 if (version == 2) {
-                    if (cursor + 4L <= source.size) {
+                    if (cursor + 4L <= nextBrush && cursor + 4L <= source.size) {
                         val nameLen = source.i32(cursor)
                         cursor += 4L
-                        if (nameLen > 0 && cursor + nameLen * 2L <= source.size) {
+                        if (nameLen in 1..4096 && cursor + nameLen * 2L <= nextBrush && cursor + nameLen * 2L <= source.size) {
                             brushName = source.readString(cursor, nameLen * 2, Charsets.UTF_16BE).trimEnd('\u0000')
                             cursor += nameLen * 2L
                         }
@@ -1041,9 +1041,14 @@ object AbrParser {
 
         fun readUnicodeString(): String {
             val charCount = readUInt32()
-            if (charCount <= 0L || charCount > MAX_DESCRIPTOR_STRING_CHARS) return ""
+            if (charCount == 0L) return ""
+            if (charCount > MAX_DESCRIPTOR_STRING_CHARS) {
+                throw EOFException("UnicodeString charCount exceeds limit: $charCount > $MAX_DESCRIPTOR_STRING_CHARS")
+            }
             val byteCount = charCount * 2L
-            if (pos + byteCount > limit) return ""
+            if (pos + byteCount > limit) {
+                throw EOFException("UnicodeString past limit: pos=$pos, byteCount=$byteCount, limit=$limit")
+            }
             val s = source.readString(pos, byteCount.toInt(), Charsets.UTF_16BE).trimEnd('\u0000')
             pos += byteCount
             return s
@@ -1054,8 +1059,11 @@ object AbrParser {
             return if (len == 0L) {
                 readTypeTag()
             } else {
-                if (len < 0L || len > MAX_DESCRIPTOR_STRING_CHARS || pos + len > limit) {
-                    return ""
+                if (len !in 1L..4096L) {
+                    throw EOFException("IdString len out of bounds (1..4096): $len")
+                }
+                if (pos + len > limit) {
+                    throw EOFException("IdString past limit: pos=$pos, len=$len, limit=$limit")
                 }
                 val s = source.readString(pos, len.toInt(), Charsets.US_ASCII)
                 pos += len

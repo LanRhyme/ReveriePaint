@@ -8,6 +8,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
+import org.junit.Assert.fail
 import org.junit.Rule
 import org.junit.Test
 import org.junit.rules.TemporaryFolder
@@ -99,7 +100,7 @@ class AbrZeroCopyStreamingTest {
     }
 
     @Test
-    fun `220MB virtual ABR parses with O(1) heap footprint under 15MB delta`() {
+    fun `220MB virtual ABR parses with O(1) heap footprint under 8MB delta`() {
         // Construct a virtual 220MB AbrSource without allocating 220MB on heap or disk:
         // 20 sampled tips of 512x512 + 1 8BIM unknown extension block of ~215MB
         val virtualSource = Virtual220MbAbrSource(tipCount = 20, tipWidth = 512, tipHeight = 512)
@@ -233,6 +234,50 @@ class AbrZeroCopyStreamingTest {
         val midCutScanlines = be16(10) + be16(10) + byteArrayOf(0x01, 10, 20)
         val midCutResult = AbrParser.decodePackBitsScanlines(midCutScanlines, 0, height = 2, width = 4)
         assertNotNull(midCutResult)
+    }
+
+    @Test
+    fun `SourceCursor throws EOFException on overflowed string lengths and bounds checks are overflow safe`() {
+        // 1. SourceCursor Unicode string > MAX_DESCRIPTOR_STRING_CHARS throws EOFException
+        val badUnicodeLenBytes = byteArrayOf(
+            0x00, 0x02, 0x00, 0x00 // charCount = 131072 > 65536
+        )
+        val c1 = AbrParser.SourceCursor(AbrSource.fromBytes(badUnicodeLenBytes), 0L, badUnicodeLenBytes.size.toLong())
+        try {
+            c1.readUnicodeString()
+            fail("readUnicodeString with charCount > 65536 must throw EOFException")
+        } catch (_: EOFException) {
+            // Expected
+        }
+
+        // 2. SourceCursor Id string length not in 1..4096 throws EOFException
+        val badIdLenBytes = byteArrayOf(
+            0x00, 0x00, 0x10, 0x01 // len = 4097 > 4096
+        )
+        val c2 = AbrParser.SourceCursor(AbrSource.fromBytes(badIdLenBytes), 0L, badIdLenBytes.size.toLong())
+        try {
+            c2.readIdString()
+            fail("readIdString with len > 4096 must throw EOFException")
+        } catch (_: EOFException) {
+            // Expected
+        }
+
+        // 3. AbrSource.sliceBytes overflow guard (pos near Long.MAX_VALUE does not wrap around)
+        val source = AbrSource.fromBytes(ByteArray(100))
+        try {
+            source.sliceBytes(Long.MAX_VALUE - 10L, 50)
+            fail("sliceBytes near Long.MAX_VALUE must throw EOFException")
+        } catch (_: EOFException) {
+            // Expected
+        }
+
+        // 4. AbrSource.sliceBytes len > size - pos throws EOFException
+        try {
+            source.sliceBytes(90L, 20)
+            fail("sliceBytes with len > size - pos must throw EOFException")
+        } catch (_: EOFException) {
+            // Expected
+        }
     }
 
     /**
