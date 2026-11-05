@@ -2391,13 +2391,19 @@
     <string name="author_tag_disabled">未启用</string>
 
     <!-- Sponsor Prompt Dialog -->
-    <string name="sponsor_prompt_title">感谢一路相伴</string>
-    <string name="sponsor_prompt_milestone">你已启动 ReveriePaint %1$d 次，并创作了 %2$d 幅作品</string>
-    <string name="sponsor_prompt_body">ReveriePaint 是一款由独立开发者构建、完全开源且无广告的现代专业绘画引擎。如果它为你的数字绘画带来了便利与乐趣，不妨考虑为开发者投喂一杯咖啡，助力引擎持续进化与维护</string>
-    <string name="sponsor_prompt_action_afdian">前往爱发电赞助</string>
-    <string name="sponsor_prompt_action_view_list">查看赞助名录</string>
+    <string name="sponsor_prompt_title">画室来信 · 见字如晤</string>
+    <string name="sponsor_prompt_subtitle">来自独立开发者的创作絮语</string>
+    <string name="sponsor_prompt_milestone_launch">%1$d 次</string>
+    <string name="sponsor_prompt_milestone_launch_desc">启程陪伴</string>
+    <string name="sponsor_prompt_milestone_canvas">%1$d 卷</string>
+    <string name="sponsor_prompt_milestone_canvas_desc">创作灵感</string>
+    <string name="sponsor_prompt_body">不知不觉间，ReveriePaint 已经陪伴你落下了无数笔触，这是一款由独立开发者构建、完全开源且无广告的现代专业绘画软件，如果它曾为你的数字创作带来便利与乐趣，不妨考虑为开发者投喂一杯咖啡，助力软件持续进化与维护</string>
+    <string name="sponsor_prompt_action_afdian">请开发者喝咖啡</string>
+    <string name="sponsor_prompt_action_view_list">翻阅赞助名录</string>
     <string name="sponsor_prompt_next_time">下次一定</string>
     <string name="sponsor_prompt_never">已赞助 / 不再提示</string>
+    <string name="sponsor_prompt_stamp_studio">REVERIE</string>
+    <string name="sponsor_prompt_stamp_year">EST. 2026</string>
     <string name="sponsor_prompt_toast_suppressed">已关闭赞助提醒，非常感谢你的支持</string>
     <string name="sponsor_prompt_toast_postponed">感谢相伴，将在未来继续提醒</string>
 

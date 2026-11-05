@@ -247,17 +247,6 @@ fun HomePage(vm: PaintViewModel) {
 
     var showSponsorsListDialog by remember { mutableStateOf(false) }
 
-    if (vm.showSponsorPromptDialog) {
-        SponsorPromptDialog(
-            vm = vm,
-            onViewSponsorList = {
-                vm.showSponsorPromptDialog = false
-                showSponsorsListDialog = true
-            },
-            onDismiss = { vm.showSponsorPromptDialog = false },
-        )
-    }
-
     if (showSponsorsListDialog) {
         SponsorsDialog(onDismiss = { showSponsorsListDialog = false })
     }
@@ -1025,7 +1014,9 @@ fun HomePage(vm: PaintViewModel) {
                                                     // 只按项目路径重建: 选中态变化不该重置正在进行的按压/长按
                                                     .pointerInput(p.filePath) {
                                                         awaitEachGesture {
+                                                            if (vm.showSponsorPromptDialog) return@awaitEachGesture
                                                             val down = awaitFirstDown(requireUnconsumed = false)
+                                                            if (vm.showSponsorPromptDialog) return@awaitEachGesture
                                                             val press = PressInteraction.Press(down.position)
                                                             interactionSource.tryEmit(press)
                                                             var pressEnded = false
@@ -1520,6 +1511,17 @@ fun HomePage(vm: PaintViewModel) {
             visible = vm.isDraggingExternal,
             hint = stringResource(R.string.gallery_drop_hint),
         )
+
+        if (vm.showSponsorPromptDialog) {
+            SponsorPromptDialog(
+                vm = vm,
+                onViewSponsorList = {
+                    vm.showSponsorPromptDialog = false
+                    showSponsorsListDialog = true
+                },
+                onDismiss = { vm.showSponsorPromptDialog = false },
+            )
+        }
     }
 }
 

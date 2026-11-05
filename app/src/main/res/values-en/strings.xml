@@ -2391,13 +2391,19 @@
     <string name="author_tag_disabled">Disabled</string>
 
     <!-- Sponsor Prompt Dialog -->
-    <string name="sponsor_prompt_title">Thank You for Creating with Us</string>
-    <string name="sponsor_prompt_milestone">You have launched ReveriePaint %1$d times and created %2$d artworks</string>
-    <string name="sponsor_prompt_body">ReveriePaint is a modern, fully open-source, and ad-free digital painting engine built by an independent developer. If it has brought convenience and inspiration to your artwork, please consider supporting the project with a coffee</string>
-    <string name="sponsor_prompt_action_afdian">Support on Afdian</string>
-    <string name="sponsor_prompt_action_view_list">View Sponsor Wall</string>
+    <string name="sponsor_prompt_title">A Letter from the Atelier</string>
+    <string name="sponsor_prompt_subtitle">A warm note from the independent developer</string>
+    <string name="sponsor_prompt_milestone_launch">%1$d times</string>
+    <string name="sponsor_prompt_milestone_launch_desc">Studio Launches</string>
+    <string name="sponsor_prompt_milestone_canvas">%1$d works</string>
+    <string name="sponsor_prompt_milestone_canvas_desc">Artworks Created</string>
+    <string name="sponsor_prompt_body">ReveriePaint is a modern, fully open-source, and ad-free digital painting app built by an independent developer. If it has brought convenience and inspiration to your artwork, please consider treating the developer to a coffee to support the software\'s continued evolution</string>
+    <string name="sponsor_prompt_action_afdian">Treat to a Coffee</string>
+    <string name="sponsor_prompt_action_view_list">Patron Wall</string>
     <string name="sponsor_prompt_next_time">Maybe Later</string>
     <string name="sponsor_prompt_never">Already Supported / Don\'t Remind</string>
+    <string name="sponsor_prompt_stamp_studio">REVERIE</string>
+    <string name="sponsor_prompt_stamp_year">EST. 2026</string>
     <string name="sponsor_prompt_toast_suppressed">Sponsorship reminders disabled, thank you for your support</string>
     <string name="sponsor_prompt_toast_postponed">Thank you, we will remind you in the future</string>
 
