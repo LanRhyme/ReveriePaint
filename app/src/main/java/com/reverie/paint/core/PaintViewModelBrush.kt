@@ -4,10 +4,13 @@
 
 package com.reverie.paint.core
 
+import com.reverie.paint.core.brushstore.BrushDiagnostics
 import com.reverie.paint.core.brushstore.BrushIdPrefs
 import com.reverie.paint.core.brushstore.BrushIdentity
+import com.reverie.paint.core.brushstore.BrushStoreBootstrap
 import com.reverie.paint.core.brushstore.ResourceDirs
 import com.reverie.paint.core.brushstore.ResourceStore
+import java.io.IOException
 import android.graphics.Bitmap
 import android.os.Handler
 import android.os.HandlerThread
@@ -903,6 +906,111 @@ import kotlinx.coroutines.withContext
         }
     }
 
+    internal fun cleanupStaleImportTempFiles(cacheDir: File) {
+        runCatching {
+            val cutoff = System.currentTimeMillis() - 30L * 60L * 1000L
+            cacheDir.listFiles()?.forEach { f ->
+                if (f.isFile && f.name.startsWith("temp_import_") && f.lastModified() in 1 until cutoff) {
+                    f.delete()
+                }
+            }
+        }
+    }
+
+    /**
+     * ABR 零拷贝数据源 RAII 模板：
+     * 1. 快路径：若 Uri 对应本地常规文件 (S_ISREG)，直接通过 ParcelFileDescriptor 的
+     *    FileChannel 执行 Mmap / PagedChannel 读取，0 磁盘拷贝、0 临时文件；
+     * 2. 慢路径（云盘/管道流）：预检 cacheDir 可用空间后，以 64KB 缓冲分块流式落盘至临时文件，
+     *    并在 finally 中严格按 [AbrSource.close (unmap) -> tempFile.delete()] 顺序闭环释放。
+     */
+    private inline fun <T> PaintViewModel.withZeroCopyAbrSource(
+        uri: android.net.Uri,
+        expectedSize: Long,
+        block: (AbrSource) -> T,
+    ): T? {
+        val resolver = appContext.contentResolver
+
+        // 0. 清理陈旧临时文件
+        cleanupStaleImportTempFiles(appContext.cacheDir)
+
+        // 1. 本地 FD 零落盘快路径 (Fast-Path)
+        var fastPathSource: AbrSource? = null
+        var pfdToClose: android.os.ParcelFileDescriptor? = null
+        try {
+            val pfd = resolver.openFileDescriptor(uri, "r")
+            if (pfd != null) {
+                val stat = android.system.Os.fstat(pfd.fileDescriptor)
+                if (android.system.OsConstants.S_ISREG(stat.st_mode) && stat.st_size >= 4L) {
+                    pfdToClose = pfd
+                    val fis = java.io.FileInputStream(pfd.fileDescriptor)
+                    fastPathSource = AbrSource.fromChannel(fis.channel)
+                } else {
+                    pfd.close()
+                }
+            }
+        } catch (_: Throwable) {
+            runCatching { pfdToClose?.close() }
+            pfdToClose = null
+            fastPathSource = null
+        }
+
+        if (fastPathSource != null) {
+            return try {
+                fastPathSource.use { source ->
+                    block(source)
+                }
+            } finally {
+                runCatching { pfdToClose?.close() }
+            }
+        }
+
+        // 2. 兜底路径：流式写入 cacheDir 临时文件
+        val safetyMarginBytes = 16L * 1024L * 1024L // 预留 16MB 安全余量
+        if (expectedSize > 0L) {
+            val usable = appContext.cacheDir.usableSpace
+            if (usable < expectedSize + safetyMarginBytes) {
+                throw IOException("ENOSPC: cacheDir usable=$usable, required=${expectedSize + safetyMarginBytes}")
+            }
+        }
+
+        val tempAbr = File(
+            appContext.cacheDir,
+            "temp_import_${System.currentTimeMillis()}_${java.util.UUID.randomUUID().toString().take(8)}.abr",
+        )
+        return try {
+            val input = resolver.openInputStream(uri) ?: return null
+            input.use { inStream ->
+                java.io.FileOutputStream(tempAbr).use { fos ->
+                    val buf = ByteArray(64 * 1024)
+                    var bytesCopied = 0L
+                    while (true) {
+                        val read = inStream.read(buf)
+                        if (read < 0) break
+                        if (read == 0) continue
+                        if (expectedSize <= 0L && (bytesCopied shr 24) != ((bytesCopied + read) shr 24)) {
+                            if (appContext.cacheDir.usableSpace < safetyMarginBytes) {
+                                throw IOException("ENOSPC: cacheDir exhausted during streaming")
+                            }
+                        }
+                        fos.write(buf, 0, read)
+                        bytesCopied += read
+                    }
+                    fos.fd.sync()
+                }
+            }
+            if (!tempAbr.isFile || tempAbr.length() < 4L) return null
+
+            AbrSource.fromFile(tempAbr).use { source ->
+                block(source)
+            }
+        } finally {
+            if (tempAbr.exists() && !tempAbr.delete()) {
+                tempAbr.deleteOnExit()
+            }
+        }
+    }
+
     internal suspend fun PaintViewModel.importSingleBrushInternal(
         uri: android.net.Uri,
         targetGroup: String? = null,
@@ -940,6 +1048,7 @@ import kotlinx.coroutines.withContext
             val chosenGroup = targetGroup?.trim()?.takeIf { it.isNotEmpty() }
 
             if (com.reverie.paint.core.brushstore.BrushImportPipeline.isPreset(filename)) {
+                @Suppress("DEPRECATION")
                 if (fileSize > AbrParser.MAX_IMPORT_BYTES) {
                     notifyImportTooLarge()
                     return BrushImportResult(success = false)
@@ -963,10 +1072,6 @@ import kotlinx.coroutines.withContext
                 saveBrushGroups()
                 BrushImportResult(success = true, presetName = presetName, groupName = group)
             } else if (filename.endsWith(".abr", ignoreCase = true)) {
-                if (fileSize > AbrParser.MAX_IMPORT_BYTES) {
-                    notifyImportTooLarge()
-                    return BrushImportResult(success = false)
-                }
                 val packBaseName = filename.substringBeforeLast(".").trim().ifBlank { "ABR" }
                 val targetGroupName = chosenGroup ?: packBaseName
 
@@ -974,27 +1079,66 @@ import kotlinx.coroutines.withContext
                 val tipFileNameMap = mutableMapOf<Int, String>()
                 val tipUuidToFileName = mutableMapOf<String, String>()
                 val tipShaMap = mutableMapOf<String, String>()
+                val patternRefs = LinkedHashMap<String, ResourceStore.Ref>()
+                var patternIdx = 0
+                val resourceStore = BrushStoreBootstrap.resourceStore(appContext.filesDir)
 
-                val parseResult = resolver.openInputStream(uri)?.use { inStream ->
-                    AbrParser.parse(inStream, sizeHint = fileSize, basePackName = targetGroupName) { decodedTip ->
-                        // 1. Tip SHA-256 去重: 若该笔尖像素已在当前包存在，直接复用文件
-                        val sha = decodedTip.sha256
-                        val existingTipName = if (sha.isNotBlank()) tipShaMap[sha] else null
-                        val tipFileName = if (existingTipName != null) {
-                            existingTipName
-                        } else {
-                            val tipBytes = AbrParser.encodeTipPng(decodedTip)
-                            val registered = com.reverie.paint.core.brushstore.BrushStoreBootstrap.resourceStore(appContext.filesDir).register(
-                                tipBytes,
-                                com.reverie.paint.core.brushstore.ResourceStore.Kind.TIP,
-                                "${safeGroupPrefix}_tip_${decodedTip.index}.png",
-                            )
-                            if (sha.isNotBlank()) tipShaMap[sha] = registered.file
-                            registered.file
-                        }
-                        tipFileNameMap[decodedTip.index] = tipFileName
-                        tipUuidToFileName[decodedTip.uuid] = tipFileName
+                val parseResult = try {
+                    withZeroCopyAbrSource(uri, expectedSize = fileSize) { source ->
+                        AbrParser.parse(
+                            source,
+                            basePackName = targetGroupName,
+                            onPatternDecoded = { pattern ->
+                                runCatching {
+                                    val idx = patternIdx++
+                                    val token = pattern.uuid.ifBlank { idx.toString() }
+                                        .replace(Regex("""[\\/:*?"<>|\u0000-\u001F]"""), "_")
+                                        .ifBlank { idx.toString() }
+                                    val ref = resourceStore.register(
+                                        pattern.pngBytes,
+                                        ResourceStore.Kind.PATTERN,
+                                        "abr_pat_${safeGroupPrefix}_$token.png",
+                                    )
+                                    if (pattern.uuid.isNotEmpty()) patternRefs[pattern.uuid] = ref
+                                }.onFailure { t ->
+                                    BrushDiagnostics.log(
+                                        "abr_pattern_register_failed",
+                                        "uuid" to pattern.uuid,
+                                        "err" to t.javaClass.simpleName,
+                                    )
+                                }
+                            },
+                            onTipDecoded = { decodedTip ->
+                                // 1. Tip SHA-256 去重: 若该笔尖像素已在当前包存在，直接复用文件
+                                val sha = decodedTip.sha256
+                                val existingTipName = if (sha.isNotBlank()) tipShaMap[sha] else null
+                                val tipFileName = if (existingTipName != null) {
+                                    existingTipName
+                                } else {
+                                    val tipBytes = AbrParser.encodeTipPng(decodedTip)
+                                    val registered = resourceStore.register(
+                                        tipBytes,
+                                        ResourceStore.Kind.TIP,
+                                        "${safeGroupPrefix}_tip_${decodedTip.index}.png",
+                                    )
+                                    if (sha.isNotBlank()) tipShaMap[sha] = registered.file
+                                    registered.file
+                                }
+                                tipFileNameMap[decodedTip.index] = tipFileName
+                                tipUuidToFileName[decodedTip.uuid] = tipFileName
+                            },
+                        )
                     }
+                } catch (e: IOException) {
+                    BrushDiagnostics.log(
+                        "import_io_error",
+                        "file" to filename,
+                        "msg" to e.message,
+                    )
+                    withContext(Dispatchers.Main) {
+                        showActionToast(R.string.brush_studio_toast_import_failed)
+                    }
+                    return BrushImportResult(success = false)
                 }
 
                 if (parseResult?.tooLarge == true) {
@@ -1003,6 +1147,20 @@ import kotlinx.coroutines.withContext
                 }
                 if (parseResult == null || (parseResult.tips.isEmpty() && parseResult.presets.isEmpty())) {
                     return BrushImportResult(success = false)
+                }
+
+                // 非流式旧调用路径兜底：若 parseResult.patterns 不为空，用 registerPatterns 补齐未流式注册的图案
+                if (parseResult.patterns.isNotEmpty()) {
+                    val fallback = AbrPresetConverter.registerPatterns(
+                        parseResult.patterns,
+                        resourceStore,
+                        safeGroupPrefix,
+                    )
+                    for ((k, v) in fallback) {
+                        if (k !in patternRefs) {
+                            patternRefs[k] = v
+                        }
+                    }
                 }
 
                 val tipsByUuid = parseResult.tips.associateBy { it.uuid }
@@ -1018,14 +1176,6 @@ import kotlinx.coroutines.withContext
                 val importedPresetIds = mutableListOf<String>()
                 // W-08/W-09：撞名集合 = 内置 ∪ 已注册 ∪ 磁盘 .kpp/.myb，大小写不敏感
                 val takenPresetNames = com.reverie.paint.core.brushstore.BrushImportPipeline.takenNames(presetDir)
-
-                // 内嵌图案按内容寻址注册进 ResourceStore（patterns/ 目录，md5 去重）；键只用 uuid。
-                // 图案注册留给 reloadBrushPresets 的渲染线程，不在这条 IO 路径上调用。
-                val patternRefs = AbrPresetConverter.registerPatterns(
-                    parseResult.patterns,
-                    com.reverie.paint.core.brushstore.BrushStoreBootstrap.resourceStore(appContext.filesDir),
-                    safeGroupPrefix,
-                )
 
                 for ((idx, preset) in parseResult.presets.withIndex()) {
                     // Computed presets must NOT bind a sampled tip; see AbrParser.matchTipForPreset.
