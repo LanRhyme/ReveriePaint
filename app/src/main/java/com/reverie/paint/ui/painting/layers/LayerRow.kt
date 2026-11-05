@@ -508,7 +508,16 @@ internal fun LayerRow(
                 if (!(isMask && isPanelMask)) {
                     DrawerAction(Modifier.weight(1f), Color(0xFFB05552), R.drawable.ic_trash, stringResource(R.string.common_delete)) {
                         if (!isBg) {
-                            if (isMask) vm.removeMask(index) else vm.removeLayer(index)
+                            if (isMask) {
+                                vm.removeMask(index)
+                            } else {
+                                val pid = vm.panelIdForGroupRow(index)
+                                if (pid != null) {
+                                    vm.deletePanel(pid)
+                                } else {
+                                    vm.removeLayer(index)
+                                }
+                            }
                         }
                         onRevealClose()
                     }

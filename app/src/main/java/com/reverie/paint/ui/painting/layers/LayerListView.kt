@@ -994,10 +994,12 @@ internal fun LayerListView(
                         LayerRow(
                             vm = vm,
                             layer = layer,
-                            selected = layer.index == selectedIndex || run {
-                                val pid = vm.panelIdForGroupRow(layer.index)
-                                pid != null && vm.panelContentLayerIndex(pid) == vm.currentLayerIndex
-                            },
+                            selected = layer.index == selectedIndex || (
+                                groupRowCollapsed(layer) && run {
+                                    val pid = vm.panelIdForGroupRow(layer.index)
+                                    pid != null && vm.panelContentLayerIndex(pid) == vm.currentLayerIndex
+                                }
+                            ),
                             collapsed = groupRowCollapsed(layer),
                             hasNextSibling = hasNextSibling,
                             openDepths = openDepths,

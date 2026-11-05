@@ -1016,6 +1016,7 @@ internal fun PaintViewModel.moveLayerToGroup(
     }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.moveLayerToGroup(from, group)
+        ensurePanelBordersOnTop(scanEnginePanels())
     }
 }
 

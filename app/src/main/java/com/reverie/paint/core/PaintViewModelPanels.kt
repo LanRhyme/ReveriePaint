@@ -578,12 +578,15 @@ private fun PaintViewModel.ensurePanelGroupsDefaultCollapsed(s: PanelEngineScan)
 }
 
 /**
- * 分格组行识别: [layerIndex] 命中某分格组时返回其 panelId, 否则 null (节点 id 只用 ==
+ * 分格组行识别: [layerIndex] 命中某分格组或共用画容器时返回其代表 panelId, 否则 null (节点 id 只用 ==
  * 比较, 不做符号过滤); 镜像由 refreshPanels 重建后自动重新匹配。
  */
 internal fun PaintViewModel.panelIdForGroupRow(layerIndex: Int): Long? {
     val id = layers.getOrNull(layerIndex)?.id ?: return null
-    return panels.firstOrNull { it.groupId == id }?.panelId
+    val direct = panels.firstOrNull { it.groupId == id }?.panelId
+    if (direct != null) return direct
+    val share = panelShareGroups.firstOrNull { it.groupId == id } ?: return null
+    return panels.firstOrNull { it.meta.drawId == share.drawId }?.panelId
 }
 
 /** 这一格是否还和别的格子共用一张画。 */
@@ -672,13 +675,40 @@ internal fun PaintViewModel.currentPaintingPanelIds(): Set<Long> {
 internal fun PaintViewModel.isInsidePanelTree(layerIndex: Int): Boolean =
     layerIndex in layers.indices && isInGroupSubtree(panelRootGroupIdx, layerIndex)
 
-/** 落笔目标。共用时是隐藏容器里的内容层，否则是格子组里的内容层。 */
+/** 落笔目标。单格对应格子组内画层，共用画对应共享容器内的画层。 */
 internal fun PaintViewModel.panelContentLayerIndex(panelId: Long): Int {
     val mirror = panels.firstOrNull { it.panelId == panelId } ?: return -1
-    if (!panelSharesDraw(panelId)) return mirror.contentIdx
+    if (!panelSharesDraw(panelId)) {
+        if (isInGroupSubtree(mirror.groupIdx, currentLayerIndex) && currentLayerIndex != mirror.groupIdx) {
+            val cur = layers.getOrNull(currentLayerIndex)
+            if (cur != null && !isPanelTreeHidden(currentLayerIndex) && !LayerNodeType.isMask(cur.nodeType)) {
+                return currentLayerIndex
+            }
+        }
+        return mirror.contentIdx
+    }
     val share = panelShareGroups.firstOrNull { it.drawId == mirror.meta.drawId } ?: return mirror.contentIdx
-    if (share.contentId == -1L) return mirror.contentIdx
-    return layers.indexOfFirst { it.id == share.contentId }
+    if (share.groupId == -1L) return mirror.contentIdx
+    val shareIdx = layers.indexOfFirst { it.id == share.groupId }
+    if (shareIdx < 0) return -1
+    if (isInGroupSubtree(shareIdx, currentLayerIndex) && currentLayerIndex != shareIdx) {
+        val cur = layers.getOrNull(currentLayerIndex)
+        if (cur != null && !isPanelTreeHidden(currentLayerIndex) && !LayerNodeType.isMask(cur.nodeType)) {
+            return currentLayerIndex
+        }
+    }
+    val shareDepth = layers[shareIdx].depth
+    var topPaintIdx = -1
+    var i = shareIdx + 1
+    while (i < layers.size && layers[i].depth > shareDepth) {
+        val l = layers[i]
+        if (!isPanelTreeHidden(i) && !LayerNodeType.isMask(l.nodeType) && !l.isGroup) {
+            topPaintIdx = i
+        }
+        i++
+    }
+    if (topPaintIdx >= 0) return topPaintIdx
+    return if (share.contentId != -1L) layers.indexOfFirst { it.id == share.contentId } else -1
 }
 
 /** 获取指定分格在视觉/列表顺序上的前一格与后一格 ID */
@@ -691,7 +721,8 @@ internal fun PaintViewModel.adjacentPanelIds(panelId: Long): Pair<Long?, Long?> 
 }
 
 /**
- * 图层树里不该出现的行：跨格容器、共用画容器及其子层; 共用画时从属格隐藏 (只留主控格)。
+ * 图层树里不该出现的行：跨格容器、被共用画吸纳的原分格空壳组、分格内部辅助层(填充/边框)及其裁剪蒙版。
+ * 共用画容器 (share.groupId) 在图层树呈现为「分格画层 · N格」, 其画层作为子层展示, 不隐藏。
  * 分格蒙版另由 [panelCropStateFor] 判断。
  */
 internal fun PaintViewModel.isPanelTreeHidden(layerIndex: Int): Boolean {
@@ -705,13 +736,12 @@ internal fun PaintViewModel.isPanelTreeHidden(layerIndex: Int): Boolean {
     if (panelCrossMaskId != -1L) hiddenIds.add(panelCrossMaskId)
     if (panelCrossContentId != -1L) hiddenIds.add(panelCrossContentId)
     for (share in panelShareGroups) {
-        if (share.groupId != -1L) hiddenIds.add(share.groupId)
+        // 共用画容器在图层树中呈现为「分格画层 · N格」, 其内容画层作为子层展示; 仅隐藏其裁剪蒙版 (系统辅助层)
         if (share.maskId != -1L) hiddenIds.add(share.maskId)
-        if (share.contentId != -1L) hiddenIds.add(share.contentId)
     }
-    // 共用画时，非主控代表格的组在图层树中隐藏
+    // 共用画时，被合并画区的分格自身组（只有空的 fill/border，真实内容都在 share.groupId 中）在图层树中隐藏
     for (m in panels) {
-        if (!isRepresentativePanel(m.panelId)) {
+        if (panelSharesDraw(m.panelId) && panelShareGroups.any { it.drawId == m.meta.drawId }) {
             hiddenIds.add(m.groupId)
         }
     }
@@ -1141,22 +1171,31 @@ internal fun PaintViewModel.separatePanelDraw(panelId: Long) {
             val scan = scanEnginePanels()
             val share = scan.shareGroups.firstOrNull { it.drawId == drawId } ?: return@runCore
             val cur = scan.mirrors.firstOrNull { it.panelId == panelId } ?: return@runCore
-            if (share.contentId == -1L) return@runCore
-            val srcIdx = indexOfLayerId(share.contentId)
-            if (srcIdx < 0) return@runCore
-            if (recorder.recording) recorder.layerOp(RecordingEvents.L_COPY, srcIdx)
-            val copyIdx = ReverieCoreBridge.copyLayer(srcIdx)
-            if (copyIdx < 0) return@runCore
-            val copyId = ReverieCoreBridge.layerId(copyIdx)
-            clipLayerToPolygon(copyId, cur.meta.quad, keepInside = true)
-            clipLayerToPolygon(share.contentId, cur.meta.quad, keepInside = false)
-            val dest = indexOfLayerId(cur.groupId)
-            val copyNow = indexOfLayerId(copyId)
-            if (dest >= 0 && copyNow >= 0) {
-                if (recorder.recording) {
-                    recorder.layerOp(RecordingEvents.L_MOVE_TO_GROUP, copyNow, dest.toString())
+            val shareGroupNow = indexOfLayerId(share.groupId)
+            val pageBefore = LayerSnapshotProbe.read()
+            val allContents = if (pageBefore != null && shareGroupNow >= 0) {
+                contentLayerIdsOf(pageBefore, shareGroupNow).ifEmpty { listOf(share.contentId) }
+            } else {
+                listOf(share.contentId)
+            }
+            for (cId in allContents) {
+                if (cId == -1L) continue
+                val srcIdx = indexOfLayerId(cId)
+                if (srcIdx < 0) continue
+                if (recorder.recording) recorder.layerOp(RecordingEvents.L_COPY, srcIdx)
+                val copyIdx = ReverieCoreBridge.copyLayer(srcIdx)
+                if (copyIdx < 0) continue
+                val copyId = ReverieCoreBridge.layerId(copyIdx)
+                clipLayerToPolygon(copyId, cur.meta.quad, keepInside = true)
+                clipLayerToPolygon(cId, cur.meta.quad, keepInside = false)
+                val dest = indexOfLayerId(cur.groupId)
+                val copyNow = indexOfLayerId(copyId)
+                if (dest >= 0 && copyNow >= 0) {
+                    if (recorder.recording) {
+                        recorder.layerOp(RecordingEvents.L_MOVE_TO_GROUP, copyNow, dest.toString())
+                    }
+                    ReverieCoreBridge.moveLayerToGroup(copyNow, dest)
                 }
-                ReverieCoreBridge.moveLayerToGroup(copyNow, dest)
             }
             val groupNow = indexOfLayerId(cur.groupId)
             val resolved = cur.meta.style.resolve(panelDefaults)
