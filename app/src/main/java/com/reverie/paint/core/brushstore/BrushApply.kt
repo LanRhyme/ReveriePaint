@@ -46,8 +46,16 @@ object BrushApply {
 
     object NativeEngine : EngineFacade {
         override fun loadBrushPreset(index: Int): Boolean = ReverieCoreBridge.loadBrushPreset(index)
-        override fun loadBrushPresetFile(path: String): Boolean = ReverieCoreBridge.loadBrushPresetFile(path)
-        override fun currentTipResolved(): Boolean = ReverieCoreBridge.currentTipResolved()
+        override fun loadBrushPresetFile(path: String): Boolean = try {
+            ReverieCoreBridge.loadBrushPresetFile(path)
+        } catch (_: UnsatisfiedLinkError) {
+            false
+        }
+        override fun currentTipResolved(): Boolean = try {
+            ReverieCoreBridge.currentTipResolved()
+        } catch (_: UnsatisfiedLinkError) {
+            true
+        }
         override fun loadPatternResources(path: String): Int = ReverieCoreBridge.loadPatternResources(path)
         override fun setPresetIsEraser(isEraser: Boolean) = ReverieCoreBridge.setPresetIsEraser(isEraser)
         override fun setBrushCompositeOp(op: String) = ReverieCoreBridge.setBrushCompositeOp(BrushCompositeIds.canonical(op))
