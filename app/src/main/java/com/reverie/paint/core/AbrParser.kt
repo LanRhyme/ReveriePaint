@@ -1,12 +1,13 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 package com.reverie.paint.core
 
-import java.io.ByteArrayInputStream
-import java.io.ByteArrayOutputStream
-import java.io.DataInputStream
 import java.io.EOFException
+import java.io.File
 import java.io.InputStream
-import java.nio.ByteBuffer
-import java.nio.ByteOrder
+import java.nio.channels.FileChannel
 
 /**
  * Pure Kotlin streaming parser for Adobe Photoshop .abr brush collection files.
@@ -201,6 +202,7 @@ object AbrParser {
      * 343MB 的单次分配直接把进程打崩 (b90269b9e4 / 1692c1904d)。64MB 足够覆盖绝大多数
      * 商店画笔包, 再大的包请用户先在桌面端拆分。
      */
+    @Deprecated("Use AbrSource or File/FileChannel overloads without memory limit")
     const val MAX_IMPORT_BYTES = 64L * 1024 * 1024
 
     private val SUBVERSION_HEADER_SKIP = mapOf(1 to 47, 2 to 301)
@@ -236,6 +238,10 @@ object AbrParser {
 
     private const val MAX_TIP_SIDE = 8192
     private const val MAX_TIP_PIXELS = 64L * 1024 * 1024
+
+    internal const val MAX_RESYNC_SCAN_BYTES = 64L * 1024L
+    internal const val MAX_DESCRIPTOR_STRING_CHARS = 65536
+    internal const val MAX_DESCRIPTOR_RAW_BYTES = 16 * 1024 * 1024
 
     /**
      * Pairs an ABR preset with one of the parsed tips.
@@ -282,54 +288,88 @@ object AbrParser {
         return sb.toString()
     }
 
+    fun parse(
+        file: File,
+        basePackName: String = "ABR",
+        onPatternDecoded: ((AbrPatternResource) -> Unit)? = null,
+        onTipDecoded: ((AbrDecodedTip) -> Unit)? = null,
+    ): AbrParseResult {
+        if (!file.isFile || file.length() < 4L) {
+            return AbrParseResult(0, 0, emptyList(), emptyList())
+        }
+        return AbrSource.fromFile(file).use { source ->
+            parseSource(source, basePackName, onPatternDecoded, onTipDecoded)
+        }
+    }
+
+    fun parse(
+        channel: FileChannel,
+        basePackName: String = "ABR",
+        onPatternDecoded: ((AbrPatternResource) -> Unit)? = null,
+        onTipDecoded: ((AbrDecodedTip) -> Unit)? = null,
+    ): AbrParseResult {
+        if (channel.size() < 4L) {
+            return AbrParseResult(0, 0, emptyList(), emptyList())
+        }
+        return AbrSource.fromChannel(channel).use { source ->
+            parseSource(source, basePackName, onPatternDecoded, onTipDecoded)
+        }
+    }
+
+    internal fun parse(
+        source: AbrSource,
+        basePackName: String = "ABR",
+        onPatternDecoded: ((AbrPatternResource) -> Unit)? = null,
+        onTipDecoded: ((AbrDecodedTip) -> Unit)? = null,
+    ): AbrParseResult = parseSource(source, basePackName, onPatternDecoded, onTipDecoded)
+
     /**
      * Parses an ABR stream into decoded tips and preset configurations.
      * If [onTipDecoded] is provided, each decoded tip is dispatched immediately and
      * the in-memory tip stores a lightweight thumbnail instead of the full raw pixel array,
      * drastically reducing peak heap memory usage to prevent OOM on large ABR files.
-     *
-     * 不知道输入长度时走有上限的增量读取 (见 [MAX_IMPORT_BYTES])。
      */
     fun parse(
         input: InputStream,
         basePackName: String = "ABR",
         onTipDecoded: ((AbrDecodedTip) -> Unit)? = null,
-    ): AbrParseResult = parseStream(input, -1L, basePackName, onTipDecoded)
+    ): AbrParseResult = parse(input, -1L, basePackName, onTipDecoded)
 
     /**
      * 带长度提示的解析入口: 已知长度时一次分配到位, 避免 `readBytes()` 的双份峰值。
-     * [sizeHint] <= 0 表示未知, 走有上限的增量读取。
+     * [sizeHint] <= 0 表示未知。
      */
     fun parse(
         input: InputStream,
         sizeHint: Long,
         basePackName: String = "ABR",
         onTipDecoded: ((AbrDecodedTip) -> Unit)? = null,
-    ): AbrParseResult = parseStream(input, sizeHint, basePackName, onTipDecoded)
-
-    private fun parseStream(
-        input: InputStream,
-        sizeHint: Long,
-        basePackName: String,
-        onTipDecoded: ((AbrDecodedTip) -> Unit)?,
     ): AbrParseResult {
-        val bytes = readImportBytes(input, sizeHint) ?: return AbrParseResult(
-            version = 0, subversion = 0, tips = emptyList(), presets = emptyList(),
-            patterns = emptyList(), tooLarge = true,
-        )
+        if (input is java.io.FileInputStream) {
+            return parse(input.channel, basePackName, onPatternDecoded = null, onTipDecoded = onTipDecoded)
+        }
+        val bytes = input.readBytes()
         if (bytes.size < 4) {
             return AbrParseResult(0, 0, emptyList(), emptyList())
         }
+        return AbrSource.fromBytes(bytes).use { source ->
+            parseSource(source, basePackName, onPatternDecoded = null, onTipDecoded = onTipDecoded)
+        }
+    }
 
-        val dis = DataInputStream(ByteArrayInputStream(bytes))
-        val version = dis.readUnsignedShort()
-
+    private fun parseSource(
+        source: AbrSource,
+        basePackName: String,
+        onPatternDecoded: ((AbrPatternResource) -> Unit)?,
+        onTipDecoded: ((AbrDecodedTip) -> Unit)?,
+    ): AbrParseResult {
+        if (source.size < 4L) {
+            return AbrParseResult(0, 0, emptyList(), emptyList())
+        }
+        val version = source.u16(0L)
         return when (version) {
-            1, 2 -> parseVersion12(bytes, version, basePackName, onTipDecoded)
-            // v6 and later (v6 ~ v10) share the same `8BIM` section layout: `samp` holds the
-            // sampled tips and `desc` holds the ActionDescriptor. Adobe exports after CS6 are
-            // almost all v7~v10, so only accepting `6` meant those files produced zero presets.
-            in 6..MAX_SUPPORTED_VERSION -> parseVersion6(bytes, basePackName, onTipDecoded)
+            1, 2 -> parseVersion12(source, version, basePackName, onTipDecoded)
+            in 6..MAX_SUPPORTED_VERSION -> parseVersion6(source, basePackName, onPatternDecoded, onTipDecoded)
             else -> AbrParseResult(version, 0, emptyList(), emptyList())
         }
     }
@@ -338,26 +378,30 @@ object AbrParser {
      * 只读出 v6+ 文件的 `desc` 根描述符（不解 samp 位图），供键覆盖审计工具使用。
      * 非 v6+、无 desc 或解析失败返回 null；不影响导入链路。
      */
-    internal fun readDescriptorRoot(bytes: ByteArray): ActionDescriptorNode? {
-        if (bytes.size < 12) return null
-        val version = ByteBuffer.wrap(bytes, 0, 2).order(ByteOrder.BIG_ENDIAN).short.toInt()
+    internal fun readDescriptorRoot(bytes: ByteArray): ActionDescriptorNode? =
+        AbrSource.fromBytes(bytes).use { readDescriptorRoot(it) }
+
+    internal fun readDescriptorRoot(source: AbrSource): ActionDescriptorNode? {
+        if (source.size < 12L) return null
+        val version = source.u16(0L)
         if (version !in 6..MAX_SUPPORTED_VERSION) return null
-        var cursor = 4
-        while (cursor + 12 <= bytes.size) {
-            if (String(bytes, cursor, 4, Charsets.ISO_8859_1) != "8BIM") return null
-            val key = String(bytes, cursor + 4, 4, Charsets.ISO_8859_1)
-            val len = ByteBuffer.wrap(bytes, cursor + 8, 4).order(ByteOrder.BIG_ENDIAN).int.toLong() and 0xFFFFFFFFL
-            val start = cursor + 12
+        var cursor = 4L
+        while (cursor + 12L <= source.size) {
+            if (source.readString(cursor, 4, Charsets.ISO_8859_1) != "8BIM") return null
+            val key = source.readString(cursor + 4L, 4, Charsets.ISO_8859_1)
+            val len = source.u32(cursor + 8L)
+            val start = cursor + 12L
+            val end = (start + len).coerceAtMost(source.size)
             if (key == "desc") {
                 return try {
-                    val c = ByteCursor(bytes, start)
+                    val c = SourceCursor(source, start, end)
                     c.readInt32()
                     readActionDescriptor(c)
                 } catch (e: Exception) {
                     null
                 }
             }
-            cursor = (start + len).toInt().coerceAtMost(bytes.size)
+            cursor = if ((len and 1L) == 1L && end < source.size) end + 1L else end
         }
         return null
     }
@@ -389,69 +433,69 @@ object AbrParser {
     // ---------------------------------------------------------------------------------------------
 
     private fun parseVersion12(
-        bytes: ByteArray,
+        source: AbrSource,
         version: Int,
         basePackName: String,
         onTipDecoded: ((AbrDecodedTip) -> Unit)? = null,
     ): AbrParseResult {
-        val dis = DataInputStream(ByteArrayInputStream(bytes))
-        dis.readUnsignedShort() // version
-        val count = dis.readUnsignedShort()
+        val count = source.u16(2L)
 
         val tips = mutableListOf<AbrDecodedTip>()
         val presets = mutableListOf<AbrPresetInfo>()
 
-        var cursor = 4
+        var cursor = 4L
         for (i in 0 until count) {
-            if (cursor + 6 > bytes.size) break
-            val brushType = ByteBuffer.wrap(bytes, cursor, 2).order(ByteOrder.BIG_ENDIAN).short.toInt()
-            val brushSize = ByteBuffer.wrap(bytes, cursor + 2, 4).order(ByteOrder.BIG_ENDIAN).int
-            val nextBrush = cursor + 6 + brushSize
+            if (cursor + 6L > source.size) break
+            val brushType = source.i16(cursor).toInt()
+            val brushSize = source.i32(cursor + 2L)
+            val nextBrush = cursor + 6L + brushSize.toLong()
+            if (nextBrush <= cursor) break
 
-            cursor += 6
+            cursor += 6L
             if (brushType == 2) { // sampled brush
-                if (cursor + 6 > bytes.size) {
+                if (cursor + 6L > source.size) {
                     cursor = nextBrush
                     continue
                 }
                 // Discard 4 misc bytes, read 2 spacing bytes
-                val spacingVal = ByteBuffer.wrap(bytes, cursor + 4, 2).order(ByteOrder.BIG_ENDIAN).short.toInt()
+                val spacingVal = source.i16(cursor + 4L).toInt()
                 val spacing = if (spacingVal > 0) (spacingVal / 100.0).coerceIn(0.01, 5.0) else 0.25
-                cursor += 6
+                cursor += 6L
 
                 var brushName = "$basePackName ${i + 1}"
                 if (version == 2) {
-                    if (cursor + 4 <= bytes.size) {
-                        val nameLen = ByteBuffer.wrap(bytes, cursor, 4).order(ByteOrder.BIG_ENDIAN).int
-                        cursor += 4
-                        if (nameLen > 0 && cursor + nameLen * 2 <= bytes.size) {
-                            brushName = String(bytes, cursor, nameLen * 2, Charsets.UTF_16BE).trimEnd('\u0000')
-                            cursor += nameLen * 2
+                    if (cursor + 4L <= nextBrush && cursor + 4L <= source.size) {
+                        val nameLen = source.i32(cursor)
+                        cursor += 4L
+                        if (nameLen in 1..4096 && cursor + nameLen * 2L <= nextBrush && cursor + nameLen * 2L <= source.size) {
+                            brushName = source.readString(cursor, nameLen * 2, Charsets.UTF_16BE).trimEnd('\u0000')
+                            cursor += nameLen * 2L
                         }
                     }
                 }
 
                 // Discard 1 byte antialias + 8 bytes short bounds (9 bytes total)
-                cursor += 9
-                if (cursor + 19 <= bytes.size) {
-                    val top = ByteBuffer.wrap(bytes, cursor, 4).order(ByteOrder.BIG_ENDIAN).int
-                    val left = ByteBuffer.wrap(bytes, cursor + 4, 4).order(ByteOrder.BIG_ENDIAN).int
-                    val bottom = ByteBuffer.wrap(bytes, cursor + 8, 4).order(ByteOrder.BIG_ENDIAN).int
-                    val right = ByteBuffer.wrap(bytes, cursor + 12, 4).order(ByteOrder.BIG_ENDIAN).int
-                    val depth = ByteBuffer.wrap(bytes, cursor + 16, 2).order(ByteOrder.BIG_ENDIAN).short.toInt()
-                    val compression = bytes[cursor + 18].toInt()
-                    cursor += 19
+                cursor += 9L
+                if (cursor + 19L <= source.size) {
+                    val top = source.i32(cursor)
+                    val left = source.i32(cursor + 4L)
+                    val bottom = source.i32(cursor + 8L)
+                    val right = source.i32(cursor + 12L)
+                    val depth = source.i16(cursor + 16L).toInt()
+                    val compression = source.get(cursor + 18L).toInt()
+                    cursor += 19L
 
                     val width = right - left
                     val height = bottom - top
 
                     if (plausibleTipDimensions(width, height)) {
                         val tipData = if (compression == 1) {
-                            decodePackBitsScanlines(bytes, cursor, height, width)
+                            decodePackBitsScanlines(source, cursor, nextBrush.coerceAtMost(source.size), height, width)
                         } else {
                             val dataLen = width * height * (depth / 8).coerceAtLeast(1)
-                            if (cursor + dataLen <= bytes.size) {
-                                bytes.copyOfRange(cursor, cursor + dataLen)
+                            if (cursor + dataLen <= source.size) {
+                                val raw = source.sliceBytes(cursor, dataLen)
+                                if (depth == 16) tipDataTo8Bit(raw, width, height, depth) else raw
                             } else null
                         }
 
@@ -513,31 +557,37 @@ object AbrParser {
     // ---------------------------------------------------------------------------------------------
 
     private fun parseVersion6(
-        bytes: ByteArray,
+        source: AbrSource,
         basePackName: String,
+        onPatternDecoded: ((AbrPatternResource) -> Unit)? = null,
         onTipDecoded: ((AbrDecodedTip) -> Unit)? = null,
     ): AbrParseResult {
-        var cursor = 0
-        val version = ByteBuffer.wrap(bytes, cursor, 2).order(ByteOrder.BIG_ENDIAN).short.toInt()
-        cursor += 2
-        val subversion = ByteBuffer.wrap(bytes, cursor, 2).order(ByteOrder.BIG_ENDIAN).short.toInt()
-        cursor += 2
+        var cursor = 0L
+        val version = source.u16(cursor)
+        cursor += 2L
+        val subversion = source.u16(cursor)
+        cursor += 2L
 
         val tips = mutableListOf<AbrDecodedTip>()
         val patterns = mutableListOf<AbrPatternResource>()
         var descriptorRoot: ActionDescriptorNode? = null
 
-        val fileSize = bytes.size
-        while (cursor + 12 <= fileSize) {
-            val tag = String(bytes, cursor, 4, Charsets.ISO_8859_1)
+        val fileSize = source.size
+        while (cursor + 12L <= fileSize) {
+            val tag = source.readString(cursor, 4, Charsets.ISO_8859_1)
             if (tag != "8BIM") {
-                // Seek to next 8BIM if possible
+                if (cursor == 4L) {
+                    // 非 ABR 文件在头部魔数不匹配时快速早退
+                    break
+                }
+                // Seek to next 8BIM if possible, 有界扫描避免大文件假死
                 var found = false
-                for (p in cursor until fileSize - 8) {
-                    if (bytes[p] == '8'.code.toByte() &&
-                        bytes[p + 1] == 'B'.code.toByte() &&
-                        bytes[p + 2] == 'I'.code.toByte() &&
-                        bytes[p + 3] == 'M'.code.toByte()
+                val scanLimit = minOf(fileSize - 3L, cursor + MAX_RESYNC_SCAN_BYTES)
+                for (p in cursor until scanLimit) {
+                    if (source.get(p) == '8'.code.toByte() &&
+                        source.get(p + 1L) == 'B'.code.toByte() &&
+                        source.get(p + 2L) == 'I'.code.toByte() &&
+                        source.get(p + 3L) == 'M'.code.toByte()
                     ) {
                         cursor = p
                         found = true
@@ -548,26 +598,29 @@ object AbrParser {
                 continue
             }
 
-            val key = String(bytes, cursor + 4, 4, Charsets.ISO_8859_1)
-            val sectionLen = ByteBuffer.wrap(bytes, cursor + 8, 4).order(ByteOrder.BIG_ENDIAN).int.toLong() and 0xFFFFFFFFL
-            val sectionStart = cursor + 12
-            val sectionEnd = (sectionStart + sectionLen).toInt().coerceAtMost(fileSize)
+            val key = source.readString(cursor + 4L, 4, Charsets.ISO_8859_1)
+            val sectionLen = source.u32(cursor + 8L)
+            val sectionStart = cursor + 12L
+            val sectionEnd = (sectionStart + sectionLen).coerceAtMost(fileSize)
 
             if (key == "samp") {
-                tips.addAll(parseSampSection(bytes, sectionStart, sectionEnd, subversion, onTipDecoded))
+                tips.addAll(parseSampSection(source, sectionStart, sectionEnd, subversion, onTipDecoded))
             } else if (key == "desc") {
                 try {
-                    val descDis = ByteCursor(bytes, sectionStart)
+                    val descDis = SourceCursor(source, sectionStart, sectionEnd)
                     descDis.readInt32() // descriptor version, usually 16
                     descriptorRoot = readActionDescriptor(descDis)
                 } catch (e: Exception) {
-                    android.util.Log.w("AbrParser", "Failed to parse desc ActionDescriptor", e)
+                    runCatching { android.util.Log.w("AbrParser", "Failed to parse desc ActionDescriptor", e) }
                 }
             } else if (isPattSectionKey(key)) {
-                patterns.addAll(parsePattSection(bytes, sectionStart, sectionEnd))
+                val decoded = parsePattSection(source, sectionStart, sectionEnd, onPatternDecoded)
+                if (onPatternDecoded == null) {
+                    patterns.addAll(decoded)
+                }
             }
 
-            cursor = sectionEnd
+            cursor = if ((sectionLen and 1L) == 1L && sectionEnd < fileSize) sectionEnd + 1L else sectionEnd
         }
 
         val presets = mutableListOf<AbrPresetInfo>()
@@ -596,9 +649,9 @@ object AbrParser {
     }
 
     private fun parseSampSection(
-        bytes: ByteArray,
-        sectionStart: Int,
-        sectionEnd: Int,
+        source: AbrSource,
+        sectionStart: Long,
+        sectionEnd: Long,
         subversion: Int,
         onTipDecoded: ((AbrDecodedTip) -> Unit)? = null,
     ): List<AbrDecodedTip> {
@@ -608,42 +661,43 @@ object AbrParser {
 
         val skipOffset = SUBVERSION_HEADER_SKIP[subversion] ?: 301
 
-        while (cursor + 4 < sectionEnd) {
-            val entryLen = ByteBuffer.wrap(bytes, cursor, 4).order(ByteOrder.BIG_ENDIAN).int.toLong() and 0xFFFFFFFFL
-            val entryDataStart = cursor + 4
+        while (cursor + 4L < sectionEnd) {
+            val entryLen = source.u32(cursor)
+            val entryDataStart = cursor + 4L
             var paddedLen = entryLen
             if (paddedLen % 4L != 0L) {
                 paddedLen += (4L - (paddedLen % 4L))
             }
-            val nextEntryPos = (entryDataStart + paddedLen).toInt()
+            val nextEntryPos = entryDataStart + paddedLen
 
             if (entryDataStart >= sectionEnd) break
 
-            val uuidLen = bytes[entryDataStart].toInt() and 0xFF
-            val uuid = if (uuidLen > 0 && entryDataStart + 1 + uuidLen <= sectionEnd) {
-                String(bytes, entryDataStart + 1, uuidLen, Charsets.US_ASCII)
+            val uuidLen = source.u8(entryDataStart)
+            val uuid = if (uuidLen > 0 && entryDataStart + 1L + uuidLen <= sectionEnd) {
+                source.readString(entryDataStart + 1L, uuidLen, Charsets.US_ASCII)
             } else "tip_$index"
 
             val boundsStart = entryDataStart + skipOffset
-            if (boundsStart + 19 <= sectionEnd && boundsStart + 19 <= nextEntryPos) {
-                val top = ByteBuffer.wrap(bytes, boundsStart, 4).order(ByteOrder.BIG_ENDIAN).int
-                val left = ByteBuffer.wrap(bytes, boundsStart + 4, 4).order(ByteOrder.BIG_ENDIAN).int
-                val bottom = ByteBuffer.wrap(bytes, boundsStart + 8, 4).order(ByteOrder.BIG_ENDIAN).int
-                val right = ByteBuffer.wrap(bytes, boundsStart + 12, 4).order(ByteOrder.BIG_ENDIAN).int
-                val depth = ByteBuffer.wrap(bytes, boundsStart + 16, 2).order(ByteOrder.BIG_ENDIAN).short.toInt()
-                val compress = bytes[boundsStart + 18].toInt()
+            if (boundsStart + 19L <= sectionEnd && boundsStart + 19L <= nextEntryPos) {
+                val top = source.i32(boundsStart)
+                val left = source.i32(boundsStart + 4L)
+                val bottom = source.i32(boundsStart + 8L)
+                val right = source.i32(boundsStart + 12L)
+                val depth = source.i16(boundsStart + 16L).toInt()
+                val compress = source.get(boundsStart + 18L).toInt()
 
                 val width = right - left
                 val height = bottom - top
 
                 if (plausibleTipDimensions(width, height)) {
-                    val pixelDataStart = boundsStart + 19
+                    val pixelDataStart = boundsStart + 19L
                     val pixelData = if (compress == 1) {
-                        decodePackBitsScanlines(bytes, pixelDataStart, height, width)
+                        decodePackBitsScanlines(source, pixelDataStart, nextEntryPos.coerceAtMost(sectionEnd), height, width)
                     } else {
                         val needed = width * height * (depth / 8).coerceAtLeast(1)
                         if (pixelDataStart + needed <= sectionEnd) {
-                            bytes.copyOfRange(pixelDataStart, pixelDataStart + needed)
+                            val raw = source.sliceBytes(pixelDataStart, needed)
+                            if (depth == 16) tipDataTo8Bit(raw, width, height, depth) else raw
                         } else null
                     }
 
@@ -683,9 +737,21 @@ object AbrParser {
                 }
             }
 
-            cursor = if (nextEntryPos > cursor) nextEntryPos else (cursor + 4)
+            cursor = if (nextEntryPos > cursor) nextEntryPos else (cursor + 4L)
         }
         return tips
+    }
+
+    internal fun tipDataTo8Bit(raw: ByteArray, width: Int, height: Int, depth: Int): ByteArray {
+        if (depth <= 8 || raw.isEmpty()) return raw
+        val totalPixels = width * height
+        val out = ByteArray(totalPixels)
+        val bytesPerPixel = (depth / 8).coerceAtLeast(1)
+        val limit = minOf(totalPixels, raw.size / bytesPerPixel)
+        for (i in 0 until limit) {
+            out[i] = raw[i * bytesPerPixel]
+        }
+        return out
     }
 
     private fun isPattSectionKey(key: String): Boolean =
@@ -696,104 +762,115 @@ object AbrParser {
      * not a short — a short read shifts every later field by 2 bytes.
      * One bad pattern is skipped; the next starts at p+4+patternLength, 4-byte aligned.
      */
-    private fun parsePattSection(bytes: ByteArray, sectionStart: Int, sectionEnd: Int): List<AbrPatternResource> {
-        val out = mutableListOf<AbrPatternResource>()
+    private fun parsePattSection(
+        source: AbrSource,
+        sectionStart: Long,
+        sectionEnd: Long,
+        onPatternDecoded: ((AbrPatternResource) -> Unit)? = null,
+    ): List<AbrPatternResource> {
+        val out = if (onPatternDecoded == null) mutableListOf<AbrPatternResource>() else null
         var p = sectionStart
-        while (p + 4 <= sectionEnd) {
+        while (p + 4L <= sectionEnd) {
             val patternLength = try {
-                readBeInt(bytes, p)
+                source.i32(p)
             } catch (_: Exception) {
                 break
             }
-            val endLong = p.toLong() + 4L + patternLength.toLong()
-            if (patternLength <= 0 || endLong > sectionEnd || endLong > Int.MAX_VALUE) break
-            val patternEnd = endLong.toInt()
+            val endLong = p + 4L + patternLength.toLong()
+            if (patternLength <= 0 || endLong > sectionEnd) break
+            val patternEnd = endLong
             try {
-                parseOnePattern(bytes, p, patternEnd)?.let { out.add(it) }
+                parseOnePattern(source, p, patternEnd)?.let { pat ->
+                    if (onPatternDecoded != null) {
+                        onPatternDecoded.invoke(pat)
+                    } else {
+                        out?.add(pat)
+                    }
+                }
             } catch (_: Exception) {
                 // 单个图案抛错只跳过该图案
             }
             var next = patternEnd
-            val mis = next and 3
-            if (mis != 0) next += 4 - mis
+            val mis = (next and 3L).toInt()
+            if (mis != 0) next += (4 - mis).toLong()
             if (next <= p) break
             p = next
         }
-        return out
+        return out ?: emptyList()
     }
 
-    private fun parseOnePattern(bytes: ByteArray, p: Int, patternEnd: Int): AbrPatternResource? {
-        if (p + 16 > patternEnd) return null
-        if (readBeInt(bytes, p + 4) != 1) return null
-        val imageMode = readBeInt(bytes, p + 8)
+    private fun parseOnePattern(source: AbrSource, p: Long, patternEnd: Long): AbrPatternResource? {
+        if (p + 16L > patternEnd) return null
+        if (source.i32(p + 4L) != 1) return null
+        val imageMode = source.i32(p + 8L)
         if (imageMode == 2) return null
-        val height = readBeU16(bytes, p + 12)
-        val width = readBeU16(bytes, p + 14)
+        val height = source.u16(p + 12L)
+        val width = source.u16(p + 14L)
         if (!plausibleTipDimensions(width, height)) return null
 
-        var cursor = p + 16
-        val nameChars = readBeInt(bytes, cursor)
-        cursor += 4
+        var cursor = p + 16L
+        val nameChars = source.i32(cursor)
+        cursor += 4L
         if (nameChars < 0 || nameChars > 4096) return null
         val nameBytes = nameChars * 2
-        if (cursor.toLong() + nameBytes > patternEnd) return null
+        if (cursor + nameBytes.toLong() > patternEnd) return null
         val name = if (nameChars == 0) {
             ""
         } else {
-            String(bytes, cursor, nameBytes, Charsets.UTF_16BE).trimEnd('\u0000')
+            source.readString(cursor, nameBytes, Charsets.UTF_16BE).trimEnd('\u0000')
         }
-        cursor += nameBytes
+        cursor += nameBytes.toLong()
         if (cursor >= patternEnd) return null
-        val uuidLen = bytes[cursor].toInt() and 0xFF
-        cursor += 1
+        val uuidLen = source.u8(cursor)
+        cursor += 1L
         if (cursor + uuidLen > patternEnd) return null
-        val uuid = if (uuidLen == 0) "" else String(bytes, cursor, uuidLen, Charsets.US_ASCII)
-        cursor += uuidLen
+        val uuid = if (uuidLen == 0) "" else source.readString(cursor, uuidLen, Charsets.US_ASCII)
+        cursor += uuidLen.toLong()
 
-        if (cursor + 28 > patternEnd) return null
-        val vmalVersion = readBeInt(bytes, cursor)
-        cursor += 4
-        readBeInt(bytes, cursor) // vmalLength，必须读掉；通道头是定长的，不用它跳转
-        cursor += 4
+        if (cursor + 28L > patternEnd) return null
+        val vmalVersion = source.i32(cursor)
+        cursor += 4L
+        source.i32(cursor) // vmalLength，必须读掉；通道头是定长的，不用它跳转
+        cursor += 4L
         if (vmalVersion != 3) return null
-        cursor += 16 // top, left, bottom, right
-        val maxChannels = readBeInt(bytes, cursor)
-        cursor += 4
+        cursor += 16L // top, left, bottom, right
+        val maxChannels = source.i32(cursor)
+        cursor += 4L
         if (maxChannels <= 0 || maxChannels > 24) return null
 
         for (channel in 0 until maxChannels) {
-            if (cursor + 4 > patternEnd) return null
-            val isWritten = readBeInt(bytes, cursor)
-            cursor += 4
+            if (cursor + 4L > patternEnd) return null
+            val isWritten = source.i32(cursor)
+            cursor += 4L
             if (isWritten == 0) continue
-            if (cursor + 4 > patternEnd) return null
-            val channelLength = readBeInt(bytes, cursor)
-            cursor += 4
+            if (cursor + 4L > patternEnd) return null
+            val channelLength = source.i32(cursor)
+            cursor += 4L
             if (channelLength == 0) continue
-            val channelEndLong = cursor.toLong() + channelLength.toLong()
-            if (channelLength < 0 || channelEndLong > patternEnd || channelEndLong > bytes.size) {
+            val channelEndLong = cursor + channelLength.toLong()
+            if (channelLength < 0 || channelEndLong > patternEnd || channelEndLong > source.size) {
                 return null
             }
-            val channelEnd = channelEndLong.toInt()
+            val channelEnd = channelEndLong
             val headerBytes = 4 + 16 + 2 + 1
             if (cursor + headerBytes > channelEnd) {
                 cursor = channelEnd
                 continue
             }
-            val pixelDepth = readBeInt(bytes, cursor)
-            cursor += 4
-            val cTop = readBeInt(bytes, cursor)
-            cursor += 4
-            val cLeft = readBeInt(bytes, cursor)
-            cursor += 4
-            val cBottom = readBeInt(bytes, cursor)
-            cursor += 4
-            val cRight = readBeInt(bytes, cursor)
-            cursor += 4
-            val channelDepth = readBeU16(bytes, cursor)
-            cursor += 2
-            val compression = bytes[cursor].toInt() and 0xFF
-            cursor += 1
+            val pixelDepth = source.i32(cursor)
+            cursor += 4L
+            val cTop = source.i32(cursor)
+            cursor += 4L
+            val cLeft = source.i32(cursor)
+            cursor += 4L
+            val cBottom = source.i32(cursor)
+            cursor += 4L
+            val cRight = source.i32(cursor)
+            cursor += 4L
+            val channelDepth = source.u16(cursor)
+            cursor += 2L
+            val compression = source.u8(cursor)
+            cursor += 1L
             if (pixelDepth < 0 || channelDepth < 0) {
                 cursor = channelEnd
                 continue
@@ -813,10 +890,10 @@ object AbrParser {
             val pixels = when (compression) {
                 0 -> {
                     val need = cw.toLong() * chh.toLong()
-                    if (dataStart.toLong() + need > channelEnd) null
-                    else bytes.copyOfRange(dataStart, (dataStart.toLong() + need).toInt())
+                    if (dataStart + need > channelEnd) null
+                    else source.sliceBytes(dataStart, need.toInt())
                 }
-                1 -> decodePackBitsScanlines(bytes, dataStart, chh, cw)?.takeIf { it.size >= cw * chh }
+                1 -> decodePackBitsScanlines(source, dataStart, channelEnd, chh, cw)?.takeIf { it.size >= cw * chh }
                 else -> null
             }
             if (pixels != null) {
@@ -827,59 +904,63 @@ object AbrParser {
         return null
     }
 
-    private fun readBeInt(bytes: ByteArray, offset: Int): Int {
-        if (offset < 0 || offset + 4 > bytes.size) throw EOFException("int@$offset")
-        return ByteBuffer.wrap(bytes, offset, 4).order(ByteOrder.BIG_ENDIAN).int
-    }
-
-    private fun readBeU16(bytes: ByteArray, offset: Int): Int {
-        if (offset < 0 || offset + 2 > bytes.size) throw EOFException("short@$offset")
-        return ByteBuffer.wrap(bytes, offset, 2).order(ByteOrder.BIG_ENDIAN).short.toInt() and 0xFFFF
-    }
-
     // ---------------------------------------------------------------------------------------------
     // PackBits RLE Scanline Decoder
     // ---------------------------------------------------------------------------------------------
 
-    fun decodePackBitsScanlines(bytes: ByteArray, offset: Int, height: Int, width: Int): ByteArray? {
+    fun decodePackBitsScanlines(bytes: ByteArray, offset: Int, height: Int, width: Int): ByteArray? =
+        AbrSource.fromBytes(bytes).use {
+            decodePackBitsScanlines(it, offset.toLong(), bytes.size.toLong(), height, width)
+        }
+
+    internal fun decodePackBitsScanlines(
+        source: AbrSource,
+        offset: Long,
+        limit: Long,
+        height: Int,
+        width: Int,
+    ): ByteArray? {
+        if (height <= 0 || width <= 0 || !plausibleTipDimensions(width, height)) return null
         val totalPixels = height * width
         val output = ByteArray(totalPixels)
+        val safeLimit = minOf(limit, source.size)
 
         var cursor = offset
-        if (cursor + height * 2 > bytes.size) return null
+        if (cursor < 0L || cursor + height * 2L > safeLimit) return null
 
         val scanlineLengths = IntArray(height)
         for (i in 0 until height) {
-            scanlineLengths[i] = ByteBuffer.wrap(bytes, cursor, 2).order(ByteOrder.BIG_ENDIAN).short.toInt() and 0xFFFF
-            cursor += 2
+            scanlineLengths[i] = source.u16(cursor)
+            cursor += 2L
         }
 
         for (h in 0 until height) {
-            val lineLen = scanlineLengths[h]
+            val lineLen = scanlineLengths[h].toLong()
             val lineEnd = cursor + lineLen
-            if (lineEnd > bytes.size) break
+            if (lineEnd > safeLimit) break
 
             val lineStartOut = h * width
             val lineEndOut = lineStartOut + width
             var lineOutPos = lineStartOut
 
             while (cursor < lineEnd && lineOutPos < lineEndOut) {
-                val n = bytes[cursor++].toInt()
+                val n = source.get(cursor++).toInt()
                 if (n in 0..127) {
                     val count = n + 1
-                    val take = minOf(count, lineEnd - cursor, lineEndOut - lineOutPos)
+                    val take = minOf(count.toLong(), lineEnd - cursor, (lineEndOut - lineOutPos).toLong()).toInt()
                     if (take > 0) {
-                        System.arraycopy(bytes, cursor, output, lineOutPos, take)
-                        cursor += take
+                        source.copyTo(cursor, output, lineOutPos, take)
+                        cursor += take.toLong()
                         lineOutPos += take
                     }
                 } else if (n in -127..-1) {
                     val count = -n + 1
                     if (cursor < lineEnd) {
-                        val byteVal = bytes[cursor++]
+                        val byteVal = source.get(cursor++)
                         val take = minOf(count, lineEndOut - lineOutPos)
-                        for (c in 0 until take) {
-                            output[lineOutPos++] = byteVal
+                        if (take > 0) {
+                            java.util.Arrays.fill(output, lineOutPos, lineOutPos + take, byteVal)
+                            lineOutPos += take
                         }
                     }
                 }
@@ -914,10 +995,15 @@ object AbrParser {
         val items: Map<String, ActionDescriptorValue>,
     )
 
-    private class ByteCursor(val bytes: ByteArray, var pos: Int) {
+    internal class SourceCursor(
+        val source: AbrSource,
+        var pos: Long,
+        val limit: Long = source.size,
+    ) {
         fun readInt32(): Int {
-            val v = ByteBuffer.wrap(bytes, pos, 4).order(ByteOrder.BIG_ENDIAN).int
-            pos += 4
+            if (pos + 4L > limit) throw EOFException("Int32 past limit: pos=$pos limit=$limit")
+            val v = source.i32(pos)
+            pos += 4L
             return v
         }
 
@@ -926,58 +1012,78 @@ object AbrParser {
         }
 
         fun readInt64(): Long {
-            val v = ByteBuffer.wrap(bytes, pos, 8).order(ByteOrder.BIG_ENDIAN).long
-            pos += 8
+            if (pos + 8L > limit) throw EOFException("Int64 past limit: pos=$pos limit=$limit")
+            val v = source.i64(pos)
+            pos += 8L
             return v
         }
 
         fun readDouble(): Double {
-            val v = ByteBuffer.wrap(bytes, pos, 8).order(ByteOrder.BIG_ENDIAN).double
-            pos += 8
+            if (pos + 8L > limit) throw EOFException("Double past limit: pos=$pos limit=$limit")
+            val v = source.f64(pos)
+            pos += 8L
             return v
         }
 
         fun readByte(): Byte {
-            return bytes[pos++]
+            if (pos >= limit) throw EOFException("Byte past limit: pos=$pos limit=$limit")
+            return source.get(pos++)
         }
 
         fun readBytes(len: Int): ByteArray {
-            val arr = bytes.copyOfRange(pos, pos + len)
-            pos += len
+            if (len < 0 || len > MAX_DESCRIPTOR_RAW_BYTES || pos + len.toLong() > limit) {
+                throw EOFException("readBytes out of bounds or too large: len=$len pos=$pos limit=$limit")
+            }
+            val arr = source.sliceBytes(pos, len)
+            pos += len.toLong()
             return arr
         }
 
         fun readUnicodeString(): String {
-            val charCount = readUInt32().toInt()
-            val byteCount = charCount * 2
-            if (byteCount <= 0 || pos + byteCount > bytes.size) return ""
-            val s = String(bytes, pos, byteCount, Charsets.UTF_16BE).trimEnd('\u0000')
+            val charCount = readUInt32()
+            if (charCount == 0L) return ""
+            if (charCount > MAX_DESCRIPTOR_STRING_CHARS) {
+                throw EOFException("UnicodeString charCount exceeds limit: $charCount > $MAX_DESCRIPTOR_STRING_CHARS")
+            }
+            val byteCount = charCount * 2L
+            if (pos + byteCount > limit) {
+                throw EOFException("UnicodeString past limit: pos=$pos, byteCount=$byteCount, limit=$limit")
+            }
+            val s = source.readString(pos, byteCount.toInt(), Charsets.UTF_16BE).trimEnd('\u0000')
             pos += byteCount
             return s
         }
 
         fun readIdString(): String {
-            val len = readUInt32().toInt()
-            return if (len == 0) {
+            val len = readUInt32()
+            return if (len == 0L) {
                 readTypeTag()
             } else {
-                val s = String(bytes, pos, len, Charsets.US_ASCII)
+                if (len !in 1L..4096L) {
+                    throw EOFException("IdString len out of bounds (1..4096): $len")
+                }
+                if (pos + len > limit) {
+                    throw EOFException("IdString past limit: pos=$pos, len=$len, limit=$limit")
+                }
+                val s = source.readString(pos, len.toInt(), Charsets.US_ASCII)
                 pos += len
                 s
             }
         }
 
         fun readTypeTag(): String {
-            val s = String(bytes, pos, 4, Charsets.ISO_8859_1)
-            pos += 4
+            if (pos + 4L > limit) throw EOFException("TypeTag past limit: pos=$pos limit=$limit")
+            val s = source.readString(pos, 4, Charsets.ISO_8859_1)
+            pos += 4L
             return s
         }
 
         fun readReference(): List<Any> {
-            val count = readUInt32().toInt()
+            val count = readUInt32().toInt().coerceAtMost(4096)
             val list = mutableListOf<Any>()
             for (i in 0 until count) {
-                when (val refType = readTypeTag()) {
+                if (pos >= limit) break
+                when (readTypeTag()) {
                     "prop" -> {
                         readUnicodeString()
                         readIdString()
@@ -1011,13 +1117,14 @@ object AbrParser {
         }
     }
 
-    private fun readActionDescriptor(c: ByteCursor): ActionDescriptorNode {
+    private fun readActionDescriptor(c: SourceCursor): ActionDescriptorNode {
         val name = c.readUnicodeString()
         val classId = c.readIdString()
         val count = c.readUInt32().toInt()
         val items = mutableMapOf<String, ActionDescriptorValue>()
 
         for (i in 0 until count) {
+            if (c.pos >= c.limit) break
             val key = c.readIdString()
             val typeTag = c.readTypeTag()
             val value = readDescriptorValue(c, typeTag)
@@ -1027,7 +1134,7 @@ object AbrParser {
         return ActionDescriptorNode(name, classId, items)
     }
 
-    private fun readDescriptorValue(c: ByteCursor, typeTag: String): ActionDescriptorValue {
+    private fun readDescriptorValue(c: SourceCursor, typeTag: String): ActionDescriptorValue {
         return when (typeTag) {
             "Objc", "GlbO" -> {
                 val sub = readActionDescriptor(c)
@@ -1037,6 +1144,7 @@ object AbrParser {
                 val count = c.readUInt32().toInt()
                 val list = mutableListOf<ActionDescriptorValue>()
                 for (i in 0 until count) {
+                    if (c.pos >= c.limit) break
                     val itemType = c.readTypeTag()
                     list.add(readDescriptorValue(c, itemType))
                 }
