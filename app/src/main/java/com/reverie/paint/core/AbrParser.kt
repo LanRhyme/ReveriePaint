@@ -1707,6 +1707,7 @@ object AbrParser {
  *
  * 超过上限返回 null; 调用方把它映射成"包太大"的提示。
  */
+@Suppress("DEPRECATION")
 internal fun readImportBytes(
     input: InputStream,
     sizeHint: Long = -1L,
