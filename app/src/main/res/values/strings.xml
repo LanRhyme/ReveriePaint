@@ -2407,6 +2407,39 @@
     <string name="sponsor_prompt_toast_suppressed">已关闭赞助提醒，非常感谢你的支持</string>
     <string name="sponsor_prompt_toast_postponed">感谢相伴，将在未来继续提醒</string>
 
+    <!-- Creation Statistics -->
+    <string name="settings_creation_stats">创作数据</string>
+    <string name="settings_nav_stats_sub">查看作画时长、笔画统计与活跃日历</string>
+    <string name="stats_title">创作数据与成就</string>
+    <string name="stats_subtitle">见证每一次灵感迸发与笔触沉淀</string>
+    <string name="stats_total_duration">累计作画时长</string>
+    <string name="stats_total_strokes">累计绘制笔画</string>
+    <string name="stats_total_canvases">累计创作画卷</string>
+    <string name="stats_total_exports">累计导出作品</string>
+    <string name="stats_current_streak">当前连续作画</string>
+    <string name="stats_longest_streak">历史最长连击</string>
+    <string name="stats_active_days_year">年度活跃天数</string>
+    <string name="stats_heatmap_title">创作活跃日历</string>
+    <string name="stats_heatmap_sub">记录过去 52 周的每日创作轨迹</string>
+    <string name="stats_heatmap_less">少</string>
+    <string name="stats_heatmap_more">多</string>
+    <string name="stats_top_aspect_ratios">常用画幅比例</string>
+    <string name="stats_top_brushes">常用画笔偏好</string>
+    <string name="stats_day_no_activity">该日暂无创作记录</string>
+    <string name="stats_day_detail">%1$s · 作画 %2$s · 落笔 %3$s 笔</string>
+    <string name="stats_hours_mins">%1$d 小时 %2$d 分</string>
+    <string name="stats_mins_only">%1$d 分钟</string>
+    <string name="stats_days_unit">%1$d 天</string>
+    <string name="stats_times_unit">%1$d 次</string>
+    <string name="stats_canvases_unit">%1$d 卷</string>
+    <string name="stats_strokes_unit">%1$s 笔</string>
+    <string name="stats_day_mon">一</string>
+    <string name="stats_day_wed">三</string>
+    <string name="stats_day_fri">五</string>
+    <string name="stats_day_sun">日</string>
+    <string name="stats_category_overview">核心数据</string>
+    <string name="stats_category_preferences">创作习惯与偏好</string>
+
     <!-- Theme Settings -->
     <string name="theme_settings_title">主题设置</string>
     <string name="theme_settings_subtitle">全局莫兰迪调色盘、暗黑模式与界面视觉缩放</string>

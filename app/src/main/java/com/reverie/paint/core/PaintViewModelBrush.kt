@@ -527,6 +527,7 @@ import kotlinx.coroutines.withContext
         val preset = brushPresets.firstOrNull { it.index == index }
         if (preset != null) {
             recordRecentBrush(preset.id)
+            recordBrushUsageStats(preset.name)
         }
         val isBuiltIn = preset?.isBuiltIn == true
         val isEraserPreset = preset?.group == "橡皮擦" || preset?.name?.startsWith("a)_Eraser", ignoreCase = true) == true || preset?.name?.contains("Eraser", ignoreCase = true) == true

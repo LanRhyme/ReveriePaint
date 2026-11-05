@@ -1947,6 +1947,7 @@ class PaintViewModel : ViewModel() {
         val cur = prefs.getInt("created_canvas_count", 0) + 1
         prefs.edit().putInt("created_canvas_count", cur).apply()
         createdCanvasCount = cur
+        CreationStatsManager.recordCanvasCreated(appContext)
     }
 
     fun checkSponsorPromptTrigger() {
@@ -6962,6 +6963,18 @@ class PaintViewModel : ViewModel() {
     internal val appContextReady: Boolean get() = ::appContext.isInitialized
 
     internal fun hasAppContext(): Boolean = ::appContext.isInitialized
+
+    fun recordCreationSession(strokes: Int, duration: Long) {
+        if (::appContext.isInitialized) {
+            CreationStatsManager.recordSession(appContext, strokes, duration)
+        }
+    }
+
+    fun recordBrushUsageStats(brushName: String) {
+        if (::appContext.isInitialized) {
+            CreationStatsManager.recordBrushUsage(appContext, brushName)
+        }
+    }
     var selectionMask: ByteArray? by mutableStateOf(null)
     var hasSelection by mutableStateOf(false)
 

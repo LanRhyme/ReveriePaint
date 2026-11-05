@@ -2407,6 +2407,39 @@
     <string name="sponsor_prompt_toast_suppressed">Sponsorship reminders disabled, thank you for your support</string>
     <string name="sponsor_prompt_toast_postponed">Thank you, we will remind you in the future</string>
 
+    <!-- Creation Statistics -->
+    <string name="settings_creation_stats">Creation Stats</string>
+    <string name="settings_nav_stats_sub">View drawing time, strokes, and activity calendar</string>
+    <string name="stats_title">Creation Stats &amp; Insights</string>
+    <string name="stats_subtitle">Tracing every stroke and burst of inspiration</string>
+    <string name="stats_total_duration">Total Drawing Time</string>
+    <string name="stats_total_strokes">Total Strokes</string>
+    <string name="stats_total_canvases">Artworks Created</string>
+    <string name="stats_total_exports">Total Exports</string>
+    <string name="stats_current_streak">Current Streak</string>
+    <string name="stats_longest_streak">Longest Streak</string>
+    <string name="stats_active_days_year">Active Days Past Year</string>
+    <string name="stats_heatmap_title">Activity Heatmap</string>
+    <string name="stats_heatmap_sub">Daily creation footprint over the past 52 weeks</string>
+    <string name="stats_heatmap_less">Less</string>
+    <string name="stats_heatmap_more">More</string>
+    <string name="stats_top_aspect_ratios">Favorite Canvas Ratios</string>
+    <string name="stats_top_brushes">Most Used Brushes</string>
+    <string name="stats_day_no_activity">No creation activity on this day</string>
+    <string name="stats_day_detail">%1$s · Drawing time %2$s · %3$s strokes</string>
+    <string name="stats_hours_mins">%1$d h %2$d m</string>
+    <string name="stats_mins_only">%1$d min</string>
+    <string name="stats_days_unit">%1$d days</string>
+    <string name="stats_times_unit">%1$d times</string>
+    <string name="stats_canvases_unit">%1$d works</string>
+    <string name="stats_strokes_unit">%1$s strokes</string>
+    <string name="stats_day_mon">Mon</string>
+    <string name="stats_day_wed">Wed</string>
+    <string name="stats_day_fri">Fri</string>
+    <string name="stats_day_sun">Sun</string>
+    <string name="stats_category_overview">Key Metrics</string>
+    <string name="stats_category_preferences">Preferences &amp; Habits</string>
+
     <!-- Theme Settings -->
     <string name="theme_settings_title">Theme Settings</string>
     <string name="theme_settings_subtitle">Global Morandi palette, dark mode, and UI scaling</string>

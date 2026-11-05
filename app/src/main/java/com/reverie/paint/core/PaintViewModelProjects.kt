@@ -121,6 +121,10 @@ internal fun PaintViewModel.saveProject(
                 return@runCore
             }
             Breadcrumbs.record("Save", "saveProject SUCCESS: $name ($totalStrokes strokes)")
+            val addedStrokes = (totalStrokes - initialStrokeCount).coerceAtLeast(0)
+            if (addedStrokes > 0 || elapsedSeconds > 0L) {
+                recordCreationSession(addedStrokes, elapsedSeconds)
+            }
             currentProjectFile = targetFile.absolutePath
             // Renaming from the save dialog moves this working association; do not let the
             // previous file and the renamed artwork share a mutable reference selection.
@@ -1503,6 +1507,10 @@ internal fun PaintViewModel.goHome() {
     docName = ""
     isModified = false
     selectionDirty = false
+    val addedStrokes = (totalStrokes - initialStrokeCount).coerceAtLeast(0)
+    if (addedStrokes > 0 || elapsedSeconds > 0L) {
+        recordCreationSession(addedStrokes, elapsedSeconds)
+    }
     initialStrokeCount = 0
     totalStrokes = 0
     lastAutoSaveTimeMs = 0L
