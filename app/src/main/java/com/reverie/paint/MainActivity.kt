@@ -10,7 +10,9 @@ import android.graphics.drawable.ColorDrawable
 import android.os.Bundle
 import android.view.DragEvent
 import androidx.activity.ComponentActivity
+import androidx.activity.SystemBarStyle
 import androidx.activity.compose.setContent
+import androidx.activity.enableEdgeToEdge
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.LocalIndication
 import androidx.compose.ui.graphics.toArgb
@@ -70,34 +72,29 @@ class MainActivity : ComponentActivity() {
                     android.view.WindowManager.LayoutParams.LAYOUT_IN_DISPLAY_CUTOUT_MODE_DEFAULT
                 }
 
+                androidx.core.view.WindowCompat.setDecorFitsSystemWindows(w, false)
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
+                    val lp = w.attributes
+                    lp.layoutInDisplayCutoutMode = cutoutMode
+                    w.attributes = lp
+                }
+                w.statusBarColor = android.graphics.Color.TRANSPARENT
+                w.navigationBarColor = android.graphics.Color.TRANSPARENT
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    w.isStatusBarContrastEnforced = false
+                    w.isNavigationBarContrastEnforced = false
+                }
+
                 if (enable) {
-                    androidx.core.view.WindowCompat
-                        .setDecorFitsSystemWindows(w, false)
                     controller.hide(
-                        androidx.core.view.WindowInsetsCompat.Type
-                            .systemBars(),
+                        androidx.core.view.WindowInsetsCompat.Type.systemBars(),
                     )
                     controller.systemBarsBehavior =
                         androidx.core.view.WindowInsetsControllerCompat.BEHAVIOR_SHOW_TRANSIENT_BARS_BY_SWIPE
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                        val lp = w.attributes
-                        lp.layoutInDisplayCutoutMode = cutoutMode
-                        w.attributes = lp
-                    }
-                    w.statusBarColor = android.graphics.Color.TRANSPARENT
-                    w.navigationBarColor = android.graphics.Color.TRANSPARENT
                 } else {
-                    androidx.core.view.WindowCompat
-                        .setDecorFitsSystemWindows(w, true)
                     controller.show(
-                        androidx.core.view.WindowInsetsCompat.Type
-                            .systemBars(),
+                        androidx.core.view.WindowInsetsCompat.Type.systemBars(),
                     )
-                    if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.P) {
-                        val lp = w.attributes
-                        lp.layoutInDisplayCutoutMode = cutoutMode
-                        w.attributes = lp
-                    }
                     currentViewModel?.let { vm ->
                         val isDark = vm.isCurrentlyDark()
                         val colors = if (isDark) com.reverie.paint.ui.theme.MorandiDarkColors else com.reverie.paint.ui.theme.MorandiLightColors
@@ -114,10 +111,13 @@ class MainActivity : ComponentActivity() {
             val act = activityInstance ?: return
             act.runOnUiThread {
                 val w = act.window
-                val barColor = colors.bg.toArgb()
-                w.statusBarColor = barColor
-                w.navigationBarColor = barColor
-                w.setBackgroundDrawable(ColorDrawable(barColor))
+                w.statusBarColor = android.graphics.Color.TRANSPARENT
+                w.navigationBarColor = android.graphics.Color.TRANSPARENT
+                if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.Q) {
+                    w.isStatusBarContrastEnforced = false
+                    w.isNavigationBarContrastEnforced = false
+                }
+                w.setBackgroundDrawable(ColorDrawable(colors.bg.toArgb()))
                 val controller = androidx.core.view.WindowInsetsControllerCompat(w, w.decorView)
                 controller.isAppearanceLightStatusBars = !isDark
                 controller.isAppearanceLightNavigationBars = !isDark
@@ -167,6 +167,17 @@ class MainActivity : ComponentActivity() {
         activityInstance = this
         LanguageManager.init(this)
         applyHighRefreshRate(this)
+
+        val vm = ViewModelProvider(this)[PaintViewModel::class.java]
+        currentViewModel = vm
+        val initialIsDark = vm.isCurrentlyDark()
+        enableEdgeToEdge(
+            statusBarStyle = if (initialIsDark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                             else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+            navigationBarStyle = if (initialIsDark) SystemBarStyle.dark(android.graphics.Color.TRANSPARENT)
+                                 else SystemBarStyle.light(android.graphics.Color.TRANSPARENT, android.graphics.Color.TRANSPARENT),
+        )
+
         // Give Qt's Android layer a live Activity reference (see
         // ReverieCoreBridge.initQtAndroid) so KF6I18n's context() calls
         // don't crash with a NULL jclass.
@@ -177,8 +188,6 @@ class MainActivity : ComponentActivity() {
         // a class-init block would cache null and KF6I18n would crash.
         com.reverie.paint.core.ReverieCoreBridge
             .ensureLoaded()
-        val vm = ViewModelProvider(this)[PaintViewModel::class.java]
-        currentViewModel = vm
         // 原生崩溃快照里要带上"当前页面/工具/画布", 这里补一次刷新:
         // 冷启动后几秒内崩溃时, 光靠 Breadcrumbs 触发可能还没发生过任何用户操作
         com.reverie.paint.core.NativeCrashContext.requestRefresh()
@@ -188,10 +197,10 @@ class MainActivity : ComponentActivity() {
         vm.syncSettingsFromPrefs()
         // 提前在 onCreate 启动笔刷加载，与 Compose UI 挂载和首帧渲染并发执行，彻底消除冷启动进入画布时笔刷面板的延迟与白屏
         vm.loadBrushPresets()
-        applyImmersive(vm.immersiveMode, vm.extendToCutout)
-        val initialIsDark = vm.isCurrentlyDark()
         val initialColors = if (initialIsDark) com.reverie.paint.ui.theme.MorandiDarkColors else com.reverie.paint.ui.theme.MorandiLightColors
         applySystemBarsTheme(initialColors, initialIsDark)
+        val initialImmerse = (vm.currentPage == Page.PAINTING && vm.immersiveMode)
+        applyImmersive(initialImmerse, vm.extendToCutout)
         setContent {
             val vm: PaintViewModel = viewModel()
             currentViewModel = vm
@@ -222,10 +231,13 @@ class MainActivity : ComponentActivity() {
                 vm.loadBrushPresets()
                 handleIncomingIntent(intent)
             }
-            applyImmersive(vm.immersiveMode, vm.extendToCutout)
+            val appPage = vm.currentPage
+            val shouldImmerse = (appPage == Page.PAINTING && vm.immersiveMode)
+            androidx.compose.runtime.LaunchedEffect(shouldImmerse, vm.extendToCutout) {
+                applyImmersive(shouldImmerse, vm.extendToCutout)
+            }
             // 页面切换时刷新手写笔音效门控: 只有绘画页 + 前台才保持 AudioTrack
             // 预热, 其余页面挂起, 避免常驻静音输出被系统判为"播放媒体"而耗电
-            val appPage = vm.currentPage
             androidx.compose.runtime.LaunchedEffect(appPage) {
                 com.reverie.paint.core.Breadcrumbs.record("Navigation", "Current page: $appPage")
                 vm.refreshStylusAudioGate()
@@ -403,9 +415,8 @@ class MainActivity : ComponentActivity() {
         if (vm != null) {
             val driver = vm.stylusDriver ?: vm.getOrCreateStylusDriver(this)
             driver.onActivityResume(this)
-            if (vm.immersiveMode) {
-                applyImmersive(true, vm.extendToCutout)
-            }
+            val shouldImmerse = (vm.currentPage == Page.PAINTING && vm.immersiveMode)
+            applyImmersive(shouldImmerse, vm.extendToCutout)
         }
     }
 
@@ -433,9 +444,8 @@ class MainActivity : ComponentActivity() {
             applyHighRefreshRate(this)
             com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.applyHighRefreshRateAndUnbuffered()
             currentViewModel?.let { vm ->
-                if (vm.immersiveMode) {
-                    applyImmersive(true, vm.extendToCutout)
-                }
+                val shouldImmerse = (vm.currentPage == Page.PAINTING && vm.immersiveMode)
+                applyImmersive(shouldImmerse, vm.extendToCutout)
             }
         }
         val vm = currentViewModel
@@ -450,18 +460,16 @@ class MainActivity : ComponentActivity() {
         applyHighRefreshRate(this)
         com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.applyHighRefreshRateAndUnbuffered()
         currentViewModel?.let { vm ->
-            if (vm.immersiveMode) {
-                applyImmersive(true, vm.extendToCutout)
-            }
+            val shouldImmerse = (vm.currentPage == Page.PAINTING && vm.immersiveMode)
+            applyImmersive(shouldImmerse, vm.extendToCutout)
         }
     }
 
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         currentViewModel?.let { vm ->
-            if (vm.immersiveMode) {
-                applyImmersive(true, vm.extendToCutout)
-            }
+            val shouldImmerse = (vm.currentPage == Page.PAINTING && vm.immersiveMode)
+            applyImmersive(shouldImmerse, vm.extendToCutout)
             val dm = resources.displayMetrics
             val density = dm.density
             val screenW = if (newConfig.screenWidthDp > 0) newConfig.screenWidthDp * density else dm.widthPixels.toFloat()

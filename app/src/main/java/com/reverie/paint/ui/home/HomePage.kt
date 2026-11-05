@@ -442,6 +442,7 @@ fun HomePage(vm: PaintViewModel) {
                             modifier =
                                 Modifier
                                     .fillMaxWidth()
+                                    .statusBarsPadding()
                                     .padding(horizontal = 16.dp, vertical = 12.dp),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
@@ -865,7 +866,10 @@ fun HomePage(vm: PaintViewModel) {
                                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                                     verticalArrangement = Arrangement.spacedBy(16.dp),
-                                    contentPadding = PaddingValues(top = 8.dp, bottom = 100.dp),
+                                    contentPadding = PaddingValues(
+                                        top = 8.dp,
+                                        bottom = 110.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding(),
+                                    ),
                                 ) {
                                     itemsIndexed(
                                         items = displayProjects,

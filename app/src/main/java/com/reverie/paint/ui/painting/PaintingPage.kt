@@ -43,6 +43,7 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -1210,7 +1211,13 @@ fun PaintingPage(
                             }
                         }
 
-                        return Modifier.align(baseAlignment).then(paddingModifier)
+                        val insetsModifier = when (edge) {
+                            com.reverie.paint.model.PanelEdge.TOP -> Modifier.statusBarsPadding()
+                            com.reverie.paint.model.PanelEdge.BOTTOM -> Modifier.navigationBarsPadding()
+                            else -> Modifier
+                        }
+
+                        return Modifier.align(baseAlignment).then(insetsModifier).then(paddingModifier)
                     }
 
                     androidx.compose.runtime.CompositionLocalProvider(
@@ -1484,7 +1491,10 @@ fun PaintingPage(
         } else {
                 // ---- Default Attached Top bar ----
                     TopBar(
-                        modifier = Modifier.align(if (vm.leftHandMode) Alignment.TopStart else Alignment.TopEnd).zIndex(50f),
+                        modifier = Modifier
+                            .align(if (vm.leftHandMode) Alignment.TopStart else Alignment.TopEnd)
+                            .statusBarsPadding()
+                            .zIndex(50f),
                         vm = vm,
                         opacity = vm.uiOpacity,
                         hazeState = hazeState,
@@ -1539,7 +1549,9 @@ fun PaintingPage(
                         modifier =
                             Modifier
                                 .align(if (vm.leftHandMode) Alignment.TopEnd else Alignment.TopStart)
+                                .statusBarsPadding()
                                 .padding(top = 48.dp) // Gap from top bar
+                                .navigationBarsPadding()
                                 .fillMaxHeight()
                                 .zIndex(50f),
                         vm = vm,

@@ -64,10 +64,14 @@ internal fun NewFolderDialog(
     onCreate: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(decorFitsSystemWindows = false),
+    ) {
         Box(
             modifier = Modifier
                 .width(320.dp)
+                .imePadding()
                 .clip(RoundedCornerShape(20.dp))
                 .background(colors.panel)
                 .padding(22.dp)
@@ -130,10 +134,14 @@ internal fun RenameProjectDialog(
     onRename: (String) -> Unit,
     onDismiss: () -> Unit,
 ) {
-    Dialog(onDismissRequest = onDismiss) {
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(decorFitsSystemWindows = false),
+    ) {
         Box(
             modifier = Modifier
                 .width(320.dp)
+                .imePadding()
                 .clip(RoundedCornerShape(20.dp))
                 .background(colors.panel)
                 .padding(22.dp)

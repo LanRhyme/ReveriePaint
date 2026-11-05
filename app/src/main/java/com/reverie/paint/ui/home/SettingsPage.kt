@@ -28,6 +28,8 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.statusBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -163,6 +165,8 @@ fun SettingsPageContent(
                     .width(240.dp)
                     .fillMaxHeight()
                     .background(if (hasCustomBg) colors.panel.copy(alpha = 0.88f) else colors.panel)
+                    .statusBarsPadding()
+                    .navigationBarsPadding()
                     .padding(horizontal = 16.dp, vertical = 18.dp)
             ) {
                 Row(
@@ -241,7 +245,9 @@ fun SettingsPageContent(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .background(if (hasCustomBg) Color.Transparent else colors.bg),
+                    .background(if (hasCustomBg) Color.Transparent else colors.bg)
+                    .statusBarsPadding()
+                    .navigationBarsPadding(),
             ) {
                 AnimatedContent(
                     targetState = subPage,
@@ -268,19 +274,26 @@ fun SettingsPageContent(
         // ==========================================
         // 手机 / 竖屏单栏下钻布局
         // ==========================================
-        AnimatedContent(
-            targetState = subPage,
-            transitionSpec = {
-                if (targetState != SettingsSubPage.MAIN) {
-                    (slideInHorizontally(tween(250, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(200)))
-                        .togetherWith(slideOutHorizontally(tween(200)) { -it / 3 } + fadeOut(tween(150)))
-                } else {
-                    (slideInHorizontally(tween(250, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(200)))
-                        .togetherWith(slideOutHorizontally(tween(200)) { it } + fadeOut(tween(150)))
-                }
-            },
-            label = "SettingsSubPageTransition",
-        ) { page ->
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(if (hasCustomBg) Color.Transparent else colors.bg)
+                .statusBarsPadding()
+                .navigationBarsPadding(),
+        ) {
+            AnimatedContent(
+                targetState = subPage,
+                transitionSpec = {
+                    if (targetState != SettingsSubPage.MAIN) {
+                        (slideInHorizontally(tween(250, easing = FastOutSlowInEasing)) { it } + fadeIn(tween(200)))
+                            .togetherWith(slideOutHorizontally(tween(200)) { -it / 3 } + fadeOut(tween(150)))
+                    } else {
+                        (slideInHorizontally(tween(250, easing = FastOutSlowInEasing)) { -it / 3 } + fadeIn(tween(200)))
+                            .togetherWith(slideOutHorizontally(tween(200)) { it } + fadeOut(tween(150)))
+                    }
+                },
+                label = "SettingsSubPageTransition",
+            ) { page ->
             when (page) {
                 SettingsSubPage.MAIN -> {
                     SettingsMainPage(
@@ -339,6 +352,7 @@ fun SettingsPageContent(
             }
         }
     }
+}
 }
 
 @Composable

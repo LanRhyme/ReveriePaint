@@ -428,6 +428,7 @@ fun CreatePage(vm: PaintViewModel) {
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .statusBarsPadding()
                 .padding(horizontal = 20.dp, vertical = 12.dp),
             verticalAlignment = Alignment.CenterVertically
         ) {
@@ -603,7 +604,9 @@ fun CreatePage(vm: PaintViewModel) {
                                 .fillMaxWidth()
                                 .weight(1f),
                             verticalArrangement = Arrangement.spacedBy(10.dp),
-                            contentPadding = PaddingValues(bottom = 20.dp)
+                            contentPadding = PaddingValues(
+                                bottom = 20.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                            )
                         ) {
                             items(systemPresets, key = { it.id }) { item ->
                                 val isSelected = (widthVal == item.width && heightVal == item.height)
@@ -628,7 +631,9 @@ fun CreatePage(vm: PaintViewModel) {
                                     .fillMaxWidth()
                                     .weight(1f),
                                 verticalArrangement = Arrangement.spacedBy(10.dp),
-                                contentPadding = PaddingValues(bottom = 20.dp)
+                                contentPadding = PaddingValues(
+                                    bottom = 20.dp + WindowInsets.navigationBars.asPaddingValues().calculateBottomPadding()
+                                )
                             ) {
                                 items(customPresets, key = { it.id }) { item ->
                                     val isSelected = (widthVal == item.width && heightVal == item.height)
@@ -736,7 +741,9 @@ fun CreatePage(vm: PaintViewModel) {
                         onCreate = onStartPainting,
                         animationCanvas = animationCanvas,
                         onAnimationCanvasChange = { animationCanvas = it },
-                        modifier = Modifier.padding(bottom = 12.dp)
+                        modifier = Modifier
+                            .navigationBarsPadding()
+                            .padding(bottom = 12.dp)
                     )
                 }
             }
@@ -837,7 +844,9 @@ fun CreatePage(vm: PaintViewModel) {
                             onCreate = onStartPainting,
                             animationCanvas = animationCanvas,
                             onAnimationCanvasChange = { animationCanvas = it },
-                            modifier = Modifier.padding(vertical = 10.dp)
+                            modifier = Modifier
+                                .navigationBarsPadding()
+                                .padding(vertical = 10.dp)
                         )
                     }
                 } else {
@@ -924,7 +933,9 @@ fun CreatePage(vm: PaintViewModel) {
                             onCreate = onStartPainting,
                             animationCanvas = animationCanvas,
                             onAnimationCanvasChange = { animationCanvas = it },
-                            modifier = Modifier.padding(vertical = 10.dp)
+                            modifier = Modifier
+                                .navigationBarsPadding()
+                                .padding(vertical = 10.dp)
                         )
                     }
                 }

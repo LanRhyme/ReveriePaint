@@ -4295,8 +4295,9 @@ class PaintViewModel : ViewModel() {
                 .putBoolean("immersiveMode", enable)
                 .apply()
         }
+        val shouldImmerse = (currentPage == Page.PAINTING && enable)
         com.reverie.paint.MainActivity
-            .applyImmersive(enable, extendToCutout)
+            .applyImmersive(shouldImmerse, extendToCutout)
     }
 
     fun updateExtendToCutout(extend: Boolean) {
@@ -4308,10 +4309,9 @@ class PaintViewModel : ViewModel() {
                 .putBoolean("extendToCutout", extend)
                 .apply()
         }
-        if (immersiveMode) {
-            com.reverie.paint.MainActivity
-                .applyImmersive(true, extend)
-        }
+        val shouldImmerse = (currentPage == Page.PAINTING && immersiveMode)
+        com.reverie.paint.MainActivity
+            .applyImmersive(shouldImmerse, extend)
     }
 
     fun updateBlurBackground(enable: Boolean) {
