@@ -434,14 +434,14 @@ fun QuickColorWindow(
                                         onDismissRequest = { quickColorSettingsOpen = false },
                                     ) {
                                         ReDropdownMenuItem(
-                                            text = "随光标/笔尖弹出",
+                                            text = stringResource(R.string.quick_color_follow_stylus),
                                             selected = vm.quickColorFollowsStylus,
                                             onClick = {
                                                 vm.updateQuickColorFollowsStylus(!vm.quickColorFollowsStylus)
                                             },
                                         )
                                         ReDropdownMenuItem(
-                                            text = "落笔自动收起",
+                                            text = stringResource(R.string.quick_color_auto_hide_on_stroke),
                                             selected = vm.quickColorAutoHideOnStroke,
                                             onClick = {
                                                 vm.updateQuickColorAutoHideOnStroke(!vm.quickColorAutoHideOnStroke)

@@ -107,7 +107,7 @@ private fun PaintViewModel.togglePanTool() {
 private val TOOL_BY_SHORTCUT_ID: Map<String, Tool> =
     Tool.entries.associateBy { "tool_${it.id}" }
 
-private fun PaintViewModel.executeToolShortcutAction(id: String, ephemeral: Boolean = false): Boolean {
+private fun PaintViewModel.executeToolShortcutAction(id: String): Boolean {
     if (id == "tool_drawing_guide") {
         requestUiCommand(UI_CMD_TOGGLE_DRAWING_GUIDE)
         return true

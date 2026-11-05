@@ -1159,6 +1159,8 @@
     <!-- Quick Color Strings -->
     <string name="tool_quick_color">Quick Color</string>
     <string name="quick_color_window_title">Quick Color</string>
+    <string name="quick_color_follow_stylus">Follow cursor / pen tip</string>
+    <string name="quick_color_auto_hide_on_stroke">Auto-hide on stroke</string>
     <string name="color_window_title">Color</string>
     <string name="quick_action_toggle_quick_color">Quick Color</string>
     <string name="quick_color_add_palette">Add to Palette</string>

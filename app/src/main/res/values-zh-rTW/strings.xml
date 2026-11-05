@@ -946,6 +946,8 @@
     <!-- Quick Color Strings -->
     <string name="tool_quick_color">快捷顏色</string>
     <string name="quick_color_window_title">快捷顏色</string>
+    <string name="quick_color_follow_stylus">隨游標/筆尖彈出</string>
+    <string name="quick_color_auto_hide_on_stroke">落筆自動收起</string>
     <string name="color_window_title">顏色</string>
     <string name="quick_action_toggle_quick_color">快捷顏色</string>
     <string name="quick_color_add_palette">儲存至色板</string>
