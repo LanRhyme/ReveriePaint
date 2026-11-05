@@ -85,22 +85,6 @@ internal fun PaintViewModel.computeEffectivePressure(raw: Double): Double {
     return curveP
 }
 
-internal fun PaintViewModel.computeStrokePressureFraction(raw: Double): Float {
-    if (!brushPressureEnabled || brushPressureSize <= 0.001) return 1.0f
-    val effP = computeEffectivePressure(raw).toFloat().coerceIn(0f, 1f)
-    val bridgeFrac = try {
-        ReverieCoreBridge.brushPressureFraction(effP)
-    } catch (_: Throwable) {
-        effP
-    }
-    val rawFrac = (1.0f - brushPressureSize.toFloat()) + brushPressureSize.toFloat() * effP
-    return if (bridgeFrac > 0f && bridgeFrac < 1.0f) {
-        (1.0f - brushPressureSize.toFloat()) + brushPressureSize.toFloat() * bridgeFrac
-    } else {
-        rawFrac
-    }
-}
-
 
 internal fun PaintViewModel.touchStart(
     x: Float,
@@ -110,6 +94,7 @@ internal fun PaintViewModel.touchStart(
     tiltY: Double = 0.0,
     rotation: Double = 0.0,
     toolOverride: String? = null,
+    inputEventTimeMs: Long = 0L,
 ): Boolean {
     if (x.isNaN() || y.isNaN()) return false
     val safePressure = if (pressure.isNaN() || pressure < 0.0) 1.0 else pressure.coerceIn(0.0, 1.0)
@@ -127,6 +112,7 @@ internal fun PaintViewModel.touchStart(
     }
 
     onPaintingActivity()
+    strokeStartInputTimeMs = if (inputEventTimeMs > 0L) inputEventTimeMs else android.os.SystemClock.uptimeMillis()
     smoothedStrokeX = x
     smoothedStrokeY = y
     lastStrokeX = x
@@ -136,6 +122,7 @@ internal fun PaintViewModel.touchStart(
     lastStrokeTimeMs = android.os.SystemClock.uptimeMillis()
     strokeDistanceAccumulator = 0f
     val effPressure = computeEffectivePressure(safePressure)
+    smoothedStrokePressure = effPressure
     val strokeColor = brushColor
     lastDynamicColor = strokeColor
     if (currentToolId == "brush" || currentToolId == "fill" || currentToolId == "gradient") {
@@ -368,7 +355,7 @@ internal fun PaintViewModel.touchMove(
     onPaintingActivity()
     val now = android.os.SystemClock.uptimeMillis()
     // dt 优先用输入事件时间戳: 同一帧内被批处理的多点采样, uptimeMillis 差值会全部坍缩成 1ms,
-    // 速度估计被放大 8~16 倍 (brushSpeedSize 的粗细调制因此失真)。拿不到事件时间时按 240Hz 取 4ms。
+    // 速度估计被放大 8~16 倍。拿不到事件时间时按 240Hz 取 4ms。
     val dt = if (lastInputEventTimeMs > 0L && inputEventTimeMs > lastInputEventTimeMs) {
         (inputEventTimeMs - lastInputEventTimeMs).coerceIn(1L, 100L)
     } else {
@@ -382,14 +369,7 @@ internal fun PaintViewModel.touchMove(
     if (dist > 0.5) {
         disarmStrokeStartKick()
     }
-    var effPressure = computeEffectivePressure(safePressure)
-
-    // Velocity-based brush size dynamics (calligraphy thinning)
-    if (brushSpeedSize > 0.0) {
-        val speed = dist / dt.toDouble()
-        val speedFactor = 1.0 - (speed / 3.0).coerceIn(0.0, 1.0) * brushSpeedSize * 0.7
-        effPressure = (effPressure * speedFactor).coerceIn(0.01, 1.0)
-    }
+    val effPressure = computeEffectivePressure(safePressure)
 
     lastStrokeTimeMs = now
     // lastStrokeX/Y 严格保存真实物理落点: 抬笔 touchEnd 收尾补点以它为终点, 绝不过冲
@@ -518,11 +498,17 @@ internal fun PaintViewModel.touchMove(
 
                 smoothedStrokeX += (targetX - smoothedStrokeX) * alpha
                 smoothedStrokeY += (targetY - smoothedStrokeY) * alpha
-                val pressureAlpha = maxOf(alpha * 2.5f, 0.06f).coerceAtMost(1.0f)
-                smoothedStrokePressure += (effPressure - smoothedStrokePressure) * pressureAlpha.toDouble()
+                if (strokeSmoothPressure) {
+                    val pressureAlpha = maxOf(alpha * 3.5f, 0.4f).coerceAtMost(1.0f)
+                    smoothedStrokePressure += (effPressure - smoothedStrokePressure) * pressureAlpha.toDouble()
+                    effP = smoothedStrokePressure
+                } else {
+                    // 压感与空间流线解耦: 默认直通手写笔物理真实压感，彻底消除快画压感被滤波压死的滞后
+                    smoothedStrokePressure = effPressure
+                    effP = effPressure
+                }
                 effX = smoothedStrokeX
                 effY = smoothedStrokeY
-                effP = smoothedStrokePressure
             } else {
                 smoothedStrokeX = targetX
                 smoothedStrokeY = targetY
@@ -541,6 +527,12 @@ internal fun PaintViewModel.touchEnd(
     render: Boolean = true,
     deferOverrideRestore: Boolean = false,
     strokeSeq: Long = -1L,
+    // R4-B: 抬笔真实末端压感 (调用方传入最近一次真实输入的"已校准有效压感", NaN/越界回退平滑值);
+    // 收笔追赶点压感从当前平滑值线性过渡到它, 消除"恒压零时差密集补点"堆出的实心黑块
+    tailEndPressure: Double = Double.NaN,
+    // 收笔补点携带的倾角 (度): 与本笔实时采样同一有效倾角 (有硬件透传 / 无硬件合成), 缺省 0 与旧语义一致
+    tailTiltX: Double = 0.0,
+    tailTiltY: Double = 0.0,
 ) {
     stopAirbrush()
     disarmStrokeStartKick()
@@ -555,63 +547,70 @@ internal fun PaintViewModel.touchEnd(
         PaintViewModel.SMOOTHING_WEIGHTED -> (strokeSmoothnessDistanceMin > 0.0 || strokeSmoothnessDistanceMax > 0.0)
         else -> maxOf(strokeStabilizer.toDouble(), brushStreamline) > 0.0
     }
-    if (needCatchUp) {
-        val dx = lastStrokeX - smoothedStrokeX
-        val dy = lastStrokeY - smoothedStrokeY
-        val remainingDist = Math.hypot(dx.toDouble(), dy.toDouble())
-        if (remainingDist > 0.5) {
-            val steps = when {
-                remainingDist > 40.0 -> 8
-                remainingDist > 20.0 -> 6
-                remainingDist > 8.0 -> 4
-                remainingDist > 2.0 -> 2
-                else -> 1
-            }
-            val startX = smoothedStrokeX
-            val startY = smoothedStrokeY
-            val startP = smoothedStrokePressure
-            for (step in 1..steps) {
-                val t = step.toFloat() / steps
-                val ease = 1f - (1f - t) * (1f - t) * (1f - t)
-                val curX = startX + dx * ease
-                val curY = startY + dy * ease
-                val curP = startP
-                if (recorder.recording) {
-                    recorder.strokeMove(curX, curY, curP.toFloat())
-                }
-                queueStrokeMove(curX, curY, curP)
-            }
-            smoothedStrokeX = lastStrokeX
-            smoothedStrokeY = lastStrokeY
-        } else {
+    // R4-B: 追赶点(含尾锋点)总数 ≤ 3 步, 每步时间戳 +4ms, 压感从平滑值线性过渡到末端压感。
+    // 步数计划由 StrokeTailMath.tailStepPlan 单一来源分配 (与镜像收笔逐字对齐);
+    // 剩余距离 ≤ 0.5px 时追赶 0 步 —— 不再发零时差重复样本 (原 else 补点已删)。
+    val taperRuns = StrokeTailMath.taperWillRun(brushTaper, lastStrokeDeltaX, lastStrokeDeltaY)
+    val tailDx = lastStrokeX - smoothedStrokeX
+    val tailDy = lastStrokeY - smoothedStrokeY
+    val tailRemainingDist = Math.hypot(tailDx.toDouble(), tailDy.toDouble())
+    val tailPlan = StrokeTailMath.tailStepPlan(needCatchUp, tailRemainingDist, taperRuns)
+    // 尾锋起点跟着追赶终点走: 追赶跑完时 smoothed 已被拉到 lastStroke
+    val tailStartP = smoothedStrokePressure
+    var tailLastX = smoothedStrokeX
+    var tailLastY = smoothedStrokeY
+    var tailLastP = tailStartP
+    if (needCatchUp && tailRemainingDist > 0.5 && tailPlan.catchUpSteps > 0) {
+        val steps = tailPlan.catchUpSteps
+        val startX = smoothedStrokeX
+        val startY = smoothedStrokeY
+        val startP = smoothedStrokePressure
+        for (step in 1..steps) {
+            val t = step.toFloat() / steps
+            val ease = StrokeTailMath.easeOutCubic(t)
+            val curX = startX + tailDx * ease
+            val curY = startY + tailDy * ease
+            val curP = StrokeTailMath.tailPressure(startP, tailEndPressure, t)
             if (recorder.recording) {
-                recorder.strokeMove(smoothedStrokeX, smoothedStrokeY, smoothedStrokePressure.toFloat())
+                recorder.strokeMove(curX, curY, curP.toFloat())
             }
-            queueStrokeMove(smoothedStrokeX, smoothedStrokeY, smoothedStrokePressure)
+            queueStrokeMove(
+                curX, curY, curP,
+                lastInputEventTimeMs + step * StrokeTailMath.TAIL_STEP_DT_MS,
+                tailTiltX, tailTiltY,
+            )
         }
+        smoothedStrokeX = lastStrokeX
+        smoothedStrokeY = lastStrokeY
+        tailLastX = lastStrokeX
+        tailLastY = lastStrokeY
+        tailLastP = StrokeTailMath.tailPressure(tailStartP, tailEndPressure, 1f)
     }
 
     // Brush Taper (stroke tail taper finish)
-    if (brushTaper > 0.0) {
+    if (taperRuns) {
         val norm = Math.hypot(lastStrokeDeltaX.toDouble(), lastStrokeDeltaY.toDouble()).toFloat()
         if (norm > 0.5f) {
             val nx = lastStrokeDeltaX / norm
             val ny = lastStrokeDeltaY / norm
-            val taperSteps = 4
+            val taperSteps = tailPlan.taperSteps
             val taperLen = (brushSize * brushTaper * 0.75).toFloat()
             val stepLen = taperLen / taperSteps
-            var tx = smoothedStrokeX
-            var ty = smoothedStrokeY
-            var tp = smoothedStrokePressure
+            var tx = tailLastX
+            var ty = tailLastY
+            var tp = tailLastP
             for (i in 1..taperSteps) {
                 tx += nx * stepLen
                 ty += ny * stepLen
-                tp *= (1.0 - 0.7 * (i.toDouble() / taperSteps))
-                val curP = maxOf(0.02, tp)
+                tp = StrokeTailMath.taperPressure(tp, i, taperSteps)
                 if (recorder.recording) {
-                    recorder.strokeMove(tx, ty, curP.toFloat())
+                    recorder.strokeMove(tx, ty, tp.toFloat())
                 }
-                queueStrokeMove(tx, ty, curP)
+                queueStrokeMove(
+                    tx, ty, tp,
+                    lastInputEventTimeMs + (tailPlan.catchUpSteps + i) * StrokeTailMath.TAIL_STEP_DT_MS,
+                    tailTiltX, tailTiltY,
+                )
             }
         }
     }

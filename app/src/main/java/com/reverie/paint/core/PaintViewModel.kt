@@ -6103,9 +6103,10 @@ class PaintViewModel : ViewModel() {
     @Volatile private var pendingSampleP = 1.0
     private val strokeBatchLock = Any()
     private val strokeBatchCoords = FloatArray(STROKE_BATCH_CAPACITY * STROKE_SAMPLE_STRIDE)
-    private val strokeDrainCoords = FloatArray(STROKE_BATCH_CAPACITY * STROKE_SAMPLE_STRIDE)
+    private val strokeDrainCoords = FloatArray(STROKE_BATCH_CAPACITY * (STROKE_SAMPLE_STRIDE + 1))
     private val strokeBatchTimes = LongArray(STROKE_BATCH_CAPACITY)
     private val strokeDrainTimes = LongArray(STROKE_BATCH_CAPACITY)
+    @Volatile internal var strokeStartInputTimeMs: Long = 0L
     private var strokeBatchCount = 0
     private var batchOverflowLogCounter = 0 // queueStrokeMove 仅 UI 线程调用
     // ---- 对称实时镜像队列 ----
@@ -6135,6 +6136,10 @@ class PaintViewModel : ViewModel() {
     @Volatile private var strokeBatchQueued = false
     @Volatile private var lastQueuedInputEventTime = 0L
     @Volatile private var lastQueuedUptime = 0L
+    // 遥测锚点: 当前待消费批首点的入队时刻。queueStrokeMove 入队时若批原本为空 (本点即
+    // 首点) 记录; strokeBatchRunnable 消费时快照并复位。消费慢时 UI 线程不会覆盖已排队
+    // 批的锚点, queueWait 不再因 lastQueuedUptime 被反复刷新而变成负数。
+    @Volatile private var firstQueuedUptime = 0L
     // 初值取一帧量级: 原先 40L 配合 "e2e in 5L..250L" 的更新条件, 硬笔快速运笔时实测 e2e 只有
     // 1~4ms, 永远更新不上, 延迟估计锁死在 40 + 14 = 54ms, 预览回填窗口过大 (拐角重影)。
     @Volatile var lastE2ePipelineMs: Long = 8L
@@ -6216,16 +6221,43 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    private val strokeBatchRunnable = Runnable {
+    private val strokeBatchRunnable: Runnable = Runnable {
         val tDispatch = android.os.SystemClock.uptimeMillis()
         strokeBatchQueued = false
         val n: Int
+        var firstQueued = 0L
+        var hasMore = false
+        val timeBaseOffset = STROKE_BATCH_CAPACITY * STROKE_SAMPLE_STRIDE
         synchronized(strokeBatchLock) {
-            n = strokeBatchCount
-            strokeBatchCount = 0
-            if (n > 0) {
-                System.arraycopy(strokeBatchCoords, 0, strokeDrainCoords, 0, n * STROKE_SAMPLE_STRIDE)
-                System.arraycopy(strokeBatchTimes, 0, strokeDrainTimes, 0, n)
+            val total = strokeBatchCount
+            val drainCount = if (total > 16) 16 else total
+            n = drainCount
+            firstQueued = firstQueuedUptime
+            if (drainCount > 0) {
+                System.arraycopy(strokeBatchCoords, 0, strokeDrainCoords, 0, drainCount * STROKE_SAMPLE_STRIDE)
+                System.arraycopy(strokeBatchTimes, 0, strokeDrainTimes, 0, drainCount)
+                val remaining = total - drainCount
+                if (remaining > 0) {
+                    System.arraycopy(strokeBatchCoords, drainCount * STROKE_SAMPLE_STRIDE, strokeBatchCoords, 0, remaining * STROKE_SAMPLE_STRIDE)
+                    System.arraycopy(strokeBatchTimes, drainCount, strokeBatchTimes, 0, remaining)
+                    strokeBatchCount = remaining
+                    hasMore = true
+                } else {
+                    strokeBatchCount = 0
+                    firstQueuedUptime = 0L
+                }
+                if (strokeStartInputTimeMs <= 0L && strokeDrainTimes[0] > 0L) {
+                    strokeStartInputTimeMs = strokeDrainTimes[0]
+                }
+                val baseMs = strokeStartInputTimeMs
+                for (i in 0 until drainCount) {
+                    val tMs = strokeDrainTimes[i]
+                    strokeDrainCoords[timeBaseOffset + i] =
+                        if (baseMs > 0L && tMs >= baseMs) (tMs - baseMs).toFloat() / 1000f else -1f
+                }
+            } else {
+                strokeBatchCount = 0
+                firstQueuedUptime = 0L
             }
         }
         pendingCoreOps.decrementPositive()
@@ -6265,6 +6297,14 @@ class PaintViewModel : ViewModel() {
                     System.arraycopy(strokeBatchCoords, 0, strokeDrainCoords, 0, extra * STROKE_SAMPLE_STRIDE)
                     System.arraycopy(strokeBatchTimes, 0, strokeDrainTimes, 0, extra)
                     strokeBatchCount = 0
+                    firstQueuedUptime = 0L // 只清不读: firstQueued 已在主 drain 锁内先读后清
+                    hasMore = false
+                    val baseMs = strokeStartInputTimeMs
+                    for (i in 0 until extra) {
+                        val tMs = strokeDrainTimes[i]
+                        strokeDrainCoords[timeBaseOffset + i] =
+                            if (baseMs > 0L && tMs >= baseMs) (tMs - baseMs).toFloat() / 1000f else -1f
+                    }
                 }
             }
             if (extra > 0) {
@@ -6286,7 +6326,9 @@ class PaintViewModel : ViewModel() {
         // Render immediately in-place after ink landed to eliminate message queue roundtrip latency.
         // 调度温控：若开启节流且距上一帧渲染完成间隔过短，暂缓 doRender() 并在窗口期满时统一输出，
         // 防止高刷屏上过度触发瓦片合成导致 CPU/GPU 发热满载。
-        if (painted || mirrorPainted) {
+        // 关键不变量：若前序切片因追赶合帧被节流 (strokeThrottleRenderScheduled == true)，
+        // 当排空至最后一个切片 (!hasMore) 时，即便本切片未产出新墨 (painted == false)，也必须进入渲染分支立即冲刷积压脏区！
+        if (painted || mirrorPainted || (!hasMore && strokeThrottleRenderScheduled)) {
             if (n > 0 || merged > 0) {
                 pendingFrontierDocX = lastDocX
                 pendingFrontierDocY = lastDocY
@@ -6295,9 +6337,18 @@ class PaintViewModel : ViewModel() {
             }
 
             val minIntervalMs = renderScheduleMode.minRenderIntervalMs
+            // 追赶合帧门控：当队列仍有积压切片 (hasMore == true) 时，按 120Hz 帧周期 (8ms) 合并中间瓦片合成；
+            // 一旦排空至最后一个切片 (hasMore == false)，恢复原模式间隔 (LOW_LATENCY 下为 0ms 立即上屏)。
+            val effectiveIntervalMs = if (hasMore) {
+                maxOf(minIntervalMs, 8L)
+            } else {
+                minIntervalMs
+            }
             val nowMs = android.os.SystemClock.uptimeMillis()
             val elapsed = nowMs - lastStrokeRenderFinishUptimeMs
-            val shouldThrottle = minIntervalMs > 0L && elapsed < minIntervalMs && !realInkHeld()
+            val shouldThrottle = effectiveIntervalMs > 0L &&
+                elapsed < effectiveIntervalMs &&
+                (hasMore || !realInkHeld())
 
             if (!shouldThrottle) {
                 if (strokeThrottleRenderScheduled) {
@@ -6310,7 +6361,7 @@ class PaintViewModel : ViewModel() {
                 dtRenderNs = android.os.SystemClock.elapsedRealtimeNanos() - tRenderStartNs
                 val dtRender = dtRenderNs / 1_000_000L
                 val tDone = android.os.SystemClock.uptimeMillis()
-                val queueWait = tDispatch - lastQueuedUptime
+                val queueWait = tDispatch - (if (firstQueued > 0L) firstQueued else lastQueuedUptime)
                 val e2e =
                     if (lastQueuedInputEventTime > 0) (tDone - lastQueuedInputEventTime).coerceAtLeast(1L) else 0L
                 if (e2e in 1L..250L) {
@@ -6333,7 +6384,7 @@ class PaintViewModel : ViewModel() {
             } else {
                 if (!strokeThrottleRenderScheduled) {
                     strokeThrottleRenderScheduled = true
-                    val delay = (minIntervalMs - elapsed).coerceIn(1L, minIntervalMs)
+                    val delay = (effectiveIntervalMs - elapsed).coerceIn(1L, effectiveIntervalMs)
                     renderHandler?.postDelayed(strokeThrottleRenderRunnable, delay)
                 }
             }
@@ -6341,6 +6392,11 @@ class PaintViewModel : ViewModel() {
         lastStrokeBatchWorkNs = dtKritaNs + dtRenderNs
         if (n > 0) {
             reportRenderWorkDuration(dtKritaNs + dtRenderNs)
+        }
+        if (hasMore && !strokeBatchQueued) {
+            strokeBatchQueued = true
+            pendingCoreOps.incrementAndGet()
+            renderHandler?.post(strokeBatchRunnable)
         }
     }
 
@@ -6366,6 +6422,10 @@ class PaintViewModel : ViewModel() {
         pendingSampleY = y.toDouble()
         pendingSampleP = safeP.toDouble()
         synchronized(strokeBatchLock) {
+            if (strokeBatchCount == 0) {
+                // 本点是当前待消费批的首点, 记录入队时刻作为 queueWait 遥测锚点
+                firstQueuedUptime = android.os.SystemClock.uptimeMillis()
+            }
             if (strokeBatchCount < STROKE_BATCH_CAPACITY) {
                 val o = strokeBatchCount * STROKE_SAMPLE_STRIDE
                 strokeBatchCoords[o] = x
@@ -6404,24 +6464,26 @@ class PaintViewModel : ViewModel() {
     }
 
     /**
-     * 渲染线程上, 在提交 touchStrokeEnd 之前把还排在队列里的运笔补点跑完 (防御性)。
+     * 渲染线程上, 在提交 touchStrokeEnd 之前把还排在队列里的运笔补点切片循环同步排空 (防御性)。
      *
-     * 正常情况下这是空操作: 补点的 [strokeBatchRunnable] 由 UI 线程先于收尾任务投递, 按 FIFO
-     * 早已跑完。万一它排在收尾任务之后, 那一截笔尾会在笔画提交之后才进引擎 (丢墨、以错误的
-     * 合成状态重画)。只在确认 runnable 确实还在队列里时摘下来手动跑一次, 计数只减一次;
-     * API < 29 没有 hasCallbacks, 无法确认, 不做。只允许在渲染线程调用。
+     * 切片化消费 (单次最多 16 点) 下, 若队列仍有积压点, 循环摘除已排队的 [strokeBatchRunnable]
+     * (若尚未入队则先递增 [pendingCoreOps] 配平 runnable 内部的 decrement) 并同步执行,
+     * 确保全部尾段采样在 touchStrokeEnd 提交前 100% 落入引擎。只允许在渲染线程调用。
      */
     internal fun drainPendingStrokeBatchOnRenderThread() {
         if (strokeThrottleRenderScheduled) {
             renderHandler?.removeCallbacks(strokeThrottleRenderRunnable)
             strokeThrottleRenderScheduled = false
         }
-        if (!strokeBatchQueued) return
-        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.Q) return
         val h = renderHandler ?: return
-        if (!h.hasCallbacks(strokeBatchRunnable)) return
-        h.removeCallbacks(strokeBatchRunnable)
-        strokeBatchRunnable.run()
+        while (synchronized(strokeBatchLock) { strokeBatchCount > 0 }) {
+            if (strokeBatchQueued) {
+                h.removeCallbacks(strokeBatchRunnable)
+            } else {
+                pendingCoreOps.incrementAndGet()
+            }
+            strokeBatchRunnable.run()
+        }
     }
 
     /** Drop undelivered stroke samples (cancel path: they must not reach the
