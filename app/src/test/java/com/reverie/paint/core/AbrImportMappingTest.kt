@@ -4,6 +4,7 @@
 
 package com.reverie.paint.core
 
+import com.reverie.paint.core.brushstore.KppXml
 import com.reverie.paint.core.brushstore.PresetReadback
 import com.reverie.paint.core.brushstore.ResourceStore
 import org.junit.Assert.assertEquals
@@ -89,7 +90,7 @@ class AbrImportMappingTest {
     }
 
     @Test
-    fun tiltSizeBeatsPressureMinDiameter() {
+    fun tiltAndPressureBothSetFollowsPressurePriority() {
         val preset = AbrParser.AbrPresetInfo(
             name = "Tilt",
             hardness = 0.4,
@@ -102,13 +103,15 @@ class AbrImportMappingTest {
         val size = AbrPresetConverter.convert(
             preset, "Tilt", null, "", emptyMap(), "pack",
         ).bp.dynamicOptions["Size"] ?: ""
-        assertTrue("Size curve was: $size", size.contains("id=\"declination\""))
+        // R1 优先级 pressure > tilt：PS 的 bVTy 是单值控制（真实数据二者互斥），合成同设时压感胜出；
+        // 曲线仍保持 minimumDiameter 下限
+        assertTrue("Size curve was: $size", size.contains("id=\"pressure\""))
+        assertFalse(size.contains("id=\"declination\""))
         assertTrue("Size curve was: $size", size.contains("0,0.250;1,1;"))
-        assertFalse(size.contains("id=\"pressure\""))
     }
 
     @Test
-    fun sizeJitterBeatsPressureMinDiameter() {
+    fun sizeJitterAndPressureComposeInsteadOfDroppingPressure() {
         val preset = AbrParser.AbrPresetInfo(
             name = "Fuzzy",
             minDiameterRatio = 0.25,
@@ -120,9 +123,11 @@ class AbrImportMappingTest {
         val size = AbrPresetConverter.convert(
             preset, "Fuzzy", null, "", emptyMap(), "pack",
         ).bp.dynamicOptions["Size"] ?: ""
-        assertTrue("Size curve was: $size", size.contains("id=\"fuzzy\""))
+        // R1 复合动态：压感（下限 0.250）+ 抖动 fuzzy（下限 1-0.2=0.800）共存
+        assertTrue("Size curve was: $size", size.contains("id=\"sensorslist\""))
+        assertTrue("Size curve was: $size", size.contains("id=\"pressure\"") && size.contains("id=\"fuzzy\""))
         assertTrue("Size curve was: $size", size.contains("0,0.800;1,1;"))
-        assertFalse(size.contains("id=\"pressure\""))
+        assertTrue("Size curve was: $size", size.contains("0,0.250;1,1;"))
     }
 
     @Test
@@ -202,23 +207,45 @@ class AbrImportMappingTest {
     }
 
     @Test
-    fun colorDynamicsLandInKpp() {
+    fun colorDynamicsWithFgBgControlOffDoesNotEnableConstantMix() {
+        // PS 语义：bVTy=0 的 clVr.jitter 是逐印章随机前背景抖动，不是常量混色（真实 ABR 全部为此布局）
         val preset = AbrParser.AbrPresetInfo(
             name = "Color",
             colorDynamics = AbrParser.AbrColorDynamicsInfo(
                 hueJitter = 0.2,
                 satJitter = 0.3,
                 valJitter = 0.4,
-                secondaryMix = 0.5,
+                secondaryMix = 0.02,
+                fgBgControl = 0,
             ),
         )
-        val xml = KppHelper.readPresetXml(
-            AbrPresetConverter.convert(preset, "Color", null, "", emptyMap(), "pack").kppBytes,
-        )!!
+        val converted = AbrPresetConverter.convert(preset, "Color", null, "", emptyMap(), "pack")
+        assertEquals(0.0, converted.bp.secondaryMix, 1e-9)
+        val xml = KppHelper.readPresetXml(converted.kppBytes)!!
         assertTrue(xml.contains("""name="hValue"><![CDATA[0.2]]></param>"""))
         assertTrue(xml.contains("""name="sValue"><![CDATA[0.3]]></param>"""))
         assertTrue(xml.contains("""name="vValue"><![CDATA[0.4]]></param>"""))
-        assertTrue(xml.contains("""name="MixValue"><![CDATA[0.5]]></param>"""))
+        assertFalse("不得开启常量混色", xml.contains("""name="PressureMix"><![CDATA[true]]>"""))
+    }
+
+    @Test
+    fun colorDynamicsWithFgBgControlActiveWritesInvertedMixValue() {
+        val preset = AbrParser.AbrPresetInfo(
+            name = "Color",
+            colorDynamics = AbrParser.AbrColorDynamicsInfo(
+                hueJitter = 0.2,
+                satJitter = 0.3,
+                valJitter = 0.4,
+                secondaryMix = 0.2,
+                fgBgControl = 2,
+            ),
+        )
+        val converted = AbrPresetConverter.convert(preset, "Color", null, "", emptyMap(), "pack")
+        assertEquals(0.2, converted.bp.secondaryMix, 1e-9)
+        val xml = KppHelper.readPresetXml(converted.kppBytes)!!
+        // 写侧极性：MixValue 是前景权重 = 1 - secondaryMix（PresetPropertyMap.writeMix）
+        assertTrue(xml.contains("""name="MixValue"><![CDATA[0.8]]></param>"""))
+        assertTrue(xml.contains("""name="PressureMix"><![CDATA[true]]>"""))
     }
 
     @Test
@@ -270,6 +297,112 @@ class AbrImportMappingTest {
         val abr = be16(6) + be16(1) + section("samp", ByteArray(0))
         val result = ByteArrayInputStream(abr).use { AbrParser.parse(it, basePackName = "pack") }
         assertTrue(result.patterns.isEmpty())
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // R3: patt 16-bit 灰度图案（imageMode 2）——按 16-bit 解包转 8-bit 出 PNG
+    // ---------------------------------------------------------------------------------------------
+
+    /** 1x1 16-bit 灰度图案夹具（imageMode=2、pixelDepth=16、channelDepth=16）；[channelData] 为压缩标记后的通道数据 */
+    private fun onePixelPatt16(compression: Int, channelData: ByteArray): ByteArray {
+        val head = be32(1) + // version @4
+            be32(2) + // imageMode 2 = 16-bit 灰度
+            be16(1) + be16(1) + // height @12, width @14
+            be32(1) + byteArrayOf(0x00, 0x41) + // name 'A'
+            byteArrayOf(3) + "abc".toByteArray(Charsets.US_ASCII)
+        val tail = be32(3) + // vmalVersion @26
+            be32(51 + channelData.size) + // vmalLength：此字段之后的字节数
+            be32(0) + be32(0) + be32(1) + be32(1) +
+            be32(1) + // maxChannels
+            be32(1) + // isWritten
+            be32(23 + channelData.size) + // channelLength：通道头 23 字节 + 数据
+            be32(16) + // pixelDepth
+            be32(0) + be32(0) + be32(1) + be32(1) +
+            be16(16) + // channelDepth
+            byteArrayOf(compression.toByte()) +
+            channelData
+        val body = head + tail
+        return be32(body.size) + body
+    }
+
+    /** 解 1x1 灰度 PNG 的唯一像素（每行 1 字节 filter + 1 字节灰度） */
+    private fun grayPixel(png: ByteArray): Int {
+        val idat = PngChunks.chunks(png).first { it.type == "IDAT" }
+        val raw = PngChunks.inflate(png, idat.dataStart, idat.dataEnd)
+        return raw[1].toInt() and 0xFF
+    }
+
+    @Test
+    fun patt16bitGrayscaleRawDecodesInto8bitPng() {
+        // v = 0x8000 = 32768（16-bit 灰度满量程）→ (32768*255+16384)/32768 = 255
+        val abr = be16(6) + be16(1) + section("patt", onePixelPatt16(0, byteArrayOf(0x80.toByte(), 0x00)))
+        val result = ByteArrayInputStream(abr).use { AbrParser.parse(it, basePackName = "pack") }
+        assertEquals("imageMode 2 不应整颗跳过", 1, result.patterns.size)
+        assertTrue(PngChunks.isPng(result.patterns.single().pngBytes))
+        assertEquals(255, grayPixel(result.patterns.single().pngBytes))
+    }
+
+    @Test
+    fun patt16bitGrayscalePackBitsDecodesInto8bitPng() {
+        // v = 0x4000 = 16384 → (16384*255+16384)/32768 = 128
+        val packBitsLine = be16(3) + byteArrayOf(0x01, 0x40, 0x00) // literal 2 bytes
+        val abr = be16(6) + be16(1) + section("patt", onePixelPatt16(1, packBitsLine))
+        val result = ByteArrayInputStream(abr).use { AbrParser.parse(it, basePackName = "pack") }
+        assertEquals(1, result.patterns.size)
+        assertEquals(128, grayPixel(result.patterns.single().pngBytes))
+    }
+
+    @Test
+    fun patt16bitWithShortPackBitsLineYieldsNoPattern() {
+        // 行解压只有 1 字节（< width*2 = 2）：长度校验失败 → 整颗图案 return null
+        val shortLine = be16(2) + byteArrayOf(0x00, 0x40) // literal 1 byte
+        val abr = be16(6) + be16(1) + section("patt", onePixelPatt16(1, shortLine))
+        val result = ByteArrayInputStream(abr).use { AbrParser.parse(it, basePackName = "pack") }
+        assertTrue(result.patterns.isEmpty())
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // R1/R5: 复合动态 sensorslist 落盘形态与 PaintOpAction
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    fun compositePressureAndJitterWritesSensorListWithUseSameCurveFalseAndCurveModeZero() {
+        val preset = AbrParser.AbrPresetInfo(
+            name = "Composite",
+            pressureSize = true,
+            sizeJitter = 1.0,
+            pressureOpacity = true,
+            opacityJitter = 1.0,
+            diameter = 40.0,
+            isComputed = true,
+        )
+        val c = AbrPresetConverter.convert(preset, "Composite", null, "", emptyMap(), "pack")
+        val size = c.bp.dynamicOptions["Size"] ?: ""
+        assertTrue(
+            "opVr/bVTy=2 + jitter 与 szVr 压感 + jitter 应组 sensorslist（pressure+fuzzy）",
+            size.contains("id=\"sensorslist\"") && size.contains("id=\"pressure\"") && size.contains("id=\"fuzzy\""),
+        )
+        val xml = KppHelper.readPresetXml(c.kppBytes)!!
+        val sizeSensor = KppXml.get(xml, "SizeSensor").orEmpty()
+        assertTrue("SizeSensor 应为 sensorslist", sizeSensor.contains("sensorslist") && sizeSensor.contains("ChildSensor"))
+        assertTrue(xml, xml.contains("""name="SizeUseSameCurve"><![CDATA[false]]></param>"""))
+        assertTrue(xml, xml.contains("""name="SizecurveMode"><![CDATA[0]]></param>"""))
+        val opacitySensor = KppXml.get(xml, "OpacitySensor").orEmpty()
+        assertTrue("OpacitySensor 应为 sensorslist", opacitySensor.contains("sensorslist") && opacitySensor.contains("ChildSensor"))
+        assertTrue(xml, xml.contains("""name="OpacityUseSameCurve"><![CDATA[false]]></param>"""))
+        assertTrue(xml, xml.contains("""name="OpacitycurveMode"><![CDATA[0]]></param>"""))
+    }
+
+    @Test
+    fun paintOpActionIsAlwaysWrittenFromAirbrushFlag() {
+        val buildup = KppHelper.readPresetXml(
+            AbrPresetConverter.convert(AbrParser.AbrPresetInfo(name = "B", airbrush = true), "B", null, "", emptyMap(), "pack").kppBytes,
+        )!!
+        assertTrue("Rpt=true → PaintOpAction=1 (BUILDUP)", buildup.contains("""name="PaintOpAction"><![CDATA[1]]></param>"""))
+        val wash = KppHelper.readPresetXml(
+            AbrPresetConverter.convert(AbrParser.AbrPresetInfo(name = "W", airbrush = false), "W", null, "", emptyMap(), "pack").kppBytes,
+        )!!
+        assertTrue("非喷枪 → PaintOpAction=2 (WASH)", wash.contains("""name="PaintOpAction"><![CDATA[2]]></param>"""))
     }
 
     private fun be16(v: Int) = byteArrayOf((v ushr 8 and 0xFF).toByte(), (v and 0xFF).toByte())

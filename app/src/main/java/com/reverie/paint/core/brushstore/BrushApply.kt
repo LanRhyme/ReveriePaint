@@ -15,6 +15,22 @@ import java.io.File
 import kotlin.math.abs
 
 /**
+ * select 的尺寸决策（纯函数，输入均为基础类型，供 JVM 单测；只服务 select 完整分支，轻量 reload 不用）：
+ * 1. 按工具记忆优先（语义与原 `mem?.getOrNull(0) ?: eff.size` 的记忆分支一致，值原样透传）；
+ * 2. kpp 显式声明了尺寸（[PresetReadback.rawSize] 非 null，即回读 readValues 含 SIZE）→ 用回读值 [effSize]；
+ * 3. 否则（原生 inkP / 位图笔尖水彩预设既无 paintopSize 也无笔尖 width/height，回读会落 20px 缺省）→
+ *    用引擎解析出的原生默认尺寸（[nativeDefaults] 的第 0 项 = paintOpSize，C++ 侧已对非正/NaN 兜底 20）；
+ * 4. defaults 数组为空/取不到 → 维持历史 20px 缺省（与改前行为一致）。
+ */
+internal fun resolveSelectSize(
+    memSize: Double?, effSize: Double, sizeExplicit: Boolean, nativeDefaults: DoubleArray?
+): Double =
+    memSize ?: when {
+        sizeExplicit -> effSize
+        else -> nativeDefaults?.getOrNull(0)?.takeIf { it.isFinite() && it > 0.0 } ?: 20.0
+    }
+
+/**
  * 引擎侧唯一笔刷状态施加入口（S4：原生分发只走 BrushApply）。
  *
  * 有效 kpp 已经包含了完整的 XML 参数。在 loadBrushPreset 之后，这里只施加
@@ -219,12 +235,6 @@ object BrushApply {
             ControlId.FLOW -> (v as? Number)?.toDouble()?.let { engine.setBrushFlow(it.coerceIn(0.0, 1.0)) }
             ControlId.ANGLE -> (v as? Number)?.toDouble()?.let { engine.setBrushAngle(it) }
             ControlId.ROTATION -> (v as? Number)?.toDouble()?.let { engine.setBrushAngle(it) }
-            ControlId.PRESSURE_ENABLED -> (v as? Boolean)?.let {
-                ReverieCoreBridge.setBrushPressureDynamics(it, 1.0, 1.0, 1.0, 0)
-            }
-            ControlId.PRESSURE_CURVE -> (v as? Number)?.toInt()?.let {
-                ReverieCoreBridge.setBrushPressureDynamics(true, 1.0, 1.0, 1.0, it)
-            }
             else -> {}
         }
     }
@@ -303,9 +313,36 @@ object BrushApply {
         return res
     }
 
-    fun select(vm: PaintViewModel, index: Int, preset: BrushPresetInfo?) {
+    /**
+     * [notifyUi] = false 时为轻量 reload（flush 后的重载）：只重载预设文件并重放非预设状态，
+     * 跳过"回读灌 UI"三件套（readback / vm.brushParams 整替 / applySensorXmlToDynamicOptions），
+     * 输入全部取 VM 现态——落盘往返幂等由 K1 保证，重载期间不打断用户的编辑手势。
+     */
+    fun select(vm: PaintViewModel, index: Int, preset: BrushPresetInfo?, notifyUi: Boolean = true) {
         if (preset == null) {
             BrushDiagnostics.log("select_preset_missing", "index" to index)
+            return
+        }
+        val isEraserPreset = BrushStoreVm.isEraserPreset(preset)
+        if (!notifyUi) {
+            vm.runCore {
+                if (engine.loadBrushPreset(index)) {
+                    com.reverie.paint.core.Breadcrumbs.record("Brush", "Reload preset [$index]: ${preset.name}")
+                    applyAfterLoad(
+                        engine,
+                        NonPresetState(
+                            isEraser = vm.currentToolId == "eraser" || isEraserPreset,
+                            color = vm.brushColor,
+                            secondaryColor = vm.brushSecondaryColor,
+                            compositeOverride = vm.brushParams.compositeOp,
+                            size = vm.brushSize,
+                            opacity = vm.brushOpacity,
+                            flow = vm.brushFlow,
+                            angleDeg = liveAngle(vm.brushParams),
+                        ),
+                    )
+                }
+            }
             return
         }
         val id = preset.id
@@ -314,16 +351,19 @@ object BrushApply {
             BrushDiagnostics.log("select_readback_missing", "id" to id, "fallback" to "baseline")
             PresetReadback.baseline(id)
         }
-        val isEraserPreset = BrushStoreVm.isEraserPreset(preset)
         val nativeCompOp = if (index >= 0) ReverieCoreBridge.brushPresetCompositeOp(index) else "normal"
         val effectiveCompOp = if (vm.currentToolId == "eraser" || isEraserPreset) {
             "erase"
         } else {
             if (eff.compositeOp.isNotBlank() && eff.compositeOp != "erase") eff.compositeOp else nativeCompOp
         }
-        // 大小/不透明度/流量只由按工具记忆决定；没有记忆就是快照里的出厂值（overrides 不再保存它们）
+        // 大小/不透明度/流量只由按工具记忆决定；没有记忆时大小看 kpp 是否显式声明：
+        // 显式 → 快照出厂值；未声明（原生 inkP/水彩位图笔尖）→ 引擎解析的原生尺寸兜底，
+        // 否则 20px 缺省会覆写引擎从原生预设读出的真实尺寸（见 resolveSelectSize）
         val mem = vm.toolBrushStates[vm.currentToolId]?.paramMemory?.get(id)
-        val finalSize = mem?.getOrNull(0) ?: eff.size
+        val nativeDefaults = if (index >= 0) engine.brushPresetDefaults(index) else null
+        val rawSize = read?.second?.takeIf { it.isFile }?.let { f -> PresetReadback.rawSize(f) }
+        val finalSize = resolveSelectSize(mem?.getOrNull(0), eff.size, rawSize != null, nativeDefaults)
         val finalOpacity = mem?.getOrNull(1) ?: eff.opacity
         val finalFlow = mem?.getOrNull(2) ?: eff.flow
 

@@ -123,7 +123,17 @@ object PresetReadback {
         if (f == null) BrushDiagnostics.log("baseline_snapshot_missing", "id" to id)
         // ABR 导入自带 appBaseline（空 {} 也算带）；kpp/bundle 导入和老快照没有 → 读时按笔刷自己的压感推导（不落盘、无需补写）
         val j = PresetSnapshotStore.source(id)?.optJSONObject("appBaseline")
-        val c = Cached(key, baselineFromJson(j ?: f?.takeIf { BrushIdentity.isImported(id) }?.let { deriveBaselineJson(it.readBytes()) }), f)
+        val derived = f?.takeIf { BrushIdentity.isImported(id) }?.let { deriveBaselineJson(it.readBytes()) }
+        val baseJ = if (j != null && j.has("pressureEnabled")) {
+            if (!j.optBoolean("pressureEnabled", false) && derived?.optBoolean("pressureEnabled", false) == true) {
+                org.json.JSONObject(j.toString()).put("pressureEnabled", true)
+            } else {
+                j
+            }
+        } else {
+            j ?: derived
+        }
+        val c = Cached(key, baselineFromJson(baseJ), f)
         baselineCache[id] = c
         return c
     }
@@ -179,6 +189,7 @@ object PresetReadback {
         }
         val a = fromXml(xml)
         val pressure = listOf(a.pressureSize, a.pressureOpacity, a.pressureFlow).any { it > 0.001 }
+            || KppSensors.hasActivePressureSensor(xml)
         return baselineJson(BrushParams(pressureEnabled = pressure))
     }
 
@@ -244,5 +255,25 @@ object PresetReadback {
     fun controlValues(bytes: ByteArray): Map<ControlId, Any> {
         val xml = KppHelper.readPresetXml(bytes, stripEmbeddedResources = true) ?: return emptyMap()
         return PresetPropertyMap.readValues(xml)
+    }
+
+    private class RawSizeEntry(val key: String, val value: Double?)
+    private val rawSizeCache = java.util.concurrent.ConcurrentHashMap<String, RawSizeEntry>()
+
+    /**
+     * 该 kpp 文件是否显式声明了笔刷尺寸（即回读 readValues 含 [ControlId.SIZE]，判据同
+     * [PresetPropertyMap.readSize] 非 null：paintopSize / 文件笔尖 width-height×scale / auto 直径）。
+     *
+     * 原生 Krita 的 inkP 预设与位图笔尖水彩预设三者皆无 → fromXml 的 size 落在 BrushParams 的
+     * 20.0 缺省上，select 需据此改用引擎解析出的原生尺寸兜底。入参是 readback 读的同一份
+     * 有效预设文件，按文件 stat 缓存（与基线缓存同一套指纹自校验思路）。
+     */
+    fun rawSize(f: File): Double? {
+        val key = stat(f)
+        rawSizeCache[f.path]?.takeIf { it.key == key }?.let { return it.value }
+        val v = KppHelper.readPresetXml(f.readBytes(), stripEmbeddedResources = true)
+            ?.let { xml -> PresetPropertyMap.readSize(xml) }
+        rawSizeCache[f.path] = RawSizeEntry(key, v)
+        return v
     }
 }

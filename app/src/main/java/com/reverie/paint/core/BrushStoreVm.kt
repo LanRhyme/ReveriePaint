@@ -104,7 +104,9 @@ internal object BrushStoreVm {
             val p = vm.brushPresets.firstOrNull { it.index == vm.brushPresetIndex }
             if (p != null && p.id == id) {
                 vm.runCore(render = false) {
-                    BrushApply.select(vm, vm.brushPresetIndex, p)
+                    // 轻量 reload：不回读灌 UI（readback / brushParams 整替 / sensor XML 灌入），
+                    // 编辑会话中途重载不打断手势，UI 状态保持用户现值
+                    BrushApply.select(vm, vm.brushPresetIndex, p, notifyUi = false)
                 }
             }
         }
@@ -196,9 +198,6 @@ internal object BrushStoreVm {
                 host?.notifyBrushModified()
             }
             ControlClass.APP_ONLY -> {
-                if (controlId == ControlId.PRESSURE_ENABLED || controlId == ControlId.PRESSURE_CURVE) {
-                    BrushApply.applyLive(controlId, v)
-                }
                 synchronized(lock) {
                     mergeControl(e.id, controlId, v)
                 }

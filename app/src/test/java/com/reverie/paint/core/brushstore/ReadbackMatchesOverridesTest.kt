@@ -35,6 +35,10 @@ class ReadbackMatchesOverridesTest {
             }
             for ((id, v) in before) {
                 if (id in edits) continue
+                // CURVE_SIZE 与 SPEED_SIZE 共享 SizeSensor 参数节点：编辑尺寸曲线会把主（speed）
+                // 传感器曲线替换成用户曲线，speedSize 反解随之失效（原生 speed 曲线恰与本控件
+                // 编码同形，如 d)_Ink-1_Precision）——属 Krita 语义上的同键联动，不算串写
+                if (id == ControlId.SPEED_SIZE && ControlId.CURVE_SIZE in edits) continue
                 // 同组联动的控件（如曲线开关影响 pressure* 派生）不算在内：只比 kpp 层控件值
                 if (!PresetPropertyMap.same(id, after[id], v)) failures += "$stem ${id.key}: 未覆盖却变了 ${v} -> ${after[id]}"
             }

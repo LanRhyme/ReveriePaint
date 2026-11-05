@@ -1226,6 +1226,7 @@ import kotlinx.coroutines.withContext
                     val abrId = com.reverie.paint.core.brushstore.BrushImportPipeline.importAbr(
                         candidateName, converted.kppBytes, AbrPresetConverter.abrParamsJson(preset),
                         AbrPresetConverter.CONVERTER_VERSION, filename, presetDir, baseline,
+                        blendPolicy = abrBlendPolicy.name,
                     )
 
                     importedPresetIds.add(abrId)

@@ -1822,6 +1822,7 @@
     <string name="brush_sensor_distance">Distance</string>
     <string name="brush_sensor_time">Time</string>
     <string name="brush_sensor_fuzzy">Fuzzy</string>
+    <string name="brush_sensor_perspective">Perspective</string>
     <string name="brush_dynamics_expand_title">Dynamic Curve</string>
     <string name="brush_dynamics_invert_h">Invert H</string>
     <string name="brush_dynamics_invert_v">Invert V</string>

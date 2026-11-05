@@ -93,7 +93,8 @@ enum class BrushSensor(
     FADE("fade", R.string.brush_sensor_fade, R.drawable.ic_droplet),
     DISTANCE("distance", R.string.brush_sensor_distance, R.drawable.ic_repeat_loop),
     TIME("time", R.string.brush_sensor_time, R.drawable.ic_clock),
-    FUZZY("fuzzy", R.string.brush_sensor_fuzzy, R.drawable.ic_grid);
+    FUZZY("fuzzy", R.string.brush_sensor_fuzzy, R.drawable.ic_grid),
+    PERSPECTIVE("perspective", R.string.brush_sensor_perspective, R.drawable.ic_grid);
 
     companion object {
         fun fromId(id: String): BrushSensor {
@@ -104,6 +105,17 @@ enum class BrushSensor(
                 "xtilt", "tilt-x", "tiltx" -> TILT_X
                 "ytilt", "tilt-y", "tilty" -> TILT_Y
                 else -> entries.firstOrNull { it.id == normalized } ?: PRESSURE
+            }
+        }
+
+        fun fromIdOrNull(id: String): BrushSensor? {
+            val normalized = id.trim().lowercase()
+            return when (normalized) {
+                "declination", "tilt-elevation", "tiltelevation" -> TILT_ELEVATION
+                "ascension", "tilt-direction", "tiltdirection" -> TILT_DIRECTION
+                "xtilt", "tilt-x", "tiltx" -> TILT_X
+                "ytilt", "tilt-y", "tilty" -> TILT_Y
+                else -> entries.firstOrNull { it.id == normalized }
             }
         }
     }

@@ -21,8 +21,12 @@ class PresetPropertyMapRoundTripTest {
 
     /** 同一 Krita 曲线选项上的控件（勾选/UseCurve/传感器共享），写一个可能改变另一个的读值 */
     private val coupled: Map<ControlId, Set<ControlId>> = mapOf(
-        ControlId.CURVE_SIZE to setOf(ControlId.JITTER_SIZE),
+        // CURVE_SIZE 与 JITTER_SIZE/SPEED_SIZE 仍共享 SizeSensor 参数节点（启用曲线可能移除休眠
+        // fuzzy、抖动/速度会重写主传感器曲线），但键已解耦：SizeValue 只归 CURVE_SIZE 的强度，双方不再互写
+        ControlId.CURVE_SIZE to setOf(ControlId.JITTER_SIZE, ControlId.SPEED_SIZE),
         ControlId.CURVE_ROTATION to setOf(ControlId.FOLLOW_DIRECTION, ControlId.JITTER_ANGLE),
+        // CURVE_* 与主滑块的 <Id>Value 键已解耦（强度走 DynamicStrength）；这里保留的是勾选键
+        // （Pressure<Id> / UseCurve）耦合：写主滑块可能翻转 UseCurve 使曲线读值变化
         ControlId.CURVE_SCATTER to setOf(ControlId.SCATTER),
         ControlId.CURVE_SOFTNESS to setOf(ControlId.SOFTNESS),
         ControlId.CURVE_SMUDGE_RATE to setOf(ControlId.SMUDGE_LENGTH),
@@ -34,6 +38,11 @@ class PresetPropertyMapRoundTripTest {
         ControlId.FOLLOW_DIRECTION to setOf(ControlId.CURVE_ROTATION, ControlId.JITTER_ANGLE),
         ControlId.JITTER_ANGLE to setOf(ControlId.CURVE_ROTATION, ControlId.FOLLOW_DIRECTION),
         ControlId.JITTER_SIZE to setOf(ControlId.CURVE_SIZE),
+        // speed/fuzzy 子传感器写入 SizeSensor 时会写 SizeUseSameCurve=false，可能改变 CURVE_SIZE 的有效曲线；
+        // SPEED_SIZE 激活 Size 选项（PressureSize=true）还会唤醒休眠的线性 fuzzy → JITTER_SIZE 读值变化（勾选键耦合）
+        ControlId.SPEED_SIZE to setOf(ControlId.CURVE_SIZE, ControlId.JITTER_SIZE),
+        // auto 笔尖的副笔刷柔度 = MaskGenerator hfade/vfade，与 MASKING_FADE 同键
+        ControlId.MASKING_SOFTNESS to setOf(ControlId.MASKING_FADE),
         ControlId.MIX to setOf(ControlId.MIX_PRESSURE),
         ControlId.MIX_PRESSURE to setOf(ControlId.MIX),
         ControlId.RANDOM_FLIP_X to setOf(ControlId.RANDOM_FLIP_Y),

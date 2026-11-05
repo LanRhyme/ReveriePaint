@@ -1822,6 +1822,7 @@
     <string name="brush_sensor_distance">行程距离 (Distance)</string>
     <string name="brush_sensor_time">停留时间 (Time)</string>
     <string name="brush_sensor_fuzzy">随机噪点 (Fuzzy)</string>
+    <string name="brush_sensor_perspective">透视网格 (Perspective)</string>
     <string name="brush_dynamics_expand_title">动态响应曲线</string>
     <string name="brush_dynamics_invert_h">水平反转</string>
     <string name="brush_dynamics_invert_v">垂直反转</string>

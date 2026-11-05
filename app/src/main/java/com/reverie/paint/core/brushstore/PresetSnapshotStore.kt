@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 package com.reverie.paint.core.brushstore
 
 import org.json.JSONObject
@@ -100,6 +104,29 @@ object PresetSnapshotStore {
                 throw SnapshotExistsException(id)
             }
             dir.mkdirs()
+            val f = File(dir, "preset.$ext")
+            AtomicFiles.write(f, bytes)
+            f.setReadOnly()
+            val s = File(dir, "source.json")
+            AtomicFiles.writeText(s, source.toString(1))
+            s.setReadOnly()
+        }
+    }
+
+    /**
+     * 版本漂移刷新（Round3-B）：原子覆盖已有导入快照与 source.json。
+     * 沿用 [putImported] 的原子写 + 只读恢复手法；与 [putImported] 不同，这里允许覆盖（目录必须已存在）。
+     */
+    fun updateImportedSnapshot(id: String, ext: String, bytes: ByteArray, source: JSONObject) {
+        require(BrushIdentity.isImported(id)) { "not an imported id: $id" }
+        synchronized(lock) {
+            val dir = importedDir(id)
+            if (!dir.isDirectory) throw java.io.FileNotFoundException("imported snapshot dir missing: $id")
+            // 旧 preset.*（扩展名可能变化）先解除只读再删，随后按 putImported 同款写入
+            dir.listFiles()?.filter { it.isFile && it.name.startsWith("preset.") }?.forEach {
+                it.setWritable(true)
+                it.delete()
+            }
             val f = File(dir, "preset.$ext")
             AtomicFiles.write(f, bytes)
             f.setReadOnly()
