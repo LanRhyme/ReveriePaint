@@ -7,6 +7,7 @@
 //   3. DISABLED=1 时全局 410,客户端收到后永久停用(kill switch,不必发版)
 
 import { APP_ICON_SVG } from './icon.js';
+import { deviceTitle, deviceBody, deviceLabel, aliasOf } from './devnames.js';
 
 const CONTRACT_VERSION = 1;
 const MAX_BODY_BYTES = 128 * 1024;
@@ -786,6 +787,45 @@ function trendChart(points, compact = false) {
     )}</p>`;
 }
 
+/**
+ * 机型分布: 除型号外还取厂商/产品代号/安卓版本(都存在 payload JSON 里), 用于显示可读设备名。
+ * D1 的 JSON1 万一不可用就退回只按型号聚合 —— 看板不能因为一个富化字段整页报错。
+ */
+async function modelBreakdown(ctx, w) {
+  // 按**型号**聚合(不再按 model,sdk 拆行): 同一台机器跨大版本升级不该在看板上裂成两条,
+  // 安卓版本用区间表示(Android 14–16), 正好也说明这台机器被用过两个系统版本。
+  try {
+    return await q(
+      ctx,
+      `SELECT model,
+              MAX(json_extract(payload,'$.dev.mfr')) AS mfr,
+              MAX(json_extract(payload,'$.dev.dev')) AS dev,
+              MIN(json_extract(payload,'$.dev.rel')) AS rel_min,
+              MAX(json_extract(payload,'$.dev.rel')) AS rel_max,
+              MIN(sdk) AS sdk,
+              COUNT(*) AS n
+         FROM crashes${w.sql} GROUP BY model ORDER BY n DESC LIMIT 10`,
+      w.params,
+    );
+  } catch (e) {
+    console.error('modelBreakdown fallback:', e?.message ?? e);
+    return await q(
+      ctx,
+      `SELECT model, MIN(sdk) AS sdk, COUNT(*) AS n FROM crashes${w.sql} GROUP BY model ORDER BY n DESC LIMIT 10`,
+      w.params,
+    );
+  }
+}
+
+/** 安卓版本展示: 同一型号跨版本时给区间 */
+function relOf(row) {
+  const lo = String(row.rel_min ?? '').trim();
+  const hi = String(row.rel_max ?? '').trim();
+  if (!lo) return hi;
+  if (!hi || lo === hi) return lo;
+  return `${lo}–${hi}`;
+}
+
 function barRows(ctx, items, keyLabel, valueOf, filterKey) {
   if (items.length === 0) return '<p class="empty">暂无数据</p>';
   const max = Math.max(1, ...items.map(valueOf));
@@ -799,6 +839,27 @@ function barRows(ctx, items, keyLabel, valueOf, filterKey) {
       return `<div class="bar-row"><span class="k">${name}</span>
         <span class="track"><i style="width:${pct}%"></i></span>
         <span class="v">${v}</span></div>`;
+    })
+    .join('');
+}
+
+/**
+ * 机型分布的两行渲染: 主标题(市场名/厂商型号) + 副标题(原始型号 · 代号 · 安卓版本)。
+ * 下钻仍然按**原始型号**过滤, 所以 CSV/接口语义不变。
+ */
+function deviceBars(ctx, items) {
+  if (items.length === 0) return '<p class="empty">暂无数据</p>';
+  const max = Math.max(1, ...items.map((it) => it.n));
+  return items
+    .map((it) => {
+      const pct = Math.max(3, Math.round((it.n / max) * 100));
+      const dev = { mfr: it.mfr, model: it.model, dev: it.dev, rel: relOf(it), sdk: it.sdk };
+      const href = it.model ? link(ctx, { model: it.model }) : null;
+      const body = deviceBody(dev);
+      const name = href ? `<a href="${href}" title="${escapeHtml(deviceLabel(dev))}">${body}</a>` : body;
+      return `<div class="bar-row"><span class="k">${name}</span>
+        <span class="track"><i style="width:${pct}%"></i></span>
+        <span class="v">${it.n}</span></div>`;
     })
     .join('');
 }
@@ -824,7 +885,7 @@ function filterChips(ctx) {
   const parts = [];
   if (ctx.kind) parts.push(`类型 <b>${escapeHtml(ctx.kind)}</b>`);
   if (ctx.q) parts.push(`搜索 <b>${escapeHtml(ctx.q)}</b>`);
-  if (ctx.model) parts.push(`机型 <b>${escapeHtml(ctx.model)}</b>`);
+  if (ctx.model) parts.push(`机型 <b>${escapeHtml(aliasOf({ model: ctx.model }) ? `${aliasOf({ model: ctx.model })} (${ctx.model})` : ctx.model)}</b>`);
   if (ctx.ver) parts.push(`版本 <b>${escapeHtml(ctx.ver)}</b>`);
   if (parts.length === 0) return '';
   return `<div class="chips">${parts.join(' · ')} <a href="${link(ctx, {
@@ -881,11 +942,7 @@ async function renderOverview(ctx) {
        FROM crashes${w.sql} GROUP BY sig, kind ORDER BY people DESC, n DESC LIMIT 100`,
     w.params,
   );
-  const models = await q(
-    ctx,
-    `SELECT model, sdk, COUNT(*) AS n FROM crashes${w.sql} GROUP BY model, sdk ORDER BY n DESC LIMIT 10`,
-    w.params,
-  );
+  const models = await modelBreakdown(ctx, w);
   const vers = await q(
     ctx,
     `SELECT app_ver, COUNT(*) AS n FROM crashes${w.sql} GROUP BY app_ver ORDER BY n DESC LIMIT 8`,
@@ -945,7 +1002,7 @@ async function renderOverview(ctx) {
     </section>
     <div class="split">
       <section class="card"><h2>版本分布</h2>${barRows(ctx, vers, (v) => v.app_ver, (v) => v.n, 'ver')}</section>
-      <section class="card"><h2>机型分布</h2>${barRows(ctx, models, (m) => m.model, (m) => m.n, 'model')}</section>
+      <section class="card"><h2>机型分布</h2>${deviceBars(ctx, models)}</section>
     </div>
     <p class="foot">点机型/版本/类型可下钻 · 点签名看现场 · NEW = 近 24h 首次出现 · 保留 180 天</p>`;
   return layout(`近 ${ctx.days} 天`, ctx, body);
@@ -995,17 +1052,17 @@ function renderSample(r, i) {
         .join('')}</ol>`
     : '';
 
-  const head = `${fmtTime(r.received)} · ${escapeHtml(r.app_ver)} · ${escapeHtml(r.model)} · SDK ${r.sdk}`;
+  const head = `${fmtTime(r.received)} · ${escapeHtml(r.app_ver)} · ${escapeHtml(deviceTitle({ mfr: dev.mfr, model: r.model ?? dev.model, dev: dev.dev, rel: dev.rel, sdk: dev.sdk }))} · SDK ${r.sdk}`;
   return `<details class="sample" ${i === 0 ? 'open' : ''}>
     <summary>${head}</summary>
     <div class="sample-body">
       <h3>设备</h3>
       ${kv([
-        ['机型', `${dev.mfr ?? ''} ${dev.model ?? ''}`.trim()],
+        ['机型', deviceTitle({ mfr: dev.mfr, model: dev.model ?? r.model, dev: dev.dev, rel: dev.rel, sdk: dev.sdk })],
+        ['厂商 / 型号', `${dev.mfr ?? ''} ${dev.model ?? r.model ?? ''}`.trim()],
         ['设备代号', dev.dev],
-        ['系统', `${dev.rel ?? ''} (SDK ${dev.sdk ?? ''})`],
+        ['系统', [dev.rel ? `Android ${dev.rel}` : '', dev.sdk ? `SDK ${dev.sdk}` : '', p.app?.abi].filter(Boolean).join(' · ')],
         ['内存', dev.ram_mb ? `${dev.ram_mb} MB` : ''],
-        ['ABI', p.app?.abi],
         ['鸿蒙/EMUI', dev.harmony],
         ['系统指纹', dev.fp],
       ])}
@@ -1059,11 +1116,7 @@ async function renderSignature(ctx, sig) {
   );
   const ever = await q1(ctx, 'SELECT MIN(at) AS first_ever FROM crashes WHERE sig = ?', [sig]);
   const firstEver = ever.first_ever ?? head.first_at ?? 0;
-  const models = await q(
-    ctx,
-    `SELECT model, sdk, COUNT(*) AS n FROM crashes${w.sql} GROUP BY model, sdk ORDER BY n DESC LIMIT 10`,
-    w.params,
-  );
+  const models = await modelBreakdown(ctx, w);
   const vers = await q(
     ctx,
     `SELECT app_ver, COUNT(*) AS n FROM crashes${w.sql} GROUP BY app_ver ORDER BY n DESC LIMIT 8`,
@@ -1096,7 +1149,7 @@ async function renderSignature(ctx, sig) {
     <section class="card"><h2>每日上报</h2>${trendChart(fillTrend(trendRows, ctx.days), true)}</section>
     <div class="split">
       <section class="card"><h2>版本分布</h2>${barRows(ctx, vers, (v) => v.app_ver, (v) => v.n, null)}</section>
-      <section class="card"><h2>机型分布</h2>${barRows(ctx, models, (m) => m.model, (m) => m.n, null)}</section>
+      <section class="card"><h2>机型分布</h2>${deviceBars(ctx, models)}</section>
     </div>
     <section class="card">
       <h2>最近 ${samples.length} 条现场</h2>
@@ -1120,7 +1173,7 @@ async function exportCsv(ctx) {
        FROM crashes${w.sql} ORDER BY at DESC LIMIT 5000`,
     w.params,
   );
-  const header = ['received', 'crash_at', 'kind', 'sig', 'app_ver', 'app_code', 'abi', 'model', 'sdk', 'page', 'tool', 'canvas', 'layers', 'signal'];
+  const header = ['received', 'crash_at', 'kind', 'sig', 'app_ver', 'app_code', 'abi', 'device', 'model', 'sdk', 'page', 'tool', 'canvas', 'layers', 'signal'];
   const lines = [header.join(',')];
   for (const r of rows) {
     let p = {};
@@ -1136,6 +1189,7 @@ async function exportCsv(ctx) {
         r.app_ver,
         r.app_code,
         r.abi,
+        deviceLabel({ mfr: p.dev?.mfr, model: p.dev?.model ?? r.model, dev: p.dev?.dev, rel: p.dev?.rel, sdk: r.sdk }),
         r.model,
         r.sdk,
         p.doc?.page ?? '',
@@ -1304,8 +1358,10 @@ code{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;font-size:12px;colo
 .trend .track i{display:block;width:100%;background:var(--accent);border-radius:5px 5px 0 0;min-height:2px}
 .trend .track i.zero{background:var(--panel-hi)}
 .trend .col span{font-size:10.5px;color:var(--sub);text-align:center;height:12px}
-.bar-row{display:grid;grid-template-columns:minmax(64px,38%) 1fr auto;gap:10px;align-items:center;padding:5px 0}
-.bar-row .k{font-size:13px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar-row{display:grid;grid-template-columns:minmax(72px,46%) 1fr auto;gap:10px;align-items:center;padding:5px 0}
+.bar-row .k{font-size:13px;min-width:0}
+.bar-row .k b{display:block;font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar-row .k em{display:block;font-style:normal;font-size:11px;color:var(--sub);overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
 .bar-row .track{height:7px;background:var(--panel-hi);border-radius:999px;overflow:hidden}
 .bar-row .track i{display:block;height:100%;background:var(--accent);opacity:.85;border-radius:999px}
 .bar-row .v{font-variant-numeric:tabular-nums;font-size:12.5px;color:var(--sub);min-width:2ch;text-align:right}

@@ -70,6 +70,19 @@ npx wrangler deploy --var DISABLED:1
 NEW 徽章(全量首次出现 < 24h)、结构化现场(设备/上下文/操作轨迹时间线/帧 + addr2line 命令),
 以及 `?format=csv` 与 `?format=md` 导出(沿用当前筛选,同样需要登录)。
 
+### 设备名显示
+
+遥测只存 `Build.MANUFACTURER / MODEL / DEVICE` 三个原始字段,国产 ROM 的 `MODEL` 常年只是型号代码
+(`SM-X700` / `OPD2413` / `V2190A`),单看没法辨认。看板展示统一走 `src/devnames.js`:
+
+- 厂商名中文化(`samsung` → 三星、`LENOVO` → 联想、`Microsoft Corporation` → Windows 上的安卓 WSA);
+- **别名表**把型号/产品代号翻译成市场名(`SM-X700`/`gts8wifi` → 三星 Galaxy Tab S8);
+- 机型分布与现场卡都渲染两行: 主标题(人话名字) + 副标题(`原始型号 · 产品代号 · 安卓版本`),
+  下钻与导出仍用原始型号,语义不变;`?format=csv` 额外给一列 `device`(单行可读名)。
+
+新增别名只写**核对过**的条目(model ↔ dev ↔ 市场名三者对得上, 来源是上报里的 `Build.FINGERPRINT`
+产品代号 + 厂商公开型号), 猜错比只显示型号更糟。文件里的 `ALIASES` 同时接受产品代号和型号两种键。
+
 主题默认跟随系统,页头可手动切换「自动 / 浅色 / 深色」(写进 `rp_theme` Cookie)。
 图标直接内联仓库里的 `art/icon.svg`(白色星芒配 `#0e0f16` 底色,与应用图标一致)。
 
