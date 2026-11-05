@@ -19,8 +19,9 @@ object FrontBufferProbe {
     const val MIN_SUPPORTED_API = Build.VERSION_CODES.Q
 
     /**
-     * 本机是否因"上一次原生崩溃落在 libgraphics-core.so"而被隔离 (见 [setCrashQuarantined])。
-     * 由 [com.reverie.paint.core.CrashHandler] 在进程启动时判定; 未判定前按不隔离处理。
+     * 本机是否因"上一次原生崩溃命中前缓冲签名"而被隔离 (见 [setCrashQuarantined] /
+     * [FrontBufferCrashSignature])。由 [com.reverie.paint.core.CrashHandler] 在进程启动时
+     * 判定; 未判定前按不隔离处理。
      */
     @Volatile
     private var crashQuarantined = false
@@ -39,14 +40,37 @@ object FrontBufferProbe {
         if (quarantined) {
             Log.w(
                 TAG,
-                "front buffer disabled for this app version: previous native crash stack referenced " +
-                    "libgraphics-core.so (override with debug.reverie.fb_force=1)",
+                "front buffer disabled for this app version: previous native crash matched the " +
+                    "front-buffer signature (libgraphics-core.so, or libgui + libandroid_runtime " +
+                    "with FrontBuffer: pref=true; override with debug.reverie.fb_force=1)",
             )
         }
     }
 
     /** 崩溃隔离是否生效 (受 [forceEnabledByProp] 覆盖, 用于诊断输出)。 */
     fun isCrashQuarantined(): Boolean = crashQuarantined && !forceEnabledByProp
+
+    /**
+     * 已知存在系统级 libgui registerSurfaceControlForCallback 空指针缺陷的 ROM 组合:
+     * Android 13 (SDK 33) 的小米/红米与 vivo/iQOO 机型 (线上 d8f74afe88 / 7f68bfcd44 / f047d7d9a2 / 8d5df3d6e2)。
+     * 该系统缺陷在 SurfaceControl 拆解事务中解引用空指针导致 SIGSEGV (0x0/0x8), 需前置规避。
+     */
+    internal fun isKnownDefectiveVendorRom(
+        sdk: Int = Build.VERSION.SDK_INT,
+        brand: String = Build.BRAND ?: "",
+        mfg: String = Build.MANUFACTURER ?: "",
+    ): Boolean {
+        if (sdk == 33) {
+            val b = brand.lowercase()
+            val m = mfg.lowercase()
+            if (b.contains("xiaomi") || b.contains("redmi") || m.contains("xiaomi") ||
+                b.contains("vivo") || b.contains("iqoo") || m.contains("vivo")
+            ) {
+                return true
+            }
+        }
+        return false
+    }
 
     /**
      * 判断当前设备是否具备运行 CanvasFrontBufferedRenderer 的基础软硬件条件。
@@ -57,15 +81,22 @@ object FrontBufferProbe {
             return false
         }
 
-        // 2. 本机曾在前缓冲原生路径 (androidx.graphics 的 libgraphics-core.so) 崩过:
-        //    该库 1.0.4 的 SurfaceControl 拆解竞态是空指针崩溃 (fault addr 0x0, 发生在系统
-        //    libgui NdkDelegatorController 的事务完成回调线程上), 无法在 Kotlin 侧捕获, 只能隔离。
-        //    隔离按版本号生效, 升级版本后自动重试一次 (CrashHandler 负责读写)。
+        // 2. 本机曾在前缓冲原生路径崩过:
+        //    - androidx.graphics 的 libgraphics-core.so SurfaceControl 拆解竞态 (fault 0x0);
+        //    - 以及"页面切换时 Surface 已销毁、事务仍打到 libgui"这一种 (栈里只有
+        //      libgui + libandroid_runtime, 线上占比最大的一簇, 见 FrontBufferCrashSignature)。
+        //    两者都无法在 Kotlin 侧捕获, 只能隔离。隔离按版本号生效, 升级版本后自动重试
+        //    一次 (CrashHandler 负责读写)。
         if (isCrashQuarantined()) {
             return false
         }
 
-        // 3. 探活 androidx.graphics 类库是否可正确加载
+        // 3. 针对已知存在系统级 libgui 空指针崩溃的厂商 ROM (Android 13 小米/vivo) 前置拦截
+        if (isKnownDefectiveVendorRom() && !forceEnabledByProp) {
+            return false
+        }
+
+        // 4. 探活 androidx.graphics 类库是否可正确加载
         return runCatching {
             Class.forName("androidx.graphics.lowlatency.CanvasFrontBufferedRenderer")
             true
@@ -227,7 +258,8 @@ object FrontBufferProbe {
         val supported = isSupported()
         val manufacturer = Build.MANUFACTURER
         val model = Build.MODEL
+        val defective = isKnownDefectiveVendorRom()
         return "FrontBuffer[supported=$supported, sdk=$sdk, device=$manufacturer $model, " +
-            "crashQuarantined=$crashQuarantined, force=$forceEnabledByProp]"
+            "crashQuarantined=$crashQuarantined, defectiveRom=$defective, force=$forceEnabledByProp]"
     }
 }

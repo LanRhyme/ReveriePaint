@@ -27,7 +27,7 @@ class ReadbackMatchesOverridesTest {
             val eff = EffectivePresetBuilder.build(snap, "kpp", OverrideFixtures.overrides(edits))
             val before = PresetReadback.controlValues(snap)
             val after = PresetReadback.controlValues(eff)
-            val ui = PresetReadback.fromEffectiveBytes(eff, "kpp")
+            val ui = PresetReadback.fromEffectiveBytes(eff)
             for ((id, v) in edits) {
                 if (!PresetPropertyMap.same(id, after[id], v)) failures += "$stem ${id.key}: kpp=${after[id]} 期望=$v"
                 val uiV = PresetPropertyMap.spec(id).get(ui)

@@ -363,19 +363,125 @@ fun DrawingGuidePanel(
                     )
 
                     if (guide.symmetryType == SymmetryType.RADIAL) {
-                        val radialLabel = androidx.compose.ui.res.stringResource(R.string.guide_symmetry_radial_count)
-                        val radialValueText = androidx.compose.ui.res.stringResource(
-                            R.string.guide_symmetry_radial_count_value,
-                            guide.symmetryRadialCount
+                        SegmentedOptionSelector(
+                            options = listOf(
+                                true to androidx.compose.ui.res.stringResource(R.string.guide_symmetry_mode_rotational),
+                                false to androidx.compose.ui.res.stringResource(R.string.guide_symmetry_mode_mirrored),
+                            ),
+                            selectedKey = guide.symmetryRotational,
+                            onSelect = { vm.drawingGuide = guide.copy(symmetryRotational = it) },
                         )
-                        CompactSliderItem(
-                            label = radialLabel,
-                            valueText = radialValueText,
-                            range = 3f..12f,
-                            value = guide.symmetryRadialCount.toFloat(),
-                            onValue = { vm.drawingGuide = guide.copy(symmetryRadialCount = it.roundToInt()) },
-                            modifier = Modifier.fillMaxWidth(),
-                        )
+
+                        // 对称轴数量与快速预设
+                        Column(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Morandi.border.copy(alpha = 0.22f))
+                                .padding(horizontal = 10.dp, vertical = 8.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    text = androidx.compose.ui.res.stringResource(R.string.guide_symmetry_rays),
+                                    color = Morandi.text,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                val raysText = if (guide.symmetryRotational) {
+                                    androidx.compose.ui.res.stringResource(R.string.guide_symmetry_rays_rotational_format, guide.symmetryRayCount)
+                                } else {
+                                    androidx.compose.ui.res.stringResource(R.string.guide_symmetry_rays_mirrored_format, guide.symmetryRayCount, guide.symmetryRayCount * 2)
+                                }
+                                Text(
+                                    text = raysText,
+                                    color = Morandi.accent,
+                                    fontSize = 12.sp,
+                                    fontWeight = FontWeight.Bold,
+                                )
+                            }
+
+                            // 快捷常用轴数预设: 3(三叶陀螺), 4(十字), 5(五叶陀螺), 6(六角), 8(八角), 12(十二角), 16
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                listOf(3, 4, 5, 6, 8, 12, 16).forEach { presetRays ->
+                                    val isSelected = guide.symmetryRayCount == presetRays
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (isSelected) Morandi.accent else Morandi.panel.copy(alpha = 0.65f))
+                                            .clickable {
+                                                vm.drawingGuide = guide.copy(symmetryRayCount = presetRays)
+                                            }
+                                            .padding(vertical = 4.dp),
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            text = "$presetRays",
+                                            color = if (isSelected) Morandi.onAccent else Morandi.text,
+                                            fontSize = 11.5.sp,
+                                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
+                                        )
+                                    }
+                                }
+                            }
+
+                            // 滑块 + 步进器微调
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(CircleShape)
+                                        .background(Morandi.panel)
+                                        .clickable {
+                                            val next = (guide.symmetryRayCount - 1).coerceAtLeast(com.reverie.paint.model.SYMMETRY_RAY_COUNT_MIN)
+                                            vm.drawingGuide = guide.copy(symmetryRayCount = next)
+                                        },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text("-", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                }
+
+                                val span = (com.reverie.paint.model.SYMMETRY_RAY_COUNT_MAX - com.reverie.paint.model.SYMMETRY_RAY_COUNT_MIN).toFloat()
+                                val minRays = com.reverie.paint.model.SYMMETRY_RAY_COUNT_MIN.toFloat()
+                                com.reverie.paint.ui.components.ReSlider(
+                                    value = ((guide.symmetryRayCount - minRays) / span).coerceIn(0f, 1f),
+                                    onValue = { frac ->
+                                        val newRays = (minRays + frac * span).roundToInt().coerceIn(
+                                            com.reverie.paint.model.SYMMETRY_RAY_COUNT_MIN,
+                                            com.reverie.paint.model.SYMMETRY_RAY_COUNT_MAX,
+                                        )
+                                        vm.drawingGuide = guide.copy(symmetryRayCount = newRays)
+                                    },
+                                    modifier = Modifier.weight(1f),
+                                )
+
+                                Box(
+                                    modifier = Modifier
+                                        .size(24.dp)
+                                        .clip(CircleShape)
+                                        .background(Morandi.panel)
+                                        .clickable {
+                                            val next = (guide.symmetryRayCount + 1).coerceAtMost(com.reverie.paint.model.SYMMETRY_RAY_COUNT_MAX)
+                                            vm.drawingGuide = guide.copy(symmetryRayCount = next)
+                                        },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text("+", color = Morandi.text, fontSize = 13.sp, fontWeight = FontWeight.Bold)
+                                }
+                            }
+                        }
                     }
 
                     SegmentedOptionSelector(
@@ -494,7 +600,7 @@ private fun SegmentedModeSelector(
             ) {
                 Text(
                     text = label,
-                    color = if (isSelected) Color.White else Morandi.text,
+                    color = if (isSelected) Morandi.onAccent else Morandi.text,
                     fontSize = 11.sp,
                     fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                     maxLines = 1,
@@ -538,7 +644,7 @@ private fun PerspectiveSubModeSelector(
             ) {
                 Text(
                     text = label,
-                    color = if (isSelected) Color.White else Morandi.text,
+                    color = if (isSelected) Morandi.onAccent else Morandi.text,
                     fontSize = 11.5.sp,
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
@@ -579,7 +685,7 @@ private fun <T> SegmentedOptionSelector(
             ) {
                 Text(
                     text = label,
-                    color = if (isSelected) Color.White else Morandi.text,
+                    color = if (isSelected) Morandi.onAccent else Morandi.text,
                     fontSize = 11.5.sp,
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,

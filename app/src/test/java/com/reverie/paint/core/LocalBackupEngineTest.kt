@@ -142,7 +142,8 @@ class LocalBackupEngineTest {
 
             val prefs = mapOf(
                 "userPalettes" to "[{\"id\":\"p1\",\"name\":\"Test\",\"colors\":[\"#FFFFFF\"]}]",
-                "shortcut_bindings" to "{\"undo\":\"LeftCtrl + Z\",\"redo\":\"LeftCtrl + Y\"}",
+                // 快捷键表是制表符纯文本 (多按键用整行展开)
+                "shortcut_bindings" to "#ReveriePaint Shortcuts v1\nundo\tLeftCtrl + Z\nredo\tLeftCtrl + Y",
                 "somePref" to 123,
             )
 
@@ -337,4 +338,133 @@ class LocalBackupEngineTest {
             root.deleteRecursively()
         }
     }
+
+    @Test
+    fun `备份笔刷预设时 myb 和 kpp 一样会被带上`() {
+        val root = Files.createTempDirectory("backup-myb").toFile()
+        try {
+            val brushDir = File(root, "paintoppresets").apply { mkdirs() }
+            File(brushDir, "ink.kpp").writeText("kpp data")
+            File(brushDir, "chalk.myb").writeText("{\"version\":3}")
+            val out = ByteArrayOutputStream()
+            LocalBackupEngine.createBackup(
+                filesDir = root, prefsMap = emptyMap<String, Any>(),
+                selectedCategories = setOf(BackupCategory.BRUSHES), outputStream = out,
+            )
+            val inspection = LocalBackupEngine.inspectBackup(root, ByteArrayInputStream(out.toByteArray()))
+            assertEquals(listOf("chalk.myb", "ink.kpp"), inspection.manifest.brushPresets.sorted())
+            val est = LocalBackupEngine.estimateCategory(root, emptyMap<String, Any>(), BackupCategory.BRUSHES)
+            assertEquals(2, est.count)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `备份笔刷时自动排除出厂内置预设与材质，仅打包用户自定笔刷与素材`() {
+        val root = Files.createTempDirectory("backup-filter-defaults").toFile()
+        try {
+            val presetsDir = com.reverie.paint.core.brushstore.ResourceDirs.presets(root).apply { mkdirs() }
+            val tipsDir = com.reverie.paint.core.brushstore.ResourceDirs.tips(root).apply { mkdirs() }
+            val patternsDir = com.reverie.paint.core.brushstore.ResourceDirs.patterns(root).apply { mkdirs() }
+
+            // 写入出厂与自定义预设
+            File(presetsDir, "default_pen.kpp").writeText("factory preset")
+            File(presetsDir, "custom_brush.kpp").writeText("user preset")
+
+            // 写入出厂与自定义笔尖
+            File(tipsDir, "default_tip.png").writeText("factory tip")
+            File(tipsDir, "custom_tip.png").writeText("user tip")
+
+            // 写入出厂与自定义纹理
+            File(patternsDir, "default_pat.png").writeText("factory pattern")
+            File(patternsDir, "custom_pat.png").writeText("user pattern")
+
+            // 登记出厂清单与 identity
+            com.reverie.paint.core.backup.BrushBackupMerge.saveFactoryResources(
+                root,
+                tips = listOf("default_tip.png"),
+                patterns = listOf("default_pat.png"),
+                presets = listOf("default_pen.kpp"),
+            )
+            val identityJson = JSONObject().put("schema", 2).put(
+                "presets",
+                JSONObject()
+                    .put("builtin:default_pen", JSONObject().put("name", "default_pen").put("ext", "kpp").put("kind", "BUILTIN"))
+                    .put("imp:user1", JSONObject().put("name", "custom_brush").put("ext", "kpp").put("kind", "IMPORTED")),
+            ).toString(1)
+            File(root, "brush_store/identity.json").writeText(identityJson)
+
+            // 验证估算：出厂预设/笔尖/纹理均被排除，仅统计自定义内容（1 预设 + 2 材质）
+            val est = LocalBackupEngine.estimateCategory(root, emptyMap<String, Any>(), BackupCategory.BRUSHES)
+            assertEquals(3, est.count)
+            assertTrue(est.description.contains("1 个预设, 2 个笔尖纹理"))
+
+            // 验证打包
+            val out = ByteArrayOutputStream()
+            LocalBackupEngine.createBackup(
+                filesDir = root,
+                prefsMap = emptyMap<String, Any>(),
+                selectedCategories = setOf(BackupCategory.BRUSHES),
+                outputStream = out,
+            )
+
+            val inspection = LocalBackupEngine.inspectBackup(root, ByteArrayInputStream(out.toByteArray()))
+            assertEquals(listOf("custom_brush.kpp"), inspection.manifest.brushPresets)
+            assertEquals(listOf("custom_tip.png"), inspection.manifest.brushTips)
+            assertEquals(listOf("custom_pat.png"), inspection.manifest.brushPatterns)
+
+            // 冲突检测应仅包含自定义笔刷，不报内置笔刷冲突
+            assertEquals(listOf("custom_brush.kpp"), inspection.existingBrushConflicts)
+        } finally {
+            root.deleteRecursively()
+        }
+    }
+
+    @Test
+    fun `若设备仅有内置笔刷，笔刷备份估算与打包条目均为 0`() {
+        val root = Files.createTempDirectory("backup-only-defaults").toFile()
+        try {
+            val presetsDir = com.reverie.paint.core.brushstore.ResourceDirs.presets(root).apply { mkdirs() }
+            val tipsDir = com.reverie.paint.core.brushstore.ResourceDirs.tips(root).apply { mkdirs() }
+            val patternsDir = com.reverie.paint.core.brushstore.ResourceDirs.patterns(root).apply { mkdirs() }
+
+            File(presetsDir, "Basic-1.kpp").writeText("factory preset")
+            File(tipsDir, "round.png").writeText("factory tip")
+            File(patternsDir, "paper.png").writeText("factory pattern")
+
+            com.reverie.paint.core.backup.BrushBackupMerge.saveFactoryResources(
+                root,
+                tips = listOf("round.png"),
+                patterns = listOf("paper.png"),
+                presets = listOf("Basic-1.kpp"),
+            )
+            val identityJson = JSONObject().put("schema", 2).put(
+                "presets",
+                JSONObject().put("builtin:Basic-1", JSONObject().put("name", "Basic-1").put("ext", "kpp").put("kind", "BUILTIN")),
+            ).toString(1)
+            File(root, "brush_store/identity.json").writeText(identityJson)
+
+            val est = LocalBackupEngine.estimateCategory(root, emptyMap<String, Any>(), BackupCategory.BRUSHES)
+            assertEquals(0, est.count)
+            assertEquals(0L, est.totalBytes)
+
+            val out = ByteArrayOutputStream()
+            LocalBackupEngine.createBackup(
+                filesDir = root,
+                prefsMap = emptyMap<String, Any>(),
+                selectedCategories = setOf(BackupCategory.BRUSHES),
+                outputStream = out,
+            )
+
+            val inspection = LocalBackupEngine.inspectBackup(root, ByteArrayInputStream(out.toByteArray()))
+            assertTrue(inspection.manifest.brushPresets.isEmpty())
+            assertTrue(inspection.manifest.brushTips.isEmpty())
+            assertTrue(inspection.manifest.brushPatterns.isEmpty())
+            assertTrue(inspection.existingBrushConflicts.isEmpty())
+        } finally {
+            root.deleteRecursively()
+        }
+    }
 }
+

@@ -64,6 +64,7 @@ enum class Tool(
     MEASURE("measure", "测量", ToolGroup.OTHER),
     PATH("path", "路径", ToolGroup.SHAPES),
     REFERENCE("reference", "参考", ToolGroup.VIEW),
+    PAN("pan", "抓手", ToolGroup.VIEW),
     SHORTCUT("shortcut", "快捷操作", ToolGroup.VIEW),
     QUICK_BRUSH("quick_brush", "快捷笔刷", ToolGroup.VIEW),
     QUICK_COLOR("quick_color", "快捷颜色", ToolGroup.VIEW),
@@ -189,6 +190,8 @@ data class Project(
     val masterFilePath: String = "",
     /** Whether the project is an animation canvas (含动画时间轴, meta.layers[].animated) */
     val isAnimation: Boolean = false,
+    /** Whether this project is the chosen cover artwork for its parent folder */
+    val isFolderCover: Boolean = false,
 )
 
 /** A canvas size preset for the create page */

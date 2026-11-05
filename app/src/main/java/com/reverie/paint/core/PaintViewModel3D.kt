@@ -9,6 +9,7 @@ import android.util.Log
 import androidx.lifecycle.viewModelScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.reverie.paint.R
 import com.reverie.paint.model.*
 import java.io.BufferedReader
@@ -244,7 +245,13 @@ internal fun PaintViewModel.prewarm3DModel(state: Model3DState) {
     if (skinnedModelCache.containsKey(key) || meshCache.containsKey(key)) return
     viewModelScope.launch(Dispatchers.IO) {
         try {
-            getSkinnedModelForState(state)
+            // 蒙皮模型走 skinned 缓存; 内置几何/OBJ 走静态网格缓存。
+            // 两者都必须在这里补齐, 否则首帧会在 onDraw 里现解析 (ANR)。
+            if (getSkinnedModelForState(state) == null) {
+                getDeformedForState(state)
+            }
+        } catch (e: com.reverie.paint.model.MeshTooLargeException) {
+            Log.w("RP_3D", "Prewarm 3D model too large: $key", e)
         } catch (e: Exception) {
             Log.w("RP_3D", "Prewarm 3D model failed: $key", e)
         }
@@ -255,10 +262,17 @@ internal fun PaintViewModel.prewarm3DModel(state: Model3DState) {
  * 构造非蒙皮模型的静态网格 (内置几何体 / OBJ 导入 / 素模兜底)
  */
 private fun PaintViewModel.buildStaticMesh(state: Model3DState): Mesh3D {
-    val anglesKey = if (state.jointAngles.isEmpty()) "" else {
-        state.jointAngles.entries.sortedBy { it.key }.joinToString(",") { "${it.key}:${it.value}" }
+    // 导入的静态模型 (OBJ) 与姿态/关节角度无关: 缓存键必须和导入时写入的键一致,
+    // 否则 onDraw 会重新解析文件 (线上 9fc2dbca2e 的 ANR 就是这么来的)。
+    val isImportedStatic = state.modelType.startsWith("file:") || state.modelType.startsWith("uri:")
+    val key = if (isImportedStatic) {
+        state.modelType
+    } else {
+        val anglesKey = if (state.jointAngles.isEmpty()) "" else {
+            state.jointAngles.entries.sortedBy { it.key }.joinToString(",") { "${it.key}:${it.value}" }
+        }
+        "${state.modelType}#${state.posePreset}#$anglesKey"
     }
-    val key = "${state.modelType}#${state.posePreset}#$anglesKey"
     meshCache[key]?.let { return it }
 
     val builtin = BuiltinModel3D.fromId(state.modelType)
@@ -312,11 +326,36 @@ private fun PaintViewModel.buildStaticMesh(state: Model3DState): Mesh3D {
         }
     }
 
-    if (meshCache.size > 24) {
-        meshCache.clear()
-    }
     meshCache[key] = mesh
+    trimMeshCache(keepKey = key)
     return mesh
+}
+
+/**
+ * 缓存超限时优先淘汰姿态变体 (内置模型的 pose/关节角度组合), 保留导入的静态模型。
+ * 导入模型被淘汰后下一次会在 onDraw 里重新解析文件 —— 正是 ANR/OOM 的老路
+ * (线上 9fc2dbca2e / 3bde27f5cc), 所以这里绝不无差别 clear。
+ */
+private fun PaintViewModel.trimMeshCache(keepKey: String) {
+    if (meshCache.size <= 24) return
+    val iterator = meshCache.keys.iterator()
+    while (meshCache.size > 12 && iterator.hasNext()) {
+        val cacheKey = iterator.next()
+        if (cacheKey == keepKey) continue
+        val imported = cacheKey.startsWith("file:") || cacheKey.startsWith("uri:")
+        if (!imported) {
+            iterator.remove()
+        }
+    }
+    // 极端情况: 全是导入模型 (理论上不超过图层数), 兜底清一次避免无限增长;
+    // 刚构建好的网格必须保住, 否则这一帧白算、下一帧又要在 onDraw 里重来。
+    if (meshCache.size > 48) {
+        val kept = meshCache[keepKey]
+        meshCache.clear()
+        if (kept != null) {
+            meshCache[keepKey] = kept
+        }
+    }
 }
 
 /**
@@ -439,78 +478,92 @@ internal fun PaintViewModel.create3DLayerFromFile(
     uri: Uri,
     fileName: String,
 ) {
-    val cleanName = fileName.replace(Regex("\\.(glb|vrm|pmx|obj)$", RegexOption.IGNORE_CASE), "")
-    val displayName = getString(R.string.layer_3d_tag) + " (" + cleanName + ")"
+    // 3D 模型解析是重 IO + CPU 活 (大 obj 可到数万行): 必须离开主线程, 否则选完文件
+    // 立刻 input dispatch timeout (1.6.2 线上 ANR 的主线程栈就停在 Mesh3D 解析里)。
+    viewModelScope.launch(Dispatchers.IO) {
+        val cleanName = fileName.replace(Regex("\\.(glb|vrm|pmx|obj)$", RegexOption.IGNORE_CASE), "")
+        val displayName = getString(R.string.layer_3d_tag) + " (" + cleanName + ")"
 
-    // 本地持久化缓存，防止设备重启或临时授权失效后丢失外部 3D 模型
-    val modelsDir = java.io.File(appContext.filesDir, "3d_models").apply { mkdirs() }
-    val safeFileName = "model_${System.currentTimeMillis()}_$fileName"
-    val localFile = java.io.File(modelsDir, safeFileName)
-    try {
-        appContext.contentResolver.openInputStream(uri)?.use { input ->
-            localFile.outputStream().use { output ->
-                input.copyTo(output)
+        // 本地持久化缓存，防止设备重启或临时授权失效后丢失外部 3D 模型
+        val modelsDir = java.io.File(appContext.filesDir, "3d_models").apply { mkdirs() }
+        val safeFileName = "model_${System.currentTimeMillis()}_$fileName"
+        val localFile = java.io.File(modelsDir, safeFileName)
+        try {
+            appContext.contentResolver.openInputStream(uri)?.use { input ->
+                localFile.outputStream().use { output ->
+                    input.copyTo(output)
+                }
             }
+        } catch (e: Exception) {
+            Log.e("RP_3D", "Failed to cache 3D model file to app internal storage", e)
         }
-    } catch (e: Exception) {
-        Log.e("RP_3D", "Failed to cache 3D model file to app internal storage", e)
-    }
 
-    val modelPathKey = if (localFile.exists() && localFile.length() > 0) {
-        "file:${localFile.absolutePath}"
-    } else {
-        "uri:$uri"
-    }
-
-    try {
-        val stream = if (localFile.exists() && localFile.length() > 0) {
-            localFile.inputStream()
+        val modelPathKey = if (localFile.exists() && localFile.length() > 0) {
+            "file:${localFile.absolutePath}"
         } else {
-            appContext.contentResolver.openInputStream(uri)
+            "uri:$uri"
         }
-        val lowerName = fileName.lowercase()
-        stream?.use { s ->
-            when {
-                lowerName.endsWith(".glb") || lowerName.endsWith(".vrm") -> {
-                    val skinned = GlbParser.parse(s)
-                    skinnedModelCache[modelPathKey] = skinned
-                }
-                lowerName.endsWith(".pmx") -> {
-                    val skinned = PmxParser.parse(s)
-                    skinnedModelCache[modelPathKey] = skinned
-                }
-                else -> {
-                    val mesh = Mesh3D.parseObj(BufferedReader(InputStreamReader(s)))
-                    meshCache[modelPathKey] = mesh
+
+        try {
+            val stream = if (localFile.exists() && localFile.length() > 0) {
+                localFile.inputStream()
+            } else {
+                appContext.contentResolver.openInputStream(uri)
+            }
+            val lowerName = fileName.lowercase()
+            stream?.use { s ->
+                when {
+                    lowerName.endsWith(".glb") || lowerName.endsWith(".vrm") -> {
+                        val skinned = GlbParser.parse(s)
+                        skinnedModelCache[modelPathKey] = skinned
+                    }
+                    lowerName.endsWith(".pmx") -> {
+                        val skinned = PmxParser.parse(s)
+                        skinnedModelCache[modelPathKey] = skinned
+                    }
+                    else -> {
+                        val mesh = Mesh3D.parseObj(BufferedReader(InputStreamReader(s)))
+                        meshCache[modelPathKey] = mesh
+                    }
                 }
             }
+        } catch (e: com.reverie.paint.model.MeshTooLargeException) {
+            // 规模超预算: 明确告知用户, 不要静默失败 (否则用户只看到"没反应")
+            Log.w("RP_3D", "3D model too large: $fileName", e)
+            withContext(Dispatchers.Main.immediate) {
+                showActionToast(R.string.toast_3d_model_too_large)
+            }
+            return@launch
+        } catch (e: Exception) {
+            Log.e("RP_3D", "Failed to parse imported 3D model file", e)
+            return@launch
         }
-    } catch (e: Exception) {
-        Log.e("RP_3D", "Failed to parse imported 3D model file", e)
-        return
-    }
 
-    clearLayerSelection()
-    runCore(after = {
-        syncLayersFromNative()
-        val curIdx = currentLayerIndex
-        val layer = layers.getOrNull(curIdx)
-        if (layer != null) {
-            val initialState = Model3DState(
-                layerId = layer.id,
-                modelType = modelPathKey,
-                rotX = 15f,
-                rotY = -30f,
-                zoom = 1.0f,
-                renderMode = RenderMode3D.CLAY,
-            )
-            active3DLayers = active3DLayers + (layer.id to initialState)
-            ensure3DLayerClearedInCore(layer.id)
-            active3DSelectedJointName = null
-            showActionToast(R.string.toast_3d_layer_created, R.drawable.ic_eye)
+        // 解析结果落到缓存后再回主线程改 UI 状态; 引擎调用照旧走 runCore 的队列。
+        withContext(Dispatchers.Main.immediate) {
+            clearLayerSelection()
+            runCore(after = {
+                syncLayersFromNative()
+                val curIdx = currentLayerIndex
+                val layer = layers.getOrNull(curIdx)
+                if (layer != null) {
+                    val initialState = Model3DState(
+                        layerId = layer.id,
+                        modelType = modelPathKey,
+                        rotX = 15f,
+                        rotY = -30f,
+                        zoom = 1.0f,
+                        renderMode = RenderMode3D.CLAY,
+                    )
+                    active3DLayers = active3DLayers + (layer.id to initialState)
+                    ensure3DLayerClearedInCore(layer.id)
+                    active3DSelectedJointName = null
+                    showActionToast(R.string.toast_3d_layer_created, R.drawable.ic_eye)
+                }
+            }) {
+                ReverieCoreBridge.addLayer(displayName)
+            }
         }
-    }) {
-        ReverieCoreBridge.addLayer(displayName)
     }
 }
 

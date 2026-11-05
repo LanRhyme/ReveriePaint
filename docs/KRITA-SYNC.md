@@ -14,7 +14,7 @@
 | 当前基线 | Krita `master` @ `72d3b1e3`（2026-10-27，6.1.0-prealpha） |
 | 安全锚点 | tag `pre-sync-20261027`（同步前状态）、fork 上的同名 tag |
 
-分支上是 **9 个线性提交**（不再保留 merge 提交），与 `patches/krita/0001-0009` 一一对应：
+分支上是 **11 个线性提交**（不再保留 merge 提交），与 `patches/krita/0001-0011` 一一对应：
 
 1. `feat(android)` 14 个笔刷引擎静态注册 + Android 构建兼容
 2. `fix(roundmarker)` KisMarkerPainter 改标准覆盖混合
@@ -25,6 +25,10 @@
 7. `fix(mypaint)` 传感器懒初始化，修复 dlopen 崩溃
 8. `fix(build)` `kis_lockless_stack.h` 补 `#include <QtGlobal>`，修 Qt 6.6.3 下 `Q_DISABLE_COPY` 未定义
 9. `fix(android)` 视频编码器空实现桩（Android 无 MLT/FFmpeg），修 `libkritaui.so` 链接失败
+10. `docs(REVERIE-PATCHES.md)` 补丁层说明（上一轮补的文档提交）
+11. `fix(memento)` 撤销/重做按 memento 身份校验：`rollforward()`/`rollback()` 身份不符时保持现状，
+    `purgeHistory()` 摘掉 `m_cancelledRevisions` 里的悬垂条目。修「本地事务 revert 后重做」的
+    瓦片装错帧（笔仙）与 `delete[]` 非法 free（SIGABRT），见 `docs/INCIDENT-1.6.4-HISTORY-REDO-CRASH.md`
 
 ## 2. 同步流程
 
@@ -139,6 +143,43 @@ lib/libkritadefaultpaintops_static.a` 刷新它再链。
 `patchelf --replace-needed libbz2.so.1.0 libbz2.so` 改回无版本名，再跑一次依赖闭包检查
 （`readelf -d` 扫全部 NEEDED，注意别只匹配 `.so` 结尾，版本号 soname 会漏掉）。
 
+### 刷新 32 位 (armeabi-v7a) 闭包（每次同步后必须与 arm64 同步做）
+
+32 位这一套**不能只刷 `libreverie_jni.so`**：`libreverie_core.so` 与 Krita/Qt 闭包必须同源，
+否则 Kotlin 与原生库会错配。2026-10-31 的 v1.6.1 事故就是这么来的 —— 32 位闭包停在 10-18，
+Kotlin 侧 10-28 新增的 `nativeSnapshotMode` 在旧库里不存在，32 位用户一开工程就
+`UnsatisfiedLinkError` 崩溃（arm64 包正常，所以测试时完全看不出来）。
+
+一条命令搞定（重编 C++ → 重收闭包 → 跑符号门禁）：
+
+```bash
+./scripts/build_native.sh --abi armeabi-v7a
+```
+
+它内部做的事，手工排查时按顺序看：
+
+1. `cmake --build ~/Projects/krita-source/build-android-armv7 --target kritadefaultpaintops_static`
+   —— 这个**静态库被直接链进 `libreverie_core.so`**，它若比源码旧，链接期会报
+   `undefined symbol: KisPaintOpSettingsWidget::setImage` 之类看起来毫不相干的错误
+   （2026-10-31 实际踩到：档案停留在 Krita 同步之前的 10-27，moc 产物还引用着已删除的符号）
+2. CMake 独立配置（不走 gradle 的 `buildNative`，那条通路只补 arm64 的闭包）：
+   `-DANDROID_ABI=armeabi-v7a -DANDROID_PLATFORM=android-23 -DANDROID_STL=c++_shared`，
+   Krita/Qt/deps 路径由 `app/src/main/cpp/CMakeLists.txt` 按 ABI 自动选择
+3. `scripts/collect_armv7_libs.sh` 重收闭包：Krita 库 + KF6/deps + Qt armv7 + `libc++_shared`
+   + 两个 ReverieCore 产物，**全部 `llvm-strip --strip-unneeded` 后写入**
+   `third_party/android-native-libs-armeabi-v7a/`（不 strip 的话体积翻十倍）
+4. `scripts/check_jni_symbols.sh armeabi-v7a` 对账符号，零缺失才算完
+
+发版前的双 ABI 校验：
+
+```bash
+./scripts/check_jni_symbols.sh                     # arm64 + armv7 都要绿
+./gradlew :app:assembleDebug -PtargetAbis=armeabi-v7a   # 抽包检查 lib/armeabi-v7a/ 里的两个 .so
+```
+
+`check_jni_symbols.sh` 已经挂进 `development.yml` 与 `release.yml`（copy 之后、build 之前），
+所以第二个 ABI 的库再落后，CI 会直接失败而不是把崩溃包发出去。
+
 **已知差异**：上游删除了导出 `KisColorManager` 的 `libkritacolor.so` 插件（新树里没有对应目标），
 当前仍保留旧文件（34KB，新代码不引用它），等真机验证后再决定是否从 `third_party` 和
 `app/src/main/cpp/CMakeLists.txt` 里摘掉。
@@ -177,6 +218,8 @@ lib/libkritadefaultpaintops_static.a` 刷新它再链。
 - 2026-07-26 之前：基线 `a4d196ef`（6.1.0-prealpha）
 - 2026-10-27：同步到 `72d3b1e3`（6.1.0-prealpha，+529 提交），合并 13 个双方都改过的文件、
   2 处手工解冲突，历史整理为线性提交并删除 `feat/clipping-mask`
+- 2026-11-02：新增第 10 个功能补丁 `fix(memento)`（撤销/重做历史错位加固），
+  双 ABI 重编 `libkritaimage.so` 并刷新预编译闭包（导出符号与旧库完全一致，只 +1.8KB 代码）
 - 2026-10-27 晚：补丁层收敛 —— fork 内新增 `REVERIE-PATCHES.md`（10 个提交，含该文档本身），
   应用仓库新增 `patches/krita/HOOKS.md`（按 A/B/C 分类的逐文件冲突策略）、
   `patches/krita/hooks.txt`（机器清单）与 `scripts/check_krita_sync.sh`（合并预演 + 30 项契约断言）；

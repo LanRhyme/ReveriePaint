@@ -61,6 +61,7 @@ fun Tool.labelRes(): Int = when (this) {
     Tool.PERSPECTIVE -> R.string.tool_perspective
     Tool.SHADING_ASSIST -> R.string.shading_assist_title
     Tool.PANEL -> R.string.tool_panel
+    Tool.PAN -> R.string.tool_pan
 }
 
 @StringRes

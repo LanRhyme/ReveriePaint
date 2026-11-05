@@ -4,7 +4,7 @@
 
 - fork 分支：`reverie-android`（基线见 `README.md`）
 - 机器可读列表：`hooks.txt`（`check_krita_sync.sh` 用它做门禁）
-- 当前规模：**79 个文件**（新增 16 / 修改 63，共 +883 / −165 行）
+- 当前规模：**89 个文件**（新增 16 / 修改 73，共 +1502 / −367 行）
 
 ## 0. 三类改动，从轻到重
 
@@ -42,7 +42,7 @@
 `libs/image/kis_base_accessor.h` | 给 Android 侧开放访问器 | 保留本地（上游若把它改成模板参数，需重新适配） |
 `libs/global/kis_lockless_stack.h` | 补 `#include <QtGlobal>`（Qt 6.6.3 的 qatomic 链不传递 qglobal） | 保留本地；上游若自己补了同样的 include，本地这份可以删 |
 
-## 3. C 类：引擎语义（14 + 6 个文件）
+## 3. C 类：引擎语义（14 + 7 个文件）
 
 ### 3.1 剪切蒙版（**按现状保留，不再重构**）
 
@@ -68,6 +68,12 @@
 `libs/image/tiles3/swap/kis_chunk_allocator.{cpp,h}`、`kis_swapped_data_store.cpp` | 槽位耗尽不再 qFatal | 保留本地 |
 `plugins/paintops/mypaint/MyPaintSensorPack.{cpp,h}` | 传感器连接懒初始化（dlopen 阶段崩溃） | 保留本地 |
 `cmake/modules/FindLibMyPaint.cmake` | 见 B 类 |  |
+
+### 3.3 撤销历史一致性（**按现状保留**）
+
+| 文件 | 改了什么 | 冲突策略 |
+|---|---|---|
+`libs/image/tiles3/kis_memento_manager.cc` | `rollforward()` / `rollback()` 增加 memento 身份校验（`reverieFindCancelledRevision()`）：身份不符时保持现状而不是盲目 `takeFirst()/takeLast()`；`purgeHistory()` 顺手摘掉 `m_cancelledRevisions` 里指向该 memento 的条目 | 保留本地。少了这段，「本地事务 revert 后重做」会重新变成瓦片装错帧（笔仙）+ 对已释放 `KisMemento` 做 `delete[]` 的 SIGABRT；详见应用仓库 `docs/INCIDENT-1.6.4-HISTORY-REDO-CRASH.md` |
 
 ## 4. 上游的「热点」：每次同步必查
 

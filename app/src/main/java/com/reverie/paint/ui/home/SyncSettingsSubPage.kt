@@ -108,7 +108,7 @@ internal fun SyncSettingsSubPage(
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(colors.bg)
+                .background(if (vm.homeCustomBgEnabled && vm.getHomeCustomBgFile() != null) Color.Transparent else colors.bg)
                 .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

@@ -21,6 +21,7 @@ object PresetSnapshotStore {
     const val DIR = "snapshots"
     const val FACTORY = "factory"
     const val IMPORTED = "imported"
+    const val RESTORED = "restored"
     const val CURRENT_FILE = "CURRENT"
 
     class SnapshotExistsException(id: String) : IllegalStateException("snapshot already exists: $id")
@@ -33,6 +34,7 @@ object PresetSnapshotStore {
             root = storeRoot
             File(storeRoot, "$DIR/$FACTORY").mkdirs()
             File(storeRoot, "$DIR/$IMPORTED").mkdirs()
+            File(storeRoot, "$DIR/$RESTORED").mkdirs()
         }
     }
 
@@ -81,7 +83,7 @@ object PresetSnapshotStore {
     fun factoryFile(name: String, version: String? = currentFactoryVersion()): File? {
         val v = version ?: return null
         val dir = factoryDir(v)
-        for (ext in listOf("kpp", "myb")) {
+        for (ext in BrushImportPipeline.PRESET_EXTS) {
             val f = File(dir, "$name.$ext")
             if (f.exists()) return f
         }
@@ -118,15 +120,69 @@ object PresetSnapshotStore {
     fun importedFile(id: String): File? =
         importedDir(id).listFiles()?.firstOrNull { it.isFile && it.name.startsWith("preset.") }
 
+    /** 导入快照旁的 source.json（内置/还原的没有）；基线缓存的指纹要用它的 路径|大小|mtime */
+    fun sourceFile(id: String): File? =
+        if (BrushIdentity.isImported(id)) File(importedDir(id), "source.json").takeIf { it.exists() } else null
+
     fun source(id: String): JSONObject? {
-        if (!BrushIdentity.isImported(id)) return null
-        val f = File(importedDir(id), "source.json")
-        return if (f.exists()) runCatching { JSONObject(f.readText()) }.getOrNull() else null
+        val f = sourceFile(id) ?: return null
+        return try {
+            JSONObject(f.readText())
+        } catch (t: Exception) {
+            BrushDiagnostics.log("source_json_unreadable", "id" to id, "err" to t.javaClass.simpleName)
+            null
+        }
     }
 
-    /** id → 快照文件；内置按 `builtin:<name>` 在当前出厂版本里找 */
+    fun restoredDir(id: String): File = File(requireRoot(), "$DIR/$RESTORED/${BrushIdentity.dirNameFor(id)}")
+
+    fun restoredFile(id: String): File? =
+        restoredDir(id).listFiles()?.firstOrNull { it.isFile && it.name.startsWith("preset.") }
+
+    fun removeRestored(id: String) {
+        synchronized(lock) {
+            val dir = restoredDir(id)
+            if (dir.exists()) {
+                dir.walkBottomUp().forEach { it.setWritable(true) }
+                dir.deleteRecursively()
+            }
+        }
+    }
+
+    /**
+     * 磁盘对账（reconcileDisk）专用：以恢复文件为准替换快照。
+     * - 出厂预设写到 brush_store/snapshots/restored/<id>/preset.<ext>（优先于只读的 factory）；
+     * - 导入预设原子覆盖 imported/<id>/preset.<ext>。
+     */
+    fun replaceForRestore(id: String, ext: String, bytes: ByteArray) {
+        synchronized(lock) {
+            if (BrushIdentity.isBuiltin(id)) {
+                val dir = restoredDir(id)
+                dir.mkdirs()
+                dir.listFiles()?.filter { it.name.startsWith("preset.") }?.forEach {
+                    it.setWritable(true)
+                    it.delete()
+                }
+                val f = File(dir, "preset.$ext")
+                AtomicFiles.write(f, bytes)
+                f.setReadOnly()
+            } else if (BrushIdentity.isImported(id)) {
+                val dir = importedDir(id)
+                dir.mkdirs()
+                dir.listFiles()?.filter { it.name.startsWith("preset.") }?.forEach {
+                    it.setWritable(true)
+                    it.delete()
+                }
+                val f = File(dir, "preset.$ext")
+                AtomicFiles.write(f, bytes)
+                f.setReadOnly()
+            }
+        }
+    }
+
+    /** id → 快照文件；内置按 `builtin:<name>` 优先查 restored，再在当前出厂版本里找 */
     fun snapshotFile(id: String): File? = when {
-        BrushIdentity.isBuiltin(id) -> factoryFile(id.removePrefix(BrushIdentity.BUILTIN_PREFIX))
+        BrushIdentity.isBuiltin(id) -> restoredFile(id) ?: factoryFile(id.removePrefix(BrushIdentity.BUILTIN_PREFIX))
         BrushIdentity.isImported(id) -> importedFile(id)
         else -> null
     }

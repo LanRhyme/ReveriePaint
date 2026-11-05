@@ -37,6 +37,8 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.R
 import com.reverie.paint.core.CrashHandler
+import com.reverie.paint.core.telemetry.TelemetryPrefs
+import com.reverie.paint.core.telemetry.TelemetryReporter
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.theme.Theme
 import java.text.SimpleDateFormat
@@ -294,6 +296,58 @@ fun CrashReportDialog(
                         },
                         modifier = Modifier.weight(1f),
                     )
+                }
+
+                // 上报状态说明。默认是自动上报, 所以不再放一个"点了也没区别"的按钮;
+                // 只有用户自己关掉自动上报时, 才补一个仅针对这一条的手动出口。
+                if (TelemetryReporter.isConfigured) {
+                    val prefs = remember(context) { TelemetryPrefs(context) }
+                    var sent by remember(logInfo.file.name) { mutableStateOf(prefs.isUploaded(logInfo.file.name)) }
+                    var uploading by remember { mutableStateOf(false) }
+                    val okMsg = stringResource(R.string.crash_report_upload_ok)
+                    val failMsg = stringResource(R.string.crash_report_upload_failed)
+                    val autoOn = prefs.enabled
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = when {
+                                sent -> stringResource(R.string.crash_report_uploaded)
+                                autoOn -> stringResource(R.string.crash_report_auto_reporting)
+                                else -> stringResource(R.string.crash_report_auto_off)
+                            },
+                            fontSize = 11.5.sp,
+                            lineHeight = 15.sp,
+                            color = colors.subText,
+                            modifier = Modifier.weight(1f),
+                        )
+                        if (!sent && !autoOn) {
+                            ReTextButton(
+                                text = if (uploading) {
+                                    stringResource(R.string.crash_report_uploading)
+                                } else {
+                                    stringResource(R.string.crash_report_upload_once)
+                                },
+                                onClick = {
+                                    if (!uploading) {
+                                        uploading = true
+                                        TelemetryReporter.uploadNow(context, logInfo.file) { ok ->
+                                            uploading = false
+                                            if (ok) sent = true
+                                            Toast.makeText(
+                                                context,
+                                                if (ok) okMsg else failMsg,
+                                                Toast.LENGTH_SHORT,
+                                            ).show()
+                                        }
+                                    }
+                                },
+                            )
+                        }
+                    }
                 }
 
                 // 忽略 / 已知晓

@@ -59,6 +59,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.drawWithContent
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.Shape
 import androidx.compose.ui.graphics.drawOutline
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -111,6 +112,7 @@ import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 import dev.chrisbanes.haze.hazeEffect
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.model.DragGripSpec
 import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.Motion
@@ -155,11 +157,14 @@ fun ReIconButton(
     size: androidx.compose.ui.unit.Dp = 32.dp,
     tint: Color? = null,
     iconSize: androidx.compose.ui.unit.Dp = Dimens.icon,
+    /** false = 置灰且不响应点击 (例如变换期间禁用撤销) */
+    enabled: Boolean = true,
 ) {
     val colors = Theme.current
     val interaction = remember { MutableInteractionSource() }
+    val baseTint = tint ?: if (selected) colors.accent else colors.icon
     val tintColor by animateColorAsState(
-        tint ?: if (selected) colors.accent else colors.icon,
+        if (enabled) baseTint else baseTint.copy(alpha = 0.32f),
         spring(dampingRatio = 0.90f, stiffness = 500f)
     )
 
@@ -170,7 +175,7 @@ fun ReIconButton(
             .liquidLean(interaction, maxOffset = 4.dp)
             .clip(RoundedCornerShape(8.dp))
             .liquidHighlight(interaction, Color.White, radius = 20.dp)
-            .clickable(interactionSource = interaction, indication = null) { onTap() },
+            .clickable(interactionSource = interaction, indication = null, enabled = enabled) { onTap() },
         contentAlignment = Alignment.Center,
     ) {
         Icon(
@@ -671,9 +676,19 @@ fun ReVerticalSlider(
                     label = "capsuleGrow"
                 )
 
-                // Track Background (打孔嵌入式毛玻璃：独立0.6x毛玻璃轨道与下凹雕刻光影)
+                // Track Background (现代专业级内凹轨道：自然负向深度腔体与极简微透发光边框)
                 val panelAlpha = vm?.uiOpacity ?: 1f
-                val grooveAlpha = (panelAlpha * 0.60f).coerceIn(0.08f, 0.90f)
+                val isDark = vm?.isCurrentlyDark() ?: (colors.bg.luminance() < 0.5f)
+                val trackBgColor = if (isDark) {
+                    Color.Black.copy(alpha = (0.25f * panelAlpha).coerceIn(0.12f, 0.36f))
+                } else {
+                    Color.Black.copy(alpha = (0.05f * panelAlpha).coerceIn(0.02f, 0.08f))
+                }
+                val trackBorderColor = if (isDark) {
+                    Color.White.copy(alpha = (0.10f * panelAlpha).coerceIn(0.06f, 0.14f))
+                } else {
+                    Color.Black.copy(alpha = (0.08f * panelAlpha).coerceIn(0.04f, 0.12f))
+                }
                 Box(
                     modifier = Modifier
                         .width(trackWidth.dp)
@@ -684,15 +699,10 @@ fun ReVerticalSlider(
                             transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.5f)
                         }
                         .clip(RoundedCornerShape(capsuleRadius))
-                        .background(colors.panel.copy(alpha = grooveAlpha))
+                        .background(trackBgColor)
                         .border(
                             0.5.dp,
-                            Brush.verticalGradient(
-                                listOf(
-                                    Color.Black.copy(alpha = (0.35f * panelAlpha).coerceIn(0.10f, 0.45f)),
-                                    Color.White.copy(alpha = (0.12f * panelAlpha).coerceIn(0.04f, 0.18f)),
-                                )
-                            ),
+                            trackBorderColor,
                             RoundedCornerShape(capsuleRadius)
                         )
                 ) {
@@ -973,7 +983,17 @@ fun ReHorizontalSlider(
                 )
 
                 val panelAlpha = vm?.uiOpacity ?: 1f
-                val grooveAlpha = (panelAlpha * 0.60f).coerceIn(0.08f, 0.90f)
+                val isDark = vm?.isCurrentlyDark() ?: (colors.bg.luminance() < 0.5f)
+                val trackBgColor = if (isDark) {
+                    Color.Black.copy(alpha = (0.25f * panelAlpha).coerceIn(0.12f, 0.36f))
+                } else {
+                    Color.Black.copy(alpha = (0.05f * panelAlpha).coerceIn(0.02f, 0.08f))
+                }
+                val trackBorderColor = if (isDark) {
+                    Color.White.copy(alpha = (0.10f * panelAlpha).coerceIn(0.06f, 0.14f))
+                } else {
+                    Color.Black.copy(alpha = (0.08f * panelAlpha).coerceIn(0.04f, 0.12f))
+                }
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
@@ -984,15 +1004,10 @@ fun ReHorizontalSlider(
                             transformOrigin = androidx.compose.ui.graphics.TransformOrigin(0.5f, 0.5f)
                         }
                         .clip(RoundedCornerShape(capsuleRadius))
-                        .background(colors.panel.copy(alpha = grooveAlpha))
+                        .background(trackBgColor)
                         .border(
                             0.5.dp,
-                            Brush.horizontalGradient(
-                                listOf(
-                                    Color.Black.copy(alpha = (0.35f * panelAlpha).coerceIn(0.10f, 0.45f)),
-                                    Color.White.copy(alpha = (0.12f * panelAlpha).coerceIn(0.04f, 0.18f)),
-                                )
-                            ),
+                            trackBorderColor,
                             RoundedCornerShape(capsuleRadius)
                         )
                 ) {
@@ -1129,25 +1144,35 @@ fun ReSlider(
     value: Float,
     onValue: (Float) -> Unit,
     modifier: Modifier = Modifier,
+    enabled: Boolean = true,
+    valueRange: ClosedFloatingPointRange<Float> = 0f..1f,
     height: Int = 20,
     onRelease: (() -> Unit)? = null,
 ) {
     val colors = Theme.current
-    val currentOnValue by rememberUpdatedState(onValue)
+    val rangeSpan = maxOf(0.0001f, valueRange.endInclusive - valueRange.start)
+    val currentOnValue by rememberUpdatedState { frac: Float ->
+        onValue(valueRange.start + frac * rangeSpan)
+    }
     val currentOnRelease by rememberUpdatedState(onRelease)
     var interacting by remember { mutableStateOf(false) }
     var dragFraction by remember { mutableStateOf<Float?>(null) }
-    val trackScale by animateFloatAsState(if (interacting) 1.14f else 1f, Motion.springSnap, label = "sliderTrackScale")
-    val glowAlpha by animateFloatAsState(if (interacting) 0.20f else 0f, Motion.springSnap, label = "sliderGlow")
+    val thumbScale by animateFloatAsState(if (interacting && enabled) 1.15f else 1f, Motion.springSnap, label = "sliderThumbScale")
+    val glowAlpha by animateFloatAsState(if (interacting && enabled) 0.22f else 0f, Motion.springSnap, label = "sliderGlow")
+
+    val density = LocalDensity.current
+    val thumbW = with(density) { 4.dp.toPx() }
+    val pad = thumbW / 2f + with(density) { 2.dp.toPx() }
+
+    val normalizedVal = ((value - valueRange.start) / rangeSpan).coerceIn(0f, 1f)
+
     Box(
         modifier =
             modifier
                 .fillMaxWidth()
                 .height(height.dp)
-                .graphicsLayer { scaleY = trackScale }
-                .clip(RoundedCornerShape((height / 2).dp))
-                .background(colors.panelHi)
-                .pointerInput(Unit) {
+                .pointerInput(enabled) {
+                    if (!enabled) return@pointerInput
                     // 支持与纵向滚动容器（LazyColumn/verticalScroll）完美协作的手势识别器：
                     // 1. 触摸按下不立即修改数值，防页面滚动时手指落点误触改值
                     // 2. 纵向位移优先判定为容器滚动，主动放弃并让渡事件
@@ -1158,6 +1183,7 @@ fun ReSlider(
                         val w0 = size.width.toFloat()
                         if (w0 <= 0f) return@awaitEachGesture
 
+                        val span = maxOf(1f, w0 - 2 * pad)
                         val touchSlop = viewConfiguration.touchSlop
                         var isDragging = false
                         var isScrollingVertically = false
@@ -1171,7 +1197,7 @@ fun ReSlider(
                                     if (!isScrollingVertically) {
                                         if (!isDragging) {
                                             // 原地点击滑块
-                                            val tapVal = (change.position.x / w0).coerceIn(0f, 1f)
+                                            val tapVal = ((change.position.x - pad) / span).coerceIn(0f, 1f)
                                             currentOnValue(tapVal)
                                         }
                                         currentOnRelease?.invoke()
@@ -1203,7 +1229,7 @@ fun ReSlider(
 
                                 if (isDragging) {
                                     change.consume()
-                                    val curVal = (change.position.x / w0).coerceIn(0f, 1f)
+                                    val curVal = ((change.position.x - pad) / span).coerceIn(0f, 1f)
                                     dragFraction = curVal
                                     currentOnValue(curVal)
                                 }
@@ -1215,27 +1241,63 @@ fun ReSlider(
                     }
                 },
     ) {
-        androidx.compose.foundation.Canvas(Modifier.fillMaxSize()) {
-            val currentFraction = (dragFraction ?: value).coerceIn(0f, 1f)
-            val fillW = size.width * currentFraction
+        Canvas(Modifier.fillMaxSize()) {
+            val w = size.width
+            val h = size.height
+            val cy = h / 2f
+            val currentFraction = (dragFraction ?: normalizedVal).coerceIn(0f, 1f)
+
+            val trackH = (height * 0.65f).dp.toPx().coerceIn(6.dp.toPx(), h)
+            val trackCorner = androidx.compose.ui.geometry.CornerRadius(trackH / 2f, trackH / 2f)
+
+            val thumbH = (trackH + 4.dp.toPx()).coerceAtMost(h)
+            val currentThumbH = thumbH * thumbScale
+            val currentThumbW = thumbW * thumbScale
+            val thumbCorner = androidx.compose.ui.geometry.CornerRadius(currentThumbW / 2f, currentThumbW / 2f)
+
+            val span = maxOf(1f, w - 2 * pad)
+            val thumbX = pad + currentFraction * span
+            val gap = 4.dp.toPx()
+
+            val trackBgColor = if (enabled) colors.panelHi else colors.panelHi.copy(alpha = 0.5f)
+            val activeColor = if (enabled) colors.accent else colors.subText.copy(alpha = 0.4f)
+            val thumbColor = if (enabled) colors.accent else colors.subText.copy(alpha = 0.5f)
+
+            // 1. 完整背景轨道 (未激活部分: panelHi 高表面色，与莫兰迪底色层次分明)
             drawRoundRect(
-                color = colors.accent,
-                size = androidx.compose.ui.geometry.Size(fillW, size.height),
-                cornerRadius = androidx.compose.ui.geometry.CornerRadius(size.height / 2f, size.height / 2f),
+                color = trackBgColor,
+                topLeft = Offset(0f, cy - trackH / 2f),
+                size = androidx.compose.ui.geometry.Size(w, trackH),
+                cornerRadius = trackCorner,
             )
-            // 拖动时填充端的柔光晕（无实心指示点）
-            if (glowAlpha > 0.01f && fillW > 1f) {
-                val c = androidx.compose.ui.geometry.Offset(fillW, size.height / 2f)
-                drawCircle(
-                    brush = Brush.radialGradient(
-                        colors = listOf(Color.White.copy(alpha = glowAlpha), Color.Transparent),
-                        center = c,
-                        radius = size.height * 1.05f,
-                    ),
-                    radius = size.height * 1.05f,
-                    center = c,
+
+            // 2. 激活轨道 (走过部分，留出 gap 与滑块微间隙)
+            val activeEnd = maxOf(0f, thumbX - gap)
+            if (activeEnd > 0f) {
+                drawRoundRect(
+                    color = activeColor,
+                    topLeft = Offset(0f, cy - trackH / 2f),
+                    size = androidx.compose.ui.geometry.Size(activeEnd, trackH),
+                    cornerRadius = trackCorner,
                 )
             }
+
+            // 3. 拖拽时呼吸外光晕
+            if (glowAlpha > 0.01f && enabled) {
+                drawCircle(
+                    color = activeColor.copy(alpha = glowAlpha),
+                    radius = currentThumbH * 0.8f,
+                    center = Offset(thumbX, cy),
+                )
+            }
+
+            // 4. MD3 垂直圆角指示线滑块
+            drawRoundRect(
+                color = thumbColor,
+                topLeft = Offset(thumbX - currentThumbW / 2f, cy - currentThumbH / 2f),
+                size = androidx.compose.ui.geometry.Size(currentThumbW, currentThumbH),
+                cornerRadius = thumbCorner,
+            )
         }
     }
 }
@@ -1271,7 +1333,7 @@ fun ReSwitch(
                 .size(22.dp)
                 .shadow(2.dp, CircleShape, spotColor = Color.Black.copy(alpha = 0.35f))
                 .clip(CircleShape)
-                .background(colors.onAccent),
+                .background(Color.White),
         )
     }
 }
@@ -1666,7 +1728,7 @@ fun DragPillHandle(
     val colors = Theme.current
     Box(
         modifier = modifier
-            .size(60.dp, 16.dp)
+            .size(DragGripSpec.PILL_WIDTH_DP.dp, DragGripSpec.PILL_HEIGHT_DP.dp)
             .pointerInput(Unit) {
                 detectDragGestures { change, dragAmount ->
                     change.consume()

@@ -79,8 +79,12 @@ private val PANEL_PARALLEL_SNAP_ANGLE_RAD = Math.toRadians(2.5).toFloat()
 /** 切分线两端延伸兜底 (dp 屏幕距离, 换算 doc): 差一点没划到也能切 (见 segmentCutsQuad) */
 private const val PANEL_DIVIDE_EXTEND_DP = 12f
 
-/** 对称绘制最多需要的镜像分支数 (放射对称最多 11 个镜像分支 + 主笔迹) */
-private const val MAX_MIRROR_BRANCHES = 12
+/**
+ * 镜像缓冲的初始容量。实际分支数由当前对称配置决定 (旋转对称最多 35 支, 36 轴万花筒
+ * 最多 71 支), 由 [ensureMirrorBranches] 按需扩容; 实时镜像另受
+ * [PaintViewModel.MIRROR_BRANCH_COUNT] 限制, 超出的整笔改走抬笔重放。
+ */
+private const val INITIAL_MIRROR_BRANCH_CAPACITY = 8
 
 private const val SYMMETRY_SAMPLE_STRIDE = PaintViewModel.STROKE_SAMPLE_STRIDE_WITH_TIME
 
@@ -378,6 +382,11 @@ class CanvasTouchView(context: Context) : View(context) {
             isCursorTouching?.value = value
         }
 
+    val lastKnownCursorScreenPos: androidx.compose.ui.geometry.Offset?
+        get() = if (hasLocalCursorPos && (localIsHovering || localIsTouching)) {
+            androidx.compose.ui.geometry.Offset(localCursorX, localCursorY)
+        } else null
+
     /** 运笔中 (孔洞掩码构建据此推迟到抬笔后)。 */
     internal val strokeInProgress: Boolean get() = localIsTouching
 
@@ -521,10 +530,14 @@ class CanvasTouchView(context: Context) : View(context) {
         assistLockedRay = null
         clearPredictionState(triggerInvalidate = true)
         currentStrokeDocPos = Offset.Zero
+        firstDocPos = Offset.Zero
+        shapeEndDocPos = Offset.Zero
         return true
     }
 
     private fun cancelActiveStroke(v: PaintViewModel) {
+        firstDocPos = Offset.Zero
+        shapeEndDocPos = Offset.Zero
         when (strokeTool) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
@@ -796,7 +809,7 @@ class CanvasTouchView(context: Context) : View(context) {
 
     // 防抖撤销任务与 Procreate 风格连续撤销/重做
     private var pendingUndoRunnable: Runnable? = null
-    private var isContinuousUndoing = false
+    internal var isContinuousUndoing = false
     private val editMenuSwipe = com.reverie.paint.model.ThreeFingerSwipe()
     private val editMenuPointerIds = IntArray(3)
     private var editMenuGestureActive = false
@@ -811,10 +824,13 @@ class CanvasTouchView(context: Context) : View(context) {
         override fun run() {
             val v = vm ?: return
             if (!v.gestureContinuousUndo) return
+            // 变换期间撤销被引擎拒绝 (见 isHistoryBlockedByTransform): 停止连撤, 别每 120ms 空转一次
+            if (v.isHistoryBlockedByTransform) return
             // 多指误触保护: 液化手势进行中(含场通路的"零解算"阶段)第二指落下不得触发
             // 连续撤销，避免误吃形变
             if (maxTouchPointers == 2 && !isPinchMotion && !isTwoFingerRotation && isInteracting && !isLiquifyGestureActive) {
                 isContinuousUndoing = true
+                v.requestUndoBarShow()
                 v.undo()
                 continuousStepCount++
                 // 阶梯缓动：首步留出 260ms 反应窗口防止误吞多步，随后进入 120ms 连撤
@@ -828,8 +844,10 @@ class CanvasTouchView(context: Context) : View(context) {
         override fun run() {
             val v = vm ?: return
             if (!v.gestureContinuousUndo) return
+            if (v.isHistoryBlockedByTransform) return
             if (maxTouchPointers >= 3 && !isPinchMotion && isInteracting && !isLiquifyGestureActive) {
                 isContinuousUndoing = true
+                v.requestUndoBarShow()
                 v.redo()
                 continuousStepCount++
                 val nextDelay = if (continuousStepCount == 1) 260L else 120L
@@ -1874,14 +1892,19 @@ class CanvasTouchView(context: Context) : View(context) {
     // 对称绘制采样缓冲: 主笔画分支 (primary) 与镜像分支 (mirrored), 扁平存 [x, y, pressure]
     private var primarySamples = FloatArray(48)
     private var primarySampleSize = 0
-    private val mirroredSamples = ArrayList<FloatArray>(MAX_MIRROR_BRANCHES)
-    private val mirroredSizes = IntArray(MAX_MIRROR_BRANCHES)
+    private val mirroredSamples = ArrayList<FloatArray>(INITIAL_MIRROR_BRANCH_CAPACITY)
+    // 必须与 mirroredSamples 等长: 分支数不再是固定的 8 (36 轴万花筒 = 71 支),
+    // 固定长度会在 resetMirrorBranches 里踩到 IntArray 边界 (1.6.2 线上 AIOOBE)。
+    private var mirroredSizes = IntArray(INITIAL_MIRROR_BRANCH_CAPACITY)
+    /** 本笔是否允许实时镜像入队 (分支数超过引擎上限时置 false, 整笔改走抬笔重放)。 */
+    private var mirrorLiveQueueAllowed = true
     @Volatile private var isSymmetryReplaying = false
 
     /** 是否有任一分支已累积采样点 (绘制 / 回放 / 局部失效判定的共同前提) */
     private fun mirrorBranchHasSamples(): Boolean {
         if (primarySampleSize > 0) return true
-        for (i in 0 until mirroredSamples.size) {
+        val n = minOf(mirroredSamples.size, mirroredSizes.size)
+        for (i in 0 until n) {
             if (mirroredSizes[i] > 0) return true
         }
         return false
@@ -1889,7 +1912,8 @@ class CanvasTouchView(context: Context) : View(context) {
 
     private fun resetMirrorBranches() {
         primarySampleSize = 0
-        for (i in 0 until mirroredSamples.size) mirroredSizes[i] = 0
+        val n = minOf(mirroredSamples.size, mirroredSizes.size)
+        for (i in 0 until n) mirroredSizes[i] = 0
         isSymmetryReplaying = false
         symmetryStrokeStartTimeMs = 0L
     }
@@ -1912,13 +1936,31 @@ class CanvasTouchView(context: Context) : View(context) {
 
     /** 按当前分支数准备缓冲; 多余的数组保留复用, 下一笔不再重新分配 */
     private fun ensureMirrorBranches(count: Int) {
-        while (mirroredSamples.size > count) {
+        val wanted = count.coerceAtLeast(0)
+        while (mirroredSamples.size > wanted) {
             mirroredSamples.removeAt(mirroredSamples.size - 1)
         }
-        while (mirroredSamples.size < count) {
+        while (mirroredSamples.size < wanted) {
             mirroredSamples.add(FloatArray(0))
         }
+        // 分支数由对称配置决定 (2..36 轴 -> 最多 71 支): 尺寸数组必须同步扩到分支数,
+        // 否则写入第 9 支起就越界。这里只在变长时才重新分配, 稳态零分配。
+        if (mirroredSizes.size < mirroredSamples.size) {
+            mirroredSizes = mirroredSizes.copyOf(mirroredSamples.size)
+        }
         resetMirrorBranches()
+    }
+
+    /**
+     * 落笔时按当前对称分支数准备缓冲, 并决定本笔能否走实时镜像。
+     *
+     * 实时镜像需要每个分支各建一套原生 paintop, 引擎侧固定只接受 0..7; 分支数超出时
+     * 整笔改走抬笔重放 ([CanvasTouchView] 抬笔分支), 避免出现"前 8 支实时出墨、其余
+     * 分支永久缺墨"的半截结果。
+     */
+    private fun prepareMirrorBranches(branchCount: Int) {
+        ensureMirrorBranches(branchCount)
+        mirrorLiveQueueAllowed = branchCount <= PaintViewModel.MIRROR_BRANCH_COUNT
     }
 
     /** 追加主落笔采样点 (零分配热路径); 姿态与时间缺省 0 时与旧 3 元语义一致 */
@@ -1964,7 +2006,7 @@ class CanvasTouchView(context: Context) : View(context) {
         rotation: Float = 0f,
         timeSeconds: Float = 0f,
     ) {
-        if (branchIndex < 0 || branchIndex >= mirroredSamples.size) return
+        if (branchIndex < 0 || branchIndex >= mirroredSamples.size || branchIndex >= mirroredSizes.size) return
         val used = mirroredSizes[branchIndex]
         val need = (used + 1) * SYMMETRY_SAMPLE_STRIDE
         var buf = mirroredSamples[branchIndex]
@@ -1984,8 +2026,10 @@ class CanvasTouchView(context: Context) : View(context) {
         buf[base + 6] = timeSeconds
         mirroredSizes[branchIndex] = used + 1
         // 实时镜像: 同一点送进 ViewModel 的镜像队列, 由渲染线程画进已经打开的笔触。
-        // 不要在其他地方再送一份, 否则会画两次。
-        vm?.queueMirrorSample(branchIndex, x, y, pressure.toFloat(), tiltX, tiltY, rotation, timeSeconds)
+        // 不要在其他地方再送一份, 否则会画两次。分支数超过引擎上限时整笔走重放, 这里不入队。
+        if (mirrorLiveQueueAllowed) {
+            vm?.queueMirrorSample(branchIndex, x, y, pressure.toFloat(), tiltX, tiltY, rotation, timeSeconds)
+        }
     }
 
     /** 当前对称类型下, 一个文档坐标点对应的镜像采样点 (含镜像后的姿态)。 */
@@ -2151,12 +2195,12 @@ class CanvasTouchView(context: Context) : View(context) {
     // 视图参数后整条笔迹共用一份变换, 并且只往复用数组里写结果, 全程零分配。
     private val viewTransform = CanvasViewTransform()
     private val pointScratch = FloatArray(2)
-    private val symScratchX = FloatArray(16)
-    private val symScratchY = FloatArray(16)
-    private val symEndScratchX = FloatArray(16)
-    private val symEndScratchY = FloatArray(16)
-    private val cursorSymScreenX = FloatArray(16)
-    private val cursorSymScreenY = FloatArray(16)
+    private val symScratchX = FloatArray(72)
+    private val symScratchY = FloatArray(72)
+    private val symEndScratchX = FloatArray(72)
+    private val symEndScratchY = FloatArray(72)
+    private val cursorSymScreenX = FloatArray(72)
+    private val cursorSymScreenY = FloatArray(72)
     private val boundsScratch = IntArray(4)
     // 512 显示瓦片: 视口命中的瓦片列表 (复用) 与边缘 clamp 的着色器缓存
     private var tileDrawScratch = IntArray(0)
@@ -4723,7 +4767,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     val v = vm
                     val hideCursor = (effTool() == Tool.BRUSH || effTool() == Tool.ERASER || effTool() == Tool.SMUDGE || effTool() == Tool.LIQUIFY) &&
                         (v?.cursorStyleMode != 4)
-                    val targetIcon = if (v?.isSpacePanning == true) {
+                    val targetIcon = if (v?.isSpacePanning == true || effTool() == Tool.PAN) {
                         if (isSpaceDragging) systemGrabPointer ?: systemHandPointer else systemHandPointer ?: systemDefaultPointer
                     } else if (!overUi && hideCursor && systemNullPointer != null) {
                         systemNullPointer
@@ -4744,6 +4788,23 @@ class CanvasTouchView(context: Context) : View(context) {
     // 2. 接触触控处理 (手写笔落笔绘画 vs 手指画布导航)
     // -------------------------------------------------------------
     override fun onTouchEvent(event: MotionEvent): Boolean {
+        // 触摸派发里任何未捕获异常都会一路抛到 Android 输入管线: 输入线程不持有可重抛的
+        // Java 栈, ART 在 MessageQueue::raiseAndClearException -> Thread::AssertNoPendingException
+        // 处直接 abort 整个进程 —— 1.6.5 遥测 7db7fd4204 (SM-X700, SIGABRT) 就是这条栈,
+        // 现场只有"载入工程 -> 切工具 -> 载入预设"三条面包屑, 看不出是谁抛的。
+        // 兜住: 记日志 + 写一条 handled 报告给遥测, 画笔不至于把整进程带走。
+        return try {
+            handleTouchEvent(event)
+        } catch (t: Throwable) {
+            android.util.Log.e("ReverieTouch", "onTouchEvent threw: ${t}", t)
+            runCatching {
+                com.reverie.paint.core.CrashHandler.recordHandledException(context, t, "CanvasTouchView.onTouchEvent")
+            }
+            true
+        }
+    }
+
+    private fun handleTouchEvent(event: MotionEvent): Boolean {
         val v = vm ?: return super.onTouchEvent(event)
         if (v.isQuickShapeEditing) return true
         if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN || event.actionMasked == MotionEvent.ACTION_CANCEL) {
@@ -4849,6 +4910,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     safeEndSymmetryUndoMacro()
                     resetMirrorBranches()
                     clearPredictionState(triggerInvalidate = true)
+                    firstDocPos = Offset.Zero
+                    shapeEndDocPos = Offset.Zero
                 }
                 cancelPendingShapeGesture()
                 cancelPanelGesture()
@@ -5160,6 +5223,14 @@ class CanvasTouchView(context: Context) : View(context) {
                         return true
                     }
 
+                    if (effTool() == Tool.PAN) {
+                        isPendingLongPress = false
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && systemGrabPointer != null) {
+                            pointerIcon = systemGrabPointer
+                        }
+                        return true
+                    }
+
                     // 笔尖接触瞬间立即启动绘图，彻底消除长按判定位移容差带来的起笔延迟
                     updateStylusSensors(event, stylusPointerIndex, isStylus = true)
                     handleToolDown(screenPos, docPos, pressure, isStylus = true, touchTiltX, touchTiltY, touchRotation)
@@ -5179,6 +5250,17 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                 }
                 MotionEvent.ACTION_MOVE -> {
+                    if (effTool() == Tool.PAN) {
+                        val deltaX = screenPos.x - previousSinglePos.x
+                        val deltaY = screenPos.y - previousSinglePos.y
+                        previousSinglePos = screenPos
+                        canvasPanX += deltaX
+                        canvasPanY += deltaY
+                        onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+                        invalidate()
+                        return true
+                    }
+
                     if (draggingGuideHandleIndex != -1) {
                         if (handleGuideHandleDrag(docPos)) return true
                     }
@@ -5235,6 +5317,15 @@ class CanvasTouchView(context: Context) : View(context) {
                         return true
                     }
 
+                    if (effTool() == Tool.PAN) {
+                        isInteracting = false
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && systemHandPointer != null) {
+                            pointerIcon = systemHandPointer
+                        }
+                        invalidate()
+                        return true
+                    }
+
                     clearPredictionState(triggerInvalidate = true)
                     cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
                     removeCallbacks(longPressRunnable)
@@ -5264,6 +5355,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     localIsHovering = true
                     isInteracting = false
                     currentStrokeDocPos = Offset.Zero
+                    firstDocPos = Offset.Zero
+                    shapeEndDocPos = Offset.Zero
                     invalidate()
                 }
             }
@@ -5827,8 +5920,9 @@ class CanvasTouchView(context: Context) : View(context) {
         val isTouchSlideQuickMenu = v.gestureConfig.getTrigger(com.reverie.paint.model.GestureAction.QUICK_MENU) ==
             com.reverie.paint.model.GestureTrigger.SINGLE_FINGER_TOUCH_SLIDE
         val isDrawingTool = effTool() == Tool.BRUSH || effTool() == Tool.ERASER || effTool() == Tool.SMUDGE || effTool() == Tool.LIQUIFY
-        val canEyedrop = (v.longPressEyedropperEnabled || v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.SINGLE_FINGER_LONG_PRESS) == com.reverie.paint.model.GestureAction.EYEDROPPER) && isDrawingTool
-        val isPenOnlyPan = !isTouchSlideQuickMenu && v.penOnlyMode && v.penModeSingleFingerPanEnabled && (
+        val canEyedrop = v.longPressEyedropperEnabled && isDrawingTool
+        val isPanTool = effTool() == Tool.PAN
+        val isSinglePointerPan = isPanTool || (!isTouchSlideQuickMenu && v.penOnlyMode && v.penModeSingleFingerPanEnabled && (
             tool.group == ToolGroup.BRUSH ||
             tool.group == ToolGroup.SELECTION ||
             tool.group == ToolGroup.SHAPES ||
@@ -5837,7 +5931,7 @@ class CanvasTouchView(context: Context) : View(context) {
             tool == Tool.PICKER ||
             tool == Tool.MEASURE ||
             tool == Tool.TEXT
-        )
+        ))
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
@@ -5885,7 +5979,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 val isEdgeTouch = screenPos.x <= edgeThreshold || (curW > 0 && screenPos.x >= curW - edgeThreshold)
                 val isEdgeBackAllowed = (v.allowEdgeBackGesture && v.backKeyAction != BackKeyAction.NONE) || overlayPanelsOpen
 
-                if (isEdgeTouch && isEdgeBackAllowed && !isPenOnlyPan && !v.penOnlyMode) {
+                if (isEdgeTouch && isEdgeBackAllowed && !isSinglePointerPan && !v.penOnlyMode) {
                     isPendingEdgeFinger = true
                     pendingEdgeScreenPos = screenPos
                     pendingEdgeDocPos = docPos
@@ -5908,7 +6002,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         localPressure = 1f
                         invalidate()
                     }
-                } else if (!isPenOnlyPan) {
+                } else if (!isSinglePointerPan) {
                     if (v.penOnlyMode) {
                         // 笔模式下且未开启单指平移：忽略单指触控输入，防止手掌误触作画
                         return true
@@ -5926,6 +6020,10 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                     // 真墨按住时这一笔由前缓冲呈现, 不再整屏失效主画布。
                     if (!realInk.wantsHold()) invalidate()
+                } else if (isPanTool) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && systemGrabPointer != null) {
+                        pointerIcon = systemGrabPointer
+                    }
                 }
                 return true
             }
@@ -5943,15 +6041,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     val deadZone = 48f * density
                     if (dist > deadZone) {
                         val deg = Math.toDegrees(atan2(dy.toDouble(), dx.toDouble())).toFloat()
-                        val slot = when {
-                            deg in -120f..-60f -> 0
-                            deg in -60f..0f -> 1
-                            deg in 0f..60f -> 2
-                            deg in 60f..120f -> 3
-                            deg in 120f..180f -> 4
-                            else -> 5
-                        }
-                        v.quickMenuHoverIndex = slot
+                        val count = v.canvasEditMenuActions.take(6).size
+                        v.quickMenuHoverIndex = com.reverie.paint.model.QuickMenuLayout.findHoverIndex(deg, count)
                     } else {
                         v.quickMenuHoverIndex = -1
                     }
@@ -6016,7 +6107,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
 
                 val isShiftTraceAlign = v.anim.shiftTraceActive && v.anim.shiftTraceGestureMode == ShiftTraceGestureMode.ALIGN_FRAME
-                if (isPenOnlyPan) {
+                if (isSinglePointerPan) {
                     if (isShiftTraceAlign) {
                         val target = v.anim.shiftTraceTarget
                         val curTf = if (target == ShiftTraceTarget.PREV) v.anim.shiftTracePrevTransform else v.anim.shiftTraceNextTransform
@@ -6134,7 +6225,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     return true
                 }
 
-                if (!isPenOnlyPan) {
+                if (!isSinglePointerPan) {
                     if (v.penOnlyMode) {
                         localIsTouching = false
                         clearLocalCursorPos()
@@ -6144,6 +6235,11 @@ class CanvasTouchView(context: Context) : View(context) {
                     handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
                     localIsTouching = false
                     clearLocalCursorPos()
+                    invalidate()
+                } else if (isPanTool) {
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && systemHandPointer != null) {
+                        pointerIcon = systemHandPointer
+                    }
                     invalidate()
                 }
                 return true
@@ -6202,6 +6298,9 @@ class CanvasTouchView(context: Context) : View(context) {
             return
         }
 
+        firstDocPos = docPos
+        shapeEndDocPos = docPos
+
         when (effTool()) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 val hasSymmetry = v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing
@@ -6242,7 +6341,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     val stx = tiltX.toFloat()
                     val sty = tiltY.toFloat()
                     val srot = rotation.toFloat()
-                    ensureMirrorBranches(
+                    prepareMirrorBranches(
                         symmetricSamplesFor(v.smoothedStrokeX, v.smoothedStrokeY, stx, sty, srot).size
                     )
                     appendSymmetricSamplePair(
@@ -6775,7 +6874,7 @@ class CanvasTouchView(context: Context) : View(context) {
                             val stx = touchTiltX.toFloat()
                             val sty = touchTiltY.toFloat()
                             val srot = touchRotation.toFloat()
-                            ensureMirrorBranches(
+                            prepareMirrorBranches(
                                 symmetricSamplesFor(v.smoothedStrokeX, v.smoothedStrokeY, stx, sty, srot).size
                             )
                             appendSymmetricSamplePair(
@@ -7980,7 +8079,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         // s13-C5 兜底: 本笔的引擎笔触已被撤销/重做/取消清掉 (mirrorStrokeAborted),
                         // 镜像缓冲不能再整笔重放成一条只有镜像的新笔画
                         val hasBranchesToReplay = hasMirrorSamples && !liveMirror && !v.mirrorStrokeAborted
-                        val isEraserStroke = (strokeTool == Tool.ERASER)
+                        val isEraserStroke = (strokeTool == Tool.ERASER) || (v.isEraserMode && strokeTool == Tool.BRUSH)
                         val overrideTool = if (strokeTool == Tool.ERASER && tool != Tool.ERASER) "eraser" else null
                         // touchEnd 会给主笔补发追赶点与尾锋点。这些点也必须进镜像分支, 否则镜像笔迹缺少收尾
                         if (hasMirrorSamples) {
@@ -8029,6 +8128,8 @@ class CanvasTouchView(context: Context) : View(context) {
                 assistLockedRay = null
                 clearPredictionState(triggerInvalidate = true)
                 currentStrokeDocPos = Offset.Zero
+                firstDocPos = Offset.Zero
+                shapeEndDocPos = Offset.Zero
                     }
             Tool.LIQUIFY -> {
                 if (strokeStarted) {
@@ -8380,6 +8481,8 @@ class CanvasTouchView(context: Context) : View(context) {
         if (isStylus) {
             tempEraseActive = false
         }
+        firstDocPos = Offset.Zero
+        shapeEndDocPos = Offset.Zero
     }
 
     private fun isShapeTool(t: Tool): Boolean =

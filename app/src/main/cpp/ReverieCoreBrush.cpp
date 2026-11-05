@@ -9,6 +9,10 @@
  * ============================================================ */
 #include "ReverieCoreInternal.h"
 #include "PixelAlpha.h"
+#include "StrokeTimeContract.h"
+
+#include <KisInterstrokeDataFactory.h>
+#include <kundo2command.h>
 
 #include <QRegularExpression>
 #include <QBuffer>
@@ -199,11 +203,16 @@ bool ReverieCore::loadSingleBrushResource(const QString &baseName)
     const QString cleanName = QUrl::fromPercentEncoding(baseName.toUtf8());
     const QString bareName = QFileInfo(cleanName).fileName();
 
-    const bool isBrush = bareName.endsWith(QLatin1String(".gbr"), Qt::CaseInsensitive) ||
-                         bareName.endsWith(QLatin1String(".gih"), Qt::CaseInsensitive) ||
-                         bareName.endsWith(QLatin1String(".png"), Qt::CaseInsensitive) ||
-                         bareName.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive) ||
-                         bareName.endsWith(QLatin1String(".abr"), Qt::CaseInsensitive);
+    const bool inBrushDir = !m_brushDir.isEmpty() &&
+        QFile::exists(QDir(m_brushDir).filePath(bareName));
+    const bool inPatternDir = !m_patternDir.isEmpty() &&
+        QFile::exists(QDir(m_patternDir).filePath(bareName));
+    const bool isBrush = inBrushDir || (!inPatternDir && (
+        bareName.endsWith(QLatin1String(".gbr"), Qt::CaseInsensitive) ||
+        bareName.endsWith(QLatin1String(".gih"), Qt::CaseInsensitive) ||
+        bareName.endsWith(QLatin1String(".png"), Qt::CaseInsensitive) ||
+        bareName.endsWith(QLatin1String(".svg"), Qt::CaseInsensitive) ||
+        bareName.endsWith(QLatin1String(".abr"), Qt::CaseInsensitive)));
 
     if (m_loadedBrushes.contains(baseName) || m_loadedBrushes.contains(cleanName) || m_loadedBrushes.contains(bareName)) {
         return true;
@@ -313,6 +322,15 @@ bool ReverieCore::loadSingleBrushResource(const QString &baseName)
                 if (res->loadFromDevice(&buf, m_brushResources)) {
                     res->setFilename(bareName);
                     res->setName(bareName);
+                    QFile origFile(fullPath);
+                    if (origFile.open(QIODevice::ReadOnly)) {
+                        const QByteArray origBytes = origFile.readAll();
+                        origFile.close();
+                        if (!origBytes.isEmpty()) {
+                            const QString md5Hex = QString::fromLatin1(QCryptographicHash::hash(origBytes, QCryptographicHash::Md5).toHex());
+                            res->setMD5Sum(md5Hex);
+                        }
+                    }
                     KisBrush *brushRaw = dynamic_cast<KisBrush *>(res);
                     if (brushRaw) {
                         KisBrushSP brushSp(brushRaw);
@@ -611,22 +629,8 @@ void ReverieCore::ensureBrushForPreset(const QString &kppPath)
                             return mr.hasMatch() ? mr.captured(1).trimmed() : QString();
                         };
                         const QString fn = getAttr(QStringLiteral("filename"));
-                        const QString type = getAttr(QStringLiteral("type"));
                         if (!fn.isEmpty()) {
-                            const QByteArray bytes = decodeBase64Safe(b64);
-                            if (!bytes.isEmpty()) {
-                                const bool isPattern = (type == QLatin1String("kis_patterns") || type == QLatin1String("patterns") || fn.endsWith(QLatin1String(".pat"), Qt::CaseInsensitive));
-                                const QString dir = (isPattern && !m_patternDir.isEmpty()) ? m_patternDir : m_brushDir;
-                                if (!dir.isEmpty()) {
-                                    const QString outPath = QDir(dir).filePath(QFileInfo(fn).fileName());
-                                    QFile outF(outPath);
-                                    if (outF.open(QIODevice::WriteOnly)) {
-                                        outF.write(bytes);
-                                        outF.close();
-                                    }
-                                }
-                                loadSingleBrushResource(fn);
-                            }
+                            loadSingleBrushResource(fn);
                         }
                     }
 
@@ -652,22 +656,6 @@ void ReverieCore::ensureBrushForPreset(const QString &kppPath)
                             auto mrFile = patFileRe.match(xmlStr);
                             const QString patFileName = mrFile.hasMatch() ? QFileInfo(mrFile.captured(1).trimmed()).fileName() : QString();
 
-                            if (!m_patternDir.isEmpty()) {
-                                const QString outPath = QDir(m_patternDir).filePath(QFileInfo(patName).fileName());
-                                QFile outF(outPath);
-                                if (outF.open(QIODevice::WriteOnly)) {
-                                    outF.write(patBytes);
-                                    outF.close();
-                                }
-                                if (!patFileName.isEmpty() && patFileName != patName) {
-                                    const QString outPath2 = QDir(m_patternDir).filePath(patFileName);
-                                    QFile outF2(outPath2);
-                                    if (outF2.open(QIODevice::WriteOnly)) {
-                                        outF2.write(patBytes);
-                                        outF2.close();
-                                    }
-                                }
-                            }
                             loadSingleBrushResource(patName);
                             if (!patFileName.isEmpty() && patFileName != patName) {
                                 loadSingleBrushResource(patFileName);
@@ -816,16 +804,12 @@ int ReverieCore::loadBrushResources(const QString &dirPath)
     return loaded;
 }
 
-bool ReverieCore::loadBrushPreset(int index)
+bool ReverieCore::loadBrushPresetCommon(const QString &path, const QString &name, int index)
 {
-    if (index < 0 || index >= m_presets.size()) {
-        return false;
-    }
     registerPaintOps();
     if (!m_brushResources) {
         m_brushResources = KisResourcesInterfaceSP(new KisLocalStrokeResources());
     }
-    const QString path = m_presets[index].second;
     ensureBrushForPreset(path);
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
@@ -835,7 +819,7 @@ bool ReverieCore::loadBrushPreset(int index)
     if (path.endsWith(QLatin1String(".myb"), Qt::CaseInsensitive)) {
         preset = KisPaintOpPresetSP(krita_create_mypaint_preset(path));
     } else {
-        preset = KisPaintOpPresetSP(new KisPaintOpPreset(m_presets[index].first));
+        preset = KisPaintOpPresetSP(new KisPaintOpPreset(name.isEmpty() ? path : name));
     }
     bool ok = preset->loadFromDevice(&f, m_brushResources);
     f.close();
@@ -849,19 +833,6 @@ bool ReverieCore::loadBrushPreset(int index)
                 KoEmbeddedResource er = loadRes.embeddedResource();
                 if (er.isValid()) {
                     const KoResourceSignature sig = er.signature();
-                    const QByteArray data = er.data();
-                    const bool isPattern = (sig.type == QLatin1String("patterns") || sig.type == QLatin1String("kis_patterns") || sig.filename.endsWith(QLatin1String(".pat"), Qt::CaseInsensitive));
-                    const QString targetDir = (isPattern && !m_patternDir.isEmpty()) ? m_patternDir : m_brushDir;
-                    if (!targetDir.isEmpty() && !sig.filename.isEmpty()) {
-                        const QString filePath = QDir(targetDir).filePath(QFileInfo(sig.filename).fileName());
-                        if (!QFile::exists(filePath) && !data.isEmpty()) {
-                            QFile outF(filePath);
-                            if (outF.open(QIODevice::WriteOnly)) {
-                                outF.write(data);
-                                outF.close();
-                            }
-                        }
-                    }
                     if (loadSingleBrushResource(sig.filename)) {
                         addedSideloaded = true;
                     }
@@ -879,37 +850,25 @@ bool ReverieCore::loadBrushPreset(int index)
             }
         }
     }
-    RPC_LOG("RPC loadBrushPreset idx=%d path=%s ok=%d", index, path.toUtf8().constData(), ok);
+    RPC_LOG("RPC loadBrushPresetCommon idx=%d path=%s ok=%d", index, path.toUtf8().constData(), ok);
     if (!ok) {
         return false;
     }
     m_presetIsEraserOverride = -1; // new preset: heuristic governs until UI asserts
     m_brushPreset = preset;
     m_brushPresetIndex = index;
+    m_currentPresetPath = path;
     if (m_brushPreset && m_brushPreset->settings()) {
         m_brushPreset->settings()->setEraserMode(m_toolMode == ToolEraser);
         KisPaintOpSettingsSP s = m_brushPreset->settings();
-        // 归一化压感开关：部分 Krita 预设（如 Basic-2_Opacity, Basic-4_Flow_Opacity 等）
-        // 仅包含 OpacityUseCurve / FlowUseCurve / SizeUseCurve，缺失显式的 PressureOpacity / PressureFlow / PressureSize 属性。
-        // Krita 的 KisOpacityOption / KisFlowOpacityOption 在读取配置时依赖 Pressure* 决定 isChecked，
-        // 若缺失会导致压感曲线被跳过，恒定输出 1.0。
         if (!s->hasProperty("PressureOpacity") && s->getBool("OpacityUseCurve", false)) {
-            const QString sensor = s->getString("OpacitySensor");
-            if (sensor.isEmpty() || sensor.contains(QStringLiteral("id=\"pressure\""))) {
-                s->setProperty("PressureOpacity", true);
-            }
+            s->setProperty("PressureOpacity", true);
         }
         if (!s->hasProperty("PressureFlow") && s->getBool("FlowUseCurve", false)) {
-            const QString sensor = s->getString("FlowSensor");
-            if (sensor.isEmpty() || sensor.contains(QStringLiteral("id=\"pressure\""))) {
-                s->setProperty("PressureFlow", true);
-            }
+            s->setProperty("PressureFlow", true);
         }
         if (!s->hasProperty("PressureSize") && s->getBool("SizeUseCurve", false)) {
-            const QString sensor = s->getString("SizeSensor");
-            if (sensor.isEmpty() || sensor.contains(QStringLiteral("id=\"pressure\""))) {
-                s->setProperty("PressureSize", true);
-            }
+            s->setProperty("PressureSize", true);
         }
         m_airbrushEnabled = s->getBool("PaintOpSettings/isAirbrushing",
                             s->getBool("AirbrushOption/isAirbrushing",
@@ -939,23 +898,15 @@ bool ReverieCore::loadBrushPreset(int index)
                     m_brushSpacing = sp;
                 }
             }
-            // 只对湿笔重写 (其余预设原样保留解析出的间距)
             const qreal parsed = bs->autoSpacingActive() ? bs->autoSpacingCoeff() : bs->spacing();
             if (isColorSmudgePreset(m_brushPreset) && parsed > 0.0 && std::isfinite(parsed)) {
                 writeBrushSpacing(bs, m_brushPreset, m_brushSize, parsed);
             }
         }
     }
-    // Apply size / opacity / flow to the newly loaded preset.
-    // If the caller (ViewModel) has user-customized saved parameters,
-    // it will immediately follow with setBrush* to override these defaults.
     setBrushSize(m_brushSize);
     setBrushOpacity(m_brushOpacity);
     setBrushFlow(m_brushFlow);
-    m_brushTipAsset.clear();
-    m_tipOverridden = false; // 刚重新解析预设, 出厂笔尖天然在场
-    // Diagnostics: is the preset's brush resolved to a real brush resource
-    // or did it fall back to the default auto_brush (circle)?
     KisBrushBasedPaintOpSettings *bs =
         dynamic_cast<KisBrushBasedPaintOpSettings *>(m_brushPreset->settings().data());
     if (bs) {
@@ -975,9 +926,43 @@ bool ReverieCore::loadBrushPreset(int index)
     return true;
 }
 
+bool ReverieCore::loadBrushPreset(int index)
+{
+    if (index < 0 || index >= m_presets.size()) {
+        return false;
+    }
+    return loadBrushPresetCommon(m_presets[index].second, m_presets[index].first, index);
+}
+
+bool ReverieCore::loadBrushPresetFile(const QString &path)
+{
+    if (path.isEmpty()) {
+        return false;
+    }
+    const QString name = QFileInfo(path).completeBaseName();
+    return loadBrushPresetCommon(path, name, -1);
+}
+
+bool ReverieCore::currentTipResolved()
+{
+    if (!m_brushPreset || !m_brushPreset->settings()) {
+        return false;
+    }
+    KisBrushBasedPaintOpSettings *bs =
+        dynamic_cast<KisBrushBasedPaintOpSettings *>(m_brushPreset->settings().data());
+    if (bs) {
+        KisBrushSP b = bs->brush();
+        if (b && b->valid()) {
+            const QImage tip = b->brushTipImage();
+            return !tip.isNull() && tip.width() > 0 && tip.height() > 0;
+        }
+    }
+    return false;
+}
+
 bool ReverieCore::beginPresetOverrideSnapshot()
 {
-    if (!m_brushPreset || m_brushPresetIndex < 0) {
+    if (!m_brushPreset) {
         return false;
     }
     m_overrideSnapshotPreset = m_brushPreset;
@@ -993,20 +978,21 @@ bool ReverieCore::beginPresetOverrideSnapshot()
     m_overrideSnapshotAirbrush = m_airbrushEnabled;
     m_overrideSnapshotEraserFlag = m_presetIsEraserOverride;
     m_overrideSnapshotToolMode = m_toolMode;
-    m_overrideSnapshotTipOverridden = m_tipOverridden;
-    m_overrideSnapshotTipAsset = m_brushTipAsset;
-    RPC_LOG("RPC overrideSnapshot begin idx=%d", m_brushPresetIndex);
+    m_overrideSnapshotPresetPath = m_currentPresetPath;
+    m_overrideSnapshotCompositeOp = m_brushPreset->settings() ? m_brushPreset->settings()->paintOpCompositeOp() : QString();
+    RPC_LOG("RPC overrideSnapshot begin idx=%d path=%s", m_brushPresetIndex, m_currentPresetPath.toUtf8().constData());
     return true;
 }
 
 bool ReverieCore::endPresetOverrideSnapshot()
 {
-    if (!m_overrideSnapshotPreset || m_overrideSnapshotIndex < 0) {
+    if (!m_overrideSnapshotPreset) {
         return false;
     }
     // 先取出并清空快照 (消费一次即失效, 防止旧快照被误用)
     const KisPaintOpPresetSP preset = m_overrideSnapshotPreset;
     const int index = m_overrideSnapshotIndex;
+    const QString presetPath = m_overrideSnapshotPresetPath;
     const qreal size = m_overrideSnapshotSize;
     const qreal opacity = m_overrideSnapshotOpacity;
     const qreal flow = m_overrideSnapshotFlow;
@@ -1018,13 +1004,14 @@ bool ReverieCore::endPresetOverrideSnapshot()
     const bool airbrush = m_overrideSnapshotAirbrush;
     const int eraserFlag = m_overrideSnapshotEraserFlag;
     const ToolMode toolMode = m_overrideSnapshotToolMode;
-    const bool tipOverridden = m_overrideSnapshotTipOverridden;
-    const QString tipAsset = m_overrideSnapshotTipAsset;
+    const QString compositeOp = m_overrideSnapshotCompositeOp;
     m_overrideSnapshotPreset.clear();
     m_overrideSnapshotIndex = -1;
+    m_overrideSnapshotPresetPath.clear();
 
     m_brushPreset = preset;
     m_brushPresetIndex = index;
+    m_currentPresetPath = presetPath;
     m_brushSize = size;
     m_brushOpacity = opacity;
     m_brushFlow = flow;
@@ -1036,11 +1023,19 @@ bool ReverieCore::endPresetOverrideSnapshot()
     m_airbrushEnabled = airbrush;
     m_presetIsEraserOverride = eraserFlag;
     m_toolMode = toolMode;
-    m_tipOverridden = tipOverridden;
-    m_brushTipAsset = tipAsset;
     // 与 loadBrushPreset 的加载后处理保持一致: eraser 模式按工具态重写
     if (m_brushPreset && m_brushPreset->settings()) {
-        m_brushPreset->settings()->setEraserMode(m_toolMode == ToolEraser);
+        KisPaintOpSettingsSP s = m_brushPreset->settings();
+        s->setEraserMode(m_toolMode == ToolEraser);
+        // 临时橡皮与当前画笔是同一个预设对象时（没有换预设），begin 之后 Kotlin 侧写入的
+        // 橡皮 大小/不透明度/流量/混合模式 落在这个对象的 settings 上；上面只还原了成员，
+        // 这里把 settings 也还原到快照值，否则下一笔读到的是橡皮的值
+        s->setPaintOpSize(size);
+        s->setPaintOpOpacity(opacity);
+        s->setPaintOpFlow(flow);
+        if (!compositeOp.isEmpty()) {
+            s->setPaintOpCompositeOp(compositeOp);
+        }
     }
     // 压感曲线缓存按 owner 指针失效 (覆盖期间可能已指向橡皮 settings)
     {
@@ -1054,7 +1049,7 @@ bool ReverieCore::endPresetOverrideSnapshot()
 // 一次 .kpp 解析同时提取 defaults / paintOpId / tipFilename 三个只读值。
 // 选择预设时 Kotlin 会在主线程连查这三个值 (原本各做一次完整解析:
 // 读文件 + PNG zTXt 解压 + 正则扫描 + XML loadFromDevice), 是"换笔卡顿"
-// 的主因; 这里解析一次后按 mtime+size 缓存 (updateKppFile 改写文件即失效)。
+// 的主因; 这里解析一次后按 mtime+size 缓存 (保存预设改写文件即失效)。
 bool ReverieCore::ensurePresetInfo(int index, CachedPresetInfo &out)
 {
     if (index < 0 || index >= m_presets.size()) {
@@ -1098,20 +1093,7 @@ bool ReverieCore::ensurePresetInfo(int index, CachedPresetInfo &out)
                 KoEmbeddedResource er = loadRes.embeddedResource();
                 if (er.isValid()) {
                     const KoResourceSignature sig = er.signature();
-                    const QByteArray data = er.data();
-                    const bool isPattern = (sig.type == QLatin1String("patterns") || sig.type == QLatin1String("kis_patterns") || sig.filename.endsWith(QLatin1String(".pat"), Qt::CaseInsensitive));
-                    const QString targetDir = (isPattern && !m_patternDir.isEmpty()) ? m_patternDir : m_brushDir;
-                    if (!targetDir.isEmpty() && !sig.filename.isEmpty()) {
-                        const QString filePath = QDir(targetDir).filePath(QFileInfo(sig.filename).fileName());
-                        if (!QFile::exists(filePath) && !data.isEmpty()) {
-                            QFile outF(filePath);
-                            if (outF.open(QIODevice::WriteOnly)) {
-                                outF.write(data);
-                                outF.close();
-                            }
-                        }
-                    }
-                    if (loadSingleBrushResource(sig.filename)) {
+if (loadSingleBrushResource(sig.filename)) {
                         addedSideloaded = true;
                     }
                 }
@@ -1133,22 +1115,13 @@ bool ReverieCore::ensurePresetInfo(int index, CachedPresetInfo &out)
     }
     KisPaintOpSettingsSP s = preset->settings();
     if (!s->hasProperty("PressureOpacity") && s->getBool("OpacityUseCurve", false)) {
-        const QString sensor = s->getString("OpacitySensor");
-        if (sensor.isEmpty() || sensor.contains(QStringLiteral("id=\"pressure\""))) {
-            s->setProperty("PressureOpacity", true);
-        }
+        s->setProperty("PressureOpacity", true);
     }
     if (!s->hasProperty("PressureFlow") && s->getBool("FlowUseCurve", false)) {
-        const QString sensor = s->getString("FlowSensor");
-        if (sensor.isEmpty() || sensor.contains(QStringLiteral("id=\"pressure\""))) {
-            s->setProperty("PressureFlow", true);
-        }
+        s->setProperty("PressureFlow", true);
     }
     if (!s->hasProperty("PressureSize") && s->getBool("SizeUseCurve", false)) {
-        const QString sensor = s->getString("SizeSensor");
-        if (sensor.isEmpty() || sensor.contains(QStringLiteral("id=\"pressure\""))) {
-            s->setProperty("PressureSize", true);
-        }
+        s->setProperty("PressureSize", true);
     }
 
     CachedPresetInfo info;
@@ -1179,7 +1152,7 @@ bool ReverieCore::ensurePresetInfo(int index, CachedPresetInfo &out)
     if (!(spacing > 0.0) || spacing != spacing) {
         spacing = s->getDouble("spacing", 0.15);
     }
-    if (!(spacing > 0.0) || spacing != spacing || spacing >= 0.75) {
+    if (!(spacing > 0.0) || spacing != spacing || spacing > 10.0) {
         spacing = 0.15;
     }
     spacing = qBound(0.01, spacing, 2.5);
@@ -1217,8 +1190,7 @@ bool ReverieCore::ensurePresetInfo(int index, CachedPresetInfo &out)
     if (s->hasProperty("PressureSize")) {
         hasPressureSize = s->getBool("PressureSize", true);
     } else if (s->hasProperty("SizeUseCurve")) {
-        const QString sizeSensor = s->getString("SizeSensor");
-        hasPressureSize = s->getBool("SizeUseCurve", false) && (sizeSensor.isEmpty() || sizeSensor.contains(QStringLiteral("id=\"pressure\"")));
+        hasPressureSize = s->getBool("SizeUseCurve", false);
     }
     const double pressureSize = hasPressureSize ? 1.0 : 0.0;
 
@@ -1226,8 +1198,7 @@ bool ReverieCore::ensurePresetInfo(int index, CachedPresetInfo &out)
     if (s->hasProperty("PressureOpacity")) {
         hasPressureOpacity = s->getBool("PressureOpacity", false) && s->getBool("OpacityUseCurve", true);
     } else if (s->hasProperty("OpacityUseCurve")) {
-        const QString opacitySensor = s->getString("OpacitySensor");
-        hasPressureOpacity = s->getBool("OpacityUseCurve", false) && (opacitySensor.isEmpty() || opacitySensor.contains(QStringLiteral("id=\"pressure\"")));
+        hasPressureOpacity = s->getBool("OpacityUseCurve", false);
     }
     const double pressureOpacity = hasPressureOpacity ? 1.0 : 0.0;
 
@@ -1235,8 +1206,7 @@ bool ReverieCore::ensurePresetInfo(int index, CachedPresetInfo &out)
     if (s->hasProperty("PressureFlow")) {
         hasPressureFlow = s->getBool("PressureFlow", false) && s->getBool("FlowUseCurve", true);
     } else if (s->hasProperty("FlowUseCurve")) {
-        const QString flowSensor = s->getString("FlowSensor");
-        hasPressureFlow = s->getBool("FlowUseCurve", false) && (flowSensor.isEmpty() || flowSensor.contains(QStringLiteral("id=\"pressure\"")));
+        hasPressureFlow = s->getBool("FlowUseCurve", false);
     }
     const double pressureFlow = hasPressureFlow ? 1.0 : 0.0;
     const double followDirection = s->getBool("PressureRotation", false) ? 1.0 : 0.0;
@@ -1497,8 +1467,8 @@ void ReverieCore::setBrushScatter(qreal v)
         s->setProperty("Scatter/strengthValue", v);
         s->setProperty("Scattering/Amount", v);
         s->setProperty("ScatterValue", v);
-        s->setProperty("Scattering/AxisX", true);
-        s->setProperty("Scattering/AxisY", true);
+        // Scattering/AxisX|AxisY belong to the preset (PresetPropertyMap SCATTER_BOTH_AXES);
+        // KisScatterOptionData::read defaults both to true when the keys are absent.
     }
 }
 
@@ -1542,14 +1512,30 @@ void ReverieCore::setBrushRotation(qreal v)
 void ReverieCore::setToolMode(int mode)
 {
     m_toolMode = ToolMode(mode);
+    // 离开橡皮工具时清掉"预设是橡皮"的显式覆盖:
+    // 这个覆盖是 UI 在加载预设后断言的 (setPresetIsEraser), 一旦那次加载失败 /
+    // 被上层跳过 / 临时橡皮快照没还原, 它就会顽固地留在 1, 于是普通画笔落笔时
+    // `erasing = (m_toolMode == ToolEraser) || isEraserPreset` 仍成立 ——
+    // 用户看到的就是"切回自定义画笔却变成橡皮"。工具态是 UI 每切一次都会重推的
+    // 权威状态, 回到非橡皮模式时让判断退回预设自身名字的启发式即可。
+    if (m_toolMode != ToolEraser) {
+        m_presetIsEraserOverride = -1;
+    }
     if (m_brushPreset && m_brushPreset->settings()) {
         m_brushPreset->settings()->setEraserMode(m_toolMode == ToolEraser);
     }
+    // 橡皮/画笔串台排查用: 一行看清"工具态 + 显式覆盖位 + 当前预设"
+    RPC_LOG("RPC toolMode mode=%d presetEraserOverride=%d presetIdx=%d preset=%s",
+            int(m_toolMode), m_presetIsEraserOverride, m_brushPresetIndex,
+            m_brushPreset ? m_brushPreset->name().toUtf8().constData() : "none");
 }
 
 void ReverieCore::setPresetIsEraser(bool eraser)
 {
     m_presetIsEraserOverride = eraser ? 1 : 0;
+    RPC_LOG("RPC presetIsEraser=%d presetIdx=%d preset=%s",
+            m_presetIsEraserOverride, m_brushPresetIndex,
+            m_brushPreset ? m_brushPreset->name().toUtf8().constData() : "none");
 }
 
 void ReverieCore::setBrushCompositeOp(const QString &op)
@@ -1557,74 +1543,6 @@ void ReverieCore::setBrushCompositeOp(const QString &op)
     if (m_brushPreset && m_brushPreset->settings()) {
         m_brushPreset->settings()->setPaintOpCompositeOp(op);
     }
-}
-
-bool ReverieCore::setBrushTipAsset(const QString &assetName)
-{
-    m_brushTipAsset = assetName;
-    if (!m_brushPreset || !m_brushPreset->settings()) {
-        return false;
-    }
-    KisBrushBasedPaintOpSettings *bs =
-        dynamic_cast<KisBrushBasedPaintOpSettings *>(m_brushPreset->settings().data());
-    if (!bs) {
-        return false;
-    }
-    if (assetName.isEmpty()) {
-        // Restore factory brush tip from the original .kpp preset file.
-        // Skip the re-parse when no tip override is in effect: loadBrushPreset
-        // always parses a fresh preset whose settings already carry the
-        // factory brush, so restoring would re-read the very same file.
-        if (!m_tipOverridden) {
-            RPC_LOG("RPC setBrushTipAsset: no override in effect, factory tip already active (preset %d)", m_brushPresetIndex);
-            return true;
-        }
-        if (m_brushPresetIndex >= 0 && m_brushPresetIndex < m_presets.size()) {
-            QFile f(m_presets[m_brushPresetIndex].second);
-            if (f.open(QIODevice::ReadOnly)) {
-                KisPaintOpPresetSP originalPreset(new KisPaintOpPreset(m_presets[m_brushPresetIndex].first));
-                if (originalPreset->loadFromDevice(&f, m_brushResources)) {
-                    KisBrushBasedPaintOpSettings *origBs =
-                        dynamic_cast<KisBrushBasedPaintOpSettings *>(originalPreset->settings().data());
-                    if (origBs && origBs->brush()) {
-                        KisBrushOptionProperties prop;
-                        prop.readOptionSetting(origBs, m_brushResources, origBs->canvasResourcesInterface());
-                        prop.writeOptionSetting(bs);
-                        m_tipOverridden = false;
-                        RPC_LOG("RPC setBrushTipAsset: restored factory brush tip for preset %d", m_brushPresetIndex);
-                        return true;
-                    }
-                }
-            }
-        }
-        return false;
-    }
-    KisBrushSP brush = m_loadedBrushes.value(assetName);
-    if (!brush) {
-        loadSingleBrushResource(assetName);
-        brush = m_loadedBrushes.value(assetName);
-    }
-    if (!brush) {
-        for (auto it = m_loadedBrushes.begin(); it != m_loadedBrushes.end(); ++it) {
-            if (it.key().compare(assetName, Qt::CaseInsensitive) == 0 ||
-                it.key().startsWith(assetName, Qt::CaseInsensitive) ||
-                (it.value() && it.value()->name().compare(assetName, Qt::CaseInsensitive) == 0)) {
-                brush = it.value();
-                break;
-            }
-        }
-    }
-    if (!brush) {
-        RPC_LOG("RPC setBrushTipAsset not found: %s", assetName.toUtf8().constData());
-        return false;
-    }
-    KisBrushOptionProperties prop;
-    prop.readOptionSetting(bs, m_brushResources, bs->canvasResourcesInterface());
-    prop.setBrush(brush);
-    prop.writeOptionSetting(bs);
-    m_tipOverridden = true;
-    RPC_LOG("RPC setBrushTipAsset SUCCESS: %s", assetName.toUtf8().constData());
-    return true;
 }
 
 void ReverieCore::setBrushPressureDynamics(bool enabled, qreal sizeStrength, qreal opacityStrength, qreal flowStrength, int curveType)
@@ -1665,28 +1583,43 @@ void ReverieCore::setBrushPressureDynamics(bool enabled, qreal sizeStrength, qre
         break;
     }
 
-    const QString sensorXml = QStringLiteral("<!DOCTYPE params><params id=\"pressure\"><curve>%1</curve></params>").arg(curveStr);
+    auto makeSensorXml = [&](const char *sensorPropKey) {
+        QString current = s->getString(sensorPropKey);
+        QString sid = QStringLiteral("pressure");
+        if (!current.isEmpty()) {
+            QRegularExpression re(QStringLiteral("id=\"([^\"]+)\""));
+            auto m = re.match(current);
+            if (m.hasMatch()) {
+                sid = m.captured(1);
+            }
+        }
+        if (sid == QStringLiteral("drawingangle")) {
+            return QStringLiteral("<!DOCTYPE params><params fanCornersStep=\"30\" fanCornersEnabled=\"0\" angleOffset=\"0\" id=\"drawingangle\"><curve>%1</curve></params>").arg(curveStr);
+        } else {
+            return QStringLiteral("<!DOCTYPE params><params id=\"%1\"><curve>%2</curve></params>").arg(sid, curveStr);
+        }
+    };
 
     const bool useSize = (sizeStrength > 0.001);
     s->setProperty("PressureSize", useSize);
     s->setProperty("SizeUseCurve", useSize);
     s->setProperty("SizeValue", sizeStrength);
     if (useSize) {
-        s->setProperty("SizeSensor", sensorXml);
+        s->setProperty("SizeSensor", makeSensorXml("SizeSensor"));
     }
 
     const bool useOpacity = (opacityStrength > 0.001);
     s->setProperty("PressureOpacity", useOpacity);
     s->setProperty("OpacityUseCurve", useOpacity);
     if (useOpacity) {
-        s->setProperty("OpacitySensor", sensorXml);
+        s->setProperty("OpacitySensor", makeSensorXml("OpacitySensor"));
     }
 
     const bool useFlow = (flowStrength > 0.001);
     s->setProperty("PressureFlow", useFlow);
     s->setProperty("FlowUseCurve", useFlow);
     if (useFlow) {
-        s->setProperty("FlowSensor", sensorXml);
+        s->setProperty("FlowSensor", makeSensorXml("FlowSensor"));
     }
 }
 
@@ -1800,26 +1733,58 @@ void ReverieCore::setBrushAntiAliasing(int level)
     s->setProperty("antialiasEdges", aa);
 }
 
-void ReverieCore::setBrushTexture(bool enabled, qreal scale, qreal strength, const QString &mode, const QString &patternName)
+/*
+ * 涂抹类预设 (colorsmudge) 的 Lightness 策略要求画笔设备上挂着
+ * KisColorSmudgeInterstrokeData: 真机笔画里这份数据由 KisTransaction 通过
+ * interstroke factory 注入, 而画笔工作室的取样预览没有事务 —— 策略会走
+ * KIS_SAFE_ASSERT_RECOVER 兜底分支, 那条分支又忘了给 layer overlay 指针赋值,
+ * 第一次 readRects 就解引用空指针 SIGSEGV (1.6.2 线上 51f7f06d17)。
+ *
+ * 这里直接按预设自带的 factory 手工挂一份数据, 让预览与真笔画走同一条策略路径;
+ * 预览结束 (或下一次 Start) 再摘掉。非涂抹预设的 factory 返回空, 调用是 no-op。
+ */
+void ReverieCore::ensureScratchpadInterstrokeData()
 {
-    if (!m_brushPreset || !m_brushPreset->settings()) return;
-    KisPaintOpSettingsSP s = m_brushPreset->settings();
-    s->setProperty("Texture/Pattern/Enabled", enabled);
-    s->setProperty("PressureTexture/Strength/", enabled);
-    s->setProperty("Texture/Pattern/Scale", scale);
-    s->setProperty("Texture/Pattern/Strength", strength);
-    QString modeCode = QStringLiteral("0");
-    if (mode.compare(QStringLiteral("subtract"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("1");
-    else if (mode.compare(QStringLiteral("darken"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("4");
-    else if (mode.compare(QStringLiteral("overlay"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("5");
-    else if (mode.compare(QStringLiteral("dodge"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("6");
-    else if (mode.compare(QStringLiteral("burn"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("7");
-    else if (mode.compare(QStringLiteral("hard_light"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("10");
-    else if (mode.compare(QStringLiteral("soft_light"), Qt::CaseInsensitive) == 0) modeCode = QStringLiteral("11");
-    s->setProperty("Texture/Pattern/TexturingMode", modeCode);
-    if (!patternName.isEmpty()) {
-        s->setProperty("Texture/Pattern/PatternFileName", patternName);
-        s->setProperty("Texture/Pattern/Name", patternName);
+    if (!m_scratchpadDev || !m_brushPreset) {
+        return;
+    }
+    KisInterstrokeDataFactory *factory =
+        KisPaintOpRegistry::instance()->createInterstrokeDataFactory(m_brushPreset);
+    if (!factory) {
+        // 当前预设不需要 interstroke data: 摘掉旧的, 避免别的策略拿到涂抹专用设备
+        detachScratchpadInterstrokeData();
+        return;
+    }
+    // 画笔工作室切换预设不会重建预览设备, 所以每次落笔前都要对齐一次;
+    // 同一类预设 (factory 认为兼容) 直接复用, 不重新分配 overlay。
+    const KisInterstrokeDataSP existing = m_scratchpadDev->interstrokeData();
+    if (existing && factory->isCompatible(existing.data())) {
+        delete factory;
+        return;
+    }
+    KisInterstrokeData *rawData = factory->create(m_scratchpadDev);
+    delete factory;
+    if (!rawData) {
+        return;
+    }
+    KUndo2Command *cmd =
+        m_scratchpadDev->createChangeInterstrokeDataCommand(KisInterstrokeDataSP(rawData));
+    if (cmd) {
+        cmd->redo();
+        delete cmd;
+    }
+}
+
+void ReverieCore::detachScratchpadInterstrokeData()
+{
+    if (!m_scratchpadDev) {
+        return;
+    }
+    KUndo2Command *cmd =
+        m_scratchpadDev->createChangeInterstrokeDataCommand(KisInterstrokeDataSP());
+    if (cmd) {
+        cmd->redo();
+        delete cmd;
     }
 }
 
@@ -1830,6 +1795,8 @@ bool ReverieCore::scratchpadStart(int w, int h)
         ? m_document->colorSpace()
         : KoColorSpaceRegistry::instance()->rgb8();
     if (!m_scratchpadDev || m_scratchpadWidth != w || m_scratchpadHeight != h) {
+        // 换设备前先摘掉引用旧设备的 interstroke data, 否则涂抹策略会拿着悬空的 overlay
+        detachScratchpadInterstrokeData();
         m_scratchpadDev = new KisPaintDevice(cs);
         m_scratchpadWidth = w;
         m_scratchpadHeight = h;
@@ -1851,6 +1818,8 @@ bool ReverieCore::scratchpadStart(int w, int h)
 bool ReverieCore::scratchpadStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation)
 {
     if (!m_scratchpadDev || !m_brushPreset) return false;
+    // 涂抹类预设的策略要求设备上挂着 interstroke data (真笔画由事务注入, 预览没有事务)
+    ensureScratchpadInterstrokeData();
     if (m_scratchpadPainter) {
         m_scratchpadPainter->end();
         delete m_scratchpadPainter;
@@ -1885,7 +1854,8 @@ bool ReverieCore::scratchpadStrokeStart(qreal x, qreal y, qreal pressure, qreal 
 
     const QPointF pt(x, y);
     m_scratchpadDistInfo = new KisDistanceInformation(pt, 0.0);
-    KisPaintInformation pi(pt, pressure, tiltX, tiltY, rotation);
+    m_scratchpadTimer.start();
+    KisPaintInformation pi(pt, pressure, tiltX, tiltY, rotation, 0.0, 1.0, 0.0, 0.0);
     m_scratchpadPainter->paintAt(pi, m_scratchpadDistInfo);
 
     if (KisPaintOp *op = m_scratchpadPainter->paintOp()) {
@@ -1911,8 +1881,16 @@ bool ReverieCore::scratchpadStrokeMove(qreal x, qreal y, qreal pressure, qreal t
 {
     if (!m_scratchpadStrokeActive || !m_scratchpadPainter || !m_scratchpadDistInfo) return false;
     const QPointF pt(x, y);
-    KisPaintInformation pi1(m_scratchpadLastSample.imgPos, m_scratchpadLastSample.pressure, m_scratchpadLastSample.tiltX, m_scratchpadLastSample.tiltY, m_scratchpadLastSample.rotation);
-    KisPaintInformation pi2(pt, pressure, tiltX, tiltY, rotation);
+    const qreal curTime = m_scratchpadTimer.nsecsElapsed() / 1e9;
+    const qreal dist = QLineF(m_scratchpadLastSample.imgPos, pt).length();
+    const qreal speed = reverie::StrokeTimeContract::speedPxPerMs(dist, m_scratchpadLastSample.time, curTime);
+    const qreal t0Ms = reverie::StrokeTimeContract::toKritaMs(m_scratchpadLastSample.time);
+    const qreal t1Ms = reverie::StrokeTimeContract::toKritaMs(curTime);
+
+    KisPaintInformation pi1(m_scratchpadLastSample.imgPos, m_scratchpadLastSample.pressure,
+                            m_scratchpadLastSample.tiltX, m_scratchpadLastSample.tiltY,
+                            m_scratchpadLastSample.rotation, 0.0, 1.0, t0Ms, speed);
+    KisPaintInformation pi2(pt, pressure, tiltX, tiltY, rotation, 0.0, 1.0, t1Ms, speed);
     m_scratchpadPainter->paintLine(pi1, pi2, m_scratchpadDistInfo);
 
     if (KisPaintOp *op = m_scratchpadPainter->paintOp()) {
@@ -1929,7 +1907,7 @@ bool ReverieCore::scratchpadStrokeMove(qreal x, qreal y, qreal pressure, qreal t
         }
     }
 
-    m_scratchpadLastSample = StrokeSample{pt, pressure, tiltX, tiltY, rotation, 0.0};
+    m_scratchpadLastSample = StrokeSample{pt, pressure, tiltX, tiltY, rotation, curTime};
     return true;
 }
 

@@ -176,6 +176,9 @@ internal fun PaintViewModel.executeRestoreBackup() {
 
     viewModelScope.launch(Dispatchers.IO) {
         try {
+            if (selected.contains(BackupCategory.BRUSHES)) {
+                com.reverie.paint.core.brushstore.BrushStoreBootstrap.beginReconcilePending(appContext.filesDir)
+            }
             val inStream = appContext.contentResolver.openInputStream(uri)
                 ?: throw IllegalStateException("无法读取备份文件")
 
@@ -190,6 +193,17 @@ internal fun PaintViewModel.executeRestoreBackup() {
                         localBackupState.currentItem = label
                     },
                 )
+            }
+
+            // 引擎已把备份里的导入笔 id 表并进磁盘上的 identity.json；内存里的表要先重读，
+            // 对账才会沿用备份里的 id（否则这些预设会被当成「全新文件」换一个新 id，常用/分组就对不上了）
+            if (outcome.restoredBrushIdentities > 0) {
+                com.reverie.paint.core.brushstore.BrushIdentity.open(
+                    com.reverie.paint.core.brushstore.BrushStoreBootstrap.storeRoot(appContext.filesDir),
+                )
+            }
+            if (com.reverie.paint.core.brushstore.BrushStoreBootstrap.hasReconcilePending(appContext.filesDir)) {
+                com.reverie.paint.core.brushstore.BrushStoreBootstrap.reconcileDisk(appContext.filesDir)
             }
 
             withContext(Dispatchers.Main) {
@@ -211,8 +225,12 @@ internal fun PaintViewModel.executeRestoreBackup() {
                 if (outcome.restoredProjects > 0 || outcome.restoredAutosaves > 0) {
                     refreshProjects()
                 }
-                if (outcome.restoredBrushes > 0) {
-                    loadBrushPresets()
+                // force：不带 force 在笔刷已加载过时是空操作，内存里的常用/分组/工具槽还是旧的，
+                // 下一次保存会把刚恢复的覆盖回去
+                if (outcome.restoredBrushes > 0 || outcome.restoredBrushIdentities > 0 ||
+                    outcome.restoredBrushGroups || outcome.restoredPreferences
+                ) {
+                    loadBrushPresets(force = true)
                 }
 
                 showActionToast(R.string.backup_restore_success_toast, R.drawable.ic_cloud)

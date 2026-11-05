@@ -4,6 +4,7 @@
 
 package com.reverie.paint.core.backup
 
+import com.reverie.paint.core.brushstore.ResourceDirs
 import android.content.Context
 import android.content.SharedPreferences
 import android.system.Os
@@ -24,10 +25,13 @@ import com.reverie.paint.model.BackupPreferenceKeys
 
 object LocalBackupEngine {
     const val PREFS_NAME = "paint_prefs"
+    const val BRUSH_GROUPS_PREFS = "brush_groups"
     const val MANIFEST_ENTRY = "manifest.json"
     const val PREFERENCES_ENTRY = "data/preferences.json"
     const val PALETTES_ENTRY = "data/palettes.json"
     const val SHORTCUTS_ENTRY = "data/shortcuts_stylus.json"
+    const val BRUSH_IDENTITY_ENTRY = "data/brushes/identity.json"
+    const val BRUSH_GROUPS_ENTRY = "data/brushes/brush_groups.json"
 
     // 排除 Android Keystore 硬件绑定的加密密码及动态缓存
     val EXCLUDED_PREF_KEYS = setOf(
@@ -43,7 +47,24 @@ object LocalBackupEngine {
 
     fun estimateCategory(context: Context, category: BackupCategory): CategoryEstimate {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        ensureFactoryResourcesCached(context)
         return estimateCategory(context.filesDir, prefs.all, category)
+    }
+
+    fun ensureFactoryResourcesCached(context: Context) {
+        val storeRoot = File(context.filesDir, "brush_store")
+        val resFile = File(storeRoot, BrushBackupMerge.FACTORY_RESOURCES_FILE)
+        if (!resFile.exists()) {
+            runCatching {
+                val am = context.assets
+                val tips = am.list("brushes")?.toList().orEmpty()
+                val patterns = am.list("patterns")?.toList().orEmpty()
+                val presets = am.list("paintoppresets")?.filter {
+                    com.reverie.paint.core.brushstore.BrushImportPipeline.isPreset(it)
+                } ?: emptyList()
+                BrushBackupMerge.saveFactoryResources(context.filesDir, tips, patterns, presets)
+            }
+        }
     }
 
     fun estimateCategory(filesDir: File, prefsMap: Map<String, *>, category: BackupCategory): CategoryEstimate {
@@ -59,9 +80,18 @@ object LocalBackupEngine {
                 CategoryEstimate(files.size, files.sumOf { it.length() }, "${files.size} 个自动保存草稿")
             }
             BackupCategory.BRUSHES -> {
-                val presets = scanFiles(File(filesDir, "paintoppresets")) { it.name.endsWith(".kpp", ignoreCase = true) }
-                val tips = scanFiles(File(filesDir, "brushes"))
-                val patterns = scanFiles(File(filesDir, "patterns"))
+                val builtinPresets = BrushBackupMerge.collectBuiltinPresetNames(filesDir)
+                val (factoryTips, factoryPatterns) = BrushBackupMerge.collectFactoryResourceNames(filesDir)
+                val presets = scanFiles(ResourceDirs.presets(filesDir)) {
+                    com.reverie.paint.core.brushstore.BrushImportPipeline.isPreset(it.name) &&
+                        !BrushBackupMerge.isBuiltinPreset(it.name, builtinPresets)
+                }
+                val tips = scanFiles(ResourceDirs.tips(filesDir)) {
+                    it.name.lowercase() !in factoryTips
+                }
+                val patterns = scanFiles(ResourceDirs.patterns(filesDir)) {
+                    it.name.lowercase() !in factoryPatterns
+                }
                 val totalBytes = presets.sumOf { it.length() } + tips.sumOf { it.length() } + patterns.sumOf { it.length() }
                 CategoryEstimate(presets.size + tips.size + patterns.size, totalBytes, "${presets.size} 个预设, ${tips.size + patterns.size} 个笔尖纹理")
             }
@@ -75,8 +105,9 @@ object LocalBackupEngine {
                 CategoryEstimate(size, 0L, "通用偏好、UI布局与主题设置")
             }
             BackupCategory.SHORTCUTS_STYLUS -> {
-                val shortcuts = (prefsMap["shortcut_bindings"] as? String) ?: "{}"
-                val count = runCatching { JSONObject(shortcuts).length() }.getOrDefault(0) +
+                // 快捷键表自 v1.7 起是制表符纯文本 (旧备份可能是 JSON), 解析器两种都认
+                val count = com.reverie.paint.model
+                    .decodeShortcutBindings(prefsMap["shortcut_bindings"] as? String).size +
                     prefsMap.keys.count(BackupPreferenceKeys::isStylus)
                 CategoryEstimate(count, 0L, "$count 组快捷键与按键绑定")
             }
@@ -96,10 +127,12 @@ object LocalBackupEngine {
         appVersion: String = "",
         onProgress: (done: Int, total: Int, label: String) -> Unit = { _, _, _ -> },
     ) {
+        ensureFactoryResourcesCached(context)
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
         createBackup(
             filesDir = context.filesDir,
             prefsMap = prefs.all,
+            groupsMap = context.getSharedPreferences(BRUSH_GROUPS_PREFS, Context.MODE_PRIVATE).all,
             selectedCategories = selectedCategories,
             outputStream = outputStream,
             appVersion = appVersion,
@@ -114,6 +147,7 @@ object LocalBackupEngine {
         outputStream: OutputStream,
         appVersion: String = "",
         onProgress: (done: Int, total: Int, label: String) -> Unit = { _, _, _ -> },
+        groupsMap: Map<String, *> = emptyMap<String, Any>(),
     ) {
         val projectFiles = if (selectedCategories.contains(BackupCategory.PROJECTS)) {
             scanFiles(File(filesDir, "projects")) { it.name.endsWith(".revp", ignoreCase = true) }
@@ -123,16 +157,31 @@ object LocalBackupEngine {
             scanFiles(File(filesDir, "autosave")) { it.name.endsWith(".revp", ignoreCase = true) }
         } else emptyList()
 
+        val builtinPresets = if (selectedCategories.contains(BackupCategory.BRUSHES)) {
+            BrushBackupMerge.collectBuiltinPresetNames(filesDir)
+        } else emptySet()
+
+        val (factoryTips, factoryPatterns) = if (selectedCategories.contains(BackupCategory.BRUSHES)) {
+            BrushBackupMerge.collectFactoryResourceNames(filesDir)
+        } else (emptySet<String>() to emptySet<String>())
+
         val brushPresets = if (selectedCategories.contains(BackupCategory.BRUSHES)) {
-            scanFiles(File(filesDir, "paintoppresets")) { it.name.endsWith(".kpp", ignoreCase = true) }
+            scanFiles(ResourceDirs.presets(filesDir)) {
+                com.reverie.paint.core.brushstore.BrushImportPipeline.isPreset(it.name) &&
+                    !BrushBackupMerge.isBuiltinPreset(it.name, builtinPresets)
+            }
         } else emptyList()
 
         val brushTips = if (selectedCategories.contains(BackupCategory.BRUSHES)) {
-            scanFiles(File(filesDir, "brushes"))
+            scanFiles(ResourceDirs.tips(filesDir)) {
+                it.name.lowercase() !in factoryTips
+            }
         } else emptyList()
 
         val brushPatterns = if (selectedCategories.contains(BackupCategory.BRUSHES)) {
-            scanFiles(File(filesDir, "patterns"))
+            scanFiles(ResourceDirs.patterns(filesDir)) {
+                it.name.lowercase() !in factoryPatterns
+            }
         } else emptyList()
 
         val referenceFiles = if (selectedCategories.contains(BackupCategory.REFERENCES_FONTS)) {
@@ -162,8 +211,9 @@ object LocalBackupEngine {
                 runCatching { JSONArray(json).length() }.getOrDefault(0)
             } else 0,
             shortcutsCount = if (selectedCategories.contains(BackupCategory.SHORTCUTS_STYLUS)) {
-                val shortcuts = (prefsMap["shortcut_bindings"] as? String) ?: "{}"
-                runCatching { JSONObject(shortcuts).length() }.getOrDefault(0) +
+                com.reverie.paint.model.decodeShortcutBindings(
+                    prefsMap["shortcut_bindings"] as? String
+                ).size +
                     prefsMap.keys.count(BackupPreferenceKeys::isStylus)
             } else 0,
         )
@@ -257,7 +307,7 @@ object LocalBackupEngine {
             }
 
             // 7. 写入笔刷与材质
-            val presetRoot = File(filesDir, "paintoppresets")
+            val presetRoot = ResourceDirs.presets(filesDir)
             for (f in brushPresets) {
                 writeFileToZip(zip, "data/brushes/presets/${f.name}", f)
                 processed++
@@ -272,6 +322,22 @@ object LocalBackupEngine {
                 writeFileToZip(zip, "data/brushes/patterns/${f.name}", f)
                 processed++
                 onProgress(processed, totalItems, f.name)
+            }
+
+            // 7b. 导入笔的 id 表与按 id 存的分组/排序/工具槽记忆（跨设备恢复时靠它把 imp:<uuid> 对回笔刷）
+            if (selectedCategories.contains(BackupCategory.BRUSHES)) {
+                val identityFile = BrushBackupMerge.identityFile(filesDir)
+                val identityJson = runCatching { if (identityFile.isFile) identityFile.readText() else null }.getOrNull()
+                BrushBackupMerge.identityForBackup(identityJson)?.let {
+                    zip.putNextEntry(ZipEntry(BRUSH_IDENTITY_ENTRY))
+                    zip.write(it.toByteArray(Charsets.UTF_8))
+                    zip.closeEntry()
+                }
+                BrushBackupMerge.groupsForBackup(groupsMap)?.let {
+                    zip.putNextEntry(ZipEntry(BRUSH_GROUPS_ENTRY))
+                    zip.write(it.toByteArray(Charsets.UTF_8))
+                    zip.closeEntry()
+                }
             }
 
             // 8. 写入参考图与字体
@@ -327,7 +393,7 @@ object LocalBackupEngine {
             .filter { File(localProjectsDir, it).exists() }
 
         // 检查本地同名笔刷预设冲突
-        val localPresetsDir = File(filesDir, "paintoppresets")
+        val localPresetsDir = ResourceDirs.presets(filesDir)
         val brushConflicts = parsedManifest.brushPresets
             .filter { File(localPresetsDir, it).exists() }
 
@@ -345,6 +411,7 @@ object LocalBackupEngine {
         onProgress: (done: Int, total: Int, label: String) -> Unit = { _, _, _ -> },
     ): RestoreOutcome {
         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
+        val groups = context.getSharedPreferences(BRUSH_GROUPS_PREFS, Context.MODE_PRIVATE)
         return restoreBackup(
             filesDir = context.filesDir,
             prefApplier = { prefsJson, palJson, scJson ->
@@ -355,6 +422,14 @@ object LocalBackupEngine {
             inputStream = inputStream,
             options = options,
             onProgress = onProgress,
+            groupsApplier = { json ->
+                val puts = BrushBackupMerge.mergeGroupsPrefs({ k -> runCatching { groups.getString(k, null) }.getOrNull() }, json)
+                if (puts.isNotEmpty()) {
+                    val ed = groups.edit()
+                    puts.forEach { (k, v) -> ed.putString(k, v) }
+                    ed.commit()
+                }
+            },
         )
     }
 
@@ -364,6 +439,7 @@ object LocalBackupEngine {
         inputStream: InputStream,
         options: RestoreOptions,
         onProgress: (done: Int, total: Int, label: String) -> Unit = { _, _, _ -> },
+        groupsApplier: ((String) -> Unit)? = null,
         // Android 使用同目录 POSIX rename 原子替换。注入点让 JVM 测试使用宿主文件系统的原子移动，
         // 并能验证替换失败；应用调用方沿用默认实现，不允许退回「删旧文件再拷贝」。
         replaceFile: (File, File) -> Unit = { source, target -> Os.rename(source.path, target.path) },
@@ -380,6 +456,8 @@ object LocalBackupEngine {
         var pendingPrefsJson: String? = null
         var pendingPalettesJson: String? = null
         var pendingShortcutsJson: String? = null
+        var pendingIdentityJson: String? = null
+        var pendingGroupsJson: String? = null
 
         ZipInputStream(inputStream.buffered()).use { zip ->
             var entry = zip.nextEntry
@@ -412,6 +490,16 @@ object LocalBackupEngine {
                         }.onFailure { errors.add("恢复快捷键失败: ${it.message}") }
                     }
 
+                    name == BRUSH_IDENTITY_ENTRY && options.selectedCategories.contains(BackupCategory.BRUSHES) -> {
+                        runCatching { pendingIdentityJson = String(readEntryBytes(zip), Charsets.UTF_8) }
+                            .onFailure { errors.add("读取笔刷 id 表失败: ${it.message}") }
+                    }
+
+                    name == BRUSH_GROUPS_ENTRY && options.selectedCategories.contains(BackupCategory.BRUSHES) -> {
+                        runCatching { pendingGroupsJson = String(readEntryBytes(zip), Charsets.UTF_8) }
+                            .onFailure { errors.add("读取笔刷分组失败: ${it.message}") }
+                    }
+
                     name.startsWith("data/projects/") && options.selectedCategories.contains(BackupCategory.PROJECTS) -> {
                         val rel = name.removePrefix("data/projects/")
                         if (rel.isNotEmpty()) {
@@ -441,7 +529,7 @@ object LocalBackupEngine {
                         val fileName = name.removePrefix("data/brushes/presets/")
                         if (fileName.isNotEmpty()) {
                             onProgress(index, 0, fileName)
-                            val target = File(File(filesDir, "paintoppresets"), fileName)
+                            val target = File(ResourceDirs.presets(filesDir), fileName)
                             safeValidatePath(filesDir, target)
                             val dest = resolveTarget(target, options.brushConflictResolution)
                             if (dest != null) {
@@ -454,7 +542,7 @@ object LocalBackupEngine {
                     name.startsWith("data/brushes/tips/") && options.selectedCategories.contains(BackupCategory.BRUSHES) -> {
                         val fileName = name.removePrefix("data/brushes/tips/")
                         if (fileName.isNotEmpty()) {
-                            val target = File(File(filesDir, "brushes"), fileName)
+                            val target = File(ResourceDirs.tips(filesDir), fileName)
                             safeValidatePath(filesDir, target)
                             writeEntryToFile(zip, target, replaceFile)
                         }
@@ -463,7 +551,7 @@ object LocalBackupEngine {
                     name.startsWith("data/brushes/patterns/") && options.selectedCategories.contains(BackupCategory.BRUSHES) -> {
                         val fileName = name.removePrefix("data/brushes/patterns/")
                         if (fileName.isNotEmpty()) {
-                            val target = File(File(filesDir, "patterns"), fileName)
+                            val target = File(ResourceDirs.patterns(filesDir), fileName)
                             safeValidatePath(filesDir, target)
                             writeEntryToFile(zip, target, replaceFile)
                         }
@@ -505,6 +593,29 @@ object LocalBackupEngine {
 
         prefApplier?.invoke(pendingPrefsJson, pendingPalettesJson, pendingShortcutsJson)
 
+        // 预设文件都落盘之后再并 identity（只收磁盘上真有对应预设的条目）
+        var restoredIdentities = 0
+        var skippedIdentities = 0
+        pendingIdentityJson?.let { json ->
+            runCatching {
+                val file = BrushBackupMerge.identityFile(filesDir)
+                val presetDir = ResourceDirs.presets(filesDir)
+                val merge = BrushBackupMerge.mergeIdentity(
+                    runCatching { if (file.isFile) file.readText() else null }.getOrNull(), json,
+                ) { name, ext -> File(presetDir, "$name.$ext").isFile }
+                if (merge.added > 0) com.reverie.paint.core.brushstore.AtomicFiles.writeText(file, merge.json)
+                restoredIdentities = merge.added
+                skippedIdentities = merge.skipped
+            }.onFailure { errors.add("恢复笔刷 id 表失败: ${it.message}") }
+        }
+        var restoredGroups = false
+        pendingGroupsJson?.let { json ->
+            runCatching {
+                groupsApplier?.invoke(json)
+                restoredGroups = groupsApplier != null
+            }.onFailure { errors.add("恢复笔刷分组失败: ${it.message}") }
+        }
+
         return RestoreOutcome(
             restoredProjects = restoredProjects,
             restoredAutosaves = restoredAutosaves,
@@ -513,6 +624,9 @@ object LocalBackupEngine {
             restoredPreferences = restoredPreferences,
             restoredShortcuts = restoredShortcuts,
             restoredReferences = restoredReferences,
+            restoredBrushIdentities = restoredIdentities,
+            skippedBrushIdentities = skippedIdentities,
+            restoredBrushGroups = restoredGroups,
             errors = errors,
         )
     }
@@ -583,19 +697,37 @@ object LocalBackupEngine {
         return out.toByteArray()
     }
 
-    fun restorePreferences(prefs: SharedPreferences, jsonStr: String) {
+    /** 备份 JSON → 要写入的键值（不碰 Android；单测直接用）。 */
+    fun decodePreferences(jsonStr: String, existingString: (String) -> String?): Map<String, Any> {
         val obj = JSONObject(jsonStr)
-        val editor = prefs.edit()
+        val out = LinkedHashMap<String, Any>()
         val keys = obj.keys()
         while (keys.hasNext()) {
             val key = keys.next()
             val item = obj.getJSONObject(key)
             when (item.optString("t")) {
-                "bool" -> editor.putBoolean(key, item.getBoolean("v"))
-                "int" -> editor.putInt(key, item.getInt("v"))
-                "long" -> editor.putLong(key, item.getLong("v"))
-                "float" -> editor.putFloat(key, item.getDouble("v").toFloat())
-                "str" -> editor.putString(key, item.getString("v"))
+                "bool" -> out[key] = item.getBoolean("v")
+                "int" -> out[key] = item.getInt("v")
+                "long" -> out[key] = item.getLong("v")
+                "float" -> out[key] = item.getDouble("v").toFloat()
+                "str" -> out[key] = item.getString("v").let { v ->
+                    // 常用/最近/快捷栏（按 id）并集而不是覆盖，免得冲掉本机刚整理的
+                    if (BrushBackupMerge.isMainIdKey(key)) BrushBackupMerge.mergeIdsValue(key, existingString(key), v) else v
+                }
+            }
+        }
+        return out
+    }
+
+    fun restorePreferences(prefs: SharedPreferences, jsonStr: String) {
+        val editor = prefs.edit()
+        for ((key, v) in decodePreferences(jsonStr) { k -> runCatching { prefs.getString(k, null) }.getOrNull() }) {
+            when (v) {
+                is Boolean -> editor.putBoolean(key, v)
+                is Int -> editor.putInt(key, v)
+                is Long -> editor.putLong(key, v)
+                is Float -> editor.putFloat(key, v)
+                is String -> editor.putString(key, v)
             }
         }
         editor.apply()

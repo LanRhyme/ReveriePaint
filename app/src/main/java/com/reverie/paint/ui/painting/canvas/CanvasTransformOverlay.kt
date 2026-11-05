@@ -168,10 +168,26 @@ internal fun DrawScope.drawTransformPreview(
                             scale(tfState.scaleX, tfState.scaleY, pivot = Offset.Zero)
                             translate(-c.x * scX + bmp.width / 2f, -c.y * scY + bmp.height / 2f)
                         }) {
-                            val srcOffset = androidx.compose.ui.unit.IntOffset(b.left.toInt().coerceIn(0, previewBmp.width), b.top.toInt().coerceIn(0, previewBmp.height))
-                            val srcSize = androidx.compose.ui.unit.IntSize(b.width.toInt().coerceAtLeast(1), b.height.toInt().coerceAtLeast(1))
-                            val dstOffset = androidx.compose.ui.unit.IntOffset((b.left * scX - bmp.width / 2f).toInt(), (b.top * scY - bmp.height / 2f).toInt())
-                            val dstSize = androidx.compose.ui.unit.IntSize((b.width * scX).toInt().coerceAtLeast(1), (b.height * scY).toInt().coerceAtLeast(1))
+                            // 整张预览位图都要画: 预览位图 = 画布尺寸、里面只有"这次要被
+                            // 变换的内容"(有选区时引擎只抠了选区内的像素)。以前只画变换框
+                            // (tfState.bounds) 那一块, 而框是 contentBounds() = 目标层像素
+                            // 包围盒 ∩ 选区 —— 内容没铺满选区时框比内容小, 框外的已抠内容
+                            // 在预览里根本不显示, 但要按 Done 后它们会照着变换结果出现:
+                            // 用户看到的就是"选区的东西凭空漂移"(翻转时最明显, 因为内容
+                            // 会翻到框的另一侧)。整图绘制后预览与引擎提交逐像素一致。
+                            val srcOffset = androidx.compose.ui.unit.IntOffset(0, 0)
+                            val srcSize = androidx.compose.ui.unit.IntSize(
+                                previewBmp.width.coerceAtLeast(1),
+                                previewBmp.height.coerceAtLeast(1),
+                            )
+                            val dstOffset = androidx.compose.ui.unit.IntOffset(
+                                (-bmp.width / 2f).toInt(),
+                                (-bmp.height / 2f).toInt(),
+                            )
+                            val dstSize = androidx.compose.ui.unit.IntSize(
+                                (previewBmp.width * scX).toInt().coerceAtLeast(1),
+                                (previewBmp.height * scY).toInt().coerceAtLeast(1),
+                            )
                             drawImage(
                                 image = previewBmp,
                                 srcOffset = srcOffset,

@@ -53,6 +53,7 @@ class TransformState {
     fun reset(b: Rect) {
         active = true
         bounds = b
+        mode = TransformMode.STANDARD
         scaleX = 1f
         scaleY = 1f
         rotation = 0f

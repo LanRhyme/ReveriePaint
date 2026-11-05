@@ -91,6 +91,7 @@ import androidx.compose.ui.zIndex
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.model.CanvasOrientation
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.ToolGroup
 import com.reverie.paint.model.UiPanelSlot
@@ -122,6 +123,7 @@ import com.reverie.paint.ui.painting.layers.LayerDragOverlay
 import com.reverie.paint.ui.painting.layers.FilterSession
 import com.reverie.paint.ui.painting.layers.FilterSessionController
 import com.reverie.paint.ui.painting.layers.FilterTopPillHUD
+import com.reverie.paint.ui.painting.layers.filterItemNameRes
 import com.reverie.paint.ui.painting.layers.FilterBottomDock
 import com.reverie.paint.model.CanvasAdjustMode
 import com.reverie.paint.model.BackKeyAction
@@ -176,6 +178,8 @@ fun PaintingPage(
     modifier: Modifier = Modifier,
 ) {
     val context = LocalContext.current
+    // 组合期解析文案: 选择栏的 lambda 里不能直接调 stringResource/查资源
+    val undoVertexText = stringResource(R.string.toast_undo_vertex)
     val focusRequester = remember { FocusRequester() }
     LaunchedEffect(Unit) {
         try {
@@ -215,6 +219,20 @@ fun PaintingPage(
             kotlinx.coroutines.delay(1000)
             vm.clearActionToast()
         }
+    }
+
+    // 单次消费工程恢复的二值方向（0°/90°），只改旋转角，不改缩放/平移/历史；触摸视图已建立走 applyViewTransform，
+    // 否则只改本页 rotation，由 CanvasView 的 update 块同步。
+    LaunchedEffect(vm.pendingCanvasOrientation) {
+        val restored = vm.pendingCanvasOrientation ?: return@LaunchedEffect
+        val view = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
+        if (view != null) {
+            view.applyViewTransform(view.canvasZoom, restored.rotationDegrees, view.canvasPanX, view.canvasPanY)
+        } else {
+            rotation = restored.rotationDegrees
+        }
+        vm.pendingCanvasOrientation = null
+        flashIndicator()
     }
 
     var textDialogPos by remember { mutableStateOf<Pair<Float, Float>?>(null) }
@@ -314,6 +332,62 @@ fun PaintingPage(
                 rotation = (rotation + 90f) % 360f
                 flashIndicator()
             }
+            "rotate_ccw_90" -> {
+                rotation = (rotation - 90f + 360f) % 360f
+                flashIndicator()
+            }
+            "rotate_reset" -> {
+                rotation = 0f
+                flashIndicator()
+            }
+            // 100% 缩放：只改倍率，保留当前旋转与中心
+            "zoom_100" -> {
+                zoom = 1f
+                flashIndicator()
+            }
+            // ---- 面板开关 (快捷键目录 PANELS) ----
+            "toggle_brush_panel" -> {
+                if (brushPanelOpen) {
+                    brushPanelOpen = false
+                } else {
+                    if (!(vm.panelPinningEnabled && vm.isLayerPanelPinned)) layerPanelOpen = false
+                    if (!vm.isColorPanelPinned) colorPanelOpen = false
+                    settingsPanelOpen = false
+                    brushPanelOpen = true
+                }
+            }
+            "toggle_layer_panel" -> {
+                if (layerPanelOpen) {
+                    layerPanelOpen = false
+                } else {
+                    if (!(vm.panelPinningEnabled && vm.isBrushPanelPinned)) brushPanelOpen = false
+                    if (!vm.isColorPanelPinned) colorPanelOpen = false
+                    settingsPanelOpen = false
+                    targetFilterLayers = null
+                    layerPanelOpen = true
+                }
+            }
+            "toggle_color_panel" -> {
+                if (colorPanelOpen) {
+                    colorPanelOpen = false
+                } else {
+                    if (!(vm.panelPinningEnabled && vm.isBrushPanelPinned)) brushPanelOpen = false
+                    if (!(vm.panelPinningEnabled && vm.isLayerPanelPinned)) layerPanelOpen = false
+                    settingsPanelOpen = false
+                    colorPanelOpen = true
+                }
+            }
+            "toggle_settings_panel" -> {
+                if (settingsPanelOpen) {
+                    settingsPanelOpen = false
+                } else {
+                    if (!(vm.panelPinningEnabled && vm.isBrushPanelPinned)) brushPanelOpen = false
+                    if (!vm.isColorPanelPinned) colorPanelOpen = false
+                    if (!(vm.panelPinningEnabled && vm.isLayerPanelPinned)) layerPanelOpen = false
+                    settingsPanelOpen = true
+                }
+            }
+            "toggle_drawing_guide" -> drawingGuidePanelOpen = !drawingGuidePanelOpen
             "reset_view" -> {
                 com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.animateFitCanvas() ?: run {
                     zoom = 1f
@@ -333,6 +407,22 @@ fun PaintingPage(
             "close_edit_menu" -> {
                 canvasEditMenuOpen = false
             }
+            "toggle_edit_menu" -> {
+                if (canvasEditMenuOpen) {
+                    canvasEditMenuOpen = false
+                } else {
+                    val touchView = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
+                    vm.quickMenuAnchor = touchView?.lastKnownCursorScreenPos
+                        ?: touchView?.takeIf { it.width > 0 && it.height > 0 }
+                            ?.let { androidx.compose.ui.geometry.Offset(it.width / 2f, it.height / 2f) }
+                        ?: androidx.compose.ui.geometry.Offset(
+                            context.resources.displayMetrics.widthPixels / 2f,
+                            context.resources.displayMetrics.heightPixels / 2f,
+                        )
+                    vm.refreshCanvasEditCapabilities()
+                    canvasEditMenuOpen = true
+                }
+            }
             "toggle_fullscreen" -> {
                 isZenMode = !isZenMode
                 vm.showActionToast(
@@ -341,7 +431,21 @@ fun PaintingPage(
             }
             "open_color" -> colorPanelOpen = true
             else -> {
-                if (cmd.startsWith("open_filter:")) {
+                if (cmd.startsWith(com.reverie.paint.core.UI_CMD_FILTER_ITEM_PREFIX)) {
+                    // 快捷键直接打开某个滤镜: 跳过滤镜列表, 直接进该滤镜的调节浮窗
+                    val filterId = cmd.removePrefix(com.reverie.paint.core.UI_CMD_FILTER_ITEM_PREFIX).toIntOrNull()
+                    val nameRes = filterId?.let { filterItemNameRes(it) }
+                    val targets = vm.editTargetLayers().filter { it >= 0 }
+                    if (filterId != null && nameRes != null && targets.isNotEmpty()) {
+                        settingsPanelOpen = false
+                        layerPanelOpen = false
+                        targetFilterLayers = null
+                        vm.isLayerPanelPinned = false
+                        vm.layerPanelOffset = androidx.compose.ui.geometry.Offset.Zero
+                        activeFilterSession =
+                            FilterSession(targets, filterId, context.getString(nameRes))
+                    }
+                } else if (cmd.startsWith("open_filter:")) {
                     settingsPanelOpen = false
                     targetFilterLayers = vm.editTargetLayers()
                     filterCategoryHint = cmd.removePrefix("open_filter:")
@@ -385,7 +489,9 @@ fun PaintingPage(
 
     val commitTransform: () -> Unit = {
         if (tfState.active) {
-            when (tfState.mode) {
+            val isCopyOnly = vm.transformCopyOnly
+            val effectiveMode = if (isCopyOnly) TransformMode.STANDARD else tfState.mode
+            when (effectiveMode) {
                 TransformMode.PERSPECTIVE -> {
                     val corners = tfState.quadCorners
                     if (corners.size == 4) {
@@ -419,7 +525,7 @@ fun PaintingPage(
                     val rad = Math.toRadians(tfState.rotation.toDouble())
                     val c = tfState.bounds.center
                     if (tfState.rotation != 0f || tfState.scaleX != 1f || tfState.scaleY != 1f || tfState.tx != 0f ||
-                        tfState.ty != 0f
+                        tfState.ty != 0f || isCopyOnly
                     ) {
                         vm.applyTransform(
                             tfState.scaleX.toDouble(),
@@ -463,7 +569,7 @@ fun PaintingPage(
             vm.customUndoHook = {
                 if (polyPoints.isNotEmpty()) {
                     polyPoints = polyPoints.dropLast(1)
-                    vm.showActionToast(context.getString(R.string.toast_undo_vertex), R.drawable.ic_undo)
+                    vm.showActionToast(undoVertexText, R.drawable.ic_undo)
                     true
                 } else {
                     false
@@ -562,6 +668,9 @@ fun PaintingPage(
                 vm.showActionToast(context.getString(R.string.canvas_toast_group_empty), R.drawable.ic_folder)
                 return@LaunchedEffect
             }
+            if (!vm.isSelectionTransformPending) {
+                vm.transformCopyOnly = false
+            }
             val b = vm.contentBounds()
             if (b != null && b[2] > 0 && b[3] > 0) {
                 tfState.reset(
@@ -585,8 +694,10 @@ fun PaintingPage(
             vm.startTransformPreview()
         } else {
             if (tfState.active) {
+                val isCopyOnly = vm.transformCopyOnly
+                val effectiveMode = if (isCopyOnly) TransformMode.STANDARD else tfState.mode
                 // Real-time auto-commit on tool switch
-                when (tfState.mode) {
+                when (effectiveMode) {
                     TransformMode.PERSPECTIVE -> {
                         val corners = tfState.quadCorners
                         if (corners.size == 4) {
@@ -622,7 +733,7 @@ fun PaintingPage(
                         val rad = Math.toRadians(tfState.rotation.toDouble())
                         val c = tfState.bounds.center
                         if (tfState.rotation != 0f || tfState.scaleX != 1f || tfState.scaleY != 1f || tfState.tx != 0f ||
-                            tfState.ty != 0f
+                            tfState.ty != 0f || isCopyOnly
                         ) {
                             vm.applyTransform(
                                 tfState.scaleX.toDouble(),
@@ -675,6 +786,16 @@ fun PaintingPage(
         }
         if (tool != Tool.LASSO && vm.lassoMultiPoints.isNotEmpty()) {
             vm.cancelLassoMulti()
+        }
+    }
+
+    androidx.compose.runtime.DisposableEffect(Unit) {
+        onDispose {
+            if (tfState.active || vm.transformPreviewBitmap != null) {
+                vm.cancelTransformPreview()
+                tfState.active = false
+                vm.isImportTransformPending = false
+            }
         }
     }
 
@@ -1625,18 +1746,14 @@ fun PaintingPage(
 
         // ---- Filter Fullscreen HUD (Top Pill & Bottom Dock) ----
         if (filterController != null) {
+            val filterHaze = if (vm.blurBackground) hazeState else null
             FilterTopPillHUD(
-                filterName = filterController.session.filterName,
-                filterId = filterController.session.filterId,
-                st = filterController.state,
-                isHoldingCompare = filterController.isHoldingCompare,
-                onHoldingCompareChange = { filterController.updateHoldingCompare(it) },
-                activeParamIndex = filterController.activeParamIndex,
+                controller = filterController,
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .padding(top = 18.dp)
                     .zIndex(30f),
-                hazeState = hazeState,
+                hazeState = filterHaze,
                 opacity = vm.popupPanelOpacity,
             )
 
@@ -1646,7 +1763,7 @@ fun PaintingPage(
                     .align(Alignment.BottomCenter)
                     .padding(bottom = bottomDockPadding)
                     .zIndex(30f),
-                hazeState = hazeState,
+                hazeState = filterHaze,
                 opacity = vm.popupPanelOpacity,
             )
         }
@@ -1671,7 +1788,9 @@ fun PaintingPage(
                 tfState = tfState,
                 hazeState = hazeState,
                 onReset = {
-                    vm.cancelTransformPreview()
+                    val wasCopyOnly = vm.transformCopyOnly
+                    val wasPending = vm.isSelectionTransformPending
+                    vm.cancelTransformPreview(resetCopyOnly = false)
                     val b = vm.contentBounds()
                     if (b != null && b[2] > 0 && b[3] > 0) {
                         tfState.reset(
@@ -1683,6 +1802,8 @@ fun PaintingPage(
                             ),
                         )
                     }
+                    vm.transformCopyOnly = wasCopyOnly
+                    vm.isSelectionTransformPending = wasPending
                     vm.startTransformPreview()
                 },
                 onCommit = commitTransform,
@@ -2089,18 +2210,53 @@ fun PaintingPage(
             hazeState = hazeState,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomDockPadding),
         )
-        // ---- 动画时间轴面板 (仅动画画布): 左下角, 紧贴左侧滑块工具条右侧,
-        //      无圆角, 与工具条同底融合; 可展开收起 / 缩放平移 ----
+        // ---- 动画时间轴面板 (仅动画画布): 悬浮模式居中自适应避让，非悬浮模式紧贴左侧滑块工具条 ----
+        val isTimelineFloating = vm.floatingUiConfig.enabled
+        val animTimelineModifier = if (isTimelineFloating) {
+            val baseMargin = vm.floatingUiConfig.marginDp.dp
+            val scale = vm.floatingUiConfig.scale * 1.13f
+            val railWidth = 36.dp * scale
+
+            val hasLeftPanel = listOf(
+                vm.floatingUiConfig.topBarPosition,
+                vm.floatingUiConfig.toolRailPosition,
+                vm.floatingUiConfig.sliderRailPosition,
+            ).any { it.edge == com.reverie.paint.model.PanelEdge.LEFT }
+
+            val hasRightPanel = listOf(
+                vm.floatingUiConfig.topBarPosition,
+                vm.floatingUiConfig.toolRailPosition,
+                vm.floatingUiConfig.sliderRailPosition,
+            ).any { it.edge == com.reverie.paint.model.PanelEdge.RIGHT }
+
+            val bottomPanels = listOf(
+                vm.floatingUiConfig.topBarPosition,
+                vm.floatingUiConfig.toolRailPosition,
+                vm.floatingUiConfig.sliderRailPosition,
+            ).filter { it.edge == com.reverie.paint.model.PanelEdge.BOTTOM }
+
+            val startPadding = if (hasLeftPanel) (baseMargin + railWidth + 8.dp) else baseMargin
+            val endPadding = if (hasRightPanel) (baseMargin + railWidth + 8.dp) else baseMargin
+            val bottomPadding = if (bottomPanels.isNotEmpty()) bottomDockPadding else baseMargin
+
+            Modifier
+                .align(Alignment.BottomCenter)
+                .padding(start = startPadding, end = endPadding, bottom = bottomPadding)
+                .fillMaxWidth()
+                .zIndex(20f)
+        } else {
+            Modifier
+                .align(Alignment.BottomStart)
+                .padding(start = 36.dp) // 避开左侧滑块工具条 (36dp 宽)
+                .fillMaxWidth()
+                .zIndex(20f)
+        }
+
         AnimatedVisibility(
             visible = vm.anim.enabled && vm.anim.panelOpen,
             enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { it },
             exit = fadeOut(Motion.exitTween(200)) + slideOutVertically(Motion.exitTween(200)) { it },
-            modifier =
-                Modifier
-                    .align(Alignment.BottomStart)
-                    .padding(start = 36.dp) // 避开左侧滑块工具条 (36dp 宽)
-                    .fillMaxWidth()
-                    .zIndex(20f),
+            modifier = animTimelineModifier,
         ) {
             AnimationTimelinePanel(vm = vm, hazeState = hazeState)
         }
@@ -2766,6 +2922,24 @@ private fun TransformIndicatorHud(
                 Text(
                     stringResource(R.string.canvas_rotation_format, rotDeg),
                     color = if (rotSnapped) Morandi.accent else Morandi.text,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                )
+                Box(
+                    Modifier
+                        .size(2.5.dp)
+                        .background(Morandi.border, CircleShape),
+                )
+                // 度数是自由角，标识才是会保存的二值方向（任意角显示就近方向）。
+                Text(
+                    stringResource(
+                        if (CanvasOrientation.fromAngleDegrees(rotation) == CanvasOrientation.PORTRAIT) {
+                            R.string.canvas_orientation_portrait
+                        } else {
+                            R.string.canvas_orientation_landscape
+                        },
+                    ),
+                    color = Morandi.subText,
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
                 )

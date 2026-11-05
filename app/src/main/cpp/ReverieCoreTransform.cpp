@@ -25,7 +25,7 @@ bool ReverieCore::applyPerspectiveTransform(
         cancelTransformPreview();
     }
 
-    KisTransaction txn(kundo2_i18n("Perspective Transform"), device);
+    invalidateRedoState("transform-perspective");
 
     QRect bounds(qRound(origX), qRound(origY), qRound(origW), qRound(origH));
     if (bounds.isEmpty() || !bounds.isValid()) {
@@ -57,6 +57,11 @@ bool ReverieCore::applyPerspectiveTransform(
     if (tf.isIdentity()) {
         return true;
     }
+
+    // 事务必须开在全部校验之后: 顺手 return 会把未提交的 KisTransaction 析构掉,
+    // ~KisTransactionData -> purgeHistory() 连带清掉这台设备更早的撤销 revision,
+    // 撤销栈从此错位(撤错帧/内容乱跳)。
+    KisTransaction txn(kundo2_i18n("Perspective Transform"), device);
 
     const bool activeSel = hasSelection();
     if (activeSel) {
@@ -137,6 +142,7 @@ bool ReverieCore::applyWarpMeshTransform(
         cancelTransformPreview();
     }
 
+    invalidateRedoState("transform-mesh-warp");
     KisTransaction txn(kundo2_i18n("Mesh Warp Transform"), device);
 
     KisWarpTransformWorker worker(
@@ -194,6 +200,31 @@ bool ReverieCore::applyWarpMeshTransform(
     return true;
 }
 
+/**
+ * 变换轴心兜底: 有选区时, 轴心必须落在选区范围内。
+ *
+ * 为什么需要: 翻转/旋转/缩放都是"绕轴心"的 —— 轴心错位时内容会被甩到以错轴心镜像
+ * 的位置(纯平移不受影响, 所以"拖动后按完成"从来不出问题)。轴心来自 UI 的变换框,
+ * 而变换框是 contentBounds() = 编辑目标层的像素包围盒 ∩ 选区; 多选目标集、空图层、
+ * 选区刚刚重建等情况下它可能退化成整层甚至整画布, 于是轴心跑到选区外。
+ * 这里把轴心拉回选区中心 —— 至少保证"选区内容的轴心是它自己的中心", 并留痕方便
+ * 下次从日志确认是不是这条路径。
+ */
+void ReverieCore::clampTransformPivotToSelection(QPointF &center, const char *where)
+{
+    if (!m_document || !m_selection || !hasSelection()) return;
+    const QRect sel = m_selection->selectedExactRect().intersected(
+        QRect(0, 0, m_document->width(), m_document->height()));
+    if (sel.isEmpty() || !sel.isValid()) return;
+    if (sel.adjusted(-2, -2, 2, 2).contains(center.toPoint())) return;
+    RPC_LOG("RPC transformPivotClamped where=%s origin=%.1f,%.1f sel=%d,%d %dx%d -> %.1f,%.1f",
+            where ? where : "?",
+            center.x(), center.y(),
+            sel.x(), sel.y(), sel.width(), sel.height(),
+            sel.center().x() + 0.0, sel.center().y() + 0.0);
+    center = QPointF(sel.center());
+}
+
 bool ReverieCore::applyTransform(double xscale, double yscale,
                                  double xshear, double yshear,
                                  double rotationRad,
@@ -209,6 +240,7 @@ bool ReverieCore::applyTransform(double xscale, double yscale,
         cancelTransformPreview();
     }
 
+    invalidateRedoState("transform-apply");
     KisTransaction txn(kundo2_i18n("Transform"), device);
 
     QRect bounds = device->exactBounds().intersected(QRect(0, 0, image->width(), image->height()));
@@ -220,6 +252,7 @@ bool ReverieCore::applyTransform(double xscale, double yscale,
     } else {
         center = bounds.center();
     }
+    clampTransformPivotToSelection(center, "applyTransform");
 
     QTransform tf;
     tf.scale(xscale, yscale);
@@ -340,6 +373,8 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
         if (!dup) devices.append(dev);
     }
     if (devices.isEmpty()) return false;
+    RPC_LOG("applyTransformLayersEx: targets=%d devices=%d copyOnly=%d tx=%.1f ty=%.1f rot=%.2f",
+            int(targets.size()), int(devices.size()), copyOnly ? 1 : 0, xtranslate, ytranslate, rotationRad);
 
     const QRect canvasRect(0, 0, image->width(), image->height());
     QRect shared;
@@ -355,6 +390,10 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
     } else {
         center = shared.center();
     }
+    // 有选区时轴心必须落在选区里: 纯平移与轴心无关, 但翻转/旋转/缩放会把选区内容
+    // 甩到"以那个轴心镜像"的位置 —— 用户报的"做完变换选区的东西随机漂移"就是这类
+    // (UI 的变换框来自整层/多选目标的包围盒, 和真正的选区不是同一块时就会踩到)。
+    clampTransformPivotToSelection(center, "applyTransformLayers");
 
     QTransform tf;
     tf.scale(xscale, yscale);
@@ -366,18 +405,37 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
     const double effectiveTy = center.y() - mappedC.y() + ytranslate;
 
     const bool activeSel = hasSelection();
+    // 每个目标设备都会开一个暂定事务 (创建时就会清掉引擎的重做信息),
+    // 循环前统一让重做区失效一次。
+    invalidateRedoState("transform-layers");
     QVector<KUndo2Command *> children;
     for (KisPaintDeviceSP device : devices) {
-        KisTransaction *txn = new KisTransaction(kundo2_i18n("Transform"), device, nullptr, -1, nullptr);
+        KisTransaction *txn = nullptr;
         if (activeSel) {
             QRect selBounds = m_selection->selectedExactRect().intersected(canvasRect);
             if (selBounds.isEmpty()) selBounds = shared;
 
+            // 先把选区内容抠进临时设备, **确认抠到了东西** 再动原件。
+            // 旧顺序是"建事务 → clearSelection → 贴回": 选区里一个像素都没有
+            // (或只剩全透明) 时, 贴回去的是一块空气 —— 剪切语义下原件已经被抹掉,
+            // 用户看到的就是「内容凭空消失」, 而且日志里一行都没有。
             KisPaintDeviceSP temp = new KisPaintDevice(image->colorSpace());
-            KisPainter p0(temp);
-            p0.setSelection(m_selection);
-            p0.bitBlt(selBounds.topLeft(), device, selBounds);
+            {
+                KisPainter p0(temp);
+                p0.setSelection(m_selection);
+                p0.bitBlt(selBounds.topLeft(), device, selBounds);
+                p0.end();
+            }
+            if (temp->exactBounds().isEmpty()) {
+                RPC_LOG("transformLayers: selection has no pixels, layer skipped "
+                        "(copyOnly=%d sel=%d,%d %dx%d)",
+                        copyOnly ? 1 : 0, selBounds.x(), selBounds.y(),
+                        selBounds.width(), selBounds.height());
+                continue;
+            }
 
+            // 重做区已在循环前由 invalidateRedoState("transform-layers") 作废
+            txn = new KisTransaction(kundo2_i18n("Transform"), device, nullptr, -1, nullptr);
             if (!copyOnly) {
                 device->clearSelection(m_selection);
             }
@@ -391,14 +449,31 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
                                          KisFilterStrategyRegistry::instance()->value("Bicubic"));
             workerSel.run();
 
-            KisPainter p2(device);
-            p2.setCompositeOpId(COMPOSITE_OVER);
-            QRect tempBounds = temp->exactBounds();
-            p2.bitBlt(tempBounds.topLeft(), temp, tempBounds);
+            // 变换后的副本必须与画布有交集才贴: 落在画布外时贴了也看不见,
+            // 而剪切语义下原件已经没了 —— 这种情况留日志, 下次报告能直接定位。
+            const QRect tempBounds = temp->exactBounds();
+            if (!tempBounds.isEmpty() && tempBounds.intersects(canvasRect)) {
+                KisPainter p2(device);
+                p2.setCompositeOpId(COMPOSITE_OVER);
+                p2.bitBlt(tempBounds.topLeft(), temp, tempBounds);
+                p2.end();
+            } else if (!copyOnly) {
+                RPC_LOG("transformLayers: cut result falls outside canvas, content dropped "
+                        "(sel=%d,%d %dx%d tx=%.1f ty=%.1f)",
+                        selBounds.x(), selBounds.y(), selBounds.width(), selBounds.height(),
+                        effectiveTx, effectiveTy);
+            }
         } else {
+            // 重做区已在循环前由 invalidateRedoState("transform-layers") 作废
+            txn = new KisTransaction(kundo2_i18n("Transform"), device, nullptr, -1, nullptr);
             // Krita's transformAndMergeDevice pattern per device
             KisPaintDeviceSP src = new KisPaintDevice(*device);
-            device->clear();
+            // 复制语义 (copyOnly) 下原件必须留着: 这一支是「选区在提交时已经不在
+            // 引擎里」的兜底路径, 旧代码无条件 clear() → 整个图层被抹掉再贴回变换后的
+            // 副本, 用户看到的就是「选了复制, 原处内容却没了」。
+            if (!copyOnly) {
+                device->clear();
+            }
 
             KisPaintDeviceSP tmp = new KisPaintDevice(src->colorSpace());
             tmp->prepareClone(src);
@@ -434,8 +509,18 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
             painter.end();
         }
         device->setDirty();
-        children << txn->endAndTake();
-        delete txn;
+        if (txn) {
+            children << txn->endAndTake();
+            delete txn;
+        }
+    }
+
+    // 整个目标集都没写出任何像素 (选区里没内容 / 目标层全空): 不动文档,
+    // 返回 false 让调用方能把「这次变换等于没发生」说出来, 而不是静默成功。
+    if (children.isEmpty()) {
+        RPC_LOG("transformLayers: nothing to transform (targets=%d activeSel=%d copyOnly=%d)",
+                int(devices.size()), activeSel ? 1 : 0, copyOnly ? 1 : 0);
+        return false;
     }
 
     // Transform the selection mask once for the whole group
@@ -494,8 +579,11 @@ bool ReverieCore::startTransformPreview(const QVector<int> &layers, QImage* outI
     m_previewTempDevice = new KisPaintDevice(image->colorSpace());
     m_previewDevices = devices;
     const bool activeSel = hasSelection();
+    RPC_LOG("startTransformPreview: targets=%d devices=%d activeSel=%d copyOnly=%d",
+            int(targets.size()), int(devices.size()), activeSel ? 1 : 0, copyOnly ? 1 : 0);
 
     for (KisPaintDeviceSP device : devices) {
+        invalidateRedoState("transform-preview");
         KisTransaction *txn = new KisTransaction(kundo2_i18n("Transform Preview"), device, nullptr, -1, nullptr);
         m_previewTransactions.append(txn);
 
@@ -519,7 +607,13 @@ bool ReverieCore::startTransformPreview(const QVector<int> &layers, QImage* outI
             KisPainter p0(m_previewTempDevice);
             p0.bitBlt(bounds.topLeft(), device, bounds);
             p0.end();
-            device->clear();
+            // 复制语义 (copyOnly) 下预览**绝不能**涂改原件: 「复制到当前图层」
+            // 只要引擎侧选区为空就会走到这里, 一旦无条件 clear() 整层就被清空,
+            // 屏幕上只剩那张预览位图在飘 —— 预览位图没送到 UI (返回失败/首帧未到)
+            // 或者用户此时切走, 看到的就是「内容凭空消失」。
+            if (!copyOnly) {
+                device->clear();
+            }
         }
         device->setDirty();
     }
@@ -547,8 +641,14 @@ bool ReverieCore::startTransformPreview(const QVector<int> &layers, QImage* outI
     return true;
 }
 
+bool ReverieCore::isTransformPreviewOpen() const
+{
+    return m_previewTransaction != nullptr || !m_previewTransactions.isEmpty();
+}
+
 void ReverieCore::cancelTransformPreview()
 {
+    RPC_LOG("cancelTransformPreview: reverting %d preview txns", int(m_previewTransactions.size()));
     for (KisTransaction *txn : m_previewTransactions) {
         if (txn) {
             txn->revert();
@@ -562,6 +662,10 @@ void ReverieCore::cancelTransformPreview()
         m_previewTransaction = nullptr;
     }
     m_previewTempDevice = nullptr;
+    // 预览事务被 revert() 之后, 引擎的 cancelled 列表里会多出一条"不进撤销栈"的
+    // 本地 revision; 撤销栈的重做区必须一起作废, 否则下一次重做会把它当目标滚进文档
+    // (笔仙) 并解引用已释放的 KisMemento (SIGABRT)。
+    invalidateRedoState("transform-preview-cancel");
 
     KisImageSP image = m_document;
     const QRect fullRect = image ? QRect(0, 0, image->width(), image->height()) : QRect();

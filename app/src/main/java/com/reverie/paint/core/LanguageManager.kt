@@ -116,6 +116,9 @@ object LanguageManager {
     fun wrapContext(baseContext: Context): Context {
         val savedCode = baseContext.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
             .getString(KEY_APP_LANGUAGE, "") ?: ""
+        if (savedCode.isEmpty()) {
+            return baseContext
+        }
         val lang = AppLanguage.fromCode(savedCode)
         val targetLocale = getLocale(lang)
 

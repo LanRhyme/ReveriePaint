@@ -75,23 +75,23 @@ class ZipRootKppTest {
     }
 
     @Test
-    fun rootKppZipImportsIntoV2AndMybStaysUnmanaged() {
+    fun rootKppZipImportsIntoV2AndMybIsManagedToo() {
         val presetDir = File(root, "paintoppresets").apply { mkdirs() }
         assertTrue(BrushStoreBootstrap.run(root, presetDir, true, "1", { emptyMap() }, migrate = { true }))
         val (a, b) = stems
         val r = BrushImportPipeline.importArchive(
             "Root Pack.zip",
             zip("$a.kpp" to KppFixtures.bytes(a), "$b.kpp" to KppFixtures.bytes(b), "M.myb" to "{}".toByteArray()),
-            presetDir, File(root, "brushes"), File(root, "patterns"), true,
+            presetDir, File(root, "brushes"), File(root, "patterns"),
         )
         assertEquals(listOf(a, b, "M"), r.imported.map { it.name })
         for (n in listOf(a, b)) {
-            val e = BrushStoreBootstrap.managedEntry(n)
+            val e = BrushStoreBootstrap.managedEntry(com.reverie.paint.core.brushstore.BrushIdentity.idForName(n) ?: "")
             assertNotNull("根目录 kpp 应归 v2 管: $n", e)
             assertEquals("Root Pack.zip", e!!.pack)
             assertArrayEquals(KppFixtures.bytes(n), File(presetDir, "$n.kpp").readBytes())
         }
-        assertNull(BrushIdentity.entryForName("M"))
-        assertTrue(File(presetDir, "M.myb").isFile)
+        assertEquals("myb", BrushStoreBootstrap.managedEntry(com.reverie.paint.core.brushstore.BrushIdentity.idForName("M") ?: "")?.ext)
+        assertArrayEquals("{}".toByteArray(), File(presetDir, "M.myb").readBytes())
     }
 }

@@ -154,13 +154,21 @@ fun TransformPanel(
                 verticalAlignment = Alignment.CenterVertically,
             ) {
                 // 1. 变换模式下拉
-                ToolBubbleDropdown(
-                    items = listOf(
+                val modeItems = if (vm.transformCopyOnly) {
+                    listOf(
+                        ToolDropdownItemData(TransformMode.STANDARD, R.drawable.ic_tf_standard, stringResource(R.string.transform_mode_standard)),
+                        ToolDropdownItemData(TransformMode.FREE, R.drawable.ic_tf_free, stringResource(R.string.transform_mode_free)),
+                    )
+                } else {
+                    listOf(
                         ToolDropdownItemData(TransformMode.STANDARD, R.drawable.ic_tf_standard, stringResource(R.string.transform_mode_standard)),
                         ToolDropdownItemData(TransformMode.FREE, R.drawable.ic_tf_free, stringResource(R.string.transform_mode_free)),
                         ToolDropdownItemData(TransformMode.PERSPECTIVE, R.drawable.ic_tf_perspective, stringResource(R.string.transform_mode_perspective)),
                         ToolDropdownItemData(TransformMode.DISTORT, R.drawable.ic_tf_distort, stringResource(R.string.transform_mode_distort)),
-                    ),
+                    )
+                }
+                ToolBubbleDropdown(
+                    items = modeItems,
                     selected = tfState.mode,
                     onSelect = { modeVal ->
                         if (tfState.mode != modeVal) {

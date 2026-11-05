@@ -18,10 +18,26 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.BorderStroke
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.awaitLongPressOrCancellation
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
+import androidx.compose.ui.input.pointer.PointerEventTimeoutCancellationException
 import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.interaction.PressInteraction
 import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.graphics.TransformOrigin
+import kotlin.math.roundToInt
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.SolidColor
@@ -30,6 +46,7 @@ import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
 import androidx.compose.foundation.lazy.grid.itemsIndexed
+import androidx.compose.foundation.lazy.grid.rememberLazyGridState
 import androidx.compose.foundation.lazy.staggeredgrid.LazyVerticalStaggeredGrid
 import androidx.compose.foundation.lazy.staggeredgrid.StaggeredGridCells
 import androidx.compose.foundation.lazy.staggeredgrid.itemsIndexed
@@ -40,8 +57,8 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -62,77 +79,24 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.ui.components.ReTextButton
+import com.reverie.paint.ui.components.TelemetryNoticeBar
 import com.reverie.paint.R
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.dialog.RecentAutoSavesDialog
+import com.reverie.paint.ui.dialog.SponsorPromptDialog
+import com.reverie.paint.ui.dialog.SponsorsDialog
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Project
 import com.reverie.paint.ui.theme.AppColors
+import com.reverie.paint.ui.theme.Motion
 import com.reverie.paint.ui.theme.Theme
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.haze
-import kotlinx.coroutines.delay
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
 
-// In-Memory LRU Cache for high-performance thumbnail rendering without disk jank
-private object ThumbnailCache {
-    private val maxMemory = (Runtime.getRuntime().maxMemory() / 1024).toInt()
-    private val cacheSize = (maxMemory / 8).coerceAtLeast(1024 * 16)
-    private val lruCache =
-        object : android.util.LruCache<String, android.graphics.Bitmap>(cacheSize) {
-            override fun sizeOf(
-                key: String,
-                bitmap: android.graphics.Bitmap,
-            ): Int = bitmap.byteCount / 1024
-        }
 
-    fun peek(key: String): android.graphics.Bitmap? {
-        val cached = lruCache.get(key)
-        return if (cached != null && !cached.isRecycled) cached else null
-    }
-
-    fun get(
-        path: String,
-        lastModified: Long,
-    ): android.graphics.Bitmap? {
-        if (path.isEmpty()) return null
-        val key = "$path:$lastModified"
-        val cached = peek(key)
-        if (cached != null) return cached
-        val file = File(path)
-        if (file.exists()) {
-            return try {
-                val bmp = BitmapFactory.decodeFile(path)
-                if (bmp != null) {
-                    lruCache.put(key, bmp)
-                }
-                bmp
-            } catch (e: Exception) {
-                null
-            }
-        }
-        return null
-    }
-}
-
-@Composable
-private fun rememberThumbnail(path: String?, lastModified: Long): android.graphics.Bitmap? {
-    if (path.isNullOrEmpty()) return null
-    val key = "$path:$lastModified"
-    val immediate = remember(key) { ThumbnailCache.peek(key) }
-    if (immediate != null) return immediate
-
-    var bmp by remember(key) { mutableStateOf<android.graphics.Bitmap?>(null) }
-    LaunchedEffect(key) {
-        val loaded = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
-            ThumbnailCache.get(path, lastModified)
-        }
-        bmp = loaded
-    }
-    return bmp
-}
 
 @OptIn(ExperimentalFoundationApi::class)
 @Composable
@@ -175,6 +139,25 @@ fun HomePage(vm: PaintViewModel) {
 
     // Long-press Context Menu on card
     var longPressedProject by remember { mutableStateOf<Project?>(null) }
+    var detailsProject by remember { mutableStateOf<Project?>(null) }
+
+    // Choose folder cover dialog
+    var showChooseCoverDialog by remember { mutableStateOf(false) }
+    var targetCoverFolder by remember { mutableStateOf<Project?>(null) }
+
+    // Drag-and-drop projects to album stack or merge into new stack
+    var draggingProject by remember { mutableStateOf<Project?>(null) }
+    var dragTouchRootPos by remember { mutableStateOf(Offset.Zero) }
+    var dragStartRootPos by remember { mutableStateOf(Offset.Zero) }
+    var hoveredFolderKey by remember { mutableStateOf<String?>(null) }
+    var hoveredMergeArtworkKey by remember { mutableStateOf<String?>(null) }
+    var isMergeReady by remember { mutableStateOf(false) }
+    var isHoveringExitFolder by remember { mutableStateOf(false) }
+    var folderHeaderBounds by remember { mutableStateOf<Rect?>(null) }
+    var lastClickedFolderBounds by remember { mutableStateOf<Rect?>(null) }
+    val folderBoundsMap = remember { mutableStateMapOf<String, Rect>() }
+    val artworkBoundsMap = remember { mutableStateMapOf<String, Rect>() }
+    val allItemBoundsMap = remember { mutableStateMapOf<String, Rect>() }
 
     // Filter projects by search query
     val currentFolder = vm.currentFolder
@@ -188,11 +171,40 @@ fun HomePage(vm: PaintViewModel) {
             }
         }
 
-    // Refresh projects upon entering
+    // Refresh projects upon entering and check sponsor prompt
     LaunchedEffect(currentFolder, selectedTab, vm.currentPage) {
         if (selectedTab == 0) {
             vm.refreshProjects()
+            vm.checkSponsorPromptTrigger()
         }
+    }
+
+    // 滚动位置保留: 主页与画集各持一个网格状态, 进画集再返回时停在原处 (旧实现每次切页都回顶)
+    val rootGridState = rememberLazyGridState()
+    val folderGridState = rememberLazyGridState()
+
+    // 进入画集从顶部开始
+    LaunchedEffect(currentFolder?.filePath) {
+        if (currentFolder != null) folderGridState.scrollToItem(0)
+    }
+
+    // 搜索条件变化时回到顶部, 避免停在过滤后越界的旧索引上
+    LaunchedEffect(vm.searchQuery) {
+        if (vm.searchQuery.isNotEmpty()) {
+            if (currentFolder == null) rootGridState.scrollToItem(0) else folderGridState.scrollToItem(0)
+        }
+    }
+
+    // 拖拽命中表跟随数据清理, 避免已删除的画集留下"幽灵"投放区
+    LaunchedEffect(currentFolder?.filePath, displayProjects) {
+        val aliveFolders = HashSet<String>(displayProjects.size)
+        val aliveArtworks = HashSet<String>(displayProjects.size)
+        displayProjects.forEach {
+            if (it.isFolder) aliveFolders.add(it.filePath) else aliveArtworks.add(it.filePath)
+        }
+        folderBoundsMap.keys.retainAll(aliveFolders)
+        artworkBoundsMap.keys.retainAll(aliveArtworks)
+        allItemBoundsMap.keys.retainAll(aliveFolders + aliveArtworks)
     }
 
     // Handle back navigation for nested states (Folder, Selection Mode, Search Mode, Settings Subpage)
@@ -224,7 +236,20 @@ fun HomePage(vm: PaintViewModel) {
     val toastStackDeleted = stringResource(R.string.gallery_toast_stack_deleted)
     val toastArtworkDeleted = stringResource(R.string.gallery_toast_artwork_deleted)
     val toastBatchDeleted = stringResource(R.string.gallery_toast_batch_deleted)
+    val toastCoverSet = stringResource(R.string.gallery_toast_cover_set)
+    val toastCoverCleared = stringResource(R.string.gallery_toast_cover_cleared)
+    val toastMovedToStack = stringResource(R.string.gallery_toast_moved_to_stack)
+    val toastStackMerged = stringResource(R.string.gallery_toast_stack_merged)
+    val toastMovedOut = stringResource(R.string.gallery_toast_moved_out)
+    val defaultStackBaseName = stringResource(R.string.gallery_new_stack_default)
+    val defaultStackIndexedFormat = stringResource(R.string.gallery_new_stack_default_indexed)
     val defaultProcessingText = stringResource(R.string.gallery_processing)
+
+    var showSponsorsListDialog by remember { mutableStateOf(false) }
+
+    if (showSponsorsListDialog) {
+        SponsorsDialog(onDismiss = { showSponsorsListDialog = false })
+    }
 
     // Custom Styled Dialog: Create Stack / Folder (新建画集)
     if (showNewFolderDialog) {
@@ -277,6 +302,26 @@ fun HomePage(vm: PaintViewModel) {
         )
     }
 
+    if (showChooseCoverDialog && targetCoverFolder != null) {
+        val folder = targetCoverFolder!!
+        ChooseFolderCoverDialog(
+            colors = colors,
+            folder = folder,
+            onSelectCover = { coverProject ->
+                vm.setFolderCover(folder, coverProject)
+                Toast.makeText(context, String.format(toastCoverSet, coverProject.name), Toast.LENGTH_SHORT).show()
+            },
+            onResetCover = {
+                vm.clearFolderCover(folder)
+                Toast.makeText(context, toastCoverCleared, Toast.LENGTH_SHORT).show()
+            },
+            onDismiss = {
+                showChooseCoverDialog = false
+                targetCoverFolder = null
+            },
+        )
+    }
+
     if (projectToDelete != null) {
         val deleteTarget = projectToDelete!!
         DeleteProjectDialog(
@@ -287,6 +332,14 @@ fun HomePage(vm: PaintViewModel) {
                 Toast.makeText(context, if (deleteTarget.isFolder) toastStackDeleted else toastArtworkDeleted, Toast.LENGTH_SHORT).show()
             },
             onDismiss = { projectToDelete = null },
+        )
+    }
+
+    if (detailsProject != null) {
+        ProjectDetailsDialog(
+            colors = colors,
+            project = detailsProject!!,
+            onDismiss = { detailsProject = null },
         )
     }
 
@@ -337,19 +390,48 @@ fun HomePage(vm: PaintViewModel) {
         }
     }
 
+    val homeBgFile = remember(vm.homeCustomBgVersion) { vm.getHomeCustomBgFile() }
+    val homeBgBitmap = remember(vm.homeCustomBgVersion, vm.homeCustomBgEnabled, homeBgFile?.lastModified()) {
+        if (vm.homeCustomBgEnabled) {
+            homeBgFile?.let { runCatching { BitmapFactory.decodeFile(it.absolutePath)?.asImageBitmap() }.getOrNull() }
+        } else null
+    }
+
     Box(
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(colors.bg),
+                .background(colors.bg)
+                .haze(hazeState),
     ) {
+        if (homeBgBitmap != null && vm.homeCustomBgEnabled) {
+            val scale = if (vm.homeCustomBgScaleMode == "FIT") ContentScale.Fit else ContentScale.Crop
+            val blurModifier = if (vm.homeCustomBgBlurDp > 0f) Modifier.blur(vm.homeCustomBgBlurDp.dp) else Modifier
+            Image(
+                bitmap = homeBgBitmap,
+                contentDescription = null,
+                contentScale = scale,
+                alpha = vm.homeCustomBgOpacity,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(blurModifier),
+            )
+            if (vm.homeCustomBgMaskAlpha > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = vm.homeCustomBgMaskAlpha)),
+                )
+            }
+        }
+
         AnimatedContent(
             targetState = selectedTab,
             transitionSpec = {
                 fadeIn(tween(220, easing = FastOutSlowInEasing))
                     .togetherWith(fadeOut(tween(160)))
             },
-            modifier = Modifier.fillMaxSize().haze(hazeState),
+            modifier = Modifier.fillMaxSize(),
             label = "HomeTabTransition",
         ) { tabIndex ->
             if (tabIndex == 0) {
@@ -396,37 +478,41 @@ fun HomePage(vm: PaintViewModel) {
                                     "FOLDER" -> {
                                         val folder = currentFolder
                                         if (folder != null) {
+                                            val isExitDrop = isHoveringExitFolder
                                             Row(
                                                 verticalAlignment = Alignment.CenterVertically,
                                                 modifier =
                                                     Modifier
+                                                        .onGloballyPositioned { folderHeaderBounds = it.boundsInRoot() }
                                                         .clip(RoundedCornerShape(20.dp))
-                                                        .background(colors.panel.copy(alpha = 0.85f))
-                                                        .border(1.dp, colors.border, RoundedCornerShape(20.dp))
+                                                        .background(if (isExitDrop) colors.accent.copy(alpha = 0.95f) else colors.panel.copy(alpha = 0.85f))
+                                                        .border(if (isExitDrop) 2.dp else 1.dp, if (isExitDrop) Color.White else colors.border, RoundedCornerShape(20.dp))
                                                         .clickable {
                                                             vm.currentFolder = null
                                                             vm.refreshProjects()
                                                         }.padding(horizontal = 12.dp, vertical = 6.dp),
                                             ) {
                                                 Icon(
-                                                    painter = painterResource(R.drawable.ic_arrow_left),
+                                                    painter = painterResource(if (isExitDrop) R.drawable.ic_external_link else R.drawable.ic_arrow_left),
                                                     contentDescription = stringResource(R.string.common_back),
-                                                    tint = colors.text,
+                                                    tint = if (isExitDrop) Color.White else colors.text,
                                                     modifier = Modifier.size(18.dp),
                                                 )
                                                 Spacer(Modifier.width(8.dp))
                                                 Text(
-                                                    text = folder.name,
-                                                    color = colors.text,
+                                                    text = if (isExitDrop) stringResource(R.string.gallery_drag_move_out) else folder.name,
+                                                    color = if (isExitDrop) Color.White else colors.text,
                                                     fontSize = 15.sp,
                                                     fontWeight = FontWeight.Bold,
                                                 )
-                                                Spacer(Modifier.width(4.dp))
-                                                Text(
-                                                    text = "(${displayProjects.size})",
-                                                    color = colors.subText,
-                                                    fontSize = 12.sp,
-                                                )
+                                                if (!isExitDrop) {
+                                                    Spacer(Modifier.width(4.dp))
+                                                    Text(
+                                                        text = "(${displayProjects.size})",
+                                                        color = colors.subText,
+                                                        fontSize = 12.sp,
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -473,11 +559,21 @@ fun HomePage(vm: PaintViewModel) {
                                                     fontWeight = FontWeight.Bold,
                                                     letterSpacing = 0.5.sp,
                                                 )
-                                                Text(
-                                                    text = stringResource(R.string.gallery_items_count, displayProjects.size),
-                                                    color = colors.subText,
-                                                    fontSize = 11.sp,
-                                                )
+                                                // 数量变化 (删除/导入) 时交叉淡入, 不再原地闪一下
+                                                AnimatedContent(
+                                                    targetState = displayProjects.size,
+                                                    transitionSpec = {
+                                                        fadeIn(tween(220, easing = FastOutSlowInEasing))
+                                                            .togetherWith(fadeOut(tween(140)))
+                                                    },
+                                                    label = "GalleryItemCountAnim",
+                                                ) { count ->
+                                                    Text(
+                                                        text = stringResource(R.string.gallery_items_count, count),
+                                                        color = colors.subText,
+                                                        fontSize = 11.sp,
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -607,13 +703,12 @@ fun HomePage(vm: PaintViewModel) {
                                                             selectedProjects.clear()
                                                         },
                                                     )
-                                                    val defaultFolderName = stringResource(R.string.gallery_new_stack_default, (System.currentTimeMillis() % 1000).toInt())
                                                     HomeDropdownMenuItem(
                                                         text = stringResource(R.string.gallery_new_stack),
                                                         icon = R.drawable.ic_folder_plus,
                                                         onClick = {
                                                             showMoreMenu = false
-                                                            newFolderName = defaultFolderName
+                                                            newFolderName = generateDefaultStackName(displayProjects, defaultStackBaseName, defaultStackIndexedFormat)
                                                             showNewFolderDialog = true
                                                         },
                                                     )
@@ -641,19 +736,74 @@ fun HomePage(vm: PaintViewModel) {
                             }
                         }
 
-                        // Clean Animated Folder Transition with Staggered Per-Card Cascade Unfolding
+                        // 崩溃遥测首启一次性告知条 (非模态; 未注入端点时自身不渲染)
+                        TelemetryNoticeBar(
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 4.dp),
+                        )
+
+                        val density = LocalDensity.current
+                        val config = LocalConfiguration.current
+                        val screenWPx = with(density) { config.screenWidthDp.dp.toPx() }
+                        val screenHPx = with(density) { config.screenHeightDp.dp.toPx() }
+                        val folderPivotX = lastClickedFolderBounds?.let { (it.center.x / screenWPx).coerceIn(0.08f, 0.92f) } ?: 0.5f
+                        val folderPivotY = lastClickedFolderBounds?.let { (it.center.y / screenHPx).coerceIn(0.08f, 0.92f) } ?: 0.5f
+                        val folderOrigin = TransformOrigin(folderPivotX, folderPivotY)
+
+                        // 画集原位展开/收拢: 以点击卡片屏幕锚点为中心扩散撑开/聚拢归位
                         AnimatedContent(
-                            targetState = currentFolder,
+                            targetState = currentFolder?.filePath,
                             transitionSpec = {
-                                (fadeIn(tween(220, easing = FastOutSlowInEasing)))
-                                    .togetherWith(fadeOut(tween(140, easing = FastOutSlowInEasing)))
+                                if (targetState != null) {
+                                    (
+                                        fadeIn(tween(240, easing = FastOutSlowInEasing)) +
+                                            scaleIn(
+                                                animationSpec = spring(dampingRatio = 0.82f, stiffness = 420f),
+                                                initialScale = 0.70f,
+                                                transformOrigin = folderOrigin,
+                                            )
+                                    ).togetherWith(
+                                        fadeOut(tween(140, easing = FastOutSlowInEasing)) +
+                                            scaleOut(
+                                                animationSpec = tween(180, easing = FastOutSlowInEasing),
+                                                targetScale = 1.08f,
+                                            ),
+                                    )
+                                } else {
+                                    (
+                                        fadeIn(tween(240, easing = FastOutSlowInEasing)) +
+                                            scaleIn(
+                                                animationSpec = tween(220, easing = FastOutSlowInEasing),
+                                                initialScale = 1.06f,
+                                            )
+                                    ).togetherWith(
+                                        fadeOut(tween(150, easing = FastOutSlowInEasing)) +
+                                            scaleOut(
+                                                animationSpec = spring(dampingRatio = 0.85f, stiffness = 440f),
+                                                targetScale = 0.70f,
+                                                transformOrigin = folderOrigin,
+                                            ),
+                                    )
+                                }
                             },
                             modifier = Modifier.weight(1f),
                             label = "FolderTransition",
-                        ) { targetFolder ->
+                        ) { folderKey ->
+                            // 入场级联记录器: 每个画集视图各自持有一份, 重新进入时重新播一次入场
+                            val entranceTracker = remember(folderKey) { GalleryEntranceTracker() }
                             if (displayProjects.isEmpty()) {
+                                // 空状态: 整体淡入 + 轻微上浮, 不再硬切
+                                val emptyEnter = remember(folderKey) { Animatable(0f) }
+                                LaunchedEffect(folderKey) {
+                                    emptyEnter.animateTo(1f, tween(300, easing = FastOutSlowInEasing))
+                                }
                                 Box(
-                                    modifier = Modifier.fillMaxSize(),
+                                    modifier =
+                                        Modifier
+                                            .fillMaxSize()
+                                            .graphicsLayer {
+                                                alpha = emptyEnter.value
+                                                translationY = (1f - emptyEnter.value) * 18.dp.toPx()
+                                            },
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Column(
@@ -680,7 +830,7 @@ fun HomePage(vm: PaintViewModel) {
                                         Text(
                                             if (vm.searchQuery.isNotEmpty()) {
                                                 stringResource(R.string.gallery_empty_search_title)
-                                            } else if (targetFolder !=
+                                            } else if (folderKey !=
                                                 null
                                             ) {
                                                 stringResource(R.string.gallery_empty_stack_title)
@@ -695,7 +845,7 @@ fun HomePage(vm: PaintViewModel) {
                                         Text(
                                             if (vm.searchQuery.isNotEmpty()) {
                                                 stringResource(R.string.gallery_empty_search_desc)
-                                            } else if (targetFolder !=
+                                            } else if (folderKey !=
                                                 null
                                             ) {
                                                 stringResource(R.string.gallery_empty_stack_desc)
@@ -711,38 +861,32 @@ fun HomePage(vm: PaintViewModel) {
                             } else {
                                 LazyVerticalGrid(
                                     columns = GridCells.Adaptive(minSize = 160.dp),
+                                    state = if (folderKey == null) rootGridState else folderGridState,
                                     modifier = Modifier.fillMaxSize().padding(horizontal = 16.dp),
                                     horizontalArrangement = Arrangement.spacedBy(16.dp),
                                     verticalArrangement = Arrangement.spacedBy(16.dp),
                                     contentPadding = PaddingValues(top = 8.dp, bottom = 100.dp),
                                 ) {
-                                    itemsIndexed(displayProjects, key = { _, it -> it.filePath }) { index, p ->
+                                    itemsIndexed(
+                                        items = displayProjects,
+                                        key = { _, it -> it.filePath },
+                                        // 画集卡片与单图卡片是两套布局, 分开复用可减少滑动时的重组
+                                        contentType = { _, it -> if (it.isFolder) "stack" else "artwork" },
+                                    ) { index, p ->
                                         val isSelected = selectedProjects.contains(p)
 
-                                        // Staggered cascade entrance physics for each individual painting card
-                                        val enterProgress = remember(targetFolder?.filePath, p.filePath) { Animatable(0f) }
-                                        LaunchedEffect(targetFolder?.filePath, p.filePath) {
-                                            val delayMs = (index * 25L).coerceAtMost(200L)
-                                            delay(delayMs)
-                                            enterProgress.animateTo(
-                                                targetValue = 1f,
-                                                animationSpec =
-                                                    spring(
-                                                        dampingRatio = Spring.DampingRatioLowBouncy,
-                                                        stiffness = Spring.StiffnessMediumLow,
-                                                    ),
+                                        // 入场级联: 只在该卡片首次出现时播一次, 滚回来不再重播
+                                        val enterProgress =
+                                            rememberGalleryEntrance(
+                                                tracker = entranceTracker,
+                                                key = p.filePath,
+                                                index = index,
                                             )
-                                        }
-
-                                        val progress = enterProgress.value
-                                        val itemScale = 0.74f + 0.26f * progress
-                                        val itemOffsetY = 28.dp * (1f - progress)
                                         val initialFanAngle =
                                             remember(p.filePath) {
                                                 val hash = kotlin.math.abs(p.filePath.hashCode())
                                                 ((hash % 9) - 4).toFloat() * 1.5f // -6° to +6° fanned spread
                                             }
-                                        val itemRotation = (1f - progress) * initialFanAngle
 
                                         val interactionSource = remember { MutableInteractionSource() }
                                         val isPressed by interactionSource.collectIsPressedAsState()
@@ -757,7 +901,7 @@ fun HomePage(vm: PaintViewModel) {
                                         )
 
                                         val cardSelectScale by animateFloatAsState(
-                                            targetValue = if (isSelectMode && isSelected) 0.94f else 1.0f,
+                                            targetValue = if (isSelectMode && isSelected) 0.96f else 1.0f,
                                             animationSpec =
                                                 spring(
                                                     dampingRatio = Spring.DampingRatioMediumBouncy,
@@ -772,464 +916,400 @@ fun HomePage(vm: PaintViewModel) {
                                             label = "CardBorderWidth",
                                         )
 
+                                        // 选中蒙层: 与边框一起把"已选"画进卡面, 比单纯缩小更好认
+                                        val selectTint by animateColorAsState(
+                                            targetValue =
+                                                if (isSelectMode && isSelected) {
+                                                    colors.accent.copy(alpha = 0.16f)
+                                                } else {
+                                                    Color.Transparent
+                                                },
+                                            animationSpec = tween(180),
+                                            label = "CardSelectTint",
+                                        )
+
                                         val haptic = LocalHapticFeedback.current
 
-                                        // Organic tactile fan-out physics when pressing stack card
-                                        val fanBottomAngle by animateFloatAsState(
-                                            targetValue = if (isPressed) -12.5f else -7.0f,
+                                        // 长按托起: 长按触发/拖拽中把卡片托起并描边, 让"可以拖了"看得见
+                                        var holdLifted by remember { mutableStateOf(false) }
+                                        val holdLiftScale by animateFloatAsState(
+                                            targetValue = if (holdLifted) 1.045f else 1.0f,
                                             animationSpec =
                                                 spring(
                                                     dampingRatio = Spring.DampingRatioMediumBouncy,
                                                     stiffness = Spring.StiffnessMediumLow,
                                                 ),
-                                            label = "FanBottomAngle",
+                                            label = "CardHoldLift",
                                         )
-                                        val fanBottomOffsetX by animateDpAsState(
-                                            targetValue = if (isPressed) (-12).dp else (-7).dp,
-                                            animationSpec =
-                                                spring(
-                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                    stiffness = Spring.StiffnessMediumLow,
-                                                ),
-                                            label = "FanBottomOffsetX",
+                                        val holdRingWidth by animateDpAsState(
+                                            targetValue = if (holdLifted) 2.dp else 0.dp,
+                                            animationSpec = spring(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium),
+                                            label = "CardHoldRing",
                                         )
-                                        val fanBottomOffsetY by animateDpAsState(
-                                            targetValue = if (isPressed) 7.dp else 4.dp,
+                                        val cardRingWidth = maxOf(borderStrokeWidth, holdRingWidth)
+
+                                        // 画集卡片按压扇形展开: 单个进度驱动三层, 数值只在图层阶段读取
+                                        val fanPress by animateFloatAsState(
+                                            targetValue = if (isPressed) 1f else 0f,
                                             animationSpec =
                                                 spring(
                                                     dampingRatio = Spring.DampingRatioMediumBouncy,
                                                     stiffness = Spring.StiffnessMediumLow,
                                                 ),
-                                            label = "FanBottomOffsetY",
+                                            label = "FanPress",
                                         )
 
-                                        val fanMiddleAngle by animateFloatAsState(
-                                            targetValue = if (isPressed) 11.0f else 6.0f,
+                                        val isFolderHovered = p.isFolder && hoveredFolderKey == p.filePath
+                                        val folderHoverScale by animateFloatAsState(
+                                            targetValue = if (isFolderHovered) 1.07f else 1.0f,
                                             animationSpec =
                                                 spring(
                                                     dampingRatio = Spring.DampingRatioMediumBouncy,
                                                     stiffness = Spring.StiffnessMediumLow,
                                                 ),
-                                            label = "FanMiddleAngle",
+                                            label = "FolderHoverScale",
                                         )
-                                        val fanMiddleOffsetX by animateDpAsState(
-                                            targetValue = if (isPressed) 11.dp else 6.dp,
-                                            animationSpec =
-                                                spring(
-                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                    stiffness = Spring.StiffnessMediumLow,
-                                                ),
-                                            label = "FanMiddleOffsetX",
-                                        )
-                                        val fanMiddleOffsetY by animateDpAsState(
-                                            targetValue = if (isPressed) (-5).dp else (-3).dp,
-                                            animationSpec =
-                                                spring(
-                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                    stiffness = Spring.StiffnessMediumLow,
-                                                ),
-                                            label = "FanMiddleOffsetY",
-                                        )
-
-                                        val fanTopAngle by animateFloatAsState(
-                                            targetValue = if (isPressed) -1.8f else -0.8f,
-                                            animationSpec =
-                                                spring(
-                                                    dampingRatio = Spring.DampingRatioMediumBouncy,
-                                                    stiffness = Spring.StiffnessMediumLow,
-                                                ),
-                                            label = "FanTopAngle",
-                                        )
+                                        var itemCoordinates by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
                                         Box(
                                             modifier =
-                                                Modifier.graphicsLayer {
-                                                    alpha = progress.coerceIn(0f, 1f)
-                                                    scaleX = itemScale * cardPressScale * cardSelectScale
-                                                    scaleY = itemScale * cardPressScale * cardSelectScale
-                                                    translationY = itemOffsetY.toPx()
-                                                    rotationZ = itemRotation
-                                                },
-                                        ) {
-                                            Column(
-                                                modifier =
-                                                    Modifier
-                                                        .fillMaxWidth()
-                                                        .combinedClickable(
-                                                            interactionSource = interactionSource,
-                                                            indication = null,
-                                                            onClick = {
-                                                                if (isSelectMode) {
-                                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                                    if (isSelected) selectedProjects.remove(p) else selectedProjects.add(p)
-                                                                } else if (p.isFolder) {
-                                                                    vm.currentFolder = p
-                                                                    vm.refreshProjects()
-                                                                } else {
-                                                                    vm.loadProject(p)
-                                                                }
-                                                            },
-                                                            onLongClick = {
-                                                                if (!isSelectMode) {
-                                                                    longPressedProject = p
-                                                                }
-                                                            },
-                                                        ),
-                                            ) {
-                                                val thumb = rememberThumbnail(p.previewPath, p.lastModified)
-
-                                                if (p.isFolder) {
-                                                    // Procreate-style loose layered fan stack visual with irregular aspect ratios
-                                                    val item0 = p.items.getOrNull(0)
-                                                    val item1 = p.items.getOrNull(1)
-                                                    val item2 = p.items.getOrNull(2)
-
-                                                    val thumb0 = rememberThumbnail(item0?.previewPath, item0?.lastModified ?: 0L)
-                                                    val thumb1 = rememberThumbnail(item1?.previewPath, item1?.lastModified ?: 0L)
-                                                    val thumb2 = rememberThumbnail(item2?.previewPath, item2?.lastModified ?: 0L)
-
-                                                    val ratio0 =
-                                                        remember(item0?.width, item0?.height) {
-                                                            if (item0 != null && item0.width > 0 && item0.height > 0) {
-                                                                (item0.width.toFloat() / item0.height.toFloat()).coerceIn(0.72f, 1.38f)
-                                                            } else {
-                                                                1.0f
-                                                            }
-                                                        }
-                                                    val ratio1 =
-                                                        remember(item1?.width, item1?.height, ratio0) {
-                                                            if (item1 != null && item1.width > 0 && item1.height > 0) {
-                                                                (item1.width.toFloat() / item1.height.toFloat()).coerceIn(0.72f, 1.38f)
-                                                            } else {
-                                                                ratio0
-                                                            }
-                                                        }
-                                                    val ratio2 =
-                                                        remember(item2?.width, item2?.height, ratio0) {
-                                                            if (item2 != null && item2.width > 0 && item2.height > 0) {
-                                                                (item2.width.toFloat() / item2.height.toFloat()).coerceIn(0.72f, 1.38f)
-                                                            } else {
-                                                                ratio0
-                                                            }
-                                                        }
-
-                                                    Box(
-                                                        modifier =
-                                                            Modifier
-                                                                .fillMaxWidth()
-                                                                .aspectRatio(1f),
-                                                        contentAlignment = Alignment.Center,
-                                                    ) {
-                                                        // Stacked layer 1 (bottom left loose tilt & offset with its own aspect ratio)
-                                                        Box(
-                                                            modifier =
-                                                                Modifier
-                                                                    .fillMaxSize(0.86f)
-                                                                    .aspectRatio(ratio2, matchHeightConstraintsFirst = ratio2 < 1.0f)
-                                                                    .offset { IntOffset(fanBottomOffsetX.roundToPx(), fanBottomOffsetY.roundToPx()) }
-                                                                    .rotate(fanBottomAngle)
-                                                                    .shadow(4.dp, RoundedCornerShape(8.dp), clip = false)
-                                                                    .clip(RoundedCornerShape(8.dp))
-                                                                    .background(Color(0xFFEDEDED)),
-                                                            contentAlignment = Alignment.Center,
-                                                        ) {
-                                                            if (thumb2 != null) {
-                                                                Image(
-                                                                    bitmap = thumb2.asImageBitmap(),
-                                                                    contentDescription = null,
-                                                                    contentScale = ContentScale.Crop,
-                                                                    modifier = Modifier.fillMaxSize(),
-                                                                )
-                                                                Box(
-                                                                    modifier =
-                                                                        Modifier.fillMaxSize().background(
-                                                                            Color.Black.copy(alpha = 0.08f),
-                                                                        ),
-                                                                )
-                                                            } else {
-                                                                Box(modifier = Modifier.fillMaxSize().background(Color(0xFFE5E5E7)))
-                                                            }
-                                                        }
-
-                                                        // Stacked layer 2 (middle right loose tilt & offset with its own aspect ratio)
-                                                        Box(
-                                                            modifier =
-                                                                Modifier
-                                                                    .fillMaxSize(0.88f)
-                                                                    .aspectRatio(ratio1, matchHeightConstraintsFirst = ratio1 < 1.0f)
-                                                                    .offset { IntOffset(fanMiddleOffsetX.roundToPx(), fanMiddleOffsetY.roundToPx()) }
-                                                                    .rotate(fanMiddleAngle)
-                                                                    .shadow(6.dp, RoundedCornerShape(8.dp), clip = false)
-                                                                    .clip(RoundedCornerShape(8.dp))
-                                                                    .background(Color(0xFFF3F3F3)),
-                                                            contentAlignment = Alignment.Center,
-                                                        ) {
-                                                            if (thumb1 != null) {
-                                                                Image(
-                                                                    bitmap = thumb1.asImageBitmap(),
-                                                                    contentDescription = null,
-                                                                    contentScale = ContentScale.Crop,
-                                                                    modifier = Modifier.fillMaxSize(),
-                                                                )
-                                                                Box(
-                                                                    modifier =
-                                                                        Modifier.fillMaxSize().background(
-                                                                            Color.Black.copy(alpha = 0.04f),
-                                                                        ),
-                                                                )
-                                                            } else {
-                                                                Box(modifier = Modifier.fillMaxSize().background(Color(0xFFEEEEF0)))
-                                                            }
-                                                        }
-
-                                                        // Foreground main folder cover (with its own aspect ratio)
-                                                        Box(
-                                                            modifier =
-                                                                Modifier
-                                                                    .fillMaxSize(0.92f)
-                                                                    .aspectRatio(ratio0, matchHeightConstraintsFirst = ratio0 < 1.0f)
-                                                                    .rotate(fanTopAngle)
-                                                                    .shadow(8.dp, RoundedCornerShape(8.dp), clip = false)
-                                                                    .clip(RoundedCornerShape(8.dp))
-                                                                    .background(Color.White)
-                                                                    .then(
-                                                                        if (borderStrokeWidth > 0.dp) {
-                                                                            Modifier.border(borderStrokeWidth, colors.accent, RoundedCornerShape(8.dp))
-                                                                        } else Modifier
-                                                                    ),
-                                                            contentAlignment = Alignment.Center,
-                                                        ) {
-                                                            if (thumb0 != null) {
-                                                                Image(
-                                                                    bitmap = thumb0.asImageBitmap(),
-                                                                    contentDescription = null,
-                                                                    contentScale = ContentScale.Crop,
-                                                                    modifier = Modifier.fillMaxSize(),
-                                                                )
-                                                            } else {
-                                                                Column(
-                                                                    horizontalAlignment = Alignment.CenterHorizontally,
-                                                                    verticalArrangement = Arrangement.Center,
-                                                                ) {
-                                                                    Icon(
-                                                                        painterResource(R.drawable.ic_folders),
-                                                                        contentDescription = null,
-                                                                        tint = Color(0xFF757575),
-                                                                        modifier = Modifier.size(36.dp),
-                                                                    )
-                                                                    Spacer(Modifier.height(4.dp))
-                                                                    Text(
-                                                                        stringResource(R.string.gallery_badge_stack),
-                                                                        color = Color(0xFF9E9E9E),
-                                                                        fontSize = 11.sp,
-                                                                        fontWeight = FontWeight.Medium,
-                                                                    )
-                                                                }
-                                                            }
-                                                        }
-
-                                                        // Badge: Folder count with layer icon pill
-                                                        Box(
-                                                            modifier =
-                                                                Modifier
-                                                                    .align(Alignment.TopEnd)
-                                                                    .padding(6.dp)
-                                                                    .shadow(3.dp, RoundedCornerShape(12.dp), clip = false)
-                                                                    .clip(RoundedCornerShape(12.dp))
-                                                                    .background(Color.Black.copy(alpha = 0.72f))
-                                                                    .padding(horizontal = 7.dp, vertical = 3.dp),
-                                                        ) {
-                                                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                                                Icon(
-                                                                    painterResource(R.drawable.ic_folders),
-                                                                    contentDescription = null,
-                                                                    tint = Color.White.copy(alpha = 0.85f),
-                                                                    modifier = Modifier.size(11.dp),
-                                                                )
-                                                                Spacer(Modifier.width(3.dp))
-                                                                Text(
-                                                                    text = "${p.items.size}",
-                                                                    color = Color.White,
-                                                                    fontSize = 10.sp,
-                                                                    fontWeight = FontWeight.Bold,
-                                                                )
-                                                            }
-                                                        }
-
-                                                        // Selection checkmark badge
-                                                        CardSelectionBadge(
-                                                            isSelectMode = isSelectMode,
-                                                            isSelected = isSelected,
-                                                            colors = colors,
-                                                            modifier =
-                                                                Modifier
-                                                                    .align(Alignment.BottomEnd)
-                                                                    .padding(8.dp),
-                                                        )
-                                                    }
-                                                } else {
-                                                    // Single artwork card in uniform 1:1 cell with pure canvas aspect ratio
-                                                    val rawRatio = if (p.width > 0 && p.height > 0) p.width.toFloat() / p.height.toFloat() else 1.0f
-                                                    Box(
-                                                        modifier =
-                                                            Modifier
-                                                                .fillMaxWidth()
-                                                                .aspectRatio(1f),
-                                                        contentAlignment = Alignment.Center,
-                                                    ) {
-                                                        Box(
-                                                            modifier =
-                                                                Modifier
-                                                                    .fillMaxSize(0.92f)
-                                                                    .aspectRatio(rawRatio, matchHeightConstraintsFirst = rawRatio < 1.0f)
-                                                                    .shadow(6.dp, RoundedCornerShape(8.dp), clip = false)
-                                                                    .clip(RoundedCornerShape(8.dp))
-                                                                    .background(Color.White)
-                                                                    .then(
-                                                                        if (borderStrokeWidth > 0.dp) {
-                                                                            Modifier.border(borderStrokeWidth, colors.accent, RoundedCornerShape(8.dp))
-                                                                        } else Modifier
-                                                                    ),
-                                                            contentAlignment = Alignment.Center,
-                                                        ) {
-                                                            if (thumb != null) {
-                                                                Image(
-                                                                    bitmap = thumb.asImageBitmap(),
-                                                                    contentDescription = null,
-                                                                    contentScale = ContentScale.Crop,
-                                                                    modifier = Modifier.fillMaxSize(),
-                                                                )
-                                                            } else {
-                                                                Box(
-                                                                    modifier = Modifier.fillMaxSize(),
-                                                                    contentAlignment = Alignment.Center,
-                                                                ) {
-                                                                    Icon(
-                                                                        painterResource(R.drawable.ic_canvas_tab),
-                                                                        contentDescription = null,
-                                                                        tint = Color(0xFFB0B0B0),
-                                                                        modifier = Modifier.size(36.dp),
-                                                                    )
-                                                                }
-                                                            }
-                                                        }
-
-                                                        // AutoSave recovery badge (自动保存 / 异常退出恢复草稿)
-                                                        if (p.isAutoSaved) {
-                                                            Box(
-                                                                modifier =
-                                                                    Modifier
-                                                                        .align(Alignment.TopStart)
-                                                                        .padding(6.dp)
-                                                                        .shadow(3.dp, RoundedCornerShape(12.dp), clip = false)
-                                                                        .clip(RoundedCornerShape(12.dp))
-                                                                        .background(Color.Black.copy(alpha = 0.55f))
-                                                                        .padding(horizontal = 7.dp, vertical = 3.dp),
-                                                            ) {
-                                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                                    Icon(
-                                                                        painterResource(R.drawable.ic_save),
-                                                                        contentDescription = null,
-                                                                        tint = Color.White,
-                                                                        modifier = Modifier.size(10.dp),
-                                                                    )
-                                                                    Spacer(Modifier.width(3.dp))
-                                                                    Text(
-                                                                        text = stringResource(R.string.gallery_badge_autosave),
-                                                                        color = Color.White,
-                                                                        fontSize = 10.sp,
-                                                                        fontWeight = FontWeight.Bold,
-                                                                    )
-                                                                }
-                                                            }
-                                                        }
-
-                                                        // Animation badge (动画项目)
-                                                        if (!p.isFolder && p.isAnimation) {
-                                                            Box(
-                                                                modifier =
-                                                                    Modifier
-                                                                        .align(Alignment.TopEnd)
-                                                                        .padding(6.dp)
-                                                                        .shadow(3.dp, RoundedCornerShape(12.dp), clip = false)
-                                                                        .clip(RoundedCornerShape(12.dp))
-                                                                        .background(Color.Black.copy(alpha = 0.55f))
-                                                                        .padding(horizontal = 7.dp, vertical = 3.dp),
-                                                            ) {
-                                                                Row(verticalAlignment = Alignment.CenterVertically) {
-                                                                    Icon(
-                                                                        painterResource(R.drawable.ic_clock),
-                                                                        contentDescription = null,
-                                                                        tint = Color.White,
-                                                                        modifier = Modifier.size(10.dp),
-                                                                    )
-                                                                    Spacer(Modifier.width(3.dp))
-                                                                    Text(
-                                                                        text = stringResource(R.string.gallery_badge_anim),
-                                                                        color = Color.White,
-                                                                        fontSize = 10.sp,
-                                                                        fontWeight = FontWeight.Bold,
-                                                                    )
-                                                                }
-                                                            }
-                                                        }
-
-                                                        // Selection checkmark badge
-                                                        CardSelectionBadge(
-                                                            isSelectMode = isSelectMode,
-                                                            isSelected = isSelected,
-                                                            colors = colors,
-                                                            modifier =
-                                                                Modifier
-                                                                    .align(Alignment.BottomEnd)
-                                                                    .padding(8.dp),
-                                                        )
-                                                    }
-                                                }
-
-                                                Spacer(Modifier.height(8.dp))
-                                                Text(
-                                                    text = p.name,
-                                                    color = colors.text,
-                                                    fontSize = 14.sp,
-                                                    fontWeight = FontWeight.Medium,
-                                                    maxLines = 1,
-                                                    overflow = TextOverflow.Ellipsis,
-                                                )
-                                                Spacer(Modifier.height(2.dp))
-                                                Row(
-                                                    modifier = Modifier.fillMaxWidth(),
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.SpaceBetween,
-                                                ) {
-                                                    val justNowText = stringResource(R.string.gallery_time_just_now)
-                                                    val autoSavedText = stringResource(R.string.gallery_status_autosave)
-                                                    val dateStr =
-                                                        remember(p.lastModified) {
-                                                            if (p.lastModified > 0) {
-                                                                SimpleDateFormat(
-                                                                    "MM-dd HH:mm",
-                                                                    Locale.getDefault(),
-                                                                ).format(Date(p.lastModified))
-                                                            } else {
-                                                                justNowText
-                                                            }
-                                                        }
-                                                    val statusText = if (p.isAutoSaved) autoSavedText else dateStr
-                                                    Text(
-                                                        text = if (p.isFolder) stringResource(R.string.gallery_stack_artworks_count, p.items.size) else statusText,
-                                                        color = if (p.isAutoSaved) colors.accent else colors.subText,
-                                                        fontSize = 11.sp,
-                                                        fontWeight = if (p.isAutoSaved) FontWeight.SemiBold else FontWeight.Normal,
+                                                Modifier
+                                                    // 增删/筛选造成的重排做插值位移, 卡片不再硬跳
+                                                    .animateItem(
+                                                        fadeInSpec = null,
+                                                        placementSpec = Motion.enterSpring(),
+                                                        fadeOutSpec = tween(140, easing = FastOutSlowInEasing),
                                                     )
-                                                    if (!p.isFolder && p.strokeCount > 0) {
-                                                        Text(
-                                                            text = stringResource(R.string.gallery_stroke_count, p.strokeCount),
-                                                            color = colors.subText,
-                                                            fontSize = 11.sp,
+                                                    .graphicsLayer {
+                                                        // 入场/按压/选中/拖拽悬停全部在图层阶段取值, 逐帧不触发重组
+                                                        val enter = enterProgress.value.coerceIn(0f, 1f)
+                                                        val scale =
+                                                            (0.74f + 0.26f * enter) * cardPressScale *
+                                                                cardSelectScale * folderHoverScale * holdLiftScale
+                                                        alpha = enter
+                                                        scaleX = scale
+                                                        scaleY = scale
+                                                        rotationZ = (1f - enter) * initialFanAngle
+                                                        translationY = (1f - enter) * 28.dp.toPx()
+                                                    }
+                                                    .onGloballyPositioned { coords ->
+                                                        itemCoordinates = coords
+                                                        val bounds = coords.boundsInRoot()
+                                                        allItemBoundsMap[p.filePath] = bounds
+                                                        if (p.isFolder) {
+                                                            folderBoundsMap[p.filePath] = bounds
+                                                        } else {
+                                                            artworkBoundsMap[p.filePath] = bounds
+                                                        }
+                                                    },
+                                        ) {
+                                            // 手势里读的是最新值: pointerInput 只按路径重建, 不能捕获旧闭包
+                                            val currentProject by rememberUpdatedState(p)
+                                            val currentSelectMode by rememberUpdatedState(isSelectMode)
+                                            val currentProjects by rememberUpdatedState(displayProjects)
+
+                                            val cardModifier = if (!p.isFolder) {
+                                                Modifier
+                                                    .fillMaxWidth()
+                                                    // 只按项目路径重建: 选中态变化不该重置正在进行的按压/长按
+                                                    .pointerInput(p.filePath) {
+                                                        awaitEachGesture {
+                                                            if (vm.showSponsorPromptDialog) return@awaitEachGesture
+                                                            val down = awaitFirstDown(requireUnconsumed = false)
+                                                            if (vm.showSponsorPromptDialog) return@awaitEachGesture
+                                                            val press = PressInteraction.Press(down.position)
+                                                            interactionSource.tryEmit(press)
+                                                            var pressEnded = false
+                                                            val endPress: (Boolean) -> Unit = { cancelled ->
+                                                                if (!pressEnded) {
+                                                                    pressEnded = true
+                                                                    interactionSource.tryEmit(
+                                                                        if (cancelled) {
+                                                                            PressInteraction.Cancel(press)
+                                                                        } else {
+                                                                            PressInteraction.Release(press)
+                                                                        },
+                                                                    )
+                                                                }
+                                                            }
+                                                            val downRoot = itemCoordinates?.localToRoot(down.position) ?: down.position
+                                                            val downPos = down.position
+                                                            val touchSlop = viewConfiguration.touchSlop
+                                                            var isLongPressTriggered = false
+                                                            var currentPointer = down
+
+                                                            if (currentSelectMode) {
+                                                                val startSelected = selectedProjects.contains(currentProject)
+                                                                var isSwiping = false
+                                                                try {
+                                                                    while (true) {
+                                                                        val event = awaitPointerEvent()
+                                                                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                                                        if (change.isConsumed) break
+                                                                        if (change.changedToUpIgnoreConsumed()) {
+                                                                            change.consume()
+                                                                            endPress(false)
+                                                                            if (!isSwiping) {
+                                                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                                if (startSelected) selectedProjects.remove(currentProject)
+                                                                                else selectedProjects.add(currentProject)
+                                                                            }
+                                                                            break
+                                                                        }
+                                                                        val moveDist = (change.position - downPos).getDistance()
+                                                                        if (!isSwiping && moveDist > touchSlop) {
+                                                                            isSwiping = true
+                                                                            if (startSelected) selectedProjects.remove(currentProject)
+                                                                            else selectedProjects.add(currentProject)
+                                                                            haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                                        }
+                                                                        if (isSwiping) {
+                                                                            change.consume()
+                                                                            val rootPos = itemCoordinates?.localToRoot(change.position) ?: (downRoot + (change.position - downPos))
+                                                                            val hitItem = allItemBoundsMap.entries.firstOrNull { it.value.contains(rootPos) }
+                                                                            if (hitItem != null) {
+                                                                                val target = currentProjects.firstOrNull { it.filePath == hitItem.key }
+                                                                                if (target != null) {
+                                                                                    if (!startSelected && !selectedProjects.contains(target)) {
+                                                                                        selectedProjects.add(target)
+                                                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                                                    } else if (startSelected && selectedProjects.contains(target)) {
+                                                                                        selectedProjects.remove(target)
+                                                                                        haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                } finally {
+                                                                    endPress(true)
+                                                                }
+                                                            } else {
+                                                                try {
+                                                                    try {
+                                                                        withTimeout(viewConfiguration.longPressTimeoutMillis) {
+                                                                            while (true) {
+                                                                                val event = awaitPointerEvent()
+                                                                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                                                                currentPointer = change
+                                                                                if (change.isConsumed) {
+                                                                                    endPress(true)
+                                                                                    return@withTimeout
+                                                                                }
+                                                                                val dist = (change.position - downPos).getDistance()
+                                                                                if (dist > touchSlop) {
+                                                                                    endPress(true)
+                                                                                    return@withTimeout
+                                                                                }
+                                                                                if (change.changedToUpIgnoreConsumed()) {
+                                                                                    change.consume()
+                                                                                    endPress(false)
+                                                                                    vm.loadProject(currentProject)
+                                                                                    return@withTimeout
+                                                                                }
+                                                                            }
+                                                                        }
+                                                                    } catch (_: PointerEventTimeoutCancellationException) {
+                                                                        isLongPressTriggered = true
+                                                                    }
+
+                                                                    if (isLongPressTriggered) {
+                                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                        holdLifted = true
+                                                                        var dragStarted = false
+                                                                        var totalDrag = Offset.Zero
+                                                                        var currentPos = itemCoordinates?.localToRoot(currentPointer.position) ?: downRoot
+                                                                        val pointerId = currentPointer.id
+                                                                        var mergeTimerStart = 0L
+
+                                                                        while (true) {
+                                                                            val event = awaitPointerEvent()
+                                                                            val change = event.changes.firstOrNull { it.id == pointerId } ?: break
+                                                                            if (change.isConsumed) break
+
+                                                                            if (change.changedToUpIgnoreConsumed()) {
+                                                                                change.consume()
+                                                                                break
+                                                                            }
+
+                                                                            val dragDelta = change.position - change.previousPosition
+                                                                            totalDrag += dragDelta
+
+                                                                            if (!dragStarted && totalDrag.getDistance() > touchSlop) {
+                                                                                dragStarted = true
+                                                                                draggingProject = currentProject
+                                                                                dragStartRootPos = currentPos
+                                                                                dragTouchRootPos = currentPos
+                                                                            }
+
+                                                                            if (dragStarted) {
+                                                                                change.consume()
+                                                                                currentPos = itemCoordinates?.localToRoot(change.position) ?: (dragTouchRootPos + dragDelta)
+                                                                                dragTouchRootPos = currentPos
+
+                                                                                // 1. 判断是否拖入顶部移出画集投放区 (在画集内有效)
+                                                                                val isExit = folderKey != null && (
+                                                                                    folderHeaderBounds?.inflate(24.dp.toPx())?.contains(dragTouchRootPos) == true ||
+                                                                                    dragTouchRootPos.y < 88.dp.toPx()
+                                                                                )
+                                                                                if (isExit != isHoveringExitFolder) {
+                                                                                    isHoveringExitFolder = isExit
+                                                                                    if (isExit) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                                                }
+
+                                                                                // 2. 判断是否拖入已有画集
+                                                                                if (!isExit) {
+                                                                                    val hitFolder = folderBoundsMap.entries.firstOrNull { (_, rect) -> rect.contains(dragTouchRootPos) }
+                                                                                    if (hitFolder?.key != hoveredFolderKey) {
+                                                                                        if (hitFolder != null) haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                                                        hoveredFolderKey = hitFolder?.key
+                                                                                    }
+
+                                                                                    // 3. 判断是否拖入单张画作互叠 (400ms 触发合成新画集)
+                                                                                    if (hitFolder == null) {
+                                                                                        val hitArt = artworkBoundsMap.entries.firstOrNull { (k, rect) ->
+                                                                                            k != currentProject.filePath && rect.contains(dragTouchRootPos)
+                                                                                        }
+                                                                                        val newMergeKey = hitArt?.key
+                                                                                        if (newMergeKey != hoveredMergeArtworkKey) {
+                                                                                            hoveredMergeArtworkKey = newMergeKey
+                                                                                            mergeTimerStart = if (newMergeKey != null) System.currentTimeMillis() else 0L
+                                                                                            isMergeReady = false
+                                                                                        } else if (newMergeKey != null && !isMergeReady && mergeTimerStart > 0L) {
+                                                                                            if (System.currentTimeMillis() - mergeTimerStart >= 400L) {
+                                                                                                isMergeReady = true
+                                                                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                                            }
+                                                                                        }
+                                                                                    } else {
+                                                                                        hoveredMergeArtworkKey = null
+                                                                                        isMergeReady = false
+                                                                                    }
+                                                                                } else {
+                                                                                    hoveredFolderKey = null
+                                                                                    hoveredMergeArtworkKey = null
+                                                                                    isMergeReady = false
+                                                                                }
+                                                                            }
+                                                                        }
+
+                                                                        if (dragStarted) {
+                                                                            val toMove = listOf(currentProject)
+                                                                            when {
+                                                                                isHoveringExitFolder -> {
+                                                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                                    vm.moveProjectsToFolder(toMove, null)
+                                                                                    Toast.makeText(context, String.format(toastMovedOut, toMove.size), Toast.LENGTH_SHORT).show()
+                                                                                }
+                                                                                hoveredFolderKey != null -> {
+                                                                                    val targetFolder = currentProjects.firstOrNull { it.isFolder && it.filePath == hoveredFolderKey }
+                                                                                    if (targetFolder != null) {
+                                                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                                        vm.moveProjectsToFolder(toMove, targetFolder.name)
+                                                                                        Toast.makeText(context, String.format(toastMovedToStack, toMove.size, targetFolder.name), Toast.LENGTH_SHORT).show()
+                                                                                    }
+                                                                                }
+                                                                                hoveredMergeArtworkKey != null && isMergeReady -> {
+                                                                                    val targetArtwork = currentProjects.firstOrNull { it.filePath == hoveredMergeArtworkKey }
+                                                                                    if (targetArtwork != null) {
+                                                                                        haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                                        val defaultName = generateDefaultStackName(currentProjects, defaultStackBaseName, defaultStackIndexedFormat)
+                                                                                        vm.createStackWithProjects(defaultName, listOf(currentProject, targetArtwork))
+                                                                                        Toast.makeText(context, String.format(toastStackMerged, defaultName), Toast.LENGTH_SHORT).show()
+                                                                                    }
+                                                                                }
+                                                                            }
+                                                                            draggingProject = null
+                                                                            dragTouchRootPos = Offset.Zero
+                                                                            hoveredFolderKey = null
+                                                                            hoveredMergeArtworkKey = null
+                                                                            isMergeReady = false
+                                                                            isHoveringExitFolder = false
+                                                                        } else {
+                                                                            longPressedProject = currentProject
+                                                                        }
+                                                                    }
+                                                                } finally {
+                                                                    endPress(true)
+                                                                    holdLifted = false
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+                                            } else {
+                                                Modifier
+                                                    .fillMaxWidth()
+                                                    .combinedClickable(
+                                                        interactionSource = interactionSource,
+                                                        indication = null,
+                                                        onClick = {
+                                                            if (isSelectMode) {
+                                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                                if (isSelected) selectedProjects.remove(p) else selectedProjects.add(p)
+                                                            } else {
+                                                                lastClickedFolderBounds = folderBoundsMap[p.filePath]
+                                                                vm.currentFolder = p
+                                                                vm.refreshProjects()
+                                                            }
+                                                        },
+                                                        onLongClick = {
+                                                            if (!isSelectMode) {
+                                                                longPressedProject = p
+                                                            }
+                                                        },
+                                                    )
+                                            }
+
+                                            Column(
+                                                modifier = Modifier.fillMaxWidth(),
+                                            ) {
+                                                Box(
+                                                    modifier = cardModifier,
+                                                ) {
+                                                    if (p.isFolder) {
+                                                        FolderThumbnailBox(
+                                                            project = p,
+                                                            fanPress = fanPress,
+                                                            borderStrokeWidth = borderStrokeWidth,
+                                                            isFolderHovered = isFolderHovered,
+                                                            isSelected = isSelected,
+                                                            isSelectMode = isSelectMode,
+                                                            colors = colors,
+                                                        )
+                                                    } else {
+                                                        ArtworkThumbnailBox(
+                                                            project = p,
+                                                            cardRingWidth = cardRingWidth,
+                                                            selectTint = selectTint,
+                                                            isSelected = isSelected,
+                                                            isSelectMode = isSelectMode,
+                                                            isFolderCover = currentFolder != null && p.isFolderCover,
+                                                            isMergeTarget = hoveredMergeArtworkKey == p.filePath && isMergeReady,
+                                                            colors = colors,
                                                         )
                                                     }
                                                 }
+
+                                                CardMetaSection(
+                                                    project = p,
+                                                    isSelectMode = isSelectMode,
+                                                    colors = colors,
+                                                    onRenameClick = {
+                                                        if (isSelectMode) {
+                                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                            if (isSelected) selectedProjects.remove(p) else selectedProjects.add(p)
+                                                        } else {
+                                                            targetRenameProject = p
+                                                            newProjectName = p.name
+                                                            showRenameDialog = true
+                                                        }
+                                                    },
+                                                    onLongClick = {
+                                                        if (!isSelectMode) {
+                                                            longPressedProject = p
+                                                        }
+                                                    },
+                                                )
                                             }
 
                                             // Long-press Context Dropdown Menu
@@ -1288,6 +1368,40 @@ fun HomePage(vm: PaintViewModel) {
                                                             showMoveDialog = true
                                                         },
                                                     )
+                                                    if (currentFolder != null) {
+                                                        if (p.isFolderCover) {
+                                                            HomeDropdownMenuItem(
+                                                                text = stringResource(R.string.gallery_action_clear_cover),
+                                                                icon = R.drawable.ic_x,
+                                                                onClick = {
+                                                                    longPressedProject = null
+                                                                    vm.clearFolderCover(currentFolder)
+                                                                    Toast.makeText(context, toastCoverCleared, Toast.LENGTH_SHORT).show()
+                                                                },
+                                                            )
+                                                        } else {
+                                                            HomeDropdownMenuItem(
+                                                                text = stringResource(R.string.gallery_action_set_as_cover),
+                                                                icon = R.drawable.ic_image,
+                                                                onClick = {
+                                                                    longPressedProject = null
+                                                                    vm.setFolderCover(currentFolder, p)
+                                                                    Toast.makeText(context, String.format(toastCoverSet, p.name), Toast.LENGTH_SHORT).show()
+                                                                },
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                                if (p.isFolder) {
+                                                    HomeDropdownMenuItem(
+                                                        text = stringResource(R.string.gallery_action_set_stack_cover),
+                                                        icon = R.drawable.ic_image,
+                                                        onClick = {
+                                                            longPressedProject = null
+                                                            targetCoverFolder = p
+                                                            showChooseCoverDialog = true
+                                                        },
+                                                    )
                                                 }
                                                 HomeDropdownMenuItem(
                                                     text = stringResource(R.string.home_draft_rename),
@@ -1297,6 +1411,14 @@ fun HomePage(vm: PaintViewModel) {
                                                         targetRenameProject = p
                                                         newProjectName = p.name
                                                         showRenameDialog = true
+                                                    },
+                                                )
+                                                HomeDropdownMenuItem(
+                                                    text = stringResource(R.string.gallery_action_details),
+                                                    icon = R.drawable.ic_info_circle,
+                                                    onClick = {
+                                                        longPressedProject = null
+                                                        detailsProject = p
                                                     },
                                                 )
                                                 HomeDropdownMenuItem(
@@ -1374,10 +1496,32 @@ fun HomePage(vm: PaintViewModel) {
             }
         }
 
+        // Floating drag proxy preview card
+        draggingProject?.let { dragProj ->
+            val dragCount = if (isSelectMode && selectedProjects.contains(dragProj)) selectedProjects.size else 1
+            FloatingDragProxy(
+                project = dragProj,
+                dragTouchRootPos = dragTouchRootPos,
+                dragCount = dragCount,
+                colors = colors,
+            )
+        }
+
         com.reverie.paint.ui.components.DragHoverOverlay(
             visible = vm.isDraggingExternal,
             hint = stringResource(R.string.gallery_drop_hint),
         )
+
+        if (vm.showSponsorPromptDialog) {
+            SponsorPromptDialog(
+                vm = vm,
+                onViewSponsorList = {
+                    vm.showSponsorPromptDialog = false
+                    showSponsorsListDialog = true
+                },
+                onDismiss = { vm.showSponsorPromptDialog = false },
+            )
+        }
     }
 }
 

@@ -43,6 +43,8 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -59,6 +61,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.model.DragGripSpec
 import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.PanelCloseButton
 import com.reverie.paint.ui.components.ReDropdownMenu
@@ -114,6 +117,7 @@ fun QuickLayerWindow(
     val isCollapsed = vm.quickLayerCollapsed
     val selectedLayer = vm.layers.firstOrNull { it.index == vm.currentLayerIndex }
     var windowSize by remember { mutableStateOf(IntSize.Zero) }
+    var windowCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
@@ -128,7 +132,7 @@ fun QuickLayerWindow(
 
 
     // 层次排序逻辑 (倒序排列保持树形完整，顶层在最上方)
-    val displayLayers = remember(vm.layers, vm.collapsedGroupNames) {
+    val displayLayers = remember(vm.layers, vm.collapsedGroupKeys) {
         val n = vm.layers.size
         fun collectBlock(
             lo: Int,
@@ -144,7 +148,7 @@ fun QuickLayerWindow(
                 val c = vm.layers[j]
                 out.add(c)
                 if (c.isGroup) {
-                    if (c.name !in vm.collapsedGroupNames) {
+                    if (!vm.isGroupCollapsed(c.id)) {
                         val e = (j + 1 until hi).firstOrNull { vm.layers[it].depth <= c.depth } ?: hi
                         collectBlock(j + 1, e, c.depth, out)
                     }
@@ -202,12 +206,23 @@ fun QuickLayerWindow(
                 )
                 .evadablePanelContent(vm, UiPanelSlot.QUICK_LAYER)
                 .animateContentSize(Motion.enterSpring())
+                .onGloballyPositioned { windowCoords = it }
         ) {
             if (isCollapsed) {
+                DisposableEffect(Unit) {
+                    onDispose { vm.quickLayerGrip.clear() }
+                }
                 // ---- 折叠微缩态：微型浮球 ----
                 Box(
                     modifier = Modifier
                         .size(46.dp)
+                        .onGloballyPositioned { coords ->
+                            val root = windowCoords ?: return@onGloballyPositioned
+                            val pos = root.localPositionOf(coords, Offset.Zero)
+                            vm.quickLayerGrip.update(
+                                pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                            )
+                        }
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = {
@@ -226,6 +241,12 @@ fun QuickLayerWindow(
                                 change.consume()
                                 vm.quickLayerWindowX += dragAmount.x
                                 vm.quickLayerWindowY += dragAmount.y
+                                vm.clampQuickWindowsToSafeArea(
+                                    vm.floatingHostWidthPx,
+                                    vm.floatingHostHeightPx,
+                                    density.density,
+                                    persist = false,
+                                )
                             }
                         }
                         .clickable {
@@ -264,6 +285,9 @@ fun QuickLayerWindow(
                     }
                 }
             } else {
+                DisposableEffect(Unit) {
+                    onDispose { vm.quickLayerGrip.clear() }
+                }
                 // ---- 展开态：画世界条带图层面板 (适度加宽显示名称，带微动效) ----
                 Column(
                     modifier = Modifier
@@ -277,7 +301,14 @@ fun QuickLayerWindow(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(38.dp)
+                            .height(DragGripSpec.QUICK_LAYER_TOP_BAR_HEIGHT_DP.dp)
+                            .onGloballyPositioned { coords ->
+                                val root = windowCoords ?: return@onGloballyPositioned
+                                val pos = root.localPositionOf(coords, Offset.Zero)
+                                vm.quickLayerGrip.update(
+                                    pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                                )
+                            }
                             .pointerInput(Unit) {
                                 detectDragGestures(
                                     onDragStart = {
@@ -296,6 +327,12 @@ fun QuickLayerWindow(
                                     change.consume()
                                     vm.quickLayerWindowX += dragAmount.x
                                     vm.quickLayerWindowY += dragAmount.y
+                                    vm.clampQuickWindowsToSafeArea(
+                                        vm.floatingHostWidthPx,
+                                        vm.floatingHostHeightPx,
+                                        density.density,
+                                        persist = false,
+                                    )
                                 }
                             }
                             .padding(horizontal = 8.dp),
@@ -632,7 +669,7 @@ fun QuickLayerWindow(
 
                                             // ---- 文件夹 / 组图层 (旋转动效) ----
                                             layer.isGroup || layer.nodeType == 1 -> {
-                                                val isGroupCollapsed = layer.name in vm.collapsedGroupNames
+                                                val isGroupCollapsed = vm.isGroupCollapsed(layer.id)
                                                 val chevronRot by animateFloatAsState(
                                                     targetValue = if (isGroupCollapsed) 0f else 90f,
                                                     animationSpec = Motion.enterSpring(),
@@ -658,7 +695,7 @@ fun QuickLayerWindow(
                                                             .rotate(chevronRot)
                                                             .clickable {
                                                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                                                vm.toggleGroupCollapsed(layer.name)
+                                                                vm.toggleGroupCollapsed(layer.id)
                                                             },
                                                     )
                                                     Icon(

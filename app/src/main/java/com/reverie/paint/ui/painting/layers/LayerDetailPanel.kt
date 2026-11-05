@@ -667,7 +667,7 @@ internal fun LayerDetailPage(
                             ) {
                                 Text(
                                     label,
-                                    color = if (isSelected) Color.White else Morandi.text,
+                                    color = if (isSelected) Morandi.onAccent else Morandi.text,
                                     fontSize = 11.sp,
                                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                                 )
@@ -799,7 +799,7 @@ internal fun LayerDetailPage(
                                     ) {
                                         Text(
                                             stringResource(R.string.layer_rasterize_confirm),
-                                            color = Color.White,
+                                            color = Morandi.onAccent,
                                             fontSize = 13.sp,
                                             fontWeight = FontWeight.SemiBold,
                                         )
@@ -1033,7 +1033,7 @@ internal fun LayerDetailPage(
                                         }
                                         .padding(horizontal = 14.dp, vertical = 7.dp),
                             ) {
-                                Text(stringResource(R.string.layer_rasterize_confirm), color = Color.White, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
+                                Text(stringResource(R.string.layer_rasterize_confirm), color = Morandi.onAccent, fontSize = 13.sp, fontWeight = FontWeight.SemiBold)
                             }
                         }
                     }
@@ -1193,7 +1193,7 @@ internal fun LayerDetailPage(
             // Group-specific page
             Column {
                 OpItem(R.drawable.ic_rename, stringResource(R.string.layer_op_rename)) { onRename(name) }
-                OpItem(R.drawable.ic_trash, stringResource(R.string.layer_op_delete_group), enabled = !isBg) {
+                OpItem(R.drawable.ic_trash, stringResource(R.string.layer_op_delete_group), enabled = !isBg && layer?.locked != true) {
                     vm.removeLayer(index)
                     onBack()
                 }
@@ -1265,7 +1265,7 @@ internal fun LayerDetailPage(
             Column {
                 OpItem(R.drawable.ic_copy, stringResource(R.string.layer_op_duplicate)) { vm.copyLayer(index) }
                 OpItem(R.drawable.ic_rename, stringResource(R.string.layer_op_rename)) { onRename(name) }
-                OpItem(R.drawable.ic_trash, stringResource(R.string.layer_op_delete_layer), enabled = !isBg) {
+                OpItem(R.drawable.ic_trash, stringResource(R.string.layer_op_delete_layer), enabled = !isBg && layer?.locked != true) {
                     vm.removeLayer(index)
                     onBack()
                 }
@@ -1762,7 +1762,7 @@ private fun Layer3DDetailPage(
                         ) {
                             Text(
                                 stringResource(labelRes),
-                                color = if (isSel) Color.White else Morandi.text,
+                                color = if (isSel) Morandi.onAccent else Morandi.text,
                                 fontSize = 11.sp,
                                 fontWeight = if (isSel) FontWeight.SemiBold else FontWeight.Normal,
                             )
@@ -1925,7 +1925,7 @@ private fun Layer3DDetailPage(
                             ) {
                                 Text(
                                     stringResource(R.string.layer_rasterize_confirm),
-                                    color = Color.White,
+                                    color = Morandi.onAccent,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
                                 )

@@ -484,13 +484,33 @@ internal fun PaintViewModel.removeLayer() {
 }
 
 internal fun PaintViewModel.removeLayer(index: Int) {
+    // 引擎侧 `ReverieCore::removeLayer` 对「背景层 / 锁定图层 / 越界索引」是**静默 return**
+    // (JNI 不返回值), 表现就是「点了删除、面板关了、图层还在」, 日志里连一行都没有 ——
+    // 真机反馈里「删不掉图层」就是这么来的。这里先在镜像上挡一层并给出明确反馈,
+    // 不再把注定被拒绝的请求发进引擎。
+    if (index < 0) {
+        showActionToast(R.string.toast_layer_delete_stale, R.drawable.ic_trash)
+        return
+    }
+    if (index == 0) {
+        showActionToast(R.string.toast_layer_delete_background, R.drawable.ic_trash)
+        return
+    }
+    val target = layers.getOrNull(index)
+    if (target == null) {
+        showActionToast(R.string.toast_layer_delete_stale, R.drawable.ic_trash)
+        return
+    }
+    if (target.locked) {
+        showActionToast(R.string.toast_layer_delete_locked, R.drawable.ic_lock)
+        return
+    }
     if (transientTransformSelectionPending || canUndoTransformSelection || canRedoTransformSelection) {
         discardTransientTransformSelection()
     }
     clearLayerSelection()
-    val removed = layers.getOrNull(index)
-    if (removed != null && active3DLayers.containsKey(removed.id)) {
-        active3DLayers = active3DLayers - removed.id
+    if (active3DLayers.containsKey(target.id)) {
+        active3DLayers = active3DLayers - target.id
     }
     Breadcrumbs.record("Layer", "Remove layer: $index")
     if (recorder.recording) {
@@ -1137,7 +1157,7 @@ internal fun PaintViewModel.rasterizeLayer(i: Int) {
 internal fun PaintViewModel.flattenGroup(i: Int) {
     val groupLayer = layers.getOrNull(i)
     if (groupLayer != null && groupLayer.isGroup) {
-        collapsedGroupNames = collapsedGroupNames - groupLayer.name
+        setGroupCollapsed(groupLayer.id, collapsed = false)
     }
     if (recorder.recording) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_FLATTEN_GROUP, i)

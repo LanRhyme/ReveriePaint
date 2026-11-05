@@ -45,8 +45,6 @@ import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Slider
-import androidx.compose.material3.SliderDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -83,6 +81,7 @@ enum class SettingsSubPage {
     THEME,
     STYLUS,
     AUTHOR,
+    STATISTICS,
     SYNC,
     ABOUT,
 }
@@ -102,6 +101,7 @@ fun SettingsPageContent(
             if (vm.settingsInitialSubPage == "STYLUS") SettingsSubPage.STYLUS
             else if (vm.settingsInitialSubPage == "GENERAL") SettingsSubPage.GENERAL
             else if (vm.settingsInitialSubPage == "AUTHOR") SettingsSubPage.AUTHOR
+            else if (vm.settingsInitialSubPage == "STATISTICS") SettingsSubPage.STATISTICS
             else if (isTabletLandscape) SettingsSubPage.GENERAL
             else SettingsSubPage.MAIN,
         )
@@ -126,6 +126,9 @@ fun SettingsPageContent(
         } else if (vm.settingsInitialSubPage == "AUTHOR") {
             subPage = SettingsSubPage.AUTHOR
             vm.settingsInitialSubPage = "MAIN"
+        } else if (vm.settingsInitialSubPage == "STATISTICS") {
+            subPage = SettingsSubPage.STATISTICS
+            vm.settingsInitialSubPage = "MAIN"
         } else if (vm.settingsInitialSubPage == "ABOUT") {
             subPage = SettingsSubPage.ABOUT
             vm.settingsInitialSubPage = "MAIN"
@@ -143,6 +146,8 @@ fun SettingsPageContent(
 
     val colors = Theme.current
 
+    val hasCustomBg = vm.homeCustomBgEnabled && vm.getHomeCustomBgFile() != null
+
     if (isTabletLandscape) {
         // ==========================================
         // 平板横屏 Master-Detail 双栏布局
@@ -150,14 +155,14 @@ fun SettingsPageContent(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .background(colors.bg)
+                .background(if (hasCustomBg) Color.Transparent else colors.bg)
         ) {
             // Left: Master Navigation Rail
             Column(
                 modifier = Modifier
                     .width(240.dp)
                     .fillMaxHeight()
-                    .background(colors.panel)
+                    .background(if (hasCustomBg) colors.panel.copy(alpha = 0.88f) else colors.panel)
                     .padding(horizontal = 16.dp, vertical = 18.dp)
             ) {
                 Row(
@@ -203,6 +208,12 @@ fun SettingsPageContent(
                         onClick = { subPage = SettingsSubPage.AUTHOR },
                     )
                     SettingMasterNavRow(
+                        iconRes = R.drawable.ic_chart_bar,
+                        title = stringResource(R.string.settings_creation_stats),
+                        isSelected = subPage == SettingsSubPage.STATISTICS,
+                        onClick = { subPage = SettingsSubPage.STATISTICS },
+                    )
+                    SettingMasterNavRow(
                         iconRes = R.drawable.ic_cloud,
                         title = stringResource(R.string.settings_sync),
                         isSelected = subPage == SettingsSubPage.SYNC,
@@ -230,7 +241,7 @@ fun SettingsPageContent(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .background(colors.bg),
+                    .background(if (hasCustomBg) Color.Transparent else colors.bg),
             ) {
                 AnimatedContent(
                     targetState = subPage,
@@ -245,6 +256,7 @@ fun SettingsPageContent(
                         SettingsSubPage.THEME -> ThemeSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
                         SettingsSubPage.STYLUS -> StylusSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
                         SettingsSubPage.AUTHOR -> AuthorSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
+                        SettingsSubPage.STATISTICS -> StatisticsSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
                         SettingsSubPage.SYNC -> SyncSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
                         SettingsSubPage.ABOUT -> AboutSettingsSubPage(showBackButton = false, onBack = onExit)
                         SettingsSubPage.MAIN -> GeneralSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
@@ -273,6 +285,7 @@ fun SettingsPageContent(
                 SettingsSubPage.MAIN -> {
                     SettingsMainPage(
                         onNavigate = { subPage = it },
+                        hasCustomBg = hasCustomBg,
                     )
                 }
 
@@ -304,6 +317,13 @@ fun SettingsPageContent(
                     )
                 }
 
+                SettingsSubPage.STATISTICS -> {
+                    StatisticsSettingsSubPage(
+                        vm = vm,
+                        onBack = { subPage = SettingsSubPage.MAIN },
+                    )
+                }
+
                 SettingsSubPage.SYNC -> {
                     SyncSettingsSubPage(
                         vm = vm,
@@ -322,14 +342,17 @@ fun SettingsPageContent(
 }
 
 @Composable
-private fun SettingsMainPage(onNavigate: (SettingsSubPage) -> Unit) {
+private fun SettingsMainPage(
+    onNavigate: (SettingsSubPage) -> Unit,
+    hasCustomBg: Boolean = false,
+) {
     val colors = Theme.current
 
     Column(
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(colors.bg)
+                .background(if (hasCustomBg) Color.Transparent else colors.bg)
                 .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -386,8 +409,15 @@ private fun SettingsMainPage(onNavigate: (SettingsSubPage) -> Unit) {
                     icon = R.drawable.ic_author,
                     title = stringResource(R.string.settings_author_profile),
                     summary = stringResource(R.string.settings_nav_author_sub),
-                    shape = settingGroupShape(0, 1),
+                    shape = settingGroupShape(0, 2),
                     onClick = { onNavigate(SettingsSubPage.AUTHOR) },
+                )
+                SettingNavGroupItem(
+                    icon = R.drawable.ic_chart_bar,
+                    title = stringResource(R.string.settings_creation_stats),
+                    summary = stringResource(R.string.settings_nav_stats_sub),
+                    shape = settingGroupShape(1, 2),
+                    onClick = { onNavigate(SettingsSubPage.STATISTICS) },
                 )
             }
 

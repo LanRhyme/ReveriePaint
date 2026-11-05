@@ -713,6 +713,9 @@ Java_com_reverie_paint_core_ReverieCoreBridge_startTransformPreviewLayersEx(
             return JNI_TRUE;
         }
     }
+    if (res) {
+        core()->cancelTransformPreview();
+    }
     return JNI_FALSE;
 }
 

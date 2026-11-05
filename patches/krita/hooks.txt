@@ -22,6 +22,7 @@ libs/image/kis_layer_properties_icons.h
 libs/image/kis_marker_painter.cpp
 libs/image/kis_node.cpp
 libs/image/kis_node.h
+libs/image/tiles3/kis_memento_manager.cc
 libs/image/tiles3/swap/kis_chunk_allocator.cpp
 libs/image/tiles3/swap/kis_chunk_allocator.h
 libs/image/tiles3/swap/kis_swapped_data_store.cpp
@@ -80,4 +81,13 @@ plugins/paintops/spray/CMakeLists.txt
 plugins/paintops/spray/register_static.cpp
 plugins/paintops/tangentnormal/CMakeLists.txt
 plugins/paintops/tangentnormal/register_static.cpp
+po/ca/krita.po
+po/ca@valencia/krita.po
+po/es/krita.po
+po/ka/krita.po
+po/nl/krita.po
+po/nn/krita.po
+po/pt_BR/krita.po
+po/ru/krita.po
+po/uk/krita.po
 REVERIE-PATCHES.md

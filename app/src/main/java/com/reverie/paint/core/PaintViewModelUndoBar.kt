@@ -14,6 +14,12 @@ import com.reverie.paint.model.UndoScrubPacer
 /** 泵被泵外单飞 (pendingHistoryOps 在途) 挡住后的重试间隔 (ms) */
 private const val UNDO_BAR_PUMP_RETRY_MS = 50L
 
+/** 连续撤销判定窗口 (ms): 在此窗口内的连续撤销/重做视为连续操作, 唤出撤回条 */
+private const val CONSECUTIVE_UNDO_WINDOW_MS = 1000L
+
+/** 显示所需的最低历史总深度 (总步数 > 1 才能滑选) */
+internal const val UNDO_BAR_MIN_DEPTH = 1
+
 // —— 撤回条会话状态 ——
 // ViewModel partial 模式的扩展函数无法给类加带 backing field 的属性, 按项目
 // 惯例 (PaintViewModelLayers.kt 的 thumbRefreshJob 等) 用文件顶层状态; 单实例
@@ -31,6 +37,11 @@ internal var undoBarMax by mutableIntStateOf(0)
 /** 最近一次撤回条交互时间戳 (自动隐藏定时器放 UI 层, 只读这个时间戳) */
 internal var undoBarLastActivityAt by mutableLongStateOf(0L)
 
+// 连续撤销判定簿记 (仅主线程访问)
+private var lastHistoryActionTimeMs = 0L
+private var consecutiveHistoryCount = 0
+private var undoBarShowRequested = false
+
 // 追赶簿记与泵内部状态 (非 Compose 状态: 仅主线程串行访问, 不参与重组)
 private val undoScrubPacer = UndoScrubPacer()
 private var undoBarPumpRetryPosted = false
@@ -40,6 +51,76 @@ private var undoBarPumpRetryPosted = false
  */
 internal fun PaintViewModel.onUndoBarActivity() {
     undoBarLastActivityAt = android.os.SystemClock.elapsedRealtime()
+}
+
+/**
+ * 显式请求展示撤回滑条 (面板按钮点击或长按连续撤销/重做触发)。
+ */
+internal fun PaintViewModel.requestUndoBarShow() {
+    undoBarShowRequested = true
+    if (canShowUndoBar()) {
+        refreshUndoCounts()
+        if (undoBarMax > UNDO_BAR_MIN_DEPTH) {
+            undoBarVisible = true
+            undoBarShowRequested = false
+            onUndoBarActivity()
+            resumeUndoBarPumpIfPending()
+        }
+    }
+}
+
+/**
+ * 隐藏撤回滑条并复位连续撤销判定状态。
+ */
+internal fun PaintViewModel.hideUndoBar() {
+    undoBarVisible = false
+    undoBarShowRequested = false
+    consecutiveHistoryCount = 0
+}
+
+/**
+ * 撤销/重做触发时的连续判定:
+ * - 若由面板按钮触发: 立即请求显示;
+ * - 若处于撤回条可见态: 续期活跃时间戳;
+ * - 若在连续时间窗口 (1000ms) 内多次触发: 达到连续撤销阈值, 请求显示;
+ * - 普通单次撤销: 仅记下时间戳, 不唤出滑条。
+ */
+internal fun PaintViewModel.onHistoryActionTriggered(fromPanel: Boolean = false) {
+    val now = android.os.SystemClock.elapsedRealtime()
+    if (fromPanel) {
+        undoBarShowRequested = true
+        consecutiveHistoryCount = 1
+        lastHistoryActionTimeMs = now
+        requestUndoBarShow()
+        return
+    }
+    if (undoBarVisible) {
+        onUndoBarActivity()
+        return
+    }
+    if (now - lastHistoryActionTimeMs <= CONSECUTIVE_UNDO_WINDOW_MS) {
+        consecutiveHistoryCount++
+    } else {
+        consecutiveHistoryCount = 1
+    }
+    lastHistoryActionTimeMs = now
+    if (consecutiveHistoryCount >= 2) {
+        requestUndoBarShow()
+    }
+}
+
+/**
+ * 面板按钮触发的撤销。
+ */
+internal fun PaintViewModel.undoFromPanel() {
+    undo(fromPanel = true)
+}
+
+/**
+ * 面板按钮触发的重做。
+ */
+internal fun PaintViewModel.redoFromPanel() {
+    redo(fromPanel = true)
 }
 
 /**
@@ -58,6 +139,21 @@ internal fun PaintViewModel.refreshUndoCounts() {
     }
     undoBarPosition = undoScrubPacer.position
     undoBarMax = undoScrubPacer.max
+
+    if (undoBarVisible) {
+        if (!canShowUndoBar()) {
+            hideUndoBar()
+        } else {
+            onUndoBarActivity()
+        }
+    } else if (undoBarShowRequested) {
+        if (undoBarMax > UNDO_BAR_MIN_DEPTH && canShowUndoBar()) {
+            undoBarVisible = true
+            undoBarShowRequested = false
+            onUndoBarActivity()
+            resumeUndoBarPumpIfPending()
+        }
+    }
 }
 
 /**
@@ -74,15 +170,19 @@ internal fun PaintViewModel.scrubTo(target: Int) {
  * 撤回条可显示/泵可发步的条件。变换激活、QuickShape 编辑、笔画/手势进行中、
  * 3D 撤销路径接管、lasso 收点中时为 false —— 这些状态下 undo()/redo() 会走
  * 其他分支早退, settled 回调不会触发, 泵发步会停摆, 故一律不发。
+ * 注意: 长按连续撤销期间手指按在画布上 (isContinuousUndoing=true), 此情况属于合法的撤回交互, 允许显示。
  */
 internal fun PaintViewModel.canShowUndoBar(): Boolean {
+    // 变换期间撤销/重做被引擎拒绝 (见 isHistoryBlockedByTransform), 泵发步会停摆, 一律不发
+    if (isHistoryBlockedByTransform) return false
     if (isQuickShapeEditing) return false
     if (customUndoHook != null) return false
     if (isCurrentLayer3D && (canUndo3D || canRedo3D)) return false
     if (currentToolId == "lasso" && lassoMultiPoints.isNotEmpty()) return false
     val touchView = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
         ?: return true
-    return !touchView.isInteracting && !touchView.isTransformActive
+    val interacting = touchView.isInteracting && !touchView.isContinuousUndoing
+    return !interacting && !touchView.isTransformActive
 }
 
 /**

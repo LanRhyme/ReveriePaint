@@ -34,6 +34,7 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
 import kotlin.coroutines.resume
 import java.io.File
+import java.util.Locale
 import java.util.zip.ZipFile
 
 internal fun PaintViewModel.projectDir(): java.io.File {
@@ -77,7 +78,11 @@ internal fun PaintViewModel.saveProject(
 ) {
     val fileToSave =
         currentProjectFile?.let { File(it) }?.takeIf { it.parentFile?.exists() == true && !it.name.contains(".autosave") }
-            ?: File(projectDir(), "$name.revp")
+            ?: run {
+                val targetDir = currentFolder?.let { File(it.filePath) }?.takeIf { it.exists() && it.isDirectory }
+                    ?: projectDir()
+                File(targetDir, "$name.revp")
+            }
     val finalFile =
         if (fileToSave.nameWithoutExtension != name) {
             File(fileToSave.parentFile, "$name.revp")
@@ -104,6 +109,8 @@ internal fun PaintViewModel.saveProject(
     isBlockingLoading = true
     blockingLoadingMessage = getString(R.string.project_saving_progress)
     var savedFile: File? = null
+    // 退出/手动保存前在 UI 线程先取方向：进引擎线程后读触摸视图不可靠，保存失败不执行退出回调（原有路径）。
+    val orientationJson = canvasOrientationJsonFragment()
     runCore(
         after = {
             isBlockingLoading = false
@@ -114,6 +121,10 @@ internal fun PaintViewModel.saveProject(
                 return@runCore
             }
             Breadcrumbs.record("Save", "saveProject SUCCESS: $name ($totalStrokes strokes)")
+            val addedStrokes = (totalStrokes - initialStrokeCount).coerceAtLeast(0)
+            if (addedStrokes > 0 || elapsedSeconds > 0L) {
+                recordCreationSession(addedStrokes, elapsedSeconds)
+            }
             currentProjectFile = targetFile.absolutePath
             // Renaming from the save dialog moves this working association; do not let the
             // previous file and the renamed artwork share a mutable reference selection.
@@ -145,17 +156,6 @@ internal fun PaintViewModel.saveProject(
         if (active3DLayers.isNotEmpty()) {
             commitAllActive3DLayersSync()
         }
-        val fileToSave =
-            currentProjectFile?.let { File(it) }?.takeIf { it.parentFile?.exists() == true && !it.name.contains(".autosave") }
-                ?: File(projectDir(), "$name.revp")
-
-        // If the name changed and we had a path, adjust destination file
-        val finalFile =
-            if (fileToSave.nameWithoutExtension != name) {
-                File(fileToSave.parentFile, "$name.revp")
-            } else {
-                fileToSave
-            }
 
         val layers3DJson = active3DLayers.values.joinToString(",") { st ->
             val idx = layers.indexOfFirst { it.id == st.layerId }
@@ -165,6 +165,7 @@ internal fun PaintViewModel.saveProject(
         val extraJson =
             """
             {
+                $orientationJson
                 "strokeCount": $totalStrokes,
                 "elapsedSeconds": $elapsedSeconds,
                 "createdTime": $canvasCreatedTime,
@@ -174,7 +175,7 @@ internal fun PaintViewModel.saveProject(
                 "panelDefaults": ${panelDefaultsJson()},
                 "selectedLayerIndex": $currentLayerIndex,
                 "activeLayerIndex": $currentLayerIndex,
-                "collapsedGroups": [${collapsedGroupNames.joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }}],
+                "collapsedGroups": [${collapsedGroupsForSave().joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }}],
                 "collapsedPanels": [${collapsedPanelIds.joinToString(",")}],
                 "active3DLayers": [$layers3DJson]
             }
@@ -219,6 +220,8 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
     val layerCount = layers.size
     val currentMasterPath = currentProjectFile?.takeIf { !it.contains(".autosave") && !it.contains(".emergency") } ?: ""
     val referenceProfile = referenceProfileId
+    // 自动保存同步写方向，未手动保存就切换/崩溃时也能按最后快照恢复。
+    val orientationJson = canvasOrientationJsonFragment()
 
     runCore(
         render = false,
@@ -234,7 +237,8 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
         },
     ) {
         val tv = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
-        if (tv?.isInteracting == true || tv?.isTransformActive == true) {
+        val isTransformToolActive = currentToolId == com.reverie.paint.model.Tool.TRANSFORM.id || transformPreviewBitmap != null
+        if (tv?.isInteracting == true || tv?.isTransformActive == true || isTransformToolActive) {
             return@runCore
         }
 
@@ -246,6 +250,7 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
         val extraJson =
             """
             {
+                $orientationJson
                 "strokeCount": $totalStrokes,
                 "elapsedSeconds": $elapsedSeconds,
                 "createdTime": $canvasCreatedTime,
@@ -258,13 +263,20 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
                 "panelDefaults": ${panelDefaultsJson()},
                 "selectedLayerIndex": $currentLayerIndex,
                 "activeLayerIndex": $currentLayerIndex,
-                "collapsedGroups": [${collapsedGroupNames.joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }}],
+                "collapsedGroups": [${collapsedGroupsForSave().joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }}],
                 "collapsedPanels": [${collapsedPanelIds.joinToString(",")}],
                 "active3DLayers": [$layers3DJson]
             }
             """.trimIndent()
         val recBlob = recorder.serialize()
         android.util.Log.d("RP_IO", "autoSaveRevpAsync blob=${recBlob?.size ?: 0} bytes to ${autoSaveFile.absolutePath}")
+        val backupFile = File(autoSaveFile.parentFile, "${autoSaveFile.name}.bak")
+        val oldFileSize = if (autoSaveFile.exists()) autoSaveFile.length() else 0L
+        if (oldFileSize > 50_000L) {
+            try {
+                autoSaveFile.copyTo(backupFile, overwrite = true)
+            } catch (_: Throwable) {}
+        }
         val saveStartTime = System.currentTimeMillis()
         val saved = ReverieCoreBridge.saveRevpAsync(autoSaveFile.absolutePath, extraJson, recBlob)
         android.util.Log.d("RP_IO", "autoSaveRevpAsync triggered=$saved")
@@ -282,6 +294,11 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
                             false
                         }
                         if (isValid) {
+                            if (backupFile.exists() && oldFileSize > 100_000L && autoSaveFile.length() < oldFileSize * 0.3) {
+                                android.util.Log.w("RP_IO", "autoSaveRevpAsync: size dropped drastically (${oldFileSize} -> ${autoSaveFile.length()}), backup preserved at ${backupFile.name}")
+                            } else if (backupFile.exists()) {
+                                backupFile.delete()
+                            }
                             referenceStore.bind(autoSaveFile.absolutePath, referenceProfile)
                             AutoSaveHistoryManager.recordSnapshot(
                                 context = appContext,
@@ -311,9 +328,12 @@ internal fun PaintViewModel.emergencySaveOnCrash() {
             val name = if (idx in 0 until layers.size) layers[idx].name else ""
             st.copy(layerIndex = idx, layerName = name).toJsonString()
         }
+        // 崩溃抢救同样带方向：恢复的工程按抢救快照的方向打开，与自动保存一致。
+        val orientationJson = canvasOrientationJsonFragment()
         val extraJson =
             """
             {
+                $orientationJson
                 "strokeCount": $totalStrokes,
                 "elapsedSeconds": $elapsedSeconds,
                 "createdTime": $canvasCreatedTime,
@@ -459,11 +479,11 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     val isRecovered = p.isAutoSaved || p.filePath.contains(".autosave")
     docName = p.name
     lastAutoSaveTimeMs = 0L
-    val masterFile = File(projectDir(), "${p.name}.revp")
-    currentProjectFile = if (masterFile.exists() && masterFile.absolutePath != p.filePath) {
-        masterFile.absolutePath
-    } else if (!isRecovered) {
+    val masterFile = if (p.masterFilePath.isNotBlank()) File(p.masterFilePath) else File(projectDir(), "${p.name}.revp")
+    currentProjectFile = if (!isRecovered) {
         p.filePath
+    } else if (masterFile.exists() && masterFile.absolutePath != p.filePath) {
+        masterFile.absolutePath
     } else {
         null
     }
@@ -473,6 +493,7 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     // 旧工程 extraJson 没有 collapsedPanels 字段: 首次打开按"每格默认折叠"补一次;
     // 字段存在 (哪怕空数组 = 用户全部展开过) 则尊重存档, 不再回填
     var loadedCollapsedPanelsPresent = false
+    var loadedCanvasOrientation: com.reverie.paint.model.CanvasOrientation? = null
     var loaded3DStates: List<com.reverie.paint.model.Model3DState> = emptyList()
     var loadedPanelDefaults: com.reverie.paint.model.PanelDefaults? = null
     var documentLoaded = false
@@ -483,6 +504,8 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 Breadcrumbs.record("IO", "loadProject FAILED for: ${p.name}")
                 isBlockingLoading = false
                 showActionToast(R.string.toast_project_import_unsupported, R.drawable.ic_alert_triangle)
+                // 加载失败不留旧方向。
+                pendingCanvasOrientation = null
                 return@runCore
             }
             Breadcrumbs.record("IO", "loadProject SUCCESS: ${p.name} (healed=$isHealed)")
@@ -490,7 +513,9 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 if (documentLoaded) restoreLocalProjectReferences(p.filePath)
                 else referenceLoading = false
             }
-            collapsedGroupNames = loadedCollapsedGroups
+            // 折叠状态要等图层表同步后再还原 (见下方 syncLayersFromNative 之后)
+            // 只在加载成功后交出方向；无记录时 pending 为 null，走默认横向。
+            pendingCanvasOrientation = loadedCanvasOrientation
             collapsedPanelIds = loadedCollapsedPanels
             resetPanelDefaultCollapse()
             panelDefaults = loadedPanelDefaults ?: DEFAULT_PANEL_DEFAULTS
@@ -504,11 +529,11 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             docName = p.name
             checkBrushSizeLimit()
 
-            val masterFile = File(projectDir(), "${p.name}.revp")
-            currentProjectFile = if (masterFile.exists() && masterFile.absolutePath != p.filePath) {
-                masterFile.absolutePath
-            } else if (!isRecovered) {
+            val masterFile = if (p.masterFilePath.isNotBlank()) File(p.masterFilePath) else File(projectDir(), "${p.name}.revp")
+            currentProjectFile = if (!isRecovered) {
                 p.filePath
+            } else if (masterFile.exists() && masterFile.absolutePath != p.filePath) {
+                masterFile.absolutePath
             } else {
                 null
             }
@@ -517,6 +542,9 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             canvasCreatedTime = if (p.lastModified > 0) p.lastModified else System.currentTimeMillis()
             colorMode = p.colorMode
             syncLayersFromNative()
+            // 折叠状态按"名字/名字@序号"还原成层 id 键 —— 必须晚于 syncLayersFromNative,
+            // 否则 layers 还是旧文档/空表, 一个都对不上
+            applyCollapsedGroupsFromFile(loadedCollapsedGroups)
             // 文档加载完成后重建分格镜像 (工程里的分格结构/侧表元数据随 maindoc.xml 恢复)
             refreshPanels()
             // 旧档没有 collapsedPanels: 现有格补一次默认折叠 (之后用户展开会写回字段, 不再回填)
@@ -555,15 +583,19 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             } else {
                 active3DLayers = emptyMap()
             }
-            isBlockingLoading = false
             frontBufferQuietUntilMs = FrontBufferQuiet.onDocumentLoaded(
                 android.os.SystemClock.uptimeMillis(),
                 PaintViewModel.NEW_CANVAS_FRONT_BUFFER_QUIET_MS,
             )
             startPaintingTimer()
-            val curPreset = brushPresetIndex
-            if (curPreset >= 0) {
-                selectBrushPreset(curPreset)
+            if (isBrushPresetsLoading || !brushPresetsLoaded || brushPresets.isEmpty()) {
+                loadBrushPresets()
+                isBlockingLoading = true
+                blockingLoadingMessage = getString(R.string.brush_presets_loading)
+            } else {
+                isBlockingLoading = false
+                val targetTool = currentToolId.ifBlank { "brush" }
+                applyTool(targetTool, force = true)
             }
             if (isRecovered) {
                 showActionToast(R.string.toast_project_restored_autosave, R.drawable.ic_save)
@@ -643,6 +675,10 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                                 if (idx in 0 until nLayers) {
                                     targetLayer = idx
                                 }
+                                // 只读二值方向，不恢复缩放/平移/视图中心；缺失或非法值返回 null。
+                                loadedCanvasOrientation = com.reverie.paint.model.CanvasOrientation.fromJsonValue(
+                                    json.optString(com.reverie.paint.model.CanvasOrientation.META_KEY),
+                                )
                                 val arr3D = json.optJSONArray("active3DLayers")
                                 if (arr3D != null && arr3D.length() > 0) {
                                     val parsedStates = ArrayList<com.reverie.paint.model.Model3DState>()
@@ -720,6 +756,37 @@ internal fun PaintViewModel.createFolder(name: String) {
     refreshProjects()
 }
 
+internal fun PaintViewModel.createStackWithProjects(
+    name: String,
+    projects: List<com.reverie.paint.model.Project>,
+) {
+    val root = projectDir()
+    val folder = File(root, name.trim())
+    if (!folder.exists()) {
+        folder.mkdirs()
+    }
+    moveProjectsToFolder(projects, name.trim())
+}
+
+internal fun generateDefaultStackName(
+    existingProjects: List<com.reverie.paint.model.Project>,
+    baseName: String,
+    indexedFormat: String,
+): String {
+    val existingNames = existingProjects.filter { it.isFolder }.map { it.name }.toSet()
+    if (!existingNames.contains(baseName)) {
+        return baseName
+    }
+    var i = 1
+    while (true) {
+        val candidate = String.format(Locale.getDefault(), indexedFormat, i)
+        if (!existingNames.contains(candidate)) {
+            return candidate
+        }
+        i++
+    }
+}
+
 internal fun PaintViewModel.moveProjectToFolder(
     p: com.reverie.paint.model.Project,
     targetFolderName: String?,
@@ -731,6 +798,47 @@ internal fun PaintViewModel.moveProjectToFolder(
     if (!destDir.exists()) destDir.mkdirs()
     val destFile = File(destDir, srcFile.name)
     if (srcFile.renameTo(destFile)) referenceStore.move(srcFile, destFile)
+    refreshProjects()
+}
+
+internal fun PaintViewModel.moveProjectsToFolder(
+    projects: List<com.reverie.paint.model.Project>,
+    targetFolderName: String?,
+) {
+    val root = projectDir()
+    val destDir = if (targetFolderName.isNullOrBlank()) root else File(root, targetFolderName)
+    if (!destDir.exists()) destDir.mkdirs()
+    projects.forEach { p ->
+        if (!p.isFolder) {
+            val srcFile = File(p.filePath)
+            if (srcFile.exists()) {
+                val destFile = File(destDir, srcFile.name)
+                if (srcFile.renameTo(destFile)) referenceStore.move(srcFile, destFile)
+            }
+        }
+    }
+    refreshProjects()
+}
+
+internal fun PaintViewModel.setFolderCover(
+    folder: com.reverie.paint.model.Project,
+    coverProject: com.reverie.paint.model.Project,
+) {
+    if (!folder.isFolder) return
+    val folderDir = File(folder.filePath)
+    if (!folderDir.exists() || !folderDir.isDirectory) return
+    val coverFile = File(folderDir, ".cover")
+    val projectFile = File(coverProject.filePath)
+    coverFile.writeText(projectFile.name)
+    refreshProjects()
+}
+
+internal fun PaintViewModel.clearFolderCover(
+    folder: com.reverie.paint.model.Project,
+) {
+    if (!folder.isFolder) return
+    val coverFile = File(folder.filePath, ".cover")
+    if (coverFile.exists()) coverFile.delete()
     refreshProjects()
 }
 
@@ -1045,6 +1153,9 @@ internal fun PaintViewModel.refreshProjects() {
             }
             val list = withContext(Dispatchers.IO) { buildProjectList() }
             projects = list
+            try {
+                com.reverie.paint.ui.widget.RecentProjectWidgetHelper.notifyAllWidgets(appContext)
+            } catch (_: Throwable) {}
         }
 }
 
@@ -1064,7 +1175,45 @@ private fun PaintViewModel.buildProjectList(): List<com.reverie.paint.model.Proj
                 ?.sortedByDescending { it.lastModified() }
                 ?.toTypedArray() ?: emptyArray()
 
-        return files.map { parseProjectFromFile(it) }
+        val coverFile = File(dir, ".cover")
+        val coverName = if (coverFile.exists()) coverFile.readText().trim() else null
+
+        val folderList = files.map { file ->
+            val p = parseProjectFromFile(file)
+            if (coverName != null && file.name == coverName) {
+                p.copy(isFolderCover = true)
+            } else {
+                p
+            }
+        }.toMutableList()
+
+        val autoDir = autoSaveDir()
+        val autoFiles: Array<File> =
+            autoDir
+                .listFiles { f: File -> f.isFile && f.extension.lowercase() in listOf("revp", "kra") }
+                ?: emptyArray()
+
+        for (autoFile in autoFiles) {
+            val parsedAuto = parseProjectFromFile(autoFile)
+            val autoProject = parsedAuto.copy(isAutoSaved = true)
+            val matchesFolder = if (autoProject.masterFilePath.isNotBlank()) {
+                File(autoProject.masterFilePath).parentFile?.absolutePath == dir.absolutePath
+            } else {
+                false
+            }
+            if (matchesFolder) {
+                val existingIdx = folderList.indexOfFirst { !it.isFolder && it.filePath == autoProject.masterFilePath }
+                if (existingIdx != -1) {
+                    val existing = folderList[existingIdx]
+                    if (autoFile.lastModified() >= existing.lastModified) {
+                        folderList[existingIdx] = autoProject
+                    }
+                } else {
+                    folderList.add(0, autoProject)
+                }
+            }
+        }
+        return folderList
     }
 
     // Root level: read both standalone files and folders (画集)
@@ -1084,8 +1233,24 @@ private fun PaintViewModel.buildProjectList(): List<com.reverie.paint.model.Proj
                     ?.sortedByDescending { it.lastModified() }
                     ?.toTypedArray() ?: emptyArray()
 
-            val subProjects = subFiles.map { parseProjectFromFile(it) }
-            val topThumb = subProjects.firstOrNull()?.previewPath ?: ""
+            val coverFile = File(entry, ".cover")
+            val chosenCoverName = if (coverFile.exists()) coverFile.readText().trim() else null
+
+            val subProjects = subFiles.map { file ->
+                val p = parseProjectFromFile(file)
+                if (chosenCoverName != null && file.name == chosenCoverName) {
+                    p.copy(isFolderCover = true)
+                } else {
+                    p
+                }
+            }
+            val coverProject = subProjects.firstOrNull { it.isFolderCover }
+            val orderedSubProjects = if (coverProject != null) {
+                listOf(coverProject) + (subProjects - coverProject)
+            } else {
+                subProjects
+            }
+            val topThumb = orderedSubProjects.firstOrNull()?.previewPath ?: ""
             val topModified = maxOf(entry.lastModified(), subProjects.maxOfOrNull { it.lastModified } ?: 0L)
 
             list.add(
@@ -1096,7 +1261,7 @@ private fun PaintViewModel.buildProjectList(): List<com.reverie.paint.model.Proj
                     lastModified = topModified,
                     isFolder = true,
                     folderPath = entry.absolutePath,
-                    items = subProjects,
+                    items = orderedSubProjects,
                 ),
             )
         } else if (entry.isFile && entry.extension.lowercase() in listOf("revp", "kra", "png")) {
@@ -1114,6 +1279,11 @@ private fun PaintViewModel.buildProjectList(): List<com.reverie.paint.model.Proj
     for (autoFile in autoFiles) {
         val parsedAuto = parseProjectFromFile(autoFile)
         val autoProject = parsedAuto.copy(isAutoSaved = true)
+        val belongsToSubfolder = autoProject.masterFilePath.isNotBlank() &&
+            File(autoProject.masterFilePath).parentFile?.absolutePath != rootDir.absolutePath
+        if (belongsToSubfolder) {
+            continue
+        }
         val existingIdx = if (autoProject.masterFilePath.isNotBlank()) {
             list.indexOfFirst { !it.isFolder && it.filePath == autoProject.masterFilePath }
         } else {
@@ -1292,6 +1462,7 @@ internal fun PaintViewModel.exportDocument(
                 ensure3DLayerClearedInCore(layerId)
             }
             if (ok && targetFile.exists() && targetFile.length() > 0) {
+                recordExport()
                 onSuccess(targetFile)
             } else {
                 onError(getString(R.string.toast_project_export_failed, format))
@@ -1377,9 +1548,15 @@ internal fun PaintViewModel.goHome() {
     // 渲染/保存调用在 C++ 侧空文档防护中安全返回。
     runCore(render = false) { ReverieCoreBridge.closeDocument() }
     currentProjectFile = null
+    // 退出即清待恢复方向；丢弃退出不写盘，方向回落到上次保存值。
+    pendingCanvasOrientation = null
     docName = ""
     isModified = false
     selectionDirty = false
+    val addedStrokes = (totalStrokes - initialStrokeCount).coerceAtLeast(0)
+    if (addedStrokes > 0 || elapsedSeconds > 0L) {
+        recordCreationSession(addedStrokes, elapsedSeconds)
+    }
     initialStrokeCount = 0
     totalStrokes = 0
     lastAutoSaveTimeMs = 0L
@@ -1451,7 +1628,12 @@ internal fun PaintViewModel.startPainting(
     }
     resetProjectReferences()
     val actualName = name?.ifBlank { null } ?: generateNextProjectName()
-    currentProjectFile = null // Reset so new artwork won't overwrite previous project file
+    val targetDir = currentFolder?.let { File(it.filePath) }?.takeIf { it.exists() && it.isDirectory }
+        ?: projectDir()
+    currentProjectFile = File(targetDir, "$actualName.revp").absolutePath
+    recordCanvasCreated()
+    // 新建工程无记录：默认横向（0°），不继承上一工程的方向。
+    pendingCanvasOrientation = null
     docName = actualName
     isModified = false
     selectionDirty = false
@@ -1489,11 +1671,15 @@ internal fun PaintViewModel.startPainting(
                 android.os.SystemClock.uptimeMillis(),
                 PaintViewModel.NEW_CANVAS_FRONT_BUFFER_QUIET_MS,
             )
-            isBlockingLoading = false
             startPaintingTimer()
-            val curPreset = brushPresetIndex
-            if (curPreset >= 0) {
-                selectBrushPreset(curPreset)
+            if (isBrushPresetsLoading || !brushPresetsLoaded || brushPresets.isEmpty()) {
+                loadBrushPresets()
+                isBlockingLoading = true
+                blockingLoadingMessage = getString(R.string.brush_presets_loading)
+            } else {
+                isBlockingLoading = false
+                val targetTool = currentToolId.ifBlank { "brush" }
+                applyTool(targetTool, force = true)
             }
             if (animation) {
                 anim.enabled = true
@@ -1506,7 +1692,7 @@ internal fun PaintViewModel.startPainting(
             } else {
                 resetAnimationState()
             }
-            collapsedGroupNames = emptySet()
+            collapsedGroupKeys = emptySet()
             collapsedPanelIds = emptySet()
             resetPanelDefaultCollapse()
             active3DLayers = emptyMap()
@@ -1541,8 +1727,15 @@ internal fun PaintViewModel.startPainting(
                 ReverieCoreBridge.setBrushColor(brushColor)
                 ReverieCoreBridge.setBrushSecondaryColor(brushSecondaryColor)
                 if (animation) {
-                    // 动画画布: 为最上面的可动画图层建关键帧通道并设帧率
-                    nativeInitAnimation(animationFps)
+                    // 动画画布: 为最上面的可动画图层建关键帧通道并设帧率。
+                    // 建工程阶段不计入撤销历史 (帧率现在是可撤销的文档设置,
+                    // 否则新文档一打开就自带一步"改帧率")
+                    ReverieCoreBridge.setUndoCaptureEnabled(false)
+                    try {
+                        nativeInitAnimation(animationFps)
+                    } finally {
+                        ReverieCoreBridge.setUndoCaptureEnabled(true)
+                    }
                 }
                 recorder.beginSession(w, h, snapshotSource = initialSnapshotFile, snapshotTempDir = recSessionDir())
             }

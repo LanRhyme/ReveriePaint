@@ -59,7 +59,16 @@ internal object LayerSnapshotProbe {
      */
     private var scratch: ByteBuffer? = null
 
-    fun read(): SnapshotPage? {
+    fun read(): SnapshotPage? = try {
+        readFromNative()
+    } catch (e: LinkageError) {
+        // .so 与 APP 版本不匹配 (预编译库落后 / 该 ABI 未编进新 JNI):
+        // 这是安装包问题而非文档问题, 绝不能让它变成主线程 FATAL —— 保持上次镜像。
+        reportLinkageMismatch(e)
+        null
+    }
+
+    private fun readFromNative(): SnapshotPage? {
         var buffer = scratch
         if (buffer == null) {
             val size = ReverieCoreBridge.nativeSnapshotSize()
@@ -119,6 +128,25 @@ internal object LayerSnapshotProbe {
         Log.w(TAG, "layer snapshot unavailable; keeping previous mirror")
     }
 
+    /**
+     * 原生库与 APP 版本不匹配: 安装包里该 ABI 的 libreverie_jni.so 没有导出快照入口
+     * (历史事故: 2026-10-31 v1.6.1 的 armeabi-v7a 包缺 nativeSnapshotMode)。
+     * 这类问题只能靠换包解决, 但至少要在 logcat 里说清楚, 而不是留一条裸的
+     * UnsatisfiedLinkError 堆栈。
+     */
+    private fun reportLinkageMismatch(e: LinkageError) {
+        val now = System.nanoTime()
+        if (now - lastLinkageLogNs < 2_000_000_000L) return
+        lastLinkageLogNs = now
+        Log.e(
+            TAG,
+            "native library does not match this APK (missing layer-snapshot JNI); " +
+                "install the build matching this device ABI. Keeping previous layer mirror.",
+            e,
+        )
+    }
+
+    private var lastLinkageLogNs = 0L
 }
 
 /**

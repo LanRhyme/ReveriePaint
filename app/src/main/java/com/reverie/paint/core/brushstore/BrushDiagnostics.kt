@@ -99,6 +99,18 @@ object BrushDiagnostics {
         }
     }
 
+    fun md5(file: File): String = file.inputStream().buffered().use { md5(it) }
+
+    fun md5(stream: java.io.InputStream): String {
+        val digest = MessageDigest.getInstance("MD5")
+        val buf = ByteArray(64 * 1024)
+        var n: Int
+        while (stream.read(buf).also { n = it } > 0) {
+            digest.update(buf, 0, n)
+        }
+        return digest.digest().joinToString("") { "%02x".format(it) }
+    }
+
     fun md5(bytes: ByteArray): String =
         MessageDigest.getInstance("MD5").digest(bytes).joinToString("") { "%02x".format(it) }
 

@@ -49,6 +49,9 @@ copy_abi() {
 
 	local dst="$REPO_ROOT/app/src/main/jniLibs/$abi"
 	mkdir -p "$dst"
+	# 先清空再复制: 闭包里已删除的库 (例如上游移除的 libkritacolor.so) 不能靠覆盖复制
+	# 残留在 jniLibs 里随 APK 发出去 (1.6.2 闭包混旧库的同类问题)。
+	find "$dst" -maxdepth 1 -name '*.so' -delete
 	local count=0
 	for f in "$src_dir"/*.so; do
 		local b="$(basename "$f")"

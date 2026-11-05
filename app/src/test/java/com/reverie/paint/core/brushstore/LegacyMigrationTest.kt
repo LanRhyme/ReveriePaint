@@ -11,7 +11,9 @@ import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
 import org.junit.Test
@@ -132,7 +134,7 @@ class LegacyMigrationTest {
             assertEquals(name, LegacyBrushParamsMigrator.Kind.K3_RESET_THEN_EDITED, r.report.kindOf(name))
             val id = BrushIdentity.idForName(name)!!
             assertEquals(name, expected.getValue(name), BrushOverrideStore.get(id).controls.keys)
-            // SIZE 是实时控件（不写进 kpp，由 BrushEngineApplier 下发），看覆盖值；曲线写进有效 kpp，看回读
+            // SIZE 是实时控件（不写进 kpp，由 BrushApply 下发），看覆盖值；曲线写进有效 kpp，看回读
             val o = BrushOverrideStore.get(id)
             assertEquals(name, legacy.getValue(name).size, (o.controls.getValue(ControlId.SIZE.key) as Number).toDouble(), 1e-3)
             if (ControlId.CURVE_OPACITY.key in expected.getValue(name)) {
@@ -195,11 +197,11 @@ class LegacyMigrationTest {
         assertEquals(LegacyBrushParamsMigrator.Kind.K1_BUILTIN_EDITED, r.report.kindOf(b2))
         assertEquals(setOf(ControlId.OPACITY.key), r.report.controlsOf(b2))
         assertEquals(LegacyBrushParamsMigrator.Kind.K4_EDITED, r.report.kindOf("x_$share"))
-        assertEquals(setOf(ControlId.SIZE.key), r.report.controlsOf("x_$share"))
+        assertEquals(setOf(ControlId.SIZE.key, "author", "isAuthorLocked"), r.report.controlsOf("x_$share"))
         assertEquals(LegacyBrushParamsMigrator.Kind.K5_IMPORT_EMPTY, r.report.kindOf("x_$empty"))
         assertEquals(LegacyBrushParamsMigrator.Kind.K6_ABR, r.report.kindOf("x_$abr"))
-        assertEquals(emptySet<String>(), r.report.controlsOf("x_$abr"))
-        assertEquals(setOf(ControlId.OPACITY.key), r.report.controlsOf("x_$abrEdited"))
+        assertEquals(setOf("author", "isAuthorLocked"), r.report.controlsOf("x_$abr"))
+        assertEquals(setOf(ControlId.OPACITY.key, "author", "isAuthorLocked"), r.report.controlsOf("x_$abrEdited"))
         assertEquals(LegacyBrushParamsMigrator.Kind.K5_IMPORT_EMPTY, r.report.kindOf("x_$forkAbr"))
         assertEquals(LegacyBrushParamsMigrator.Kind.K3_RESET_THEN_EDITED, r.report.kindOf("x_$oldNoAut"))
         assertTrue(ControlId.SIZE.key in r.report.controlsOf("x_$oldNoAut"))
@@ -215,7 +217,8 @@ class LegacyMigrationTest {
         assertEquals(LegacyBrushParamsMigrator.PROVENANCE_POSSIBLY_MODIFIED, r.report.adopted["x_$rewritten"])
         assertEquals(LegacyBrushParamsMigrator.PROVENANCE_MIGRATED, r.report.adopted["x_$share"])
         assertEquals(LegacyBrushParamsMigrator.PROVENANCE_MIGRATED, r.report.adopted["x_$abr"])
-        assertEquals(7, r.report.adopted.size) // .myb 与内置不导入
+        assertEquals(LegacyBrushParamsMigrator.PROVENANCE_MIGRATED, r.report.adopted["小笔"])
+        assertEquals(8, r.report.adopted.size) // 7 个 kpp + 小笔.myb；内置不导入
         val id = BrushIdentity.idForName("x_$rewritten")!!
         assertEquals(LegacyBrushParamsMigrator.PROVENANCE_POSSIBLY_MODIFIED, PresetSnapshotStore.source(id)?.optString("provenance"))
         assertEquals(BrushIdentity.Kind.IMPORTED, BrushIdentity.entryForName("x_$share")!!.kind)
@@ -247,7 +250,7 @@ class LegacyMigrationTest {
         val r1 = boot(root, stems.take(1), extra, legacy, "20261020-000000")
         val id = BrushIdentity.idForName("x_$s")!!
         val o1 = BrushOverrideStore.get(id)
-        assertEquals(setOf(ControlId.FLOW.key), o1.controls.keys)
+        assertEquals(setOf(ControlId.FLOW.key, "author", "isAuthorLocked"), o1.controls.keys)
         assertNotNull(r1.report.backupDir)
         assertTrue(File(r1.report.backupDir, "paintoppresets/x_$s.kpp").isFile)
         assertTrue(File(r1.report.backupDir, "brush_params.json").readText().contains("x_$s"))
@@ -262,5 +265,108 @@ class LegacyMigrationTest {
         assertEquals(1, BrushIdentity.all().count { it.name == "x_$s" })
         val dirs = File(root, LegacyBrushParamsMigrator.BACKUP_DIR).list()!!.sorted()
         assertEquals(listOf("20261021-000000", "20261022-000000"), dirs)
+    }
+
+    @Test
+    fun `全量迁移 schema 0 到 3 APP_ONLY 规则验证`() {
+        val b0 = stems[0] // factory K0
+        val b1 = stems[1] // factory K1
+        val imported = stems[2]
+        val builtins = listOf(b0, b1)
+        val extra = mapOf("x_$imported.kpp" to KppFixtures.bytes(imported))
+
+        fun snapP(stem: String) = PresetReadback.fromXml(xmlOf(KppFixtures.bytes(stem)))
+        val legacy = LinkedHashMap<String, BrushParams>()
+        // K0 出厂笔：带 author="Krita", isAuthorLocked=true，不应进 controls
+        legacy[b0] = snapP(b0).copy(author = "Krita", isAuthorLocked = true, isCustomized = false)
+        // K1 出厂笔：改了 opacity，且带 author="Krita", isAuthorLocked=true，author/locked 不应进 controls
+        legacy[b1] = snapP(b1).copy(opacity = 0.35, author = "Krita", isAuthorLocked = true, isCustomized = true)
+        // 非出厂笔：streamline=0.6（与 baseline 默认 0.0 不同），taper 保持默认（与 baseline 相同不写），author="外部创作者 (ABR)"
+        legacy["x_$imported"] = snapP(imported).copy(
+            streamline = 0.6,
+            author = LegacyBrushParamsMigrator.AUTHOR_ABR,
+            isAuthorLocked = true,
+            isCustomized = true,
+        )
+
+        val r = boot(File(tmp, "full_0to3"), builtins, extra, legacy)
+        val idB0 = BrushIdentity.idForName(b0)!!
+        val idB1 = BrushIdentity.idForName(b1)!!
+        val idImp = BrushIdentity.idForName("x_$imported")!!
+
+        // 出厂笔 author/isAuthorLocked 不进 controls
+        val oB0 = BrushOverrideStore.get(idB0)
+        assertFalse("author" in oB0.controls)
+        assertFalse("isAuthorLocked" in oB0.controls)
+
+        val oB1 = BrushOverrideStore.get(idB1)
+        assertEquals(0.35, (oB1.controls[ControlId.OPACITY.key] as Number).toDouble(), 1e-6)
+        assertFalse("author" in oB1.controls)
+        assertFalse("isAuthorLocked" in oB1.controls)
+
+        // 非出厂笔：streamline=0.6 写入，与 baseline 相同的 taper 不写，author="外部创作者 (ABR)" 写入
+        val oImp = BrushOverrideStore.get(idImp)
+        assertEquals(0.6, (oImp.controls["streamline"] as Number).toDouble(), 1e-6)
+        assertFalse("taper" in oImp.controls)
+        assertEquals(LegacyBrushParamsMigrator.AUTHOR_ABR, oImp.controls["author"])
+        assertEquals(true, oImp.controls["isAuthorLocked"])
+    }
+
+    @Test
+    fun `增量迁移 2 到 3 保留已有覆盖并追加 APP_ONLY 且不重导磁盘文件`() {
+        val s = stems[3]
+        val extra = mapOf("x_$s.kpp" to KppFixtures.bytes(s))
+        val sp = PresetReadback.fromXml(xmlOf(KppFixtures.bytes(s)))
+        val name = "x_$s"
+        val root = File(tmp, "incr_2to3")
+        val presetDir = File(root, "paintoppresets").apply { mkdirs() }
+        extra.forEach { (file, b) -> File(presetDir, file).writeBytes(b) }
+        val assets = mapOf<String, ByteArray>()
+
+        // 模拟已存在 schema 2 的状态：已注册 identity，overrides 中已有 kpp 控件 + rawKeys + dirty
+        BrushStoreBootstrap.resetForTest()
+        assertTrue(BrushStoreBootstrap.run(root, presetDir, true, "1", { assets }, migrate = { true }))
+        val id = BrushIdentity.newImportedId()
+        PresetSnapshotStore.putImported(id, "kpp", KppFixtures.bytes(s), JSONObject().put("provenance", "migrated"))
+        BrushIdentity.register(BrushIdentity.Entry(id, name, "kpp", BrushIdentity.Kind.IMPORTED))
+
+        val initialOverrides = BrushOverrideStore.Overrides(
+            controls = mapOf("spacing" to 0.15),
+            dirty = setOf("spacing", "unknownControl"),
+            rawKeys = mapOf("CustomRawKey" to "CustomRawValue"),
+        )
+        BrushOverrideStore.replace(id, initialOverrides)
+
+        // 磁盘上放一个新文件，测试 fromSchema=2 时不会调 adoptDiskPresets
+        File(presetDir, "should_not_adopt.kpp").writeBytes(KppFixtures.bytes(stems[4]))
+
+        val legacy = mapOf(
+            name to sp.copy(streamline = 0.7, taper = 0.2, author = "某个作者", isAuthorLocked = true),
+        )
+        val raw = org.json.JSONArray().apply { legacy.forEach { (n, p) -> put(LegacyBrushParamsCodec.encode(n, p)) } }.toString()
+
+        val report = LegacyBrushParamsMigrator.run(
+            storeRoot = root,
+            presetDir = presetDir,
+            legacy = legacy,
+            legacyRaw = raw,
+            timestamp = "20261026-120000",
+            fromSchema = 2,
+        )
+
+        // 不重新导入磁盘文件
+        assertTrue("adopted 应为空", report.adopted.isEmpty())
+        assertNull(BrushIdentity.entryForName("should_not_adopt"))
+
+        // 已有 overrides（spacing, rawKeys, dirty）原样保留，只加上 APP_ONLY 控件
+        val finalOverrides = BrushOverrideStore.get(id)
+        assertEquals(0.15, (finalOverrides.controls["spacing"] as Number).toDouble(), 1e-6)
+        assertEquals(0.7, (finalOverrides.controls["streamline"] as Number).toDouble(), 1e-6)
+        assertEquals(0.2, (finalOverrides.controls["taper"] as Number).toDouble(), 1e-6)
+        assertEquals("某个作者", finalOverrides.controls["author"])
+        assertEquals(true, finalOverrides.controls["isAuthorLocked"])
+        assertEquals(initialOverrides.rawKeys, finalOverrides.rawKeys)
+        assertEquals(initialOverrides.dirty, finalOverrides.dirty)
+        assertEquals(LegacyBrushParamsMigrator.Kind.APP_ONLY_2TO3, report.kindOf(name))
     }
 }

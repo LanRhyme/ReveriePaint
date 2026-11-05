@@ -13,6 +13,7 @@ import android.content.Intent
 import android.os.Build
 import android.os.Debug
 import android.os.Environment
+import android.os.Process
 import android.provider.MediaStore
 import android.util.Log
 import androidx.core.content.FileProvider
@@ -71,29 +72,33 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
         // 前缓冲原生路径隔离判定 (必须在任何画布挂载之前完成)
         evaluateFrontBufferQuarantine(context, logDir)
         // 原生崩溃报告本身没有设备信息, 这里把环境写进它的状态快照
-        seedNativeStateSnapshot(context)
+        NativeCrashContext.attach(context)
 
         cleanupStaleSwapFiles(context)
     }
 
     /**
-     * 前缓冲 (androidx.graphics 的 `libgraphics-core.so`) 崩过一次就按"本次安装"隔离。
+     * 前缓冲 (androidx.graphics / 系统 libgui) 崩过一次就按"本次安装"隔离。
      *
-     * 该崩溃发生在系统 libgui 的事务完成回调线程上 (fault addr 0x0), Kotlin 侧无法捕获, 只能在
-     * 下次启动时把前缓冲入口关掉, 让笔画退回主画布软件预览。隔离与 `PackageManager.lastUpdateTime`
-     * 绑定: 发新版本 (或升级 graphics-core) 后旧日志失效, 自动重试一次。
+     * 该崩溃发生在系统图形栈里 (fault addr 0x0/0x8), Kotlin 侧无法捕获, 只能在下次启动时
+     * 把前缓冲入口关掉, 让笔画退回主画布软件预览。判据见 [FrontBufferCrashSignature]:
+     * 除了栈里点名 `libgraphics-core.so`, 也认"前缓冲开着 + libgui/libandroid_runtime
+     * + 页面上 Surface 拆解"这一种 (线上占比最大的一簇)。
+     *
+     * 隔离与 `PackageManager.lastUpdateTime` 绑定: 发新版本 (或升级 graphics-core) 后
+     * 旧日志失效, 自动重试一次。
      */
     private fun evaluateFrontBufferQuarantine(context: Context, logDir: File) {
-        val hit = hasGraphicsCoreCrashSinceInstall(context, logDir)
+        val hit = hasFrontBufferCrashSinceInstall(context, logDir)
         com.reverie.paint.core.stylus.FrontBufferProbe.setCrashQuarantined(hit)
         if (hit) {
-            Log.w(TAG, "Front buffer quarantined: previous native crash stack referenced libgraphics-core.so")
-            Breadcrumbs.record("FrontBuffer", "quarantined after libgraphics-core.so native crash")
+            Log.w(TAG, "Front buffer quarantined: previous native crash matched the front-buffer signature")
+            Breadcrumbs.record("FrontBuffer", "quarantined after front-buffer native crash")
         }
     }
 
-    /** 最近的原生崩溃日志里是否出现前缓冲库 (只读少量小文件, 启动期一次性开销)。 */
-    private fun hasGraphicsCoreCrashSinceInstall(context: Context, logDir: File): Boolean {
+    /** 最近的原生崩溃日志里是否有前缓冲签名 (只读少量小文件, 启动期一次性开销)。 */
+    private fun hasFrontBufferCrashSinceInstall(context: Context, logDir: File): Boolean {
         val installedAt = runCatching {
             context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime
         }.getOrDefault(0L)
@@ -104,14 +109,22 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
             .filter { it.lastModified() >= installedAt }
             .sortedByDescending { it.lastModified() }
             .take(3)
-            .any { file -> runCatching { file.readText().contains("libgraphics-core.so") }.getOrDefault(false) }
+            .any { file ->
+                runCatching {
+                    com.reverie.paint.core.stylus.FrontBufferCrashSignature.matches(file.readText())
+                }.getOrDefault(false)
+            }
     }
 
     /**
      * 把设备/系统/前缓冲开关状态写进 Native 崩溃报告的状态快照。
      * 原生信号处理器拿不到 `android.os.Build`, 只能由 Kotlin 侧提前灌进去。
      */
-    private fun seedNativeStateSnapshot(context: Context) {
+    /**
+     * 拼原生崩溃处理器用的状态快照。除了设备/系统/前缓冲开关, 还带上"崩的时候在干什么":
+     * 页面、工具、画布尺寸、图层数 —— 这些以前是缺的, 导致上报的 doc 字段全 0。
+     */
+    internal fun buildNativeState(context: Context): String {
         val prefs = context.getSharedPreferences("paint_prefs", Context.MODE_PRIVATE)
         val predictionPref = prefs.getBoolean(
             "frontBufferPredictionEnabled",
@@ -134,7 +147,22 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
             .append(" quarantined=")
             .append(com.reverie.paint.core.stylus.FrontBufferProbe.isCrashQuarantined())
             .append('\n')
-        Breadcrumbs.updateState(sb.toString())
+
+        // 崩溃时的应用上下文(ViewModel 还没创建时只有设备信息)
+        val vm = MainActivity.currentViewModel
+        if (vm != null) {
+            runCatching {
+                sb.append("Current Page: ").append(vm.currentPage.name).append('\n')
+                vm.currentToolId.takeIf { it.isNotBlank() }
+                    ?.let { sb.append("Active Tool: ").append(it).append('\n') }
+                // 没有打开文档时 docWidth/docHeight 是默认值(1080x1920), 别当成真实画布
+                if (vm.layers.isNotEmpty() && vm.docWidth > 0 && vm.docHeight > 0) {
+                    sb.append("Document: ").append(vm.docWidth).append(" x ").append(vm.docHeight).append('\n')
+                }
+                sb.append("Layers Count: ").append(vm.layers.size).append('\n')
+            }
+        }
+        return sb.toString()
     }
 
     private fun cleanupStaleSwapFiles(context: Context) {
@@ -197,6 +225,11 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
         sb.append("Device: ${Build.DEVICE}\n")
         sb.append("Hardware: ${Build.HARDWARE}\n")
         sb.append("Android Release: ${Build.VERSION.RELEASE} (SDK ${Build.VERSION.SDK_INT})\n")
+        // 进程位数决定加载的是哪一套 .so: 排查 UnsatisfiedLinkError / ABI 装错包的第一判据
+        sb.append(
+            "ABI: ${Build.SUPPORTED_ABIS.joinToString(",")} " +
+                "(process ${if (Process.is64Bit()) "64-bit" else "32-bit"})\n",
+        )
         sb.append("Fingerprint: ${Build.FINGERPRINT}\n")
 
         val harmonyVersion = detectHarmonyOsVersion()
@@ -314,9 +347,9 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
         return DeviceInfo.getSystemProperty(key)
     }
 
-    private fun saveCrashReport(report: String) {
+    private fun saveCrashReport(report: String, prefix: String = "crash_java_") {
         val ctx = appContext ?: return
-        val fileName = "crash_java_" + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date()) + ".log"
+        val fileName = prefix + SimpleDateFormat("yyyyMMdd_HHmmss", Locale.getDefault()).format(Date()) + ".log"
 
         val dirs = mutableListOf<File>()
         ctx.getExternalFilesDir("crash_logs")?.let { dirs.add(it) }
@@ -342,6 +375,37 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
                 .take(files.size - MAX_LOG_FILES)
                 .forEach { it.delete() }
         }
+    }
+
+    /**
+     * 记录一个**被兜住**的非致命异常 (例如触摸派发里抛出、但已 catch 住不让进程 abort 的那种)。
+     *
+     * 写进 crash_logs 让遥测下次一并带出 (文件名带 handled, 不会弹"上次崩溃"提示), 因为这类
+     * 异常否则完全不可见: 它发生在 Android 输入管线里, 既不进 UncaughtExceptionHandler,
+     * 也没有 Java 崩溃报告 —— 1.6.5 遥测的 SIGABRT (art::Thread::AssertNoPendingException)
+     * 就是这种形态, 只能靠这里把异常类型捞出来。
+     *
+     * 限流 60s 一条, 避免一次手势连抛把日志刷满。
+     */
+    @Volatile
+    private var lastHandledReportAt = 0L
+
+    fun recordHandledException(context: Context, throwable: Throwable, where: String) {
+        val now = System.currentTimeMillis()
+        if (now - lastHandledReportAt < 60_000L) return
+        lastHandledReportAt = now
+        // 调用点常常在输入/UI 线程: 报告组装会执行 logcat 与设备信息采集, 绝不能就地做,
+        // 否则为了兜一个异常反而制造一次 ANR。这里只在当前线程取栈 (便宜), 其余丢后台。
+        val stack = Log.getStackTraceString(throwable)
+        val threadName = Thread.currentThread().name
+        Thread({
+            runCatching {
+                val header = "[handled] $where (进程未退出, 线程 $threadName)\n$stack\n"
+                val report = header + buildCrashReport(Thread.currentThread(), throwable)
+                saveCrashReport(report, "crash_java_handled_")
+            }.onFailure { Log.e(TAG, "recordHandledException failed: ${it.message}") }
+        }, "revp-handled-report").start()
+        Log.e(TAG, "[handled] $where: ${throwable.javaClass.name}: ${throwable.message}")
     }
 
     fun getCrashLogDirectory(context: Context): File {
@@ -370,7 +434,8 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
         val dir = getCrashLogDirectory(context)
         val files = dir.listFiles { f -> f.isFile && f.name.startsWith("crash_") && f.name.endsWith(".log") }
             ?: return null
-        val latest = files.maxByOrNull { it.lastModified() } ?: return null
+        // handled 日志是被兜住的异常, 只给诊断/遥测用, 不该弹"上次崩溃"
+        val latest = files.filter { !it.name.contains("handled") }.maxByOrNull { it.lastModified() } ?: return null
         val prefs = context.getSharedPreferences(PREF_NAME, Context.MODE_PRIVATE)
         val lastSeen = prefs.getLong(KEY_LAST_SEEN_CRASH_TIME, 0L)
         if (latest.lastModified() <= lastSeen) {

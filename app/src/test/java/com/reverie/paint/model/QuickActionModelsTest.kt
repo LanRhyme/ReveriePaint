@@ -33,6 +33,7 @@ class QuickActionModelsTest {
         assertEquals(QuickAction.TOGGLE_QUICK_COLOR, QuickAction.fromId("toggle_quick_color"))
         assertEquals(QuickAction.TOGGLE_QUICK_OKLCH, QuickAction.fromId("toggle_quick_oklch"))
         assertEquals(QuickAction.TOGGLE_QUICK_LAYER, QuickAction.fromId("toggle_quick_layer"))
+        assertEquals(QuickAction.PAN, QuickAction.fromId("pan"))
     }
 
     @Test

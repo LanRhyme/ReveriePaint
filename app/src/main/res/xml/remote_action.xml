@@ -1,0 +1,89 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- 三星 S Pen 隔空手势(Air Actions)协议声明。
+     trigger_key 必须是单键: 三星隔空操作中间件按单个 keycode 注入 KeyEvent,
+     修饰键组合(如 CTRL+ALT+SHIFT+F1)会被丢弃导致手势无响应。
+     键位选取 AT/POUND/F7..F12, 与默认快捷键表零重叠(对齐 Krita 的实测有效写法)。 -->
+<remote-actions
+    version="1.2"
+    actionset_label="@string/spen_air_title">
+    <action
+        id="spen_air_click"
+        label="@string/spen_gesture_click"
+        priority="1"
+        repeatable="true"
+        repeatable_interval="short"
+        trigger_key="AT">
+        <preference name="gesture" value="click" />
+        <preference name="button_only" value="true" />
+    </action>
+    <action
+        id="spen_air_double_click"
+        label="@string/spen_gesture_double_click"
+        priority="2"
+        repeatable="true"
+        repeatable_interval="short"
+        trigger_key="POUND">
+        <preference name="gesture" value="double_click" />
+        <preference name="button_only" value="true" />
+    </action>
+    <action
+        id="spen_air_swipe_left"
+        label="@string/spen_gesture_swipe_left"
+        priority="3"
+        repeatable="true"
+        repeatable_interval="short"
+        trigger_key="F7">
+        <preference name="gesture" value="swipe_left" />
+        <preference name="motion_only" value="true" />
+    </action>
+    <action
+        id="spen_air_swipe_right"
+        label="@string/spen_gesture_swipe_right"
+        priority="4"
+        repeatable="true"
+        repeatable_interval="short"
+        trigger_key="F8">
+        <preference name="gesture" value="swipe_right" />
+        <preference name="motion_only" value="true" />
+    </action>
+    <action
+        id="spen_air_swipe_up"
+        label="@string/spen_gesture_swipe_up"
+        priority="5"
+        repeatable="true"
+        repeatable_interval="short"
+        trigger_key="F9">
+        <preference name="gesture" value="swipe_up" />
+        <preference name="motion_only" value="true" />
+    </action>
+    <action
+        id="spen_air_swipe_down"
+        label="@string/spen_gesture_swipe_down"
+        priority="6"
+        repeatable="true"
+        repeatable_interval="short"
+        trigger_key="F10">
+        <preference name="gesture" value="swipe_down" />
+        <preference name="motion_only" value="true" />
+    </action>
+    <action
+        id="spen_air_circle_cw"
+        label="@string/spen_gesture_circle_cw"
+        priority="7"
+        repeatable="true"
+        repeatable_interval="short"
+        trigger_key="F11">
+        <preference name="gesture" value="circle_cw" />
+        <preference name="motion_only" value="true" />
+    </action>
+    <action
+        id="spen_air_circle_ccw"
+        label="@string/spen_gesture_circle_ccw"
+        priority="8"
+        repeatable="true"
+        repeatable_interval="short"
+        trigger_key="F12">
+        <preference name="gesture" value="circle_ccw" />
+        <preference name="motion_only" value="true" />
+    </action>
+</remote-actions>

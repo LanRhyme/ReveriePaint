@@ -44,6 +44,8 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
@@ -63,6 +65,7 @@ import com.reverie.paint.core.importLegacyProjectReferences
 import com.reverie.paint.core.ensureReferenceImagesLoaded
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.updateBrushColor
+import com.reverie.paint.model.DragGripSpec
 import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.components.reportUiSlot
@@ -124,6 +127,7 @@ fun ReferenceWindow(
         }
     }
     val windowShape = RoundedCornerShape(16.dp)
+    var windowCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
     val haptic = LocalHapticFeedback.current
     var isEyedropping by remember { mutableStateOf(false) }
@@ -176,6 +180,7 @@ fun ReferenceWindow(
                 hazeState = hazeState,
             )
             .evadablePanelContent(vm, UiPanelSlot.REFERENCE_WINDOW)
+            .onGloballyPositioned { windowCoords = it }
     ) {
         // 1. Full-bleed Viewport Content (Underneath navigation bars)
         Box(
@@ -481,11 +486,21 @@ fun ReferenceWindow(
 
         // 2. Persistent Top Drag Handle when bars are collapsed
         if (vm.referenceBarsCollapsed) {
+            DisposableEffect(Unit) {
+                onDispose { vm.referenceGrip.clear() }
+            }
             Box(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
                     .fillMaxWidth()
-                    .height(28.dp)
+                    .height(DragGripSpec.REFERENCE_STRIP_HEIGHT_DP.dp)
+                    .onGloballyPositioned { coords ->
+                        val root = windowCoords ?: return@onGloballyPositioned
+                        val pos = root.localPositionOf(coords, Offset.Zero)
+                        vm.referenceGrip.update(
+                            pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                        )
+                    }
                     .pointerInput(Unit) {
                         detectDragGestures(
                             onDragStart = {
@@ -503,6 +518,12 @@ fun ReferenceWindow(
                             change.consume()
                             vm.referenceWindowX += dragAmount.x
                             vm.referenceWindowY += dragAmount.y
+                            vm.clampQuickWindowsToSafeArea(
+                                vm.floatingHostWidthPx,
+                                vm.floatingHostHeightPx,
+                                density.density,
+                                persist = false,
+                            )
                         }
                     },
                 contentAlignment = Alignment.TopCenter
@@ -524,6 +545,9 @@ fun ReferenceWindow(
             exit = fadeOut(tween(150)) + slideOutVertically(tween(150)) { -it },
             modifier = Modifier.align(Alignment.TopCenter)
         ) {
+            DisposableEffect(Unit) {
+                onDispose { vm.referenceGrip.clear() }
+            }
             ReferenceTopBar(
                 activeTab = vm.referenceActiveTab,
                 hasImages = vm.referenceImages.isNotEmpty(),
@@ -544,6 +568,12 @@ fun ReferenceWindow(
                     }
                     vm.referenceWindowX += dx
                     vm.referenceWindowY += dy
+                    vm.clampQuickWindowsToSafeArea(
+                        vm.floatingHostWidthPx,
+                        vm.floatingHostHeightPx,
+                        density.density,
+                        persist = false,
+                    )
                     vm.persistReferenceState()
                 },
                 onToggleSettings = { showSettingsPopup = !showSettingsPopup },
@@ -551,7 +581,14 @@ fun ReferenceWindow(
                     vm.referenceWindowOpen = false
                     vm.persistReferenceState()
                     onClose()
-                }
+                },
+                onGripPositioned = { coords ->
+                    val root = windowCoords ?: return@ReferenceTopBar
+                    val pos = root.localPositionOf(coords, Offset.Zero)
+                    vm.referenceGrip.update(
+                        pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                    )
+                },
             )
         }
 
@@ -674,12 +711,14 @@ private fun ReferenceTopBar(
     onDrag: (Float, Float) -> Unit,
     onToggleSettings: () -> Unit,
     onClose: () -> Unit,
+    onGripPositioned: (LayoutCoordinates) -> Unit = {},
     modifier: Modifier = Modifier
 ) {
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .height(38.dp)
+            .height(DragGripSpec.REFERENCE_TOP_BAR_HEIGHT_DP.dp)
+            .onGloballyPositioned(onGripPositioned)
             .background(Morandi.panel.copy(alpha = 0.92f))
             .pointerInput(Unit) {
                 detectDragGestures { change, dragAmount ->

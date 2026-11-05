@@ -171,6 +171,15 @@ internal fun PaintViewModel.touchStart(
         return false
     }
 
+    if (currentToolId == "brush" || currentToolId == "eraser" || currentToolId == "smudge") {
+        if (brushPresets.isEmpty()) {
+            return false
+        }
+        if (brushPresetIndex < 0 || brushPresets.none { it.index == brushPresetIndex }) {
+            applyTool(currentToolId, force = true)
+        }
+    }
+
     // 物理橡皮擦末端 (TOOL_TYPE_ERASER) 或侧键临时擦除: 独立联动橡皮擦工具参数
     val isEraserOverride = toolOverride == "eraser" && currentToolId != "eraser"
     var eraserPresetIdx = -1
@@ -179,29 +188,33 @@ internal fun PaintViewModel.touchStart(
     var effEraserFlow = 1.0
     if (isEraserOverride) {
         activeStrokeToolOverride = toolOverride
-        activeStrokeOriginalPresetIndex = brushPresetIndex
-        activeStrokeOriginalSize = brushSize
-        activeStrokeOriginalOpacity = brushOpacity
-        activeStrokeOriginalFlow = brushFlow
-        activeStrokeOriginalCompositeOp = brushCompositeOp
-        activeStrokeOriginalToolMode = when (currentToolId) {
-            "brush" -> 0
-            "eraser" -> 1
-            "smudge" -> 3
-            else -> 0
-        }
+        strokeSaved = PaintViewModel.StrokeSaved(
+            presetIndex = brushPresetIndex,
+            size = brushSize,
+            opacity = brushOpacity,
+            flow = brushFlow,
+            compositeOp = brushCompositeOp,
+            toolMode = when (currentToolId) {
+                "brush" -> 0
+                "eraser" -> 1
+                "smudge" -> 3
+                else -> 0
+            },
+        )
 
         val eraserState = toolBrushStates["eraser"]
         val defaultEraserIdx = brushPresets.firstOrNull { it.name == "a)_Eraser_Circle" }?.index
             ?: brushPresets.firstOrNull { it.name == "Eraser_circle" }?.index
             ?: brushPresets.firstOrNull { it.group == "橡皮擦" }?.index
             ?: -1
-        // #136 A：先按名字解析（索引会随导入/删除重排），解析不到才退回默认橡皮
+        // #136 A / v5 S3：先按 id 解析，解析不到才退回旧名字/默认橡皮
         eraserPresetIdx = ToolPresetMemory.resolve(
-            eraserState?.presetName ?: "",
+            eraserState?.presetId ?: "",
             eraserState?.presetIndex ?: -1,
             brushPresets,
         )?.index ?: defaultEraserIdx
+        val eraserPreset = brushPresets.firstOrNull { it.index == eraserPresetIdx }
+        val eraserId = eraserPreset?.id ?: ""
         if (eraserState == null && eraserPresetIdx >= 0) {
             toolBrushStates = toolBrushStates.toMutableMap().apply {
                 put(
@@ -209,14 +222,14 @@ internal fun PaintViewModel.touchStart(
                     PaintViewModel.ToolBrushState(
                         category = "橡皮擦",
                         presetIndex = eraserPresetIdx,
-                        presetName = brushPresets.firstOrNull { it.index == eraserPresetIdx }?.name ?: "",
+                        presetId = eraserId,
                     ),
                 )
             }
         }
-        val eraserPreset = brushPresets.firstOrNull { it.index == eraserPresetIdx }
-        val savedEraserParam = eraserPreset?.let { brushParams[it.name] }
-        val eraserMem = eraserPreset?.let { eraserState?.paramMemory?.get(it.name) }
+        val eraserMem = eraserId.takeIf { it.isNotBlank() }?.let { eraserState?.paramMemory?.get(it) }
+        // 笔画起手在主线程：工具记忆已有值就不读盘；没有才回读一次预设（避免每笔读文件 + 解析 XML）
+        val savedEraserParam by lazy { eraserId.takeIf { it.isNotBlank() }?.let { BrushStoreVm.readback(it)?.first } }
 
         effEraserSize = eraserMem?.getOrNull(0) ?: savedEraserParam?.size ?: brushSize
         effEraserOpacity = eraserMem?.getOrNull(1) ?: savedEraserParam?.opacity ?: 1.0
@@ -227,8 +240,9 @@ internal fun PaintViewModel.touchStart(
         activeStrokePresetSwitched = false
     }
 
+    val isModeEraser = isEraserOverride || (isEraserMode && currentToolId == "brush")
     if (recorder.recording) {
-        val mode = if (isEraserOverride) 1 else when (currentToolId) {
+        val mode = if (isModeEraser) 1 else when (currentToolId) {
             "brush" -> 0
             "eraser" -> 1
             "smudge" -> 3
@@ -238,7 +252,7 @@ internal fun PaintViewModel.touchStart(
         val strokeSize = if (isEraserOverride) effEraserSize else brushSize
         val strokeOpacity = if (isEraserOverride) effEraserOpacity else brushOpacity
         val strokeFlow = if (isEraserOverride) effEraserFlow else brushFlow
-        val strokeOp = if (isEraserOverride) "erase" else brushCompositeOp
+        val strokeOp = if (isModeEraser) "erase" else brushCompositeOp
 
         recorder.captureContext(
             toolMode = mode,
@@ -250,7 +264,8 @@ internal fun PaintViewModel.touchStart(
             color = strokeColor,
             layer = currentLayerIndex,
         )
-        val strokeParams = brushPresets.firstOrNull { it.index == strokePreset }?.let { brushParams[it.name] }
+        val strokePid = brushPresets.firstOrNull { it.index == strokePreset }?.id
+        val strokeCustomized = strokePid?.let { BrushStoreVm.hasEffectivePreset(it) } == true
         recorder.captureContextExt(
             softness = brushSoftness,
             spacing = brushSpacing,
@@ -264,13 +279,14 @@ internal fun PaintViewModel.touchStart(
             secondaryColor = brushSecondaryColor,
             airbrushEnabled = brushAirbrush,
             airbrushRate = brushAirbrushRate,
-            isCustomized = strokeParams != null,
-            spacingCustomized = strokeParams?.spacingCustomized == true,
+            // 与回读非空等价（回读恒标这两项为 true），只 stat 不读盘
+            isCustomized = strokeCustomized,
+            spacingCustomized = strokeCustomized,
         )
         recorder.captureBrushFade(brushFade)
         recorder.strokeStart(x, y, effPressure.toFloat())
     }
-    val mode = if (isEraserOverride) 1 else when (currentToolId) {
+    val mode = if (isModeEraser) 1 else when (currentToolId) {
         "brush" -> 0
         "eraser" -> 1
         "smudge" -> 3
@@ -293,18 +309,15 @@ internal fun PaintViewModel.touchStart(
         }
         if (isEraserOverride) {
             // #116: 先保存引擎活状态, 松开后原样换回, 避免从磁盘重载打回未落盘的调整
-            ReverieCoreBridge.beginPresetOverrideSnapshot()
-            if (eraserPresetIdx >= 0 && eraserPresetIdx != brushPresetIndex) {
-                ReverieCoreBridge.loadBrushPreset(eraserPresetIdx)
-            }
-            ReverieCoreBridge.setPresetIsEraser(true)
-            ReverieCoreBridge.setBrushCompositeOp("erase")
-            ReverieCoreBridge.setBrushSize(effEraserSize)
-            ReverieCoreBridge.setBrushOpacity(effEraserOpacity)
-            ReverieCoreBridge.setBrushFlow(effEraserFlow)
-            ReverieCoreBridge.setToolMode(1)
+            com.reverie.paint.core.brushstore.BrushApply.beginEraserOverride(
+                eraserPresetIdx = eraserPresetIdx,
+                currentPresetIdx = brushPresetIndex,
+                size = effEraserSize,
+                opacity = effEraserOpacity,
+                flow = effEraserFlow,
+            )
         } else {
-            ReverieCoreBridge.setToolMode(mode)
+            com.reverie.paint.core.brushstore.BrushApply.applyToolMode(mode)
         }
         try {
             ReverieCoreBridge.touchStrokeStartWithSensors(
@@ -639,7 +652,7 @@ internal fun PaintViewModel.touchEnd(
             realInkSink?.onStrokeCommitted(strokeSeq)
             engineMirrorSeq = 0
             if (hadOverride && !deferOverrideRestore) {
-                val engineRestored = ReverieCoreBridge.endPresetOverrideSnapshot()
+                val engineRestored = com.reverie.paint.core.brushstore.BrushApply.endOverride()
                 if (!engineRestored) {
                     restoreCurrentBrushToNative(reloadPreset = presetSwitched)
                 } else {
@@ -657,7 +670,7 @@ internal fun PaintViewModel.touchEnd(
             realInkSink?.onStrokeCommitted(strokeSeq)
             engineMirrorSeq = 0
             if (hadOverride && !deferOverrideRestore) {
-                val engineRestored = ReverieCoreBridge.endPresetOverrideSnapshot()
+                val engineRestored = com.reverie.paint.core.brushstore.BrushApply.endOverride()
                 if (!engineRestored) {
                     restoreCurrentBrushToNative(reloadPreset = presetSwitched)
                 } else {
@@ -694,7 +707,7 @@ internal fun PaintViewModel.touchCancel() {
         ReverieCoreBridge.touchStrokeCancel()
         engineMirrorSeq = 0
         if (hadOverride) {
-            val engineRestored = ReverieCoreBridge.endPresetOverrideSnapshot()
+            val engineRestored = com.reverie.paint.core.brushstore.BrushApply.endOverride()
             if (!engineRestored) {
                 restoreCurrentBrushToNative(reloadPreset = presetSwitched)
             } else {
@@ -720,7 +733,7 @@ internal fun PaintViewModel.replaySymmetricBranches(
 
     val restoreOverrideNative = {
         if (hadOverride) {
-            val engineRestored = ReverieCoreBridge.endPresetOverrideSnapshot()
+            val engineRestored = com.reverie.paint.core.brushstore.BrushApply.endOverride()
             if (!engineRestored) {
                 restoreCurrentBrushToNative(reloadPreset = presetSwitched)
             } else {
@@ -790,7 +803,7 @@ internal fun PaintViewModel.replaySymmetricBranches(
     // 与 recordMirroredBranchesOnly 共享同一份写入逻辑, 避免两处格式漂移。
     recordMirroredBranchesToRecorder(activeBranches, activeCounts, totalActive, isEraser)
 
-    val mode = if (isEraser) 1 else when (currentToolId) {
+    val mode = if (isEraser || (isEraserMode && currentToolId == "brush")) 1 else when (currentToolId) {
         "brush" -> 0
         "eraser" -> 1
         "smudge" -> 3
@@ -810,11 +823,7 @@ internal fun PaintViewModel.replaySymmetricBranches(
                 val startX = buf[0]
                 val startY = buf[1]
                 if (!startX.isFinite() || !startY.isFinite()) continue
-                ReverieCoreBridge.setToolMode(mode)
-                if (isEraser) {
-                    ReverieCoreBridge.setPresetIsEraser(true)
-                    ReverieCoreBridge.setBrushCompositeOp("erase")
-                }
+                com.reverie.paint.core.brushstore.BrushApply.applySymmetry(mode, isEraser)
                 val startP = buf[2].toDouble().coerceIn(0.0, 1.0)
                 val startTiltX = buf[3].toDouble()
                 val startTiltY = buf[4].toDouble()
@@ -887,7 +896,7 @@ private fun PaintViewModel.recordMirroredBranchesToRecorder(
 ) {
     if (!recorder.recording) return
     val stride = PaintViewModel.STROKE_SAMPLE_STRIDE_WITH_TIME
-    val toolMode = if (isEraser) 1 else when (currentToolId) {
+    val toolMode = if (isEraser || (isEraserMode && currentToolId == "brush")) 1 else when (currentToolId) {
         "brush" -> 0
         "eraser" -> 1
         "smudge" -> 3
@@ -902,11 +911,12 @@ private fun PaintViewModel.recordMirroredBranchesToRecorder(
             size = brushSize,
             opacity = brushOpacity,
             flow = brushFlow,
-            compositeOp = if (isEraser) "erase" else brushCompositeOp,
+            compositeOp = if (isEraser || (isEraserMode && currentToolId == "brush")) "erase" else brushCompositeOp,
             color = brushColor,
             layer = currentLayerIndex,
         )
-        val strokeParams = brushPresets.firstOrNull { it.index == brushPresetIndex }?.let { brushParams[it.name] }
+        val curPid = brushPresets.firstOrNull { it.index == brushPresetIndex }?.id
+        val curCustomized = curPid?.let { BrushStoreVm.hasEffectivePreset(it) } == true
         recorder.captureContextExt(
             softness = brushSoftness,
             spacing = brushSpacing,
@@ -920,8 +930,8 @@ private fun PaintViewModel.recordMirroredBranchesToRecorder(
             secondaryColor = brushSecondaryColor,
             airbrushEnabled = brushAirbrush,
             airbrushRate = brushAirbrushRate,
-            isCustomized = strokeParams != null,
-            spacingCustomized = strokeParams?.spacingCustomized == true,
+            isCustomized = curCustomized,
+            spacingCustomized = curCustomized,
         )
         recorder.captureBrushFade(brushFade)
         val effStartP = buf[2].coerceIn(0f, 1f)
@@ -970,9 +980,87 @@ internal fun PaintViewModel.recordMirroredBranchesOnly(
     recordMirroredBranchesToRecorder(activeBranches, activeCounts, totalActive, isEraser)
 }
 
-internal fun PaintViewModel.applyTool(toolId: String) {
+/**
+ * 把"当前工具"的工具态重新推给引擎（幂等，不重载预设）。
+ *
+ * 用于 UI 与引擎可能脱钩的自愈场景：引擎侧的工具态会被临时橡皮快照还原
+ * (endPresetOverrideSnapshot)、或上一次失败的预设加载改掉，而 UI 的
+ * currentToolId 没变。此时若用户再点同一个工具，工具栏走的是"打开笔刷面板"
+ * 分支、`applyTool` 又有"同工具直接返回"的短路，两边就永远对不上 ——
+ * 表现为"点了橡皮却还在画"。
+ */
+internal fun PaintViewModel.reassertToolMode() {
+    val mode =
+        if (isEraserMode && currentToolId == "brush") {
+            1
+        } else {
+            when (currentToolId) {
+                "brush" -> 0
+                "eraser" -> 1
+                "smudge" -> 3
+                else -> -1
+            }
+        }
+    if (mode >= 0) {
+        runCore(render = false) { com.reverie.paint.core.brushstore.BrushApply.applyToolMode(mode) }
+    }
+}
+
+/**
+ * 切换橡皮模式 (Krita 风格): 当前笔刷不变, 仅将底层绘制模式切换为擦除
+ */
+fun PaintViewModel.toggleEraserMode() {
+    if (currentToolId != "brush") {
+        showActionToast(R.string.toast_eraser_mode_require_brush, R.drawable.ic_brush)
+        return
+    }
+    setEraserModeInternal(!isEraserMode, showToast = true)
+}
+
+internal fun PaintViewModel.setEraserModeInternal(enabled: Boolean, showToast: Boolean = false) {
+    if (isEraserMode == enabled) return
+    isEraserMode = enabled
+    if (enabled) {
+        runCore(render = false) {
+            com.reverie.paint.core.brushstore.BrushApply.applyToolMode(1)
+        }
+        if (showToast) {
+            showActionToast(R.string.toast_eraser_mode_on, R.drawable.ic_eraser_mode)
+        }
+    } else {
+        val mode = if (currentToolId == "brush") 0 else when (currentToolId) {
+            "eraser" -> 1
+            "smudge" -> 3
+            else -> 0
+        }
+        runCore(render = false) {
+            com.reverie.paint.core.brushstore.BrushApply.applyToolMode(mode)
+        }
+        if (showToast) {
+            showActionToast(R.string.toast_eraser_mode_off, R.drawable.ic_eraser_mode)
+        }
+    }
+}
+
+internal fun PaintViewModel.applyTool(toolId: String, force: Boolean = false) {
     if (isQuickShapeEditing) return
-    if (toolId == currentToolId && !isTemporaryPicker) {
+    if (isEraserMode) {
+        setEraserModeInternal(false, showToast = false)
+    }
+    if (toolId == currentToolId && !isTemporaryPicker && !force) {
+        // 同一个工具再点一次: 仍然把工具态重推给引擎。引擎侧的工具态可能被临时橡皮
+        // 快照还原、或上一次失败的预设加载改掉, 而 UI 这边 currentToolId 没变; 重推
+        // 一次就能自愈, 否则会出现"点了橡皮却还在画/点了画笔却还在擦"。
+        val againMode =
+            when (toolId) {
+                "brush" -> 0
+                "eraser" -> 1
+                "smudge" -> 3
+                else -> -1
+            }
+        if (againMode >= 0) {
+            runCore(render = false) { com.reverie.paint.core.brushstore.BrushApply.applyToolMode(againMode) }
+        }
         return
     }
     if (toolId != currentToolId) {
@@ -996,7 +1084,7 @@ internal fun PaintViewModel.applyTool(toolId: String) {
     if (mode >= 0) {
         // Serialize with flushStrokeBatch: setToolMode mutating m_toolMode
         // mid-stroke from the UI thread tore the dab pipeline
-        runCore(render = false) { ReverieCoreBridge.setToolMode(mode) }
+        runCore(render = false) { com.reverie.paint.core.brushstore.BrushApply.applyToolMode(mode) }
     }
     if (toolId != "lasso") {
         lassoMultiPoints = emptyList()
@@ -1044,15 +1132,18 @@ internal fun PaintViewModel.applyTool(toolId: String) {
             ?: brushPresets.firstOrNull { it.name == "b)_Basic-5_Size_Opacity" }?.index
             ?: brushPresets.firstOrNull { it.group == "基础" && !it.name.startsWith("a)_Eraser", ignoreCase = true) && !it.name.contains("Eraser", ignoreCase = true) }?.index
             ?: brushPresets.firstOrNull { it.group != "橡皮擦" && !it.name.startsWith("a)_Eraser", ignoreCase = true) && !it.name.contains("Eraser", ignoreCase = true) }?.index
+            ?: brushPresets.firstOrNull()?.index
             ?: -1
 
         val defaultEraserIdx = brushPresets.firstOrNull { it.name == "a)_Eraser_Circle" }?.index
             ?: brushPresets.firstOrNull { it.name == "Eraser_circle" }?.index
             ?: brushPresets.firstOrNull { it.group == "橡皮擦" }?.index
+            ?: brushPresets.firstOrNull()?.index
             ?: -1
 
         val defaultSmudgeIdx = brushPresets.firstOrNull { it.name == "k)_Blender_Basic" }?.index
             ?: brushPresets.firstOrNull { it.group == "混合" }?.index
+            ?: brushPresets.firstOrNull()?.index
             ?: -1
 
         if (state == null) {
@@ -1071,17 +1162,18 @@ internal fun PaintViewModel.applyTool(toolId: String) {
             } else {
                 defaultIdx
             }
+            val initialId = brushPresets.firstOrNull { it.index == initialPresetIdx }?.id ?: ""
             state = PaintViewModel.ToolBrushState(
                 category = cat,
                 presetIndex = initialPresetIdx,
-                presetName = brushPresets.firstOrNull { it.index == initialPresetIdx }?.name ?: "",
+                presetId = initialId,
             )
             toolBrushStates = toolBrushStates.toMutableMap().apply { put(toolId, state) }
         }
 
-        // #136 A：工具槽以名字为身份（索引会随导入/删除重排）。解析不到就退回本工具的默认笔，
+        // #136 A / v5 S3：工具槽以 presetId 为身份（索引会随导入/删除重排）。解析不到就退回本工具的默认笔，
         // 并把槽修好，避免下一次又拿着漂移的索引去选笔。
-        var resolved = ToolPresetMemory.resolve(state.presetName, state.presetIndex, brushPresets)
+        var resolved = ToolPresetMemory.resolve(state.presetId, state.presetIndex, brushPresets)
         if (isBrushTool && resolved != null) {
             // Self-healing: if brush tool mistakenly inherited an eraser preset, revert to default drawing brush
             val isEraser = resolved.group == "橡皮擦" || resolved.name.startsWith("a)_Eraser") ||
@@ -1099,8 +1191,9 @@ internal fun PaintViewModel.applyTool(toolId: String) {
             }
             resolved = brushPresets.firstOrNull { it.index == fallbackIdx }
         }
-        if (resolved != null && (resolved.index != state.presetIndex || resolved.name != state.presetName)) {
-            state = state.copy(presetIndex = resolved.index, presetName = resolved.name)
+        val resolvedId = resolved?.id ?: ""
+        if (resolved != null && (resolved.index != state.presetIndex || resolvedId != state.presetId)) {
+            state = state.copy(presetIndex = resolved.index, presetId = resolvedId)
             toolBrushStates = toolBrushStates.toMutableMap().apply { put(toolId, state) }
         }
 
@@ -1115,16 +1208,11 @@ internal fun PaintViewModel.applyTool(toolId: String) {
         // 说明槽里的预设已被删除且没有可用的默认笔，什么都不做。
         val targetPreset = resolved
         if (targetPreset != null) {
-            if (isResumingSameDrawingTool && targetPreset.index == brushPresetIndex) {
+            if (!force && isResumingSameDrawingTool && targetPreset.index == brushPresetIndex) {
                 // 用户从吸管等临时工具切回当前正在使用的同一个绘制工具, 笔刷预设索引未改变:
                 // 此时用户调好的笔刷大小/不透明度/流量应当保持原样, 严禁被旧快照覆盖!
                 runCore(render = false) {
-                    ReverieCoreBridge.setBrushSize(brushSize)
-                    ReverieCoreBridge.setBrushOpacity(brushOpacity)
-                    ReverieCoreBridge.setBrushFlow(brushFlow)
-                    ReverieCoreBridge.setBrushSmudgeRate(brushSmudgeRate)
-                    ReverieCoreBridge.setBrushSmudgeLength(brushSmudgeLength)
-                    ReverieCoreBridge.setBrushAirbrush(brushAirbrush, brushAirbrushRate)
+                    com.reverie.paint.core.brushstore.BrushApply.applyToolResume(brushSize, brushOpacity, brushFlow)
                 }
             } else {
                 // 工具切换或预设改变: 统一走标准预设加载流程, 保证间距、动态、笔尖与 compositeOp 完整恢复并覆盖工具记忆
@@ -1531,11 +1619,24 @@ internal fun PaintViewModel.applyTransform(
         clearSelectionOverlayLocal()
     }
 
+    // 引擎返回 false = 这次变换一个像素都没写出去 (选区里没有内容 / 落点全在画布外)。
+    // 「复制到当前图层」这种语义下就是用户点了复制却什么都看不到, 必须说出来,
+    // 否则只能收获一句「复制完内容消失了」。
+    var applied = true
     runCore(render = true, after = {
         notifyLayerChanged(pixelChanged = true)
         transformPreviewBitmap = null
         transformCopyOnly = false
         isSelectionTransformPending = false
+        if (!applied && copyOnly) {
+            showActionToast(R.string.toast_transform_nothing_applied, R.drawable.ic_lasso)
+        } else if (copyOnly && xtranslate == 0.0 && ytranslate == 0.0 &&
+            (xscale != 1.0 || yscale != 1.0 || rotationRad != 0.0)
+        ) {
+            // 纯翻转/旋转/缩放的副本以选区中心为轴, 落点与原件完全重合 —— 屏幕上
+            // 只能看到"原件被改", 用户很容易以为复制出来的那份没了。说清楚一句。
+            showActionToast(R.string.toast_transform_copy_overlaps, R.drawable.ic_copy)
+        }
         if (wasSelectionPending) {
             clearSelection()
         } else if (shouldStashSelection) {
@@ -1548,19 +1649,20 @@ internal fun PaintViewModel.applyTransform(
             stashPreTransformSelectionCore()
         }
         val targets = layers.toIntArray()
-        ReverieCoreBridge.applyTransformLayersEx(
-            targets,
-            xscale,
-            yscale,
-            xshear,
-            yshear,
-            rotationRad,
-            xtranslate,
-            ytranslate,
-            originX,
-            originY,
-            copyOnly,
-        )
+        applied =
+            ReverieCoreBridge.applyTransformLayersEx(
+                targets,
+                xscale,
+                yscale,
+                xshear,
+                yshear,
+                rotationRad,
+                xtranslate,
+                ytranslate,
+                originX,
+                originY,
+                copyOnly,
+            )
         if (shouldStashSelection && !wasSelectionPending) {
             stashPostTransformAndClearSelectionCore()
         }
@@ -1721,7 +1823,42 @@ internal fun PaintViewModel.applyWarpMeshTransform(
     }
 }
 
-internal fun PaintViewModel.undo(settled: (() -> Unit)? = null) {
+/**
+ * 变换进行中: 撤销/重做会把预览事务依赖的像素/选区回滚掉, 事务结束 (commit/cancel) 时
+ * 直接撞 `KisTransactionData::endTransaction` 的一致性断言 (线上 7738948083 同类路径)。
+ *
+ * 判据只有 [transformPreviewBitmap]: 它在 `startTransformPreview()` 成功时置位 (与变换框
+ * 同时出现), 在确认/取消变换时清空 —— 正是引擎里 `m_previewTransaction` 存活的那段窗口。
+ * **不要**用 `CanvasTouchView.isTransformActive`: 那是双指捏合/旋转手势的标志 (渲染线程
+ * 用它判断这一笔能否留在前缓冲), 双指轻点撤销本身就会把它置 true, 会让撤销把自己挡住。
+ */
+internal val PaintViewModel.isHistoryBlockedByTransform: Boolean
+    get() = transformPreviewBitmap != null
+
+/**
+ * 变换期间挡住撤销/重做: 给用户一句提示, 并把链式步 (撤回条泵) 的 settled 回调交还,
+ * 避免泵卡在"一步在途"。
+ *
+ * @return true 表示已拦截, 调用方应立即 return
+ */
+private var lastTransformBlockToastAtMs = 0L
+
+private fun PaintViewModel.blockHistoryDuringTransform(settled: (() -> Unit)?): Boolean {
+    if (!isHistoryBlockedByTransform) return false
+    // 双指/三指连续撤销会每 120ms 调一次 undo: 提示必须节流, 否则整屏都是 toast
+    val now = android.os.SystemClock.uptimeMillis()
+    if (undoToastEnabled && now - lastTransformBlockToastAtMs >= 1500L) {
+        lastTransformBlockToastAtMs = now
+        showActionToast(R.string.toast_transform_blocks_undo, R.drawable.ic_tf_standard)
+    }
+    settled?.invoke()
+    return true
+}
+
+internal fun PaintViewModel.undo(fromPanel: Boolean = false, settled: (() -> Unit)? = null) {
+    // 变换预览是引擎里的长事务, 预览期间回滚历史会把它依赖的像素抽走 (见 isHistoryBlockedByTransform)
+    if (blockHistoryDuringTransform(settled)) return
+    onHistoryActionTriggered(fromPanel)
     val restoreTransformSel = transientTransformSelectionPending || canUndoTransformSelection
     if (isQuickShapeEditing) { cancelQuickShape(); return }
     if (customUndoHook?.invoke() == true) {
@@ -1822,7 +1959,9 @@ internal fun PaintViewModel.undo(settled: (() -> Unit)? = null) {
     }
 }
 
-internal fun PaintViewModel.redo(settled: (() -> Unit)? = null) {
+internal fun PaintViewModel.redo(fromPanel: Boolean = false, settled: (() -> Unit)? = null) {
+    if (blockHistoryDuringTransform(settled)) return
+    onHistoryActionTriggered(fromPanel)
     val restoreRedoSel = canRedoTransformSelection
     if (isQuickShapeEditing) return
     if (isCurrentLayer3D && canRedo3D) {
@@ -2281,19 +2420,29 @@ internal fun PaintViewModel.startTransformPreview() {
         val b = android.graphics.Bitmap.createBitmap(docWidth, docHeight, android.graphics.Bitmap.Config.ARGB_8888)
         b.setPremultiplied(true)
         val success = ReverieCoreBridge.startTransformPreviewLayersEx(targets, b, copyOnly)
+        if (!success) {
+            ReverieCoreBridge.cancelTransformPreview()
+        }
         mainHandler.post {
             if (success) {
                 transformPreviewBitmap = b.asImageBitmap()
+            } else {
+                transformPreviewBitmap = null
+                notifyLayerChanged(forceThumbs = true, immediateRender = true)
             }
         }
     }
 }
 
-internal fun PaintViewModel.cancelTransformPreview() {
+internal fun PaintViewModel.cancelTransformPreview(resetCopyOnly: Boolean = true) {
+    val token = transformSessionToken
     runCore(render = true, after = {
         transformPreviewBitmap = null
-        transformCopyOnly = false
-        isSelectionTransformPending = false
+        if (resetCopyOnly && token == transformSessionToken) {
+            transformCopyOnly = false
+            isSelectionTransformPending = false
+        }
+        notifyLayerChanged(forceThumbs = true, immediateRender = true)
     }) {
         ReverieCoreBridge.cancelTransformPreview()
     }
@@ -2306,6 +2455,9 @@ internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean
     }
 
     if (toNewLayer) {
+        // 新层插在源层上方, 插入之后索引会整体错位: 缩略图重取按图层 id 走,
+        // 先把源层 id 记下来 (索引到那时已经指向别人了)
+        val srcLayerId = layers.getOrNull(currentLayerIndex)?.id
         var success = false
         runCore(render = true, after = {
             if (!success) {
@@ -2313,11 +2465,21 @@ internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean
                 return@runCore
             }
             syncLayersFromNative()
+            // 这一步动了两层的像素: 源层被抠掉一块、新层多了内容。缩略图必须跟着重取,
+            // 否则图层面板 / 快捷图层小窗会停在"抠之前"的旧图上, 新层干脆是空白格 ——
+            // 复制完看着像没生效 (实测 1.6.1 复现)。
+            // 只重取这两层、不做全量强刷: 全量渲染会排在紧随其后的 contentBounds() 前面,
+            // 上百层的大工程能把它的 120ms 预算吃光, 变换框就退回整张画布了。
+            val thumbIds = setOfNotNull(srcLayerId, layers.getOrNull(currentLayerIndex)?.id)
+            if (thumbIds.isNotEmpty()) {
+                refreshLayerThumbs(force = layerThumbsVisible, onlyLayerIds = thumbIds)
+            }
             selectedLayerIndices = emptySet()
             selectionMask = null
             hasSelection = false
             selectionOverlayBitmap = null
             selectionOutlinePath = null
+            transformSessionToken++
             transformCopyOnly = false
             isSelectionTransformPending = true
             currentToolId = Tool.TRANSFORM.id
@@ -2333,11 +2495,15 @@ internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean
             }
         }
     } else {
-        val bounds = contentBounds()
-        if (bounds == null || bounds[2] <= 0 || bounds[3] <= 0) {
+        // 空选区守卫: 选区内一个像素都没有时不要把用户丢进一个空变换会话。
+        // 不能省这一步 —— 变换工具自己也会算一次内容边界, 但它区分不出"选区内没像素",
+        // 会退而在整张画布上开框, 用户一动就把整层都带走了。
+        val contentRect = contentBounds()
+        if (contentRect == null || contentRect[2] <= 0 || contentRect[3] <= 0) {
             showActionToast(R.string.toast_selection_empty_pixels, R.drawable.ic_lasso)
             return
         }
+        transformSessionToken++
         transformCopyOnly = !cut
         isSelectionTransformPending = true
         currentToolId = Tool.TRANSFORM.id

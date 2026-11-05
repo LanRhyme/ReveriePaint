@@ -228,36 +228,46 @@ internal fun BrushStudioScratchpadPanel(
     val thumbnailUpdatedToast = stringResource(R.string.brush_studio_toast_thumbnail_updated)
 
     DisposableEffect(Unit) {
-        runCatching { ReverieCoreBridge.setBrushColor(vm.brushColor) }
+        val color = vm.brushColor
+        vm.runCore(render = false) {
+            runCatching { ReverieCoreBridge.setBrushColor(color) }
+        }
         onDispose {
-            ReverieCoreBridge.scratchpadEnd()
-            scratchBitmap?.recycle()
+            // runCore 只入队。bitmap 要等 scratchpadEnd 的 after 再回收，否则渲染线程会画到已回收的 bitmap。
+            val bmp = scratchBitmap
             scratchBitmap = null
+            vm.runCore(render = false, after = { bmp?.recycle() }) {
+                ReverieCoreBridge.scratchpadEnd()
+            }
         }
     }
 
-    // 重放已有笔画至 C++ 试画板
+    // 重放已有笔画至 C++ 试画板。strokes 在主线程快照；JNI 在渲染线程。
     fun replayStrokesOnEngine(bmp: Bitmap) {
-        ReverieCoreBridge.scratchpadClear()
-        for (stroke in strokes) {
-            if (stroke.isEmpty()) continue
-            val p0 = stroke[0]
-            ReverieCoreBridge.scratchpadStrokeStart(
-                p0.x.toDouble(), p0.y.toDouble(), p0.pressure.toDouble(),
-                p0.tiltX.toDouble(), p0.tiltY.toDouble(), p0.rotation.toDouble()
-            )
-            for (i in 1 until stroke.size) {
-                val pi = stroke[i]
-                ReverieCoreBridge.scratchpadStrokeMove(
-                    pi.x.toDouble(), pi.y.toDouble(), pi.pressure.toDouble(),
-                    pi.tiltX.toDouble(), pi.tiltY.toDouble(), pi.rotation.toDouble()
+        val snapshot = strokes.map { it.toList() }
+        vm.runCore(render = false, after = { renderTick++ }) {
+            ReverieCoreBridge.scratchpadClear()
+            for (stroke in snapshot) {
+                if (stroke.isEmpty()) continue
+                val p0 = stroke[0]
+                ReverieCoreBridge.scratchpadStrokeStart(
+                    p0.x.toDouble(), p0.y.toDouble(), p0.pressure.toDouble(),
+                    p0.tiltX.toDouble(), p0.tiltY.toDouble(), p0.rotation.toDouble(),
                 )
+                for (i in 1 until stroke.size) {
+                    val pi = stroke[i]
+                    ReverieCoreBridge.scratchpadStrokeMove(
+                        pi.x.toDouble(), pi.y.toDouble(), pi.pressure.toDouble(),
+                        pi.tiltX.toDouble(), pi.tiltY.toDouble(), pi.rotation.toDouble(),
+                    )
+                }
+                ReverieCoreBridge.scratchpadStrokeEnd()
             }
-            ReverieCoreBridge.scratchpadStrokeEnd()
+            if (!bmp.isRecycled) {
+                bmp.eraseColor(0)
+                ReverieCoreBridge.scratchpadRender(bmp)
+            }
         }
-        bmp.eraseColor(0)
-        ReverieCoreBridge.scratchpadRender(bmp)
-        renderTick++
     }
 
     Column(
@@ -313,9 +323,13 @@ internal fun BrushStudioScratchpadPanel(
                 onTap = {
                     strokes.clear()
                     currentStroke.clear()
-                    ReverieCoreBridge.scratchpadClear()
-                    scratchBitmap?.eraseColor(0)
-                    renderTick++
+                    val bmp = scratchBitmap
+                    vm.runCore(render = false, after = { renderTick++ }) {
+                        ReverieCoreBridge.scratchpadClear()
+                        if (bmp != null && !bmp.isRecycled) {
+                            bmp.eraseColor(0)
+                        }
+                    }
                 },
                 tint = if (strokes.isNotEmpty()) Morandi.text else Morandi.subText.copy(alpha = 0.35f),
                 iconSize = 15.dp,
@@ -332,14 +346,25 @@ internal fun BrushStudioScratchpadPanel(
                 size = 30.dp,
             )
 
-            // 设为预设图标
+            // 设为预设图标。笔画在主线程快照；像素在渲染线程 scratchpadRender 返回后拷贝，JNI 此时已解锁。
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
                     .background(Morandi.panel.copy(alpha = 0.85f))
                     .clickable {
-                        captureScratchpadAsThumbnail(context, vm, scratchBitmap, strokes)
-                        Toast.makeText(context, thumbnailUpdatedToast, Toast.LENGTH_SHORT).show()
+                        val strokeSnapshot = strokes.map { it.toList() }
+                        val bmp = scratchBitmap
+                        var pixelCopy: Bitmap? = null
+                        vm.runCore(render = false, after = {
+                            captureScratchpadAsThumbnail(context, vm, pixelCopy, strokeSnapshot)
+                            pixelCopy?.recycle()
+                            Toast.makeText(context, thumbnailUpdatedToast, Toast.LENGTH_SHORT).show()
+                        }) {
+                            if (bmp != null && !bmp.isRecycled) {
+                                ReverieCoreBridge.scratchpadRender(bmp)
+                                pixelCopy = bmp.copy(Bitmap.Config.ARGB_8888, false)
+                            }
+                        }
                     }
                     .padding(horizontal = 8.dp, vertical = 5.dp),
                 contentAlignment = Alignment.Center,
@@ -420,10 +445,12 @@ internal fun BrushStudioScratchpadPanel(
                         (size.width != canvasSize.width || size.height != canvasSize.height)
                     ) {
                         canvasSize = size
+                        val oldBmp = scratchBitmap
                         val newBmp = Bitmap.createBitmap(size.width, size.height, Bitmap.Config.ARGB_8888)
-                        scratchBitmap?.recycle()
                         scratchBitmap = newBmp
-                        ReverieCoreBridge.scratchpadStart(size.width, size.height)
+                        vm.runCore(render = false, after = { oldBmp?.recycle() }) {
+                            ReverieCoreBridge.scratchpadStart(size.width, size.height)
+                        }
                         replayStrokesOnEngine(newBmp)
                     }
                 },
@@ -444,42 +471,47 @@ internal fun BrushStudioScratchpadPanel(
                 onStrokeStart = { p ->
                     currentStroke.clear()
                     currentStroke.add(p)
-                    runCatching { ReverieCoreBridge.setBrushColor(vm.brushColor) }
-                    ReverieCoreBridge.scratchpadStrokeStart(
-                        p.x.toDouble(), p.y.toDouble(), p.pressure.toDouble(),
-                        p.tiltX.toDouble(), p.tiltY.toDouble(), p.rotation.toDouble()
-                    )
+                    val color = vm.brushColor
                     val bmp = scratchBitmap
-                    if (bmp != null && !bmp.isRecycled) {
-                        ReverieCoreBridge.scratchpadRender(bmp)
+                    vm.runCore(render = false, after = { renderTick++ }) {
+                        runCatching { ReverieCoreBridge.setBrushColor(color) }
+                        ReverieCoreBridge.scratchpadStrokeStart(
+                            p.x.toDouble(), p.y.toDouble(), p.pressure.toDouble(),
+                            p.tiltX.toDouble(), p.tiltY.toDouble(), p.rotation.toDouble(),
+                        )
+                        if (bmp != null && !bmp.isRecycled) {
+                            ReverieCoreBridge.scratchpadRender(bmp)
+                        }
                     }
-                    renderTick++
                 },
                 onStrokeAddPoints = { pts ->
-                    currentStroke.addAll(pts)
-                    for (p in pts) {
-                        ReverieCoreBridge.scratchpadStrokeMove(
-                            p.x.toDouble(), p.y.toDouble(), p.pressure.toDouble(),
-                            p.tiltX.toDouble(), p.tiltY.toDouble(), p.rotation.toDouble()
-                        )
-                    }
+                    val ptsCopy = pts.toList()
+                    currentStroke.addAll(ptsCopy)
                     val bmp = scratchBitmap
-                    if (bmp != null && !bmp.isRecycled) {
-                        ReverieCoreBridge.scratchpadRender(bmp)
+                    vm.runCore(render = false, after = { renderTick++ }) {
+                        for (p in ptsCopy) {
+                            ReverieCoreBridge.scratchpadStrokeMove(
+                                p.x.toDouble(), p.y.toDouble(), p.pressure.toDouble(),
+                                p.tiltX.toDouble(), p.tiltY.toDouble(), p.rotation.toDouble(),
+                            )
+                        }
+                        if (bmp != null && !bmp.isRecycled) {
+                            ReverieCoreBridge.scratchpadRender(bmp)
+                        }
                     }
-                    renderTick++
                 },
                 onStrokeEnd = {
-                    ReverieCoreBridge.scratchpadStrokeEnd()
-                    val bmp = scratchBitmap
-                    if (bmp != null && !bmp.isRecycled) {
-                        ReverieCoreBridge.scratchpadRender(bmp)
-                    }
                     if (currentStroke.isNotEmpty()) {
                         strokes.add(currentStroke.toList())
                         currentStroke.clear()
                     }
-                    renderTick++
+                    val bmp = scratchBitmap
+                    vm.runCore(render = false, after = { renderTick++ }) {
+                        ReverieCoreBridge.scratchpadStrokeEnd()
+                        if (bmp != null && !bmp.isRecycled) {
+                            ReverieCoreBridge.scratchpadRender(bmp)
+                        }
+                    }
                 },
                 modifier = Modifier.fillMaxSize(),
             )

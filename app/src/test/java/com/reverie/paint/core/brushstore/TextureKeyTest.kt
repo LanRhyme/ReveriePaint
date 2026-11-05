@@ -49,7 +49,8 @@ class TextureKeyTest {
         assertTrue(withMd5.isNotEmpty())
         for ((name, xml) in withMd5) {
             val out = pattern.write!!(xml, "my_paper.png", BrushParams())
-            assertFalse(name, KppXml.has(out, "Texture/Pattern/PatternMD5"))
+            assertEquals(name, "", KppXml.get(out, "Texture/Pattern/PatternMD5"))
+            assertEquals(name, "", KppXml.get(out, "Texture/Pattern/PatternMD5Sum"))
             assertFalse(name, KppXml.has(out, "Texture/Pattern/Pattern"))
             assertEquals(name, "my_paper.png", KppXml.get(out, "Texture/Pattern/PatternFileName"))
             assertEquals(name, "my_paper.png", KppXml.get(out, "Texture/Pattern/Name"))

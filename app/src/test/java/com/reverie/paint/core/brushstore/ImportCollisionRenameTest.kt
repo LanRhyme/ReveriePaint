@@ -74,7 +74,7 @@ class ImportCollisionRenameTest {
         assertEquals(268, stems.size)
         boot(stems)
         for (s in stems) {
-            val r = BrushImportPipeline.importFile("$s.kpp", KppFixtures.bytes(s), presetDir, v2 = true).imported.single()
+            val r = BrushImportPipeline.importFile("$s.kpp", KppFixtures.bytes(s), presetDir).imported.single()
             assertEquals("$s (导入)", r.name)
             assertNotNull(r.id)
         }
@@ -90,7 +90,7 @@ class ImportCollisionRenameTest {
         }
         // 第二次导入同名
         val s = stems.first()
-        assertEquals("$s (导入) 2", BrushImportPipeline.importFile("$s.kpp", KppFixtures.bytes(s), presetDir, true).imported.single().name)
+        assertEquals("$s (导入) 2", BrushImportPipeline.importFile("$s.kpp", KppFixtures.bytes(s), presetDir).imported.single().name)
         // 重启后 identity 保留、materialize 不改字节
         boot(stems)
         assertArrayEquals(KppFixtures.bytes(s), File(presetDir, "$s (导入) 2.kpp").readBytes())
@@ -103,7 +103,7 @@ class ImportCollisionRenameTest {
         boot(listOf(s))
         val b = KppFixtures.bytes(s)
         val bundle = zip("paintoppresets/${s.uppercase()}.kpp" to b, "${s.uppercase()}.kpp" to b)
-        val r = BrushImportPipeline.importArchive("Pack.bundle", bundle, presetDir, brushDir, patternDir, true)
+        val r = BrushImportPipeline.importArchive("Pack.bundle", bundle, presetDir, brushDir, patternDir)
         assertEquals(listOf("${s.uppercase()} (Pack)", "${s.uppercase()} (Pack) 2"), r.imported.map { it.name })
     }
 
@@ -124,7 +124,7 @@ class ImportCollisionRenameTest {
         val otherTip = realTip + byteArrayOf(1, 2, 3)
         val kpp = KppFixtures.bytes(stem)
         val bundle = zip("paintoppresets/$stem.kpp" to kpp, "brushes/$tip" to otherTip)
-        val r = BrushImportPipeline.importArchive("My Pack.bundle", bundle, presetDir, brushDir, patternDir, true)
+        val r = BrushImportPipeline.importArchive("My Pack.bundle", bundle, presetDir, brushDir, patternDir)
 
         val renamed = "My_Pack__$tip"
         assertEquals(mapOf(tip to renamed), r.resourceRenames)
@@ -148,7 +148,7 @@ class ImportCollisionRenameTest {
         assertEquals(renamed, KppXml.brushAttr(effXml(imp.name), "filename"))
 
         // 同内容：复用，不改名
-        val again = BrushImportPipeline.importArchive("Other.bundle", zip("paintoppresets/$stem.kpp" to kpp, "brushes/$tip" to realTip), presetDir, brushDir, patternDir, true)
+        val again = BrushImportPipeline.importArchive("Other.bundle", zip("paintoppresets/$stem.kpp" to kpp, "brushes/$tip" to realTip), presetDir, brushDir, patternDir)
         assertTrue(again.resourceRenames.isEmpty())
         assertArrayEquals(kpp, File(presetDir, "${again.imported.single().name}.kpp").readBytes())
     }
@@ -163,7 +163,7 @@ class ImportCollisionRenameTest {
         val xml0 = KppFixtures.xml(stem)
         val r = BrushImportPipeline.importArchive(
             "Tex.zip", zip("paintoppresets/$stem.kpp" to kpp, "patterns/$pat" to realPat + byteArrayOf(9)),
-            presetDir, brushDir, patternDir, true,
+            presetDir, brushDir, patternDir,
         )
         val renamed = "Tex__$pat"
         val x = effXml(r.imported.single().name)
@@ -178,7 +178,7 @@ class ImportCollisionRenameTest {
     fun forgetPreventsResurrectionAndDuplicateCopiesOverrides() {
         val s = KppFixtures.all.first().first
         boot(listOf(s))
-        val imp = BrushImportPipeline.importFile("$s.kpp", KppFixtures.bytes(s), presetDir, true).imported.single()
+        val imp = BrushImportPipeline.importFile("$s.kpp", KppFixtures.bytes(s), presetDir).imported.single()
         BrushOverrideStore.replace(imp.id!!, BrushOverrideStore.Overrides(controls = mapOf("opacity" to 0.5)))
         EffectivePresetBuilder.materialize(imp.id!!, presetDir)
 
@@ -190,30 +190,14 @@ class ImportCollisionRenameTest {
         assertArrayEquals(File(presetDir, "${imp.name}.kpp").readBytes(), File(presetDir, "$dupName.kpp").readBytes())
 
         File(presetDir, "${imp.name}.kpp").delete()
-        BrushImportPipeline.forget(imp.name)
+        BrushImportPipeline.forget(com.reverie.paint.core.brushstore.BrushIdentity.idForName(imp.name) ?: "")
         assertNull(BrushIdentity.entryForName(imp.name))
         assertTrue(BrushOverrideStore.get(imp.id!!).isEmpty())
         boot(listOf(s))
         assertFalse("删除的导入预设在重启后复活", File(presetDir, "${imp.name}.kpp").exists())
         assertTrue(File(presetDir, "$dupName.kpp").exists())
         // 内置不可 forget
-        BrushImportPipeline.forget(s)
+        BrushImportPipeline.forget(com.reverie.paint.core.brushstore.BrushIdentity.idForName(s) ?: "")
         assertNotNull(BrushIdentity.entryForName(s))
-    }
-
-    @Test
-    fun v2OffWritesRewrittenFileOnly() {
-        val (stem, tip) = tipCandidate()
-        File(brushDir, tip).writeBytes(File(assetsRoot, "brushes/$tip").readBytes())
-        File(presetDir, "$stem.kpp").writeBytes(KppFixtures.bytes(stem))
-        val r = BrushImportPipeline.importArchive(
-            "P.bundle", zip("paintoppresets/$stem.kpp" to KppFixtures.bytes(stem), "brushes/$tip" to byteArrayOf(7)),
-            presetDir, brushDir, patternDir, v2 = false,
-        )
-        val imp = r.imported.single()
-        assertNull(imp.id)
-        assertEquals("$stem (P)", imp.name)
-        assertEquals("P__$tip", KppXml.brushAttr(effXml(imp.name), "filename"))
-        assertArrayEquals(KppFixtures.bytes(stem), File(presetDir, "$stem.kpp").readBytes())
     }
 }

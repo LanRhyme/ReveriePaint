@@ -4,10 +4,10 @@
 
 package com.reverie.paint.core.brushstore
 
-import com.reverie.paint.core.BrushParams
 import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -15,7 +15,9 @@ import org.junit.Test
 import java.io.File
 import java.nio.file.Files
 
-/** 工作台编辑提交（W-05）：差分只记真正改动、LIVE 不重载、REBUILD 重载、改回原值后覆盖被剪掉 */
+/**
+ * 验证 BrushEditSession.reset 契约测试 (W-06)。
+ */
 class BrushEditSessionTest {
     private lateinit var tmp: File
     private lateinit var presetDir: File
@@ -43,59 +45,75 @@ class BrushEditSessionTest {
     }
 
     private fun file() = File(presetDir, "$stem.kpp")
-    private fun ui(): BrushParams = PresetReadback.fromEffectiveBytes(file().readBytes(), "kpp")
     private fun md5File() = BrushDiagnostics.md5(file().readBytes())
     private fun md5Snap() = BrushDiagnostics.md5(PresetSnapshotStore.read(id)!!)
 
     @Test
-    fun `原样提交不产生覆盖也不改有效文件`() {
-        val p = ui()
-        val c = BrushEditSession.commit(id, p, p, presetDir)
-        assertTrue(c.changedKeys.toString(), c.changedKeys.isEmpty())
-        assertFalse(c.needsReload)
+    fun `reset clears controls and restores effective file to snapshot`() {
+        // 1. 添加参数覆盖并生成有效文件
+        BrushOverrideStore.replace(
+            id,
+            BrushOverrideStore.Overrides(
+                controls = mapOf("opacity" to 0.42, "spacing" to 0.77),
+                dirty = setOf("opacity", "spacing"),
+            )
+        )
+        EffectivePresetBuilder.materialize(id, presetDir)
+        assertTrue(BrushDiagnostics.md5(file().readBytes()) != md5Snap())
+
+        // 2. 执行 reset
+        val result = BrushEditSession.reset(id, presetDir)
+        assertNotNull(result)
         assertTrue(BrushOverrideStore.get(id).isEmpty())
         assertEquals(md5Snap(), md5File())
     }
 
     @Test
-    fun `LIVE 控件只改覆盖不重载，REBUILD 控件要求重载`() {
-        val p = ui()
-        val c1 = BrushEditSession.commit(id, p.copy(opacity = 0.37), p, presetDir)
-        assertEquals(setOf("opacity"), c1.changedKeys)
-        assertFalse(c1.needsReload)
-        assertEquals(0.37, ui().opacity, 1e-6)
+    fun `reset preserves rawKeys and metadata controls`() {
+        val metaControls = mapOf(
+            ControlId.AUTHOR.key to "AuthorName",
+            ControlId.AUTHOR_LOCKED.key to true,
+            "opacity" to 0.35,
+        )
+        val rawKeys = mapOf("TextureKey" to "PatternValue")
+        BrushOverrideStore.replace(
+            id,
+            BrushOverrideStore.Overrides(
+                controls = metaControls,
+                rawKeys = rawKeys,
+                dirty = setOf("opacity"),
+            )
+        )
+        EffectivePresetBuilder.materialize(id, presetDir)
 
-        val p2 = ui()
-        val c2 = BrushEditSession.commit(id, p2.copy(spacing = 0.33), p2, presetDir)
-        assertEquals(setOf("spacing"), c2.changedKeys)
-        assertTrue(c2.needsReload)
-        assertEquals(0.33, ui().spacing, 1e-6)
-        assertEquals(setOf("opacity", "spacing"), BrushOverrideStore.get(id).controls.keys)
+        val result = BrushEditSession.reset(id, presetDir)
+        assertNotNull(result)
+
+        val after = BrushOverrideStore.get(id)
+        assertFalse("opacity must be cleared", after.controls.containsKey("opacity"))
+        assertEquals("AuthorName", after.controls[ControlId.AUTHOR.key])
+        assertEquals(true, after.controls[ControlId.AUTHOR_LOCKED.key])
+        assertEquals(rawKeys, after.rawKeys)
     }
 
     @Test
-    fun `stage 累积到 flush 一次提交，改回快照值后覆盖剪空、有效文件回到快照字节`() {
-        val orig = ui()
-        BrushEditSession.stage(id, orig.copy(opacity = 0.37), orig)
-        BrushEditSession.stage(id, orig.copy(opacity = 0.37, hueJitter = 0.25), orig)
-        assertTrue(BrushEditSession.hasPending(id))
-        val c = BrushEditSession.flush(id, presetDir)!!
-        assertEquals(setOf("opacity", "hueJitter"), c.changedKeys.mapTo(HashSet()) { it })
-        assertFalse(BrushEditSession.hasPending(id))
-        assertNull(BrushEditSession.flush(id, presetDir))
-
-        val c2 = BrushEditSession.commit(id, ui().copy(opacity = orig.opacity, hueJitter = orig.hueJitter), orig, presetDir)
-        assertEquals(2, c2.changedKeys.size)
-        assertTrue(BrushOverrideStore.get(id).controls.toString(), BrushOverrideStore.get(id).isEmpty())
-        assertEquals(md5Snap(), md5File())
+    fun `reset returns null when in read-only mode`() {
+        BrushStoreBootstrap.readOnly = true
+        try {
+            assertNull(BrushEditSession.reset(id, presetDir))
+        } finally {
+            BrushStoreBootstrap.readOnly = false
+        }
     }
 
     @Test
-    fun `discard 丢弃待提交编辑`() {
-        val p = ui()
-        BrushEditSession.stage(id, p.copy(opacity = 0.37), p)
-        BrushEditSession.discard(id)
-        assertTrue(BrushEditSession.flushAll(presetDir).isEmpty())
-        assertTrue(BrushOverrideStore.get(id).isEmpty())
+    fun `locked runs block under mutex`() {
+        var executed = false
+        val ret = BrushEditSession.locked {
+            executed = true
+            42
+        }
+        assertTrue(executed)
+        assertEquals(42, ret)
     }
 }

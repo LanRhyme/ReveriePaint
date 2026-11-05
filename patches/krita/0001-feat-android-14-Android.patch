@@ -1,7 +1,7 @@
 From e087afa02516b160976e263f90530039bd828ce5 Mon Sep 17 00:00:00 2001
 From: LanRhyme <xiao_ren233@foxmail.com>
 Date: Tue, 27 Oct 2026 23:59:51 +0800
-Subject: [PATCH 01/10] =?UTF-8?q?feat(android):=2014=20=E4=B8=AA=E7=AC=94?=
+Subject: [PATCH 01/11] =?UTF-8?q?feat(android):=2014=20=E4=B8=AA=E7=AC=94?=
  =?UTF-8?q?=E5=88=B7=E5=BC=95=E6=93=8E=E6=94=B9=E4=B8=BA=E9=9D=99=E6=80=81?=
  =?UTF-8?q?=E6=B3=A8=E5=86=8C,=20=E8=A1=A5=E9=BD=90=20Android=20=E6=9E=84?=
  =?UTF-8?q?=E5=BB=BA=E5=85=BC=E5=AE=B9?=
@@ -1588,3 +1588,6 @@ index 00000000..0328b6aa
 +            "tangentnormal", i18n("Tangent Normal"), KisPaintOpFactory::categoryStable(),
 +            "krita-tangentnormal.png", QString(), QStringList(), 16));
 +}
+-- 
+2.56.0
+

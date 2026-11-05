@@ -70,8 +70,10 @@ internal fun TimelineControls(
     val isPortrait = config.screenWidthDp < config.screenHeightDp || config.screenWidthDp < 600
     val playing = vm.anim.isPlaying
 
+    val isFloating = vm.floatingUiConfig.enabled
+
     Row(
-        modifier = modifier.padding(horizontal = 6.dp),
+        modifier = modifier.padding(horizontal = if (isFloating) 12.dp else 6.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         // 左侧可滚动动作工具组 (包含播放控制、透光台/洋葱皮、关键帧增删及多选)

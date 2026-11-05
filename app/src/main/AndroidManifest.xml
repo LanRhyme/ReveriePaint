@@ -21,8 +21,10 @@
     <uses-permission android:name="com.oplus.ipemanager.permission.receiver.DOUBLE_CLICK" />
     <uses-permission android:name="com.oplus.ocs.permission.third" />
     <uses-permission android:name="com.oplus.permission.safe.IOT" />
+    <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT" />
 
     <queries>
+        <package android:name="com.xiaomi.touchservice" />
         <package android:name="com.coloros.ocs.opencapabilityservice" />
         <package android:name="com.oplus.ocs" />
         <package android:name="com.oplus.ipemanager" />
@@ -47,7 +49,7 @@
         android:largeHeap="true"
         android:icon="@mipmap/ic_launcher"
         android:roundIcon="@mipmap/ic_launcher_round"
-        android:label="@string/app_name"
+        android:label="ReveriePaint"
         android:supportsRtl="true"
         android:theme="@style/Theme.ReveriePaint">
         <uses-library android:name="vendor.oplus.hardware.touch-V1" android:required="false" />
@@ -120,6 +122,16 @@
                 <data android:pathPattern=".*\\.gbr" />
                 <data android:pathPattern=".*\\.gih" />
             </intent-filter>
+
+            <!-- 三星 S Pen 隔空操作(Air Actions)协议声明。
+                 intent-filter 与 meta-data 缺一不可: 系统扫描应用列表靠 intent-filter
+                 识别支持隔空操作的应用, 只有 meta-data 时应用不会出现在隔空操作列表里 -->
+            <intent-filter>
+                <action android:name="com.samsung.android.support.REMOTE_ACTION" />
+            </intent-filter>
+            <meta-data
+                android:name="com.samsung.android.support.REMOTE_ACTION"
+                android:resource="@xml/remote_action" />
         </activity>
 
         <provider
@@ -163,6 +175,62 @@
                 <action android:name="com.hihonor.stylus.action.DOUBLE_TAP" />
                 <action android:name="com.hihonor.intent.action.STYLUS_BUTTON_CLICK" />
             </intent-filter>
+        </receiver>
+
+        <!-- Creation Stats Dashboard Widget (4x2) -->
+        <receiver
+            android:name=".ui.widget.CreationStatsDashboardWidgetReceiver"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/widget_dashboard_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/creation_stats_dashboard_widget_info" />
+        </receiver>
+
+        <!-- Creation Stats Compact Widget (2x2) -->
+        <receiver
+            android:name=".ui.widget.CreationStatsCompactWidgetReceiver"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/widget_compact_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/creation_stats_compact_widget_info" />
+        </receiver>
+
+        <!-- Recent Project Showcase Dashboard Widget (4x2) -->
+        <receiver
+            android:name=".ui.widget.RecentProjectDashboardWidgetReceiver"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/widget_recent_dashboard_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/recent_project_dashboard_widget_info" />
+        </receiver>
+
+        <!-- Recent Project Compact Artwork Frame Widget (2x2) -->
+        <receiver
+            android:name=".ui.widget.RecentProjectCompactWidgetReceiver"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/widget_recent_compact_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/recent_project_compact_widget_info" />
         </receiver>
     </application>
 

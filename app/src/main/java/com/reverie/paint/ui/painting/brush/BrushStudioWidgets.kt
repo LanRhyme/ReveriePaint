@@ -156,8 +156,8 @@ internal fun StudioSectionHeader(title: String, textSub: Color) {
 /** W-16：当前笔刷下某控件不适用时的说明文字；适用（或 v2 未激活）时返回 null */
 @Composable
 internal fun studioGateReason(vm: PaintViewModel, id: com.reverie.paint.core.brushstore.ControlId): String? {
-    val name = vm.brushPresets.firstOrNull { it.index == vm.brushPresetIndex }?.name ?: return null
-    val r = com.reverie.paint.core.brushstore.BrushApplicability.forName(name)[id] ?: return null
+    val presetId = vm.brushPresets.firstOrNull { it.index == vm.brushPresetIndex }?.id ?: return null
+    val r = com.reverie.paint.core.brushstore.BrushApplicability.forId(presetId)[id] ?: return null
     return stringResource(
         when (r) {
             com.reverie.paint.core.brushstore.BrushApplicability.Reason.MYPAINT -> R.string.brush_gate_mypaint

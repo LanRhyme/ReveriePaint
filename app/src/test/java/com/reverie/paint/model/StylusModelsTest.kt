@@ -20,10 +20,10 @@ import org.junit.Test
 class StylusModelsTest {
 
     @Test
-    fun `default theme accent color matches Morandi misty blue 5A6E8A`() {
-        val expectedColor = androidx.compose.ui.graphics.Color(0xFF5A6E8A)
-        assertEquals("Dark mode default accent should be Morandi misty blue", expectedColor, MorandiDarkColors.accent)
-        assertEquals("Light mode default accent should be Morandi misty blue", expectedColor, MorandiLightColors.accent)
+    fun `default theme accent color matches Morandi periwinkle blue 879ED1`() {
+        val expectedColor = androidx.compose.ui.graphics.Color(0xFF879ED1)
+        assertEquals("Dark mode default accent should be Morandi periwinkle blue", expectedColor, MorandiDarkColors.accent)
+        assertEquals("Light mode default accent should be Morandi periwinkle blue", expectedColor, MorandiLightColors.accent)
     }
 
     @Test
@@ -37,7 +37,6 @@ class StylusModelsTest {
         assertTrue("OPPO should support double tap", oppo?.subtitle?.contains("双击") == true)
         assertTrue("OPPO should support haptics", oppo?.subtitle?.contains("震动") == true)
         assertTrue("OPPO should support audio", oppo?.subtitle?.contains("发声") == true)
-        assertTrue("OPPO should support prediction", oppo?.subtitle?.contains("笔迹预测") == true)
 
         val samsung = brands.firstOrNull { it == StylusBrand.SAMSUNG_SPEN }
         assertNotNull("Samsung brand defined", samsung)
@@ -67,14 +66,14 @@ class StylusModelsTest {
         assertEquals(4096, std.maxPressure)
         assertFalse("Standard edition has no in-pen haptic motor", std.hasInPenHaptics)
         assertFalse("Standard edition has no barrel slide gesture", std.hasSlideGesture)
-        assertTrue("Standard edition has prediction", std.hasAiPrediction)
+        assertFalse("Standard edition prediction removed with SDK", std.hasAiPrediction)
         assertEquals("标准版", std.editionName)
 
         val pro = OppoPencilModel.PRO
         assertEquals("Pro model has 16384 levels of pressure", 16384, pro.maxPressure)
         assertTrue("Pro model has in-pen linear motor haptics", pro.hasInPenHaptics)
         assertTrue("Pro model has barrel slide touch gesture", pro.hasSlideGesture)
-        assertTrue("Pro model has AI low-latency prediction", pro.hasAiPrediction)
+        assertFalse("Pro model prediction removed with SDK", pro.hasAiPrediction)
         assertEquals("Pro 版", pro.editionName)
 
         assertEquals(OppoPencilModel.PRO, OppoPencilModel.fromKey("PRO"))

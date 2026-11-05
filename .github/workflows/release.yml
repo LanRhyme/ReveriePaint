@@ -48,10 +48,37 @@ jobs:
             echo "AIFADIAN_USER_ID=$AIFADIAN_USER_ID" >> local.properties
           fi
 
+      - name: Write Telemetry Config
+        # 未配置 secret 时不写入 -> BuildConfig.TELEMETRY_ENDPOINT 为空 -> 客户端整条上报链路 no-op
+        env:
+          TELEMETRY_ENDPOINT: ${{ secrets.TELEMETRY_ENDPOINT }}
+          TELEMETRY_KEY: ${{ secrets.TELEMETRY_KEY }}
+        run: |
+          if [ -n "$TELEMETRY_ENDPOINT" ]; then
+            echo "TELEMETRY_ENDPOINT=$TELEMETRY_ENDPOINT" >> local.properties
+            echo "TELEMETRY_KEY=$TELEMETRY_KEY" >> local.properties
+          fi
+
       - name: Copy Native Libraries
         run: |
           chmod +x scripts/copy_jni_libs.sh
           ./scripts/copy_jni_libs.sh
+
+      - name: JNI Symbol Coverage Check
+        # arm64 与 armv7 的预编译 jni 库都必须覆盖 Kotlin 声明的全部符号;
+        # 缺一个就是一个 UnsatisfiedLinkError 崩溃 (2026-10-31 nativeSnapshotMode 事故)
+        run: |
+          chmod +x scripts/check_jni_symbols.sh
+          ./scripts/check_jni_symbols.sh
+
+      - name: Native Closure Symbol Check
+        # JNI 门禁只查 Kotlin external fun 对 .so 导出, 查不到 .so 之间的 C/C++ 依赖。
+        # 1.6.2 的 armeabi-v7a 包就是栽在这层: libkritacolorsmudgepaintop.so 引用
+        # ReveriePigmentMix::isEnabled(), 闭包里没有任何库定义它, 32 位用户启动即崩。
+        # 这个门禁对每个 ABI 求「未定义符号 - 闭包已定义 - Android 平台库」, 非空即失败。
+        run: |
+          chmod +x scripts/check_native_symbols.sh
+          ./scripts/check_native_symbols.sh
 
       - name: Decode Keystore
         env:

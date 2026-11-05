@@ -247,6 +247,62 @@ internal fun SettingNavGroupItem(
 }
 
 /**
+ * 只读信息展示卡片 (图标 + 标题 + 副标题 + 右侧值)
+ */
+@Composable
+internal fun SettingValueGroupItem(
+    icon: Any? = null,
+    title: String,
+    summary: String = "",
+    value: String,
+    shape: RoundedCornerShape = RoundedCornerShape(18.dp),
+    onClick: (() -> Unit)? = null,
+) {
+    val colors = Theme.current
+    SettingCardBox(shape = shape, onClick = onClick) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                modifier = Modifier.weight(1f),
+            ) {
+                if (icon != null) {
+                    SettingIcon(icon = icon, tint = colors.icon)
+                    Spacer(Modifier.width(14.dp))
+                }
+                Column {
+                    Text(
+                        text = title,
+                        color = colors.text,
+                        fontSize = 14.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    if (summary.isNotBlank()) {
+                        Spacer(Modifier.height(2.dp))
+                        Text(
+                            text = summary,
+                            color = colors.subText,
+                            fontSize = 12.sp,
+                            lineHeight = 16.sp,
+                        )
+                    }
+                }
+            }
+            Spacer(Modifier.width(12.dp))
+            Text(
+                text = value,
+                color = colors.subText,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.Normal,
+            )
+        }
+    }
+}
+
+/**
  * 单选项卡片 (单选钮 ⊙/○ + 标题 + 副标题，点击整行触发)
  */
 @Composable
@@ -613,7 +669,7 @@ internal fun <T> SettingSegmentGroupItem(
                     ) {
                         Text(
                             text = label,
-                            color = if (isSelected) Color.White else colors.subText,
+                            color = if (isSelected) colors.onAccent else colors.subText,
                             fontSize = 12.sp,
                             fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
                         )

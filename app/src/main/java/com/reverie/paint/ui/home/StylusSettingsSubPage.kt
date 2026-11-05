@@ -5,6 +5,7 @@
 package com.reverie.paint.ui.home
 
 import androidx.compose.foundation.background
+import androidx.compose.ui.graphics.Color
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -91,7 +92,7 @@ internal fun StylusSettingsSubPage(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(colors.bg)
+            .background(if (vm.homeCustomBgEnabled && vm.getHomeCustomBgFile() != null) Color.Transparent else colors.bg)
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

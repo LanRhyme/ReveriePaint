@@ -37,7 +37,7 @@ class OverrideStoreRoundTripTest {
         assertEquals(mapOf("SPACING" to 0.25, "OPACITY" to 1.0, "SIZE_PRESSURE" to true, "SIZE_CURVE" to "<params id=\"pressure\"/>"), back.controls)
         assertEquals(setOf("SCATTER"), back.dirty)
         assertEquals(mapOf("Foo/Bar" to "3"), back.rawKeys)
-        assertTrue(File(root, "overrides.json").readText().contains("\"schema\": 2"))
+        assertTrue(File(root, "overrides.json").readText().contains("\"schema\": 3"))
     }
 
     @Test

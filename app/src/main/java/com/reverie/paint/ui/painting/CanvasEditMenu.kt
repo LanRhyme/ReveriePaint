@@ -36,9 +36,12 @@ import androidx.compose.ui.window.PopupProperties
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.CanvasEditAction
+import com.reverie.paint.model.QuickMenuLayout
+import com.reverie.paint.model.QuickMenuSlotOffset
 import com.reverie.paint.ui.theme.Morandi
+import kotlin.math.roundToInt
 
-/** Six floating capsules around the editor entry with smooth burst-in physics animation. */
+/** Floating capsules around the editor entry with smooth burst-in physics animation. */
 @Composable
 internal fun CanvasEditMenu(vm: PaintViewModel, onDismiss: () -> Unit, onCustomize: () -> Unit) {
     val pages = vm.canvasEditMenuActions.chunked(6)
@@ -69,11 +72,17 @@ internal fun CanvasEditMenu(vm: PaintViewModel, onDismiss: () -> Unit, onCustomi
     val screenHeightPx = windowInfo.containerSize.height
     val menuWidth = 360.dp
     val menuWidthPx = with(density) { menuWidth.roundToPx() }
-    val menuHeight = if (hasClipboard) 290.dp else 225.dp
+    val hasPager = pages.size > 1
+    val menuHeight = when {
+        hasClipboard && hasPager -> 280.dp
+        hasClipboard -> 240.dp
+        hasPager -> 220.dp
+        else -> 180.dp
+    }
     val menuHeightPx = with(density) { menuHeight.roundToPx() }
     val marginPx = with(density) { 16.dp.roundToPx() }
 
-    // Center of the 6-capsule radial wheel (middle of 360dp width and 164dp height)
+    // Center of the radial capsules (middle of 360dp width and 82dp height)
     val centerOffsetX = with(density) { (menuWidth / 2).roundToPx() }
     val centerOffsetY = with(density) { 82.dp.roundToPx() }
 
@@ -142,9 +151,12 @@ internal fun CanvasEditMenu(vm: PaintViewModel, onDismiss: () -> Unit, onCustomi
                     }
                 },
             )
-            Surface(shape = RoundedCornerShape(50), color = Morandi.panel.copy(alpha = 0.96f)) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    if (pages.size > 1) {
+            if (hasPager) {
+                Surface(shape = RoundedCornerShape(50), color = Morandi.panel.copy(alpha = 0.96f)) {
+                    Row(
+                        modifier = Modifier.padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                         val colors = IconButtonDefaults.iconButtonColors(
                             contentColor = Morandi.text, disabledContentColor = Morandi.subText.copy(alpha = 0.5f),
                         )
@@ -166,9 +178,6 @@ internal fun CanvasEditMenu(vm: PaintViewModel, onDismiss: () -> Unit, onCustomi
                                 stringResource(R.string.canvas_edit_next_page), Modifier.rotate(180f),
                             )
                         }
-                    }
-                    IconButton(onClick = onDismiss) {
-                        Icon(painterResource(R.drawable.ic_x), stringResource(R.string.close), tint = Morandi.text)
                     }
                 }
             }
@@ -206,18 +215,11 @@ private fun CanvasEditCapsules(
     actionContent: @Composable (CanvasEditAction, Boolean) -> Unit,
     centerContent: @Composable () -> Unit,
 ) {
-    val slots = when (actions.size) {
-        1 -> listOf(0)
-        2 -> listOf(5, 1)
-        3 -> listOf(0, 2, 4)
-        4 -> listOf(5, 1, 2, 4)
-        else -> actions.indices.toList()
-    }
+    val offsets = remember(actions.size) { QuickMenuLayout.getSlotOffsets(actions.size) }
     Layout(
         content = {
             actions.forEachIndexed { index, action ->
-                val slot = slots.getOrElse(index) { index }
-                actionContent(action, hoverIndex == slot)
+                actionContent(action, hoverIndex == index)
             }
             centerContent()
         },
@@ -228,17 +230,27 @@ private fun CanvasEditCapsules(
         val children = measurables.map { it.measure(Constraints.fixedWidth(width)) }
         val height = children.maxOf { it.height }
         val step = height + 10.dp.roundToPx()
-        val columns = intArrayOf(1, 2, 2, 1, 0, 0)
-        val rows = floatArrayOf(0f, 0.5f, 1.5f, 2f, 1.5f, 0.5f)
+
+        val centerX = constraints.maxWidth / 2f
+        val centerY = step + height / 2f
+        val dx = (width + gap).toFloat()
+        val dy = step.toFloat()
+
         layout(constraints.maxWidth, height + 2 * step) {
             children.dropLast(1).forEachIndexed { index, child ->
-                val slot = slots[index]
+                val offset = offsets.getOrElse(index) { QuickMenuSlotOffset(0f, 0f) }
+                val targetCenterX = centerX + offset.xRatio * dx
+                val targetCenterY = centerY + offset.yRatio * dy
                 child.placeRelative(
-                    columns[slot] * (width + gap), (rows[slot] * step).toInt() + (height - child.height) / 2,
+                    (targetCenterX - child.width / 2f).roundToInt(),
+                    (targetCenterY - child.height / 2f).roundToInt(),
                 )
             }
             val center = children.last()
-            center.placeRelative(width + gap, step + (height - center.height) / 2)
+            center.placeRelative(
+                (centerX - center.width / 2f).roundToInt(),
+                (centerY - center.height / 2f).roundToInt(),
+            )
         }
     }
 }

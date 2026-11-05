@@ -339,7 +339,7 @@ fun PoseAdjustmentPanel(
             items(presets) { (presetKey, titleRes) ->
                 val isSelected = state.posePreset.equals(presetKey, ignoreCase = true)
                 val bg = if (isSelected) Morandi.accent else Morandi.panelHi
-                val txtColor = if (isSelected) Color.White else Morandi.text
+                val txtColor = if (isSelected) Morandi.onAccent else Morandi.text
                 val borderMod = if (isSelected) {
                     Modifier
                 } else {

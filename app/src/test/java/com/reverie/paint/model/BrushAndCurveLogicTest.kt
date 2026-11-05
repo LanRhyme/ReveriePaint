@@ -4,6 +4,7 @@
 
 package com.reverie.paint.model
 
+import com.reverie.paint.core.sensorEnabledFromXml
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
@@ -318,51 +319,16 @@ class BrushAndCurveLogicTest {
     }
 
     @Test
-    fun `sensor xml fallback resolution with parsed kpp attributes for stock presets`() {
-        val parsed = com.reverie.paint.core.KppHelper.KppParsedAttributes(
-            pressureSize = 1.0,
-            pressureOpacity = 0.0,
-            pressureFlow = 1.0,
-        )
-
-        fun resolveEnabled(key: String, body: String, parsedAttr: com.reverie.paint.core.KppHelper.KppParsedAttributes?): Boolean {
-            val id = Regex("""id="([^"]+)"""").find(body)?.groupValues?.getOrNull(1)
-            val curve = Regex("""<curve>([^<]*)</curve>""").find(body)?.groupValues?.getOrNull(1) ?: return false
-            val points = DynamicOptionConfig.parseKritaCurve(curve)
-            val isLinear = points.size == 2 && points[0].x == 0f && points[0].y == 0f && points[1].x == 1f && points[1].y == 1f
-            val enabledAttr = Regex("""enabled="([^"]+)"""").find(body)?.groupValues?.getOrNull(1)?.toBooleanStrictOrNull()
-            return if (enabledAttr != null) {
-                enabledAttr
-            } else when (key.lowercase()) {
-                "size" -> parsedAttr?.pressureSize?.let { it > 0.001 } ?: true
-                "opacity" -> parsedAttr?.pressureOpacity?.let { it > 0.001 } ?: false
-                "flow" -> parsedAttr?.pressureFlow?.let { it > 0.001 } ?: false
-                else -> if (isLinear && (id == null || id == "pressure")) false else true
-            }
-        }
-
+    fun `sensor xml enabled resolution without parsed attributes`() {
         val xmlLinearPressure = "<params id=\"pressure\"><curve>0,0;1,1;</curve></params>"
-        val xmlCustomCurve = "<params id=\"pressure\"><curve>0,0;0.5,0.8;1,1;</curve></params>"
-        val xmlDrawingAngle = "<params id=\"drawingangle\"><curve>0,0;1,1;</curve></params>"
         val xmlExplicitDisabled = "<params id=\"pressure\" enabled=\"false\"><curve>0,0;1,1;</curve></params>"
-
-        // Standard pressure channels use parsed metadata fallback
-        assertTrue(resolveEnabled("Size", xmlLinearPressure, parsed))
-        assertFalse(resolveEnabled("Opacity", xmlLinearPressure, parsed))
-        assertTrue(resolveEnabled("Flow", xmlLinearPressure, parsed))
-
-        // When parsed metadata is null
-        assertTrue(resolveEnabled("Size", xmlLinearPressure, null))
-        assertFalse(resolveEnabled("Opacity", xmlLinearPressure, null))
-        assertFalse(resolveEnabled("Flow", xmlLinearPressure, null))
-
-        // Explicit enabled overrides parsed
-        assertFalse(resolveEnabled("Size", xmlExplicitDisabled, parsed))
-
-        // Other channels: linear pressure defaults to false, custom curve or drawing angle defaults to true
-        assertFalse(resolveEnabled("Spacing", xmlLinearPressure, parsed))
-        assertTrue(resolveEnabled("Spacing", xmlCustomCurve, parsed))
-        assertTrue(resolveEnabled("Rotation", xmlDrawingAngle, parsed))
+        val xmlEmptyCurve = "<params id=\"pressure\"><curve></curve></params>"
+        assertTrue(sensorEnabledFromXml("Size", xmlLinearPressure))
+        assertFalse(sensorEnabledFromXml("Opacity", xmlLinearPressure))
+        assertFalse(sensorEnabledFromXml("Flow", xmlLinearPressure))
+        assertFalse(sensorEnabledFromXml("Spacing", xmlLinearPressure))
+        assertFalse(sensorEnabledFromXml("Size", xmlExplicitDisabled))
+        assertFalse(sensorEnabledFromXml("Size", xmlEmptyCurve))
     }
 
     @Test

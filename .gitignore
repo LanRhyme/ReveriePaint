@@ -5,6 +5,7 @@ app/build/
 .gradle/
 local.properties
 .idea/
+.vscode/
 *.hprof
 app/.cxx/
 app/src/main/jniLibs/
@@ -24,3 +25,9 @@ aqtinstall.log
 __pycache__/
 *.pyc
 third_party/UniRig/
+
+# 遥测本地开发
+/dev.sqlite
+telemetry/worker/.dev.sqlite
+telemetry/worker/.wrangler/
+telemetry/worker/node_modules/

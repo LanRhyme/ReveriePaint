@@ -29,6 +29,9 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -46,6 +49,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.model.DragGripSpec
 import com.reverie.paint.model.QuickAction
 import com.reverie.paint.model.QuickActionLayoutMode
 import com.reverie.paint.model.UiPanelSlot
@@ -110,6 +114,7 @@ fun QuickActionWindow(
     }
 
     var windowSize by remember { mutableStateOf(IntSize.Zero) }
+    var windowCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
     val config = vm.quickActionsConfig
     val isCollapsed = vm.quickActionCollapsed
@@ -183,12 +188,23 @@ fun QuickActionWindow(
                 )
                 .evadablePanelContent(vm, UiPanelSlot.QUICK_ACTION)
                 .animateContentSize(Motion.enterSpring())
+                .onGloballyPositioned { windowCoords = it }
         ) {
         if (isCollapsed) {
+            DisposableEffect(Unit) {
+                onDispose { vm.quickActionGrip.clear() }
+            }
             // ---- 折叠微缩态 (流线型悬浮小球/胶囊) ----
             Row(
                 modifier = Modifier
                     .wrapContentSize()
+                    .onGloballyPositioned { coords ->
+                        val root = windowCoords ?: return@onGloballyPositioned
+                        val pos = root.localPositionOf(coords, Offset.Zero)
+                        vm.quickActionGrip.update(
+                            pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                        )
+                    }
                     .pointerInput(Unit) {
                         detectDragGestures(
                             onDragStart = {
@@ -207,6 +223,12 @@ fun QuickActionWindow(
                             change.consume()
                             vm.quickActionWindowX += dragAmount.x
                             vm.quickActionWindowY += dragAmount.y
+                            vm.clampQuickWindowsToSafeArea(
+                                vm.floatingHostWidthPx,
+                                vm.floatingHostHeightPx,
+                                density.density,
+                                persist = false,
+                            )
                         }
                     }
                     .padding(horizontal = 8.dp, vertical = 6.dp),
@@ -259,6 +281,9 @@ fun QuickActionWindow(
             }
         } else {
             // ---- 展开完整态 ----
+            DisposableEffect(Unit) {
+                onDispose { vm.quickActionGrip.clear() }
+            }
             Column(
                 modifier = Modifier
                     .wrapContentSize()
@@ -276,7 +301,14 @@ fun QuickActionWindow(
                                 QuickActionLayoutMode.GRID_3 -> Modifier.width(144.dp)
                             }
                         )
-                        .height(24.dp)
+                        .height(DragGripSpec.QUICK_ACTION_TOP_BAR_HEIGHT_DP.dp)
+                        .onGloballyPositioned { coords ->
+                            val root = windowCoords ?: return@onGloballyPositioned
+                            val pos = root.localPositionOf(coords, Offset.Zero)
+                            vm.quickActionGrip.update(
+                                pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                            )
+                        }
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = {
@@ -295,6 +327,12 @@ fun QuickActionWindow(
                                 change.consume()
                                 vm.quickActionWindowX += dragAmount.x
                                 vm.quickActionWindowY += dragAmount.y
+                                vm.clampQuickWindowsToSafeArea(
+                                    vm.floatingHostWidthPx,
+                                    vm.floatingHostHeightPx,
+                                    density.density,
+                                    persist = false,
+                                )
                             }
                         },
                     verticalAlignment = Alignment.CenterVertically,
@@ -590,6 +628,7 @@ private fun QuickActionButton(
         QuickAction.FLIP_H -> vm.viewFlipX
         QuickAction.FLIP_V -> vm.viewFlipY
         QuickAction.TOGGLE_ERASER -> vm.currentToolId == "eraser"
+        QuickAction.ERASER_MODE -> vm.isEraserMode
         QuickAction.ALPHA_LOCK -> vm.isCurrentLayerAlphaLocked()
         QuickAction.DISABLE_TOUCH -> vm.isCanvasTouchDisabled
         else -> false
@@ -979,7 +1018,7 @@ private fun QuickActionsEditDialog(
                         ) {
                             Text(
                                 text = "${stringResource(R.string.quick_action_tab_actions)} (${currentActions.size})",
-                                color = if (selectedTab == 0) Color.White else Morandi.subText,
+                                color = if (selectedTab == 0) Morandi.onAccent else Morandi.subText,
                                 fontSize = 12.sp,
                                 fontWeight = if (selectedTab == 0) FontWeight.SemiBold else FontWeight.Normal,
                             )
@@ -995,7 +1034,7 @@ private fun QuickActionsEditDialog(
                         ) {
                             Text(
                                 text = stringResource(R.string.quick_action_tab_style),
-                                color = if (selectedTab == 1) Color.White else Morandi.subText,
+                                color = if (selectedTab == 1) Morandi.onAccent else Morandi.subText,
                                 fontSize = 12.sp,
                                 fontWeight = if (selectedTab == 1) FontWeight.SemiBold else FontWeight.Normal,
                             )
@@ -1136,7 +1175,7 @@ private fun QuickActionsEditDialog(
                     ) {
                         Text(
                             text = stringResource(R.string.quick_action_done),
-                            color = Color.White,
+                            color = Morandi.onAccent,
                             fontSize = 13.sp,
                             fontWeight = FontWeight.Medium,
                         )
@@ -1335,7 +1374,7 @@ private fun QuickActionsStyleSection(
                         ) {
                             Text(
                                 text = stringResource(mode.labelRes),
-                                color = if (isSelected) Color.White else Morandi.subText,
+                                color = if (isSelected) Morandi.onAccent else Morandi.subText,
                                 fontSize = 11.sp,
                                 fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                             )
@@ -1566,6 +1605,15 @@ private fun getActionToastInfo(
         QuickAction.TOGGLE_ERASER -> {
             if (vm.currentToolId == "eraser") context.getString(R.string.tool_brush)
             else context.getString(R.string.tool_eraser)
+        }
+        QuickAction.ERASER_MODE -> {
+            if (vm.currentToolId != "brush") {
+                context.getString(R.string.toast_eraser_mode_require_brush)
+            } else if (!vm.isEraserMode) {
+                context.getString(R.string.toast_eraser_mode_on)
+            } else {
+                context.getString(R.string.toast_eraser_mode_off)
+            }
         }
         QuickAction.FLIP_H -> {
             if (!vm.viewFlipX) context.getString(R.string.toast_view_flip_h_on)

@@ -74,6 +74,12 @@
     <string name="blend_value">明度</string>
     <string name="blend_erase">擦除</string>
     <string name="blend_luminosity_sai">發光 (SAI)</string>
+    <string name="blend_dissolve">溶解</string>
+    <string name="blend_hard_mix">實色混合</string>
+    <string name="blend_darker_color">深色</string>
+    <string name="blend_lighter_color">淺色</string>
+    <string name="blend_luminosity">明度(亮度)</string>
+    <string name="blend_behind">後面</string>
     <string name="blend_glow">發光</string>
     <string name="blend_category_basic">基礎</string>
     <string name="blend_category_darken">變暗</string>
@@ -2716,7 +2722,7 @@
     <string name="settings_three_finger_edit_title">三指下滑開啟編輯選單</string>
     <string name="settings_three_finger_edit_desc">三指一起向下滑動開啟自定義選單；輕點仍可重做</string>
     <string name="canvas_edit_title">快捷選單</string>
-    <string name="canvas_edit_customize">自定義三指選單</string>
+    <string name="canvas_edit_customize">自定義快捷選單</string>
     <string name="canvas_edit_customize_hint">新增常用操作，用上下箭頭調整順序，至少保留一項</string>
     <string name="canvas_edit_selected_tab">已選 (%1$d)</string>
     <string name="canvas_edit_available_tab">新增 (%1$d)</string>
@@ -3145,6 +3151,10 @@
     <string name="replay_export_stage_finalizing">正在封裝匯出檔案…</string>
     <string name="replay_export_stage_saving_gallery">正在寫入系統相簿…</string>
     <string name="replay_export_hint_4k">4K 解析度匯出耗時較長，建議優先選擇 1080p</string>
+    <string name="settings_abr_blend_policy_title">ABR 匯入混合模式策略</string>
+    <string name="settings_abr_blend_policy_desc">控制 ABR 筆刷匯入時雙重畫筆與紋理模式映射演算法</string>
+    <string name="settings_abr_blend_policy_compat">柔和容錯</string>
+    <string name="settings_abr_blend_policy_precision">嚴格精準</string>
     <string name="layer_3d_axis_pitch">俯仰</string>
     <string name="layer_3d_axis_roll">翻滾</string>
     <string name="layer_3d_axis_yaw">偏轉</string>

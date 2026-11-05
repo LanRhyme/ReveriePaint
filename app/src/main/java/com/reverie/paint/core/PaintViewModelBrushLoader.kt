@@ -4,6 +4,8 @@
 
 package com.reverie.paint.core
 
+import com.reverie.paint.core.brushstore.ResourceDirs
+import com.reverie.paint.core.brushstore.ResourceStore
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.provider.OpenableColumns
@@ -24,8 +26,8 @@ internal fun PaintViewModel.getBuiltInBrushNames(): Set<String> {
     cachedBuiltInNames?.let { return it }
     val names = try {
         appContext.assets.list("paintoppresets")
-            ?.filter { it.endsWith(".kpp", ignoreCase = true) || it.endsWith(".myb", ignoreCase = true) }
-            ?.map { it.removeSuffix(".kpp").removeSuffix(".myb") }?.toSet() ?: emptySet()
+            ?.filter { com.reverie.paint.core.brushstore.BrushImportPipeline.isPreset(it) }
+            ?.map { it.substringBeforeLast('.') }?.toSet() ?: emptySet()
     } catch (_: Throwable) {
         emptySet()
     }
@@ -38,12 +40,11 @@ internal fun PaintViewModel.getBuiltInBrushNames(): Set<String> {
 internal fun PaintViewModel.loadBrushPresets(force: Boolean = false) {
     if (brushPresetsLoaded && brushPresets.isNotEmpty() && !force) return
     if (isBrushPresetsLoading && !force) return
-    brushPresetsLoaded = true
     isBrushPresetsLoading = true
     loadToolOptions()
     loadViewSettings()
     loadShortcuts()
-    loadBrushParams()
+    loadToolBrushStates()
     // 把 assets 里几百个笔刷预设与笔刷资源 (.gbr/.gih/.png/.svg, 可达几十 MB)
     // 拷进 filesDir 是纯 IO: 原先同步跑在调用线程 (MainActivity 的
     // LaunchedEffect, 即主线程), 首启或清数据之后的启动卡顿主要来自这里。
@@ -54,24 +55,26 @@ internal fun PaintViewModel.loadBrushPresets(force: Boolean = false) {
             val dirs = withContext(Dispatchers.IO) {
                 com.reverie.paint.core.brushstore.BrushDiagnostics.init(appContext.filesDir)
                 val d = copyBundledBrushAssets()
-                // 必须在引擎加载任何预设之前清掉历史重复参数键
-                migrateDuplicatedPresetParams(d.first)
                 bootstrapBrushStore(d.first)
                 d
             }
-            // S2.3 一次性记录修复：必须在首次 selectBrushPreset（loadBrushPresetsAfterAssets 内）之前完成
-            com.reverie.paint.core.brushstore.ParityRepair.runOnce(this@loadBrushPresets)
             loadBrushPresetsAfterAssets(dirs.first, dirs.second)
         } catch (t: Throwable) {
             android.util.Log.e("ReveriePaint", "loadBrushPresets IO failed", t)
             isBrushPresetsLoading = false
+            brushPresetsLoaded = false
+            if (currentPage == Page.PAINTING && isBlockingLoading &&
+                blockingLoadingMessage == getString(R.string.brush_presets_loading)
+            ) {
+                isBlockingLoading = false
+            }
         }
     }
 }
 
 /**
- * 笔刷存储 v2 启动编排（执行文档 W-04）：同步出厂快照 → 迁移（W-07）→ materializeAll。
- * 失败或迁移未完成时 [com.reverie.paint.core.brushstore.BrushStoreBootstrap.active] 为 false，VM 继续走旧路径。
+ * 启动时初始化笔刷存储（快照 + 覆盖）。
+ * 失败时 [com.reverie.paint.core.brushstore.BrushStoreBootstrap.readOnly] 为 true，VM 进入只读兜底。
  */
 private fun PaintViewModel.bootstrapBrushStore(presetDir: File) {
     val ctx = appContext
@@ -84,7 +87,6 @@ private fun PaintViewModel.bootstrapBrushStore(presetDir: File) {
     com.reverie.paint.core.brushstore.BrushStoreBootstrap.run(
         filesDir = ctx.filesDir,
         presetDir = presetDir,
-        enabled = com.reverie.paint.core.brushstore.BrushStoreFlags.isEnabled(ctx),
         installStamp = stamp,
         readAssets = {
             val am = ctx.assets
@@ -92,15 +94,23 @@ private fun PaintViewModel.bootstrapBrushStore(presetDir: File) {
                 .filter { com.reverie.paint.core.brushstore.BrushStoreBootstrap.isFactoryPreset(it) }
                 .associateWith { n -> am.open("paintoppresets/$n").use { it.readBytes() } }
         },
-        migrate = { migrateLegacyBrushParams(presetDir) },
+        migrate = {
+            migrateLegacyBrushParams(presetDir).also {
+                toolBrushStates = com.reverie.paint.core.brushstore.ToolMemoryMigration.run(toolBrushStates) {
+                    toolBrushStates = it
+                    persistToolBrushStates()
+                }
+            }
+        },
     )
 }
 
-/** W-07：首次进入 v2 时把旧 brushParams 迁成覆盖；成功后写 schema，之后直接返回 true */
+/** W-07：首次进入时把旧 legacyParams 迁成覆盖；成功后写 schema，之后直接返回 true */
 private fun PaintViewModel.migrateLegacyBrushParams(presetDir: File): Boolean {
     val ctx = appContext
-    if (!com.reverie.paint.core.brushstore.BrushStoreFlags.needsMigration(ctx)) return true
-    val legacy = HashMap(brushParams)
+    val fromSchema = com.reverie.paint.core.brushstore.LegacyBrushParamsMigrator.migratedSchema(ctx)
+    if (fromSchema >= com.reverie.paint.core.brushstore.LegacyBrushParamsMigrator.CURRENT_SCHEMA) return true
+    val legacy = loadBrushParams()
     val raw = prefs().getString("brush_params", null)
     val ts = java.text.SimpleDateFormat("yyyyMMdd-HHmmss", java.util.Locale.US).format(java.util.Date())
     com.reverie.paint.core.brushstore.LegacyBrushParamsMigrator.run(
@@ -109,8 +119,9 @@ private fun PaintViewModel.migrateLegacyBrushParams(presetDir: File): Boolean {
         legacy,
         raw,
         ts,
+        fromSchema = fromSchema,
     )
-    com.reverie.paint.core.brushstore.BrushStoreFlags.setMigratedSchema(ctx, com.reverie.paint.core.brushstore.BrushStoreFlags.CURRENT_SCHEMA)
+    com.reverie.paint.core.brushstore.LegacyBrushParamsMigrator.setMigratedSchema(ctx, com.reverie.paint.core.brushstore.LegacyBrushParamsMigrator.CURRENT_SCHEMA)
     return true
 }
 
@@ -119,15 +130,36 @@ private fun PaintViewModel.migrateLegacyBrushParams(presetDir: File): Boolean {
  * 返回 (预设目录, 笔刷资源目录)。
  */
 private fun PaintViewModel.copyBundledBrushAssets(): Pair<File, File> {
-    val dir = java.io.File(appContext.filesDir, "paintoppresets")
-    val brushDir = java.io.File(appContext.filesDir, "brushes")
+    val dir = ResourceDirs.presets(appContext.filesDir)
+    val brushDir = ResourceDirs.tips(appContext.filesDir)
+    val patternDir = ResourceDirs.patterns(appContext.filesDir)
     val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-    val needsFactoryRestore = !prefs.getBoolean("brush_kpp_factory_restored_v8", false)
     val lastInstalledVersion = prefs.getInt("brush_assets_installed_version", -1)
     val isVersionMatched = lastInstalledVersion == com.reverie.paint.BuildConfig.VERSION_CODE
 
+    val assets = appContext.assets
+    val brushAssetNames = assets.list("brushes") ?: emptyArray()
+    val patternAssetNames = assets.list("patterns") ?: emptyArray()
+
+    // 缓存出厂素材清单供备份过滤使用（避免将出厂笔尖与纹理打包）
+    val storeRoot = com.reverie.paint.core.brushstore.BrushStoreBootstrap.storeRoot(appContext.filesDir)
+    val factoryResFile = File(storeRoot, com.reverie.paint.core.backup.BrushBackupMerge.FACTORY_RESOURCES_FILE)
+    if (!factoryResFile.exists() || !isVersionMatched) {
+        runCatching {
+            val presetNames = assets.list("paintoppresets")?.filter {
+                com.reverie.paint.core.brushstore.BrushImportPipeline.isPreset(it)
+            } ?: emptyList()
+            com.reverie.paint.core.backup.BrushBackupMerge.saveFactoryResources(
+                appContext.filesDir,
+                brushAssetNames.toList(),
+                patternAssetNames.toList(),
+                presetNames,
+            )
+        }
+    }
+
     // 若当前版本已拷贝过资源且目标目录健全，直接秒级快速返回，免去对 500+ 个 assets 文件的解压与遍历检查
-    if (!needsFactoryRestore && isVersionMatched && dir.exists() && brushDir.exists()) {
+    if (isVersionMatched && dir.exists() && brushDir.exists() && patternDir.exists()) {
         val presetCount = dir.list()?.size ?: 0
         val brushCount = brushDir.list()?.size ?: 0
         if (presetCount >= 100 && brushCount >= 100) {
@@ -135,65 +167,32 @@ private fun PaintViewModel.copyBundledBrushAssets(): Pair<File, File> {
         }
     }
 
-    val assets = appContext.assets
+    if (!dir.exists()) dir.mkdirs()
+    if (!brushDir.exists()) brushDir.mkdirs()
+    if (!patternDir.exists()) patternDir.mkdirs()
+
+    // kpp 预设由 materializeAll 生成，出厂 tip/pattern 统一经 ResourceStore 登记
     try {
-        if (!dir.exists()) dir.mkdirs()
-        for (name in assets.list("paintoppresets") ?: emptyArray()) {
-            val target = java.io.File(dir, name)
-            if (!target.exists() || needsFactoryRestore) {
-                assets.open("paintoppresets/$name").use { input ->
-                    target.outputStream().use { output -> input.copyTo(output) }
-                }
-            }
-        }
-        if (needsFactoryRestore) {
-            prefs.edit().putBoolean("brush_kpp_factory_restored_v8", true).apply()
-        }
-    } catch (e: Exception) {
-        android.util.Log.e("ReveriePaint", "preset copy failed", e)
-    }
-    android.util.Log.d("ReveriePaint", "loadBrushPresets files=" + (dir.list()?.size ?: -1))
-    // Copy the bundled brush resource files (.gbr/.gih/.png/.svg) from
-    // assets to filesDir once, so presets can resolve their
-    // brush_definition files via the shared KisLocalStrokeResources.
-    try {
-        if (!brushDir.exists()) brushDir.mkdirs()
-        for (name in assets.list("brushes") ?: emptyArray()) {
-            val target = java.io.File(brushDir, name)
-            if (!target.exists()) {
-                assets.open("brushes/$name").use { input ->
-                    target.outputStream().use { output -> input.copyTo(output) }
-                }
-            } else if (!isVersionMatched) {
-                // W-10：升级时内置资源按 APK 更新（导入资源已命名空间化 `<包>__<名>`，不会被冲掉）
-                val bytes = assets.open("brushes/$name").use { it.readBytes() }
-                if (target.length() != bytes.size.toLong() || !target.readBytes().contentEquals(bytes)) {
-                    target.writeBytes(bytes)
-                    com.reverie.paint.core.brushstore.BrushDiagnostics.log("upgrade_resource", "kind" to "brushes", "name" to name)
-                }
-            }
+        for (name in brushAssetNames) {
+            val bytes = assets.open("brushes/$name").use { it.readBytes() }
+            com.reverie.paint.core.brushstore.BrushStoreBootstrap.resourceStore(appContext.filesDir).register(
+                bytes,
+                com.reverie.paint.core.brushstore.ResourceStore.Kind.TIP,
+                name,
+            )
         }
     } catch (e: Exception) {
         android.util.Log.e("ReveriePaint", "brush copy failed", e)
     }
 
-    val patternDir = java.io.File(appContext.filesDir, "patterns")
     try {
-        if (!patternDir.exists()) patternDir.mkdirs()
-        for (name in assets.list("patterns") ?: emptyArray()) {
-            val target = java.io.File(patternDir, name)
-            if (!target.exists()) {
-                assets.open("patterns/$name").use { input ->
-                    target.outputStream().use { output -> input.copyTo(output) }
-                }
-            } else if (!isVersionMatched) {
-                // W-10：升级时内置资源按 APK 更新（导入资源已命名空间化 `<包>__<名>`，不会被冲掉）
-                val bytes = assets.open("patterns/$name").use { it.readBytes() }
-                if (target.length() != bytes.size.toLong() || !target.readBytes().contentEquals(bytes)) {
-                    target.writeBytes(bytes)
-                    com.reverie.paint.core.brushstore.BrushDiagnostics.log("upgrade_resource", "kind" to "patterns", "name" to name)
-                }
-            }
+        for (name in patternAssetNames) {
+            val bytes = assets.open("patterns/$name").use { it.readBytes() }
+            com.reverie.paint.core.brushstore.BrushStoreBootstrap.resourceStore(appContext.filesDir).register(
+                bytes,
+                com.reverie.paint.core.brushstore.ResourceStore.Kind.PATTERN,
+                name,
+            )
         }
     } catch (e: Exception) {
         android.util.Log.e("ReveriePaint", "pattern copy failed", e)
@@ -214,16 +213,8 @@ private fun PaintViewModel.loadBrushPresetsAfterAssets(
     // Restore persisted user brush groups and custom order
     loadBrushGroups()
     loadCategoryOrder()
-    val orderJson = prefs().getString("brush_order", null)
-    brushOrder =
-        if (orderJson != null) {
-            runCatching {
-                val arr = org.json.JSONArray(orderJson)
-                (0 until arr.length()).map { arr.getString(it) }
-            }.getOrDefault(emptyList())
-        } else {
-            emptyList()
-        }
+    // 分组 / 排序 / 常用 / 最近 / 快捷栏顺序按 id 存；旧名字键在这里（identity 已就绪后）一次性迁移
+    loadBrushIdPrefs()
     // Build the list on the render thread (JNI reads), but assign the
     // Compose state on the MAIN thread: mutableStateOf written from the
     // render HandlerThread is not reliably visible to composition.
@@ -235,62 +226,21 @@ private fun PaintViewModel.loadBrushPresetsAfterAssets(
             val rank = brushOrder.withIndex().associate { it.value to it.index }
             val ordered =
                 if (rank.isEmpty()) list.toList()
-                else list.toList().sortedBy { rank[it.name] ?: (rank.size + it.index) }
+                else list.toList().sortedBy { rank[it.id] ?: (rank.size + it.index) }
             brushPresets = ordered
+            brushPresetsLoaded = true
             if (ordered.isNotEmpty()) {
-                val defaultDrawingPreset = ordered.firstOrNull {
-                    it.name == "b)_Basic-5_Size_default"
-                } ?: ordered.firstOrNull {
-                    it.name == "b)_Basic-5_Size_Opacity"
-                } ?: ordered.firstOrNull {
-                    it.group == "基础" && !it.name.startsWith("a)_Eraser", ignoreCase = true) && !it.name.contains("Eraser", ignoreCase = true)
-                } ?: ordered.firstOrNull {
-                    it.group != "橡皮擦" && !it.name.startsWith("a)_Eraser", ignoreCase = true) && !it.name.contains("Eraser", ignoreCase = true)
-                } ?: ordered[0]
-
-                val defaultEraserPreset = ordered.firstOrNull {
-                    it.name == "a)_Eraser_Circle"
-                } ?: ordered.firstOrNull {
-                    it.name == "Eraser_circle"
-                } ?: ordered.firstOrNull {
-                    it.group == "橡皮擦"
-                } ?: ordered[0]
-
                 val savedToolId = prefs().getString("current_tool_id", "brush") ?: "brush"
-                val isEraserTool = savedToolId == "eraser"
-                val fallbackPreset = if (isEraserTool) defaultEraserPreset else defaultDrawingPreset
-
-                val savedToolState = toolBrushStates[savedToolId]
-                // Saved preset indices are NATIVE-table indices; validate by item presence
-                val targetIndex =
-                    if (savedToolState != null && ordered.any { it.index == savedToolState.presetIndex }) {
-                        val candidate = ordered.first { it.index == savedToolState.presetIndex }
-                        val isCandidateEraser = candidate.group == "橡皮擦" ||
-                                candidate.name.startsWith("a)_Eraser", ignoreCase = true) ||
-                                candidate.name.contains("Eraser", ignoreCase = true)
-                        if (!isEraserTool && isCandidateEraser) {
-                            fallbackPreset.index
-                        } else {
-                            savedToolState.presetIndex
-                        }
-                    } else {
-                        val savedPresetIdx = prefs().getInt("last_brush_preset_index", -1)
-                        if (savedPresetIdx >= 0 && ordered.any { it.index == savedPresetIdx }) {
-                            val candidate = ordered.first { it.index == savedPresetIdx }
-                            val isCandidateEraser = candidate.group == "橡皮擦" ||
-                                    candidate.name.startsWith("a)_Eraser", ignoreCase = true) ||
-                                    candidate.name.contains("Eraser", ignoreCase = true)
-                            if (!isEraserTool && isCandidateEraser) {
-                                fallbackPreset.index
-                            } else {
-                                savedPresetIdx
-                            }
-                        } else {
-                            fallbackPreset.index
-                        }
-                    }
-                applyTool(savedToolId)
-                selectBrushPreset(targetIndex)
+                applyTool(savedToolId, force = true)
+            }
+            if (currentPage == Page.PAINTING && isBlockingLoading &&
+                blockingLoadingMessage == getString(R.string.brush_presets_loading)
+            ) {
+                isBlockingLoading = false
+                frontBufferQuietUntilMs = FrontBufferQuiet.onDocumentLoaded(
+                    android.os.SystemClock.uptimeMillis(),
+                    PaintViewModel.NEW_CANVAS_FRONT_BUFFER_QUIET_MS,
+                )
             }
         } finally {
             isBrushPresetsLoading = false
@@ -300,7 +250,7 @@ private fun PaintViewModel.loadBrushPresetsAfterAssets(
             android.util.Log.d("ReveriePaint", "loadBrushPresets runCore start")
             val nrb = ReverieCoreBridge.loadBrushResources(brushDir.absolutePath)
             android.util.Log.d("ReveriePaint", "loadBrushResources count=$nrb")
-            val patternDir = java.io.File(appContext.filesDir, "patterns")
+            val patternDir = ResourceDirs.patterns(appContext.filesDir)
             if (patternDir.exists()) {
                 try {
                     ReverieCoreBridge.loadPatternResources(patternDir.absolutePath)
@@ -311,24 +261,32 @@ private fun PaintViewModel.loadBrushPresetsAfterAssets(
             android.util.Log.d("ReveriePaint", "loadBrushPresets count=$n")
             val builtInNames = getBuiltInBrushNames()
             list.clear()
-            for (i in 0 until n) {
-                val nm = ReverieCoreBridge.brushPresetName(i)
-                list.add(
-                    BrushPresetInfo(
-                        index = i,
-                        name = nm,
-                        thumbBytes = ReverieCoreBridge.brushPresetThumbData(i) ?: ByteArray(0),
-                        group = userBrushGroups[nm] ?: inferBrushGroup(nm),
-                        isBuiltIn = builtInNames.contains(nm),
-                    ),
-                )
-            }
+            list.addAll(scanNativePresets(n, builtInNames))
             android.util.Log.d("ReveriePaint", "loadBrushPresets list=${list.size}")
         } catch (t: Throwable) {
             android.util.Log.e("ReveriePaint", "loadBrushPresets runCore op failed", t)
         }
     }
 }
+
+/**
+ * 引擎刚加载完预设表后，把它读成 UI 列表的唯一入口（启动加载与 reloadBrushPresets 共用）。
+ * 引擎只认磁盘文件名，所以"文件名 → id"在这里做且只在这里做一次（[BrushStoreVm.idForScanned]）；
+ * 之后 UI / VM 一律用 [BrushPresetInfo.id]。
+ */
+internal fun PaintViewModel.scanNativePresets(n: Int, builtInNames: Set<String>): List<BrushPresetInfo> =
+    (0 until n).map { i ->
+        val nm = ReverieCoreBridge.brushPresetName(i)
+        val id = BrushStoreVm.idForScanned(nm)
+        BrushPresetInfo(
+            index = i,
+            id = id,
+            name = nm,
+            thumbBytes = ReverieCoreBridge.brushPresetThumbData(i) ?: ByteArray(0),
+            group = userBrushGroups[id] ?: inferBrushGroup(nm),
+            isBuiltIn = builtInNames.contains(nm),
+        )
+    }
 
 // ---- User-defined brush groups ----------------------------------
 
@@ -592,7 +550,7 @@ internal fun queryFileName(context: android.content.Context, uri: android.net.Ur
 fun isBrushUri(context: android.content.Context, uri: android.net.Uri): Boolean {
     val name = queryFileName(context, uri) ?: uri.path ?: ""
     val ext = name.substringAfterLast('.', "").substringBefore('?').lowercase()
-    if (ext in listOf("kpp", "myb", "bundle", "abr", "gbr", "gih")) return true
+    if (ext in com.reverie.paint.core.brushstore.BrushImportPipeline.PRESET_EXTS || ext in listOf("bundle", "abr", "gbr", "gih")) return true
     if (ext == "zip") {
         try {
             openStreamSafely(context, uri)?.use { inStream ->
@@ -603,8 +561,7 @@ fun isBrushUri(context: android.content.Context, uri: android.net.Uri): Boolean 
                         val eName = entry.name
                         if (eName.contains("paintoppresets/") ||
                             eName.contains("brushes/") ||
-                            eName.endsWith(".kpp", ignoreCase = true) ||
-                            eName.endsWith(".myb", ignoreCase = true) ||
+                            com.reverie.paint.core.brushstore.BrushImportPipeline.isPreset(eName) ||
                             eName.endsWith(".gbr", ignoreCase = true) ||
                             eName.endsWith(".abr", ignoreCase = true) ||
                             eName.endsWith(".bundle", ignoreCase = true) ||

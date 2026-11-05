@@ -1,0 +1,34 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "reveriepaint-telemetry"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+# 自定义域名。国内访问 *.workers.dev 会被 DNS 污染(真机实测 SocketTimeoutException),
+# 所以客户端必须打自己的 zone。部署时自动创建 DNS 记录与证书。
+# 注意: 顶层键必须写在任何 [table] 之前, 否则会被解析成该 table 的字段。
+routes = [
+  { pattern = "telemetry.lanrhyme.top", custom_domain = true }
+]
+
+# 部署前执行: npx wrangler d1 create reveriepaint_telemetry
+[[d1_databases]]
+binding = "DB"
+database_name = "reveriepaint_telemetry"
+database_id = "f183220b-73ca-4f85-945a-4af05c77a8ab"
+
+# 符号归档: 未 strip 的 .so 先 gzip 再放 KV(单值上限 25MB, core 库压后约 11MB)。
+# Worker 只做透传, 不解压 —— 免费版单请求 CPU 只有 10ms, 解 47MB 会超。
+[[kv_namespaces]]
+binding = "SYMBOLS"
+id = "541de0f29fd543b9a45a09ad54f7696f"
+
+[vars]
+# 1 = 全局停用(客户端收到 410 后本机永久停用)
+DISABLED = "0"
+
+# 每小时告警(新签名/突增) + 每天 03:17 UTC 清理 180 天前的数据
+[triggers]
+crons = ["17 3 * * *", "0 * * * *"]
+
+# INGEST_KEY 不放这里,用: npx wrangler secret put INGEST_KEY

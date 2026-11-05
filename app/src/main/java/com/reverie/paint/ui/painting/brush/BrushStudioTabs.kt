@@ -867,17 +867,7 @@ internal fun PresetTabContent(
 
     // 画笔混合模式 (Blend Mode / Composite Op，完全对齐 Krita 预设混合模式)
     StudioGroupCard(stringResource(R.string.brush_studio_composite_op)) {
-        val compositeOps = listOf(
-            "normal" to R.string.brush_studio_blend_normal,
-            "multiply" to R.string.brush_studio_blend_multiply,
-            "screen" to R.string.brush_studio_blend_screen,
-            "overlay" to R.string.brush_studio_blend_overlay,
-            "soft_light" to R.string.brush_studio_blend_soft_light,
-            "hard_light" to R.string.brush_studio_blend_hard_light,
-            "dodge" to R.string.brush_studio_blend_dodge,
-            "burn" to R.string.brush_studio_blend_burn,
-            "erase" to R.string.tool_eraser,
-        )
+        val compositeOps = BRUSH_BLEND_IDS + ("erase" to R.string.tool_eraser)
         compositeOps.chunked(3).forEach { row ->
             Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                 row.forEach { (opId, nameRes) ->

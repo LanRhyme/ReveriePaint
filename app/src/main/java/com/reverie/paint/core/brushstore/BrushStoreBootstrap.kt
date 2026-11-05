@@ -4,21 +4,21 @@
 
 package com.reverie.paint.core.brushstore
 
+import org.json.JSONObject
 import java.io.File
 
 /**
- * 启动编排（执行文档 §2.4 启动流程）：打开存储 → 同步出厂快照 → [迁移] → materializeAll。
+ * 启动编排（执行文档 §2.4 启动流程）：打开存储 → 同步出厂快照 → [迁移] → reconcileDisk → materializeAll。
  * 调用方随后照旧 `loadBrushPresetsFromDir(paintoppresets)`，不改 JNI。
- *
- * [active] 为 true 时 VM 走 v2 路径；需同时满足：开关打开、存储打开成功、迁移已完成。
  */
 object BrushStoreBootstrap {
     const val STORE_DIR = "brush_store"
+    const val RECONCILE_PENDING_FILE = "reconcile.pending"
     private const val STAMP_FILE = "factory_stamp"
 
     @Volatile
-    var active: Boolean = false
-        private set
+    var readOnly: Boolean = false
+        internal set
 
     @Volatile
     var presetDir: File? = null
@@ -29,6 +29,13 @@ object BrushStoreBootstrap {
     var storeRootDir: File? = null
         private set
 
+    @Volatile
+    var resourceStore: ResourceStore? = null
+        private set
+
+    fun resourceStore(filesDir: File): ResourceStore =
+        resourceStore ?: ResourceStore(storeRoot(filesDir)).also { resourceStore = it }
+
     fun storeRoot(filesDir: File): File = File(filesDir, STORE_DIR)
 
     fun openStores(storeRoot: File) {
@@ -36,6 +43,11 @@ object BrushStoreBootstrap {
         PresetSnapshotStore.open(storeRoot)
         BrushOverrideStore.open(storeRoot)
         BrushIdentity.open(storeRoot)
+        BrushThumbStore.open(storeRoot)
+        val filesDir = storeRoot.parentFile ?: storeRoot
+        val bDir = ResourceDirs.tips(filesDir)
+        val patDir = ResourceDirs.patterns(filesDir)
+        resourceStore = ResourceStore(storeRoot, bDir, patDir)
     }
 
     /** 出厂版本号 = 资产清单（文件名 + 各自 md5）的 md5，与 versionCode 无关，资产一变就变 */
@@ -44,8 +56,7 @@ object BrushStoreBootstrap {
             files.keys.sorted().joinToString("\n") { "$it:${BrushDiagnostics.md5(files.getValue(it))}" }.toByteArray(),
         )
 
-    fun isFactoryPreset(fileName: String): Boolean =
-        fileName.endsWith(".kpp", ignoreCase = true) || fileName.endsWith(".myb", ignoreCase = true)
+    fun isFactoryPreset(fileName: String): Boolean = BrushImportPipeline.isPreset(fileName)
 
     /**
      * 同步出厂快照并注册内置 identity。[installStamp] 未变且当前版本存在时不读资产（启动快路径）。
@@ -91,25 +102,21 @@ object BrushStoreBootstrap {
         for (e in BrushIdentity.all()) {
             if (e.kind == BrushIdentity.Kind.BUILTIN && e.id !in keep) {
                 BrushIdentity.remove(e.id)
+                BrushThumbStore.delete(e.id)
                 BrushDiagnostics.log("builtin_removed", "id" to e.id)
             }
         }
     }
 
-    /** 启动：同步出厂 → [migrate]（只在需要时）→ materializeAll。任何异常都退回旧路径（active=false）。 */
+    /** 启动：同步出厂 → [migrate]（只在需要时）→ reconcileDisk → materializeAll。 */
     fun run(
         filesDir: File,
         presetDir: File,
-        enabled: Boolean,
         installStamp: String,
         readAssets: () -> Map<String, ByteArray>,
         migrate: () -> Boolean,
     ): Boolean {
-        active = false
-        if (!enabled) {
-            BrushDiagnostics.log("store_disabled")
-            return false
-        }
+        readOnly = false
         return try {
             val t0 = System.nanoTime()
             val root = storeRoot(filesDir)
@@ -121,10 +128,10 @@ object BrushStoreBootstrap {
                 BrushDiagnostics.log("store_inactive", "reason" to "migration_not_done")
                 return false
             }
+            reconcileDisk(filesDir)
             val results = EffectivePresetBuilder.materializeAll(presetDir)
             this.presetDir = presetDir
             this.storeRootDir = root
-            active = true
             BrushDiagnostics.log(
                 "store_ready",
                 "presets" to results.size,
@@ -133,24 +140,130 @@ object BrushStoreBootstrap {
             )
             true
         } catch (t: Throwable) {
+            readOnly = true
             BrushDiagnostics.log("store_failed", "err" to t.toString())
+            runCatching {
+                presetDir.mkdirs()
+                for ((name, bytes) in readAssets().filterKeys { isFactoryPreset(it) }) {
+                    val f = File(presetDir, name)
+                    if (!f.exists()) {
+                        f.writeBytes(bytes)
+                        f.setReadOnly()
+                    }
+                }
+            }
             false
+        }
+    }
+
+    /** 兼容测试中带 enabled 参数的旧重载 */
+    fun run(
+        filesDir: File,
+        presetDir: File,
+        enabled: Boolean,
+        installStamp: String,
+        readAssets: () -> Map<String, ByteArray>,
+        migrate: () -> Boolean,
+    ): Boolean {
+        if (!enabled) return false
+        return run(filesDir, presetDir, installStamp, readAssets, migrate)
+    }
+
+    fun reconcilePendingFile(filesDir: File): File = File(storeRoot(filesDir), RECONCILE_PENDING_FILE)
+
+    fun hasReconcilePending(filesDir: File): Boolean = reconcilePendingFile(filesDir).exists()
+
+    fun beginReconcilePending(filesDir: File) {
+        val storeDir = storeRoot(filesDir)
+        storeDir.mkdirs()
+        val pendingFile = File(storeDir, RECONCILE_PENDING_FILE)
+        val pDir = ResourceDirs.presets(filesDir)
+        val map = LinkedHashMap<String, String>()
+        pDir.listFiles()?.filter { it.isFile && it.extension.lowercase() in BrushImportPipeline.PRESET_EXTS }?.forEach { f ->
+            map[f.name] = BrushDiagnostics.md5(f.readBytes()).lowercase()
+        }
+        val json = JSONObject()
+        for ((k, v) in map) json.put(k, v)
+        AtomicFiles.writeText(pendingFile, json.toString(1))
+    }
+
+    /**
+     * 磁盘对账：
+     * 1. brushes/ 和 patterns/ 下未登记的文件登记到 ResourceStore；
+     * 2. 没有 snapshot 的 kpp / myb 通过 adoptFile 登记；
+     * 3. 对被恢复/同步覆盖的文件（与 pending 标记相比 md5 不同的文件），以恢复文件为准换掉 snapshot 并清空 overrides；
+     * 4. 移除 pending 标记。
+     */
+    fun reconcileDisk(filesDir: File? = null) {
+        val root = storeRootDir ?: filesDir?.let { storeRoot(it) } ?: return
+        if (readOnly) return
+        val pDir = presetDir ?: filesDir?.let { ResourceDirs.presets(it) } ?: return
+        val bDir = ResourceDirs.tips(pDir.parentFile ?: pDir)
+        val patDir = ResourceDirs.patterns(pDir.parentFile ?: pDir)
+        val pendingFile = File(root, RECONCILE_PENDING_FILE)
+        val hasPending = pendingFile.exists()
+        val preMd5Map = if (hasPending) {
+            runCatching {
+                val obj = JSONObject(pendingFile.readText())
+                val m = HashMap<String, String>()
+                for (k in obj.keys()) m[k] = obj.getString(k).lowercase()
+                m
+            }.getOrNull()
+        } else null
+
+        val rStore = resourceStore ?: ResourceStore(root, bDir, patDir).also { resourceStore = it }
+        bDir.listFiles()?.filter { it.isFile }?.forEach { f ->
+            rStore.register(f.readBytes(), ResourceStore.Kind.TIP, f.name)
+        }
+        patDir.listFiles()?.filter { it.isFile }?.forEach { f ->
+            rStore.register(f.readBytes(), ResourceStore.Kind.PATTERN, f.name)
+        }
+
+        pDir.listFiles()?.filter { it.isFile && it.extension.lowercase() in BrushImportPipeline.PRESET_EXTS }?.forEach { f ->
+            val name = f.nameWithoutExtension
+            val fext = f.extension.lowercase()
+            val currentBytes = f.readBytes()
+            val currentMd5 = BrushDiagnostics.md5(currentBytes).lowercase()
+            val entry = BrushIdentity.entryForName(name)
+            if (entry == null || !PresetSnapshotStore.has(entry.id)) {
+                BrushImportPipeline.adoptFile(name, pDir, "reconcile", ext = fext)
+            } else if (!entry.ext.equals(fext, ignoreCase = true)) {
+                BrushDiagnostics.log("reconcile_ext_mismatch", "name" to name, "file" to f.name, "entry" to entry.ext)
+            } else {
+                val id = entry.id
+                if (hasPending && preMd5Map != null) {
+                    val preMd5 = preMd5Map[f.name]
+                    if (preMd5 == null || preMd5 != currentMd5) {
+                        val expectedBytes = EffectivePresetBuilder.buildFor(id)
+                        if (expectedBytes == null || !expectedBytes.contentEquals(currentBytes)) {
+                            PresetSnapshotStore.replaceForRestore(id, entry.ext, currentBytes)
+                            BrushOverrideStore.replace(id, BrushOverrideStore.Overrides())
+                            BrushThumbStore.delete(id)
+                            BrushDiagnostics.log("reconcile_restored", "id" to id, "name" to name)
+                        }
+                    }
+                }
+            }
+        }
+
+        if (hasPending) {
+            pendingFile.delete()
         }
     }
 
     /** 测试用 */
     fun resetForTest() {
-        active = false
+        readOnly = false
         presetDir = null
         storeRootDir = null
-        PresetReadback.clearBaselineCache()
+        resourceStore = null
+        BrushThumbStore.resetForTest()
+        PresetReadback.clearForTest()
     }
 
-    /** v2 管理的、可走新路径的预设（目前只有 .kpp；.myb 映射 NEEDS_EVIDENCE，仍走旧路径） */
-    fun managedEntry(name: String): BrushIdentity.Entry? {
-        if (!active) return null
-        val e = BrushIdentity.entryForName(name) ?: return null
-        if (!e.ext.equals("kpp", ignoreCase = true)) return null
+    /** 归快照管理的预设（.kpp / .myb 且有 snapshot）；只认 id */
+    fun managedEntry(id: String): BrushIdentity.Entry? {
+        val e = BrushIdentity.entry(id) ?: return null
         if (!PresetSnapshotStore.has(e.id)) return null
         return e
     }

@@ -1,0 +1,14 @@
+{
+  "name": "reveriepaint-telemetry",
+  "private": true,
+  "type": "module",
+  "description": "ReveriePaint 崩溃遥测接收端 (Cloudflare Worker + D1)",
+  "scripts": {
+    "dev": "node dev-server.mjs",
+    "deploy": "wrangler deploy",
+    "db:init": "wrangler d1 execute reveriepaint_telemetry --file=./schema.sql --remote"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}

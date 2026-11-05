@@ -8,6 +8,128 @@ import java.io.BufferedReader
 import kotlin.math.*
 
 /**
+ * OBJ 每行的空白分隔符。必须提到文件级常量:
+ * 原先 `l.split("\\s+".toRegex())` 在解析循环里逐行编译正则, 大模型会持续触发 ICU
+ * 编译, 主线程导入时直接 ANR (1.6.2 线上 ANR 栈就在 Pattern.compile)。
+ */
+private val OBJ_TOKEN_SEPARATOR = Regex("\\s+")
+
+/**
+ * OBJ 规模上限。超过这个量级, 顶点/索引/线框三份数组加起来的峰值内存会顶到 Android
+ * 的 Java 堆上限 (线上 3bde27f5cc 在 2480x3508 画布下解析大模型 OOM)。
+ * 宁可给用户一条明确提示, 也不要静默 OOM 或把首帧画到 ANR。
+ */
+private const val MAX_OBJ_VERTICES = 200_000
+private const val MAX_OBJ_TRIANGLES = 400_000
+
+/** 模型规模超出内存/交互预算。调用方应提示用户模型过大, 而不是静默兜底成方块。 */
+class MeshTooLargeException(message: String) : IllegalStateException(message)
+
+/** 不装箱的 Float 动态数组 (parseObj 里顶点/法线用, 避免 ArrayList<Float> 的百万级装箱) */
+private class FloatGrow(capacity: Int = 1024) {
+    var data = FloatArray(if (capacity > 0) capacity else 1024)
+        private set
+    var size = 0
+        private set
+
+    fun add(v: Float) {
+        if (size == data.size) {
+            data = data.copyOf(data.size * 2)
+        }
+        data[size++] = v
+    }
+
+    fun toArray(): FloatArray = if (size == data.size) data else data.copyOf(size)
+}
+
+/** 不装箱的 Int 动态数组 (索引/线框用) */
+private class IntGrow(capacity: Int = 1024) {
+    var data = IntArray(if (capacity > 0) capacity else 1024)
+        private set
+    var size = 0
+        private set
+
+    fun add(v: Int) {
+        if (size == data.size) {
+            data = data.copyOf(data.size * 2)
+        }
+        data[size++] = v
+    }
+
+    fun toArray(): IntArray = if (size == data.size) data else data.copyOf(size)
+}
+
+/**
+ * 开放寻址的 long -> long 映射, 键值为非负 (顶点键 / 边键), 用 -1 表示"不存在"。
+ * OBJ 顶点去重与"边 -> 邻接三角面"两个热路径都靠它避开 HashMap 的装箱开销。
+ */
+private class LongLongMap(expected: Int = 1024) {
+    private var keys: LongArray
+    private var values: LongArray
+    private var mask: Int
+    private var count = 0
+
+    init {
+        var cap = 16
+        val want = expected.coerceAtLeast(16)
+        while (cap < want * 2) cap = cap shl 1
+        keys = LongArray(cap) { EMPTY }
+        values = LongArray(cap)
+        mask = cap - 1
+    }
+
+    /** 不存在返回 -1 (调用方只写入非负值)。 */
+    fun get(key: Long): Long {
+        var idx = index(key)
+        while (true) {
+            val k = keys[idx]
+            if (k == EMPTY) return -1L
+            if (k == key) return values[idx]
+            idx = (idx + 1) and mask
+        }
+    }
+
+    fun put(key: Long, value: Long) {
+        var idx = index(key)
+        while (true) {
+            val k = keys[idx]
+            if (k == EMPTY) {
+                keys[idx] = key
+                values[idx] = value
+                count++
+                if (count * 3 > keys.size * 2) grow()
+                return
+            }
+            if (k == key) {
+                values[idx] = value
+                return
+            }
+            idx = (idx + 1) and mask
+        }
+    }
+
+    private fun index(key: Long): Int = (key xor (key ushr 32)).toInt() and mask
+
+    private fun grow() {
+        val oldKeys = keys
+        val oldValues = values
+        val cap = keys.size shl 1
+        keys = LongArray(cap) { EMPTY }
+        values = LongArray(cap)
+        mask = cap - 1
+        count = 0
+        for (i in oldKeys.indices) {
+            val k = oldKeys[i]
+            if (k != EMPTY) put(k, oldValues[i])
+        }
+    }
+
+    private companion object {
+        const val EMPTY = Long.MIN_VALUE
+    }
+}
+
+/**
  * 3D 几何网格数据 (顶点位置、法线、三角面索引与线框线段索引)
  */
 class Mesh3D(
@@ -75,65 +197,86 @@ class Mesh3D(
         fun computeEdgeTriangles(triangleIndices: IntArray, wireIndices: IntArray): IntArray {
             val lineCount = wireIndices.size / 2
             val result = IntArray(lineCount * 2) { -1 }
+            if (lineCount == 0) return result
             val triCount = triangleIndices.size / 3
+            if (triCount == 0) return result
 
-            for (k in 0 until lineCount) {
-                val e0 = wireIndices[k * 2]
-                val e1 = wireIndices[k * 2 + 1]
-                var found = 0
+            // 旧实现对每条线框边全量扫一遍三角面 (O(边 × 面)): 大模型在 onDraw 里能把
+            // 主线程卡到 ANR (线上 9fc2dbca2e)。这里只遍历一次三角面, 用开放寻址的
+            // long->long 表存 "边 -> (三角面0, 三角面1)", 两个槽位打包进一个 long。
+            val edgeTri = LongLongMap(triCount * 3 / 2)
+            var t = 0
+            while (t < triCount) {
+                val a = triangleIndices[t * 3]
+                val b = triangleIndices[t * 3 + 1]
+                val c = triangleIndices[t * 3 + 2]
+                registerEdgeTriangle(edgeTri, a, b, t)
+                registerEdgeTriangle(edgeTri, b, c, t)
+                registerEdgeTriangle(edgeTri, c, a, t)
+                t++
+            }
 
-                for (t in 0 until triCount) {
-                    val a = triangleIndices[t * 3]
-                    val b = triangleIndices[t * 3 + 1]
-                    val c = triangleIndices[t * 3 + 2]
-
-                    val hasE0 = (a == e0 || b == e0 || c == e0)
-                    val hasE1 = (a == e1 || b == e1 || c == e1)
-                    if (hasE0 && hasE1) {
-                        if (found == 0) {
-                            result[k * 2] = t
-                            found = 1
-                        } else {
-                            result[k * 2 + 1] = t
-                            break
-                        }
-                    }
+            var k = 0
+            while (k < lineCount) {
+                val packed = edgeTri.get(objEdgeKey(wireIndices[k * 2], wireIndices[k * 2 + 1]))
+                if (packed >= 0) {
+                    result[k * 2] = (packed and 0xFFFFFFFFL).toInt() - 1
+                    val second = (packed ushr 32).toInt() - 1
+                    if (second >= 0) result[k * 2 + 1] = second
                 }
+                k++
             }
             return result
         }
 
+        /** 顶点对 -> 无向边键 (低 32 位小索引, 高 32 位大索引) */
+        private fun objEdgeKey(i1: Int, i2: Int): Long {
+            val lo = min(i1, i2)
+            val hi = max(i1, i2)
+            return (lo.toLong() shl 32) or (hi.toLong() and 0xFFFFFFFFL)
+        }
+
+        private fun registerEdgeTriangle(edgeTri: LongLongMap, i1: Int, i2: Int, triangle: Int) {
+            val key = objEdgeKey(i1, i2)
+            val previous = edgeTri.get(key)
+            val slot = (triangle + 1).toLong()
+            if (previous < 0) {
+                edgeTri.put(key, slot)
+            } else if ((previous ushr 32) == 0L) {
+                // 每条边最多记前两个三角面, 与旧实现的 found<2 语义一致
+                edgeTri.put(key, previous or (slot shl 32))
+            }
+        }
         /**
          * 提取三角形网格中不重复的边缘线段，构造线框索引
          */
         fun extractWireframeIndices(triangleIndices: IntArray): IntArray {
-            val edgeSet = HashSet<Long>()
-            val lineIndices = ArrayList<Int>()
-
-            fun addEdge(i1: Int, i2: Int) {
-                val minIdx = min(i1, i2)
-                val maxIdx = max(i1, i2)
-                val edgeKey = (minIdx.toLong() shl 32) or (maxIdx.toLong() and 0xFFFFFFFFL)
-                if (edgeSet.add(edgeKey)) {
-                    lineIndices.add(minIdx)
-                    lineIndices.add(maxIdx)
-                }
-            }
+            // 用不装箱的 long 集合去重: 旧实现 HashSet<Long> + ArrayList<Int> 在十几万面的
+            // 模型上会把堆顶爆 (线上 3bde27f5cc 的 OOM 栈就在这条路径)。
+            val triCount = triangleIndices.size / 3
+            val seen = LongLongMap(triCount * 3 / 2)
+            val lineIndices = IntGrow(triCount * 3)
 
             var i = 0
             while (i + 2 < triangleIndices.size) {
-                val a = triangleIndices[i]
-                val b = triangleIndices[i + 1]
-                val c = triangleIndices[i + 2]
-                addEdge(a, b)
-                addEdge(b, c)
-                addEdge(c, a)
+                addWireEdge(seen, lineIndices, triangleIndices[i], triangleIndices[i + 1])
+                addWireEdge(seen, lineIndices, triangleIndices[i + 1], triangleIndices[i + 2])
+                addWireEdge(seen, lineIndices, triangleIndices[i + 2], triangleIndices[i])
                 i += 3
             }
-
-            return lineIndices.toIntArray()
+            return lineIndices.toArray()
         }
 
+        private fun addWireEdge(seen: LongLongMap, out: IntGrow, i1: Int, i2: Int) {
+            val lo = min(i1, i2)
+            val hi = max(i1, i2)
+            val key = (lo.toLong() shl 32) or (hi.toLong() and 0xFFFFFFFFL)
+            if (seen.get(key) < 0) {
+                seen.put(key, 1L)
+                out.add(lo)
+                out.add(hi)
+            }
+        }
         /**
          * 创建标准透视方块 (带面法线与棱边)
          */
@@ -982,21 +1125,22 @@ class Mesh3D(
          * 解析标准 Wavefront OBJ 文件流
          */
         fun parseObj(reader: BufferedReader): Mesh3D {
-            val rawPositions = ArrayList<Float>()
-            val rawNormals = ArrayList<Float>()
-
-            val finalPositions = ArrayList<Float>()
-            val finalNormals = ArrayList<Float>()
-            val indices = ArrayList<Int>()
-
-            val vertexMap = HashMap<String, Int>()
+            // 全部改用不装箱的 primitive 动态数组: 旧实现用 ArrayList<Float>/<Int> +
+            // HashMap<String, Int> (面 token 字符串当键), 大模型直接 OOM。
+            val rawPositions = FloatGrow(4096)
+            val rawNormals = FloatGrow(1024)
+            val finalPositions = FloatGrow(4096)
+            val finalNormals = FloatGrow(1024)
+            val indices = IntGrow(8192)
+            // (vIdx, vnIdx) -> 最终顶点下标; 不再把 "1/2/3" 这种字符串当键
+            val vertexMap = LongLongMap(4096)
 
             var line: String?
             while (reader.readLine().also { line = it } != null) {
                 val l = line!!.trim()
                 if (l.isEmpty() || l.startsWith("#")) continue
 
-                val tokens = l.split("\\s+".toRegex())
+                val tokens = l.split(OBJ_TOKEN_SEPARATOR)
                 if (tokens.isEmpty()) continue
 
                 when (tokens[0]) {
@@ -1015,59 +1159,70 @@ class Mesh3D(
                         }
                     }
                     "f" -> {
-                        if (tokens.size >= 4) {
-                            val faceVerts = ArrayList<Int>()
-                            for (k in 1 until tokens.size) {
-                                val token = tokens[k]
-                                val existingIndex = vertexMap[token]
-                                if (existingIndex != null) {
-                                    faceVerts.add(existingIndex)
-                                } else {
-                                    val parts = token.split("/")
-                                    val vIdx = parts[0].toInt().let { if (it < 0) (rawPositions.size / 3) + it else it - 1 }
-                                    val vnIdx = if (parts.size >= 3 && parts[2].isNotEmpty()) {
-                                        parts[2].toInt().let { if (it < 0) (rawNormals.size / 3) + it else it - 1 }
-                                    } else -1
+                        if (tokens.size < 4) continue
+                        val faceVerts = IntArray(tokens.size - 1)
+                        for (k in 1 until tokens.size) {
+                            val parts = tokens[k].split("/")
+                            val vRaw = parts[0].toInt()
+                            val rawVertexCount = rawPositions.size / 3
+                            val vIdx = if (vRaw < 0) rawVertexCount + vRaw else vRaw - 1
+                            val vnIdx = if (parts.size >= 3 && parts[2].isNotEmpty()) {
+                                val vnRaw = parts[2].toInt()
+                                val rawNormalCount = rawNormals.size / 3
+                                if (vnRaw < 0) rawNormalCount + vnRaw else vnRaw - 1
+                            } else {
+                                -1
+                            }
+                            // 越界索引统一归一成 -1, 避免把负值塞进键里
+                            val vSafe = if (vIdx in 0 until rawVertexCount) vIdx else -1
+                            val vnSafe = if (vnIdx in 0 until rawNormals.size / 3) vnIdx else -1
+                            val key = (vSafe.toLong() shl 32) or (vnSafe.toLong() and 0xFFFFFFFFL)
 
-                                    val newIdx = finalPositions.size / 3
-                                    if (vIdx >= 0 && vIdx * 3 + 2 < rawPositions.size) {
-                                        finalPositions.add(rawPositions[vIdx * 3])
-                                        finalPositions.add(rawPositions[vIdx * 3 + 1])
-                                        finalPositions.add(rawPositions[vIdx * 3 + 2])
-                                    } else {
-                                        finalPositions.add(0f); finalPositions.add(0f); finalPositions.add(0f)
-                                    }
-
-                                    if (vnIdx >= 0 && vnIdx * 3 + 2 < rawNormals.size) {
-                                        finalNormals.add(rawNormals[vnIdx * 3])
-                                        finalNormals.add(rawNormals[vnIdx * 3 + 1])
-                                        finalNormals.add(rawNormals[vnIdx * 3 + 2])
-                                    } else {
-                                        finalNormals.add(0f); finalNormals.add(1f); finalNormals.add(0f)
-                                    }
-
-                                    vertexMap[token] = newIdx
-                                    faceVerts.add(newIdx)
+                            val cached = vertexMap.get(key)
+                            if (cached >= 0) {
+                                faceVerts[k - 1] = cached.toInt()
+                            } else {
+                                val newIdx = finalPositions.size / 3
+                                if (newIdx >= MAX_OBJ_VERTICES) {
+                                    throw MeshTooLargeException("模型顶点数超过上限 ($MAX_OBJ_VERTICES)")
                                 }
+                                if (vSafe >= 0) {
+                                    finalPositions.add(rawPositions.data[vSafe * 3])
+                                    finalPositions.add(rawPositions.data[vSafe * 3 + 1])
+                                    finalPositions.add(rawPositions.data[vSafe * 3 + 2])
+                                } else {
+                                    finalPositions.add(0f); finalPositions.add(0f); finalPositions.add(0f)
+                                }
+                                if (vnSafe >= 0) {
+                                    finalNormals.add(rawNormals.data[vnSafe * 3])
+                                    finalNormals.add(rawNormals.data[vnSafe * 3 + 1])
+                                    finalNormals.add(rawNormals.data[vnSafe * 3 + 2])
+                                } else {
+                                    finalNormals.add(0f); finalNormals.add(1f); finalNormals.add(0f)
+                                }
+                                vertexMap.put(key, newIdx.toLong())
+                                faceVerts[k - 1] = newIdx
                             }
+                        }
 
-                            // 三角化扇面 (Fan triangulation)
-                            for (k in 1 until faceVerts.size - 1) {
-                                indices.add(faceVerts[0])
-                                indices.add(faceVerts[k])
-                                indices.add(faceVerts[k + 1])
+                        // 三角化扇面 (Fan triangulation)
+                        for (k in 1 until faceVerts.size - 1) {
+                            if (indices.size / 3 >= MAX_OBJ_TRIANGLES) {
+                                throw MeshTooLargeException("模型三角面数超过上限 ($MAX_OBJ_TRIANGLES)")
                             }
+                            indices.add(faceVerts[0])
+                            indices.add(faceVerts[k])
+                            indices.add(faceVerts[k + 1])
                         }
                     }
                 }
             }
 
-            val pArr = finalPositions.toFloatArray()
-            val nArr = finalNormals.toFloatArray()
-            val iArr = indices.toIntArray()
+            val pArr = finalPositions.toArray()
+            val nArr = finalNormals.toArray()
+            val iArr = indices.toArray()
             val wArr = extractWireframeIndices(iArr)
 
             return Mesh3D(pArr, nArr, iArr, wArr)
-        }
-    }
+        }    }
 }

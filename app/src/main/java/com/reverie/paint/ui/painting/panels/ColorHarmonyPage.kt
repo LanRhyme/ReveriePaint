@@ -120,7 +120,7 @@ fun ColorHarmonyPage(
             ) {
                 Text(
                     text = androidx.compose.ui.res.stringResource(R.string.color_harmony_subtab_wheel),
-                    color = if (subTab == 0) Color.White else Morandi.subText,
+                    color = if (subTab == 0) Morandi.onAccent else Morandi.subText,
                     fontSize = 11.sp,
                     fontWeight = if (subTab == 0) FontWeight.Bold else FontWeight.Normal
                 )
@@ -141,7 +141,7 @@ fun ColorHarmonyPage(
             ) {
                 Text(
                     text = androidx.compose.ui.res.stringResource(R.string.color_harmony_subtab_sphere),
-                    color = if (subTab == 1) Color.White else Morandi.subText,
+                    color = if (subTab == 1) Morandi.onAccent else Morandi.subText,
                     fontSize = 11.sp,
                     fontWeight = if (subTab == 1) FontWeight.Bold else FontWeight.Normal
                 )
@@ -179,7 +179,7 @@ fun ColorHarmonyPage(
                     ) {
                         Text(
                             text = androidx.compose.ui.res.stringResource(mode.labelRes),
-                            color = if (isSel) Color.White else Morandi.subText,
+                            color = if (isSel) Morandi.onAccent else Morandi.subText,
                             fontSize = 10.sp,
                             fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
                         )

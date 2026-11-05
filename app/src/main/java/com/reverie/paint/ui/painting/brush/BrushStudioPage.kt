@@ -46,6 +46,8 @@ import com.reverie.paint.ui.theme.systemHoverIcon
 import dev.chrisbanes.haze.HazeState
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 
 enum class StudioTab(val titleRes: Int, val subtitle: String, val iconRes: Int) {
     TIP(R.string.brush_studio_tab_tip, "Tip & Shape", R.drawable.ic_pencil),
@@ -81,6 +83,10 @@ fun BrushStudioPage(
     var showMaskingTipPickerModal by remember { mutableStateOf(false) }
     var showPatternPickerModal by remember { mutableStateOf(false) }
 
+    // 三个导入入口都是"读 URI -> 解码/落地资源"的阻塞 IO, 不能占主线程
+    // (线上 ANR 里 CreatePage 的图片导入就是这么卡死的, 这里同类)
+    val ioScope = rememberCoroutineScope()
+
     // 进入工作台时捕获初始参数快照
     LaunchedEffect(presetIndex) {
         vm.captureBrushStudioSnapshot()
@@ -96,11 +102,13 @@ fun BrushStudioPage(
     // SAF Import Launcher for Custom Brush Tip Image (.png, .jpg, .gbr, .gih)
     val importTipLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            val res = vm.importCustomBrushTip(uri)
-            if (res != null) {
-                Toast.makeText(context, tipImportedToast, Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, tipImportFailedToast, Toast.LENGTH_SHORT).show()
+            ioScope.launch {
+                val res = withContext(Dispatchers.IO) { vm.importCustomBrushTip(uri) }
+                if (res != null) {
+                    Toast.makeText(context, tipImportedToast, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, tipImportFailedToast, Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -118,12 +126,14 @@ fun BrushStudioPage(
     // SAF Import Launcher for Custom Texture Pattern (.pat, .png, .jpg)
     val importPatternLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
-            val res = vm.importCustomPattern(uri)
-            if (res != null) {
-                allPatternItems = buildPatternItems(context)
-                Toast.makeText(context, context.getString(R.string.brush_studio_pattern_toast_imported, res), Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, context.getString(R.string.brush_studio_pattern_toast_failed), Toast.LENGTH_SHORT).show()
+            ioScope.launch {
+                val res = withContext(Dispatchers.IO) { vm.importCustomPattern(uri) }
+                if (res != null) {
+                    allPatternItems = buildPatternItems(context)
+                    Toast.makeText(context, context.getString(R.string.brush_studio_pattern_toast_imported, res), Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, context.getString(R.string.brush_studio_pattern_toast_failed), Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -131,9 +141,11 @@ fun BrushStudioPage(
     // SAF / Photo Picker Import Launcher for Custom Brush Thumbnail Image (PNG, JPG, WebP, etc.)
     val importThumbnailLauncher = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
         if (uri != null) {
-            val ok = vm.importPresetThumbnail(uri, presetIndex)
-            if (!ok) {
-                Toast.makeText(context, context.getString(R.string.brush_studio_toast_thumbnail_import_failed), Toast.LENGTH_SHORT).show()
+            ioScope.launch {
+                val ok = withContext(Dispatchers.IO) { vm.importPresetThumbnail(uri, presetIndex) }
+                if (!ok) {
+                    Toast.makeText(context, context.getString(R.string.brush_studio_toast_thumbnail_import_failed), Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -257,7 +269,7 @@ fun BrushStudioPage(
                             text = stringResource(R.string.brush_share_action),
                             onClick = {
                                 showMenu = false
-                                preset?.let { vm.shareBrushPreset(context, it.name) }
+                                preset?.let { vm.shareBrushPreset(context, it.id) }
                             },
                         )
                         ReDropdownMenuItem(
@@ -299,7 +311,7 @@ fun BrushStudioPage(
                         .padding(horizontal = 14.dp, vertical = 8.dp),
                 ) {
                     // W-16：迁移时标 migrated_possibly_modified 的导入笔刷，提示原件可能被旧版改写过
-                    val possiblyModified = preset?.name?.let { com.reverie.paint.core.brushstore.BrushApplicability.possiblyModified(it) } == true
+                    val possiblyModified = preset?.id?.let { com.reverie.paint.core.brushstore.BrushApplicability.possiblyModified(it) } == true
                     if (possiblyModified) {
                         Text(
                             stringResource(R.string.brush_possibly_modified_hint),

@@ -39,12 +39,14 @@ enum class ControlId(val key: String, val klass: ControlClass, val group: String
     CURVE_FLOW("curve.Flow", ControlClass.REBUILD, curveOption = "Flow"),
     CURVE_ROTATION("curve.Rotation", ControlClass.REBUILD, curveOption = "Rotation"),
     CURVE_SCATTER("curve.Scatter", ControlClass.REBUILD, curveOption = "Scatter"),
+    CURVE_RATIO("curve.Ratio", ControlClass.REBUILD, curveOption = "Ratio"),
     CURVE_SOFTNESS("curve.Softness", ControlClass.REBUILD, curveOption = "Softness"),
     CURVE_SPACING("curve.Spacing", ControlClass.REBUILD, curveOption = "Spacing"),
     CURVE_SMUDGE_RATE("curve.SmudgeRate", ControlClass.REBUILD, curveOption = "SmudgeRate"),
     CURVE_COLOR_RATE("curve.ColorRate", ControlClass.REBUILD, curveOption = "ColorRate"),
     SPACING("spacing", ControlClass.REBUILD),
     SCATTER("scatter", ControlClass.REBUILD),
+    SCATTER_BOTH_AXES("scatterBothAxes", ControlClass.REBUILD),
     SOFTNESS("softness", ControlClass.REBUILD),
     SHARPNESS("sharpness", ControlClass.REBUILD),
     RATIO("ratio", ControlClass.REBUILD),
@@ -61,7 +63,12 @@ enum class ControlId(val key: String, val klass: ControlClass, val group: String
     TEXTURE_ENABLED("textureEnabled", ControlClass.REBUILD),
     TEXTURE_SCALE("textureScale", ControlClass.REBUILD),
     TEXTURE_STRENGTH("textureStrength", ControlClass.REBUILD),
+    TEXTURE_STRENGTH_PRESSURE("textureStrengthPressure", ControlClass.REBUILD),
     TEXTURE_MODE("textureMode", ControlClass.REBUILD),
+    TEXTURE_INVERT("textureInvert", ControlClass.REBUILD),
+    TEXTURE_SOFT("textureSoft", ControlClass.REBUILD),
+    TEXTURE_BRIGHTNESS("textureBrightness", ControlClass.REBUILD),
+    TEXTURE_CONTRAST("textureContrast", ControlClass.REBUILD),
     TEXTURE_PATTERN("texturePattern", ControlClass.REBUILD),
     HUE_JITTER("hueJitter", ControlClass.REBUILD),
     SAT_JITTER("satJitter", ControlClass.REBUILD),
@@ -80,6 +87,11 @@ enum class ControlId(val key: String, val klass: ControlClass, val group: String
     MASKING_TIP_ASSET("maskingTipAsset", ControlClass.REBUILD, group = "masking"),
     MASKING_TIP_SHAPE("maskingTipShape", ControlClass.REBUILD, group = "masking"),
     MASKING_FADE("maskingFade", ControlClass.REBUILD, group = "masking"),
+    MASKING_SCATTER("maskingScatter", ControlClass.REBUILD, group = "masking"),
+    MASKING_SCATTER_BOTH_AXES("maskingScatterBothAxes", ControlClass.REBUILD, group = "masking"),
+    MASKING_ANGLE("maskingAngle", ControlClass.REBUILD, group = "masking"),
+    MASKING_FLIP_X("maskingFlipX", ControlClass.REBUILD, group = "masking"),
+    MASKING_FLIP_Y("maskingFlipY", ControlClass.REBUILD, group = "masking"),
 
     // ---- 只在 App 层（APP_ONLY）----
     MASKING_SOFTNESS("maskingSoftness", ControlClass.APP_ONLY),
@@ -169,14 +181,16 @@ object PresetPropertyMap {
     fun readCurve(xml: String, option: String): CurveValue? {
         val sensor = KppSensors.sensorXml(xml, option)
         val checked = KppSensors.isChecked(xml, option)
-        if (sensor == null && !KppXml.has(xml, "${option}UseCurve") && !checked) return null
+        val hasExplicitCheck = KppXml.getBool(xml, KppSensors.pressureKey(option), false)
+        if (sensor == null && !KppXml.has(xml, "${option}UseCurve") && !hasExplicitCheck) return null
         val ids = KppSensors.sensorIds(sensor)
         val primary = primarySensor(option, ids)
         val id = primary ?: defaultSensorFor(option)
         val curve = KppSensors.commonCurve(xml, option) ?: KppSensors.sensorCurve(sensor, id) ?: KppSensors.LINEAR
         // 只有抖动用的 fuzzy（归 jitterSize/jitterAngle 管）时，曲线本身视为未启用
         val enabled = checked && KppSensors.useCurve(xml, option) && !(ids.isNotEmpty() && primary == null)
-        val strength = if (option in CURVE_OWNS_VALUE) KppXml.getDouble(xml, "${option}Value") ?: 1.0 else 1.0
+        val strengthFromAttr = Regex("""\bstrength="([^"]*)"""").find(sensor ?: "")?.groupValues?.getOrNull(1)?.toDoubleOrNull()
+        val strength = strengthFromAttr ?: if (option in CURVE_OWNS_VALUE) (KppXml.getDouble(xml, "${option}Value") ?: 1.0) else 1.0
         return CurveValue(enabled, id, CurveValue.normalizeCurve(curve), strength)
     }
 
@@ -195,6 +209,14 @@ object PresetPropertyMap {
 
     private fun drawingAngleSensor(curve: String) =
         """<!DOCTYPE params><params fanCornersStep="30" fanCornersEnabled="0" angleOffset="0" id="drawingangle"><curve>$curve</curve></params>"""
+
+    private fun withSensorStrength(sensorXml: String, strength: Double): String {
+        val fmt = CurveValue.fmt(strength)
+        val paramsRegex = Regex("""<params\b([^>]*)>""")
+        val m = paramsRegex.find(sensorXml) ?: return sensorXml
+        val attrs = m.groupValues[1].replace(Regex("""\s*\bstrength="[^"]*""""), "")
+        return sensorXml.replaceRange(m.range, "<params$attrs strength=\"$fmt\">")
+    }
 
     fun writeCurve(xml: String, option: String, v: CurveValue): String {
         var x = xml
@@ -231,11 +253,12 @@ object PresetPropertyMap {
         } else {
             sensor
         }
-        x = KppSensors.writeSensor(x, option, finalSensor)
+        val sensorWithStrength = if (v.enabled) withSensorStrength(finalSensor, v.strength) else finalSensor
+        x = KppSensors.writeSensor(x, option, sensorWithStrength)
         // 编辑的未必是第一个子传感器：commonCurve 显式同步为本次写入的曲线
         if (KppSensors.commonCurve(x, option) != null) x = KppXml.set(x, "${option}commonCurve", curve)
         if (v.enabled) {
-            if (KppSensors.isCheckable(option)) x = KppXml.set(x, KppSensors.pressureKey(option), "true")
+            x = KppXml.set(x, KppSensors.pressureKey(option), "true")
             x = KppXml.set(x, "${option}UseCurve", "true")
             if (option in CURVE_OWNS_VALUE) x = KppXml.set(x, "${option}Value", f(v.strength))
         } else {
@@ -263,7 +286,7 @@ object PresetPropertyMap {
                 val c = CurveValue.parse(v as? String)
                 when {
                     c == null -> v
-                    opt in CURVE_OWNS_VALUE && c.enabled -> c.encode()
+                    c.enabled -> c.encode()
                     else -> c.copy(strength = 1.0).encode()
                 }
             },
@@ -363,6 +386,10 @@ object PresetPropertyMap {
         else KppXml.setBrushAttr(xml, "spacing", f(v))
     }
 
+    /** 引擎对该预设报告的笔刷大小：paintopSize，缺省退回主 MaskGenerator 的 diameter（未乘 scale）。 */
+    fun readPaintOpSize(xml: String): Double? =
+        KppXml.get(xml, "paintopSize")?.toDoubleOrNull() ?: KppXml.maskGenAttr(xml, "diameter")?.toDoubleOrNull()
+
     fun readSize(xml: String): Double? {
         if (!isAutoBrush(xml)) return null
         val dia = KppXml.maskGenAttr(xml, "diameter")?.toDoubleOrNull() ?: return null
@@ -383,9 +410,25 @@ object PresetPropertyMap {
         return KppXml.brushAttr(xml, "filename").orEmpty()
     }
 
-    /** 换成基于文件的笔尖；scale 沿用原定义（ABR 导入写入的 scale 决定报告尺寸，见 KppHelper.formatScale） */
+    /** 换成基于文件的笔尖；若 file 为空则恢复为自动笔尖；scale 沿用原定义（ABR 导入写入的 scale 决定报告尺寸，见 AbrSnapshotBuilder.formatScale） */
     fun writeTipAsset(xml: String, file: String, eff: BrushParams): String {
-        if (file.isBlank() || readTipAsset(xml) == file) return xml
+        if (readTipAsset(xml) == file) return xml
+        if (file.isBlank()) {
+            val def = KppXml.autoBrushDef(
+                size = eff.size,
+                spacing = eff.spacing,
+                angleRad = Math.toRadians(eff.angle),
+                fade = eff.fade,
+                shape = eff.tipShape,
+                spikes = eff.spikes,
+                ratio = eff.ratio,
+                antiAliasing = eff.antiAliasing,
+            )
+            var x = KppXml.setMainBrushDef(xml, def)
+            x = KppXml.remove(x, "requiredBrushFile")
+            x = KppXml.remove(x, "requiredBrushFilesList")
+            return x
+        }
         val scale = KppXml.brushAttr(xml, "scale")?.takeIf { it.isNotBlank() && !isAutoBrush(xml) } ?: "1"
         val rad = Math.toRadians(eff.angle)
         val def = """<Brush scale="$scale" type="${tipType(file)}" useAutoSpacing="0" BrushVersion="2" filename="$file" spacing="${f(eff.spacing)}" angle="${f(rad)}" brushApplication="0"/>"""
@@ -404,16 +447,49 @@ object PresetPropertyMap {
         x = KppXml.set(x, "MaskingBrush/MasterSizeCoeff", f(p.maskingSizeRatio))
         x = KppXml.set(x, "MaskingBrush/Preset/Spacing", f(p.maskingSpacing))
         x = KppXml.set(x, "MaskingBrush/Preset/paintopSize", f(p.size * p.maskingSizeRatio))
-        val fade = p.maskingFade.coerceIn(0.0, 1.0)
-        val shape = if (p.maskingTipShape == 1) "rect" else "circle"
-        val gen = """<MaskGenerator diameter="${f(p.size * p.maskingSizeRatio)}" hfade="${f(fade)}" vfade="${f(fade)}" id="default" spikes="2" type="$shape" ratio="1.0" antialiasEdges="1"/>"""
+        val maskAngle = f(Math.toRadians(p.maskingAngle))
         val def = if (p.maskingTipAsset.isNotBlank()) {
+            val fade = p.maskingFade.coerceIn(0.0, 1.0)
+            val shape = if (p.maskingTipShape == 1) "rect" else "circle"
+            val gen = """<MaskGenerator diameter="${f(p.size * p.maskingSizeRatio)}" hfade="${f(fade)}" vfade="${f(fade)}" id="default" spikes="2" type="$shape" ratio="1.0" antialiasEdges="1"/>"""
             val t = tipType(p.maskingTipAsset).let { if (it == "svg_brush") "png_brush" else it }
-            """<Brush scale="1" type="$t" useAutoSpacing="0" BrushVersion="2" filename="${p.maskingTipAsset}" spacing="${f(p.maskingSpacing)}" angle="0.0" brushApplication="0"> $gen </Brush>"""
+            """<Brush scale="1" type="$t" useAutoSpacing="0" BrushVersion="2" filename="${p.maskingTipAsset}" spacing="${f(p.maskingSpacing)}" angle="$maskAngle" brushApplication="0"> $gen </Brush>"""
         } else {
-            """<Brush scale="1" type="auto_brush" BrushVersion="2" spacing="${f(p.maskingSpacing)}" angle="0.0"> $gen </Brush>"""
+            KppXml.autoBrushDef(
+                size = p.size * p.maskingSizeRatio,
+                spacing = p.maskingSpacing,
+                angleRad = Math.toRadians(p.maskingAngle),
+                fade = p.maskingFade,
+                shape = p.maskingTipShape,
+                spikes = 2,
+                ratio = 1.0,
+                antiAliasing = 1,
+            )
         }
-        return KppXml.set(x, KppXml.MASK_BRUSH_DEF, def)
+        x = KppXml.set(x, KppXml.MASK_BRUSH_DEF, def)
+        // 散布 / 翻转：键名同主笔刷的 Scatter / Mirror 选项（带 MaskingBrush/Preset/ 前缀，KisScatterOptionData / KisMirrorOption）
+        val P = "MaskingBrush/Preset/"
+        if (p.maskingScatter > TOL) {
+            x = KppXml.set(x, "${P}ScatterValue", f(p.maskingScatter))
+            x = KppXml.set(x, "${P}PressureScatter", "true")
+            x = KppXml.set(x, "${P}ScatterUseCurve", "true")
+            x = KppXml.set(x, "${P}ScatterSensor", KppSensors.single("fuzzy"))
+            x = KppXml.set(x, "${P}Scattering/AxisX", p.maskingScatterBothAxes.toString())
+            x = KppXml.set(x, "${P}Scattering/AxisY", "true")
+        } else if (KppXml.has(x, "${P}PressureScatter")) {
+            x = KppXml.set(x, "${P}PressureScatter", "false")
+        }
+        val flip = p.maskingFlipX || p.maskingFlipY
+        if (flip || KppXml.has(x, "${P}PressureMirror")) {
+            x = KppXml.set(x, "${P}PressureMirror", flip.toString())
+            if (flip) {
+                x = KppXml.set(x, "${P}MirrorUseCurve", "true")
+                x = KppXml.set(x, "${P}MirrorSensor", KppSensors.single("fuzzy"))
+            }
+            if (p.maskingFlipX || KppXml.has(x, "${P}HorizontalMirrorEnabled")) x = KppXml.set(x, "${P}HorizontalMirrorEnabled", p.maskingFlipX.toString())
+            if (p.maskingFlipY || KppXml.has(x, "${P}VerticalMirrorEnabled")) x = KppXml.set(x, "${P}VerticalMirrorEnabled", p.maskingFlipY.toString())
+        }
+        return x
     }
 
     // ---------------------------------------------------------------- 表
@@ -482,7 +558,7 @@ object PresetPropertyMap {
         )
         listOf(
             ControlId.CURVE_SIZE, ControlId.CURVE_OPACITY, ControlId.CURVE_FLOW, ControlId.CURVE_ROTATION,
-            ControlId.CURVE_SCATTER, ControlId.CURVE_SOFTNESS, ControlId.CURVE_SPACING,
+            ControlId.CURVE_SCATTER, ControlId.CURVE_RATIO, ControlId.CURVE_SOFTNESS, ControlId.CURVE_SPACING,
             ControlId.CURVE_SMUDGE_RATE, ControlId.CURVE_COLOR_RATE,
         ).forEach { add(curveSpec(it)) }
         add(
@@ -492,6 +568,14 @@ object PresetPropertyMap {
             ),
         )
         add(strengthSpec(ControlId.SCATTER, "Scatter", 0.0, { it.scatter }, { p, v -> p.copy(scatter = v) }, { it > TOL }))
+        // KisScatterOption::apply：AxisX=沿笔画方向，AxisY=沿法线；只开 AxisY 即 Photoshop 的 bothAxes=false。缺键按 KisScatterOptionData::read 默认 true
+        add(
+            ControlSpec(
+                ControlId.SCATTER_BOTH_AXES, { it.scatterBothAxes }, { p, v -> p.copy(scatterBothAxes = b(v)) },
+                read = { x -> KppXml.getBool(x, "Scattering/AxisX", true) },
+                write = { x, v, _ -> KppXml.set(KppXml.set(x, "Scattering/AxisX", b(v).toString()), "Scattering/AxisY", "true") },
+            ),
+        )
         add(
             ControlSpec(
                 ControlId.SOFTNESS, { it.softness }, { p, v -> p.copy(softness = d(v)) },
@@ -562,9 +646,9 @@ object PresetPropertyMap {
         )
         add(
             ControlSpec(
-                ControlId.COMPOSITE_OP, { it.compositeOp }, { p, v -> p.copy(compositeOp = s(v)) },
-                read = { KppXml.get(it, "CompositeOp")?.trim()?.ifBlank { null } ?: "normal" },
-                write = { x, v, _ -> if (s(v).isBlank()) x else KppXml.set(x, "CompositeOp", s(v)) },
+                ControlId.COMPOSITE_OP, { it.compositeOp }, { p, v -> p.copy(compositeOp = BrushCompositeIds.canonical(s(v))) },
+                read = { BrushCompositeIds.canonical(KppXml.get(it, "CompositeOp")?.trim()?.ifBlank { null } ?: "normal") },
+                write = { x, v, _ -> if (s(v).isBlank()) x else KppXml.set(x, "CompositeOp", BrushCompositeIds.canonical(s(v))) },
             ),
         )
         add(mirrorSpec(ControlId.RANDOM_FLIP_X, "HorizontalMirrorEnabled", "VerticalMirrorEnabled", { it.randomFlipX }) { p, v -> p.copy(randomFlipX = v) })
@@ -602,6 +686,32 @@ object PresetPropertyMap {
                 write = { x, v, _ -> KppSensors.writeStrength(x, TEXTURE_STRENGTH_OPTION, d(v), true) },
             ),
         )
+        // Krita「纹理 → 强度」选项（KisStrengthOptionData，id "Texture/Strength/"）自带传感器曲线：
+        // 勾选 + UseCurve + pressure 传感器 = 纹理深度随压力变化（对应 PS textureDepthDynamics 控制=钢笔压力）
+        add(
+            ControlSpec(
+                ControlId.TEXTURE_STRENGTH_PRESSURE, { it.textureStrengthPressureMin }, { p, v -> p.copy(textureStrengthPressureMin = d(v)) },
+                read = { x ->
+                    val o = TEXTURE_STRENGTH_OPTION
+                    if (KppSensors.isChecked(x, o) && KppSensors.useCurve(x, o) && "pressure" in KppSensors.sensorIds(KppSensors.sensorXml(x, o))) {
+                        KppSensors.firstCurve(KppSensors.sensorXml(x, o))?.split(';')?.firstOrNull()?.split(',')?.getOrNull(1)?.toDoubleOrNull() ?: 0.0
+                    } else -1.0
+                },
+                write = { x0, v, _ ->
+                    val o = TEXTURE_STRENGTH_OPTION
+                    val min = d(v)
+                    if (min < 0.0) {
+                        if (KppSensors.useCurve(x0, o) && "pressure" in KppSensors.sensorIds(KppSensors.sensorXml(x0, o))) KppXml.set(x0, "${o}UseCurve", "false") else x0
+                    } else {
+                        var x = KppXml.set(x0, KppSensors.pressureKey(o), "true")
+                        x = KppXml.set(x, "${o}UseCurve", "true")
+                        val curve = "0,${f(min.coerceIn(0.0, 1.0))};1,1;"
+                        x = KppSensors.writeSensor(x, o, KppSensors.single("pressure", curve))
+                        KppXml.set(x, "${o}commonCurve", curve)
+                    }
+                },
+            ),
+        )
         add(
             ControlSpec(
                 ControlId.TEXTURE_MODE, { TextureModes.toInt(it.textureMode) }, { p, v -> p.copy(textureMode = TextureModes.nameOf(i(v))) },
@@ -612,9 +722,37 @@ object PresetPropertyMap {
         )
         add(
             ControlSpec(
+                ControlId.TEXTURE_INVERT, { it.textureInvert }, { p, v -> p.copy(textureInvert = b(v)) },
+                read = { KppXml.getBool(it, "Texture/Pattern/Invert", false) },
+                write = { x, v, _ -> KppXml.set(x, "Texture/Pattern/Invert", b(v).toString()) },
+            ),
+        )
+        add(
+            ControlSpec(
+                ControlId.TEXTURE_SOFT, { it.textureSoft }, { p, v -> p.copy(textureSoft = b(v)) },
+                read = { KppXml.getBool(it, "Texture/Pattern/UseSoftTexturing", false) },
+                write = { x, v, _ -> KppXml.set(x, "Texture/Pattern/UseSoftTexturing", b(v).toString()) },
+            ),
+        )
+        add(
+            ControlSpec(
+                ControlId.TEXTURE_BRIGHTNESS, { it.textureBrightness }, { p, v -> p.copy(textureBrightness = d(v)) },
+                read = { KppXml.getDouble(it, "Texture/Pattern/Brightness") ?: 0.0 },
+                write = { x, v, _ -> KppXml.set(x, "Texture/Pattern/Brightness", f(d(v))) },
+            ),
+        )
+        add(
+            ControlSpec(
+                ControlId.TEXTURE_CONTRAST, { it.textureContrast }, { p, v -> p.copy(textureContrast = d(v)) },
+                read = { KppXml.getDouble(it, "Texture/Pattern/Contrast") ?: 1.0 },
+                write = { x, v, _ -> KppXml.set(x, "Texture/Pattern/Contrast", f(d(v))) },
+            ),
+        )
+        add(
+            ControlSpec(
                 ControlId.TEXTURE_PATTERN, { it.texturePattern }, { p, v -> p.copy(texturePattern = s(v)) },
                 read = { x -> KppXml.get(x, "Texture/Pattern/PatternFileName")?.ifBlank { null } ?: KppXml.get(x, "Texture/Pattern/Name") ?: "" },
-                write = { x, v, _ -> writeTexturePattern(x, s(v)) },
+                write = { x, v, _ -> writeTexturePattern(x, ResourceStore.Ref(md5 = "", file = s(v), kind = ResourceStore.Kind.PATTERN)) },
             ),
         )
         add(jitterSpec(ControlId.HUE_JITTER, "h", { it.hueJitter }) { p, v -> p.copy(hueJitter = v) })
@@ -713,6 +851,35 @@ object PresetPropertyMap {
             ),
         )
 
+        add(
+            ControlSpec(
+                ControlId.MASKING_SCATTER, { it.maskingScatter }, { p, v -> p.copy(maskingScatter = d(v)) },
+                read = { x ->
+                    if (!KppXml.has(x, "MaskingBrush/Preset/ScatterValue")) null
+                    else if (KppXml.getBool(x, "MaskingBrush/Preset/PressureScatter", false)) KppXml.getDouble(x, "MaskingBrush/Preset/ScatterValue")
+                    else 0.0
+                },
+            ),
+        )
+        // 同主笔刷 SCATTER_BOTH_AXES：AxisX=沿笔画方向、AxisY=沿法线；缺键按 KisScatterOptionData 默认 true
+        add(
+            ControlSpec(
+                ControlId.MASKING_SCATTER_BOTH_AXES, { it.maskingScatterBothAxes }, { p, v -> p.copy(maskingScatterBothAxes = b(v)) },
+                read = { x ->
+                    if (!KppXml.has(x, "MaskingBrush/Enabled")) null
+                    else KppXml.getBool(x, "MaskingBrush/Preset/Scattering/AxisX", true)
+                },
+            ),
+        )
+        add(
+            ControlSpec(
+                ControlId.MASKING_ANGLE, { it.maskingAngle }, { p, v -> p.copy(maskingAngle = d(v)) },
+                read = { x -> maskDefAttr(x, "Brush", "angle")?.toDoubleOrNull()?.let { Math.toDegrees(it) } },
+            ),
+        )
+        add(maskFlipSpec(ControlId.MASKING_FLIP_X, "HorizontalMirrorEnabled", { it.maskingFlipX }) { p, v -> p.copy(maskingFlipX = v) })
+        add(maskFlipSpec(ControlId.MASKING_FLIP_Y, "VerticalMirrorEnabled", { it.maskingFlipY }) { p, v -> p.copy(maskingFlipY = v) })
+
         // APP_ONLY
         add(app(ControlId.MASKING_SOFTNESS, { it.maskingSoftness }) { p, v -> p.copy(maskingSoftness = d(v)) })
         add(app(ControlId.STREAMLINE, { it.streamline }) { p, v -> p.copy(streamline = d(v)) })
@@ -745,16 +912,23 @@ object PresetPropertyMap {
         return KppXml.getDouble(xml, "Texture/Pattern/Strength") ?: KppXml.getDouble(xml, "Texture/StrengthValue")
     }
 
+    fun patternRefKeys(ref: ResourceStore.Ref): Map<String, String> = linkedMapOf(
+        "Texture/Pattern/PatternFileName" to ref.file,
+        "Texture/Pattern/Name" to ref.file,
+        "Texture/Pattern/PatternMD5Sum" to ref.md5,
+        "Texture/Pattern/PatternMD5" to "",
+    )
+
     /** 换纹理：先删 md5 与内嵌图（Krita 按 md5 优先匹配，KisEmbeddedTextureData.cpp:32-44），再写文件名 */
-    fun writeTexturePattern(xml: String, pattern: String): String {
-        if (pattern.isBlank()) return xml
+    fun writeTexturePattern(xml: String, ref: ResourceStore.Ref): String {
+        if (ref.file.isBlank()) return xml
         val cur = KppXml.get(xml, "Texture/Pattern/PatternFileName")
-        if (cur == pattern && KppXml.get(xml, "Texture/Pattern/Name") == pattern) return xml
-        var x = KppXml.remove(xml, "Texture/Pattern/PatternMD5")
-        x = KppXml.remove(x, "Texture/Pattern/PatternMD5Sum")
-        x = KppXml.remove(x, "Texture/Pattern/Pattern")
-        x = KppXml.set(x, "Texture/Pattern/PatternFileName", pattern)
-        return KppXml.set(x, "Texture/Pattern/Name", pattern)
+        if (cur == ref.file && KppXml.get(xml, "Texture/Pattern/Name") == ref.file) return xml
+        var x = KppXml.remove(xml, "Texture/Pattern/Pattern")
+        for ((k, v) in patternRefKeys(ref)) {
+            x = KppXml.set(x, k, v)
+        }
+        return x
     }
 
     private fun writeAirbrushKey(xml: String, suffix: String, value: String): String {
@@ -763,6 +937,18 @@ object PresetPropertyMap {
         if (KppXml.has(x, "AirbrushOption/$suffix")) x = KppXml.set(x, "AirbrushOption/$suffix", value)
         return x
     }
+
+    /** masking 预设里的翻转（只读；整组写入见 [writeMasking]） */
+    private fun maskFlipSpec(id: ControlId, key: String, get: (BrushParams) -> Boolean, set: (BrushParams, Boolean) -> BrushParams) =
+        ControlSpec(
+            id,
+            get = { get(it) },
+            set = { p, v -> set(p, b(v)) },
+            read = { x ->
+                if (!KppXml.has(x, "MaskingBrush/Enabled")) null
+                else KppXml.getBool(x, "MaskingBrush/Preset/PressureMirror", false) && KppXml.getBool(x, "MaskingBrush/Preset/$key", false)
+            },
+        )
 
     private fun mirrorSpec(
         id: ControlId,

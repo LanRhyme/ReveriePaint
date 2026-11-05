@@ -42,20 +42,7 @@ fun BrushPropertyPage(
     val preset = vm.brushPresets.firstOrNull { it.index == presetIndex }
     var showBlendMenu by remember { mutableStateOf(false) }
 
-    val blendModeList = listOf(
-        "normal" to stringResource(R.string.blend_normal),
-        "multiply" to stringResource(R.string.blend_multiply),
-        "screen" to stringResource(R.string.blend_screen),
-        "overlay" to stringResource(R.string.blend_overlay),
-        "darken" to stringResource(R.string.blend_darken),
-        "lighten" to stringResource(R.string.blend_lighten),
-        "dodge" to stringResource(R.string.blend_color_dodge),
-        "burn" to stringResource(R.string.blend_color_burn),
-        "hard_light" to stringResource(R.string.blend_hard_light),
-        "soft_light" to stringResource(R.string.blend_soft_light),
-        "difference" to stringResource(R.string.blend_difference),
-        "exclusion" to stringResource(R.string.blend_exclusion),
-    )
+    val blendModeList = BRUSH_BLEND_IDS.map { (id, res) -> id to stringResource(res) }
 
     val scrollState = rememberScrollState(initial = vm.brushPropertyScrollValue)
     LaunchedEffect(scrollState) {
@@ -115,7 +102,7 @@ fun BrushPropertyPage(
                     .clip(RoundedCornerShape(8.dp))
                     .background(Morandi.panelHi)
                     .noRippleClickable {
-                        if (preset != null) vm.resetBrushPresetToDefault(preset.name)
+                        if (preset != null) vm.resetBrushPresetToDefault(preset.id)
                         else vm.resetBrushParams()
                     },
                 contentAlignment = Alignment.Center,
@@ -179,7 +166,7 @@ fun BrushPropertyPage(
                             modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)),
                         )
                     }
-                    if (preset != null && vm.isBrushModified(preset.name)) {
+                    if (preset != null && vm.isBrushModified(preset.id)) {
                         Box(
                             modifier = Modifier
                                 .align(Alignment.TopEnd)

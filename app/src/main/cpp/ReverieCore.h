@@ -603,6 +603,10 @@ public:
     // Transform preview mechanism (extracts target pixels and hides them in C++)
     bool startTransformPreview(const QVector<int> &layers, QImage* outImage, bool copyOnly = false);
     void cancelTransformPreview();
+    // 变换轴心兜底: 有选区时把跑到选区外的轴心拉回选区中心 (见 ReverieCoreTransform.cpp)
+    void clampTransformPivotToSelection(QPointF &center, const char *where);
+    /** 是否有跨用户交互的长预览事务 (变换预览) 还开着; 开着时禁止回滚历史。 */
+    bool isTransformPreviewOpen() const;
 
     // Draw text at (x, y) with the current brush color/size
     void drawText(int x, int y, const QString &text, qreal fontSize);
@@ -901,6 +905,8 @@ public:
     bool loadSingleBrushResource(const QString &baseName);
     void ensureBrushForPreset(const QString &kppPath);
     bool loadBrushPreset(int index);
+    bool loadBrushPresetFile(const QString &path);
+    bool currentTipResolved();
     // #116: 临时橡皮覆盖的活状态快照。begin 保存当前 preset 对象 (共享指针, 其 settings
     // 已含全部现场 setter 写入) 与引擎镜像变量; 覆盖期间引擎持有橡皮预设, 不会触碰该对象;
     // end 原样换回, 恢复的就是覆盖前正在作画的引擎状态, 与磁盘/v2 持久化时序无关。
@@ -937,10 +943,11 @@ public:
     void setBrushMirror(bool flipX, bool flipY);
     void setBrushAntiAliasing(int level);
     void setPresetIsEraser(bool eraser);
-    bool setBrushTipAsset(const QString &assetName);
-    void setBrushTexture(bool enabled, qreal scale, qreal strength, const QString &mode, const QString &patternName = QString());
     bool scratchpadStart(int w, int h);
     bool scratchpadStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0);
+    /// 取样预览的涂抹策略需要设备上挂着 interstroke data (真笔画由事务注入), 见实现处注释。
+    void ensureScratchpadInterstrokeData();
+    void detachScratchpadInterstrokeData();
     bool scratchpadStrokeMove(qreal x, qreal y, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0);
     void scratchpadStrokeEnd();
     void scratchpadClear();
@@ -1060,6 +1067,28 @@ public:
     }
 
 private:
+    // 丢掉撤销栈的重做区, 让"引擎的历史状态"和"Kotlin 看到的重做可用性"一起失效。
+    //
+    // 任何**暂定事务**(变换/液化的预览、笔刷暂存回滚、被取消的笔画)在创建时都会让
+    // KisTiledDataManager::getMemento() 清掉 KisMementoManager::m_cancelledRevisions
+    // (重做信息没了), 但 KUndo2QStack 的重做区还留着命令; 而 revert() 又会把一条
+    // "不进撤销栈"的本地 revision 塞进 cancelled 列表, 它随 ~KisTransactionData 被
+    // purgeHistory() 跳过(只查 m_revisions)后变成悬垂 KisMemento*。
+    // 之后点重做时 KisMementoManager::rollforward() 会拿这条错位 revision 当重做目标:
+    // 瓦片被滚进文档(用户看到的"莫名其妙出现笔仙"), 并对已释放的 KisMemento 做
+    // refcount, 在 commit() 的 m_currentMemento=0 处 delete[] 垃圾指针 -> SIGABRT。
+    // 所以: 开暂定事务之前必须先调用这里, 让两边一起失效。
+    // 详见 docs/INCIDENT-1.6.4-HISTORY-REDO-CRASH.md
+    void invalidateRedoState(const char *reason);
+    // 宏事务打开期间 KUndo2QStack::purgeRedoState() 是 no-op, 这里补一次延后的清理。
+    void flushPendingRedoPurge();
+    // Drop an in-progress stroke and a leftover undo macro before replaying
+    // history. A macro holds KisImage::barrierLock; waiting for the scheduler
+    // while that lock is held never returns.
+    void prepareHistoryReplay();
+    // Replay one undo or redo step with the image barrier held, so the async
+    // merger cannot touch tile mementos until the stack call returns.
+    void replayHistoryCommand(bool redoOp);
     void syncLayersFromImage();
     KisPaintDeviceSP currentPaintDevice();
     KisPaintDeviceSP layerPaintDeviceFor(const LayerEntry &e) const;
@@ -1092,6 +1121,12 @@ private:
 
     KisImageSP m_document;
     QVector<LayerEntry> m_layers;   // bottom -> top, tree traversal order
+    // m_layers 里存的是裸 KisNode*; 这份强引用保证"已被移出图层树、但 m_layers 还没重建"
+    // 的节点在快照线程读取期间仍然活着 (线上 3bfafaf734: 主线程快照读 node->opacity()
+    // 撞上核心线程删层 -> UAF)。syncLayersFromImage 重建 m_layers 时同步刷新。
+    QVector<KisNodeSP> m_layerMirrorRefs;
+    // 保护 m_layers / m_layerMirrorRefs 的重建与快照读取 (快照在主线程, 重建在核心线程)
+    mutable std::mutex m_layerMirrorMutex;
     // Layer thumbnail cache: keyed by node (survives index shifts from
     // add/remove/move). gen is bumped by markDirty (doc-wide ops) or
     // bumpLayerThumbGen (strokes); renderLayerThumb re-blits the cached
@@ -1241,7 +1276,6 @@ private:
     qreal m_brushSpacing = 0.1;
     qreal m_brushAngle = 0.0;
     qreal m_brushRotation = 0.0;
-    QString m_brushTipAsset;
     ToolMode m_toolMode = ToolBrush;
 
     // Krita brush engine state
@@ -1252,11 +1286,12 @@ private:
     QString m_patternDir;
     QVector<QPair<QString, QString>> m_presets;  // name -> path
     int m_brushPresetIndex = -1;
+    QString m_currentPresetPath;
     int m_presetIsEraserOverride = -1; // -1 unknown (use name heuristic), 0 false, 1 true
     // 预设只读元数据缓存: 一次 .kpp 解析同时提取 defaults/paintOpId/tipFilename。
     // 选择预设时 Kotlin 会在 after{} (主线程) 连查这三个值, 每次都完整解析
     // .kpp (读文件 + PNG zTXt 解压 + XML loadFromDevice) 是"换笔卡顿"主因。
-    // 校验 mtime+size: 用户自定义参数会经 KppHelper.updateKppFile 改写 .kpp,
+    // 校验 mtime+size: 用户自定义预设保存时写入 .kpp,
     // 文件一变即自动失效重解析。互斥锁保护 (主线程查询/渲染线程切换并发)。
     struct CachedPresetInfo {
         bool valid = false;
@@ -1272,10 +1307,7 @@ private:
     QSet<QString> m_loadedResourceNames;
     // 解析并缓存预设只读元数据; 失败返回 false (out 不保证有效)
     bool ensurePresetInfo(int index, CachedPresetInfo &out);
-    // 当前 m_brushPreset 的笔尖是否被 setBrushTipAsset(非空) 覆盖过。
-    // loadBrushPreset 每次都重新解析预设文件, 出厂笔尖天然在场,
-    // 覆盖未发生时 setBrushTipAsset("") 无需再解析原文件。
-    bool m_tipOverridden = false;
+    bool loadBrushPresetCommon(const QString &path, const QString &name, int index);
     // #116 临时橡皮覆盖的活状态快照 (引擎串行线程上 begin/end 配对使用)
     KisPaintOpPresetSP m_overrideSnapshotPreset;
     int m_overrideSnapshotIndex = -1;
@@ -1290,8 +1322,8 @@ private:
     bool m_overrideSnapshotAirbrush = false;
     int m_overrideSnapshotEraserFlag = -1;
     ToolMode m_overrideSnapshotToolMode = ToolBrush;
-    bool m_overrideSnapshotTipOverridden = false;
-    QString m_overrideSnapshotTipAsset;
+    QString m_overrideSnapshotCompositeOp;
+    QString m_overrideSnapshotPresetPath;
     // Size 压感曲线缓存（预设切换时失效；光标环每帧查询用）
     mutable QMutex m_sizeCurveMutex;
     const void *m_sizeCurveOwner = nullptr;   // settings 指针，变更即重解析
@@ -1487,6 +1519,7 @@ private:
     int m_scratchpadHeight{0};
     bool m_scratchpadStrokeActive{false};
     StrokeSample m_scratchpadLastSample;
+    QElapsedTimer m_scratchpadTimer;
 
     // Smudge engine state (colorsmudge paintop)
     qreal m_smudgeRate = 0.5;   // color mixing rate -> ColorRateValue/MixValue
@@ -1644,11 +1677,19 @@ private:
     // adapter, so undo/redo restores Krita's own tile-level snapshots
     // (memory-efficient) and covers strokes, fills, shapes, layer
     // add/remove/move and layer attributes - not just brush strokes.
+public:
+    /// 图层快照线程与核心线程共享 m_layers 时使用 (见 m_layerMirrorMutex)
+    std::mutex &layerMirrorMutex() const { return m_layerMirrorMutex; }
+
+private:
     ReverieUndoStore *m_undoStore = nullptr;
     // 撤销历史上限 (命令条数, 0 = 无上限)。默认 50 与 Kotlin 侧
     // maxUndoSteps 的 prefs 默认值一致; 无 Kotlin 接线时也生效。
     int m_undoLimit = 50;
     int m_redoCount = 0;   // redo depth tracked locally (store hides it)
+    // 有暂定事务作废过重做区, 但当时宏事务还开着 (purgeRedoState 是 no-op),
+    // 需要在宏关掉后补一次清理。见 invalidateRedoState()。
+    bool m_redoPurgePending = false;
     int m_macroDepth = 0;  // nested macro transaction depth
     bool m_undoCaptureEnabled = true; // false during replay (no history growth)
     quint64 m_strokeCounter = 0;

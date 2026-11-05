@@ -45,8 +45,10 @@ object LegacyBrushParamsCodec {
         o.put("te", p.textureEnabled)
         o.put("tscl", p.textureScale)
         o.put("tstr", p.textureStrength)
+        o.put("t_spm", p.textureStrengthPressureMin)
         o.put("tm", p.textureMode)
         o.put("txp", p.texturePattern)
+        o.put("tinv", p.textureInvert)
         o.put("hj", p.hueJitter)
         o.put("sj", p.satJitter)
         o.put("vj", p.valJitter)
@@ -82,6 +84,11 @@ object LegacyBrushParamsCodec {
         o.put("m_sr", p.maskingSizeRatio)
         o.put("m_sp", p.maskingSpacing)
         o.put("m_ta", p.maskingTipAsset)
+        o.put("m_sc", p.maskingScatter)
+        o.put("m_sba", p.maskingScatterBothAxes)
+        o.put("m_ang", p.maskingAngle)
+        o.put("m_fx", p.maskingFlipX)
+        o.put("m_fy", p.maskingFlipY)
         o.put("m_ts", p.maskingTipShape)
         o.put("m_fa", p.maskingFade)
         o.put("m_so", p.maskingSoftness)
@@ -133,8 +140,10 @@ object LegacyBrushParamsCodec {
             textureEnabled = o.optBoolean("te", false),
             textureScale = o.optDouble("tscl", 1.0),
             textureStrength = o.optDouble("tstr", 0.5),
+            textureStrengthPressureMin = o.optDouble("t_spm", -1.0),
             textureMode = o.optString("tm", "multiply"),
             texturePattern = o.optString("txp", ""),
+            textureInvert = o.optBoolean("tinv", false),
             hueJitter = if (heal.jitter) 0.0 else o.optDouble("hj", 0.0),
             satJitter = if (heal.jitter) 0.0 else o.optDouble("sj", 0.0),
             valJitter = if (heal.jitter) 0.0 else o.optDouble("vj", 0.0),
@@ -179,6 +188,11 @@ object LegacyBrushParamsCodec {
             maskingSizeRatio = o.optDouble("m_sr", 1.0),
             maskingSpacing = o.optDouble("m_sp", 0.1),
             maskingTipAsset = o.optString("m_ta", ""),
+            maskingScatter = o.optDouble("m_sc", 0.0),
+            maskingScatterBothAxes = o.optBoolean("m_sba", true),
+            maskingAngle = o.optDouble("m_ang", 0.0),
+            maskingFlipX = o.optBoolean("m_fx", false),
+            maskingFlipY = o.optBoolean("m_fy", false),
             maskingTipShape = o.optInt("m_ts", 0),
             maskingFade = o.optDouble("m_fa", 0.0),
             maskingSoftness = o.optDouble("m_so", 1.0),

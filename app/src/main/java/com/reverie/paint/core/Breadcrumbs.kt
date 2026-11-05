@@ -46,6 +46,14 @@ object Breadcrumbs {
         } catch (_: Throwable) {
             // Native 库尚未加载或不可用时静默忽略
         }
+
+        // 顺带刷新一次"崩的时候在干什么"(画布/图层/页面/工具), 限流在内部做。
+        // 挂在这里是因为 record 恰好覆盖了切工具、加删图层、打开工程、切页面这些关键点。
+        try {
+            NativeCrashContext.requestRefresh()
+        } catch (_: Throwable) {
+            // 忽略
+        }
     }
 
     /**

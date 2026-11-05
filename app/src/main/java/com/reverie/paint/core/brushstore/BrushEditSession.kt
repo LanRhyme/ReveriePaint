@@ -4,106 +4,38 @@
 
 package com.reverie.paint.core.brushstore
 
-import com.reverie.paint.core.BrushParams
-import com.reverie.paint.core.BrushStoreVm
-import com.reverie.paint.core.KppHelper
 import java.io.File
 
 /**
- * v2 下一次工作台编辑的提交（执行文档 W-05）：VM 参数 → [BrushEngineApplier.mergeEdit] → 覆盖 → materialize。
- *
- * 编辑先 [stage]（只记最新一份 VM 参数，天然累积），由防抖任务或切换预设前的 [flush] 提交。
- * 所有提交串行（同一把锁），保证"读有效文件 → 合并 → 写有效文件"不交错。
+ * 笔刷重置与测试会话管理 (W-06)。
+ * 实际编辑与防抖统一走 BrushStoreVm，此处仅收拢 reset 逻辑。
  */
 object BrushEditSession {
 
-    data class Commit(
-        val id: String,
-        val changedKeys: Set<String>,
-        /** 改动里含 REBUILD 控件：引擎需要重新 loadBrushPreset 才能生效 */
-        val needsReload: Boolean,
-        val result: EffectivePresetBuilder.Result?,
-    )
-
     private val lock = Any()
-    private val pending = LinkedHashMap<String, Pair<BrushParams, BrushParams>>()
 
-    /** 记下 [id] 的最新编辑；[appBase] 为 APP_ONLY 基线（只用于回读，不进覆盖） */
-    fun stage(id: String, edited: BrushParams, appBase: BrushParams) {
-        synchronized(lock) { pending[id] = edited to appBase }
-    }
-
-    fun hasPending(id: String): Boolean = synchronized(lock) { id in pending }
-
-    fun discard(id: String) {
-        synchronized(lock) { pending.remove(id) }
-    }
-
-    /** 提交 [id] 的待提交编辑；没有返回 null */
-    fun flush(id: String, presetDir: File): Commit? = synchronized(lock) {
-        val (edited, base) = pending.remove(id) ?: return null
-        commitLocked(id, edited, base, presetDir)
-    }
-
-    fun flushAll(presetDir: File): List<Commit> = synchronized(lock) {
-        val ids = pending.keys.toList()
-        ids.mapNotNull { id -> pending.remove(id)?.let { (e, b) -> commitLocked(id, e, b, presetDir) } }
-    }
-
-    fun commit(id: String, edited: BrushParams, appBase: BrushParams, presetDir: File): Commit = synchronized(lock) {
-        pending.remove(id)
-        commitLocked(id, edited, appBase, presetDir)
-    }
-
-    private fun commitLocked(id: String, edited: BrushParams, appBase: BrushParams, presetDir: File): Commit {
-        val snap = PresetSnapshotStore.read(id)
-        val entry = BrushIdentity.entry(id)
-        if (snap == null || entry == null || !entry.ext.equals("kpp", ignoreCase = true)) {
-            BrushDiagnostics.log("commit_skipped", "id" to id, "reason" to if (snap == null) "no_snapshot" else "not_kpp")
-            return Commit(id, emptySet(), false, null)
-        }
-        val snapXml = KppHelper.readPresetXml(snap, stripEmbeddedResources = true)
-        val target = EffectivePresetBuilder.targetFile(presetDir, entry)
-        val effXml = if (target.exists()) KppHelper.readPresetXml(target.readBytes(), stripEmbeddedResources = true) else snapXml
-        val cur = BrushOverrideStore.get(id)
-        val merged = BrushEngineApplier.mergeEdit(snapXml, effXml ?: snapXml, cur, edited, appBase, BrushStoreVm.uiBaselineOf(id))
-        val changed = changedKeys(cur.controls, merged.controls)
-        if (changed.isNotEmpty()) BrushOverrideStore.replace(id, merged)
-        val res = EffectivePresetBuilder.materialize(id, presetDir)
-        val reload = changed.any { ControlId.fromKey(it)?.klass == ControlClass.REBUILD }
-        BrushDiagnostics.log("commit", "id" to id, "changed" to changed.joinToString(","), "reload" to reload)
-        BrushStoreVm.setUiBaseline(id, edited)
-        return Commit(id, changed, reload, res)
-    }
-
-    fun changedKeys(a: Map<String, Any>, b: Map<String, Any>): Set<String> {
-        val out = LinkedHashSet<String>()
-        for (k in a.keys + b.keys) {
-            val id = ControlId.fromKey(k)
-            val va = a[k]
-            val vb = b[k]
-            val same = if (id != null) PresetPropertyMap.same(id, va, vb) else va == vb
-            if (!same) out += k
-        }
-        return out
-    }
-
-    /** 在提交锁内执行（回滚、重置与防抖提交互斥） */
+    /** 提交互斥执行（回滚与提交锁） */
     fun <T> locked(block: () -> T): T = synchronized(lock) { block() }
 
-    /** 重置（W-06）：丢弃待提交编辑、清空覆盖、有效文件回到快照字节 */
+    /** 重置（W-06）：保留 rawKeys 与元数据，清空覆盖，有效文件退回初始字节 */
     fun reset(id: String, presetDir: File): EffectivePresetBuilder.Result? = synchronized(lock) {
-        pending.remove(id)
-        // rawKeys 是导入时对快照的修正（资源改名，W-08），属于"原样"的一部分，重置保留
-        val raw = BrushOverrideStore.get(id).rawKeys
-        if (raw.isEmpty()) BrushOverrideStore.clear(id) else BrushOverrideStore.replace(id, BrushOverrideStore.Overrides(rawKeys = raw))
+        if (BrushStoreBootstrap.readOnly) return null
+        // rawKeys 是导入时生成的外部引用（W-08），METADATA_KEYS 是预设元数据（保存时填写的作者信息）
+        val cur = BrushOverrideStore.get(id)
+        val raw = cur.rawKeys
+        val meta = cur.controls.filterKeys { it in PresetReadback.METADATA_KEYS }
+        if (raw.isEmpty() && meta.isEmpty()) {
+            BrushOverrideStore.clear(id)
+        } else {
+            BrushOverrideStore.replace(id, BrushOverrideStore.Overrides(controls = meta, rawKeys = raw))
+        }
         val r = EffectivePresetBuilder.materialize(id, presetDir)
         BrushDiagnostics.log("reset", "id" to id, "md5" to r?.md5)
         r
     }
 
-    /** 测试用 */
+    /** 仅供单测重置测试状态使用 */
     fun resetForTest() {
-        synchronized(lock) { pending.clear() }
+        // no-op, kept for test suite compatibility
     }
 }

@@ -41,6 +41,12 @@ class MainActivity : ComponentActivity() {
         @Volatile
         var currentViewModel: PaintViewModel? = null
 
+        const val EXTRA_ROUTE = "com.reverie.paint.EXTRA_ROUTE"
+        const val EXTRA_PROJECT_PATH = "com.reverie.paint.EXTRA_PROJECT_PATH"
+        const val ROUTE_CREATE = "create"
+        const val ROUTE_STATS = "stats"
+        const val ROUTE_OPEN_PROJECT = "open_project"
+
         /** Apply (or remove) immersive mode on the UI thread. Immersive =
          *  edge-to-edge content (decor fits windows = false) plus hidden
          *  system bars (status bar + navigation bar); a swipe shows them
@@ -173,7 +179,11 @@ class MainActivity : ComponentActivity() {
             .ensureLoaded()
         val vm = ViewModelProvider(this)[PaintViewModel::class.java]
         currentViewModel = vm
+        // 原生崩溃快照里要带上"当前页面/工具/画布", 这里补一次刷新:
+        // 冷启动后几秒内崩溃时, 光靠 Breadcrumbs 触发可能还没发生过任何用户操作
+        com.reverie.paint.core.NativeCrashContext.requestRefresh()
         vm.appContext = applicationContext
+        vm.recordLaunch()
         vm.initPerformanceHintSession()
         vm.syncSettingsFromPrefs()
         // 提前在 onCreate 启动笔刷加载，与 Compose UI 挂载和首帧渲染并发执行，彻底消除冷启动进入画布时笔刷面板的延迟与白屏
@@ -233,6 +243,40 @@ class MainActivity : ComponentActivity() {
 
     private fun handleIncomingIntent(intent: Intent?) {
         if (intent == null) return
+        val route = intent.getStringExtra(EXTRA_ROUTE)
+        if (route == ROUTE_CREATE) {
+            currentViewModel?.let { vm ->
+                vm.currentPage = Page.CREATE
+            }
+        } else if (route == ROUTE_STATS) {
+            currentViewModel?.let { vm ->
+                vm.currentPage = Page.HOME
+                vm.homeSelectedTab = 1
+                vm.settingsInitialSubPage = "STATISTICS"
+            }
+        } else if (route == ROUTE_OPEN_PROJECT) {
+            val path = intent.getStringExtra(EXTRA_PROJECT_PATH)
+            val file = if (!path.isNullOrBlank()) java.io.File(path) else null
+            if (file != null && file.exists()) {
+                currentViewModel?.let { vm ->
+                    val proj = com.reverie.paint.ui.widget.RecentProjectWidgetHelper.getProjectFromFile(this, file)
+                    if (proj != null) {
+                        vm.loadProject(proj)
+                    }
+                }
+            } else {
+                currentViewModel?.let { vm ->
+                    val latestData = com.reverie.paint.ui.widget.RecentProjectWidgetHelper.getLatestProjectDisplayData(this)
+                    if (latestData != null) {
+                        val proj = com.reverie.paint.ui.widget.RecentProjectWidgetHelper.getProjectFromFile(this, java.io.File(latestData.filePath))
+                        if (proj != null) {
+                            vm.loadProject(proj)
+                        }
+                    }
+                }
+            }
+        }
+
         val action = intent.action ?: return
         val uris = mutableListOf<Uri>()
 
@@ -490,6 +534,16 @@ class MainActivity : ComponentActivity() {
             if (!vm.isShortcutRecordingActive && driver.onStylusKeyEvent(event)) {
                 return true
             }
+            // 三星 S Pen 隔空手势: 系统注入的单键 (AT/POUND/F7..F12) KeyEvent
+            if (vm.currentPage == com.reverie.paint.core.Page.PAINTING &&
+                !vm.isTextInputActive && !vm.isShortcutRecordingActive
+            ) {
+                val strokeActive = com.reverie.paint.ui.painting.canvas.CanvasTouchView
+                    .activeTouchView?.let { it.isAttachedToWindow && it.isInteracting } == true
+                if (vm.handleSpenAirKeyEvent(event, strokeActive)) {
+                    return true
+                }
+            }
             if (vm.currentPage == com.reverie.paint.core.Page.PAINTING) {
                 // 处于文本编辑/重命名对话框或快捷键录制状态时跳过全局快捷键拦截，确保输入与录制正常工作
                 if (!vm.isTextInputActive && !vm.isShortcutRecordingActive && vm.handleNativeKeyEvent(event)) {
@@ -507,6 +561,8 @@ class MainActivity : ComponentActivity() {
         currentViewModel?.refreshStylusAudioGate(false)
         // 当软件切入后台时，自动触发后台保存
         currentViewModel?.onAppBackgrounded()
+        // 切后台时进程还没被 cgroup freezer 冻住, 这是崩溃上报"延迟定时器可能永不触发"的兜底
+        com.reverie.paint.core.telemetry.TelemetryReporter.requestScanNow(this)
     }
 
     override fun onDestroy() {
@@ -587,15 +643,7 @@ fun ReverieApp(vm: PaintViewModel = viewModel()) {
                     androidx.compose.animation.fadeOut(
                         androidx.compose.animation.core
                             .tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                    ) +
-                        androidx.compose.animation.scaleOut(
-                            targetScale = 0.88f,
-                            animationSpec =
-                                androidx.compose.animation.core.tween(
-                                    220,
-                                    easing = androidx.compose.animation.core.FastOutSlowInEasing,
-                                ),
-                        ),
+                    ),
                 )
             } else {
                 (

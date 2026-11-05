@@ -7,8 +7,6 @@ import java.io.EOFException
 import java.io.InputStream
 import java.nio.ByteBuffer
 import java.nio.ByteOrder
-import java.util.zip.CRC32
-import java.util.zip.Deflater
 
 /**
  * Pure Kotlin streaming parser for Adobe Photoshop .abr brush collection files.
@@ -20,6 +18,10 @@ import java.util.zip.Deflater
  * - Pure Kotlin RGBA PNG encoding for brush tips and preset preview thumbnails
  */
 object AbrParser {
+
+    /** Krita Scattering/Amount 上限（KisScatterOptionData.cpp: std::make_pair(0.0, 5.0)） */
+    internal const val SCATTER_MAX = 5.0
+    internal const val MAX_SCATTER_COUNT = 16
 
     data class AbrDecodedTip(
         val uuid: String,
@@ -63,8 +65,17 @@ object AbrParser {
         val spacing: Double = 0.25,
         val scatter: Double = 0.0,
         val compositeOp: String = "multiply",
+        val rawMode: String = "",
         val flipX: Boolean = false,
         val flipY: Boolean = false,
+        /** 双重画笔 `bothAxes`：false 只沿笔画法线散布（KisScatterOption AxisY）；缺省沿用引擎默认双轴 */
+        val scatterBothAxes: Boolean = true,
+        /** 双重画笔 `Cnt `（每步印章数）；Krita masking brush 每个主 dab 只盖一个遮罩，只记录不应用 */
+        val count: Int = 1,
+        /** 双重画笔笔尖角度（度，`dualBrush.Brsh.Angl`）；写进 masking brush_definition 的 angle（KisBrush d->angle，叠加到 dab 旋转上） */
+        val angle: Double = 0.0,
+        /** 双重画笔笔尖圆度（0..1，`Rndn`）；masking brush 无法表达（只记录并写日志） */
+        val roundness: Double = 1.0,
     )
 
     data class AbrTextureInfo(
@@ -73,7 +84,16 @@ object AbrParser {
         val scale: Double = 1.0,
         val depth: Double = 0.5,
         val mode: String = "multiply",
+        val rawMode: String = "",
         val invert: Boolean = false,
+        /** PS 纹理亮度 -150..150（textureBrightness / Brgh） */
+        val brightness: Int = 0,
+        /** PS 纹理对比度 -50..100（textureContrast / Cntr） */
+        val contrast: Int = 0,
+        /** 纹理「深度抖动 → 控制」= 钢笔压力（textureDepthDynamics.bVTy==2）：深度随压力在 minimumDepth..depth 间变化 */
+        val depthPressure: Boolean = false,
+        /** PS 纹理「最小深度」minimumDepth（0..1，压感 0 时的深度占比） */
+        val depthMin: Double = 0.0,
     )
 
     data class AbrColorDynamicsInfo(
@@ -93,6 +113,13 @@ object AbrParser {
         val roundness: Double = 1.0, // fraction 0.01 .. 1.0
         val hardness: Double = 1.0,
         val scatter: Double = 0.0,
+        /** useScatter 时取 `bothAxes`；没开散布保持引擎默认（双轴） */
+        val scatterBothAxes: Boolean = true,
+        /** `toolOptions{brushPreset=true}` 里的 Opct / flow（0..1）；缺省 1.0 */
+        val toolOpacity: Double = 1.0,
+        val toolFlow: Double = 1.0,
+        val pressureRoundness: Boolean = false,
+        val tiltRoundness: Boolean = false,
         val pressureSize: Boolean = false,
         val pressureOpacity: Boolean = false,
         val pressureFlow: Boolean = false,
@@ -100,6 +127,8 @@ object AbrParser {
         val tiltOpacity: Boolean = false,
         val tiltFlow: Boolean = false,
         val tiltAngle: Boolean = false,
+        /** PS 角度控制原始值（1=渐隐 4=笔轮 5=笔身旋转 在 Krita/本应用无对应传感器，仅记录） */
+        val angleControl: Int = 0,
         val sizeJitter: Double = 0.0,
         val angleJitter: Double = 0.0,
         val roundnessJitter: Double = 0.0,
@@ -110,20 +139,69 @@ object AbrParser {
         val followDirection: Boolean = false,
         val flipX: Boolean = false,
         val flipY: Boolean = false,
+        /** 形状动态顶层 flipX/flipY（Flip X/Y Jitter，每个印章随机翻转），不是笔尖静态翻转（那是 Brsh.flipX/flipY） */
+        val flipXJitter: Boolean = false,
+        val flipYJitter: Boolean = false,
+        /** scatterDynamics.bVTy==2：散布量受钢笔压力控制（压力小散得少） */
+        val scatterPressure: Boolean = false,
+        /** 散布面板 `Cnt `（每步印章数，useScatter 时有效），1..16 */
+        val scatterCount: Int = 1,
+        /** 传递面板不透明度/流量压感 `Mnm `（压感 0 时的最小值，0..1） */
+        val opacityMin: Double = 0.0,
+        val flowMin: Double = 0.0,
         val isComputed: Boolean = false,
         val dualBrush: AbrDualBrushInfo? = null,
         val texture: AbrTextureInfo? = null,
         val colorDynamics: AbrColorDynamicsInfo? = null,
         val airbrush: Boolean = false,
         val compositeOp: String = "normal",
+        /** PS 原生工具类（toolOptions.classId）："SmTl"（涂抹）、"MixB"（混合器）、"PbTl"（画笔）；缺省空字符串 */
+        val toolClass: String = "",
+        /** PS 涂抹强度（toolOptions.Prs，0..100 折算为 0.0..1.0）；缺省 1.0 */
+        val smudgeStrength: Double = 1.0,
+        /** PS 混合器画笔参数（0.0..1.0） */
+        val wetness: Double = 0.0,
+        val mix: Double = 0.0,
+        val dryness: Double = 0.0,
     )
+
+    data class AbrPatternResource(
+        val uuid: String,
+        val name: String,
+        val pngBytes: ByteArray,
+    ) {
+        override fun equals(other: Any?): Boolean {
+            if (this === other) return true
+            if (other !is AbrPatternResource) return false
+            return uuid == other.uuid && name == other.name && pngBytes.contentEquals(other.pngBytes)
+        }
+
+        override fun hashCode(): Int {
+            var result = uuid.hashCode()
+            result = 31 * result + name.hashCode()
+            result = 31 * result + pngBytes.contentHashCode()
+            return result
+        }
+    }
 
     data class AbrParseResult(
         val version: Int,
         val subversion: Int,
         val tips: List<AbrDecodedTip>,
         val presets: List<AbrPresetInfo>,
+        val patterns: List<AbrPatternResource> = emptyList(),
+        /** 输入超过 [MAX_IMPORT_BYTES], 没有解析 (调用方应给用户明确提示) */
+        val tooLarge: Boolean = false,
     )
+
+    /**
+     * 单个画笔包允许导入的最大字节数。
+     *
+     * ABR 会被整体读进内存解析, 而 Android 的 Java 堆上限通常只有 512MB; 线上有 130MB /
+     * 343MB 的单次分配直接把进程打崩 (b90269b9e4 / 1692c1904d)。64MB 足够覆盖绝大多数
+     * 商店画笔包, 再大的包请用户先在桌面端拆分。
+     */
+    const val MAX_IMPORT_BYTES = 64L * 1024 * 1024
 
     private val SUBVERSION_HEADER_SKIP = mapOf(1 to 47, 2 to 301)
 
@@ -209,13 +287,36 @@ object AbrParser {
      * If [onTipDecoded] is provided, each decoded tip is dispatched immediately and
      * the in-memory tip stores a lightweight thumbnail instead of the full raw pixel array,
      * drastically reducing peak heap memory usage to prevent OOM on large ABR files.
+     *
+     * 不知道输入长度时走有上限的增量读取 (见 [MAX_IMPORT_BYTES])。
      */
     fun parse(
         input: InputStream,
         basePackName: String = "ABR",
         onTipDecoded: ((AbrDecodedTip) -> Unit)? = null,
+    ): AbrParseResult = parseStream(input, -1L, basePackName, onTipDecoded)
+
+    /**
+     * 带长度提示的解析入口: 已知长度时一次分配到位, 避免 `readBytes()` 的双份峰值。
+     * [sizeHint] <= 0 表示未知, 走有上限的增量读取。
+     */
+    fun parse(
+        input: InputStream,
+        sizeHint: Long,
+        basePackName: String = "ABR",
+        onTipDecoded: ((AbrDecodedTip) -> Unit)? = null,
+    ): AbrParseResult = parseStream(input, sizeHint, basePackName, onTipDecoded)
+
+    private fun parseStream(
+        input: InputStream,
+        sizeHint: Long,
+        basePackName: String,
+        onTipDecoded: ((AbrDecodedTip) -> Unit)?,
     ): AbrParseResult {
-        val bytes = input.readBytes()
+        val bytes = readImportBytes(input, sizeHint) ?: return AbrParseResult(
+            version = 0, subversion = 0, tips = emptyList(), presets = emptyList(),
+            patterns = emptyList(), tooLarge = true,
+        )
         if (bytes.size < 4) {
             return AbrParseResult(0, 0, emptyList(), emptyList())
         }
@@ -231,6 +332,34 @@ object AbrParser {
             in 6..MAX_SUPPORTED_VERSION -> parseVersion6(bytes, basePackName, onTipDecoded)
             else -> AbrParseResult(version, 0, emptyList(), emptyList())
         }
+    }
+
+    /**
+     * 只读出 v6+ 文件的 `desc` 根描述符（不解 samp 位图），供键覆盖审计工具使用。
+     * 非 v6+、无 desc 或解析失败返回 null；不影响导入链路。
+     */
+    internal fun readDescriptorRoot(bytes: ByteArray): ActionDescriptorNode? {
+        if (bytes.size < 12) return null
+        val version = ByteBuffer.wrap(bytes, 0, 2).order(ByteOrder.BIG_ENDIAN).short.toInt()
+        if (version !in 6..MAX_SUPPORTED_VERSION) return null
+        var cursor = 4
+        while (cursor + 12 <= bytes.size) {
+            if (String(bytes, cursor, 4, Charsets.ISO_8859_1) != "8BIM") return null
+            val key = String(bytes, cursor + 4, 4, Charsets.ISO_8859_1)
+            val len = ByteBuffer.wrap(bytes, cursor + 8, 4).order(ByteOrder.BIG_ENDIAN).int.toLong() and 0xFFFFFFFFL
+            val start = cursor + 12
+            if (key == "desc") {
+                return try {
+                    val c = ByteCursor(bytes, start)
+                    c.readInt32()
+                    readActionDescriptor(c)
+                } catch (e: Exception) {
+                    null
+                }
+            }
+            cursor = (start + len).toInt().coerceAtMost(bytes.size)
+        }
+        return null
     }
 
     fun generateThumbnail(tip: AbrDecodedTip, targetSize: Int = 150): Triple<ByteArray, Int, Int> {
@@ -395,6 +524,7 @@ object AbrParser {
         cursor += 2
 
         val tips = mutableListOf<AbrDecodedTip>()
+        val patterns = mutableListOf<AbrPatternResource>()
         var descriptorRoot: ActionDescriptorNode? = null
 
         val fileSize = bytes.size
@@ -433,6 +563,8 @@ object AbrParser {
                 } catch (e: Exception) {
                     android.util.Log.w("AbrParser", "Failed to parse desc ActionDescriptor", e)
                 }
+            } else if (isPattSectionKey(key)) {
+                patterns.addAll(parsePattSection(bytes, sectionStart, sectionEnd))
             }
 
             cursor = sectionEnd
@@ -460,7 +592,7 @@ object AbrParser {
             }
         }
 
-        return AbrParseResult(version, subversion, tips, presets)
+        return AbrParseResult(version, subversion, tips, presets, patterns)
     }
 
     private fun parseSampSection(
@@ -554,6 +686,155 @@ object AbrParser {
             cursor = if (nextEntryPos > cursor) nextEntryPos else (cursor + 4)
         }
         return tips
+    }
+
+    private fun isPattSectionKey(key: String): Boolean =
+        key.equals("patt", ignoreCase = true) || key == "Pat " || key == "Pat2" || key == "Pat3"
+
+    /**
+     * Photoshop patt: each pattern starts with an Int32 length. imageMode at p+8 is Int32,
+     * not a short — a short read shifts every later field by 2 bytes.
+     * One bad pattern is skipped; the next starts at p+4+patternLength, 4-byte aligned.
+     */
+    private fun parsePattSection(bytes: ByteArray, sectionStart: Int, sectionEnd: Int): List<AbrPatternResource> {
+        val out = mutableListOf<AbrPatternResource>()
+        var p = sectionStart
+        while (p + 4 <= sectionEnd) {
+            val patternLength = try {
+                readBeInt(bytes, p)
+            } catch (_: Exception) {
+                break
+            }
+            val endLong = p.toLong() + 4L + patternLength.toLong()
+            if (patternLength <= 0 || endLong > sectionEnd || endLong > Int.MAX_VALUE) break
+            val patternEnd = endLong.toInt()
+            try {
+                parseOnePattern(bytes, p, patternEnd)?.let { out.add(it) }
+            } catch (_: Exception) {
+                // 单个图案抛错只跳过该图案
+            }
+            var next = patternEnd
+            val mis = next and 3
+            if (mis != 0) next += 4 - mis
+            if (next <= p) break
+            p = next
+        }
+        return out
+    }
+
+    private fun parseOnePattern(bytes: ByteArray, p: Int, patternEnd: Int): AbrPatternResource? {
+        if (p + 16 > patternEnd) return null
+        if (readBeInt(bytes, p + 4) != 1) return null
+        val imageMode = readBeInt(bytes, p + 8)
+        if (imageMode == 2) return null
+        val height = readBeU16(bytes, p + 12)
+        val width = readBeU16(bytes, p + 14)
+        if (!plausibleTipDimensions(width, height)) return null
+
+        var cursor = p + 16
+        val nameChars = readBeInt(bytes, cursor)
+        cursor += 4
+        if (nameChars < 0 || nameChars > 4096) return null
+        val nameBytes = nameChars * 2
+        if (cursor.toLong() + nameBytes > patternEnd) return null
+        val name = if (nameChars == 0) {
+            ""
+        } else {
+            String(bytes, cursor, nameBytes, Charsets.UTF_16BE).trimEnd('\u0000')
+        }
+        cursor += nameBytes
+        if (cursor >= patternEnd) return null
+        val uuidLen = bytes[cursor].toInt() and 0xFF
+        cursor += 1
+        if (cursor + uuidLen > patternEnd) return null
+        val uuid = if (uuidLen == 0) "" else String(bytes, cursor, uuidLen, Charsets.US_ASCII)
+        cursor += uuidLen
+
+        if (cursor + 28 > patternEnd) return null
+        val vmalVersion = readBeInt(bytes, cursor)
+        cursor += 4
+        readBeInt(bytes, cursor) // vmalLength，必须读掉；通道头是定长的，不用它跳转
+        cursor += 4
+        if (vmalVersion != 3) return null
+        cursor += 16 // top, left, bottom, right
+        val maxChannels = readBeInt(bytes, cursor)
+        cursor += 4
+        if (maxChannels <= 0 || maxChannels > 24) return null
+
+        for (channel in 0 until maxChannels) {
+            if (cursor + 4 > patternEnd) return null
+            val isWritten = readBeInt(bytes, cursor)
+            cursor += 4
+            if (isWritten == 0) continue
+            if (cursor + 4 > patternEnd) return null
+            val channelLength = readBeInt(bytes, cursor)
+            cursor += 4
+            if (channelLength == 0) continue
+            val channelEndLong = cursor.toLong() + channelLength.toLong()
+            if (channelLength < 0 || channelEndLong > patternEnd || channelEndLong > bytes.size) {
+                return null
+            }
+            val channelEnd = channelEndLong.toInt()
+            val headerBytes = 4 + 16 + 2 + 1
+            if (cursor + headerBytes > channelEnd) {
+                cursor = channelEnd
+                continue
+            }
+            val pixelDepth = readBeInt(bytes, cursor)
+            cursor += 4
+            val cTop = readBeInt(bytes, cursor)
+            cursor += 4
+            val cLeft = readBeInt(bytes, cursor)
+            cursor += 4
+            val cBottom = readBeInt(bytes, cursor)
+            cursor += 4
+            val cRight = readBeInt(bytes, cursor)
+            cursor += 4
+            val channelDepth = readBeU16(bytes, cursor)
+            cursor += 2
+            val compression = bytes[cursor].toInt() and 0xFF
+            cursor += 1
+            if (pixelDepth < 0 || channelDepth < 0) {
+                cursor = channelEnd
+                continue
+            }
+            val dataStart = cursor
+
+            var cw = cRight - cLeft
+            var chh = cBottom - cTop
+            if (!plausibleTipDimensions(cw, chh)) {
+                cw = width
+                chh = height
+            }
+            if (!plausibleTipDimensions(cw, chh)) {
+                cursor = channelEnd
+                continue
+            }
+            val pixels = when (compression) {
+                0 -> {
+                    val need = cw.toLong() * chh.toLong()
+                    if (dataStart.toLong() + need > channelEnd) null
+                    else bytes.copyOfRange(dataStart, (dataStart.toLong() + need).toInt())
+                }
+                1 -> decodePackBitsScanlines(bytes, dataStart, chh, cw)?.takeIf { it.size >= cw * chh }
+                else -> null
+            }
+            if (pixels != null) {
+                return AbrPatternResource(uuid, name, encodeGrayPng(cw, chh, pixels))
+            }
+            cursor = channelEnd
+        }
+        return null
+    }
+
+    private fun readBeInt(bytes: ByteArray, offset: Int): Int {
+        if (offset < 0 || offset + 4 > bytes.size) throw EOFException("int@$offset")
+        return ByteBuffer.wrap(bytes, offset, 4).order(ByteOrder.BIG_ENDIAN).int
+    }
+
+    private fun readBeU16(bytes: ByteArray, offset: Int): Int {
+        if (offset < 0 || offset + 2 > bytes.size) throw EOFException("short@$offset")
+        return ByteBuffer.wrap(bytes, offset, 2).order(ByteOrder.BIG_ENDIAN).short.toInt() and 0xFFFF
     }
 
     // ---------------------------------------------------------------------------------------------
@@ -867,30 +1148,23 @@ object AbrParser {
             val flipX = extractBool(tipItems["flipX"])
             val flipY = extractBool(tipItems["flipY"])
 
+            // 形状动态顶层 flipX/flipY 才是 Flip X/Y Jitter（与 Brsh.flipX/flipY 静态笔尖翻转不同）
+            val useTipDynamicsForFlip = extractBool(items["useTipDynamics"])
+            val flipXJitter = useTipDynamicsForFlip && extractBool(items["flipX"])
+            val flipYJitter = useTipDynamicsForFlip && extractBool(items["flipY"])
+
             val tipUuid = if (isSampled) extractString(tipItems["sampledData"]) else null
 
-            // Blend Mode
-            val rawMode = extractString(items["mode"]) ?: extractString(items["Md  "])
-            val compOp = when (rawMode) {
-                "Mltp" -> "multiply"
-                "Drkn" -> "darken"
-                "Lghn" -> "lighten"
-                "Scrn" -> "screen"
-                "Ovrl" -> "overlay"
-                "SftL" -> "soft_light"
-                "HrdL", "linearLight", "vividLight", "pinLight" -> "hard_light"
-                "Dfrn" -> "difference"
-                "linearBurn", "colorBurn" -> "burn"
-                "linearDodge", "colorDodge" -> "dodge"
-                "Clr " -> "color"
-                "Lmns" -> "luminosity"
-                "H   " -> "hue"
-                "Strt" -> "saturation"
-                else -> "normal"
-            }
+            // Blend Mode：Photoshop 随预设保存的工具选项（toolOptions.brushPreset=true）里的 Md  才是真实位置；
+            // 预设顶层的 mode / Md   只是旧布局兜底。映射表见 AbrBlendModes（逐项对照 Krita ASL 序列化器）
+            val toolOptionsForMode = extractItems(items["toolOptions"])
+            val rawMode = (if (extractBool(toolOptionsForMode["brushPreset"])) extractString(toolOptionsForMode["Md  "]) else null)
+                ?: extractString(items["mode"]) ?: extractString(items["Md  "])
+            val compOp = AbrBlendModes.brush(rawMode).id
 
             // Airbrush
-            val airbrush = extractBool(items["airbrush"]) || extractBool(items["buildUp"])
+            // `Rpt `＝Photoshop 画笔面板的「喷枪/Build-up」开关（推测：实心喷枪 #22、炭笔类预设 Rpt=true 印证它是 Airbrush；未用 PS 逐项核对）
+            val airbrush = extractBool(items["airbrush"]) || extractBool(items["buildUp"]) || extractBool(items["Rpt "])
 
             // Shape Dynamics
             val useTipDynamics = extractBool(items["useTipDynamics"])
@@ -900,9 +1174,12 @@ object AbrParser {
             var minDiameterRatio = 0.0
             var followDirection = false
             var tiltAngle = false
+            var angleControlRaw = 0
             var angleJitter = 0.0
             var roundnessJitter = 0.0
             var minRoundness = 0.0
+            var pressureRoundness = false
+            var tiltRoundness = false
 
             if (useTipDynamics) {
                 val szVr = extractItems(items["szVr"])
@@ -918,6 +1195,7 @@ object AbrParser {
 
                 val angVr = extractItems(items["angleDynamics"]).ifEmpty { extractItems(items["angVr"]) }
                 val angControl = extractDouble(angVr["bVTy"])?.toInt() ?: 0
+                angleControlRaw = angControl
                 if (angControl in 6..8) followDirection = true
                 else if (angControl == 3) tiltAngle = true
 
@@ -925,19 +1203,35 @@ object AbrParser {
 
                 val rndVr = extractItems(items["roundnessDynamics"]).ifEmpty { extractItems(items["rndVr"]) }
                 roundnessJitter = ((extractDouble(rndVr["jitter"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
-                val minR = extractDouble(rndVr["Mnm "])
+                val rndControl = extractDouble(rndVr["bVTy"])?.toInt() ?: 0
+                if (rndControl == 2) pressureRoundness = true
+                else if (rndControl == 3) tiltRoundness = true
+                val minR = extractDouble(items["minimumRoundness"]) ?: extractDouble(rndVr["Mnm "])
                 if (minR != null) {
                     minRoundness = (minR / 100.0).coerceIn(0.0, 1.0)
                 }
             }
 
+            // 最小圆度顶层键：Photoshop 新版把 minimumRoundness 写在 brushPreset 顶层
+            // （与 useTipDynamics 块无关），旧格式才在 rndVr["Mnm "]（块内兜底，上文已读）。
+            extractDouble(items["minimumRoundness"])?.let { topMinRoundness ->
+                minRoundness = (topMinRoundness / 100.0).coerceIn(0.0, 1.0)
+            }
+
             // Scattering
             val useScatter = extractBool(items["useScatter"])
             var scatterVal = 0.0
+            // Photoshop bothAxes=false 只沿垂直笔画方向散布；没开散布时保持引擎默认双轴
+            val scatterBothAxes = !useScatter || extractBool(items["bothAxes"])
+            var scatterCount = 1
+            var scatterPressure = false
             if (useScatter) {
                 val scVr = extractItems(items["scatterDynamics"])
+                scatterPressure = extractDouble(scVr["bVTy"])?.toInt() == 2
                 val jf = extractDouble(scVr["jitter"]) ?: 0.0
-                scatterVal = (jf / 100.0).coerceIn(0.0, 1.0)
+                // PS 散布 0..1000%；Krita Scattering/Amount 范围 0..5（KisScatterOptionData.cpp），按 Krita 上限截断
+                scatterVal = (jf / 100.0).coerceIn(0.0, SCATTER_MAX)
+                scatterCount = (extractDouble(items["Cnt "]) ?: 1.0).toInt().coerceIn(1, MAX_SCATTER_COUNT)
             }
 
             // Transfer / Paint Dynamics
@@ -950,6 +1244,8 @@ object AbrParser {
             var pressureFlow = false
             var tiltFlow = false
             var flowJitter = 0.0
+            var opacityMin = 0.0
+            var flowMin = 0.0
 
             if (usePaintDynamics) {
                 val opVr = extractItems(items["opVr"]).ifEmpty { extractItems(items["opacityDynamics"]) }
@@ -957,6 +1253,7 @@ object AbrParser {
                 if (opControl == 2) pressureOpacity = true
                 else if (opControl == 3) tiltOpacity = true
                 opacityJitter = ((extractDouble(opVr["jitter"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
+                opacityMin = ((extractDouble(opVr["Mnm "]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
 
                 val prVr = extractItems(items["prVr"])
                     .ifEmpty { extractItems(items["flVr"]) }
@@ -965,88 +1262,111 @@ object AbrParser {
                 if (flControl == 2) pressureFlow = true
                 else if (flControl == 3) tiltFlow = true
                 flowJitter = ((extractDouble(prVr["jitter"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
+                flowMin = ((extractDouble(prVr["Mnm "]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
             }
 
+            // 工具选项：Include Tool Settings（brushPreset=true）时随预设保存的不透明度 / 流量 / 工具类型
+            val toolOptionsDesc = items["toolOptions"] as? ActionDescriptorValue.Descriptor
+            val toolClass = toolOptionsDesc?.classId ?: ""
+            val toolOptions = toolOptionsDesc?.items ?: extractItems(items["toolOptions"])
+            val useToolOptions = extractBool(toolOptions["brushPreset"])
+            val toolOpacity = if (useToolOptions) ((extractDouble(toolOptions["Opct"]) ?: 100.0) / 100.0).coerceIn(0.0, 1.0) else 1.0
+            val toolFlow = if (useToolOptions) ((extractDouble(toolOptions["flow"]) ?: 100.0) / 100.0).coerceIn(0.0, 1.0) else 1.0
+            val smudgeStrength = ((extractDouble(toolOptions["Prs"]) ?: 100.0) / 100.0).coerceIn(0.0, 1.0)
+            val wetness = (extractDouble(toolOptions["wetness"]) ?: 0.0).coerceIn(0.0, 1.0)
+            val mix = (extractDouble(toolOptions["mix"]) ?: 0.0).coerceIn(0.0, 1.0)
+            val dryness = (extractDouble(toolOptions["dryness"]) ?: 0.0).coerceIn(0.0, 1.0)
+
             // Dual Brush
-            val useDualBrush = extractBool(items["useDualBrush"])
+            // useDualBrush 开关在 Photoshop 新格式里写在嵌套 dualBrush 描述符内部，
+            // 旧格式写在顶层；两处任一为 true 即启用，参数仍从嵌套描述符读取。
+            val dualDesc = items["dualBrush"] as? ActionDescriptorValue.Descriptor
+            val useDualBrush = extractBool(dualDesc?.items?.get("useDualBrush")) || extractBool(items["useDualBrush"])
             val dualBrushInfo = if (useDualBrush) {
-                val dualDesc = items["dualBrush"] as? ActionDescriptorValue.Descriptor
                 if (dualDesc != null) {
                     val dualTipDesc = dualDesc.items["Brsh"] as? ActionDescriptorValue.Descriptor
                     val dTipItems = dualTipDesc?.items ?: emptyMap()
                     val dTipUuid = extractString(dTipItems["sampledData"])
                     val dDiam = extractDouble(dTipItems["Dmtr"]) ?: 30.0
                     val dSpcn = ((extractDouble(dTipItems["Spcn"]) ?: 25.0) / 100.0).coerceIn(0.01, 5.0)
-                    val dScat = ((extractDouble(dualDesc.items["scatter"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
-                    val dModeRaw = extractString(dualDesc.items["Md  "]) ?: "Mltp"
-                    val dMode = when (dModeRaw) {
-                        "Mltp" -> "multiply"
-                        "Drkn" -> "darken"
-                        "linearBurn", "colorBurn" -> "burn"
-                        "linearDodge", "colorDodge" -> "dodge"
-                        "Ovrl" -> "overlay"
-                        else -> "multiply"
-                    }
+                    // 双重画笔散布在嵌套 scatterDynamics.jitter（useScatter 控制），混合模式键是 BlnM
+                    val dScat = if (extractBool(dualDesc.items["useScatter"])) {
+                        ((extractDouble(extractItems(dualDesc.items["scatterDynamics"])["jitter"]) ?: 0.0) / 100.0).coerceIn(0.0, SCATTER_MAX)
+                    } else 0.0
+                    val dualScatterOn = extractBool(dualDesc.items["useScatter"])
+                    val dModeRaw = extractString(dualDesc.items["BlnM"]) ?: extractString(dualDesc.items["Md  "]) ?: "Mltp"
+                    val dMode = AbrBlendModes.dual(dModeRaw, AbrBlendModes.Policy.PRECISION).id
                     AbrDualBrushInfo(
                         tipUuid = dTipUuid,
                         diameter = dDiam,
                         spacing = dSpcn,
                         scatter = dScat,
                         compositeOp = dMode,
-                        flipX = extractBool(dTipItems["flipX"]),
+                        rawMode = dModeRaw,
+                        // 双重画笔面板的 `Flip`＝逐印章随机水平翻转（推测：只翻水平轴）；笔尖自带 flipX/flipY 仍按旧语义
+                        flipX = extractBool(dTipItems["flipX"]) || extractBool(dualDesc.items["Flip"]),
                         flipY = extractBool(dTipItems["flipY"]),
+                        scatterBothAxes = !dualScatterOn || extractBool(dualDesc.items["bothAxes"]),
+                        count = (extractDouble(dualDesc.items["Cnt "]) ?: 1.0).toInt().coerceIn(1, MAX_SCATTER_COUNT),
+                        angle = extractDouble(dTipItems["Angl"]) ?: 0.0,
+                        roundness = ((extractDouble(dTipItems["Rndn"]) ?: 100.0) / 100.0).coerceIn(0.01, 1.0),
                     )
                 } else null
             } else null
 
             // Texture
-            val useTexture = extractBool(items["useTexture"])
+            // Photoshop 新版把纹理键（useTexture/textureBlendMode/textureScale/textureDepth/
+            // Txtr/InvT）直接写在 brushPreset 描述符顶层；旧格式才有嵌套 "texture" 子描述符。
+            // 嵌套子描述符存在且自带 useTexture 时以其开关为准，否则读顶层开关；
+            // 其余键在两种布局里统一从 texItems（嵌套优先、顶层兜底）读取。
+            val nestedTexDesc = items["texture"] as? ActionDescriptorValue.Descriptor
+            val texItems: Map<String, ActionDescriptorValue> = nestedTexDesc?.items ?: items
+            val useTexture = if (nestedTexDesc != null && nestedTexDesc.items.containsKey("useTexture")) {
+                extractBool(nestedTexDesc.items["useTexture"])
+            } else {
+                extractBool(items["useTexture"])
+            }
             val textureInfo = if (useTexture) {
-                val texDesc = items["texture"] as? ActionDescriptorValue.Descriptor
-                if (texDesc != null) {
-                    val patDesc = texDesc.items["Txtr"] as? ActionDescriptorValue.Descriptor
-                    val patName = extractString(patDesc?.items?.get("Nm  ")) ?: ""
-                    val patUuid = extractString(patDesc?.items?.get("Idnt")) ?: ""
-                    val scale = ((extractDouble(texDesc.items["Scl "]) ?: 100.0) / 100.0).coerceIn(0.01, 10.0)
-                    val depth = ((extractDouble(texDesc.items["textureDepth"]) ?: extractDouble(texDesc.items["Dpt "]) ?: 50.0) / 100.0).coerceIn(0.0, 1.0)
-                    val modeRaw = extractString(texDesc.items["textureBlendMode"]) ?: extractString(texDesc.items["Md  "]) ?: "Mltp"
-                    val mode = when (modeRaw) {
-                        "Sbtr" -> "subtract"
-                        "Drkn" -> "darken"
-                        "Ovrl" -> "overlay"
-                        "Ddg ", "colorDodge", "linearDodge" -> "dodge"
-                        "Brn ", "colorBurn", "linearBurn" -> "burn"
-                        "HrdL", "linearLight", "vividLight" -> "hard_light"
-                        "SftL" -> "soft_light"
-                        else -> "multiply"
-                    }
-                    val inv = extractBool(texDesc.items["InvT"])
-                    AbrTextureInfo(
-                        patternName = patName,
-                        patternUuid = patUuid,
-                        scale = scale,
-                        depth = depth,
-                        mode = mode,
-                        invert = inv,
-                    )
-                } else null
+                val patDesc = texItems["Txtr"] as? ActionDescriptorValue.Descriptor
+                val patName = extractString(patDesc?.items?.get("Nm  ")) ?: ""
+                val patUuid = extractString(patDesc?.items?.get("Idnt")) ?: ""
+                val scale = ((extractDouble(texItems["textureScale"]) ?: extractDouble(texItems["Scl "]) ?: 100.0) / 100.0).coerceIn(0.01, 10.0)
+                val depth = ((extractDouble(texItems["textureDepth"]) ?: extractDouble(texItems["Dpt "]) ?: 50.0) / 100.0).coerceIn(0.0, 1.0)
+                val modeRaw = extractString(texItems["textureBlendMode"]) ?: extractString(texItems["Md  "]) ?: "Mltp"
+                val mode = AbrBlendModes.texture(modeRaw, AbrBlendModes.Policy.PRECISION).id
+                val inv = extractBool(texItems["InvT"])
+                val brightness = (extractDouble(texItems["textureBrightness"]) ?: extractDouble(texItems["Brgh"]) ?: 0.0).toInt().coerceIn(-150, 150)
+                val contrast = (extractDouble(texItems["textureContrast"]) ?: extractDouble(texItems["Cntr"]) ?: 0.0).toInt().coerceIn(-50, 100)
+                AbrTextureInfo(
+                    patternName = patName,
+                    patternUuid = patUuid,
+                    scale = scale,
+                    depth = depth,
+                    mode = mode,
+                    rawMode = modeRaw,
+                    invert = inv,
+                    brightness = brightness,
+                    contrast = contrast,
+                    depthPressure = (extractItems(texItems["textureDepthDynamics"]).takeIf { it.isNotEmpty() }
+                        ?: extractItems(items["textureDepthDynamics"]))["bVTy"]?.let { extractDouble(it) }?.toInt() == 2,
+                    depthMin = ((extractDouble(texItems["minimumDepth"]) ?: extractDouble(items["minimumDepth"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0),
+                )
             } else null
 
             // Color Dynamics
             val useColorDynamics = extractBool(items["useColorDynamics"])
             val colorDynamicsInfo = if (useColorDynamics) {
+                // 真实 PS 预设把色彩动态直接写在预设顶层：H=色相抖动、Strt=饱和度抖动、Brgh=亮度抖动、
+                // purity=纯度、clVr.jitter=前景/背景抖动；旧版夹具才有 colorDynamics/clVr 内的 hJtr/sJtr/bJtr，保留兜底。
                 val clDesc = (items["colorDynamics"] ?: items["clVr"]) as? ActionDescriptorValue.Descriptor
-                if (clDesc != null) {
-                    val hJ = ((extractDouble(clDesc.items["hJtr"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
-                    val sJ = ((extractDouble(clDesc.items["sJtr"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
-                    val bJ = ((extractDouble(clDesc.items["bJtr"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
-                    val mix = ((extractDouble(clDesc.items["jitter"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
-                    AbrColorDynamicsInfo(
-                        hueJitter = hJ,
-                        satJitter = sJ,
-                        valJitter = bJ,
-                        secondaryMix = mix,
-                    )
+                fun pct(top: String, legacy: String): Double =
+                    (extractDouble(items[top]) ?: extractDouble(clDesc?.items?.get(legacy)) ?: 0.0)
+                val hJ = (pct("H   ", "hJtr") / 100.0).coerceIn(0.0, 1.0)
+                val sJ = (pct("Strt", "sJtr") / 100.0).coerceIn(0.0, 1.0)
+                val bJ = (pct("Brgh", "bJtr") / 100.0).coerceIn(0.0, 1.0)
+                val mix = ((extractDouble(clDesc?.items?.get("jitter")) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
+                if (hJ > 0.0 || sJ > 0.0 || bJ > 0.0 || mix > 0.0) {
+                    AbrColorDynamicsInfo(hueJitter = hJ, satJitter = sJ, valJitter = bJ, secondaryMix = mix)
                 } else null
             } else null
 
@@ -1063,6 +1383,11 @@ object AbrParser {
                     roundness = roundness,
                     hardness = hardness,
                     scatter = scatterVal,
+                    scatterBothAxes = scatterBothAxes,
+                    toolOpacity = toolOpacity,
+                    toolFlow = toolFlow,
+                    pressureRoundness = pressureRoundness,
+                    tiltRoundness = tiltRoundness,
                     pressureSize = pressureSize,
                     pressureOpacity = pressureOpacity,
                     pressureFlow = pressureFlow,
@@ -1070,6 +1395,7 @@ object AbrParser {
                     tiltOpacity = tiltOpacity,
                     tiltFlow = tiltFlow,
                     tiltAngle = tiltAngle,
+                    angleControl = angleControlRaw,
                     sizeJitter = sizeJitter,
                     angleJitter = angleJitter,
                     roundnessJitter = roundnessJitter,
@@ -1080,12 +1406,23 @@ object AbrParser {
                     followDirection = followDirection,
                     flipX = flipX,
                     flipY = flipY,
+                    flipXJitter = flipXJitter,
+                    flipYJitter = flipYJitter,
+                    scatterCount = scatterCount,
+                    scatterPressure = scatterPressure,
+                    opacityMin = opacityMin,
+                    flowMin = flowMin,
                     isComputed = !isSampled,
                     dualBrush = dualBrushInfo,
                     texture = textureInfo,
                     colorDynamics = colorDynamicsInfo,
                     airbrush = airbrush,
                     compositeOp = compOp,
+                    toolClass = toolClass,
+                    smudgeStrength = smudgeStrength,
+                    wetness = wetness,
+                    mix = mix,
+                    dryness = dryness,
                 )
             )
         }
@@ -1246,69 +1583,52 @@ object AbrParser {
         return encodeRgbaPng(width, height, rgbaBytes)
     }
 
-    private fun encodeRgbaPng(width: Int, height: Int, rgbaBytes: ByteArray): ByteArray {
-        val out = ByteArrayOutputStream()
+    /** 8-bit grayscale PNG (color type 0). First successful patt channel. */
+    private fun encodeGrayPng(width: Int, height: Int, gray: ByteArray): ByteArray =
+        PngChunks.encodeImage(width, height, 0, gray)
 
-        // 1. Signature
-        out.write(byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A))
+    private fun encodeRgbaPng(width: Int, height: Int, rgbaBytes: ByteArray): ByteArray =
+        PngChunks.encodeImage(width, height, 6, rgbaBytes)
+}
 
-        // 2. IHDR Chunk (13 bytes)
-        val ihdrData = ByteArray(13)
-        val wBuf = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt(width).array()
-        val hBuf = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt(height).array()
-        System.arraycopy(wBuf, 0, ihdrData, 0, 4)
-        System.arraycopy(hBuf, 0, ihdrData, 4, 4)
-        ihdrData[8] = 8 // bit depth
-        ihdrData[9] = 6 // color type 6 (RGBA)
-        ihdrData[10] = 0 // deflate
-        ihdrData[11] = 0 // filter method 0
-        ihdrData[12] = 0 // no interlace
-
-        writeChunk(out, "IHDR", ihdrData)
-
-        // 3. IDAT Chunk: raw scanlines with 0-filter prefix per line
-        val rowSize = width * 4
-        val rawScanlines = ByteArray(height * (rowSize + 1))
-        for (y in 0 until height) {
-            val destOffset = y * (rowSize + 1)
-            rawScanlines[destOffset] = 0 // Filter None
-            System.arraycopy(rgbaBytes, y * rowSize, rawScanlines, destOffset + 1, rowSize)
+/**
+ * 有上限地读完整条流, 避免 `readBytes()` 的"整份数据 + 一次 toByteArray 拷贝"双份峰值。
+ *
+ * - 已知长度: 一次分配到位, 不再增长 (常见路径, 峰值 = 文件大小)
+ * - 未知长度: 倍增增长, 一旦超过 [limit] 立即放弃 (峰值 <= 2 × limit)
+ *
+ * 超过上限返回 null; 调用方把它映射成"包太大"的提示。
+ */
+internal fun readImportBytes(
+    input: InputStream,
+    sizeHint: Long = -1L,
+    limit: Long = AbrParser.MAX_IMPORT_BYTES,
+): ByteArray? {
+    if (sizeHint in 1..limit) {
+        val exact = ByteArray(sizeHint.toInt())
+        var offset = 0
+        while (offset < exact.size) {
+            val read = input.read(exact, offset, exact.size - offset)
+            if (read < 0) break
+            offset += read
         }
-
-        val deflater = Deflater(Deflater.BEST_SPEED)
-        deflater.setInput(rawScanlines)
-        deflater.finish()
-        val deflatedBos = ByteArrayOutputStream()
-        val buf = ByteArray(8192)
-        while (!deflater.finished()) {
-            val count = deflater.deflate(buf)
-            if (count > 0) deflatedBos.write(buf, 0, count)
-        }
-        deflater.end()
-
-        writeChunk(out, "IDAT", deflatedBos.toByteArray())
-
-        // 4. IEND Chunk
-        writeChunk(out, "IEND", ByteArray(0))
-
-        return out.toByteArray()
+        return if (offset == exact.size) exact else exact.copyOf(offset)
     }
+    if (sizeHint > limit) return null
 
-    private fun writeChunk(out: ByteArrayOutputStream, type: String, data: ByteArray) {
-        val lenBuf = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt(data.size).array()
-        out.write(lenBuf)
-        val typeBytes = type.toByteArray(Charsets.ISO_8859_1)
-        out.write(typeBytes)
-        if (data.isNotEmpty()) {
-            out.write(data)
+    var buffer = ByteArray(1 shl 20)
+    var size = 0
+    while (true) {
+        if (size == buffer.size) {
+            if (buffer.size.toLong() >= limit) {
+                // 刚好读满上限: 再探一个字节, 确认是 EOF 而不是还有数据
+                return if (input.read() < 0) buffer else null
+            }
+            buffer = buffer.copyOf(minOf(buffer.size.toLong() * 2, limit).toInt())
         }
-
-        val crc = CRC32()
-        crc.update(typeBytes)
-        if (data.isNotEmpty()) {
-            crc.update(data)
-        }
-        val crcBuf = ByteBuffer.allocate(4).order(ByteOrder.BIG_ENDIAN).putInt(crc.value.toInt()).array()
-        out.write(crcBuf)
+        val read = input.read(buffer, size, buffer.size - size)
+        if (read < 0) break
+        size += read
     }
+    return if (size == buffer.size) buffer else buffer.copyOf(size)
 }

@@ -150,7 +150,7 @@ fun WheelColorPage(
                             Box(
                                 modifier = Modifier
                                     .size(11.dp)
-                                    .background(if (isSquare) Color.White else Morandi.icon, RoundedCornerShape(2.dp))
+                                    .background(if (isSquare) Morandi.onAccent else Morandi.icon, RoundedCornerShape(2.dp))
                             )
                         }
 
@@ -175,7 +175,7 @@ fun WheelColorPage(
                                     lineTo(0f, size.height)
                                     close()
                                 }
-                                drawPath(path, color = if (isTriangle) Color.White else Morandi.icon)
+                                drawPath(path, color = if (isTriangle) Morandi.onAccent else Morandi.icon)
                             }
                         }
 
@@ -196,7 +196,7 @@ fun WheelColorPage(
                             Box(
                                 modifier = Modifier
                                     .size(11.dp)
-                                    .background(if (isCircle) Color.White else Morandi.icon, CircleShape)
+                                    .background(if (isCircle) Morandi.onAccent else Morandi.icon, CircleShape)
                             )
                         }
                     }

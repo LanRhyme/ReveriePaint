@@ -40,6 +40,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
@@ -47,6 +48,9 @@ import com.reverie.paint.core.*
 import com.reverie.paint.model.LargeBitmapTilingPolicy
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.theme.Theme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import kotlin.math.abs
 import kotlin.math.max
 
@@ -62,23 +66,37 @@ fun CreatePage(vm: PaintViewModel) {
             configuration.screenHeightDp >= 500 &&
             configuration.screenWidthDp > configuration.screenHeightDp
 
+    // 导入图片的整条链路 (openInputStream -> ContentProvider binder -> 解码 -> 写临时 PNG)
+    // 全是阻塞 IO, 绝不能在主线程跑: 线上 ANR (Hanvon Ugee DP1311 / Android 16) 的栈就是
+    // CreatePage -> decodeUriSafely -> openAssetFileDescriptor -> BinderProxy.transact 卡住 5s+。
+    // 这里挪到 Dispatchers.IO, 回到主线程才碰 Compose 状态。
+    val importScope = rememberCoroutineScope()
+    // 解码期间忽略新的选择, 避免慢速 provider 上连点导入两次
+    var importingImage by remember { mutableStateOf(false) }
     val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.GetContent(),
     ) { uri: android.net.Uri? ->
-        if (uri != null) {
-            val bmp = ImageImportHelper.decodeUriSafely(context, uri)
-            if (bmp != null) {
-                val name = ImageImportHelper.getFileName(context, uri) ?: context.getString(R.string.canvas_action_import_image)
-                val snapFile = ImageImportHelper.writeTempPng(context, bmp)
-                vm.startPainting(
-                    w = bmp.width,
-                    h = bmp.height,
-                    name = name,
-                    initialBitmap = bmp,
-                    initialSnapshotFile = snapFile,
-                )
-            } else {
-                android.widget.Toast.makeText(context, context.getString(R.string.create_toast_image_failed), android.widget.Toast.LENGTH_SHORT).show()
+        if (uri != null && !importingImage) {
+            importingImage = true
+            importScope.launch {
+                val imported = withContext(Dispatchers.IO) {
+                    val bmp = ImageImportHelper.decodeUriSafely(context, uri) ?: return@withContext null
+                    val name = ImageImportHelper.getFileName(context, uri)
+                        ?: context.getString(R.string.canvas_action_import_image)
+                    Triple(bmp, name, ImageImportHelper.writeTempPng(context, bmp))
+                }
+                importingImage = false
+                if (imported != null) {
+                    vm.startPainting(
+                        w = imported.first.width,
+                        h = imported.first.height,
+                        name = imported.second,
+                        initialBitmap = imported.first,
+                        initialSnapshotFile = imported.third,
+                    )
+                } else {
+                    android.widget.Toast.makeText(context, context.getString(R.string.create_toast_image_failed), android.widget.Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }
@@ -441,18 +459,65 @@ fun CreatePage(vm: PaintViewModel) {
                 text = stringResource(R.string.create_title),
                 color = colors.text,
                 fontSize = 18.sp,
-                fontWeight = FontWeight.Bold
+                fontWeight = FontWeight.Bold,
+                maxLines = 1,
             )
 
-            Spacer(Modifier.width(18.dp))
+            val currentFolder = vm.currentFolder
+            if (currentFolder != null && currentFolder.isFolder) {
+                Spacer(Modifier.width(12.dp))
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(14.dp))
+                        .background(colors.panelHi)
+                        .border(1.dp, colors.border, RoundedCornerShape(14.dp))
+                        .padding(start = 10.dp, end = 6.dp, top = 4.dp, bottom = 4.dp),
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_folder_symlink),
+                        contentDescription = null,
+                        tint = colors.accent,
+                        modifier = Modifier.size(14.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        text = stringResource(R.string.create_target_folder_chip, currentFolder.name),
+                        color = colors.text,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    Spacer(Modifier.width(4.dp))
+                    Box(
+                        modifier = Modifier
+                            .size(20.dp)
+                            .clip(CircleShape)
+                            .clickable { vm.currentFolder = null },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_x),
+                            contentDescription = stringResource(R.string.create_target_folder_detach),
+                            tint = colors.subText,
+                            modifier = Modifier.size(12.dp),
+                        )
+                    }
+                }
+            }
 
-            // 顶层模式切换: [尺寸预设, 模板工程]
-            SegmentedTabSwitcher(
-                tabs = listOf(stringResource(R.string.create_mode_preset_size), stringResource(R.string.create_mode_templates)),
-                selectedIndex = createMode,
-                onTabSelected = { createMode = it },
-                modifier = Modifier.width(220.dp),
-            )
+            if (isWideLandscape) {
+                Spacer(Modifier.width(18.dp))
+
+                // 顶层模式切换: [尺寸预设, 模板工程] (宽屏模式下内嵌在顶栏)
+                SegmentedTabSwitcher(
+                    tabs = listOf(stringResource(R.string.create_mode_preset_size), stringResource(R.string.create_mode_templates)),
+                    selectedIndex = createMode,
+                    onTabSelected = { createMode = it },
+                    modifier = Modifier.width(220.dp),
+                )
+            }
 
             Spacer(Modifier.weight(1f))
 
@@ -479,10 +544,24 @@ fun CreatePage(vm: PaintViewModel) {
                         text = stringResource(R.string.create_from_image),
                         color = colors.text,
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
                     )
                 }
             }
+        }
+
+        if (!isWideLandscape) {
+            // 手机/竖屏模式下：顶层模式切换独占一行整行自适应排布，完整保留所有选项文案与交互
+            SegmentedTabSwitcher(
+                tabs = listOf(stringResource(R.string.create_mode_preset_size), stringResource(R.string.create_mode_templates)),
+                selectedIndex = createMode,
+                onTabSelected = { createMode = it },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp)
+                    .padding(bottom = 10.dp),
+            )
         }
 
         if (createMode == 1) {
@@ -1266,152 +1345,181 @@ private fun PortraitPresetBottomBar(
     modifier: Modifier = Modifier
 ) {
     val colors = Theme.current
-    Row(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
             .shadow(6.dp, RoundedCornerShape(18.dp))
             .clip(RoundedCornerShape(18.dp))
             .background(colors.panel)
-            .padding(horizontal = 14.dp, vertical = 10.dp),
-        verticalAlignment = Alignment.CenterVertically
+            .padding(horizontal = 14.dp, vertical = 10.dp)
     ) {
-        Column(modifier = Modifier.weight(1f)) {
-            Text(
-                text = "${widthVal} × ${heightVal} px · ${ppiVal} DPI",
-                color = colors.text,
-                fontSize = 14.sp,
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(Modifier.height(2.dp))
-            val orientationText = if (widthVal >= heightVal) stringResource(R.string.create_orientation_landscape) else stringResource(R.string.create_orientation_portrait)
-            Row(verticalAlignment = Alignment.CenterVertically) {
+        val isCompact = maxWidth < 480.dp
+
+        val infoContent: @Composable (Modifier) -> Unit = { mod ->
+            Column(modifier = mod) {
                 Text(
-                    text = "$orientationText · " + stringResource(R.string.create_max_layers_desc, maxLayers),
-                    color = colors.subText,
-                    fontSize = 11.sp
+                    text = "${widthVal} × ${heightVal} px · ${ppiVal} DPI",
+                    color = colors.text,
+                    fontSize = 14.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
-                if (isLargeCanvas) {
-                    Spacer(Modifier.width(6.dp))
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(4.dp))
-                            .background(Color(0xFFD97757).copy(alpha = 0.15f))
-                            .padding(horizontal = 4.dp, vertical = 1.dp)
-                    ) {
-                        Icon(
-                            painterResource(R.drawable.ic_alert_triangle),
-                            contentDescription = null,
-                            tint = Color(0xFFD97757),
-                            modifier = Modifier.size(10.dp)
-                        )
-                        Spacer(Modifier.width(2.dp))
-                        Text(
-                            text = stringResource(R.string.create_large_canvas_tag),
-                            color = Color(0xFFD97757),
-                            fontSize = 10.sp,
-                            fontWeight = FontWeight.Bold
-                        )
+                Spacer(Modifier.height(2.dp))
+                val orientationText = if (widthVal >= heightVal) stringResource(R.string.create_orientation_landscape) else stringResource(R.string.create_orientation_portrait)
+                Row(verticalAlignment = Alignment.CenterVertically) {
+                    Text(
+                        text = "$orientationText · " + stringResource(R.string.create_max_layers_desc, maxLayers),
+                        color = colors.subText,
+                        fontSize = 11.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (isLargeCanvas) {
+                        Spacer(Modifier.width(6.dp))
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Color(0xFFD97757).copy(alpha = 0.15f))
+                                .padding(horizontal = 4.dp, vertical = 1.dp)
+                        ) {
+                            Icon(
+                                painterResource(R.drawable.ic_alert_triangle),
+                                contentDescription = null,
+                                tint = Color(0xFFD97757),
+                                modifier = Modifier.size(10.dp)
+                            )
+                            Spacer(Modifier.width(2.dp))
+                            Text(
+                                text = stringResource(R.string.create_large_canvas_tag),
+                                color = Color(0xFFD97757),
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold
+                            )
+                        }
                     }
                 }
             }
         }
 
-        Row(
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(8.dp)
-        ) {
-            Box(
-                modifier = Modifier
-                    .height(36.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(if (animationCanvas) colors.accent else colors.panelHi)
-                    .clickable { onAnimationCanvasChange(!animationCanvas) }
-                    .padding(horizontal = 10.dp),
-                contentAlignment = Alignment.Center
+        val actionsContent: @Composable (Modifier) -> Unit = { mod ->
+            Row(
+                modifier = mod,
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp, Alignment.End)
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
+                Box(
+                    modifier = Modifier
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(if (animationCanvas) colors.accent else colors.panelHi)
+                        .clickable { onAnimationCanvasChange(!animationCanvas) }
+                        .padding(horizontal = 10.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Icon(
+                            painterResource(R.drawable.ic_clock),
+                            contentDescription = stringResource(R.string.create_anim_canvas),
+                            tint = if (animationCanvas) colors.onAccent else colors.text,
+                            modifier = Modifier.size(13.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                        Text(
+                            text = if (animationCanvas) stringResource(R.string.create_anim_tag) else stringResource(R.string.create_static_canvas),
+                            color = if (animationCanvas) colors.onAccent else colors.text,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold
+                        )
+                        // Beta 标记: 动画画布功能尚在测试阶段
+                        Spacer(Modifier.width(3.dp))
+                        Text(
+                            text = "Beta",
+                            color = if (animationCanvas) colors.onAccent else colors.accent,
+                            fontSize = 8.sp,
+                            fontWeight = FontWeight.Bold
+                        )
+                    }
+                }
+
+                Box(
+                    modifier = Modifier
+                        .size(36.dp)
+                        .clip(CircleShape)
+                        .background(colors.panelHi)
+                        .clickable { onSwap() },
+                    contentAlignment = Alignment.Center
+                ) {
                     Icon(
-                        painterResource(R.drawable.ic_clock),
-                        contentDescription = stringResource(R.string.create_anim_canvas),
-                        tint = if (animationCanvas) colors.onAccent else colors.text,
-                        modifier = Modifier.size(13.dp)
+                        painterResource(R.drawable.ic_flip_horizontal),
+                        contentDescription = stringResource(R.string.create_swap_dimensions),
+                        tint = colors.text,
+                        modifier = Modifier.size(15.dp)
                     )
-                    Spacer(Modifier.width(4.dp))
+                }
+
+                Box(
+                    modifier = Modifier
+                        .height(36.dp)
+                        .clip(RoundedCornerShape(18.dp))
+                        .background(colors.panelHi)
+                        .clickable { onCustomize() }
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
-                        text = if (animationCanvas) stringResource(R.string.create_anim_tag) else stringResource(R.string.create_static_canvas),
-                        color = if (animationCanvas) colors.onAccent else colors.text,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.SemiBold
+                        text = stringResource(R.string.create_adjust),
+                        color = colors.text,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium
                     )
-                    // Beta 标记: 动画画布功能尚在测试阶段
-                    Spacer(Modifier.width(3.dp))
+                }
+
+                val createSource = remember { MutableInteractionSource() }
+                val isCreatePressed by createSource.collectIsPressedAsState()
+                val btnScale by animateFloatAsState(
+                    targetValue = if (isCreatePressed) 0.96f else 1.0f,
+                    animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
+                    label = "PortraitCreateScale"
+                )
+
+                Box(
+                    modifier = Modifier
+                        .scale(btnScale)
+                        .height(38.dp)
+                        .clip(RoundedCornerShape(19.dp))
+                        .background(colors.accent)
+                        .clickable(interactionSource = createSource, indication = null) { onCreate() }
+                        .padding(horizontal = 16.dp),
+                    contentAlignment = Alignment.Center
+                ) {
                     Text(
-                        text = "Beta",
-                        color = if (animationCanvas) colors.onAccent else colors.accent,
-                        fontSize = 8.sp,
+                        text = stringResource(R.string.create_title),
+                        color = colors.onAccent,
+                        fontSize = 13.sp,
                         fontWeight = FontWeight.Bold
                     )
                 }
             }
+        }
 
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .background(colors.panelHi)
-                    .clickable { onSwap() },
-                contentAlignment = Alignment.Center
+        if (isCompact) {
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(10.dp)
             ) {
-                Icon(
-                    painterResource(R.drawable.ic_flip_horizontal),
-                    contentDescription = stringResource(R.string.create_swap_dimensions),
-                    tint = colors.text,
-                    modifier = Modifier.size(15.dp)
-                )
+                infoContent(Modifier.fillMaxWidth())
+                actionsContent(Modifier.fillMaxWidth())
             }
-
-            Box(
-                modifier = Modifier
-                    .height(36.dp)
-                    .clip(RoundedCornerShape(18.dp))
-                    .background(colors.panelHi)
-                    .clickable { onCustomize() }
-                    .padding(horizontal = 12.dp),
-                contentAlignment = Alignment.Center
+        } else {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically
             ) {
-                Text(
-                    text = stringResource(R.string.create_adjust),
-                    color = colors.text,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium
-                )
-            }
-
-            val createSource = remember { MutableInteractionSource() }
-            val isCreatePressed by createSource.collectIsPressedAsState()
-            val btnScale by animateFloatAsState(
-                targetValue = if (isCreatePressed) 0.96f else 1.0f,
-                animationSpec = spring(dampingRatio = Spring.DampingRatioMediumBouncy, stiffness = Spring.StiffnessMediumLow),
-                label = "PortraitCreateScale"
-            )
-
-            Box(
-                modifier = Modifier
-                    .scale(btnScale)
-                    .height(38.dp)
-                    .clip(RoundedCornerShape(19.dp))
-                    .background(colors.accent)
-                    .clickable(interactionSource = createSource, indication = null) { onCreate() }
-                    .padding(horizontal = 16.dp),
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = stringResource(R.string.create_title),
-                    color = colors.onAccent,
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.Bold
-                )
+                infoContent(Modifier.weight(1f))
+                Spacer(Modifier.width(12.dp))
+                actionsContent(Modifier)
             }
         }
     }

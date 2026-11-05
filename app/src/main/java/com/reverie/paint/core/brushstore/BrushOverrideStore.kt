@@ -9,7 +9,7 @@ import java.io.File
  *
  * `brush_store/overrides.json`：
  * ```
- * {schema:2, presets:{<id>:{controls:{<ControlId>:<JSON 基本值>}, dirty:[<ControlId>], rawKeys:{<kpp 参数名>:<值>}}}}
+ * {schema:3, presets:{<id>:{controls:{<ControlId>:<JSON 基本值>}, dirty:[<ControlId>], rawKeys:{<kpp 参数名>:<值>}}}}
  * ```
  * - controls：用户改过的控件值；曲线以传感器 XML 字符串存。
  * - dirty：迁移时无法确认的控件（K5 等），仅用于诊断展示，不影响生成。
@@ -19,7 +19,7 @@ import java.io.File
  */
 object BrushOverrideStore {
     const val FILE_NAME = "overrides.json"
-    const val SCHEMA = 2
+    const val SCHEMA = 3
 
     data class Overrides(
         val controls: Map<String, Any> = emptyMap(),

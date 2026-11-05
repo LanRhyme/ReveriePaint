@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -21,6 +22,9 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -65,7 +69,10 @@ internal fun StoryboardImportButton(vm: PaintViewModel) {
 }
 
 @Composable
-internal fun StoryboardReferenceBar(vm: PaintViewModel) {
+internal fun StoryboardReferenceBar(
+    vm: PaintViewModel,
+    modifier: Modifier = Modifier,
+) {
     val state = vm.anim.storyboard
     val cues = state.cues
     if (cues.isEmpty()) return
@@ -73,9 +80,24 @@ internal fun StoryboardReferenceBar(vm: PaintViewModel) {
     val frames = state.frames
     val mappingMissing = state.singleFrameMode && frames.size != cues.size
     val active = SrtStoryboard.findActiveFrameIndex(frames, vm.anim.currentTime)
+    val isFloating = vm.floatingUiConfig.enabled
+    val shape = if (isFloating) RoundedCornerShape(14.dp) else RoundedCornerShape(0.dp)
     Row(
-        modifier = Modifier.fillMaxWidth().background(Morandi.panel)
-            .clickable { showList = true }.padding(horizontal = 12.dp, vertical = 6.dp),
+        modifier = modifier
+            .fillMaxWidth()
+            .then(
+                if (isFloating) {
+                    Modifier
+                        .padding(bottom = 6.dp)
+                        .shadow(6.dp, shape, spotColor = Color.Black.copy(alpha = 0.35f))
+                        .clip(shape)
+                } else {
+                    Modifier
+                },
+            )
+            .background(Morandi.panel)
+            .clickable { showList = true }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Column(modifier = Modifier.weight(1f)) {
             Text(

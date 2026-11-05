@@ -74,6 +74,12 @@
     <string name="blend_value">Value</string>
     <string name="blend_erase">消去</string>
     <string name="blend_luminosity_sai">光度/輝度 (SAI)</string>
+    <string name="blend_dissolve">ディザ合成</string>
+    <string name="blend_hard_mix">ハードミックス</string>
+    <string name="blend_darker_color">カラー比較(暗)</string>
+    <string name="blend_lighter_color">カラー比較(明)</string>
+    <string name="blend_luminosity">輝度</string>
+    <string name="blend_behind">背面</string>
     <string name="blend_glow">グロー</string>
     <string name="blend_category_basic">基本</string>
     <string name="blend_category_darken">色を暗くする</string>
@@ -3150,6 +3156,10 @@
     <string name="replay_export_stage_finalizing">書き出しファイルをパッケージ化中…</string>
     <string name="replay_export_stage_saving_gallery">システムのアルバムに保存中…</string>
     <string name="replay_export_hint_4k">4K解像度の書き出しには時間がかかるため、1080pの選択をおすすめします</string>
+    <string name="settings_abr_blend_policy_title">ABR 描画モード変換ポリシー</string>
+    <string name="settings_abr_blend_policy_desc">ABRインポート時のデュアルブラシとテクスチャの合成アルゴリズム</string>
+    <string name="settings_abr_blend_policy_compat">ソフト互換</string>
+    <string name="settings_abr_blend_policy_precision">厳密</string>
     <string name="layer_3d_axis_pitch">ピッチ（上下）</string>
     <string name="layer_3d_axis_roll">ロール（ひねり）</string>
     <string name="layer_3d_axis_yaw">ヨー（左右）</string>

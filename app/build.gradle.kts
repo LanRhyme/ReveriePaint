@@ -34,6 +34,27 @@ val aifadianUserId = (project.findProperty("AIFADIAN_USER_ID") as? String)
     ?: System.getenv("AIFADIAN_USER_ID")
     ?: localProps.getProperty("AIFADIAN_USER_ID", "")
 
+// 崩溃遥测端点与上报 key (见 docs/TELEMETRY.md)
+// 留空 = 这一份构建完全不上报遥测(纯净构建 / 第三方再分发 / 自建渠道)。
+// 取值顺序: gradle property -> 环境变量 -> local.properties
+// 显式关闭: ./gradlew assembleRelease -Ptelemetry=false
+val telemetryOff = (project.findProperty("telemetry") as? String)?.toBoolean() == false
+val telemetryEndpoint = if (telemetryOff) {
+    ""
+} else {
+    (project.findProperty("telemetryEndpoint") as? String)
+        ?: System.getenv("TELEMETRY_ENDPOINT")
+        ?: localProps.getProperty("TELEMETRY_ENDPOINT", "")
+}
+
+val telemetryKey = if (telemetryOff) {
+    ""
+} else {
+    (project.findProperty("telemetryKey") as? String)
+        ?: System.getenv("TELEMETRY_KEY")
+        ?: localProps.getProperty("TELEMETRY_KEY", "")
+}
+
 android {
     namespace = "com.reverie.paint"
     compileSdk = 36
@@ -55,11 +76,13 @@ android {
         }
         minSdk = 23
         targetSdk = 33
-        versionCode = 48
-        versionName = "1.6.1"
+        versionCode = 53
+        versionName = "1.6.6"
 
         buildConfigField("String", "AIFADIAN_API_TOKEN", "\"$aifadianApiToken\"")
         buildConfigField("String", "AIFADIAN_USER_ID", "\"$aifadianUserId\"")
+        buildConfigField("String", "TELEMETRY_ENDPOINT", "\"$telemetryEndpoint\"")
+        buildConfigField("String", "TELEMETRY_KEY", "\"$telemetryKey\"")
         // 前缓冲低延迟组件版本 (写进日志/崩溃状态快照, 用于确认测试包带的是哪个版本)
         buildConfigField("String", "GRAPHICS_CORE_VERSION", "\"$graphicsCoreVersion\"")
 
@@ -248,6 +271,9 @@ dependencies {
     implementation("androidx.input:input-motionprediction:1.0.0")
     // ONNX Runtime Mobile 端侧轻量神经网络推理引擎 (用于智能阴影辅助等端侧 AI 特性)
     implementation("com.microsoft.onnxruntime:onnxruntime-android:1.20.0")
+    // 桌面小组件 (Jetpack Glance 声明式组件与 Material 3 动态取色)
+    implementation("androidx.glance:glance-appwidget:1.1.1")
+    implementation("androidx.glance:glance-material3:1.1.1")
 
     testImplementation("junit:junit:4.13.2")
     // android.jar 的 org.json 在 JVM 单测里是桩实现，brushstore 的 JSON 读写需要真实现

@@ -18,6 +18,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +28,7 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -38,11 +41,11 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
-import com.reverie.paint.ui.painting.panels.NumericValueInputDialog
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,17 +54,24 @@ import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.model.UiPanelSlot
+import com.reverie.paint.ui.components.reportUiSlot
+import com.reverie.paint.ui.painting.panels.NumericValueInputDialog
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.glassBorder
+
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 import java.util.Locale
@@ -250,6 +260,11 @@ internal fun hasExpandableControls(filterId: Int): Boolean {
 
 /**
  * 顶部微型悬浮药丸条 (Top Pill HUD)
+ *
+ * 交互增强:
+ * - 进度条升级为可滑动轨道: 直接在顶部条上滑动/点按可进行 0%~100% 全量程快速调整;
+ * - 画布区域左右滑动仍然为基于全屏宽度的低灵敏度精细调整;
+ * - 点击数值文本可弹出精准数值输入框。
  */
 @Composable
 internal fun FilterTopPillHUD(
@@ -259,6 +274,8 @@ internal fun FilterTopPillHUD(
     isHoldingCompare: Boolean,
     onHoldingCompareChange: (Boolean) -> Unit,
     activeParamIndex: Int = 0,
+    onParamValueChange: ((Float) -> Unit)? = null,
+    vm: PaintViewModel? = null,
     modifier: Modifier = Modifier,
     hazeState: HazeState? = null,
     opacity: Float = 0.92f,
@@ -267,13 +284,32 @@ internal fun FilterTopPillHUD(
     val pillShape = CircleShape
     val activeParamDef = filterParamDefinitions(filterId).getOrNull(activeParamIndex)
     val activeParamName = activeParamDef?.let { if (it.nameRes != 0) stringResource(it.nameRes) else it.name }
+    val isSlidable = filterId != 13 && filterId != 30 && filterId != 20 && activeParamDef != null
+
+    var showNumericInput by remember { mutableStateOf(false) }
+
+    if (showNumericInput && activeParamDef != null && onParamValueChange != null) {
+        NumericValueInputDialog(
+            label = activeParamName ?: filterName,
+            currentValue = activeParamDef.getter(st),
+            min = activeParamDef.range.start,
+            max = activeParamDef.range.endInclusive,
+            unitSuffix = activeParamDef.unit,
+            onValueConfirmed = { confirmed ->
+                onParamValueChange(confirmed)
+                showNumericInput = false
+            },
+            onDismiss = { showNumericInput = false },
+        )
+    }
 
     Box(
         modifier = modifier
+            .then(if (vm != null) Modifier.reportUiSlot(vm, UiPanelSlot.TOP_HUD_TOAST) else Modifier)
             .shadow(12.dp, pillShape, spotColor = Color.Black.copy(alpha = 0.45f))
             .clip(pillShape)
             .then(
-                if (hazeState != null) {
+                if (vm?.blurBackground != false && hazeState != null) {
                     Modifier.hazeChild(state = hazeState, style = Glass.popupStyle(opacity))
                 } else {
                     Modifier.background(Morandi.panelHi.copy(alpha = opacity))
@@ -298,31 +334,79 @@ internal fun FilterTopPillHUD(
                 softWrap = false,
             )
 
-            // 进度微型条 (非曲线/渐变映射/纯开关时显示)
-            if (filterId != 13 && filterId != 30 && filterId != 20) {
+            // 可交互滑动的进度条 (非曲线/渐变映射/纯开关时显示)
+            if (isSlidable) {
+                val range = activeParamDef!!.range
+                val span = maxOf(0.001f, range.endInclusive - range.start)
+                var trackWidthPx by remember { mutableFloatStateOf(0f) }
+                val trackWidthDp = 72.dp
+                val trackHeightDp = 4.dp
+                val touchHeightDp = 24.dp
+
                 Box(
                     modifier = Modifier
-                        .width(72.dp)
-                        .height(4.dp)
-                        .clip(CircleShape)
-                        .background(Morandi.border.copy(alpha = 0.5f))
+                        .width(trackWidthDp)
+                        .height(touchHeightDp)
+                        .onSizeChanged { trackWidthPx = it.width.toFloat() }
+                        .pointerInput(activeParamIndex, filterId, trackWidthPx) {
+                            detectTapGestures { pos ->
+                                if (trackWidthPx > 0f && onParamValueChange != null) {
+                                    val frac = (pos.x / trackWidthPx).coerceIn(0f, 1f)
+                                    val nextVal = range.start + frac * span
+                                    onParamValueChange(nextVal)
+                                }
+                            }
+                        }
+                        .pointerInput(activeParamIndex, filterId, trackWidthPx) {
+                            detectDragGestures(
+                                onDragStart = { pos ->
+                                    if (trackWidthPx > 0f && onParamValueChange != null) {
+                                        val frac = (pos.x / trackWidthPx).coerceIn(0f, 1f)
+                                        val nextVal = range.start + frac * span
+                                        onParamValueChange(nextVal)
+                                    }
+                                },
+                                onDrag = { change, _ ->
+                                    change.consume()
+                                    if (trackWidthPx > 0f && onParamValueChange != null) {
+                                        val frac = (change.position.x / trackWidthPx).coerceIn(0f, 1f)
+                                        val nextVal = range.start + frac * span
+                                        onParamValueChange(nextVal)
+                                    }
+                                }
+                            )
+                        },
+                    contentAlignment = Alignment.CenterStart,
                 ) {
+                    // 轨道槽背景与填充
                     Box(
                         modifier = Modifier
-                            .fillMaxWidth(progress)
-                            .height(4.dp)
+                            .fillMaxWidth()
+                            .height(trackHeightDp)
                             .clip(CircleShape)
-                            .background(Morandi.accent)
-                    )
+                            .background(Morandi.border.copy(alpha = 0.5f))
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth(progress.coerceIn(0f, 1f))
+                                .height(trackHeightDp)
+                                .clip(CircleShape)
+                                .background(Morandi.accent)
+                        )
+                    }
                 }
 
-                // 主参数数值
+                // 主参数数值 (支持点击直接输入精确数值)
                 Text(
                     text = valText,
                     color = Morandi.accentHi,
                     fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                    modifier = Modifier.widthIn(min = 36.dp),
+                    fontWeight = FontWeight.SemiBold,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(4.dp))
+                        .clickable(enabled = onParamValueChange != null) { showNumericInput = true }
+                        .padding(horizontal = 4.dp, vertical = 2.dp)
+                        .widthIn(min = 36.dp),
                     maxLines = 1,
                     softWrap = false,
                 )
@@ -376,6 +460,28 @@ internal fun FilterTopPillHUD(
     }
 }
 
+@Composable
+internal fun FilterTopPillHUD(
+    controller: FilterSessionController,
+    modifier: Modifier = Modifier,
+    hazeState: HazeState? = null,
+    opacity: Float = 0.92f,
+) {
+    FilterTopPillHUD(
+        filterName = controller.session.filterName,
+        filterId = controller.session.filterId,
+        st = controller.state,
+        isHoldingCompare = controller.isHoldingCompare,
+        onHoldingCompareChange = { controller.updateHoldingCompare(it) },
+        activeParamIndex = controller.activeParamIndex,
+        onParamValueChange = { controller.setParamValue(controller.activeParamIndex, it) },
+        vm = controller.vm,
+        modifier = modifier,
+        hazeState = hazeState,
+        opacity = opacity,
+    )
+}
+
 /**
  * 底部自适应微型操作岛 (Bottom Dock)
  */
@@ -395,6 +501,7 @@ internal fun FilterBottomDock(
     modifier: Modifier = Modifier,
     hazeState: HazeState? = null,
     opacity: Float = 0.94f,
+    vm: PaintViewModel? = null,
 ) {
     val defs = remember(filterId) { filterParamDefinitions(filterId) }
     val hasMore = hasExpandableControls(filterId)
@@ -424,7 +531,7 @@ internal fun FilterBottomDock(
             .shadow(16.dp, dockShape, spotColor = Color.Black.copy(alpha = 0.5f))
             .clip(dockShape)
             .then(
-                if (hazeState != null) {
+                if (vm?.blurBackground != false && hazeState != null) {
                     Modifier.hazeChild(state = hazeState, style = Glass.popupStyle(opacity))
                 } else {
                     Modifier.background(Morandi.panelHi.copy(alpha = opacity))
@@ -558,6 +665,7 @@ internal fun FilterBottomDock(
         modifier = modifier,
         hazeState = hazeState,
         opacity = opacity,
+        vm = controller.vm,
     )
 }
 
@@ -578,7 +686,7 @@ private fun DockIconPill(
         else -> Morandi.panel.copy(alpha = 0.7f)
     }
     val contentColor = when {
-        primary -> Color.White
+        primary -> Morandi.onAccent
         danger -> Color(0xFFE57373)
         selected -> Morandi.accentHi
         else -> Morandi.text

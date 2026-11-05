@@ -5,6 +5,7 @@
 package com.reverie.paint.core.brushstore
 
 import com.reverie.paint.core.BrushParams
+import com.reverie.paint.core.BrushStoreVm
 import org.json.JSONObject
 import org.junit.After
 import org.junit.Assert.assertArrayEquals
@@ -26,15 +27,34 @@ import java.nio.file.Files
 class ResetEquivalenceTest {
     private lateinit var tmp: File
 
+    private class NoOpEngine : BrushApply.EngineFacade {
+        override fun loadBrushPreset(index: Int): Boolean = true
+        override fun setBrushSize(size: Double) {}
+        override fun setBrushOpacity(opacity: Double) {}
+        override fun setBrushFlow(flow: Double) {}
+        override fun setBrushAngle(angle: Double) {}
+        override fun setBrushColor(color: String) {}
+        override fun setBrushSecondaryColor(color: String) {}
+        override fun setPresetIsEraser(isEraser: Boolean) {}
+        override fun setBrushCompositeOp(op: String) {}
+        override fun setToolMode(mode: Int) {}
+        override fun brushPresetCount(): Int = 0
+        override fun brushPresetName(index: Int): String = ""
+    }
+
     @Before
     fun setUp() {
         tmp = Files.createTempDirectory("reset").toFile()
         BrushStoreBootstrap.resetForTest()
         BrushEditSession.resetForTest()
+        BrushStoreVm.resetForTest()
+        BrushApply.engine = NoOpEngine()
     }
 
     @After
     fun tearDown() {
+        BrushApply.resetEngineForTest()
+        BrushStoreVm.resetForTest()
         BrushEditSession.resetForTest()
         BrushStoreBootstrap.resetForTest()
         tmp.walkBottomUp().forEach { it.setWritable(true) }
@@ -55,11 +75,11 @@ class ResetEquivalenceTest {
         val xml = com.reverie.paint.core.KppHelper.readPresetXml(file.readBytes(), true)!!
         val edits = OverrideFixtures.editsFor(xml)
         if (edits.isEmpty()) return false
-        val ui = PresetReadback.fromEffectiveBytes(file.readBytes())
-        var p = ui
-        for ((cid, v) in edits) p = PresetPropertyMap.spec(cid).set(p, v)
-        val c = BrushEditSession.commit(id, p, ui, presetDir)
-        return c.changedKeys.isNotEmpty()
+        for ((cid, v) in edits) {
+            BrushStoreVm.stage(id, cid, v)
+        }
+        val res = BrushStoreVm.flush(id)
+        return res != null
     }
 
     @Test
@@ -130,5 +150,137 @@ class ResetEquivalenceTest {
         assertEquals(BrushParams().streamline, kept.streamline, 0.0)
         assertNull(PresetReadback.metadataOnly(BrushParams(streamline = 0.6)))
         assertFalse(PresetReadback.appOnlyModified(null))
+    }
+
+    @Test
+    fun `重置后只保留rawKeys与METADATA四键`() {
+        val dir = install(File(tmp, "reset_meta"))
+        val stem = KppFixtures.all.first().first
+        val id = BrushIdentity.newImportedId()
+        val name = "test_meta_$stem"
+        val bytes = KppFixtures.bytes(stem)
+        val appBase = PresetReadback.baselineJson(BrushParams(pressureEnabled = false))
+        PresetSnapshotStore.putImported(
+            id, "kpp", bytes,
+            JSONObject().put("pack", "").put("provenance", "imported").put("appBaseline", appBase),
+        )
+        BrushIdentity.register(BrushIdentity.Entry(id, name, "kpp", BrushIdentity.Kind.IMPORTED))
+        EffectivePresetBuilder.materialize(id, dir)
+
+        // 写入 kpp 控件 + "streamline" + "pressureEnabled"(设为 true，偏离基线 false) + METADATA 四键 + rawKeys
+        val fullOverrides = BrushOverrideStore.Overrides(
+            controls = mapOf(
+                "spacing" to 0.25,
+                "streamline" to 0.75,
+                "pressureEnabled" to true,
+                "author" to "自定义作者",
+                "isAuthorLocked" to true,
+                "description" to "测试说明",
+                "version" to "3.0",
+            ),
+            dirty = setOf("spacing", "pressureEnabled"),
+            rawKeys = mapOf("rawKey1" to "rawValue1"),
+        )
+        BrushOverrideStore.replace(id, fullOverrides)
+
+        // 执行重置
+        BrushEditSession.reset(id, dir)
+
+        val after = BrushOverrideStore.get(id)
+        // rawKeys 原样保留
+        assertEquals(mapOf("rawKey1" to "rawValue1"), after.rawKeys)
+        // controls 只剩 METADATA 4 键，kpp 控件与 streamline、pressureEnabled 都被清除
+        assertEquals(
+            setOf("author", "isAuthorLocked", "description", "version"),
+            after.controls.keys,
+        )
+        assertEquals("自定义作者", after.controls["author"])
+        assertEquals(true, after.controls["isAuthorLocked"])
+        assertEquals("测试说明", after.controls["description"])
+        assertEquals("3.0", after.controls["version"])
+        assertFalse("spacing" in after.controls)
+        assertFalse("streamline" in after.controls)
+        assertFalse("pressureEnabled" in after.controls)
+
+        // withAppControls 验证：非元数据 APP_ONLY 等于 baseline(id)
+        val base = PresetReadback.baseline(id)
+        assertEquals(false, base.pressureEnabled)
+        assertNotEquals(BrushParams().pressureEnabled, base.pressureEnabled)
+        val reconstructed = PresetReadback.withAppControls(base, after.controls)
+        assertEquals(false, reconstructed.pressureEnabled)
+        assertEquals(base.pressureEnabled, reconstructed.pressureEnabled)
+        assertNotEquals(BrushParams().pressureEnabled, reconstructed.pressureEnabled)
+        assertEquals(base.streamline, reconstructed.streamline, 0.0)
+        assertEquals(base.taper, reconstructed.taper, 0.0)
+        assertEquals(base.maskingSoftness, reconstructed.maskingSoftness, 0.0)
+        assertEquals("自定义作者", reconstructed.author)
+        assertEquals(true, reconstructed.isAuthorLocked)
+        assertEquals("测试说明", reconstructed.description)
+        assertEquals("3.0", reconstructed.version)
+
+        // clear 之后 readback 的 pressureEnabled == false (== baseline)，且 != BrushParams().pressureEnabled
+        BrushOverrideStore.clear(id)
+        val cleared = BrushOverrideStore.get(id)
+        val reconstructedCleared = PresetReadback.withAppControls(base, cleared.controls)
+        assertEquals(false, reconstructedCleared.pressureEnabled)
+        assertEquals(base.pressureEnabled, reconstructedCleared.pressureEnabled)
+        assertNotEquals(BrushParams().pressureEnabled, reconstructedCleared.pressureEnabled)
+    }
+
+    @Test
+    fun `hasTuning语义验证`() {
+        // 只有 METADATA 键时 false
+        val metaOnly = mapOf<String, Any>(
+            "author" to "Krita",
+            "isAuthorLocked" to true,
+            "description" to "Some desc",
+            "version" to 1,
+        )
+        assertFalse(PresetReadback.hasTuning(metaOnly))
+        assertFalse(PresetReadback.hasTuning(emptyMap()))
+
+        // 有 streamline 时 true
+        assertTrue(PresetReadback.hasTuning(metaOnly + ("streamline" to 0.5)))
+
+        // 有任一 kpp 控件时 true
+        assertTrue(PresetReadback.hasTuning(metaOnly + ("spacing" to 0.1)))
+        // 大小/不透明度/流量归按工具记忆，不算调参
+        assertFalse(PresetReadback.hasTuning(mapOf("size" to 50.0)))
+    }
+
+    @Test
+    fun `重置后自定义缩略图保持不变`() {
+        val dir = install(File(tmp, "reset_thumb"))
+        val stem = KppFixtures.all.first().first
+        val id = BrushIdentity.idForName(stem)!!
+        val file = File(dir, "$stem.kpp")
+
+        // 写入一个独特的自定义缩略图
+        val customThumb = byteArrayOf(
+            0x89.toByte(), 0x50.toByte(), 0x4E.toByte(), 0x47.toByte(),
+            0x0D.toByte(), 0x0A.toByte(), 0x1A.toByte(), 0x0A.toByte(),
+            1, 2, 3, 4
+        )
+        BrushThumbStore.put(id, customThumb)
+
+        // 提交修改并重新生成有效文件
+        BrushOverrideStore.replace(id, BrushOverrideStore.Overrides(controls = mapOf("spacing" to 0.5)))
+        EffectivePresetBuilder.materialize(id, dir)
+
+        // 验证当前有效文件嵌入了自定义缩略图
+        val snap = PresetSnapshotStore.read(id)!!
+        val xmlBefore = com.reverie.paint.core.KppHelper.readPresetXml(file.readBytes(), false)!!
+        val expectedBefore = com.reverie.paint.core.KppHelper.replacePresetXml(customThumb, xmlBefore)
+        assertArrayEquals(expectedBefore, file.readBytes())
+
+        // 执行重置
+        BrushEditSession.reset(id, dir)
+
+        // 验证重置后，controls 被清空，但有效 kpp 内部嵌入的缩略图仍然是自定义缩略图
+        assertTrue(BrushOverrideStore.get(id).isEmpty())
+        val xmlAfter = com.reverie.paint.core.KppHelper.readPresetXml(snap, false)!!
+        val expectedAfter = com.reverie.paint.core.KppHelper.replacePresetXml(customThumb, xmlAfter)
+        assertArrayEquals("重置后有效kpp内部缩略图不能恢复或丢失", expectedAfter, file.readBytes())
+        assertArrayEquals("重置后BrushThumbStore必须保留自定义缩略图", customThumb, BrushThumbStore.get(id))
     }
 }

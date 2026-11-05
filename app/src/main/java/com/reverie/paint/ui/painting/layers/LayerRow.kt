@@ -67,6 +67,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.State
 import androidx.compose.runtime.key
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
@@ -76,7 +77,6 @@ import androidx.compose.runtime.mutableStateMapOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.runtime.snapshots.SnapshotStateMap
 import androidx.compose.ui.Alignment
@@ -121,6 +121,7 @@ import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.Motion
+import com.reverie.paint.ui.theme.optimalTextColor
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
@@ -130,7 +131,19 @@ import java.util.Locale
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
+/**
+ * 图层树每级缩进 (dp)。拖拽时的"保持原层级"判定与这里画的引导线必须用同一个值,
+ * 否则手势阈值和视觉缩进对不上 (见 LayerListView.isLayerDragIndented)。
+ */
+internal const val LAYER_INDENT_STEP_DP = 14
+
+
 private val drawerWidth = 132.dp
+
+/** 没有滑动守卫时的共享哨兵 (恒为 0): 行可跳过重组, 不必为每行各建一个 State。 */
+private val NoScrollGuard: State<Long> = object : State<Long> {
+    override val value: Long = 0L
+}
 
 @Composable
 internal fun LayerRow(
@@ -155,8 +168,8 @@ internal fun LayerRow(
     modifier: Modifier = Modifier,
     hasNextSibling: Boolean = false,
     openDepths: Set<Int> = emptySet(),
-    // 分格裁剪蒙版行 (panelCropStateFor): 眼睛=裁剪开关, 副标题改裁剪口径, 抽屉整体禁用
     panelCrop: Pair<Long, Boolean>? = null,
+    scrollGuardUntil: State<Long> = NoScrollGuard,
 ) {
     val rowHeight = vm.layerRowHeightDp.dp
     val index = layer.index
@@ -273,9 +286,8 @@ internal fun LayerRow(
                         }
 
                         val isMask = com.reverie.paint.model.LayerNodeType.isMask(layer.nodeType)
-                        // 分格裁剪蒙版行: 左滑抽屉整体禁用 (反相/应用/删除蒙版均不适用),
-                        // 与禁拖动同款 early-return 模式 —— 手势分支直接不进入
-                        if (earlyExit == null && !isDrawerOpen && !isMask) {
+                        val scrollGuarded = android.os.SystemClock.uptimeMillis() < scrollGuardUntil.value
+                        if (earlyExit == null && !isDrawerOpen && !isMask && !scrollGuarded) {
                             // Phase 2: EXACTLY 300ms elapsed without movement exceeding slop -> TRIGGER DRAG!
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             scope.launch { rowInteraction.emit(androidx.compose.foundation.interaction.PressInteraction.Cancel(press)) }
@@ -563,8 +575,8 @@ internal fun LayerRowContent(
 
         // 2. Group tree guide lines (depth > 0)
         if (layer.depth > 0) {
-            val stepDp = 14.dp
-            val treeWidth = (layer.depth * 14).dp
+            val stepDp = LAYER_INDENT_STEP_DP.dp
+            val treeWidth = (layer.depth * LAYER_INDENT_STEP_DP).dp
             Canvas(
                 modifier = Modifier
                     .width(treeWidth)
@@ -922,6 +934,7 @@ private fun DrawerAction(
     color: Color,
     resId: Int,
     desc: String,
+    contentColor: Color = color.optimalTextColor(),
     onClick: () -> Unit,
 ) {
     Column(
@@ -933,7 +946,7 @@ private fun DrawerAction(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(painterResource(resId), contentDescription = desc, tint = Color.White, modifier = Modifier.size(18.dp))
-        Text(desc, color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp, maxLines = 1)
+        Icon(painterResource(resId), contentDescription = desc, tint = contentColor, modifier = Modifier.size(18.dp))
+        Text(desc, color = contentColor, fontSize = 9.sp, maxLines = 1)
     }
 }

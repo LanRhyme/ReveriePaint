@@ -158,4 +158,84 @@ class UpgradeDriftTest {
             fresh.deleteRecursively()
         }
     }
+
+    @Test
+    fun upgradeChangedRetainsLiveAndAppOnlyWhenPaintOpChanges() {
+        val stems = KppFixtures.all.map { it.first }
+        val byOp = stems.groupBy { op(it) }
+        val opA = byOp.values.first { it.size >= 2 }
+        val opB = byOp.values.first { it !== opA }
+        val brush = opA[0]
+        val donorSameOp = opA[1]
+        val donorDiffOp = opB[0]
+
+        // 1. paintop 变了
+        val old = mapOf("$brush.kpp" to KppFixtures.bytes(brush))
+        boot("v1", old)
+
+        val bid = BrushIdentity.builtinId(brush)
+        val ov = BrushOverrideStore.Overrides(
+            controls = mapOf("opacity" to 0.4, "spacing" to 0.9, "pressureEnabled" to false),
+            dirty = setOf("opacity", "spacing", "pressureEnabled"),
+            rawKeys = mapOf("custom_raw" to "val"),
+        )
+        BrushOverrideStore.replace(bid, ov)
+
+        val newDiff = mapOf("$brush.kpp" to KppFixtures.bytes(donorDiffOp))
+        boot("v2_diff", newDiff)
+
+        val afterDiff = BrushOverrideStore.get(bid)
+        assertEquals("LIVE 控件值保留", 0.4, afterDiff.controls["opacity"])
+        assertEquals("APP_ONLY 控件值保留", false, afterDiff.controls["pressureEnabled"])
+        assertNull("非 LIVE 非 APP_ONLY 被删", afterDiff.controls["spacing"])
+        assertEquals("dirty 保留 LIVE 与 APP_ONLY", setOf("opacity", "pressureEnabled"), afterDiff.dirty)
+        assertTrue("rawKeys 清空", afterDiff.rawKeys.isEmpty())
+
+        // 2. paintop 不变时 overrides 原样保留
+        boot("v1_same", old)
+        BrushOverrideStore.replace(bid, ov)
+        val newSame = mapOf("$brush.kpp" to KppFixtures.bytes(donorSameOp))
+        boot("v2_same", newSame)
+        val afterSame = BrushOverrideStore.get(bid)
+        assertEquals("paintop 不变时 overrides 原样保留", ov, afterSame)
+    }
+
+    @Test
+    fun `新出厂版本且已有 restored 快照时保留 restored 字节并跳过 upgradeChanged`() {
+        val stem = KppFixtures.all.first().first
+        val oldBytes = KppFixtures.bytes(stem)
+        boot("v1", mapOf("$stem.kpp" to oldBytes))
+
+        val bid = BrushIdentity.builtinId(stem)
+        val restoredBytes = oldBytes + byteArrayOf(42, 43, 44)
+        PresetSnapshotStore.replaceForRestore(bid, "kpp", restoredBytes)
+
+        // 新出厂版本变更该笔
+        val donor = KppFixtures.all.last().first
+        val newBytes = KppFixtures.bytes(donor)
+        boot("v2", mapOf("$stem.kpp" to newBytes))
+
+        // 验证 snapshotFile 依然优先返回 restored 字节
+        assertArrayEquals("应保留 restored 快照", restoredBytes, PresetSnapshotStore.read(bid))
+    }
+
+    @Test
+    fun `新出厂版本移除且已有 restored 快照时 retire 优先使用 restored 字节`() {
+        val stem = KppFixtures.all.first().first
+        val oldBytes = KppFixtures.bytes(stem)
+        boot("v1", mapOf("$stem.kpp" to oldBytes))
+
+        val bid = BrushIdentity.builtinId(stem)
+        val restoredBytes = oldBytes + byteArrayOf(99, 88, 77)
+        PresetSnapshotStore.replaceForRestore(bid, "kpp", restoredBytes)
+
+        // 新版本完全移除该笔
+        boot("v2_empty", emptyMap())
+
+        // 验证已下线生成 imported，快照为 restoredBytes
+        val retired = BrushIdentity.all().firstOrNull { it.name == stem && it.kind == BrushIdentity.Kind.IMPORTED }
+        assertNotNull("应被下线为 imported", retired)
+        assertArrayEquals("下线快照应为 restored 字节", restoredBytes, PresetSnapshotStore.read(retired!!.id))
+        assertNull("原 builtin restored 文件应被清理", PresetSnapshotStore.restoredFile(bid))
+    }
 }

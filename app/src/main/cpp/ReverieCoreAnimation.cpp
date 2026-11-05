@@ -190,6 +190,16 @@ void ReverieCore::setAnimationCurrentTime(int time, bool recordUndo)
     KisImageAnimationInterface *anim = image->animationInterface();
     if (!anim || anim->currentTime() == time) return;
 
+    // 长事务 (变换预览 / 落笔还原补丁) 在创建时记下了当时的动画时间, 跨帧结束会撞上
+    // KisTransactionData::endTransaction 的时间一致性断言 (线上 7738948083)。
+    // 时间要变之前先把它们收尾, 保证事务不会跨帧存活。
+    if (!m_previewTransactions.isEmpty() || m_previewTransaction) {
+        cancelTransformPreview();
+    }
+    if (m_openRestoreTransaction) {
+        revertOpenRestorePatch();
+    }
+
     // KisImage moves itself (and its animation interface) to qApp's thread.
     // requestTimeSwitchNonGUI only emits a signal: from reverie-render it is
     // queued to that thread, which has no Qt event loop in this Android host.
@@ -239,7 +249,11 @@ void ReverieCore::setAnimationFramerate(int fps)
 {
     KisImageSP image = m_document;
     if (!image || fps <= 0 || fps > 240) return;
-    image->animationInterface()->setFramerate(fps);
+    if (!image->animationInterface()) return;
+    if (image->animationInterface()->framerate() == fps) return;
+    // 帧率是文档设置, 桌面 Krita 走 KisImageAnimSettingCommand 进撤销栈
+    pushUndoCommand(new ReverieAnimationFramerateCommand(
+        image, fps, kundo2_i18n("Animation Framerate")));
 }
 
 int ReverieCore::animationLength() const
@@ -275,8 +289,12 @@ void ReverieCore::setAnimationPlaybackRange(int start, int end)
 {
     KisImageSP image = m_document;
     if (!image || start < 0 || end < start) return;
+    if (!image->animationInterface()) return;
     // KisTimeSpan 的 (start, end) 构造函数是私有的, 必须走工厂方法
-    image->animationInterface()->setActivePlaybackRange(KisTimeSpan::fromTimeToTime(start, end));
+    const KisTimeSpan range = KisTimeSpan::fromTimeToTime(start, end);
+    if (image->animationInterface()->activePlaybackRange() == range) return;
+    pushUndoCommand(new ReverieAnimationRangeCommand(
+        image, range, kundo2_i18n("Animation Playback Range")));
 }
 
 // ============================================================

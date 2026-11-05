@@ -6,6 +6,7 @@ package com.reverie.paint.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNotEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -77,12 +78,86 @@ class ThemeSettingsTest {
     }
 
     @Test
-    fun `preset accent swatches list validity and contains default accent 5A6E8A`() {
-        val swatches = listOf(
-            "#5A6E8A", "#5A8A86", "#5A8A6A", "#768A5A", "#8A7A5A",
-            "#8A665A", "#8A5A66", "#825A8A", "#625A8A"
-        )
-        assertEquals("First swatch should be default accent #5A6E8A", "#5A6E8A", swatches.first())
+    fun `ThemeStyle algorithmic generators produce distinct harmonious palettes`() {
+        val accent = androidx.compose.ui.graphics.Color(0xFFBDB79A) // Antigravity Gold
+        val morandi = com.reverie.paint.ui.theme.buildThemeColors(isDark = true, accent = accent, style = com.reverie.paint.ui.theme.ThemeStyle.MORANDI_TINTED)
+        val neutral = com.reverie.paint.ui.theme.buildThemeColors(isDark = true, accent = accent, style = com.reverie.paint.ui.theme.ThemeStyle.NEUTRAL_STUDIO)
+        val warm = com.reverie.paint.ui.theme.buildThemeColors(isDark = true, accent = accent, style = com.reverie.paint.ui.theme.ThemeStyle.WARM_EARTHY)
+        val vibrant = com.reverie.paint.ui.theme.buildThemeColors(isDark = true, accent = accent, style = com.reverie.paint.ui.theme.ThemeStyle.VIBRANT_GLOW)
+
+        assertEquals("Accent must be preserved across styles", accent, morandi.accent)
+        assertEquals("Accent must be preserved across styles", accent, neutral.accent)
+        assertEquals("Accent must be preserved across styles", accent, warm.accent)
+        assertEquals("Accent must be preserved across styles", accent, vibrant.accent)
+
+        // Morandi tinted background should have subtle chroma, neutral should be pure grey
+        assertNotEquals("Morandi tinted background must differ from neutral", neutral.bg, morandi.bg)
+        assertNotEquals("Warm earthy background must differ from neutral", neutral.bg, warm.bg)
+        assertNotEquals("Vibrant glow background must differ from neutral", neutral.bg, vibrant.bg)
+    }
+
+    @Test
+    fun `colorToHsl and hslToColor roundtrip accuracy`() {
+        val original = androidx.compose.ui.graphics.Color(0xFF5A6E8A)
+        val hsl = com.reverie.paint.ui.theme.colorToHsl(original)
+        val restored = com.reverie.paint.ui.theme.hslToColor(hsl[0], hsl[1], hsl[2])
+
+        assertEquals(original.red, restored.red, 0.02f)
+        assertEquals(original.green, restored.green, 0.02f)
+        assertEquals(original.blue, restored.blue, 0.02f)
+    }
+
+    @Test
+    fun `optimalTextColor returns Color White for dark backgrounds and dark tinted text for light backgrounds`() {
+        val darkBg = androidx.compose.ui.graphics.Color(0xFF141416)
+        val mistyBlue = androidx.compose.ui.graphics.Color(0xFF5A6E8A)
+        val paleYellow = androidx.compose.ui.graphics.Color(0xFFFFF3B0)
+        val lightGold = androidx.compose.ui.graphics.Color(0xFFBDB79A)
+
+        // Dark backgrounds must use pure white
+        assertEquals(androidx.compose.ui.graphics.Color.White, com.reverie.paint.ui.theme.optimalTextColor(darkBg))
+        assertEquals(androidx.compose.ui.graphics.Color.White, com.reverie.paint.ui.theme.optimalTextColor(mistyBlue))
+
+        // Light backgrounds must use deep dark tinted text (not white, lightness ~ 12%)
+        val textOnYellow = com.reverie.paint.ui.theme.optimalTextColor(paleYellow)
+        val textOnGold = com.reverie.paint.ui.theme.optimalTextColor(lightGold)
+
+        assertNotEquals(androidx.compose.ui.graphics.Color.White, textOnYellow)
+        assertNotEquals(androidx.compose.ui.graphics.Color.White, textOnGold)
+
+        // Lightness of textOnYellow should be ~0.18
+        val hslYellow = com.reverie.paint.ui.theme.colorToHsl(textOnYellow)
+        assertEquals(0.18f, hslYellow[2], 0.03f)
+    }
+
+    @Test
+    fun `buildThemeColors dynamically configures onAccent based on accent luminance`() {
+        val darkAccent = androidx.compose.ui.graphics.Color(0xFF5A6E8A) // Misty Blue (lum ~ 0.15)
+        val lightAccent = androidx.compose.ui.graphics.Color(0xFFBDB79A) // Gold (lum ~ 0.47)
+        val userSageAccent = androidx.compose.ui.graphics.Color(0xFFA8B490) // User sage green (lum ~ 0.428)
+        val periwinkleAccent = androidx.compose.ui.graphics.Color(0xFF879ED1) // Periwinkle Blue (lum ~ 0.344)
+
+        val darkTheme = com.reverie.paint.ui.theme.buildThemeColors(isDark = true, accent = darkAccent)
+        val lightTheme = com.reverie.paint.ui.theme.buildThemeColors(isDark = true, accent = lightAccent)
+        val userTheme = com.reverie.paint.ui.theme.buildThemeColors(isDark = true, accent = userSageAccent)
+        val periTheme = com.reverie.paint.ui.theme.buildThemeColors(isDark = true, accent = periwinkleAccent)
+
+        assertEquals("Dark accent must have Color.White onAccent", androidx.compose.ui.graphics.Color.White, darkTheme.onAccent)
+        assertNotEquals("Light accent must NOT have Color.White onAccent", androidx.compose.ui.graphics.Color.White, lightTheme.onAccent)
+        assertNotEquals("User sage green accent #A8B490 must NOT have Color.White onAccent", androidx.compose.ui.graphics.Color.White, userTheme.onAccent)
+        assertNotEquals("Periwinkle blue accent #879ED1 must NOT have Color.White onAccent", androidx.compose.ui.graphics.Color.White, periTheme.onAccent)
+
+        // Hue of onAccent should match the lightAccent's hue family
+        val accentHsl = com.reverie.paint.ui.theme.colorToHsl(lightAccent)
+        val onAccentHsl = com.reverie.paint.ui.theme.colorToHsl(lightTheme.onAccent)
+        assertEquals(accentHsl[0], onAccentHsl[0], 6.0f)
+    }
+
+    @Test
+    fun `preset accent swatches list validity and contains default accent 879ED1`() {
+        val swatches = com.reverie.paint.ui.theme.PresetAccentSwatches
+        assertEquals("Preset accent swatches count should be 9 after removing unwanted colors", 9, swatches.size)
+        assertEquals("First swatch should be default accent #879ED1", "#879ED1", swatches.first())
         swatches.forEach { hex ->
             assertTrue("Hex $hex must start with #", hex.startsWith("#"))
             assertEquals("Hex $hex must be 7 characters long", 7, hex.length)

@@ -56,7 +56,7 @@ fun QuickBrushManageDialog(
     onDismiss: () -> Unit,
 ) {
     val colors = Theme.current
-    val favoritePresets = remember(vm.brushPresets, vm.favoriteBrushNames, vm.quickBrushOrder) {
+    val favoritePresets = remember(vm.brushPresets, vm.favoriteBrushIds, vm.quickBrushOrder) {
         vm.getOrderedFavoriteBrushes()
     }
 
@@ -474,7 +474,7 @@ fun QuickBrushManageDialog(
                                     IconButton(
                                         onClick = {
                                             if (index > 0) {
-                                                val list = favoritePresets.map { it.name }.toMutableList()
+                                                val list = favoritePresets.map { it.id }.toMutableList()
                                                 val item = list.removeAt(index)
                                                 list.add(index - 1, item)
                                                 vm.quickBrushOrder = list
@@ -496,7 +496,7 @@ fun QuickBrushManageDialog(
                                     IconButton(
                                         onClick = {
                                             if (index < favoritePresets.size - 1) {
-                                                val list = favoritePresets.map { it.name }.toMutableList()
+                                                val list = favoritePresets.map { it.id }.toMutableList()
                                                 val item = list.removeAt(index)
                                                 list.add(index + 1, item)
                                                 vm.quickBrushOrder = list
@@ -517,8 +517,8 @@ fun QuickBrushManageDialog(
                                     // 移除按钮
                                     IconButton(
                                         onClick = {
-                                            vm.toggleFavoriteBrush(preset.name)
-                                            vm.quickBrushOrder = vm.quickBrushOrder - preset.name
+                                            vm.toggleFavoriteBrush(preset.id)
+                                            vm.quickBrushOrder = vm.quickBrushOrder - preset.id
                                             vm.persistQuickBrushState()
                                         },
                                         modifier = Modifier.size(24.dp),

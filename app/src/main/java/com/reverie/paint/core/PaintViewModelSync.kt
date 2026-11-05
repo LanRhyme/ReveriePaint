@@ -4,6 +4,7 @@
 
 package com.reverie.paint.core
 
+import com.reverie.paint.core.brushstore.ResourceDirs
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableLongStateOf
@@ -110,10 +111,10 @@ private fun PaintViewModel.syncSources(): List<SyncSource> {
         SyncSource(SyncCategory.ARTWORKS, File(filesDir, "autosave"), "autosave/") {
             SyncEngine.isPlainFile(it) && it.endsWith(".revp", ignoreCase = true)
         },
-        SyncSource(SyncCategory.BRUSHES, File(filesDir, "paintoppresets"), "brushes/presets/") {
+        SyncSource(SyncCategory.BRUSHES, ResourceDirs.presets(filesDir), "brushes/presets/") {
             SyncEngine.isPlainFile(it) && it !in bundledPresets
         },
-        SyncSource(SyncCategory.BRUSHES, File(filesDir, "brushes"), "brushes/tips/") {
+        SyncSource(SyncCategory.BRUSHES, ResourceDirs.tips(filesDir), "brushes/tips/") {
             SyncEngine.isPlainFile(it) && it !in bundledTips
         },
     )
@@ -511,6 +512,7 @@ internal fun PaintViewModel.syncAll() {
                     var conflicts = 0
                     var failed = 0
                     val errors = ArrayList<String>()
+                    com.reverie.paint.core.brushstore.BrushStoreBootstrap.beginReconcilePending(appContext.filesDir)
                     for (category in SyncCategory.values()) {
                         val localCategory = SyncEngine.scan(sources.filter { it.category == category })
                         val result =
@@ -525,6 +527,9 @@ internal fun PaintViewModel.syncAll() {
                         conflicts += result.conflicts
                         failed += result.failed
                         errors.addAll(result.errors)
+                    }
+                    if (com.reverie.paint.core.brushstore.BrushStoreBootstrap.hasReconcilePending(appContext.filesDir)) {
+                        com.reverie.paint.core.brushstore.BrushStoreBootstrap.reconcileDisk(appContext.filesDir)
                     }
                     SyncEngine.writeTextAtomically(manifestFile, SyncEngine.encodeManifest(manifestNow))
                     SyncRunOutcome(backup, downloaded, updated, skipped, conflicts, failed, errors) to null
@@ -555,6 +560,7 @@ internal fun PaintViewModel.syncAll() {
             syncState.lastBackupAtMs = System.currentTimeMillis()
             persistSyncSettings()
             refreshProjects()
+            loadBrushPresets()
         }
     }
 }

@@ -67,6 +67,44 @@ static void safe_write_hex64(int fd, uint64_t val) {
     write(fd, buf, 18);
 }
 
+/// 紧凑十六进制 (无前导零): 用于模块相对偏移, 太长会淹没日志
+static void safe_write_hex_compact(int fd, uint64_t val) {
+    char buf[19];
+    buf[0] = '0';
+    buf[1] = 'x';
+    static const char hexChars[] = "0123456789abcdef";
+    int len = 2;
+    bool started = false;
+    for (int i = 0; i < 16; ++i) {
+        const int nib = static_cast<int>((val >> (60 - i * 4)) & 0xF);
+        if (nib != 0 || started || i == 15) {
+            started = true;
+            buf[len++] = hexChars[nib];
+        }
+    }
+    write(fd, buf, len);
+}
+
+/// 把 epoch 秒写成 `[HH:MM:SS]` (UTC)。手写而不用 gmtime_r, 保证 async-signal-safe。
+static void safe_write_time_hms(int fd, uint32_t epochSec) {
+    const uint32_t secs = epochSec % 86400u;
+    const uint32_t hh = secs / 3600u;
+    const uint32_t mm = (secs / 60u) % 60u;
+    const uint32_t ss = secs % 60u;
+    char buf[10];
+    buf[0] = '[';
+    buf[1] = static_cast<char>('0' + hh / 10);
+    buf[2] = static_cast<char>('0' + hh % 10);
+    buf[3] = ':';
+    buf[4] = static_cast<char>('0' + mm / 10);
+    buf[5] = static_cast<char>('0' + mm % 10);
+    buf[6] = ':';
+    buf[7] = static_cast<char>('0' + ss / 10);
+    buf[8] = static_cast<char>('0' + ss % 10);
+    buf[9] = ']';
+    write(fd, buf, 10);
+}
+
 static void safe_write_uint(int fd, uint64_t val) {
     char buf[32];
     int idx = 0;
@@ -268,18 +306,28 @@ static void native_crash_handler(int signo, siginfo_t *info, void *context) {
         safe_write_str(fd, " pc ");
         safe_write_hex64(fd, reinterpret_cast<uintptr_t>(pc));
 
-        Dl_info dlinfo;
-        if (dladdr(pc, &dlinfo) && dlinfo.dli_fname) {
-            safe_write_str(fd, "  ");
-            safe_write_str(fd, dlinfo.dli_fname);
-            if (dlinfo.dli_sname) {
-                safe_write_str(fd, " (");
-                safe_write_str(fd, dlinfo.dli_sname);
-                uintptr_t offset = reinterpret_cast<uintptr_t>(pc) - reinterpret_cast<uintptr_t>(dlinfo.dli_saddr);
-                safe_write_str(fd, "+");
-                safe_write_uint(fd, offset);
-                safe_write_str(fd, ")");
-            }
+        // 模块基址相对偏移: 这是唯一能事后符号化的锚点。
+        // 绝对 pc 受 ASLR 影响每次进程都不同, 拿它去 addr2line 是无效的。
+        Dl_info dlinfo = {};
+        const bool hasModule = dladdr(pc, &dlinfo) != 0 && dlinfo.dli_fname != nullptr;
+        safe_write_str(fd, "  ");
+        if (hasModule && dlinfo.dli_fbase != nullptr) {
+            const uintptr_t moduleOffset =
+                reinterpret_cast<uintptr_t>(pc) - reinterpret_cast<uintptr_t>(dlinfo.dli_fbase);
+            safe_write_str(fd, "+");
+            safe_write_hex_compact(fd, moduleOffset);
+        } else {
+            safe_write_str(fd, "-");
+        }
+        safe_write_str(fd, "  ");
+        safe_write_str(fd, hasModule ? dlinfo.dli_fname : "-");
+        if (hasModule && dlinfo.dli_sname) {
+            safe_write_str(fd, "  (");
+            safe_write_str(fd, dlinfo.dli_sname);
+            uintptr_t offset = reinterpret_cast<uintptr_t>(pc) - reinterpret_cast<uintptr_t>(dlinfo.dli_saddr);
+            safe_write_str(fd, "+");
+            safe_write_uint(fd, offset);
+            safe_write_str(fd, ")");
         }
         safe_write_str(fd, "\n");
     }
@@ -298,6 +346,10 @@ static void native_crash_handler(int signo, siginfo_t *info, void *context) {
         int idx = (start + k) % BREADCRUMB_COUNT;
         if (s_breadcrumbs[idx].text[0] != '\0') {
             safe_write_str(fd, "- ");
+            // [HH:MM:SS] 取自 epoch 秒, 即 UTC 时间 (信号处理器里不做时区换算);
+            // 有它才能把 native 面包屑与 logcat / 上报体的时间线对上
+            safe_write_time_hms(fd, s_breadcrumbs[idx].timestampSec);
+            safe_write_str(fd, " ");
             safe_write_str(fd, s_breadcrumbs[idx].text);
             safe_write_str(fd, "\n");
         }

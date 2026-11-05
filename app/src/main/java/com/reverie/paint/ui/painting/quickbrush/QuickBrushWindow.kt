@@ -35,6 +35,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.layout
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -53,6 +56,7 @@ import com.reverie.paint.core.BrushPresetInfo
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.applyTool
 import com.reverie.paint.core.selectBrushPreset
+import com.reverie.paint.model.DragGripSpec
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.pressScale
@@ -101,10 +105,11 @@ fun QuickBrushWindow(
     }
 
     var windowSize by remember { mutableStateOf(IntSize.Zero) }
+    var windowCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
 
     val isCollapsed = vm.quickBrushCollapsed
     val isVertical = vm.quickBrushOrientation == "vertical"
-    val favoritePresets = remember(vm.brushPresets, vm.favoriteBrushNames, vm.quickBrushOrder) {
+    val favoritePresets = remember(vm.brushPresets, vm.favoriteBrushIds, vm.quickBrushOrder) {
         vm.getOrderedFavoriteBrushes()
     }
     val maxListLengthDp = remember(vm.quickBrushMaxLength) {
@@ -171,12 +176,23 @@ fun QuickBrushWindow(
                 )
                 .evadablePanelContent(vm, UiPanelSlot.QUICK_BRUSH)
                 .animateContentSize(Motion.enterSpring())
+                .onGloballyPositioned { windowCoords = it }
         ) {
             if (isCollapsed) {
+                DisposableEffect(Unit) {
+                    onDispose { vm.quickBrushGrip.clear() }
+                }
                 // ---- 折叠微缩态 (流线型悬浮微球/微胶囊) ----
                 Row(
                     modifier = Modifier
                         .wrapContentSize()
+                        .onGloballyPositioned { coords ->
+                            val root = windowCoords ?: return@onGloballyPositioned
+                            val pos = root.localPositionOf(coords, Offset.Zero)
+                            vm.quickBrushGrip.update(
+                                pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                            )
+                        }
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = {
@@ -195,6 +211,12 @@ fun QuickBrushWindow(
                                 change.consume()
                                 vm.quickBrushWindowX += dragAmount.x
                                 vm.quickBrushWindowY += dragAmount.y
+                                vm.clampQuickWindowsToSafeArea(
+                                    vm.floatingHostWidthPx,
+                                    vm.floatingHostHeightPx,
+                                    density.density,
+                                    persist = false,
+                                )
                             }
                         }
                         .padding(horizontal = 8.dp, vertical = 6.dp),
@@ -245,6 +267,9 @@ fun QuickBrushWindow(
             } else {
                 // ---- 展开完整态 ----
                 if (isVertical) {
+                    DisposableEffect(Unit) {
+                        onDispose { vm.quickBrushGrip.clear() }
+                    }
                     // ---- 垂直胶囊模式 ----
                     Column(
                         modifier = Modifier
@@ -256,8 +281,15 @@ fun QuickBrushWindow(
                         // 顶部拖动手柄与折叠
                         Box(
                             modifier = Modifier
-                                .width(42.dp)
-                                .height(20.dp)
+                                .width(DragGripSpec.QUICK_BRUSH_TOP_WIDTH_DP.dp)
+                                .height(DragGripSpec.QUICK_BRUSH_TOP_HEIGHT_DP.dp)
+                                .onGloballyPositioned { coords ->
+                                    val root = windowCoords ?: return@onGloballyPositioned
+                                    val pos = root.localPositionOf(coords, Offset.Zero)
+                                    vm.quickBrushGrip.update(
+                                        pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                                    )
+                                }
                                 .pointerInput(Unit) {
                                     detectDragGestures(
                                         onDragStart = {
@@ -276,6 +308,12 @@ fun QuickBrushWindow(
                                         change.consume()
                                         vm.quickBrushWindowX += dragAmount.x
                                         vm.quickBrushWindowY += dragAmount.y
+                                        vm.clampQuickWindowsToSafeArea(
+                                            vm.floatingHostWidthPx,
+                                            vm.floatingHostHeightPx,
+                                            density.density,
+                                            persist = false,
+                                        )
                                     }
                                 }
                                 .clickable {
@@ -385,19 +423,30 @@ fun QuickBrushWindow(
                         }
                     }
                 } else {
+                    DisposableEffect(Unit) {
+                        onDispose { vm.quickBrushGrip.clear() }
+                    }
                     // ---- 水平横向胶囊模式 ----
+                    // 行内留白同时是左端握把的左缘偏移, 与 DragGripSpec.QUICK_BRUSH_SIDE_INSET_DP 同源
                     Row(
                         modifier = Modifier
                             .wrapContentSize()
-                            .padding(horizontal = 6.dp, vertical = 5.dp),
+                            .padding(horizontal = DragGripSpec.QUICK_BRUSH_SIDE_INSET_DP.dp, vertical = 5.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(5.dp),
                     ) {
                         // 独立拖拽手柄
                         Box(
                             modifier = Modifier
-                                .width(14.dp)
-                                .height(28.dp)
+                                .width(DragGripSpec.QUICK_BRUSH_SIDE_WIDTH_DP.dp)
+                                .height(DragGripSpec.QUICK_BRUSH_SIDE_HEIGHT_DP.dp)
+                                .onGloballyPositioned { coords ->
+                                    val root = windowCoords ?: return@onGloballyPositioned
+                                    val pos = root.localPositionOf(coords, Offset.Zero)
+                                    vm.quickBrushGrip.update(
+                                        pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                                    )
+                                }
                                 .pointerInput(Unit) {
                                     detectDragGestures(
                                         onDragStart = {
@@ -416,6 +465,12 @@ fun QuickBrushWindow(
                                         change.consume()
                                         vm.quickBrushWindowX += dragAmount.x
                                         vm.quickBrushWindowY += dragAmount.y
+                                        vm.clampQuickWindowsToSafeArea(
+                                            vm.floatingHostWidthPx,
+                                            vm.floatingHostHeightPx,
+                                            density.density,
+                                            persist = false,
+                                        )
                                     }
                                 }
                                 .padding(horizontal = 2.dp),

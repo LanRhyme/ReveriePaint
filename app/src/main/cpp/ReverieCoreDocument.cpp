@@ -58,7 +58,11 @@ ReverieCore::~ReverieCore()
     }
     endStrokeBatch();
     discardStashedStrokePatch();
-    m_layers.clear();
+    {
+        std::lock_guard<std::mutex> mirrorLock(m_layerMirrorMutex);
+        m_layers.clear();
+        m_layerMirrorRefs.clear();
+    }
     m_canvasClipboard = nullptr;
     waitForDocumentTasks();
     m_document.clear(); // KisImageSP releases the image
@@ -223,7 +227,11 @@ void ReverieCore::closeDocument()
     revpClearSaveCache();
 
     // Layer list mirror holds bare KisNode* into the freed tree
-    m_layers.clear();
+    {
+        std::lock_guard<std::mutex> mirrorLock(m_layerMirrorMutex);
+        m_layers.clear();
+        m_layerMirrorRefs.clear();
+    }
     m_currentLayer = 0;
     m_soloedNode = nullptr;
     m_thumbCache.clear();
@@ -327,8 +335,11 @@ void ReverieCore::fillBackground(const QString &colorName)
     if (!dev) {
         return;
     }
+    // 整层填充是文档修改, 桌面端一定可以撤销 (清空画布 = 填充白色)
+    KisTransaction txn(kundo2_i18n("Fill Background"), dev);
     dev->fill(QRect(0, 0, image->width(), image->height()), koColor);
     dev->setDirty();
+    pushUndoCommand(txn.endAndTake());
     markDirty();
 }
 
@@ -407,6 +418,8 @@ void ReverieCore::waitForDocumentTasks()
 
 void ReverieCore::syncLayersFromImage()
 {
+    // 快照线程 (主线程) 可能正在遍历 m_layers, 重建期间必须独占
+    std::lock_guard<std::mutex> mirrorLock(m_layerMirrorMutex);
     // 图层表重建 (结构/顺序/属性可能都变了): 静态底图的上界与像素都不再可信
     invalidateStaticUnderlay();
     QHash<KisNode *, LayerEntry> oldEntries;
@@ -414,6 +427,7 @@ void ReverieCore::syncLayersFromImage()
         if (e.node) oldEntries.insert(e.node, e);
     }
     m_layers.clear();
+    m_layerMirrorRefs.clear();
     KisImageSP image = m_document;
     if (!image) {
         return;
@@ -499,6 +513,7 @@ void ReverieCore::syncLayersFromImage()
                     reverie::setLayerProperty(&*node, "reverie_stroke_opacity", entry.strokeOpacity);
                 }
                 m_layers.append(entry);
+                m_layerMirrorRefs.append(node);
             } else if (KisMask *m = dynamic_cast<KisMask *>(node.data())) {
                 LayerEntry entry;
                 entry.node = node.data();
@@ -521,6 +536,7 @@ void ReverieCore::syncLayersFromImage()
                     entry.nodeType = NodeTypeTransparencyMask;
                 }
                 m_layers.append(entry);
+                m_layerMirrorRefs.append(node);
             }
             if (node->childCount() > 0) {
                 walk(node, depth + 1);

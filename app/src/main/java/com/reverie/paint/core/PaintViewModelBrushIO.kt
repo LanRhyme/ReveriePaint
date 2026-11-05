@@ -4,6 +4,8 @@
 
 package com.reverie.paint.core
 
+import com.reverie.paint.core.brushstore.ResourceDirs
+import com.reverie.paint.core.brushstore.ResourceStore
 import android.content.Context
 import android.graphics.Bitmap
 import android.net.Uri
@@ -22,14 +24,18 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 
-    internal fun PaintViewModel.shareBrushPreset(context: android.content.Context, presetName: String): Boolean {
+    internal fun PaintViewModel.shareBrushPreset(context: android.content.Context, presetId: String): Boolean {
+        val presetName = BrushStoreVm.resolveEntry(presetId)?.name ?: run {
+            android.widget.Toast.makeText(context, context.getString(R.string.brush_share_failed, presetId), android.widget.Toast.LENGTH_SHORT).show()
+            return false
+        }
         return try {
-            val dir = File(appContext.filesDir, "paintoppresets")
-            val brushDir = File(appContext.filesDir, "brushes")
-            // W-11：只读取有效字节写到 cache，不再 updateKppFile 改写源文件（内置也会被改）
-            val params = brushParams[presetName]
-            val bytes = BrushExportSource.effectiveBytes(presetName, dir, params, BrushExportSource.assetReader(appContext))
-            if (bytes == null) {
+            val dir = ResourceDirs.presets(appContext.filesDir)
+            val brushDir = ResourceDirs.tips(appContext.filesDir)
+            // W-11: 只读取有效字节写入 cache，保护源文件
+            val assets = BrushExportSource.assetReader(appContext)
+            val exp = BrushExportSource.effective(presetId, dir, assets)
+            if (exp == null) {
                 android.widget.Toast.makeText(
                     context,
                     context.getString(R.string.brush_share_failed, presetName),
@@ -37,47 +43,39 @@ import kotlinx.coroutines.withContext
                 ).show()
                 return false
             }
-            val srcFile = BrushExportSource.stage(presetName, bytes, File(appContext.cacheDir, "export_staging"))
-
-            val tipName = BrushExportSource.tipName(presetName, bytes, params)
+            val stagingDir = File(appContext.cacheDir, "export_staging")
+            val srcFile = BrushExportSource.stage(presetName, exp, stagingDir)
 
             // If the preset has a custom or separate tip asset, export as .bundle so the tip pattern is preserved
-            if (!tipName.isNullOrBlank()) {
-                val tipFile = File(brushDir, tipName)
-                if (!tipFile.exists()) {
-                    try {
-                        appContext.assets.open("brushes/$tipName").use { inS ->
-                            tipFile.outputStream().use { inS.copyTo(it) }
-                        }
-                    } catch (_: Exception) {}
-                }
-                if (tipFile.exists()) {
-                    val group = userBrushGroups[presetName] ?: "分享"
-                    val bundleFile = KritaBundleManager.exportBundle(
-                        context = context,
-                        bundleName = presetName,
-                        groupName = group,
-                        presets = listOf(presetName to srcFile),
-                        tipAssets = listOf(tipFile),
-                    )
-                    return KritaBundleManager.shareFile(
-                        context = context,
-                        file = bundleFile,
-                        mimeType = "application/x-krita-resourcebundle",
-                        title = context.getString(R.string.brush_share_title, presetName),
-                    )
-                }
+            val tip = exp.tipName?.takeIf { it.isNotBlank() }?.let { BrushExportSource.tipFile(it, stagingDir, brushDir, assets) }
+            val patterns = BrushExportSource.patternFiles(exp, stagingDir, ResourceDirs.patterns(appContext.filesDir), assets)
+            if (tip != null || patterns.isNotEmpty()) {
+                val group = userBrushGroups[presetId] ?: "默认"
+                val bundleFile = KritaBundleManager.exportBundle(
+                    context = context,
+                    bundleName = presetName,
+                    groupName = group,
+                    presets = listOf(presetName to srcFile),
+                    tipAssets = listOfNotNull(tip),
+                    patternAssets = patterns,
+                )
+                return KritaBundleManager.shareFile(
+                    context = context,
+                    file = bundleFile,
+                    mimeType = "application/x-krita-resourcebundle",
+                    title = context.getString(R.string.brush_share_title, presetName),
+                )
             }
 
-            // Standard procedural/algorithm brush without external tip: share .kpp
+            // Standard procedural/algorithm brush without external tip: share the single file (.kpp, or raw .myb)
             val exportDir = File(appContext.cacheDir, "export_brushes").apply { if (!exists()) mkdirs() }
-            val exportFile = File(exportDir, "$presetName.kpp")
+            val exportFile = File(exportDir, srcFile.name)
             srcFile.copyTo(exportFile, overwrite = true)
 
             KritaBundleManager.shareFile(
                 context = context,
                 file = exportFile,
-                mimeType = "application/x-krita-paintoppreset",
+                mimeType = if (exp.ext == "myb") "application/octet-stream" else "application/x-krita-paintoppreset",
                 title = context.getString(R.string.brush_share_title, presetName),
             )
         } catch (e: Exception) {
@@ -103,35 +101,23 @@ import kotlinx.coroutines.withContext
             return false
         }
 
-        val dir = File(appContext.filesDir, "paintoppresets")
-        val brushDir = File(appContext.filesDir, "brushes")
+        val dir = ResourceDirs.presets(appContext.filesDir)
+        val brushDir = ResourceDirs.tips(appContext.filesDir)
 
         val presetsToPack = mutableListOf<Pair<String, File>>()
         val tipAssetsToPack = mutableListOf<File>()
+        val patternAssetsToPack = mutableListOf<File>()
 
+        val assets = BrushExportSource.assetReader(appContext)
         val staging = File(appContext.cacheDir, "export_staging/group").apply { deleteRecursively(); mkdirs() }
         for (p in targetPresets) {
-            // W-11：有效字节写到 cache 再打包，源文件只读
-            val params = brushParams[p.name]
-            val bytes = BrushExportSource.effectiveBytes(p.name, dir, params, BrushExportSource.assetReader(appContext))
-            if (bytes != null) {
-                val file = BrushExportSource.stage(p.name, bytes, staging)
-                presetsToPack.add(p.name to file)
-
-                val tipName = BrushExportSource.tipName(p.name, bytes, params)
-                if (!tipName.isNullOrBlank()) {
-                    val tipFile = File(brushDir, tipName)
-                    if (!tipFile.exists()) {
-                        try {
-                            appContext.assets.open("brushes/$tipName").use { input ->
-                                tipFile.outputStream().use { input.copyTo(it) }
-                            }
-                        } catch (_: Exception) {}
-                    }
-                    if (tipFile.exists() && tipAssetsToPack.none { it.name == tipFile.name }) {
-                        tipAssetsToPack.add(tipFile)
-                    }
-                }
+            // W-11: 有效字节写入 cache 再次保护源文件只读
+            val exp = BrushExportSource.effective(p.id, dir, assets) ?: continue
+            presetsToPack.add(p.name to BrushExportSource.stage(p.name, exp, staging))
+            val tip = exp.tipName?.takeIf { it.isNotBlank() }?.let { BrushExportSource.tipFile(it, staging, brushDir, assets) }
+            if (tip != null && tipAssetsToPack.none { it.name == tip.name }) tipAssetsToPack.add(tip)
+            BrushExportSource.patternFiles(exp, staging, ResourceDirs.patterns(appContext.filesDir), assets).forEach { pf ->
+                if (patternAssetsToPack.none { it.name == pf.name }) patternAssetsToPack.add(pf)
             }
         }
 
@@ -147,6 +133,7 @@ import kotlinx.coroutines.withContext
                 groupName = groupName,
                 presets = presetsToPack,
                 tipAssets = tipAssetsToPack,
+                patternAssets = patternAssetsToPack,
             )
             KritaBundleManager.shareFile(
                 context = context,
@@ -249,6 +236,7 @@ import kotlinx.coroutines.withContext
 
     /** 重命名笔刷 (内置笔刷固定禁止重命名) */
     internal fun PaintViewModel.renameBrushPreset(presetIndex: Int, newName: String): Boolean {
+        if (com.reverie.paint.core.brushstore.BrushStoreBootstrap.readOnly) return false
         // Native-table index (BrushPresetInfo.index), not list position.
         val preset = brushPresets.firstOrNull { it.index == presetIndex } ?: return false
         if (preset.isBuiltIn) {
@@ -256,25 +244,10 @@ import kotlinx.coroutines.withContext
         }
         val clean = newName.trim().ifEmpty { return false }
         if (clean == preset.name) return true
-        val dir = File(appContext.filesDir, "paintoppresets")
-        val src = File(dir, "${preset.name}.kpp")
-        val dst = File(dir, "$clean.kpp")
-        // W-08：不允许改成已有预设名（旧实现 renameTo 会静默失败或覆盖）
-        if (dst.exists() || File(dir, "$clean.myb").exists() || com.reverie.paint.core.brushstore.BrushIdentity.idForName(clean) != null) return false
-        if (src.exists()) src.renameTo(dst)
-        com.reverie.paint.core.brushstore.BrushIdentity.idForName(preset.name)?.let { com.reverie.paint.core.brushstore.BrushIdentity.rename(it, clean) }
-        val p = brushParams.remove(preset.name)
-        if (p != null) brushParams[clean] = p
-        persistBrushParams()
-        val g = userBrushGroups[preset.name]
-        if (g != null) {
-            userBrushGroups = (userBrushGroups - preset.name) + (clean to g)
-        }
-        saveBrushGroups()
-        if (brushOrder.contains(preset.name)) {
-            brushOrder = brushOrder.map { if (it == preset.name) clean else it }
-            saveBrushOrder()
-        }
+        val dir = ResourceDirs.presets(appContext.filesDir)
+        // W-08：不允许改成已有预设名（任意扩展名）；.kpp / .myb 同一条路
+        if (!com.reverie.paint.core.brushstore.BrushImportPipeline.rename(preset.id, clean, dir)) return false
+        // 偏好按 id 存：id 在改名后不变，分组 / 排序 / 常用 / 最近 / 快捷栏都不需要跟着改
         reloadBrushPresets(selectName = clean)
         return true
     }
@@ -294,26 +267,24 @@ import kotlinx.coroutines.withContext
             val ext = if (rawName.contains('.')) rawName.substringAfterLast(".").lowercase() else "png"
             val isKritaNative = ext == "gbr" || ext == "gih" || ext == "svg"
 
-            val brushDir = File(appContext.filesDir, "brushes")
-            if (!brushDir.exists()) brushDir.mkdirs()
+            val storeRoot = com.reverie.paint.core.brushstore.BrushStoreBootstrap.storeRoot(appContext.filesDir)
+            val store = com.reverie.paint.core.brushstore.BrushStoreBootstrap.resourceStore
+                ?: com.reverie.paint.core.brushstore.ResourceStore(storeRoot)
 
             val cleanName: String
             if (isKritaNative) {
-                cleanName = "$baseName.$ext"
-                val target = File(brushDir, cleanName)
-                resolver.openInputStream(uri)?.use { input ->
-                    target.outputStream().use { output -> input.copyTo(output) }
-                }
+                val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+                val ref = store.register(bytes, com.reverie.paint.core.brushstore.ResourceStore.Kind.TIP, "$baseName.$ext")
+                cleanName = ref.file
             } else {
                 // Decode any image format and write as standard lossless PNG for KisPngBrush
-                cleanName = "$baseName.png"
-                val target = File(brushDir, cleanName)
                 val bmp = resolver.openInputStream(uri)?.use { input ->
                     android.graphics.BitmapFactory.decodeStream(input)
                 } ?: return null
-                target.outputStream().use { output ->
-                    bmp.compress(Bitmap.CompressFormat.PNG, 100, output)
-                }
+                val baos = java.io.ByteArrayOutputStream()
+                bmp.compress(Bitmap.CompressFormat.PNG, 100, baos)
+                val ref = store.register(baos.toByteArray(), com.reverie.paint.core.brushstore.ResourceStore.Kind.TIP, "$baseName.png")
+                cleanName = ref.file
             }
             updateBrushTipAsset(cleanName)
             cleanName
@@ -338,25 +309,23 @@ import kotlinx.coroutines.withContext
             val ext = if (rawName.contains('.')) rawName.substringAfterLast(".").lowercase() else "png"
             val isPat = ext == "pat"
 
-            val patternDir = File(appContext.filesDir, "patterns")
-            if (!patternDir.exists()) patternDir.mkdirs()
+            val storeRoot = com.reverie.paint.core.brushstore.BrushStoreBootstrap.storeRoot(appContext.filesDir)
+            val store = com.reverie.paint.core.brushstore.BrushStoreBootstrap.resourceStore
+                ?: com.reverie.paint.core.brushstore.ResourceStore(storeRoot)
 
             val cleanName: String
             if (isPat) {
-                cleanName = "$baseName.pat"
-                val target = File(patternDir, cleanName)
-                resolver.openInputStream(uri)?.use { input ->
-                    target.outputStream().use { output -> input.copyTo(output) }
-                }
+                val bytes = resolver.openInputStream(uri)?.use { it.readBytes() } ?: return null
+                val ref = store.register(bytes, com.reverie.paint.core.brushstore.ResourceStore.Kind.PATTERN, "$baseName.pat")
+                cleanName = ref.file
             } else {
-                cleanName = "$baseName.png"
-                val target = File(patternDir, cleanName)
                 val bmp = resolver.openInputStream(uri)?.use { input ->
                     android.graphics.BitmapFactory.decodeStream(input)
                 } ?: return null
-                target.outputStream().use { output ->
-                    bmp.compress(Bitmap.CompressFormat.PNG, 100, output)
-                }
+                val baos = java.io.ByteArrayOutputStream()
+                bmp.compress(Bitmap.CompressFormat.PNG, 100, baos)
+                val ref = store.register(baos.toByteArray(), com.reverie.paint.core.brushstore.ResourceStore.Kind.PATTERN, "$baseName.png")
+                cleanName = ref.file
             }
             updateBrushTexturePattern(cleanName)
             cleanName

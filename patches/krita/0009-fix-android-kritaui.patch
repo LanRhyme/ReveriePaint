@@ -1,7 +1,7 @@
 From 05a06f0ebf9485a574fe29ae662a2465c85507b2 Mon Sep 17 00:00:00 2001
 From: LanRhyme <xiao_ren233@foxmail.com>
 Date: Wed, 28 Oct 2026 01:11:41 +0800
-Subject: [PATCH 09/10] =?UTF-8?q?fix(android):=20=E8=A7=86=E9=A2=91?=
+Subject: [PATCH 09/11] =?UTF-8?q?fix(android):=20=E8=A7=86=E9=A2=91?=
  =?UTF-8?q?=E7=BC=96=E7=A0=81=E5=99=A8=E6=94=B9=E7=94=A8=E7=A9=BA=E5=AE=9E?=
  =?UTF-8?q?=E7=8E=B0=E6=A1=A9,=20=E4=BF=AE=E5=A4=8D=20kritaui=20=E9=93=BE?=
  =?UTF-8?q?=E6=8E=A5=E5=A4=B1=E8=B4=A5?=
@@ -80,3 +80,6 @@ index 00000000..ab273a6d
 +void KisLibavMediaEncoderRunnable::getSupportedFormats(QVector<KisMediaEncoderFormat *> &)
 +{
 +}
+-- 
+2.56.0
+

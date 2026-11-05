@@ -39,6 +39,12 @@ jobs:
           chmod +x scripts/copy_jni_libs.sh
           ./scripts/copy_jni_libs.sh
 
+      - name: JNI Symbol Coverage Check
+        # 预编译 .so 落后于 Kotlin external fun 时在这里失败, 不让崩溃包流出去
+        run: |
+          chmod +x scripts/check_jni_symbols.sh
+          ./scripts/check_jni_symbols.sh
+
       - name: Architecture Guardrail Check
         run: |
           chmod +x scripts/check_architecture.sh

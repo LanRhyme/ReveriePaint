@@ -126,6 +126,8 @@ void revpClearSaveCache();
 #include <QLineF>
 
 #include <kis_image.h>
+#include <kis_image_animation_interface.h>
+#include <kis_time_span.h>
 #include <kis_undo_store.h>
 #include <kis_undo_stores.h>
 #include <kis_transaction.h>
@@ -389,6 +391,217 @@ private:
     KisLayerSP m_layer;
     bool m_newDisabled;
     bool m_oldDisabled;
+};
+
+/**
+ * 节点布尔开关 (透明度锁定 / 图层锁定) 的可撤销命令。
+ *
+ * 这两项在桌面 Krita 里是走 KisNodePropertyListCommand 的撤销步, 而
+ * libkritaimage 没有导出可直接构造的"改单个属性"入口, 所以这里按
+ * ReverieNodeClippingCommand 的同款写法自己实现: redo()/undo() 只翻属性,
+ * 像素投影不受影响 (锁定只决定之后能不能落墨), 缩略图/图标由调用方在 push 后
+ * 触发刷新即可。
+ */
+class ReverieNodeFlagCommand : public KUndo2Command
+{
+public:
+    enum Flag {
+        AlphaLocked,   // KisPaintLayer::alphaLocked (锁定透明度)
+        UserLocked     // KisNode::userLocked (锁定图层)
+    };
+
+    ReverieNodeFlagCommand(KisNodeSP node, Flag flag, bool value,
+                           const KUndo2MagicString &text = KUndo2MagicString(),
+                           KUndo2Command *parent = nullptr)
+        : KUndo2Command(text, parent)
+        , m_node(node)
+        , m_flag(flag)
+        , m_newValue(value)
+        , m_oldValue(readCurrent())
+    {
+    }
+
+    void redo() override { apply(m_newValue); }
+    void undo() override { apply(m_oldValue); }
+
+private:
+    KisPaintLayer *paintLayer()
+    {
+        return m_node ? dynamic_cast<KisPaintLayer *>(m_node.data()) : nullptr;
+    }
+
+    bool readCurrent()
+    {
+        if (m_flag == AlphaLocked) {
+            KisPaintLayer *pl = paintLayer();
+            return pl ? pl->alphaLocked() : false;
+        }
+        return m_node ? m_node->userLocked() : false;
+    }
+
+    void apply(bool value)
+    {
+        if (m_flag == AlphaLocked) {
+            if (KisPaintLayer *pl = paintLayer()) {
+                pl->setAlphaLocked(value);
+            }
+        } else if (m_node) {
+            m_node->setUserLocked(value);
+        }
+    }
+
+    KisNodeSP m_node;
+    Flag m_flag;
+    bool m_newValue;
+    bool m_oldValue;
+};
+
+/** 图层颜色标签的可撤销命令 (Krita 的 colorLabelIndex 也是撤销步)。 */
+class ReverieNodeColorLabelCommand : public KUndo2Command
+{
+public:
+    ReverieNodeColorLabelCommand(KisNodeSP node, int label,
+                                 const KUndo2MagicString &text = KUndo2MagicString())
+        : KUndo2Command(text)
+        , m_node(node)
+        , m_newLabel(label)
+        , m_oldLabel(node ? node->colorLabelIndex() : 0)
+    {
+    }
+
+    void redo() override
+    {
+        if (m_node) m_node->setColorLabelIndex(m_newLabel);
+    }
+
+    void undo() override
+    {
+        if (m_node) m_node->setColorLabelIndex(m_oldLabel);
+    }
+
+private:
+    KisNodeSP m_node;
+    int m_newLabel;
+    int m_oldLabel;
+};
+
+/**
+ * 图层组"穿透"开关的可撤销命令。
+ * 与锁定类属性不同, 穿透会改变整棵投影的合成结果, 所以 redo()/undo() 都要
+ * 让图像重算投影 (KisImage::refreshGraphAsync, 与 Krita 属性命令同一做法)。
+ */
+class ReverieGroupPassThroughCommand : public KUndo2Command
+{
+public:
+    ReverieGroupPassThroughCommand(KisImageSP image, KisGroupLayerSP group, bool passThrough,
+                                   const KUndo2MagicString &text = KUndo2MagicString())
+        : KUndo2Command(text)
+        , m_image(image)
+        , m_group(group)
+        , m_newValue(passThrough)
+        , m_oldValue(group ? group->passThroughMode() : false)
+    {
+    }
+
+    void redo() override { apply(m_newValue); }
+    void undo() override { apply(m_oldValue); }
+
+private:
+    void apply(bool value)
+    {
+        if (!m_group) return;
+        m_group->setPassThroughMode(value);
+        if (m_image) {
+            m_image->refreshGraphAsync(m_group);
+        }
+    }
+
+    KisImageSP m_image;
+    KisGroupLayerSP m_group;
+    bool m_newValue;
+    bool m_oldValue;
+};
+
+/**
+ * 动画帧率 (framerate) 的可撤销命令。
+ *
+ * 不用 Krita 自带的 KisImageAnimSettingCommand: 那个命令一次改"帧率 + 文档范围"
+ * 两项 (documentPlaybackRange), 而本应用的文档范围由内容长度推导, 不该被一个改
+ * 帧率的动作顺带改写。连续改帧率会合并进同一个撤销步 (同 id + mergeWith)。
+ */
+class ReverieAnimationFramerateCommand : public KUndo2Command
+{
+public:
+    explicit ReverieAnimationFramerateCommand(KisImageSP image,
+                                              int fps,
+                                              const KUndo2MagicString &text = KUndo2MagicString())
+        : KUndo2Command(text)
+        , m_image(image)
+        , m_newFps(fps)
+        , m_oldFps(image && image->animationInterface()
+                       ? image->animationInterface()->framerate()
+                       : 0)
+    {
+    }
+
+    void redo() override { apply(m_newFps); }
+    void undo() override { apply(m_oldFps); }
+
+    int id() const override { return 0x52564650; /* 'RVFP' */ }
+
+    bool mergeWith(const KUndo2Command *other) override
+    {
+        const auto *next = dynamic_cast<const ReverieAnimationFramerateCommand *>(other);
+        if (!next || next->m_image != m_image) return false;
+        m_newFps = next->m_newFps;
+        return true;
+    }
+
+private:
+    void apply(int fps)
+    {
+        if (!m_image || !m_image->animationInterface() || fps <= 0) return;
+        m_image->animationInterface()->setFramerate(fps);
+    }
+
+    KisImageSP m_image;
+    int m_newFps;
+    int m_oldFps;
+};
+
+/**
+ * 动画播放范围 (activePlaybackRange) 的可撤销命令。
+ *
+ * 不用 Krita 自带的 KisImageAnimSettingCommand: 那个命令改的是"文档范围"
+ * (documentPlaybackRange), 与时间轴上的播放范围不是同一个值。
+ */
+class ReverieAnimationRangeCommand : public KUndo2Command
+{
+public:
+    ReverieAnimationRangeCommand(KisImageSP image, const KisTimeSpan &range,
+                                 const KUndo2MagicString &text = KUndo2MagicString())
+        : KUndo2Command(text)
+        , m_image(image)
+        , m_newRange(range)
+        , m_oldRange(image && image->animationInterface()
+                         ? image->animationInterface()->activePlaybackRange()
+                         : KisTimeSpan())
+    {
+    }
+
+    void redo() override { apply(m_newRange); }
+    void undo() override { apply(m_oldRange); }
+
+private:
+    void apply(const KisTimeSpan &range)
+    {
+        if (!m_image || !m_image->animationInterface() || !range.isValid()) return;
+        m_image->animationInterface()->setActivePlaybackRange(range);
+    }
+
+    KisImageSP m_image;
+    KisTimeSpan m_newRange;
+    KisTimeSpan m_oldRange;
 };
 
 /**

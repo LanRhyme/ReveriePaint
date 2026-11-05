@@ -1,0 +1,30 @@
+===================================================
+          ReveriePaint Native Crash Report         
+===================================================
+App Version: 1.6.1-hosttest
+Signal: SIGSEGV (Segmentation violation) (code=1)
+Fault Address: 0x0000000000000000
+Crashed Thread PID: 1966456, TID: 1966456 (crashhost)
+
+--- [Native Stack Trace] ---
+#00 pc 0x0000560a7227c8d6  +0x18d6  /tmp/crashhost/crashhost
+#01 pc 0x0000560a7227d3bd  +0x23bd  /tmp/crashhost/crashhost
+#02 pc 0x00007f8ecd444e70  +0x44e70  /usr/lib/libc.so.6
+#03 pc 0x0000560a7227de0e  +0x2e0e  /tmp/crashhost/crashhost
+#04 pc 0x0000560a7227de07  +0x2e07  /tmp/crashhost/crashhost
+#05 pc 0x0000560a7227de07  +0x2e07  /tmp/crashhost/crashhost
+#06 pc 0x0000560a7227de8f  +0x2e8f  /tmp/crashhost/crashhost
+#07 pc 0x00007f8ecd427d0e  +0x27d0e  /usr/lib/libc.so.6
+#08 pc 0x00007f8ecd427e4b  +0x27e4b  /usr/lib/libc.so.6  (__libc_start_main+139)
+#09 pc 0x0000560a7227c1b5  +0x11b5  /tmp/crashhost/crashhost
+
+--- [App State Snapshot] ---
+App: 1.6.1-hosttest (1)
+Device: Host/QEMU (x86_64)
+Android: 16 (SDK 36)
+
+
+--- [Recent Breadcrumbs] ---
+- [14:40:54] Brush: Load preset [3]: my-brush
+- [14:40:54] Tool: Switch tool to: brush
+===================================================

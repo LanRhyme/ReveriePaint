@@ -62,9 +62,11 @@ internal fun TimelineBatchBar(
     val track = vm.selectedTrackIndex()
     val scrollState = rememberScrollState()
 
+    val isFloating = vm.floatingUiConfig.enabled
+
     Row(
         modifier = modifier
-            .padding(horizontal = 8.dp)
+            .padding(horizontal = if (isFloating) 12.dp else 8.dp)
             .horizontalScroll(scrollState),
         verticalAlignment = Alignment.CenterVertically,
     ) {

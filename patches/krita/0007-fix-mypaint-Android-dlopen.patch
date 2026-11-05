@@ -1,7 +1,7 @@
 From d47ea9e5db109705bae2ab74cc403d0220e7bf3c Mon Sep 17 00:00:00 2001
 From: LanRhyme <xiao_ren233@foxmail.com>
 Date: Tue, 27 Oct 2026 23:59:52 +0800
-Subject: [PATCH 07/10] =?UTF-8?q?fix(mypaint):=20=E4=BC=A0=E6=84=9F?=
+Subject: [PATCH 07/11] =?UTF-8?q?fix(mypaint):=20=E4=BC=A0=E6=84=9F?=
  =?UTF-8?q?=E5=99=A8=E8=BF=9E=E6=8E=A5=E6=94=B9=E4=B8=BA=E6=87=92=E5=88=9D?=
  =?UTF-8?q?=E5=A7=8B=E5=8C=96,=20=E4=BF=AE=E5=A4=8D=20Android=20=E4=B8=8A?=
  =?UTF-8?q?=20dlopen=20=E9=98=B6=E6=AE=B5=E5=B4=A9=E6=BA=83?=
@@ -90,3 +90,6 @@ index 319ae1f2..9265a2ea 100644
      KisResourceLoaderRegistry::instance()->registerLoader(
          new KisResourceLoader<KisMyPaintPaintOpPreset>(
              ResourceSubType::MyPaintPaintOpPresets,
+-- 
+2.56.0
+

@@ -603,7 +603,7 @@ internal fun FilterAdjustControls(
                             ) {
                                 Text(
                                     if (st.lineartWhiteLine) stringResource(R.string.color_white) else stringResource(R.string.color_black),
-                                    color = if (st.lineartWhiteLine) Color.White else Morandi.subText,
+                                    color = if (st.lineartWhiteLine) Morandi.onAccent else Morandi.subText,
                                     fontSize = 11.sp
                                 )
                             }
@@ -658,7 +658,7 @@ internal fun FilterAdjustControls(
                             ) {
                                 Text(
                                     if (st.embossPreserveColor) stringResource(R.string.filter_emboss_preserve_color) else stringResource(R.string.filter_emboss_classic_gray),
-                                    color = if (st.embossPreserveColor) Color.White else Morandi.subText,
+                                    color = if (st.embossPreserveColor) Morandi.onAccent else Morandi.subText,
                                     fontSize = 11.sp
                                 )
                             }
@@ -683,7 +683,7 @@ internal fun FilterAdjustControls(
                             ) {
                                 Text(
                                     if (st.lumOpacityInvert) stringResource(R.string.filter_lum_opacity_inverted) else stringResource(R.string.filter_lum_opacity_default),
-                                    color = if (st.lumOpacityInvert) Color.White else Morandi.subText,
+                                    color = if (st.lumOpacityInvert) Morandi.onAccent else Morandi.subText,
                                     fontSize = 11.sp
                                 )
                             }
@@ -744,7 +744,7 @@ internal fun FilterAdjustControls(
                                             }
                                             .padding(horizontal = 8.dp, vertical = 3.dp)
                                     ) {
-                                        Text(lbl, color = if (st.colorToAlphaTarget == col) Color.White else Morandi.text, fontSize = 11.sp)
+                                        Text(lbl, color = if (st.colorToAlphaTarget == col) Morandi.onAccent else Morandi.text, fontSize = 11.sp)
                                     }
                                 }
                             }

@@ -56,15 +56,14 @@ object BrushApplicability {
     private val cache = HashMap<String, Cached>()
 
     /**
-     * 当前笔刷（按名字）的不适用控件。v2 未激活或找不到有效文件时返回空表（不门控，保持旧 UI）。
+     * 当前笔刷（按 id）的不适用控件。v2 未激活或找不到有效文件时返回空表（不门控，保持旧 UI）。
      */
     @Synchronized
-    fun forName(name: String): Map<ControlId, Reason> {
+    fun forId(id: String): Map<ControlId, Reason> {
         val dir = BrushStoreBootstrap.presetDir ?: return emptyMap()
-        if (!BrushStoreBootstrap.active) return emptyMap()
-        val e = BrushIdentity.entryForName(name)
-        if (e != null && e.ext.equals("myb", ignoreCase = true)) return inapplicable(PresetContext.MYPAINT)
-        val f = File(dir, "$name.kpp")
+        val e = BrushIdentity.entry(id) ?: return emptyMap()
+        if (e.ext.equals("myb", ignoreCase = true)) return inapplicable(PresetContext.MYPAINT)
+        val f = EffectivePresetBuilder.targetFile(dir, e)
         if (!f.isFile) return emptyMap()
         val key = f.absolutePath
         val c = cache[key]
@@ -76,8 +75,8 @@ object BrushApplicability {
     }
 
     /** 迁移时被标 migrated_possibly_modified 的导入笔刷：工作台显示"原件可能被旧版改写过"的提示 */
-    fun possiblyModified(name: String): Boolean {
-        val e = BrushStoreBootstrap.managedEntry(name) ?: return false
+    fun possiblyModified(id: String): Boolean {
+        val e = BrushStoreBootstrap.managedEntry(id) ?: return false
         return PresetSnapshotStore.source(e.id)?.optString("provenance") == LegacyBrushParamsMigrator.PROVENANCE_POSSIBLY_MODIFIED
     }
 

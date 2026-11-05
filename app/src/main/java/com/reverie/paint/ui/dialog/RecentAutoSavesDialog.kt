@@ -73,18 +73,20 @@ fun RecentAutoSavesDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Box(
+        BoxWithConstraints(
             modifier = Modifier
                 .fillMaxWidth(0.92f)
                 .widthIn(max = 600.dp)
                 .heightIn(max = 650.dp)
                 .clip(RoundedCornerShape(24.dp))
                 .background(colors.panel)
-                .border(1.dp, colors.panelHi, RoundedCornerShape(24.dp))
-                .padding(22.dp),
+                .border(1.dp, colors.panelHi, RoundedCornerShape(24.dp)),
         ) {
+            val isCompact = maxWidth < 460.dp
             Column(
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(if (isCompact) 16.dp else 22.dp),
             ) {
                 // 顶部标题栏
                 Row(
@@ -111,12 +113,14 @@ fun RecentAutoSavesDialog(
                             )
                         }
                         Spacer(Modifier.width(12.dp))
-                        Column {
+                        Column(modifier = Modifier.weight(1f, fill = false)) {
                             Text(
                                 text = stringResource(R.string.auto_save_history_title),
                                 color = colors.text,
                                 fontSize = 18.sp,
                                 fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                             Text(
                                 text = if (snapshots.isEmpty()) {
@@ -126,15 +130,146 @@ fun RecentAutoSavesDialog(
                                 },
                                 color = colors.subText,
                                 fontSize = 12.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
                             )
                         }
                     }
 
+                    if (!isCompact) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            // 容量设置下拉
+                            var showCapacityMenu by remember { mutableStateOf(false) }
+                            Box {
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(colors.panelHi)
+                                        .clickable { showCapacityMenu = true }
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        text = stringResource(R.string.auto_save_capacity_pill, vm.autoSaveMaxSnapshots),
+                                        color = colors.accent,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Spacer(Modifier.width(4.dp))
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_chevron),
+                                        contentDescription = null,
+                                        tint = colors.accent,
+                                        modifier = Modifier
+                                            .size(11.dp)
+                                            .rotate(90f),
+                                    )
+                                }
+                                ReDropdownMenu(
+                                    expanded = showCapacityMenu,
+                                    onDismissRequest = { showCapacityMenu = false },
+                                ) {
+                                    listOf(3, 5, 8, 12, 16, 24).forEach { count ->
+                                        val isSelected = count == vm.autoSaveMaxSnapshots
+                                        ReDropdownMenuItem(
+                                            text = if (count == 8) {
+                                                stringResource(R.string.settings_snapshot_count_default, count)
+                                            } else {
+                                                stringResource(R.string.settings_snapshot_count_unit, count)
+                                            },
+                                            selected = isSelected,
+                                            trailingIcon = if (isSelected) {
+                                                {
+                                                    Icon(
+                                                        painterResource(R.drawable.ic_check),
+                                                        contentDescription = null,
+                                                        tint = colors.accent,
+                                                        modifier = Modifier.size(16.dp),
+                                                    )
+                                                }
+                                            } else null,
+                                            onClick = {
+                                                vm.updateAutoSaveMaxSnapshots(count)
+                                                snapshots = AutoSaveHistoryManager.getSnapshots(context)
+                                                showCapacityMenu = false
+                                            },
+                                        )
+                                    }
+                                }
+                            }
+
+                            if (snapshots.isNotEmpty()) {
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(colors.panelHi)
+                                        .clickable { showClearConfirm = true }
+                                        .padding(horizontal = 9.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Icon(
+                                        imageVector = Icons.Rounded.DeleteOutline,
+                                        contentDescription = null,
+                                        tint = colors.subText,
+                                        modifier = Modifier.size(14.dp),
+                                    )
+                                    Spacer(Modifier.width(3.dp))
+                                    Text(
+                                        text = stringResource(R.string.auto_save_clear_all),
+                                        color = colors.subText,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                }
+                            }
+
+                            Box(
+                                modifier = Modifier
+                                    .size(32.dp)
+                                    .clip(CircleShape)
+                                    .background(colors.panelHi)
+                                    .clickable { onDismiss() },
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    imageVector = Icons.Rounded.Close,
+                                    contentDescription = "Close",
+                                    tint = colors.icon,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                            }
+                        }
+                    } else {
+                        // 窄屏模式下第一行仅放关闭按钮，保证标题独占绝大部分宽度绝不折行
+                        Box(
+                            modifier = Modifier
+                                .size(32.dp)
+                                .clip(CircleShape)
+                                .background(colors.panelHi)
+                                .clickable { onDismiss() },
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Icon(
+                                imageVector = Icons.Rounded.Close,
+                                contentDescription = "Close",
+                                tint = colors.icon,
+                                modifier = Modifier.size(18.dp),
+                            )
+                        }
+                    }
+                }
+
+                // 窄屏模式下第二行独立展示完整操作栏（容量胶囊 + 清空全部胶囊，文本图标均不缩减）
+                if (isCompact) {
+                    Spacer(Modifier.height(10.dp))
                     Row(
+                        modifier = Modifier.fillMaxWidth(),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        // 容量设置下拉
                         var showCapacityMenu by remember { mutableStateOf(false) }
                         Box {
                             Row(
@@ -177,7 +312,7 @@ fun RecentAutoSavesDialog(
                                         trailingIcon = if (isSelected) {
                                             {
                                                 Icon(
-                                                    painter = painterResource(R.drawable.ic_check),
+                                                    painterResource(R.drawable.ic_check),
                                                     contentDescription = null,
                                                     tint = colors.accent,
                                                     modifier = Modifier.size(16.dp),
@@ -217,21 +352,6 @@ fun RecentAutoSavesDialog(
                                     fontWeight = FontWeight.Medium,
                                 )
                             }
-                        }
-                        Box(
-                            modifier = Modifier
-                                .size(32.dp)
-                                .clip(CircleShape)
-                                .background(colors.panelHi)
-                                .clickable { onDismiss() },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Icon(
-                                imageVector = Icons.Rounded.Close,
-                                contentDescription = "Close",
-                                tint = colors.icon,
-                                modifier = Modifier.size(18.dp),
-                            )
                         }
                     }
                 }
@@ -469,12 +589,16 @@ private fun SnapshotCard(
                 text = formattedTime,
                 color = colors.subText,
                 fontSize = 12.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
             Spacer(Modifier.height(3.dp))
             Text(
                 text = stringResource(R.string.auto_save_snapshot_meta, snapshot.strokeCount, snapshot.layerCount, sizeText),
                 color = colors.subText.copy(alpha = 0.8f),
                 fontSize = 11.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
         }
 

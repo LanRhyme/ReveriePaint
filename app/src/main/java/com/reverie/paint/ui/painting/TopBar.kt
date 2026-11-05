@@ -24,6 +24,8 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
+
+import com.reverie.paint.core.isHistoryBlockedByTransform
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dev.chrisbanes.haze.HazeState
@@ -55,8 +57,8 @@ fun TopBar(
     onLayers: () -> Unit,
     onSettings: () -> Unit,
     onGuides: () -> Unit = {},
-    onUndo: () -> Unit = { vm.undo() },
-    onRedo: () -> Unit = { vm.redo() },
+    onUndo: () -> Unit = { vm.undoFromPanel() },
+    onRedo: () -> Unit = { vm.redoFromPanel() },
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
     val shape = if (isFloating) {
@@ -98,8 +100,16 @@ fun TopBar(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            ReIconButton(R.drawable.ic_undo, stringResource(R.string.common_undo), onUndo, modifier = Modifier.size(32.dp))
-            ReIconButton(R.drawable.ic_redo, stringResource(R.string.common_redo), onRedo, modifier = Modifier.size(32.dp))
+            // 变换是引擎里的长事务, 期间撤销/重做会被拒 (见 isHistoryBlockedByTransform):
+            // 直接置灰, 比"点了没反应"更早给用户反馈
+            ReIconButton(
+                R.drawable.ic_undo, stringResource(R.string.common_undo), onUndo,
+                modifier = Modifier.size(32.dp), enabled = !vm.isHistoryBlockedByTransform,
+            )
+            ReIconButton(
+                R.drawable.ic_redo, stringResource(R.string.common_redo), onRedo,
+                modifier = Modifier.size(32.dp), enabled = !vm.isHistoryBlockedByTransform,
+            )
             if (isFloating) {
                 vm.floatingUiConfig.topBarActions.forEach { action ->
                     val isActivated = vm.isQuickActionActivated(action)
@@ -131,8 +141,16 @@ fun TopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            ReIconButton(R.drawable.ic_undo, stringResource(R.string.common_undo), onUndo, modifier = Modifier.size(32.dp))
-            ReIconButton(R.drawable.ic_redo, stringResource(R.string.common_redo), onRedo, modifier = Modifier.size(32.dp))
+            // 变换是引擎里的长事务, 期间撤销/重做会被拒 (见 isHistoryBlockedByTransform):
+            // 直接置灰, 比"点了没反应"更早给用户反馈
+            ReIconButton(
+                R.drawable.ic_undo, stringResource(R.string.common_undo), onUndo,
+                modifier = Modifier.size(32.dp), enabled = !vm.isHistoryBlockedByTransform,
+            )
+            ReIconButton(
+                R.drawable.ic_redo, stringResource(R.string.common_redo), onRedo,
+                modifier = Modifier.size(32.dp), enabled = !vm.isHistoryBlockedByTransform,
+            )
             if (isFloating) {
                 vm.floatingUiConfig.topBarActions.forEach { action ->
                     val isActivated = vm.isQuickActionActivated(action)

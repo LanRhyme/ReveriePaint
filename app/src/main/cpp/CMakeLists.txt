@@ -167,11 +167,46 @@ set(QT_LIBS
 # Krita core libs needed by the engine. We deliberately do NOT link the
 # full kritaui/tool-plugin set: ReverieCore only uses KisImage/KisPainter/
 # layer APIs which live in these core libraries.
+# Android 上 Krita 的 MODULE 库实际输出成 <name>.so (没有 lib 前缀), 但历史链接清单
+# 写的是 lib<name>.so。旧构建目录里恰好留着更早版本生成的同名符号链接, 所以一直没暴露;
+# 干净重建 (如重编 armeabi-v7a 闭包) 之后链接期就会报 "missing and no known rule"。
+# 这里按实际文件名解析, 两种布局都支持。
+function(reverie_krita_module out_var name)
+    set(_with_prefix "${KRITA_BIN_DIR}/lib/lib${name}.so")
+    set(_plain "${KRITA_BIN_DIR}/lib/${name}.so")
+    # CMake 会把落在 target_link_directories 里的绝对 .so 路径折成 -l<name>,
+    # 于是链接器去找 lib<name>.so; 而 Android 构建输出的是无 lib 前缀的 MODULE 库。
+    # 缺这个符号链接时补一个 (幂等), 旧构建目录里正是靠历史遗留的链接才没暴露。
+    if(NOT EXISTS "${_with_prefix}" AND EXISTS "${_plain}")
+        execute_process(COMMAND ${CMAKE_COMMAND} -E create_symlink "${_plain}" "${_with_prefix}")
+    endif()
+    if(EXISTS "${_with_prefix}")
+        set(${out_var} "${_with_prefix}" PARENT_SCOPE)
+    elseif(EXISTS "${_plain}")
+        set(${out_var} "${_plain}" PARENT_SCOPE)
+    else()
+        message(FATAL_ERROR "找不到 Krita 模块库 ${name}.so (目录 ${KRITA_BIN_DIR}/lib)")
+    endif()
+endfunction()
+
+set(_KRITA_MODULE_PATHS "")
+foreach(_m
+        kritacolorsmudgepaintop kritaroundmarkerpaintop kritaspraypaintop
+        kritasketchpaintop kritadeformpaintop kritafilterop kritagridpaintop
+        kritaexperimentpaintop kritaparticlepaintop kritacurvepaintop
+        kritatangentnormalpaintop kritahairypaintop kritahatchingpaintop
+        kritamypaintop)
+    reverie_krita_module(_p ${_m})
+    list(APPEND _KRITA_MODULE_PATHS "${_p}")
+endforeach()
+
 set(KRITA_LIBS
     ${KRITA_BIN_DIR}/lib/libkritaimage.so
     ${KRITA_BIN_DIR}/lib/libkritapigment.so
     ${KRITA_BIN_DIR}/lib/libkritaglobal.so
-    ${KRITA_BIN_DIR}/lib/libkritacolor.so
+    # 注意: 不要再链接 libkritacolor.so —— 该库对应的 libs/color (KisColorManager) 已被
+    # Krita 上游移除, 构建目录里那一份是旧版本残留; 继续链接会把旧库拖进闭包,
+    # 且 armv7 干净重建后根本没有这个文件 (1.6.2 闭包混入旧库的同类问题)。
     ${KRITA_BIN_DIR}/lib/libkritacommand.so
     ${KRITA_BIN_DIR}/lib/libkritastore.so
     ${KRITA_BIN_DIR}/lib/libkritaresources.so
@@ -187,20 +222,7 @@ set(KRITA_LIBS
     ${KRITA_BIN_DIR}/lib/libkritaui.so
     ${KRITA_BIN_DIR}/lib/libkritalibpaintop.so
     ${KRITA_BIN_DIR}/lib/libkritadefaultpaintops_static.a
-    ${KRITA_BIN_DIR}/lib/libkritacolorsmudgepaintop.so
-    ${KRITA_BIN_DIR}/lib/libkritaroundmarkerpaintop.so
-    ${KRITA_BIN_DIR}/lib/libkritaspraypaintop.so
-    ${KRITA_BIN_DIR}/lib/libkritasketchpaintop.so
-    ${KRITA_BIN_DIR}/lib/libkritadeformpaintop.so
-    ${KRITA_BIN_DIR}/lib/libkritafilterop.so
-    ${KRITA_BIN_DIR}/lib/libkritagridpaintop.so
-    ${KRITA_BIN_DIR}/lib/libkritaexperimentpaintop.so
-    ${KRITA_BIN_DIR}/lib/libkritaparticlepaintop.so
-    ${KRITA_BIN_DIR}/lib/libkritacurvepaintop.so
-    ${KRITA_BIN_DIR}/lib/libkritatangentnormalpaintop.so
-    ${KRITA_BIN_DIR}/lib/libkritahairypaintop.so
-    ${KRITA_BIN_DIR}/lib/libkritahatchingpaintop.so
-    ${KRITA_BIN_DIR}/lib/libkritamypaintop.so
+    ${_KRITA_MODULE_PATHS}
 )
 
 # Some RGB8 Android pigment bundles have no OpenEXR/half exports even when

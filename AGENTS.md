@@ -17,7 +17,7 @@ Kotlin/Compose UI ──JNI── C++ ReverieCore ── Krita libs (KisImage/Ki
 | UI | Jetpack Compose (Material3, BOM 2026.05.00), 无 XML 布局 |
 | 构建 | Gradle 9.5 + AGP 9.x (内置 Kotlin 支持, 无需 kotlin-android 插件) |
 | 工具链 | JDK 17, compileSdk 36, targetSdk 33, minSdk 23 |
-| ABI | 仅 arm64-v8a |
+| ABI | arm64-v8a (默认/主) + armeabi-v7a (release 分包) |
 | 许可 | GPL-3.0 (C++ 文件必须带 SPDX 头) |
 
 ## 2. 构建与验证命令
@@ -36,9 +36,12 @@ Kotlin/Compose UI ──JNI── C++ ReverieCore ── Krita libs (KisImage/Ki
 ./gradlew assembleDebug              # 完整 Debug APK
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ./gradlew assembleRelease -PappIdSuffix=.beta   # 测试分发: 独立包名 com.reverie.paint.beta 的 release 包 (与正式版同装互不影响)
+./scripts/check_jni_symbols.sh       # JNI 符号门禁: 每个 ABI 的预编译 .so 必须覆盖 Kotlin 全部 external fun
+./scripts/check_native_symbols.sh    # 闭包 ABI 门禁: .so 之间的未定义符号必须能在闭包或 Android 平台库里解析 (改/刷新预编译库后必跑)
+./scripts/build_native.sh --abi armeabi-v7a     # 重编 32 位 C++ 并刷新 32 位预编译闭包 + 自动跑符号门禁
 ```
 
-**改动 Kotlin 代码后至少运行 `compileDebugKotlin`; 改动 `model/` 或纯逻辑代码后运行 `testDebugUnitTest`**
+**改动 Kotlin 代码后至少运行 `compileDebugKotlin`; 改动 `model/` 或纯逻辑代码后运行 `testDebugUnitTest`; 新增/删除 `ReverieCoreBridge.kt` 的 `external fun` 或改 C++ 后必须跑 `check_jni_symbols.sh` 并刷新对应 ABI 的预编译库 (否则装出来的包一调用新方法就 UnsatisfiedLinkError); 刷新/替换任何预编译 `.so` 后还必须跑 `check_native_symbols.sh`——它查的是 .so 之间的 C/C++ 依赖, 1.6.2 的 32 位包就是闭包里缺 `ReveriePigmentMix` 符号导致启动即崩 (见 `docs/INCIDENT-1.6.2-CRASHES.md`)**
 
 ## 3. 目录结构
 
@@ -92,7 +95,7 @@ app/src/main/cpp/            # C++ 引擎 (按域拆分, 与 Kotlin 一一对应
 其他目录:
 docs/       # 中文开发文档; PROGRESS.md 为推进日志, 完成里程碑时更新
 scripts/    # build_native.sh (完整构建) / copy_jni_libs.sh (预编译库拷贝)
-third_party/android-native-libs/   # 预编译动态库闭包 (arm64-v8a, 已 strip)
+third_party/android-native-libs{,-armeabi-v7a}/  # 预编译动态库闭包 (按 ABI 各一套, 已 strip)
 art/        # 图标素材
 ```
 
@@ -159,7 +162,7 @@ art/        # 图标素材
 1. **改动前 — 影响评估**: 定位目标域 → 全文搜索调用点 → 按 §5 列出"可能受影响的功能清单"; 同时核对 §4 铁律是否触及 (线程模型/双缓冲/零分配/手势 key)
 2. **改动中 — 最小 diff**: 只改与目标相关的代码, 不顺手重构无关部分; 保持每个中间步骤可编译
 3. **改动后 — 两轮自检**:
-   - **第一轮 (机械验证)**: 按改动范围运行 §2 命令 — 至少 `compileDebugKotlin`; 改 `model/` 或纯逻辑加跑 `testDebugUnitTest`; 大范围改动加跑 `lintDebug` 与 `assembleDebug`
+   - **第一轮 (机械验证)**: 按改动范围运行 §2 命令 — 至少 `compileDebugKotlin`; 改 `model/` 或纯逻辑加跑 `testDebugUnitTest`; 大范围改动加跑 `lintDebug` 与 `assembleDebug`; 动过 JNI 边界 (`external fun` / `reverie_jni_*.cpp`) 必须加跑 `check_jni_symbols.sh`, arm64 与 armv7 都要绿
    - **第二轮 (回归审查)**: 对照第 1 步的影响清单, 逐一重新检查每个调用方行为是否被破坏; 重点确认新代码未违反 §4 铁律，发现问题必须修复后重跑第一轮
    - **引擎/C++ 改动**: 额外真机手动回归受影响路径 (笔画/图层/撤销/滤镜等), 结果写入 commit body
 4. **收尾**: 按需更新 §11 文档; commit 信息按 §10 规范注明验证方式

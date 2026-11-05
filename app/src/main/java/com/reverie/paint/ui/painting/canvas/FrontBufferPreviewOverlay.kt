@@ -160,6 +160,10 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
     private var frontRenderer: Any? = null // 保持引用以兼容 API < 29
     private var isRendererInitialized = false
 
+    /** [release] 是否已执行; detach 与 Compose onRelease 都会调, 必须可重入。 */
+    @Volatile
+    private var released = false
+
     @Volatile
     private var hasContent = false
 
@@ -392,19 +396,45 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
         isFocusable = false
         isClickable = false
 
-        if (FrontBufferProbe.isSupported() && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            initRenderer()
-            // 必须排在 androidx 渲染器自己的回调之后注册 (回调按注册顺序执行): 走到这里时
-            // 渲染器已按同一 (w, h) 建好/重建缓冲, 我们记下的就是缓冲的真实几何。
-            if (isRendererInitialized) {
-                holder.addCallback(surfaceGeometryCallback)
-                val sf = holder.surface
-                if (sf != null && sf.isValid) {
-                    val f = holder.surfaceFrame
-                    onSurfaceGeometry(valid = true, w = f.width(), h = f.height())
-                }
+        initRendererIfNeeded()
+    }
+
+    /**
+     * 按需初始化渲染器: 构造时一次, 从窗口 detach 后被重新 attach 时再一次。
+     * 已初始化时直接返回, 因此可以安全重复调用。
+     */
+    private fun initRendererIfNeeded() {
+        if (isRendererInitialized) return
+        if (!FrontBufferProbe.isSupported() || Build.VERSION.SDK_INT < Build.VERSION_CODES.Q) return
+        initRenderer()
+        // 必须排在 androidx 渲染器自己的回调之后注册 (回调按注册顺序执行): 走到这里时
+        // 渲染器已按同一 (w, h) 建好/重建缓冲, 我们记下的就是缓冲的真实几何。
+        if (isRendererInitialized) {
+            holder.addCallback(surfaceGeometryCallback)
+            val sf = holder.surface
+            if (sf != null && sf.isValid) {
+                val f = holder.surfaceFrame
+                onSurfaceGeometry(valid = true, w = f.width(), h = f.height())
             }
         }
+    }
+
+    override fun onAttachedToWindow() {
+        super.onAttachedToWindow()
+        // release() 之后又挂回窗口 (Compose 复用 / 页面回退): 重建渲染器, 否则真墨永久失效。
+        if (released) {
+            released = false
+            initRendererIfNeeded()
+        }
+    }
+
+    override fun onDetachedFromWindow() {
+        // SurfaceView 的 surface 在 detach 之后才由系统销毁。若把 renderer 的释放留给
+        // Compose onRelease, 它可能在 surfaceDestroyed 之后才跑, 最后一笔事务就会打到已经
+        // 销毁的 SurfaceControl 上 —— 系统 libgui 空指针 (线上 d8f74afe88 / 7f68bfcd44 /
+        // f047d7d9a2 / 8d5df3d6e2)。这里提前释放, 让收尾发生在 Surface 还有效的时候。
+        release()
+        super.onDetachedFromWindow()
     }
 
     @RequiresApi(Build.VERSION_CODES.Q)
@@ -1523,9 +1553,16 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
 
     /**
      * 释放前缓冲渲染器资源。
+     *
+     * 可重入: `onDetachedFromWindow` 与 Compose `onRelease` 都会调用, 先到先执行。
+     * 之后若视图重新 attach, [onAttachedToWindow] 会重建渲染器。
      */
     fun release() {
+        if (released) return
+        released = true
+        // 松开可能还按住的真墨: 渲染器即将销毁, 留着 held=true 会让下一笔误以为前缓冲还在
         realInk?.cancelCatchUp()
+        realInk?.release()
         holder.removeCallback(surfaceGeometryCallback)
         surfaceValid = false
         surfaceW = 0

@@ -65,7 +65,9 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -217,6 +219,49 @@ fun BrushPanel(
         initialFirstVisibleItemIndex = initialPresetScroll.first,
         initialFirstVisibleItemScrollOffset = initialPresetScroll.second
     )
+
+    val scope = rememberCoroutineScope()
+    val currentActivePreset = remember(vm.brushPresetIndex, vm.brushPresets) {
+        vm.brushPresets.getOrNull(vm.brushPresetIndex) ?: vm.brushPresets.firstOrNull { it.index == vm.brushPresetIndex }
+    }
+    val activePresetCategory = currentActivePreset?.group?.ifBlank { "全部" } ?: "全部"
+
+    val locateCurrentPreset: () -> Unit = {
+        val preset = currentActivePreset
+        if (preset != null) {
+            val targetCat = preset.group.ifBlank { "全部" }
+            if (selectedCategory != targetCat) {
+                selectedCategory = targetCat
+                vm.updateBrushPanelCategory(targetCat)
+                isBatchMode = false
+                selectedPresets = emptySet()
+            }
+            val catIdx = categories.indexOf(targetCat)
+            if (catIdx >= 0) {
+                scope.launch {
+                    categoryScrollState.animateScrollToItem(catIdx)
+                }
+            }
+            scope.launch {
+                val targetList = when (targetCat) {
+                    "全部" -> vm.brushPresets
+                    "常用" -> vm.brushPresets.filter { vm.isFavoriteBrush(it.id) }
+                    "最近" -> vm.recentBrushIds.mapNotNull { id -> vm.brushPresets.firstOrNull { it.id == id } }
+                    else -> vm.brushPresets.filter { it.group == targetCat }
+                }
+                val itemIdx = targetList.indexOfFirst { it.index == preset.index }
+                if (itemIdx >= 0) {
+                    if (vm.brushPanelGridView) {
+                        presetGridScrollState.animateScrollToItem(itemIdx)
+                    } else {
+                        presetScrollState.animateScrollToItem(itemIdx)
+                    }
+                }
+            }
+            val catDisplayName = brushCategoryDisplayName(context, targetCat)
+            Toast.makeText(context, context.getString(R.string.brush_located_toast, catDisplayName), Toast.LENGTH_SHORT).show()
+        }
+    }
 
     // Preload thumbnails in background to eliminate UI thread decoding during scroll
     LaunchedEffect(vm.brushPresets) {
@@ -531,6 +576,29 @@ fun BrushPanel(
             ) { v ->
                 when (v) {
                     is BrushView.List -> {
+                        val filtered = remember(selectedCategory, vm.brushPresets, vm.favoriteBrushIds, vm.recentBrushIds, searchQuery) {
+                            val baseList = when (selectedCategory) {
+                                "全部" -> vm.brushPresets
+                                "常用" -> vm.brushPresets.filter { vm.isFavoriteBrush(it.id) }
+                                "最近" -> vm.recentBrushIds.mapNotNull { id ->
+                                    vm.brushPresets.firstOrNull { it.id == id }
+                                }
+                                else -> vm.brushPresets.filter { it.group == selectedCategory }
+                            }
+                            if (searchQuery.isBlank()) {
+                                baseList
+                            } else {
+                                baseList.filter { preset ->
+                                    matchesBrushQuery(
+                                        preset.name,
+                                        preset.group,
+                                        searchQuery,
+                                        brushCategoryDisplayName(context, preset.group)
+                                    )
+                                }
+                            }
+                        }
+
                         Column(Modifier.fillMaxSize()) {
                             Row(modifier = Modifier.weight(1f).fillMaxWidth()) {
                                 // Left categories
@@ -656,13 +724,24 @@ fun BrushPanel(
                                                         Spacer(Modifier.width(6.dp))
                                                     }
                                                     val catDisplayName = brushCategoryDisplayName(cat)
+                                                    val isCurrentPresetCat = cat == activePresetCategory && activePresetCategory.isNotBlank() && activePresetCategory != "全部"
                                                     Text(
                                                         text = catDisplayName,
                                                         color = if (sel) Morandi.accent else Morandi.subText,
                                                         fontSize = 13.sp,
                                                         maxLines = 1,
-                                                        overflow = TextOverflow.Ellipsis
+                                                        overflow = TextOverflow.Ellipsis,
+                                                        modifier = Modifier.weight(1f, fill = false)
                                                     )
+                                                    if (isCurrentPresetCat) {
+                                                        Spacer(Modifier.width(4.dp))
+                                                        Box(
+                                                            modifier = Modifier
+                                                                .size(5.dp)
+                                                                .clip(CircleShape)
+                                                                .background(Morandi.accent)
+                                                        )
+                                                    }
                                                 }
                                             }
                                         }
@@ -687,29 +766,6 @@ fun BrushPanel(
                                         if (searchQuery.isBlank()) emptyList()
                                         else {
                                             vm.brushPresets.filter { preset ->
-                                                matchesBrushQuery(
-                                                    preset.name,
-                                                    preset.group,
-                                                    searchQuery,
-                                                    brushCategoryDisplayName(context, preset.group)
-                                                )
-                                            }
-                                        }
-                                    }
-
-                                    val filtered = remember(selectedCategory, vm.brushPresets, vm.favoriteBrushNames, vm.recentBrushNames, searchQuery) {
-                                        val baseList = when (selectedCategory) {
-                                            "全部" -> vm.brushPresets
-                                            "常用" -> vm.brushPresets.filter { vm.isFavoriteBrush(it.name) }
-                                            "最近" -> vm.recentBrushNames.mapNotNull { name ->
-                                                vm.brushPresets.firstOrNull { it.name == name }
-                                            }
-                                            else -> vm.brushPresets.filter { it.group == selectedCategory }
-                                        }
-                                        if (searchQuery.isBlank()) {
-                                            baseList
-                                        } else {
-                                            baseList.filter { preset ->
                                                 matchesBrushQuery(
                                                     preset.name,
                                                     preset.group,
@@ -861,12 +917,6 @@ fun BrushPanel(
                                                 )
                                             }
                                             Spacer(Modifier.weight(1f))
-                                            Text(
-                                                stringResource(R.string.brush_presets_count, filtered.size),
-                                                color = Morandi.subText,
-                                                fontSize = 11.sp,
-                                            )
-                                            Spacer(Modifier.width(6.dp))
                                             Box(
                                                 modifier = Modifier
                                                     .size(28.dp)
@@ -1153,7 +1203,7 @@ fun BrushPanel(
                                                             PresetGridCard(
                                                                 preset = preset,
                                                                 isSelected = isSelected,
-                                                                isModified = vm.isBrushModified(preset.name),
+                                                                isModified = vm.isBrushModified(preset.id),
                                                                 isBatchMode = isBatchMode,
                                                                 isChecked = preset.name in selectedPresets,
                                                                 onClick = {
@@ -1199,7 +1249,7 @@ fun BrushPanel(
                                                                 offsetY = presetGridFloatingY,
                                                                 cardWidthDp = if (cardWidthDp > 0.dp) cardWidthDp else 80.dp,
                                                                 cardHeightDp = if (cardHeightDp > 0.dp) cardHeightDp else 96.dp,
-                                                                isModified = vm.isBrushModified(draggedPreset.name)
+                                                                isModified = vm.isBrushModified(draggedPreset.id)
                                                             )
                                                         }
                                                     }
@@ -1222,7 +1272,7 @@ fun BrushPanel(
                                                     ) {
                                                         items(filtered, key = { it.name }, contentType = { "preset_list" }) { preset ->
                                                             val isSelected = preset.index == vm.brushPresetIndex
-                                                            val isFav = vm.isFavoriteBrush(preset.name)
+                                                            val isFav = vm.isFavoriteBrush(preset.id)
                                                             val isDraggingThis = draggingPresetName == preset.name
                                                             val canReorder = !isBatchMode && !isSearchActive && selectedCategory != "最近"
                                                             val subtitleText = if (isSearchActive && searchQuery.isNotBlank() && selectedCategory == "全部") {
@@ -1283,7 +1333,7 @@ fun BrushPanel(
                                                                 preset = preset,
                                                                 isSelected = isSelected,
                                                                 isFav = isFav,
-                                                                isModified = vm.isBrushModified(preset.name),
+                                                                isModified = vm.isBrushModified(preset.id),
                                                                 isBatchMode = isBatchMode,
                                                                 isChecked = preset.name in selectedPresets,
                                                                 subtitleText = subtitleText,
@@ -1305,7 +1355,7 @@ fun BrushPanel(
                                                                     }
                                                                 },
                                                                 onToggleFav = {
-                                                                    vm.toggleFavoriteBrush(preset.name)
+                                                                    vm.toggleFavoriteBrush(preset.id)
                                                                 },
                                                                 itemGestureModifier = itemGesture,
                                                                 modifier = Modifier
@@ -1328,8 +1378,8 @@ fun BrushPanel(
                                                             PresetListDragOverlay(
                                                                 preset = draggedPreset,
                                                                 offsetY = presetListFloatingY,
-                                                                isFav = vm.isFavoriteBrush(draggedPreset.name),
-                                                                isModified = vm.isBrushModified(draggedPreset.name),
+                                                                isFav = vm.isFavoriteBrush(draggedPreset.id),
+                                                                isModified = vm.isBrushModified(draggedPreset.id),
                                                                 modifier = Modifier.padding(horizontal = 12.dp)
                                                             )
                                                         }
@@ -1429,6 +1479,33 @@ fun BrushPanel(
                                     }
 
                                     Spacer(Modifier.weight(1f))
+
+                                    Text(
+                                        stringResource(R.string.brush_presets_count, filtered.size),
+                                        color = Morandi.subText,
+                                        fontSize = 11.5.sp,
+                                    )
+
+                                    Spacer(Modifier.width(8.dp))
+
+                                    val isAlreadyLocated = selectedCategory == activePresetCategory && activePresetCategory != "全部"
+                                    Box(
+                                        modifier = Modifier
+                                            .size(28.dp)
+                                            .clip(RoundedCornerShape(8.dp))
+                                            .background(if (isAlreadyLocated) Morandi.accent.copy(alpha = 0.18f) else Morandi.panelHi.copy(alpha = 0.65f))
+                                            .clickable { locateCurrentPreset() },
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Icon(
+                                            painter = painterResource(R.drawable.ic_focus_view),
+                                            contentDescription = stringResource(R.string.brush_locate_current_preset),
+                                            tint = if (isAlreadyLocated) Morandi.accent else Morandi.icon,
+                                            modifier = Modifier.size(15.dp)
+                                        )
+                                    }
+
+                                    Spacer(Modifier.width(6.dp))
 
                                     Box(
                                         modifier = Modifier
@@ -1621,8 +1698,8 @@ fun BrushPanel(
         val preset = vm.brushPresets.firstOrNull { it.name == rp }
         val pIdx = preset?.index ?: -1
         val isBuiltIn = preset?.isBuiltIn == true
-        val isFav = vm.isFavoriteBrush(rp)
-        val isModified = vm.isBrushModified(rp)
+        val isFav = preset?.let { vm.isFavoriteBrush(it.id) } ?: false
+        val isModified = preset?.let { vm.isBrushModified(it.id) } ?: false
         val context = LocalContext.current
         ReorderBrushMenu(
             presetName = rp,
@@ -1634,9 +1711,9 @@ fun BrushPanel(
                 draggingPresetName = null
                 draggingPresetGridName = null
             },
-            onToggleFavorite = { vm.toggleFavoriteBrush(rp) },
-            onShare = { vm.shareBrushPreset(context, rp) },
-            onReset = { vm.resetBrushPresetToDefault(rp) },
+            onToggleFavorite = { preset?.let { vm.toggleFavoriteBrush(it.id) } },
+            onShare = { preset?.let { vm.shareBrushPreset(context, it.id) } },
+            onReset = { preset?.let { vm.resetBrushPresetToDefault(it.id) } },
             onUp = { vm.moveBrushUp(rp) },
             onDown = { vm.moveBrushDown(rp) },
             onMoveGroup = { movePresetName = rp },
@@ -1777,9 +1854,11 @@ fun BrushPanel(
             onDismiss = { showBatchMoveDialog = false },
             onMove = { g ->
                 vm.moveBrushPresetsBatch(selectedPresets.toList(), g)
+                val appContext = context.applicationContext
+                val groupName = brushCategoryDisplayName(appContext, g)
                 android.widget.Toast.makeText(
-                    context,
-                    context.getString(R.string.brush_batch_move_success, selectedPresets.size, brushCategoryDisplayName(context, g)),
+                    appContext,
+                    appContext.getString(R.string.brush_batch_move_success, selectedPresets.size, groupName),
                     android.widget.Toast.LENGTH_SHORT
                 ).show()
                 selectedCategory = g
@@ -1817,8 +1896,8 @@ private fun PresetGridCard(
     modifier: Modifier = Modifier,
 ) {
     val cellBg = when {
-        isBatchMode && isChecked -> Morandi.accent.copy(alpha = 0.22f)
-        isSelected -> Morandi.accent.copy(alpha = 0.18f)
+        isBatchMode && isChecked -> Morandi.accent.copy(alpha = 0.28f)
+        isSelected -> Morandi.accent.copy(alpha = 0.32f)
         else -> Morandi.panelHi.copy(alpha = 0.45f)
     }
 
@@ -1827,6 +1906,13 @@ private fun PresetGridCard(
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
             .background(cellBg)
+            .then(
+                if (isSelected && !isBatchMode) {
+                    Modifier.border(1.5.dp, Morandi.accent, RoundedCornerShape(8.dp))
+                } else if (isBatchMode && isChecked) {
+                    Modifier.border(1.5.dp, Morandi.accent.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                } else Modifier
+            )
             .then(
                 itemGestureModifier ?: Modifier.combinedClickable(
                     onClick = onClick,
@@ -1896,9 +1982,9 @@ private fun PresetGridCard(
         Spacer(Modifier.height(3.dp))
         Text(
             preset.name,
-            color = if ((isSelected && !isBatchMode) || (isBatchMode && isChecked)) Morandi.text else Morandi.subText,
+            color = if (isSelected && !isBatchMode) Morandi.accent else if (isBatchMode && isChecked) Morandi.text else Morandi.subText,
             fontSize = 10.sp,
-            fontWeight = if ((isSelected && !isBatchMode) || (isBatchMode && isChecked)) FontWeight.SemiBold else FontWeight.Normal,
+            fontWeight = if ((isSelected && !isBatchMode) || (isBatchMode && isChecked)) FontWeight.Bold else FontWeight.Normal,
             maxLines = 1,
             overflow = TextOverflow.Ellipsis,
             modifier = Modifier.padding(horizontal = 1.dp)
@@ -1922,8 +2008,8 @@ private fun PresetListRow(
     modifier: Modifier = Modifier,
 ) {
     val cellBg = when {
-        isBatchMode && isChecked -> Morandi.accent.copy(alpha = 0.2f)
-        isSelected -> Morandi.accent.copy(alpha = 0.16f)
+        isBatchMode && isChecked -> Morandi.accent.copy(alpha = 0.28f)
+        isSelected -> Morandi.accent.copy(alpha = 0.30f)
         else -> Morandi.panelHi.copy(alpha = 0.35f)
     }
 
@@ -1933,6 +2019,13 @@ private fun PresetListRow(
             .height(48.dp)
             .clip(RoundedCornerShape(10.dp))
             .background(cellBg)
+            .then(
+                if (isSelected && !isBatchMode) {
+                    Modifier.border(1.5.dp, Morandi.accent, RoundedCornerShape(10.dp))
+                } else if (isBatchMode && isChecked) {
+                    Modifier.border(1.5.dp, Morandi.accent.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                } else Modifier
+            )
             .then(
                 itemGestureModifier ?: Modifier.combinedClickable(
                     onClick = onClick,
@@ -2024,16 +2117,16 @@ private fun PresetListRow(
         Column(Modifier.weight(1f)) {
             Text(
                 preset.name,
-                color = if (isSelected && !isBatchMode) Morandi.text else Morandi.subText,
+                color = if (isSelected && !isBatchMode) Morandi.accent else Morandi.text,
                 fontSize = 12.sp,
-                fontWeight = if (isSelected && !isBatchMode) FontWeight.SemiBold else FontWeight.Normal,
+                fontWeight = if (isSelected && !isBatchMode) FontWeight.Bold else FontWeight.Normal,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
             if (fullSubtitle != null) {
                 Text(
                     fullSubtitle,
-                    color = Morandi.subText.copy(alpha = 0.75f),
+                    color = if (isSelected && !isBatchMode) Morandi.accent.copy(alpha = 0.85f) else Morandi.subText.copy(alpha = 0.75f),
                     fontSize = 10.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,

@@ -257,7 +257,7 @@ fun ShadingAssistDialog(
                                             text = stringResource(labelRes),
                                             fontSize = 10.sp,
                                             fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isSel) Color.White else Morandi.subText,
+                                            color = if (isSel) Morandi.onAccent else Morandi.subText,
                                             maxLines = 1
                                         )
                                     }
@@ -533,7 +533,7 @@ fun ShadingAssistDialog(
                                         text = stringResource(R.string.shading_assist_mode_cel),
                                         fontSize = 12.sp,
                                         fontWeight = if (isCel) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (isCel) Color.White else Morandi.subText
+                                        color = if (isCel) Morandi.onAccent else Morandi.subText
                                     )
                                 }
 
@@ -550,7 +550,7 @@ fun ShadingAssistDialog(
                                         text = stringResource(R.string.shading_assist_mode_smooth),
                                         fontSize = 12.sp,
                                         fontWeight = if (!isCel) FontWeight.Bold else FontWeight.Normal,
-                                        color = if (!isCel) Color.White else Morandi.subText
+                                        color = if (!isCel) Morandi.onAccent else Morandi.subText
                                     )
                                 }
                             }
@@ -579,7 +579,7 @@ fun ShadingAssistDialog(
                                             text = stringResource(R.string.shading_assist_steps_1),
                                             fontSize = 11.sp,
                                             fontWeight = if (!isTwoStep) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (!isTwoStep) Color.White else Morandi.subText
+                                            color = if (!isTwoStep) Morandi.onAccent else Morandi.subText
                                         )
                                     }
 
@@ -596,7 +596,7 @@ fun ShadingAssistDialog(
                                             text = stringResource(R.string.shading_assist_steps_2),
                                             fontSize = 11.sp,
                                             fontWeight = if (isTwoStep) FontWeight.Bold else FontWeight.Normal,
-                                            color = if (isTwoStep) Color.White else Morandi.subText
+                                            color = if (isTwoStep) Morandi.onAccent else Morandi.subText
                                         )
                                     }
                                 }

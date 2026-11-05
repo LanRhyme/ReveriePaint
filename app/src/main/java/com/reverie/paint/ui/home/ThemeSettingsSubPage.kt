@@ -13,9 +13,20 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import android.graphics.BitmapFactory
+import android.widget.Toast
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.foundation.Image
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
+import com.reverie.paint.ui.components.ReButton
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -67,7 +78,12 @@ import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.UiAnimationSpeed
 import com.reverie.paint.ui.painting.panels.CompactColorPickerPopup
 import com.reverie.paint.ui.painting.panels.labelRes
+import com.reverie.paint.ui.theme.PresetAccentSwatches
 import com.reverie.paint.ui.theme.Theme
+import com.reverie.paint.ui.theme.ThemeStyle
+import com.reverie.paint.ui.theme.colorToHsl
+import com.reverie.paint.ui.theme.hslToColor
+import com.reverie.paint.ui.theme.optimalTextColor
 import com.reverie.paint.ui.theme.parseColor
 
 @Composable
@@ -78,16 +94,26 @@ internal fun ThemeSettingsSubPage(
     onBack: () -> Unit,
 ) {
     val colors = Theme.current
+    val context = LocalContext.current
+    val imagePickerLauncher = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.GetContent(),
+    ) { uri ->
+        if (uri != null) {
+            val ok = vm.importHomeBackground(uri, context)
+            if (ok) {
+                Toast.makeText(context, R.string.theme_home_bg_import_success, Toast.LENGTH_SHORT).show()
+            } else {
+                Toast.makeText(context, R.string.theme_home_bg_import_failed, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
     var showCustomColorDialog by remember { mutableStateOf(false) }
     var customColorAnchorBounds by remember { mutableStateOf<Rect?>(null) }
     var showCustomCanvasBgDialog by remember { mutableStateOf(false) }
     var customCanvasBgAnchorBounds by remember { mutableStateOf<Rect?>(null) }
     var showFloatingLayoutDialog by remember { mutableStateOf(false) }
     var showSmallScreenWarningDialog by remember { mutableStateOf(false) }
-    val presetSwatches = listOf(
-        "#5A6E8A", "#5A8A86", "#5A8A6A", "#768A5A", "#8A7A5A",
-        "#8A665A", "#8A5A66", "#825A8A", "#625A8A"
-    )
+    val presetSwatches = PresetAccentSwatches
 
     val canvasPresetSwatches = listOf(
         "DEFAULT",
@@ -107,7 +133,7 @@ internal fun ThemeSettingsSubPage(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(colors.bg)
+            .background(if (vm.homeCustomBgEnabled && vm.getHomeCustomBgFile() != null) Color.Transparent else colors.bg)
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
@@ -138,7 +164,7 @@ internal fun ThemeSettingsSubPage(
                         "SYSTEM" to stringResource(R.string.theme_mode_system),
                     ),
                     selected = vm.themeMode,
-                    shape = settingGroupShape(0, 3),
+                    shape = settingGroupShape(0, 4),
                     onSelect = { vm.updateThemeMode(it) },
                 )
 
@@ -152,8 +178,29 @@ internal fun ThemeSettingsSubPage(
                         "HIGH" to stringResource(R.string.theme_contrast_high),
                     ),
                     selected = vm.themeContrast,
-                    shape = settingGroupShape(1, 3),
+                    shape = settingGroupShape(1, 4),
                     onSelect = { vm.updateThemeContrast(it) },
+                )
+
+                SettingSegmentGroupItem(
+                    icon = Icons.Rounded.Palette,
+                    title = stringResource(R.string.theme_style_title),
+                    summary = when (vm.themeStyle) {
+                        ThemeStyle.MORANDI_TINTED -> stringResource(R.string.theme_style_morandi_tinted_desc)
+                        ThemeStyle.NEUTRAL_STUDIO -> stringResource(R.string.theme_style_neutral_studio_desc)
+                        ThemeStyle.WARM_EARTHY -> stringResource(R.string.theme_style_warm_earthy_desc)
+                        ThemeStyle.VIBRANT_GLOW -> stringResource(R.string.theme_style_vibrant_glow_desc)
+                        else -> stringResource(R.string.theme_style_summary)
+                    },
+                    options = listOf(
+                        ThemeStyle.MORANDI_TINTED to stringResource(R.string.theme_style_morandi_tinted),
+                        ThemeStyle.NEUTRAL_STUDIO to stringResource(R.string.theme_style_neutral_studio),
+                        ThemeStyle.WARM_EARTHY to stringResource(R.string.theme_style_warm_earthy),
+                        ThemeStyle.VIBRANT_GLOW to stringResource(R.string.theme_style_vibrant_glow),
+                    ),
+                    selected = vm.themeStyle,
+                    shape = settingGroupShape(2, 4),
+                    onSelect = { vm.updateThemeStyle(it) },
                 )
 
                 SettingSwitchGroupItem(
@@ -166,7 +213,7 @@ internal fun ThemeSettingsSubPage(
                     },
                     checked = vm.monetEnabled,
                     enabled = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S,
-                    shape = settingGroupShape(2, 3),
+                    shape = settingGroupShape(3, 4),
                     onCheckedChange = { vm.updateMonetEnabled(it) },
                 )
             }
@@ -232,7 +279,7 @@ internal fun ThemeSettingsSubPage(
                                         Icon(
                                             painter = painterResource(R.drawable.ic_check),
                                             contentDescription = null,
-                                            tint = Color.White,
+                                            tint = swatchColor.optimalTextColor(),
                                             modifier = Modifier.size(16.dp),
                                         )
                                     }
@@ -265,7 +312,7 @@ internal fun ThemeSettingsSubPage(
                                     Icon(
                                         painter = painterResource(if (isCustomSelected) R.drawable.ic_check else R.drawable.ic_plus),
                                         contentDescription = stringResource(R.string.color_custom),
-                                        tint = if (isCustomSelected) Color.White else colors.icon,
+                                        tint = if (isCustomSelected) currentCustomColor.optimalTextColor() else colors.icon,
                                         modifier = Modifier.size(18.dp),
                                     )
                                 }
@@ -357,11 +404,10 @@ internal fun ThemeSettingsSubPage(
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         if (isSelected) {
-                                            val checkTint = if (swatchColor.red * 0.299 + swatchColor.green * 0.587 + swatchColor.blue * 0.114 > 0.6) Color.Black else Color.White
                                             Icon(
                                                 painter = painterResource(R.drawable.ic_check),
                                                 contentDescription = null,
-                                                tint = checkTint,
+                                                tint = swatchColor.optimalTextColor(),
                                                 modifier = Modifier.size(16.dp),
                                             )
                                         }
@@ -387,9 +433,7 @@ internal fun ThemeSettingsSubPage(
                                         .clickable { showCustomCanvasBgDialog = true },
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    val iconTint = if (isCustomSelected) {
-                                        if (currentCustomColor.red * 0.299 + currentCustomColor.green * 0.587 + currentCustomColor.blue * 0.114 > 0.6) Color.Black else Color.White
-                                    } else colors.icon
+                                    val iconTint = if (isCustomSelected) currentCustomColor.optimalTextColor() else colors.icon
                                     Icon(
                                         painter = painterResource(if (isCustomSelected) R.drawable.ic_check else R.drawable.ic_plus),
                                         contentDescription = stringResource(R.string.theme_custom_canvas_bg),
@@ -402,6 +446,170 @@ internal fun ThemeSettingsSubPage(
                     }
                 }
             }
+
+            Spacer(Modifier.height(8.dp))
+
+            // 主页背景图片
+            SettingCategoryTitle(stringResource(R.string.theme_home_bg_category))
+            SettingGroup {
+                val hasCustomBg = vm.homeCustomBgEnabled && vm.getHomeCustomBgFile() != null
+                val totalItems = if (hasCustomBg) 5 else 1
+
+                // 1. 壁纸预览卡片与导入/清除操作
+                SettingCardBox(shape = settingGroupShape(0, totalItems)) {
+                    Column(modifier = Modifier.fillMaxWidth()) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            SettingIcon(icon = Icons.Rounded.Wallpaper, tint = colors.icon)
+                            Spacer(Modifier.width(14.dp))
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = stringResource(R.string.theme_home_bg_title),
+                                    color = colors.text,
+                                    fontSize = 14.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                                Spacer(Modifier.height(2.dp))
+                                Text(
+                                    text = stringResource(R.string.theme_home_bg_desc),
+                                    color = colors.subText,
+                                    fontSize = 12.sp,
+                                    lineHeight = 16.sp,
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(14.dp))
+
+                        // 预览容器
+                        val bgFile = remember(vm.homeCustomBgVersion) { vm.getHomeCustomBgFile() }
+                        val bgBitmap = remember(vm.homeCustomBgVersion, bgFile?.lastModified()) {
+                            bgFile?.let { BitmapFactory.decodeFile(it.absolutePath)?.asImageBitmap() }
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(130.dp)
+                                .clip(RoundedCornerShape(12.dp))
+                                .background(colors.panelHi)
+                                .border(1.dp, colors.border, RoundedCornerShape(12.dp)),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (bgBitmap != null && vm.homeCustomBgEnabled) {
+                                val scale = if (vm.homeCustomBgScaleMode == "FIT") ContentScale.Fit else ContentScale.Crop
+                                val blurModifier = if (vm.homeCustomBgBlurDp > 0f) Modifier.blur(vm.homeCustomBgBlurDp.dp) else Modifier
+                                Image(
+                                    bitmap = bgBitmap,
+                                    contentDescription = null,
+                                    contentScale = scale,
+                                    alpha = vm.homeCustomBgOpacity,
+                                    modifier = Modifier
+                                        .fillMaxSize()
+                                        .then(blurModifier),
+                                )
+                                if (vm.homeCustomBgMaskAlpha > 0f) {
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .background(Color.Black.copy(alpha = vm.homeCustomBgMaskAlpha)),
+                                    )
+                                }
+                            } else {
+                                Text(
+                                    text = stringResource(R.string.theme_home_bg_empty),
+                                    color = colors.subText,
+                                    fontSize = 12.sp,
+                                )
+                            }
+                        }
+
+                        Spacer(Modifier.height(12.dp))
+
+                        // 操作按钮
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        ) {
+                            ReButton(
+                                text = if (hasCustomBg) stringResource(R.string.theme_home_bg_change) else stringResource(R.string.theme_home_bg_import),
+                                onClick = { imagePickerLauncher.launch("image/*") },
+                                primary = true,
+                                modifier = Modifier.weight(1f),
+                            )
+                            if (hasCustomBg) {
+                                ReButton(
+                                    text = stringResource(R.string.theme_home_bg_clear),
+                                    onClick = {
+                                        vm.clearHomeBackground()
+                                        Toast.makeText(context, R.string.theme_home_bg_cleared, Toast.LENGTH_SHORT).show()
+                                    },
+                                    primary = false,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    }
+                }
+
+                if (hasCustomBg) {
+                    // 2. 不透明度滑块
+                    SettingSliderGroupItem(
+                        icon = Icons.Rounded.Opacity,
+                        title = stringResource(R.string.theme_home_bg_opacity),
+                        summary = stringResource(R.string.theme_home_bg_opacity_desc),
+                        valueText = "${(vm.homeCustomBgOpacity * 100).roundToInt()}%",
+                        sliderFraction = (vm.homeCustomBgOpacity - 0.1f) / 0.9f,
+                        shape = settingGroupShape(1, totalItems),
+                        onValueChange = { fraction ->
+                            vm.updateHomeBgOpacity(0.1f + fraction * 0.9f)
+                        },
+                    )
+
+                    // 3. 高斯模糊滑块
+                    SettingSliderGroupItem(
+                        icon = Icons.Rounded.BlurOn,
+                        title = stringResource(R.string.theme_home_bg_blur),
+                        summary = stringResource(R.string.theme_home_bg_blur_desc),
+                        valueText = "${vm.homeCustomBgBlurDp.roundToInt()} dp",
+                        sliderFraction = vm.homeCustomBgBlurDp / 30f,
+                        shape = settingGroupShape(2, totalItems),
+                        onValueChange = { fraction ->
+                            vm.updateHomeBgBlurDp(fraction * 30f)
+                        },
+                    )
+
+                    // 4. 填充裁剪模式
+                    SettingSegmentGroupItem(
+                        icon = Icons.Rounded.AspectRatio,
+                        title = stringResource(R.string.theme_home_bg_scale_mode),
+                        options = listOf(
+                            "CROP" to stringResource(R.string.theme_home_bg_scale_crop),
+                            "FIT" to stringResource(R.string.theme_home_bg_scale_fit),
+                        ),
+                        selected = vm.homeCustomBgScaleMode,
+                        shape = settingGroupShape(3, totalItems),
+                        onSelect = { vm.updateHomeBgScaleMode(it) },
+                    )
+
+                    // 5. 蒙版遮罩
+                    SettingSliderGroupItem(
+                        icon = Icons.Rounded.Brightness4,
+                        title = stringResource(R.string.theme_home_bg_mask),
+                        summary = stringResource(R.string.theme_home_bg_mask_desc),
+                        valueText = "${(vm.homeCustomBgMaskAlpha * 100).roundToInt()}%",
+                        sliderFraction = vm.homeCustomBgMaskAlpha / 0.8f,
+                        shape = settingGroupShape(4, totalItems),
+                        onValueChange = { fraction ->
+                            vm.updateHomeBgMaskAlpha(fraction * 0.8f)
+                        },
+                    )
+                }
+            }
+
+            Spacer(Modifier.height(8.dp))
 
             // Section 2: 视觉与效果
             SettingCategoryTitle(stringResource(R.string.theme_category_effects))

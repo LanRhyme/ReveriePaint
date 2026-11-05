@@ -45,6 +45,8 @@ data class BrushParams(
     val compositeOp: String = "normal",
     val antiAliasing: Int = 1,
     val tipShape: Int = 0,
+    /** 散布方向：true=双轴（Krita 默认，Scattering/AxisX+AxisY），false=只沿笔画法线（Photoshop bothAxes=false） */
+    val scatterBothAxes: Boolean = true,
     val randomFlipX: Boolean = false,
     val randomFlipY: Boolean = false,
     val followDirection: Boolean = false,
@@ -53,8 +55,17 @@ data class BrushParams(
     val textureEnabled: Boolean = false,
     val textureScale: Double = 1.0,
     val textureStrength: Double = 0.5,
+    /** 纹理深度受压力控制（PS textureDepthDynamics 控制=钢笔压力）：<0 关闭；≥0 为压感 0 时的深度占比（minimumDepth），写成 Texture/Strength/ 的压力曲线 `0,min;1,1` */
+    val textureStrengthPressureMin: Double = -1.0,
     val textureMode: String = "multiply",
     val texturePattern: String = "",
+    val textureInvert: Boolean = false,
+    /** Krita Texture/Pattern/UseSoftTexturing：深度按 mul(src, strength) 软减，PS 纹理深度语义靠它 */
+    val textureSoft: Boolean = false,
+    /** Krita Texture/Pattern/Brightness (-1..1) */
+    val textureBrightness: Double = 0.0,
+    /** Krita Texture/Pattern/Contrast (0..2) */
+    val textureContrast: Double = 1.0,
     val hueJitter: Double = 0.0,
     val satJitter: Double = 0.0,
     val valJitter: Double = 0.0,
@@ -92,6 +103,13 @@ data class BrushParams(
     val maskingSizeRatio: Double = 1.0,
     val maskingSpacing: Double = 0.1,
     val maskingTipAsset: String = "",
+    val maskingScatter: Double = 0.0,
+    /** 双重画笔散布方向：false=只沿笔画法线（PS dualBrush.bothAxes=false，KisScatterOption AxisY）；默认双轴 */
+    val maskingScatterBothAxes: Boolean = true,
+    /** 双重画笔笔尖静态角度（度）；写入 masking brush_definition 的 angle（弧度） */
+    val maskingAngle: Double = 0.0,
+    val maskingFlipX: Boolean = false,
+    val maskingFlipY: Boolean = false,
     val maskingTipShape: Int = 0,
     val maskingFade: Double = 0.0,
     val maskingSoftness: Double = 1.0,
@@ -105,6 +123,8 @@ data class BrushParams(
 /** A bundled Krita brush preset (.kpp) with its PNG thumbnail. */
 data class BrushPresetInfo(
     val index: Int,
+    /** 稳定身份（BrushIdentity id）；唯一的查找键。[name] 只用于显示和磁盘文件名。 */
+    val id: String,
     val name: String,
     val thumbBytes: ByteArray,
     val group: String = "", // effective group (custom override or inferred)

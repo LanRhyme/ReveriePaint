@@ -9,7 +9,7 @@ import java.util.Locale
 /**
  * 工作台动力学曲线控件（CURVE_*）的值。
  *
- * 存储/比较用的规范串与 VM 的 `buildDynamicOptionSensorXml` 产物同形：
+ * 存储/比较用的规范串与 sensor params 全文同形：
  * `<!DOCTYPE params><params id="pressure" enabled="true" strength="1.0"><curve>0,0;1,1;</curve></params>`
  * —— 这样旧 BrushParams.dynamicOptions 的值可直接作为覆盖值，`applySensorXmlToDynamicOptions`
  * 也能直接读回（它认 enabled / strength 属性）。
@@ -46,7 +46,12 @@ data class CurveValue(
             val id = idAttr.find(s)?.groupValues?.get(1)?.trim()?.lowercase()?.ifBlank { null } ?: "pressure"
             val en = enabledAttr.find(s)?.groupValues?.get(1)?.toBooleanStrictOrNull() ?: true
             val st = strengthAttr.find(s)?.groupValues?.get(1)?.toDoubleOrNull() ?: 1.0
-            val c = curveTag.find(s)?.groupValues?.get(1)?.trim()?.ifBlank { null } ?: KppSensors.LINEAR
+            val curveMatch = curveTag.find(s)?.groupValues?.get(1)?.trim()?.ifBlank { null }
+            val c = when {
+                curveMatch != null -> curveMatch
+                s.contains(';') || s.contains(',') -> s.trim()
+                else -> KppSensors.LINEAR
+            }
             return CurveValue(en, id, normalizeCurve(c), st)
         }
 
@@ -72,3 +77,14 @@ data class CurveValue(
         }
     }
 }
+
+fun com.reverie.paint.model.DynamicOptionConfig.toCurveValue(): CurveValue =
+    CurveValue(
+        enabled = enabled,
+        sensorId = sensorId.ifBlank { "pressure" },
+        curve = toKritaCurveString(),
+        strength = strength.toDouble(),
+    )
+
+fun com.reverie.paint.model.DynamicOptionConfig.toCurveXml(): String = toCurveValue().encode()
+

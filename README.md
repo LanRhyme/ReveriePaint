@@ -70,6 +70,13 @@ Krita Core Engine (KisImage / KisPainter / KisPaintOp)
 - **官方 Release**: 前往 [GitHub Releases](https://github.com/LanRhyme/ReveriePaint/releases) 下载最新 APK 安装包
 - **国内镜像**: 通过 [Mirror酱](https://mirrorchyan.com/zh/projects?rid=ReveriePaint&os=android) 获取高速下载
 
+### 崩溃报告与隐私
+官方构建默认开启崩溃报告自动上报，用于定位闪退。上报内容只有崩溃堆栈、设备型号、系统版本与当前页面/工具标签，
+**不含任何画作内容、文件名、账号凭据，也不含广告标识或位置信息**。可在「设置 → 隐私与诊断」随时关闭，关闭会同时清除本地安装标识。
+
+完整字段清单与保留期见 [docs/PRIVACY.md](docs/PRIVACY.md)。若你自行编译，可用 `-Ptelemetry=false`
+（或不注入 `TELEMETRY_ENDPOINT`）得到完全不联网上报的构建。
+
 ---
 
 ## 贡献者

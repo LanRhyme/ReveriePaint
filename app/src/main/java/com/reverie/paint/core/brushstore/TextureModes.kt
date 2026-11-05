@@ -36,32 +36,4 @@ object TextureModes {
     }
 
     fun nameOf(code: Int): String = NAMES.getOrElse(code) { NAMES[0] }
-
-    /**
-     * 预编译 .so 的 setBrushTexture 只认这几个字符串（RCB:1735-1742），其余一律写 0。
-     * 返回 null 表示该模式无法经原生 setter 实时表达，只能靠重载 kpp 文件生效。
-     */
-    private val NATIVE_ARG = mapOf(
-        0 to "multiply", 1 to "subtract", 4 to "darken", 5 to "overlay",
-        6 to "dodge", 7 to "burn", 10 to "hard_light", 11 to "soft_light",
-    )
-
-    fun nativeArg(name: String?): String? = NATIVE_ARG[toInt(name)]
-}
-
-/**
- * 纹理参数的实时下发（W-03）。原生 setBrushTexture 会无条件覆盖 TexturingMode，
- * 对原生不认识的模式（如 linear_dodge）调用它会把模式静默改成 multiply；此时跳过实时下发，
- * 由调用方已有的 reloadEngine 路径从 kpp 文件重载生效。
- */
-object BrushTextureLive {
-    fun apply(enabled: Boolean, scale: Double, strength: Double, mode: String, pattern: String): Boolean {
-        val arg = TextureModes.nativeArg(mode)
-        if (arg == null) {
-            BrushDiagnostics.log("texture_live_skipped", "mode" to mode)
-            return false
-        }
-        com.reverie.paint.core.ReverieCoreBridge.setBrushTexture(enabled, scale, strength, arg, pattern)
-        return true
-    }
 }

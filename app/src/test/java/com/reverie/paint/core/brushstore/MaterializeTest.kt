@@ -39,29 +39,25 @@ class MaterializeTest {
 
     @Test
     fun `启动编排安装出厂快照、注册内置并生成有效文件`() {
-        val ok = BrushStoreBootstrap.run(tmp, presetDir, enabled = true, installStamp = "1", readAssets = ::assets, migrate = { true })
+        val ok = BrushStoreBootstrap.run(tmp, presetDir, installStamp = "1", readAssets = ::assets, migrate = { true })
         assertTrue(ok)
-        assertTrue(BrushStoreBootstrap.active)
         for (s in stems) {
             assertEquals("builtin:$s", BrushIdentity.idForName(s))
             assertArrayEquals(KppFixtures.bytes(s), File(presetDir, "$s.kpp").readBytes())
         }
         // 再次启动：stamp 未变不读资产
-        val ok2 = BrushStoreBootstrap.run(tmp, presetDir, true, "1", readAssets = { error("不应读资产") }, migrate = { true })
+        val ok2 = BrushStoreBootstrap.run(tmp, presetDir, "1", readAssets = { error("不应读资产") }, migrate = { true })
         assertTrue(ok2)
     }
 
     @Test
-    fun `迁移未完成或开关关闭时不激活`() {
-        assertFalse(BrushStoreBootstrap.run(tmp, presetDir, true, "1", ::assets, migrate = { false }))
-        assertFalse(BrushStoreBootstrap.active)
-        assertFalse(BrushStoreBootstrap.run(tmp, presetDir, false, "1", ::assets, migrate = { true }))
-        assertFalse(BrushStoreBootstrap.active)
+    fun `迁移未完成时不进入就绪`() {
+        assertFalse(BrushStoreBootstrap.run(tmp, presetDir, "1", ::assets, migrate = { false }))
     }
 
     @Test
     fun `覆盖改变有效文件不改快照，清空覆盖回到快照字节，未变时不重写`() {
-        BrushStoreBootstrap.run(tmp, presetDir, true, "1", ::assets, migrate = { true })
+        BrushStoreBootstrap.run(tmp, presetDir, "1", ::assets, migrate = { true })
         val id = "builtin:${stems[0]}"
         val snapMd5 = BrushDiagnostics.md5(PresetSnapshotStore.read(id)!!)
         val xml = com.reverie.paint.core.KppHelper.readPresetXml(PresetSnapshotStore.read(id)!!, true)!!

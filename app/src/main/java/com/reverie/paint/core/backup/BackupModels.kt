@@ -64,5 +64,11 @@ data class RestoreOutcome(
     val restoredPreferences: Boolean = false,
     val restoredShortcuts: Boolean = false,
     val restoredReferences: Int = 0,
+    /** 并入本机 identity.json 的导入笔刷条目数（跨设备恢复后常用/分组靠它对上 id） */
+    val restoredBrushIdentities: Int = 0,
+    /** 因名字撞了本机另一支笔、或恢复后磁盘上没有对应预设文件而没并入的条目数 */
+    val skippedBrushIdentities: Int = 0,
+    /** brush_groups（分组/排序/工具槽）已并入 */
+    val restoredBrushGroups: Boolean = false,
     val errors: List<String> = emptyList(),
 )

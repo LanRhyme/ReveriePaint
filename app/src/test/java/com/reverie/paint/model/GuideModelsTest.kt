@@ -8,7 +8,6 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.sin
 
@@ -127,71 +126,6 @@ class GuideModelsTest {
         val opposite = symPts[3]
         assertEquals(400f, opposite.x, 0.01f)
         assertEquals(500f, opposite.y, 0.01f)
-        // 默认 8 瓣: 相邻副本角差恒为 45° (与历史版本行为一致)
-        assertUniformAngularStep(symPts, 45.0)
-    }
-
-    @Test
-    fun `radial count default is 8 with bounds 3 to 12`() {
-        assertEquals(8, DEFAULT_SYMMETRY_RADIAL_COUNT)
-        assertEquals(3, SYMMETRY_RADIAL_COUNT_MIN)
-        assertEquals(12, SYMMETRY_RADIAL_COUNT_MAX)
-        assertEquals(DEFAULT_SYMMETRY_RADIAL_COUNT, DrawingGuideConfig().symmetryRadialCount)
-    }
-
-    @Test
-    fun `radial count 3 produces 2 branches spaced 120 degrees apart`() {
-        val symPts = radialConfig(3).computeSymmetricPoints(Point2D(600f, 500f), docWidth = 1000, docHeight = 1000)
-        assertEquals(2, symPts.size)
-        assertUniformAngularStep(symPts, 120.0)
-    }
-
-    @Test
-    fun `radial count 12 produces 11 branches spaced 30 degrees apart`() {
-        val symPts = radialConfig(12).computeSymmetricPoints(Point2D(600f, 500f), docWidth = 1000, docHeight = 1000)
-        assertEquals(11, symPts.size)
-        assertUniformAngularStep(symPts, 30.0)
-    }
-
-    @Test
-    fun `writeSymmetricPoints matches computeSymmetricPoints for radial count 3 and 12`() {
-        val docPt = Point2D(600f, 500f)
-        for (count in intArrayOf(3, 12)) {
-            val config = radialConfig(count)
-            val expected = config.computeSymmetricPoints(docPt, docWidth = 1000, docHeight = 1000)
-            val outX = FloatArray(16)
-            val outY = FloatArray(16)
-            val n = config.writeSymmetricPoints(docPt.x, docPt.y, 1000, 1000, outX, outY)
-            assertEquals(expected.size, n)
-            for (i in 0 until n) {
-                assertEquals(expected[i].x, outX[i], 0.001f)
-                assertEquals(expected[i].y, outY[i], 0.001f)
-            }
-        }
-    }
-
-    @Test
-    fun `radial count out of range is clamped to 3 or 12 without throwing`() {
-        val outX = FloatArray(16)
-        val outY = FloatArray(16)
-        // 0 与 -1 按 3 瓣处理 (2 个镜像分支), 99 按 12 瓣处理 (11 个镜像分支)
-        assertEquals(2, radialConfig(0).computeSymmetricPoints(Point2D(600f, 500f), 1000, 1000).size)
-        assertEquals(2, radialConfig(0).writeSymmetricPoints(600f, 500f, 1000, 1000, outX, outY))
-        assertEquals(2, radialConfig(-1).computeSymmetricPoints(Point2D(600f, 500f), 1000, 1000).size)
-        assertEquals(11, radialConfig(99).computeSymmetricPoints(Point2D(600f, 500f), 1000, 1000).size)
-        assertEquals(11, radialConfig(99).writeSymmetricPoints(600f, 500f, 1000, 1000, outX, outY))
-    }
-
-    @Test
-    fun `computeSymmetricSamples radial count 6 offsets rotation by 60 degrees per branch`() {
-        val samples = radialConfig(6).computeSymmetricSamples(
-            Point2D(600f, 500f), tiltX = 10f, tiltY = 3f, rotation = 0f,
-            docWidth = 1000, docHeight = 1000
-        )
-        assertEquals(5, samples.size)
-        for (i in samples.indices) {
-            assertEquals((i + 1) * 60f, samples[i].rotation, 0.001f)
-        }
     }
 
     @Test
@@ -414,27 +348,92 @@ class GuideModelsTest {
         assertEquals(0, symConfig.writeSymmetricPoints(200f, 300f, 1000, 1000, FloatArray(0), outY))
     }
 
-    private fun radialConfig(count: Int) = DrawingGuideConfig(
-        mode = GuideMode.SYMMETRY,
-        symmetryType = SymmetryType.RADIAL,
-        symmetryCenterX = 0.5f,
-        symmetryCenterY = 0.5f,
-        symmetryRadialCount = count,
-    )
+    @Test
+    fun `computeSymmetricPoints radial mode with 3 rays produces 2 branches for 3-blade top`() {
+        val config = DrawingGuideConfig(
+            mode = GuideMode.SYMMETRY,
+            symmetryType = SymmetryType.RADIAL,
+            symmetryRayCount = 3,
+            symmetryRotational = true,
+            symmetryCenterX = 0.5f,
+            symmetryCenterY = 0.5f
+        )
+        val symPts = config.computeSymmetricPoints(Point2D(600f, 500f), docWidth = 1000, docHeight = 1000)
+        assertEquals(2, symPts.size)
+        // Point is (100, 0) in local.
+        // Branch 1 at 120 deg: cos(120) = -0.5, sin(120) = 0.866025
+        assertEquals(450f, symPts[0].x, 0.05f)
+        assertEquals(586.6f, symPts[0].y, 0.1f)
+        // Branch 2 at 240 deg: cos(240) = -0.5, sin(240) = -0.866025
+        assertEquals(450f, symPts[1].x, 0.05f)
+        assertEquals(413.4f, symPts[1].y, 0.1f)
+    }
 
-    private fun assertUniformAngularStep(
-        symPts: List<Point2D>,
-        expectedStepDeg: Double,
-        cx: Float = 500f,
-        cy: Float = 500f,
-    ) {
-        for (i in symPts.indices) {
-            val pt = symPts[i]
-            val angleRad = atan2((pt.y - cy).toDouble(), (pt.x - cx).toDouble())
-            var angleDeg = Math.toDegrees(angleRad)
-            if (angleDeg < -1e-4) angleDeg += 360.0
-            val expectedAngleDeg = (i + 1) * expectedStepDeg
-            assertEquals("Branch $i angle mismatch", expectedAngleDeg, angleDeg, 0.05)
+    @Test
+    fun `computeSymmetricPoints radial kaleidoscope mode with 4 rays produces 7 branches`() {
+        val config = DrawingGuideConfig(
+            mode = GuideMode.SYMMETRY,
+            symmetryType = SymmetryType.RADIAL,
+            symmetryRayCount = 4,
+            symmetryRotational = false,
+            symmetryCenterX = 0.5f,
+            symmetryCenterY = 0.5f
+        )
+        val docPt = Point2D(600f, 500f)
+        val symPts = config.computeSymmetricPoints(docPt, docWidth = 1000, docHeight = 1000)
+        assertEquals(2 * 4 - 1, symPts.size) // 7 branches (8 total sectors)
+
+        val outX = FloatArray(32)
+        val outY = FloatArray(32)
+        val count = config.writeSymmetricPoints(docPt.x, docPt.y, 1000, 1000, outX, outY)
+        assertEquals(symPts.size, count)
+        for (i in 0 until count) {
+            assertEquals(symPts[i].x, outX[i], 0.001f)
+            assertEquals(symPts[i].y, outY[i], 0.001f)
+        }
+    }
+
+    @Test
+    fun `computeSymmetricSamples default kaleidoscope exceeds live mirror branch cap`() {
+        // 1.6.2 线上 AIOOBE 的回归钉子: 万花筒默认 8 轴 -> 15 个镜像分支, 而实时镜像
+        // 只支持 8 支。分支数本身是产品语义 (2*rays-1), 不能靠调小它来"修"崩溃。
+        val config = DrawingGuideConfig(
+            mode = GuideMode.SYMMETRY,
+            symmetryType = SymmetryType.RADIAL,
+            symmetryRayCount = SYMMETRY_RAY_COUNT_DEFAULT,
+            symmetryRotational = false,
+        )
+        val branches = config.computeSymmetricSamples(Point2D(600f, 500f), 0f, 0f, 0f, 1000, 1000)
+        assertEquals(2 * SYMMETRY_RAY_COUNT_DEFAULT - 1, branches.size)
+        assertTrue("默认万花筒分支数应超过实时镜像上限", branches.size > 8)
+    }
+
+    @Test
+    fun `computeSymmetricSamples covers full ray range without shrinking branches`() {
+        // 2..36 轴全覆盖: 旋转 = rays-1 支, 万花筒 = 2*rays-1 支 (最多 71 支)。
+        // 缓冲/队列必须按这个规模准备, 不能假设 <= 8。
+        for (rays in SYMMETRY_RAY_COUNT_MIN..SYMMETRY_RAY_COUNT_MAX) {
+            val rotational = DrawingGuideConfig(
+                mode = GuideMode.SYMMETRY,
+                symmetryType = SymmetryType.RADIAL,
+                symmetryRayCount = rays,
+                symmetryRotational = true,
+            )
+            assertEquals(
+                rays - 1,
+                rotational.computeSymmetricSamples(Point2D(600f, 500f), 0f, 0f, 0f, 1000, 1000).size,
+            )
+
+            val kaleidoscope = DrawingGuideConfig(
+                mode = GuideMode.SYMMETRY,
+                symmetryType = SymmetryType.RADIAL,
+                symmetryRayCount = rays,
+                symmetryRotational = false,
+            )
+            assertEquals(
+                2 * rays - 1,
+                kaleidoscope.computeSymmetricSamples(Point2D(600f, 500f), 0f, 0f, 0f, 1000, 1000).size,
+            )
         }
     }
 }

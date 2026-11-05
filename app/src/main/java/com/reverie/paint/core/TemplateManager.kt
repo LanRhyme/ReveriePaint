@@ -361,16 +361,17 @@ object TemplateManager {
         val srcFile = File(template.filePath)
         if (!srcFile.exists()) return@withContext null
 
-        val projectDir = vm.projectDir()
-        if (!projectDir.exists()) projectDir.mkdirs()
+        val targetDir = vm.currentFolder?.let { File(it.filePath) }?.takeIf { it.exists() && it.isDirectory }
+            ?: vm.projectDir()
+        if (!targetDir.exists()) targetDir.mkdirs()
 
         val timeTag = SimpleDateFormat("MMdd_HHmm", Locale.getDefault()).format(Date())
         var targetName = "${template.name}_$timeTag"
-        var targetFile = File(projectDir, "$targetName.${srcFile.extension}")
+        var targetFile = File(targetDir, "$targetName.${srcFile.extension}")
         var counter = 1
         while (targetFile.exists()) {
             targetName = "${template.name}_${timeTag}_$counter"
-            targetFile = File(projectDir, "$targetName.${srcFile.extension}")
+            targetFile = File(targetDir, "$targetName.${srcFile.extension}")
             counter++
         }
 

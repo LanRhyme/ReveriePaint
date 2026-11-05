@@ -5,7 +5,7 @@
 package com.reverie.paint.core.stylus
 
 enum class StylusBrand(val displayName: String, val subtitle: String) {
-    OPPO_ONEPLUS("OPPO Pencil / 一加智能手写笔", "适配笔身双击、书写震动、拟真发声与低延迟笔迹预测"),
+    OPPO_ONEPLUS("OPPO Pencil / 一加智能手写笔", "适配笔身双击、书写震动与拟真发声"),
     HUAWEI_MPENCIL("HUAWEI M-Pencil", "适配笔身双击、星闪低延迟、物理侧键映射与触感联动"),
     HONOR_MAGIC_PENCIL("荣耀 Magic-Pencil", "适配笔身双击、折叠屏侧键、微震触感与防误触"),
     SAMSUNG_SPEN("三星 S Pen", "适配侧键单击/双击/长按、悬空指令与触觉反馈"),
@@ -16,11 +16,24 @@ enum class StylusBrand(val displayName: String, val subtitle: String) {
 
 enum class StylusAction(val title: String, val actionId: String) {
     TOGGLE_ERASER("切换画笔与橡皮", "toggle_eraser"),
+    ERASER_MODE("橡皮模式", "eraser_mode"),
     UNDO("撤销", "undo"),
     REDO("重做", "redo"),
     COLOR_PICKER("吸管取色", "tool_picker"),
     TOGGLE_LAST_TOOL("切换上一工具", "toggle_last_tool"),
     SHOW_COLOR_PALETTE("快捷调色盘", "tool_color"),
+    BRUSH_SIZE_INC("增大笔刷", "brush_size_inc"),
+    BRUSH_SIZE_DEC("减小笔刷", "brush_size_dec"),
+    BRUSH_OPACITY_INC("提高不透明度", "brush_opacity_inc"),
+    BRUSH_OPACITY_DEC("降低不透明度", "brush_opacity_dec"),
+    ZOOM_IN("放大画布", "zoom_in"),
+    ZOOM_OUT("缩小画布", "zoom_out"),
+    FLIP_CANVAS("翻转视图", "flip_canvas"),
+    LAYER_PREV("上一图层", "layer_prev"),
+    LAYER_NEXT("下一图层", "layer_next"),
+    TOGGLE_QUICK_MENU("快捷菜单", "toggle_quick_menu"),
+    TOGGLE_REF_WINDOW("参考图浮窗", "toggle_ref_window"),
+    PAN_CANVAS("移动画布", "pan_canvas"),
     NONE("无操作", "none");
 
     companion object {
@@ -68,7 +81,7 @@ enum class OppoPencilModel(
         maxPressure = 4096,
         hasInPenHaptics = false,
         hasSlideGesture = false,
-        hasAiPrediction = true,
+        hasAiPrediction = false,
         desc = "4096级压感 · 笔身双击手势 · 平板微震与发声联动"
     ),
     PRO(
@@ -77,8 +90,8 @@ enum class OppoPencilModel(
         maxPressure = 16384,
         hasInPenHaptics = true,
         hasSlideGesture = true,
-        hasAiPrediction = true,
-        desc = "16384级超高压感 (原生支持) · 笔身内置超线性微震 · 笔身触控滑动 · AI超低延时预测"
+        hasAiPrediction = false,
+        desc = "16384级超高压感 (原生支持) · 笔身内置超线性微震 · 笔身触控滑动"
     );
 
     val generationName: String get() = editionName

@@ -159,4 +159,21 @@ object KppXml {
     /** `<Preset ... paintopid="X">` */
     fun paintOpId(xml: String): String? =
         Regex("""<Preset\b[^>]*\bpaintopid="([^"]*)"""").find(xml)?.groupValues?.get(1)
+
+    /** 生成统一的 auto_brush 笔尖定义（含 MaskGenerator） */
+    fun autoBrushDef(
+        size: Double,
+        spacing: Double,
+        angleRad: Double = 0.0,
+        fade: Double = 1.0,
+        shape: Int = 0,
+        spikes: Int = 2,
+        ratio: Double = 1.0,
+        antiAliasing: Int = 1,
+    ): String {
+        val fFade = fmt(fade.coerceIn(0.0, 1.0))
+        val shapeStr = if (shape == 1) "rect" else "circle"
+        val gen = """<MaskGenerator diameter="${fmt(size)}" hfade="$fFade" vfade="$fFade" id="default" spikes="${spikes.coerceAtLeast(2)}" type="$shapeStr" ratio="${fmt(ratio)}" antialiasEdges="${if (antiAliasing > 0) 1 else 0}"/>"""
+        return """<Brush scale="1" type="auto_brush" useAutoSpacing="0" BrushVersion="2" spacing="${fmt(spacing)}" angle="${fmt(angleRad)}" brushApplication="0"> $gen </Brush>"""
+    }
 }

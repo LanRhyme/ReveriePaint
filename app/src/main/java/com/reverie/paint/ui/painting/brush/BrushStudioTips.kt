@@ -4,6 +4,7 @@
 
 package com.reverie.paint.ui.painting.brush
 
+import com.reverie.paint.core.brushstore.ResourceDirs
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -99,7 +100,7 @@ internal object BrushTipDecoder {
         cache.get(key)?.let { if (!it.isRecycled) return it }
 
         val bmp = runCatching {
-            val internalFile = File(File(context.filesDir, "brushes"), filename)
+            val internalFile = File(ResourceDirs.tips(context.filesDir), filename)
             val stream = if (internalFile.exists()) {
                 internalFile.inputStream()
             } else {
@@ -201,7 +202,7 @@ internal object BrushTipDecoder {
  */
 internal fun buildTipItems(context: Context): List<BrushTipItem> {
     val list = mutableListOf<BrushTipItem>()
-    val customDir = File(context.filesDir, "brushes")
+    val customDir = ResourceDirs.tips(context.filesDir)
     if (customDir.exists()) {
         customDir.listFiles()?.forEach { f ->
             val name = f.name
@@ -279,7 +280,7 @@ internal object BrushPatternDecoder {
         cache.get(key)?.let { if (!it.isRecycled) return it }
 
         val bmp = runCatching {
-            val internalFile = File(File(context.filesDir, "patterns"), filename)
+            val internalFile = File(ResourceDirs.patterns(context.filesDir), filename)
             val stream = if (internalFile.exists()) {
                 internalFile.inputStream()
             } else {
@@ -368,7 +369,7 @@ internal object BrushPatternDecoder {
 
 internal fun buildPatternItems(context: Context): List<PatternItem> {
     val list = mutableListOf<PatternItem>()
-    val customDir = File(context.filesDir, "patterns")
+    val customDir = ResourceDirs.patterns(context.filesDir)
     if (customDir.exists()) {
         customDir.listFiles()?.forEach { f ->
             val name = f.name

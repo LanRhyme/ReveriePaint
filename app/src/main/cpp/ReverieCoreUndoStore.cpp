@@ -71,7 +71,14 @@ void ReverieUndoStore::endMacro()
 
 void ReverieUndoStore::purgeRedoState()
 {
+    const bool hadRedo = m_undoStack && m_undoStack->canRedo();
     m_undoStack->purgeRedoState();
+    // KUndo2QStack::purgeRedoState() 只发 canRedoChanged/redoTextChanged, 不走
+    // indexChanged —— 而 UI 只接了 historyStateChanged。手动补一次, 否则"重做"
+    // 按钮会停在可用态 (点了也是空操作)。见 ReverieCore::invalidateRedoState()。
+    if (hadRedo) {
+        Q_EMIT historyStateChanged();
+    }
 }
 
 void ReverieUndoStore::undo()

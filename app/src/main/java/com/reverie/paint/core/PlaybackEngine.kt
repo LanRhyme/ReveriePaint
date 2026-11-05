@@ -333,34 +333,8 @@ internal fun PaintViewModel.exitReplay() {
 /** Re-assert the preset's eraser metadata after loadBrushPreset (loading a
  *  preset resets the native override to "unknown", which would fall back to
  *  name heuristics for custom-named eraser presets). */
-private fun PaintViewModel.sendPresetEraserFlagLocked(presetIndex: Int) {
-    // Native-table index (BrushPresetInfo.index), not list position.
-    val p = brushPresets.firstOrNull { it.index == presetIndex } ?: return
-    val isEraser =
-        p.group == "橡皮擦" || p.name.startsWith("a)_Eraser", ignoreCase = true) || p.name.contains("Eraser", ignoreCase = true)
-    ReverieCoreBridge.setPresetIsEraser(isEraser)
-}
-
 internal fun PaintViewModel.restoreBrushStateFromUi() {
-    val mode =
-        when (currentToolId) {
-            "brush" -> 0
-            "eraser" -> 1
-            "smudge" -> 3
-            else -> -1
-        }
-    if (mode >= 0) {
-        ReverieCoreBridge.setToolMode(mode)
-    }
-    if (brushPresetIndex >= 0) {
-        ReverieCoreBridge.loadBrushPreset(brushPresetIndex)
-        sendPresetEraserFlagLocked(brushPresetIndex)
-        ReverieCoreBridge.setBrushSize(brushSize)
-        ReverieCoreBridge.setBrushOpacity(brushOpacity)
-        ReverieCoreBridge.setBrushFlow(brushFlow)
-    }
-    ReverieCoreBridge.setBrushCompositeOp(brushCompositeOp)
-    ReverieCoreBridge.setBrushColor(brushColor)
+    com.reverie.paint.core.brushstore.BrushApply.restoreFromUi(this)
     if (currentLayerIndex >= 0) {
         ReverieCoreBridge.setCurrentLayer(currentLayerIndex)
     }
@@ -372,83 +346,14 @@ private var currentReplayPreset = -1
 private var currentReplayVersion = 1
 private val replayPresetIndexMapping = HashMap<Int, Int>()
 
-private fun PaintViewModel.applyReplayPresetSetupLocked(target: Int) {
-    if (target < 0) return
-    if (!ReverieCoreBridge.loadBrushPreset(target)) return
-    sendPresetEraserFlagLocked(target)
-    val p = brushPresets.firstOrNull { it.index == target }
-    val saved = p?.let { brushParams[it.name] }
-    if (saved != null) {
-        if (saved.tipAsset.isNotBlank()) {
-            ReverieCoreBridge.setBrushTipAsset(saved.tipAsset)
-        }
-        if (saved.dynamicsCustomized) {
-            if (saved.dynamicOptions.isNotEmpty()) {
-                for ((opt, xml) in saved.dynamicOptions) {
-                    val sensorId = Regex("""id="([^"]+)"""").find(xml)?.groupValues?.getOrNull(1) ?: "pressure"
-                    val curve = Regex("""<curve>([^<]*)</curve>""").find(xml)?.groupValues?.getOrNull(1) ?: "0,0;1,1;"
-                    val enabledAttr = Regex("""enabled="([^"]+)"""").find(xml)?.groupValues?.getOrNull(1)?.toBooleanStrictOrNull()
-                    val strengthAttr = Regex("""strength="([^"]+)"""").find(xml)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
-                    val strength = strengthAttr ?: when (opt.lowercase()) {
-                        "size" -> saved.pressureSize
-                        "opacity" -> saved.pressureOpacity
-                        "flow" -> saved.pressureFlow
-                        else -> 1.0
-                    }
-                    val isEnabled = enabledAttr ?: when (opt.lowercase()) {
-                        "size" -> saved.pressureEnabled && saved.pressureSize > 0.001
-                        "opacity" -> saved.pressureEnabled && saved.pressureOpacity > 0.001
-                        "flow" -> saved.pressureEnabled && saved.pressureFlow > 0.001
-                        else -> true
-                    }
-                    ReverieCoreBridge.setBrushOptionDynamics(
-                        opt,
-                        isEnabled,
-                        sensorId,
-                        curve,
-                        strength,
-                    )
-                }
-            } else {
-                ReverieCoreBridge.setBrushPressureDynamics(
-                    saved.pressureEnabled,
-                    saved.pressureSize,
-                    saved.pressureOpacity,
-                    saved.pressureFlow,
-                    saved.pressureCurve,
-                )
-            }
-        }
-        if (saved.fade.isFinite()) ReverieCoreBridge.setBrushFade(saved.fade)
-        if (saved.softness.isFinite()) ReverieCoreBridge.setBrushSoftness(saved.softness)
-        if (saved.ratio.isFinite()) ReverieCoreBridge.setBrushRatio(saved.ratio)
-        if (saved.sharpness.isFinite()) ReverieCoreBridge.setBrushSharpness(saved.sharpness)
-        if (saved.jitterAngle > 0.0 || saved.jitterSize > 0.0) {
-            ReverieCoreBridge.setBrushJitter(saved.jitterAngle, saved.jitterSize)
-        }
-        if (saved.textureEnabled) {
-            com.reverie.paint.core.brushstore.BrushTextureLive.apply(
-                saved.textureEnabled,
-                saved.textureScale,
-                saved.textureStrength,
-                saved.textureMode,
-                saved.texturePattern,
-            )
-        }
-    }
-}
-
-/** Replay a recorded preset switch: resolve by recorded preset NAME first so
- *  sessions that mutated the preset table mid-way (add/remove/rename shifts
- *  native indexes) still land on the right brush; fall back to the recorded
- *  native index when the name no longer exists. */
 private fun PaintViewModel.replayPresetSelectLocked(
     idx: Int,
     name: String,
     v2: com.reverie.paint.core.brushstore.PlaybackPresetCache.Select? = null,
 ) {
-    val byName = if (name.isNotEmpty()) brushPresets.firstOrNull { it.name == name } else null
-    val target = byName?.index ?: idx
+    val probe = v2 ?: com.reverie.paint.core.brushstore.PlaybackPresetCache.Select(idx, name, "", "")
+    val rt = com.reverie.paint.core.brushstore.BrushApply.replayTarget(probe, brushPresets)
+    val target = rt.index
     if (target < 0) return
     if (idx >= 0) {
         replayPresetIndexMapping[idx] = target
@@ -458,20 +363,17 @@ private fun PaintViewModel.replayPresetSelectLocked(
             ReverieCoreBridge.touchStrokeCancel()
         }
         currentReplayPreset = target
-        if (v2 != null) {
-            // W-12：只核对 md5（不匹配记诊断；resolve 顺带回温 playback_cache 的 LRU 时间戳）；
-            // 回放 setup 与 V1 同路径——加载的是当前物化的预设字节，不加载缓存字节
-            val res = com.reverie.paint.core.brushstore.PlaybackPresetCache.resolve(v2)
-            if (res != com.reverie.paint.core.brushstore.PlaybackPresetCache.Resolution.EXACT) {
-                com.reverie.paint.core.brushstore.BrushDiagnostics.log(
-                    "playback_md5_mismatch",
-                    "name" to v2.name, "id" to v2.presetId, "md5" to v2.md5, "resolution" to res.name,
-                )
-            }
-            applyReplayPresetSetupLocked(target)
-        } else {
-            applyReplayPresetSetupLocked(target)
+        val sel = v2 ?: run {
+            val info = brushPresets.firstOrNull { it.index == target }
+            com.reverie.paint.core.brushstore.PlaybackPresetCache.Select(
+                name = info?.name ?: name,
+                index = target,
+                presetId = info?.id ?: "",
+                md5 = "",
+            )
         }
+        val isEraser = rt.isEraser
+        com.reverie.paint.core.brushstore.BrushApply.applyReplay(sel, isEraser)
     }
 }
 
@@ -651,6 +553,58 @@ internal fun PaintViewModel.seekLocked(
 // ---- Event dispatch (render thread; direct bridge calls, no re-recording) ----
 
 /**
+ * 确定 T_SELECT_ALL 事件中是否存在可选的选区布尔运算模式 mode (u8)。
+ * 旧版或 selectAllAction 录制时仅写入 u16(layer) 共 2 字节；从图层菜单触发的 selectionFromLayer
+ * 则额外写入 mode 共 3 字节。如果此处盲目用 r.remaining() > 0 读入第 3 字节，会把后续紧邻的
+ * 下一条事件的 type 字节吃掉，导致整段录制流偏移错位。
+ * 该函数通过安全前瞻与试跳读判断 mode 字节是否存在：存在时消费并返回其值，不存在时返回 0 且游标不推进。
+ */
+internal fun resolveSelectAllMode(r: RecordingReader, version: Int): Int {
+    if (r.remaining() <= 0) return 0
+    val b0 = r.data[r.pos].toInt() and 0xFF
+    if (b0 > 3) return 0
+    if (r.remaining() == 1) return r.u8()
+
+    val b1 = r.data[r.pos + 1].toInt() and 0xFF
+    val validTypes = intArrayOf(
+        STROKE_START, STROKE_MOVE, STROKE_END, STROKE_CANCEL,
+        CONTEXT, CONTEXT_EXT, CONTEXT_FADE,
+        LAYER_OP, TOOL_OP, FILTER, FILTER_LUT,
+    )
+    if (b1 !in validTypes) return 0
+
+    val savedPos = r.pos
+    val validIfMode = try {
+        r.pos = savedPos + 1
+        val nextType = r.u8()
+        r.varint()
+        skipReplayEventPayload(nextType, r, version)
+        true
+    } catch (_: Exception) {
+        false
+    }
+    val validIfNotMode = try {
+        r.pos = savedPos
+        val nextType = r.u8()
+        r.varint()
+        skipReplayEventPayload(nextType, r, version)
+        true
+    } catch (_: Exception) {
+        false
+    } finally {
+        r.pos = savedPos
+    }
+
+    return if (validIfMode && !validIfNotMode) {
+        r.u8()
+    } else if (!validIfMode && validIfNotMode) {
+        0
+    } else {
+        r.u8()
+    }
+}
+
+/**
  * Advance [r] over a single event's binary payload without invoking native C++
  * or allocating arrays/strings. Used by timelapse export to pre-scan visual
  * checkpoints in < 1ms without executing strokes or filters twice.
@@ -761,7 +715,7 @@ internal fun skipReplayEventPayload(
                 }
                 T_SELECT_ALL -> {
                     r.skip(2)
-                    if (r.remaining() > 0) r.skip(1)
+                    resolveSelectAllMode(r, version)
                 }
                 T_FEATHER, T_EXPAND, T_CONTRACT, T_SMOOTH -> r.skip(2)
                 T_SELECT_MODE -> r.skip(1)
@@ -878,27 +832,16 @@ internal fun PaintViewModel.dispatchReplayLocked(
             val airbrushEnabled = r.u8() != 0
             val airbrushRate = r.f32()
             val overrides = if (currentReplayVersion >= 2) r.u8() else 0
-            val shouldApplyExtShape = RecordedBrushOverrides.applyShape(currentReplayPreset, overrides)
-            if (shouldApplyExtShape) {
-                ReverieCoreBridge.setBrushSoftness(softness.toDouble())
-                // Pressure/size edits also customize a preset, but do not change its native spacing.
-                if (RecordedBrushOverrides.applySpacing(currentReplayPreset, overrides)) {
-                    ReverieCoreBridge.setBrushSpacing(spacing.toDouble())
-                }
-                ReverieCoreBridge.setBrushAngle(angle.toDouble())
-                ReverieCoreBridge.setBrushScatter(scatter.toDouble())
-                ReverieCoreBridge.setBrushRotation(rotation.toDouble())
-                ReverieCoreBridge.setBrushRatio(ratio.toDouble())
-                ReverieCoreBridge.setBrushSharpness(sharpness.toDouble())
-            }
-            ReverieCoreBridge.setBrushSmudgeRate(smudgeRate.toDouble())
-            ReverieCoreBridge.setBrushSmudgeLength(smudgeLength.toDouble())
-            ReverieCoreBridge.setBrushSecondaryColor(secondaryColor)
-            ReverieCoreBridge.setBrushAirbrush(airbrushEnabled, airbrushRate.toDouble())
+            com.reverie.paint.core.brushstore.BrushApply.applyReplayExt(
+                currentReplayPreset, overrides,
+                softness.toDouble(), spacing.toDouble(), angle.toDouble(), scatter.toDouble(), rotation.toDouble(),
+                ratio.toDouble(), sharpness.toDouble(), smudgeRate.toDouble(), smudgeLength.toDouble(),
+                secondaryColor, airbrushEnabled, airbrushRate.toDouble(),
+            )
         }
 
         CONTEXT_FADE -> {
-            ReverieCoreBridge.setBrushFade(r.f32().toDouble())
+            com.reverie.paint.core.brushstore.BrushApply.applyReplayFade(r.f32().toDouble())
         }
 
         LAYER_OP -> {
@@ -938,7 +881,21 @@ private fun PaintViewModel.applyReplayContextLocked(c: com.reverie.paint.model.R
             ReverieCoreBridge.touchStrokeCancel()
         }
         currentReplayPreset = targetPreset
-        applyReplayPresetSetupLocked(targetPreset)
+        val p = brushPresets.firstOrNull { it.index == targetPreset }
+        val pName = p?.name ?: ""
+        val pId = p?.id ?: ""
+        val sel = com.reverie.paint.core.brushstore.PlaybackPresetCache.Select(
+            name = pName,
+            index = targetPreset,
+            presetId = pId,
+            md5 = "",
+        )
+        val isEraser = p != null && (
+            p.group == "橡皮擦" ||
+                p.name.startsWith("a)_Eraser", ignoreCase = true) ||
+                p.name.contains("Eraser", ignoreCase = true)
+        )
+        com.reverie.paint.core.brushstore.BrushApply.applyReplay(sel, isEraser)
     }
     val presetInfo = if (targetPreset >= 0) brushPresets.firstOrNull { it.index == targetPreset } else null
     val isPresetEraser =
@@ -957,15 +914,12 @@ private fun PaintViewModel.applyReplayContextLocked(c: com.reverie.paint.model.R
                 android.graphics.Color.parseColor(c.color) or 0xFF000000.toInt()
             }.getOrDefault(0xFF1F1D2B.toInt())
     }
-    ReverieCoreBridge.setToolMode(c.toolMode)
     // size/opacity/flow 由 CONTEXT 事件无条件携带 (录制时的实时值), 必须在
     // loadBrushPreset 之后应用——预设加载会重置它们; preset=-1 (无预设会话)
     // 时旧版直接跳过导致回放丢失这三个参数
-    ReverieCoreBridge.setBrushSize(c.size.toDouble())
-    ReverieCoreBridge.setBrushOpacity(c.opacity.toDouble())
-    ReverieCoreBridge.setBrushFlow(c.flow.toDouble())
-    ReverieCoreBridge.setBrushCompositeOp(c.compositeOp)
-    ReverieCoreBridge.setBrushColor(c.color)
+    com.reverie.paint.core.brushstore.BrushApply.applyReplayContext(
+        c.toolMode, c.size.toDouble(), c.opacity.toDouble(), c.flow.toDouble(), c.compositeOp, c.color,
+    )
     ReverieCoreBridge.setCurrentLayer(c.layer)
 }
 
@@ -1122,7 +1076,7 @@ private fun PaintViewModel.dispatchLayerOpLocked(
             ReverieCoreBridge.flattenGroup(i)
         }
 
-        L_ADD_MASK -> {
+        L_ADD_MASK, L_ADD_MASK_TYPE -> {
             ReverieCoreBridge.addMaskToLayer(i, arg.toIntOrNull() ?: 0)
         }
 
@@ -1238,7 +1192,7 @@ private fun PaintViewModel.dispatchToolOpLocked(
             val tol = r.u16()
             val sampleMerged = r.u8() != 0
             val color = r.str()
-            ReverieCoreBridge.setBrushColor(color)
+            com.reverie.paint.core.brushstore.BrushApply.engine.setBrushColor(color)
             ReverieCoreBridge.floodFillAt(x, y, tol, sampleMerged)
         }
 
@@ -1492,7 +1446,7 @@ private fun PaintViewModel.dispatchToolOpLocked(
 
         T_SELECT_ALL -> {
             val layer = r.u16()
-            val mode = if (r.remaining() > 0) r.u8() else 0
+            val mode = resolveSelectAllMode(r, currentReplayVersion)
             ReverieCoreBridge.selectionFromLayer(layer, mode)
         }
 

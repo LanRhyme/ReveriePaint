@@ -24,6 +24,7 @@ object KritaBundleManager {
         groupName: String,
         presets: List<Pair<String, File>>,
         tipAssets: List<File>,
+        patternAssets: List<File> = emptyList(),
         customOutDir: File? = null,
     ): File {
         val outDir = (customOutDir ?: File(context?.cacheDir ?: File(System.getProperty("java.io.tmpdir") ?: "/tmp"), "export_bundles")).apply {
@@ -35,6 +36,7 @@ object KritaBundleManager {
 
         val validPresets = presets.filter { it.second.exists() }
         val presetMd5Map = mutableMapOf<String, String>()
+        val presetFiles = validPresets.associate { it.first to it.second.name }
         for ((pName, pFile) in validPresets) {
             presetMd5Map[pName] = calculateMd5(pFile)
         }
@@ -45,6 +47,12 @@ object KritaBundleManager {
             if (!tipFile.exists() || writtenBrushNames.contains(tipFile.name)) continue
             writtenBrushNames.add(tipFile.name)
             writtenBrushes.add(tipFile.name to calculateMd5(tipFile))
+        }
+
+        val writtenPatterns = mutableListOf<Pair<String, String>>() // (fileName, md5)
+        for (patFile in patternAssets) {
+            if (!patFile.exists() || writtenPatterns.any { it.first == patFile.name }) continue
+            writtenPatterns.add(patFile.name to calculateMd5(patFile))
         }
 
         val escapedBundleName = escapeXml(safeBundleName)
@@ -67,7 +75,7 @@ object KritaBundleManager {
 
             // 2. Preset files in paintoppresets/
             for ((pName, pFile) in validPresets) {
-                val entry = ZipEntry("paintoppresets/$pName.kpp")
+                val entry = ZipEntry("paintoppresets/${pFile.name}")
                 zos.putNextEntry(entry)
                 pFile.inputStream().use { it.copyTo(zos) }
                 zos.closeEntry()
@@ -86,9 +94,17 @@ object KritaBundleManager {
                 }
             }
 
+            // 3b. Pattern (texture) files in patterns/
+            for ((patName, _) in writtenPatterns) {
+                val patFile = patternAssets.first { it.name == patName }
+                zos.putNextEntry(ZipEntry("patterns/$patName"))
+                patFile.inputStream().use { it.copyTo(zos) }
+                zos.closeEntry()
+            }
+
             // 4. Bundle preview image (preview.png at zip root)
-            // A .kpp preset file is itself a valid PNG image containing the preset thumbnail
-            val firstPresetFile = validPresets.firstOrNull()?.second
+            // A .kpp preset file is itself a valid PNG image containing the preset thumbnail（.myb 不是 PNG，不取）
+            val firstPresetFile = validPresets.firstOrNull { it.second.extension.equals("kpp", true) }?.second
             if (firstPresetFile != null && firstPresetFile.exists()) {
                 val previewEntry = ZipEntry("preview.png")
                 zos.putNextEntry(previewEntry)
@@ -124,7 +140,7 @@ object KritaBundleManager {
 """)
             for ((pName, _) in validPresets) {
                 val md5 = presetMd5Map[pName] ?: ""
-                manifestSb.append("""  <manifest:file-entry manifest:media-type="paintoppresets" manifest:full-path="paintoppresets/$pName.kpp" manifest:md5sum="$md5">
+                manifestSb.append("""  <manifest:file-entry manifest:media-type="paintoppresets" manifest:full-path="paintoppresets/${presetFiles[pName]}" manifest:md5sum="$md5">
     <manifest:tags>
       <manifest:tag>$escapedGroupName</manifest:tag>
     </manifest:tags>
@@ -133,6 +149,10 @@ object KritaBundleManager {
             }
             for ((brushName, brushMd5) in writtenBrushes) {
                 manifestSb.append("""  <manifest:file-entry manifest:media-type="brushes" manifest:full-path="brushes/$brushName" manifest:md5sum="$brushMd5"/>
+""")
+            }
+            for ((patName, patMd5) in writtenPatterns) {
+                manifestSb.append("""  <manifest:file-entry manifest:media-type="patterns" manifest:full-path="patterns/$patName" manifest:md5sum="$patMd5"/>
 """)
             }
             manifestSb.append("</manifest:manifest>\n")

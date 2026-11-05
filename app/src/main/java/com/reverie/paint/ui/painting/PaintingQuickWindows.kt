@@ -7,6 +7,7 @@ package com.reverie.paint.ui.painting
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxScope
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -16,6 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
@@ -44,6 +46,21 @@ internal fun BoxScope.PaintingQuickWindows(
     val screenH = with(density) { configuration.screenHeightDp.dp.toPx() }
     val isLandscape = configuration.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE ||
         (configuration.orientation == android.content.res.Configuration.ORIENTATION_UNDEFINED && screenW > screenH)
+
+    Box(
+        Modifier
+            .matchParentSize()
+            .onSizeChanged { size ->
+                vm.floatingHostWidthPx = size.width.toFloat()
+                vm.floatingHostHeightPx = size.height.toFloat()
+                vm.clampQuickWindowsToSafeArea(
+                    size.width.toFloat(),
+                    size.height.toFloat(),
+                    density.density,
+                    persist = true,
+                )
+            },
+    )
 
     var isInitialLaunch by remember { mutableStateOf(true) }
     var lastW by remember { mutableFloatStateOf(screenW) }
@@ -133,7 +150,7 @@ internal fun BoxScope.PaintingQuickWindows(
         if (vm.quickOklchWindowOpen && !vm.quickOklchWindowWasOpen) {
             if (vm.quickOklchWindowX < 0f || vm.quickOklchWindowY < 0f) {
                 val panelW = if (vm.quickOklchWindowWidth > 0f) vm.quickOklchWindowWidth else with(density) { 244.dp.toPx() }
-                val panelH = if (vm.quickOklchWindowHeight > 0f) vm.quickOklchWindowHeight else with(density) { 330.dp.toPx() }
+                val panelH = if (vm.quickOklchWindowHeight > 0f) vm.quickOklchWindowHeight else with(density) { 320.dp.toPx() }
                 vm.quickOklchWindowX = ((screenW - panelW) / 2f).coerceAtLeast(0f)
                 vm.quickOklchWindowY = ((screenH - panelH) / 2f).coerceAtLeast(0f)
                 vm.persistQuickOklchState()

@@ -24,14 +24,14 @@ import java.util.zip.Deflater
  *
  * Krita 允许把笔尖与贴图直接内嵌进 .kpp 的 preset 块。"memileo Impasto" 就是这种
  * 笔刷：单个 .kpp 10.5 MB，解压后 preset XML 达 27 MB，其中 24.5 MB 是多帧 .gih
- * 动画笔尖的 base64、1.9 MB 是贴图 PNG，真正能被 [KppHelper.parseKppAttributes]
+ * 动画笔尖的 base64、1.9 MB 是贴图 PNG，真正能被 [com.reverie.paint.core.brushstore.PresetReadback.fromXml]
  * 读到的设置只有 ~12 KB。
  *
  * 旧实现把整份 XML 拉成 String 再跑 40 多条正则，而 [com.reverie.paint.core.PaintViewModelBrush]
  * 的选中笔刷路径是在**主线程**调它的 —— 用户侧表现是"点这个笔刷就卡死、内存飙高"，
  * 而其他几十 KB 的普通笔刷只是"卡一会"。这里钉死两件事：
  *  1. 剥离内嵌 payload 后属性读取结果必须与完整解析**完全一致**（不能为了快而丢设置）；
- *  2. 写回路径（dedupe / updateKppFile）必须仍拿到完整 XML，否则会把笔尖从预设里抹掉。
+ *  2. 写回路径（EffectivePresetBuilder.build / AbrSnapshotBuilder）必须仍拿到完整 XML，否则会把笔尖从预设里抹掉。
  */
 class KppEmbeddedResourceStripTest {
 
@@ -98,6 +98,7 @@ class KppEmbeddedResourceStripTest {
             append("hfade=\"0.85\" vfade=\"0.85\" ratio=\"0.42\" spikes=\"3\" ")
             append("antialiasEdges=\"1\"/></brush_definition>")
             append("]]></param>")
+            append("<param name=\"PressureSoftness\" type=\"bool\">true</param>")
             append("<param name=\"SoftnessValue\" type=\"range\"><![CDATA[0.37]]></param>")
             append("<param name=\"Texture/Pattern/Enabled\" type=\"bool\">true</param>")
             append("<param name=\"Texture/Pattern/Scale\" type=\"double\"><![CDATA[0.5]]></param>")
@@ -137,15 +138,15 @@ class KppEmbeddedResourceStripTest {
         assertEquals("heavy_tip.gih", KppHelper.extractTipAssetFilename(kpp))
 
         // 属性读取结果必须一致
-        val a = KppHelper.parseKppAttributes(full)
-        val b = KppHelper.parseKppAttributes(stripped)
-        assertEquals(a.softness, b.softness)
-        assertEquals(0.37, b.softness!!, 1e-9)
-        assertEquals(0.85, b.fade!!, 1e-9)
-        assertEquals(0.42, b.ratio!!, 1e-9)
+        val a = com.reverie.paint.core.brushstore.PresetReadback.fromXml(full)
+        val b = com.reverie.paint.core.brushstore.PresetReadback.fromXml(stripped)
+        assertEquals(a.softness, b.softness, 1e-12)
+        assertEquals(0.37, b.softness, 1e-9)
+        assertEquals(0.85, b.fade, 1e-9)
+        assertEquals(0.42, b.ratio, 1e-9)
         assertEquals(3, b.spikes)
-        assertEquals(true, b.textureEnabled)
-        assertEquals(0.5, b.textureScale!!, 1e-9)
+        assertTrue(b.textureEnabled)
+        assertEquals(0.5, b.textureScale, 1e-9)
     }
 
     @Test
@@ -156,27 +157,37 @@ class KppEmbeddedResourceStripTest {
     }
 
     @Test
-    fun `parseKppFile 结果按文件版本缓存且改文件后失效`() {
-        val f = tmp.newFile("heavy.kpp")
-        f.writeBytes(buildKpp(presetXml(64 * 1024)))
+    fun `stripKpp 物理剥离预设内嵌资源后体积暴减且仍为合法预设`() {
+        val kpp = buildKpp(presetXml(2 * 1024 * 1024))
+        assertTrue(KppHelper.hasEmbeddedResources(kpp))
 
-        val first = KppHelper.parseKppFile(f)
-        assertEquals(0.37, first.softness!!, 1e-9)
-        // 同一文件版本：直接命中缓存（同一实例）
-        assertTrue("未变更文件应命中缓存", first === KppHelper.parseKppFile(f))
+        val strippedKpp = KppHelper.stripKpp(kpp)
+        assertFalse(KppHelper.hasEmbeddedResources(strippedKpp))
+        assertTrue("剥离后 kpp 大小应远小于 64 KB，实际 ${strippedKpp.size}", strippedKpp.size < 64 * 1024)
 
-        // 改内容 + 改 mtime：缓存必须失效并重新解析
-        f.writeBytes(buildKpp(presetXml(64 * 1024).replace("0.37", "0.91")))
-        f.setLastModified(System.currentTimeMillis() + 2000)
-        val third = KppHelper.parseKppFile(f)
-        assertEquals(0.91, third.softness!!, 1e-9)
+        val strippedXml = KppHelper.readPresetXml(strippedKpp)
+        assertNotNull(strippedXml)
+        assertTrue(strippedXml!!.contains("filename=\"heavy_tip.gih\""))
+        assertFalse(strippedXml.contains("AAAAAAAAAA"))
+
+        val rb = com.reverie.paint.core.brushstore.PresetReadback.fromXml(strippedXml)
+        assertEquals(0.37, rb.softness, 1e-9)
+        assertEquals(0.85, rb.fade, 1e-9)
+    }
+
+    @Test
+    fun `stripKpp 对无内嵌资源的普通预设直接返回原字节零拷贝`() {
+        val normalXml = "<paintop><params><param name=\"x\">1</param></params></paintop>"
+        val kpp = buildKpp(normalXml)
+        assertFalse(KppHelper.hasEmbeddedResources(kpp))
+        val result = KppHelper.stripKpp(kpp)
+        assertEquals(kpp.size, result.size)
+        assertTrue(kpp.contentEquals(result))
     }
 
     @Test
     fun `非 PNG 与缺块输入保持原有降级行为`() {
         assertNull(KppHelper.readPresetXml(ByteArray(4)))
         assertNull(KppHelper.readPresetXml(byteArrayOf(1, 2, 3, 4, 5, 6, 7, 8, 9)))
-        val empty = KppHelper.parseKppFile(File(tmp.root, "does-not-exist.kpp"))
-        assertNull(empty.softness)
     }
 }

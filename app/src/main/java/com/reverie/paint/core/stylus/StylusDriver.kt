@@ -222,10 +222,16 @@ class StylusDriver(
      * Prevents normal hardware keyboards from being intercepted and swallowed by stylus adapters.
      */
     fun onStylusKeyEvent(event: KeyEvent): Boolean {
+        val adapter = getActiveAdapter()
+        // 小米 Pro 用键码 194–197 传递触控手势，来源可能是系统虚拟设备。
+        // 必须在通用侧键白名单之前分流，否则手势不会进入小米适配器。
+        if (adapter is XiaomiStylusAdapter && adapter.onTouchFilmKeyEvent(event, vm, feedbackManager)) {
+            return true
+        }
         if (!isStylusKeyEvent(event)) {
             return false
         }
-        return getActiveAdapter()?.onStylusKeyEvent(event, vm, feedbackManager) ?: false
+        return adapter?.onStylusKeyEvent(event, vm, feedbackManager) ?: false
     }
 
     private fun isStylusKeyEvent(event: KeyEvent): Boolean {

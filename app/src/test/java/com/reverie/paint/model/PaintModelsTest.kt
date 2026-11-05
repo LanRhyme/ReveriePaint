@@ -59,6 +59,12 @@ class PaintModelsTest {
     }
 
     @Test
+    fun `pan tool belongs to VIEW group`() {
+        assertEquals(ToolGroup.VIEW, Tool.PAN.group)
+        assertEquals(Tool.PAN, Tool.fromId("pan"))
+    }
+
+    @Test
     fun `enclose fill region modes map correctly to Krita selection methods`() {
         assertEquals(0, EncloseFillRegionMode.ALL.methodValue)
         assertEquals(2, EncloseFillRegionMode.TRANSPARENT.methodValue)

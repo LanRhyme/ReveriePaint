@@ -86,4 +86,18 @@ class FrontBufferProbeTest {
         assertFalse(FrontBufferProbe.resolveHoldAllowed(cached = null, probeDone = false, probeResult = false))
         assertFalse(FrontBufferProbe.resolveHoldAllowed(cached = null, probeDone = false, probeResult = true))
     }
+
+    @Test
+    fun `detects known defective vendor ROMs on Android 13`() {
+        assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "Xiaomi", mfg = "Xiaomi"))
+        assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "Redmi", mfg = "Xiaomi"))
+        assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "vivo", mfg = "vivo"))
+        assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "iQOO", mfg = "vivo"))
+
+        // Other Android versions are not affected
+        assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 34, brand = "Xiaomi", mfg = "Xiaomi"))
+        assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "Xiaomi", mfg = "Xiaomi"))
+        assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "Samsung", mfg = "samsung"))
+        assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "google", mfg = "Google"))
+    }
 }

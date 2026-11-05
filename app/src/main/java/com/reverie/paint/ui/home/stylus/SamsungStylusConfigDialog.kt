@@ -34,21 +34,26 @@ import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.theme.Theme
 
+/** 按 actionId 查选项文案, 未命中时回退到 fallbackIdx 对应文案 */
+@Composable
+private fun actionTitle(
+    options: List<Pair<String, Int>>,
+    labels: List<String>,
+    actionId: String,
+    fallbackIdx: Int,
+): String = options.indexOfFirst { it.first == actionId }
+    .takeIf { it >= 0 }
+    ?.let { labels[it] }
+    ?: labels[fallbackIdx]
+
 @Composable
 internal fun SamsungStylusConfigDialog(
     vm: PaintViewModel,
     onDismiss: () -> Unit,
 ) {
     val colors = Theme.current
-    val actionOptions = listOf(
-        stringResource(R.string.stylus_action_switch_brush_eraser) to "toggle_eraser",
-        stringResource(R.string.stylus_action_undo) to "undo",
-        stringResource(R.string.stylus_action_redo) to "redo",
-        stringResource(R.string.stylus_action_eyedropper) to "tool_picker",
-        stringResource(R.string.stylus_action_prev_tool) to "toggle_last_tool",
-        stringResource(R.string.stylus_action_quick_palette) to "tool_color",
-        stringResource(R.string.stylus_action_none) to "none",
-    )
+    val options = stylusActionOptions()
+    val optionLabels = options.map { stringResource(it.second) }
 
     Dialog(
         onDismissRequest = onDismiss,
@@ -88,37 +93,47 @@ internal fun SamsungStylusConfigDialog(
 
                 // 侧键动作映射
                 StylusDialogSectionTitle(stringResource(R.string.stylus_samsung_key_mapping))
+                Text(
+                    text = stringResource(R.string.spen_air_button_note),
+                    color = colors.subText,
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp,
+                    modifier = Modifier.padding(start = 4.dp, bottom = 6.dp),
+                )
                 StylusDialogCard {
-                    val singleClickTitle = actionOptions.find { it.second == vm.samsungSingleClickAction }?.first ?: actionOptions[0].first
+                    val singleClickTitle = actionTitle(options, optionLabels, vm.samsungSingleClickAction, 0)
                     StylusDialogDropdownItem(
                         title = stringResource(R.string.stylus_samsung_click_action),
                         currentText = singleClickTitle,
-                        options = actionOptions.map { it.first },
+                        options = optionLabels,
                         onSelect = { idx ->
-                            vm.updateSamsungSingleClickAction(actionOptions[idx].second)
+                            vm.updateSamsungSingleClickAction(options[idx].first)
                         },
                     )
                     StylusDialogDivider()
-                    val doubleClickTitle = actionOptions.find { it.second == vm.samsungDoubleClickAction }?.first ?: actionOptions[1].first
+                    val doubleClickTitle = actionTitle(options, optionLabels, vm.samsungDoubleClickAction, 1)
                     StylusDialogDropdownItem(
                         title = stringResource(R.string.stylus_samsung_double_click_action),
                         currentText = doubleClickTitle,
-                        options = actionOptions.map { it.first },
+                        options = optionLabels,
                         onSelect = { idx ->
-                            vm.updateSamsungDoubleClickAction(actionOptions[idx].second)
+                            vm.updateSamsungDoubleClickAction(options[idx].first)
                         },
                     )
                     StylusDialogDivider()
-                    val longPressTitle = actionOptions.find { it.second == vm.samsungLongPressAction }?.first ?: actionOptions[3].first
+                    val longPressTitle = actionTitle(options, optionLabels, vm.samsungLongPressAction, 3)
                     StylusDialogDropdownItem(
                         title = stringResource(R.string.stylus_samsung_long_press_action),
                         currentText = longPressTitle,
-                        options = actionOptions.map { it.first },
+                        options = optionLabels,
                         onSelect = { idx ->
-                            vm.updateSamsungLongPressAction(actionOptions[idx].second)
+                            vm.updateSamsungLongPressAction(options[idx].first)
                         },
                     )
                 }
+
+                // 隔空挥动手势映射区
+                SpenAirGestureSection(vm)
 
                 Spacer(Modifier.height(14.dp))
 

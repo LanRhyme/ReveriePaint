@@ -4,6 +4,8 @@
 
 package com.reverie.paint.core
 
+import com.reverie.paint.core.brushstore.toCurveXml
+
 import android.graphics.Bitmap
 import android.os.Build
 import android.os.Handler
@@ -84,6 +86,10 @@ class PaintViewModel : ViewModel() {
     var totalStrokes by mutableIntStateOf(0)
     var initialStrokeCount by mutableIntStateOf(0)
     var isModified by mutableStateOf(false)
+    var brushModifiedEpoch by mutableLongStateOf(0L)
+    fun notifyBrushModified() {
+        brushModifiedEpoch++
+    }
     var elapsedSeconds by mutableLongStateOf(0L)
     var canvasCreatedTime by mutableLongStateOf(System.currentTimeMillis())
     var colorMode by mutableStateOf("RGB 8位 (sRGB)")
@@ -207,6 +213,8 @@ class PaintViewModel : ViewModel() {
     }
 
     fun onAppBackgrounded() {
+        // 切后台时按键的 KeyUp 可能永远不会到: 丢掉挂起的"临时工具"状态, 避免下次进前台莫名其妙回切
+        clearTemporaryToolHold()
         cancelQuickShape() // Restore the freehand draft before background backup is queued
         // 后台不再每秒唤醒: 计时与自动保存都只在绘画页前台有意义。
         // 必须放在下面几个早退之前 —— 否则"无未保存改动"时计时器会一直留在后台跑。
@@ -574,36 +582,94 @@ class PaintViewModel : ViewModel() {
     var renderScheduleMode by mutableStateOf(com.reverie.paint.model.RenderScheduleMode.PERFORMANCE)
 
     // Brush state
-    var brushSize by mutableDoubleStateOf(20.0)
+    /**
+     * 笔刷参数的唯一所有者：下面的 brushXxx 全是它的只读派生（getter，每次读都是 brushParams 的一次状态读，
+     * 没有第二份拷贝）。写只许 `brushParams = ...`；预设参数的乐观更新由 BrushStoreVm.stage 一处完成。
+     */
+    var brushParams by mutableStateOf(BrushParams(paintOpId = "paintbrush"))
+    val brushSize: Double get() = brushParams.size
+    val brushOpacity: Double get() = brushParams.opacity
+    val brushFlow: Double get() = brushParams.flow
+    val brushSpacing: Double get() = brushParams.spacing
+    val brushAngle: Double get() = brushParams.angle
+    val brushScatter: Double get() = brushParams.scatter
+    val brushFade: Double get() = brushParams.fade
+    val brushSoftness: Double get() = brushParams.softness
+    val brushRatio: Double get() = brushParams.ratio
+    val brushSharpness: Double get() = brushParams.sharpness
+    val brushRotation: Double get() = brushParams.rotation
+    val brushCompositeOp: String get() = brushParams.compositeOp
+    val brushAntiAliasing: Int get() = brushParams.antiAliasing
+    val brushTipShape: Int get() = brushParams.tipShape
+    val brushRandomFlipX: Boolean get() = brushParams.randomFlipX
+    val brushRandomFlipY: Boolean get() = brushParams.randomFlipY
+    val brushFollowDirection: Boolean get() = brushParams.followDirection
+    val brushStreamline: Double get() = brushParams.streamline
+    val brushTaper: Double get() = brushParams.taper
+    val brushTextureEnabled: Boolean get() = brushParams.textureEnabled
+    val brushTextureScale: Double get() = brushParams.textureScale
+    val brushTextureStrength: Double get() = brushParams.textureStrength
+    val brushTextureMode: String get() = brushParams.textureMode
+    val brushTexturePattern: String get() = brushParams.texturePattern
+    val brushHueJitter: Double get() = brushParams.hueJitter
+    val brushSatJitter: Double get() = brushParams.satJitter
+    val brushValJitter: Double get() = brushParams.valJitter
+    val brushSecondaryMix: Double get() = brushParams.secondaryMix
+    val brushPressureColorMix: Boolean get() = brushParams.pressureColorMix
+    val brushPressureEnabled: Boolean get() = brushParams.pressureEnabled
+    val brushPressureSize: Double get() = brushParams.pressureSize
+    val brushPressureOpacity: Double get() = brushParams.pressureOpacity
+    val brushPressureFlow: Double get() = brushParams.pressureFlow
+    val brushSpeedSize: Double get() = brushParams.speedSize
+    val brushPressureCurve: Int get() = brushParams.pressureCurve
+    val brushMinSizeLimit: Double get() = brushParams.minSizeLimit
+    val brushMaxSizeLimit: Double get() = brushParams.maxSizeLimit
+    val brushTipAsset: String get() = brushParams.tipAsset
+    val brushPaintOpId: String get() = brushParams.paintOpId
+    val brushAirbrush: Boolean get() = brushParams.airbrush
+    val brushAirbrushRate: Double get() = brushParams.airbrushRate
+    val brushSmudgeRate: Double get() = brushParams.smudgeRate
+    val brushSmudgeLength: Double get() = brushParams.smudgeLength
+    val brushColorRate: Double get() = brushParams.colorRate
+    val brushSmudgeMode: Int get() = brushParams.smudgeMode
+    val brushSpikes: Int get() = brushParams.spikes
+    val brushJitterAngle: Double get() = brushParams.jitterAngle
+    val brushJitterSize: Double get() = brushParams.jitterSize
+    val brushMaskingEnabled: Boolean get() = brushParams.maskingEnabled
+    val brushMaskingCompositeOp: String get() = brushParams.maskingCompositeOp
+    val brushMaskingSizeRatio: Double get() = brushParams.maskingSizeRatio
+    val brushMaskingSpacing: Double get() = brushParams.maskingSpacing
+    val brushMaskingTipAsset: String get() = brushParams.maskingTipAsset
+    val brushMaskingTipShape: Int get() = brushParams.maskingTipShape
+    val brushMaskingFade: Double get() = brushParams.maskingFade
+    val brushMaskingSoftness: Double get() = brushParams.maskingSoftness
+    val brushRotationSensor: String get() = brushParams.rotationSensor
+    val brushScatterSensor: String get() = brushParams.scatterSensor
+    val brushSizeSensor: String get() = brushParams.sizeSensor
+    val brushOpacitySensor: String get() = brushParams.opacitySensor
+    val brushFlowSensor: String get() = brushParams.flowSensor
+    val brushAuthor: String get() = brushParams.author
+    val brushIsAuthorLocked: Boolean get() = brushParams.isAuthorLocked
+    val brushDescription: String get() = brushParams.description
+    val brushVersion: String get() = brushParams.version
     var brushColor by mutableStateOf("#000000")
     var brushSecondaryColor by mutableStateOf("#ffffff")
-    var brushOpacity by mutableDoubleStateOf(1.0)
     var brushPresets by mutableStateOf<List<BrushPresetInfo>>(emptyList())
     var isBrushPresetsLoading by mutableStateOf(false)
     var brushPresetsLoaded = false
         internal set
     var brushPresetIndex by mutableIntStateOf(-1)
 
-    // User-defined brush groups: preset name -> group name; and the list of
+    // User-defined brush groups: preset ID -> group name (按 id 存, 见 BrushIdPrefs); and the list of
     // custom group names the user created (persisted in SharedPreferences)
     var userBrushGroups by mutableStateOf<Map<String, String>>(emptyMap())
     var customBrushGroups by mutableStateOf<List<String>>(emptyList())
     /** 笔刷导入进度: Pair(当前处理数, 总数), 非导入状态时为 null */
     var brushImportProgress by mutableStateOf<Pair<Int, Int>?>(null)
 
-    // Custom display order of presets (persisted); empty = default (sorted)
+    // Custom display order of presets (persisted, 笔刷 id); empty = default (sorted)
     var brushOrder by mutableStateOf<List<String>>(emptyList())
     var categoryOrder by mutableStateOf<List<String>>(emptyList())
-    var brushFlow by mutableDoubleStateOf(1.0)
-    var brushSpacing by mutableDoubleStateOf(0.1)
-    var brushAngle by mutableDoubleStateOf(0.0)
-    var brushScatter by mutableDoubleStateOf(0.0)
-    var brushFade by mutableDoubleStateOf(KppHelper.FADE_SOLID)
-    var brushSoftness by mutableDoubleStateOf(KppHelper.SOFTNESS_NEUTRAL)
-    var brushRatio by mutableDoubleStateOf(1.0)
-    var brushSharpness by mutableDoubleStateOf(0.0)
-    var brushRotation by mutableDoubleStateOf(0.0)
-    var brushCompositeOp by mutableStateOf("normal")
 
     // 上一次使用的工具 (toggle_last_tool 快捷键用)
     var lastToolId by mutableStateOf("brush")
@@ -641,31 +707,6 @@ class PaintViewModel : ViewModel() {
     var pendingUiCommand by mutableStateOf<String?>(null)
 
     // Extended brush studio properties
-    var brushAntiAliasing by mutableIntStateOf(1) // 0: 无, 1: 正常, 2: 强化, 3: 分级
-    var brushTipShape by mutableIntStateOf(0) // 0: 圆形笔触, 1: 方形笔触
-    var brushRandomFlipX by mutableStateOf(false)
-    var brushRandomFlipY by mutableStateOf(false)
-    var brushFollowDirection by mutableStateOf(false)
-    var brushStreamline by mutableDoubleStateOf(0.0)
-    var brushTaper by mutableDoubleStateOf(0.0)
-    var brushTextureEnabled by mutableStateOf(false)
-    var brushTextureScale by mutableDoubleStateOf(1.0)
-    var brushTextureStrength by mutableDoubleStateOf(0.5)
-    var brushTextureMode by mutableStateOf("multiply")
-    var brushTexturePattern by mutableStateOf("")
-    var brushHueJitter by mutableDoubleStateOf(0.0)
-    var brushSatJitter by mutableDoubleStateOf(0.0)
-    var brushValJitter by mutableDoubleStateOf(0.0)
-    var brushSecondaryMix by mutableDoubleStateOf(0.0)
-    var brushPressureColorMix by mutableStateOf(false)
-    var brushPressureEnabled by mutableStateOf(true)
-    var brushPressureSize by mutableDoubleStateOf(1.0)
-    var brushPressureOpacity by mutableDoubleStateOf(1.0)
-    var brushPressureFlow by mutableDoubleStateOf(1.0)
-    var brushSpeedSize by mutableDoubleStateOf(0.0)
-    var brushPressureCurve by mutableIntStateOf(0) // 0: 线性, 1: 柔和, 2: 硬朗, 3: S型
-    var brushMinSizeLimit by mutableDoubleStateOf(1.0)
-    var brushMaxSizeLimit by mutableDoubleStateOf(500.0)
     var brushSizeScalesWithCanvas by mutableStateOf(true)
 
     // 独立参数动态响应曲线配置映射表 (Size, Opacity, Flow, Softness, Rotation, Spacing, Scatter, SmudgeRate)
@@ -676,7 +717,17 @@ class PaintViewModel : ViewModel() {
     var scratchpadLiveOutput by mutableFloatStateOf(-1f)
 
     fun getBrushDynamicOption(key: String): com.reverie.paint.model.DynamicOptionConfig {
-        return brushDynamicOptions[key] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor(key).also {
+        return brushDynamicOptions[key] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor(key).let { def ->
+            val sensor = when (key.lowercase()) {
+                "size" -> brushParams.sizeSensor
+                "opacity" -> brushParams.opacitySensor
+                "flow" -> brushParams.flowSensor
+                "rotation" -> brushParams.rotationSensor
+                "scatter" -> brushParams.scatterSensor
+                else -> def.sensorId
+            }
+            def.copy(sensorId = sensor.ifBlank { def.sensorId })
+        }.also {
             brushDynamicOptions[key] = it
         }
     }
@@ -684,7 +735,7 @@ class PaintViewModel : ViewModel() {
     internal var brushStudioInitialKppBytes: ByteArray? = null
 
     /** v2：进入工作台时的覆盖（null = 该预设不归 v2 管，走 [brushStudioInitialKppBytes]） */
-    internal var brushStudioInitialOverrides: com.reverie.paint.core.brushstore.BrushOverrideStore.Overrides? = null
+    internal var brushStudioInitial: BrushStoreVm.StudioSnapshot? = null
 
     fun updateBrushDynamicOption(config: com.reverie.paint.model.DynamicOptionConfig) {
         updateBrushDynamicOption(config.optionKey, config)
@@ -694,40 +745,45 @@ class PaintViewModel : ViewModel() {
         key: String,
         config: com.reverie.paint.model.DynamicOptionConfig,
     ) {
-        brushDynamicOptions[key] = config
-        when (key.lowercase()) {
-            "size" -> {
-                brushPressureSize = if (config.enabled) config.strength.toDouble() else 0.0
-                if (config.enabled) brushPressureEnabled = true
-                brushSizeSensor = config.sensorId
-            }
-            "opacity" -> {
-                brushPressureOpacity = if (config.enabled) config.strength.toDouble() else 0.0
-                if (config.enabled) brushPressureEnabled = true
-                brushOpacitySensor = config.sensorId
-            }
-            "flow" -> {
-                brushPressureFlow = if (config.enabled) config.strength.toDouble() else 0.0
-                if (config.enabled) brushPressureEnabled = true
-                brushFlowSensor = config.sensorId
-            }
-            "scatter" -> {
-                brushScatterSensor = config.sensorId
-            }
-            "rotation" -> {
-                brushRotationSensor = config.sensorId
-            }
-        }
-        runCore(render = false) {
-            ReverieCoreBridge.setBrushOptionDynamics(
-                optionName = key,
-                enabled = config.enabled,
-                sensorId = config.sensorId,
-                curvePoints = config.toKritaCurveString(),
-                strength = config.strength.toDouble(),
+        val finalConfig = if (config.enabled && config.strength <= 0.001f) config.copy(strength = 1.0f) else config
+        brushDynamicOptions[key] = finalConfig
+        val strength = if (finalConfig.enabled) finalConfig.strength.toDouble() else 0.0
+        brushParams = when (key.lowercase()) {
+            "size" -> brushParams.copy(
+                pressureSize = strength,
+                pressureEnabled = brushPressureEnabled || finalConfig.enabled,
+                sizeSensor = finalConfig.sensorId,
             )
+            "opacity" -> brushParams.copy(
+                pressureOpacity = strength,
+                pressureEnabled = brushPressureEnabled || finalConfig.enabled,
+                opacitySensor = finalConfig.sensorId,
+            )
+            "flow" -> brushParams.copy(
+                pressureFlow = strength,
+                pressureEnabled = brushPressureEnabled || finalConfig.enabled,
+                flowSensor = finalConfig.sensorId,
+            )
+            "scatter" -> brushParams.copy(scatterSensor = finalConfig.sensorId)
+            "rotation" -> brushParams.copy(rotationSensor = finalConfig.sensorId)
+            else -> brushParams
         }
-        saveBrushParam(dynamicsChanged = true)
+        val cid = when (key.lowercase()) {
+            "size" -> com.reverie.paint.core.brushstore.ControlId.CURVE_SIZE
+            "opacity" -> com.reverie.paint.core.brushstore.ControlId.CURVE_OPACITY
+            "flow" -> com.reverie.paint.core.brushstore.ControlId.CURVE_FLOW
+            "rotation" -> com.reverie.paint.core.brushstore.ControlId.CURVE_ROTATION
+            "scatter" -> com.reverie.paint.core.brushstore.ControlId.CURVE_SCATTER
+            "softness" -> com.reverie.paint.core.brushstore.ControlId.CURVE_SOFTNESS
+            "spacing" -> com.reverie.paint.core.brushstore.ControlId.CURVE_SPACING
+            "smudgerate" -> com.reverie.paint.core.brushstore.ControlId.CURVE_SMUDGE_RATE
+            "colorrate" -> com.reverie.paint.core.brushstore.ControlId.CURVE_COLOR_RATE
+            "ratio" -> com.reverie.paint.core.brushstore.ControlId.CURVE_RATIO
+            else -> null
+        }
+        if (cid != null) {
+            BrushStoreVm.stage(this, cid, finalConfig.toCurveXml())
+        }
     }
 
     val effectiveBrushMaxSize: Double
@@ -746,45 +802,16 @@ class PaintViewModel : ViewModel() {
             updateBrushSize(maxL)
         }
     }
-    var brushTipAsset by mutableStateOf("")
-    var brushPaintOpId by mutableStateOf("paintbrush")
-    var brushAirbrush by mutableStateOf(false)
-    var brushAirbrushRate by mutableDoubleStateOf(30.0)
-    var brushSmudgeRate by mutableDoubleStateOf(0.5)
-    var brushSmudgeLength by mutableDoubleStateOf(0.5)
-    var brushColorRate by mutableDoubleStateOf(0.5)
-    var brushSmudgeMode by mutableIntStateOf(0) // Krita SmudgeRateMode: 0 = Smearing, 1 = Dulling
-    var brushSpikes by mutableIntStateOf(2)
-    var brushJitterAngle by mutableDoubleStateOf(0.0)
-    var brushJitterSize by mutableDoubleStateOf(0.0)
 
     // Masking Brush (双重画笔/蒙版画笔)
-    var brushMaskingEnabled by mutableStateOf(false)
-    var brushMaskingCompositeOp by mutableStateOf("multiply")
-    var brushMaskingSizeRatio by mutableDoubleStateOf(1.0)
-    var brushMaskingSpacing by mutableDoubleStateOf(0.1)
-    var brushMaskingTipAsset by mutableStateOf("")
-    var brushMaskingTipShape by mutableIntStateOf(0) // 0: 圆形, 1: 矩形
-    var brushMaskingFade by mutableDoubleStateOf(0.0)
-    var brushMaskingSoftness by mutableDoubleStateOf(1.0)
 
     // Sensor dynamics
-    var brushRotationSensor by mutableStateOf("drawingangle")
-    var brushScatterSensor by mutableStateOf("fuzzy")
-    var brushSizeSensor by mutableStateOf("pressure")
-    var brushOpacitySensor by mutableStateOf("pressure")
-    var brushFlowSensor by mutableStateOf("pressure")
 
     // Metadata properties
-    var brushAuthor by mutableStateOf("ReveriePaint")
-    var brushIsAuthorLocked by mutableStateOf(false)
-    var brushDescription by mutableStateOf("")
-    var brushVersion by mutableStateOf("1.0")
 
     // Per-preset independent size/opacity/flow (persisted). Switching presets
     // restores that brush's own values; adjusting a slider only affects the
     // current brush.
-    internal val brushParams = mutableStateMapOf<String, BrushParams>()
 
     // Display bitmap (managed as front/back double buffer, updated in place via renderToBuffer).
     // Decoupled from Compose state: hardware Canvas draws it directly with 0 recomposition overhead.
@@ -797,7 +824,6 @@ class PaintViewModel : ViewModel() {
     var layerPanelOpen by mutableStateOf(false)
     var brushPanelOpen by mutableStateOf(false)
     var brushStudioOpen by mutableStateOf(false)
-    var brushStudioInitialParams by mutableStateOf<BrushParams?>(null)
 
     // Brush panel persistence state
     var brushPanelSelectedCategory by mutableStateOf("全部")
@@ -809,8 +835,11 @@ class PaintViewModel : ViewModel() {
     var categoryPresetScrollMap: Map<String, Pair<Int, Int>> = emptyMap()
     var brushPropertyScrollValue: Int = 0
     var brushPanelGridView by mutableStateOf(false)
-    var favoriteBrushNames by mutableStateOf<Set<String>>(emptySet())
-    var recentBrushNames by mutableStateOf<List<String>>(emptyList())
+    /** 常用 / 最近：笔刷 id（不是显示名；改名、重名都不影响）。见 [com.reverie.paint.core.brushstore.BrushIdPrefs] */
+    var favoriteBrushIds by mutableStateOf<Set<String>>(emptySet())
+    var recentBrushIds by mutableStateOf<List<String>>(emptyList())
+    /** 按 id 的四项偏好已读入内存之前不写盘，免得空状态盖掉磁盘上的数据 */
+    @Volatile internal var brushIdPrefsLoaded = false
     var settingsPanelOpen by mutableStateOf(false)
     var drawingGuidePanelOpen by mutableStateOf(false)
     var targetSettingsTab by mutableStateOf<String?>(null)
@@ -829,22 +858,22 @@ class PaintViewModel : ViewModel() {
     internal var shadingAssistComputeJob: kotlinx.coroutines.Job? = null
     internal var shadingAssistRawDepth: ShadingAssistEngine.RawDepthData? = null
 
-    fun toggleFavoriteBrush(name: String) {
-        if (name.isBlank()) return
-        favoriteBrushNames = if (favoriteBrushNames.contains(name)) {
-            favoriteBrushNames - name
+    fun toggleFavoriteBrush(id: String) {
+        if (id.isBlank()) return
+        favoriteBrushIds = if (favoriteBrushIds.contains(id)) {
+            favoriteBrushIds - id
         } else {
-            favoriteBrushNames + name
+            favoriteBrushIds + id
         }
         persistBrushPanelState()
     }
 
-    fun isFavoriteBrush(name: String): Boolean = favoriteBrushNames.contains(name)
+    fun isFavoriteBrush(id: String): Boolean = favoriteBrushIds.contains(id)
 
-    fun recordRecentBrush(name: String) {
-        if (name.isBlank()) return
-        val list = (listOf(name) + recentBrushNames.filter { it != name }).take(16)
-        recentBrushNames = list
+    fun recordRecentBrush(id: String) {
+        if (id.isBlank()) return
+        val list = (listOf(id) + recentBrushIds.filter { it != id }).take(com.reverie.paint.core.brushstore.BrushIdPrefs.RECENT_MAX)
+        recentBrushIds = list
         persistBrushPanelState()
     }
 
@@ -899,11 +928,9 @@ class PaintViewModel : ViewModel() {
     data class ToolBrushState(
         val presetIndex: Int = -1,
         /**
-         * 预设名字 = 稳定身份。#136 A：`presetIndex` 是「当前目录里按名排序」的产物，
-         * 导入/删除预设会整表重排，只存索引会让工具槽在重排后指到别的笔（橡皮变喷漆）。
-         * 解析顺序见 [com.reverie.paint.core.ToolPresetMemory]：先名字，名字缺失才退回索引并自愈回填。
+         * 预设稳定身份 (BrushIdentity.id)。#136 A / v5 S3：工具槽以 presetId 为身份存储。
          */
-        val presetName: String = "",
+        val presetId: String = "",
         val category: String = "全部",
         val categoryScrollIndex: Int = 0,
         val categoryScrollOffset: Int = 0,
@@ -924,15 +951,23 @@ class PaintViewModel : ViewModel() {
     var currentToolId by mutableStateOf("brush")
         internal set
 
+    /** 橡皮模式 (Krita 风格): 当前笔刷不变, 仅将底层绘制模式切换为擦除 */
+    var isEraserMode by mutableStateOf(false)
+        internal set
+
     /** 当前笔画临时覆盖工具 (如物理橡皮擦末端 TOOL_TYPE_ERASER 或侧键临时擦除生效时设为 "eraser") */
     var activeStrokeToolOverride by mutableStateOf<String?>(null)
         internal set
-    internal var activeStrokeOriginalPresetIndex: Int = -1
-    internal var activeStrokeOriginalSize: Double = 0.0
-    internal var activeStrokeOriginalOpacity: Double = 1.0
-    internal var activeStrokeOriginalFlow: Double = 1.0
-    internal var activeStrokeOriginalCompositeOp: String = "normal"
-    internal var activeStrokeOriginalToolMode: Int = 0
+    /** 临时橡皮擦覆盖生效前的现场（只在 touchStart 写一次、只在 restore 读；这是真正会丢的旧状态，不是镜像） */
+    internal data class StrokeSaved(
+        val presetIndex: Int = -1,
+        val size: Double = 0.0,
+        val opacity: Double = 1.0,
+        val flow: Double = 1.0,
+        val compositeOp: String = "normal",
+        val toolMode: Int = 0,
+    )
+    internal var strokeSaved: StrokeSaved = StrokeSaved()
     internal var activeStrokePresetSwitched: Boolean = false
 
     /**
@@ -941,9 +976,11 @@ class PaintViewModel : ViewModel() {
     fun getToolEffectiveSize(toolId: String): Double {
         val state = toolBrushStates[toolId]
         val curPreset = brushPresets.firstOrNull { it.index == state?.presetIndex }
-        val saved = curPreset?.let { brushParams[it.name] }
-        val mem = curPreset?.let { state?.paramMemory?.get(it.name) }
-        return mem?.getOrNull(0) ?: saved?.size ?: brushSize
+        val pid = curPreset?.id ?: state?.presetId
+        val mem = pid?.takeIf { it.isNotBlank() }?.let { state?.paramMemory?.get(it) }
+        mem?.getOrNull(0)?.let { return it }
+        val saved = pid?.takeIf { it.isNotBlank() }?.let { BrushStoreVm.readback(it)?.first }
+        return saved?.size ?: brushSize
     }
 
     /** 最近一次活跃的绘制类工具 (brush / eraser / smudge), 用于在临时工具 (如吸管) 切换回笔刷时保留笔刷尺寸与参数 */
@@ -1114,7 +1151,9 @@ class PaintViewModel : ViewModel() {
             p.putBoolean("quick_brush_collapsed", quickBrushCollapsed)
             p.putString("quick_brush_orientation", quickBrushOrientation)
             p.putInt("quick_brush_max_length", quickBrushMaxLength)
-            p.putString("quick_brush_order", quickBrushOrder.joinToString(","))
+            if (brushIdPrefsLoaded) {
+                p.putString(com.reverie.paint.core.brushstore.BrushIdPrefs.QUICK_IDS, com.reverie.paint.core.brushstore.BrushIdPrefs.encodeList(quickBrushOrder))
+            }
             p.apply()
         } catch (_: Exception) {}
     }
@@ -1277,7 +1316,9 @@ class PaintViewModel : ViewModel() {
         if (screenWidthPx <= 0f || screenHeightPx <= 0f) return
 
         if (newIsLandscape == isLandscapeMode) {
-            clampQuickWindowsToSafeArea(screenWidthPx, screenHeightPx, density)
+            val clampW = if (floatingHostWidthPx > 0f) floatingHostWidthPx else screenWidthPx
+            val clampH = if (floatingHostHeightPx > 0f) floatingHostHeightPx else screenHeightPx
+            clampQuickWindowsToSafeArea(clampW, clampH, density)
             return
         }
 
@@ -1346,8 +1387,10 @@ class PaintViewModel : ViewModel() {
             if (referenceWindowY_port >= 0f) referenceWindowY = referenceWindowY_port
         }
 
-        // 4. 确保新视口中的各小窗处于当前屏幕安全区内
-        clampQuickWindowsToSafeArea(screenWidthPx, screenHeightPx, density)
+        // 4. 按绘画页布局夹取; 宿主尚未测量时回退到本次传入的屏幕尺寸
+        val clampW = if (floatingHostWidthPx > 0f) floatingHostWidthPx else screenWidthPx
+        val clampH = if (floatingHostHeightPx > 0f) floatingHostHeightPx else screenHeightPx
+        clampQuickWindowsToSafeArea(clampW, clampH, density)
 
         // 5. 更新新方向槽位并持久化保存
         if (newIsLandscape) {
@@ -1384,28 +1427,125 @@ class PaintViewModel : ViewModel() {
         persistQuickLayerState()
     }
 
-    fun clampQuickWindowsToSafeArea(
-        screenWidthPx: Float,
-        screenHeightPx: Float,
-        density: Float,
-    ) {
-        if (screenWidthPx <= 0f || screenHeightPx <= 0f) return
-        val margin = 16f * density
+    /** 绘画页宿主 Box 的实测像素尺寸。0 表示尚未 layout, 方向切换时回退到传入的屏幕尺寸。 */
+    internal var floatingHostWidthPx: Float = 0f
+    internal var floatingHostHeightPx: Float = 0f
 
-        // 1. Reference Window
-        if (referenceWindowX >= 0f) {
+    /** 窗内拖把手, 相对窗根的像素矩形。不是 Compose state: 上报与夹取都在主线程。 */
+    internal class FloatingGrip {
+        var left: Float = 0f
+        var top: Float = 0f
+        var width: Float = 0f
+        var height: Float = 0f
+        val placed: Boolean get() = width > 0f && height > 0f
+        fun update(left: Float, top: Float, width: Float, height: Float) {
+            if (this.left == left && this.top == top && this.width == width && this.height == height) return
+            this.left = left
+            this.top = top
+            this.width = width
+            this.height = height
+        }
+        fun clear() {
+            left = 0f
+            top = 0f
+            width = 0f
+            height = 0f
+        }
+    }
+
+    internal val referenceGrip = FloatingGrip()
+    internal val quickActionGrip = FloatingGrip()
+    internal val quickBrushGrip = FloatingGrip()
+    internal val quickColorGrip = FloatingGrip()
+    internal val quickOklchGrip = FloatingGrip()
+    internal val quickLayerGrip = FloatingGrip()
+
+    /** 夹取结果复用容器: 拖拽期每帧要夹 6 个窗, 避免每帧分配 Pair 与装箱。仅主线程使用。 */
+    private val clampScratch = WindowOrigin()
+
+    /**
+     * 夹一个窗: 有实测把手就用实测矩形, 没有时用 [fallbackLeft]/[fallbackTop]/[fallbackW]/[fallbackH]。
+     *
+     * 实测把手总是缺一帧 —— 宿主 Box 在 measure 阶段就回调 onSizeChanged, 而子节点的把手要到
+     * place 阶段才 onGloballyPositioned, 所以首帧/方向切换时走兜底。兜底几何统一引用 DragGripSpec,
+     * 与 ui 侧实际尺寸同源, 不会悄悄漂移。
+     */
+    private inline fun applyGripClamp(
+        x: Float,
+        y: Float,
+        grip: FloatingGrip,
+        fallbackLeft: Float,
+        fallbackTop: Float,
+        fallbackW: Float,
+        fallbackH: Float,
+        parentW: Float,
+        parentH: Float,
+        keepInside: Float,
+        persist: Boolean,
+        write: (Float, Float) -> Unit,
+        save: () -> Unit,
+    ) {
+        val gripLeft: Float
+        val gripTop: Float
+        val gripW: Float
+        val gripH: Float
+        if (grip.placed) {
+            gripLeft = grip.left
+            gripTop = grip.top
+            gripW = grip.width
+            gripH = grip.height
+        } else {
+            gripLeft = fallbackLeft
+            gripTop = fallbackTop
+            gripW = fallbackW
+            gripH = fallbackH
+        }
+        clampPlacedWindowOrigin(
+            x, y, parentW, parentH, gripLeft, gripTop, gripW, gripH, keepInside, clampScratch,
+        )
+        val nx = clampScratch.x
+        val ny = clampScratch.y
+        if (nx != x || ny != y) {
+            write(nx, ny)
+            if (persist) save()
+        }
+    }
+
+    /**
+     * 将各悬浮快捷小窗按绘画页布局夹取: 左右可出界但留住 48dp 拖把手, 顶部不允许滑出。
+     * 已测量的把手优先; 未测量时用各窗布局对应的把手 fallback。
+     * persist=false 用于拖拽过程中的实时夹取: 只改内存坐标, 不落盘 (落盘仍由松手时的 onDragEnd 负责)。
+     * x 与 y 同时 < 0 视为「未定位」哨兵, 跳过该窗, 避免把未打开过的窗夹到左上角。
+     */
+    fun clampQuickWindowsToSafeArea(
+        parentW: Float,
+        parentH: Float,
+        density: Float,
+        persist: Boolean = true,
+    ) {
+        if (parentW <= 0f || parentH <= 0f) return
+        val keepInside = 48f * density
+
+        // 1. Reference Window: 顶栏整宽 (展开 38dp / 收起 28dp 拖动条)。未定位哨兵不夹。
+        if (!(referenceWindowX < 0f && referenceWindowY < 0f)) {
             val w = referenceWindowWidth * density
             val h = referenceWindowHeight * density
-            val maxX = (screenWidthPx - w - margin).coerceAtLeast(0f)
-            val maxY = (screenHeightPx - h - margin).coerceAtLeast(0f)
-            var changed = false
-            if (referenceWindowX > maxX) { referenceWindowX = maxX; changed = true }
-            if (referenceWindowY > maxY) { referenceWindowY = maxY; changed = true }
-            if (changed) persistReferenceState()
+            val barH = if (referenceBarsCollapsed) {
+                DragGripSpec.REFERENCE_STRIP_HEIGHT_DP
+            } else {
+                DragGripSpec.REFERENCE_TOP_BAR_HEIGHT_DP
+            }
+            applyGripClamp(
+                referenceWindowX, referenceWindowY, referenceGrip,
+                0f, 0f, w, minOf(barH * density, h),
+                parentW, parentH, keepInside, persist,
+                { nx, ny -> referenceWindowX = nx; referenceWindowY = ny },
+                ::persistReferenceState,
+            )
         }
 
-        // 2. Quick Action Window
-        if (quickActionWindowX >= 0f) {
+        // 2. Quick Action Window: 顶栏整宽 (展开 24dp), 折叠时把手就是整窗
+        if (!(quickActionWindowX < 0f && quickActionWindowY < 0f)) {
             val fallbackW = when {
                 quickActionCollapsed -> 64f * density
                 quickActionsConfig.layoutMode == com.reverie.paint.model.QuickActionLayoutMode.COLUMN -> 56f * density
@@ -1421,16 +1561,22 @@ class PaintViewModel : ViewModel() {
             }
             val w = if (quickActionWindowWidth > 0f) quickActionWindowWidth else fallbackW
             val h = if (quickActionWindowHeight > 0f) quickActionWindowHeight else fallbackH
-            val maxX = (screenWidthPx - w - margin).coerceAtLeast(0f)
-            val maxY = (screenHeightPx - h - margin).coerceAtLeast(0f)
-            var changed = false
-            if (quickActionWindowX > maxX) { quickActionWindowX = maxX; changed = true }
-            if (quickActionWindowY > maxY) { quickActionWindowY = maxY; changed = true }
-            if (changed) persistQuickActionsState()
+            val gripH = if (quickActionCollapsed) {
+                h
+            } else {
+                minOf(DragGripSpec.QUICK_ACTION_TOP_BAR_HEIGHT_DP * density, h)
+            }
+            applyGripClamp(
+                quickActionWindowX, quickActionWindowY, quickActionGrip,
+                0f, 0f, w, gripH,
+                parentW, parentH, keepInside, persist,
+                { nx, ny -> quickActionWindowX = nx; quickActionWindowY = ny },
+                ::persistQuickActionsState,
+            )
         }
 
-        // 3. Quick Brush Window
-        if (quickBrushWindowX >= 0f) {
+        // 3. Quick Brush Window: 折叠整窗; 竖向顶部握把; 横向左端握把
+        if (!(quickBrushWindowX < 0f && quickBrushWindowY < 0f)) {
             val fallbackW = when {
                 quickBrushCollapsed -> 64f * density
                 quickBrushOrientation == "vertical" -> 54f * density
@@ -1443,62 +1589,123 @@ class PaintViewModel : ViewModel() {
             }
             val w = if (quickBrushWindowWidth > 0f) quickBrushWindowWidth else fallbackW
             val h = if (quickBrushWindowHeight > 0f) quickBrushWindowHeight else fallbackH
-            val maxX = (screenWidthPx - w - margin).coerceAtLeast(0f)
-            val maxY = (screenHeightPx - h - margin).coerceAtLeast(0f)
-            var changed = false
-            if (quickBrushWindowX > maxX) { quickBrushWindowX = maxX; changed = true }
-            if (quickBrushWindowY > maxY) { quickBrushWindowY = maxY; changed = true }
-            if (changed) persistQuickBrushState()
+            val gripLeft: Float
+            val gripTop: Float
+            val gripW: Float
+            val gripH: Float
+            when {
+                quickBrushCollapsed -> {
+                    gripLeft = 0f
+                    gripTop = 0f
+                    gripW = w
+                    gripH = h
+                }
+                quickBrushOrientation == "vertical" -> {
+                    val barW = DragGripSpec.QUICK_BRUSH_TOP_WIDTH_DP * density
+                    gripW = minOf(barW, w)
+                    gripH = minOf(DragGripSpec.QUICK_BRUSH_TOP_HEIGHT_DP * density, h)
+                    gripLeft = ((w - barW) / 2f).coerceAtLeast(0f)
+                    gripTop = 0f
+                }
+                else -> {
+                    val barH = DragGripSpec.QUICK_BRUSH_SIDE_HEIGHT_DP * density
+                    gripW = minOf(DragGripSpec.QUICK_BRUSH_SIDE_WIDTH_DP * density, w)
+                    gripH = minOf(barH, h)
+                    gripLeft = DragGripSpec.QUICK_BRUSH_SIDE_INSET_DP * density
+                    gripTop = ((h - barH) / 2f).coerceAtLeast(0f)
+                }
+            }
+            applyGripClamp(
+                quickBrushWindowX, quickBrushWindowY, quickBrushGrip,
+                gripLeft, gripTop, gripW, gripH,
+                parentW, parentH, keepInside, persist,
+                { nx, ny -> quickBrushWindowX = nx; quickBrushWindowY = ny },
+                ::persistQuickBrushState,
+            )
         }
 
-        // 4. Quick Color Window
-        if (quickColorWindowX >= 0f) {
-            val fallbackW = if (quickColorCollapsed) 48f * density else 212f * density
-            val fallbackH = if (quickColorCollapsed) 48f * density else 272f * density
+        // 4. Quick Color Window: 折叠整窗 46dp; 展开居中 60x16 小横条
+        if (!(quickColorWindowX < 0f && quickColorWindowY < 0f)) {
+            val fallbackW = if (quickColorCollapsed) 46f * density else 212f * density
+            val fallbackH = if (quickColorCollapsed) 46f * density else 272f * density
             val w = if (quickColorWindowWidth > 0f) quickColorWindowWidth else fallbackW
             val h = if (quickColorWindowHeight > 0f) quickColorWindowHeight else fallbackH
-            val maxX = (screenWidthPx - w - margin).coerceAtLeast(0f)
-            val maxY = (screenHeightPx - h - margin).coerceAtLeast(0f)
-            var changed = false
-            if (quickColorWindowX > maxX) { quickColorWindowX = maxX; changed = true }
-            if (quickColorWindowY > maxY) { quickColorWindowY = maxY; changed = true }
-            if (changed) persistQuickColorState()
+            val gripLeft: Float
+            val gripW: Float
+            val gripH: Float
+            if (quickColorCollapsed) {
+                gripLeft = 0f
+                gripW = w
+                gripH = h
+            } else {
+                val barW = DragGripSpec.PILL_WIDTH_DP * density
+                gripW = minOf(barW, w)
+                gripH = minOf(DragGripSpec.PILL_HEIGHT_DP * density, h)
+                gripLeft = ((w - barW) / 2f).coerceAtLeast(0f)
+            }
+            applyGripClamp(
+                quickColorWindowX, quickColorWindowY, quickColorGrip,
+                gripLeft, 0f, gripW, gripH,
+                parentW, parentH, keepInside, persist,
+                { nx, ny -> quickColorWindowX = nx; quickColorWindowY = ny },
+                ::persistQuickColorState,
+            )
         }
 
-        // 5. Quick OKLCH Window
-        if (quickOklchWindowX >= 0f) {
-            val fallbackW = if (quickOklchCollapsed) 48f * density else 244f * density
-            val fallbackH = if (quickOklchCollapsed) 48f * density else 320f * density
+        // 5. Quick OKLCH Window: 折叠整窗 46dp; 展开宽 256dp, 把手同颜色窗
+        if (!(quickOklchWindowX < 0f && quickOklchWindowY < 0f)) {
+            val fallbackW = if (quickOklchCollapsed) 46f * density else 256f * density
+            val fallbackH = if (quickOklchCollapsed) 46f * density else 320f * density
             val w = if (quickOklchWindowWidth > 0f) quickOklchWindowWidth else fallbackW
             val h = if (quickOklchWindowHeight > 0f) quickOklchWindowHeight else fallbackH
-            val maxX = (screenWidthPx - w - margin).coerceAtLeast(0f)
-            val maxY = (screenHeightPx - h - margin).coerceAtLeast(0f)
-            var changed = false
-            if (quickOklchWindowX > maxX) { quickOklchWindowX = maxX; changed = true }
-            if (quickOklchWindowY > maxY) { quickOklchWindowY = maxY; changed = true }
-            if (changed) persistQuickOklchState()
+            val gripLeft: Float
+            val gripW: Float
+            val gripH: Float
+            if (quickOklchCollapsed) {
+                gripLeft = 0f
+                gripW = w
+                gripH = h
+            } else {
+                val barW = DragGripSpec.PILL_WIDTH_DP * density
+                gripW = minOf(barW, w)
+                gripH = minOf(DragGripSpec.PILL_HEIGHT_DP * density, h)
+                gripLeft = ((w - barW) / 2f).coerceAtLeast(0f)
+            }
+            applyGripClamp(
+                quickOklchWindowX, quickOklchWindowY, quickOklchGrip,
+                gripLeft, 0f, gripW, gripH,
+                parentW, parentH, keepInside, persist,
+                { nx, ny -> quickOklchWindowX = nx; quickOklchWindowY = ny },
+                ::persistQuickOklchState,
+            )
         }
 
-        // 6. Quick Layer Window
-        if (quickLayerWindowX >= 0f) {
-            val fallbackW = if (quickLayerCollapsed) 48f * density else 156f * density
-            val fallbackH = if (quickLayerCollapsed) 48f * density else 290f * density
+        // 6. Quick Layer Window: 折叠整窗 46dp; 展开顶栏 38dp
+        if (!(quickLayerWindowX < 0f && quickLayerWindowY < 0f)) {
+            val fallbackW = if (quickLayerCollapsed) 46f * density else 156f * density
+            val fallbackH = if (quickLayerCollapsed) 46f * density else 290f * density
             val w = if (quickLayerWindowWidth > 0f) quickLayerWindowWidth else fallbackW
             val h = if (quickLayerWindowHeight > 0f) quickLayerWindowHeight else fallbackH
-            val maxX = (screenWidthPx - w - margin).coerceAtLeast(0f)
-            val maxY = (screenHeightPx - h - margin).coerceAtLeast(0f)
-            var changed = false
-            if (quickLayerWindowX > maxX) { quickLayerWindowX = maxX; changed = true }
-            if (quickLayerWindowY > maxY) { quickLayerWindowY = maxY; changed = true }
-            if (changed) persistQuickLayerState()
+            val gripH = if (quickLayerCollapsed) {
+                h
+            } else {
+                minOf(DragGripSpec.QUICK_LAYER_TOP_BAR_HEIGHT_DP * density, h)
+            }
+            applyGripClamp(
+                quickLayerWindowX, quickLayerWindowY, quickLayerGrip,
+                0f, 0f, w, gripH,
+                parentW, parentH, keepInside, persist,
+                { nx, ny -> quickLayerWindowX = nx; quickLayerWindowY = ny },
+                ::persistQuickLayerState,
+            )
         }
     }
 
     fun getOrderedFavoriteBrushes(): List<BrushPresetInfo> {
-        val favs = brushPresets.filter { isFavoriteBrush(it.name) }
+        val favs = brushPresets.filter { isFavoriteBrush(it.id) }
         if (quickBrushOrder.isEmpty()) return favs
         val orderMap = quickBrushOrder.withIndex().associate { it.value to it.index }
-        return favs.sortedWith(compareBy({ orderMap[it.name] ?: Int.MAX_VALUE }, { it.name }))
+        return favs.sortedWith(compareBy({ orderMap[it.id] ?: Int.MAX_VALUE }, { it.name }))
     }
 
     fun executeQuickAction(action: com.reverie.paint.model.QuickAction) {
@@ -1522,10 +1729,10 @@ class PaintViewModel : ViewModel() {
             com.reverie.paint.model.QuickAction.ROTATE_CCW -> requestUiCommand(CanvasViewportStep.ROTATE_CCW.command)
             com.reverie.paint.model.QuickAction.ROTATE_CW -> requestUiCommand(CanvasViewportStep.ROTATE_CW.command)
             com.reverie.paint.model.QuickAction.UNDO -> {
-                undo()
+                undoFromPanel()
             }
             com.reverie.paint.model.QuickAction.REDO -> {
-                redo()
+                redoFromPanel()
             }
             com.reverie.paint.model.QuickAction.TOGGLE_ERASER -> {
                 if (currentToolId == "eraser") {
@@ -1533,6 +1740,9 @@ class PaintViewModel : ViewModel() {
                 } else {
                     applyTool("eraser")
                 }
+            }
+            com.reverie.paint.model.QuickAction.ERASER_MODE -> {
+                toggleEraserMode()
             }
             com.reverie.paint.model.QuickAction.LAST_TOOL -> {
                 val t = lastToolId
@@ -1590,6 +1800,13 @@ class PaintViewModel : ViewModel() {
             com.reverie.paint.model.QuickAction.SHADING_ASSIST -> {
                 openShadingAssist()
             }
+            com.reverie.paint.model.QuickAction.PAN -> {
+                if (currentToolId == "pan") {
+                    applyTool(if (lastToolId.isNotEmpty() && lastToolId != "pan") lastToolId else "brush")
+                } else {
+                    applyTool("pan")
+                }
+            }
         }
     }
 
@@ -1598,19 +1815,172 @@ class PaintViewModel : ViewModel() {
         return layers.firstOrNull { it.index == idx }?.alphaLocked == true
     }
 
-    // 作者档案 (Dublin Core / Krita 兼容元数据)
+    // 作者档案 (Dublin Core / Krita 兼容元数据) 与多预设管理
+    var authorProfilePresets by mutableStateOf<List<com.reverie.paint.model.AuthorProfilePreset>>(emptyList())
+        internal set
+
+    var activeAuthorProfileId by mutableStateOf("default")
+        internal set
+
     var authorProfile by mutableStateOf(com.reverie.paint.model.AuthorProfile())
         internal set
 
     fun updateAuthorProfile(profile: com.reverie.paint.model.AuthorProfile) {
         authorProfile = profile
-        if (::appContext.isInitialized) {
+        val updated = authorProfilePresets.map {
+            if (it.id == activeAuthorProfileId) it.copy(profile = profile) else it
+        }
+        if (updated.none { it.id == activeAuthorProfileId }) {
+            authorProfilePresets = listOf(
+                com.reverie.paint.model.AuthorProfilePreset(
+                    id = activeAuthorProfileId,
+                    name = "默认档案",
+                    profile = profile,
+                ),
+            )
+        } else {
+            authorProfilePresets = updated
+        }
+        persistAuthorProfiles()
+        syncAuthorProfileToCore()
+    }
+
+    fun switchAuthorProfile(presetId: String) {
+        val target = authorProfilePresets.firstOrNull { it.id == presetId } ?: return
+        activeAuthorProfileId = target.id
+        authorProfile = target.profile
+        persistAuthorProfiles()
+        syncAuthorProfileToCore()
+    }
+
+    fun createAuthorProfilePreset(name: String, baseProfile: com.reverie.paint.model.AuthorProfile = authorProfile) {
+        val newId = java.util.UUID.randomUUID().toString()
+        val trimmedName = name.trim().ifBlank { "预设 ${authorProfilePresets.size + 1}" }
+        val newPreset = com.reverie.paint.model.AuthorProfilePreset(
+            id = newId,
+            name = trimmedName,
+            profile = baseProfile,
+        )
+        authorProfilePresets = authorProfilePresets + newPreset
+        activeAuthorProfileId = newId
+        authorProfile = baseProfile
+        persistAuthorProfiles()
+        syncAuthorProfileToCore()
+    }
+
+    fun renameAuthorProfilePreset(presetId: String, newName: String) {
+        val trimmed = newName.trim().ifBlank { return }
+        authorProfilePresets = authorProfilePresets.map {
+            if (it.id == presetId) it.copy(name = trimmed) else it
+        }
+        persistAuthorProfiles()
+    }
+
+    fun duplicateAuthorProfilePreset(presetId: String) {
+        val source = authorProfilePresets.firstOrNull { it.id == presetId } ?: return
+        val newId = java.util.UUID.randomUUID().toString()
+        val copyPreset = com.reverie.paint.model.AuthorProfilePreset(
+            id = newId,
+            name = "${source.name} (副本)",
+            profile = source.profile.copy(),
+        )
+        authorProfilePresets = authorProfilePresets + copyPreset
+        persistAuthorProfiles()
+    }
+
+    fun deleteAuthorProfilePreset(presetId: String): Boolean {
+        if (authorProfilePresets.size <= 1) return false
+        val newPresets = authorProfilePresets.filterNot { it.id == presetId }
+        authorProfilePresets = newPresets
+        if (activeAuthorProfileId == presetId) {
+            val next = newPresets.first()
+            activeAuthorProfileId = next.id
+            authorProfile = next.profile
+            syncAuthorProfileToCore()
+        }
+        persistAuthorProfiles()
+        return true
+    }
+
+    private fun persistAuthorProfiles() {
+        if (!::appContext.isInitialized) return
+        try {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
-                .putString("author_profile_json", profile.toJson())
+                .putString("author_profile_json", authorProfile.toJson())
+                .putString(
+                    "author_profile_presets_json",
+                    com.reverie.paint.model.AuthorProfilePreset.listToJson(authorProfilePresets),
+                )
+                .putString("active_author_profile_id", activeAuthorProfileId)
                 .apply()
+        } catch (_: Exception) {}
+    }
+
+    // 赞助提示与使用里程碑统计
+    var showSponsorPromptDialog by mutableStateOf(false)
+    var launchCount by mutableIntStateOf(0)
+    var exportCount by mutableIntStateOf(0)
+    var createdCanvasCount by mutableIntStateOf(0)
+
+    fun recordLaunch() {
+        if (!::appContext.isInitialized) return
+        val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        val cur = prefs.getInt("launch_count", 0) + 1
+        prefs.edit().putInt("launch_count", cur).apply()
+        launchCount = cur
+        exportCount = prefs.getInt("export_count", 0)
+        createdCanvasCount = prefs.getInt("created_canvas_count", 0)
+    }
+
+    fun recordExport() {
+        if (!::appContext.isInitialized) return
+        val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        val cur = prefs.getInt("export_count", 0) + 1
+        prefs.edit().putInt("export_count", cur).apply()
+        exportCount = cur
+    }
+
+    fun recordCanvasCreated() {
+        if (!::appContext.isInitialized) return
+        val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        val cur = prefs.getInt("created_canvas_count", 0) + 1
+        prefs.edit().putInt("created_canvas_count", cur).apply()
+        createdCanvasCount = cur
+        CreationStatsManager.recordCanvasCreated(appContext)
+    }
+
+    fun checkSponsorPromptTrigger() {
+        if (!::appContext.isInitialized) return
+        val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        val suppressed = prefs.getBoolean("sponsor_prompt_suppressed", false)
+        if (suppressed) return
+        val launches = prefs.getInt("launch_count", 0)
+        val exports = prefs.getInt("export_count", 0)
+        val nextPromptLaunch = prefs.getInt("next_sponsor_prompt_launch_count", 15)
+        val nextPromptExport = prefs.getInt("next_sponsor_prompt_export_count", 5)
+        if (launches >= nextPromptLaunch || exports >= nextPromptExport) {
+            showSponsorPromptDialog = true
         }
-        syncAuthorProfileToCore()
+    }
+
+    fun postponeSponsorPrompt() {
+        if (!::appContext.isInitialized) return
+        val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        val currentLaunches = prefs.getInt("launch_count", 0)
+        val currentExports = prefs.getInt("export_count", 0)
+        prefs.edit()
+            .putInt("next_sponsor_prompt_launch_count", currentLaunches + 25)
+            .putInt("next_sponsor_prompt_export_count", currentExports + 10)
+            .apply()
+        showSponsorPromptDialog = false
+    }
+
+    fun suppressSponsorPrompt() {
+        if (!::appContext.isInitialized) return
+        val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs.edit().putBoolean("sponsor_prompt_suppressed", true).apply()
+        showSponsorPromptDialog = false
     }
 
     fun isQuickActionActivated(action: com.reverie.paint.model.QuickAction): Boolean =
@@ -1619,6 +1989,7 @@ class PaintViewModel : ViewModel() {
             com.reverie.paint.model.QuickAction.FLIP_H -> viewFlipX
             com.reverie.paint.model.QuickAction.FLIP_V -> viewFlipY
             com.reverie.paint.model.QuickAction.TOGGLE_ERASER -> currentToolId == "eraser"
+            com.reverie.paint.model.QuickAction.ERASER_MODE -> isEraserMode
             com.reverie.paint.model.QuickAction.ALPHA_LOCK -> isCurrentLayerAlphaLocked()
             com.reverie.paint.model.QuickAction.DISABLE_TOUCH -> isCanvasTouchDisabled
             com.reverie.paint.model.QuickAction.SHADING_ASSIST -> shadingAssistDialogOpen
@@ -1660,10 +2031,10 @@ class PaintViewModel : ViewModel() {
             }
 
             p.putBoolean("brush_panel_grid_view", brushPanelGridView)
-            p.putStringSet("brush_favorite_names", favoriteBrushNames)
-            val recentsArr = org.json.JSONArray()
-            recentBrushNames.forEach { recentsArr.put(it) }
-            p.putString("brush_recent_names", recentsArr.toString())
+            if (brushIdPrefsLoaded) {
+                p.putString(com.reverie.paint.core.brushstore.BrushIdPrefs.FAV_IDS, com.reverie.paint.core.brushstore.BrushIdPrefs.encodeList(favoriteBrushIds))
+                p.putString(com.reverie.paint.core.brushstore.BrushIdPrefs.RECENT_IDS, com.reverie.paint.core.brushstore.BrushIdPrefs.encodeList(recentBrushIds))
+            }
 
             p.apply()
         } catch (_: Exception) {}
@@ -1733,10 +2104,11 @@ class PaintViewModel : ViewModel() {
     var uiOpacity by mutableFloatStateOf(1.0f) // For Top and Left panels
     var popupPanelOpacity by mutableFloatStateOf(0.95f) // For floating panels
     var blurBackground by mutableStateOf(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) // 背景毛玻璃效果，默认开启（API<31 设备不支持模糊，自动回退实色）
-    var accentColorHex by mutableStateOf("#5A6E8A")
+    var accentColorHex by mutableStateOf("#879ED1")
     var monetEnabled by mutableStateOf(false) // 莫奈动态取色
     var themeMode by mutableStateOf("DARK") // "DARK", "LIGHT", "SYSTEM"
     var themeContrast by mutableStateOf("STANDARD") // "SOFT", "STANDARD", "HIGH"
+    var themeStyle by mutableStateOf(com.reverie.paint.ui.theme.ThemeStyle.MORANDI_TINTED) // MORANDI_TINTED, NEUTRAL_STUDIO, WARM_EARTHY, VIBRANT_GLOW
     var paintingUiScale by mutableFloatStateOf(1.0f) // 绘画页面整体 UI 大小缩放 (0.75 - 1.35)
     var layerRowHeightDp by mutableIntStateOf(52) // 44: 紧凑, 52: 标准, 64: 舒适
     var layerHeaderInheritAlpha by mutableStateOf(false) // 图层面板顶部按钮行为: false 为剪切蒙版, true 为继承透明度
@@ -1744,6 +2116,14 @@ class PaintViewModel : ViewModel() {
     var leftHandMode by mutableStateOf(false) // 左手模式: 快捷工具栏与滑块镜像停靠在右侧
     /** 自由悬浮布局配置 (平板专属) */
     var floatingUiConfig by mutableStateOf(com.reverie.paint.model.FloatingUiConfig())
+
+    // Custom Home Background Image settings (persisted)
+    var homeCustomBgEnabled by mutableStateOf(false)
+    var homeCustomBgOpacity by mutableFloatStateOf(0.85f)
+    var homeCustomBgBlurDp by mutableFloatStateOf(0f)
+    var homeCustomBgScaleMode by mutableStateOf("CROP") // "CROP" or "FIT"
+    var homeCustomBgMaskAlpha by mutableFloatStateOf(0.2f)
+    var homeCustomBgVersion by mutableLongStateOf(0L)
 
     // ---- 前缓冲 UI 裁剪槽位状态 (Phase 1) ----
     /** 21 个面板槽位的实测边界与 owner token (UI 线程独占)。 */
@@ -1925,7 +2305,18 @@ class PaintViewModel : ViewModel() {
     var strokeTailAggressiveness by mutableDoubleStateOf(0.5)
 
     // Keyboard Shortcuts (参考图 2)
-    var shortcutBindings by mutableStateOf<Map<String, String>>(emptyMap())
+    // actionId -> 按键列表; 键不存在 = 出厂默认, 空列表 = 用户显式解绑 (见 model/ShortcutCatalog.kt)
+    var shortcutBindings by mutableStateOf<Map<String, List<String>>>(emptyMap())
+    // 长按按键是否连发 (连续调节类动作; 关掉可避免按住不放连续触发)
+    var shortcutAutoRepeatEnabled by mutableStateOf(true)
+    // 工具键按住时临时切到该工具 (松开回到原工具), 见 PaintViewModelShortcuts.handleKeyEvent
+    var shortcutHoldTemporaryTools by mutableStateOf(true)
+
+    // ---- 一次性运行时状态: 正在按住的临时工具 (不参与持久化) ----
+    internal var holdTemporaryToolId: String? = null
+    internal var holdTemporaryBaseToolId: String? = null
+    internal var holdTemporaryKey: String? = null
+    internal var holdTemporaryStartMs: Long = 0L
 
     // Stylus Settings (画世界 Pro & Krita style, persisted)
     var penOnlyMode by mutableStateOf(false) // 笔模式 (禁止手指绘制，单指平移，双指缩放旋转)
@@ -2010,6 +2401,14 @@ class PaintViewModel : ViewModel() {
     var samsungSingleClickAction by mutableStateOf("toggle_eraser")
     var samsungDoubleClickAction by mutableStateOf("undo")
     var samsungLongPressAction by mutableStateOf("tool_picker")
+
+    // 三星 S Pen 隔空手势动作映射 (6 个挥动/画圈手势; 笔键单击/双击与侧键通道共用 samsung*ClickAction)
+    var spenAirSwipeLeftAction by mutableStateOf(SpenAirActions.defaultBinding(SpenAirGesture.SWIPE_LEFT))
+    var spenAirSwipeRightAction by mutableStateOf(SpenAirActions.defaultBinding(SpenAirGesture.SWIPE_RIGHT))
+    var spenAirSwipeUpAction by mutableStateOf(SpenAirActions.defaultBinding(SpenAirGesture.SWIPE_UP))
+    var spenAirSwipeDownAction by mutableStateOf(SpenAirActions.defaultBinding(SpenAirGesture.SWIPE_DOWN))
+    var spenAirCircleCwAction by mutableStateOf(SpenAirActions.defaultBinding(SpenAirGesture.CIRCLE_CW))
+    var spenAirCircleCcwAction by mutableStateOf(SpenAirActions.defaultBinding(SpenAirGesture.CIRCLE_CCW))
 
     // HUAWEI M-Pencil 适配参数
     var huaweiPencilModelMode by mutableStateOf("AUTO") // "AUTO", "PRO", "GEN3_NEARLINK", "GEN2", "GEN1"
@@ -2352,14 +2751,18 @@ class PaintViewModel : ViewModel() {
     // 图层面板多选（右滑选中）
     var selectedLayerIndices by mutableStateOf<Set<Int>>(emptySet())
 
-    // 图层组折叠状态（收起组名称集合，保存于项目元数据并在会话中记忆）
-    var collapsedGroupNames by mutableStateOf<Set<String>>(emptySet())
+    // 图层组折叠状态。键是**层的稳定 id**，不是名字 —— 同名组在图层树里完全合法
+    // (复制组、手动命名都可能撞名)，早期按名字存导致"打开一个同名组，别的组也跟着开合"。
+    var collapsedGroupKeys by mutableStateOf<Set<String>>(emptySet())
 
-    fun toggleGroupCollapsed(name: String) {
-        collapsedGroupNames = if (name in collapsedGroupNames) {
-            collapsedGroupNames - name
+    fun isGroupCollapsed(id: Long): Boolean = groupCollapseKey(id) in collapsedGroupKeys
+
+    fun toggleGroupCollapsed(id: Long) {
+        val key = groupCollapseKey(id)
+        collapsedGroupKeys = if (key in collapsedGroupKeys) {
+            collapsedGroupKeys - key
         } else {
-            collapsedGroupNames + name
+            collapsedGroupKeys + key
         }
     }
 
@@ -2373,6 +2776,45 @@ class PaintViewModel : ViewModel() {
         } else {
             collapsedPanelIds + panelId
         }
+    fun setGroupCollapsed(id: Long, collapsed: Boolean) {
+        val key = groupCollapseKey(id)
+        if (collapsed == (key in collapsedGroupKeys)) return
+        collapsedGroupKeys = if (collapsed) collapsedGroupKeys + key else collapsedGroupKeys - key
+    }
+
+    /**
+     * 折叠状态写进工程元数据 (仍按**名字**序列化，保持旧工程可读)。
+     * 同名组用 `名字@序号` 消歧: 序号是"该名字在组里出现的第几个"，载入时按同样
+     * 规则还原，于是两个同名组不会挤到同一个键上。
+     */
+    internal fun collapsedGroupsForSave(): List<String> {
+        val seen = HashMap<String, Int>()
+        val out = ArrayList<String>()
+        for (l in layers) {
+            if (!l.isGroup) continue
+            val idx = seen[l.name] ?: 0
+            seen[l.name] = idx + 1
+            if (isGroupCollapsed(l.id)) out.add(if (idx == 0) l.name else "${l.name}@$idx")
+        }
+        return out
+    }
+
+    /** 载入工程时把"名字/名字@序号"还原成层 id 键 (必须在图层表就绪后调用)。 */
+    internal fun applyCollapsedGroupsFromFile(names: Collection<String>) {
+        if (names.isEmpty()) {
+            collapsedGroupKeys = emptySet()
+            return
+        }
+        val wanted = names.toHashSet()
+        val seen = HashMap<String, Int>()
+        val keys = HashSet<String>()
+        for (l in layers) {
+            if (!l.isGroup) continue
+            val idx = seen[l.name] ?: 0
+            seen[l.name] = idx + 1
+            if (l.name in wanted || "${l.name}@$idx" in wanted) keys.add(groupCollapseKey(l.id))
+        }
+        collapsedGroupKeys = keys
     }
 
     /** 检查指定图层自身是否隐藏，或其任意祖先图层组是否隐藏。 */
@@ -2623,18 +3065,10 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    fun executeCanvasEditActionByIndex(slot: Int) {
+    fun executeCanvasEditActionByIndex(index: Int) {
         val actions = canvasEditMenuActions.take(6)
-        val slots = when (actions.size) {
-            1 -> listOf(0)
-            2 -> listOf(5, 1)
-            3 -> listOf(0, 2, 4)
-            4 -> listOf(5, 1, 2, 4)
-            else -> actions.indices.toList()
-        }
-        val actionIndex = slots.indexOf(slot)
-        if (actionIndex in actions.indices) {
-            executeCanvasEditAction(actions[actionIndex])
+        if (index in actions.indices) {
+            executeCanvasEditAction(actions[index])
         }
     }
 
@@ -3506,6 +3940,18 @@ class PaintViewModel : ViewModel() {
             com.reverie.paint.core.stylus.StylusAction.COLOR_PICKER -> showActionToast(R.string.stylus_action_eyedropper, R.drawable.ic_picker)
             com.reverie.paint.core.stylus.StylusAction.TOGGLE_LAST_TOOL -> showActionToast(R.string.toast_toggle_last_tool, R.drawable.ic_brush)
             com.reverie.paint.core.stylus.StylusAction.SHOW_COLOR_PALETTE -> showActionToast(R.string.toast_color_palette, R.drawable.ic_palette)
+            com.reverie.paint.core.stylus.StylusAction.BRUSH_SIZE_INC -> showActionToast(R.string.stylus_action_brush_size_inc, R.drawable.ic_brush)
+            com.reverie.paint.core.stylus.StylusAction.BRUSH_SIZE_DEC -> showActionToast(R.string.stylus_action_brush_size_dec, R.drawable.ic_brush)
+            com.reverie.paint.core.stylus.StylusAction.BRUSH_OPACITY_INC -> showActionToast(R.string.stylus_action_brush_opacity_inc, R.drawable.ic_brush)
+            com.reverie.paint.core.stylus.StylusAction.BRUSH_OPACITY_DEC -> showActionToast(R.string.stylus_action_brush_opacity_dec, R.drawable.ic_brush)
+            com.reverie.paint.core.stylus.StylusAction.ZOOM_IN -> showActionToast(R.string.stylus_action_zoom_in, R.drawable.ic_zoom_in)
+            com.reverie.paint.core.stylus.StylusAction.ZOOM_OUT -> showActionToast(R.string.stylus_action_zoom_out, R.drawable.ic_zoom_out)
+            com.reverie.paint.core.stylus.StylusAction.FLIP_CANVAS -> showActionToast(R.string.stylus_action_flip, R.drawable.ic_flip_h)
+            com.reverie.paint.core.stylus.StylusAction.LAYER_PREV -> showActionToast(R.string.stylus_action_layer_prev, R.drawable.ic_layers)
+            com.reverie.paint.core.stylus.StylusAction.LAYER_NEXT -> showActionToast(R.string.stylus_action_layer_next, R.drawable.ic_layers)
+            com.reverie.paint.core.stylus.StylusAction.TOGGLE_QUICK_MENU -> showActionToast(R.string.stylus_action_quick_menu, R.drawable.ic_menu)
+            com.reverie.paint.core.stylus.StylusAction.TOGGLE_REF_WINDOW -> showActionToast(R.string.stylus_action_ref_window, R.drawable.ic_reference)
+            com.reverie.paint.core.stylus.StylusAction.PAN_CANVAS -> showActionToast(R.string.stylus_action_pan, R.drawable.ic_hand)
             else -> {}
         }
     }
@@ -3800,6 +4246,18 @@ class PaintViewModel : ViewModel() {
         applyCurrentTheme()
     }
 
+    fun updateThemeStyle(style: String) {
+        themeStyle = style
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString("themeStyle", style)
+                .apply()
+        }
+        applyCurrentTheme()
+    }
+
     fun isCurrentlyDark(): Boolean {
         return when (themeMode) {
             "LIGHT" -> false
@@ -3821,9 +4279,9 @@ class PaintViewModel : ViewModel() {
         val dark = isCurrentlyDark()
         val parsedAccent = com.reverie.paint.ui.theme.parseColor(accentColorHex)
         val baseTheme = if (monetEnabled && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            com.reverie.paint.ui.theme.getMonetColors(appContext, isDark = dark, fallbackAccent = parsedAccent, contrast = themeContrast)
+            com.reverie.paint.ui.theme.getMonetColors(appContext, isDark = dark, fallbackAccent = parsedAccent, contrast = themeContrast, style = themeStyle)
         } else {
-            com.reverie.paint.ui.theme.buildThemeColors(isDark = dark, accent = parsedAccent, contrast = themeContrast)
+            com.reverie.paint.ui.theme.buildThemeColors(isDark = dark, accent = parsedAccent, contrast = themeContrast, style = themeStyle)
         }
 
         com.reverie.paint.ui.theme.Theme.current = if (canvasBgColorHex.isNotBlank() && canvasBgColorHex != "DEFAULT") {
@@ -3873,6 +4331,97 @@ class PaintViewModel : ViewModel() {
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
                 .putBoolean("blurBackground", enable)
+                .apply()
+        }
+    }
+
+    fun getHomeCustomBgFile(): File? {
+        if (!::appContext.isInitialized) return null
+        val file = File(appContext.filesDir, "custom_bg/home_wallpaper.png")
+        return if (file.exists() && file.length() > 0) file else null
+    }
+
+    fun importHomeBackground(uri: android.net.Uri, context: android.content.Context): Boolean {
+        return try {
+            val dir = File(context.filesDir, "custom_bg")
+            if (!dir.exists()) dir.mkdirs()
+            val targetFile = File(dir, "home_wallpaper.png")
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                val bmp = android.graphics.BitmapFactory.decodeStream(input) ?: return false
+                java.io.FileOutputStream(targetFile).use { out ->
+                    bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
+                bmp.recycle()
+            }
+            if (targetFile.exists() && targetFile.length() > 0) {
+                homeCustomBgEnabled = true
+                homeCustomBgVersion = System.currentTimeMillis()
+                context.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean("home_custom_bg_enabled", true)
+                    .apply()
+                true
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("PaintViewModel", "Failed to import home background", e)
+            false
+        }
+    }
+
+    fun clearHomeBackground() {
+        if (::appContext.isInitialized) {
+            val file = File(appContext.filesDir, "custom_bg/home_wallpaper.png")
+            if (file.exists()) file.delete()
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("home_custom_bg_enabled", false)
+                .apply()
+        }
+        homeCustomBgEnabled = false
+        homeCustomBgVersion = System.currentTimeMillis()
+    }
+
+    fun updateHomeBgOpacity(opacity: Float) {
+        val clamped = opacity.coerceIn(0.1f, 1.0f)
+        homeCustomBgOpacity = clamped
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putFloat("home_custom_bg_opacity", clamped)
+                .apply()
+        }
+    }
+
+    fun updateHomeBgBlurDp(blurDp: Float) {
+        val clamped = blurDp.coerceIn(0f, 30f)
+        homeCustomBgBlurDp = clamped
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putFloat("home_custom_bg_blur", clamped)
+                .apply()
+        }
+    }
+
+    fun updateHomeBgScaleMode(mode: String) {
+        homeCustomBgScaleMode = mode
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString("home_custom_bg_scale", mode)
+                .apply()
+        }
+    }
+
+    fun updateHomeBgMaskAlpha(alpha: Float) {
+        val clamped = alpha.coerceIn(0f, 0.8f)
+        homeCustomBgMaskAlpha = clamped
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putFloat("home_custom_bg_mask", clamped)
                 .apply()
         }
     }
@@ -4055,12 +4604,19 @@ class PaintViewModel : ViewModel() {
             selectionMaskOpacity = prefs.getFloat("selection_mask_opacity", 0.47f).coerceIn(0.10f, 0.90f)
             blurBackground = prefs.getBoolean("blurBackground", true) &&
                 android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
-            val savedAccent = prefs.getString("accentColor", "#5A6E8A") ?: "#5A6E8A"
-            accentColorHex = if (savedAccent.equals("#0A84FF", ignoreCase = true) || savedAccent.equals("#5E8BA8", ignoreCase = true)) "#5A6E8A" else savedAccent
+            val savedAccent = prefs.getString("accentColor", "#879ED1") ?: "#879ED1"
+            accentColorHex = if (savedAccent.equals("#0A84FF", ignoreCase = true) || savedAccent.equals("#5E8BA8", ignoreCase = true) || savedAccent.equals("#5A6E8A", ignoreCase = true)) "#879ED1" else savedAccent
             canvasBgColorHex = prefs.getString("canvasBgColor", "DEFAULT") ?: "DEFAULT"
+            homeCustomBgEnabled = prefs.getBoolean("home_custom_bg_enabled", false)
+            homeCustomBgOpacity = prefs.getFloat("home_custom_bg_opacity", 0.85f).coerceIn(0.1f, 1.0f)
+            homeCustomBgBlurDp = prefs.getFloat("home_custom_bg_blur", 0f).coerceIn(0f, 30f)
+            homeCustomBgScaleMode = prefs.getString("home_custom_bg_scale", "CROP") ?: "CROP"
+            homeCustomBgMaskAlpha = prefs.getFloat("home_custom_bg_mask", 0.2f).coerceIn(0f, 0.8f)
+            homeCustomBgVersion = System.currentTimeMillis()
             monetEnabled = prefs.getBoolean("monetEnabled", false)
             themeMode = prefs.getString("themeMode", "DARK") ?: "DARK"
             themeContrast = prefs.getString("themeContrast", "STANDARD") ?: "STANDARD"
+            themeStyle = prefs.getString("themeStyle", com.reverie.paint.ui.theme.ThemeStyle.MORANDI_TINTED) ?: com.reverie.paint.ui.theme.ThemeStyle.MORANDI_TINTED
             val defaultImmersive = DeviceUtils.isTablet(appContext)
             immersiveMode = if (prefs.contains("immersiveMode")) {
                 prefs.getBoolean("immersiveMode", false)
@@ -4097,6 +4653,12 @@ class PaintViewModel : ViewModel() {
             samsungSingleClickAction = prefs.getString("samsungSingleClickAction", "toggle_eraser") ?: "toggle_eraser"
             samsungDoubleClickAction = prefs.getString("samsungDoubleClickAction", "undo") ?: "undo"
             samsungLongPressAction = prefs.getString("samsungLongPressAction", "tool_picker") ?: "tool_picker"
+            prefs.getString("spenAirSwipeLeftAction", null)?.let { spenAirSwipeLeftAction = SpenAirActions.sanitize(it, SpenAirGesture.SWIPE_LEFT) }
+            prefs.getString("spenAirSwipeRightAction", null)?.let { spenAirSwipeRightAction = SpenAirActions.sanitize(it, SpenAirGesture.SWIPE_RIGHT) }
+            prefs.getString("spenAirSwipeUpAction", null)?.let { spenAirSwipeUpAction = SpenAirActions.sanitize(it, SpenAirGesture.SWIPE_UP) }
+            prefs.getString("spenAirSwipeDownAction", null)?.let { spenAirSwipeDownAction = SpenAirActions.sanitize(it, SpenAirGesture.SWIPE_DOWN) }
+            prefs.getString("spenAirCircleCwAction", null)?.let { spenAirCircleCwAction = SpenAirActions.sanitize(it, SpenAirGesture.CIRCLE_CW) }
+            prefs.getString("spenAirCircleCcwAction", null)?.let { spenAirCircleCcwAction = SpenAirActions.sanitize(it, SpenAirGesture.CIRCLE_CCW) }
             huaweiPencilModelMode = prefs.getString("huaweiPencilModelMode", "AUTO") ?: "AUTO"
             huaweiDoubleTapAction = prefs.getString("huaweiDoubleTapAction", "toggle_eraser") ?: "toggle_eraser"
             huaweiSqueezeAction = prefs.getString("huaweiSqueezeAction", "tool_color") ?: "tool_color"
@@ -4219,8 +4781,26 @@ class PaintViewModel : ViewModel() {
                 prefs.getInt("renderScheduleMode", com.reverie.paint.model.RenderScheduleMode.PERFORMANCE.id)
             )
 
-            val authorJson = prefs.getString("author_profile_json", null)
-            authorProfile = com.reverie.paint.model.AuthorProfile.fromJson(authorJson)
+            val presetsJson = prefs.getString("author_profile_presets_json", null)
+            val parsedPresets = com.reverie.paint.model.AuthorProfilePreset.listFromJson(presetsJson)
+            val savedActiveId = prefs.getString("active_author_profile_id", "default") ?: "default"
+
+            if (parsedPresets.isNotEmpty()) {
+                authorProfilePresets = parsedPresets
+                activeAuthorProfileId = if (parsedPresets.any { it.id == savedActiveId }) savedActiveId else parsedPresets.first().id
+                authorProfile = parsedPresets.firstOrNull { it.id == activeAuthorProfileId }?.profile ?: parsedPresets.first().profile
+            } else {
+                val authorJson = prefs.getString("author_profile_json", null)
+                val legacyProfile = com.reverie.paint.model.AuthorProfile.fromJson(authorJson)
+                val defaultPreset = com.reverie.paint.model.AuthorProfilePreset(
+                    id = "default",
+                    name = "默认档案",
+                    profile = legacyProfile,
+                )
+                authorProfilePresets = listOf(defaultPreset)
+                activeAuthorProfileId = "default"
+                authorProfile = legacyProfile
+            }
             syncAuthorProfileToCore()
 
             loadSyncSettings()
@@ -4275,18 +4855,9 @@ class PaintViewModel : ViewModel() {
             }
 
             brushPanelGridView = prefs.getBoolean("brush_panel_grid_view", false)
-            favoriteBrushNames = prefs.getStringSet("brush_favorite_names", null)?.toSet() ?: emptySet()
-            val recentsJsonStr = prefs.getString("brush_recent_names", null)
-            if (!recentsJsonStr.isNullOrEmpty()) {
-                try {
-                    val arr = org.json.JSONArray(recentsJsonStr)
-                    val list = mutableListOf<String>()
-                    for (i in 0 until arr.length()) {
-                        list.add(arr.getString(i))
-                    }
-                    recentBrushNames = list
-                } catch (_: Exception) {}
-            }
+            // 常用 / 最近 / 快捷栏顺序按 id：启动时等笔刷库就绪后在 loadBrushIdPrefs 里读；
+            // 之后（恢复备份等）再次同步时，库已打开就在这里重读。
+            if (com.reverie.paint.core.brushstore.BrushIdentity.isOpen()) loadBrushIdPrefs()
 
             // Window placement remains a device preference; images and view state belong to the document.
             // 面板 x/y 不再读取: 打开时由 PaintingQuickWindows 按屏幕居中 (防止旧位置在屏外)
@@ -4371,10 +4942,6 @@ class PaintViewModel : ViewModel() {
             quickBrushOrientation = if (isLand) quickBrushOrientation_land else quickBrushOrientation_port
             quickBrushCollapsed = prefs.getBoolean("quick_brush_collapsed", false)
             quickBrushMaxLength = prefs.getInt("quick_brush_max_length", 6)
-            val brushOrderStr = prefs.getString("quick_brush_order", "") ?: ""
-            if (brushOrderStr.isNotBlank()) {
-                quickBrushOrder = brushOrderStr.split(",").filter { it.isNotBlank() }
-            }
 
             // 快捷颜色浮窗持久化恢复
             quickColorWindowOpen = prefs.getBoolean("quick_color_open", false)
@@ -5154,10 +5721,9 @@ class PaintViewModel : ViewModel() {
         stylusDriver?.release()
         stylusDriver = null
         stopAirbrush()
-        mainHandler.removeCallbacks(persistParamsRunnable)
-        persistBrushParams()
         mainHandler.removeCallbacks(persistToolStatesRunnable)
         persistToolBrushStates()
+        BrushStoreVm.flushAllPending()
         recorder.endSession()
         replaySession?.stop()
         closePerformanceHintSession()
@@ -5217,12 +5783,6 @@ class PaintViewModel : ViewModel() {
             } catch (_: Throwable) {}
             performanceHintSession = null
         }
-    }
-
-    private val persistParamsRunnable = Runnable { persistBrushParams() }
-    internal fun schedulePersistBrushParams(delayMs: Long = 250L) {
-        mainHandler.removeCallbacks(persistParamsRunnable)
-        mainHandler.postDelayed(persistParamsRunnable, delayMs)
     }
 
     // Same debounced-write pattern for per-tool brush states: slider ticks
@@ -5363,8 +5923,12 @@ class PaintViewModel : ViewModel() {
          * -> `paintMirrorPolyline(..., 7, ...)` 接受 7 维。实时运笔缓冲仍固定 6 元。
          */
         const val STROKE_SAMPLE_STRIDE_WITH_TIME = 7
-        /** 对称镜像实时队列: 最多 12 条分支 (放射对称最多 11 镜像分支 + 余量), 每条 256 个 7 元采样点。 */
-        const val MIRROR_BRANCH_COUNT = 12
+        /**
+         * 对称镜像"实时出墨"的分支上限: 每条分支要单独建一套原生 paintop, 引擎侧按 8 支封顶。
+         * 对称配置产生的分支数可以超过它 (36 轴万花筒 71 支): 超出时本笔不入实时队列, 整笔在
+         * 抬笔后走 replaySymmetricBranches, 落盘结果一致。每条分支 256 个 7 元采样点。
+         */
+        const val MIRROR_BRANCH_COUNT = 8
         const val MIRROR_BRANCH_CAPACITY = 256
         /** JNI touchStrokeMirrorBatch 返回值 (与 C++ reverie::MirrorBatchAction 映射一致)。 */
         const val MIRROR_BATCH_ACCEPTED = 1
@@ -6396,6 +6960,11 @@ class PaintViewModel : ViewModel() {
     internal fun isAppContextReady(): Boolean = ::appContext.isInitialized
 
     var currentProjectFile by mutableStateOf<String?>(null)
+
+    /**
+     * 待绘画页单次消费的工程画布方向；null 走默认横向（0°），新建工程与回主页时清掉，绝不串工程。
+     */
+    var pendingCanvasOrientation by mutableStateOf<CanvasOrientation?>(null)
     var isBlockingLoading by mutableStateOf(false)
     var blockingLoadingMessage by mutableStateOf("")
     var currentFolder by mutableStateOf<com.reverie.paint.model.Project?>(null)
@@ -6406,8 +6975,21 @@ class PaintViewModel : ViewModel() {
 
     /** Injected by MainActivity; the engine needs it for file paths. */
     lateinit var appContext: android.content.Context
+    internal val appContextReady: Boolean get() = ::appContext.isInitialized
 
     internal fun hasAppContext(): Boolean = ::appContext.isInitialized
+
+    fun recordCreationSession(strokes: Int, duration: Long) {
+        if (::appContext.isInitialized) {
+            CreationStatsManager.recordSession(appContext, strokes, duration)
+        }
+    }
+
+    fun recordBrushUsageStats(brushName: String) {
+        if (::appContext.isInitialized) {
+            CreationStatsManager.recordBrushUsage(appContext, brushName)
+        }
+    }
     var selectionMask: ByteArray? by mutableStateOf(null)
     var hasSelection by mutableStateOf(false)
 
@@ -6426,6 +7008,7 @@ class PaintViewModel : ViewModel() {
     var transformCopyOnly: Boolean by mutableStateOf(false)
     var isImportTransformPending: Boolean by mutableStateOf(false)
     var isSelectionTransformPending: Boolean by mutableStateOf(false)
+    var transformSessionToken: Int = 0
     var transientTransformSelectionPending: Boolean by mutableStateOf(false)
     var canUndoTransformSelection: Boolean by mutableStateOf(false)
     var canRedoTransformSelection: Boolean by mutableStateOf(false)
@@ -6495,4 +7078,10 @@ class PaintViewModel : ViewModel() {
 }
 
 enum class Page { HOME, CREATE, PAINTING, REPLAY }
+
+/**
+ * 图层组折叠状态的键：用层的稳定 id，而不是名字。
+ * 同名组是合法状态（复制组、手动重名），按名字存会让它们共享同一个折叠开关。
+ */
+internal fun groupCollapseKey(id: Long): String = "g$id"
 

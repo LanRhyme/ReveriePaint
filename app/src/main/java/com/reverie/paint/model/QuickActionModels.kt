@@ -27,6 +27,7 @@ enum class QuickAction(
     UNDO("undo", R.string.quick_action_undo, R.drawable.ic_undo),
     REDO("redo", R.string.quick_action_redo, R.drawable.ic_redo),
     TOGGLE_ERASER("toggle_eraser", R.string.quick_action_toggle_eraser, R.drawable.ic_eraser),
+    ERASER_MODE("eraser_mode", R.string.quick_action_eraser_mode, R.drawable.ic_eraser_mode),
     LAST_TOOL("last_tool", R.string.quick_action_last_tool, R.drawable.ic_last_tool),
     PICK_COLOR("pick_color", R.string.quick_action_pick_color, R.drawable.ic_picker),
     SWAP_COLOR("swap_color", R.string.quick_action_swap_color, R.drawable.ic_swap_colors),
@@ -42,6 +43,7 @@ enum class QuickAction(
     TOGGLE_QUICK_OKLCH("toggle_quick_oklch", R.string.quick_action_toggle_quick_oklch, R.drawable.ic_oklch),
     TOGGLE_QUICK_LAYER("toggle_quick_layer", R.string.quick_action_toggle_quick_layer, R.drawable.ic_layers),
     SHADING_ASSIST("shading_assist", R.string.shading_assist_title, R.drawable.ic_moon),
+    PAN("pan", R.string.quick_action_pan, R.drawable.ic_hand),
     ;
 
     companion object {

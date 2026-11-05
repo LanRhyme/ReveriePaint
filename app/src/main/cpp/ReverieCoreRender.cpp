@@ -83,27 +83,38 @@ void ReverieCore::addDirtyRegion(const QRect &r)
 void ReverieCore::bakeStaticUnderlay(const QRect &r)
 {
     const int stopIdx = strokeStaticUnderlayStop(*this);
-    if (!m_document || r.isEmpty() || stopIdx <= 0) {
+    // 渲染线程与核心线程共享 m_document / m_staticUnderlay: 入口判空后另一线程仍可能
+    // 换文档或调用 invalidateStaticUnderlay 把成员清成空 SP。全程持本地引用, 避免
+    // "判空通过 -> 下一行对空 KisSharedPtr 解引用" 触发 Krita 的 Q_ASSERT(d) 整进程 SIGABRT
+    // (1.6.2 线上 34af6991ae 的 abort 就在这条链上)。
+    KisImageSP image = m_document;
+    if (!image || r.isEmpty() || stopIdx <= 0) {
         return;
     }
 
     // 底图记的是 [0, stopIdx) 那摞下层的像素: 上界换了 (或换了文档) 就整体作废。
-    if (m_staticUnderlayTop != stopIdx || m_staticUnderlayDoc != m_document.data()) {
+    if (m_staticUnderlayTop != stopIdx || m_staticUnderlayDoc != image.data()) {
         invalidateStaticUnderlay();
         m_staticUnderlayTop = stopIdx;
-        m_staticUnderlayDoc = m_document.data();
+        m_staticUnderlayDoc = image.data();
     }
     if (!m_staticUnderlay) {
-        m_staticUnderlay = new KisPaintDevice(m_document->colorSpace());
+        m_staticUnderlay = new KisPaintDevice(image->colorSpace());
+    }
+    // 再取一次本地引用: 上面几行之间渲染线程没有机会把成员清掉, 但后面循环里
+    // compositeLayersRange 可能让出控制权, 统一用本地引用最稳。
+    KisPaintDeviceSP underlay = m_staticUnderlay;
+    if (!underlay) {
+        return;
     }
 
-    const QRect docRect(0, 0, m_document->width(), m_document->height());
+    const QRect docRect(0, 0, image->width(), image->height());
     const QRect clip = r.intersected(docRect);
     if (clip.isEmpty()) {
         return;
     }
 
-    const KoColor defaultBg = m_document->defaultProjectionColor();
+    const KoColor defaultBg = image->defaultProjectionColor();
     const bool hasBg = (defaultBg.opacityU8() > 0);
 
     // 一行里连续缺失的宏瓦片并成一段一起合成; 碰到已烘焙的瓦片先把攒着的那段冲掉,
@@ -116,11 +127,11 @@ void ReverieCore::bakeStaticUnderlay(const QRect &r)
             if (m_staticUnderlayTiles.contains(key)) {
                 if (!rowSpan.isEmpty()) {
                     if (hasBg) {
-                        m_staticUnderlay->fill(rowSpan, defaultBg);
+                        underlay->fill(rowSpan, defaultBg);
                     } else {
-                        m_staticUnderlay->clear(rowSpan);
+                        underlay->clear(rowSpan);
                     }
-                    compositeLayersRange(m_staticUnderlay, 0, stopIdx, rowSpan);
+                    compositeLayersRange(underlay, 0, stopIdx, rowSpan);
                     rowSpan = QRect();
                 }
                 continue;
@@ -133,24 +144,25 @@ void ReverieCore::bakeStaticUnderlay(const QRect &r)
         }
         if (!rowSpan.isEmpty()) {
             if (hasBg) {
-                m_staticUnderlay->fill(rowSpan, defaultBg);
+                underlay->fill(rowSpan, defaultBg);
             } else {
-                m_staticUnderlay->clear(rowSpan);
+                underlay->clear(rowSpan);
             }
-            compositeLayersRange(m_staticUnderlay, 0, stopIdx, rowSpan);
+            compositeLayersRange(underlay, 0, stopIdx, rowSpan);
         }
     }
 }
 
 void ReverieCore::compositeDirtyRegions(KisPaintDeviceSP out)
 {
-    if (!out || !m_document) {
+    KisImageSP image = m_document;
+    if (!out || !image) {
         return;
     }
-    const QRect docRect(0, 0, m_document->width(), m_document->height());
+    const QRect docRect(0, 0, image->width(), image->height());
     const int stopIdx = strokeStaticUnderlayStop(*this);
     const int n = dirtyRegionCount(m_dirtyRects, m_dirtyRect);
-    const KoColor defaultBg = m_document->defaultProjectionColor();
+    const KoColor defaultBg = image->defaultProjectionColor();
     const bool hasBg = (defaultBg.opacityU8() > 0);
 
     if (stopIdx > 0) {
@@ -167,8 +179,10 @@ void ReverieCore::compositeDirtyRegions(KisPaintDeviceSP out)
                 continue;
             }
             bakeStaticUnderlay(r);
-            if (m_staticUnderlay) {
-                copyPainter.bitBlt(r.topLeft(), m_staticUnderlay, r);
+            // 本地快照: 烘焙后成员仍可能被核心线程的 invalidate 清掉
+            KisPaintDeviceSP baked = m_staticUnderlay;
+            if (baked) {
+                copyPainter.bitBlt(r.topLeft(), baked, r);
                 compositeLayersRange(out, stopIdx, m_layers.size(), r);
             } else {
                 if (hasBg) {
@@ -265,8 +279,12 @@ QRect ReverieCore::strokeOnionExtent(int layerIndex)
 // 那才是掉帧的主因; clear(r) 走的是 tile 级 memset, 相对廉价。
 KisPaintDeviceSP ReverieCore::strokeMergeScratchDevice()
 {
+    KisImageSP image = m_document;
+    if (!image) {
+        return KisPaintDeviceSP();
+    }
     if (!m_strokeMergeScratch) {
-        m_strokeMergeScratch = new KisPaintDevice(m_document->colorSpace());
+        m_strokeMergeScratch = new KisPaintDevice(image->colorSpace());
     }
     return m_strokeMergeScratch;
 }
@@ -274,14 +292,23 @@ KisPaintDeviceSP ReverieCore::strokeMergeScratchDevice()
 KisPaintDeviceSP ReverieCore::strokeMergeScratch(const QRect &r)
 {
     KisPaintDeviceSP scratch = strokeMergeScratchDevice();
+    if (!scratch) {
+        return KisPaintDeviceSP();
+    }
     scratch->clear(r);
     return scratch;
 }
 
 KisPaintDeviceSP ReverieCore::strokeOutScratch(const QRect &r)
 {
-    if (!m_strokeOutScratch || !m_document) {
-        m_strokeOutScratch = new KisPaintDevice(m_document->colorSpace());
+    // 旧条件 `!m_strokeOutScratch || !m_document` 在文档为空时反而去解引用 m_document:
+    // 这里先判空返回, 把"换/关文档瞬间渲染线程仍有一帧在跑"降级成空帧而不是崩溃。
+    KisImageSP image = m_document;
+    if (!image) {
+        return KisPaintDeviceSP();
+    }
+    if (!m_strokeOutScratch) {
+        m_strokeOutScratch = new KisPaintDevice(image->colorSpace());
     }
     m_strokeOutScratch->clear(r);
     return m_strokeOutScratch;
@@ -1515,7 +1542,8 @@ bool ReverieCore::spanHasAdjustment(int from, int to) const
 void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &r,
                                        int excludeIdx)
 {
-    if (!out || r.isEmpty() || !m_document) {
+    KisImageSP image = m_document;
+    if (!out || r.isEmpty() || !image) {
         return;
     }
 
@@ -1534,7 +1562,7 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
             const QByteArray lut = hasLut ? v.toByteArray() : QByteArray();
 
             const int margin = reverieFilterMargin(type);
-            const QRect docRect(0, 0, m_document->width(), m_document->height());
+            const QRect docRect(0, 0, image->width(), image->height());
             const QRect work = r.adjusted(-margin, -margin, margin, margin).intersected(docRect);
 
             if (!work.isEmpty()) {
@@ -1700,6 +1728,7 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
             // 没有洋葱皮时本层直接 COMPOSITE_COPY 进暂存 (覆盖 r 内全部像素), 与"先 clear 再 normal
             // 叠到全透明上"结果相同, 省掉一次 clear(r) 遍历。
             KisPaintDeviceSP scratch = src ? strokeMergeScratch(r) : strokeMergeScratchDevice();
+            if (!scratch) return;
             if (src) {
                 KisPainter onionPainter(scratch);
                 onionPainter.setCompositeOpId(QStringLiteral("behind"));

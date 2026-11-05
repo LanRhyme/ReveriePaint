@@ -4,406 +4,389 @@
 
 package com.reverie.paint.core
 
+import com.reverie.paint.core.brushstore.ResourceDirs
+import com.reverie.paint.core.brushstore.toCurveXml
 import android.graphics.Bitmap
-import androidx.lifecycle.viewModelScope
 import com.reverie.paint.R
+import com.reverie.paint.core.brushstore.BrushApply
+import com.reverie.paint.core.brushstore.BrushCompositeIds
+import com.reverie.paint.core.brushstore.BrushIdentity
+import com.reverie.paint.core.brushstore.BrushStoreBootstrap
+import com.reverie.paint.core.brushstore.BrushThumbStore
+import com.reverie.paint.core.brushstore.ControlId
+import com.reverie.paint.core.brushstore.EffectivePresetBuilder
 import java.io.File
-import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
-import kotlinx.coroutines.delay
-import kotlinx.coroutines.launch
 
     internal fun PaintViewModel.updateBrushFlow(v: Double, commit: Boolean = true) {
-        brushFlow = v
+        brushParams = brushParams.copy(flow = v)
         if (commit) {
-            saveBrushParam()
             rememberToolParamSnapshot()
         }
-        runCore(render = false) { ReverieCoreBridge.setBrushFlow(v) }
+        BrushApply.applyLive(ControlId.FLOW, v)
     }
 
     internal fun PaintViewModel.updateBrushSpacing(v: Double) {
-        brushSpacing = v
-        saveBrushParam(spacingChanged = true)
-        runCore(render = false) { ReverieCoreBridge.setBrushSpacing(v) }
+        brushParams = brushParams.copy(spacing = v)
+        BrushStoreVm.stage(this, ControlId.SPACING, v)
     }
 
     internal fun PaintViewModel.updateBrushAngle(v: Double) {
-        brushAngle = v
-        saveBrushParam()
-        val effAngle = ((brushAngle + brushRotation) % 360.0).let { if (it < 0.0) it + 360.0 else it }
-        runCore(render = false) { ReverieCoreBridge.setBrushAngle(effAngle) }
+        brushParams = brushParams.copy(angle = v)
+        BrushStoreVm.stage(this, ControlId.ANGLE, v)
     }
 
     internal fun PaintViewModel.updateBrushScatter(v: Double) {
-        brushScatter = v
-        // 散布是 REBUILD 类参数: paintop 在预设加载时创建并缓存, 即时 setBrushScatter 只写
-        // settings 属性, 不进缓存的 paintop; 必须走防抖重载让引擎重建 (与散布传感器入口一致)
-        saveBrushParam(dynamicsChanged = true, reloadEngine = true)
-        runCore(render = false) { ReverieCoreBridge.setBrushScatter(v) }
+        brushParams = brushParams.copy(scatter = v)
+        BrushStoreVm.stage(this, ControlId.SCATTER, v)
     }
 
     internal fun PaintViewModel.updateBrushFade(v: Double) {
-        brushFade = v
-        saveBrushParam(reloadEngine = false)
-        runCore(render = false) { ReverieCoreBridge.setBrushFade(v) }
+        brushParams = brushParams.copy(fade = v)
+        BrushStoreVm.stage(this, ControlId.FADE, v)
     }
 
     internal fun PaintViewModel.updateBrushSoftness(v: Double) {
-        brushSoftness = v
-        saveBrushParam(reloadEngine = false)
-        runCore(render = false) { ReverieCoreBridge.setBrushSoftness(v) }
+        brushParams = brushParams.copy(softness = v)
+        BrushStoreVm.stage(this, ControlId.SOFTNESS, v)
     }
 
     internal fun PaintViewModel.updateBrushRatio(v: Double) {
-        brushRatio = v
-        saveBrushParam(reloadEngine = false)
-        runCore(render = false) { ReverieCoreBridge.setBrushRatio(v) }
+        brushParams = brushParams.copy(ratio = v)
+        BrushStoreVm.stage(this, ControlId.RATIO, v)
     }
 
     internal fun PaintViewModel.updateBrushSharpness(v: Double) {
-        brushSharpness = v
-        saveBrushParam(reloadEngine = false)
-        runCore(render = false) { ReverieCoreBridge.setBrushSharpness(v) }
+        brushParams = brushParams.copy(sharpness = v)
+        BrushStoreVm.stage(this, ControlId.SHARPNESS, v)
     }
 
     internal fun PaintViewModel.updateBrushRotation(v: Double) {
-        brushRotation = v
-        saveBrushParam(reloadEngine = false)
-        val effAngle = ((brushAngle + brushRotation) % 360.0).let { if (it < 0.0) it + 360.0 else it }
-        runCore(render = false) {
-            ReverieCoreBridge.setBrushRotation(v)
-            ReverieCoreBridge.setBrushAngle(effAngle)
-        }
+        brushParams = brushParams.copy(rotation = v)
+        BrushStoreVm.stage(this, ControlId.ROTATION, v)
     }
 
-    internal fun PaintViewModel.updateBrushCompositeOp(op: String) {
-        brushCompositeOp = op
-        saveBrushParam()
-        runCore(render = false) { ReverieCoreBridge.setBrushCompositeOp(op) }
+    internal fun PaintViewModel.updateBrushCompositeOp(rawOp: String) {
+        val op = BrushCompositeIds.canonical(rawOp)
+        brushParams = brushParams.copy(compositeOp = op)
+        BrushStoreVm.stage(this, ControlId.COMPOSITE_OP, op)
     }
 
     internal fun PaintViewModel.updateBrushAntiAliasing(v: Int) {
-        brushAntiAliasing = v
-        saveBrushParam(reloadEngine = true, immediateReload = true)
-        runCore(render = false) { ReverieCoreBridge.setBrushAntiAliasing(v) }
+        brushParams = brushParams.copy(antiAliasing = v)
+        BrushStoreVm.stage(this, ControlId.ANTI_ALIASING, v)
     }
 
     internal fun PaintViewModel.updateBrushTipShape(v: Int) {
-        brushTipShape = v
-        saveBrushParam(reloadEngine = true, immediateReload = true)
+        brushParams = brushParams.copy(tipShape = v)
+        BrushStoreVm.stage(this, ControlId.TIP_SHAPE, v)
     }
 
     internal fun PaintViewModel.updateBrushRandomFlipX(v: Boolean) {
-        brushRandomFlipX = v
-        saveBrushParam(reloadEngine = true, immediateReload = true)
-        runCore(render = false) { ReverieCoreBridge.setBrushMirror(brushRandomFlipX, brushRandomFlipY) }
+        brushParams = brushParams.copy(randomFlipX = v)
+        BrushStoreVm.stage(this, ControlId.RANDOM_FLIP_X, v)
     }
 
     internal fun PaintViewModel.updateBrushRandomFlipY(v: Boolean) {
-        brushRandomFlipY = v
-        saveBrushParam(reloadEngine = true, immediateReload = true)
-        runCore(render = false) { ReverieCoreBridge.setBrushMirror(brushRandomFlipX, brushRandomFlipY) }
+        brushParams = brushParams.copy(randomFlipY = v)
+        BrushStoreVm.stage(this, ControlId.RANDOM_FLIP_Y, v)
     }
 
     internal fun PaintViewModel.updateBrushFollowDirection(v: Boolean) {
-        brushFollowDirection = v
+        brushParams = brushParams.copy(followDirection = v)
         if (v) {
-            brushRotationSensor = "drawingangle"
+            brushParams = brushParams.copy(rotationSensor = "drawingangle")
             val opt = brushDynamicOptions["Rotation"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Rotation")
             brushDynamicOptions["Rotation"] = opt.copy(sensorId = "drawingangle", enabled = true)
         } else {
-            brushRotationSensor = ""
+            brushParams = brushParams.copy(rotationSensor = "")
             val opt = brushDynamicOptions["Rotation"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Rotation")
             brushDynamicOptions["Rotation"] = opt.copy(enabled = false)
         }
-        saveBrushParam(dynamicsChanged = true, reloadEngine = true, immediateReload = true)
-        runCore(render = false) { ReverieCoreBridge.setBrushFollowDirection(v) }
+        BrushStoreVm.stage(this, ControlId.FOLLOW_DIRECTION, v)
     }
 
     internal fun PaintViewModel.updateBrushTextureEnabled(v: Boolean) {
-        brushTextureEnabled = v
-        saveBrushParam(reloadEngine = true, immediateReload = true)
-        runCore(render = false) {
-            com.reverie.paint.core.brushstore.BrushTextureLive.apply(brushTextureEnabled, brushTextureScale, brushTextureStrength, brushTextureMode, brushTexturePattern)
-        }
+        brushParams = brushParams.copy(textureEnabled = v)
+        BrushStoreVm.stage(this, ControlId.TEXTURE_ENABLED, v)
     }
 
     internal fun PaintViewModel.updateBrushTextureScale(v: Double) {
-        brushTextureScale = v
-        saveBrushParam(reloadEngine = true)
-        runCore(render = false) {
-            com.reverie.paint.core.brushstore.BrushTextureLive.apply(brushTextureEnabled, brushTextureScale, brushTextureStrength, brushTextureMode, brushTexturePattern)
-        }
+        brushParams = brushParams.copy(textureScale = v)
+        BrushStoreVm.stage(this, ControlId.TEXTURE_SCALE, v)
     }
 
     internal fun PaintViewModel.updateBrushTextureStrength(v: Double) {
-        brushTextureStrength = v
-        saveBrushParam(reloadEngine = true)
-        runCore(render = false) {
-            com.reverie.paint.core.brushstore.BrushTextureLive.apply(brushTextureEnabled, brushTextureScale, brushTextureStrength, brushTextureMode, brushTexturePattern)
-        }
+        brushParams = brushParams.copy(textureStrength = v)
+        BrushStoreVm.stage(this, ControlId.TEXTURE_STRENGTH, v)
     }
 
     internal fun PaintViewModel.updateBrushTextureMode(v: String) {
-        brushTextureMode = v
-        saveBrushParam(reloadEngine = true, immediateReload = true)
-        runCore(render = false) {
-            com.reverie.paint.core.brushstore.BrushTextureLive.apply(brushTextureEnabled, brushTextureScale, brushTextureStrength, brushTextureMode, brushTexturePattern)
-        }
+        brushParams = brushParams.copy(textureMode = v)
+        BrushStoreVm.stage(this, ControlId.TEXTURE_MODE, v)
     }
 
     internal fun PaintViewModel.updateBrushTexturePattern(v: String) {
-        brushTexturePattern = v
-        saveBrushParam(reloadEngine = true, immediateReload = true)
-        runCore(render = false) {
-            com.reverie.paint.core.brushstore.BrushTextureLive.apply(brushTextureEnabled, brushTextureScale, brushTextureStrength, brushTextureMode, brushTexturePattern)
-        }
+        brushParams = brushParams.copy(texturePattern = v)
+        BrushStoreVm.stage(this, ControlId.TEXTURE_PATTERN, v)
     }
 
     internal fun PaintViewModel.updateBrushHueJitter(v: Double) {
-        brushHueJitter = v
-        saveBrushParam(reloadEngine = true)
+        brushParams = brushParams.copy(hueJitter = v)
+        BrushStoreVm.stage(this, ControlId.HUE_JITTER, v)
     }
 
     internal fun PaintViewModel.updateBrushSatJitter(v: Double) {
-        brushSatJitter = v
-        saveBrushParam(reloadEngine = true)
+        brushParams = brushParams.copy(satJitter = v)
+        BrushStoreVm.stage(this, ControlId.SAT_JITTER, v)
     }
 
     internal fun PaintViewModel.updateBrushValJitter(v: Double) {
-        brushValJitter = v
-        saveBrushParam(reloadEngine = true)
+        brushParams = brushParams.copy(valJitter = v)
+        BrushStoreVm.stage(this, ControlId.VAL_JITTER, v)
     }
 
     internal fun PaintViewModel.updateBrushSecondaryMix(v: Double) {
-        brushSecondaryMix = v
-        saveBrushParam(reloadEngine = true)
+        brushParams = brushParams.copy(secondaryMix = v)
+        BrushStoreVm.stage(this, ControlId.MIX, v)
     }
 
     internal fun PaintViewModel.updateBrushPressureColorMix(v: Boolean) {
-        brushPressureColorMix = v
-        saveBrushParam(dynamicsChanged = true, reloadEngine = true, immediateReload = true)
+        brushParams = brushParams.copy(pressureColorMix = v)
+        BrushStoreVm.stage(this, ControlId.MIX_PRESSURE, v)
     }
 
     internal fun PaintViewModel.updateBrushPressureEnabled(v: Boolean) {
-        brushPressureEnabled = v
-        saveBrushParam(dynamicsChanged = true, reloadEngine = true, immediateReload = true)
-        runCore(render = false) {
-            ReverieCoreBridge.setBrushPressureDynamics(brushPressureEnabled, brushPressureSize, brushPressureOpacity, brushPressureFlow, brushPressureCurve)
-        }
+        brushParams = brushParams.copy(pressureEnabled = v)
+        BrushStoreVm.stage(this, ControlId.PRESSURE_ENABLED, v)
     }
 
     internal fun PaintViewModel.updateBrushPressureSize(v: Double) {
-        brushPressureSize = v
+        brushParams = brushParams.copy(pressureSize = v)
         val opt = brushDynamicOptions["Size"]
-        val cfg = (opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Size")).copy(
+        val base = opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Size").copy(
+            sensorId = brushParams.sizeSensor.ifBlank { "pressure" },
+        )
+        val cfg = base.copy(
             strength = v.toFloat(),
             enabled = v > 0.001,
         )
         brushDynamicOptions["Size"] = cfg
-        saveBrushParam(dynamicsChanged = true)
-        runCore(render = false) {
-            ReverieCoreBridge.setBrushOptionDynamics("Size", cfg.enabled, cfg.sensorId, cfg.toKritaCurveString(), v)
-        }
+        BrushStoreVm.stage(this, ControlId.CURVE_SIZE, cfg.toCurveXml())
     }
 
     internal fun PaintViewModel.updateBrushPressureOpacity(v: Double) {
-        brushPressureOpacity = v
+        brushParams = brushParams.copy(pressureOpacity = v)
         val opt = brushDynamicOptions["Opacity"]
-        val cfg = (opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Opacity")).copy(
+        val base = opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Opacity").copy(
+            sensorId = brushParams.opacitySensor.ifBlank { "pressure" },
+        )
+        val cfg = base.copy(
             strength = v.toFloat(),
             enabled = v > 0.001,
         )
         brushDynamicOptions["Opacity"] = cfg
-        saveBrushParam(dynamicsChanged = true)
-        runCore(render = false) {
-            ReverieCoreBridge.setBrushOptionDynamics("Opacity", cfg.enabled, cfg.sensorId, cfg.toKritaCurveString(), v)
-        }
+        BrushStoreVm.stage(this, ControlId.CURVE_OPACITY, cfg.toCurveXml())
     }
 
     internal fun PaintViewModel.updateBrushPressureFlow(v: Double) {
-        brushPressureFlow = v
+        brushParams = brushParams.copy(pressureFlow = v)
         val opt = brushDynamicOptions["Flow"]
-        val cfg = (opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Flow")).copy(
+        val base = opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Flow").copy(
+            sensorId = brushParams.flowSensor.ifBlank { "pressure" },
+        )
+        val cfg = base.copy(
             strength = v.toFloat(),
             enabled = v > 0.001,
         )
         brushDynamicOptions["Flow"] = cfg
-        saveBrushParam(dynamicsChanged = true)
-        runCore(render = false) {
-            ReverieCoreBridge.setBrushOptionDynamics("Flow", cfg.enabled, cfg.sensorId, cfg.toKritaCurveString(), v)
-        }
+        BrushStoreVm.stage(this, ControlId.CURVE_FLOW, cfg.toCurveXml())
     }
 
     internal fun PaintViewModel.updateBrushSpeedSize(v: Double) {
-        brushSpeedSize = v
-        saveBrushParam(dynamicsChanged = true, reloadEngine = true)
+        brushParams = brushParams.copy(speedSize = v)
+        BrushStoreVm.stage(this, ControlId.SPEED_SIZE, v)
     }
 
     internal fun PaintViewModel.updateBrushPressureCurve(v: Int) {
-        brushPressureCurve = v
-        saveBrushParam(dynamicsChanged = true, reloadEngine = true, immediateReload = true)
-        runCore(render = false) {
-            ReverieCoreBridge.setBrushPressureDynamics(brushPressureEnabled, brushPressureSize, brushPressureOpacity, brushPressureFlow, brushPressureCurve)
-        }
+        brushParams = brushParams.copy(pressureCurve = v)
+        BrushStoreVm.stage(this, ControlId.PRESSURE_CURVE, v)
     }
 
     internal fun PaintViewModel.updateBrushTipAsset(asset: String) {
-        brushTipAsset = asset
-        saveBrushParam(reloadEngine = true, immediateReload = true)
-        runCore(render = false) {
-            ReverieCoreBridge.setBrushTipAsset(asset)
-            fetchBrushOutlinePolygons()
-        }
+        brushParams = brushParams.copy(tipAsset = asset)
+        BrushStoreVm.stage(this, ControlId.TIP_ASSET, asset)
     }
 
     internal fun PaintViewModel.updateBrushPaintOpId(id: String) {
         val resolved = if (id == "defaultpaintop") "paintbrush" else id
-        brushPaintOpId = resolved
-        saveBrushParam(reloadEngine = true, immediateReload = true)
+        brushParams = brushParams.copy(paintOpId = resolved)
+        BrushStoreVm.stage(this, ControlId.PAINTOP_ID, resolved)
     }
 
     internal fun PaintViewModel.updateBrushAirbrush(v: Boolean) {
-        brushAirbrush = v
-        saveBrushParam(reloadEngine = true, immediateReload = true)
-        runCore(render = false) { ReverieCoreBridge.setBrushAirbrush(v, brushAirbrushRate) }
+        brushParams = brushParams.copy(airbrush = v)
+        BrushStoreVm.stage(this, ControlId.AIRBRUSH, v)
     }
 
     internal fun PaintViewModel.updateBrushAirbrushRate(v: Double) {
-        brushAirbrushRate = v
-        saveBrushParam(reloadEngine = true)
-        runCore(render = false) { ReverieCoreBridge.setBrushAirbrush(brushAirbrush, v) }
+        brushParams = brushParams.copy(airbrushRate = v)
+        BrushStoreVm.stage(this, ControlId.AIRBRUSH_RATE, v)
     }
 
     internal fun PaintViewModel.updateBrushSmudgeRate(v: Double) {
-        brushSmudgeRate = v
-        saveBrushParam(smudgeChanged = true)
-        runCore(render = false) { ReverieCoreBridge.setBrushSmudgeRate(v) }
+        brushParams = brushParams.copy(smudgeRate = v)
+        val opt = brushDynamicOptions["SmudgeRate"]
+        val cfg = (opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("SmudgeRate")).copy(
+            strength = v.toFloat(),
+            enabled = v > 0.001,
+        )
+        brushDynamicOptions["SmudgeRate"] = cfg
+        BrushStoreVm.stage(this, ControlId.CURVE_SMUDGE_RATE, cfg.toCurveXml())
     }
 
     internal fun PaintViewModel.updateBrushSmudgeLength(v: Double) {
-        brushSmudgeLength = v
-        saveBrushParam(smudgeChanged = true)
-        runCore(render = false) { ReverieCoreBridge.setBrushSmudgeLength(v) }
+        brushParams = brushParams.copy(smudgeLength = v)
+        BrushStoreVm.stage(this, ControlId.SMUDGE_LENGTH, v)
     }
 
     internal fun PaintViewModel.updateBrushColorRate(v: Double) {
-        brushColorRate = v.coerceIn(0.0, 1.0)
-        saveBrushParam(smudgeChanged = true)
-        runCore(render = false) { ReverieCoreBridge.setBrushSmudgeRate(brushColorRate) }
+        brushParams = brushParams.copy(colorRate = v.coerceIn(0.0, 1.0))
+        BrushStoreVm.stage(this, ControlId.COLOR_RATE, brushColorRate)
     }
 
     internal fun PaintViewModel.updateBrushSmudgeMode(v: Int) {
-        brushSmudgeMode = v.coerceIn(0, 1)
-        saveBrushParam(smudgeChanged = true)
+        brushParams = brushParams.copy(smudgeMode = v.coerceIn(0, 1))
+        BrushStoreVm.stage(this, ControlId.SMUDGE_MODE, brushSmudgeMode)
     }
 
     internal fun PaintViewModel.updateBrushSpikes(v: Int) {
-        brushSpikes = v
-        saveBrushParam(reloadEngine = true)
+        brushParams = brushParams.copy(spikes = v)
+        BrushStoreVm.stage(this, ControlId.SPIKES, v)
     }
 
     internal fun PaintViewModel.updateBrushJitterAngle(v: Double) {
-        brushJitterAngle = v
-        saveBrushParam(reloadEngine = true)
-        runCore(render = false) { ReverieCoreBridge.setBrushJitter(brushJitterAngle, brushJitterSize) }
+        brushParams = brushParams.copy(jitterAngle = v)
+        BrushStoreVm.stage(this, ControlId.JITTER_ANGLE, v)
     }
 
     internal fun PaintViewModel.updateBrushMinSizeLimit(v: Double) {
-        brushMinSizeLimit = v
+        brushParams = brushParams.copy(minSizeLimit = v)
         if (brushSize < v) updateBrushSize(v)
-        saveBrushParam()
+        BrushStoreVm.stage(this, ControlId.MIN_SIZE_LIMIT, v)
     }
 
     internal fun PaintViewModel.updateBrushMaxSizeLimit(v: Double) {
-        brushMaxSizeLimit = v
+        brushParams = brushParams.copy(maxSizeLimit = v)
         if (brushSize > effectiveBrushMaxSize) updateBrushSize(effectiveBrushMaxSize)
-        saveBrushParam()
+        BrushStoreVm.stage(this, ControlId.MAX_SIZE_LIMIT, v)
     }
 
     internal fun PaintViewModel.updateBrushAuthor(v: String) {
         if (brushIsAuthorLocked) return
-        brushAuthor = v
-        saveBrushParam()
+        brushParams = brushParams.copy(author = v)
+        BrushStoreVm.stage(this, ControlId.AUTHOR, v)
     }
 
     internal fun PaintViewModel.updateBrushDescription(v: String) {
-        brushDescription = v
-        saveBrushParam()
+        brushParams = brushParams.copy(description = v)
+        BrushStoreVm.stage(this, ControlId.DESCRIPTION, v)
     }
 
     internal fun PaintViewModel.updateBrushVersion(v: String) {
-        brushVersion = v
-        saveBrushParam()
+        brushParams = brushParams.copy(version = v)
+        BrushStoreVm.stage(this, ControlId.VERSION, v)
     }
 
     internal fun PaintViewModel.updateBrushMaskingEnabled(v: Boolean) {
-        brushMaskingEnabled = v
-        saveBrushParam(reloadEngine = true, immediateReload = true)
+        brushParams = brushParams.copy(maskingEnabled = v)
+        BrushStoreVm.stage(this, ControlId.MASKING_ENABLED, v)
     }
 
     internal fun PaintViewModel.updateBrushMaskingCompositeOp(v: String) {
-        brushMaskingCompositeOp = v
-        saveBrushParam(reloadEngine = true, immediateReload = true)
+        brushParams = brushParams.copy(maskingCompositeOp = v)
+        BrushStoreVm.stage(this, ControlId.MASKING_COMPOSITE_OP, v)
     }
 
     internal fun PaintViewModel.updateBrushMaskingSizeRatio(v: Double) {
-        brushMaskingSizeRatio = v
-        saveBrushParam(reloadEngine = true)
+        brushParams = brushParams.copy(maskingSizeRatio = v)
+        BrushStoreVm.stage(this, ControlId.MASKING_SIZE_RATIO, v)
     }
 
     internal fun PaintViewModel.updateBrushMaskingSpacing(v: Double) {
-        brushMaskingSpacing = v
-        saveBrushParam(reloadEngine = true)
+        brushParams = brushParams.copy(maskingSpacing = v)
+        BrushStoreVm.stage(this, ControlId.MASKING_SPACING, v)
     }
 
     internal fun PaintViewModel.updateBrushMaskingTipAsset(asset: String) {
-        brushMaskingTipAsset = asset
-        saveBrushParam(reloadEngine = true, immediateReload = true)
+        brushParams = brushParams.copy(maskingTipAsset = asset)
+        BrushStoreVm.stage(this, ControlId.MASKING_TIP_ASSET, asset)
     }
 
     internal fun PaintViewModel.updateBrushMaskingFade(v: Double) {
-        brushMaskingFade = v
-        saveBrushParam(reloadEngine = true)
+        brushParams = brushParams.copy(maskingFade = v)
+        BrushStoreVm.stage(this, ControlId.MASKING_FADE, v)
     }
 
     internal fun PaintViewModel.updateBrushRotationSensor(v: String) {
-        brushRotationSensor = v
-        val opt = brushDynamicOptions["Rotation"]
-        if (opt != null) {
-            brushDynamicOptions["Rotation"] = opt.copy(sensorId = v, enabled = v.isNotBlank())
-        }
-        saveBrushParam(dynamicsChanged = true, reloadEngine = true, immediateReload = true)
+        brushParams = brushParams.copy(rotationSensor = v)
+        val opt = (brushDynamicOptions["Rotation"]
+            ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Rotation")).copy(sensorId = v, enabled = v.isNotBlank())
+        brushDynamicOptions["Rotation"] = opt
+        BrushStoreVm.stage(this, ControlId.CURVE_ROTATION, opt.toCurveXml())
     }
 
     internal fun PaintViewModel.updateBrushSizeSensor(v: String) {
-        brushSizeSensor = v
-        brushDynamicOptions["Size"] = (brushDynamicOptions["Size"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Size")).copy(sensorId = v)
-        saveBrushParam(dynamicsChanged = true, reloadEngine = true, immediateReload = true)
+        val enabled = v.isNotBlank()
+        val opt = (brushDynamicOptions["Size"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Size"))
+        val newStrength = if (enabled && opt.strength <= 0.001f) 1.0f else opt.strength
+        val newOpt = opt.copy(sensorId = v, enabled = enabled, strength = newStrength)
+        val newPressureSize = if (enabled && brushParams.pressureSize <= 0.001) newStrength.toDouble() else brushParams.pressureSize
+        brushParams = brushParams.copy(sizeSensor = v, pressureSize = newPressureSize)
+        brushDynamicOptions["Size"] = newOpt
+        BrushStoreVm.stage(this, ControlId.CURVE_SIZE, newOpt.toCurveXml())
     }
 
     internal fun PaintViewModel.updateBrushOpacitySensor(v: String) {
-        brushOpacitySensor = v
-        brushDynamicOptions["Opacity"] = (brushDynamicOptions["Opacity"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Opacity")).copy(sensorId = v)
-        saveBrushParam(dynamicsChanged = true, reloadEngine = true, immediateReload = true)
+        val enabled = v.isNotBlank()
+        val opt = (brushDynamicOptions["Opacity"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Opacity"))
+        val newStrength = if (enabled && opt.strength <= 0.001f) 1.0f else opt.strength
+        val newOpt = opt.copy(sensorId = v, enabled = enabled, strength = newStrength)
+        val newPressureOpacity = if (enabled && brushParams.pressureOpacity <= 0.001) newStrength.toDouble() else brushParams.pressureOpacity
+        brushParams = brushParams.copy(opacitySensor = v, pressureOpacity = newPressureOpacity)
+        brushDynamicOptions["Opacity"] = newOpt
+        BrushStoreVm.stage(this, ControlId.CURVE_OPACITY, newOpt.toCurveXml())
     }
 
     internal fun PaintViewModel.updateBrushFlowSensor(v: String) {
-        brushFlowSensor = v
-        brushDynamicOptions["Flow"] = (brushDynamicOptions["Flow"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Flow")).copy(sensorId = v)
-        saveBrushParam(dynamicsChanged = true, reloadEngine = true, immediateReload = true)
+        val enabled = v.isNotBlank()
+        val opt = (brushDynamicOptions["Flow"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Flow"))
+        val newStrength = if (enabled && opt.strength <= 0.001f) 1.0f else opt.strength
+        val newOpt = opt.copy(sensorId = v, enabled = enabled, strength = newStrength)
+        val newPressureFlow = if (enabled && brushParams.pressureFlow <= 0.001) newStrength.toDouble() else brushParams.pressureFlow
+        brushParams = brushParams.copy(flowSensor = v, pressureFlow = newPressureFlow)
+        brushDynamicOptions["Flow"] = newOpt
+        BrushStoreVm.stage(this, ControlId.CURVE_FLOW, newOpt.toCurveXml())
     }
 
     internal fun PaintViewModel.updateBrushScatterSensor(v: String) {
-        brushScatterSensor = v
-        brushDynamicOptions["Scatter"] = (brushDynamicOptions["Scatter"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Scatter")).copy(sensorId = v)
-        saveBrushParam(dynamicsChanged = true, reloadEngine = true, immediateReload = true)
+        brushParams = brushParams.copy(scatterSensor = v)
+        val opt = (brushDynamicOptions["Scatter"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Scatter")).copy(
+            sensorId = v,
+            enabled = v.isNotBlank(),
+        )
+        brushDynamicOptions["Scatter"] = opt
+        BrushStoreVm.stage(this, ControlId.CURVE_SCATTER, opt.toCurveXml())
     }
 
     internal fun PaintViewModel.updateBrushStreamline(v: Double) {
-        brushStreamline = v
-        saveBrushParam()
+        brushParams = brushParams.copy(streamline = v)
+        BrushStoreVm.stage(this, ControlId.STREAMLINE, v)
+    }
+
+    internal fun PaintViewModel.updateBrushTaper(v: Double) {
+        brushParams = brushParams.copy(taper = v)
+        BrushStoreVm.stage(this, ControlId.TAPER, v)
     }
 
     /** Capture scratchpad raster as the preset's official PNG thumbnail */
@@ -412,22 +395,17 @@ import kotlinx.coroutines.launch
             android.util.Log.e("ReveriePaint", "capturePresetThumbnail: preset not found for index $targetPresetIndex")
             return false
         }
-        val dir = File(appContext.filesDir, "paintoppresets")
-        if (!dir.exists()) dir.mkdirs()
-        val kppFile = File(dir, "${preset.name}.kpp")
-        if (!kppFile.exists()) {
-            try {
-                appContext.assets.open("paintoppresets/${preset.name}.kpp").use { input ->
-                    kppFile.outputStream().use { output -> input.copyTo(output) }
-                }
-            } catch (e: Exception) {
-                android.util.Log.w("ReveriePaint", "Failed to copy kpp from assets for ${preset.name}", e)
-            }
-        }
-        if (!kppFile.exists()) {
-            android.util.Log.e("ReveriePaint", "capturePresetThumbnail: kppFile not found: ${kppFile.absolutePath}")
+        val e = BrushStoreBootstrap.managedEntry(preset.id) ?: run {
+            android.util.Log.e("ReveriePaint", "capturePresetThumbnail: managedEntry not found for ${preset.name}")
             return false
         }
+        if (!e.ext.equals("kpp", ignoreCase = true)) {
+            // .myb 不是 PNG，缩略图没有地方嵌；缩略图只对 kpp 生效
+            android.util.Log.w("ReveriePaint", "capturePresetThumbnail: ${preset.name} is .${e.ext}, thumbnail not supported")
+            return false
+        }
+        val dir = ResourceDirs.presets(appContext.filesDir)
+        if (!dir.exists()) dir.mkdirs()
 
         val targetSize = 256
         val thumbBmp = if (bitmap.width == targetSize && bitmap.height == targetSize) {
@@ -439,7 +417,9 @@ import kotlinx.coroutines.launch
         thumbBmp.compress(Bitmap.CompressFormat.PNG, 100, stream)
         val pngBytes = stream.toByteArray()
 
-        val success = KppHelper.updateKppThumbnail(kppFile, pngBytes)
+        BrushThumbStore.put(e.id, pngBytes)
+        val result = EffectivePresetBuilder.materialize(e.id, dir)
+        val success = result != null
         if (success) {
             BrushThumbCache.put(preset.name, thumbBmp)
             brushPresets = brushPresets.map {
@@ -451,7 +431,7 @@ import kotlinx.coroutines.launch
                 android.widget.Toast.LENGTH_SHORT
             ).show()
         } else {
-            android.util.Log.e("ReveriePaint", "capturePresetThumbnail: KppHelper.updateKppThumbnail failed for ${kppFile.name}")
+            android.util.Log.e("ReveriePaint", "capturePresetThumbnail: EffectivePresetBuilder.materialize failed for ${preset.name}")
         }
         return success
     }
@@ -459,32 +439,22 @@ import kotlinx.coroutines.launch
     internal var pendingKppReloadJob: Job? = null
 
     /**
-     * 把内存里的动力学曲线序列化成 Krita sensor param 全文, 供 kpp 落盘。
-     *
-     * 曲线本身住在 `brushDynamicOptions` (DynamicOptionConfig.points), 而 Krita 把它放在
-     * `<Key>Sensor` param 的 XML 里, 由 `<Key>UseCurve` 开关。此前 updateBrushDynamicOption
-     * 只写内存 + 下发引擎, 不落盘, 于是切笔刷/重启后曲线丢失。
-     * 只有"已启用"或"曲线非线性"的选项才写, 避免把一堆恒等曲线塞进每个预设。
+     * 出厂预设常带全通道 Sensor/curve，但压感未必打开。曲线为空则关闭；XML 自带 enabled 时以它为准；
+     * 都没有时只有 Size 默认开（其余通道的开关不在 sensor 体里，调用方拿不到就当关）。
      */
-    private fun PaintViewModel.buildDynamicOptionSensorXml(): Map<String, String> {
-        val out = HashMap<String, String>()
-        for ((key, cfg) in brushDynamicOptions) {
-            if (key.isBlank()) continue
-            val curve = cfg.toKritaCurveString()
-            val id = cfg.sensorId.ifBlank { "pressure" }
-            out[key] = "<!DOCTYPE params><params id=\"$id\" enabled=\"${cfg.enabled}\" strength=\"${cfg.strength}\"><curve>$curve</curve></params>"
-        }
-        return out
+    internal fun sensorEnabledFromXml(key: String, body: String): Boolean {
+        val curve = Regex("""<curve>([^<]*)</curve>""").find(body)?.groupValues?.getOrNull(1)
+        if (curve.isNullOrBlank()) return false
+        val enabledAttr = Regex("""enabled="([^"]+)"""").find(body)?.groupValues?.getOrNull(1)?.toBooleanStrictOrNull()
+        if (enabledAttr != null) return enabledAttr
+        return key.equals("size", ignoreCase = true)
     }
 
     /**
      * 将预设中的传感器 XML (SizeSensor/SpacingSensor 等) 反向灌回 UI 状态。
      * 每次切换笔刷时必须先彻底重置内存 Map，彻底杜绝跨笔刷曲线污染。
      */
-    internal fun PaintViewModel.applySensorXmlToDynamicOptions(
-        sensorXml: Map<String, String>,
-        parsed: KppHelper.KppParsedAttributes? = null,
-    ) {
+    internal fun PaintViewModel.applySensorXmlToDynamicOptions(sensorXml: Map<String, String>) {
         val standardKeys = listOf("Size", "Opacity", "Flow", "Spacing", "Scatter", "Rotation", "SmudgeRate", "ColorRate")
         val newMap = mutableMapOf<String, com.reverie.paint.model.DynamicOptionConfig>()
         for (k in standardKeys) {
@@ -506,27 +476,9 @@ import kotlinx.coroutines.launch
             if (curve.isNullOrBlank()) continue
             val points = com.reverie.paint.model.DynamicOptionConfig.parseKritaCurve(curve)
             val existing = newMap[key]
-            val isLinear = points.size == 2 &&
-                    points[0].x == 0f && points[0].y == 0f &&
-                    points[1].x == 1f && points[1].y == 1f
-
-            val enabledAttr = Regex("""enabled="([^"]+)"""").find(body)?.groupValues?.getOrNull(1)?.toBooleanStrictOrNull()
             val strengthAttr = Regex("""strength="([^"]+)"""").find(body)?.groupValues?.getOrNull(1)?.toFloatOrNull()
 
-            // 出厂预设中常包含所有通道的 Sensor/curve 节点，但实际压感并未启用。
-            // 若 XML 显式包含 enabled 属性则按显式值恢复；仅当来自出厂预设/旧版 XML 时应用启发式规则
-            val isEnabled = if (enabledAttr != null) {
-                enabledAttr
-            } else when (key.lowercase()) {
-                "size" -> parsed?.pressureSize?.let { it > 0.001 } ?: true
-                "opacity" -> parsed?.pressureOpacity?.let { it > 0.001 } ?: false
-                "flow" -> parsed?.pressureFlow?.let { it > 0.001 } ?: false
-                else -> if (isLinear && (id == null || id == "pressure")) {
-                    existing?.enabled ?: false
-                } else {
-                    existing?.enabled ?: true
-                }
-            }
+            val isEnabled = sensorEnabledFromXml(key, body)
             val strength = strengthAttr ?: 1.0f
 
             newMap[key] = (existing ?: com.reverie.paint.model.DynamicOptionConfig(optionKey = key)).copy(
@@ -540,201 +492,3 @@ import kotlinx.coroutines.launch
         brushDynamicOptions.putAll(newMap)
     }
 
-    internal fun PaintViewModel.saveBrushParam(
-        dynamicsChanged: Boolean = false,
-        smudgeChanged: Boolean = false,
-        spacingChanged: Boolean = false,
-        reloadEngine: Boolean = false,
-        immediateReload: Boolean = false,
-    ) {
-        val preset = brushPresets.firstOrNull { it.index == brushPresetIndex } ?: return
-        val name = preset.name
-        val isEraserPreset = preset.group == "橡皮擦" || name.startsWith("a)_Eraser", ignoreCase = true) || name.contains("Eraser", ignoreCase = true)
-        val existing = brushParams[name]
-        val dc = dynamicsChanged || (existing?.dynamicsCustomized == true)
-        val sc = smudgeChanged || (existing?.smudgeCustomized == true)
-        val spc = spacingChanged || (existing?.spacingCustomized == true)
-        val p = currentBrushParamsFromVm(name, dc, sc, spc, existing, isEraserPreset)
-        brushParams[name] = p
-        schedulePersistBrushParams()
-        // v2：只落盘（stage + 防抖 commit/materialize），引擎重载由下面的旧块负责
-        BrushStoreVm.onSavedPersist(this, name, p)
-        val dir = File(appContext.filesDir, "paintoppresets")
-        val kppFile = File(dir, "$name.kpp")
-        if (kppFile.exists()) {
-            val targetIdx = brushPresetIndex
-            if (reloadEngine) {
-                pendingKppReloadJob?.cancel()
-                val delayMs = if (immediateReload) 0L else 120L
-                pendingKppReloadJob = viewModelScope.launch(Dispatchers.Default) {
-                    if (delayMs > 0) delay(delayMs)
-                    if (brushPresetIndex != targetIdx) return@launch
-                    runCore(render = false) {
-                        if (brushPresetIndex != targetIdx) return@runCore
-                        val pSnapshot = brushParams[name] ?: return@runCore
-                        BrushStoreVm.flushNow(name)
-                        if (ReverieCoreBridge.loadBrushPreset(targetIdx)) {
-                            if (pSnapshot.tipAsset.isNotBlank()) ReverieCoreBridge.setBrushTipAsset(pSnapshot.tipAsset)
-                            ReverieCoreBridge.setPresetIsEraser(isEraserPreset)
-                            ReverieCoreBridge.setBrushColor(brushColor)
-                            ReverieCoreBridge.setBrushSecondaryColor(brushSecondaryColor)
-                            ReverieCoreBridge.setBrushSize(pSnapshot.size)
-                            ReverieCoreBridge.setBrushOpacity(pSnapshot.opacity)
-                            ReverieCoreBridge.setBrushFlow(pSnapshot.flow)
-                            if (pSnapshot.spacingCustomized) {
-                                ReverieCoreBridge.setBrushSpacing(pSnapshot.spacing)
-                            }
-                            val effAngle = ((pSnapshot.angle + pSnapshot.rotation) % 360.0).let { if (it < 0.0) it + 360.0 else it }
-                            ReverieCoreBridge.setBrushAngle(effAngle)
-                            if (pSnapshot.dynamicsCustomized) {
-                                ReverieCoreBridge.setBrushScatter(pSnapshot.scatter)
-                            }
-                            ReverieCoreBridge.setBrushFade(pSnapshot.fade)
-                            ReverieCoreBridge.setBrushSoftness(pSnapshot.softness)
-                            ReverieCoreBridge.setBrushRatio(pSnapshot.ratio)
-                            ReverieCoreBridge.setBrushSharpness(pSnapshot.sharpness)
-                            ReverieCoreBridge.setBrushRotation(pSnapshot.rotation)
-                            ReverieCoreBridge.setBrushCompositeOp(brushCompositeOp)
-                            if (pSnapshot.dynamicsCustomized) {
-                                if (pSnapshot.dynamicOptions.isNotEmpty()) {
-                                     for ((opt, xml) in pSnapshot.dynamicOptions) {
-                                        val sensorId = Regex("""id="([^"]+)"""").find(xml)?.groupValues?.getOrNull(1) ?: "pressure"
-                                        val curve = Regex("""<curve>([^<]*)</curve>""").find(xml)?.groupValues?.getOrNull(1) ?: "0,0;1,1;"
-                                        val enabledAttr = Regex("""enabled="([^"]+)"""").find(xml)?.groupValues?.getOrNull(1)?.toBooleanStrictOrNull()
-                                        val strengthAttr = Regex("""strength="([^"]+)"""").find(xml)?.groupValues?.getOrNull(1)?.toDoubleOrNull()
-                                        val strength = strengthAttr ?: when (opt.lowercase()) {
-                                            "size" -> pSnapshot.pressureSize
-                                            "opacity" -> pSnapshot.pressureOpacity
-                                            "flow" -> pSnapshot.pressureFlow
-                                            else -> 1.0
-                                        }
-                                        val isEnabled = enabledAttr ?: when (opt.lowercase()) {
-                                            "size" -> pSnapshot.pressureEnabled && pSnapshot.pressureSize > 0.001
-                                            "opacity" -> pSnapshot.pressureEnabled && pSnapshot.pressureOpacity > 0.001
-                                            "flow" -> pSnapshot.pressureEnabled && pSnapshot.pressureFlow > 0.001
-                                            else -> brushDynamicOptions[opt]?.enabled ?: true
-                                        }
-                                        ReverieCoreBridge.setBrushOptionDynamics(
-                                            opt,
-                                            isEnabled,
-                                            sensorId,
-                                            curve,
-                                            strength,
-                                        )
-                                    }
-                                } else {
-                                    ReverieCoreBridge.setBrushPressureDynamics(
-                                        pSnapshot.pressureEnabled,
-                                        pSnapshot.pressureSize,
-                                        pSnapshot.pressureOpacity,
-                                        pSnapshot.pressureFlow,
-                                        pSnapshot.pressureCurve,
-                                    )
-                                }
-                            }
-                            com.reverie.paint.core.brushstore.BrushTextureLive.apply(
-                                pSnapshot.textureEnabled,
-                                pSnapshot.textureScale,
-                                pSnapshot.textureStrength,
-                                pSnapshot.textureMode,
-                                pSnapshot.texturePattern,
-                            )
-                            if (pSnapshot.followDirection) {
-                                ReverieCoreBridge.setBrushFollowDirection(true)
-                            } else if (pSnapshot.dynamicsCustomized && brushRotationSensor.isBlank()) {
-                                ReverieCoreBridge.setBrushFollowDirection(false)
-                            }
-                            ReverieCoreBridge.setBrushMirror(pSnapshot.randomFlipX, pSnapshot.randomFlipY)
-                            ReverieCoreBridge.setBrushAntiAliasing(pSnapshot.antiAliasing)
-                            ReverieCoreBridge.setBrushJitter(pSnapshot.jitterAngle, pSnapshot.jitterSize)
-                            ReverieCoreBridge.setBrushSmudgeRate(pSnapshot.smudgeRate)
-                            ReverieCoreBridge.setBrushSmudgeLength(pSnapshot.smudgeLength)
-                            ReverieCoreBridge.setBrushAirbrush(pSnapshot.airbrush, pSnapshot.airbrushRate)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    /** 从当前 VM 状态构造 BrushParams（saveBrushParam 与 v2 captureUiBaseline 共用的字段表） */
-    internal fun PaintViewModel.currentBrushParamsFromVm(
-        name: String?,
-        dynamicsCustomized: Boolean,
-        smudgeCustomized: Boolean,
-        spacingCustomized: Boolean,
-        existing: BrushParams?,
-        isEraserPreset: Boolean,
-    ): BrushParams =
-        BrushParams(
-            dynamicOptions = if (dynamicsCustomized) buildDynamicOptionSensorXml() else (existing?.dynamicOptions ?: emptyMap()),
-            size = brushSize,
-            opacity = brushOpacity,
-            flow = brushFlow,
-            spacing = brushSpacing,
-            angle = brushAngle,
-            scatter = brushScatter,
-            fade = brushFade,
-            softness = brushSoftness,
-            ratio = brushRatio,
-            sharpness = brushSharpness,
-            rotation = brushRotation,
-            compositeOp = if (isEraserPreset) "erase" else if (brushCompositeOp != "erase") brushCompositeOp else (existing?.compositeOp?.takeIf { it != "erase" } ?: "normal"),
-            antiAliasing = brushAntiAliasing,
-            tipShape = brushTipShape,
-            randomFlipX = brushRandomFlipX,
-            randomFlipY = brushRandomFlipY,
-            followDirection = brushFollowDirection,
-            streamline = brushStreamline,
-            taper = brushTaper,
-            textureEnabled = brushTextureEnabled,
-            textureScale = brushTextureScale,
-            textureStrength = brushTextureStrength,
-            textureMode = brushTextureMode,
-            texturePattern = brushTexturePattern,
-            hueJitter = brushHueJitter,
-            satJitter = brushSatJitter,
-            valJitter = brushValJitter,
-            secondaryMix = brushSecondaryMix,
-            pressureColorMix = brushPressureColorMix,
-            pressureEnabled = brushPressureEnabled,
-            pressureSize = brushPressureSize,
-            pressureOpacity = brushPressureOpacity,
-            pressureFlow = brushPressureFlow,
-            speedSize = brushSpeedSize,
-            pressureCurve = brushPressureCurve,
-            minSizeLimit = brushMinSizeLimit,
-            maxSizeLimit = brushMaxSizeLimit,
-            tipAsset = brushTipAsset,
-            paintOpId = brushPaintOpId,
-            airbrush = brushAirbrush,
-            airbrushRate = brushAirbrushRate,
-            smudgeRate = brushSmudgeRate,
-            smudgeLength = brushSmudgeLength,
-            colorRate = brushColorRate,
-            smudgeMode = brushSmudgeMode,
-            spikes = brushSpikes,
-            jitterAngle = brushJitterAngle,
-            jitterSize = brushJitterSize,
-            author = brushAuthor,
-            isAuthorLocked = brushIsAuthorLocked,
-            description = brushDescription,
-            version = brushVersion,
-            isCustomized = true,
-            dynamicsCustomized = dynamicsCustomized,
-            smudgeCustomized = smudgeCustomized,
-            spacingCustomized = spacingCustomized,
-            maskingEnabled = brushMaskingEnabled,
-            maskingCompositeOp = brushMaskingCompositeOp,
-            maskingSizeRatio = brushMaskingSizeRatio,
-            maskingSpacing = brushMaskingSpacing,
-            maskingTipAsset = brushMaskingTipAsset,
-            maskingTipShape = brushMaskingTipShape,
-            maskingFade = brushMaskingFade,
-            maskingSoftness = brushMaskingSoftness,
-            rotationSensor = brushRotationSensor,
-            scatterSensor = brushScatterSensor,
-            sizeSensor = brushSizeSensor,
-            opacitySensor = brushOpacitySensor,
-            flowSensor = brushFlowSensor,
-        )

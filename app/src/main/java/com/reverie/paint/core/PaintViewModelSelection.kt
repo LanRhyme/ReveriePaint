@@ -207,7 +207,10 @@ internal fun PaintViewModel.selectAllAction() {
     discardTransientTransformSelection()
     val layerIdx = currentLayerIndex
     if (recorder.recording) {
-        recorder.toolOp(T_SELECT_ALL) { it.u16(layerIdx.coerceIn(0, 65535)) }
+        recorder.toolOp(T_SELECT_ALL) {
+            it.u16(layerIdx.coerceIn(0, 65535))
+            it.u8(0)
+        }
     }
     var ov: android.graphics.Bitmap? = null
     runCore(render = false, after = {

@@ -21,6 +21,7 @@ import androidx.compose.animation.slideOutVertically
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -44,6 +45,8 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.shadow
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.Dp
@@ -138,9 +141,11 @@ internal fun AnimationTimelinePanel(
 
     val panelAlpha = if (vm.uiOpacity >= 0.99f) 0.90f else vm.uiOpacity
 
+    val isFloating = vm.floatingUiConfig.enabled
+
     val targetHeightDp = when (mode) {
-        "bar" -> HANDLE_H
-        "mini" -> HANDLE_H + rowDp + CONTROL_H
+        "bar" -> if (isFloating) 28.dp else HANDLE_H
+        "mini" -> (if (isFloating) 24.dp else HANDLE_H) + rowDp + CONTROL_H
         else -> (panelHeightPx / d).dp
     }
     val panelHeight by animateDpAsState(
@@ -150,59 +155,78 @@ internal fun AnimationTimelinePanel(
     )
 
     val useHaze = hazeState != null && !dragging
+    val navBarModifier = if (isFloating) Modifier else Modifier.navigationBarsPadding()
 
-    Column(
+    BoxWithConstraints(
         modifier = modifier
             .fillMaxWidth()
-            .navigationBarsPadding(),
+            .then(navBarModifier),
+        contentAlignment = Alignment.BottomCenter,
     ) {
-        AnimatedVisibility(
-            visible = vm.anim.toolbarExpanded && mode == "custom",
-            enter = fadeIn(spring(stiffness = 500f)) + slideInHorizontally(spring(dampingRatio = 0.8f, stiffness = 400f)) { it / 2 },
-            exit = fadeOut(spring(stiffness = 500f)) + slideOutHorizontally(spring(dampingRatio = 0.8f, stiffness = 400f)) { it / 2 },
-            modifier = Modifier.fillMaxWidth(),
-        ) {
-            Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
-                AnimationSettingsCard(
-                    vm = vm,
-                    hazeState = hazeState,
-                    onClose = { vm.anim.toolbarExpanded = false },
-                    // 给时间轴和顶部工具栏留空间，设置内容增多时在卡片内部滚动。
-                    maxHeight = (config.screenHeightDp.dp - panelHeight - 64.dp).coerceAtLeast(100.dp),
-                )
-            }
-        }
+        val maxAvailableWidth = maxWidth
+        val targetWidthDp = if (isFloating && mode == "bar") 180.dp else maxAvailableWidth
+        val panelWidth by animateDpAsState(
+            targetValue = targetWidthDp,
+            animationSpec = spring(dampingRatio = 0.78f, stiffness = 400f),
+            label = "timelinePanelWidth",
+        )
 
         Column(
-            modifier = Modifier.reportUiSlot(vm, UiPanelSlot.ANIMATION_TIMELINE),
+            modifier = Modifier.width(panelWidth),
+            horizontalAlignment = Alignment.CenterHorizontally,
         ) {
-            if (mode != "bar") StoryboardReferenceBar(vm)
+            AnimatedVisibility(
+                visible = vm.anim.toolbarExpanded && mode == "custom",
+                enter = fadeIn(spring(stiffness = 500f)) + slideInHorizontally(spring(dampingRatio = 0.8f, stiffness = 400f)) { it / 2 },
+                exit = fadeOut(spring(stiffness = 500f)) + slideOutHorizontally(spring(dampingRatio = 0.8f, stiffness = 400f)) { it / 2 },
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Box(modifier = Modifier.fillMaxWidth(), contentAlignment = Alignment.CenterEnd) {
+                    AnimationSettingsCard(
+                        vm = vm,
+                        hazeState = hazeState,
+                        onClose = { vm.anim.toolbarExpanded = false },
+                        // 给时间轴和顶部工具栏留空间，设置内容增多时在卡片内部滚动。
+                        maxHeight = (config.screenHeightDp.dp - panelHeight - 64.dp).coerceAtLeast(100.dp),
+                    )
+                }
+            }
 
-            TimelinePanelSurface(
-                vm = vm,
-                hazeState = hazeState,
-                panelHeight = panelHeight,
-                useHaze = useHaze,
-                panelAlpha = panelAlpha,
-                rowDp = rowDp,
-                rowPx = rowPx,
-                maxScrollY = maxScrollY,
-                scrollY = scrollY,
-                onScrollYChange = { scrollY = it },
-                onTrackViewportChange = { trackViewportPx = it },
-                onToggleSettings = { vm.anim.toolbarExpanded = !vm.anim.toolbarExpanded },
-                mode = mode,
-                onModeChange = { mode = it },
-                panelHeightPx = panelHeightPx,
-                onPanelHeightPxChange = { panelHeightPx = it },
-                dragging = dragging,
-                onDraggingChange = { dragging = it },
-                d = d,
-                minPx = minPx,
-                maxPx = maxPx,
-                mediumHeightDp = mediumHeightDp,
-                trackHeaderW = trackHeaderW,
-            )
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .reportUiSlot(vm, UiPanelSlot.ANIMATION_TIMELINE),
+                horizontalAlignment = Alignment.CenterHorizontally,
+            ) {
+                if (mode != "bar") StoryboardReferenceBar(vm)
+
+                TimelinePanelSurface(
+                    vm = vm,
+                    hazeState = hazeState,
+                    panelHeight = panelHeight,
+                    useHaze = useHaze,
+                    panelAlpha = panelAlpha,
+                    rowDp = rowDp,
+                    rowPx = rowPx,
+                    maxScrollY = maxScrollY,
+                    scrollY = scrollY,
+                    onScrollYChange = { scrollY = it },
+                    onTrackViewportChange = { trackViewportPx = it },
+                    onToggleSettings = { vm.anim.toolbarExpanded = !vm.anim.toolbarExpanded },
+                    mode = mode,
+                    onModeChange = { mode = it },
+                    panelHeightPx = panelHeightPx,
+                    onPanelHeightPxChange = { panelHeightPx = it },
+                    dragging = dragging,
+                    onDraggingChange = { dragging = it },
+                    d = d,
+                    minPx = minPx,
+                    maxPx = maxPx,
+                    mediumHeightDp = mediumHeightDp,
+                    trackHeaderW = trackHeaderW,
+                    isFloating = isFloating,
+                )
+            }
         }
     }
 }
@@ -235,11 +259,23 @@ private fun TimelinePanelSurface(
     maxPx: Float,
     mediumHeightDp: Dp,
     trackHeaderW: Dp = TRACK_HEADER_W,
+    isFloating: Boolean = false,
 ) {
+    val shape = if (isFloating) RoundedCornerShape(18.dp) else RoundedCornerShape(0.dp)
+
     Column(
         modifier = Modifier
             .fillMaxWidth()
             .height(panelHeight)
+            .then(
+                if (isFloating) {
+                    Modifier
+                        .shadow(12.dp, shape, spotColor = Color.Black.copy(alpha = 0.45f))
+                        .clip(shape)
+                } else {
+                    Modifier
+                },
+            )
             .then(
                 if (useHaze && hazeState != null) {
                     Modifier.hazeChild(state = hazeState, style = Glass.barStyle(panelAlpha))
@@ -290,7 +326,7 @@ private fun TimelinePanelSurface(
                 onModeChange("custom")
                 onPanelHeightPxChange(((MAX_PANEL_H - 60f) * d).coerceIn(minPx, maxPx))
             },
-            modifier = Modifier.fillMaxWidth().height(HANDLE_H),
+            modifier = Modifier.fillMaxWidth().height(if (isFloating && mode == "bar") 28.dp else HANDLE_H),
         )
 
         when (mode) {

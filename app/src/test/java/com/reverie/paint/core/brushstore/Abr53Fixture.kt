@@ -4,8 +4,6 @@
 
 package com.reverie.paint.core.brushstore
 
-import com.reverie.paint.core.AbrParser
-import com.reverie.paint.core.BrushParams
 import com.reverie.paint.core.KppHelper
 import org.json.JSONObject
 import org.junit.Assume.assumeTrue
@@ -24,8 +22,7 @@ import java.nio.file.Files
  *
  * 装载步骤：临时目录 → Bootstrap.run（真实出厂 kpp 造出厂版本）→ 逐目录拷贝
  * `source.json`/`preset.kpp` 到 `snapshots/imported/<目录名>/` → [BrushIdentity.registerAll]
- * 注册 `imp:<uuid>` 身份。此后 [OfficialBp.forId] 第三级 fallback 会把 sidecar
- * `official_bp.json` 写进**临时**目录（预期副作用）；外部样本目录本身只读不写回。
+ * 注册 `imp:<uuid>` 身份；外部样本目录本身只读不写回。
  *
  * tsv 行按名字原样（保留尾随空格）与 `abrParams.name` 精确对齐。
  */
@@ -48,9 +45,6 @@ internal object Abr53Fixture {
     fun dir(): File = requireNotNull(externalDirOrNull()) { "缺少外部 ABR53 样本（设置 $DIR_VAR）" }
 
     class Store(val root: File, val presetDir: File) {
-        fun importedSidecar(dirName: String): File =
-            File(root, "brush_store/snapshots/imported/$dirName/official_bp.json")
-
         fun tearDown() {
             BrushStoreBootstrap.resetForTest()
             root.deleteRecursively()
@@ -64,14 +58,9 @@ internal object Abr53Fixture {
         val pack: String,
         val source: JSONObject, // source.json
         val abrParams: JSONObject,
-        val info: AbrParser.AbrPresetInfo, // AbrParamsDecoder.decode(abrParams)
         val tsvRow: List<String>, // tsv 原始行（18 列，右侧缺列补空串，不 trim）
         val snapshotKpp: File, // 临时目录里的快照 kpp
     ) {
-        /** 回填 bp（OfficialBp.forId 结果；首次调用后走临时目录 sidecar 缓存） */
-        val bp: BrushParams by lazy { requireNotNull(OfficialBp.forId(id)) { "forId 返回 null: $id" } }
-
-        val parsedKpp by lazy { KppHelper.parseKppFile(snapshotKpp) }
 
         /** tsv 第 [col] 列（0 起）trim 后的值 */
         fun tsv(col: Int): String = tsvRow[col].trim()
@@ -116,9 +105,6 @@ internal object Abr53Fixture {
             check(dest.mkdir() || dest.isDirectory)
             File(dest, "source.json").writeBytes(srcJson.readBytes())
             File(dest, "preset.kpp").writeBytes(srcKpp.readBytes())
-            // forId 第三级 sidecar 属临时目录副作用；这里确保从干净状态开始
-            File(dest, "official_bp.json").delete()
-
             val source = JSONObject(srcJson.readText())
             val abrParams = source.getJSONObject("abrParams")
             val name = abrParams.getString("name")
@@ -133,13 +119,11 @@ internal object Abr53Fixture {
                 pack = source.optString("pack"),
                 source = source,
                 abrParams = abrParams,
-                info = AbrParamsDecoder.decode(abrParams),
                 tsvRow = row,
                 snapshotKpp = File(dest, "preset.kpp"),
             )
         }
         BrushIdentity.registerAll(entries)
-        check(dirs.none { File(it, "official_bp.json").exists() }) { "资源目录被写入 sidecar（资源不得写回）" }
         return Store(root, presetDir) to samples
     }
 

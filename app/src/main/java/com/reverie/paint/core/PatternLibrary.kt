@@ -1,6 +1,8 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package com.reverie.paint.core
 
+import com.reverie.paint.core.brushstore.ResourceDirs
+import com.reverie.paint.core.brushstore.ResourceStore
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
@@ -20,7 +22,7 @@ internal data class FillPattern(
 internal object PatternLibrary {
     private val thumbnailCache = LruCache<String, Bitmap>(32)
 
-    fun list(context: Context): List<File> = File(context.filesDir, "patterns").listFiles()
+    fun list(context: Context): List<File> = ResourceDirs.patterns(context.filesDir).listFiles()
         ?.filter { it.isFile && it.extension.lowercase() in setOf("png", "jpg", "jpeg") }
         ?.sortedBy { it.name.lowercase() }.orEmpty()
 
@@ -28,6 +30,13 @@ internal object PatternLibrary {
 
     fun delete(file: File): Boolean {
         thumbnailCache.remove(file.absolutePath)
+        val filesDir = file.parentFile?.parentFile
+        val storeRoot = filesDir?.let { File(it, com.reverie.paint.core.brushstore.BrushStoreBootstrap.STORE_DIR) }
+        val rStore = com.reverie.paint.core.brushstore.BrushStoreBootstrap.resourceStore
+            ?: (if (storeRoot?.exists() == true) com.reverie.paint.core.brushstore.ResourceStore(storeRoot) else null)
+        if (rStore?.all()?.any { it.file == file.name && it.kind == com.reverie.paint.core.brushstore.ResourceStore.Kind.PATTERN } == true) {
+            return false
+        }
         return file.delete()
     }
 
@@ -56,20 +65,11 @@ internal object PatternLibrary {
 
     fun import(context: Context, uri: Uri): FillPattern {
         val pattern = decode(context, uri, "")
-        val hash = MessageDigest.getInstance("SHA-256").digest(pattern.png)
-            .joinToString("") { "%02x".format(it) }
-        val directory = File(context.filesDir, "patterns").apply { mkdirs() }
-        val destination = File(directory, "$hash.png")
-        if (!destination.exists()) {
-            val temporary = File.createTempFile("pattern-", ".tmp", directory)
-            try {
-                temporary.writeBytes(pattern.png)
-                check(temporary.renameTo(destination))
-            } finally {
-                temporary.delete()
-            }
-        }
-        return pattern.copy(name = hash.take(12))
+        val storeRoot = com.reverie.paint.core.brushstore.BrushStoreBootstrap.storeRoot(context.filesDir)
+        val rStore = com.reverie.paint.core.brushstore.BrushStoreBootstrap.resourceStore
+            ?: com.reverie.paint.core.brushstore.ResourceStore(storeRoot)
+        val ref = rStore.register(pattern.png, com.reverie.paint.core.brushstore.ResourceStore.Kind.PATTERN, "pattern.png")
+        return pattern.copy(name = ref.file.removeSuffix(".png").take(12))
     }
 
     private fun decode(context: Context, uri: Uri, name: String): FillPattern {

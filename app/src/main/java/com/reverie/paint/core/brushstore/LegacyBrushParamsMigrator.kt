@@ -11,17 +11,30 @@ import java.io.File
 import kotlin.math.abs
 
 /**
- * 旧数据迁移（执行文档 W-07）：旧 `brushParams`（每个预设一份全量快照）→ 稀疏覆盖。
+ * 旧数据迁移（执行文档 W-07）：旧 `legacyParams`（每个预设一份全量快照）→ 稀疏覆盖。
  *
  * 1. 备份 `brush_params` 原文与 `paintoppresets/` 到 `brush_store/legacy_backup/<时间戳>/`（只留最近 [KEEP_BACKUPS] 份，D-9）；
  * 2. 磁盘上没有 identity 的非内置 .kpp 以**当前文件**作为导入快照（provenance=migrated；
  *    含 `ReverieRotation` 且不是 ABR 转换的标 migrated_possibly_modified，原件可能被旧版改写过，有损）；
  * 3. 逐条旧记录分类 K0..K6，只把"真实编辑"写成覆盖。
  *
- * 旧记录本身**不改写**：v2 只从中读 APP_ONLY 与元数据；保留全量记录让 v2 开关关闭时旧路径照常工作。
+ * 记录里的 size/opacity/flow 先照常写成覆盖，随后由 [ToolMemoryMigration] 在同一次启动里统一搬进工具记忆（覆盖里不留）。
+ *
+ * 旧记录本身**不改写**：schema 3：APP_ONLY 进 controls，出厂笔不写元数据；保留全量记录让 v2 开关关闭时旧路径照常工作。
  * 本对象可重复执行（已有 identity 的文件不再导入，覆盖按记录重新计算后整体替换）。
  */
 object LegacyBrushParamsMigrator {
+    const val PREFS = "paint_prefs"
+    const val KEY_MIGRATED_SCHEMA = "brush_store_v2_migrated_schema"
+    const val CURRENT_SCHEMA = 3
+
+    fun migratedSchema(context: android.content.Context): Int =
+        context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).getInt(KEY_MIGRATED_SCHEMA, 0)
+
+    fun setMigratedSchema(context: android.content.Context, schema: Int) {
+        context.getSharedPreferences(PREFS, android.content.Context.MODE_PRIVATE).edit().putInt(KEY_MIGRATED_SCHEMA, schema).commit()
+    }
+
     const val BACKUP_DIR = "legacy_backup"
     const val KEEP_BACKUPS = 2
     const val AUTHOR_DEFAULT = "ReveriePaint"
@@ -43,6 +56,9 @@ object LegacyBrushParamsMigrator {
         K5_IMPORT_EMPTY,
         K6_ABR,
 
+        /** schema 2→3 增量迁移 APP_ONLY 控件 */
+        APP_ONLY_2TO3,
+
         /** 名字没有 v2 identity（.myb、文件已丢失）：留给旧路径 */
         UNMANAGED,
     }
@@ -61,16 +77,33 @@ object LegacyBrushParamsMigrator {
 
     /**
      * 执行迁移。须在 [BrushStoreBootstrap.syncFactory] 之后（内置 identity 已注册）、materializeAll 之前调用。
-     * [legacy] 为 VM 已加载的 brushParams；[legacyRaw] 为 prefs 原文（只用于备份）。
+     * [legacy] 为 VM 已加载的 legacyParams；[legacyRaw] 为 prefs 原文（只用于备份）。
      */
-    fun run(storeRoot: File, presetDir: File, legacy: Map<String, BrushParams>, legacyRaw: String?, timestamp: String): Report {
+    fun run(
+        storeRoot: File,
+        presetDir: File,
+        legacy: Map<String, BrushParams>,
+        legacyRaw: String?,
+        timestamp: String,
+        fromSchema: Int = 0,
+    ): Report {
         val backup = backup(storeRoot, presetDir, legacyRaw, timestamp)
-        val adopted = adoptDiskPresets(presetDir, legacy)
+        val adopted: Map<String, String>
         val outcomes = ArrayList<Outcome>()
-        for ((name, bp) in legacy) {
-            val o = migrateRecord(name, bp)
-            outcomes += o
-            BrushDiagnostics.log("migrate_record", "name" to name, "kind" to o.kind.name, "controls" to o.controls.joinToString(","))
+        if (fromSchema >= 2) {
+            adopted = emptyMap()
+            for ((name, bp) in legacy) {
+                val o = migrateAppOnly(name, bp)
+                outcomes += o
+                BrushDiagnostics.log("migrate_app_only", "name" to name, "kind" to o.kind.name, "controls" to o.controls.joinToString(","))
+            }
+        } else {
+            adopted = adoptDiskPresets(presetDir, legacy)
+            for ((name, bp) in legacy) {
+                val o = migrateRecord(name, bp)
+                outcomes += o
+                BrushDiagnostics.log("migrate_record", "name" to name, "kind" to o.kind.name, "controls" to o.controls.joinToString(","))
+            }
         }
         BrushDiagnostics.log(
             "migrate_done",
@@ -82,6 +115,34 @@ object LegacyBrushParamsMigrator {
         return Report(outcomes, adopted, backup)
     }
 
+    /** 旧记录的 pressureEnabled=true 是旧版的默认值（旧版不按笔刷推导），不当作用户改动，以基线为准 */
+    private fun legacyAppControls(bp: BrushParams, id: String, builtin: Boolean): Map<String, Any> {
+        val base = PresetReadback.baseline(id)
+        val rec = if (bp.pressureEnabled) bp.copy(pressureEnabled = base.pressureEnabled) else bp
+        return PresetReadback.appOnlyControls(rec, base, includeMetadata = !builtin)
+    }
+
+    fun migrateAppOnly(name: String, bp: BrushParams): Outcome {
+        val e = BrushIdentity.entryForName(name)
+        val snap = e?.let { PresetSnapshotStore.read(it.id) }
+        if (e == null || snap == null || !e.ext.equals("kpp", ignoreCase = true)) {
+            return Outcome(name, Kind.UNMANAGED, emptySet())
+        }
+        val builtin = e.kind == BrushIdentity.Kind.BUILTIN
+        val cur = BrushOverrideStore.get(e.id)
+        val appOnlyKeys = ControlId.entries.filter { it.klass == ControlClass.APP_ONLY }.map { it.key }.toSet()
+        val nonAppControls = cur.controls.filterKeys { it !in appOnlyKeys }
+        val appControls = legacyAppControls(bp, e.id, builtin)
+        val newControls = nonAppControls + appControls
+        val updated = cur.copy(controls = newControls)
+        if (updated.controls.isEmpty() && updated.rawKeys.isEmpty() && updated.dirty.isEmpty()) {
+            BrushOverrideStore.clear(e.id)
+        } else {
+            BrushOverrideStore.replace(e.id, updated)
+        }
+        return Outcome(name, Kind.APP_ONLY_2TO3, newControls.keys)
+    }
+
     // ------------------------------------------------------------------ 备份
 
     fun backup(storeRoot: File, presetDir: File, legacyRaw: String?, timestamp: String): File? {
@@ -89,7 +150,7 @@ object LegacyBrushParamsMigrator {
         val dir = File(root, timestamp)
         dir.mkdirs()
         AtomicFiles.writeText(File(dir, "brush_params.json"), legacyRaw ?: "")
-        val out = File(dir, "paintoppresets").apply { mkdirs() }
+        val out = ResourceDirs.presets(dir).apply { mkdirs() }
         presetDir.listFiles()?.filter { it.isFile && BrushStoreBootstrap.isFactoryPreset(it.name) }?.forEach { f ->
             f.copyTo(File(out, f.name), overwrite = true)
         }
@@ -105,7 +166,7 @@ object LegacyBrushParamsMigrator {
     // ------------------------------------------------------------------ 非内置文件 → 导入快照
 
     /**
-     * App 自己生成的 kpp（ABR 转换 / 图片笔尖 / 新建，KppHelper.buildMinimalPresetXml）天然带 ReverieRotation，
+     * App 自己生成的 kpp（ABR 转换 / 图片笔尖 / 新建，旧版 KppHelper.buildMinimalPresetXml）天然带 ReverieRotation，
      * 且紧跟在 `RotationValue=1` 之后；旧版 updateParam 改写 Krita 原件时则追加到文件尾。
      * 只有后者算"原件可能被改写"（启发式，见执行文档 §10 偏差）。
      */
@@ -122,25 +183,18 @@ object LegacyBrushParamsMigrator {
 
     fun adoptDiskPresets(presetDir: File, legacy: Map<String, BrushParams> = emptyMap()): Map<String, String> {
         val out = LinkedHashMap<String, String>()
-        val files = presetDir.listFiles()?.filter { it.isFile && it.name.endsWith(".kpp", ignoreCase = true) }.orEmpty().sortedBy { it.name }
+        val files = presetDir.listFiles()?.filter { it.isFile && it.extension.lowercase() in BrushImportPipeline.PRESET_EXTS }.orEmpty().sortedBy { it.name }
         for (f in files) {
             val name = f.nameWithoutExtension
             if (BrushIdentity.entryForName(name) != null) continue
-            val bytes = f.readBytes()
-            val xml = KppHelper.readPresetXml(bytes, stripEmbeddedResources = true)
-            if (xml == null) {
+            val ext = f.extension.lowercase()
+            val xml = if (ext == "kpp") KppHelper.readPresetXml(f.readBytes(), stripEmbeddedResources = true) else null
+            val prov = if (xml != null && isPossiblyModified(xml, legacy[name]?.author)) PROVENANCE_POSSIBLY_MODIFIED else PROVENANCE_MIGRATED
+            if (BrushImportPipeline.adoptFile(name, presetDir, prov, ext = ext) == null) {
                 BrushDiagnostics.log("migrate_adopt_skipped", "name" to name, "reason" to "unreadable")
                 continue
             }
-            val prov = if (isPossiblyModified(xml, legacy[name]?.author)) PROVENANCE_POSSIBLY_MODIFIED else PROVENANCE_MIGRATED
-            val id = BrushIdentity.newImportedId()
-            PresetSnapshotStore.putImported(
-                id, "kpp", bytes,
-                JSONObject().put("provenance", prov).put("pack", "").put("file", f.name).put("md5", BrushDiagnostics.md5(bytes)),
-            )
-            BrushIdentity.register(BrushIdentity.Entry(id, name, "kpp", BrushIdentity.Kind.IMPORTED))
             out[name] = prov
-            BrushDiagnostics.log("migrate_adopt", "name" to name, "id" to id, "provenance" to prov)
         }
         return out
     }
@@ -184,9 +238,15 @@ object LegacyBrushParamsMigrator {
             bp.author == AUTHOR_ABR -> { kind = Kind.K6_ABR; edited = legacyView(bp, snapP) }
             else -> { kind = Kind.K4_EDITED; edited = legacyView(bp, snapP) }
         }
+        val appControls = legacyAppControls(bp, e.id, builtin)
         if (edited == null) {
-            BrushOverrideStore.clear(e.id)
-            return Outcome(name, kind, emptySet())
+            if (appControls.isNotEmpty()) {
+                BrushOverrideStore.replace(e.id, BrushOverrideStore.Overrides(controls = appControls))
+                return Outcome(name, kind, appControls.keys)
+            } else {
+                BrushOverrideStore.clear(e.id)
+                return Outcome(name, kind, emptySet())
+            }
         }
         // 与快照比较：只留不同的（等于快照的不进覆盖）；size/opacity/flow 用宽容差
         var tight = snapP
@@ -194,9 +254,39 @@ object LegacyBrushParamsMigrator {
             val sp = PresetPropertyMap.spec(id)
             if (!sameLoose(id, sp.get(edited), sp.get(snapP))) tight = sp.set(tight, sp.get(edited))
         }
-        val o = BrushEngineApplier.mergeEdit(snapXml, snapXml, BrushOverrideStore.Overrides(), PresetPropertyMap.deriveFields(tight), app)
-        if (o.isEmpty()) BrushOverrideStore.clear(e.id) else BrushOverrideStore.replace(e.id, o)
-        return Outcome(name, kind, o.controls.keys)
+        val (kppMap, dirty) = kppControls(snapXml, snapP, PresetPropertyMap.deriveFields(tight))
+        val finalControls = kppMap + appControls
+        if (finalControls.isEmpty() && dirty.isEmpty()) {
+            BrushOverrideStore.clear(e.id)
+        } else {
+            BrushOverrideStore.replace(e.id, BrushOverrideStore.Overrides(controls = finalControls, dirty = dirty))
+        }
+        return Outcome(name, kind, finalControls.keys)
+    }
+
+    private fun kppControls(
+        snapXml: String,
+        snapP: BrushParams,
+        edited: BrushParams,
+    ): Pair<Map<String, Any>, Set<String>> {
+        val ctx = PresetContext.of(snapXml)
+        val diff = PresetPropertyMap.diff(snapP, edited, ctx)
+        val controls = LinkedHashMap<String, Any>()
+        val dirty = LinkedHashSet<String>()
+        for ((id, v) in diff) {
+            if (id.klass == ControlClass.APP_ONLY) continue
+            if (id.curveOption != null) {
+                // VM 会为预设里不存在的标准通道补一条"未启用"的线性曲线，这不是编辑
+                val before = PresetPropertyMap.spec(id).get(snapP) as String
+                val c = CurveValue.parse(v as String)
+                if (before.isBlank() && c != null && !c.enabled) continue
+            }
+            if (!PresetPropertyMap.same(id, PresetPropertyMap.spec(id).get(snapP), v)) {
+                controls[id.key] = BrushOverrideStore.normalize(v)
+                dirty += id.key
+            }
+        }
+        return controls to dirty
     }
 
     private fun comparable(xml: String): List<ControlId> {
@@ -233,26 +323,25 @@ object LegacyBrushParamsMigrator {
     }
 
     /**
-     * d8f2e258 的"重置"为非内置预设合成的记录（PVB 旧 resetSingleBrushPresetState 非 asset 分支，原样搬来）。
+     * d8f2e258 的"重置"为非内置预设合成的记录（PVB 旧版重置函数非 asset 分支，原样搬来）。
      * 原代码的 opacity/flow/spacing/angle 取自引擎 `brushPresetDefaults`；迁移在引擎加载前运行，
      * 这里用同一文件的 XML 回读代替（引擎默认值就是从该 XML 读出的）。
      */
     fun synthesizeD8f2e258(snapXml: String, legacyTip: String): BrushParams {
-        val parsed = KppHelper.parseKppAttributes(snapXml)
         val r = PresetReadback.fromXml(snapXml)
-        val baseSize = parsed.paintOpSize ?: r.size
+        val baseSize = PresetPropertyMap.readPaintOpSize(snapXml) ?: r.size
         return BrushParams(
             size = if (baseSize > 0.0) baseSize else 20.0,
             opacity = r.opacity.coerceIn(0.0, 1.0),
             flow = r.flow.coerceIn(0.0, 1.0),
             spacing = r.spacing.coerceIn(0.01, 2.5),
             angle = r.angle,
-            ratio = parsed.ratio ?: r.ratio,
-            tipAsset = parsed.tipAsset ?: legacyTip,
-            fade = parsed.fade ?: KppHelper.FADE_SOLID,
-            softness = parsed.softness ?: KppHelper.SOFTNESS_NEUTRAL,
+            ratio = r.ratio,
+            tipAsset = r.tipAsset.ifBlank { legacyTip },
+            fade = r.fade,
+            softness = r.softness,
             isCustomized = true,
-            dynamicsCustomized = parsed.sensorXml.isNotEmpty(),
+            dynamicsCustomized = r.dynamicOptions.isNotEmpty(),
         )
     }
 }

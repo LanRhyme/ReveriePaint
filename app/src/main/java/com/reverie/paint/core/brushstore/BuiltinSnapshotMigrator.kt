@@ -41,7 +41,15 @@ object BuiltinSnapshotMigrator {
         val newDir = PresetSnapshotStore.factoryDir(newVersion)
         val d = diff(manifest(oldDir), manifest(newDir))
         for (fn in d.added.sorted()) BrushDiagnostics.log("upgrade_added", "file" to fn)
-        for (fn in d.changed.sorted()) upgradeChanged(fn, File(oldDir, fn), File(newDir, fn))
+        for (fn in d.changed.sorted()) {
+            val name = fn.substringBeforeLast('.')
+            val id = BrushIdentity.builtinId(name)
+            if (PresetSnapshotStore.restoredFile(id) != null) {
+                BrushDiagnostics.log("upgrade_skipped_restored", "name" to name)
+                continue
+            }
+            upgradeChanged(fn, File(oldDir, fn), File(newDir, fn))
+        }
         for (fn in d.removed.sorted()) retire(fn, File(oldDir, fn))
         BrushDiagnostics.log(
             "upgrade",
@@ -66,8 +74,8 @@ object BuiltinSnapshotMigrator {
         val newOp = paintOp(newFile)
         var kept = o
         if (oldOp != newOp) {
-            val live = ControlId.entries.filter { it.klass == ControlClass.LIVE }.mapTo(HashSet()) { it.key }
-            val drop = o.controls.keys.filterNot { it in live }.toSet()
+            val keep = ControlId.entries.filter { it.klass == ControlClass.LIVE || it.klass == ControlClass.APP_ONLY }.mapTo(HashSet()) { it.key }
+            val drop = o.controls.keys.filterNot { it in keep }.toSet()
             kept = o.copy(controls = o.controls.filterKeys { it !in drop }, dirty = o.dirty - drop, rawKeys = emptyMap())
             if (drop.isNotEmpty() || o.rawKeys.isNotEmpty()) {
                 BrushDiagnostics.log(
@@ -84,8 +92,9 @@ object BuiltinSnapshotMigrator {
         val name = fn.substringBeforeLast('.')
         val ext = fn.substringAfterLast('.').lowercase()
         val builtin = BrushIdentity.builtinId(name)
-        if (BrushIdentity.entry(builtin) == null || !oldFile.isFile) return
-        val bytes = oldFile.readBytes()
+        val restored = PresetSnapshotStore.restoredFile(builtin)
+        if (BrushIdentity.entry(builtin) == null && restored == null && !oldFile.isFile) return
+        val bytes = restored?.readBytes() ?: if (oldFile.isFile) oldFile.readBytes() else return
         val id = BrushIdentity.newImportedId()
         PresetSnapshotStore.putImported(
             id, ext, bytes,
@@ -94,6 +103,9 @@ object BuiltinSnapshotMigrator {
         )
         BrushOverrideStore.copy(builtin, id)
         BrushOverrideStore.clear(builtin)
+        BrushThumbStore.copy(builtin, id)
+        BrushThumbStore.delete(builtin)
+        PresetSnapshotStore.removeRestored(builtin)
         BrushIdentity.remove(builtin)
         BrushIdentity.register(BrushIdentity.Entry(id, name, ext, BrushIdentity.Kind.IMPORTED, RETIRED_PACK))
         BrushDiagnostics.log("upgrade_retired", "name" to name, "id" to id)

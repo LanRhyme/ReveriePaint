@@ -4,20 +4,38 @@
 
 package com.reverie.paint.core
 
+import com.reverie.paint.core.brushstore.BrushIdentity
+import org.junit.After
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNull
+import org.junit.Before
 import org.junit.Test
+import java.io.File
+import java.nio.file.Files
 
 /**
- * #136 A：工具槽里的预设如何解析。
+ * #136 A / v5 S3：工具槽里的预设如何解析。
  *
- * 锁住的核心行为是「名字优先、索引只在老数据时兜底」——导入/删除预设会让 native 表重排，
- * 只认索引就会让橡皮槽指到别的笔（实测：idx=0 从 Airbrush 包变成 Airbrush_eraser）。
+ * 优先按 presetId 解析，其次旧名字，最后索引兜底；被删除的 id 或名字绝不退回索引。
  */
 class ToolPresetMemoryTest {
 
+    private lateinit var root: File
+
+    @Before
+    fun setUp() {
+        root = Files.createTempDirectory("tool_preset_memory_test").toFile()
+        BrushIdentity.open(root)
+    }
+
+    @After
+    fun tearDown() {
+        root.walkBottomUp().forEach { it.setWritable(true) }
+        root.deleteRecursively()
+    }
+
     private fun preset(index: Int, name: String, group: String = "基础") =
-        BrushPresetInfo(index = index, name = name, thumbBytes = ByteArray(0), group = group)
+        BrushPresetInfo(index = index, id = com.reverie.paint.core.brushstore.BrushIdentity.idForName(name) ?: com.reverie.paint.core.brushstore.BrushIdentity.builtinId(name), name = name, thumbBytes = ByteArray(0), group = group)
 
     // 删过预设之后的表：每支笔都换了位置
     private val shifted = listOf(
@@ -28,25 +46,25 @@ class ToolPresetMemoryTest {
     )
 
     @Test
-    fun nameWinsOverStaleIndex() {
-        // 橡皮槽里存的是「a)_Eraser_Circle + 旧的 47」；47 现在是 FX_splat_starfield
-        val hit = ToolPresetMemory.resolve("a)_Eraser_Circle", 47, shifted)
-        assertEquals("必须按名字找到 144，而不是按索引拿到 47 的星野", 144, hit?.index)
+    fun idWinsOverStaleNameAndIndex() {
+        BrushIdentity.register(BrushIdentity.Entry("imp:eraser_id", "a)_Eraser_Circle", "kpp", BrushIdentity.Kind.IMPORTED))
+        val hit = ToolPresetMemory.resolve("imp:eraser_id", 47, shifted)
+        assertEquals("必须按 id 找到 144 a)_Eraser_Circle，而不是按名字/索引拿到 47", 144, hit?.index)
         assertEquals("a)_Eraser_Circle", hit?.name)
     }
 
     @Test
-    fun legacyRecordWithoutNameFallsBackToIndex() {
-        // 老数据只有 "pi"：按索引取，下一次写槽时会把名字补上
-        val hit = ToolPresetMemory.resolve("", 66, shifted)
-        assertEquals(66, hit?.index)
-        assertEquals("G pen", hit?.name)
+    fun deletedIdNeverFallsBackToNameOrIndex() {
+        // id 存在但在 BrushIdentity 中不存在（被删除）：绝不退回名字或索引
+        assertNull(ToolPresetMemory.resolve("imp:deleted_id", 66, shifted))
     }
 
     @Test
-    fun deletedNameNeverFallsBackToIndex() {
-        // 名字存在但预设已被删除：绝不退回索引（那个位置现在是别人的笔）
-        assertNull(ToolPresetMemory.resolve("Ultra Soft Pencil", 0, shifted))
+    fun legacyRecordWithoutIdOrNameFallsBackToIndex() {
+        // 老数据只有 "pi"：按索引取，下一次写槽时会把 id 补上
+        val hit = ToolPresetMemory.resolve("", 66, shifted)
+        assertEquals(66, hit?.index)
+        assertEquals("G pen", hit?.name)
     }
 
     @Test
@@ -56,9 +74,9 @@ class ToolPresetMemoryTest {
     }
 
     @Test
-    fun nameMatchIgnoresIndexCompletely() {
-        // 索引完全失效（-1）但名字还能找到：照样命中
-        val hit = ToolPresetMemory.resolve("G pen", -1, shifted)
+    fun idMatchIgnoresIndexCompletely() {
+        BrushIdentity.register(BrushIdentity.Entry("imp:gpen_id", "G pen", "kpp", BrushIdentity.Kind.IMPORTED))
+        val hit = ToolPresetMemory.resolve("imp:gpen_id", -1, shifted)
         assertEquals(66, hit?.index)
     }
 }

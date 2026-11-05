@@ -8,6 +8,7 @@
  * ReverieCoreInternal.h, public API in ReverieCore.h)
  * ============================================================ */
 #include "ReverieCoreInternal.h"
+#include "RenderLockGate.h"
 #include "ReverieCoreUndoStore.h"
 #include "PaintOpTraits.h"
 #include "StrokeTailFlush.h"
@@ -515,6 +516,7 @@ void ReverieCore::touchStrokeEnd()
                     m_strokeTxn = nullptr;
                     m_strokeTxnActive = false;
                 }
+                invalidateRedoState("stroke-end-temp-target");
                 m_strokeTxn = new KisTransaction(kundo2_i18n("Stroke"), pl->paintDevice());
                 m_strokeTxnActive = true;
             }
@@ -912,6 +914,9 @@ bool ReverieCore::flushStrokeBatch()
             if (interstrokeDataFactory) {
                 wrapper = new KisInterstrokeDataTransactionWrapperFactory(interstrokeDataFactory, true);
             }
+            // 暂定事务: 这一笔可能被取消/被历史回放打断, 先让重做区跟着失效
+            // (docs/INCIDENT-1.6.4-HISTORY-REDO-CRASH.md)
+            invalidateRedoState("stroke-begin");
             m_strokeTxn = new KisTransaction(
                 kundo2_i18n("Stroke"), target, nullptr, -1, wrapper);
             m_strokeTxnActive = true;
@@ -1571,6 +1576,41 @@ void ReverieCore::endUndoMacro()
         m_document->undoAdapter()->endMacro();
         m_macroDepth--;
     }
+    flushPendingRedoPurge();
+}
+
+void ReverieCore::invalidateRedoState(const char *reason)
+{
+    m_redoCount = 0;
+    if (!m_undoStore) {
+        return;
+    }
+    if (!m_undoStore->canRedo()) {
+        return;
+    }
+    RPC_LOG("RPC historyDropRedo reason=%s count=%d index=%d",
+            reason ? reason : "?",
+            m_undoStore->count(), m_undoStore->index());
+    m_undoStore->purgeRedoState();
+    if (m_undoStore->canRedo()) {
+        // KUndo2QStack::purgeRedoState() 在宏事务打开时直接 return; 记下待办,
+        // 等 endUndoMacro() 再补 (见 m_redoPurgePending)。
+        m_redoPurgePending = true;
+    }
+}
+
+void ReverieCore::flushPendingRedoPurge()
+{
+    if (!m_redoPurgePending) {
+        return;
+    }
+    m_redoPurgePending = false;
+    if (!m_undoStore || !m_undoStore->canRedo()) {
+        return;
+    }
+    RPC_LOG("RPC historyDropRedo deferred-apply count=%d index=%d",
+            m_undoStore->count(), m_undoStore->index());
+    m_undoStore->purgeRedoState();
 }
 
 bool ReverieCore::canUndo() const
@@ -1593,13 +1633,80 @@ int ReverieCore::redoCount() const
     return m_undoStore ? m_undoStore->count() - m_undoStore->index() : 0;
 }
 
-void ReverieCore::undo()
+void ReverieCore::prepareHistoryReplay()
 {
     if (m_strokeBatchOpen) {
         touchStrokeCancel();
     }
+    // touchStrokeCancel only closes the macro when a stroke batch is open.
+    // A macro left open otherwise makes KUndo2QStack refuse the replay and
+    // keeps the image lock held.
+    while (m_macroDepth > 0) {
+        endUndoMacro();
+    }
+}
+
+void ReverieCore::replayHistoryCommand(bool redoOp)
+{
+    if (!m_document || !m_undoStore) {
+        return;
+    }
+
+    // 先把调度器/合并器排空再上屏障: 顺序反过来的话屏障会挡在已有任务前面, unlock 之后
+    // 它们才落盘, 正好与下一轮 rollforward 抢同一批 tile memento。
+    // RenderLockGate: 图像被撤销宏锁住时 waitForDone 会卡死, 这里只在未锁时排空。
+    if (reverie::mayWaitForImage(m_document->locked())) {
+        m_document->waitForDone();
+    }
+
+    RPC_LOG("RPC historyReplay redo=%d locked=%d count=%d index=%d redoCount=%d",
+            int(redoOp), int(m_document->locked()), m_undoStore->count(),
+            m_undoStore->index(), m_redoCount);
+
+    // KisLegacyUndoAdapter 只在 push 命令时加 barrier; 重放期间不锁的话,
+    // KisTransactionData::setDirty 会让异步合并器对着 commit() 正在安装的同一批 memento 跑。
+    // 这里**无条件** barrierLock (图像已被别人锁住时走 lockCount 计数, 不会重复屏障),
+    // unlock 只释放我们自己这一层, 未锁时再排空一次把重放产物落盘。
+    // 已锁时传 readOnly=true: barrierLock 内部做 `lockedForReadOnly &= readOnly`,
+    // 传 false 会把别人的只读锁悄悄改成可写, 这里不能动既有语义。
+    m_document->barrierLock(m_document->locked());
+    {
+        // 异常路径也要解锁; 用 RAII 防中途 return
+        struct UnlockGuard {
+            KisImageSP image;
+            ~UnlockGuard() { if (image) image->unlock(); }
+        } guard{m_document};
+        if (redoOp) {
+            m_undoStore->redo();
+            --m_redoCount;
+        } else {
+            m_undoStore->undo();
+            ++m_redoCount;
+        }
+    }
+    if (!m_document->locked()) {
+        m_document->waitForDone();
+    }
+}
+
+void ReverieCore::undo()
+{
+    // 变换预览是跨用户交互的长事务: 预览期间回滚历史会把事务依赖的像素/选区抽走,
+    // 事务结束时直接撞 KisTransactionData::endTransaction 的一致性断言 (线上 7738948083
+    // 的同类路径)。UI 已经置灰并拦截, 这里兜住直接走 JNI 的调用方 (回放/脚本/旧入口)。
+    if (isTransformPreviewOpen()) {
+        RPC_LOG("RPC historyBlocked op=%s reason=transform-preview", "undo");
+        return;
+    }
+    prepareHistoryReplay();
     if (!m_undoStore || !m_document || !canUndo()) {
         return;
+    }
+    // An open restore transaction leaves the paint device's memento index
+    // dirty. rollforward requires a clean index; drop the uncommitted patch
+    // only once we know this call will actually replay.
+    if (m_openRestoreTransaction) {
+        revertOpenRestorePatch();
     }
 
     QVector<KisNode *> oldNodes;
@@ -1622,9 +1729,7 @@ void ReverieCore::undo()
         std::lock_guard<std::mutex> lock(m_asyncUpdateMutex);
         m_lastAsyncUpdateRect = QRect();
     }
-    m_undoStore->undo();
-    ++m_redoCount;
-    m_document->waitForDone();
+    replayHistoryCommand(false);
     syncLayersFromImage();
 
     const int newW = m_document->width();
@@ -1688,11 +1793,19 @@ void ReverieCore::undo()
 
 void ReverieCore::redo()
 {
-    if (m_strokeBatchOpen) {
-        touchStrokeCancel();
+    // 变换预览是跨用户交互的长事务: 预览期间回滚历史会把事务依赖的像素/选区抽走,
+    // 事务结束时直接撞 KisTransactionData::endTransaction 的一致性断言 (线上 7738948083
+    // 的同类路径)。UI 已经置灰并拦截, 这里兜住直接走 JNI 的调用方 (回放/脚本/旧入口)。
+    if (isTransformPreviewOpen()) {
+        RPC_LOG("RPC historyBlocked op=%s reason=transform-preview", "redo");
+        return;
     }
+    prepareHistoryReplay();
     if (!m_undoStore || !m_document || !canRedo()) {
         return;
+    }
+    if (m_openRestoreTransaction) {
+        revertOpenRestorePatch();
     }
 
     QVector<KisNode *> oldNodes;
@@ -1710,9 +1823,7 @@ void ReverieCore::redo()
         std::lock_guard<std::mutex> lock(m_asyncUpdateMutex);
         m_lastAsyncUpdateRect = QRect();
     }
-    m_undoStore->redo();
-    --m_redoCount;
-    m_document->waitForDone();
+    replayHistoryCommand(true);
     syncLayersFromImage();
 
     const int newW = m_document->width();
@@ -1943,6 +2054,7 @@ bool ReverieCore::restoreStashedStrokePatchOpen()
         m_openRestoreTransaction = nullptr;
     }
 
+    invalidateRedoState("stroke-stash-restore");
     m_openRestoreTransaction = new KisTransaction(pl->paintDevice());
     if (m_strokeStash.wasIndirect) {
         KisPaintDeviceSP tempDevice = new KisPaintDevice(pl->colorSpace());
