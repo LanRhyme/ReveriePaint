@@ -101,9 +101,9 @@ internal fun ThemeSettingsSubPage(
         if (uri != null) {
             val ok = vm.importHomeBackground(uri, context)
             if (ok) {
-                Toast.makeText(context, context.getString(R.string.theme_home_bg_import_success), Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, R.string.theme_home_bg_import_success, Toast.LENGTH_SHORT).show()
             } else {
-                Toast.makeText(context, context.getString(R.string.theme_home_bg_import_failed), Toast.LENGTH_SHORT).show()
+                Toast.makeText(context, R.string.theme_home_bg_import_failed, Toast.LENGTH_SHORT).show()
             }
         }
     }
@@ -544,7 +544,7 @@ internal fun ThemeSettingsSubPage(
                                     text = stringResource(R.string.theme_home_bg_clear),
                                     onClick = {
                                         vm.clearHomeBackground()
-                                        Toast.makeText(context, context.getString(R.string.theme_home_bg_cleared), Toast.LENGTH_SHORT).show()
+                                        Toast.makeText(context, R.string.theme_home_bg_cleared, Toast.LENGTH_SHORT).show()
                                     },
                                     primary = false,
                                     modifier = Modifier.weight(1f),
