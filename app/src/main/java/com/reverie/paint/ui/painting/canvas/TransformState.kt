@@ -113,3 +113,88 @@ internal fun tfHandles(tfState: TransformState): List<Offset> {
         )
     return corners.map { tfTransform(tfState, it) } + mids.map { tfTransform(tfState, it) }
 }
+
+/**
+ * Moving Least Squares (MLS) 2D Rigid Deformation.
+ * Replicates the exact algorithm in Krita's KisWarpTransformWorker::rigidTransformMath in C++.
+ *
+ * Provides smooth, continuous mesh warping without piecewise grid seams or tearing.
+ */
+internal object MlsWarp {
+    fun evaluate(
+        vx: Float,
+        vy: Float,
+        origPoints: List<Offset>,
+        transfPoints: List<Offset>,
+        alpha: Float = 1.0f,
+        weights: DoubleArray? = null,
+    ): Offset {
+        val n = origPoints.size
+        if (n < 2 || n != transfPoints.size) return Offset(vx, vy)
+
+        val w = weights ?: DoubleArray(n)
+        var sumW = 0.0
+        var pStarX = 0.0
+        var pStarY = 0.0
+        var qStarX = 0.0
+        var qStarY = 0.0
+
+        for (i in 0 until n) {
+            val pi = origPoints[i]
+            val qi = transfPoints[i]
+            val dx = pi.x - vx
+            val dy = pi.y - vy
+            val d2 = (dx * dx + dy * dy).toDouble()
+            if (d2 < 1e-6) {
+                return qi
+            }
+            val wi = if (alpha == 1.0f) 1.0 / d2 else 1.0 / Math.pow(d2, alpha.toDouble())
+            w[i] = wi
+            sumW += wi
+            pStarX += wi * pi.x
+            pStarY += wi * pi.y
+            qStarX += wi * qi.x
+            qStarY += wi * qi.y
+        }
+
+        if (sumW <= 0.0) return Offset(vx, vy)
+        val invSumW = 1.0 / sumW
+        pStarX *= invSumW
+        pStarY *= invSumW
+        qStarX *= invSumW
+        qStarY *= invSumW
+
+        var resTmpX = 0.0
+        var resTmpY = 0.0
+        for (i in 0 until n) {
+            val phX = origPoints[i].x - pStarX
+            val phY = origPoints[i].y - pStarY
+            val qhX = transfPoints[i].x - qStarX
+            val qhY = transfPoints[i].y - qStarY
+            val wi = w[i]
+            val qx = wi * qhX
+            val qy = wi * qhY
+            resTmpX += qx * phX + qy * phY
+            resTmpY += qx * phY - qy * phX
+        }
+
+        val len = Math.hypot(resTmpX, resTmpY)
+        val fX: Double
+        val fY: Double
+        if (len > 1e-8) {
+            fX = resTmpX / len
+            fY = resTmpY / len
+        } else {
+            fX = 1.0
+            fY = 0.0
+        }
+
+        val vDiffX = vx - pStarX
+        val vDiffY = vy - pStarY
+        val rx = (fX * vDiffX + fY * vDiffY + qStarX).toFloat()
+        val ry = (fX * vDiffY - fY * vDiffX + qStarY).toFloat()
+
+        return Offset(rx, ry)
+    }
+}
+

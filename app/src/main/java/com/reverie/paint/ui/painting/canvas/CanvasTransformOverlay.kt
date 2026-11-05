@@ -21,6 +21,17 @@ import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.Tool
 import com.reverie.paint.ui.theme.Morandi
 
+private const val DISTORT_MESH_SUBDIV = 21
+private val distortMeshVerts = FloatArray((DISTORT_MESH_SUBDIV + 1) * (DISTORT_MESH_SUBDIV + 1) * 2)
+private val distortMlsWeights = DoubleArray(16)
+private var cachedDistortSrcBmp: android.graphics.Bitmap? = null
+private var cachedDistortBounds: androidx.compose.ui.geometry.Rect = androidx.compose.ui.geometry.Rect.Zero
+private var cachedDistortCropBmp: android.graphics.Bitmap? = null
+
+private const val DISTORT_LINE_SAMPLES = 21
+private val distortGridBorderPath = Path()
+private val distortGridInnerPath = Path()
+
 internal fun DrawScope.drawTransformPreview(
     vm: PaintViewModel,
     tool: Tool,
@@ -41,72 +52,66 @@ internal fun DrawScope.drawTransformPreview(
     }
                 // Draw transform preview
                 val previewBmp = vm.transformPreviewBitmap
+                if (tool != Tool.TRANSFORM || !tfState.active || tfState.mode != TransformMode.DISTORT || previewBmp == null) {
+                    cachedDistortCropBmp = null
+                    cachedDistortSrcBmp = null
+                    cachedDistortBounds = androidx.compose.ui.geometry.Rect.Zero
+                }
                 if (tool == Tool.TRANSFORM && tfState.active && previewBmp != null) {
                     val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
                     val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
                     if (tool == Tool.TRANSFORM && tfState.mode == TransformMode.DISTORT) {
-                        // 3x3 Mesh Grid (9 cells) Piecewise Quad Warping on GPU
+                        // Moving Least Squares (MLS) 2D Rigid Warp continuous GPU mesh
                         val nativeCanvas = drawContext.canvas.nativeCanvas
                         val aBmp = previewBmp.asAndroidBitmap()
                         val b = tfState.bounds
                         val p = previewBitmapPaint
 
-                        for (r in 0..2) {
-                            for (c in 0..2) {
-                                val sLeft = (b.left + b.width * (c / 3f)) * scX - bmp.width / 2f
-                                val sRight = (b.left + b.width * ((c + 1) / 3f)) * scX - bmp.width / 2f
-                                val sTop = (b.top + b.height * (r / 3f)) * scY - bmp.height / 2f
-                                val sBottom = (b.top + b.height * ((r + 1) / 3f)) * scY - bmp.height / 2f
+                        if (b.width > 0f && b.height > 0f && aBmp.width > 0 && aBmp.height > 0) {
+                            if (cachedDistortSrcBmp !== aBmp || cachedDistortBounds != b || cachedDistortCropBmp == null || cachedDistortCropBmp?.isRecycled == true) {
+                                val cropLeft = b.left.toInt().coerceIn(0, (aBmp.width - 1).coerceAtLeast(0))
+                                val cropTop = b.top.toInt().coerceIn(0, (aBmp.height - 1).coerceAtLeast(0))
+                                val maxW = aBmp.width - cropLeft
+                                val maxH = aBmp.height - cropTop
+                                val cropW = kotlin.math.round(b.width).toInt().coerceIn(1, maxW)
+                                val cropH = kotlin.math.round(b.height).toInt().coerceIn(1, maxH)
+                                cachedDistortCropBmp = android.graphics.Bitmap.createBitmap(aBmp, cropLeft, cropTop, cropW, cropH)
+                                cachedDistortSrcBmp = aBmp
+                                cachedDistortBounds = b
+                            }
+                            val cropBmp = cachedDistortCropBmp
+                            if (cropBmp != null && !cropBmp.isRecycled) {
+                                val halfBmpW = bmp.width / 2f
+                                val halfBmpH = bmp.height / 2f
+                                val origPts = tfState.origMeshPoints
+                                val transfPts = tfState.meshPoints
+                                val cropLeft = cachedDistortBounds.left
+                                val cropTop = cachedDistortBounds.top
+                                val cropW = cachedDistortBounds.width
+                                val cropH = cachedDistortBounds.height
 
-                                val srcQuad = previewSrcQuad
-                                srcQuad[0] = sLeft
-                                srcQuad[1] = sTop
-                                srcQuad[2] = sRight
-                                srcQuad[3] = sTop
-                                srcQuad[4] = sRight
-                                srcQuad[5] = sBottom
-                                srcQuad[6] = sLeft
-                                srcQuad[7] = sBottom
-
-                                val pTL = tfState.meshPoints[r * 4 + c]
-                                val pTR = tfState.meshPoints[r * 4 + (c + 1)]
-                                val pBR = tfState.meshPoints[(r + 1) * 4 + (c + 1)]
-                                val pBL = tfState.meshPoints[(r + 1) * 4 + c]
-
-                                val dstQuad = previewDstQuad
-                                dstQuad[0] = pTL.x * scX - bmp.width / 2f
-                                dstQuad[1] = pTL.y * scY - bmp.height / 2f
-                                dstQuad[2] = pTR.x * scX - bmp.width / 2f
-                                dstQuad[3] = pTR.y * scY - bmp.height / 2f
-                                dstQuad[4] = pBR.x * scX - bmp.width / 2f
-                                dstQuad[5] = pBR.y * scY - bmp.height / 2f
-                                dstQuad[6] = pBL.x * scX - bmp.width / 2f
-                                dstQuad[7] = pBL.y * scY - bmp.height / 2f
-
-                                val m = previewMatrix
-                                if (m.setPolyToPoly(srcQuad, 0, dstQuad, 0, 4)) {
-                                    nativeCanvas.save()
-                                    val clipPath = previewClipPath
-                                    clipPath.reset()
-                                    clipPath.moveTo(dstQuad[0], dstQuad[1])
-                                    clipPath.lineTo(dstQuad[2], dstQuad[3])
-                                    clipPath.lineTo(dstQuad[4], dstQuad[5])
-                                    clipPath.lineTo(dstQuad[6], dstQuad[7])
-                                    clipPath.close()
-                                    nativeCanvas.clipPath(clipPath)
-                                    nativeCanvas.concat(m)
-                                    val cellSrcRect = previewSrcRect
-                                    cellSrcRect.set(
-                                        (b.left + b.width * (c / 3f)).toInt().coerceIn(0, aBmp.width),
-                                        (b.top + b.height * (r / 3f)).toInt().coerceIn(0, aBmp.height),
-                                        (b.left + b.width * ((c + 1) / 3f)).toInt().coerceIn(0, aBmp.width),
-                                        (b.top + b.height * ((r + 1) / 3f)).toInt().coerceIn(0, aBmp.height)
-                                    )
-                                    val cellDstRect = previewDstRectF
-                                    cellDstRect.set(sLeft, sTop, sRight, sBottom)
-                                    nativeCanvas.drawBitmap(aBmp, cellSrcRect, cellDstRect, p)
-                                    nativeCanvas.restore()
+                                var vertIdx = 0
+                                for (v in 0..DISTORT_MESH_SUBDIV) {
+                                    val vFrac = v.toFloat() / DISTORT_MESH_SUBDIV
+                                    val srcY = cropTop + vFrac * cropH
+                                    for (u in 0..DISTORT_MESH_SUBDIV) {
+                                        val uFrac = u.toFloat() / DISTORT_MESH_SUBDIV
+                                        val srcX = cropLeft + uFrac * cropW
+                                        val pt = MlsWarp.evaluate(srcX, srcY, origPts, transfPts, alpha = 1.0f, weights = distortMlsWeights)
+                                        distortMeshVerts[vertIdx++] = pt.x * scX - halfBmpW
+                                        distortMeshVerts[vertIdx++] = pt.y * scY - halfBmpH
+                                    }
                                 }
+                                nativeCanvas.drawBitmapMesh(
+                                    cropBmp,
+                                    DISTORT_MESH_SUBDIV,
+                                    DISTORT_MESH_SUBDIV,
+                                    distortMeshVerts,
+                                    0,
+                                    null,
+                                    0,
+                                    p,
+                                )
                             }
                         }
                     } else if (tool == Tool.TRANSFORM && tfState.mode == TransformMode.PERSPECTIVE) {
@@ -223,54 +228,81 @@ internal fun DrawScope.drawTransformHandles(
                     val currentScale = zoom * fitScale
 
                     if (tfState.mode == TransformMode.DISTORT) {
-                        // 3x3 Mesh Grid (16 Handles + 4 horizontal lines + 4 vertical lines)
-                        if (handles.size == 16) {
-                            // 1. Draw horizontal grid lines
+                        // 3x3 Mesh Grid with continuous MLS curved lines + 16 Control Handles
+                        if (handles.size == 16 && tfState.origMeshPoints.size == 16) {
+                            distortGridBorderPath.reset()
+                            distortGridInnerPath.reset()
+                            val b = tfState.bounds
+                            val origPts = tfState.origMeshPoints
+                            val transfPts = tfState.meshPoints
+
+                            // 1. Horizontal grid lines (rows 0..3)
                             for (r in 0..3) {
-                                val linePath = androidx.compose.ui.graphics.Path().apply {
-                                    moveTo(handles[r * 4].x, handles[r * 4].y)
-                                    for (c in 1..3) {
-                                        lineTo(handles[r * 4 + c].x, handles[r * 4 + c].y)
+                                val targetPath = if (r == 0 || r == 3) distortGridBorderPath else distortGridInnerPath
+                                val py = b.top + b.height * (r / 3f)
+                                for (s in 0..DISTORT_LINE_SAMPLES) {
+                                    val px = b.left + b.width * (s.toFloat() / DISTORT_LINE_SAMPLES)
+                                    val pt = MlsWarp.evaluate(px, py, origPts, transfPts, alpha = 1.0f, weights = distortMlsWeights)
+                                    val screenPt = bx(pt)
+                                    if (s == 0) {
+                                        targetPath.moveTo(screenPt.x, screenPt.y)
+                                    } else {
+                                        targetPath.lineTo(screenPt.x, screenPt.y)
                                     }
                                 }
-                                val isBorder = (r == 0 || r == 3)
-                                drawPath(
-                                    linePath,
-                                    color = if (isBorder) Color(0xFF181B22) else Color(0x66181B22),
-                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = if (isBorder) 3.dp.toPx() / currentScale else 2.dp.toPx() / currentScale),
-                                )
-                                drawPath(
-                                    linePath,
-                                    color = if (isBorder) Morandi.accent else Color(0x88AAB3C2),
-                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = if (isBorder) 1.5.dp.toPx() / currentScale else 1.dp.toPx() / currentScale),
-                                )
                             }
-                            // 2. Draw vertical grid lines
+
+                            // 2. Vertical grid lines (cols 0..3)
                             for (c in 0..3) {
-                                val linePath = androidx.compose.ui.graphics.Path().apply {
-                                    moveTo(handles[c].x, handles[c].y)
-                                    for (r in 1..3) {
-                                        lineTo(handles[r * 4 + c].x, handles[r * 4 + c].y)
+                                val targetPath = if (c == 0 || c == 3) distortGridBorderPath else distortGridInnerPath
+                                val px = b.left + b.width * (c / 3f)
+                                for (s in 0..DISTORT_LINE_SAMPLES) {
+                                    val py = b.top + b.height * (s.toFloat() / DISTORT_LINE_SAMPLES)
+                                    val pt = MlsWarp.evaluate(px, py, origPts, transfPts, alpha = 1.0f, weights = distortMlsWeights)
+                                    val screenPt = bx(pt)
+                                    if (s == 0) {
+                                        targetPath.moveTo(screenPt.x, screenPt.y)
+                                    } else {
+                                        targetPath.lineTo(screenPt.x, screenPt.y)
                                     }
                                 }
-                                val isBorder = (c == 0 || c == 3)
-                                drawPath(
-                                    linePath,
-                                    color = if (isBorder) Color(0xFF181B22) else Color(0x66181B22),
-                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = if (isBorder) 3.dp.toPx() / currentScale else 2.dp.toPx() / currentScale),
-                                )
-                                drawPath(
-                                    linePath,
-                                    color = if (isBorder) Morandi.accent else Color(0x88AAB3C2),
-                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = if (isBorder) 1.5.dp.toPx() / currentScale else 1.dp.toPx() / currentScale),
-                                )
                             }
+
+                            // Draw inner grid lines
+                            drawPath(
+                                distortGridInnerPath,
+                                color = Color(0x66181B22),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx() / currentScale),
+                            )
+                            drawPath(
+                                distortGridInnerPath,
+                                color = Color(0x88AAB3C2),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx() / currentScale),
+                            )
+
+                            // Draw border grid lines
+                            drawPath(
+                                distortGridBorderPath,
+                                color = Color(0xFF181B22),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx() / currentScale),
+                            )
+                            drawPath(
+                                distortGridBorderPath,
+                                color = Morandi.accent,
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx() / currentScale),
+                            )
+
                             // 3. Draw 16 Control Handles
                             handles.forEachIndexed { idx, h ->
                                 val isCorner = (idx == 0 || idx == 3 || idx == 12 || idx == 15)
                                 val hr = (if (isCorner) 9.dp.toPx() else 6.5.dp.toPx()) / currentScale
                                 drawCircle(Color(0xFF22262E), radius = hr, center = h)
-                                drawCircle(if (isCorner) Morandi.accent else Color(0xFFAAB3C2), radius = hr, center = h, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx() / currentScale))
+                                drawCircle(
+                                    if (isCorner) Morandi.accent else Color(0xFFAAB3C2),
+                                    radius = hr,
+                                    center = h,
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx() / currentScale),
+                                )
                                 drawCircle(Color.White, radius = (if (isCorner) 3.dp.toPx() else 2.dp.toPx()) / currentScale, center = h)
                             }
                         }
