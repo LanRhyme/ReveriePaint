@@ -21,6 +21,7 @@
     <uses-permission android:name="com.oplus.ipemanager.permission.receiver.DOUBLE_CLICK" />
     <uses-permission android:name="com.oplus.ocs.permission.third" />
     <uses-permission android:name="com.oplus.permission.safe.IOT" />
+    <uses-permission android:name="com.android.launcher.permission.INSTALL_SHORTCUT" />
 
     <queries>
         <package android:name="com.xiaomi.touchservice" />
@@ -180,6 +181,7 @@
         <receiver
             android:name=".ui.widget.CreationStatsDashboardWidgetReceiver"
             android:exported="true"
+            android:icon="@mipmap/ic_launcher"
             android:label="@string/widget_dashboard_name">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -193,6 +195,7 @@
         <receiver
             android:name=".ui.widget.CreationStatsCompactWidgetReceiver"
             android:exported="true"
+            android:icon="@mipmap/ic_launcher"
             android:label="@string/widget_compact_name">
             <intent-filter>
                 <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
@@ -200,6 +203,34 @@
             <meta-data
                 android:name="android.appwidget.provider"
                 android:resource="@xml/creation_stats_compact_widget_info" />
+        </receiver>
+
+        <!-- Recent Project Showcase Dashboard Widget (4x2) -->
+        <receiver
+            android:name=".ui.widget.RecentProjectDashboardWidgetReceiver"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/widget_recent_dashboard_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/recent_project_dashboard_widget_info" />
+        </receiver>
+
+        <!-- Recent Project Compact Artwork Frame Widget (2x2) -->
+        <receiver
+            android:name=".ui.widget.RecentProjectCompactWidgetReceiver"
+            android:exported="true"
+            android:icon="@mipmap/ic_launcher"
+            android:label="@string/widget_recent_compact_name">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE" />
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/recent_project_compact_widget_info" />
         </receiver>
     </application>
 

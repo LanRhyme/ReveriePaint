@@ -42,8 +42,10 @@ class MainActivity : ComponentActivity() {
         var currentViewModel: PaintViewModel? = null
 
         const val EXTRA_ROUTE = "com.reverie.paint.EXTRA_ROUTE"
+        const val EXTRA_PROJECT_PATH = "com.reverie.paint.EXTRA_PROJECT_PATH"
         const val ROUTE_CREATE = "create"
         const val ROUTE_STATS = "stats"
+        const val ROUTE_OPEN_PROJECT = "open_project"
 
         /** Apply (or remove) immersive mode on the UI thread. Immersive =
          *  edge-to-edge content (decor fits windows = false) plus hidden
@@ -251,6 +253,27 @@ class MainActivity : ComponentActivity() {
                 vm.currentPage = Page.HOME
                 vm.homeSelectedTab = 1
                 vm.settingsInitialSubPage = "STATISTICS"
+            }
+        } else if (route == ROUTE_OPEN_PROJECT) {
+            val path = intent.getStringExtra(EXTRA_PROJECT_PATH)
+            val file = if (!path.isNullOrBlank()) java.io.File(path) else null
+            if (file != null && file.exists()) {
+                currentViewModel?.let { vm ->
+                    val proj = com.reverie.paint.ui.widget.RecentProjectWidgetHelper.getProjectFromFile(this, file)
+                    if (proj != null) {
+                        vm.loadProject(proj)
+                    }
+                }
+            } else {
+                currentViewModel?.let { vm ->
+                    val latestData = com.reverie.paint.ui.widget.RecentProjectWidgetHelper.getLatestProjectDisplayData(this)
+                    if (latestData != null) {
+                        val proj = com.reverie.paint.ui.widget.RecentProjectWidgetHelper.getProjectFromFile(this, java.io.File(latestData.filePath))
+                        if (proj != null) {
+                            vm.loadProject(proj)
+                        }
+                    }
+                }
             }
         }
 

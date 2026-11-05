@@ -3552,9 +3552,20 @@
     <string name="widget_recent_activity">Activity</string>
     <string name="stats_pin_widget_title">Add Home Screen Widget</string>
     <string name="stats_pin_widget_desc">Pin creation streak or stats dashboard to your home screen</string>
-    <string name="stats_pin_dashboard">Add Dashboard (4x2)</string>
-    <string name="stats_pin_compact">Add Streak Card (2x2)</string>
+    <string name="stats_pin_dashboard">Dashboard (4x2)</string>
+    <string name="stats_pin_compact">Streak Card (2x2)</string>
+    <string name="stats_pin_recent_dashboard">Showcase (4x2)</string>
+    <string name="stats_pin_recent_compact">Frame (2x2)</string>
     <string name="stats_pin_success">Home screen widget requested</string>
     <string name="stats_pin_not_supported">Launcher does not support pinning widgets</string>
+    <string name="widget_recent_dashboard_name">Recent Artwork Showcase</string>
+    <string name="widget_recent_dashboard_desc">Shows your latest artwork cover, specs, and quick resume action</string>
+    <string name="widget_recent_compact_name">Artwork Frame</string>
+    <string name="widget_recent_compact_desc">Compact frame displaying your latest artwork, tap to enter canvas</string>
+    <string name="widget_recent_continue_painting">Resume</string>
+    <string name="widget_recent_open_gallery">Gallery</string>
+    <string name="widget_recent_no_project">Start a new creation</string>
+    <string name="widget_recent_no_project_desc">No recent artwork</string>
+    <string name="widget_recent_duration_strokes">%1$s · %2$s strokes</string>
 </resources>
 

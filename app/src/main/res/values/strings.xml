@@ -3551,10 +3551,21 @@
     <string name="widget_new_canvas">新建</string>
     <string name="widget_recent_activity">近期活跃度</string>
     <string name="stats_pin_widget_title">添加到桌面小组件</string>
-    <string name="stats_pin_widget_desc">支持一键将打卡连击或数据看板固定在桌面</string>
-    <string name="stats_pin_dashboard">添加宽版看板 (4x2)</string>
-    <string name="stats_pin_compact">添加打卡卡片 (2x2)</string>
+    <string name="stats_pin_widget_desc">支持一键将创作小组件固定在桌面</string>
+    <string name="stats_pin_dashboard">数据看板 (4x2)</string>
+    <string name="stats_pin_compact">打卡卡片 (2x2)</string>
+    <string name="stats_pin_recent_dashboard">画作展台 (4x2)</string>
+    <string name="stats_pin_recent_compact">沉浸画框 (2x2)</string>
     <string name="stats_pin_success">已请求将小组件添加到桌面</string>
     <string name="stats_pin_not_supported">当前桌面启动器不支持直接钉选小组件</string>
+    <string name="widget_recent_dashboard_name">最近画作展台</string>
+    <string name="widget_recent_dashboard_desc">展示最新画作封面、规格与快速续画入口</string>
+    <string name="widget_recent_compact_name">沉浸画框</string>
+    <string name="widget_recent_compact_desc">微缩画框展示最近作品，点击即刻进入画布</string>
+    <string name="widget_recent_continue_painting">继续作画</string>
+    <string name="widget_recent_open_gallery">画廊</string>
+    <string name="widget_recent_no_project">开启新的创作吧</string>
+    <string name="widget_recent_no_project_desc">暂无最近画作</string>
+    <string name="widget_recent_duration_strokes">%1$s · %2$s笔</string>
 </resources>
 

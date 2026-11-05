@@ -3,6 +3,7 @@
     android:description="@string/widget_compact_desc"
     android:initialKeyguardLayout="@layout/glance_default_loading_layout"
     android:initialLayout="@layout/glance_default_loading_layout"
+    android:previewLayout="@layout/glance_default_loading_layout"
     android:minWidth="130dp"
     android:minHeight="110dp"
     android:targetCellWidth="2"

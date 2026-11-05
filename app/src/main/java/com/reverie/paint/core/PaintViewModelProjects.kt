@@ -1111,6 +1111,9 @@ internal fun PaintViewModel.refreshProjects() {
             }
             val list = withContext(Dispatchers.IO) { buildProjectList() }
             projects = list
+            try {
+                com.reverie.paint.ui.widget.RecentProjectWidgetHelper.notifyAllWidgets(appContext)
+            } catch (_: Throwable) {}
         }
 }
 

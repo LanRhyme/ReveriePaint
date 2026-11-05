@@ -13,6 +13,8 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import com.reverie.paint.ui.widget.CreationStatsCompactWidgetReceiver
 import com.reverie.paint.ui.widget.CreationStatsDashboardWidgetReceiver
+import com.reverie.paint.ui.widget.RecentProjectCompactWidgetReceiver
+import com.reverie.paint.ui.widget.RecentProjectDashboardWidgetReceiver
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -699,83 +701,111 @@ private fun PinWidgetsCard() {
             .border(1.dp, visibleBorder, RoundedCornerShape(20.dp))
             .padding(18.dp),
     ) {
-        Column(verticalArrangement = Arrangement.spacedBy(14.dp)) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
             Text(
                 text = stringResource(R.string.stats_pin_widget_desc),
                 color = colors.subText,
                 fontSize = 12.sp,
             )
 
+            // Row 1: Creation Stats Widgets
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
-                // Dashboard button (4x2)
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(colors.accent.copy(alpha = 0.12f))
-                        .border(1.dp, colors.accent.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
-                        .clickable { requestPinWidget(context, isDashboard = true) }
-                        .padding(horizontal = 12.dp, vertical = 11.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_chart_bar),
-                        contentDescription = null,
-                        tint = colors.accent,
-                        modifier = Modifier.size(15.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = stringResource(R.string.stats_pin_dashboard),
-                        color = colors.text,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
+                PinWidgetButton(
+                    modifier = Modifier.weight(1f),
+                    iconRes = R.drawable.ic_chart_bar,
+                    label = stringResource(R.string.stats_pin_dashboard),
+                    colors = colors,
+                    onClick = { requestPinWidget(context, PinWidgetType.STATS_DASHBOARD) },
+                )
+                PinWidgetButton(
+                    modifier = Modifier.weight(1f),
+                    iconRes = R.drawable.ic_star_filled,
+                    label = stringResource(R.string.stats_pin_compact),
+                    colors = colors,
+                    onClick = { requestPinWidget(context, PinWidgetType.STATS_COMPACT) },
+                )
+            }
 
-                // Compact button (2x2)
-                Row(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(colors.accent.copy(alpha = 0.12f))
-                        .border(1.dp, colors.accent.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
-                        .clickable { requestPinWidget(context, isDashboard = false) }
-                        .padding(horizontal = 12.dp, vertical = 11.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.Center,
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_star_filled),
-                        contentDescription = null,
-                        tint = colors.accent,
-                        modifier = Modifier.size(15.dp),
-                    )
-                    Spacer(Modifier.width(6.dp))
-                    Text(
-                        text = stringResource(R.string.stats_pin_compact),
-                        color = colors.text,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                }
+            // Row 2: Recent Artwork Widgets
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                PinWidgetButton(
+                    modifier = Modifier.weight(1f),
+                    iconRes = R.drawable.ic_palette,
+                    label = stringResource(R.string.stats_pin_recent_dashboard),
+                    colors = colors,
+                    onClick = { requestPinWidget(context, PinWidgetType.RECENT_DASHBOARD) },
+                )
+                PinWidgetButton(
+                    modifier = Modifier.weight(1f),
+                    iconRes = R.drawable.ic_brush,
+                    label = stringResource(R.string.stats_pin_recent_compact),
+                    colors = colors,
+                    onClick = { requestPinWidget(context, PinWidgetType.RECENT_COMPACT) },
+                )
             }
         }
     }
 }
 
-private fun requestPinWidget(context: android.content.Context, isDashboard: Boolean) {
+@Composable
+private fun PinWidgetButton(
+    modifier: Modifier,
+    iconRes: Int,
+    label: String,
+    colors: com.reverie.paint.ui.theme.AppColors,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = modifier
+            .clip(RoundedCornerShape(12.dp))
+            .background(colors.accent.copy(alpha = 0.12f))
+            .border(1.dp, colors.accent.copy(alpha = 0.35f), RoundedCornerShape(12.dp))
+            .clickable(onClick = onClick)
+            .padding(horizontal = 10.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.Center,
+    ) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = null,
+            tint = colors.accent,
+            modifier = Modifier.size(15.dp),
+        )
+        Spacer(Modifier.width(6.dp))
+        Text(
+            text = label,
+            color = colors.text,
+            fontSize = 12.sp,
+            fontWeight = FontWeight.SemiBold,
+            maxLines = 1,
+        )
+    }
+}
+
+private enum class PinWidgetType {
+    STATS_DASHBOARD,
+    STATS_COMPACT,
+    RECENT_DASHBOARD,
+    RECENT_COMPACT,
+}
+
+private fun requestPinWidget(context: android.content.Context, type: PinWidgetType) {
     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
         val appWidgetManager = context.getSystemService(AppWidgetManager::class.java)
         if (appWidgetManager != null && appWidgetManager.isRequestPinAppWidgetSupported) {
-            val provider = ComponentName(
-                context,
-                if (isDashboard) CreationStatsDashboardWidgetReceiver::class.java else CreationStatsCompactWidgetReceiver::class.java,
-            )
+            val receiverClass = when (type) {
+                PinWidgetType.STATS_DASHBOARD -> CreationStatsDashboardWidgetReceiver::class.java
+                PinWidgetType.STATS_COMPACT -> CreationStatsCompactWidgetReceiver::class.java
+                PinWidgetType.RECENT_DASHBOARD -> RecentProjectDashboardWidgetReceiver::class.java
+                PinWidgetType.RECENT_COMPACT -> RecentProjectCompactWidgetReceiver::class.java
+            }
+            val provider = ComponentName(context, receiverClass)
             appWidgetManager.requestPinAppWidget(provider, null, null)
             Toast.makeText(context, context.getString(R.string.stats_pin_success), Toast.LENGTH_SHORT).show()
             return

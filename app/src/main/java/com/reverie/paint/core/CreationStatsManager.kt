@@ -96,6 +96,9 @@ object CreationStatsManager {
         day.put("durationSeconds", day.optLong("durationSeconds", 0L) + addedDurationSeconds)
 
         saveRaw(context, root)
+        try {
+            com.reverie.paint.ui.widget.CreationStatsWidgetHelper.notifyAllWidgets(context)
+        } catch (_: Throwable) {}
     }
 
     /**
@@ -110,6 +113,9 @@ object CreationStatsManager {
 
         day.put("canvasesCreated", day.optInt("canvasesCreated", 0) + 1)
         saveRaw(context, root)
+        try {
+            com.reverie.paint.ui.widget.CreationStatsWidgetHelper.notifyAllWidgets(context)
+        } catch (_: Throwable) {}
     }
 
     /**
