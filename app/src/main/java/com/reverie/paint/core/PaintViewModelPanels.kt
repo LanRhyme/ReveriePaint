@@ -569,12 +569,11 @@ private fun PaintViewModel.nextPanelId(mirrors: List<PanelMirror> = panels): Lon
 private fun PaintViewModel.ensurePanelGroupsDefaultCollapsed(s: PanelEngineScan) {
     for (idx in listOf(s.rootIdx, s.crossIdx)) {
         if (idx !in s.layers.indices) continue
-        val name = s.layers[idx].name
-        if (name in panelDefaultCollapseNames) continue
-        panelDefaultCollapseNames.add(name)
-        if (name !in collapsedGroupNames) {
-            collapsedGroupNames = collapsedGroupNames + name
-        }
+        val layer = s.layers[idx]
+        val key = groupCollapseKey(layer.id)
+        if (key in panelDefaultCollapseNames) continue
+        panelDefaultCollapseNames.add(key)
+        setGroupCollapsed(layer.id, collapsed = true)
     }
 }
 

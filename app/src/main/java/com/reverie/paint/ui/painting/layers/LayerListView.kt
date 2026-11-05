@@ -247,7 +247,6 @@ internal fun LayerListView(
                         ) {
                             toExpand.add(candidate.id)
                         }
-                        }
                         currentDepth = candidate.depth
                     }
                     idx--
@@ -989,7 +988,6 @@ internal fun LayerListView(
                                 } else {
                                     vm.toggleGroupCollapsed(layer.id)
                                 }
-                            },
                             },
                             revealed = layer.index == revealedIndex,
                             onReveal = { revealedIndex = layer.index },

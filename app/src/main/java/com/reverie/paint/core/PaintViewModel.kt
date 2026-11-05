@@ -2776,6 +2776,8 @@ class PaintViewModel : ViewModel() {
         } else {
             collapsedPanelIds + panelId
         }
+    }
+
     fun setGroupCollapsed(id: Long, collapsed: Boolean) {
         val key = groupCollapseKey(id)
         if (collapsed == (key in collapsedGroupKeys)) return
