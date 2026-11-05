@@ -390,19 +390,34 @@ internal fun PaintViewModel.generateDefaultGroupName(): String {
 }
 
 private inline fun PaintViewModel.executeAddLayerSafely(
-    wasInside: Boolean,
+    wasInsidePanel: Boolean,
     action: () -> Unit,
 ) {
-    val rootIdx = if (wasInside) scanEnginePanels().rootIdx else -1
-    if (rootIdx >= 0) {
-        ReverieCoreBridge.setCurrentLayer(rootIdx)
-    }
     action()
-    if (rootIdx >= 0) {
-        val newIdx = ReverieCoreBridge.currentLayerIndex()
-        if (newIdx >= 0 && newIdx != rootIdx) {
-            ReverieCoreBridge.moveLayerRelative(newIdx, rootIdx, true)
+    val s = scanEnginePanels()
+    if (s.rootIdx < 0) return
+    val newIdx = ReverieCoreBridge.currentLayerIndex()
+    if (newIdx < 0 || newIdx !in s.layers.indices) return
+
+    if (!wasInsidePanel) {
+        // 用户原先不在具体分格内: 严禁新层被意外卷入分格根组
+        val rootDepth = s.layers[s.rootIdx].depth
+        var isInsideRoot = false
+        if (newIdx > s.rootIdx) {
+            isInsideRoot = true
+            for (i in s.rootIdx + 1..newIdx) {
+                if (s.layers[i].depth <= rootDepth) {
+                    isInsideRoot = false
+                    break
+                }
+            }
         }
+        if (isInsideRoot) {
+            ReverieCoreBridge.moveLayerRelative(newIdx, s.rootIdx, true)
+        }
+    } else {
+        // 用户原先在某个具体分格内: 就地保留在当前分格组, 确保边框层黑框压顶
+        ensurePanelBordersOnTop(s)
     }
 }
 
@@ -416,7 +431,7 @@ internal fun PaintViewModel.addLayer() {
     }
     val defaultName = generateDefaultLayerName()
     Breadcrumbs.record("Layer", "Add layer: $defaultName")
-    val wasInside = isInsidePanelTree(currentLayerIndex)
+    val wasInside = currentPaintingPanelIds().isNotEmpty()
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
@@ -438,7 +453,7 @@ internal fun PaintViewModel.importImageToNewLayer(
     }
     val defaultImportName = if (LanguageManager.isChinese()) "导入图片" else "Imported Image"
     val finalName = layerName.ifBlank { defaultImportName }
-    val wasInside = isInsidePanelTree(currentLayerIndex)
+    val wasInside = currentPaintingPanelIds().isNotEmpty()
     runCore(
         after = {
             clearLayerSelection()
@@ -1025,6 +1040,7 @@ internal fun PaintViewModel.moveLayersToGroup(
         selectedLayerIndices = layers.filter { it.id in selectedIds || it.name in selectedNames }.map { it.index }.toSet()
     }) {
         ReverieCoreBridge.moveLayersToGroup(effectiveIndices.toIntArray(), group)
+        ensurePanelBordersOnTop(scanEnginePanels())
     }
 }
 
@@ -1293,7 +1309,7 @@ internal fun PaintViewModel.addLayerWithType(
             "$name|$type|$fillColor",
         )
     }
-    val wasInside = isInsidePanelTree(currentLayerIndex)
+    val wasInside = currentPaintingPanelIds().isNotEmpty()
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
@@ -1319,7 +1335,7 @@ internal fun PaintViewModel.addFillLayer(colorHex: String = brushColor) {
             "$fillLayerName|2|$colorInt",
         )
     }
-    val wasInside = isInsidePanelTree(currentLayerIndex)
+    val wasInside = currentPaintingPanelIds().isNotEmpty()
     // type=2 仍创建预填色颜料层，由引擎保存显式类型标记
     runCore(
         after = {
@@ -1340,7 +1356,7 @@ internal fun PaintViewModel.addFilterLayer(onOpenFilters: (Int) -> Unit) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_STAMP)
     }
     val filterLayerName = generateDefaultFilterLayerName()
-    val wasInside = isInsidePanelTree(currentLayerIndex)
+    val wasInside = currentPaintingPanelIds().isNotEmpty()
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
@@ -1366,7 +1382,7 @@ internal fun PaintViewModel.addStrokeLayer() {
             "$strokeLayerName|6|0",
         )
     }
-    val wasInside = isInsidePanelTree(currentLayerIndex)
+    val wasInside = currentPaintingPanelIds().isNotEmpty()
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()

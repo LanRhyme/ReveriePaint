@@ -401,9 +401,32 @@ internal fun LayerListView(
 
         var groupDrop = false
         if (from > 0 && (insert >= 0 || over != null)) {
+            val fromPid = vm.panelIdForGroupRow(from)
+            if (fromPid != null) {
+                // 拖动的是分格组整行：走 movePanelZBy，在分格根组内安全重排，严禁脱离根组
+                val curVisualIdx = displayRows.indexOfFirst { it.index == from }
+                val isUp = if (insert >= 0) insert < curVisualIdx else false
+                vm.movePanelZBy(fromPid, up = isUp)
+                draggingFrom = -1
+                dragTargetIdx = -1
+                dragOver = null
+                previewDropIdx = -1
+                vm.activeLayerDrag = null
+                return
+            }
+
             groupDrop = over != null && over.second == DropMode.OnGroup
             if (groupDrop) {
                 val groupIdx = over!!.first
+                if (groupIdx == vm.panelRootGroupIdx) {
+                    // 严禁将图层直接 drop 进分格根组
+                    draggingFrom = -1
+                    dragTargetIdx = -1
+                    dragOver = null
+                    previewDropIdx = -1
+                    vm.activeLayerDrag = null
+                    return
+                }
                 if (batch.size > 1) {
                     vm.moveLayersToGroup(batch, groupIdx)
                 } else {

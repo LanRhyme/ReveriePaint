@@ -613,7 +613,7 @@ internal fun PaintViewModel.drawUnitTitleForPanelGroup(layerIndex: Int): String?
 }
 
 /** [targetIdx] 是否落在 [groupIdx] 子树内 (含自身); 读 UI 镜像, 零 JNI 零分配。 */
-private fun PaintViewModel.isInGroupSubtree(groupIdx: Int, targetIdx: Int): Boolean {
+internal fun PaintViewModel.isInGroupSubtree(groupIdx: Int, targetIdx: Int): Boolean {
     if (groupIdx !in layers.indices || targetIdx < groupIdx) return false
     if (targetIdx == groupIdx) return true
     val gDepth = layers[groupIdx].depth
@@ -621,6 +621,28 @@ private fun PaintViewModel.isInGroupSubtree(groupIdx: Int, targetIdx: Int): Bool
         if (layers[i].depth <= gDepth) return false
     }
     return true
+}
+
+/**
+ * 维持分格组内边框层物理压顶 (黑框压顶):
+ * 遍历所有分格, 若其组内存在索引高于边框层的非蒙版画层, 将边框层提升到最高子层上方。
+ */
+internal fun PaintViewModel.ensurePanelBordersOnTop(s: PanelEngineScan) {
+    for (m in s.mirrors) {
+        if (m.borderIdx !in s.layers.indices || m.groupIdx !in s.layers.indices) continue
+        val gDepth = s.layers[m.groupIdx].depth
+        var maxChildIdx = m.groupIdx
+        var i = m.groupIdx + 1
+        while (i < s.layers.size && s.layers[i].depth > gDepth) {
+            if (s.layers[i].nodeType != LayerNodeType.TRANSPARENCY_MASK) {
+                maxChildIdx = i
+            }
+            i++
+        }
+        if (maxChildIdx > m.borderIdx) {
+            ReverieCoreBridge.moveLayerRelative(m.borderIdx, maxChildIdx, true)
+        }
+    }
 }
 
 /**
