@@ -163,6 +163,7 @@ object RecordingEvents {
     const val T_FILL_V3 = 41 // x/y f32, tolerance u16, sampleMerged u8, color str
     const val T_ENCLOSE_FILL = 48 // count u16, points x/y f32[], tol u16, merged u8, expand i16, feather u16, closeGap u16, method u8, color u32, incContour u8
     const val T_PRESET_SELECT_V2 = 50 // idx u16 (0xFFFF 哨兵), name str, presetId str, 有效字节 md5 str（W-12，v2 管理的预设）
+    const val T_PANEL_CLIP = 51 // layer u16, keepInside u8, count u16, x/y f32 pairs
     const val T_GRADIENT_V3 = 49 // x1..y2 f32, type u8, repeat u8, reverse u8, opacity f32, dither u8, blendMode str, count u16, stops (pos f32, color u32)...
 }
 

@@ -335,6 +335,24 @@ class PanelModelsTest {
     }
 
     @Test
+    fun `panel meta drawId round trips and defaults to panelId`() {
+        val shared = PanelMeta(
+            quad = square(0f, 0f, 40f, 20f),
+            style = PanelStyle(),
+            cropEnabled = true,
+            panelId = 4L,
+            drawId = 2L,
+        )
+        assertEquals(shared, parsePanelMeta(shared.toJson()))
+        val legacy = "{\"panelId\":9,\"cropEnabled\":false," +
+            "\"quad\":{\"corners\":[[0,0],[10,0],[10,10],[0,10]]}}"
+        assertEquals(9L, parsePanelMeta(legacy)?.drawId)
+        val badDraw = "{\"panelId\":1,\"cropEnabled\":true,\"drawId\":\"x\"," +
+            "\"quad\":{\"corners\":[[0,0],[10,0],[10,10],[0,10]]}}"
+        assertNull(parsePanelMeta(badDraw))
+    }
+
+    @Test
     fun `hitTestPanels picks topmost body first`() {
         val quads = listOf(square(0f, 0f, 100f, 100f), square(50f, 0f, 150f, 100f))
         assertEquals(PanelHit.Body(1), hitTestPanels(quads, -1, Point2D(75f, 50f), 8f))
@@ -612,24 +630,26 @@ class PanelModelsTest {
     }
 
     @Test
-    fun `segmentCutsQuad true when an endpoint is inside the quad`() {
+    fun `segmentCutsQuad false when line does not fully cross both boundaries`() {
         val s = square(0f, 0f, 100f, 100f)
-        // 起点在格心, 终点在格外
-        assertTrue(segmentCutsQuad(s, Point2D(50f, 50f), Point2D(150f, 80f), 0f))
-        // 终点在格内, 起点在格外
-        assertTrue(segmentCutsQuad(s, Point2D(-40f, 10f), Point2D(30f, 30f), 0f))
+        // 起点在格心, 终点在格外 (划了一半, 未贯穿) → false
+        assertFalse(segmentCutsQuad(s, Point2D(50f, 50f), Point2D(150f, 80f), 0f))
+        // 终点在格内, 起点在格外 (只穿入未穿出) → false
+        assertFalse(segmentCutsQuad(s, Point2D(-40f, 10f), Point2D(30f, 30f), 0f))
+        // 线段完全包含在格内部 (格内涂抹) → false
+        assertFalse(segmentCutsQuad(s, Point2D(30f, 50f), Point2D(70f, 50f), 0f))
+        // 完整贯穿格子 (两侧都穿出) → true
+        assertTrue(segmentCutsQuad(s, Point2D(-20f, 50f), Point2D(120f, 50f), 0f))
     }
 
     @Test
-    fun `segmentCutsQuad extension just reaching the quad counts and falling short does not`() {
+    fun `segmentCutsQuad extension helps border-to-border cut fully cross`() {
         val s = square(0f, 0f, 100f, 100f)
-        // 线段 (150,50)→(120,50) 指向格右边缘 x=100, 方向 (-1,0)
-        // 延伸 20.1 → 延伸端点 (99.9, 50) 刚好探入格内 0.1 → true
-        assertTrue(segmentCutsQuad(s, Point2D(150f, 50f), Point2D(120f, 50f), 20.1f))
-        // 延伸 19.9 → 延伸端点 (100.1, 50) 差 0.1 没碰到 → false
-        assertFalse(segmentCutsQuad(s, Point2D(150f, 50f), Point2D(120f, 50f), 19.9f))
-        // 无延伸时同一线段完全在外
-        assertFalse(segmentCutsQuad(s, Point2D(150f, 50f), Point2D(120f, 50f), 0f))
+        // 线段端点刚好落在格子两侧边界上 (0, 50) 到 (100, 50)
+        // 延伸 2px 确保交点落在闭区间内 → true
+        assertTrue(segmentCutsQuad(s, Point2D(0f, 50f), Point2D(100f, 50f), 2f))
+        // 未完全跨越 (比如 10 到 90) 且延伸不足以穿透边界 → false
+        assertFalse(segmentCutsQuad(s, Point2D(10f, 50f), Point2D(90f, 50f), 2f))
     }
 
     @Test
@@ -641,22 +661,27 @@ class PanelModelsTest {
     }
 
     @Test
-    fun `segmentCutsQuad extension does not reach the adjacent panel`() {
+    fun `segmentCutsQuad strict crossing on adjacent panels`() {
         // 两格紧邻: A = (0,0)-(100,100), B = (100,0)-(200,100)
         val a = square(0f, 0f, 100f, 100f)
         val b = square(100f, 0f, 200f, 100f)
-        // 线段只划过 A 内部, 两端各延伸 12 仍停在 x∈[18, 82], 到不了 B (x≥100)
+        // 线段只在 A 内部短划 (30..70), 两个都不切
         val seg0 = Point2D(30f, 50f)
         val seg1 = Point2D(70f, 50f)
-        assertTrue(segmentCutsQuad(a, seg0, seg1, 12f))
+        assertFalse(segmentCutsQuad(a, seg0, seg1, 12f))
         assertFalse(segmentCutsQuad(b, seg0, seg1, 12f))
 
-        // 对照: 线段划过 A 且端点落在共享边 x=100 上, 延伸 12 探入 B → B 也命中
-        // (12dp 兜底的预期行为, 非"延伸跨格"误伤)
-        val toBorder0 = Point2D(60f, 50f)
-        val toBorder1 = Point2D(100f, 50f)
-        assertTrue(segmentCutsQuad(a, toBorder0, toBorder1, 12f))
-        assertTrue(segmentCutsQuad(b, toBorder0, toBorder1, 12f))
+        // 一条长线完整贯穿 A 和 B (从 -20 到 220) → A 和 B 均被切分
+        val crossBoth0 = Point2D(-20f, 50f)
+        val crossBoth1 = Point2D(220f, 50f)
+        assertTrue(segmentCutsQuad(a, crossBoth0, crossBoth1, 0f))
+        assertTrue(segmentCutsQuad(b, crossBoth0, crossBoth1, 0f))
+
+        // 一条线仅贯穿 A (从 -20 到 105), 延伸后穿透 A 但未穿透 B (B 只划入未穿出)
+        val crossAOnly0 = Point2D(-20f, 50f)
+        val crossAOnly1 = Point2D(105f, 50f)
+        assertTrue(segmentCutsQuad(a, crossAOnly0, crossAOnly1, 0f))
+        assertFalse(segmentCutsQuad(b, crossAOnly0, crossAOnly1, 0f))
     }
 
     // =========================================================================
@@ -757,6 +782,20 @@ class PanelModelsTest {
         val cand = snap.find { it.guideAxis == 0 && it.guideCoord == 100f }
         assertNotNull(cand)
         assertEquals(-9f, cand!!.delta.x, 0.001f)
+    }
+
+    @Test
+    fun `axisSnapCandidates uses vGap for horizontal edges and hGap for vertical edges`() {
+        val neighbor = square(0f, 0f, 100f, 100f)
+        // 顶边 107, 与邻格底边 100 差 7; vGap=8 时吸附量 +1, hGap=40 时目标 140 超出容差
+        val moving = square(0f, 107f, 100f, 207f)
+        val candidates = axisSnapCandidates(
+            moving, listOf(neighbor), hGap = 40f, vGap = 8f, tolerance = 5f,
+        )
+        val horizontal = candidates.find { it.guideAxis == 1 && it.guideCoord == 108f }
+        assertNotNull(horizontal)
+        assertEquals(1f, horizontal!!.delta.y, 0.001f)
+        assertTrue(candidates.none { it.guideAxis == 1 && it.guideCoord == 140f })
     }
 
     @Test
@@ -1052,5 +1091,57 @@ class PanelModelsTest {
         assertNotNull(dec2)
         assertEquals(0f, dec2!!.cornerRadius, 0.001f)
         assertEquals(1, dec2.maskQuads?.size)
+    }
+
+    @Test
+    fun `panel draw unit aggregates members and preserves drawId`() {
+        val q1 = square(0f, 0f, 100f, 100f)
+        val q2 = square(100f, 0f, 200f, 100f)
+        val meta1 = PanelMeta(q1, PanelStyle(), true, 1L, 100L)
+        val meta2 = PanelMeta(q2, PanelStyle(), true, 2L, 100L)
+
+        assertEquals(100L, meta1.drawId)
+        assertEquals(100L, meta2.drawId)
+
+        val unit = PanelDrawUnit(
+            drawId = 100L,
+            panelIds = listOf(meta1.panelId, meta2.panelId),
+            quads = listOf(meta1.quad, meta2.quad),
+        )
+        assertEquals(100L, unit.drawId)
+        assertEquals(listOf(1L, 2L), unit.panelIds)
+        assertEquals(2, unit.quads.size)
+    }
+
+    @Test
+    fun `edgeMidpoints and moveEdge operate correctly on quad edges`() {
+        val q = square(10f, 20f, 110f, 120f)
+        val mids = q.edgeMidpoints()
+        assertEquals(4, mids.size)
+        // Edge 0: (10, 20) -> (110, 20), mid = (60, 20)
+        assertEquals(Point2D(60f, 20f), mids[0])
+        // Edge 1: (110, 20) -> (110, 120), mid = (110, 70)
+        assertEquals(Point2D(110f, 70f), mids[1])
+        // Edge 2: (110, 120) -> (10, 120), mid = (60, 120)
+        assertEquals(Point2D(60f, 120f), mids[2])
+        // Edge 3: (10, 120) -> (10, 20), mid = (10, 70)
+        assertEquals(Point2D(10f, 70f), mids[3])
+
+        // Hit test
+        assertEquals(1, q.hitTestEdgeMidpoint(Point2D(112f, 71f), 5f))
+        assertEquals(-1, q.hitTestEdgeMidpoint(Point2D(500f, 500f), 5f))
+
+        // Move edge 1 (right edge) outwards by dx=20
+        val moved = q.moveEdge(1, Point2D(20f, 0f))
+        assertTrue(moved.isConvex())
+        assertEquals(Point2D(130f, 20f), moved.corners[1])
+        assertEquals(Point2D(130f, 120f), moved.corners[2])
+        // Left edge remains unchanged
+        assertEquals(Point2D(10f, 20f), moved.corners[0])
+        assertEquals(Point2D(10f, 120f), moved.corners[3])
+
+        // Excessive inward move that inverts the quad
+        val inverted = q.moveEdge(1, Point2D(-150f, 0f))
+        assertFalse(inverted.isConvex())
     }
 }

@@ -665,6 +665,7 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                                         fillColor = pdObj.optInt("fillColor", DEFAULT_PANEL_DEFAULTS.fillColor),
                                         fillEnabled = pdObj.optBoolean("fillEnabled", DEFAULT_PANEL_DEFAULTS.fillEnabled),
                                         cornerRadius = pdObj.optDouble("cornerRadius", DEFAULT_PANEL_DEFAULTS.cornerRadius.toDouble()).toFloat(),
+                                        cropEnabled = pdObj.optBoolean("cropEnabled", true),
                                     )
                                 }
                             }

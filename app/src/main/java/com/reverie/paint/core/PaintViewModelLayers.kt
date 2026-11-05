@@ -389,6 +389,23 @@ internal fun PaintViewModel.generateDefaultGroupName(): String {
     return if (!hasPlain && idx == 1) prefix else "$prefix $idx"
 }
 
+private inline fun PaintViewModel.executeAddLayerSafely(
+    wasInside: Boolean,
+    action: () -> Unit,
+) {
+    val rootIdx = if (wasInside) scanEnginePanels().rootIdx else -1
+    if (rootIdx >= 0) {
+        ReverieCoreBridge.setCurrentLayer(rootIdx)
+    }
+    action()
+    if (rootIdx >= 0) {
+        val newIdx = ReverieCoreBridge.currentLayerIndex()
+        if (newIdx >= 0 && newIdx != rootIdx) {
+            ReverieCoreBridge.moveLayerRelative(newIdx, rootIdx, true)
+        }
+    }
+}
+
 internal fun PaintViewModel.addLayer() {
     if (transientTransformSelectionPending || canUndoTransformSelection || canRedoTransformSelection) {
         discardTransientTransformSelection()
@@ -399,11 +416,14 @@ internal fun PaintViewModel.addLayer() {
     }
     val defaultName = generateDefaultLayerName()
     Breadcrumbs.record("Layer", "Add layer: $defaultName")
+    val wasInside = isInsidePanelTree(currentLayerIndex)
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
     }) {
-        ReverieCoreBridge.addLayer(defaultName)
+        executeAddLayerSafely(wasInside) {
+            ReverieCoreBridge.addLayer(defaultName)
+        }
     }
 }
 
@@ -418,6 +438,7 @@ internal fun PaintViewModel.importImageToNewLayer(
     }
     val defaultImportName = if (LanguageManager.isChinese()) "导入图片" else "Imported Image"
     val finalName = layerName.ifBlank { defaultImportName }
+    val wasInside = isInsidePanelTree(currentLayerIndex)
     runCore(
         after = {
             clearLayerSelection()
@@ -426,7 +447,9 @@ internal fun PaintViewModel.importImageToNewLayer(
         },
     ) {
         try {
-            ReverieCoreBridge.addLayer(finalName)
+            executeAddLayerSafely(wasInside) {
+                ReverieCoreBridge.addLayer(finalName)
+            }
             val placement = ImageImportHelper.calculateFitPlacement(
                 docW = coreW,
                 docH = coreH,
@@ -1250,11 +1273,14 @@ internal fun PaintViewModel.addLayerWithType(
             "$name|$type|$fillColor",
         )
     }
+    val wasInside = isInsidePanelTree(currentLayerIndex)
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
     }) {
-        ReverieCoreBridge.addLayerWithType(name, type, fillColor)
+        executeAddLayerSafely(wasInside) {
+            ReverieCoreBridge.addLayerWithType(name, type, fillColor)
+        }
     }
 }
 
@@ -1273,6 +1299,7 @@ internal fun PaintViewModel.addFillLayer(colorHex: String = brushColor) {
             "$fillLayerName|2|$colorInt",
         )
     }
+    val wasInside = isInsidePanelTree(currentLayerIndex)
     // type=2 仍创建预填色颜料层，由引擎保存显式类型标记
     runCore(
         after = {
@@ -1280,7 +1307,9 @@ internal fun PaintViewModel.addFillLayer(colorHex: String = brushColor) {
             notifyLayerChanged()
         },
     ) {
-        ReverieCoreBridge.addLayerWithType(fillLayerName, 2, colorInt)
+        executeAddLayerSafely(wasInside) {
+            ReverieCoreBridge.addLayerWithType(fillLayerName, 2, colorInt)
+        }
     }
 }
 
@@ -1291,6 +1320,7 @@ internal fun PaintViewModel.addFilterLayer(onOpenFilters: (Int) -> Unit) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_STAMP)
     }
     val filterLayerName = generateDefaultFilterLayerName()
+    val wasInside = isInsidePanelTree(currentLayerIndex)
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
@@ -1300,7 +1330,9 @@ internal fun PaintViewModel.addFilterLayer(onOpenFilters: (Int) -> Unit) {
             onOpenFilters(cur)
         }
     }) {
-        ReverieCoreBridge.stampVisibleLayers()
+        executeAddLayerSafely(wasInside) {
+            ReverieCoreBridge.stampVisibleLayers()
+        }
     }
 }
 
@@ -1314,11 +1346,14 @@ internal fun PaintViewModel.addStrokeLayer() {
             "$strokeLayerName|6|0",
         )
     }
+    val wasInside = isInsidePanelTree(currentLayerIndex)
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
     }) {
-        ReverieCoreBridge.addLayerWithType(strokeLayerName, 6, 0)
+        executeAddLayerSafely(wasInside) {
+            ReverieCoreBridge.addLayerWithType(strokeLayerName, 6, 0)
+        }
     }
 }
 

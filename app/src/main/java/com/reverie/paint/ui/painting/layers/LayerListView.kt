@@ -195,9 +195,11 @@ internal fun LayerListView(
                     if (vm.layers[j].depth == parentDepth + 1) siblings.add(j)
                 }
                 for (j in siblings.reversed()) {
+                    if (vm.isPanelTreeHidden(j) || vm.panelCropStateFor(j) != null) continue
                     val c = vm.layers[j]
                     out.add(c)
-                    val isCollapsedGroup = c.isGroup && groupRowCollapsed(c)
+                    val isPanelGroup = vm.panelIdForGroupRow(j) != null
+                    val isCollapsedGroup = c.isGroup && (isPanelGroup || groupRowCollapsed(c))
                     if (!isCollapsedGroup) {
                         val e = (j + 1 until hi).firstOrNull { vm.layers[it].depth <= c.depth } ?: hi
                         if (e > j + 1) {
@@ -956,7 +958,10 @@ internal fun LayerListView(
                         LayerRow(
                             vm = vm,
                             layer = layer,
-                            selected = layer.index == selectedIndex,
+                            selected = layer.index == selectedIndex || run {
+                                val pid = vm.panelIdForGroupRow(layer.index)
+                                pid != null && vm.panelContentLayerIndex(pid) == vm.currentLayerIndex
+                            },
                             collapsed = groupRowCollapsed(layer),
                             hasNextSibling = hasNextSibling,
                             openDepths = openDepths,
@@ -964,7 +969,7 @@ internal fun LayerListView(
                             onToggleCollapse = {
                                 revealedIndex = null
                                 val pid = vm.panelIdForGroupRow(layer.index)
-                                if (pid != null) vm.togglePanelCollapsed(pid) else vm.toggleGroupCollapsed(layer.name)
+                                if (pid == null) vm.toggleGroupCollapsed(layer.name)
                             },
                             revealed = layer.index == revealedIndex,
                             onReveal = { revealedIndex = layer.index },
@@ -1025,17 +1030,17 @@ internal fun LayerListView(
                             },
                             onClick = {
                                 revealedIndex = null
+                                val panelId = vm.panelIdForGroupRow(layer.index)
                                 if (layer.index !in vm.selectedLayerIndices) {
-                                    // Tapping an unselected row switches the
-                                    // target (standard behaviour) and clears the
-                                    // multi-selection
                                     vm.clearLayerSelection()
                                 }
-                                // NOTE: tapping a row that IS part of the multi-
-                                // selection keeps the set - the old unconditional
-                                // clear silently nuked the whole selection after
-                                // the user had swiped several rows
-                                if (layer.index == selectedIndex) {
+                                if (panelId != null) {
+                                    vm.cancelSoloIfSwitchingLayer()
+                                    selectedIndex = layer.index
+                                    vm.selectedPanelId = panelId
+                                    val content = vm.panelContentLayerIndex(panelId)
+                                    if (content >= 0) vm.setCurrentLayer(content)
+                                } else if (layer.index == selectedIndex) {
                                     onOpenDetail(layer.index)
                                 } else {
                                     // 独显模式下选中其他图层时自动取消独显 (FolioLayers 行为)

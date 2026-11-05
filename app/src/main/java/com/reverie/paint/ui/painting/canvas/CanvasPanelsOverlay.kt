@@ -20,7 +20,6 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
-import androidx.compose.ui.graphics.PathFillType
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.res.stringResource
@@ -35,11 +34,19 @@ import com.reverie.paint.core.panelDefaults
 import com.reverie.paint.core.panelDivideMode
 import com.reverie.paint.core.panelMultiSelectedIds
 import com.reverie.paint.core.duplicatePanel
+import com.reverie.paint.core.panelSharesDraw
+import com.reverie.paint.core.currentPaintingPanelIds
+import com.reverie.paint.core.separatePanelDraw
+import com.reverie.paint.core.findAdjacentPanel
+import com.reverie.paint.core.mergePanelDraw
+import com.reverie.paint.core.mergeAllPanelDraws
 import com.reverie.paint.core.deletePanel
 import com.reverie.paint.core.mergePanels
 import com.reverie.paint.core.movePanelZBy
 import com.reverie.paint.core.panelZMoveCapability
 import com.reverie.paint.core.panels
+import com.reverie.paint.core.updatePanelStyle
+import com.reverie.paint.model.PanelStyle
 import com.reverie.paint.core.selectedPanelId
 import com.reverie.paint.model.PanelBounds
 import com.reverie.paint.model.PanelDefaults
@@ -156,8 +163,8 @@ private fun DrawScope.docBoundsPath(
 private val PANEL_OUTLINE_COLOR = Morandi.subText.copy(alpha = 0.75f)
 private val PANEL_PREVIEW_FILL = Morandi.accent.copy(alpha = 0.15f)
 private val PANEL_MULTI_SELECT_COLOR = Morandi.accent.copy(alpha = 0.7f)
-private val PANEL_BAND_HINT_COLOR = Morandi.subText.copy(alpha = 0.12f)
 private val PANEL_DIVIDE_HINT_FILL = Morandi.accent.copy(alpha = 0.25f)
+private val PANEL_PAINT_HINT_COLOR = Morandi.accent.copy(alpha = 0.85f)
 
 // Stroke/PathEffect 依赖 (density, viewScale): 按 (density, scale) 缓存, 拖格/悬停/
 // 平移期间 scale 恒定 → 命中缓存零分配; 仅捏合缩放的首帧重建一次 (与旧实现的逐帧
@@ -169,6 +176,7 @@ private var panelOutlineStroke = Stroke(width = 1f)
 private var panelSelStroke = Stroke(width = 1f)
 private var panelHandleStroke = Stroke(width = 1f)
 private var panelPreviewStroke = Stroke(width = 1f)
+private var panelHintShadowStroke = Stroke(width = 1f)
 
 /** 缓存键任一变化才重建 (本函数即 DrawScope, 直接读 density 与 dp.toPx)。 */
 private fun DrawScope.ensurePanelDrawObjects(scale: Float) {
@@ -186,6 +194,7 @@ private fun DrawScope.ensurePanelDrawObjects(scale: Float) {
         width = 1.5.dp.toPx() / scale,
         pathEffect = panelDashEffect,
     )
+    panelHintShadowStroke = Stroke(width = 3.dp.toPx() / scale)
 }
 
 /** 该格生效圆角半径 (px): 样式覆盖优先, 否则页面默认 (与引擎渲染同一取值口径)。 */
@@ -232,6 +241,26 @@ internal fun DrawScope.drawPanelsOverlay(
     val selStroke = panelSelStroke
     val previewStroke = panelPreviewStroke
     val previewFill = PANEL_PREVIEW_FILL
+    val defaults = vm.panelDefaults
+
+    // 0. 非分格工具 (画笔/橡皮等): 四角拖动点绝对不画; 仅当正在画分格画层时以清晰线框勾勒所属全部格子
+    if (!toolActive) {
+        val activePids = vm.currentPaintingPanelIds()
+        if (activePids.isNotEmpty()) {
+            val hintShadowStroke = panelHintShadowStroke
+            for (m in mirrors) {
+                if (m.panelId in activePids) {
+                    val path = panelQuadPath(
+                        m.meta.quad.roundedCorners(panelCornerRadius(m, defaults)),
+                        bmpWidth, bmpHeight, scX, scY,
+                    )
+                    drawPath(path, Color(0x33000000), style = hintShadowStroke)
+                    drawPath(path, PANEL_PAINT_HINT_COLOR, style = selStroke)
+                }
+            }
+        }
+        return
+    }
 
     // 1. 建格 / 框选矩形 (半透明填充 + 虚线) / 切分预览线 (虚线) / 吸附参考线 (贯穿虚线)
     interaction.createRect?.let { rect ->
@@ -273,7 +302,6 @@ internal fun DrawScope.drawPanelsOverlay(
     // 顶点 (radius 与 style.cornerRadius ?: panelDefaults.cornerRadius 一致)。
     // 每格 Path 重建保留: quad 内容与 doc→位图映射 (缩放/平移) 都会变, 缓存失效
     // 管理成本高于新建; Path 是本覆盖层逐帧的主要分配, 但其余一次性对象已清零
-    val defaults = vm.panelDefaults
     for (m in mirrors) {
         val path = panelQuadPath(
             m.meta.quad.roundedCorners(panelCornerRadius(m, defaults)),
@@ -291,39 +319,15 @@ internal fun DrawScope.drawPanelsOverlay(
         }
     }
 
-    // 2.5) 切分手势可发现性提示 (仅分格工具 + 未选中态):
-    //  - 建格模式: 每格边框内侧 6dp 环带淡色填充, 提示"边框带可拖切分"
-    //  - 切分模式: 每格满格淡 accent 填充, 提示"格内任意拖线即可切开"
-    //  环带/填充 Path 随缩放平移变化, 与轮廓同口径逐帧重建 (Paint/Color 已复用)
-    if (toolActive && !hasSelection && mirrors.isNotEmpty()) {
-        if (vm.panelDivideMode) {
-            for (m in mirrors) {
-                val path = panelQuadPath(
-                    m.meta.quad.roundedCorners(panelCornerRadius(m, defaults)),
-                    bmpWidth, bmpHeight, scX, scY,
-                )
-                drawPath(path, PANEL_DIVIDE_HINT_FILL)
-            }
-        } else {
-            // 环带外沿 = 格轮廓, 内沿 = 内缩 6dp (屏幕尺寸, 换算回 doc 单位)
-            val bandDoc = (6f * density) / scale / scX.coerceAtLeast(1e-6f)
-            for (m in mirrors) {
-                val radius = panelCornerRadius(m, defaults)
-                val outer = panelQuadPath(
-                    m.meta.quad.roundedCorners(radius), bmpWidth, bmpHeight, scX, scY,
-                )
-                val innerQuad = m.meta.quad.insetBorder(bandDoc)
-                if (innerQuad === m.meta.quad) continue
-                val inner = panelQuadPath(
-                    innerQuad.roundedCorners(radius), bmpWidth, bmpHeight, scX, scY,
-                )
-                val band = Path().apply {
-                    fillType = PathFillType.EvenOdd
-                    addPath(outer)
-                    addPath(inner)
-                }
-                drawPath(band, PANEL_BAND_HINT_COLOR)
-            }
+    // 2.5) 切分模式可发现性提示 (仅切分模式开 + 有格; 不要求未选中): 每格满格淡 accent
+    //  填充, 提示"画布任意处拖线即可切开"。填充 Path 随缩放平移变化, 与轮廓同口径逐帧重建
+    if (toolActive && vm.panelDivideMode && mirrors.isNotEmpty()) {
+        for (m in mirrors) {
+            val path = panelQuadPath(
+                m.meta.quad.roundedCorners(panelCornerRadius(m, defaults)),
+                bmpWidth, bmpHeight, scX, scY,
+            )
+            drawPath(path, PANEL_DIVIDE_HINT_FILL)
         }
     }
 
@@ -337,17 +341,33 @@ internal fun DrawScope.drawPanelsOverlay(
         drawPath(path, Morandi.accent, style = previewStroke)
     }
 
-    // 4. 选中格 4 角手柄 (约 10dp 圆点, accent 底白描边; 位置取预览四角)
+    // 4. 选中格 8 手柄: 4 角大圆手柄 (自由角点) + 4 边中点小圆手柄 (平行推拉整边)。
+    //  切分模式不画: 手柄会抢切刀落点, 画布任意处都应视为切刀
     val selMirror = mirrors.firstOrNull { it.panelId == vm.selectedPanelId }
-    if (selMirror != null) {
+    if (toolActive && selMirror != null && !vm.panelDivideMode) {
         val quad = previews[selMirror.panelId]?.quad ?: selMirror.meta.quad
-        val handleR = 5.dp.toPx() / scale
+        val cornerR = 5.dp.toPx() / scale
+        val midR = 3.5.dp.toPx() / scale
+
+        // 4 角手柄 (Morandi.accent 实心圆 + 白色外圈)
         for (c in quad.corners) {
             val center = Offset(c.x * scX - bmpWidth / 2f, c.y * scY - bmpHeight / 2f)
-            drawCircle(Morandi.accent, radius = handleR, center = center)
+            drawCircle(Morandi.accent, radius = cornerR, center = center)
             drawCircle(
                 Color.White,
-                radius = handleR,
+                radius = cornerR,
+                center = center,
+                style = panelHandleStroke,
+            )
+        }
+
+        // 4 边中点手柄 (白色实心圆 + Morandi.accent 外圈，清晰区分)
+        for (m in quad.edgeMidpoints()) {
+            val center = Offset(m.x * scX - bmpWidth / 2f, m.y * scY - bmpHeight / 2f)
+            drawCircle(Color.White, radius = midR, center = center)
+            drawCircle(
+                Morandi.accent,
+                radius = midR,
                 center = center,
                 style = panelHandleStroke,
             )
@@ -356,9 +376,9 @@ internal fun DrawScope.drawPanelsOverlay(
 }
 
 /**
- * 分格长按极简菜单 (锚在按下点): 单选态为 上移一层/下移一层/删除/复制 (顶/底边界
- * 时对应移动 chip 隐藏), 多选态追加 "取消多选/合并"。
- * 纯 UI: 动作全部走既有 VM 操作, 完成即收菜单。
+ * 分格长按极简菜单 (锚在按下点): 单选态为 上移一层/下移一层/删除/复制/恢复默认
+ * (顶/底边界时对应移动 chip 隐藏), 多选态追加 "取消多选/合并"。
+ * 长按提示在分格属性浮窗底部, 不放在已经弹出的菜单里。动作走既有 VM 操作, 完成即收菜单。
  */
 @Composable
 internal fun PanelLongPressMenu(
@@ -391,7 +411,15 @@ internal fun PanelLongPressMenu(
                 )
                 if (vm.panelMultiSelectedIds.size >= 2) {
                     ToolFloatChip(
-                        label = stringResource(R.string.panel_menu_merge),
+                        label = stringResource(R.string.panel_menu_merge_layer),
+                        onClick = {
+                            val ids = vm.panelMultiSelectedIds
+                            vm.mergeAllPanelDraws(ids)
+                            interaction.dismissMenu()
+                        },
+                    )
+                    ToolFloatChip(
+                        label = stringResource(R.string.panel_menu_merge_frame),
                         onClick = {
                             val ids = vm.panelMultiSelectedIds
                             vm.mergePanels(ids)
@@ -438,6 +466,35 @@ internal fun PanelLongPressMenu(
                         interaction.dismissMenu()
                     },
                 )
+                if (vm.panelSharesDraw(panelId)) {
+                    ToolFloatChip(
+                        label = stringResource(R.string.panel_menu_separate),
+                        onClick = {
+                            vm.separatePanelDraw(panelId)
+                            interaction.dismissMenu()
+                        },
+                    )
+                } else if (vm.panelMultiSelectedIds.isEmpty()) {
+                    val adjId = vm.findAdjacentPanel(panelId)
+                    if (adjId != null) {
+                        ToolFloatChip(
+                            label = stringResource(R.string.panel_menu_merge_with_adjacent),
+                            onClick = {
+                                vm.mergePanelDraw(panelId, adjId)
+                                interaction.dismissMenu()
+                            },
+                        )
+                    }
+                }
+                if (vm.panelMultiSelectedIds.isEmpty()) {
+                    ToolFloatChip(
+                        label = stringResource(R.string.panel_reset_style),
+                        onClick = {
+                            vm.updatePanelStyle(panelId, PanelStyle())
+                            interaction.dismissMenu()
+                        },
+                    )
+                }
             }
         }
     }

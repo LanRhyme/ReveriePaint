@@ -52,21 +52,13 @@ private const val PANEL_DRAG_HANDLE = 1      // 选中格角手柄拖形
 private const val PANEL_DRAG_EDGE = 2        // 共享边间隔拖动 (两格联动)
 private const val PANEL_DRAG_BODY = 3        // 格体拖移 (多选时整组)
 private const val PANEL_DRAG_BODY_PENDING = 4 // 未选中态压在格上: UP 无位移=点选, 位移=拖移
-private const val PANEL_DRAG_PENDING_CLEAR = 5 // 选中态压空白: UP 无位移=取消选中
-private const val PANEL_DRAG_CREATE = 6      // 未选中态空白拖拽建格
+private const val PANEL_DRAG_CREATE = 6      // 建格模式空白/缝隙拖拽: 贯穿切或建格
 private const val PANEL_DRAG_MARQUEE = 7     // 长按后拖动框选多选
 private const val PANEL_DRAG_CONSUMED = 8    // 双击进格已消费, 本手势不再处理
-private const val PANEL_DRAG_DIVIDE = 9      // 未选中态边框带拖拽切分
+private const val PANEL_DRAG_DIVIDE = 9      // 切分模式拖刀 (画布任意处起笔)
+private const val PANEL_DRAG_DIVIDE_PENDING = 10 // 切分模式压在格体: 等长按; slop 后转 DIVIDE
+private const val PANEL_DRAG_EDGE_MIDPOINT = 11 // 选中格边中点手柄拖动: 平行推拉整条边
 
-private fun minDistanceToEdges(quad: PanelQuad, p: Point2D): Float {
-    var minD = Float.MAX_VALUE
-    val n = quad.corners.size
-    for (i in 0 until n) {
-        val d = ShapeGeometry.distanceToSegment(p, quad.corners[i], quad.corners[(i + 1) % n])
-        if (d < minD) minD = d
-    }
-    return minD
-}
 /** 长按弹菜单延迟 (与系统长按观感一致) */
 private const val PANEL_LONG_PRESS_MS = 480L
 /** 双击进格: 两次 DOWN 同一格体的最大间隔 */
@@ -77,6 +69,7 @@ private const val PANEL_TAP_SLOP_DP = 12f
 private const val PANEL_CREATE_MIN_DP = 24f
 /** 共享边拖动的最小边长 (面积下限 8²=64px², 与引擎侧 MIN_PANEL_AREA 对齐) */
 private const val PANEL_MIN_EDGE = 8f
+private const val PANEL_MIN_AREA = 64f
 /** 共享边判定: 角点重合容差 (doc px) */
 private const val PANEL_SHARED_EDGE_TOL = 1.5f
 /** 吸附磁吸阈值 (dp 屏幕距离, 换算 doc): gutter 对齐与边框标尺共用 */
@@ -1055,6 +1048,8 @@ class CanvasTouchView(context: Context) : View(context) {
     private var panelDownRawDoc = Offset.Zero
     private var panelDownScreenPos = Offset.Zero
     private var panelDragCorner = -1
+    private var panelDragEdgeIndex = -1
+    private var panelDragSecondEdgeIndex = -1
     /**
      * 角点拖形的角度吸附目标方向集 (单位方向对, 模 180°): 其他格每条边方向 + 水平/垂直。
      * HANDLE DOWN 时构建一次 (拖形期间其他格不动, 缓存避免 MOVE 每帧重建), 见
@@ -1063,7 +1058,6 @@ class CanvasTouchView(context: Context) : View(context) {
     private var panelCornerSnapDirs: FloatArray = FloatArray(0)
     private var panelDragIds: LongArray = longArrayOf()
     private var panelDragStartQuads: List<PanelQuad> = emptyList()
-    private var panelDragEdgePairs: List<Int> = emptyList()
     private var panelPendingPanelId = -1L
     private var panelLastTapTimeMs = 0L
     private var panelLastTapPanelId = -1L
@@ -1073,15 +1067,26 @@ class CanvasTouchView(context: Context) : View(context) {
     private var panelActiveLongPressToken = 0L
     private var panelMarqueeArmed = false
 
-    /** 长按 (复用 longPressRunnable 的 token 模式): 压在格上弹极简菜单, 之后拖动转框选多选。 */
+    /**
+     * 长按 (复用 longPressRunnable 的 token 模式): 压在格上弹极简菜单。
+     * 建格模式 (BODY/BODY_PENDING) 之后拖动转框选多选; 切分模式 (DIVIDE_PENDING)
+     * 弹菜单后手势消费 (CONSUMED), 不再切分, 也不转框选。
+     */
     private val panelLongPressRunnable = Runnable {
         val st = panelInteraction ?: return@Runnable
         if (panelActiveLongPressToken == panelLongPressToken && panelLongPressPending &&
-            (panelDragMode == PANEL_DRAG_BODY || panelDragMode == PANEL_DRAG_BODY_PENDING) &&
+            (panelDragMode == PANEL_DRAG_BODY || panelDragMode == PANEL_DRAG_BODY_PENDING ||
+                panelDragMode == PANEL_DRAG_DIVIDE_PENDING) &&
             !isTransformActive && maxTouchPointers <= 1
         ) {
             panelLongPressPending = false
-            panelMarqueeArmed = true
+            if (panelDragMode == PANEL_DRAG_DIVIDE_PENDING) {
+                // 切分长按成功: 菜单保持, 本次手势不再切分 (MOVE/UP 对 CONSUMED 均直通)
+                panelMarqueeArmed = false
+                panelDragMode = PANEL_DRAG_CONSUMED
+            } else {
+                panelMarqueeArmed = true
+            }
             performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
             st.menuScreenPos = panelDownScreenPos
             st.menuPanelId = panelLongPressPanelId.takeIf { it >= 0 }
@@ -1104,6 +1109,31 @@ class CanvasTouchView(context: Context) : View(context) {
      */
     private fun panelDivideExtendDocPx(currentScale: Float): Float =
         (PANEL_DIVIDE_EXTEND_DP * density) / currentScale
+
+    /**
+     * 建格模式拖线的"贯穿切分"判定 (与切分模式预览/提交同口径):
+     * [segmentCutsQuad] 线段语义 + [cutByLine] 双重过滤 (同一延伸兜底换算 [panelDivideExtendDocPx]),
+     * 返回会被切开的格 id 集合。MOVE 预览与 UP 提交必须共用本函数, 两处口径漂移会导致
+     * 预览高亮的格与实际被切的格不一致。
+     */
+    private fun panelDivideHitIds(startDoc: Point2D, endDoc: Point2D, currentScale: Float): Set<Long> {
+        val v = vm ?: return emptySet()
+        if (!startDoc.x.isFinite() || !startDoc.y.isFinite() ||
+            !endDoc.x.isFinite() || !endDoc.y.isFinite()
+        ) return emptySet()
+        val extendDocPx = panelDivideExtendDocPx(currentScale)
+        val halfGap = v.panelDefaults.hGap / 2f
+        var hit: MutableSet<Long>? = null
+        for (m in v.panels) {
+            if (segmentCutsQuad(m.meta.quad, startDoc, endDoc, extendDocPx) &&
+                m.meta.quad.cutByLine(startDoc, endDoc, halfGap) != null
+            ) {
+                val set = hit ?: HashSet<Long>(4).also { hit = it }
+                set.add(m.panelId)
+            }
+        }
+        return hit ?: emptySet()
+    }
 
     /**
      * 边框标尺吸附 (目标 B): 若落笔 doc 点距任一分格某条边线段的距离 < 8dp (换算 doc),
@@ -1178,14 +1208,16 @@ class CanvasTouchView(context: Context) : View(context) {
         if (neighbors.isEmpty()) return Pair(rawDelta, null)
 
         val tolerance = (PANEL_SNAP_TOLERANCE_DP * density) / currentScale
-        val defaultGap = v.panelDefaults.hGap
+        val hGap = v.panelDefaults.hGap
+        val vGap = v.panelDefaults.vGap
 
         var bestCandidate: PanelSnapCandidate? = null
         var bestDiff = Float.MAX_VALUE
 
         for (startQuad in panelDragStartQuads) {
             val movedQuad = startQuad.movedBy(rawDelta)
-            val candidates = snapCandidates(movedQuad, neighbors, defaultGap, tolerance)
+            // 左右对齐用水平间隔, 上下对齐用垂直间隔 (原先两轴都吃 hGap, 水平虚线会对到错误间距)
+            val candidates = axisSnapCandidates(movedQuad, neighbors, hGap, vGap, tolerance)
             for (c in candidates) {
                 val diff = if (c.guideAxis == 0) abs(c.delta.x) else abs(c.delta.y)
                 if (diff < bestDiff) {
@@ -1203,6 +1235,48 @@ class CanvasTouchView(context: Context) : View(context) {
         return Pair(rawDelta, null)
     }
 
+    /** 边中点拖动吸附: 将整条边平移并吸附到邻格对齐轴或 gutter 间距。 */
+    private fun computeMidpointEdgeSnap(
+        startQuad: PanelQuad,
+        edgeIndex: Int,
+        rawDelta: Point2D,
+        currentScale: Float,
+    ): Pair<PanelQuad?, PanelSnapGuide?> {
+        val v = vm ?: return Pair(startQuad.moveEdge(edgeIndex, rawDelta), null)
+        val tolerance = (PANEL_SNAP_TOLERANCE_DP * density) / currentScale
+        val selfId = panelDragIds.getOrNull(0) ?: -1L
+        val neighbors = ArrayList<PanelQuad>(v.panels.size)
+        for (m in v.panels) {
+            if (m.panelId != selfId) neighbors.add(m.meta.quad)
+        }
+        val movedQuad = startQuad.moveEdge(edgeIndex, rawDelta)
+        if (neighbors.isEmpty()) {
+            return Pair(if (movedQuad.isConvex() && !movedQuad.isDegenerate(PANEL_MIN_AREA)) movedQuad else null, null)
+        }
+        val candidates = axisSnapCandidates(movedQuad, neighbors, v.panelDefaults.hGap, v.panelDefaults.vGap, tolerance)
+        var bestCandidate: PanelSnapCandidate? = null
+        var bestDiff = Float.MAX_VALUE
+        for (c in candidates) {
+            val diff = if (c.guideAxis == 0) abs(c.delta.x) else abs(c.delta.y)
+            if (diff < bestDiff) {
+                bestDiff = diff
+                bestCandidate = c
+            }
+        }
+        val finalDelta = if (bestCandidate != null) {
+            Point2D(rawDelta.x + bestCandidate.delta.x, rawDelta.y + bestCandidate.delta.y)
+        } else {
+            rawDelta
+        }
+        val snappedQuad = startQuad.moveEdge(edgeIndex, finalDelta)
+        val guide = bestCandidate?.let { PanelSnapGuide(it.guideAxis, it.guideCoord) }
+        return if (snappedQuad.isConvex() && !snappedQuad.isDegenerate(PANEL_MIN_AREA)) {
+            Pair(snappedQuad, guide)
+        } else {
+            Pair(null, null)
+        }
+    }
+
     /**
      * 共享边拖动 gutter 对齐吸附 (目标 A): 用任一格对非本次共享边的其余邻格调 snapCandidates,
      * 命中则修正共享边 delta (两格联动保持)。
@@ -1214,8 +1288,9 @@ class CanvasTouchView(context: Context) : View(context) {
         val v = vm ?: return Pair(null, null)
         val q0 = panelDragStartQuads.getOrNull(0) ?: return Pair(null, null)
         val q1 = panelDragStartQuads.getOrNull(1) ?: return Pair(null, null)
-        val aEdge = panelDragEdgePairs.getOrNull(0) ?: return Pair(null, null)
-        val bEdge = panelDragEdgePairs.getOrNull(1) ?: return Pair(null, null)
+        val aEdge = panelDragEdgeIndex
+        val bEdge = panelDragSecondEdgeIndex
+        if (aEdge < 0 || bEdge < 0) return Pair(null, null)
 
         val rawPair = applyEdgeDrag(q0, q1, aEdge, bEdge, rawDelta, PANEL_MIN_EDGE)
             ?: return Pair(null, null)
@@ -1234,17 +1309,21 @@ class CanvasTouchView(context: Context) : View(context) {
         if (otherNeighbors.isEmpty()) return Pair(rawPair, null)
 
         val tolerance = (PANEL_SNAP_TOLERANCE_DP * density) / currentScale
-        val defaultGap = v.panelDefaults.hGap
+        val hGap = v.panelDefaults.hGap
+        val vGap = v.panelDefaults.vGap
+        // 被拖边近水平时法向是上下, 间隔取 vGap; 其余 (垂直/斜边) 取 hGap
+        val edgeGap0 = panelEdgeGap(rawPair.first, aEdge, hGap, vGap)
+        val edgeGap1 = panelEdgeGap(rawPair.second, bEdge, hGap, vGap)
 
         var bestCandidate: PanelSnapCandidate? = null
         var bestDiff = Float.MAX_VALUE
 
-        // 候选集 = 既有轴对齐 gutter 候选 + 角度候选 (被拖共享边与邻格边近平行时的法向
+        // 候选集 = 分轴 gutter 候选 + 角度候选 (被拖共享边与邻格边近平行时的法向
         // 位置吸附); 偏差统一按平移量 (hypot(delta), 轴对齐候选单轴分量即平移量) 取最小。
         // 角度候选只对被拖共享边生成 (aEdge/bEdge 是同一条几何边, 两侧各生成一次, 取偏差小者)。
-        val candidates0 = snapCandidates(rawPair.first, otherNeighbors, defaultGap, tolerance) +
+        val candidates0 = axisSnapCandidates(rawPair.first, otherNeighbors, hGap, vGap, tolerance) +
             parallelSnapCandidates(
-                rawPair.first, aEdge, otherNeighbors, defaultGap,
+                rawPair.first, aEdge, otherNeighbors, edgeGap0,
                 tolerance, PANEL_PARALLEL_SNAP_ANGLE_RAD,
             )
         for (c in candidates0) {
@@ -1254,9 +1333,9 @@ class CanvasTouchView(context: Context) : View(context) {
                 bestCandidate = c
             }
         }
-        val candidates1 = snapCandidates(rawPair.second, otherNeighbors, defaultGap, tolerance) +
+        val candidates1 = axisSnapCandidates(rawPair.second, otherNeighbors, hGap, vGap, tolerance) +
             parallelSnapCandidates(
-                rawPair.second, bEdge, otherNeighbors, defaultGap,
+                rawPair.second, bEdge, otherNeighbors, edgeGap1,
                 tolerance, PANEL_PARALLEL_SNAP_ANGLE_RAD,
             )
         for (c in candidates1) {
@@ -1281,6 +1360,32 @@ class CanvasTouchView(context: Context) : View(context) {
             }
         }
         return Pair(rawPair, null)
+    }
+
+    /**
+     * 最后一帧格体预览相对按下时的平移。松手提交用它, 不用抬笔点重算:
+     * 抬笔采样经常跳出磁吸范围, 预览虚线已经对齐, 重算会把格子弹回手指位置。
+     */
+    private fun panelShownMoveDelta(): Point2D? {
+        val shown = panelInteraction?.dragPreviews?.firstOrNull()?.quad ?: return null
+        val start = panelDragStartQuads.firstOrNull() ?: return null
+        val a = shown.corners.firstOrNull() ?: return null
+        val b = start.corners.firstOrNull() ?: return null
+        val dx = a.x - b.x
+        val dy = a.y - b.y
+        if (!dx.isFinite() || !dy.isFinite()) return null
+        return Point2D(dx, dy)
+    }
+
+    /** 近水平边的法向间隔是上下 (vGap), 垂直边和斜边用法向左右 (hGap)。 */
+    private fun panelEdgeGap(quad: PanelQuad, edgeIndex: Int, hGap: Float, vGap: Float): Float {
+        val n = quad.corners.size
+        if (edgeIndex !in 0 until n) return hGap
+        val a = quad.corners[edgeIndex]
+        val b = quad.corners[(edgeIndex + 1) % n]
+        val adx = abs(b.x - a.x)
+        val ady = abs(b.y - a.y)
+        return if (adx >= 4f * ady) vGap else hGap
     }
 
     /**
@@ -6419,11 +6524,12 @@ class CanvasTouchView(context: Context) : View(context) {
                 panelDownRawDoc = docPos
                 panelDownScreenPos = screenPos
                 panelDragCorner = -1
+                panelDragEdgeIndex = -1
+                panelDragSecondEdgeIndex = -1
                 panelCornerSnapDirs = FloatArray(0)
                 panelPendingPanelId = -1L
                 panelDragIds = longArrayOf()
                 panelDragStartQuads = emptyList()
-                panelDragEdgePairs = emptyList()
                 panelLongPressPending = false
                 panelMarqueeArmed = false
                 if (maxTouchPointers > 1) {
@@ -6462,15 +6568,29 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
 
                 // 切分模式总分支: 纯切分 —— 画布任意处 (格内/缝隙/空白) 单指起笔都是切分
-                // 尝试; 建格/移动/改形状/角点/共享边/轻点选中全部禁用 (进入模式时已清选中,
-                // 见 setPanelDivideMode)。起笔吸附到最近的分格边线段 (该函数自带 8dp 半径
-                // 判定, 远处不吸附); 轻点 (<24dp, 用原始落点 panelDownRawDoc 判距) 在 UP
-                // 判无操作。优先级压过下方全部建格模式分支 (直接 return, 不与之共存)。
+                // 尝试; 建格/移动/改形状/角点/共享边/轻点选中全部禁用 (选中态原样保留,
+                // 切分轻点不改选中, 见 setPanelDivideMode)。优先级压过下方全部建格模式
+                // 分支 (直接 return, 不与之共存)。
+                // 压在格体上: 先等 480ms 长按弹菜单 (与建格同一套, 菜单用 st.menuPanelId,
+                // 不改 selectedPanelId); slop 内移动则取消长按转 DIVIDE。压在空白/缝隙:
+                // 保持立刻拖刀 —— 起笔吸附到最近的分格边线段 (该函数自带 8dp 半径判定,
+                // 远处不吸附); 轻点 (<24dp, 用原始落点 panelDownRawDoc 判距) 在 UP 判无操作。
                 if (v.panelDivideMode) {
-                    val snappedDown = snapPointToPanelBorders(docPoint)
-                    panelDragStartDoc = Offset(snappedDown.x, snappedDown.y)
-                    panelDragMode = PANEL_DRAG_DIVIDE
-                    panelPendingPanelId = bodyPanelId
+                    if (bodyPanelId >= 0) {
+                        // 压在格体: panelDragStartDoc 保持原始落点 (slop 判距与建格格体一致),
+                        // MOVE 里转 DIVIDE 时才把起点吸附到边框
+                        panelDragMode = PANEL_DRAG_DIVIDE_PENDING
+                        panelPendingPanelId = bodyPanelId
+                        panelLongPressPending = true
+                        panelLongPressPanelId = bodyPanelId
+                        panelActiveLongPressToken = ++panelLongPressToken
+                        postDelayed(panelLongPressRunnable, PANEL_LONG_PRESS_MS)
+                    } else {
+                        val snappedDown = snapPointToPanelBorders(docPoint)
+                        panelDragStartDoc = Offset(snappedDown.x, snappedDown.y)
+                        panelDragMode = PANEL_DRAG_DIVIDE
+                        panelPendingPanelId = -1L
+                    }
                     return
                 }
 
@@ -6488,7 +6608,19 @@ class CanvasTouchView(context: Context) : View(context) {
                         panelCornerSnapDirs = buildPanelCornerSnapDirs(v, panelDragIds[0])
                         handled = true
                     }
-                    // 2) 选中格与相邻格的共享边 (按压点距边线段 < 阈值) → 间隔拖动
+                    // 2) 选中格 4 边中点手柄 → 平行推拉整边 (8 手柄系统)
+                    if (!handled) {
+                        val selQuad = quads[selIdx]
+                        val midHit = selQuad.hitTestEdgeMidpoint(docPoint, thresholdDoc)
+                        if (midHit >= 0) {
+                            panelDragMode = PANEL_DRAG_EDGE_MIDPOINT
+                            panelDragIds = longArrayOf(mirrors[selIdx].panelId)
+                            panelDragStartQuads = listOf(selQuad)
+                            panelDragEdgeIndex = midHit
+                            handled = true
+                        }
+                    }
+                    // 3) 选中格与相邻格的共享边 (按压点距边线段 < 阈值) → 间隔拖动
                     if (!handled) {
                         val selQuad = quads[selIdx]
                         edgeSearch@ for ((oi, o) in mirrors.withIndex()) {
@@ -6502,34 +6634,10 @@ class CanvasTouchView(context: Context) : View(context) {
                             panelDragMode = PANEL_DRAG_EDGE
                             panelDragIds = longArrayOf(mirrors[selIdx].panelId, mirrors[oi].panelId)
                             panelDragStartQuads = listOf(selQuad, o.meta.quad)
-                            panelDragEdgePairs = listOf(aEdge, bEdge)
+                            panelDragEdgeIndex = aEdge
+                            panelDragSecondEdgeIndex = bEdge
                             handled = true
                             break@edgeSearch
-                        }
-                    }
-                }
-                // 2.5) 边框带 (未选中态 → DIVIDE): 按压在格体内部的边框命中带, 且不在格体内部深处。
-                //  必须限定 contains: 两格间空隙里的起笔要留给建格手势, 否则建格可用区被切分侵蚀。
-                //  切分模式已在上方总分支 return, 此守卫是防御 (边框带属建格模式行为)。
-                if (!handled && !hasSelection && !v.panelDivideMode && mirrors.isNotEmpty()) {
-                    val inDeepInterior = mirrors.any { m ->
-                        m.meta.quad.contains(docPoint) && minDistanceToEdges(m.meta.quad, docPoint) >= thresholdDoc
-                    }
-                    if (!inDeepInterior) {
-                        var closestDist = Float.MAX_VALUE
-                        var closestPanelId = -1L
-                        for (m in mirrors) {
-                            if (!m.meta.quad.contains(docPoint)) continue
-                            val d = minDistanceToEdges(m.meta.quad, docPoint)
-                            if (d < closestDist) {
-                                closestDist = d
-                                closestPanelId = m.panelId
-                            }
-                        }
-                        if (closestPanelId >= 0 && closestDist < thresholdDoc) {
-                            panelDragMode = PANEL_DRAG_DIVIDE
-                            panelPendingPanelId = if (bodyPanelId >= 0) bodyPanelId else closestPanelId
-                            handled = true
                         }
                     }
                 }
@@ -6558,16 +6666,12 @@ class CanvasTouchView(context: Context) : View(context) {
                     postDelayed(panelLongPressRunnable, PANEL_LONG_PRESS_MS)
                     handled = true
                 }
-                // 4) 空白 (切分模式已在上方总分支 return, 此守卫是防御)
+                // 4) 空白/缝隙: 无论有没有选中都进建格手势 —— MOVE 中若拖线贯穿既有格则
+                // 转为切分预览 (选中态也能从空白外起贯穿切), UP 再按贯穿/位移分流;
+                // 轻点空白 = 取消选中 (切分模式已在上方总分支 return, 此守卫是防御)。
                 if (!handled && !v.panelDivideMode) {
-                    if (hasSelection) {
-                        // 预备取消选中 (UP 无位移才算点空白)
-                        panelDragMode = PANEL_DRAG_PENDING_CLEAR
-                    } else {
-                        // 框选预览起点: UP 按位移决定建格还是点空白
-                        panelDragMode = PANEL_DRAG_CREATE
-                        st.createRect = PanelBounds(docPos.x, docPos.y, docPos.x, docPos.y)
-                    }
+                    panelDragMode = PANEL_DRAG_CREATE
+                    st.createRect = PanelBounds(docPos.x, docPos.y, docPos.x, docPos.y)
                 }
             }
             else -> Unit
@@ -7235,8 +7339,9 @@ class CanvasTouchView(context: Context) : View(context) {
                     panelLongPressToken++
                     panelLongPressPending = false
                 }
-                if (panelMarqueeArmed && moved) {
-                    // 长按后拖动 → 收菜单, 转框选多选
+                if (panelMarqueeArmed && moved && !v.panelDivideMode) {
+                    // 长按后拖动 → 收菜单, 转框选多选 (切分模式不转: 长按成功已 CONSUMED,
+                    // 这是双保险, DIVIDE_PENDING 也不会武装 marquee)
                     panelMarqueeArmed = false
                     st.menuScreenPos = null
                     st.menuPanelId = null
@@ -7247,6 +7352,13 @@ class CanvasTouchView(context: Context) : View(context) {
                     v.panelMultiSelectedIds = emptySet()
                     v.selectedPanelId = panelPendingPanelId
                     panelDragMode = PANEL_DRAG_BODY
+                }
+                // 切分模式压格体后 slop 内移动: 起点吸附到边框后转 DIVIDE (放在 when 之前,
+                // 本帧立刻画切刀预览); 起点用原始落点再吸附, 与空白处起笔口径一致
+                if (panelDragMode == PANEL_DRAG_DIVIDE_PENDING && moved) {
+                    val snappedDown = snapPointToPanelBorders(Point2D(panelDownRawDoc.x, panelDownRawDoc.y))
+                    panelDragStartDoc = Offset(snappedDown.x, snappedDown.y)
+                    panelDragMode = PANEL_DRAG_DIVIDE
                 }
                 // MOVE 只更新本地预览 (供覆盖层绘制); 引擎调用统一留到 UP
                 when (panelDragMode) {
@@ -7273,6 +7385,18 @@ class CanvasTouchView(context: Context) : View(context) {
                                 }
                             }
                             st.dragPreviews = listOf(PanelPreviewEntry(panelDragIds[0], PanelQuad(corners)))
+                        }
+                    }
+                    PANEL_DRAG_EDGE_MIDPOINT -> {
+                        st.snapGuide = null
+                        val q0 = panelDragStartQuads.firstOrNull()
+                        if (q0 != null && panelDragEdgeIndex >= 0 && panelDragIds.isNotEmpty()) {
+                            val rawDelta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
+                            val (snappedQuad, guide) = computeMidpointEdgeSnap(q0, panelDragEdgeIndex, rawDelta, currentScale)
+                            st.snapGuide = guide
+                            if (snappedQuad != null) {
+                                st.dragPreviews = listOf(PanelPreviewEntry(panelDragIds[0], snappedQuad))
+                            }
                         }
                     }
                     PANEL_DRAG_EDGE -> {
@@ -7302,31 +7426,28 @@ class CanvasTouchView(context: Context) : View(context) {
                         // 预览切线 + 高亮将被切分的格 (纯内存计算, 引擎调用统一留到 UP)
                         val startDoc = Point2D(panelDragStartDoc.x, panelDragStartDoc.y)
                         // 切分模式: 预览终点与 UP 同口径吸附到分格边框, 预览线/高亮格集合
-                        // 与实际切分结果一致; 建格模式的边框带切分不改 (起点本来就在边框上)
-                        val rawEnd = Point2D(docPos.x, docPos.y)
-                        val endDoc = if (v.panelDivideMode) snapPointToPanelBorders(rawEnd) else rawEnd
+                        // 与实际切分结果一致
+                        val endDoc = snapPointToPanelBorders(Point2D(docPos.x, docPos.y))
                         st.divideLine = startDoc to endDoc
-                        // 高亮格集合与 UP 提交同口径: segmentCutsQuad + cutByLine 双重过滤
-                        // (线段擦角时 segmentCutsQuad=true 但小半块退化会被 cutByLine 拒绝,
-                        // 预览若只看前者会高亮没被切的格), 同一延伸兜底换算 (panelDivideExtendDocPx)
-                        val extendDocPx = panelDivideExtendDocPx(currentScale)
-                        val halfGap = v.panelDefaults.hGap / 2f
-                        st.divideHighlightPanelIds = v.panels
-                            .filter {
-                                segmentCutsQuad(it.meta.quad, startDoc, endDoc, extendDocPx) &&
-                                    it.meta.quad.cutByLine(startDoc, endDoc, halfGap) != null
-                            }
-                            .map { it.panelId }
-                            .toSet()
+                        st.divideHighlightPanelIds = panelDivideHitIds(startDoc, endDoc, currentScale)
                     }
-                    PANEL_DRAG_CREATE, PANEL_DRAG_MARQUEE -> {
+                    PANEL_DRAG_MARQUEE -> {
                         st.snapGuide = null
                         val left = minOf(panelDragStartDoc.x, docPos.x)
                         val right = maxOf(panelDragStartDoc.x, docPos.x)
                         val top = minOf(panelDragStartDoc.y, docPos.y)
                         val bottom = maxOf(panelDragStartDoc.y, docPos.y)
-                        val rect = PanelBounds(left, top, right, bottom)
-                        if (panelDragMode == PANEL_DRAG_CREATE) st.createRect = rect else st.marqueeRect = rect
+                        st.marqueeRect = PanelBounds(left, top, right, bottom)
+                    }
+                    PANEL_DRAG_CREATE -> {
+                        st.snapGuide = null
+                        st.divideLine = null
+                        st.divideHighlightPanelIds = emptySet()
+                        val left = minOf(panelDragStartDoc.x, docPos.x)
+                        val right = maxOf(panelDragStartDoc.x, docPos.x)
+                        val top = minOf(panelDragStartDoc.y, docPos.y)
+                        val bottom = maxOf(panelDragStartDoc.y, docPos.y)
+                        st.createRect = PanelBounds(left, top, right, bottom)
                     }
                     else -> {
                         st.snapGuide = null
@@ -8070,13 +8191,22 @@ class CanvasTouchView(context: Context) : View(context) {
                                 v.updatePanelShape(panelDragIds[0], pq)
                             }
                         }
+                        PANEL_DRAG_EDGE_MIDPOINT -> {
+                            val pq = st.dragPreviews.firstOrNull()?.quad
+                            if (pq != null && panelDragIds.isNotEmpty()) {
+                                v.updatePanelShape(panelDragIds[0], pq)
+                            }
+                        }
                         PANEL_DRAG_EDGE -> {
-                            val rawDelta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
-                            val (pair, _) = computeEdgeSnap(rawDelta, currentScale)
-                            val finalPair = pair ?: run {
-                                val a = st.dragPreviews.getOrNull(0)?.quad
-                                val b = st.dragPreviews.getOrNull(1)?.quad
-                                if (a != null && b != null) Pair(a, b) else null
+                            // 提交最后一帧预览。UP 再算一次吸附会用抬笔点: 笔尖常在松手时
+                            // 跳出 8dp 磁吸, 虚线已经对上, 落点却弹回手指位置。
+                            val previewA = st.dragPreviews.firstOrNull { it.panelId == panelDragIds.getOrNull(0) }?.quad
+                            val previewB = st.dragPreviews.firstOrNull { it.panelId == panelDragIds.getOrNull(1) }?.quad
+                            val finalPair = if (previewA != null && previewB != null) {
+                                previewA to previewB
+                            } else {
+                                val rawDelta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
+                                computeEdgeSnap(rawDelta, currentScale).first
                             }
                             if (finalPair != null && panelDragIds.size >= 2) {
                                 // 两格各自入宏 → 两步撤销 (可接受)
@@ -8086,8 +8216,11 @@ class CanvasTouchView(context: Context) : View(context) {
                         }
                         PANEL_DRAG_BODY -> {
                             if (!isTap) {
-                                val rawDelta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
-                                val (snappedDelta, _) = computeBodySnap(rawDelta, currentScale)
+                                val shown = panelShownMoveDelta()
+                                val snappedDelta = shown ?: run {
+                                    val rawDelta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
+                                    computeBodySnap(rawDelta, currentScale).first
+                                }
                                 // 单格/多选统一走批量路径 (单 runCore + 单撤销宏一条撤销步);
                                 // 返回 false (镜像缺失/delta 非有限) 时不进引擎、选中保持原状,
                                 // 与旧 movePanelBy 的静默失败一致 (movePanelsBy 内部已记日志)
@@ -8100,45 +8233,42 @@ class CanvasTouchView(context: Context) : View(context) {
                                 v.panelMultiSelectedIds = emptySet()
                                 v.selectedPanelId = panelPendingPanelId
                             } else {
-                                // 兜底 (正常已在 MOVE 转为 BODY 拖移)
-                                val rawDelta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
-                                val (snappedDelta, _) = computeBodySnap(rawDelta, currentScale)
+                                // 兜底 (正常已在 MOVE 转为 BODY 拖移): 同样提交最后一帧预览
+                                val shown = panelShownMoveDelta()
+                                val snappedDelta = shown ?: run {
+                                    val rawDelta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
+                                    computeBodySnap(rawDelta, currentScale).first
+                                }
                                 v.movePanelsBy(panelDragIds.toList(), snappedDelta.x, snappedDelta.y)
                             }
                         }
-                        PANEL_DRAG_PENDING_CLEAR -> {
+                        PANEL_DRAG_CREATE -> {
                             if (isTap) {
+                                // 轻点空白: 取消选中
                                 v.selectedPanelId = null
                                 v.panelMultiSelectedIds = emptySet()
-                            }
-                        }
-                        PANEL_DRAG_CREATE -> {
-                            val rect = st.createRect
-                            st.createRect = null
-                            // 建格需拖划 ≥24dp 屏幕距离 (规格: 小拖划不建格, 防误触);
-                            // 12dp tap slop 仍用于"点击 vs 拖动"的既有判定
-                            if (rect != null && !isTap &&
-                                dragDist >= (PANEL_CREATE_MIN_DP * density) / currentScale
-                            ) {
-                                val d = v.panelDefaults
-                                // 矩形按默认间隔内缩后建格 (面积过小由 createPanelAt 拒绝)
-                                v.createPanelAt(insetForDefaultGaps(rect, d.hGap, d.vGap))
+                            } else {
+                                val rect = st.createRect
+                                // 建格需拖划 ≥24dp 屏幕距离 (规格: 小拖划不建格, 防误触);
+                                // 12dp tap slop 仍用于"点击 vs 拖动"的既有判定
+                                if (rect != null &&
+                                    dragDist >= (PANEL_CREATE_MIN_DP * density) / currentScale
+                                ) {
+                                    val d = v.panelDefaults
+                                    // 矩形按默认间隔内缩后建格 (面积过小由 createPanelAt 拒绝)
+                                    v.createPanelAt(insetForDefaultGaps(rect, d.hGap, d.vGap))
+                                }
                             }
                         }
                         PANEL_DRAG_DIVIDE -> {
                             val startDoc = Point2D(panelDragStartDoc.x, panelDragStartDoc.y)
                             // 切分模式: 抬笔点同样吸附到分格边线段 (DOWN 已吸附, 两端对齐);
-                            // 建格模式的边框带切分不改 (起点本来就在边框上, 吸附会引入漂移)
                             val rawEnd = Point2D(docPos.x, docPos.y)
-                            val endDoc = if (v.panelDivideMode) snapPointToPanelBorders(rawEnd) else rawEnd
-                            // 切分模式: tap/最短切分距离判定用**原始落点** (DOWN 已把起点
-                            // 吸附到边框, 最多 PANEL_SNAP_TOLERANCE_DP; 用吸附后起点会把
-                            // 拖划距离拉近, 真实拖线可能被误判成 tap 而丢切分)
-                            val rawDist = if (v.panelDivideMode) {
-                                hypot(docPos.x - panelDownRawDoc.x, docPos.y - panelDownRawDoc.y)
-                            } else {
-                                dragDist
-                            }
+                            val endDoc = snapPointToPanelBorders(rawEnd)
+                            // tap/最短切分距离判定用**原始落点** (DOWN 已把起点吸附到边框,
+                            // 最多 PANEL_SNAP_TOLERANCE_DP; 用吸附后起点会把拖划距离拉近,
+                            // 真实拖线可能被误判成 tap 而丢切分)
+                            val rawDist = hypot(docPos.x - panelDownRawDoc.x, docPos.y - panelDownRawDoc.y)
                             val rawIsTap = rawDist < (PANEL_TAP_SLOP_DP * density) / currentScale
                             if (!rawIsTap &&
                                 rawDist >= (PANEL_CREATE_MIN_DP * density) / currentScale
@@ -8150,12 +8280,23 @@ class CanvasTouchView(context: Context) : View(context) {
                                     endDoc,
                                     panelDivideExtendDocPx(currentScale),
                                 )
-                            } else if (!v.panelDivideMode && panelPendingPanelId >= 0) {
-                                // 位移不足 = 点选该格 (与建格手势的 24dp 规则一致)。
-                                // 切分模式抑制轻点选中: 保持无选中让用户直接继续拖线,
-                                // 退出切分靠模式开关 (否则随手一点就会选中/丢失切分意图)
-                                v.panelMultiSelectedIds = emptySet()
-                                v.selectedPanelId = panelPendingPanelId
+                            }
+                            // 轻点不改选中 (切分模式选中态原样保留, 退出靠模式开关)
+                        }
+                        PANEL_DRAG_DIVIDE_PENDING -> {
+                            // 兜底 (正常路径已在 MOVE 转 DIVIDE、或长按成功转 CONSUMED):
+                            // UP 时仍 PENDING 且已位移 (MOVE 没跑到) → 按 DIVIDE 同样规则提交
+                            // (起点/终点都吸附边框, tap/最短切分用原始落点判距);
+                            // 轻点格体 = 不选中、不切分 (切分模式轻点本就不改选中)
+                            if (!isTap) {
+                                val snappedDown = snapPointToPanelBorders(Point2D(panelDownRawDoc.x, panelDownRawDoc.y))
+                                val startDoc = Point2D(snappedDown.x, snappedDown.y)
+                                val rawEnd = Point2D(docPos.x, docPos.y)
+                                val endDoc = snapPointToPanelBorders(rawEnd)
+                                val rawDist = hypot(docPos.x - panelDownRawDoc.x, docPos.y - panelDownRawDoc.y)
+                                if (rawDist >= (PANEL_CREATE_MIN_DP * density) / currentScale) {
+                                    v.dividePanelsByLine(startDoc, endDoc, panelDivideExtendDocPx(currentScale))
+                                }
                             }
                         }
                         PANEL_DRAG_MARQUEE -> {

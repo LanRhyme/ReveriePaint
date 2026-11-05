@@ -1573,9 +1573,9 @@ internal fun CanvasOverlay(
                     fitScale = fitScale,
                 )
 
-                // 分格覆盖层 (轮廓/选中高亮/角手柄/拖动预览): 仅分格工具或存在分格选中时绘制
+                // 分格覆盖层 (轮廓/选中高亮/角手柄/拖动预览/画画模式分格轮廓提示)
                 if (panelInteraction != null &&
-                    (tool == Tool.PANEL || vm.selectedPanelId != null || vm.panelMultiSelectedIds.isNotEmpty())
+                    (tool == Tool.PANEL || vm.panels.isNotEmpty() || vm.selectedPanelId != null || vm.panelMultiSelectedIds.isNotEmpty())
                 ) {
                     drawPanelsOverlay(
                         vm = vm,

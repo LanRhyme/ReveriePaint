@@ -543,6 +543,8 @@ internal fun LayerRowContent(
                 .background(if (visible) Color.Transparent else Morandi.panel.copy(alpha = 0.35f))
                 .noRippleClickable {
                     when {
+                        vm.panelIdForGroupRow(index) != null ->
+                            vm.setPanelRowVisible(vm.panelIdForGroupRow(index)!!, !visible)
                         // 分格蒙版: 眼睛 = setPanelCrop (可见性 + cropEnabled 元数据同写);
                         // 跨格容器蒙版 (panelId=-1 哨兵) 无元数据, 可见性即裁剪, 走既有 toggle
                         panelCrop == null || panelCrop.first == -1L -> vm.toggleLayerVisible(index)
@@ -668,7 +670,14 @@ internal fun LayerRowContent(
                     }
                 }
             } else {
-                val thumb = vm.thumbFor(layer.index, layer.name)
+                val panelId = vm.panelIdForGroupRow(layer.index)
+                val contentIdx = if (panelId != null) vm.panelContentLayerIndex(panelId) else -1
+                val contentLayer = if (contentIdx >= 0) vm.layers.getOrNull(contentIdx) else null
+                val thumb = if (contentLayer != null) {
+                    vm.thumbFor(contentIdx, contentLayer.name) ?: vm.thumbFor(layer.index, layer.name)
+                } else {
+                    vm.thumbFor(layer.index, layer.name)
+                }
                 if (thumb != null && !thumb.isRecycled) {
                     Image(
                         bitmap = thumb.asImageBitmap(),
@@ -693,8 +702,8 @@ internal fun LayerRowContent(
             }
         }
 
-        // 5. Group collapse chevron (embedded right after thumbnail, before layer name)
-        if (layer.isGroup) {
+        // 5. Group collapse chevron。分格组只有一行，不提供展开。
+        if (layer.isGroup && vm.panelIdForGroupRow(index) == null) {
             val chevronRot by animateFloatAsState(
                 targetValue = if (collapsed) 0f else 90f,
                 animationSpec = tween(180),
@@ -789,8 +798,9 @@ internal fun LayerRowContent(
                         )
                     }
                 }
+                val panelTitle = vm.drawUnitTitleForPanelGroup(layer.index)
                 Text(
-                    text = layerDisplayName(layer.name),
+                    text = panelTitle ?: layerDisplayName(layer.name),
                     color = Morandi.text,
                     fontSize = 12.sp,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,

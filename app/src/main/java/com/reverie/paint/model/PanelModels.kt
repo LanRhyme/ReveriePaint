@@ -139,6 +139,51 @@ data class PanelQuad(val corners: List<Point2D>) {
         return PanelBounds(l, t, r, b)
     }
 
+    /** 四边 (或多边形各边) 的中点列表。 */
+    fun edgeMidpoints(): List<Point2D> {
+        val n = corners.size
+        return List(n) { i -> (corners[i] + corners[(i + 1) % n]) / 2f }
+    }
+
+    /** 命中某条边的中点手柄测试, 命中返回 edgeIndex (0..n-1), 未命中返回 -1。 */
+    fun hitTestEdgeMidpoint(docPoint: Point2D, tolerance: Float): Int {
+        val mids = edgeMidpoints()
+        for (i in mids.indices) {
+            if (docPoint.distanceTo(mids[i]) <= tolerance) return i
+        }
+        return -1
+    }
+
+    /**
+     * 平行平移第 [edgeIndex] 条边 (同时移动端点 i 与 i+1)。
+     * 保持多边形其余顶点不动。
+     */
+    fun moveEdge(edgeIndex: Int, delta: Point2D): PanelQuad {
+        val n = corners.size
+        if (edgeIndex !in 0 until n) return this
+        if (!delta.x.isFinite() || !delta.y.isFinite() || (delta.x == 0f && delta.y == 0f)) return this
+        val newCorners = corners.toMutableList()
+        newCorners[edgeIndex] = newCorners[edgeIndex] + delta
+        val nextIdx = (edgeIndex + 1) % n
+        newCorners[nextIdx] = newCorners[nextIdx] + delta
+        return PanelQuad(newCorners)
+    }
+
+    /** 判定是否为严格凸多边形 (正向缠绕、无自交、无凹折)。 */
+    fun isConvex(): Boolean {
+        val n = corners.size
+        if (n < 3) return false
+        if (signedArea() <= 0f) return false
+        for (i in 0 until n) {
+            val p1 = corners[i]
+            val p2 = corners[(i + 1) % n]
+            val p3 = corners[(i + 2) % n]
+            val cross = (p2.x - p1.x) * (p3.y - p2.y) - (p2.y - p1.y) * (p3.x - p2.x)
+            if (cross <= 1e-4f) return false
+        }
+        return true
+    }
+
     /**
      * 射线法点包含测试 (偶奇规则), 支持凹多边形。
      * 面积 < 1e-6 的退化 quad 或含非有限坐标一律 false; 边界点归属不保证。
@@ -522,25 +567,58 @@ fun segmentCutsQuad(quad: PanelQuad, a: Point2D, b: Point2D, extendDocPx: Float)
     if (!len.isFinite() || len < MIN_EDGE_EPS) return false
     if (!extendDocPx.isFinite() || extendDocPx < 0f) return false
     if (quad.corners.any { !it.x.isFinite() || !it.y.isFinite() }) return false
+    if (quad.area() < DEGENERATE_AREA_EPS) return false
+
+    // 容差延伸后的端点 (两端对齐兜底)
     val ux = dx / len
     val uy = dy / len
     val ax = a.x - ux * extendDocPx
     val ay = a.y - uy * extendDocPx
     val bx = b.x + ux * extendDocPx
     val by = b.y + uy * extendDocPx
-    if (quad.contains(Point2D(ax, ay)) || quad.contains(Point2D(bx, by))) return true
+
+    // 起点和终点如果都在多边形内部，说明线段完全包含在格内，并未穿越
+    val pA = Point2D(ax, ay)
+    val pB = Point2D(bx, by)
+    if (quad.contains(pA) && quad.contains(pB)) return false
+
     val n = quad.corners.size
+    val validIntersections = ArrayList<Point2D>(2)
+
+    val segDx = bx - ax
+    val segDy = by - ay
+
     for (i in 0 until n) {
         val p = quad.corners[i]
         val q = quad.corners[(i + 1) % n]
-        val d1 = (bx - ax) * (p.y - ay) - (by - ay) * (p.x - ax)
-        val d2 = (bx - ax) * (q.y - ay) - (by - ay) * (q.x - ax)
-        if ((d1 > 0f) == (d2 > 0f)) continue // p、q 在线段同侧 (含共线掠触), 该边无正交穿越
-        val d3 = (q.x - p.x) * (ay - p.y) - (q.y - p.y) * (ax - p.x)
-        val d4 = (q.x - p.x) * (by - p.y) - (q.y - p.y) * (bx - p.x)
-        if ((d3 > 0f) != (d4 > 0f)) return true
+        val edgeDx = q.x - p.x
+        val edgeDy = q.y - p.y
+
+        val denom = segDx * edgeDy - segDy * edgeDx
+        if (abs(denom) < 1e-6f) continue // 平行或共线
+
+        val dPx = p.x - ax
+        val dPy = p.y - ay
+
+        val t = (dPx * edgeDy - dPy * edgeDx) / denom
+        val s = (dPx * segDy - dPy * segDx) / denom
+
+        // t 必须在 [0, 1] 之间 (在切刀线段上)
+        // s 必须在 [0, 1] 之间 (在格子边上)
+        val eps = 1e-4f
+        if (t in -eps..(1f + eps) && s in -eps..(1f + eps)) {
+            val ix = ax + t * segDx
+            val iy = ay + t * segDy
+            val ipt = Point2D(ix, iy)
+            // 避免交点落在角点时被两条相邻边重复记录
+            if (validIntersections.none { hypot(it.x - ipt.x, it.y - ipt.y) < 1f }) {
+                validIntersections.add(ipt)
+            }
+        }
     }
-    return false
+
+    // 必须穿透至少两条不同的边 (2 个不同交点) 且能真正切出有效半块
+    return validIntersections.size >= 2
 }
 
 /**
@@ -679,6 +757,22 @@ fun snapCandidates(
     }
 
     return candidates.distinct()
+}
+
+/**
+ * 分轴 gutter 吸附: 垂直边用 [hGap] (左右间隔), 水平边用 [vGap] (上下间隔)。
+ * 两间隔相等时退回单次 [snapCandidates], 避免把同一批候选算两遍。
+ */
+fun axisSnapCandidates(
+    moving: PanelQuad,
+    neighbors: List<PanelQuad>,
+    hGap: Float,
+    vGap: Float,
+    tolerance: Float,
+): List<PanelSnapCandidate> {
+    if (hGap == vGap) return snapCandidates(moving, neighbors, hGap, tolerance)
+    return snapCandidates(moving, neighbors, hGap, tolerance).filter { it.guideAxis == 0 } +
+        snapCandidates(moving, neighbors, vGap, tolerance).filter { it.guideAxis == 1 }
 }
 
 /**
@@ -906,6 +1000,8 @@ data class PanelDefaults(
     val fillEnabled: Boolean,
     /** 页面默认圆角半径 (px, 0 = 直角)。 */
     val cornerRadius: Float = 0f,
+    /** 新建格默认是否开裁剪蒙版 (未选中格时属性面板改的就是它)。 */
+    val cropEnabled: Boolean = true,
 )
 
 /** [PanelStyle.resolve] 的结果: 样式五元组全部非空。 */
@@ -936,6 +1032,17 @@ data class PanelMeta(
     val style: PanelStyle,
     val cropEnabled: Boolean,
     val panelId: Long,
+    /** 相同 drawId 的格子共用一张画。缺省等于 [panelId]，表示这一格自己的画。 */
+    val drawId: Long = panelId,
+)
+
+/**
+ * 漫画分格绘制单元 (DrawUnit): 相同 [drawId] 的分格集合, 映射到同一个联动绘制画层。
+ */
+data class PanelDrawUnit(
+    val drawId: Long,
+    val panelIds: List<Long>,
+    val quads: List<PanelQuad>,
 )
 
 /**
@@ -946,6 +1053,7 @@ fun PanelMeta.toJson(): String {
     val sb = StringBuilder(256)
     sb.append("{\"panelId\":").append(panelId)
     sb.append(",\"cropEnabled\":").append(cropEnabled)
+    sb.append(",\"drawId\":").append(drawId)
     sb.append(",\"quad\":{\"corners\":[")
     quad.corners.forEachIndexed { i, c ->
         if (i > 0) sb.append(',')
@@ -1005,7 +1113,13 @@ fun parsePanelMeta(json: String): PanelMeta? {
         cornerRadius = numText("cornerRadius")?.toFloatOrNull()
             ?.takeIf { it >= 0f && it.isFinite() },
     )
-    return PanelMeta(PanelQuad(corners), style, cropEnabled, panelId)
+    val drawRaw = root.fields["drawId"]
+    val drawId = when (drawRaw) {
+        null -> panelId
+        is PanelJsonNumber -> drawRaw.raw.toLongOrNull() ?: return null
+        else -> return null
+    }
+    return PanelMeta(PanelQuad(corners), style, cropEnabled, panelId, drawId)
 }
 
 /** 手写极简 JSON 值模型 (仅覆盖分格元数据用到的类型)。 */

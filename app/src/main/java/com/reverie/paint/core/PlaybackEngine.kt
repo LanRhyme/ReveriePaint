@@ -754,6 +754,11 @@ internal fun skipReplayEventPayload(
                     val n = r.u16()
                     r.skip(n * 8)
                 }
+                com.reverie.paint.model.RecordingEvents.T_PANEL_CLIP -> {
+                    r.skip(3) // layer u16, keepInside u8
+                    val n = r.u16()
+                    r.skip(n * 8)
+                }
                 T_SELECT_ALL -> {
                     r.skip(2)
                     if (r.remaining() > 0) r.skip(1)
@@ -1497,6 +1502,24 @@ private fun PaintViewModel.dispatchToolOpLocked(
 
         T_INVERT_SELECTION -> {
             ReverieCoreBridge.invertSelection()
+        }
+
+        com.reverie.paint.model.RecordingEvents.T_PANEL_CLIP -> {
+            val layer = r.u16()
+            val keepInside = r.u8() != 0
+            val n = r.u16()
+            val xs = IntArray(n)
+            val ys = IntArray(n)
+            for (i in 0 until n) {
+                xs[i] = r.f32().toInt()
+                ys[i] = r.f32().toInt()
+            }
+            if (layer != 0xFFFF) ReverieCoreBridge.setCurrentLayer(layer)
+            ReverieCoreBridge.selectPolygon(xs, ys, n)
+            if (keepInside) ReverieCoreBridge.invertSelection()
+            val junk = ReverieCoreBridge.copySelectionToNewLayer(true)
+            if (junk >= 0) ReverieCoreBridge.removeLayer(junk)
+            ReverieCoreBridge.clearSelection()
         }
 
         T_FEATHER -> {
