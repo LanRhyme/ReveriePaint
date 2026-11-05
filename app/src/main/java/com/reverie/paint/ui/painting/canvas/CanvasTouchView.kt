@@ -8326,6 +8326,14 @@ class CanvasTouchView(context: Context) : View(context) {
                                 // 返回 false (镜像缺失/delta 非有限) 时不进引擎、选中保持原状,
                                 // 与旧 movePanelBy 的静默失败一致 (movePanelsBy 内部已记日志)
                                 v.movePanelsBy(panelDragIds.toList(), snappedDelta.x, snappedDelta.y)
+                            } else {
+                                val pid = v.selectedPanelId
+                                if (pid != null) {
+                                    val targetLayer = v.panelContentLayerIndex(pid)
+                                    if (targetLayer >= 0) {
+                                        v.setCurrentLayer(targetLayer)
+                                    }
+                                }
                             }
                             // 多选态轻点: 保持多选不变
                         }
@@ -8333,6 +8341,12 @@ class CanvasTouchView(context: Context) : View(context) {
                             if (isTap) {
                                 v.panelMultiSelectedIds = emptySet()
                                 v.selectedPanelId = panelPendingPanelId
+                                if (panelPendingPanelId != null) {
+                                    val targetLayer = v.panelContentLayerIndex(panelPendingPanelId)
+                                    if (targetLayer >= 0) {
+                                        v.setCurrentLayer(targetLayer)
+                                    }
+                                }
                             } else {
                                 // 兜底 (正常已在 MOVE 转为 BODY 拖移): 同样提交最后一帧预览
                                 val shown = panelShownMoveDelta()
