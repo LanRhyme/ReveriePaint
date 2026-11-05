@@ -431,7 +431,11 @@ internal fun PaintViewModel.addLayer() {
     }
     val defaultName = generateDefaultLayerName()
     Breadcrumbs.record("Layer", "Add layer: $defaultName")
-    val wasInside = currentPaintingPanelIds().isNotEmpty()
+    val pids = currentPaintingPanelIds()
+    val wasInside = pids.isNotEmpty()
+    if (wasInside) {
+        collapsedPanelIds = collapsedPanelIds - pids
+    }
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
@@ -453,7 +457,11 @@ internal fun PaintViewModel.importImageToNewLayer(
     }
     val defaultImportName = if (LanguageManager.isChinese()) "导入图片" else "Imported Image"
     val finalName = layerName.ifBlank { defaultImportName }
-    val wasInside = currentPaintingPanelIds().isNotEmpty()
+    val pids = currentPaintingPanelIds()
+    val wasInside = pids.isNotEmpty()
+    if (wasInside) {
+        collapsedPanelIds = collapsedPanelIds - pids
+    }
     runCore(
         after = {
             clearLayerSelection()
@@ -1309,7 +1317,11 @@ internal fun PaintViewModel.addLayerWithType(
             "$name|$type|$fillColor",
         )
     }
-    val wasInside = currentPaintingPanelIds().isNotEmpty()
+    val pids = currentPaintingPanelIds()
+    val wasInside = pids.isNotEmpty()
+    if (wasInside) {
+        collapsedPanelIds = collapsedPanelIds - pids
+    }
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
@@ -1335,7 +1347,11 @@ internal fun PaintViewModel.addFillLayer(colorHex: String = brushColor) {
             "$fillLayerName|2|$colorInt",
         )
     }
-    val wasInside = currentPaintingPanelIds().isNotEmpty()
+    val pids = currentPaintingPanelIds()
+    val wasInside = pids.isNotEmpty()
+    if (wasInside) {
+        collapsedPanelIds = collapsedPanelIds - pids
+    }
     // type=2 仍创建预填色颜料层，由引擎保存显式类型标记
     runCore(
         after = {
@@ -1356,7 +1372,11 @@ internal fun PaintViewModel.addFilterLayer(onOpenFilters: (Int) -> Unit) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_STAMP)
     }
     val filterLayerName = generateDefaultFilterLayerName()
-    val wasInside = currentPaintingPanelIds().isNotEmpty()
+    val pids = currentPaintingPanelIds()
+    val wasInside = pids.isNotEmpty()
+    if (wasInside) {
+        collapsedPanelIds = collapsedPanelIds - pids
+    }
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
@@ -1382,7 +1402,11 @@ internal fun PaintViewModel.addStrokeLayer() {
             "$strokeLayerName|6|0",
         )
     }
-    val wasInside = currentPaintingPanelIds().isNotEmpty()
+    val pids = currentPaintingPanelIds()
+    val wasInside = pids.isNotEmpty()
+    if (wasInside) {
+        collapsedPanelIds = collapsedPanelIds - pids
+    }
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()

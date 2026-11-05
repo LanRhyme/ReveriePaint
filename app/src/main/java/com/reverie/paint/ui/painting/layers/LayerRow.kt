@@ -714,8 +714,8 @@ internal fun LayerRowContent(
             }
         }
 
-        // 5. Group collapse chevron。分格组只有一行，不提供展开。
-        if (layer.isGroup && vm.panelIdForGroupRow(index) == null) {
+        // 5. Group collapse chevron
+        if (layer.isGroup) {
             val chevronRot by animateFloatAsState(
                 targetValue = if (collapsed) 0f else 90f,
                 animationSpec = tween(180),

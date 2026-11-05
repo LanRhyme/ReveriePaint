@@ -681,12 +681,25 @@ internal fun PaintViewModel.panelContentLayerIndex(panelId: Long): Int {
     return layers.indexOfFirst { it.id == share.contentId }
 }
 
+/** 获取指定分格在视觉/列表顺序上的前一格与后一格 ID */
+internal fun PaintViewModel.adjacentPanelIds(panelId: Long): Pair<Long?, Long?> {
+    val idx = panels.indexOfFirst { it.panelId == panelId }
+    if (idx < 0) return null to null
+    val prevId = if (idx > 0) panels[idx - 1].panelId else null
+    val nextId = if (idx < panels.size - 1) panels[idx + 1].panelId else null
+    return prevId to nextId
+}
+
 /**
  * 图层树里不该出现的行：跨格容器、共用画容器及其子层; 共用画时从属格隐藏 (只留主控格)。
  * 分格蒙版另由 [panelCropStateFor] 判断。
  */
 internal fun PaintViewModel.isPanelTreeHidden(layerIndex: Int): Boolean {
     val layer = layers.getOrNull(layerIndex) ?: return false
+    // 隐藏分格内部的系统辅助层（填充层与边框层，由属性浮窗与矢量覆盖层全权负责）
+    if (isInsidePanelTree(layerIndex) && (layer.name.startsWith(FILL_LAYER_NAME) || layer.name.startsWith(BORDER_LAYER_NAME))) {
+        return true
+    }
     val hiddenIds = HashSet<Long>()
     layers.getOrNull(panelCrossContainerIdx)?.id?.let { if (panelCrossContainerIdx >= 0) hiddenIds.add(it) }
     if (panelCrossMaskId != -1L) hiddenIds.add(panelCrossMaskId)
@@ -742,8 +755,8 @@ internal fun PaintViewModel.createPanelAt(quad: PanelQuad) {
     Breadcrumbs.record("Panel", "createPanelAt id=$panelId")
     runCore(after = {
         refreshPanels()
-        // 新格默认折叠且不自动选中, 浮窗保持默认页
-        collapsedPanelIds = collapsedPanelIds + panelId
+        // 新格默认展开，以便在图层树中清晰展示内容层并就地作画
+        collapsedPanelIds = collapsedPanelIds - panelId
         notifyLayerChanged(pixelChanged = true)
     }) {
         ReverieCoreBridge.beginUndoMacro(appContext.getString(R.string.panel_op_create))

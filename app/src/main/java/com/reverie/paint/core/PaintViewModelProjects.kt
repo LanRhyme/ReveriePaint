@@ -1303,6 +1303,55 @@ private fun PaintViewModel.buildProjectList(): List<com.reverie.paint.model.Proj
     return list
 }
 
+private fun PaintViewModel.burnInVectorPanelsToFile(targetFile: java.io.File, isJpeg: Boolean) {
+    if (panels.isEmpty()) return
+    val bmp = android.graphics.BitmapFactory.decodeFile(targetFile.absolutePath) ?: return
+    val mutableBmp = if (bmp.isMutable) bmp else bmp.copy(android.graphics.Bitmap.Config.ARGB_8888, true)
+    if (mutableBmp != bmp) bmp.recycle()
+    val canvas = android.graphics.Canvas(mutableBmp)
+    val defaults = panelDefaults
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        style = android.graphics.Paint.Style.STROKE
+        strokeJoin = android.graphics.Paint.Join.ROUND
+        strokeCap = android.graphics.Paint.Cap.ROUND
+    }
+    val docW = docWidth.coerceAtLeast(1).toFloat()
+    val docH = docHeight.coerceAtLeast(1).toFloat()
+    val sx = mutableBmp.width / docW
+    val sy = mutableBmp.height / docH
+
+    for (m in panels) {
+        val style = m.meta.style
+        val r = (style.cornerRadius ?: defaults.cornerRadius).toFloat()
+        val bw = (style.borderWidth ?: defaults.borderWidth).toFloat() * sx
+        val bc = style.borderColor ?: defaults.borderColor
+
+        val points = m.meta.quad.roundedCorners(r)
+        val path = android.graphics.Path()
+        points.forEachIndexed { i, pt ->
+            val px = pt.x.toFloat() * sx
+            val py = pt.y.toFloat() * sy
+            if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+        }
+        path.close()
+
+        if (bw > 0f) {
+            paint.strokeWidth = bw
+            paint.color = bc
+            canvas.drawPath(path, paint)
+        }
+    }
+
+    targetFile.outputStream().use { out ->
+        if (isJpeg) {
+            mutableBmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, out)
+        } else {
+            mutableBmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+        }
+    }
+    mutableBmp.recycle()
+}
+
 /**
  * Export the current artwork into various formats:
  * PNG, JPG, PSD, TIFF, KRA, REVP
@@ -1328,13 +1377,18 @@ internal fun PaintViewModel.exportDocument(
         val ok = try {
             when (fmt) {
                 "png" -> {
-                    ReverieCoreBridge.savePng(targetFile.absolutePath)
+                    val ok = ReverieCoreBridge.savePng(targetFile.absolutePath)
+                    if (ok) {
+                        burnInVectorPanelsToFile(targetFile, isJpeg = false)
+                    }
+                    ok
                 }
 
                 "jpg", "jpeg" -> {
                     val tempPng = java.io.File(appContext.cacheDir, "temp_jpg_${System.currentTimeMillis()}.png")
                     try {
                         if (ReverieCoreBridge.savePng(tempPng.absolutePath)) {
+                            burnInVectorPanelsToFile(tempPng, isJpeg = false)
                             val bmp = android.graphics.BitmapFactory.decodeFile(tempPng.absolutePath)
                             if (bmp != null) {
                                 // JPEG 不支持 Alpha 通道, 在纯白背景上合成后输出

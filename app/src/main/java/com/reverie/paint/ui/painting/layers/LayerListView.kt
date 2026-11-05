@@ -213,8 +213,8 @@ internal fun LayerListView(
                     if (vm.isPanelTreeHidden(j) || vm.panelCropStateFor(j) != null) continue
                     val c = vm.layers[j]
                     out.add(c)
-                    val isPanelGroup = vm.panelIdForGroupRow(j) != null
-                    val isCollapsedGroup = c.isGroup && (isPanelGroup || groupRowCollapsed(c))
+                    // 分格组与普通组统一遵循折叠状态 (groupRowCollapsed)
+                    val isCollapsedGroup = c.isGroup && groupRowCollapsed(c)
                     if (!isCollapsedGroup) {
                         val e = (j + 1 until hi).firstOrNull { vm.layers[it].depth <= c.depth } ?: hi
                         if (e > j + 1) {

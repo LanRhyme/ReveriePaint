@@ -22,6 +22,8 @@ import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -38,6 +40,7 @@ import com.reverie.paint.core.panelSharesDraw
 import com.reverie.paint.core.currentPaintingPanelIds
 import com.reverie.paint.core.separatePanelDraw
 import com.reverie.paint.core.findAdjacentPanel
+import com.reverie.paint.core.adjacentPanelIds
 import com.reverie.paint.core.mergePanelDraw
 import com.reverie.paint.core.mergeAllPanelDraws
 import com.reverie.paint.core.deletePanel
@@ -243,7 +246,24 @@ internal fun DrawScope.drawPanelsOverlay(
     val previewFill = PANEL_PREVIEW_FILL
     val defaults = vm.panelDefaults
 
-    // 0. 非分格工具 (画笔/橡皮等): 四角拖动点绝对不画; 仅当正在画分格画层时以清晰线框勾勒所属全部格子
+    // 0. 全局动态矢量边框常驻渲染:
+    // 边框彻底脱离位图像素层, 始终高帧率以纯矢量方式渲染在所有画层之上, 物理上绝不受画笔或橡皮擦除影响
+    for (m in mirrors) {
+        val r = panelCornerRadius(m, defaults)
+        val path = panelQuadPath(
+            m.meta.quad.roundedCorners(r),
+            bmpWidth, bmpHeight, scX, scY,
+        )
+        val style = m.meta.style
+        val bw = (style.borderWidth ?: defaults.borderWidth).toFloat()
+        val bc = Color(style.borderColor ?: defaults.borderColor)
+        if (bw > 0f) {
+            val strokePx = (bw * scX).coerceAtLeast(1f)
+            drawPath(path, bc, style = Stroke(width = strokePx, cap = StrokeCap.Round, join = StrokeJoin.Round))
+        }
+    }
+
+    // 0.5. 非分格工具 (画笔/橡皮等): 四角拖动点绝对不画; 仅当正在画分格画层时以清晰线框勾勒所属全部格子
     if (!toolActive) {
         val activePids = vm.currentPaintingPanelIds()
         if (activePids.isNotEmpty()) {
@@ -429,26 +449,44 @@ internal fun PanelLongPressMenu(
                 }
             }
             if (panelId != null) {
-                // 单选态: z 序单步移动 (相邻条目可能是格组或跨格内容组); 顶/底时隐藏; 多选态不加
+                // 单选态: 画区关联联动与管理
                 if (vm.panelMultiSelectedIds.isEmpty()) {
-                    val (canMoveUp, canMoveDown) = vm.panelZMoveCapability(panelId)
-                    if (canMoveUp) {
+                    val (prevId, nextId) = vm.adjacentPanelIds(panelId)
+                    val curMirror = vm.panels.firstOrNull { it.panelId == panelId }
+                    if (vm.panelSharesDraw(panelId)) {
                         ToolFloatChip(
-                            label = stringResource(R.string.panel_menu_move_up),
+                            label = stringResource(R.string.panel_menu_separate),
                             onClick = {
-                                vm.movePanelZBy(panelId, up = true)
+                                vm.separatePanelDraw(panelId)
                                 interaction.dismissMenu()
                             },
                         )
                     }
-                    if (canMoveDown) {
-                        ToolFloatChip(
-                            label = stringResource(R.string.panel_menu_move_down),
-                            onClick = {
-                                vm.movePanelZBy(panelId, up = false)
-                                interaction.dismissMenu()
-                            },
-                        )
+                    if (prevId != null) {
+                        val prevMirror = vm.panels.firstOrNull { it.panelId == prevId }
+                        val alreadyLinked = prevMirror != null && curMirror != null && prevMirror.meta.drawId == curMirror.meta.drawId
+                        if (!alreadyLinked) {
+                            ToolFloatChip(
+                                label = stringResource(R.string.panel_menu_link_prev),
+                                onClick = {
+                                    vm.mergePanelDraw(panelId, prevId)
+                                    interaction.dismissMenu()
+                                },
+                            )
+                        }
+                    }
+                    if (nextId != null) {
+                        val nextMirror = vm.panels.firstOrNull { it.panelId == nextId }
+                        val alreadyLinked = nextMirror != null && curMirror != null && nextMirror.meta.drawId == curMirror.meta.drawId
+                        if (!alreadyLinked) {
+                            ToolFloatChip(
+                                label = stringResource(R.string.panel_menu_link_next),
+                                onClick = {
+                                    vm.mergePanelDraw(panelId, nextId)
+                                    interaction.dismissMenu()
+                                },
+                            )
+                        }
                     }
                 }
                 ToolFloatChip(
@@ -466,26 +504,6 @@ internal fun PanelLongPressMenu(
                         interaction.dismissMenu()
                     },
                 )
-                if (vm.panelSharesDraw(panelId)) {
-                    ToolFloatChip(
-                        label = stringResource(R.string.panel_menu_separate),
-                        onClick = {
-                            vm.separatePanelDraw(panelId)
-                            interaction.dismissMenu()
-                        },
-                    )
-                } else if (vm.panelMultiSelectedIds.isEmpty()) {
-                    val adjId = vm.findAdjacentPanel(panelId)
-                    if (adjId != null) {
-                        ToolFloatChip(
-                            label = stringResource(R.string.panel_menu_merge_with_adjacent),
-                            onClick = {
-                                vm.mergePanelDraw(panelId, adjId)
-                                interaction.dismissMenu()
-                            },
-                        )
-                    }
-                }
                 if (vm.panelMultiSelectedIds.isEmpty()) {
                     ToolFloatChip(
                         label = stringResource(R.string.panel_reset_style),
