@@ -112,6 +112,17 @@ fun StatisticsSettingsSubPage(
 }
 
 @OptIn(ExperimentalLayoutApi::class)
+/**
+ * 当前界面语言。Compose 里要读语言必须走 LocalConfiguration(可观察), 否则切系统语言后
+ * 不会重组, 数字单位会一直停在旧语言(lint: NonObservableLocale)。
+ * ConfigurationCompat 兼容 minSdk 23(API 24 才有 Configuration.locales)。
+ */
+@Composable
+private fun uiLocale(): Locale =
+    androidx.core.os.ConfigurationCompat
+        .getLocales(androidx.compose.ui.platform.LocalConfiguration.current)
+        .get(0) ?: Locale.US
+
 @Composable
 private fun OverviewMetricsCards(stats: CreationStatsSummary) {
     val colors = Theme.current
@@ -124,12 +135,16 @@ private fun OverviewMetricsCards(stats: CreationStatsSummary) {
         stringResource(R.string.stats_mins_only, mins)
     }
 
-    val strokesText = if (Locale.getDefault().language == "zh" && stats.totalStrokes >= 10000) {
-        String.format(Locale.getDefault(), "%.1f万", stats.totalStrokes / 10000.0)
-    } else if (Locale.getDefault().language != "zh" && stats.totalStrokes >= 10000) {
-        String.format(Locale.getDefault(), "%.1fk", stats.totalStrokes / 1000.0)
+    // 语言必须从 LocalConfiguration 读: 直接 Locale.getDefault() 在切换系统语言后不会触发
+    // 重组(数字单位会停在旧语言), lint 的 NonObservableLocale 就是查这个
+    val uiLocale = uiLocale()
+    val isChinese = uiLocale.language == "zh"
+    val strokesText = if (isChinese && stats.totalStrokes >= 10000) {
+        String.format(uiLocale, "%.1f万", stats.totalStrokes / 10000.0)
+    } else if (!isChinese && stats.totalStrokes >= 10000) {
+        String.format(uiLocale, "%.1fk", stats.totalStrokes / 1000.0)
     } else {
-        String.format(Locale.getDefault(), "%,d", stats.totalStrokes)
+        String.format(uiLocale, "%,d", stats.totalStrokes)
     }
 
     val items = listOf(
@@ -443,7 +458,7 @@ private fun ActivityHeatmapCard(stats: CreationStatsSummary) {
                     } else {
                         stringResource(R.string.stats_mins_only, dMins)
                     }
-                    val strokesStr = String.format(Locale.getDefault(), "%,d", selectedActivity.strokes)
+                    val strokesStr = String.format(uiLocale(), "%,d", selectedActivity.strokes)
                     Text(
                         text = stringResource(R.string.stats_day_detail, formattedSelectedDate, dText, strokesStr),
                         color = colors.text,
