@@ -937,6 +937,7 @@ import kotlinx.coroutines.withContext
         // 1. 本地 FD 零落盘快路径 (Fast-Path)
         var fastPathSource: AbrSource? = null
         var pfdToClose: android.os.ParcelFileDescriptor? = null
+        var fisToClose: java.io.FileInputStream? = null
         try {
             val pfd = resolver.openFileDescriptor(uri, "r")
             if (pfd != null) {
@@ -944,13 +945,27 @@ import kotlinx.coroutines.withContext
                 val stat = android.system.Os.fstat(pfd.fileDescriptor)
                 if (android.system.OsConstants.S_ISREG(stat.st_mode) && stat.st_size >= 4L) {
                     val fis = java.io.FileInputStream(pfd.fileDescriptor)
-                    fastPathSource = AbrSource.fromChannel(fis.channel)
+                    fisToClose = fis
+                    // 4 字节预读探针：验证底层 FUSE / DocumentsProvider FD 真正支持 positional read / seekable
+                    val probeBuf = java.nio.ByteBuffer.allocate(4)
+                    val readBytes = fis.channel.read(probeBuf, 0L)
+                    if (readBytes >= 4) {
+                        fastPathSource = AbrSource.fromChannel(fis.channel)
+                    } else {
+                        // 假 regular FD 或损坏通道，安全释放并降级至 cacheDir 慢路径
+                        runCatching { fis.close() }
+                        fisToClose = null
+                        pfd.close()
+                        pfdToClose = null
+                    }
                 } else {
                     pfd.close()
                     pfdToClose = null
                 }
             }
         } catch (_: Throwable) {
+            runCatching { fisToClose?.close() }
+            fisToClose = null
             runCatching { pfdToClose?.close() }
             pfdToClose = null
             fastPathSource = null
@@ -962,6 +977,7 @@ import kotlinx.coroutines.withContext
                     block(source)
                 }
             } finally {
+                runCatching { fisToClose?.close() }
                 runCatching { pfdToClose?.close() }
             }
         }

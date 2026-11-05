@@ -401,7 +401,7 @@ object AbrParser {
                     null
                 }
             }
-            cursor = end
+            cursor = if ((len and 1L) == 1L && end < source.size) end + 1L else end
         }
         return null
     }
@@ -620,7 +620,7 @@ object AbrParser {
                 }
             }
 
-            cursor = sectionEnd
+            cursor = if ((sectionLen and 1L) == 1L && sectionEnd < fileSize) sectionEnd + 1L else sectionEnd
         }
 
         val presets = mutableListOf<AbrPresetInfo>()

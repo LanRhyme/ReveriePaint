@@ -280,6 +280,52 @@ class AbrZeroCopyStreamingTest {
         }
     }
 
+    @Test
+    fun `readDescriptorRoot and parseVersion6 handle odd-length 8BIM sections with 2-byte alignment padding`() {
+        val baos = java.io.ByteArrayOutputStream()
+        val dos = java.io.DataOutputStream(baos)
+
+        // Version 6, subversion 1
+        dos.writeShort(6)
+        dos.writeShort(1)
+
+        // 8BIM samp (odd length = 5)
+        dos.writeBytes("8BIM")
+        dos.writeBytes("samp")
+        dos.writeInt(5)
+        dos.write(byteArrayOf(1, 2, 3, 4, 5))
+        dos.writeByte(0) // 1-byte padding to align to 2-byte boundary
+
+        // 8BIM desc (valid empty descriptor: descriptorVersion=16, name="", classId="null", itemCount=0)
+        dos.writeBytes("8BIM")
+        dos.writeBytes("desc")
+        val descBaos = java.io.ByteArrayOutputStream()
+        val descDos = java.io.DataOutputStream(descBaos)
+        descDos.writeInt(16) // descriptorVersion
+        descDos.writeInt(0)  // name length = 0
+        descDos.writeInt(4)  // classID length = 4
+        descDos.writeBytes("null")
+        descDos.writeInt(0)  // itemCount = 0
+        val descBytes = descBaos.toByteArray()
+
+        dos.writeInt(descBytes.size)
+        dos.write(descBytes)
+        dos.flush()
+
+        val fullBytes = baos.toByteArray()
+        val source = AbrSource.fromBytes(fullBytes)
+
+        // 1. readDescriptorRoot must skip the 1-byte pad after the odd-length samp and find desc
+        val rootNode = AbrParser.readDescriptorRoot(source)
+        assertNotNull("readDescriptorRoot must find desc despite preceding odd-length samp section", rootNode)
+        assertEquals("null", rootNode?.classId)
+
+        // 2. parseVersion6 must also step past the odd-length samp and parse presets/patterns without infinite loop or failure
+        val parseResult = AbrParser.parse(source, "OddAlignPack")
+        assertEquals(6, parseResult.version)
+        assertEquals(1, parseResult.subversion)
+    }
+
     /**
      * Virtual 220MB+ ABR data source implementing [AbrSource].
      * Backed by zero disk storage and < 20KB heap.
