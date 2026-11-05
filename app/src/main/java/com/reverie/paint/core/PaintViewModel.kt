@@ -1958,7 +1958,8 @@ class PaintViewModel : ViewModel() {
         val launches = prefs.getInt("launch_count", 0)
         val exports = prefs.getInt("export_count", 0)
         val nextPromptLaunch = prefs.getInt("next_sponsor_prompt_launch_count", 15)
-        if (launches >= nextPromptLaunch || exports >= 3) {
+        val nextPromptExport = prefs.getInt("next_sponsor_prompt_export_count", 5)
+        if (launches >= nextPromptLaunch || exports >= nextPromptExport) {
             showSponsorPromptDialog = true
         }
     }
@@ -1967,7 +1968,11 @@ class PaintViewModel : ViewModel() {
         if (!::appContext.isInitialized) return
         val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
         val currentLaunches = prefs.getInt("launch_count", 0)
-        prefs.edit().putInt("next_sponsor_prompt_launch_count", currentLaunches + 25).apply()
+        val currentExports = prefs.getInt("export_count", 0)
+        prefs.edit()
+            .putInt("next_sponsor_prompt_launch_count", currentLaunches + 25)
+            .putInt("next_sponsor_prompt_export_count", currentExports + 10)
+            .apply()
         showSponsorPromptDialog = false
     }
 

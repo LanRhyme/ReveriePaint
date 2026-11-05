@@ -53,8 +53,6 @@ import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
-import androidx.compose.ui.layout.boundsInRoot
-import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.painterResource
@@ -65,7 +63,6 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.zIndex
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
-import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.components.liquidHighlight
 import com.reverie.paint.ui.components.pressGrow
@@ -122,7 +119,11 @@ fun SponsorPromptDialog(
         }
     }
 
-    BackHandler(enabled = true) { animateDismiss(null) }
+    BackHandler(enabled = true) {
+        vm.postponeSponsorPrompt()
+        Toast.makeText(context, R.string.sponsor_prompt_toast_postponed, Toast.LENGTH_SHORT).show()
+        animateDismiss(null)
+    }
 
     val scrimColor = Color(0xCC0C0D10)
     val visibleBorder = if (colors.border != Color.Transparent) colors.border else colors.subText.copy(alpha = 0.22f)
@@ -133,8 +134,6 @@ fun SponsorPromptDialog(
     val cardOffsetY = 36.dp * (1f - p)
     val cardRotationZ = (1f - p) * -1.8f
 
-    var cardBounds by remember { mutableStateOf(androidx.compose.ui.geometry.Rect.Zero) }
-
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -143,21 +142,9 @@ fun SponsorPromptDialog(
             .background(scrimColor)
             .pointerInput(Unit) {
                 awaitPointerEventScope {
-                    var downOnBackdrop = false
                     while (true) {
                         val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
-                        val down = event.changes.firstOrNull { it.pressed && !it.previousPressed }
-                        if (down != null) {
-                            downOnBackdrop = !cardBounds.contains(down.position)
-                        }
-                        if (downOnBackdrop) {
-                            val isUp = event.changes.any { !it.pressed && it.previousPressed }
-                            event.changes.forEach { it.consume() }
-                            if (isUp) {
-                                downOnBackdrop = false
-                                animateDismiss(null)
-                            }
-                        }
+                        event.changes.forEach { it.consume() }
                     }
                 }
             },
@@ -198,9 +185,6 @@ fun SponsorPromptDialog(
                 .clip(RoundedCornerShape(24.dp))
                 .background(colors.panelHi)
                 .border(1.dp, visibleBorder, RoundedCornerShape(24.dp))
-                .onGloballyPositioned { coords ->
-                    cardBounds = coords.boundsInRoot()
-                }
                 .clickable(
                     interactionSource = cardInteraction,
                     indication = null,
@@ -344,34 +328,21 @@ fun SponsorPromptDialog(
                             .padding(start = 6.dp, end = 20.dp, top = 20.dp, bottom = 18.dp),
                         verticalArrangement = Arrangement.spacedBy(13.dp),
                     ) {
-                        // Header: Title & Close Button
-                        Row(
+                        // Header: Title & Subtitle
+                        Column(
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
                         ) {
-                            Column {
-                                Text(
-                                    text = stringResource(R.string.sponsor_prompt_title),
-                                    color = colors.text,
-                                    fontSize = 17.sp,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                                Spacer(Modifier.height(2.dp))
-                                Text(
-                                    text = stringResource(R.string.sponsor_prompt_subtitle),
-                                    color = colors.subText,
-                                    fontSize = 11.5.sp,
-                                )
-                            }
-
-                            ReIconButton(
-                                icon = R.drawable.ic_x,
-                                desc = stringResource(R.string.close),
-                                onTap = { animateDismiss(null) },
-                                size = 30.dp,
-                                iconSize = 15.dp,
-                                tint = colors.subText,
+                            Text(
+                                text = stringResource(R.string.sponsor_prompt_title),
+                                color = colors.text,
+                                fontSize = 17.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = stringResource(R.string.sponsor_prompt_subtitle),
+                                color = colors.subText,
+                                fontSize = 11.5.sp,
                             )
                         }
 
@@ -524,54 +495,40 @@ fun SponsorPromptDialog(
                         .padding(18.dp),
                     verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
-                    // Header with Close
+                    // Header: Icon + Title & Subtitle
                     Row(
                         modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.SpaceBetween,
                         verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                        Box(
+                            modifier = Modifier
+                                .size(38.dp)
+                                .clip(CircleShape)
+                                .background(colors.accent.copy(alpha = 0.16f))
+                                .border(1.2.dp, colors.accent.copy(alpha = 0.45f), CircleShape),
+                            contentAlignment = Alignment.Center,
                         ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(38.dp)
-                                    .clip(CircleShape)
-                                    .background(colors.accent.copy(alpha = 0.16f))
-                                    .border(1.2.dp, colors.accent.copy(alpha = 0.45f), CircleShape),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_heart),
-                                    contentDescription = null,
-                                    tint = colors.accent,
-                                    modifier = Modifier.size(18.dp),
-                                )
-                            }
-                            Column {
-                                Text(
-                                    text = stringResource(R.string.sponsor_prompt_title),
-                                    color = colors.text,
-                                    fontSize = 16.sp,
-                                    fontWeight = FontWeight.Bold,
-                                )
-                                Text(
-                                    text = stringResource(R.string.sponsor_prompt_subtitle),
-                                    color = colors.subText,
-                                    fontSize = 11.sp,
-                                )
-                            }
+                            Icon(
+                                painter = painterResource(R.drawable.ic_heart),
+                                contentDescription = null,
+                                tint = colors.accent,
+                                modifier = Modifier.size(18.dp),
+                            )
                         }
-
-                        ReIconButton(
-                            icon = R.drawable.ic_x,
-                            desc = stringResource(R.string.close),
-                            onTap = { animateDismiss(null) },
-                            size = 30.dp,
-                            iconSize = 15.dp,
-                            tint = colors.subText,
-                        )
+                        Column {
+                            Text(
+                                text = stringResource(R.string.sponsor_prompt_title),
+                                color = colors.text,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                            Text(
+                                text = stringResource(R.string.sponsor_prompt_subtitle),
+                                color = colors.subText,
+                                fontSize = 11.sp,
+                            )
+                        }
                     }
 
                     // Compact Milestone Badges
