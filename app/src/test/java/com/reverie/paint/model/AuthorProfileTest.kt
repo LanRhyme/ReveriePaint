@@ -80,4 +80,49 @@ class AuthorProfileTest {
         val p3 = AuthorProfile.fromJson("{ bad json }")
         assertTrue(p3.isEmpty())
     }
+
+    @Test
+    fun `preset list json roundtrip preserves all presets`() {
+        val presets = listOf(
+            AuthorProfilePreset(
+                id = "p-1",
+                name = "默认档案",
+                profile = AuthorProfile(
+                    name = "LanRhyme",
+                    nickname = "Lan",
+                    organization = "Studio",
+                    copyright = "All rights reserved",
+                ),
+            ),
+            AuthorProfilePreset(
+                id = "p-2",
+                name = "商业委托",
+                profile = AuthorProfile(
+                    name = "LanRhyme (Commercial)",
+                    nickname = "Artist",
+                    copyright = "Exclusive Commercial License",
+                ),
+            ),
+        )
+
+        val json = AuthorProfilePreset.listToJson(presets)
+        val restored = AuthorProfilePreset.listFromJson(json)
+
+        assertEquals(2, restored.size)
+        assertEquals("p-1", restored[0].id)
+        assertEquals("默认档案", restored[0].name)
+        assertEquals("LanRhyme", restored[0].profile.name)
+        assertEquals("p-2", restored[1].id)
+        assertEquals("商业委托", restored[1].name)
+        assertEquals("Exclusive Commercial License", restored[1].profile.copyright)
+    }
+
+    @Test
+    fun `preset listFromJson handles empty or invalid json`() {
+        val emptyList = AuthorProfilePreset.listFromJson(null)
+        assertTrue(emptyList.isEmpty())
+        val invalidList = AuthorProfilePreset.listFromJson("[]")
+        assertTrue(invalidList.isEmpty())
+    }
 }
+

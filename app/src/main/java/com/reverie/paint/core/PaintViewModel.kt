@@ -1815,19 +1815,106 @@ class PaintViewModel : ViewModel() {
         return layers.firstOrNull { it.index == idx }?.alphaLocked == true
     }
 
-    // 作者档案 (Dublin Core / Krita 兼容元数据)
+    // 作者档案 (Dublin Core / Krita 兼容元数据) 与多预设管理
+    var authorProfilePresets by mutableStateOf<List<com.reverie.paint.model.AuthorProfilePreset>>(emptyList())
+        internal set
+
+    var activeAuthorProfileId by mutableStateOf("default")
+        internal set
+
     var authorProfile by mutableStateOf(com.reverie.paint.model.AuthorProfile())
         internal set
 
     fun updateAuthorProfile(profile: com.reverie.paint.model.AuthorProfile) {
         authorProfile = profile
-        if (::appContext.isInitialized) {
+        val updated = authorProfilePresets.map {
+            if (it.id == activeAuthorProfileId) it.copy(profile = profile) else it
+        }
+        if (updated.none { it.id == activeAuthorProfileId }) {
+            authorProfilePresets = listOf(
+                com.reverie.paint.model.AuthorProfilePreset(
+                    id = activeAuthorProfileId,
+                    name = "默认档案",
+                    profile = profile,
+                ),
+            )
+        } else {
+            authorProfilePresets = updated
+        }
+        persistAuthorProfiles()
+        syncAuthorProfileToCore()
+    }
+
+    fun switchAuthorProfile(presetId: String) {
+        val target = authorProfilePresets.firstOrNull { it.id == presetId } ?: return
+        activeAuthorProfileId = target.id
+        authorProfile = target.profile
+        persistAuthorProfiles()
+        syncAuthorProfileToCore()
+    }
+
+    fun createAuthorProfilePreset(name: String, baseProfile: com.reverie.paint.model.AuthorProfile = authorProfile) {
+        val newId = java.util.UUID.randomUUID().toString()
+        val trimmedName = name.trim().ifBlank { "预设 ${authorProfilePresets.size + 1}" }
+        val newPreset = com.reverie.paint.model.AuthorProfilePreset(
+            id = newId,
+            name = trimmedName,
+            profile = baseProfile,
+        )
+        authorProfilePresets = authorProfilePresets + newPreset
+        activeAuthorProfileId = newId
+        authorProfile = baseProfile
+        persistAuthorProfiles()
+        syncAuthorProfileToCore()
+    }
+
+    fun renameAuthorProfilePreset(presetId: String, newName: String) {
+        val trimmed = newName.trim().ifBlank { return }
+        authorProfilePresets = authorProfilePresets.map {
+            if (it.id == presetId) it.copy(name = trimmed) else it
+        }
+        persistAuthorProfiles()
+    }
+
+    fun duplicateAuthorProfilePreset(presetId: String) {
+        val source = authorProfilePresets.firstOrNull { it.id == presetId } ?: return
+        val newId = java.util.UUID.randomUUID().toString()
+        val copyPreset = com.reverie.paint.model.AuthorProfilePreset(
+            id = newId,
+            name = "${source.name} (副本)",
+            profile = source.profile.copy(),
+        )
+        authorProfilePresets = authorProfilePresets + copyPreset
+        persistAuthorProfiles()
+    }
+
+    fun deleteAuthorProfilePreset(presetId: String): Boolean {
+        if (authorProfilePresets.size <= 1) return false
+        val newPresets = authorProfilePresets.filterNot { it.id == presetId }
+        authorProfilePresets = newPresets
+        if (activeAuthorProfileId == presetId) {
+            val next = newPresets.first()
+            activeAuthorProfileId = next.id
+            authorProfile = next.profile
+            syncAuthorProfileToCore()
+        }
+        persistAuthorProfiles()
+        return true
+    }
+
+    private fun persistAuthorProfiles() {
+        if (!::appContext.isInitialized) return
+        try {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
-                .putString("author_profile_json", profile.toJson())
+                .putString("author_profile_json", authorProfile.toJson())
+                .putString(
+                    "author_profile_presets_json",
+                    com.reverie.paint.model.AuthorProfilePreset.listToJson(authorProfilePresets),
+                )
+                .putString("active_author_profile_id", activeAuthorProfileId)
                 .apply()
-        }
-        syncAuthorProfileToCore()
+        } catch (_: Exception) {}
     }
 
     fun isQuickActionActivated(action: com.reverie.paint.model.QuickAction): Boolean =
@@ -4618,8 +4705,26 @@ class PaintViewModel : ViewModel() {
                 prefs.getInt("renderScheduleMode", com.reverie.paint.model.RenderScheduleMode.PERFORMANCE.id)
             )
 
-            val authorJson = prefs.getString("author_profile_json", null)
-            authorProfile = com.reverie.paint.model.AuthorProfile.fromJson(authorJson)
+            val presetsJson = prefs.getString("author_profile_presets_json", null)
+            val parsedPresets = com.reverie.paint.model.AuthorProfilePreset.listFromJson(presetsJson)
+            val savedActiveId = prefs.getString("active_author_profile_id", "default") ?: "default"
+
+            if (parsedPresets.isNotEmpty()) {
+                authorProfilePresets = parsedPresets
+                activeAuthorProfileId = if (parsedPresets.any { it.id == savedActiveId }) savedActiveId else parsedPresets.first().id
+                authorProfile = parsedPresets.firstOrNull { it.id == activeAuthorProfileId }?.profile ?: parsedPresets.first().profile
+            } else {
+                val authorJson = prefs.getString("author_profile_json", null)
+                val legacyProfile = com.reverie.paint.model.AuthorProfile.fromJson(authorJson)
+                val defaultPreset = com.reverie.paint.model.AuthorProfilePreset(
+                    id = "default",
+                    name = "默认档案",
+                    profile = legacyProfile,
+                )
+                authorProfilePresets = listOf(defaultPreset)
+                activeAuthorProfileId = "default"
+                authorProfile = legacyProfile
+            }
             syncAuthorProfileToCore()
 
             loadSyncSettings()

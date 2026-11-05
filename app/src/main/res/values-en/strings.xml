@@ -2369,6 +2369,26 @@
     <string name="author_field_copyright_placeholder">e.g. Copyright © 2026 LanRhyme. All rights reserved.</string>
     <string name="author_templates_label">Common Copyright Templates:</string>
     <string name="author_clear_fields">Clear Author Profile Fields</string>
+    <string name="author_card_anonymous">Unnamed Creator</string>
+    <string name="author_card_anonymous_desc">No creator attribution configured</string>
+    <string name="author_preset_default_name">Default Profile</string>
+    <string name="author_preset_dropdown_title">Profile Presets</string>
+    <string name="author_preset_create_action">+ New Preset</string>
+    <string name="author_preset_manage_action">Manage Presets…</string>
+    <string name="author_preset_create_dialog_title">New Profile Preset</string>
+    <string name="author_preset_name_hint">Preset Name</string>
+    <string name="author_preset_rename_dialog_title">Rename Preset</string>
+    <string name="author_preset_manage_title">Manage Profile Presets</string>
+    <string name="author_preset_duplicate">Duplicate</string>
+    <string name="author_preset_delete_confirm_title">Delete Profile Preset</string>
+    <string name="author_preset_delete_confirm_msg">Are you sure you want to delete this profile preset?</string>
+    <string name="author_preset_min_limit">At least one profile preset must be kept</string>
+    <string name="author_clear_confirm_title">Clear Author Profile</string>
+    <string name="author_clear_confirm_msg">Are you sure you want to clear all fields and copyright settings for the current profile? This cannot be undone</string>
+    <string name="author_cleared_toast">Current author profile has been cleared</string>
+    <string name="author_preset_switched_toast">Switched to preset: %s</string>
+    <string name="author_tag_enabled">Enabled</string>
+    <string name="author_tag_disabled">Disabled</string>
 
     <!-- Theme Settings -->
     <string name="theme_settings_title">Theme Settings</string>

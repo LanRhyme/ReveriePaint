@@ -2369,6 +2369,26 @@
     <string name="author_field_copyright_placeholder">例：Copyright © 2026 LanRhyme. All rights reserved.</string>
     <string name="author_templates_label">常用版权模板：</string>
     <string name="author_clear_fields">清空作者档案字段</string>
+    <string name="author_card_anonymous">未命名创作者</string>
+    <string name="author_card_anonymous_desc">尚未配置署名信息</string>
+    <string name="author_preset_default_name">默认档案</string>
+    <string name="author_preset_dropdown_title">档案预设</string>
+    <string name="author_preset_create_action">+ 新建预设</string>
+    <string name="author_preset_manage_action">管理预设…</string>
+    <string name="author_preset_create_dialog_title">新建档案预设</string>
+    <string name="author_preset_name_hint">档案预设名称</string>
+    <string name="author_preset_rename_dialog_title">重命名预设</string>
+    <string name="author_preset_manage_title">管理档案预设</string>
+    <string name="author_preset_duplicate">复制</string>
+    <string name="author_preset_delete_confirm_title">删除档案预设</string>
+    <string name="author_preset_delete_confirm_msg">确定要删除此预设吗？</string>
+    <string name="author_preset_min_limit">至少需要保留一个档案预设</string>
+    <string name="author_clear_confirm_title">清空作者档案</string>
+    <string name="author_clear_confirm_msg">确定要清空当前档案的全部字段与版权声明吗？此操作不可撤销</string>
+    <string name="author_cleared_toast">当前作者档案已清空</string>
+    <string name="author_preset_switched_toast">已切换至预设：%s</string>
+    <string name="author_tag_enabled">已启用</string>
+    <string name="author_tag_disabled">未启用</string>
 
     <!-- Theme Settings -->
     <string name="theme_settings_title">主题设置</string>
