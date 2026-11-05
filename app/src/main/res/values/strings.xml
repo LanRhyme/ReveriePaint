@@ -1942,6 +1942,8 @@
     <string name="guide_symmetry_mode_rotational">旋转对称</string>
     <string name="guide_symmetry_mode_mirrored">万花筒镜像</string>
     <string name="guide_symmetry_rays">对称轴数量</string>
+    <string name="guide_symmetry_radial_count">放射分支数</string>
+    <string name="guide_symmetry_radial_count_value">%1$d 瓣</string>
     <string name="guide_symmetry_rays_rotational_format">%d 瓣旋转</string>
     <string name="guide_symmetry_rays_mirrored_format">%1$d 轴镜像 (%2$d 瓣)</string>
     <string name="guide_perspective_ray_density">参考线密度</string>
