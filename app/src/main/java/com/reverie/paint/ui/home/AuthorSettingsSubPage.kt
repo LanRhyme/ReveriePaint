@@ -31,13 +31,9 @@ import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.AccountCircle
-import androidx.compose.material.icons.rounded.ArrowDropDown
-import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material.icons.rounded.DeleteOutline
 import androidx.compose.material.icons.rounded.Edit
 import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -50,6 +46,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.platform.LocalContext
@@ -66,6 +63,8 @@ import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.AuthorProfile
 import com.reverie.paint.model.AuthorProfilePreset
+import com.reverie.paint.ui.components.ReDropdownMenu
+import com.reverie.paint.ui.components.ReDropdownMenuItem
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.theme.Theme
@@ -139,22 +138,22 @@ internal fun AuthorSettingsSubPage(
 
             Spacer(Modifier.height(8.dp))
 
-            // Section 2: 创作者信息 (内联扁平表单，无占位提示文本)
+            // Section 2: 创作者信息 (结构化精致输入框，无占位提示文本)
             SettingCategoryTitle(stringResource(R.string.author_category_info))
             SettingGroup {
-                AuthorInlineInputField(
+                AuthorInputFieldItem(
                     label = stringResource(R.string.author_field_full_name),
                     value = profile.name,
                     shape = settingGroupShape(0, 3),
                     onValueChange = { vm.updateAuthorProfile(profile.copy(name = it)) },
                 )
-                AuthorInlineInputField(
+                AuthorInputFieldItem(
                     label = stringResource(R.string.author_field_nickname),
                     value = profile.nickname,
                     shape = settingGroupShape(1, 3),
                     onValueChange = { vm.updateAuthorProfile(profile.copy(nickname = it)) },
                 )
-                AuthorInlineInputField(
+                AuthorInputFieldItem(
                     label = stringResource(R.string.author_field_organization),
                     value = profile.organization,
                     shape = settingGroupShape(2, 3),
@@ -167,14 +166,14 @@ internal fun AuthorSettingsSubPage(
             // Section 3: 联系与主页
             SettingCategoryTitle(stringResource(R.string.author_category_contact))
             SettingGroup {
-                AuthorInlineInputField(
+                AuthorInputFieldItem(
                     label = stringResource(R.string.author_field_email),
                     value = profile.email,
                     keyboardType = KeyboardType.Email,
                     shape = settingGroupShape(0, 2),
                     onValueChange = { vm.updateAuthorProfile(profile.copy(email = it)) },
                 )
-                AuthorInlineInputField(
+                AuthorInputFieldItem(
                     label = stringResource(R.string.author_field_website),
                     value = profile.website,
                     keyboardType = KeyboardType.Uri,
@@ -195,57 +194,66 @@ internal fun AuthorSettingsSubPage(
                         .background(colors.panel)
                         .padding(horizontal = 16.dp, vertical = 14.dp),
                 ) {
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        verticalAlignment = Alignment.CenterVertically,
+                    Text(
+                        text = stringResource(R.string.author_field_copyright),
+                        color = colors.text,
+                        fontSize = 13.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    var isCopyrightFocused by remember { mutableStateOf(false) }
+                    Box(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(colors.panelHi)
+                            .border(
+                                width = 1.dp,
+                                color = if (isCopyrightFocused) colors.accent else colors.border.copy(alpha = 0.5f),
+                                shape = RoundedCornerShape(8.dp),
+                            )
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.CenterStart,
                     ) {
-                        Text(
-                            text = stringResource(R.string.author_field_copyright),
-                            color = colors.text,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                            modifier = Modifier.width(105.dp),
-                        )
-                        BasicTextField(
-                            value = profile.copyright,
-                            onValueChange = { vm.updateAuthorProfile(profile.copy(copyright = it)) },
-                            singleLine = true,
-                            textStyle = TextStyle(
-                                color = colors.text,
-                                fontSize = 13.sp,
-                            ),
-                            cursorBrush = SolidColor(colors.accent),
-                            modifier = Modifier.weight(1f),
-                        )
-                        if (profile.copyright.isNotEmpty()) {
-                            Spacer(Modifier.width(6.dp))
-                            val clearInteraction = remember { MutableInteractionSource() }
-                            Box(
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            BasicTextField(
+                                value = profile.copyright,
+                                onValueChange = { vm.updateAuthorProfile(profile.copy(copyright = it)) },
+                                singleLine = true,
+                                textStyle = TextStyle(
+                                    color = colors.text,
+                                    fontSize = 13.5.sp,
+                                ),
+                                cursorBrush = SolidColor(colors.accent),
                                 modifier = Modifier
-                                    .size(22.dp)
-                                    .pressScale(clearInteraction, pressedScale = 0.85f)
-                                    .clip(CircleShape)
-                                    .background(colors.panelHi)
-                                    .clickable(interactionSource = clearInteraction, indication = null) {
-                                        vm.updateAuthorProfile(profile.copy(copyright = ""))
-                                    },
-                                contentAlignment = Alignment.Center,
-                            ) {
+                                    .weight(1f)
+                                    .onFocusChanged { isCopyrightFocused = it.isFocused },
+                            )
+                            if (profile.copyright.isNotEmpty()) {
+                                Spacer(Modifier.width(6.dp))
                                 Icon(
-                                    imageVector = Icons.Rounded.Close,
+                                    painter = painterResource(R.drawable.ic_x),
                                     contentDescription = stringResource(R.string.author_clear_fields),
                                     tint = colors.subText,
-                                    modifier = Modifier.size(13.dp),
+                                    modifier = Modifier
+                                        .size(16.dp)
+                                        .clip(CircleShape)
+                                        .clickable { vm.updateAuthorProfile(profile.copy(copyright = "")) }
+                                        .padding(2.dp),
                                 )
                             }
                         }
                     }
 
-                    Spacer(Modifier.height(12.dp))
+                    Spacer(Modifier.height(14.dp))
                     Text(
                         text = stringResource(R.string.author_templates_label),
                         color = colors.subText,
-                        fontSize = 11.sp,
+                        fontSize = 11.5.sp,
                     )
                     Spacer(Modifier.height(8.dp))
                     FlowRow(
@@ -386,16 +394,18 @@ internal fun AuthorSettingsSubPage(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
+                            .height(40.dp)
+                            .clip(RoundedCornerShape(8.dp))
                             .background(colors.panel)
-                            .border(1.dp, colors.border, RoundedCornerShape(10.dp))
-                            .padding(horizontal = 14.dp, vertical = 10.dp),
+                            .border(1.dp, colors.border, RoundedCornerShape(8.dp))
+                            .padding(horizontal = 12.dp),
+                        contentAlignment = Alignment.CenterStart,
                     ) {
                         BasicTextField(
                             value = newPresetName,
                             onValueChange = { newPresetName = it },
                             singleLine = true,
-                            textStyle = TextStyle(color = colors.text, fontSize = 13.sp),
+                            textStyle = TextStyle(color = colors.text, fontSize = 13.5.sp),
                             cursorBrush = SolidColor(colors.accent),
                             modifier = Modifier.fillMaxWidth(),
                         )
@@ -532,18 +542,13 @@ private fun AuthorProfileCard(
 
                 Spacer(Modifier.width(8.dp))
 
-                // 预设选择胶囊
+                // 预设选择胶囊 (对齐通用 SettingDropdownGroupItem 样式)
                 Box {
-                    val pillInteraction = remember { MutableInteractionSource() }
                     Row(
                         modifier = Modifier
-                            .pressScale(pillInteraction, pressedScale = 0.95f)
-                            .clip(RoundedCornerShape(20.dp))
+                            .clip(RoundedCornerShape(8.dp))
                             .background(colors.panel)
-                            .border(1.dp, colors.border, RoundedCornerShape(20.dp))
-                            .clickable(interactionSource = pillInteraction, indication = null) {
-                                showDropdown = true
-                            }
+                            .clickable { showDropdown = true }
                             .padding(horizontal = 10.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -551,34 +556,27 @@ private fun AuthorProfileCard(
                             text = presetName,
                             color = colors.accent,
                             fontSize = 12.sp,
-                            fontWeight = FontWeight.Medium,
+                            fontWeight = FontWeight.SemiBold,
                             maxLines = 1,
                         )
-                        Spacer(Modifier.width(2.dp))
+                        Spacer(Modifier.width(4.dp))
                         Icon(
-                            imageVector = Icons.Rounded.ArrowDropDown,
+                            painter = painterResource(R.drawable.ic_chevron),
                             contentDescription = null,
                             tint = colors.accent,
-                            modifier = Modifier.size(16.dp),
+                            modifier = Modifier.size(12.dp),
                         )
                     }
 
-                    DropdownMenu(
+                    ReDropdownMenu(
                         expanded = showDropdown,
                         onDismissRequest = { showDropdown = false },
-                        modifier = Modifier.background(colors.panelHi),
                     ) {
                         vm.authorProfilePresets.forEach { preset ->
                             val isActive = preset.id == vm.activeAuthorProfileId
-                            DropdownMenuItem(
-                                text = {
-                                    Text(
-                                        text = preset.name,
-                                        color = if (isActive) colors.accent else colors.text,
-                                        fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
-                                        fontSize = 13.sp,
-                                    )
-                                },
+                            ReDropdownMenuItem(
+                                text = preset.name,
+                                selected = isActive,
                                 trailingIcon = if (isActive) {
                                     {
                                         Icon(
@@ -602,34 +600,23 @@ private fun AuthorProfileCard(
                         }
 
                         HorizontalDivider(
-                            color = colors.border.copy(alpha = 0.5f),
-                            thickness = 0.8.dp,
+                            color = colors.border.copy(alpha = 0.4f),
+                            thickness = 0.6.dp,
                             modifier = Modifier.padding(vertical = 4.dp),
                         )
 
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = stringResource(R.string.author_preset_create_action),
-                                    color = colors.accent,
-                                    fontSize = 13.sp,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                            },
+                        ReDropdownMenuItem(
+                            text = stringResource(R.string.author_preset_create_action),
+                            textColor = colors.accent,
                             onClick = {
                                 showDropdown = false
                                 onOpenCreatePreset()
                             },
                         )
 
-                        DropdownMenuItem(
-                            text = {
-                                Text(
-                                    text = stringResource(R.string.author_preset_manage_action),
-                                    color = colors.subText,
-                                    fontSize = 13.sp,
-                                )
-                            },
+                        ReDropdownMenuItem(
+                            text = stringResource(R.string.author_preset_manage_action),
+                            textColor = colors.subText,
                             onClick = {
                                 showDropdown = false
                                 onOpenManagePresets()
@@ -688,9 +675,9 @@ private fun AuthorProfileCard(
     }
 }
 
-/** 扁平无边框内联输入行组件 (左标签右输入，无提示文本) */
+/** 结构化精致输入框项 (标题置顶 + 独立视效容器，无占位文本) */
 @Composable
-private fun AuthorInlineInputField(
+private fun AuthorInputFieldItem(
     label: String,
     value: String,
     shape: RoundedCornerShape,
@@ -698,57 +685,70 @@ private fun AuthorInlineInputField(
     onValueChange: (String) -> Unit,
 ) {
     val colors = Theme.current
+    var isFocused by remember { mutableStateOf(false) }
 
-    Row(
+    Column(
         modifier = Modifier
             .fillMaxWidth()
             .clip(shape)
             .background(colors.panel)
-            .padding(horizontal = 16.dp, vertical = 14.dp),
-        verticalAlignment = Alignment.CenterVertically,
+            .padding(horizontal = 16.dp, vertical = 12.dp),
     ) {
         Text(
             text = label,
             color = colors.text,
             fontSize = 13.sp,
             fontWeight = FontWeight.Medium,
-            modifier = Modifier.width(105.dp),
         )
-        BasicTextField(
-            value = value,
-            onValueChange = onValueChange,
-            singleLine = true,
-            textStyle = TextStyle(
-                color = colors.text,
-                fontSize = 13.sp,
-            ),
-            cursorBrush = SolidColor(colors.accent),
-            keyboardOptions = KeyboardOptions(
-                keyboardType = keyboardType,
-                imeAction = ImeAction.Next,
-            ),
-            modifier = Modifier.weight(1f),
-        )
-        if (value.isNotEmpty()) {
-            Spacer(Modifier.width(6.dp))
-            val clearInteraction = remember { MutableInteractionSource() }
-            Box(
-                modifier = Modifier
-                    .size(22.dp)
-                    .pressScale(clearInteraction, pressedScale = 0.85f)
-                    .clip(CircleShape)
-                    .background(colors.panelHi)
-                    .clickable(interactionSource = clearInteraction, indication = null) {
-                        onValueChange("")
-                    },
-                contentAlignment = Alignment.Center,
-            ) {
-                Icon(
-                    imageVector = Icons.Rounded.Close,
-                    contentDescription = stringResource(R.string.author_clear_fields),
-                    tint = colors.subText,
-                    modifier = Modifier.size(13.dp),
+        Spacer(Modifier.height(8.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(40.dp)
+                .clip(RoundedCornerShape(8.dp))
+                .background(colors.panelHi)
+                .border(
+                    width = 1.dp,
+                    color = if (isFocused) colors.accent else colors.border.copy(alpha = 0.5f),
+                    shape = RoundedCornerShape(8.dp),
                 )
+                .padding(horizontal = 12.dp),
+            contentAlignment = Alignment.CenterStart,
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                BasicTextField(
+                    value = value,
+                    onValueChange = onValueChange,
+                    singleLine = true,
+                    textStyle = TextStyle(
+                        color = colors.text,
+                        fontSize = 13.5.sp,
+                    ),
+                    cursorBrush = SolidColor(colors.accent),
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = keyboardType,
+                        imeAction = ImeAction.Next,
+                    ),
+                    modifier = Modifier
+                        .weight(1f)
+                        .onFocusChanged { isFocused = it.isFocused },
+                )
+                if (value.isNotEmpty()) {
+                    Spacer(Modifier.width(6.dp))
+                    Icon(
+                        painter = painterResource(R.drawable.ic_x),
+                        contentDescription = stringResource(R.string.author_clear_fields),
+                        tint = colors.subText,
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clip(CircleShape)
+                            .clickable { onValueChange("") }
+                            .padding(2.dp),
+                    )
+                }
             }
         }
     }
@@ -898,16 +898,18 @@ private fun AuthorPresetManageDialog(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(10.dp))
+                        .height(40.dp)
+                        .clip(RoundedCornerShape(8.dp))
                         .background(colors.panel)
-                        .border(1.dp, colors.border, RoundedCornerShape(10.dp))
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                        .border(1.dp, colors.border, RoundedCornerShape(8.dp))
+                        .padding(horizontal = 12.dp),
+                    contentAlignment = Alignment.CenterStart,
                 ) {
                     BasicTextField(
                         value = renameDraft,
                         onValueChange = { renameDraft = it },
                         singleLine = true,
-                        textStyle = TextStyle(color = colors.text, fontSize = 13.sp),
+                        textStyle = TextStyle(color = colors.text, fontSize = 13.5.sp),
                         cursorBrush = SolidColor(colors.accent),
                         modifier = Modifier.fillMaxWidth(),
                     )
