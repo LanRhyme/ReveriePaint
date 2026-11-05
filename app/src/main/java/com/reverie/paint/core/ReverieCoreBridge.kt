@@ -585,22 +585,31 @@ object ReverieCoreBridge {
     external fun setBrushRotation(v: Double)
 
     external fun setBrushCompositeOp(op: String)
-    external fun setBrushPressureDynamics(
+
+    @Deprecated("Retired in Krita physics parity")
+    fun setBrushPressureDynamics(
         enabled: Boolean,
         sizeStrength: Double,
         opacityStrength: Double,
         flowStrength: Double,
         curveType: Int,
-    )
-    external fun setBrushOptionDynamics(
+    ) {}
+
+    @Deprecated("Retired in Krita physics parity")
+    fun setBrushOptionDynamics(
         optionName: String,
         enabled: Boolean,
         sensorId: String,
         curvePoints: String,
         strength: Double,
-    )
-    external fun setBrushFollowDirection(enabled: Boolean)
-    external fun setBrushJitter(jitterAngle: Double, jitterSize: Double)
+    ) {}
+
+    @Deprecated("Retired in Krita physics parity")
+    fun setBrushFollowDirection(enabled: Boolean) {}
+
+    @Deprecated("Retired in Krita physics parity")
+    fun setBrushJitter(jitterAngle: Double, jitterSize: Double) {}
+
     external fun setBrushMirror(flipX: Boolean, flipY: Boolean)
     external fun setBrushAntiAliasing(level: Int)
 

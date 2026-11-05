@@ -13,6 +13,10 @@
 #include <android/log.h>
 #include <stdio.h>
 #include <string.h>
+#include <sys/system_properties.h>
+
+#include <atomic>
+#include <chrono>
 
 #include <QCoreApplication>
 #include <QString>
@@ -33,8 +37,43 @@ static ReverieCore *g_core = nullptr;
 // on first use - the engine is software-rendered so no GUI is needed.
 static QCoreApplication *g_app = nullptr;
 
+// Qt 日志门禁: 真机上 Krita/Qt 的 Warning 狂喷 (每条 toUtf8 堆分配 + log_print 同步 IPC)
+// 会拖垮渲染线程, 必须在任何字符串转换/分配之前过滤。
+// - Fatal/Critical: 无条件放行 (崩溃诊断不能丢)
+// - Warning: 令牌桶限流, 每秒重置 25 条预算, 超预算丢弃
+// - Debug/Info: 仅当系统属性 debug.reverie.qtlog == "1" 时放行 (安装 handler 时一次性读取)
+static std::atomic<bool> g_qtLogVerbose{false};
+static std::atomic<qint64> g_qtWarnWindowSec{0};
+static std::atomic<int> g_qtWarnBudget{0};
+static const int kQtWarnBudgetPerSec = 25;
+
 static void reverieQtMessageHandler(QtMsgType type, const QMessageLogContext &context, const QString &msg)
 {
+    if (type != QtFatalMsg && type != QtCriticalMsg) {
+        if (type == QtWarningMsg) {
+            const qint64 nowSec = std::chrono::duration_cast<std::chrono::seconds>(
+                std::chrono::steady_clock::now().time_since_epoch()).count();
+            qint64 windowSec = g_qtWarnWindowSec.load(std::memory_order_relaxed);
+            if (nowSec != windowSec &&
+                g_qtWarnWindowSec.compare_exchange_strong(windowSec, nowSec, std::memory_order_relaxed)) {
+                g_qtWarnBudget.store(kQtWarnBudgetPerSec, std::memory_order_relaxed);
+            }
+            int budget = g_qtWarnBudget.load(std::memory_order_relaxed);
+            bool admitted = false;
+            while (budget > 0) {
+                if (g_qtWarnBudget.compare_exchange_weak(budget, budget - 1, std::memory_order_relaxed)) {
+                    admitted = true;
+                    break;
+                }
+            }
+            if (!admitted) {
+                return; // 超预算丢弃
+            }
+        } else if (!g_qtLogVerbose.load(std::memory_order_relaxed)) {
+            return; // QtDebugMsg / QtInfoMsg: verbose 未开启, 丢弃
+        }
+    }
+
     int priority = ANDROID_LOG_DEBUG;
     switch (type) {
     case QtDebugMsg: priority = ANDROID_LOG_DEBUG; break;
@@ -99,6 +138,11 @@ void reverieEnsureQtApp()
         static int argc = 1;
         static char *argv[] = { const_cast<char *>("reverie"), nullptr };
         g_app = new QCoreApplication(argc, argv);
+        char qtLogProp[PROP_VALUE_MAX] = {0};
+        if (__system_property_get("debug.reverie.qtlog", qtLogProp) > 0 &&
+            strcmp(qtLogProp, "1") == 0) {
+            g_qtLogVerbose.store(true);
+        }
         qInstallMessageHandler(reverieQtMessageHandler);
 
         try {

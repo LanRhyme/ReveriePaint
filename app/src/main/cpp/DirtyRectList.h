@@ -102,11 +102,15 @@ inline void appendOrCoalesce(DirtyRectList &list, const DirtyRect &incoming,
         maxCount = DirtyRectList::kCapacity;
     }
 
-    // 1) 与已有矩形相交: 用并集替换它
+    // 1) 与已有矩形相交: 仅当新增空洞率 < 25% 时就地合并，防止斜向运笔无界膨胀为整屏巨型包围盒
     for (int i = 0; i < list.count; ++i) {
         if (dirtyRectIntersects(list.rects[i], incoming)) {
-            list.rects[i] = dirtyRectUnited(list.rects[i], incoming);
-            return;
+            const DirtyRect u = dirtyRectUnited(list.rects[i], incoming);
+            const long long hollow = dirtyRectArea(u) - dirtyRectArea(list.rects[i]) - dirtyRectArea(incoming);
+            if (hollow * 4 < dirtyRectArea(u)) {
+                list.rects[i] = u;
+                return;
+            }
         }
     }
 

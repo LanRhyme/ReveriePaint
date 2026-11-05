@@ -24,7 +24,9 @@ public:
     static double speedPxPerMs(double dist, double t0Sec, double t1Sec)
     {
         const double dtSec = t1Sec - t0Sec;
-        return dist / ((dtSec > 1e-4 ? dtSec : 1e-4) * 1000.0);
+        // 物理采样周期下限设为 3ms (对应 ~330Hz 采样上限), 彻底消除同毫秒点或微秒抖动除零导致的速度暴走尖峰 (竹节根因)
+        const double effDt = dtSec > 0.003 ? dtSec : 0.003;
+        return dist / (effDt * 1000.0);
     }
 };
 

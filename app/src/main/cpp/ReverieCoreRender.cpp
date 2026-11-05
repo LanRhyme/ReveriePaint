@@ -994,8 +994,21 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2, bool fille
         painter.paintEllipse(rect);
     }
 
-    device->setDirty();
-    markDirty();
+    m_fakeExecutor.flushPendingJobs(m_brushSize);
+
+    // 区域化标脏: 不走 device->setDirty() (Krita 后台异步调度器会与自研渲染管线竞争产生
+    // 脏块/闪烁, 见 touchStrokeEnd 内注释), 也不做全画布 markDirty(), 只标形状脏区。
+    // Line/Rect/Ellipse 统一沿用上方 qMin/qAbs 两点包围盒 rect —— 不能用端点 0 尺寸矩形
+    // 求并: 零尺寸 QRect 恒为 null, united 对 null 操作数直接返回另一操作数, 直线主体会漏标脏。
+    const int margin = qMax(int(m_brushSize * 2.0), 32) + 16 + strokeLayerMargin();
+    const QRect dirty = rect.adjusted(-margin, -margin, margin, margin)
+        .intersected(QRect(0, 0, image->width(), image->height()));
+    if (!dirty.isEmpty()) {
+        markRegionDirty(dirty);
+    }
+    if (pl) {
+        bumpLayerThumbGen(pl);
+    }
     txn.commit(image->undoAdapter());
     m_redoCount = 0;
 }
@@ -1040,8 +1053,10 @@ void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
     painter.setRunnableStrokeJobsInterface(&m_fakeExecutor);
     
     vQPointF pts;
+    QRect bounds(points.at(0), points.at(0));
     for (const QPoint &p : points) {
         pts.append(p);
+        bounds = bounds.united(QRect(p, p));
     }
 
     if (closed) {
@@ -1050,8 +1065,18 @@ void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
         painter.paintPolyline(pts);
     }
 
-    device->setDirty();
-    markDirty();
+    m_fakeExecutor.flushPendingJobs(m_brushSize);
+
+    // 区域化标脏: 同 drawShape, 只标多边形包围盒脏区, 不触发全画布重合成。
+    const int margin = qMax(int(m_brushSize * 2.0), 32) + 16 + strokeLayerMargin();
+    const QRect dirty = bounds.adjusted(-margin, -margin, margin, margin)
+        .intersected(QRect(0, 0, image->width(), image->height()));
+    if (!dirty.isEmpty()) {
+        markRegionDirty(dirty);
+    }
+    if (pl) {
+        bumpLayerThumbGen(pl);
+    }
     txn.commit(image->undoAdapter());
     m_redoCount = 0;
 }

@@ -9,13 +9,10 @@
  * ============================================================ */
 #include "ReverieCoreInternal.h"
 #include "PixelAlpha.h"
-#include "StrokeTimeContract.h"
-
-#include <KisInterstrokeDataFactory.h>
-#include <kundo2command.h>
 
 #include <QRegularExpression>
 #include <QBuffer>
+#include <QDomDocument>
 #include <QUrl>
 #include <algorithm>
 #include <cmath>
@@ -26,9 +23,19 @@
 #include <kis_abr_brush_collection.h>
 #include <kis_abr_brush.h>
 #include <KoEmbeddedResource.h>
+#include <KisResourceTypes.h>
+// C3: 试画板管线对齐主画布 (KPI 9 参/随机源/蒙版链路/间接暂存)
+#include "StrokePaintInfo.h"
+#include <strokes/KisMaskingBrushRenderer.h>
+#include <strokes/KisMaskedFreehandStrokePainter.h>
+#include <KisFreehandStrokeInfo.h>
+#include <QRandomGenerator>
 // calcAutoSpacing(): 自动间距 (useAutoSpacing="1") 的生效值计算, 与
 // KisPaintOpUtils::effectiveSpacing 内部用的是同一个公式。
 #include <kis_paintop_utils.h>
+#include "BrushDefinitionGuard.h"
+#include "BrushTipHealth.h"
+#include "MemoryBrushKind.h"
 
 // 把请求的间距 requested 写进笔刷型预设, 大直径湿笔 (colorsmudge) 加一道像素步长下限。
 //
@@ -62,6 +69,458 @@ static void writeBrushSpacing(KisBrushBasedPaintOpSettings *bs, const KisPaintOp
         bs->setSpacing(minPxStep > 0.0 ? qMax(requested, minPxStep / brushSize) : requested);
     }
 }
+
+namespace {
+
+// XML 里提供的 MD5 解析为上游匹配语义的 hex 形态:
+// KoResource::setMD5Sum 要求 hex 编码字符串 ("It must be in hex-encoded string format");
+// kpp 的 Texture/Pattern/PatternMD5Sum 直接是 hex, Texture/Pattern/PatternMD5 存的是
+// md5Base64 (原始 16 字节摘要的 base64), 老预设 (如 deevad 系) 还存在 base64(base64)
+// 双层形态。按 32 位 hex → 16 字节摘要逐层剥判, 解不出返回空 (由调用方对原始字节现算)。
+QString resolveMd5HexFromXml(const QString &xmlMd5)
+{
+    const QString cur = xmlMd5.trimmed();
+    if (cur.isEmpty()) return QString();
+    // 32 位 hex 直接原样透传 (保留原大小写: reload 时 exactMatch 按原样字符串比较)
+    static const QRegularExpression hexRe(QStringLiteral("^[0-9a-fA-F]{32}$"));
+    if (hexRe.match(cur).hasMatch()) return cur;
+    // base64 剥层严格校验: fromBase64 默认忽略非法字符, 32 字符垃圾可能误剥出伪 md5,
+    // 带 AbortOnDecodingError 剥不出立即放弃 (返空由调用方对解码字节现算)
+    auto strictB64 = [](const QByteArray &in) -> QByteArray {
+        QByteArray::FromBase64Result r =
+            QByteArray::fromBase64Encoding(in, QByteArray::AbortOnBase64DecodingErrors);
+        return r ? r.decoded : QByteArray();
+    };
+    QByteArray decoded = strictB64(cur.toLatin1());
+    for (int i = 0; i < 3 && !decoded.isEmpty(); ++i) {
+        if (decoded.size() == 16) {
+            return QString::fromLatin1(decoded.toHex());
+        }
+        const QByteArray next = strictB64(decoded);
+        if (next.isEmpty() || next == decoded) break;
+        decoded = next;
+    }
+    return QString();
+}
+
+// ===================== R5-A: kpp <Brush> 定义属性注入 =====================
+// 背景: kpp <Brush> 元素的 spacing/useAutoSpacing/autoSpacingCoeff 与色彩调整属性
+// 在运行时从未进入绑定笔刷对象, inkP 系预设的 dab 步长因此退化为笔尖文件内嵌
+// 的线性间距 (真机日志 brushRESOLVED spacing=0.100), 大尺寸下表现成周期黑条。
+//
+// 上游语义链路 (已逐行核实, krita-reverie @18671c5):
+//   - kis_brush_option.cpp:50-55  BrushReader 读 brush_definition → KisBrush::fromXML
+//   - kis_brush.cpp:453-467       fromXML → KisBrushRegistry::createBrush → 工厂分发
+//   - kis_predefined_brush_factory.cpp:101-190  解析 <Brush> 属性 (spacing/自动间距/
+//     KisColorfulBrush 四项色彩调整/brushApplication 四分支), :36-47 先 clone 再应用
+//     ("we always return a copy of the brush!")
+//   - kis_brush_based_paintop.cpp:181-190/:200-212  paintop 直通 brush->spacing()/
+//     autoSpacingActive()/autoSpacingCoeff() 进 effectiveSpacing
+// 本组辅助在绑定完成后把元素属性再施加一次 (幂等): 覆盖工厂属性被任何路径丢掉的
+// 情形, 并让 brushRESOLVED/spacingProbe 的可观测值与 kpp 定义一致。
+
+// 解析 brush_definition 属性串 (param CDATA 文本) → <Brush> 元素
+QDomElement parseBrushElementXml(const QString &xml)
+{
+    if (xml.isEmpty()) return QDomElement();
+    QDomDocument d;
+    if (!d.setContent(xml)) return QDomElement();
+    return d.firstChildElement(QStringLiteral("Brush"));
+}
+
+// 与上游 KoResourceSource::bestMatch (KisResourcesInterface.cpp:73-160) 对齐的签名
+// 匹配, 匹配规则: md5sum 优先 (大小写不敏感), 否则 filename 全等或文件名部分等。
+// 双方均提供 md5 时只按 md5 判定 (md5 优先语义)。
+bool brushElementMatchesSignature(const QDomElement &e, const KisBrush *b)
+{
+    if (e.isNull() || !b) return false;
+    const QString eMd5 = e.attribute(QStringLiteral("md5sum")).trimmed();
+    const QString bMd5 = b->md5Sum();
+    if (!eMd5.isEmpty() && !bMd5.isEmpty()) {
+        return eMd5.compare(bMd5, Qt::CaseInsensitive) == 0;
+    }
+    const QString eFile = e.attribute(QStringLiteral("filename")).trimmed();
+    const QString bFile = b->filename();
+    if (eFile.isEmpty() || bFile.isEmpty()) return false;
+    if (eFile == bFile) return true;
+    return QFileInfo(eFile).fileName() == QFileInfo(bFile).fileName();
+}
+
+// 在会话资源池 (m_loadedBrushes + KisLocalStrokeResources) 里按元素签名解析笔刷,
+// md5 采用大小写不敏感比较 (比上游 bestMatch 多救一类签名大小写不一致的预设)。
+KisBrushSP resolvePooledBrushByElement(const QDomElement &e,
+                                       const KisResourcesInterfaceSP &resources,
+                                       const QHash<QString, KisBrushSP> &loadedBrushes)
+{
+    if (e.isNull()) return KisBrushSP();
+    const QString eMd5 = e.attribute(QStringLiteral("md5sum")).trimmed();
+    const QString eFile = e.attribute(QStringLiteral("filename")).trimmed();
+    if (eMd5.isEmpty() && eFile.isEmpty()) return KisBrushSP();
+
+    auto scanHash = [&eMd5, &eFile](const QHash<QString, KisBrushSP> &pool) -> KisBrushSP {
+        for (auto it = pool.cbegin(); it != pool.cend(); ++it) {
+            const KisBrushSP b = it.value();
+            if (!b) continue;
+            if (!eMd5.isEmpty() && !b->md5Sum().isEmpty() &&
+                    b->md5Sum().compare(eMd5, Qt::CaseInsensitive) == 0) {
+                return b;
+            }
+            if (!eFile.isEmpty() && !b->filename().isEmpty() &&
+                    (b->filename() == eFile ||
+                     QFileInfo(b->filename()).fileName() == QFileInfo(eFile).fileName())) {
+                return b;
+            }
+        }
+        return KisBrushSP();
+    };
+
+    KisBrushSP hit = scanHash(loadedBrushes);
+    if (hit) return hit;
+
+    KisLocalStrokeResources *lr = dynamic_cast<KisLocalStrokeResources *>(resources.data());
+    if (!lr) return KisBrushSP();
+    const QList<KoResourceSP> all = lr->resources();
+    for (const KoResourceSP &r : all) {
+        const KisBrushSP b = r.dynamicCast<KisBrush>();
+        if (!b) continue;
+        if (!eMd5.isEmpty() && !b->md5Sum().isEmpty() &&
+                b->md5Sum().compare(eMd5, Qt::CaseInsensitive) == 0) {
+            return b;
+        }
+        if (!eFile.isEmpty() && !b->filename().isEmpty() &&
+                (b->filename() == eFile ||
+                 QFileInfo(b->filename()).fileName() == QFileInfo(eFile).fileName())) {
+            return b;
+        }
+    }
+    return KisBrushSP();
+}
+
+// 逐字段对齐上游 kis_predefined_brush_factory.cpp:101-190 的 <Brush> 属性语义。
+// 注意: scale/angle 禁碰 —— 它们由 setPaintOpSize/setPaintOpAngle 通道承载
+// (kis_brush_based_paintop_settings.cpp:167-189: setPaintOpSize → setUserEffectiveSize,
+// KisScalingSizeBrush::setUserEffectiveSize → setScale; setPaintOpAngle → setAngle),
+// 尺寸/角度观感已对齐 Krita, 在笔刷对象上重复应用会双重缩放/旋转。
+void applyBrushDefinitionAttributes(KisBrush *brush, const QDomElement &e)
+{
+    if (!brush || e.isNull()) return;
+    if (e.tagName() != QLatin1String("Brush")) return;
+    // auto_brush 走 kis_auto_brush_factory 的 MaskGenerator/randomness/density 字段族,
+    // 属另一工厂, 本注入不碰
+    if (e.attribute(QStringLiteral("type")) == QLatin1String("auto_brush")) return;
+
+    // spacing: 仅当元素带该属性时透传 (上游 predefined 缺省 0.25, 这里不写缺省值)
+    if (e.hasAttribute(QStringLiteral("spacing"))) {
+        brush->setSpacing(e.attribute(QStringLiteral("spacing")).toDouble());
+    }
+    // 自动间距: 仅当元素含任一属性时调用, 缺失侧按上游缺省 (0 / 1.0) 语义
+    if (e.hasAttribute(QStringLiteral("useAutoSpacing")) ||
+            e.hasAttribute(QStringLiteral("autoSpacingCoeff"))) {
+        const bool useAuto = e.attribute(QStringLiteral("useAutoSpacing"), QStringLiteral("0")).toInt() != 0;
+        const qreal coeff = e.attribute(QStringLiteral("autoSpacingCoeff"), QStringLiteral("1.0")).toDouble();
+        brush->setAutoSpacing(useAuto, coeff);
+    }
+
+    // KisColorfulBrush 四项色彩调整 (含 Krita 4.x AdjustmentVersion<2 旧版翻倍换算,
+    // 上游 :113-157 同款)
+    KisColorfulBrush *colorful = dynamic_cast<KisColorfulBrush *>(brush);
+    if (colorful) {
+        quint8 midPoint = static_cast<quint8>(
+            e.attribute(QStringLiteral("AdjustmentMidPoint"), QStringLiteral("127")).toInt());
+        qreal brightness = e.attribute(QStringLiteral("BrightnessAdjustment")).toDouble();
+        qreal contrast = e.attribute(QStringLiteral("ContrastAdjustment")).toDouble();
+        const int adjustmentVersion =
+            e.attribute(QStringLiteral("AdjustmentVersion"), QStringLiteral("1")).toInt();
+        const bool autoAdjustMidPoint =
+            e.attribute(QStringLiteral("AutoAdjustMidPoint"), QStringLiteral("0")).toInt() != 0;
+        const bool hasAutoAdjustMidPoint = e.hasAttribute(QStringLiteral("AutoAdjustMidPoint"));
+
+        if (adjustmentVersion < 2 && !hasAutoAdjustMidPoint) {
+            // Krita 4.x 把亮度调整应用了两次, 5.x 打开时做钝参数换算
+            midPoint = static_cast<quint8>(qBound(0, 127 + (static_cast<int>(midPoint) - 127) * 2, 255));
+            brightness *= 2.0;
+            contrast *= 2.0;
+            // Krita 5 改了负对比度公式
+            if (contrast < 0.0) {
+                contrast = 1.0 / (1.0 - contrast) - 1.0;
+            }
+        }
+
+        colorful->setAdjustmentMidPoint(midPoint);
+        colorful->setBrightnessAdjustment(brightness);
+        colorful->setContrastAdjustment(contrast);
+        colorful->setAutoAdjustMidPoint(autoAdjustMidPoint);
+    }
+
+    // brushApplication 四分支 (上游 :159-190), legacy 语义同款 lambda
+    auto legacyBrushApplication = [](KisColorfulBrush *cb, bool forceColorToAlpha) -> enumBrushApplication {
+        return (cb && cb->hasColorAndTransparency() && !forceColorToAlpha) ? IMAGESTAMP : ALPHAMASK;
+    };
+    enumBrushApplication app = ALPHAMASK;
+    if (e.hasAttribute(QStringLiteral("preserveLightness"))) {
+        const bool preserveLightness =
+            e.attribute(QStringLiteral("preserveLightness"), QStringLiteral("0")).toInt() != 0;
+        const bool useColorAsMask = e.attribute(QStringLiteral("ColorAsMask"), QStringLiteral("1")).toInt() != 0;
+        app = preserveLightness ? LIGHTNESSMAP : legacyBrushApplication(colorful, useColorAsMask);
+    } else if (e.hasAttribute(QStringLiteral("brushApplication"))) {
+        app = static_cast<enumBrushApplication>(
+            e.attribute(QStringLiteral("brushApplication"), QStringLiteral("0")).toInt());
+    } else if (e.hasAttribute(QStringLiteral("ColorAsMask"))) {
+        const bool useColorAsMask = e.attribute(QStringLiteral("ColorAsMask"), QStringLiteral("1")).toInt() != 0;
+        app = legacyBrushApplication(colorful, useColorAsMask);
+    } else {
+        // 无属性: 4.4 之前的自动启发 (有色彩 ⇒ IMAGESTAMP)
+        app = legacyBrushApplication(colorful, false);
+    }
+    brush->setBrushApplication(app);
+}
+
+// 判定绑定实例是否指向跨预设共享的池内笔刷 (m_loadedBrushes / lr 资源表)。
+// 按上游绑定链路, settings->brush() 恒为工厂 clone (预设私有), 该分支是防御性的;
+// 一旦触发, 用 KisBrush::clone() 出预设私有副本再注入, 严禁就地改池内共享实例。
+bool isPooledBrushInstance(const KisBrushSP &bound,
+                           const KisResourcesInterfaceSP &resources,
+                           const QHash<QString, KisBrushSP> &loadedBrushes)
+{
+    if (!bound) return false;
+    for (auto it = loadedBrushes.cbegin(); it != loadedBrushes.cend(); ++it) {
+        if (it.value() == bound) return true;
+    }
+    KisLocalStrokeResources *lr = dynamic_cast<KisLocalStrokeResources *>(resources.data());
+    if (!lr) return false;
+    const QList<KoResourceSP> all = lr->resources();
+    for (const KoResourceSP &r : all) {
+        if (r == bound.staticCast<KoResource>()) return true;
+    }
+    return false;
+}
+
+// 把注入后的预设私有笔刷回写为 brush_definition (供 BrushWriter/重解析链路消费),
+// 并补回 toXML 序列化不承载的属性: scale/angle (尺寸/角度通道消费), BrushVersion
+// (=1 时解析期 scale 翻倍), preserveLightness (LIGHTNESSMAP 判定的 legacy 键)。
+void rebindBrushDefinitionProperty(KisBrushBasedPaintOpSettings *bs,
+                                   const KisBrushSP &priv,
+                                   const QDomElement &e)
+{
+    if (!bs || !priv) return;
+    KisBrushOptionProperties opt;
+    opt.setBrush(priv);
+    opt.writeOptionSetting(bs);
+
+    const QString cur = bs->getString(QStringLiteral("brush_definition"));
+    QDomDocument d;
+    if (cur.isEmpty() || !d.setContent(cur)) return;
+    QDomElement el = d.firstChildElement(QStringLiteral("Brush"));
+    if (el.isNull() || e.isNull()) return;
+    static const char *kCarriedAttrs[] = {
+        "scale", "angle", "BrushVersion", "preserveLightness",
+        "spacing", "useAutoSpacing", "autoSpacingCoeff",
+        "AdjustmentMidPoint", "BrightnessAdjustment", "ContrastAdjustment",
+        "AdjustmentVersion", "AutoAdjustMidPoint", "brushApplication"
+    };
+    for (const char *key : kCarriedAttrs) {
+        if (e.hasAttribute(QLatin1String(key))) {
+            el.setAttribute(QLatin1String(key), e.attribute(QLatin1String(key)));
+        }
+    }
+    bs->setProperty(QStringLiteral("brush_definition"), d.toString());
+    KisBrushSP rebound = bs->brush();
+    if (rebound) {
+        applyBrushDefinitionAttributes(rebound.data(), e);
+    }
+}
+// =================== R5-A 注入辅助结束 ===================
+
+// 内嵌图案的内存注册: 字节 → KoPattern (QImage 路径优先, GPAT/.pat 走 QBuffer 退路),
+// MD5 按上游 hex 语义设置 (md5Hex 为空时对原始字节现算), 失败返回空指针。
+KoPatternSP registerMemoryPattern(const QByteArray &bytes, const QString &name,
+                                  const QString &fileName, const QString &md5Hex,
+                                  const KisResourcesInterfaceSP &resourcesInterface)
+{
+    if (bytes.isEmpty()) return KoPatternSP();
+
+    const QString effName = !name.isEmpty() ? name : fileName;
+    const QString effFile = !fileName.isEmpty() ? fileName : name;
+    KoPatternSP pat;
+    QImage img = QImage::fromData(bytes);
+    if (!img.isNull()) {
+        pat = KoPatternSP(new KoPattern(img, effName, effFile));
+    } else {
+        pat = KoPatternSP(new KoPattern(effFile));
+        QByteArray bufBytes = bytes;
+        QBuffer buf(&bufBytes);
+        buf.open(QIODevice::ReadOnly);
+        const bool ok = pat->loadFromDevice(&buf, resourcesInterface);
+        buf.close();
+        if (!ok) return KoPatternSP();
+    }
+    if (pat->pattern().isNull()) return KoPatternSP();
+
+    const QString effectiveMd5 = !md5Hex.isEmpty()
+        ? md5Hex
+        : QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Md5).toHex());
+    pat->setMD5Sum(effectiveMd5);
+    if (!effFile.isEmpty()) pat->setFilename(effFile);
+    if (!effName.isEmpty()) pat->setName(effName);
+    RPC_LOG("RPC registerMemoryPattern name=%s file=%s md5=%s bytes=%d",
+            effName.toUtf8().constData(), effFile.toUtf8().constData(),
+            effectiveMd5.toUtf8().constData(), static_cast<int>(bytes.size()));
+    return pat;
+}
+
+// 内嵌笔尖 (png/gbr/gih/svg) 的内存注册: 字节 → 对应 KisBrush 子类经 QBuffer 加载,
+// 设置文件名/MD5 并检查 valid(), 失败返回空指针。
+KisBrushSP registerMemoryBrush(const QByteArray &bytes, const QString &fileName,
+                               const QString &md5Hex, bool isGbr,
+                               const KisResourcesInterfaceSP &resourcesInterface)
+{
+    if (bytes.isEmpty() || fileName.isEmpty()) return KisBrushSP();
+
+    const reverie::MemoryBrushKind kind = reverie::memoryBrushKindFor(fileName.toStdString(), isGbr);
+    KisBrushSP brush;
+    const char *kindName = "png";
+    switch (kind) {
+    case reverie::MemoryBrushKind::Gbr: brush = KisBrushSP(new KisGbrBrush(fileName)); kindName = "gbr"; break;
+    case reverie::MemoryBrushKind::Gih: brush = KisBrushSP(new KisImagePipeBrush(fileName)); kindName = "gih"; break;
+    case reverie::MemoryBrushKind::Svg: brush = KisBrushSP(new KisSvgBrush(fileName)); kindName = "svg"; break;
+    case reverie::MemoryBrushKind::Png:
+    default: brush = KisBrushSP(new KisPngBrush(fileName)); break;
+    }
+    QByteArray bufBytes = bytes;
+    QBuffer buf(&bufBytes);
+    buf.open(QIODevice::ReadOnly);
+    const bool ok = brush->loadFromDevice(&buf, resourcesInterface);
+    buf.close();
+    if (!ok || !brush->valid()) return KisBrushSP();
+
+    const QString effectiveMd5 = !md5Hex.isEmpty()
+        ? md5Hex
+        : QString::fromLatin1(QCryptographicHash::hash(bytes, QCryptographicHash::Md5).toHex());
+    brush->setFilename(fileName);
+    brush->setMD5Sum(effectiveMd5);
+    RPC_LOG("RPC registerMemoryBrush file=%s md5=%s type=%s bytes=%d",
+            fileName.toUtf8().constData(), effectiveMd5.toUtf8().constData(),
+            kindName, static_cast<int>(bytes.size()));
+    return brush;
+}
+
+// 内存注册成功后同步名字缓存: 后续 loadSingleBrushResource 对同名请求直接命中返回,
+// 既防双注册也防重复的磁盘查找。
+void rememberLoadedPatternNames(const QStringList &names, QSet<QString> &loadedNames)
+{
+    for (const QString &n : names) {
+        if (!n.isEmpty()) loadedNames.insert(n);
+    }
+}
+
+void rememberLoadedBrushNames(const QStringList &names, const KisBrushSP &brush,
+                              QHash<QString, KisBrushSP> &loadedBrushes)
+{
+    for (const QString &n : names) {
+        if (!n.isEmpty()) loadedBrushes.insert(n, brush);
+    }
+}
+
+// 内嵌资源注册点的前置缓存查询 (不经 loadSingleBrushResource 的 isBrush 判定):
+// .png/.svg 命名的内嵌图案会被其 isBrush 扩展名分支绕过 m_loadedResourceNames 命中,
+// 导致每次预设加载都重复内存构造并 addResource (上游 addResource 纯 append,
+// m_brushResources 会话级持有解码图像, 无上界增长)。
+bool memoryResourceAlreadyRegistered(const QStringList &names,
+                                     const QHash<QString, KisBrushSP> &loadedBrushes,
+                                     const QSet<QString> &loadedNames)
+{
+    for (const QString &n : names) {
+        if (n.isEmpty()) continue;
+        if (loadedBrushes.contains(n) || loadedNames.contains(n)) return true;
+    }
+    return false;
+}
+
+} // namespace
+
+// 对预设 settings 当前绑定的笔刷实例应用 kpp <Brush> 定义属性。
+// 调用时机: 预设 loadFromDevice 之后、任何 spacing/尺寸写入与 brush() 语义消费之前。
+// 覆盖全部命中路径: registerMemoryBrush 新建 / 缓存命中 / 磁盘命中最终都汇聚到
+// brush_definition → bs->brush() 这一个绑定出口, 在此统一注入即全覆盖。
+// 非 static: 供 ReverieCoreInternal.h 跨文件声明, 使 ReverieCoreStroke.cpp 在
+// createMaskingPreset() 创建遮罩预设时也能统一注入副笔刷属性。
+void injectBrushDefinitionProperties(KisBrushBasedPaintOpSettings *bs,
+                                     const KisResourcesInterfaceSP &resources,
+                                     const QHash<QString, KisBrushSP> &loadedBrushes)
+{
+    if (!bs) return;
+    const QString mainDef = bs->getString(QStringLiteral("brush_definition"));
+    if (mainDef.isEmpty()) return;
+    const QDomElement eMain = parseBrushElementXml(mainDef);
+    if (eMain.isNull()) return;
+    // 主定义是 auto_brush 时笔刷对象属性由 kis_auto_brush_factory 全权负责
+    if (eMain.attribute(QStringLiteral("type")) == QLatin1String("auto_brush")) return;
+
+    const QDomElement eMask = parseBrushElementXml(
+        bs->getString(QStringLiteral("MaskingBrush/Preset/brush_definition")));
+
+    KisBrushSP bound = bs->brush();
+    // 绑定落空 (bestMatch 双双不中 → fromXML 回退默认 auto_brush, 其 filename 为空):
+    // 属性本就写在元素上, 缺的只是资源匹配。按本任务的匹配规则 (md5 大小写不敏感
+    // 优先, 否则文件名全等/部分等) 在池里救援, 命中则把签名属性改指池内实例。
+    const bool boundMissing = !bound || bound->filename().isEmpty();
+    if (boundMissing) {
+        const KisBrushSP hit = resolvePooledBrushByElement(eMain, resources, loadedBrushes);
+        if (!hit) return; // 池里也没有: 保持现状 (md5 与文件名都对不上的边界)
+        QDomDocument d;
+        if (!d.setContent(mainDef)) return;
+        QDomElement el = d.firstChildElement(QStringLiteral("Brush"));
+        if (el.isNull()) return;
+        if (!hit->md5Sum().isEmpty()) {
+            el.setAttribute(QStringLiteral("md5sum"), hit->md5Sum());
+        }
+        if (!hit->filename().isEmpty()) {
+            el.setAttribute(QStringLiteral("filename"), hit->filename());
+        }
+        bs->setProperty(QStringLiteral("brush_definition"), d.toString());
+        RPC_LOG("RPC brushINJECT rescue file=%s md5=%s",
+                hit->filename().toUtf8().constData(),
+                hit->md5Sum().toUtf8().constData());
+        return;
+    }
+
+    const QDomElement *target = nullptr;
+    if (brushElementMatchesSignature(eMain, bound.data())) {
+        target = &eMain;
+    } else if (!eMask.isNull() && brushElementMatchesSignature(eMask, bound.data())) {
+        target = &eMask;
+    }
+    if (!target) {
+        RPC_LOG("RPC brushINJECT nomatch file=%s", bound->filename().toUtf8().constData());
+        return;
+    }
+
+    if (isPooledBrushInstance(bound, resources, loadedBrushes)) {
+        // 共享实例污染防护: 克隆出预设私有副本注入并回写 brush_definition。
+        // 注意 m_savedBrush 已缓存旧实例, 本分支按上游绑定链路不可达 (工厂恒 clone),
+        // 属防御路径; 真触发时下一次 BrushWriter 读写会解析出新 brush_definition。
+        KisBrushSP priv = bound->clone().dynamicCast<KisBrush>();
+        if (!priv) return;
+        applyBrushDefinitionAttributes(priv.data(), *target);
+        rebindBrushDefinitionProperty(bs, priv, *target);
+        RPC_LOG("RPC brushINJECT pooledClone file=%s spacing=%.3f auto=%d coeff=%.3f",
+                priv->filename().toUtf8().constData(),
+                (double)priv->spacing(),
+                priv->autoSpacingActive() ? 1 : 0,
+                (double)priv->autoSpacingCoeff());
+        return;
+    }
+
+    // 常规路径: 绑定实例即工厂 clone (预设私有), 同步写回 XML 确保后续从 XML 重建时不丢失属性
+    applyBrushDefinitionAttributes(bound.data(), *target);
+    rebindBrushDefinitionProperty(bs, bound, *target);
+    RPC_LOG("RPC brushINJECT bound file=%s spacing=%.3f auto=%d coeff=%.3f",
+            bound->filename().toUtf8().constData(),
+            (double)bound->spacing(),
+            bound->autoSpacingActive() ? 1 : 0,
+            (double)bound->autoSpacingCoeff());
+}
+
 
 float ReverieCore::brushPressureFraction(float pressure)
 {
@@ -535,11 +994,18 @@ static QByteArray inflateDataStream(const uchar *src, int srcLen)
 
 void ReverieCore::ensureBrushForPreset(const QString &kppPath)
 {
-    if (m_brushDir.isEmpty() || kppPath.isEmpty()) return;
+    // 不再以 m_brushDir 为前置条件: 内嵌资源走内存注册时磁盘目录可以为空
+    if (kppPath.isEmpty()) return;
     QFile f(kppPath);
     if (!f.open(QIODevice::ReadOnly)) return;
     const QByteArray data = f.readAll();
     f.close();
+
+    // 内嵌资源注册的注入点: 与 loadSingleBrushResource/sideLoadedResources 共用同一本地资源池
+    if (!m_brushResources) {
+        m_brushResources = KisResourcesInterfaceSP(new KisLocalStrokeResources());
+    }
+    KisLocalStrokeResources *lr = dynamic_cast<KisLocalStrokeResources *>(m_brushResources.data());
 
     // Check PNG signature
     if (data.size() < 8 || memcmp(data.constData(), "\x89PNG\r\n\x1a\n", 8) != 0) return;
@@ -629,8 +1095,63 @@ void ReverieCore::ensureBrushForPreset(const QString &kppPath)
                             return mr.hasMatch() ? mr.captured(1).trimmed() : QString();
                         };
                         const QString fn = getAttr(QStringLiteral("filename"));
-                        if (!fn.isEmpty()) {
-                            loadSingleBrushResource(fn);
+                        const QString resType = getAttr(QStringLiteral("type"));
+                        const QString resName = getAttr(QStringLiteral("name"));
+                        const QString resMd5 = resolveMd5HexFromXml(getAttr(QStringLiteral("md5sum")));
+
+                        // S1 前置按名查缓存 (绕开 loadSingleBrushResource 的 isBrush 误判), 命中即已注册
+                        if (memoryResourceAlreadyRegistered({fn, resName},
+                                                            m_loadedBrushes, m_loadedResourceNames)) {
+                            continue;
+                        }
+
+                        // 磁盘优先: 磁盘上有或缓存里已注册过则直接命中
+                        if (!fn.isEmpty() && loadSingleBrushResource(fn)) {
+                            continue;
+                        }
+
+                        // 磁盘缺失 → 内存构造补位 (上游语义: <resource> 文本为资源原始字节的 base64)
+                        const QByteArray resBytes = decodeBase64Safe(b64);
+                        if (resBytes.isEmpty() || !lr) continue;
+
+                        const QString sigFile = QFileInfo(fn).fileName();
+                        const bool isGbr = sigFile.endsWith(QLatin1String(".gbr"), Qt::CaseInsensitive);
+                        const bool isPat = resType == ResourceType::Patterns ||
+                                           sigFile.endsWith(QLatin1String(".pat"), Qt::CaseInsensitive);
+                        if (isPat) {
+                            KoPatternSP pat = registerMemoryPattern(resBytes, resName,
+                                                                    !sigFile.isEmpty() ? sigFile : resName,
+                                                                    resMd5, m_brushResources);
+                            if (pat) {
+                                lr->addResource(KoResourceSP(pat));
+                                rememberLoadedPatternNames({resName, sigFile,
+                                                            QFileInfo(sigFile).completeBaseName()},
+                                                           m_loadedResourceNames);
+                            }
+                        } else if (resType == ResourceType::Brushes ||
+                                   isGbr ||
+                                   sigFile.endsWith(QLatin1String(".png"), Qt::CaseInsensitive)) {
+                            // G1: 无 filename 属性时按 name 回退 (与 pattern 分支同款)
+                            const QString brushFile = !sigFile.isEmpty() ? sigFile : resName;
+                            KisBrushSP b = registerMemoryBrush(resBytes, brushFile, resMd5, isGbr,
+                                                               m_brushResources);
+                            if (b) {
+                                lr->addResource(b.staticCast<KoResource>());
+                                // 原始 filename 带子目录时 (如 "brush tips for DA/xxx.png")
+                                // 追加别名克隆 (仅换 filename, md5/name 不变), 使 kpp 里
+                                // 带子目录引用在无 md5 精确匹配时也能命中内存注册的笔尖
+                                if (!fn.isEmpty() && fn != brushFile) {
+                                    KisBrushSP aliasSp = b->clone().dynamicCast<KisBrush>();
+                                    if (aliasSp) {
+                                        aliasSp->setFilename(fn);
+                                        lr->addResource(aliasSp.staticCast<KoResource>());
+                                    }
+                                }
+                                rememberLoadedBrushNames({fn, brushFile, QFileInfo(brushFile).completeBaseName(),
+                                                          resName},
+                                                         b, m_loadedBrushes);
+                                if (!fn.isEmpty()) m_loadedResourceNames.insert(fn);
+                            }
                         }
                     }
 
@@ -656,9 +1177,39 @@ void ReverieCore::ensureBrushForPreset(const QString &kppPath)
                             auto mrFile = patFileRe.match(xmlStr);
                             const QString patFileName = mrFile.hasMatch() ? QFileInfo(mrFile.captured(1).trimmed()).fileName() : QString();
 
-                            loadSingleBrushResource(patName);
-                            if (!patFileName.isEmpty() && patFileName != patName) {
-                                loadSingleBrushResource(patFileName);
+                            // S1 前置按名查缓存 (绕开 loadSingleBrushResource 的 isBrush 误判):
+                            // 已注册则磁盘与内存两路都跳过, 杜绝同名字内嵌图案重复追加
+                            if (!memoryResourceAlreadyRegistered({patName, patFileName},
+                                                                 m_loadedBrushes, m_loadedResourceNames)) {
+                                // 磁盘优先 (两个文件名都保持原有的加载尝试, 不短路)
+                                bool diskOk = loadSingleBrushResource(patName);
+                                if (!patFileName.isEmpty() && patFileName != patName) {
+                                    diskOk = loadSingleBrushResource(patFileName) || diskOk;
+                                }
+
+                                // 磁盘缺失 → 内存构造补位; MD5 优先取 XML (PatternMD5Sum hex / PatternMD5 md5Base64)
+                                if (!diskOk && lr) {
+                                    static const QRegularExpression patMd5SumRe(
+                                        QStringLiteral("<param\\b[^>]*?name=[\"']Texture/Pattern/PatternMD5Sum[\"'][^>]*>(?:<!\\[CDATA\\[)?([A-Za-z0-9+/=\\r\\n]+)(?:\\]\\]>)?</param>"),
+                                        QRegularExpression::CaseInsensitiveOption);
+                                    static const QRegularExpression patMd5Re(
+                                        QStringLiteral("<param\\b[^>]*?name=[\"']Texture/Pattern/PatternMD5[\"'][^>]*>(?:<!\\[CDATA\\[)?([A-Za-z0-9+/=\\r\\n]+)(?:\\]\\]>)?</param>"),
+                                        QRegularExpression::CaseInsensitiveOption);
+                                    auto mrMd5Sum = patMd5SumRe.match(xmlStr);
+                                    auto mrMd5 = patMd5Re.match(xmlStr);
+                                    const QString md5Hex = resolveMd5HexFromXml(
+                                        mrMd5Sum.hasMatch() ? mrMd5Sum.captured(1) :
+                                        (mrMd5.hasMatch() ? mrMd5.captured(1) : QString()));
+                                    const QString patFile = !patFileName.isEmpty() ? patFileName : patName;
+                                    KoPatternSP pat = registerMemoryPattern(patBytes, patName, patFile,
+                                                                            md5Hex, m_brushResources);
+                                    if (pat) {
+                                        lr->addResource(KoResourceSP(pat));
+                                        rememberLoadedPatternNames({patName, patFile,
+                                                                    QFileInfo(patFile).completeBaseName()},
+                                                                   m_loadedResourceNames);
+                                    }
+                                }
                             }
                         }
                     }
@@ -833,8 +1384,56 @@ bool ReverieCore::loadBrushPresetCommon(const QString &path, const QString &name
                 KoEmbeddedResource er = loadRes.embeddedResource();
                 if (er.isValid()) {
                     const KoResourceSignature sig = er.signature();
-                    if (loadSingleBrushResource(sig.filename)) {
+                    // S1 前置按名查缓存 (绕开 loadSingleBrushResource 的 isBrush 误判), 语义与
+                    // loadSingleBrushResource 的缓存命中返回一致
+                    if (memoryResourceAlreadyRegistered({sig.filename, QFileInfo(sig.filename).fileName(), sig.name},
+                                                        m_loadedBrushes, m_loadedResourceNames)) {
                         addedSideloaded = true;
+                    }
+                    // 磁盘优先
+                    else if (loadSingleBrushResource(sig.filename)) {
+                        addedSideloaded = true;
+                    } else {
+                        // 磁盘缺失 → 直接消费内嵌字节内存构造补位 (不再转磁盘找文件)
+                        const QByteArray bytes = er.data();
+                        const QString md5Hex = resolveMd5HexFromXml(sig.md5sum);
+                        const QString sigFile = QFileInfo(sig.filename).fileName();
+                        const bool isGbr = sigFile.endsWith(QLatin1String(".gbr"), Qt::CaseInsensitive);
+                        const bool isPat = sig.type == ResourceType::Patterns ||
+                                           sigFile.endsWith(QLatin1String(".pat"), Qt::CaseInsensitive);
+                        if (isPat) {
+                            KoPatternSP pat = registerMemoryPattern(bytes, sig.name, sigFile,
+                                                                    md5Hex, m_brushResources);
+                            if (pat && lr) {
+                                lr->addResource(KoResourceSP(pat));
+                                rememberLoadedPatternNames({sig.name, sigFile,
+                                                            QFileInfo(sigFile).completeBaseName()},
+                                                           m_loadedResourceNames);
+                                addedSideloaded = true;
+                            }
+                        } else if (sig.type == ResourceType::Brushes ||
+                                   isGbr ||
+                                   sigFile.endsWith(QLatin1String(".png"), Qt::CaseInsensitive)) {
+                            KisBrushSP b = registerMemoryBrush(bytes, sigFile, md5Hex, isGbr,
+                                                               m_brushResources);
+                            if (b && lr) {
+                                lr->addResource(b.staticCast<KoResource>());
+                                // 原始 filename 带子目录时追加别名克隆 (仅换 filename,
+                                // md5/name 不变), 使带子目录引用在无 md5 精确匹配时也能命中
+                                if (!sig.filename.isEmpty() && sig.filename != sigFile) {
+                                    KisBrushSP aliasSp = b->clone().dynamicCast<KisBrush>();
+                                    if (aliasSp) {
+                                        aliasSp->setFilename(sig.filename);
+                                        lr->addResource(aliasSp.staticCast<KoResource>());
+                                    }
+                                }
+                                rememberLoadedBrushNames({sig.filename, sigFile, QFileInfo(sigFile).completeBaseName(),
+                                                          sig.name},
+                                                         b, m_loadedBrushes);
+                                if (!sig.filename.isEmpty()) m_loadedResourceNames.insert(sig.filename);
+                                addedSideloaded = true;
+                            }
+                        }
                     }
                 }
             } else if (r && lr) {
@@ -854,10 +1453,29 @@ bool ReverieCore::loadBrushPresetCommon(const QString &path, const QString &name
     if (!ok) {
         return false;
     }
+    struct LoadingScope {
+        bool &flag;
+        explicit LoadingScope(bool &f) : flag(f) { flag = true; }
+        ~LoadingScope() { flag = false; }
+    } loadingScope(m_isLoadingPreset);
     m_presetIsEraserOverride = -1; // new preset: heuristic governs until UI asserts
     m_brushPreset = preset;
     m_brushPresetIndex = index;
     m_currentPresetPath = path;
+    // 先注入再读尺寸: paintOpSize() 读到的是已绑定笔尖而非绑定落空时的 1.0 兜底
+    if (m_brushPreset && m_brushPreset->settings()) {
+        if (auto *bsEarly = dynamic_cast<KisBrushBasedPaintOpSettings *>(m_brushPreset->settings().data())) {
+            injectBrushDefinitionProperties(bsEarly, m_brushResources, m_loadedBrushes);
+            if (bsEarly->autoSpacingActive()) {
+                m_brushSpacing = bsEarly->autoSpacingCoeff();
+            } else {
+                const double sp = bsEarly->spacing();
+                if (sp > 0.0 && sp == sp) {
+                    m_brushSpacing = sp;
+                }
+            }
+        }
+    }
     if (m_brushPreset && m_brushPreset->settings()) {
         m_brushPreset->settings()->setEraserMode(m_toolMode == ToolEraser);
         KisPaintOpSettingsSP s = m_brushPreset->settings();
@@ -888,21 +1506,6 @@ bool ReverieCore::loadBrushPresetCommon(const QString &path, const QString &name
         m_brushFlow = qBound(0.0, s->getDouble("FlowValue", 1.0), 1.0);
         m_brushAngle = s->paintOpAngle();
         m_brushRotation = 0.0;
-        KisBrushBasedPaintOpSettings *bs = dynamic_cast<KisBrushBasedPaintOpSettings *>(s.data());
-        if (bs) {
-            if (bs->autoSpacingActive()) {
-                m_brushSpacing = bs->autoSpacingCoeff();
-            } else {
-                const double sp = bs->spacing();
-                if (sp > 0.0 && sp == sp) {
-                    m_brushSpacing = sp;
-                }
-            }
-            const qreal parsed = bs->autoSpacingActive() ? bs->autoSpacingCoeff() : bs->spacing();
-            if (isColorSmudgePreset(m_brushPreset) && parsed > 0.0 && std::isfinite(parsed)) {
-                writeBrushSpacing(bs, m_brushPreset, m_brushSize, parsed);
-            }
-        }
     }
     setBrushSize(m_brushSize);
     setBrushOpacity(m_brushOpacity);
@@ -910,13 +1513,36 @@ bool ReverieCore::loadBrushPresetCommon(const QString &path, const QString &name
     KisBrushBasedPaintOpSettings *bs =
         dynamic_cast<KisBrushBasedPaintOpSettings *>(m_brushPreset->settings().data());
     if (bs) {
+        // R6: 注入必须在 setBrushSize/Opacity/Flow 等所有 setProperty 执行完毕后作为最后一道收口门禁执行,
+        // 防止被 onPropertyChanged() -> m_savedBrush.clear() 冲刷抹除
+        injectBrushDefinitionProperties(bs, m_brushResources, m_loadedBrushes);
+        if (bs->autoSpacingActive()) {
+            m_brushSpacing = bs->autoSpacingCoeff();
+        } else {
+            const double sp = bs->spacing();
+            if (sp > 0.0 && sp == sp) {
+                m_brushSpacing = sp;
+            }
+        }
+        const qreal parsed = bs->autoSpacingActive() ? bs->autoSpacingCoeff() : bs->spacing();
+        if (isColorSmudgePreset(m_brushPreset) && parsed > 0.0 && std::isfinite(parsed)) {
+            writeBrushSpacing(bs, m_brushPreset, m_brushSize, parsed);
+        }
         KisBrushSP b = bs->brush();
         if (b) {
-            const QImage tip = b->brushTipImage();
-            RPC_LOG("RPC brushRESOLVED file=%s tip=%dx%d valid=%d spacing=%.3f",
+            // 不要调用 brushTipImage(): 对 IMAGESTAMP/LIGHTNESSMAP 或未惰性解码的笔尖会触发
+            // Krita kis_brush.cpp 的 SAFE ASSERT (每次载预设都打栈回溯)。只读整型成员即可。
+            RPC_LOG("RPC brushRESOLVED file=%s tip=%dx%d valid=%d spacing=%.3f auto=%d coeff=%.3f",
                     b->filename().toUtf8().constData(),
-                    tip.width(), tip.height(), b->valid() ? 1 : 0,
-                    (double)b->spacing());
+                    b->width(), b->height(), b->valid() ? 1 : 0,
+                    (double)b->spacing(),
+                    b->autoSpacingActive() ? 1 : 0,
+                    (double)b->autoSpacingCoeff());
+            if (reverie::isDegenerateTip(b->width(), b->height(), b->valid())) {
+                RPC_LOG("RPC brushDEGENERATE tip=%dx%d valid=%d preset=%s (single-pixel / invalid tip: strokes will paint a speck)",
+                        b->width(), b->height(), b->valid() ? 1 : 0,
+                        m_currentPresetPath.toUtf8().constData());
+            }
         } else {
             RPC_LOG("RPC brushNULL");
         }
@@ -952,9 +1578,9 @@ bool ReverieCore::currentTipResolved()
         dynamic_cast<KisBrushBasedPaintOpSettings *>(m_brushPreset->settings().data());
     if (bs) {
         KisBrushSP b = bs->brush();
-        if (b && b->valid()) {
-            const QImage tip = b->brushTipImage();
-            return !tip.isNull() && tip.width() > 0 && tip.height() > 0;
+        if (b) {
+            // 语义: 笔刷有效且笔尖尺寸非零。不调用 brushTipImage(), 避免触发 SAFE ASSERT。
+            return b->valid() && b->width() > 0 && b->height() > 0;
         }
     }
     return false;
@@ -1093,7 +1719,10 @@ bool ReverieCore::ensurePresetInfo(int index, CachedPresetInfo &out)
                 KoEmbeddedResource er = loadRes.embeddedResource();
                 if (er.isValid()) {
                     const KoResourceSignature sig = er.signature();
-if (loadSingleBrushResource(sig.filename)) {
+                    // 有意与 loadBrushPresetCommon 不同: 此处不做内存构造补位。
+                    // 本路径仅用于预设信息展示 (名字/缩略图), 展示无需解码内嵌字节,
+                    // 真正的笔画用资源注册统一在 loadBrushPresetCommon 完成, 避免重复注册。
+                    if (loadSingleBrushResource(sig.filename)) {
                         addedSideloaded = true;
                     }
                 }
@@ -1127,6 +1756,13 @@ if (loadSingleBrushResource(sig.filename)) {
     CachedPresetInfo info;
     info.mtimeMs = mtimeMs;
     info.fileSize = fsize;
+
+    // R5-A: 与 loadBrushPresetCommon 同款绑定注入, 保证信息提取路径读到的
+    // spacing/autoSpacing 与实际笔画用的绑定笔刷一致 (否则 UI 出厂间距会退化成
+    // 笔尖文件内嵌的线性值)
+    injectBrushDefinitionProperties(
+        dynamic_cast<KisBrushBasedPaintOpSettings *>(s.data()),
+        m_brushResources, m_loadedBrushes);
 
     // ---- defaults (原 brushPresetDefaults 的提取逻辑) ----
     double size = s->paintOpSize();
@@ -1348,10 +1984,28 @@ void ReverieCore::setBrushSize(qreal v)
 {
     m_brushSize = v;
     if (m_brushPreset && m_brushPreset->settings()) {
-        m_brushPreset->settings()->setPaintOpSize(v);
-        // 尺寸变化会改变湿笔间距下限 (先选预设再把尺寸拉到 400px 的情况)
         auto *bs = dynamic_cast<KisBrushBasedPaintOpSettings *>(m_brushPreset->settings().data());
-        if (bs && isColorSmudgePreset(m_brushPreset) && m_brushSpacing > 0.0) {
+        // 守卫: setPaintOpSize 在上游经 BrushWriter 读-改-写 brush_definition;
+        // 绑定落空时会把 1x1 兜底 auto_brush 回写, 之后 injectBrushDefinitionProperties 因 auto_brush 早退
+        const QString defBefore = bs ? bs->getString(QStringLiteral("brush_definition")) : QString();
+        m_brushPreset->settings()->setPaintOpSize(v);
+        if (bs) {
+            const QString defAfter = bs->getString(QStringLiteral("brush_definition"));
+            if (reverie::brushDefDowngraded(defBefore.toStdString(), defAfter.toStdString())) {
+                RPC_LOG("RPC brushDEGENERATE downgraded %s -> auto_brush after setPaintOpSize(%.2f); restoring",
+                        reverie::brushDefType(defBefore.toStdString()).c_str(), double(v));
+                bs->setProperty(QStringLiteral("brush_definition"), defBefore);
+                injectBrushDefinitionProperties(bs, m_brushResources, m_loadedBrushes);
+                // 救援成功 (已绑定到池内带文件名的笔尖) 才把尺寸再写一次; 否则保持原定义不动
+                KisBrushSP rescued = bs->brush();
+                if (rescued && !rescued->filename().isEmpty()) {
+                    m_brushPreset->settings()->setPaintOpSize(v);
+                }
+            }
+        }
+        // 尺寸变化会改变湿笔间距下限 (先选预设再把尺寸拉到 400px 的情况)
+        // 预设加载过程中严禁调用: 加载收口已由 loadBrushPresetCommon 尾部统一完成, 此处调用会造成旧间距污染或覆盖
+        if (!m_isLoadingPreset && bs && isColorSmudgePreset(m_brushPreset) && m_brushSpacing > 0.0) {
             writeBrushSpacing(bs, m_brushPreset, m_brushSize, m_brushSpacing);
         }
     }
@@ -1512,207 +2166,20 @@ void ReverieCore::setBrushRotation(qreal v)
 void ReverieCore::setToolMode(int mode)
 {
     m_toolMode = ToolMode(mode);
-    // 离开橡皮工具时清掉"预设是橡皮"的显式覆盖:
-    // 这个覆盖是 UI 在加载预设后断言的 (setPresetIsEraser), 一旦那次加载失败 /
-    // 被上层跳过 / 临时橡皮快照没还原, 它就会顽固地留在 1, 于是普通画笔落笔时
-    // `erasing = (m_toolMode == ToolEraser) || isEraserPreset` 仍成立 ——
-    // 用户看到的就是"切回自定义画笔却变成橡皮"。工具态是 UI 每切一次都会重推的
-    // 权威状态, 回到非橡皮模式时让判断退回预设自身名字的启发式即可。
-    if (m_toolMode != ToolEraser) {
-        m_presetIsEraserOverride = -1;
-    }
     if (m_brushPreset && m_brushPreset->settings()) {
         m_brushPreset->settings()->setEraserMode(m_toolMode == ToolEraser);
     }
-    // 橡皮/画笔串台排查用: 一行看清"工具态 + 显式覆盖位 + 当前预设"
-    RPC_LOG("RPC toolMode mode=%d presetEraserOverride=%d presetIdx=%d preset=%s",
-            int(m_toolMode), m_presetIsEraserOverride, m_brushPresetIndex,
-            m_brushPreset ? m_brushPreset->name().toUtf8().constData() : "none");
 }
 
 void ReverieCore::setPresetIsEraser(bool eraser)
 {
     m_presetIsEraserOverride = eraser ? 1 : 0;
-    RPC_LOG("RPC presetIsEraser=%d presetIdx=%d preset=%s",
-            m_presetIsEraserOverride, m_brushPresetIndex,
-            m_brushPreset ? m_brushPreset->name().toUtf8().constData() : "none");
 }
 
 void ReverieCore::setBrushCompositeOp(const QString &op)
 {
     if (m_brushPreset && m_brushPreset->settings()) {
         m_brushPreset->settings()->setPaintOpCompositeOp(op);
-    }
-}
-
-void ReverieCore::setBrushPressureDynamics(bool enabled, qreal sizeStrength, qreal opacityStrength, qreal flowStrength, int curveType)
-{
-    if (!m_brushPreset || !m_brushPreset->settings()) return;
-    KisPaintOpSettingsSP s = m_brushPreset->settings();
-
-    // Invalidate size curve cache for cursor ring
-    {
-        QMutexLocker locker(&m_sizeCurveMutex);
-        m_sizeCurveOwner = nullptr;
-    }
-
-    if (!enabled) {
-        s->setProperty("PressureSize", false);
-        s->setProperty("SizeUseCurve", false);
-        s->setProperty("PressureOpacity", false);
-        s->setProperty("OpacityUseCurve", false);
-        s->setProperty("PressureFlow", false);
-        s->setProperty("FlowUseCurve", false);
-        return;
-    }
-
-    QString curveStr;
-    switch (curveType) {
-    case 1: // Soft
-        curveStr = QStringLiteral("0,0;0.25,0.5;0.75,0.9;1,1;");
-        break;
-    case 2: // Hard
-        curveStr = QStringLiteral("0,0;0.25,0.1;0.75,0.5;1,1;");
-        break;
-    case 3: // S-curve
-        curveStr = QStringLiteral("0,0;0.25,0.1;0.75,0.9;1,1;");
-        break;
-    case 0: // Linear
-    default:
-        curveStr = QStringLiteral("0,0;1,1;");
-        break;
-    }
-
-    auto makeSensorXml = [&](const char *sensorPropKey) {
-        QString current = s->getString(sensorPropKey);
-        QString sid = QStringLiteral("pressure");
-        if (!current.isEmpty()) {
-            QRegularExpression re(QStringLiteral("id=\"([^\"]+)\""));
-            auto m = re.match(current);
-            if (m.hasMatch()) {
-                sid = m.captured(1);
-            }
-        }
-        if (sid == QStringLiteral("drawingangle")) {
-            return QStringLiteral("<!DOCTYPE params><params fanCornersStep=\"30\" fanCornersEnabled=\"0\" angleOffset=\"0\" id=\"drawingangle\"><curve>%1</curve></params>").arg(curveStr);
-        } else {
-            return QStringLiteral("<!DOCTYPE params><params id=\"%1\"><curve>%2</curve></params>").arg(sid, curveStr);
-        }
-    };
-
-    const bool useSize = (sizeStrength > 0.001);
-    s->setProperty("PressureSize", useSize);
-    s->setProperty("SizeUseCurve", useSize);
-    s->setProperty("SizeValue", sizeStrength);
-    if (useSize) {
-        s->setProperty("SizeSensor", makeSensorXml("SizeSensor"));
-    }
-
-    const bool useOpacity = (opacityStrength > 0.001);
-    s->setProperty("PressureOpacity", useOpacity);
-    s->setProperty("OpacityUseCurve", useOpacity);
-    if (useOpacity) {
-        s->setProperty("OpacitySensor", makeSensorXml("OpacitySensor"));
-    }
-
-    const bool useFlow = (flowStrength > 0.001);
-    s->setProperty("PressureFlow", useFlow);
-    s->setProperty("FlowUseCurve", useFlow);
-    if (useFlow) {
-        s->setProperty("FlowSensor", makeSensorXml("FlowSensor"));
-    }
-}
-
-void ReverieCore::setBrushOptionDynamics(const QString &optionName, bool enabled, const QString &sensorId, const QString &curvePoints, qreal strength)
-{
-    if (!m_brushPreset || !m_brushPreset->settings()) return;
-    KisPaintOpSettingsSP s = m_brushPreset->settings();
-
-    QString opt = optionName.trimmed();
-    if (opt.isEmpty()) return;
-    opt = opt.left(1).toUpper() + opt.mid(1);
-
-    if (opt.compare("Size", Qt::CaseInsensitive) == 0) {
-        QMutexLocker locker(&m_sizeCurveMutex);
-        m_sizeCurveOwner = nullptr;
-    }
-
-    const QString pressKey = QStringLiteral("Pressure%1").arg(opt);
-    const QString curveKey = QStringLiteral("%1UseCurve").arg(opt);
-    const QString valKey   = QStringLiteral("%1Value").arg(opt);
-    const QString sensorKey = QStringLiteral("%1Sensor").arg(opt);
-
-    if (!enabled) {
-        s->setProperty(pressKey.toLatin1().constData(), false);
-        s->setProperty(curveKey.toLatin1().constData(), false);
-        return;
-    }
-
-    s->setProperty(pressKey.toLatin1().constData(), true);
-    s->setProperty(curveKey.toLatin1().constData(), true);
-    const bool isMasterAttr = (opt.compare(QLatin1String("Opacity"), Qt::CaseInsensitive) == 0) ||
-                             (opt.compare(QLatin1String("Flow"), Qt::CaseInsensitive) == 0) ||
-                             (opt.compare(QLatin1String("Spacing"), Qt::CaseInsensitive) == 0);
-    if (!isMasterAttr) {
-        s->setProperty(valKey.toLatin1().constData(), strength);
-    }
-
-    QString formattedCurve = curvePoints.trimmed();
-    if (!formattedCurve.isEmpty() && !formattedCurve.endsWith(';')) {
-        formattedCurve.append(';');
-    }
-    if (formattedCurve.isEmpty()) {
-        formattedCurve = QStringLiteral("0,0;1,1;");
-    }
-
-    QString sensor = sensorId.trimmed().toLower();
-    if (sensor.isEmpty()) {
-        sensor = QStringLiteral("pressure");
-    }
-
-    QString sensorXml;
-    if (sensor == QStringLiteral("drawingangle")) {
-        sensorXml = QStringLiteral("<!DOCTYPE params><params fanCornersStep=\"30\" fanCornersEnabled=\"0\" angleOffset=\"0\" id=\"drawingangle\"><curve>%1</curve></params>").arg(formattedCurve);
-    } else {
-        sensorXml = QStringLiteral("<!DOCTYPE params><params id=\"%1\"><curve>%2</curve></params>").arg(sensor, formattedCurve);
-    }
-
-    s->setProperty(sensorKey.toLatin1().constData(), sensorXml);
-}
-
-void ReverieCore::setBrushFollowDirection(bool enabled)
-{
-    if (!m_brushPreset || !m_brushPreset->settings()) return;
-    KisPaintOpSettingsSP s = m_brushPreset->settings();
-    if (enabled) {
-        s->setProperty("PressureRotation", true);
-        s->setProperty("RotationUseCurve", true);
-        s->setProperty("RotationSensor", QStringLiteral("<!DOCTYPE params><params fanCornersStep=\"30\" fanCornersEnabled=\"0\" angleOffset=\"0\" id=\"drawingangle\"><curve>0,0;1,1;</curve></params>"));
-        s->setProperty("RotationValue", 1.0);
-    } else {
-        const QString sensorXml = s->getString("RotationSensor");
-        if (sensorXml.contains(QStringLiteral("id=\"drawingangle\""))) {
-            s->setProperty("PressureRotation", false);
-            s->setProperty("RotationUseCurve", false);
-        }
-    }
-}
-
-void ReverieCore::setBrushJitter(qreal jitterAngle, qreal jitterSize)
-{
-    if (!m_brushPreset || !m_brushPreset->settings()) return;
-    KisPaintOpSettingsSP s = m_brushPreset->settings();
-    if (jitterAngle > 0.001) {
-        s->setProperty("PressureRotation", true);
-        s->setProperty("RotationUseCurve", true);
-        s->setProperty("RotationValue", jitterAngle);
-        s->setProperty("RotationSensor", QStringLiteral("<!DOCTYPE params><params id=\"fuzzy\"><curve>0,0;1,1;</curve></params>"));
-    }
-    if (jitterSize > 0.001) {
-        s->setProperty("PressureSize", true);
-        s->setProperty("SizeUseCurve", true);
-        s->setProperty("SizeValue", jitterSize);
-        s->setProperty("SizeSensor", QStringLiteral("<!DOCTYPE params><params id=\"fuzzy_per_dab\"><curve>0,0;1,1;</curve></params>"));
     }
 }
 
@@ -1733,30 +2200,94 @@ void ReverieCore::setBrushAntiAliasing(int level)
     s->setProperty("antialiasEdges", aa);
 }
 
-/*
- * 涂抹类预设 (colorsmudge) 的 Lightness 策略要求画笔设备上挂着
- * KisColorSmudgeInterstrokeData: 真机笔画里这份数据由 KisTransaction 通过
- * interstroke factory 注入, 而画笔工作室的取样预览没有事务 —— 策略会走
- * KIS_SAFE_ASSERT_RECOVER 兜底分支, 那条分支又忘了给 layer overlay 指针赋值,
- * 第一次 readRects 就解引用空指针 SIGSEGV (1.6.2 线上 51f7f06d17)。
- *
- * 这里直接按预设自带的 factory 手工挂一份数据, 让预览与真笔画走同一条策略路径;
- * 预览结束 (或下一次 Start) 再摘掉。非涂抹预设的 factory 返回空, 调用是 no-op。
- */
+// 试画板异步 dab 管线的同步驱动: 逐批跑完 paintop 的渲染 job, 直到不再产出新 job。
+// job 执行复用主画布 runStrokeJobsBatch 的保序并行语义 (reverieRunStrokeJobsBatch,
+// 声明见 ReverieCoreInternal.h), 单条 job 仍按序, 不改变任何时序契约。
+template <typename Fn>
+static void scratchpadRunJobs(Fn fn, qreal brushSize, ReverieCore::ParallelStrokeJobsExecutor *executor = nullptr)
+{
+    if (executor) {
+        executor->flushPendingJobs(brushSize);
+    }
+    while (true) {
+        QVector<KisRunnableStrokeJobData *> jobs;
+        auto result = fn(jobs);
+        reverieRunStrokeJobsBatch(jobs, brushSize);
+        if (jobs.isEmpty() || !result.second) {
+            break;
+        }
+    }
+}
+
+void ReverieCore::scratchpadReleaseStroke()
+{
+    // 释放一笔的全部绘制状态 (蒙版链路先于 painter, 同主画布 endStrokeBatch 顺序)
+    delete m_scratchpadMaskedPainter;
+    m_scratchpadMaskedPainter = nullptr;
+    delete m_scratchpadMaskStrokeInfo;
+    m_scratchpadMaskStrokeInfo = nullptr;
+    delete m_scratchpadMaskInfo;
+    m_scratchpadMaskInfo = nullptr;
+    delete m_scratchpadMaskRenderer;
+    m_scratchpadMaskRenderer = nullptr;
+    if (m_scratchpadPainter) {
+        m_scratchpadPainter->end();
+        delete m_scratchpadPainter;
+        m_scratchpadPainter = nullptr;
+    }
+    if (m_scratchpadDistInfo) {
+        delete m_scratchpadDistInfo;
+        m_scratchpadDistInfo = nullptr;
+    }
+    m_scratchpadTempDev.clear();
+    m_scratchpadIndirectCompOp.clear();
+    m_scratchpadRandom.clear();
+    m_scratchpadPerStrokeRandom.clear();
+    m_scratchpadStrokeActive = false;
+}
+
+void ReverieCore::scratchpadAccumulateDirty(const QVector<QRect> &exactDirty, const QRect &fallbackRect)
+{
+    QRect exactUnion;
+    for (const QRect &r : exactDirty) {
+        m_scratchpadDirtyRect |= r;
+        if (!r.isEmpty()) {
+            exactUnion = exactUnion.isNull() ? r : exactUnion.united(r);
+        }
+    }
+    // 部分引擎 (鬃毛/散布类) 的 takeDirtyRegion() 低报 (只回报几像素见方的中心块)
+    // 或不报: 按它标脏会让试画板运笔期间缺墨。与主画布 flushStrokeBatch 同款判定,
+    // 低报/不报时用调用方给的样本段/样本点矩形兜底标脏。
+    const int minExpectedSpan = qMax(4, int(m_brushSize * 0.25));
+    const bool underReported = !exactDirty.isEmpty() && m_brushSize >= 6.0 &&
+        (exactUnion.width() < minExpectedSpan || exactUnion.height() < minExpectedSpan);
+    if (fallbackRect.isValid() && (exactDirty.isEmpty() || underReported)) {
+        m_scratchpadDirtyRect |= fallbackRect;
+    }
+}
+
 void ReverieCore::ensureScratchpadInterstrokeData()
 {
     if (!m_scratchpadDev || !m_brushPreset) {
         return;
     }
-    KisInterstrokeDataFactory *factory =
-        KisPaintOpRegistry::instance()->createInterstrokeDataFactory(m_brushPreset);
+    KisPaintOpPresetSP preset = m_brushPreset;
+    const bool isColorSmudge = (preset->paintOp().id() == QStringLiteral("colorsmudge")) ||
+                               (m_toolMode == ToolSmudge);
+    KisInterstrokeDataFactory *factory = nullptr;
+    if (isColorSmudge && preset->paintOp().id() != QStringLiteral("colorsmudge")) {
+        KisPaintOpFactory *smudgeFactory =
+            KisPaintOpRegistry::instance()->get(QStringLiteral("colorsmudge"));
+        if (smudgeFactory) {
+            factory = smudgeFactory->createInterstrokeDataFactory(preset->settings(), m_brushResources);
+        }
+    } else {
+        factory = KisPaintOpRegistry::instance()->createInterstrokeDataFactory(preset);
+    }
     if (!factory) {
-        // 当前预设不需要 interstroke data: 摘掉旧的, 避免别的策略拿到涂抹专用设备
         detachScratchpadInterstrokeData();
         return;
     }
-    // 画笔工作室切换预设不会重建预览设备, 所以每次落笔前都要对齐一次;
-    // 同一类预设 (factory 认为兼容) 直接复用, 不重新分配 overlay。
     const KisInterstrokeDataSP existing = m_scratchpadDev->interstrokeData();
     if (existing && factory->isCompatible(existing.data())) {
         delete factory;
@@ -1795,147 +2326,307 @@ bool ReverieCore::scratchpadStart(int w, int h)
         ? m_document->colorSpace()
         : KoColorSpaceRegistry::instance()->rgb8();
     if (!m_scratchpadDev || m_scratchpadWidth != w || m_scratchpadHeight != h) {
-        // 换设备前先摘掉引用旧设备的 interstroke data, 否则涂抹策略会拿着悬空的 overlay
         detachScratchpadInterstrokeData();
         m_scratchpadDev = new KisPaintDevice(cs);
         m_scratchpadWidth = w;
         m_scratchpadHeight = h;
     }
+    scratchpadReleaseStroke();
     m_scratchpadDev->clear();
-    if (m_scratchpadPainter) {
-        m_scratchpadPainter->end();
-        delete m_scratchpadPainter;
-        m_scratchpadPainter = nullptr;
-    }
-    if (m_scratchpadDistInfo) {
-        delete m_scratchpadDistInfo;
-        m_scratchpadDistInfo = nullptr;
-    }
-    m_scratchpadStrokeActive = false;
+    // 画布 (重) 建立后第一帧必须整幅重绘 (Kotlin 侧此时换了新 Bitmap, 旧内容不可信)
+    m_scratchpadPreviewDev = nullptr;
+    m_scratchpadDirtyRect = QRect(0, 0, m_scratchpadWidth, m_scratchpadHeight);
+    m_scratchpadPrevTempRect = QRect();
+    m_scratchpadFullDirty = true;
     return true;
 }
 
 bool ReverieCore::scratchpadStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation)
 {
     if (!m_scratchpadDev || !m_brushPreset) return false;
-    // 涂抹类预设的策略要求设备上挂着 interstroke data (真笔画由事务注入, 预览没有事务)
+    // 涂抹类预设策略要求设备上挂着 interstroke data (真笔画由事务注入, 预览没有事务)
     ensureScratchpadInterstrokeData();
-    if (m_scratchpadPainter) {
-        m_scratchpadPainter->end();
-        delete m_scratchpadPainter;
-        m_scratchpadPainter = nullptr;
+    // 丢弃上一笔可能残留的每笔状态 (painter / 蒙版链路 / 间接暂存 / 随机源)
+    scratchpadReleaseStroke();
+
+    KisPaintOpSettingsSP s = m_brushPreset->settings();
+    const QString paintOpId = m_brushPreset->paintOp().id();
+    // 读取目标设备既有像素的引擎必须直绘 (同主画布 flushStrokeBatch):
+    // 重定向到空白间接目标后读到的全是透明像素, 落笔等于空操作。
+    const bool isSmudgeOp = paintOpId == QStringLiteral("colorsmudge");
+    const bool readsLayerPixels = isSmudgeOp ||
+        paintOpId == QStringLiteral("deformbrush") ||
+        paintOpId == QStringLiteral("filter") ||
+        paintOpId == QStringLiteral("duplicate");
+    const bool hasMasking = !isSmudgeOp && m_brushPreset->hasMaskingPreset();
+    const bool indirect = (!readsLayerPixels && s && !s->paintIncremental()) || hasMasking;
+
+    const bool erasing = (m_presetIsEraserOverride == 1);
+    QString effectiveOp = QStringLiteral("normal");
+    if (erasing) {
+        effectiveOp = QStringLiteral("erase");
+    } else if (s) {
+        effectiveOp = s->effectivePaintOpCompositeOp();
+        if (effectiveOp.isEmpty() || effectiveOp == QLatin1String("erase")) {
+            effectiveOp = QStringLiteral("normal");
+        }
     }
-    if (m_scratchpadDistInfo) {
-        delete m_scratchpadDistInfo;
-        m_scratchpadDistInfo = nullptr;
+    // 同主画布: 间接 dab 用 indirectPaintingCompositeOp, 直绘用 effectiveOp;
+    // eraser 的 erase 落在合并阶段 (间接) 或直绘 compOp (直接)。
+    const QString painterCompOp = indirect
+        ? (s ? s->indirectPaintingCompositeOp() : QStringLiteral("alphadarken"))
+        : effectiveOp;
+
+    // 每笔时间基准与随机源 (与主画布 touchStrokeStart 同构, per-stroke 独立)
+    m_scratchpadStrokeT0.start();
+    m_scratchpadLastSampleSec = m_scratchpadStrokeT0.elapsed() / 1000.0;
+    m_scratchpadRandom = new KisRandomSource(int(QRandomGenerator::global()->generate()));
+    m_scratchpadPerStrokeRandom = new KisPerStrokeRandomSource();
+
+    // 间接暂存设备: dab 先落 temp, 抬笔按 effectiveOp + m_brushOpacity 一次性合并
+    if (indirect) {
+        m_scratchpadTempDev = m_scratchpadDev->createCompositionSourceDevice();
+        m_scratchpadIndirectCompOp = effectiveOp;
+    }
+    KisPaintDeviceSP target = indirect ? m_scratchpadTempDev : m_scratchpadDev;
+    if (!target) {
+        scratchpadReleaseStroke();
+        return false;
     }
 
-    m_scratchpadPainter = new KisPainter(m_scratchpadDev);
-    m_scratchpadPainter->setRunnableStrokeJobsInterface(&m_fakeExecutor);
-
+    // 节点始终包目标设备 (同主画布: painter 落 tempTarget, 节点是目标图层)
     KisNodeSP node = new KisPaintLayer(m_document, QStringLiteral("ScratchPad"), OPACITY_OPAQUE_U8, m_scratchpadDev);
-    m_scratchpadPainter->setPaintOpPreset(m_brushPreset, node, m_document);
 
-    const KoColorSpace *cs = m_scratchpadDev->colorSpace();
+    // 与主画布 flushStrokeBatch 的 indirect 挂载契约对齐: 间接笔程内把 temp 设备挂到
+    // 节点上, paintop 创建 (setPaintOpPreset) 时 KisFlowOpacityOption2 检测到
+    // node->hasTemporaryTarget() 会跳过逐 dab 的 OpacityValue 强度乘法 (只保留传感器
+    // 曲线), 强度改由抬笔合并/实时预览的 m_brushOpacity 一次性承担, 消除
+    // "逐 dab × 抬笔合并" 双乘。必须在下方两处 setPaintOpPreset 之前挂载 (选项在
+    // paintop 构造时固化)。试画板无选区/alpha 锁, 不挂 TemporarySelection/ChannelFlags。
+    if (indirect) {
+        KisPaintLayer *scratchLayer = dynamic_cast<KisPaintLayer *>(node.data());
+        if (scratchLayer) {
+            m_scratchpadTempDev->setParentNode(scratchLayer);
+            scratchLayer->setTemporaryTarget(m_scratchpadTempDev);
+            scratchLayer->setTemporaryCompositeOp(effectiveOp);
+            scratchLayer->setTemporaryOpacity(qBound<qreal>(0.0, m_brushOpacity, 1.0));
+        }
+    }
+
+    const KoColorSpace *cs = target->colorSpace();
     QColor qColor(m_brushColor);
     if (!qColor.isValid()) qColor = Qt::black;
-    m_scratchpadPainter->setPaintColor(KoColor(qColor, cs));
+    const KoColor koColor(qColor, cs);
 
     QColor qBgColor(m_brushSecondaryColor);
     if (!qBgColor.isValid()) qBgColor = Qt::white;
-    m_scratchpadPainter->setBackgroundColor(KoColor(qBgColor, cs));
-
-    m_scratchpadPainter->setOpacityF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
-    QString compOp = m_brushPreset->settings() ? m_brushPreset->settings()->effectivePaintOpCompositeOp() : QStringLiteral("normal");
-    if (m_presetIsEraserOverride == 1) {
-        compOp = QStringLiteral("erase");
-    }
-    m_scratchpadPainter->setCompositeOpId(compOp.isEmpty() ? QStringLiteral("normal") : compOp);
+    const KoColor koBgColor(qBgColor, cs);
 
     const QPointF pt(x, y);
-    m_scratchpadDistInfo = new KisDistanceInformation(pt, 0.0);
-    m_scratchpadTimer.start();
-    KisPaintInformation pi(pt, pressure, tiltX, tiltY, rotation, 0.0, 1.0, 0.0, 0.0);
-    m_scratchpadPainter->paintAt(pi, m_scratchpadDistInfo);
+    m_scratchpadLastSample = StrokeSample{pt, pressure, tiltX, tiltY, rotation, 0.0};
+    const reverie::StrokePaintSample startSample{pt, pressure, tiltX, tiltY, rotation, 0.0};
+    const KisPaintInformation pi =
+        reverie::makePaintInfo(startSample, 0.0, m_scratchpadRandom, m_scratchpadPerStrokeRandom);
 
-    if (KisPaintOp *op = m_scratchpadPainter->paintOp()) {
-        while (true) {
-            QVector<KisRunnableStrokeJobData *> jobs;
-            auto result = op->doAsynchronousUpdate(jobs);
-            for (auto *j : jobs) {
-                j->run();
-                delete j;
+    // 双笔刷蒙版链路兜底 (同主画布): 渲染器/蒙版预设任一不可用都退回普通单笔刷
+    KisPaintOpPresetSP maskingPreset;
+    if (hasMasking) {
+        const QString maskingCompOpId = s
+            ? s->maskingBrushCompositeOp()
+            : QStringLiteral("alphadarken");
+        m_scratchpadMaskRenderer = new KisMaskingBrushRenderer(target, maskingCompOpId);
+        if (!m_scratchpadMaskRenderer->strokeDevice() || !m_scratchpadMaskRenderer->maskDevice()) {
+            delete m_scratchpadMaskRenderer;
+            m_scratchpadMaskRenderer = nullptr;
+        } else {
+            maskingPreset = m_brushPreset->createMaskingPreset();
+            if (maskingPreset) {
+                if (maskingPreset->settings()) {
+                    injectBrushDefinitionProperties(
+                        dynamic_cast<KisBrushBasedPaintOpSettings *>(maskingPreset->settings().data()),
+                        m_brushResources, m_loadedBrushes);
+                }
+                // alpha8 掩膜下把 IMAGESTAMP 副笔刷的灰度烘进 alpha (同主画布创建点)
+                maskingPreset = adaptMaskingPresetForAlpha8Mask(
+                    maskingPreset, reverieMaskingBrushMaskIsAlpha(), m_brushResources.data());
+                if (maskingPreset && maskingPreset->settings()) {
+                    injectBrushDefinitionProperties(
+                        dynamic_cast<KisBrushBasedPaintOpSettings *>(maskingPreset->settings().data()),
+                        m_brushResources, m_loadedBrushes);
+                }
             }
-            if (jobs.isEmpty() || !result.second) {
-                break;
+            if (!maskingPreset) {
+                delete m_scratchpadMaskRenderer;
+                m_scratchpadMaskRenderer = nullptr;
             }
         }
     }
 
-    m_scratchpadLastSample = StrokeSample{pt, pressure, tiltX, tiltY, rotation, 0.0};
+    if (m_scratchpadMaskRenderer && maskingPreset) {
+        KisDistanceInformation startDist(pt, 0.0);
+        m_scratchpadMaskStrokeInfo = new KisFreehandStrokeInfo(startDist);
+        m_scratchpadMaskInfo = new KisFreehandStrokeInfo(startDist);
+
+        KisPainter *strokeP = m_scratchpadMaskStrokeInfo->painter;
+        strokeP->begin(m_scratchpadMaskRenderer->strokeDevice(), nullptr);
+        strokeP->setRunnableStrokeJobsInterface(&m_fakeExecutor);
+        strokeP->setFillStyle(KisPainter::FillStyleForegroundColor);
+        strokeP->setStrokeStyle(KisPainter::StrokeStyleBrush);
+        strokeP->setCompositeOpId(QStringLiteral("alphadarken"));
+        strokeP->setOpacityToUnit();
+        strokeP->setPaintColor(koColor);
+        strokeP->setBackgroundColor(koBgColor);
+        strokeP->setChannelFlags(QBitArray());
+        strokeP->setPaintOpPreset(m_brushPreset, node, m_document);
+
+        KisPainter *maskP = m_scratchpadMaskInfo->painter;
+        maskP->begin(m_scratchpadMaskRenderer->maskDevice(), nullptr);
+        maskP->setRunnableStrokeJobsInterface(&m_fakeExecutor);
+        maskP->setFillStyle(KisPainter::FillStyleForegroundColor);
+        maskP->setStrokeStyle(KisPainter::StrokeStyleBrush);
+        maskP->setCompositeOpId(QStringLiteral("alphadarken"));
+        maskP->setOpacityToUnit();
+        maskP->setPaintColor(KoColor(Qt::white, maskP->device()->colorSpace()));
+        maskP->setBackgroundColor(KoColor(Qt::black, maskP->device()->colorSpace()));
+        maskP->setChannelFlags(QBitArray());
+        maskP->setPaintOpPreset(maskingPreset, node, m_document);
+
+        m_scratchpadMaskedPainter = new KisMaskedFreehandStrokePainter(m_scratchpadMaskStrokeInfo, m_scratchpadMaskInfo);
+        m_scratchpadMaskedPainter->paintAt(pi);
+        scratchpadRunJobs([this](QVector<KisRunnableStrokeJobData *> &jobs) {
+            return m_scratchpadMaskedPainter->doAsynchronousUpdate(jobs);
+        }, m_brushSize, &m_fakeExecutor);
+        if (m_scratchpadMaskRenderer) {
+            m_scratchpadDirtyRect |= reverieMaskingBrushUpdateProjection(
+                m_scratchpadMaskRenderer, m_scratchpadMaskedPainter->takeDirtyRegion());
+        }
+    } else {
+        m_scratchpadPainter = new KisPainter(target);
+        m_scratchpadPainter->setRunnableStrokeJobsInterface(&m_fakeExecutor);
+        m_scratchpadPainter->setPaintOpPreset(m_brushPreset, node, m_document);
+        m_scratchpadPainter->setPaintColor(koColor);
+        m_scratchpadPainter->setBackgroundColor(koBgColor);
+        // 墨量由引擎 OpacityValue 管, painter 恒 1.0 (消除双乘, 同主画布)
+        m_scratchpadPainter->setOpacityF(1.0);
+        m_scratchpadPainter->setCompositeOpId(painterCompOp.isEmpty() ? QStringLiteral("normal") : painterCompOp);
+
+        m_scratchpadDistInfo = new KisDistanceInformation(pt, 0.0);
+        m_scratchpadPainter->paintAt(pi, m_scratchpadDistInfo);
+        if (KisPaintOp *op = m_scratchpadPainter->paintOp()) {
+            scratchpadRunJobs([op](QVector<KisRunnableStrokeJobData *> &jobs) {
+                return op->doAsynchronousUpdate(jobs);
+            }, m_brushSize, &m_fakeExecutor);
+        }
+        // 普通路径脏区累计 (落笔 dab); 引擎不报/低报时用落笔点矩形兜底
+        const int fw = int(m_brushSize) + 2;
+        scratchpadAccumulateDirty(m_scratchpadPainter->takeDirtyRegion(),
+                                  QRect(int(pt.x()) - fw, int(pt.y()) - fw, 2 * fw, 2 * fw));
+    }
+
     m_scratchpadStrokeActive = true;
     return true;
 }
 
 bool ReverieCore::scratchpadStrokeMove(qreal x, qreal y, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation)
 {
-    if (!m_scratchpadStrokeActive || !m_scratchpadPainter || !m_scratchpadDistInfo) return false;
+    if (!m_scratchpadStrokeActive) return false;
+    const bool masked = m_scratchpadMaskedPainter != nullptr;
+    if (!masked && (!m_scratchpadPainter || !m_scratchpadDistInfo)) return false;
+
     const QPointF pt(x, y);
-    const qreal curTime = m_scratchpadTimer.nsecsElapsed() / 1e9;
-    const qreal dist = QLineF(m_scratchpadLastSample.imgPos, pt).length();
-    const qreal speed = reverie::StrokeTimeContract::speedPxPerMs(dist, m_scratchpadLastSample.time, curTime);
-    const qreal t0Ms = reverie::StrokeTimeContract::toKritaMs(m_scratchpadLastSample.time);
-    const qreal t1Ms = reverie::StrokeTimeContract::toKritaMs(curTime);
+    // 同批多点经 JNI 连调时墙钟间隔微秒级, speedPxPerMs 的 1e-4s 下限会把速度
+    // 放大到 dist/1e-4 量级; 每点至少相对上一采样步进 4ms (近似真实采样率),
+    // 真实批间间隔大于 4ms 时仍取墙钟, 静止 (dist=0) 速度不受影响。
+    const qreal wallSec = m_scratchpadStrokeT0.elapsed() / 1000.0;
+    const qreal timeSec = qMax(wallSec, m_scratchpadLastSampleSec + 0.004);
+    m_scratchpadLastSampleSec = timeSec;
+    const reverie::StrokePaintSample sampleA{
+        m_scratchpadLastSample.imgPos, m_scratchpadLastSample.pressure,
+        m_scratchpadLastSample.tiltX, m_scratchpadLastSample.tiltY,
+        m_scratchpadLastSample.rotation, m_scratchpadLastSample.time};
+    const reverie::StrokePaintSample sampleB{pt, pressure, tiltX, tiltY, rotation, timeSec};
+    // 速度 px/ms, 与 Krita 传感器刻度对齐 (同主画布)
+    const qreal speed = reverie::speedBetween(sampleA, sampleB);
+    const KisPaintInformation pi1 =
+        reverie::makePaintInfo(sampleA, speed, m_scratchpadRandom, m_scratchpadPerStrokeRandom);
+    const KisPaintInformation pi2 =
+        reverie::makePaintInfo(sampleB, speed, m_scratchpadRandom, m_scratchpadPerStrokeRandom);
 
-    KisPaintInformation pi1(m_scratchpadLastSample.imgPos, m_scratchpadLastSample.pressure,
-                            m_scratchpadLastSample.tiltX, m_scratchpadLastSample.tiltY,
-                            m_scratchpadLastSample.rotation, 0.0, 1.0, t0Ms, speed);
-    KisPaintInformation pi2(pt, pressure, tiltX, tiltY, rotation, 0.0, 1.0, t1Ms, speed);
-    m_scratchpadPainter->paintLine(pi1, pi2, m_scratchpadDistInfo);
-
-    if (KisPaintOp *op = m_scratchpadPainter->paintOp()) {
-        while (true) {
-            QVector<KisRunnableStrokeJobData *> jobs;
-            auto result = op->doAsynchronousUpdate(jobs);
-            for (auto *j : jobs) {
-                j->run();
-                delete j;
-            }
-            if (jobs.isEmpty() || !result.second) {
-                break;
-            }
+    if (masked) {
+        m_scratchpadMaskedPainter->paintLine(pi1, pi2);
+        scratchpadRunJobs([this](QVector<KisRunnableStrokeJobData *> &jobs) {
+            return m_scratchpadMaskedPainter->doAsynchronousUpdate(jobs);
+        }, m_brushSize, &m_fakeExecutor);
+        if (m_scratchpadMaskRenderer) {
+            m_scratchpadDirtyRect |= reverieMaskingBrushUpdateProjection(
+                m_scratchpadMaskRenderer, m_scratchpadMaskedPainter->takeDirtyRegion());
         }
+    } else {
+        m_scratchpadPainter->paintLine(pi1, pi2, m_scratchpadDistInfo);
+        if (KisPaintOp *op = m_scratchpadPainter->paintOp()) {
+            scratchpadRunJobs([op](QVector<KisRunnableStrokeJobData *> &jobs) {
+                return op->doAsynchronousUpdate(jobs);
+            }, m_brushSize, &m_fakeExecutor);
+        }
+        // 普通路径脏区累计 (样本段逐段标脏, 同主画布不并整批包围盒);
+        // 引擎不报/低报时用上一采样点→当前点的样本段矩形兜底
+        const int fw = int(m_brushSize) + 2;
+        const QPointF &pa = m_scratchpadLastSample.imgPos;
+        const int minX = int(qMin(pa.x(), pt.x()));
+        const int maxX = int(qMax(pa.x(), pt.x()));
+        const int minY = int(qMin(pa.y(), pt.y()));
+        const int maxY = int(qMax(pa.y(), pt.y()));
+        scratchpadAccumulateDirty(m_scratchpadPainter->takeDirtyRegion(),
+                                  QRect(minX - fw, minY - fw, (maxX - minX) + 2 * fw, (maxY - minY) + 2 * fw));
     }
 
-    m_scratchpadLastSample = StrokeSample{pt, pressure, tiltX, tiltY, rotation, curTime};
+    m_scratchpadLastSample = StrokeSample{pt, pressure, tiltX, tiltY, rotation, timeSec};
     return true;
 }
 
 void ReverieCore::scratchpadStrokeEnd()
 {
-    if (m_scratchpadPainter) {
-        if (KisPaintOp *op = m_scratchpadPainter->paintOp()) {
-            while (true) {
-                QVector<KisRunnableStrokeJobData *> jobs;
-                auto result = op->doAsynchronousUpdate(jobs);
-                for (auto *j : jobs) {
-                    j->run();
-                    delete j;
-                }
-                if (jobs.isEmpty() || !result.second) {
-                    break;
-                }
-            }
+    // 收尾 flush: 残余 dab 先落墨并合进间接暂存 (蒙版链路在删除 painter 前取脏区)
+    if (m_scratchpadMaskedPainter) {
+        scratchpadRunJobs([this](QVector<KisRunnableStrokeJobData *> &jobs) {
+            return m_scratchpadMaskedPainter->doAsynchronousUpdate(jobs);
+        }, m_brushSize, &m_fakeExecutor);
+        if (m_scratchpadMaskRenderer) {
+            m_scratchpadDirtyRect |= reverieMaskingBrushUpdateProjection(
+                m_scratchpadMaskRenderer, m_scratchpadMaskedPainter->takeDirtyRegion());
         }
-        m_scratchpadPainter->end();
-        delete m_scratchpadPainter;
-        m_scratchpadPainter = nullptr;
+    } else if (m_scratchpadPainter) {
+        if (KisPaintOp *op = m_scratchpadPainter->paintOp()) {
+            scratchpadRunJobs([op](QVector<KisRunnableStrokeJobData *> &jobs) {
+                return op->doAsynchronousUpdate(jobs);
+            }, m_brushSize, &m_fakeExecutor);
+        }
+        // 普通路径收尾脏区累计; 引擎不报时用最后采样点矩形兜底
+        const int fw = int(m_brushSize) + 2;
+        const QPointF &p0 = m_scratchpadLastSample.imgPos;
+        scratchpadAccumulateDirty(m_scratchpadPainter->takeDirtyRegion(),
+                                  QRect(int(p0.x()) - fw, int(p0.y()) - fw, 2 * fw, 2 * fw));
     }
-    if (m_scratchpadDistInfo) {
-        delete m_scratchpadDistInfo;
-        m_scratchpadDistInfo = nullptr;
+
+    // 间接暂存合并 (同主画布 touchStrokeEnd 的 Finalize Indirect Painting):
+    // 以 effectiveOp + m_brushOpacity 一次性 bitBlt 到试画板设备
+    if (m_scratchpadTempDev && m_scratchpadDev) {
+        const QRect ext = m_scratchpadTempDev->exactBounds();
+        if (!ext.isEmpty()) {
+            KisPainter gc(m_scratchpadDev);
+            gc.setCompositeOpId(m_scratchpadIndirectCompOp.isEmpty()
+                ? QStringLiteral("normal") : m_scratchpadIndirectCompOp);
+            gc.setOpacityF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
+            gc.bitBlt(ext.topLeft(), m_scratchpadTempDev, ext);
+            gc.end();
+        }
+        // 上一帧 render 已把 tempDev 预览写进 Bitmap: 合并后该区域的最终像素可能不同
+        // (erase/透明度合并等), 必须连旧预览区一起标脏重绘 (scratchpadReleaseStroke
+        // 不清 m_scratchpadDirtyRect, 留给紧随的 render 消费)
+        m_scratchpadDirtyRect |= ext | m_scratchpadPrevTempRect;
     }
-    m_scratchpadStrokeActive = false;
+
+    scratchpadReleaseStroke();
 }
 
 void ReverieCore::scratchpadClear()
@@ -1943,6 +2634,10 @@ void ReverieCore::scratchpadClear()
     if (m_scratchpadDev) {
         m_scratchpadDev->clear();
     }
+    // 清空后下一帧 render 必须整幅重绘 (Kotlin 侧同时 eraseColor 了 Bitmap,
+    // 但在途的合帧 render 可能晚于清空执行, 全量脏区保证写回的一定是清空后内容)
+    m_scratchpadDirtyRect = QRect(0, 0, m_scratchpadWidth, m_scratchpadHeight);
+    m_scratchpadFullDirty = true;
 }
 
 bool ReverieCore::scratchpadRender(quint8 *buffer, int w, int h, int stride)
@@ -1950,27 +2645,87 @@ bool ReverieCore::scratchpadRender(quint8 *buffer, int w, int h, int stride)
     if (!m_scratchpadDev || !buffer || w <= 0 || h <= 0 || stride < w * 4) return false;
     const int rw = qMin(w, m_scratchpadWidth);
     const int rh = qMin(h, m_scratchpadHeight);
-    QByteArray tmp(rw * rh * 4, 0);
-    m_scratchpadDev->readBytes(reinterpret_cast<quint8 *>(tmp.data()), 0, 0, rw, rh);
-    PixelAlpha::toDisplayRows(reinterpret_cast<const uint8_t *>(tmp.constData()), rw * 4, buffer, stride, rw, rh);
+    const QRect bounds(0, 0, rw, rh);
+
+    // 间接笔程 (paintIncremental=false / 蒙版笔) 进行中时 dab 落在 m_scratchpadTempDev,
+    // 抬笔才合并; 实时预览需按 strokeEnd 同款参数 (effectiveOp + m_brushOpacity)
+    // 把 tempDev 叠进持久预览设备, 保证"预览=最终落盘"。
+    QRect curTempExt;
+    if (m_scratchpadStrokeActive && m_scratchpadTempDev) {
+        curTempExt = m_scratchpadTempDev->exactBounds().intersected(bounds);
+    }
+
+    // 本帧只需重绘: 累积落墨脏区 ∪ 当前 temp 区 ∪ 上一帧 temp 区 (残影防御)。
+    // takeDirtyRect 消费语义: 取走即清, 下一帧从零累计。
+    QRect dirty = m_scratchpadFullDirty
+        ? bounds
+        : (m_scratchpadDirtyRect | curTempExt | m_scratchpadPrevTempRect).intersected(bounds);
+    m_scratchpadDirtyRect = QRect();
+    m_scratchpadFullDirty = false;
+
+    if (dirty.isEmpty()) {
+        m_scratchpadPrevTempRect = curTempExt;
+        return true;
+    }
+
+    KisPaintDeviceSP srcDev = m_scratchpadDev;
+    if (m_scratchpadStrokeActive && m_scratchpadTempDev) {
+        if (!m_scratchpadPreviewDev ||
+            *m_scratchpadPreviewDev->colorSpace() != *m_scratchpadDev->colorSpace()) {
+            m_scratchpadPreviewDev = new KisPaintDevice(m_scratchpadDev->colorSpace());
+        }
+        // 只在 dirty 矩形内重建预览: 先用 COPY 从底图完整还原 (含上一帧 temp 残留区),
+        // 再叠加当前帧 tempDev, 预览设备其余区域保留上一帧结果 (增量, 非全画布深拷贝)
+        m_scratchpadPreviewDev->clear(dirty);
+        {
+            KisPainter copyGc(m_scratchpadPreviewDev);
+            copyGc.setCompositeOpId(COMPOSITE_COPY);
+            copyGc.bitBlt(dirty.topLeft(), m_scratchpadDev, dirty);
+            copyGc.end();
+        }
+        const QRect tempDirty = curTempExt.intersected(dirty);
+        if (!tempDirty.isEmpty()) {
+            KisPainter gc(m_scratchpadPreviewDev);
+            gc.setCompositeOpId(m_scratchpadIndirectCompOp.isEmpty()
+                ? QStringLiteral("normal") : m_scratchpadIndirectCompOp);
+            gc.setOpacityF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
+            gc.bitBlt(tempDirty.topLeft(), m_scratchpadTempDev, tempDirty);
+            gc.end();
+        }
+        srcDev = m_scratchpadPreviewDev;
+        m_scratchpadPrevTempRect = curTempExt;
+    } else {
+        m_scratchpadPrevTempRect = QRect();
+    }
+
+    // 只读回 dirty 子矩形, 按步长偏移直写 Bitmap 对应区域 (锁定的 buffer 保留
+    // 上一帧非脏区像素, 与 Kotlin 侧"试画板生命周期内同一 Bitmap 实例"前提配套)
+    const int dw = dirty.width();
+    const int dh = dirty.height();
+    const int neededBytes = dw * dh * 4;
+    if (m_scratchpadReadBuf.size() < neededBytes) {
+        m_scratchpadReadBuf.resize(neededBytes);
+    }
+    srcDev->readBytes(reinterpret_cast<quint8 *>(m_scratchpadReadBuf.data()),
+                      dirty.x(), dirty.y(), dw, dh);
+    uint8_t *dstSub = buffer + size_t(dirty.y()) * size_t(stride) + size_t(dirty.x()) * 4;
+    PixelAlpha::toDisplayRows(
+        reinterpret_cast<const uint8_t *>(m_scratchpadReadBuf.constData()),
+        dw * 4, dstSub, stride, dw, dh);
     return true;
 }
 
 void ReverieCore::scratchpadEnd()
 {
-    if (m_scratchpadPainter) {
-        m_scratchpadPainter->end();
-        delete m_scratchpadPainter;
-        m_scratchpadPainter = nullptr;
-    }
-    if (m_scratchpadDistInfo) {
-        delete m_scratchpadDistInfo;
-        m_scratchpadDistInfo = nullptr;
-    }
+    scratchpadReleaseStroke();
     m_scratchpadDev = nullptr;
     m_scratchpadWidth = 0;
     m_scratchpadHeight = 0;
-    m_scratchpadStrokeActive = false;
+    m_scratchpadPreviewDev = nullptr;
+    m_scratchpadReadBuf.clear();
+    m_scratchpadDirtyRect = QRect();
+    m_scratchpadPrevTempRect = QRect();
+    m_scratchpadFullDirty = true;
 }
 
 QVector<float> ReverieCore::currentBrushOutline()

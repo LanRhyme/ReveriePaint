@@ -9,6 +9,7 @@
 
 #include "ReverieCore.h"
 #include "ReveriePerfLog.h"
+#include "DirtyRectList.h"
 
 #include <QDir>
 #include <QFile>
@@ -1596,6 +1597,24 @@ void registerReverieGenerators();
 void currentInsertPosition(const QVector<ReverieCore::LayerEntry> &layers, int current,
                            KisNodeSP &above, KisNodeSP &parent, KisImageSP image);
 
+class KisMaskingBrushRenderer;
+
+// ---- 蒙版笔/试画板共享的笔画 job 执行与蒙版投影（定义见 ReverieCoreStroke.cpp）----
+
+/** 保序并行笔刷 job 执行器（主画布 flushStrokeBatch 与试画板 scratchpadRunJobs 共用）:
+ *  连续 CONCURRENT 条带 >= 3 条（或 2 条且 brushSize >= 96px）时在后台池 fork-join,
+ *  其余按序串行; 跑完即 delete job。空列表零开销。 */
+void reverieRunStrokeJobsBatch(const QVector<KisRunnableStrokeJobData *> &jobs, qreal brushSize = 0.0);
+
+/** 蒙版笔脏区投影: 把 KisMaskedFreehandStrokePainter::takeDirtyRegion() 的矩形先做
+ *  相交合并（上限 8 块, 规则见 DirtyRectList.h）再逐并集调一次
+ *  KisMaskingBrushRenderer::updateProjection（上游实现是"copyAreaOptimized 整块覆盖
+ *  笔画像素 + 重算蒙版合成"的幂等重算, 非增量叠加, 合并安全且省去重叠区域的重复
+ *  合成）。返回重算区域并集供调用方标脏; renderer 为空/脏区为空返回空矩形。 */
+QRect reverieMaskingBrushUpdateProjection(KisMaskingBrushRenderer *renderer,
+                                          const QVector<QRect> &dirty,
+                                          reverie::DirtyRectList *outCoalesced = nullptr);
+
 /** 导出 .kra 时逐层内嵌的 sRGB ICC 档案（定义于 ReverieCoreIccData.cpp）。
  *  Android 侧色彩空间是 KoSimpleColorSpace，profile()->rawData() 恒为空，
  *  拿不到可写的 ICC，只能用这份内置数据。 */
@@ -1606,5 +1625,37 @@ int reverieDefaultSrgbIccSize();
  *  maindoc.xml 的 IMAGE profile 属性必须写同名值，桌面 Krita 才会让图像与
  *  图层落在同一个色彩空间上（桌面启动时注册了同名 lcms 内置 sRGB）。 */
 const char *reverieDefaultSrgbIccName();
+
+class KisResourcesInterface;
+
+/** 掩膜设备是否退化为纯 alpha 语义 (Android 缺 lcms2/Gray ICC, GrayA 查询为空时
+ *  回退 alpha8, 见 ReverieMaskingBrushRenderer.cpp 文件头)。两处蒙版预设创建点
+ * (主画布/试画板) 在 createMaskingPreset 后用它决定是否做灰度适配。 */
+bool reverieMaskingBrushMaskIsAlpha();
+
+/** alpha8 掩膜下的蒙版副笔刷灰度适配: IMAGESTAMP 副笔刷在 alpha8 的
+ *  paintDevice→convertFromQImage 路径下 RGB 灰度被丢弃 (KoAlphaColorSpace::fromQColor
+ *  只写 alpha), 形状全在灰度、alpha 恒 255 的笔尖会退化成 alpha=255 实心方块蒙版,
+ *  把主笔画减空/切出硬边。本函数克隆副笔刷并把笔尖灰度 (qGray*alpha) 烘焙进 alpha
+ *  通道 (白色 + 新 alpha, 与上游 GrayA 掩膜 preprocessMask = gray*alpha 语义一致),
+ *  更换 filename+md5 指向克隆并注册进 resources, 再把 preset settings 的
+ *  brush_definition 属性改指克隆 (brushApplication 显式保持 IMAGESTAMP, 见实现内
+ *  注释)。非 alpha8 掩膜 / 非 IMAGESTAMP / 解析失败时原样返回 (走原有回退路径)。
+ *  定义于 ReverieMaskingBrushRenderer.cpp。 */
+KisPaintOpPresetSP adaptMaskingPresetForAlpha8Mask(KisPaintOpPresetSP maskingPreset,
+                                                   bool maskIsAlpha,
+                                                   KisResourcesInterface *resources);
+
+class KisBrushBasedPaintOpSettings;
+class KisBrush;
+template <typename T> class QSharedPointer;
+typedef QSharedPointer<KisBrush> KisBrushSP;
+
+/** 将 kpp <Brush> 定义属性（spacing/autoSpacing/色彩调整/brushApplication）
+ *  注入到 settings 绑定的运行时 KisBrush 对象。
+ *  覆盖主预设与 createMaskingPreset() 创建的遮罩副预设。定义于 ReverieCoreBrush.cpp。 */
+void injectBrushDefinitionProperties(KisBrushBasedPaintOpSettings *bs,
+                                     const KisResourcesInterfaceSP &resources,
+                                     const QHash<QString, KisBrushSP> &loadedBrushes);
 
 #endif // REVERIECORE_INTERNAL_H

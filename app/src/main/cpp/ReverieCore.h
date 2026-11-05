@@ -14,6 +14,8 @@
 #include "LiquifyInverseField.h"
 #include "DirtyRectList.h"
 #include "MirrorLivePolicy.h"
+#include "StrokePaintInfo.h"
+#include "AirbrushTickGate.h"
 #include <QImage>
 #include <QPointF>
 #include <QVector>
@@ -61,6 +63,23 @@ int strokeStaticUnderlayStop(const ReverieCore &core);
 class ReverieCore
 {
 public:
+    // 保序条带并行执行器: 连续的 CONCURRENT dab 条带在 reverieBackgroundPool() 上 fork-join,
+    // SEQUENTIAL / BARRIER 任务仍在调用线程上严格按序执行，兼顾大笔刷吞吐与绘制确定性。
+    // 带互斥锁与波次排空循环 (Wave-Drain Loop)，确保工作线程重入投递的 Postprocess 任务被安全排空。
+    struct ParallelStrokeJobsExecutor : public KisFakeRunnableStrokeJobsExecutor {
+        QMutex m_mutex;
+        QVector<KisRunnableStrokeJobDataBase *> m_pendingJobs;
+        double m_brushDiameterHint = 0.0;
+
+        ~ParallelStrokeJobsExecutor() override {
+            clearPendingJobs();
+        }
+        void addRunnableJobs(const QVector<KisRunnableStrokeJobDataBase *> &list) override;
+        void flushPendingJobs(qreal brushSize = 0.0);
+        void setBrushDiameterHint(double diameter) noexcept { m_brushDiameterHint = diameter; }
+        void clearPendingJobs();
+    };
+
     ReverieCore();
     ~ReverieCore();
 
@@ -858,7 +877,10 @@ public:
     void resetStrokeCounter() { m_strokeCounter = 0; }
     // Returns true when this call flushed a batch and painted new ink (used
     // by the Kotlin transport to render only after real paint work).
-    bool touchStrokeMove(qreal x, qreal y, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0, qreal timeSeconds = -1.0);
+    bool touchStrokeMove(qreal x, qreal y, qreal pressure,
+                         qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0,
+                         qreal timeSeconds = -1.0, bool allowTimeFlush = true);
+    bool touchStrokeMoveBatchInternal(const float *coords, int arrayLen, int count);
     // 把一条镜像折线画进当前已经打开的原生笔触。不写入 m_strokeSamples，
     // 因此不会和主笔连成一条跨轴的线。用各分支自己的距离累加器，不用 m_strokeDistance。
     // 返回处理动作 (见 MirrorLivePolicy.h): Reject 时调用方走抬笔重放; Stale 表示
@@ -934,10 +956,6 @@ public:
     void setBrushSharpness(qreal v);
     void setBrushRotation(qreal v);
     void setBrushCompositeOp(const QString &op);
-    void setBrushPressureDynamics(bool enabled, qreal sizeStrength, qreal opacityStrength, qreal flowStrength, int curveType);
-    void setBrushOptionDynamics(const QString &optionName, bool enabled, const QString &sensorId, const QString &curvePoints, qreal strength);
-    void setBrushFollowDirection(bool enabled);
-    void setBrushJitter(qreal jitterAngle, qreal jitterSize);
     void setBrushMirror(bool flipX, bool flipY);
     void setBrushAntiAliasing(int level);
     void setPresetIsEraser(bool eraser);
@@ -1099,7 +1117,9 @@ private:
     // convertToQImage returns transparent black. Krita itself uses the
     // refresh-walker + async-merger pair for exactly this case.
     // Returns true when a flush painted ink in this call.
-    bool appendStrokeSample(const QPointF &imgPos, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0, qreal timeSeconds = -1.0);
+    bool appendStrokeSample(const QPointF &imgPos, qreal pressure,
+                            qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0,
+                            qreal timeSeconds = -1.0, bool allowTimeFlush = true);
     void endStrokeBatch();
     // 描边图层的外扩：strokeSize + 4。非描边图层为 0。
     int strokeLayerMargin() const;
@@ -1113,6 +1133,7 @@ private:
         qreal tiltY = 0.0;
         qreal rotation = 0.0;
         qreal time = 0.0;
+        qreal speed = 0.0; // 新增：当前样本点平滑速度 (px/ms)
     };
 
 
@@ -1275,6 +1296,7 @@ private:
     qreal m_brushAngle = 0.0;
     qreal m_brushRotation = 0.0;
     ToolMode m_toolMode = ToolBrush;
+    bool m_isLoadingPreset = false;
 
     // Krita brush engine state
     KisPaintOpPresetSP m_brushPreset;
@@ -1333,6 +1355,10 @@ private:
     KisRandomSourceSP m_randomSource;
     KisPerStrokeRandomSourceSP m_perStrokeRandomSource;
     QElapsedTimer m_strokeTimer;
+    reverie::AirbrushTickGate m_airbrushGate;
+    reverie::StrokeSpeedSmoother m_speedSmoother;
+    double m_lastBatchEndSec = 0.0;
+    double m_inputTimeShiftSec = 0.0;
     double m_replayPixelsPerSecond = 0.0;
     int m_replaySeed = -1;
     bool m_lastFlushHadInk = false;
@@ -1344,11 +1370,6 @@ private:
     };
     StrokeStashPatch m_strokeStash;
     KisTransaction *m_openRestoreTransaction = nullptr;
-    // 保序条带并行执行器: 连续的 CONCURRENT dab 条带在 reverieBackgroundPool() 上 fork-join,
-    // SEQUENTIAL / BARRIER 任务仍在调用线程上严格按序执行，兼顾大笔刷吞吐与绘制确定性。
-    struct ParallelStrokeJobsExecutor : public KisFakeRunnableStrokeJobsExecutor {
-        void addRunnableJobs(const QVector<KisRunnableStrokeJobDataBase *> &list) override;
-    };
     ParallelStrokeJobsExecutor m_fakeExecutor;
 
     // Stroke batching
@@ -1505,7 +1526,30 @@ private:
     int m_scratchpadHeight{0};
     bool m_scratchpadStrokeActive{false};
     StrokeSample m_scratchpadLastSample;
-    QElapsedTimer m_scratchpadTimer;
+    // C3: 试画板每笔状态 (与主画布同构: 时间/速度 KPI、随机源、蒙版链路、间接暂存)
+    void scratchpadReleaseStroke();
+    QElapsedTimer m_scratchpadStrokeT0;
+    // 上一采样点的时刻 (秒, 相对 m_scratchpadStrokeT0):
+    // 同一批 JNI 连调点间隔微秒级, 以此强制每点至少 4ms 步进消除速度尖峰
+    qreal m_scratchpadLastSampleSec = 0.0;
+    KisRandomSourceSP m_scratchpadRandom;
+    KisPerStrokeRandomSourceSP m_scratchpadPerStrokeRandom;
+    KisPaintDeviceSP m_scratchpadTempDev;
+    QString m_scratchpadIndirectCompOp;
+    KisMaskingBrushRenderer *m_scratchpadMaskRenderer{nullptr};
+    KisMaskedFreehandStrokePainter *m_scratchpadMaskedPainter{nullptr};
+    KisFreehandStrokeInfo *m_scratchpadMaskStrokeInfo{nullptr};
+    KisFreehandStrokeInfo *m_scratchpadMaskInfo{nullptr};
+    // C4: 试画板渲染性能 (VSync 合帧 + 脏区子矩形直写, 见 scratchpadRender):
+    // 持久预览设备 (间接笔程实时合成, 免每帧全画布深拷贝) / 脏区读回缓冲 /
+    // 自上一帧以来累积的落墨脏区 / 上一帧 tempDev 预览外接矩形 (防间接笔程残影) / 全量脏标记
+    KisPaintDeviceSP m_scratchpadPreviewDev;
+    QByteArray m_scratchpadReadBuf;
+    QRect m_scratchpadDirtyRect;
+    QRect m_scratchpadPrevTempRect;
+    bool m_scratchpadFullDirty{true};
+    // 试画板脏区累计: 并入 painter 精确脏区; 空或低报时用 fallbackRect 兜底 (同主画布策略)
+    void scratchpadAccumulateDirty(const QVector<QRect> &exactDirty, const QRect &fallbackRect);
 
     // Smudge engine state (colorsmudge paintop)
     qreal m_smudgeRate = 0.5;   // color mixing rate -> ColorRateValue/MixValue
