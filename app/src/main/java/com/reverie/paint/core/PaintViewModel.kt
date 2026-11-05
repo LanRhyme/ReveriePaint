@@ -1163,6 +1163,43 @@ class PaintViewModel : ViewModel() {
 
     // Quick Color Tool Window State (快捷颜色浮窗)
     var quickColorWindowOpen by mutableStateOf(false)
+
+    /**
+     * 快捷调色盘是否处于「临时态」：由笔手势唤起。
+     *
+     * 是否在落笔时收起由用户偏好 [quickColorAutoHideOnStroke] 决定 —— 很多用户习惯
+     * 把面板留在画布上随时取色，所以不能默认收起。临时态不写盘，避免下次启动复活
+     * 一个只该存在几秒的面板。
+     */
+    var quickColorEphemeral by mutableStateOf(false)
+
+    /**
+     * 快捷调色盘：是否**随身/笔尖弹出**。
+     *
+     * true(默认) = 每次唤出都定位到当前笔尖附近，便于就近取色；
+     * false = 固定在上次拖动到的位置，便于常驻侧边随时微调。
+     * 两派用户都有，所以做成偏好而不是由应用替用户选。
+     */
+    var quickColorFollowsStylus by mutableStateOf(true)
+        private set
+
+    /**
+     * 快捷调色盘：**落笔是否自动收起**（仅对临时态面板生效）。
+     *
+     * 默认关闭 —— 强行收起会打断习惯常驻微调的作画流。
+     */
+    var quickColorAutoHideOnStroke by mutableStateOf(false)
+        private set
+
+    fun updateQuickColorFollowsStylus(enabled: Boolean) {
+        quickColorFollowsStylus = enabled
+        persistQuickColorState()
+    }
+
+    fun updateQuickColorAutoHideOnStroke(enabled: Boolean) {
+        quickColorAutoHideOnStroke = enabled
+        persistQuickColorState()
+    }
     var quickColorWindowWasOpen = false
     var quickColorWindowX by mutableFloatStateOf(-1f)
     var quickColorWindowY by mutableFloatStateOf(-1f)
@@ -1182,7 +1219,9 @@ class PaintViewModel : ViewModel() {
                 quickColorWindowY_port = quickColorWindowY
             }
             val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
-            p.putBoolean("quick_color_open", quickColorWindowOpen)
+            p.putBoolean("quick_color_open", quickColorWindowOpen && !quickColorEphemeral)
+            p.putBoolean("quick_color_follows_stylus", quickColorFollowsStylus)
+            p.putBoolean("quick_color_auto_hide_on_stroke", quickColorAutoHideOnStroke)
             p.putFloat("quick_color_x_land", quickColorWindowX_land)
             p.putFloat("quick_color_y_land", quickColorWindowY_land)
             p.putFloat("quick_color_x_port", quickColorWindowX_port)
@@ -1195,19 +1234,44 @@ class PaintViewModel : ViewModel() {
         } catch (_: Exception) {}
     }
 
-    fun toggleQuickColor(atPointer: Boolean = false) {
+    /**
+     * 开关快捷调色盘。
+     *
+     * @param atPointer 首次兜底时是否以笔尖为参照
+     * @param ephemeral 是否为笔手势唤起的临时态（是否落笔收起再由用户偏好决定）
+     */
+    fun toggleQuickColor(atPointer: Boolean = false, ephemeral: Boolean = false) {
         if (quickColorWindowOpen) {
             quickColorWindowOpen = false
+            quickColorEphemeral = false
         } else {
-            if (atPointer) {
+            // 随笔尖弹出(默认) → 每次唤出都定位到笔尖附近，便于就近取色；
+            // 固定模式 → 沿用上次拖动位置；从未定位过时仍按笔尖兜底，避免落在屏幕角落。
+            val anchoredToPointer = atPointer &&
+                (quickColorFollowsStylus || quickColorWindowX < 0f || quickColorWindowY < 0f)
+            if (anchoredToPointer) {
                 lastPointerScreenPosition?.let { pos ->
                     quickColorWindowX = (pos.x - 110f).coerceAtLeast(0f)
                     quickColorWindowY = (pos.y - 120f).coerceAtLeast(0f)
                 }
             }
+            quickColorEphemeral = ephemeral
             quickColorWindowOpen = true
         }
         persistQuickColorState()
+    }
+
+    /**
+     * 收起「临时态」快捷调色盘(笔手势唤起的那一个)。
+     *
+     * 由落笔触发，但**是否真的收起取决于用户偏好** [quickColorAutoHideOnStroke]
+     * (默认关闭) —— 很多用户要把面板留在画布上随时取色。
+     * 常驻态(工具栏打开)始终不受影响。
+     */
+    fun dismissEphemeralQuickColor() {
+        if (quickColorWindowOpen && quickColorEphemeral && quickColorAutoHideOnStroke) {
+            toggleQuickColor()
+        }
     }
 
     fun swapColors() {
@@ -3917,7 +3981,8 @@ class PaintViewModel : ViewModel() {
 
     fun executeStylusAction(action: com.reverie.paint.core.stylus.StylusAction) {
         if (action == com.reverie.paint.core.stylus.StylusAction.NONE) return
-        executeShortcutAction(action.actionId)
+        // 笔手势唤起的面板是临时态: 是否落笔收起再由用户偏好决定
+        executeShortcutAction(action.actionId, ephemeral = true)
         when (action) {
             com.reverie.paint.core.stylus.StylusAction.TOGGLE_ERASER -> {
                 showActionToast(
@@ -4935,6 +5000,9 @@ class PaintViewModel : ViewModel() {
 
             // 快捷颜色浮窗持久化恢复
             quickColorWindowOpen = prefs.getBoolean("quick_color_open", false)
+            // 默认值与上游原行为一致: 随笔尖弹出=开, 落笔自动收起=关
+            quickColorFollowsStylus = prefs.getBoolean("quick_color_follows_stylus", true)
+            quickColorAutoHideOnStroke = prefs.getBoolean("quick_color_auto_hide_on_stroke", false)
             quickColorWindowWasOpen = quickColorWindowOpen
             val qcLegacyX = prefs.getFloat("quick_color_x", -1f)
             val qcLegacyY = prefs.getFloat("quick_color_y", -1f)

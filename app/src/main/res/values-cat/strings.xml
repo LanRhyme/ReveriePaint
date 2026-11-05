@@ -984,6 +984,8 @@
     <string name="quick_action_pan">挪动画布</string>
     <string name="tool_quick_color">快捷颜色</string>
     <string name="quick_color_window_title">快捷颜色</string>
+    <string name="quick_color_follow_stylus">跟着笔尖跑喵</string>
+    <string name="quick_color_auto_hide_on_stroke">落笔就收起来喵</string>
     <string name="color_window_title">颜色</string>
     <string name="quick_action_toggle_quick_color">快捷颜色</string>
     <string name="quick_color_add_palette">存进色板</string>

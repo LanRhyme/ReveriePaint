@@ -946,6 +946,8 @@
     <!-- Quick Color Strings -->
     <string name="tool_quick_color">クイックカラー</string>
     <string name="quick_color_window_title">クイックカラー</string>
+    <string name="quick_color_follow_stylus">カーソル/ペン先に追従</string>
+    <string name="quick_color_auto_hide_on_stroke">描画開始で自動的に閉じる</string>
     <string name="color_window_title">色</string>
     <string name="quick_action_toggle_quick_color">クイックカラー</string>
     <string name="quick_color_add_palette">パレットに追加</string>

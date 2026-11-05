@@ -224,20 +224,26 @@ internal fun BoxScope.PaintingQuickWindows(
     }
 
     // ---- Persistent Floating Quick Color Window (常驻悬浮快捷颜色小窗) ----
-    AnimatedVisibility(
-        visible = vm.quickColorWindowOpen,
-        enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
-        exit = fadeOut(Motion.exitTween(150)) + androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
-        modifier = Modifier.zIndex(77f),
-    ) {
+    //
+    // 这里不使用 AnimatedVisibility 做淡入/缩放: 该面板进入过渡态时, 其图层会被裁到
+    // 错误的偏小边界 —— 逐帧抓图实测, 过渡期间只渲染出顶部约 33% 宽 × 49% 高的区域
+    // (标题可见、文字尺寸正常, 右侧与底部被切掉), 过渡结束后才突然恢复完整, 观感是
+    // 「先露出一小块再整体展开」的两段式割裂。
+    //
+    // 已排除: animateContentSize 的零尺寸初始化、hazeChild 模糊、Modifier.shadow 图层、
+    // requiredSize 强制尺寸、onSizeChanged 布局期写状态。去掉动画后渲染与稳定态完全一致
+    // (标题宽 91px / 垂直 262..858), 可确认问题出在该面板的图层堆叠与过渡动画不兼容。
+    // 改为瞬时显隐后既不裁切, 也不再产生过渡帧掉帧。
+    // 后续若要恢复动画, 需先把面板背景从 haze/阴影图层改为普通绘制再接入过渡。
+    if (vm.quickColorWindowOpen) {
         com.reverie.paint.ui.painting.quickcolor.QuickColorWindow(
             vm = vm,
-            onClose = {
-                vm.quickColorWindowOpen = false
-                vm.persistQuickColorState()
-            },
             hazeState = hazeState,
             opacity = vm.popupPanelOpacity,
+            onClose = {
+                // 走 toggle 以同时清掉「临时态」标记, 避免下次打开继承错误生命周期
+                vm.toggleQuickColor(atPointer = false)
+            },
         )
     }
 
