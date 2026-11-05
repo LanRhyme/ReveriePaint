@@ -1964,6 +1964,14 @@ class PaintViewModel : ViewModel() {
     /** 自由悬浮布局配置 (平板专属) */
     var floatingUiConfig by mutableStateOf(com.reverie.paint.model.FloatingUiConfig())
 
+    // Custom Home Background Image settings (persisted)
+    var homeCustomBgEnabled by mutableStateOf(false)
+    var homeCustomBgOpacity by mutableFloatStateOf(0.85f)
+    var homeCustomBgBlurDp by mutableFloatStateOf(0f)
+    var homeCustomBgScaleMode by mutableStateOf("CROP") // "CROP" or "FIT"
+    var homeCustomBgMaskAlpha by mutableFloatStateOf(0.2f)
+    var homeCustomBgVersion by mutableLongStateOf(0L)
+
     // ---- 前缓冲 UI 裁剪槽位状态 (Phase 1) ----
     /** 21 个面板槽位的实测边界与 owner token (UI 线程独占)。 */
     val panelOcclusion = com.reverie.paint.model.UiPanelOcclusionTracker()
@@ -4164,6 +4172,97 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun getHomeCustomBgFile(): File? {
+        if (!::appContext.isInitialized) return null
+        val file = File(appContext.filesDir, "custom_bg/home_wallpaper.png")
+        return if (file.exists() && file.length() > 0) file else null
+    }
+
+    fun importHomeBackground(uri: android.net.Uri, context: android.content.Context): Boolean {
+        return try {
+            val dir = File(context.filesDir, "custom_bg")
+            if (!dir.exists()) dir.mkdirs()
+            val targetFile = File(dir, "home_wallpaper.png")
+            context.contentResolver.openInputStream(uri)?.use { input ->
+                val bmp = android.graphics.BitmapFactory.decodeStream(input) ?: return false
+                java.io.FileOutputStream(targetFile).use { out ->
+                    bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                }
+                bmp.recycle()
+            }
+            if (targetFile.exists() && targetFile.length() > 0) {
+                homeCustomBgEnabled = true
+                homeCustomBgVersion = System.currentTimeMillis()
+                context.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                    .edit()
+                    .putBoolean("home_custom_bg_enabled", true)
+                    .apply()
+                true
+            } else {
+                false
+            }
+        } catch (e: Exception) {
+            android.util.Log.e("PaintViewModel", "Failed to import home background", e)
+            false
+        }
+    }
+
+    fun clearHomeBackground() {
+        if (::appContext.isInitialized) {
+            val file = File(appContext.filesDir, "custom_bg/home_wallpaper.png")
+            if (file.exists()) file.delete()
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("home_custom_bg_enabled", false)
+                .apply()
+        }
+        homeCustomBgEnabled = false
+        homeCustomBgVersion = System.currentTimeMillis()
+    }
+
+    fun updateHomeBgOpacity(opacity: Float) {
+        val clamped = opacity.coerceIn(0.1f, 1.0f)
+        homeCustomBgOpacity = clamped
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putFloat("home_custom_bg_opacity", clamped)
+                .apply()
+        }
+    }
+
+    fun updateHomeBgBlurDp(blurDp: Float) {
+        val clamped = blurDp.coerceIn(0f, 30f)
+        homeCustomBgBlurDp = clamped
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putFloat("home_custom_bg_blur", clamped)
+                .apply()
+        }
+    }
+
+    fun updateHomeBgScaleMode(mode: String) {
+        homeCustomBgScaleMode = mode
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putString("home_custom_bg_scale", mode)
+                .apply()
+        }
+    }
+
+    fun updateHomeBgMaskAlpha(alpha: Float) {
+        val clamped = alpha.coerceIn(0f, 0.8f)
+        homeCustomBgMaskAlpha = clamped
+        if (::appContext.isInitialized) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putFloat("home_custom_bg_mask", clamped)
+                .apply()
+        }
+    }
+
     fun updateAutoSaveEnabled(enabled: Boolean) {
         autoSaveEnabled = enabled
         if (::appContext.isInitialized) {
@@ -4345,6 +4444,12 @@ class PaintViewModel : ViewModel() {
             val savedAccent = prefs.getString("accentColor", "#879ED1") ?: "#879ED1"
             accentColorHex = if (savedAccent.equals("#0A84FF", ignoreCase = true) || savedAccent.equals("#5E8BA8", ignoreCase = true) || savedAccent.equals("#5A6E8A", ignoreCase = true)) "#879ED1" else savedAccent
             canvasBgColorHex = prefs.getString("canvasBgColor", "DEFAULT") ?: "DEFAULT"
+            homeCustomBgEnabled = prefs.getBoolean("home_custom_bg_enabled", false)
+            homeCustomBgOpacity = prefs.getFloat("home_custom_bg_opacity", 0.85f).coerceIn(0.1f, 1.0f)
+            homeCustomBgBlurDp = prefs.getFloat("home_custom_bg_blur", 0f).coerceIn(0f, 30f)
+            homeCustomBgScaleMode = prefs.getString("home_custom_bg_scale", "CROP") ?: "CROP"
+            homeCustomBgMaskAlpha = prefs.getFloat("home_custom_bg_mask", 0.2f).coerceIn(0f, 0.8f)
+            homeCustomBgVersion = System.currentTimeMillis()
             monetEnabled = prefs.getBoolean("monetEnabled", false)
             themeMode = prefs.getString("themeMode", "DARK") ?: "DARK"
             themeContrast = prefs.getString("themeContrast", "STANDARD") ?: "STANDARD"

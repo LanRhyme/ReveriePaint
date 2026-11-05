@@ -58,6 +58,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import androidx.compose.ui.draw.blur
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
@@ -380,19 +381,48 @@ fun HomePage(vm: PaintViewModel) {
         }
     }
 
+    val homeBgFile = remember(vm.homeCustomBgVersion) { vm.getHomeCustomBgFile() }
+    val homeBgBitmap = remember(vm.homeCustomBgVersion, vm.homeCustomBgEnabled, homeBgFile?.lastModified()) {
+        if (vm.homeCustomBgEnabled) {
+            homeBgFile?.let { runCatching { BitmapFactory.decodeFile(it.absolutePath)?.asImageBitmap() }.getOrNull() }
+        } else null
+    }
+
     Box(
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(colors.bg),
+                .background(colors.bg)
+                .haze(hazeState),
     ) {
+        if (homeBgBitmap != null && vm.homeCustomBgEnabled) {
+            val scale = if (vm.homeCustomBgScaleMode == "FIT") ContentScale.Fit else ContentScale.Crop
+            val blurModifier = if (vm.homeCustomBgBlurDp > 0f) Modifier.blur(vm.homeCustomBgBlurDp.dp) else Modifier
+            Image(
+                bitmap = homeBgBitmap,
+                contentDescription = null,
+                contentScale = scale,
+                alpha = vm.homeCustomBgOpacity,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .then(blurModifier),
+            )
+            if (vm.homeCustomBgMaskAlpha > 0f) {
+                Box(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .background(Color.Black.copy(alpha = vm.homeCustomBgMaskAlpha)),
+                )
+            }
+        }
+
         AnimatedContent(
             targetState = selectedTab,
             transitionSpec = {
                 fadeIn(tween(220, easing = FastOutSlowInEasing))
                     .togetherWith(fadeOut(tween(160)))
             },
-            modifier = Modifier.fillMaxSize().haze(hazeState),
+            modifier = Modifier.fillMaxSize(),
             label = "HomeTabTransition",
         ) { tabIndex ->
             if (tabIndex == 0) {

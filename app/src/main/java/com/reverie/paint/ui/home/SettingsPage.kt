@@ -141,6 +141,8 @@ fun SettingsPageContent(
 
     val colors = Theme.current
 
+    val hasCustomBg = vm.homeCustomBgEnabled && vm.getHomeCustomBgFile() != null
+
     if (isTabletLandscape) {
         // ==========================================
         // 平板横屏 Master-Detail 双栏布局
@@ -148,14 +150,14 @@ fun SettingsPageContent(
         Row(
             modifier = Modifier
                 .fillMaxSize()
-                .background(colors.bg)
+                .background(if (hasCustomBg) Color.Transparent else colors.bg)
         ) {
             // Left: Master Navigation Rail
             Column(
                 modifier = Modifier
                     .width(240.dp)
                     .fillMaxHeight()
-                    .background(colors.panel)
+                    .background(if (hasCustomBg) colors.panel.copy(alpha = 0.88f) else colors.panel)
                     .padding(horizontal = 16.dp, vertical = 18.dp)
             ) {
                 Row(
@@ -228,7 +230,7 @@ fun SettingsPageContent(
                 modifier = Modifier
                     .weight(1f)
                     .fillMaxHeight()
-                    .background(colors.bg),
+                    .background(if (hasCustomBg) Color.Transparent else colors.bg),
             ) {
                 AnimatedContent(
                     targetState = subPage,
@@ -271,6 +273,7 @@ fun SettingsPageContent(
                 SettingsSubPage.MAIN -> {
                     SettingsMainPage(
                         onNavigate = { subPage = it },
+                        hasCustomBg = hasCustomBg,
                     )
                 }
 
@@ -320,14 +323,17 @@ fun SettingsPageContent(
 }
 
 @Composable
-private fun SettingsMainPage(onNavigate: (SettingsSubPage) -> Unit) {
+private fun SettingsMainPage(
+    onNavigate: (SettingsSubPage) -> Unit,
+    hasCustomBg: Boolean = false,
+) {
     val colors = Theme.current
 
     Column(
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(colors.bg)
+                .background(if (hasCustomBg) Color.Transparent else colors.bg)
                 .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {
