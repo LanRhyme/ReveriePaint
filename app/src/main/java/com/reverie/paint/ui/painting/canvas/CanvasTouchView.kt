@@ -5834,6 +5834,8 @@ class CanvasTouchView(context: Context) : View(context) {
         rotation: Double = 0.0,
     ) {
         val v = vm ?: return
+        // 落笔时按用户偏好收起「临时态」快捷调色盘(默认不收起, 见 quickColorAutoHideOnStroke)
+        v.dismissEphemeralQuickColor()
         // 不变式: 先发布裁剪快照, 再把触摸点提交给引擎。
         val et = effTool()
         if (et == Tool.BRUSH || et == Tool.ERASER || et == Tool.SMUDGE) {

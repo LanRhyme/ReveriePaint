@@ -62,6 +62,8 @@ import com.reverie.paint.core.*
 import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.DragPillHandle
 import com.reverie.paint.ui.components.PanelCloseButton
+import com.reverie.paint.ui.components.ReDropdownMenu
+import com.reverie.paint.ui.components.ReDropdownMenuItem
 import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.components.evadablePanelContent
@@ -117,6 +119,8 @@ fun QuickColorWindow(
     val isCollapsed = vm.quickColorCollapsed
     var windowSize by remember { mutableStateOf(IntSize.Zero) }
     var windowCoords by remember { mutableStateOf<LayoutCoordinates?>(null) }
+    // 顶部「面板偏好」菜单(随笔尖弹出 / 落笔自动收起)
+    var quickColorSettingsOpen by remember { mutableStateOf(false) }
 
     val screenWidthPx = with(density) { configuration.screenWidthDp.dp.toPx() }
     val screenHeightPx = with(density) { configuration.screenHeightDp.dp.toPx() }
@@ -211,7 +215,8 @@ fun QuickColorWindow(
                     hazeState = hazeState,
                 )
                 .evadablePanelContent(vm, UiPanelSlot.QUICK_COLOR)
-                .animateContentSize(Motion.enterSpring())
+                // 去掉 animateContentSize: 它与该面板的 haze/阴影图层叠加时, 过渡帧会渲染
+                // 成偏小的错误边界 (只露出顶部约 33% 宽 × 49% 高), 观感是"先露一小块再展开"。
                 .onGloballyPositioned { windowCoords = it }
         ) {
             if (isCollapsed) {
@@ -404,6 +409,45 @@ fun QuickColorWindow(
                                             .background(parsedCurrentColor)
                                             .border(0.5.dp, Morandi.border, RoundedCornerShape(3.5.dp))
                                     )
+                                }
+
+                                // 面板偏好菜单：这两项都是"用户各有习惯"的行为，
+                                // 不预设唯一答案，放在面板自己身上而非全局设置里
+                                Box {
+                                    val settingsColors = com.reverie.paint.ui.theme.Theme.current
+                                    Box(
+                                        modifier = Modifier
+                                            .size(22.dp)
+                                            .clip(CircleShape)
+                                            .clickable { quickColorSettingsOpen = true },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        Text(
+                                            text = "⋯",
+                                            color = settingsColors.subText,
+                                            fontSize = 11.sp,
+                                            fontWeight = FontWeight.Bold,
+                                        )
+                                    }
+                                    ReDropdownMenu(
+                                        expanded = quickColorSettingsOpen,
+                                        onDismissRequest = { quickColorSettingsOpen = false },
+                                    ) {
+                                        ReDropdownMenuItem(
+                                            text = "随光标/笔尖弹出",
+                                            selected = vm.quickColorFollowsStylus,
+                                            onClick = {
+                                                vm.updateQuickColorFollowsStylus(!vm.quickColorFollowsStylus)
+                                            },
+                                        )
+                                        ReDropdownMenuItem(
+                                            text = "落笔自动收起",
+                                            selected = vm.quickColorAutoHideOnStroke,
+                                            onClick = {
+                                                vm.updateQuickColorAutoHideOnStroke(!vm.quickColorAutoHideOnStroke)
+                                            },
+                                        )
+                                    }
                                 }
 
                                 PanelCloseButton(onClose = onClose)

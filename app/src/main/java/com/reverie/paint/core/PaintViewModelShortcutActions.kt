@@ -16,21 +16,28 @@ import com.reverie.paint.model.Tool
  * 每域返回「是否消费了该 id」，[executeShortcutAction] 顺序试探。
  * 新增可绑定动作时只需：目录登记一条 + 在这里的某个域加一个分支。
  */
-internal fun PaintViewModel.executeShortcutAction(id: String) {
-    if (executeBrushShortcutAction(id)) return
+/**
+ * 执行快捷键动作。
+ *
+ * @param ephemeral 该动作是否由手写笔手势唤起。仅影响会打开悬浮面板的动作
+ *                  (目前是快捷调色盘): 手势唤起的面板可标记为临时态，是否落笔收起
+ *                  再由用户偏好 [PaintViewModel.quickColorAutoHideOnStroke] 决定。
+ */
+internal fun PaintViewModel.executeShortcutAction(id: String, ephemeral: Boolean = false) {
+    if (executeBrushShortcutAction(id, ephemeral)) return
     if (executeToolShortcutAction(id)) return
     if (executeViewShortcutAction(id)) return
     if (executeEditShortcutAction(id)) return
     if (executeLayerShortcutAction(id)) return
     if (executeSelectionShortcutAction(id)) return
     if (executeFilterShortcutAction(id)) return
-    if (executePanelShortcutAction(id)) return
+    if (executePanelShortcutAction(id, ephemeral)) return
     if (executeAnimationShortcutAction(id)) return
 }
 
 // ---- 绘画：笔刷与颜色 ----
 
-private fun PaintViewModel.executeBrushShortcutAction(id: String): Boolean {
+private fun PaintViewModel.executeBrushShortcutAction(id: String, ephemeral: Boolean = false): Boolean {
     when (id) {
         "brush_size_inc" -> {
             val maxL = effectiveBrushMaxSize
@@ -55,7 +62,7 @@ private fun PaintViewModel.executeBrushShortcutAction(id: String): Boolean {
             showActionToast(R.string.shortcut_toast_colors_reset, R.drawable.ic_palette)
         }
 
-        "tool_color" -> toggleQuickColor(atPointer = true)
+        "tool_color" -> toggleQuickColor(atPointer = true, ephemeral = ephemeral)
         "toggle_eraser" -> {
             if (currentToolId == "eraser") applyTool("brush") else applyTool("eraser")
         }
@@ -100,7 +107,7 @@ private fun PaintViewModel.togglePanTool() {
 private val TOOL_BY_SHORTCUT_ID: Map<String, Tool> =
     Tool.entries.associateBy { "tool_${it.id}" }
 
-private fun PaintViewModel.executeToolShortcutAction(id: String): Boolean {
+private fun PaintViewModel.executeToolShortcutAction(id: String, ephemeral: Boolean = false): Boolean {
     if (id == "tool_drawing_guide") {
         requestUiCommand(UI_CMD_TOGGLE_DRAWING_GUIDE)
         return true
@@ -322,7 +329,7 @@ private val SHORTCUT_FILTER_IDS: Map<String, Int> = mapOf(
 
 // ---- 面板 ----
 
-private fun PaintViewModel.executePanelShortcutAction(id: String): Boolean {
+private fun PaintViewModel.executePanelShortcutAction(id: String, ephemeral: Boolean = false): Boolean {
     when (id) {
         "panel_brush" -> requestUiCommand(UI_CMD_TOGGLE_BRUSH_PANEL)
         "panel_layers" -> requestUiCommand(UI_CMD_TOGGLE_LAYER_PANEL)
@@ -341,7 +348,7 @@ private fun PaintViewModel.executePanelShortcutAction(id: String): Boolean {
             persistQuickBrushState()
         }
 
-        "toggle_quick_color" -> toggleQuickColor(atPointer = true)
+        "toggle_quick_color" -> toggleQuickColor(atPointer = true, ephemeral = ephemeral)
         "toggle_quick_oklch" -> toggleQuickOklch(atPointer = true)
         "toggle_quick_layer" -> toggleQuickLayer()
         "toggle_ref_window" -> {
