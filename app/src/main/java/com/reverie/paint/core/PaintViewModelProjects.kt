@@ -152,17 +152,6 @@ internal fun PaintViewModel.saveProject(
         if (active3DLayers.isNotEmpty()) {
             commitAllActive3DLayersSync()
         }
-        val fileToSave =
-            currentProjectFile?.let { File(it) }?.takeIf { it.parentFile?.exists() == true && !it.name.contains(".autosave") }
-                ?: File(projectDir(), "$name.revp")
-
-        // If the name changed and we had a path, adjust destination file
-        val finalFile =
-            if (fileToSave.nameWithoutExtension != name) {
-                File(fileToSave.parentFile, "$name.revp")
-            } else {
-                fileToSave
-            }
 
         val layers3DJson = active3DLayers.values.joinToString(",") { st ->
             val idx = layers.indexOfFirst { it.id == st.layerId }
@@ -481,11 +470,11 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     val isRecovered = p.isAutoSaved || p.filePath.contains(".autosave")
     docName = p.name
     lastAutoSaveTimeMs = 0L
-    val masterFile = File(projectDir(), "${p.name}.revp")
-    currentProjectFile = if (masterFile.exists() && masterFile.absolutePath != p.filePath) {
-        masterFile.absolutePath
-    } else if (!isRecovered) {
+    val masterFile = if (p.masterFilePath.isNotBlank()) File(p.masterFilePath) else File(projectDir(), "${p.name}.revp")
+    currentProjectFile = if (!isRecovered) {
         p.filePath
+    } else if (masterFile.exists() && masterFile.absolutePath != p.filePath) {
+        masterFile.absolutePath
     } else {
         null
     }
@@ -523,11 +512,11 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             docName = p.name
             checkBrushSizeLimit()
 
-            val masterFile = File(projectDir(), "${p.name}.revp")
-            currentProjectFile = if (masterFile.exists() && masterFile.absolutePath != p.filePath) {
-                masterFile.absolutePath
-            } else if (!isRecovered) {
+            val masterFile = if (p.masterFilePath.isNotBlank()) File(p.masterFilePath) else File(projectDir(), "${p.name}.revp")
+            currentProjectFile = if (!isRecovered) {
                 p.filePath
+            } else if (masterFile.exists() && masterFile.absolutePath != p.filePath) {
+                masterFile.absolutePath
             } else {
                 null
             }
@@ -1140,14 +1129,42 @@ private fun PaintViewModel.buildProjectList(): List<com.reverie.paint.model.Proj
         val coverFile = File(dir, ".cover")
         val coverName = if (coverFile.exists()) coverFile.readText().trim() else null
 
-        return files.map { file ->
+        val folderList = files.map { file ->
             val p = parseProjectFromFile(file)
             if (coverName != null && file.name == coverName) {
                 p.copy(isFolderCover = true)
             } else {
                 p
             }
+        }.toMutableList()
+
+        val autoDir = autoSaveDir()
+        val autoFiles: Array<File> =
+            autoDir
+                .listFiles { f: File -> f.isFile && f.extension.lowercase() in listOf("revp", "kra") }
+                ?: emptyArray()
+
+        for (autoFile in autoFiles) {
+            val parsedAuto = parseProjectFromFile(autoFile)
+            val autoProject = parsedAuto.copy(isAutoSaved = true)
+            val matchesFolder = if (autoProject.masterFilePath.isNotBlank()) {
+                File(autoProject.masterFilePath).parentFile?.absolutePath == dir.absolutePath
+            } else {
+                false
+            }
+            if (matchesFolder) {
+                val existingIdx = folderList.indexOfFirst { !it.isFolder && it.filePath == autoProject.masterFilePath }
+                if (existingIdx != -1) {
+                    val existing = folderList[existingIdx]
+                    if (autoFile.lastModified() >= existing.lastModified) {
+                        folderList[existingIdx] = autoProject
+                    }
+                } else {
+                    folderList.add(0, autoProject)
+                }
+            }
         }
+        return folderList
     }
 
     // Root level: read both standalone files and folders (画集)
@@ -1213,6 +1230,11 @@ private fun PaintViewModel.buildProjectList(): List<com.reverie.paint.model.Proj
     for (autoFile in autoFiles) {
         val parsedAuto = parseProjectFromFile(autoFile)
         val autoProject = parsedAuto.copy(isAutoSaved = true)
+        val belongsToSubfolder = autoProject.masterFilePath.isNotBlank() &&
+            File(autoProject.masterFilePath).parentFile?.absolutePath != rootDir.absolutePath
+        if (belongsToSubfolder) {
+            continue
+        }
         val existingIdx = if (autoProject.masterFilePath.isNotBlank()) {
             list.indexOfFirst { !it.isFolder && it.filePath == autoProject.masterFilePath }
         } else {
@@ -1551,7 +1573,9 @@ internal fun PaintViewModel.startPainting(
     }
     resetProjectReferences()
     val actualName = name?.ifBlank { null } ?: generateNextProjectName()
-    currentProjectFile = null // Reset so new artwork won't overwrite previous project file
+    val targetDir = currentFolder?.let { File(it.filePath) }?.takeIf { it.exists() && it.isDirectory }
+        ?: projectDir()
+    currentProjectFile = File(targetDir, "$actualName.revp").absolutePath
     // 新建工程无记录：默认横向（0°），不继承上一工程的方向。
     pendingCanvasOrientation = null
     docName = actualName
