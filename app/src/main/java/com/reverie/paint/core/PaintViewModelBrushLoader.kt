@@ -260,8 +260,9 @@ private fun PaintViewModel.loadBrushPresetsAfterAssets(
             val n = ReverieCoreBridge.loadBrushPresetsFromDir(dir.absolutePath)
             android.util.Log.d("ReveriePaint", "loadBrushPresets count=$n")
             val builtInNames = getBuiltInBrushNames()
+            val groupsSnapshot = userBrushGroups
             list.clear()
-            list.addAll(scanNativePresets(n, builtInNames))
+            list.addAll(scanNativePresets(n, builtInNames, groupsSnapshot))
             android.util.Log.d("ReveriePaint", "loadBrushPresets list=${list.size}")
         } catch (t: Throwable) {
             android.util.Log.e("ReveriePaint", "loadBrushPresets runCore op failed", t)
@@ -274,17 +275,22 @@ private fun PaintViewModel.loadBrushPresetsAfterAssets(
  * 引擎只认磁盘文件名，所以"文件名 → id"在这里做且只在这里做一次（[BrushStoreVm.idForScanned]）；
  * 之后 UI / VM 一律用 [BrushPresetInfo.id]。
  */
-internal fun PaintViewModel.scanNativePresets(n: Int, builtInNames: Set<String>): List<BrushPresetInfo> =
+internal fun PaintViewModel.scanNativePresets(
+    n: Int,
+    builtInNames: Set<String>,
+    groups: Map<String, String> = userBrushGroups,
+): List<BrushPresetInfo> =
     (0 until n).map { i ->
         val nm = ReverieCoreBridge.brushPresetName(i)
         val id = BrushStoreVm.idForScanned(nm)
+        val isBuiltIn = builtInNames.contains(nm)
         BrushPresetInfo(
             index = i,
             id = id,
             name = nm,
             thumbBytes = ReverieCoreBridge.brushPresetThumbData(i) ?: ByteArray(0),
-            group = userBrushGroups[id] ?: inferBrushGroup(nm),
-            isBuiltIn = builtInNames.contains(nm),
+            group = groups[id] ?: if (isBuiltIn) inferBrushGroup(nm) else "导入",
+            isBuiltIn = isBuiltIn,
         )
     }
 

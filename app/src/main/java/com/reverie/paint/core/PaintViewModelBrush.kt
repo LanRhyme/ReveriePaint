@@ -102,7 +102,9 @@ import kotlinx.coroutines.withContext
         customBrushGroups = if (customsJson != null) {
             runCatching {
                 val arr = org.json.JSONArray(customsJson)
-                (0 until arr.length()).map { arr.getString(it) }
+                (0 until arr.length()).map { arr.getString(it) }.filter {
+                    it.isNotBlank() && it !in listOf("默认", "Default", "default", "全部", "常用", "最近")
+                }
             }.getOrDefault(emptyList())
         } else emptyList()
     }
@@ -724,8 +726,9 @@ import kotlinx.coroutines.withContext
             }
             ReverieCoreBridge.loadBrushResources(brushDir.absolutePath)
             val n = ReverieCoreBridge.loadBrushPresetsFromDir(dir.absolutePath)
+            val groupsSnapshot = userBrushGroups
             list.clear()
-            list.addAll(scanNativePresets(n, builtInNames))
+            list.addAll(scanNativePresets(n, builtInNames, groupsSnapshot))
         }
     }
 
@@ -1086,11 +1089,13 @@ import kotlinx.coroutines.withContext
                     .imported.firstOrNull() ?: return BrushImportResult(success = false)
                 val presetName = imported.name
                 val group = chosenGroup ?: "导入"
-                imported.id?.let { userBrushGroups = userBrushGroups + (it to group) }
-                if (!customBrushGroups.contains(group)) {
-                    customBrushGroups = customBrushGroups + group
+                withContext(Dispatchers.Main) {
+                    imported.id?.let { userBrushGroups = userBrushGroups + (it to group) }
+                    if (!customBrushGroups.contains(group) && group !in listOf("全部", "常用", "最近")) {
+                        customBrushGroups = customBrushGroups + group
+                    }
+                    saveBrushGroups()
                 }
-                saveBrushGroups()
                 BrushImportResult(success = true, presetName = presetName, groupName = group)
             } else if (filename.endsWith(".abr", ignoreCase = true)) {
                 val packBaseName = filename.substringBeforeLast(".").trim().ifBlank { "ABR" }
@@ -1317,17 +1322,23 @@ import kotlinx.coroutines.withContext
                     var targetFinalGroup = defaultGroupName
 
                     for (preset in importedPresets) {
-                        val tag = chosenGroup ?: presetToTagMap[preset] ?: defaultGroupName
-                        if (!newCustomGroups.contains(tag)) {
+                        val rawTag = presetToTagMap[preset]?.trim()
+                        val validTag = rawTag?.takeIf {
+                            it.isNotBlank() && it !in listOf("默认", "Default", "default", "全部", "All", "all", "常用", "Favorites", "favorites", "最近")
+                        }
+                        val tag = chosenGroup ?: validTag ?: defaultGroupName
+                        if (!newCustomGroups.contains(tag) && tag !in listOf("全部", "常用", "最近")) {
                             newCustomGroups = newCustomGroups + tag
                         }
                         presetToIdMap[preset]?.let { newUserGroups = newUserGroups + (it to tag) }
                         targetFinalGroup = tag
                     }
 
-                    customBrushGroups = newCustomGroups
-                    userBrushGroups = newUserGroups
-                    saveBrushGroups()
+                    withContext(Dispatchers.Main) {
+                        customBrushGroups = newCustomGroups
+                        userBrushGroups = newUserGroups
+                        saveBrushGroups()
+                    }
 
                     BrushImportResult(
                         success = true,

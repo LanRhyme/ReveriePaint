@@ -128,11 +128,21 @@ object BrushImportPipeline {
             val name = path.substringAfterLast('/').substringBeforeLast('.')
             if (name.isBlank()) continue
             val tagEls = el.getElementsByTagName("*")
+            var bestTag: String? = null
             for (j in 0 until tagEls.length) {
                 val t = tagEls.item(j) as org.w3c.dom.Element
                 if (t.tagName.substringAfterLast(':').equals("tag", true)) {
-                    t.textContent?.trim()?.takeIf { it.isNotBlank() }?.let { out[name] = it }
+                    val raw = t.textContent?.trim()?.takeIf { it.isNotBlank() } ?: continue
+                    val isGeneric = raw in listOf("默认", "Default", "default", "全部", "All", "all", "常用", "Favorites", "favorites", "最近")
+                    if (!isGeneric) {
+                        bestTag = raw
+                    } else if (bestTag == null) {
+                        bestTag = raw
+                    }
                 }
+            }
+            if (bestTag != null) {
+                out[name] = bestTag
             }
         }
         out

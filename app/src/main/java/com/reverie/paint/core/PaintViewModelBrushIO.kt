@@ -50,7 +50,9 @@ import kotlinx.coroutines.withContext
             val tip = exp.tipName?.takeIf { it.isNotBlank() }?.let { BrushExportSource.tipFile(it, stagingDir, brushDir, assets) }
             val patterns = BrushExportSource.patternFiles(exp, stagingDir, ResourceDirs.patterns(appContext.filesDir), assets)
             if (tip != null || patterns.isNotEmpty()) {
-                val group = userBrushGroups[presetId] ?: "默认"
+                val group = userBrushGroups[presetId]
+                    ?: brushPresets.firstOrNull { it.id == presetId }?.group?.takeIf { it.isNotBlank() }
+                    ?: "导入"
                 val bundleFile = KritaBundleManager.exportBundle(
                     context = context,
                     bundleName = presetName,

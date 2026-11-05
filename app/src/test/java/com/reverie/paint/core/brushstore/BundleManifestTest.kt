@@ -76,4 +76,30 @@ class BundleManifestTest {
         val p = BrushImportPipeline.parseArchive(zip("paintoppresets/$a.kpp" to KppFixtures.bytes(a), "META-INF/manifest.xml" to evil), "P.bundle")
         assertNull(p.presets[0].tag)
     }
+
+    @Test
+    fun genericDefaultTagsAreSupersededBySpecificTag() {
+        val (a, b) = stems
+        val mf = """<?xml version="1.0" encoding="UTF-8"?>
+            <manifest:manifest xmlns:manifest="urn:oasis:names:tc:opendocument:xmlns:manifest:1.0" manifest:version="1.2">
+                <manifest:file-entry manifest:media-type="paintoppresets" manifest:full-path="paintoppresets/$a.kpp">
+                    <manifest:tags>
+                        <manifest:tag>Default</manifest:tag>
+                        <manifest:tag>我的画笔</manifest:tag>
+                        <manifest:tag>默认</manifest:tag>
+                    </manifest:tags>
+                </manifest:file-entry>
+                <manifest:file-entry manifest:media-type="paintoppresets" manifest:full-path="paintoppresets/$b.kpp">
+                    <manifest:tags>
+                        <manifest:tag>默认</manifest:tag>
+                    </manifest:tags>
+                </manifest:file-entry>
+            </manifest:manifest>""".trimIndent().toByteArray()
+        val p = BrushImportPipeline.parseArchive(
+            zip("paintoppresets/$a.kpp" to KppFixtures.bytes(a), "paintoppresets/$b.kpp" to KppFixtures.bytes(b), "META-INF/manifest.xml" to mf),
+            "P.bundle",
+        )
+        assertEquals("我的画笔", p.presets.first { it.wantedName == a }.tag)
+        assertEquals("默认", p.presets.first { it.wantedName == b }.tag)
+    }
 }
