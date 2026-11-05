@@ -121,6 +121,7 @@ import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.Motion
+import com.reverie.paint.ui.theme.optimalTextColor
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
@@ -904,6 +905,7 @@ private fun DrawerAction(
     color: Color,
     resId: Int,
     desc: String,
+    contentColor: Color = color.optimalTextColor(),
     onClick: () -> Unit,
 ) {
     Column(
@@ -915,7 +917,7 @@ private fun DrawerAction(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.Center,
     ) {
-        Icon(painterResource(resId), contentDescription = desc, tint = Color.White, modifier = Modifier.size(18.dp))
-        Text(desc, color = Color.White.copy(alpha = 0.85f), fontSize = 9.sp, maxLines = 1)
+        Icon(painterResource(resId), contentDescription = desc, tint = contentColor, modifier = Modifier.size(18.dp))
+        Text(desc, color = contentColor, fontSize = 9.sp, maxLines = 1)
     }
 }
