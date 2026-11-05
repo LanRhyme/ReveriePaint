@@ -100,10 +100,10 @@ class RecentProjectDashboardWidget : GlanceAppWidget() {
                 modifier = GlanceModifier.fillMaxSize(),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
-                // Left: Artwork Cover Showcase Card
+                // Left: Framed Artwork Thumbnail Showcase
                 Box(
                     modifier = GlanceModifier
-                        .size(width = 104.dp, height = 104.dp)
+                        .size(width = 98.dp, height = 98.dp)
                         .cornerRadius(14.dp)
                         .background(GlanceTheme.colors.surfaceVariant)
                         .clickable(actionStartActivity(if (data != null) openProjectIntent else createIntent)),
@@ -117,32 +117,34 @@ class RecentProjectDashboardWidget : GlanceAppWidget() {
                             modifier = GlanceModifier.fillMaxSize().cornerRadius(14.dp),
                         )
 
-                        // Top-left floating badge on thumbnail
-                        Box(
-                            modifier = GlanceModifier
-                                .fillMaxSize()
-                                .padding(6.dp),
-                            contentAlignment = Alignment.TopStart,
-                        ) {
-                            val tagText = when {
-                                data.isAnimation -> context.getString(R.string.widget_recent_tag_animation)
-                                data.isAutoSaved -> context.getString(R.string.widget_recent_tag_autosave)
-                                else -> context.getString(R.string.widget_recent_tag)
-                            }
+                        // Show tag only for special drafts or animations, avoid obstructing regular artworks
+                        val specialTag = when {
+                            data.isAnimation -> context.getString(R.string.widget_recent_tag_animation)
+                            data.isAutoSaved -> context.getString(R.string.widget_recent_tag_autosave)
+                            else -> null
+                        }
+                        if (specialTag != null) {
                             Box(
                                 modifier = GlanceModifier
-                                    .cornerRadius(6.dp)
-                                    .background(ColorProvider(Color(0xD91E1E22)))
-                                    .padding(horizontal = 6.dp, vertical = 2.dp),
+                                    .fillMaxSize()
+                                    .padding(6.dp),
+                                contentAlignment = Alignment.TopStart,
                             ) {
-                                Text(
-                                    text = tagText,
-                                    style = TextStyle(
-                                        color = ColorProvider(Color.White),
-                                        fontSize = 8.sp,
-                                        fontWeight = FontWeight.Bold,
-                                    ),
-                                )
+                                Box(
+                                    modifier = GlanceModifier
+                                        .cornerRadius(6.dp)
+                                        .background(ColorProvider(Color(0xD91E1E22)))
+                                        .padding(horizontal = 6.dp, vertical = 2.dp),
+                                ) {
+                                    Text(
+                                        text = specialTag,
+                                        style = TextStyle(
+                                            color = ColorProvider(Color.White),
+                                            fontSize = 8.sp,
+                                            fontWeight = FontWeight.Bold,
+                                        ),
+                                    )
+                                }
                             }
                         }
                     } else {
@@ -157,29 +159,30 @@ class RecentProjectDashboardWidget : GlanceAppWidget() {
 
                 Spacer(modifier = GlanceModifier.width(14.dp))
 
-                // Right: Details, Spec Chips & Action toolbar
+                // Right: Studio Info Panel
                 Column(
                     modifier = GlanceModifier
                         .fillMaxHeight()
-                        .defaultWeight()
-                        .padding(vertical = 1.dp),
+                        .defaultWeight(),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     if (data != null) {
-                        // 1. Top Header Row: Category Tag & Relative Edit Time
+                        // 1. Top Header: Artwork Title + Relative Edit Time
                         Row(
                             modifier = GlanceModifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
                         ) {
                             Text(
-                                text = context.getString(R.string.widget_recent_dashboard_name),
+                                text = data.name,
                                 style = TextStyle(
-                                    color = GlanceTheme.colors.primary,
-                                    fontSize = 10.sp,
+                                    color = GlanceTheme.colors.onSurface,
+                                    fontSize = 15.sp,
                                     fontWeight = FontWeight.Bold,
                                 ),
+                                maxLines = 1,
+                                modifier = GlanceModifier.defaultWeight(),
                             )
-                            Spacer(modifier = GlanceModifier.defaultWeight())
+                            Spacer(modifier = GlanceModifier.width(8.dp))
                             Text(
                                 text = RecentProjectWidgetHelper.formatRelativeTime(context, data.lastModified),
                                 style = TextStyle(
@@ -189,22 +192,9 @@ class RecentProjectDashboardWidget : GlanceAppWidget() {
                             )
                         }
 
-                        Spacer(modifier = GlanceModifier.height(3.dp))
-
-                        // 2. Title
-                        Text(
-                            text = data.name,
-                            style = TextStyle(
-                                color = GlanceTheme.colors.onSurface,
-                                fontSize = 15.sp,
-                                fontWeight = FontWeight.Bold,
-                            ),
-                            maxLines = 1,
-                        )
-
                         Spacer(modifier = GlanceModifier.height(5.dp))
 
-                        // 3. Metadata Chips Row
+                        // 2. Cohesive Metadata Card (Unified with stats widget styling)
                         val totalHours = data.elapsedSeconds / 3600
                         val totalMins = (data.elapsedSeconds % 3600) / 60
                         val durationStr = if (totalHours > 0) "${totalHours}h ${totalMins}m" else "${totalMins}m"
@@ -213,96 +203,52 @@ class RecentProjectDashboardWidget : GlanceAppWidget() {
                             data.strokeCount >= 1000 -> String.format(Locale.US, "%.1fk", data.strokeCount / 1000f)
                             else -> data.strokeCount.toString()
                         }
+                        val dimensionsText = "${data.width} × ${data.height} px" + if (data.layerCount > 1) {
+                            " · ${context.getString(R.string.widget_recent_layers_count, data.layerCount)}"
+                        } else ""
 
-                        Row(
-                            modifier = GlanceModifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
+                        Box(
+                            modifier = GlanceModifier
+                                .fillMaxWidth()
+                                .cornerRadius(10.dp)
+                                .background(GlanceTheme.colors.surfaceVariant)
+                                .padding(horizontal = 9.dp, vertical = 6.dp),
                         ) {
-                            // Chip 1: Dimensions
-                            Row(
-                                modifier = GlanceModifier
-                                    .cornerRadius(8.dp)
-                                    .background(GlanceTheme.colors.surfaceVariant)
-                                    .padding(horizontal = 7.dp, vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Image(
-                                    provider = ImageProvider(R.drawable.ic_image),
-                                    contentDescription = null,
-                                    modifier = GlanceModifier.size(10.dp),
-                                    colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant),
-                                )
-                                Spacer(modifier = GlanceModifier.width(4.dp))
-                                Text(
-                                    text = "${data.width} × ${data.height}",
-                                    style = TextStyle(
-                                        color = GlanceTheme.colors.onSurface,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Medium,
-                                    ),
-                                )
-                            }
-
-                            Spacer(modifier = GlanceModifier.width(6.dp))
-
-                            // Chip 2: Duration
-                            Row(
-                                modifier = GlanceModifier
-                                    .cornerRadius(8.dp)
-                                    .background(GlanceTheme.colors.surfaceVariant)
-                                    .padding(horizontal = 7.dp, vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Image(
-                                    provider = ImageProvider(R.drawable.ic_clock),
-                                    contentDescription = null,
-                                    modifier = GlanceModifier.size(10.dp),
-                                    colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant),
-                                )
-                                Spacer(modifier = GlanceModifier.width(4.dp))
-                                Text(
-                                    text = durationStr,
-                                    style = TextStyle(
-                                        color = GlanceTheme.colors.onSurface,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Medium,
-                                    ),
-                                )
-                            }
-
-                            Spacer(modifier = GlanceModifier.width(6.dp))
-
-                            // Chip 3: Strokes & Layers
-                            Row(
-                                modifier = GlanceModifier
-                                    .cornerRadius(8.dp)
-                                    .background(GlanceTheme.colors.surfaceVariant)
-                                    .padding(horizontal = 7.dp, vertical = 3.dp),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Image(
-                                    provider = ImageProvider(R.drawable.ic_brush),
-                                    contentDescription = null,
-                                    modifier = GlanceModifier.size(10.dp),
-                                    colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant),
-                                )
-                                Spacer(modifier = GlanceModifier.width(3.dp))
-                                Text(
-                                    text = strokesStr,
-                                    style = TextStyle(
-                                        color = GlanceTheme.colors.onSurface,
-                                        fontSize = 10.sp,
-                                        fontWeight = FontWeight.Medium,
-                                    ),
-                                )
-                                if (data.layerCount > 1) {
-                                    Spacer(modifier = GlanceModifier.width(3.dp))
+                            Column {
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Image(
+                                        provider = ImageProvider(R.drawable.ic_image),
+                                        contentDescription = null,
+                                        modifier = GlanceModifier.size(11.dp),
+                                        colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant),
+                                    )
+                                    Spacer(modifier = GlanceModifier.width(5.dp))
                                     Text(
-                                        text = "· ${context.getString(R.string.widget_recent_layers_count, data.layerCount)}",
+                                        text = dimensionsText,
+                                        style = TextStyle(
+                                            color = GlanceTheme.colors.onSurface,
+                                            fontSize = 10.sp,
+                                            fontWeight = FontWeight.Medium,
+                                        ),
+                                        maxLines = 1,
+                                    )
+                                }
+                                Spacer(modifier = GlanceModifier.height(3.dp))
+                                Row(verticalAlignment = Alignment.CenterVertically) {
+                                    Image(
+                                        provider = ImageProvider(R.drawable.ic_clock),
+                                        contentDescription = null,
+                                        modifier = GlanceModifier.size(11.dp),
+                                        colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant),
+                                    )
+                                    Spacer(modifier = GlanceModifier.width(5.dp))
+                                    Text(
+                                        text = context.getString(R.string.widget_recent_duration_strokes, durationStr, strokesStr),
                                         style = TextStyle(
                                             color = GlanceTheme.colors.onSurfaceVariant,
-                                            fontSize = 9.sp,
+                                            fontSize = 10.sp,
                                         ),
+                                        maxLines = 1,
                                     )
                                 }
                             }
@@ -310,7 +256,7 @@ class RecentProjectDashboardWidget : GlanceAppWidget() {
 
                         Spacer(modifier = GlanceModifier.defaultWeight())
 
-                        // 4. Actions Toolbar Row
+                        // 3. Action Toolbar (Clean & Well-spaced)
                         Row(
                             modifier = GlanceModifier.fillMaxWidth(),
                             verticalAlignment = Alignment.CenterVertically,
@@ -320,7 +266,7 @@ class RecentProjectDashboardWidget : GlanceAppWidget() {
                                 modifier = GlanceModifier
                                     .cornerRadius(10.dp)
                                     .background(GlanceTheme.colors.primary)
-                                    .padding(horizontal = 11.dp, vertical = 6.dp)
+                                    .padding(horizontal = 12.dp, vertical = 6.dp)
                                     .clickable(actionStartActivity(openProjectIntent)),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
@@ -343,40 +289,12 @@ class RecentProjectDashboardWidget : GlanceAppWidget() {
 
                             Spacer(modifier = GlanceModifier.width(8.dp))
 
-                            // New Canvas Quick Action
-                            Row(
-                                modifier = GlanceModifier
-                                    .cornerRadius(10.dp)
-                                    .background(GlanceTheme.colors.surfaceVariant)
-                                    .padding(horizontal = 9.dp, vertical = 6.dp)
-                                    .clickable(actionStartActivity(createIntent)),
-                                verticalAlignment = Alignment.CenterVertically,
-                            ) {
-                                Image(
-                                    provider = ImageProvider(R.drawable.ic_plus),
-                                    contentDescription = null,
-                                    modifier = GlanceModifier.size(11.dp),
-                                    colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant),
-                                )
-                                Spacer(modifier = GlanceModifier.width(3.dp))
-                                Text(
-                                    text = context.getString(R.string.widget_new_canvas),
-                                    style = TextStyle(
-                                        color = GlanceTheme.colors.onSurfaceVariant,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium,
-                                    ),
-                                )
-                            }
-
-                            Spacer(modifier = GlanceModifier.width(8.dp))
-
                             // Gallery Button
                             Row(
                                 modifier = GlanceModifier
                                     .cornerRadius(10.dp)
                                     .background(GlanceTheme.colors.surfaceVariant)
-                                    .padding(horizontal = 9.dp, vertical = 6.dp)
+                                    .padding(horizontal = 10.dp, vertical = 6.dp)
                                     .clickable(actionStartActivity(galleryIntent)),
                                 verticalAlignment = Alignment.CenterVertically,
                             ) {
