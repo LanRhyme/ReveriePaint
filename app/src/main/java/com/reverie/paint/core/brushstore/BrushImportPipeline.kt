@@ -5,6 +5,7 @@
 package com.reverie.paint.core.brushstore
 
 import com.reverie.paint.core.KppHelper
+import com.reverie.paint.core.PngChunks
 import org.json.JSONObject
 import java.io.ByteArrayInputStream
 import java.io.File
@@ -204,6 +205,121 @@ object BrushImportPipeline {
         return renames
     }
 
+    // ------------------------------------------------------------------ 单文件 kpp 内嵌资源
+
+    private val ASCII = Charsets.US_ASCII
+    private val RESOURCE_OPEN = "<resource".toByteArray(ASCII)
+    private val RESOURCE_CLOSE = "</resource>".toByteArray(ASCII)
+    private val RESOURCES_OPEN = "<resources".toByteArray(ASCII)
+    private val RESOURCES_CLOSE = "</resources>".toByteArray(ASCII)
+    private val TAG_END = ">".toByteArray(ASCII)
+    private val CDATA_OPEN = "<![CDATA[".toByteArray(ASCII)
+    private val CDATA_CLOSE = "]]>".toByteArray(ASCII)
+
+    private val embeddedAttrRes = HashMap<String, Regex>()
+
+    private fun resourceAttr(attrs: String, attr: String): String =
+        embeddedAttrRes.getOrPut(attr) { Regex("""\b$attr\s*=\s*["']([^"']+)["']""", RegexOption.IGNORE_CASE) }
+            .find(attrs)?.groupValues?.getOrNull(1)?.trim().orEmpty()
+
+    private fun idxOf(hay: ByteArray, from: Int, needle: ByteArray): Int {
+        if (needle.isEmpty() || from < 0) return -1
+        val last = hay.size - needle.size
+        if (from > last) return -1
+        outer@ for (i in from..last) {
+            for (j in needle.indices) {
+                if (hay[i + j] != needle[j]) continue@outer
+            }
+            return i
+        }
+        return -1
+    }
+
+    private fun Byte.isAsciiLetter(): Boolean =
+        this in 'a'.toByte()..'z'.toByte() || this in 'A'.toByte()..'Z'.toByte()
+
+    private fun isAsciiSpace(b: Byte): Boolean =
+        b == 0x20.toByte() || b == 0x09.toByte() || b == 0x0A.toByte() || b == 0x0D.toByte()
+
+    /** 解码 [from,from+len) 的资源 body：ASCII 去空白、可选 CDATA 包裹后直接对字节子区间 base64 解码（MIME 容错换行）；非法/空返回 null */
+    private fun decodeResourceBody(payload: ByteArray, from: Int, len: Int): ByteArray? {
+        var s = from
+        var e = from + len
+        while (s < e && isAsciiSpace(payload[s])) s++
+        while (e > s && isAsciiSpace(payload[e - 1])) e--
+        if (e - s >= CDATA_OPEN.size + CDATA_CLOSE.size) {
+            var isCdata = true
+            for (j in CDATA_OPEN.indices) if (payload[s + j] != CDATA_OPEN[j]) { isCdata = false; break }
+            if (isCdata) {
+                for (j in CDATA_CLOSE.indices) if (payload[e - CDATA_CLOSE.size + j] != CDATA_CLOSE[j]) { isCdata = false; break }
+            }
+            if (isCdata) {
+                s += CDATA_OPEN.size
+                e -= CDATA_CLOSE.size
+            }
+        }
+        if (e <= s) return null
+        // Kotlin stdlib 的 Mime 解码 (跳过字母表外字符), 避免 java.util.Base64 的 API 26 门槛 (minSdk 23);
+        // 仅对有界的 body 片段转 String, 不再把整个内嵌载荷全文读进 String
+        return runCatching {
+            kotlin.io.encoding.Base64.Mime.decode(payload.copyOfRange(s, e).decodeToString())
+        }.getOrNull()
+    }
+
+    /**
+     * 解码单文件 .kpp 里内嵌的 brushes/patterns 资源（Krita 5.0+ `<resources><resource type=.. md5sum=..
+     * filename=..><![CDATA[base64]]></resource></resources>`，键位与真机 inkP 20 证据一致）。
+     * 与 [parseArchive] 的 zip 资源同构，落盘走 [installResources] 同一套。
+     *
+     * 有界解析：大内嵌载荷（KppHelper.kt 记载有 ~24MB 级内嵌笔尖）只在 preset 载荷字节上定位
+     * `<resources>` 段并按 `<resource` 块增量提取（扫描方式参照 KppHelper.stripEmbeddedResourcePayloads），
+     * 只有开标签转成 String 供属性解析，base64 直接对字节子区间解码——整段载荷全程不进 String、
+     * 不做全文正则。CDATA 包裹与换行分隔的 base64 都可；无 `<resources>` 段时退回全载荷扫描
+     * （与旧全文正则语义一致）。未知 type / 空 body / base64 非法的条目跳过。
+     */
+    fun parseEmbeddedResources(bytes: ByteArray): List<Resource> {
+        val payload = PngChunks.readText(bytes, "preset") ?: return emptyList()
+        val segStart = idxOf(payload, 0, RESOURCES_OPEN)
+        val segEnd = if (segStart >= 0) idxOf(payload, segStart, RESOURCES_CLOSE) else -1
+        // `<resource` 是 `<resources` 的前缀：后随 ASCII 字母说明命中的是别的标签，跳过继续找
+        val end = if (segEnd >= 0) segEnd else payload.size
+        val out = ArrayList<Resource>()
+        var i = if (segStart >= 0) segStart else 0
+        while (true) {
+            i = idxOf(payload, i, RESOURCE_OPEN)
+            if (i < 0 || i >= end) break
+            val after = i + RESOURCE_OPEN.size
+            if (after < payload.size && payload[after].isAsciiLetter()) { i = after; continue }
+            val tagEnd = idxOf(payload, i, TAG_END)
+            if (tagEnd < 0) break
+            val close = idxOf(payload, tagEnd + 1, RESOURCE_CLOSE)
+            if (close < 0 || close >= end) break
+            // 开标签体量小（只有属性），转 String 做属性提取是有界的
+            val attrs = String(payload, i, tagEnd - i, ASCII)
+            i = close + RESOURCE_CLOSE.size
+
+            val type = resourceAttr(attrs, "type")
+            val filename = resourceAttr(attrs, "filename").ifBlank { resourceAttr(attrs, "name") }
+            val kind = when (type) {
+                "brushes" -> "brushes"
+                "patterns" -> "patterns"
+                else -> {
+                    if (filename.isNotBlank()) BrushDiagnostics.log("import_embedded_skipped", "type" to type, "name" to filename)
+                    continue
+                }
+            }
+            if (filename.isBlank()) continue
+            // type/filename 过滤之后才解码：未知类型的大 body 不做无谓 base64 解码
+            val decoded = decodeResourceBody(payload, tagEnd + 1, close - (tagEnd + 1))
+            if (decoded == null || decoded.isEmpty()) {
+                BrushDiagnostics.log("import_embedded_decode_failed", "type" to kind, "name" to filename)
+                continue
+            }
+            out += Resource(kind, filename, decoded)
+        }
+        return out
+    }
+
     /** 该预设引用了被改名资源时，返回改写引用所需的 rawKeys（不引用则为空） */
     fun rewriteRefs(xml: String, renames: Map<String, String>): Map<String, String> {
         if (renames.isEmpty()) return emptyMap()
@@ -279,11 +395,25 @@ object BrushImportPipeline {
         return out
     }
 
-    /** 单文件 .kpp/.myb */
+    /** 单文件 .kpp/.myb。kpp 内嵌 `<resources>` 资源先按 bundle 导入同一套落盘 ResourceStore（撞名改名），
+     *  再剥离内嵌载荷建快照（与 parseArchive 一致），引用改名经 rawKeys 回写有效副本 */
     fun importFile(fileName: String, bytes: ByteArray, presetDir: File): Result {
         // 单文件没有"包"：撞名后缀用 "(导入)"；原文件名记在 source.json 的 file 里
         val inc = Incoming(fileName.substringBeforeLast('.'), fileName.substringAfterLast('.').lowercase(), bytes, SINGLE_FILE_PACK)
-        return Result(commit(listOf(inc), emptyMap(), presetDir), emptyMap())
+        if (!inc.ext.equals("kpp", true)) return Result(commit(listOf(inc), emptyMap(), presetDir), emptyMap())
+        val embedded = runCatching { parseEmbeddedResources(bytes) }
+            .getOrElse {
+                BrushDiagnostics.log("import_embedded_parse_failed", "name" to inc.wantedName, "err" to it.toString())
+                emptyList()
+            }
+        if (embedded.isEmpty()) return Result(commit(listOf(inc), emptyMap(), presetDir), emptyMap())
+        // 与 importArchive 相同的目录推导（presetDir 即 filesDir/paintoppresets）；
+        // BrushStoreBootstrap 已初始化时 installResources 直接用全局 resourceStore
+        val filesDir = presetDir.parentFile ?: presetDir
+        val renames = installResources(embedded, ResourceDirs.tips(filesDir), ResourceDirs.patterns(filesDir), SINGLE_FILE_PACK)
+        val clean = KppHelper.stripKpp(bytes)
+        val imported = commit(listOf(inc.copy(bytes = clean)), renames, presetDir)
+        return Result(imported, renames)
     }
 
     /** .bundle/.zip */
@@ -445,6 +575,8 @@ object BrushImportPipeline {
     /**
      * ABR 转换结果入库（W-09）：快照 = 转换后的 kpp 字节；source.json 记 abrParams（AbrParser 原始结构）与
      * 转换器版本。覆盖为空，所以重置后字节 == 导入时。[name] 由调用方保证唯一。
+     * [blendPolicy] 持久化导入时的混合模式策略（AbrBlendModes.Policy.name，Round3-B）：
+     * 版本漂移刷新按它回放，缺省/缺键时按 COMPAT_SAFE。
      */
     fun importAbr(
         name: String,
@@ -454,12 +586,14 @@ object BrushImportPipeline {
         pack: String,
         presetDir: File,
         appBaseline: JSONObject = JSONObject(),
+        blendPolicy: String = "",
     ): String {
         val id = BrushIdentity.newImportedId()
         val source = JSONObject().put("provenance", PROVENANCE_ABR).put("pack", pack).put("file", "$name.kpp")
             .put("md5", BrushDiagnostics.md5(kppBytes))
             .put("abrConverterVersion", converterVersion).put("abrParams", abrParams)
             .put("appBaseline", appBaseline)
+        if (blendPolicy.isNotBlank()) source.put("abrBlendPolicy", blendPolicy)
         PresetSnapshotStore.putImported(id, "kpp", kppBytes, source)
         BrushIdentity.register(BrushIdentity.Entry(id, name, "kpp", BrushIdentity.Kind.IMPORTED, pack))
         EffectivePresetBuilder.materialize(id, presetDir)

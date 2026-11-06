@@ -116,4 +116,32 @@ class BrushApplySequenceTest {
             BrushApply.engine = oldEngine
         }
     }
+
+    // ---- resolveSelectSize：select 完整分支的尺寸决策（mem > 显式回读值 > 引擎原生默认 > 20） ----
+
+    @Test
+    fun `尺寸决策 按工具记忆优先`() {
+        assertEquals(33.0, resolveSelectSize(memSize = 33.0, effSize = 45.0, sizeExplicit = true, nativeDefaults = doubleArrayOf(100.0)), 0.0)
+        // 记忆值原样透传（与原 `mem?.getOrNull(0) ?: eff.size` 的记忆分支语义一致），有效性由 applyAfterLoad 把关
+        assertEquals(0.5, resolveSelectSize(memSize = 0.5, effSize = 45.0, sizeExplicit = true, nativeDefaults = null), 0.0)
+    }
+
+    @Test
+    fun `尺寸决策 回读显式含 size 时用回读值`() {
+        assertEquals(45.0, resolveSelectSize(memSize = null, effSize = 45.0, sizeExplicit = true, nativeDefaults = doubleArrayOf(100.0)), 0.0)
+    }
+
+    @Test
+    fun `尺寸决策 无显式 size 时用引擎原生默认尺寸`() {
+        assertEquals(100.0, resolveSelectSize(memSize = null, effSize = 20.0, sizeExplicit = false, nativeDefaults = doubleArrayOf(100.0, 1.0)), 0.0)
+        assertEquals(140.0, resolveSelectSize(memSize = null, effSize = 20.0, sizeExplicit = false, nativeDefaults = doubleArrayOf(140.0)), 0.0)
+    }
+
+    @Test
+    fun `尺寸决策 defaults 为空或无效时兜底回 20`() {
+        assertEquals(20.0, resolveSelectSize(memSize = null, effSize = 20.0, sizeExplicit = false, nativeDefaults = doubleArrayOf()), 0.0)
+        assertEquals(20.0, resolveSelectSize(memSize = null, effSize = 20.0, sizeExplicit = false, nativeDefaults = null), 0.0)
+        assertEquals(20.0, resolveSelectSize(memSize = null, effSize = 20.0, sizeExplicit = false, nativeDefaults = doubleArrayOf(Double.NaN)), 0.0)
+        assertEquals(20.0, resolveSelectSize(memSize = null, effSize = 20.0, sizeExplicit = false, nativeDefaults = doubleArrayOf(-3.0)), 0.0)
+    }
 }

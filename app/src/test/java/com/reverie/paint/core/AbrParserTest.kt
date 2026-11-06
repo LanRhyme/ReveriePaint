@@ -164,13 +164,14 @@ class AbrParserTest {
         height: Int,
         gray: ByteArray,
         compression: Int = 0,
+        depth: Int = 8,
     ): ByteArray {
         require(uuid.length == 36)
         return byteArrayOf(36) +
             uuid.toByteArray(Charsets.US_ASCII) +
             ByteArray(264) +
             be32(0) + be32(0) + be32(height) + be32(width) +
-            be16(8) + byteArrayOf(compression.toByte()) +
+            be16(depth) + byteArrayOf(compression.toByte()) +
             gray
     }
 
@@ -182,8 +183,9 @@ class AbrParserTest {
         height: Int,
         gray: ByteArray,
         compression: Int = 0,
+        depth: Int = 8,
     ): ByteArray {
-        val rec = sampRecord(uuid, width, height, gray, compression)
+        val rec = sampRecord(uuid, width, height, gray, compression, depth)
         // A samp section prefixes every record with an int32 payloadSize.
         val samp = be32(rec.size) + rec
         return be16(version) + be16(2) + section("samp", samp)
@@ -214,6 +216,117 @@ class AbrParserTest {
         val result = ByteArrayInputStream(abr).use { AbrParser.parse(it, basePackName = "future") }
         assertTrue("too-new version should return no tips", result.tips.isEmpty())
         assertTrue("too-new version should return no presets", result.presets.isEmpty())
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // 16-bit sampled tips (Photoshop deep brushes, e.g. 带画包 #0 十九号画笔)
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    fun `16-bit uncompressed tip decodes big-endian density into 8-bit alpha`() {
+        val uuid = "9f74ac31-602c-11e0-a1b2-0002a5d5c51b"
+        // 2x2 像素、每像素 2 字节大端：v = 0 / 32768 / 16384 / 8192
+        val pixels16 = be16(0) + be16(32768) + be16(16384) + be16(8192)
+        val abr = buildAbr(6, uuid, 2, 2, pixels16, depth = 16)
+        val result = ByteArrayInputStream(abr).use { AbrParser.parse(it, basePackName = "deep16") }
+
+        assertEquals("16-bit 笔尖应解析出 1 个 tip", 1, result.tips.size)
+        val tip = result.tips[0]
+        assertEquals("depth 字段照常记录原始位深", 16, tip.depth)
+        assertEquals("输出资产口径仍是 8-bit（width*height 字节）", 4, tip.data.size)
+        // alpha8 = (v*255 + 16384) / 32768（整型四舍五入）
+        assertEquals(0, tip.data[0].toInt() and 0xFF)
+        assertEquals(255, tip.data[1].toInt() and 0xFF)
+        assertEquals(128, tip.data[2].toInt() and 0xFF)
+        assertEquals(64, tip.data[3].toInt() and 0xFF)
+    }
+
+    @Test
+    fun `16-bit PackBits tip decodes per-line big-endian pairs into 8-bit alpha`() {
+        val uuid = "9f74ac31-602c-11e0-a1b2-0002a5d5c51b"
+        // 每行解压后应为 width*2 = 4 字节（2 像素）：v = 32768/16384 与 8192/256
+        val line0 = byteArrayOf(0x03) + be16(32768) + be16(16384)   // literal 4 bytes
+        val line1 = byteArrayOf(0x03) + be16(8192) + be16(256)      // literal 4 bytes
+        val payload = be16(line0.size) + be16(line1.size) + line0 + line1
+        val abr = buildAbr(6, uuid, 2, 2, payload, compression = 1, depth = 16)
+        val result = ByteArrayInputStream(abr).use { AbrParser.parse(it, basePackName = "rle16") }
+
+        assertEquals(1, result.tips.size)
+        val tip = result.tips[0]
+        assertEquals(16, tip.depth)
+        assertEquals(4, tip.data.size)
+        assertEquals(255, tip.data[0].toInt() and 0xFF)
+        assertEquals(128, tip.data[1].toInt() and 0xFF)
+        assertEquals(64, tip.data[2].toInt() and 0xFF)
+        assertEquals(2, tip.data[3].toInt() and 0xFF)
+    }
+
+    @Test
+    fun `16-bit PackBits line shorter than width*2 falls back to the 8-bit path`() {
+        val uuid = "9f74ac31-602c-11e0-a1b2-0002a5d5c51b"
+        // 行解压只有 2 字节（< width*2 = 4）：16-bit 校验失败 → 回退 8-bit 老路径（每行 2 字节恰好填满）
+        val line0 = byteArrayOf(0x01, 0x40, 0x00) // literal 2 bytes: 0x40, 0x00
+        val line1 = byteArrayOf(0xFE.toByte(), 0x7f) // repeat 0x7f x2
+        val payload = be16(line0.size) + be16(line1.size) + line0 + line1
+        val abr = buildAbr(6, uuid, 2, 2, payload, compression = 1, depth = 16)
+        val result = ByteArrayInputStream(abr).use { AbrParser.parse(it, basePackName = "rle16fallback") }
+
+        assertEquals("校验失败回退老路径仍应产出 tip 而不抛", 1, result.tips.size)
+        assertEquals(4, result.tips[0].data.size)
+        assertEquals(0x40, result.tips[0].data[0].toInt() and 0xFF)
+        assertEquals(0x00, result.tips[0].data[1].toInt() and 0xFF)
+        assertEquals(0x7f, result.tips[0].data[2].toInt() and 0xFF)
+        assertEquals(0x7f, result.tips[0].data[3].toInt() and 0xFF)
+    }
+
+    @Test
+    fun `a corrupt desc section is skipped without throwing even without android util Log`() {
+        val uuid = "9f74ac31-602c-11e0-a1b2-0002a5d5c51b"
+        // desc payload 截断（int32 都读不满）：解析失败走 Log 守卫——JVM 单测无 android.util.Log
+        // 桥（"not mocked" 会抛 RuntimeException），守卫后不得外溢
+        val abr = be16(6) + be16(2) + section("desc", byteArrayOf(0x10, 0x00, 0x00)) +
+            section("samp", be32(0))
+        val result = ByteArrayInputStream(abr).use { AbrParser.parse(it, basePackName = "corruptdesc") }
+        assertTrue("坏 desc 只跳过，不出预设", result.presets.isEmpty())
+    }
+
+    // ---------------------------------------------------------------------------------------------
+    // R4: 最小直径的取值优先级（szVr['Mnm ']>0 优先；Mnm 缺失或为 0（抖动子控制缺省）时
+    // 顶层 minimumDiameter 是真值——带画包 #1 十九号（顶层 70）与 #48 肌理-粗糙（顶层 72）
+    // 的真实描述符布局相同，旧规则"Mnm 恒优先"把 Mnm=0 误当完整压感范围）
+    // ---------------------------------------------------------------------------------------------
+
+    @Test
+    fun `szVr minimum diameter wins over the legacy top-level value only when above zero`() {
+        fun presetWith(szVrMnm: Double?, topLevelMin: Double?): AbrParser.AbrPresetInfo {
+            val szItems = mutableMapOf<String, AbrParser.ActionDescriptorValue>(
+                "bVTy" to AbrParser.ActionDescriptorValue.DoubleVal(2.0), // 钢笔压力
+            )
+            szVrMnm?.let { szItems["Mnm "] = AbrParser.ActionDescriptorValue.DoubleVal(it) }
+            val items = mutableMapOf<String, AbrParser.ActionDescriptorValue>(
+                "Nm  " to AbrParser.ActionDescriptorValue.StringVal("M"),
+                "useTipDynamics" to AbrParser.ActionDescriptorValue.BoolVal(true),
+                "szVr" to AbrParser.ActionDescriptorValue.Descriptor("", "brVr", szItems),
+            )
+            topLevelMin?.let { items["minimumDiameter"] = AbrParser.ActionDescriptorValue.DoubleVal(it) }
+            val root = AbrParser.ActionDescriptorNode(
+                "", "root",
+                mapOf(
+                    "Brsh" to AbrParser.ActionDescriptorValue.ValueList(
+                        listOf(AbrParser.ActionDescriptorValue.Descriptor("", "preset", items)),
+                    ),
+                ),
+            )
+            return AbrParser.extractPresetsFromDescriptor(root, emptyList(), "T").single()
+        }
+
+        assertEquals(
+            "szVr.Mnm=0.0 是抖动子控制缺省，不是完整压感范围 → 吃顶层 minimumDiameter 70",
+            0.70, presetWith(szVrMnm = 0.0, topLevelMin = 70.0).minDiameterRatio, 1e-9,
+        )
+        assertEquals("szVr.Mnm>0 优先于顶层", 0.40, presetWith(szVrMnm = 40.0, topLevelMin = 70.0).minDiameterRatio, 1e-9)
+        assertEquals("块内无 Mnm → 顶层 minimumDiameter 兜底", 0.70, presetWith(szVrMnm = null, topLevelMin = 70.0).minDiameterRatio, 1e-9)
+        assertEquals("两者都无 → 缺省 0", 0.0, presetWith(szVrMnm = null, topLevelMin = null).minDiameterRatio, 1e-9)
     }
 
     @Test

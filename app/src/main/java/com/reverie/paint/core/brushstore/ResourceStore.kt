@@ -64,6 +64,11 @@ class ResourceStore(
         byKindAndMd5[kind to md5.lowercase()]
     }
 
+    /** 按登记文件名找 Ref（登记名唯一）；未登记返回 null */
+    fun resolveByName(name: String, kind: Kind): Ref? = synchronized(lock) {
+        byKindAndFileName[kind to name]
+    }
+
 
     fun all(): List<Ref> = synchronized(lock) {
         byKindAndMd5.values.toList()

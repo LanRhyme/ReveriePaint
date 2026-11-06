@@ -4,6 +4,9 @@
 
 package com.reverie.paint.core.brushstore
 
+import com.reverie.paint.core.AbrBlendModes
+import com.reverie.paint.core.AbrPresetConverter
+import com.reverie.paint.core.KppHelper
 import org.json.JSONObject
 import java.io.File
 
@@ -34,7 +37,10 @@ object BrushStoreBootstrap {
         private set
 
     fun resourceStore(filesDir: File): ResourceStore =
-        resourceStore ?: ResourceStore(storeRoot(filesDir)).also { resourceStore = it }
+        resourceStore ?: ResourceStore(storeRoot(filesDir)).also {
+            resourceStore = it
+            installTipResolver(it)
+        }
 
     fun storeRoot(filesDir: File): File = File(filesDir, STORE_DIR)
 
@@ -47,7 +53,25 @@ object BrushStoreBootstrap {
         val filesDir = storeRoot.parentFile ?: storeRoot
         val bDir = ResourceDirs.tips(filesDir)
         val patDir = ResourceDirs.patterns(filesDir)
-        resourceStore = ResourceStore(storeRoot, bDir, patDir)
+        val rs = ResourceStore(storeRoot, bDir, patDir)
+        resourceStore = rs
+        installTipResolver(rs)
+    }
+
+    /**
+     * 笔尖自包含尺寸（writeTipAsset 写 width/height）：注入笔尖文件字节查找
+     * （登记名优先，未登记回退磁盘同名文件；IO 异常按"无字节"处理，writeTipAsset 退回旧行为）。
+     */
+    private fun installTipResolver(rs: ResourceStore) {
+        PresetPropertyMap.tipBytesResolver = { name ->
+            try {
+                val ref = rs.resolveByName(name, ResourceStore.Kind.TIP)
+                val f = if (ref != null) rs.fileFor(ref) else File(rs.dirFor(ResourceStore.Kind.TIP), name)
+                f.takeIf { it.isFile }?.readBytes()
+            } catch (_: Exception) {
+                null
+            }
+        }
     }
 
     /** 出厂版本号 = 资产清单（文件名 + 各自 md5）的 md5，与 versionCode 无关，资产一变就变 */
@@ -108,7 +132,7 @@ object BrushStoreBootstrap {
         }
     }
 
-    /** 启动：同步出厂 → [migrate]（只在需要时）→ reconcileDisk → materializeAll。 */
+    /** 启动：同步出厂 → [migrate]（只在需要时）→ reconcileDisk → [refreshDriftedAbrSnapshots] → materializeAll。 */
     fun run(
         filesDir: File,
         presetDir: File,
@@ -129,6 +153,7 @@ object BrushStoreBootstrap {
                 return false
             }
             reconcileDisk(filesDir)
+            refreshDriftedAbrSnapshots()
             val results = EffectivePresetBuilder.materializeAll(presetDir)
             this.presetDir = presetDir
             this.storeRootDir = root
@@ -251,12 +276,69 @@ object BrushStoreBootstrap {
         }
     }
 
+    /**
+     * 转换器版本漂移自愈（Round3-B，修 §10.1-8）：转换规则升级（CONVERTER_VERSION +1）后，旧版本导入的
+     * ABR 快照不会自己变——这里在 reconcileDisk 之后、materializeAll 之前扫描 provenance=="abr" 且
+     * abrConverterVersion < CONVERTER_VERSION 的导入快照，用 source.json 的 abrParams（旧版缺字段由
+     * [AbrPresetConverter.fromAbrParamsJson] 从旧快照 XML 回填）重建快照字节并更新 source.json
+     * （md5 / abrConverterVersion / abrParams / appBaseline）。
+     *
+     * 资源绑定以旧快照 XML 已绑定的为准（见 [AbrPresetConverter.reconvertSnapshot]）；source.json 里的
+     * abrBlendPolicy（导入时混合模式策略，Round3-B 起写入）随刷新回放，缺键按 COMPAT_SAFE；用户覆盖
+     * （BrushOverrideStore）不动，紧随其后的 materializeAll 按新快照重新叠加覆盖并落盘生效文件。
+     * 单条 runCatching：损坏（source.json 非法 / 缺 abrParams / 快照读不出 XML）仅记日志跳过；
+     * 本函数绝不抛出、绝不置 readOnly。当前版本与非 ABR 快照只做两次 opt 判断，零 IO 重写。
+     */
+    fun refreshDriftedAbrSnapshots() {
+        if (readOnly) return
+        for (e in BrushIdentity.all()) {
+            if (e.kind != BrushIdentity.Kind.IMPORTED || !e.ext.equals("kpp", ignoreCase = true)) continue
+            val src = PresetSnapshotStore.source(e.id) ?: continue
+            if (src.optString("provenance") != BrushImportPipeline.PROVENANCE_ABR) continue
+            // 版本相等：一次 optInt 判断即走，零 IO 重写
+            if (src.optInt("abrConverterVersion", 0) >= AbrPresetConverter.CONVERTER_VERSION) continue
+            runCatching {
+                val abrParams = src.optJSONObject("abrParams") ?: run {
+                    BrushDiagnostics.log("drift_refresh_skipped", "id" to e.id, "reason" to "no_abrParams")
+                    return@runCatching
+                }
+                val oldBytes = PresetSnapshotStore.read(e.id) ?: run {
+                    BrushDiagnostics.log("drift_refresh_skipped", "id" to e.id, "reason" to "no_snapshot")
+                    return@runCatching
+                }
+                val oldXml = KppHelper.readPresetXml(oldBytes, stripEmbeddedResources = true)
+                val preset = AbrPresetConverter.fromAbrParamsJson(abrParams, oldXml)
+                // 回放导入时的混合模式策略；v11/v12 旧 source 无此键 → COMPAT_SAFE（历史现状）
+                val policy = runCatching { AbrBlendModes.Policy.valueOf(src.optString("abrBlendPolicy")) }
+                    .getOrNull() ?: AbrBlendModes.Policy.COMPAT_SAFE
+                val converted = AbrPresetConverter.reconvertSnapshot(oldBytes, preset, e.name, src.optString("pack"), resourceStore, policy)
+                    ?: run {
+                        BrushDiagnostics.log("drift_refresh_skipped", "id" to e.id, "reason" to "reconvert_failed")
+                        return@runCatching
+                    }
+                val newSource = JSONObject(src.toString())
+                    .put("md5", BrushDiagnostics.md5(converted.kppBytes))
+                    .put("abrConverterVersion", AbrPresetConverter.CONVERTER_VERSION)
+                    .put("abrParams", AbrPresetConverter.abrParamsJson(preset))
+                    .put("appBaseline", PresetReadback.baselineJson(converted.bp))
+                PresetSnapshotStore.updateImportedSnapshot(e.id, e.ext, converted.kppBytes, newSource)
+                BrushDiagnostics.log(
+                    "drift_refreshed", "id" to e.id, "name" to e.name,
+                    "from" to src.optInt("abrConverterVersion", 0), "to" to AbrPresetConverter.CONVERTER_VERSION,
+                )
+            }.onFailure {
+                BrushDiagnostics.log("drift_refresh_failed", "id" to e.id, "err" to it.javaClass.simpleName, "msg" to it.toString())
+            }
+        }
+    }
+
     /** 测试用 */
     fun resetForTest() {
         readOnly = false
         presetDir = null
         storeRootDir = null
         resourceStore = null
+        PresetPropertyMap.tipBytesResolver = null
         BrushThumbStore.resetForTest()
         PresetReadback.clearForTest()
     }

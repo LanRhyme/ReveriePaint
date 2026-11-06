@@ -15,6 +15,7 @@ import com.reverie.paint.core.brushstore.BrushStoreBootstrap
 import com.reverie.paint.core.brushstore.BrushThumbStore
 import com.reverie.paint.core.brushstore.ControlId
 import com.reverie.paint.core.brushstore.EffectivePresetBuilder
+import com.reverie.paint.core.brushstore.KppSensors
 import java.io.File
 import kotlinx.coroutines.Job
 
@@ -92,18 +93,19 @@ import kotlinx.coroutines.Job
         BrushStoreVm.stage(this, ControlId.RANDOM_FLIP_Y, v)
     }
 
+    /**
+     * 跟随方向走统一的 CURVE_ROTATION 通道（与工作台曲线控件同源）：
+     * 构造 CurveValue(enabled = v, sensorId = "drawingangle", curve = 当前 Rotation 曲线,
+     * strength = 当前强度) 并 stage，不再单独 stage FOLLOW_DIRECTION / 直改引擎。
+     */
     internal fun PaintViewModel.updateBrushFollowDirection(v: Boolean) {
         brushParams = brushParams.copy(followDirection = v)
-        if (v) {
-            brushParams = brushParams.copy(rotationSensor = "drawingangle")
-            val opt = brushDynamicOptions["Rotation"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Rotation")
-            brushDynamicOptions["Rotation"] = opt.copy(sensorId = "drawingangle", enabled = true)
-        } else {
-            brushParams = brushParams.copy(rotationSensor = "")
-            val opt = brushDynamicOptions["Rotation"] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Rotation")
-            brushDynamicOptions["Rotation"] = opt.copy(enabled = false)
-        }
-        BrushStoreVm.stage(this, ControlId.FOLLOW_DIRECTION, v)
+        val opt = brushDynamicOptions["Rotation"]
+            ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("Rotation")
+        updateBrushDynamicOption(
+            "Rotation",
+            opt.copy(enabled = v, sensorId = "drawingangle"),
+        )
     }
 
     internal fun PaintViewModel.updateBrushTextureEnabled(v: Boolean) {
@@ -471,8 +473,11 @@ import kotlinx.coroutines.Job
             )
         }
         for ((key, body) in sensorXml) {
-            val id = Regex("""id="([^"]+)"""").find(body)?.groupValues?.getOrNull(1)
-            val curve = Regex("""<curve>([^<]*)</curve>""").find(body)?.groupValues?.getOrNull(1)
+            val sensorList = KppSensors.sensorIds(body)
+            val id = KppSensors.primarySensorId(body, key) ?: KppSensors.topId(body)
+            val curve = (if (id != null) KppSensors.sensorCurve(body, id) else null)
+                ?: KppSensors.firstCurve(body)
+                ?: Regex("""<curve>([^<]*)</curve>""").find(body)?.groupValues?.getOrNull(1)
             if (curve.isNullOrBlank()) continue
             val points = com.reverie.paint.model.DynamicOptionConfig.parseKritaCurve(curve)
             val existing = newMap[key]

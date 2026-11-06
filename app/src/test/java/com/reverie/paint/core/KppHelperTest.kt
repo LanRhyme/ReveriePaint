@@ -7,6 +7,7 @@ package com.reverie.paint.core
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNotNull
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.io.File
@@ -240,6 +241,37 @@ class KppHelperTest {
         assertTrue(xml!!.contains("""filename="my_gih_brush.gih""""))
         val tip = KppHelper.extractTipAssetFilename(kppBytes)
         assertEquals("my_gih_brush.gih", tip)
+    }
+
+    @Test
+    fun `masking 双 Brush 预设提取主笔尖名 而非文档序靠前的掩膜副笔刷`() {
+        val xml = """<Preset name="Masked" paintopid="paintbrush">
+            <param name="MaskingBrush/Preset/brush_definition" type="string"><![CDATA[<Brush type="png_brush" filename="mask_tip.png" spacing="0.1"/>]]></param>
+            <param name="brush_definition" type="string"><![CDATA[<Brush type="png_brush" filename="main_tip.png" spacing="0.1"/>]]></param>
+        </Preset>"""
+        val kppBytes = KppHelper.replacePresetXml(createMinimalPng(), xml)
+        assertEquals("main_tip.png", KppHelper.extractTipAssetFilename(kppBytes))
+    }
+
+    @Test
+    fun `单 Brush 主定义的预设仍提取其笔尖名`() {
+        val xml = """<Preset name="Plain" paintopid="paintbrush">
+            <param name="brush_definition" type="string"><![CDATA[<Brush type="gbr_brush" filename="only_tip.gbr" spacing="0.1"/>]]></param>
+        </Preset>"""
+        val kppBytes = KppHelper.replacePresetXml(createMinimalPng(), xml)
+        assertEquals("only_tip.gbr", KppHelper.extractTipAssetFilename(kppBytes))
+    }
+
+    @Test
+    fun `主定义存在但无 filename(auto 笔尖)时返回 null 不回退抓资源名`() {
+        val xml = """<Preset name="Auto" paintopid="paintbrush">
+            <resources>
+                <resource name="deco" type="brushes" filename="deco.png"><![CDATA[dGVzdA==]]></resource>
+            </resources>
+            <param name="brush_definition" type="string"><![CDATA[<Brush type="auto_brush" spacing="0.1"><MaskGenerator type="circle" diameter="30"/></Brush>]]></param>
+        </Preset>"""
+        val kppBytes = KppHelper.replacePresetXml(createMinimalPng(), xml)
+        assertNull(KppHelper.extractTipAssetFilename(kppBytes))
     }
 
 }

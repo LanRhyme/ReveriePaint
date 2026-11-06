@@ -21,7 +21,8 @@ class SensorsListMergeTest {
         val before = ids(xml, "Softness")
         assertTrue(before.size >= 2)
         val first = before.first()
-        val v = PresetPropertyMap.readCurve(xml, "Softness")!!.copy(curve = "0,0;0.4,0.8;1,1;")
+        // 强制启用：新契约下共享通道关闭态不重排传感器结构（形状保存在 RawCurve），合并保证只对启用写生效
+        val v = PresetPropertyMap.readCurve(xml, "Softness")!!.copy(curve = "0,0;0.4,0.8;1,1;", enabled = true)
         val out = PresetPropertyMap.writeCurve(xml, "Softness", v)
         assertEquals(before, ids(out, "Softness"))
         val s = KppSensors.sensorXml(out, "Softness")!!
@@ -77,5 +78,81 @@ class SensorsListMergeTest {
             assertTrue(name, mixP.read!!(mo) as Boolean)
             if (KppSensors.isChecked(xml, "Mix")) assertTrue(name, ids(mo, "Mix").containsAll(x0))
         }
+    }
+
+    @Test
+    fun textureStrengthPressure_preservesSpeedSensorAndReadsAccurately() {
+        val xmlWithList = """
+            <!DOCTYPE params>
+            <params>
+              <param name="Texture/Pattern/Enabled">true</param>
+              <param name="PressureTexture/Strength/">true</param>
+              <param name="Texture/Strength/UseCurve">true</param>
+              <param name="Texture/Strength/Sensor"><![CDATA[<!DOCTYPE params><params id="sensorslist"><ChildSensor id="speed"><curve>0,1;1,0;</curve></ChildSensor><ChildSensor id="pressure"><curve>0,0.25;1,1;</curve></ChildSensor></params>]]></param>
+            </params>
+        """.trimIndent()
+
+        // 1. 测试 hasActivePressureSensor 正确识别
+        assertTrue("应识别到纹理压感传感器", KppSensors.hasActivePressureSensor(xmlWithList))
+
+        // 2. 测试读：应准确提取 pressure 曲线的起点 (0.25)，不被前面的 speed (1.0) 误导
+        val spec = PresetPropertyMap.spec(ControlId.TEXTURE_STRENGTH_PRESSURE)
+        val readVal = spec.read!!(xmlWithList) as Double
+        assertEquals(0.25, readVal, 1e-6)
+
+        // 3. 测试写：改动 pressure 最小深度，应保留 speed 传感器
+        val written = spec.write!!(xmlWithList, 0.45, BrushParams())
+        val sensorXml = KppSensors.sensorXml(written, PresetPropertyMap.TEXTURE_STRENGTH_OPTION)!!
+        val sensorIds = KppSensors.sensorIds(sensorXml)
+        assertTrue("必须保留 speed 传感器", "speed" in sensorIds)
+        assertTrue("必须包含 pressure 传感器", "pressure" in sensorIds)
+        assertEquals("speed 曲线不能被改动", "0,1;1,0;", KppSensors.sensorCurve(sensorXml, "speed"))
+        assertEquals("pressure 曲线正确更新", "0,0.45;1,1;", KppSensors.sensorCurve(sensorXml, "pressure"))
+        assertEquals("sensorslist 应禁用 UseSameCurve", "false", KppXml.get(written, "Texture/Strength/UseSameCurve"))
+
+        // 4. 测试关闭 (min < 0)：只移除 pressure，保留 speed
+        val closed = spec.write!!(written, -1.0, BrushParams())
+        val closedSensorXml = KppSensors.sensorXml(closed, PresetPropertyMap.TEXTURE_STRENGTH_OPTION)!!
+        val closedIds = KppSensors.sensorIds(closedSensorXml)
+        assertTrue("关闭压感后 speed 仍保留", "speed" in closedIds)
+        assertFalse("关闭压感后 pressure 已移除", "pressure" in closedIds)
+        assertTrue("多传感器移除单个子传感器后 UseCurve 保持 true", KppSensors.useCurve(closed, PresetPropertyMap.TEXTURE_STRENGTH_OPTION))
+    }
+
+    @Test
+    fun hasActivePressureSensor_detectsMaskingAndColorSensors() {
+        // 无压感
+        val flatXml = """
+            <!DOCTYPE params>
+            <params>
+              <param name="SizeUseCurve">false</param>
+              <param name="OpacityUseCurve">false</param>
+              <param name="FlowUseCurve">false</param>
+            </params>
+        """.trimIndent()
+        assertFalse("无压感笔刷应返回 false", KppSensors.hasActivePressureSensor(flatXml))
+
+        // 副笔刷内部带压感
+        val maskXml = """
+            <!DOCTYPE params>
+            <params>
+              <param name="MaskingBrush/Enabled">true</param>
+              <param name="MaskingBrush/Preset/SizeUseCurve">true</param>
+              <param name="MaskingBrush/Preset/PressureSize">true</param>
+              <param name="MaskingBrush/Preset/SizeSensor"><![CDATA[<!DOCTYPE params><params id="pressure"><curve>0,0;1,1;</curve></params>]]></param>
+            </params>
+        """.trimIndent()
+        assertTrue("副笔刷带压感应返回 true", KppSensors.hasActivePressureSensor(maskXml))
+
+        // 颜色动态带压感
+        val colorXml = """
+            <!DOCTYPE params>
+            <params>
+              <param name="Pressures">true</param>
+              <param name="sUseCurve">true</param>
+              <param name="sSensor"><![CDATA[<!DOCTYPE params><params id="pressure"><curve>0,0;1,1;</curve></params>]]></param>
+            </params>
+        """.trimIndent()
+        assertTrue("颜色饱和度带压感应返回 true", KppSensors.hasActivePressureSensor(colorXml))
     }
 }

@@ -1,3 +1,7 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 package com.reverie.paint.core.brushstore
 
 /**
@@ -43,6 +47,21 @@ object KppSensors {
         if (sensor.isNullOrBlank()) return emptyList()
         val top = topId(sensor) ?: return emptyList()
         return if (top == "sensorslist") childSensor.findAll(sensor).map { it.groupValues[1] }.toList() else listOf(top)
+    }
+
+    fun hasPressure(ids: Collection<String>): Boolean = "pressure" in ids || "pressurein" in ids
+
+    /**
+     * 对于复合传感器 (sensorslist)，优先选择真实压感 ("pressure" / "pressurein") 作为主传感器，
+     * 避免因 speed 等附属子传感器排在第一项而误将其反相曲线张冠李戴给压感。
+     */
+    fun primarySensorId(sensor: String?, optionKey: String = ""): String? {
+        if (sensor.isNullOrBlank()) return null
+        val ids = sensorIds(sensor)
+        if (ids.isEmpty()) return null
+        if ("pressure" in ids) return "pressure"
+        if ("pressurein" in ids) return "pressurein"
+        return PresetPropertyMap.primarySensor(optionKey, ids) ?: ids.firstOrNull()
     }
 
     fun firstCurve(sensor: String?): String? = sensor?.let { curveTag.find(it)?.groupValues?.get(1)?.trim() }
@@ -179,5 +198,89 @@ object KppSensors {
             }
         }
         return x
+    }
+
+    /**
+     * 全树扫描预设 XML，判定是否存在任何已启用的压感传感器。
+     * 用于解决类似 inkP 21 Flat Rake 等笔刷（其 Size/Opacity/Flow 未开启压感，但
+     * Texture/Strength 或 MaskingBrush 开启了压感）在导入时基线 pressureEnabled 被误判为 false 的问题。
+     */
+    fun hasActivePressureSensor(xml: String): Boolean {
+        // 1. 纹理强度 (Texture/Strength): inkP 20/21/22 等的核心压感挂载点
+        val texEnabled = KppXml.getBool(xml, "Texture/Pattern/Enabled", false)
+        if (texEnabled && useCurve(xml, "Texture/Strength/")) {
+            val s = sensorXml(xml, "Texture/Strength/")
+            if (hasPressure(sensorIds(s))) return true
+        }
+
+        // 2. 副笔刷 (MaskingBrush/Preset/) 内部选项
+        if (KppXml.getBool(xml, "MaskingBrush/Enabled", false)) {
+            val subCheckable = listOf(
+                "Size", "Rotation", "Scatter", "Softness", "Sharpness", "Spacing", "Ratio"
+            )
+            for (opt in subCheckable) {
+                val prefix = "MaskingBrush/Preset/$opt"
+                val checked = KppXml.getBool(xml, "MaskingBrush/Preset/Pressure$opt", false)
+                val useCurve = KppXml.getBool(xml, "${prefix}UseCurve", true)
+                if (checked && useCurve) {
+                    val s = KppXml.get(xml, "${prefix}Sensor")
+                    if (hasPressure(sensorIds(s))) return true
+                }
+            }
+            // 副笔刷非 checkable 选项 (Opacity / Flow)
+            for (opt in listOf("Opacity", "Flow")) {
+                val prefix = "MaskingBrush/Preset/$opt"
+                if (KppXml.getBool(xml, "${prefix}UseCurve", false)) {
+                    val s = KppXml.get(xml, "${prefix}Sensor")
+                    if (hasPressure(sensorIds(s))) return true
+                }
+            }
+        }
+
+        // 3. 主笔刷其它标准带开关选项 (需要显式 Pressure<Id>=true 且 UseCurve=true)
+        val otherCheckable = listOf(
+            "Rotation", "Scatter", "Softness", "Sharpness", "Spacing", "Darken", "Mix",
+            "Rate", "Ratio", "Mirror", "s", "v", "h"
+        )
+        for (opt in otherCheckable) {
+            val checked = KppXml.getBool(xml, pressureKey(opt), false)
+            val useCurve = useCurve(xml, opt)
+            if (checked && useCurve) {
+                val s = sensorXml(xml, opt)
+                if (hasPressure(sensorIds(s))) return true
+            }
+        }
+
+        // 4. 通用全参数扫描 (解除硬编码白名单限制，覆盖 Deform/Filter/Hairy/Hatching/Particle 等全部笔刷引擎)
+        val paramRegex = Regex("""<param\b[^>]*\bname="([^"]*)"[^>]*>(.*?)</param>""", RegexOption.DOT_MATCHES_ALL)
+        for (m in paramRegex.findAll(xml)) {
+            val name = m.groupValues[1]
+            val rawValue = m.groupValues[2].trim()
+            val value = if (rawValue.startsWith("<![CDATA[")) rawValue.removePrefix("<![CDATA[").removeSuffix("]]>").trim() else rawValue
+
+            // 跳过未启用的模块
+            if ("MaskingBrush/" in name && !KppXml.getBool(xml, "MaskingBrush/Enabled", false)) continue
+            if ("Texture/" in name && !KppXml.getBool(xml, "Texture/Pattern/Enabled", false)) continue
+
+            // 4.1 参数名以 Pressure 开头且值为 true 的布尔开关 (如 PressureSize)
+            if (name.startsWith("Pressure", ignoreCase = true) && (value.equals("true", ignoreCase = true) || value == "1")) {
+                val opt = name.substring(8)
+                if (opt.isEmpty() || useCurve(xml, opt)) return true
+            }
+
+            // 4.2 参数值内部包含传感器且包含 pressure
+            if (value.startsWith("<!DOCTYPE params>") || value.contains("<params") || value.contains("<ChildSensor")) {
+                val ids = sensorIds(value)
+                if (hasPressure(ids)) {
+                    val opt = name.removeSuffix("Sensor").removePrefix("MaskingBrush/Preset/")
+                    val active = useCurve(xml, opt) && (!isCheckable(opt) || isChecked(xml, opt))
+                    if (opt.isEmpty() || active) {
+                        return true
+                    }
+                }
+            }
+        }
+
+        return false
     }
 }

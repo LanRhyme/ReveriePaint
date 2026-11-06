@@ -102,6 +102,8 @@ object AbrParser {
         val satJitter: Double = 0.0,
         val valJitter: Double = 0.0,
         val secondaryMix: Double = 0.0,
+        /** clVr.bVTy（前景/背景抖动 → 控制）：0=关（逐印章随机前背景抖动，非常量混色），2=钢笔压力 */
+        val fgBgControl: Int = 0,
     )
 
     data class AbrPresetInfo(
@@ -489,13 +491,23 @@ object AbrParser {
                     val height = bottom - top
 
                     if (plausibleTipDimensions(width, height)) {
+                        val tipLimit = nextBrush.coerceAtMost(source.size)
                         val tipData = if (compression == 1) {
-                            decodePackBitsScanlines(source, cursor, nextBrush.coerceAtMost(source.size), height, width)
+                            if (depth == 16) {
+                                // 16-bit 笔尖：每行解压后应为 width*2 字节，大端两两合并转 8-bit；
+                                // 行数/长度校验失败回退 8-bit 老路径（不抛，保持鲁棒）
+                                decodePackBits16To8(source, cursor, tipLimit, height, width)
+                                    ?: decodePackBitsScanlines(source, cursor, tipLimit, height, width)
+                            } else {
+                                decodePackBitsScanlines(source, cursor, tipLimit, height, width)
+                            }
                         } else {
-                            val dataLen = width * height * (depth / 8).coerceAtLeast(1)
+                            val bpp = (depth / 8).coerceAtLeast(1)
+                            val dataLen = width * height * bpp
                             if (cursor + dataLen <= source.size) {
                                 val raw = source.sliceBytes(cursor, dataLen)
-                                if (depth == 16) tipDataTo8Bit(raw, width, height, depth) else raw
+                                // 16-bit 未压缩：每像素 2 字节大端密度流，这里统一转 8-bit 输出口径
+                                if (depth == 16) be16DensityTo8(raw) else raw
                             } else null
                         }
 
@@ -691,13 +703,23 @@ object AbrParser {
 
                 if (plausibleTipDimensions(width, height)) {
                     val pixelDataStart = boundsStart + 19L
+                    val pixelDataLimit = nextEntryPos.coerceAtMost(sectionEnd)
                     val pixelData = if (compress == 1) {
-                        decodePackBitsScanlines(source, pixelDataStart, nextEntryPos.coerceAtMost(sectionEnd), height, width)
+                        if (depth == 16) {
+                            // 16-bit 笔尖：每行解压后应为 width*2 字节，大端两两合并转 8-bit；
+                            // 行数/长度校验失败回退 8-bit 老路径（不抛，保持鲁棒）
+                            decodePackBits16To8(source, pixelDataStart, pixelDataLimit, height, width)
+                                ?: decodePackBitsScanlines(source, pixelDataStart, pixelDataLimit, height, width)
+                        } else {
+                            decodePackBitsScanlines(source, pixelDataStart, pixelDataLimit, height, width)
+                        }
                     } else {
-                        val needed = width * height * (depth / 8).coerceAtLeast(1)
+                        val bpp = (depth / 8).coerceAtLeast(1)
+                        val needed = width * height * bpp
                         if (pixelDataStart + needed <= sectionEnd) {
                             val raw = source.sliceBytes(pixelDataStart, needed)
-                            if (depth == 16) tipDataTo8Bit(raw, width, height, depth) else raw
+                            // 16-bit 未压缩：每像素 2 字节大端密度流，这里统一转 8-bit 输出口径
+                            if (depth == 16) be16DensityTo8(raw) else raw
                         } else null
                     }
 
@@ -740,18 +762,6 @@ object AbrParser {
             cursor = if (nextEntryPos > cursor) nextEntryPos else (cursor + 4L)
         }
         return tips
-    }
-
-    internal fun tipDataTo8Bit(raw: ByteArray, width: Int, height: Int, depth: Int): ByteArray {
-        if (depth <= 8 || raw.isEmpty()) return raw
-        val totalPixels = width * height
-        val out = ByteArray(totalPixels)
-        val bytesPerPixel = (depth / 8).coerceAtLeast(1)
-        val limit = minOf(totalPixels, raw.size / bytesPerPixel)
-        for (i in 0 until limit) {
-            out[i] = raw[i * bytesPerPixel]
-        }
-        return out
     }
 
     private fun isPattSectionKey(key: String): Boolean =
@@ -803,7 +813,8 @@ object AbrParser {
         if (p + 16L > patternEnd) return null
         if (source.i32(p + 4L) != 1) return null
         val imageMode = source.i32(p + 8L)
-        if (imageMode == 2) return null
+        // imageMode 2 = 16-bit 灰度（此前整颗跳过）；每像素 2 字节大端，解包后统一转 8-bit 出 PNG
+        val bytesPerPixel = if (imageMode == 2) 2 else 1
         val height = source.u16(p + 12L)
         val width = source.u16(p + 14L)
         if (!plausibleTipDimensions(width, height)) return null
@@ -889,11 +900,21 @@ object AbrParser {
             }
             val pixels = when (compression) {
                 0 -> {
-                    val need = cw.toLong() * chh.toLong()
+                    val need = cw.toLong() * chh.toLong() * bytesPerPixel
                     if (dataStart + need > channelEnd) null
-                    else source.sliceBytes(dataStart, need.toInt())
+                    else {
+                        val raw = source.sliceBytes(dataStart, need.toInt())
+                        if (bytesPerPixel == 2) be16DensityTo8(raw) else raw
+                    }
                 }
-                1 -> decodePackBitsScanlines(source, dataStart, channelEnd, chh, cw)?.takeIf { it.size >= cw * chh }
+                1 -> if (bytesPerPixel == 2) {
+                    // 16-bit：每行解压应为 cw*2 字节；行数/长度校验失败保持 null（整颗图案跳过）
+                    decodePackBitsRaw(source, dataStart, channelEnd, chh, cw * 2, requireFullLines = true)
+                        ?.takeIf { it.size >= cw * chh * 2 }
+                        ?.let(::be16DensityTo8)
+                } else {
+                    decodePackBitsScanlines(source, dataStart, channelEnd, chh, cw)?.takeIf { it.size >= cw * chh }
+                }
                 else -> null
             }
             if (pixels != null) {
@@ -921,8 +942,54 @@ object AbrParser {
         width: Int,
     ): ByteArray? {
         if (height <= 0 || width <= 0 || !plausibleTipDimensions(width, height)) return null
-        val totalPixels = height * width
-        val output = ByteArray(totalPixels)
+        return decodePackBitsRaw(source, offset, limit, height, width, requireFullLines = false)
+    }
+
+    /**
+     * 16-bit PackBits 笔尖：每行压缩数据解压后应为 `width*2` 字节，大端两两合并转 8-bit。
+     * 行头越界 / 任一行解压不满 `width*2` 视为校验失败返回 null（调用方回退 8-bit 老路径，不抛）。
+     */
+    private fun decodePackBits16To8(
+        source: AbrSource,
+        offset: Long,
+        limit: Long,
+        height: Int,
+        width: Int,
+    ): ByteArray? {
+        if (height <= 0 || width <= 0 || !plausibleTipDimensions(width, height)) return null
+        val raw = decodePackBitsRaw(source, offset, limit, height, width * 2, requireFullLines = true) ?: return null
+        if (raw.size < height * width * 2) return null
+        return be16DensityTo8(raw)
+    }
+
+    /**
+     * 16-bit 大端密度流 → 8-bit：PS 16-bit 灰度满量程 32768，
+     * `alpha8 = (v*255 + 16384) / 32768`（纯整型运算，四舍五入）。
+     */
+    private fun be16DensityTo8(raw: ByteArray): ByteArray {
+        val pixels = raw.size / 2
+        val out = ByteArray(pixels)
+        for (i in 0 until pixels) {
+            val v = ((raw[2 * i].toInt() and 0xFF) shl 8) or (raw[2 * i + 1].toInt() and 0xFF)
+            out[i] = ((v * 255 + 16384) / 32768).coerceAtMost(255).toByte()
+        }
+        return out
+    }
+
+    /**
+     * PackBits 按行解压，每行解压目标 [bytesPerLine] 字节，输出 `height*bytesPerLine` 字节。
+     * [requireFullLines]=false（8-bit 老路径）保持既有鲁棒行为：行声明越界即止、短行以 0 补齐；
+     * =true（16-bit 校验）时任一行解压不满即判失败返回 null。
+     */
+    private fun decodePackBitsRaw(
+        source: AbrSource,
+        offset: Long,
+        limit: Long,
+        height: Int,
+        bytesPerLine: Int,
+        requireFullLines: Boolean = false,
+    ): ByteArray? {
+        val output = ByteArray(height * bytesPerLine)
         val safeLimit = minOf(limit, source.size)
 
         var cursor = offset
@@ -934,13 +1001,14 @@ object AbrParser {
             cursor += 2L
         }
 
+        var linesComplete = 0
         for (h in 0 until height) {
             val lineLen = scanlineLengths[h].toLong()
             val lineEnd = cursor + lineLen
             if (lineEnd > safeLimit) break
 
-            val lineStartOut = h * width
-            val lineEndOut = lineStartOut + width
+            val lineStartOut = h * bytesPerLine
+            val lineEndOut = lineStartOut + bytesPerLine
             var lineOutPos = lineStartOut
 
             while (cursor < lineEnd && lineOutPos < lineEndOut) {
@@ -967,7 +1035,10 @@ object AbrParser {
                 // n == -128 is nop
             }
             cursor = lineEnd
+            if (lineOutPos < lineEndOut && requireFullLines) return null
+            linesComplete++
         }
+        if (requireFullLines && linesComplete < height) return null
 
         return output
     }
@@ -1296,7 +1367,11 @@ object AbrParser {
                 else if (szControl == 3) tiltSize = true
 
                 sizeJitter = ((extractDouble(szVr["jitter"]) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
-                val minD = extractDouble(items["minimumDiameter"]) ?: extractDouble(szVr["Mnm "])
+                // 最小直径取值（真实描述符实证）：szVr['Mnm ']>0 时优先；Mnm 缺失或为 0（抖动子控制
+                // 缺省值，并非"完整压感范围"）时吃顶层 minimumDiameter——#1 十九号（计算笔，顶层 70%）
+                // 与 #48 肌理-粗糙（采样笔，顶层 72%）布局相同，顶层值就是 PS 形状动态面板的"最小直径"。
+                // 旧规则"Mnm 恒优先"把 Mnm=0 误当完整压感范围，丢失了 70/72% 的真实压感下限
+                val minD = extractDouble(szVr["Mnm "])?.takeIf { it > 0.0 } ?: extractDouble(items["minimumDiameter"])
                 if (minD != null) {
                     minDiameterRatio = (minD / 100.0).coerceIn(0.0, 1.0)
                 }
@@ -1473,8 +1548,11 @@ object AbrParser {
                 val sJ = (pct("Strt", "sJtr") / 100.0).coerceIn(0.0, 1.0)
                 val bJ = (pct("Brgh", "bJtr") / 100.0).coerceIn(0.0, 1.0)
                 val mix = ((extractDouble(clDesc?.items?.get("jitter")) ?: 0.0) / 100.0).coerceIn(0.0, 1.0)
-                if (hJ > 0.0 || sJ > 0.0 || bJ > 0.0 || mix > 0.0) {
-                    AbrColorDynamicsInfo(hueJitter = hJ, satJitter = sJ, valJitter = bJ, secondaryMix = mix)
+                // 前景/背景抖动控制键：bVTy 在 clVr 描述符内（与 szVr/opVr 同款读取惯例），兼容顶层散写
+                val fgBgControl = extractDouble(clDesc?.items?.get("bVTy"))?.toInt()
+                    ?: (extractDouble(items["bVTy"])?.toInt() ?: 0)
+                if (hJ > 0.0 || sJ > 0.0 || bJ > 0.0 || mix > 0.0 || fgBgControl != 0) {
+                    AbrColorDynamicsInfo(hueJitter = hJ, satJitter = sJ, valJitter = bJ, secondaryMix = mix, fgBgControl = fgBgControl)
                 } else null
             } else null
 

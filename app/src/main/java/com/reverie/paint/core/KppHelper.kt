@@ -1,5 +1,10 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
 package com.reverie.paint.core
 
+import com.reverie.paint.core.brushstore.KppXml
 import java.io.ByteArrayOutputStream
 
 object KppHelper {
@@ -122,11 +127,17 @@ object KppHelper {
 
     /**
      * Extracts tip asset filename (e.g. "mooncake.png", "brush.gbr") from .kpp bytes.
+     *
+     * masking（双 `<Brush>`）预设的文档序里掩膜副笔刷定义在前，全文首个 `filename=` 会取错，
+     * 所以先取主 `brush_definition`（[KppXml.mainBrushDef]）再在其中提取；没有主定义的
+     * 畸形/历史文件回退全文首个，保持旧行为的健壮性。主定义存在但无 filename（auto 笔尖）
+     * 时返回 null——auto 笔尖本就没有笔尖资产文件。
      */
     fun extractTipAssetFilename(kppBytes: ByteArray): String? {
         val xml = readPresetXml(kppBytes) ?: return null
         val regex = Regex("""filename="([^"]+)"""")
-        return regex.find(xml)?.groupValues?.getOrNull(1)
+        val scope = KppXml.mainBrushDef(xml) ?: xml
+        return regex.find(scope)?.groupValues?.getOrNull(1)
     }
 
     internal fun dedupeParamsXml(xml: String): String {

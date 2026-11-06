@@ -38,12 +38,38 @@ internal object AbrSnapshotBuilder {
         val controls = PresetPropertyMap.diff(PresetPropertyMap.readParams(skeleton), params, ctx)
             .filterKeys { it != ControlId.TEXTURE_PATTERN }
         var xml = PresetPropertyMap.applyToXml(skeleton, controls, params)
+        xml = writeCompositeSensors(xml, params)
         if (patternRef != null) xml = PresetPropertyMap.writeTexturePattern(xml, patternRef)
+        // 绘制模式（KisPaintingModeOptionData：1=BUILDUP 喷枪叠色，2=WASH 洗抹）：始终显式写，
+        // 不依赖 AIRBRUSH 控件的差异触发（airbrush=false 时表不会写，引擎缺省未必是 WASH）
+        xml = KppXml.set(xml, "PaintOpAction", if (params.airbrush) "1" else "2")
         // 文件笔尖的 scale 决定报告尺寸（见 formatScale）
         if (params.tipAsset.isNotBlank() && tipScale != null) {
             xml = KppXml.setBrushAttr(xml, "scale", formatScale(tipScale))
         }
         return KppHelper.replacePresetXml(previewPng, xml)
+    }
+
+    /** 复合动态涉及的曲线选项（与 AbrPresetConverter 的通道一一对应） */
+    private val CURVE_OPTIONS = listOf("Size", "Opacity", "Flow", "Rotation", "Ratio")
+
+    /**
+     * 复合动态（pressure/tilt 主源 + fuzzy 抖动共存）的传感器列表：
+     * BrushParams.dynamicOptions 里的 sensorslist 经 PresetPropertyMap 的 CurveValue 往返只会保留
+     * 单传感器形态（CurveValue.parse 取首个 id/curve），这里按源 XML 原样写回，并显式写
+     * `<Id>UseSameCurve=false`（KisKritaSensorPack.cpp:188 缺省 true，存在 commonCurve 时会覆盖
+     * 各子传感器曲线）与 `<Id>curveMode=0`（多传感器相乘），不依赖引擎缺省。
+     */
+    private fun writeCompositeSensors(xml: String, params: BrushParams): String {
+        var x = xml
+        for (opt in CURVE_OPTIONS) {
+            val sensor = params.dynamicOptions[opt] ?: continue
+            if (KppSensors.topId(sensor) != "sensorslist") continue
+            x = KppSensors.writeSensor(x, opt, sensor)
+            x = KppXml.set(x, "${opt}UseSameCurve", "false")
+            x = KppXml.set(x, "${opt}curveMode", "0")
+        }
+        return x
     }
 
     /**

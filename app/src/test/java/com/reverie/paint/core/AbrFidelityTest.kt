@@ -179,11 +179,17 @@ class AbrFidelityTest {
                 "clVr" to V.Descriptor("", "clVr", mapOf("jitter" to pct(30.0))),
             ),
         )
-        val bp = convert(p).bp
-        assertEquals("草地 #51 色相抖动 5%", 0.05, bp.hueJitter, 1e-9)
-        assertEquals(0.04, bp.satJitter, 1e-9)
-        assertEquals(0.04, bp.valJitter, 1e-9)
-        assertEquals("前景/背景抖动", 0.30, bp.secondaryMix, 1e-9)
+        // 解析层：原始值保留（clVr 无 bVTy → fgBgControl=0，与真实 ABR 布局一致）
+        assertEquals(0, p.colorDynamics!!.fgBgControl)
+        assertEquals("解析层保留原始前景/背景抖动", 0.30, p.colorDynamics!!.secondaryMix, 1e-9)
+        // 转换层：fgBgControl=0 是逐印章随机抖动，不映射恒定混色
+        val c = convert(p)
+        assertEquals("草地 #51 色相抖动 5%", 0.05, c.bp.hueJitter, 1e-9)
+        assertEquals(0.04, c.bp.satJitter, 1e-9)
+        assertEquals(0.04, c.bp.valJitter, 1e-9)
+        assertEquals("fgBgControl=0 不映射恒定混色", 0.0, c.bp.secondaryMix, 1e-9)
+        val xml = KppHelper.readPresetXml(c.kppBytes)!!
+        assertFalse("XML 不得开启常量混色", xml.contains("""name="PressureMix"><![CDATA[true]]>"""))
     }
 
     @Test
@@ -271,7 +277,10 @@ class AbrFidelityTest {
 
     @Test
     fun converterVersionBumpedSoOldImportsAreRedone() {
-        assertTrue("v55 起新增双模混合模式与软圆羽化恢复，旧导入需重导", AbrPresetConverter.CONVERTER_VERSION >= 9)
+        assertTrue(
+            "v11 起复合动态/16-bit 笔尖/最小直径/绘制模式产物字节变化，旧导入需按重置策略重导",
+            AbrPresetConverter.CONVERTER_VERSION >= 11,
+        )
     }
 
     // ------------------------------------------------------------------ 真实文件（MEIKA_ABR，缺失即 skip）
@@ -293,6 +302,22 @@ class AbrFidelityTest {
         val p = realPreset(i)
         val tipFile = p.tipUuid?.let { map[it] } ?: ""
         return AbrPresetConverter.convert(p, p.name, r.tips.firstOrNull { it.uuid == p.tipUuid }, tipFile, map, "meika")
+    }
+
+    @Test
+    fun real_colorDynamicsFgBgControlOffKillsConstantMix() {
+        // 实测（MEIKA_ABR 全量）：9 个开颜色动态的预设 clVr 内均无 bVTy（fgBgControl=0），
+        // 其 clVr.jitter 是逐印章随机前背景抖动，不是常量混色；#29 干木炭 / #31 圆炭条
+        // 的 2% jitter 在 v12 及以前被误映射成恒定副色混白，v13 起转换层置 0
+        for (i in listOf(29, 31)) {
+            val p = realPreset(i)
+            assertEquals("#$i clVr 无 bVTy → 控制关", 0, p.colorDynamics!!.fgBgControl)
+            assertEquals("#$i 解析层保留原始 jitter", 0.02, p.colorDynamics!!.secondaryMix, 1e-9)
+            val c = realConv(i)
+            assertEquals("#$i fgBgControl=0 不映射恒定混色", 0.0, c.bp.secondaryMix, 1e-9)
+            val xml = KppHelper.readPresetXml(c.kppBytes)!!
+            assertFalse("#$i XML 不得开启常量混色", xml.contains("""name="PressureMix"><![CDATA[true]]>"""))
+        }
     }
 
     @Test
@@ -361,6 +386,11 @@ class AbrFidelityTest {
         assertEquals("COMPAT_SAFE 下物理间距校准至 0.06 消除累积死黑", 0.06, bp.spacing, 1e-9)
         assertEquals(1.0, bp.pressureOpacity, 1e-9)
         assertEquals(1.0, bp.pressureFlow, 1e-9)
+        // 计算笔的最小直径取顶层 minimumDiameter=70%：Size 压感曲线下限 0,0.700（修正前是 0,0）
+        // 备忘：szVr.Mnm=0 且顶层 minimumDiameter>0 的采样笔会取顶层值；若某笔刻意用 Mnm=0 表示全范围压感，
+        // 会被顶层值锁定（与 #1/#48 布局相同，当前按 PS 面板真值处理）
+        val size = bp.dynamicOptions["Size"] ?: ""
+        assertTrue("计算笔 Size 压感曲线下限应为顶层 minimumDiameter=70%", size.contains("id=\"pressure\"") && size.contains("0,0.700;1,1;"))
         val xml = KppHelper.readPresetXml(c.kppBytes)!!
         assertTrue("XML 包含 PressureOpacity 开关", xml.contains("""name="PressureOpacity"><![CDATA[true]]>"""))
         assertTrue("XML 包含 PressureFlow 开关", xml.contains("""name="PressureFlow"><![CDATA[true]]>"""))
