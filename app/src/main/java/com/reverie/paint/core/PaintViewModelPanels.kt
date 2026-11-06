@@ -994,66 +994,116 @@ internal fun PaintViewModel.syncPanelMasks(drawId: Long) {
     }
 }
 
-/** 把这一格从画区关联中解散。仅还原自身及原关联格的蒙版，图层与像素毫发无损！ */
+/** 把分格从画区关联中解散。核心：双向完全对称解散，分离则各自复制画层离开，画面像素 100% 毫发无损！ */
 internal fun PaintViewModel.separatePanelDraw(panelId: Long) {
     if (!panelSharesDraw(panelId)) return
     val cur = panels.firstOrNull { it.panelId == panelId } ?: return
     val oldDrawId = cur.meta.drawId
-    Breadcrumbs.record("Panel", "separatePanelDraw id=$panelId")
+    val members = panels.filter { it.meta.drawId == oldDrawId }
+    if (members.size < 2) return
+
+    Breadcrumbs.record("Panel", "separatePanelDraw id=$panelId members=${members.map { it.panelId }}")
     runCore(after = {
         refreshPanels()
         notifyLayerChanged(pixelChanged = true)
     }) {
         ReverieCoreBridge.beginUndoMacro(appContext.getString(R.string.panel_menu_separate))
         try {
-            // 1. 将该格 drawId 独立重置为其自身的 panelId
             val scan = scanEnginePanels()
-            val curEngine = scan.mirrors.firstOrNull { it.panelId == panelId } ?: return@runCore
-            val groupNow = indexOfLayerId(curEngine.groupId).takeIf { it >= 0 } ?: curEngine.groupIdx
-            val resolved = curEngine.meta.style.resolve(panelDefaults)
-            val newMeta = curEngine.meta.copy(drawId = panelId)
-            val newMetaJson = newMeta.toJson()
-            ReverieCoreBridge.setPanelMeta(groupNow, newMetaJson)
-            val ev = PanelMetaEvent(
-                groupIdx = groupNow,
-                maskIdx = -1,
-                fillIdx = -1,
-                borderIdx = -1,
-                metaJson = newMetaJson,
-                borderWidth = resolved.borderWidth,
-                borderColor = resolved.borderColor,
-                fillColor = resolved.fillColor,
-                fillEnabled = resolved.fillEnabled,
-                cornerRadius = resolved.cornerRadius,
-            )
-            if (recorder.recording && groupNow >= 0) {
-                recorder.layerOp(RecordingEvents.L_PANEL_META, groupNow, PanelMetaCodec.encode(ev))
+            val primary = scan.mirrors.firstOrNull { it.meta.drawId == oldDrawId } ?: return@runCore
+
+            // 1. 若当前关联组仅有两格，则解散该组时两格双向同时恢复独立；若三格以上，则仅将当前格剔除出关联组
+            val separatingPanels = if (members.size == 2) {
+                scan.mirrors.filter { it.meta.drawId == oldDrawId }
+            } else {
+                listOfNotNull(scan.mirrors.firstOrNull { it.panelId == panelId })
             }
 
-            // 2. 将该格自身的蒙版刷回仅包含自己 Quad
-            val maskNow = indexOfLayerId(curEngine.maskId).takeIf { it >= 0 } ?: curEngine.maskIdx
-            if (maskNow >= 0) {
-                val maskEv = PanelMetaEvent(
-                    groupIdx = -1,
-                    maskIdx = maskNow,
-                    fillIdx = -1,
-                    borderIdx = -1,
-                    metaJson = null,
-                    borderWidth = 0f,
-                    borderColor = 0,
-                    fillColor = 0,
-                    fillEnabled = false,
-                    maskQuads = listOf(curEngine.meta.quad),
-                    cornerRadius = resolved.cornerRadius,
-                )
-                applyPanelMetaEvent(maskEv)
-                if (recorder.recording) {
-                    recorder.layerOp(RecordingEvents.L_PANEL_META, -1, PanelMetaCodec.encode(maskEv))
+            for (sep in separatingPanels) {
+                var groupNow = indexOfLayerId(sep.groupId)
+                if (groupNow < 0) continue
+
+                // 1.1 若分离格不是主代表格，将主代表格的内容画层复制到分离格中（分离则各自复制画层！）
+                if (sep.panelId != primary.panelId) {
+                    val pageBefore = LayerSnapshotProbe.read()
+                    val priGroupNow = indexOfLayerId(primary.groupId)
+                    if (pageBefore != null && priGroupNow >= 0) {
+                        val priContents = contentLayerIdsOf(pageBefore, priGroupNow)
+                        val sepContents = contentLayerIdsOf(pageBefore, groupNow)
+                        for (cId in priContents) {
+                            val cIdx = indexOfLayerId(cId)
+                            if (cIdx >= 0) {
+                                val clonedIdx = ReverieCoreBridge.copyLayer(cIdx)
+                                val targetGrpNow = indexOfLayerId(sep.groupId)
+                                if (clonedIdx >= 0 && targetGrpNow >= 0) {
+                                    ReverieCoreBridge.moveLayerToGroup(clonedIdx, targetGrpNow)
+                                }
+                            }
+                        }
+                        // 清理分离格原先残留的空内容层
+                        for (oldCId in sepContents) {
+                            val oldIdx = indexOfLayerId(oldCId)
+                            if (oldIdx >= 0) {
+                                ReverieCoreBridge.removeLayer(oldIdx)
+                            }
+                        }
+                    }
+                }
+
+                // 1.2 重置 drawId 为自身 panelId (通过重新定位确保索引精准)
+                groupNow = indexOfLayerId(sep.groupId)
+                if (groupNow >= 0) {
+                    val resolved = sep.meta.style.resolve(panelDefaults)
+                    val newMeta = sep.meta.copy(drawId = sep.panelId)
+                    val newMetaJson = newMeta.toJson()
+                    ReverieCoreBridge.setPanelMeta(groupNow, newMetaJson)
+                    val ev = PanelMetaEvent(
+                        groupIdx = groupNow,
+                        maskIdx = -1,
+                        fillIdx = -1,
+                        borderIdx = -1,
+                        metaJson = newMetaJson,
+                        borderWidth = resolved.borderWidth,
+                        borderColor = resolved.borderColor,
+                        fillColor = resolved.fillColor,
+                        fillEnabled = resolved.fillEnabled,
+                        cornerRadius = resolved.cornerRadius,
+                    )
+                    applyPanelMetaEvent(ev)
+                    if (recorder.recording) {
+                        recorder.layerOp(RecordingEvents.L_PANEL_META, groupNow, PanelMetaCodec.encode(ev))
+                    }
+                }
+
+                // 1.3 将该格蒙版刷回仅包含自己的 Quad
+                val maskNow = indexOfLayerId(sep.maskId)
+                if (maskNow >= 0) {
+                    val resolved = sep.meta.style.resolve(panelDefaults)
+                    val maskEv = PanelMetaEvent(
+                        groupIdx = -1,
+                        maskIdx = maskNow,
+                        fillIdx = -1,
+                        borderIdx = -1,
+                        metaJson = null,
+                        borderWidth = 0f,
+                        borderColor = 0,
+                        fillColor = 0,
+                        fillEnabled = false,
+                        maskQuads = listOf(sep.meta.quad),
+                        cornerRadius = resolved.cornerRadius,
+                    )
+                    applyPanelMetaEvent(maskEv)
+                    if (recorder.recording) {
+                        recorder.layerOp(RecordingEvents.L_PANEL_META, -1, PanelMetaCodec.encode(maskEv))
+                    }
                 }
             }
 
-            // 3. 刷新剩余仍在 oldDrawId 中的成员格蒙版
-            syncPanelMasks(oldDrawId)
+            // 2. 如果还有剩余未分离的成员格，更新剩余成员格的蒙版并集
+            val remainingMembers = members.filter { m -> separatingPanels.none { it.panelId == m.panelId } }
+            if (remainingMembers.isNotEmpty()) {
+                syncPanelMasks(oldDrawId)
+            }
         } finally {
             ReverieCoreBridge.endUndoMacro()
         }
@@ -1118,7 +1168,25 @@ internal fun PaintViewModel.mergeAllPanelDraws(panelIds: Collection<Long>) {
                 }
             }
 
-            // 2. 统一刷新 targetDrawId 的共享蒙版并集
+            // 2. 将非主代表格的内容画层并入主代表格（合流共享，零像素丢失）
+            val primaryMirror = selected.first()
+            val primaryGroupIdx = indexOfLayerId(primaryMirror.groupId)
+            for (m in scan.mirrors.filter { it.panelId in panelIds && it.panelId != primaryMirror.panelId }) {
+                val secGroupIdx = indexOfLayerId(m.groupId)
+                val page = LayerSnapshotProbe.read()
+                if (page != null && primaryGroupIdx >= 0 && secGroupIdx >= 0) {
+                    val secContents = contentLayerIdsOf(page, secGroupIdx)
+                    for (cId in secContents) {
+                        val cIdx = indexOfLayerId(cId)
+                        val pNow = indexOfLayerId(primaryMirror.groupId)
+                        if (cIdx >= 0 && pNow >= 0) {
+                            ReverieCoreBridge.moveLayerToGroup(cIdx, pNow)
+                        }
+                    }
+                }
+            }
+
+            // 3. 统一刷新 targetDrawId 的共享蒙版并集
             syncPanelMasks(targetDrawId)
         } finally {
             ReverieCoreBridge.endUndoMacro()
