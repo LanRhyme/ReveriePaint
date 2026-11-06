@@ -3555,6 +3555,9 @@
     <string name="widget_recent_activity">近期活跃度</string>
     <string name="stats_pin_widget_title">添加到桌面小组件</string>
     <string name="stats_pin_widget_desc">支持一键将创作小组件固定在桌面</string>
+    <string name="stats_reset_title">清空创作统计</string>
+    <string name="stats_reset_summary">清除每日作画时长、落笔数与热力图记录, 只从此刻重新累计</string>
+    <string name="stats_reset_confirm">将清空全部每日活跃数据 (作画时长、落笔数、画布数、热力图), 不可恢复。当前工程的计时不受影响。</string>
     <string name="stats_pin_dashboard">数据看板 (4x2)</string>
     <string name="stats_pin_compact">打卡卡片 (2x2)</string>
     <string name="stats_pin_recent_dashboard">画作展台 (4x2)</string>

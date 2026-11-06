@@ -121,10 +121,8 @@ internal fun PaintViewModel.saveProject(
                 return@runCore
             }
             Breadcrumbs.record("Save", "saveProject SUCCESS: $name ($totalStrokes strokes)")
-            val addedStrokes = (totalStrokes - initialStrokeCount).coerceAtLeast(0)
-            if (addedStrokes > 0 || elapsedSeconds > 0L) {
-                recordCreationSession(addedStrokes, elapsedSeconds)
-            }
+            // 只上报"自上次上报以来"的增量 (工程累计值在 recordCreationSession 内部求差)
+            recordCreationSession()
             currentProjectFile = targetFile.absolutePath
             // Renaming from the save dialog moves this working association; do not let the
             // previous file and the renamed artwork share a mutable reference selection.
@@ -236,6 +234,9 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
             hasPendingMajorOp = false
             selectionDirty = false // 这次快照已经把 selectedLayerIndex 一起写进去了
             isAutoSaving = false
+            // 自动保存同样是"把这段作画落定"的时刻: 顺手把增量记进每日统计, 否则
+            // 进程被系统杀掉时这一段时长会永远丢掉 (只记增量, 不会重复计数)
+            recordCreationSession()
             if (isPeriodic && autoSaveToastEnabled) {
                 showActionToast(R.string.toast_project_autosaved, R.drawable.ic_save)
             }
@@ -541,6 +542,8 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             }
 
             elapsedSeconds = p.elapsedSeconds
+            // 统计基线对齐存档值: 重开工程时不该把历史时长再记进今天一次
+            resetStatsBaseline()
             canvasCreatedTime = if (p.lastModified > 0) p.lastModified else System.currentTimeMillis()
             colorMode = p.colorMode
             syncLayersFromNative()
@@ -1525,12 +1528,10 @@ internal fun PaintViewModel.goHome() {
     docName = ""
     isModified = false
     selectionDirty = false
-    val addedStrokes = (totalStrokes - initialStrokeCount).coerceAtLeast(0)
-    if (addedStrokes > 0 || elapsedSeconds > 0L) {
-        recordCreationSession(addedStrokes, elapsedSeconds)
-    }
+    recordCreationSession()
     initialStrokeCount = 0
     totalStrokes = 0
+    resetStatsBaseline()
     lastAutoSaveTimeMs = 0L
     // Safety net: clear any stuck loading overlay (e.g. if a runCore op threw
     // before after() could set isBlockingLoading = false)
@@ -1612,6 +1613,7 @@ internal fun PaintViewModel.startPainting(
     lastAutoSaveTimeMs = 0L
     totalStrokes = 0
     elapsedSeconds = 0L
+    resetStatsBaseline()
     canvasCreatedTime = System.currentTimeMillis()
     stopPaintingTimer()
     resetAnimationState()

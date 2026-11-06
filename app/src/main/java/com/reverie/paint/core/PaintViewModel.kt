@@ -92,6 +92,18 @@ class PaintViewModel : ViewModel() {
     }
     var elapsedSeconds by mutableLongStateOf(0L)
     var canvasCreatedTime by mutableLongStateOf(System.currentTimeMillis())
+
+    /**
+     * 创作统计的"已上报基线"：上一次把本工程的累计时长/笔画数记进每日活跃数据时的快照。
+     *
+     * `elapsedSeconds` / `totalStrokes` 是**工程累计值**（会随 .revp 一起持久化，重开工程后
+     * 从存档值继续累加），而每日统计只该记"这一次真正新增了多少"。直接上报累计值会把
+     * 整个工程的历史时长反复加进当天 —— 保存一次加一遍、退出再加一遍，一天下来能算出
+     * 十几个小时（issue: 用户 "当日已画 15 小时 35 分 / 落笔 108 笔"）。
+     * 打开工程时基线同步成存档值，每次上报后基线跟到最新，保证只记增量。
+     */
+    internal var statsReportedStrokes by mutableIntStateOf(0)
+    internal var statsReportedSeconds by mutableLongStateOf(0L)
     var colorMode by mutableStateOf("RGB 8位 (sRGB)")
 
     // Active drawing duration tracking (1-minute idle threshold)
@@ -7099,10 +7111,37 @@ class PaintViewModel : ViewModel() {
 
     internal fun hasAppContext(): Boolean = ::appContext.isInitialized
 
-    fun recordCreationSession(strokes: Int, duration: Long) {
-        if (::appContext.isInitialized) {
-            CreationStatsManager.recordSession(appContext, strokes, duration)
-        }
+    /**
+     * 把"自上次上报以来新增"的笔画数与时长记进今日活跃数据。
+     *
+     * 参数是工程累计值 ([totalStrokes] / [elapsedSeconds])，这里与 [statsReportedStrokes] /
+     * [statsReportedSeconds] 求差后只上报增量，并推进基线 —— 调用方可以是保存、自动保存、
+     * 退出等任意时机，重复调用不会重复计数。
+     */
+    fun recordCreationSession() {
+        if (!::appContext.isInitialized) return
+        val delta = com.reverie.paint.model.CreationStatsDelta.since(
+            totalStrokes = totalStrokes,
+            totalSeconds = elapsedSeconds,
+            reportedStrokes = statsReportedStrokes,
+            reportedSeconds = statsReportedSeconds,
+        )
+        if (delta.isEmpty) return
+        CreationStatsManager.recordSession(appContext, delta.strokes, delta.seconds)
+        statsReportedStrokes = totalStrokes
+        statsReportedSeconds = elapsedSeconds
+    }
+
+    /** 清空每日创作统计 (设置页入口; 只清历史, 不影响当前工程计时)。 */
+    fun resetCreationStats() {
+        if (!::appContext.isInitialized) return
+        CreationStatsManager.reset(appContext)
+    }
+
+    /** 把统计基线对齐到当前工程状态 (打开工程 / 新建画布 / 关闭工程时调用)。 */
+    internal fun resetStatsBaseline() {
+        statsReportedStrokes = totalStrokes
+        statsReportedSeconds = elapsedSeconds
     }
 
     fun recordBrushUsageStats(brushName: String) {

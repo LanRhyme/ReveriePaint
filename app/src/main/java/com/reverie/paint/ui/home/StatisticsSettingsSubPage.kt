@@ -34,8 +34,12 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.rounded.DeleteOutline
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -72,7 +76,9 @@ fun StatisticsSettingsSubPage(
 ) {
     val colors = Theme.current
     val context = LocalContext.current
-    val stats = remember(vm.projects) {
+    // 清空统计后要立刻重算一次汇总 (getSummary 走文件缓存, 没有可观察状态)
+    var statsEpoch by remember { mutableStateOf(0) }
+    val stats = remember(vm.projects, statsEpoch) {
         CreationStatsManager.getSummary(context, vm.projects)
     }
 
@@ -119,6 +125,16 @@ fun StatisticsSettingsSubPage(
             // Section 4: Desktop Widgets (Pin Widget to Home Screen)
             SettingCategoryTitle(stringResource(R.string.stats_pin_widget_title))
             PinWidgetsCard()
+
+            Spacer(Modifier.height(16.dp))
+
+            // Section 5: 清空统计 (数据可能因为旧版本的重复累计而偏大)
+            StatsResetCard(
+                onReset = {
+                    vm.resetCreationStats()
+                    statsEpoch++
+                },
+            )
 
             Spacer(Modifier.height(32.dp))
         }
@@ -684,6 +700,74 @@ private fun CreationPreferencesCards(stats: CreationStatsSummary) {
                 }
             }
         }
+    }
+}
+
+@Composable
+private fun StatsResetCard(onReset: () -> Unit) {
+    val colors = Theme.current
+    var confirm by remember { mutableStateOf(false) }
+    val visibleBorder = if (colors.border != Color.Transparent) colors.border else colors.subText.copy(alpha = 0.12f)
+
+    Box(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(20.dp))
+            .background(colors.panel)
+            .border(1.dp, visibleBorder, RoundedCornerShape(20.dp))
+            .padding(18.dp),
+    ) {
+        Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            Text(
+                text = stringResource(R.string.stats_reset_summary),
+                color = colors.subText,
+                fontSize = 12.sp,
+            )
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { confirm = true }
+                    .padding(horizontal = 10.dp, vertical = 8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Icon(
+                    imageVector = Icons.Rounded.DeleteOutline,
+                    contentDescription = null,
+                    tint = colors.accent,
+                    modifier = Modifier.size(18.dp),
+                )
+                Text(
+                    text = stringResource(R.string.stats_reset_title),
+                    color = colors.accent,
+                    fontSize = 13.sp,
+                )
+            }
+        }
+    }
+
+    if (confirm) {
+        AlertDialog(
+            onDismissRequest = { confirm = false },
+            containerColor = colors.bg,
+            titleContentColor = colors.text,
+            textContentColor = colors.subText,
+            title = { Text(stringResource(R.string.stats_reset_title)) },
+            text = { Text(stringResource(R.string.stats_reset_confirm)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    confirm = false
+                    onReset()
+                }) {
+                    Text(stringResource(R.string.clear), color = colors.accent)
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { confirm = false }) {
+                    Text(stringResource(R.string.common_cancel), color = colors.text)
+                }
+            },
+        )
     }
 }
 

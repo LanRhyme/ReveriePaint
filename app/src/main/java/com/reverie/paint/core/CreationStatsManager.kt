@@ -102,6 +102,17 @@ object CreationStatsManager {
     }
 
     /**
+     * 清空全部每日活跃数据 (设置页"清空创作统计"入口)。
+     *
+     * 保留 `backfilled` 标记: 否则下次冷启动会重新用画作库的历史统计回填一遍,
+     * 用户"清空"完又变回原样。清空之后只从这一刻重新累计。
+     */
+    @Synchronized
+    fun reset(context: Context) {
+        saveRaw(context, JSONObject().put("backfilled", true))
+    }
+
+    /**
      * 记录新画布创建
      */
     @Synchronized

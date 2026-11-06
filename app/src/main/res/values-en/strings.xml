@@ -3555,6 +3555,9 @@
     <string name="widget_recent_activity">Activity</string>
     <string name="stats_pin_widget_title">Add Home Screen Widget</string>
     <string name="stats_pin_widget_desc">Pin creation streak or stats dashboard to your home screen</string>
+    <string name="stats_reset_title">Clear creation stats</string>
+    <string name="stats_reset_summary">Reset daily painting time, stroke count and the heatmap, then start counting again from now</string>
+    <string name="stats_reset_confirm">This clears all daily activity data (painting time, strokes, canvases, heatmap) and cannot be undone. The current document timer is not affected.</string>
     <string name="stats_pin_dashboard">Dashboard (4x2)</string>
     <string name="stats_pin_compact">Streak Card (2x2)</string>
     <string name="stats_pin_recent_dashboard">Showcase (4x2)</string>
