@@ -85,6 +85,12 @@ class ReplayVerifyReceiver : BroadcastReceiver() {
             Log.e(TAG, "no view model (app not started?)")
             return
         }
+        if (intent.getStringExtra("sponsor") != null) {
+            // 手动弹出鼓励贡献弹窗 (验证按钮可点)
+            vm.showSponsorPromptDialog = true
+            Log.i(TAG, "sponsor prompt shown")
+            return
+        }
         if (intent.getStringExtra("perfdump") != null) {
             // 把标尺里的当代读数打到 logcat, 脚本直接取数 (不用截图读屏)
             val text = com.reverie.paint.core.PerfTrace.hudText()
