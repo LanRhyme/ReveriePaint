@@ -180,6 +180,7 @@ fun toolShortcutNameRes(tool: Tool): Int = when (tool) {
     Tool.PERSPECTIVE -> R.string.tool_perspective
     Tool.SHADING_ASSIST -> R.string.shading_assist_title
     Tool.PAN -> R.string.tool_pan
+    Tool.PANEL -> R.string.tool_panel
 }
 
 /** 可绑定为快捷键的「真实工具」（视图类浮窗/开关工具走 PANELS 分类）。 */
@@ -216,6 +217,7 @@ private val SHORTCUT_TOOL_SPECS: List<Pair<Tool, List<String>>> = listOf(
     Tool.LIQUIFY to emptyList(),
     Tool.MEASURE to emptyList(),
     Tool.PAN to emptyList(),
+    Tool.PANEL to emptyList(),
 )
 
 private fun toolSectionOf(tool: Tool): ShortcutSection = when (tool.group) {

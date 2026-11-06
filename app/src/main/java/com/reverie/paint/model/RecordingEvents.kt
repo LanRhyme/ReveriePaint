@@ -103,6 +103,12 @@ object RecordingEvents {
     const val L_ALPHA_INHERITED = 39 // index=层号; arg="1"开启/"0"关闭
     const val L_INVERT_MASK = 40 // index=蒙版层号
     const val L_APPLY_MASK = 41 // index=蒙版层号或父层号
+    // 漫画分格: index=分格组层号; arg 见 PanelMetaCodec (格式
+    // `groupIdx|maskIdx|fillIdx|borderIdx|panelJson|borderWidth|borderColor|fillColor|fillEnabled[|maskQuads=...][|cornerRadius]`,
+    // panelJson 为 PanelMeta.toJson 产出 (不含 '|'), 可为 "-" 表示仅重绘蒙版 (跨格容器);
+    // 回放端解析后 setPanelMeta + paintPanelQuad 重绘蒙版(黑底+白 quad)/填充/边框(外框+ERASE 内框)。
+    // 结构增删仍复用既有 L_* 码, 本码只承载元数据与像素级重绘。
+    const val L_PANEL_META = 42
 
 
     // ---- Tool op codes (TOOL_OP; payload layout is op-specific) ----
@@ -157,6 +163,7 @@ object RecordingEvents {
     const val T_FILL_V3 = 41 // x/y f32, tolerance u16, sampleMerged u8, color str
     const val T_ENCLOSE_FILL = 48 // count u16, points x/y f32[], tol u16, merged u8, expand i16, feather u16, closeGap u16, method u8, color u32, incContour u8
     const val T_PRESET_SELECT_V2 = 50 // idx u16 (0xFFFF 哨兵), name str, presetId str, 有效字节 md5 str（W-12，v2 管理的预设）
+    const val T_PANEL_CLIP = 51 // layer u16, keepInside u8, count u16, x/y f32 pairs
     const val T_GRADIENT_V3 = 49 // x1..y2 f32, type u8, repeat u8, reverse u8, opacity f32, dither u8, blendMode str, count u16, stops (pos f32, color u32)...
 
     /**

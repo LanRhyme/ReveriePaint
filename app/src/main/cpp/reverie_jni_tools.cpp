@@ -75,7 +75,7 @@ Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerContent(JNIEnv *, jobject
 
 JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerContentLayers(
-    JNIEnv *env, jobject, jintArray layers, jint dx, jint dy)
+    JNIEnv *env, jobject, jintArray layers, jint dx, jint dy, jboolean ignoreSelection)
 {
     QVector<int> list;
     if (layers != nullptr) {
@@ -86,7 +86,7 @@ Java_com_reverie_paint_core_ReverieCoreBridge_moveLayerContentLayers(
         }
         env->ReleaseIntArrayElements(layers, elems, JNI_ABORT);
     }
-    core()->moveLayerContentLayers(list, dx, dy);
+    core()->moveLayerContentLayers(list, dx, dy, ignoreSelection == JNI_TRUE);
 }
 
 extern "C" JNIEXPORT jintArray JNICALL

@@ -105,6 +105,8 @@ public:
     int copyLayer(int index);                            // returns new index
     int stampVisibleLayers();                            // returns new layer index
     void clearLayer(int index);
+    // 透明蒙版专用真清空 (透明=遮挡语义, 释放全部瓦片): 与 clearLayer 的语义差异见实现
+    void clearLayerToTransparent(int index);
     void setCurrentLayer(int index);
     int layerCount() const { return m_layers.size(); }
     quint64 layerId(int index) const {
@@ -532,6 +534,8 @@ public:
         QString name;
         int depth = 0;                // group nesting depth (UI indent)
         bool isGroup = false;
+        bool panelGroup = false;      // 漫画分格组 (侧表 reverie_panel 非空), syncLayersFromImage 缓存,
+                                      // 合成热路径免每遍侧表哈希查询 (nodeIsPanelGroup 的 entry 缓存位)
         int nodeType = 0;             // NodeType* 值域 (paint/group/fill/adjustment/clone + 四种 mask)
         bool locked = false;          // full lock: no editing at all
         bool alphaLocked = false;     // preserve alpha (transparency lock)
@@ -769,8 +773,9 @@ public:
     }
 
     // Move the content of several layers at once (one undo step). An empty
-    // list moves the current layer only.
-    void moveLayerContentLayers(const QVector<int> &layers, int dx, int dy);
+    // list moves the current layer only. ignoreSelection=true 时忽略用户选区
+    // (整层平移; 分格内容移动等工具路径使用), false 时行为不变。
+    void moveLayerContentLayers(const QVector<int> &layers, int dx, int dy, bool ignoreSelection = false);
 
 private:
     void resetLiquifyWorker();
@@ -875,6 +880,21 @@ public:
     // push; applies to the live store and to every document created later.
     void setUndoLimit(int limit);
     void resetStrokeCounter() { m_strokeCounter = 0; }
+
+    // ---- Comic panel (分格) ----
+    // 分格 = 图层组容器, 元数据 (四角坐标/样式 JSON) 存节点侧表
+    // (reverie::NodeExtra, key "reverie_panel"), 写入经撤销栈 (SetPanelMetaCommand,
+    // 形状/样式宏打开时命令入当前宏), 撤销/重做同步回滚侧表值。
+    // 无蒙版元数据 / index 越界 / 非分格节点均返回空串。
+    QString panelMeta(int layerIndex) const;            // 无/非分格返回空串
+    void setPanelMeta(int layerIndex, const QString &json);
+    // 分格实线绘制: 工具行为, 不读 m_brushPreset/m_brushColor/m_selection/
+    // alphaLocked —— 直接在目标颜料层的 paintDevice 上栅格化四边形填充。
+    // eraseFill=true 时以 COMPOSITE_ERASE 合成 (擦除蒙版区域); antiAlias=false
+    // 关闭多边形填充抗锯齿 (硬边, 量化可能残留有界 1px 边缘, 调用方配合外扩后
+    // 严格覆盖), 老 quad 清除/涂黑用。
+    bool paintPanelQuad(int layerIndex, const QVector<QPointF> &corners, quint32 argb, bool eraseFill,
+                        bool antiAlias = true);
     // Returns true when this call flushed a batch and painted new ink (used
     // by the Kotlin transport to render only after real paint work).
     bool touchStrokeMove(qreal x, qreal y, qreal pressure,
@@ -1506,6 +1526,16 @@ private:
     /** 同一台拼装设备, 不清 (调用方会用 COMPOSITE_COPY 整块覆盖) */
     KisPaintDeviceSP strokeMergeScratchDevice();
     KisPaintDeviceSP strokeOutScratch(const QRect &r);
+    /** 组级透明蒙版设备解析 (分格裁剪): compositeLayersRange 的 applyGroupMask
+     *  与 compositeSoloRange 共用; 含蒙版临时笔迹 (temporaryTarget) 的合成。 */
+    KisPaintDeviceSP groupMaskDeviceFor(int maskIdx, const QRect &r);
+
+    /** 分格组蒙版钳制矩形 (T2): 把分格组的 组合/调制/blit 工作矩形收窄到
+     *  蒙版真实内容范围 (exactBounds); 各守卫不满足时原样返回 [r] (不钳)。 */
+    QRect panelMaskClampRect(int maskEntryIdx, const QRect &r) const;
+    /** entry 区间 [from, to) 内是否存在调整层 entry (不论可见性): 组 span 含
+     *  调整层时调用方放弃蒙版钳制 (滤镜 margin 越界读组缓冲, 见实现注释)。 */
+    bool spanHasAdjustment(int from, int to) const;
 
     /** 丢弃笔触洋葱皮缓存 (切帧 / 改配置 / 关键帧结构变化时调) */
     void invalidateStrokeOnionCache() {
@@ -1597,6 +1627,15 @@ private:
         for (auto it = m_thumbCache.begin(); it != m_thumbCache.end(); ++it) {
             ++it->gen;
         }
+    }
+    // 区域版文档标脏 (调用方知道改动范围时用, 如 paintPanelQuad 的格框 bbox):
+    // 脏区 (总包围盒 + 离散列表 + 回调) 按 r 并入; 静态底图只作废与 r 相交的
+    // 512 宏瓦片 (invalidateStaticUnderlayRect 不重置 m_staticUnderlayTop /
+    // m_staticUnderlayDoc, 运笔底图上界校验不受影响; r 覆盖整幅时才整体作废)。
+    // 缩略图不在此作废: 调用方知道具体被改动的节点, 用 bumpLayerThumbGen 定点
+    // 刷新, 比全量 ++gen 便宜得多且不会把无关层的缩略图也标旧。
+    void markDirty(const QRect &r) {
+        markRegionDirty(r);
     }
     // 图层属性变动 (显隐/透明度/混合模式) 仅使投影与底图失效，不改动图层像素内容，不使缩略图失效
     void markProjectionDirty() {

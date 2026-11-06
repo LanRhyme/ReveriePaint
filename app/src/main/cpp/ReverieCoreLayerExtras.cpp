@@ -62,6 +62,7 @@ QVariant layerProperty(const KisNode *node, const char *key)
     if (k == "reverie_stroke_pos") return e.strokePosition;
     if (k == "reverie_stroke_opacity") return e.strokeOpacity;
     if (k == "reverie_is_transparency_mask") return e.isTransparencyMask;
+    if (k == "reverie_panel") return e.panelJson;
     return QVariant();
 }
 
@@ -89,6 +90,8 @@ void setLayerProperty(const KisNode *node, const char *key, const QVariant &valu
         e.strokeOpacity = value.toInt();
     } else if (k == "reverie_is_transparency_mask") {
         e.isTransparencyMask = value.toBool();
+    } else if (k == "reverie_panel") {
+        e.panelJson = value.toString();
     }
 }
 

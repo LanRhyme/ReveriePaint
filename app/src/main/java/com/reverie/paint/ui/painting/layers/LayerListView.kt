@@ -152,8 +152,15 @@ internal fun LayerListView(
     // Only one row may have its swipe drawer open; swiping another row
     // closes this one (revealedIndex is the open row's layer index)
     var revealedIndex by remember { mutableStateOf<Int?>(null) }
-    // 折叠键按层 id (同名组不再共享开关); 见 groupCollapseKey()
     val collapsedGroupKeys = vm.collapsedGroupKeys
+    val collapsedPanelIds = vm.collapsedPanelIds
+
+    // 组行折叠态: 分格组行按 panelId (collapsedPanelIds), 其余组按 id 键 (vm.isGroupCollapsed(l.id))
+    fun groupRowCollapsed(l: PaintViewModel.LayerUiState): Boolean {
+        if (!l.isGroup) return false
+        val pid = vm.panelIdForGroupRow(l.index)
+        return if (pid != null) pid in collapsedPanelIds else vm.isGroupCollapsed(l.id)
+    }
     val listState = rememberLazyListState()
     // 惯性滚动中，以及滚动刚停后的 300ms，行内长按不进入拖图层。
     // 以 State 下发给行: 值只在手势回调里读, 滚动起止不会连带重组可见行 (实例恒定, 行可跳过)。
@@ -189,7 +196,7 @@ internal fun LayerListView(
     // display list recursively: siblings are reversed, group rows keep their
     // whole subtree below them (nested groups included).
     val displayRows =
-        remember(vm.layers, collapsedGroupKeys) {
+        remember(vm.layers, collapsedGroupKeys, collapsedPanelIds, vm.panels) {
             val n = vm.layers.size
 
             fun collectBlock(
@@ -203,9 +210,13 @@ internal fun LayerListView(
                     if (vm.layers[j].depth == parentDepth + 1) siblings.add(j)
                 }
                 for (j in siblings.reversed()) {
+                    // 分格裁剪蒙版必须留下: 浮窗已没有裁剪开关, 只有这一行的眼睛能 setPanelCrop。
+                    // 填充/边框和跨格容器仍由 isPanelTreeHidden 收掉。
+                    if (vm.isPanelTreeHidden(j)) continue
                     val c = vm.layers[j]
                     out.add(c)
-                    val isCollapsedGroup = c.isGroup && groupCollapseKey(c.id) in collapsedGroupKeys
+                    // 分格组与普通组统一遵循折叠状态 (groupRowCollapsed)
+                    val isCollapsedGroup = c.isGroup && groupRowCollapsed(c)
                     if (!isCollapsedGroup) {
                         val e = (j + 1 until hi).firstOrNull { vm.layers[it].depth <= c.depth } ?: hi
                         if (e > j + 1) {
@@ -232,7 +243,10 @@ internal fun LayerListView(
                 while (idx >= 0 && currentDepth > 0) {
                     val candidate = vm.layers.getOrNull(idx) ?: break
                     if (candidate.depth == currentDepth - 1 && candidate.isGroup) {
-                        if (vm.isGroupCollapsed(candidate.id)) {
+                        // 分格组行默认折叠 (collapsedPanelIds), 不因新层自动展开
+                        if (vm.panelIdForGroupRow(candidate.index) == null &&
+                            vm.isGroupCollapsed(candidate.id)
+                        ) {
                             toExpand.add(candidate.id)
                         }
                         currentDepth = candidate.depth
@@ -389,9 +403,32 @@ internal fun LayerListView(
 
         var groupDrop = false
         if (from > 0 && (insert >= 0 || over != null)) {
+            val fromPid = vm.panelIdForGroupRow(from)
+            if (fromPid != null) {
+                // 拖动的是分格组整行：走 movePanelZBy，在分格根组内安全重排，严禁脱离根组
+                val curVisualIdx = displayRows.indexOfFirst { it.index == from }
+                val isUp = if (insert >= 0) insert < curVisualIdx else false
+                vm.movePanelZBy(fromPid, up = isUp)
+                draggingFrom = -1
+                dragTargetIdx = -1
+                dragOver = null
+                previewDropIdx = -1
+                vm.activeLayerDrag = null
+                return
+            }
+
             groupDrop = over != null && over.second == DropMode.OnGroup
             if (groupDrop) {
                 val groupIdx = over!!.first
+                if (groupIdx == vm.panelRootGroupIdx) {
+                    // 严禁将图层直接 drop 进分格根组
+                    draggingFrom = -1
+                    dragTargetIdx = -1
+                    dragOver = null
+                    previewDropIdx = -1
+                    vm.activeLayerDrag = null
+                    return
+                }
                 if (batch.size > 1) {
                     vm.moveLayersToGroup(batch, groupIdx)
                 } else {
@@ -399,7 +436,14 @@ internal fun LayerListView(
                 }
                 val groupLayer = vm.layers.firstOrNull { it.index == groupIdx }
                 if (groupLayer != null) {
-                    vm.setGroupCollapsed(groupLayer.id, collapsed = false)
+                    val pid = vm.panelIdForGroupRow(groupIdx)
+                    if (pid != null) {
+                        if (pid in vm.collapsedPanelIds) {
+                            vm.collapsedPanelIds = vm.collapsedPanelIds - pid
+                        }
+                    } else {
+                        vm.setGroupCollapsed(groupLayer.id, collapsed = false)
+                    }
                 }
             } else if (insert >= 0) {
                 val nonDraggedPrev = remaining.take(insert).lastOrNull()
@@ -426,7 +470,7 @@ internal fun LayerListView(
                             } else {
                                 vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
                             }
-                        } else if (nonDraggedPrev.isGroup && !vm.isGroupCollapsed(nonDraggedPrev.id) && nonDraggedPrev.depth < nonDraggedNext.depth) {
+                        } else if (nonDraggedPrev.isGroup && !groupRowCollapsed(nonDraggedPrev) && nonDraggedPrev.depth < nonDraggedNext.depth) {
                             if (isIndented) {
                                 vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
                             } else {
@@ -952,14 +996,25 @@ internal fun LayerListView(
                         LayerRow(
                             vm = vm,
                             layer = layer,
-                            selected = layer.index == selectedIndex,
-                            collapsed = vm.isGroupCollapsed(layer.id),
+                            selected = layer.index == selectedIndex || (
+                                groupRowCollapsed(layer) && run {
+                                    val pid = vm.panelIdForGroupRow(layer.index)
+                                    pid != null && vm.panelContentLayerIndex(pid) == vm.currentLayerIndex
+                                }
+                            ),
+                            collapsed = groupRowCollapsed(layer),
                             hasNextSibling = hasNextSibling,
                             openDepths = openDepths,
+                            panelCrop = vm.panelCropStateFor(layer.index),
                             scrollGuardUntil = layerScrollGuard,
                             onToggleCollapse = {
                                 revealedIndex = null
-                                vm.toggleGroupCollapsed(layer.id)
+                                val pid = vm.panelIdForGroupRow(layer.index)
+                                if (pid != null) {
+                                    vm.togglePanelCollapsed(pid)
+                                } else {
+                                    vm.toggleGroupCollapsed(layer.id)
+                                }
                             },
                             revealed = layer.index == revealedIndex,
                             onReveal = { revealedIndex = layer.index },
@@ -1020,17 +1075,22 @@ internal fun LayerListView(
                             },
                             onClick = {
                                 revealedIndex = null
+                                val panelId = vm.panelIdForGroupRow(layer.index)
                                 if (layer.index !in vm.selectedLayerIndices) {
-                                    // Tapping an unselected row switches the
-                                    // target (standard behaviour) and clears the
-                                    // multi-selection
                                     vm.clearLayerSelection()
                                 }
-                                // NOTE: tapping a row that IS part of the multi-
-                                // selection keeps the set - the old unconditional
-                                // clear silently nuked the whole selection after
-                                // the user had swiped several rows
-                                if (layer.index == selectedIndex) {
+                                if (panelId != null) {
+                                    vm.cancelSoloIfSwitchingLayer()
+                                    selectedIndex = layer.index
+                                    vm.selectedPanelId = panelId
+                                    vm.currentToolId = "panel"
+                                    val content = vm.panelContentLayerIndex(panelId)
+                                    if (content >= 0) vm.setCurrentLayer(content)
+                                } else if (layer.index == vm.panelRootGroupIdx) {
+                                    vm.cancelSoloIfSwitchingLayer()
+                                    selectedIndex = layer.index
+                                    vm.currentToolId = "panel"
+                                } else if (layer.index == selectedIndex) {
                                     onOpenDetail(layer.index)
                                 } else {
                                     // 独显模式下选中其他图层时自动取消独显 (FolioLayers 行为)
@@ -1094,7 +1154,7 @@ internal fun LayerListView(
                 nonDraggedPrev.depth > nonDraggedNext.depth -> {
                     if (isIndented) nonDraggedPrev.depth else nonDraggedNext.depth
                 }
-                nonDraggedPrev.isGroup && !vm.isGroupCollapsed(nonDraggedPrev.id) && nonDraggedPrev.depth < nonDraggedNext.depth -> {
+                nonDraggedPrev.isGroup && !groupRowCollapsed(nonDraggedPrev) && nonDraggedPrev.depth < nonDraggedNext.depth -> {
                     if (isIndented) nonDraggedNext.depth else nonDraggedPrev.depth
                 }
                 !isIndented && fromIsNested -> 0

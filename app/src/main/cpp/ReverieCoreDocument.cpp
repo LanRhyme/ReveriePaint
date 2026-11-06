@@ -567,6 +567,9 @@ void ReverieCore::syncLayersFromImage()
 
                 if (isGroup) {
                     entry.nodeType = NodeTypeGroup;
+                    // 分格组缓存位 (漫画分格): 合成热路径读 entry.panelGroup,
+                    // 免去每遍合成对每个组的侧表哈希查询 (见 nodeIsPanelGroup)
+                    entry.panelGroup = !reverie::layerProperty(&*node, "reverie_panel").toString().isEmpty();
                 } else if (dynamic_cast<KisAdjustmentLayer *>(l)) {
                     entry.nodeType = NodeTypeAdjustment;
                 } else if (dynamic_cast<KisGeneratorLayer *>(l) || reverie::layerProperty(&*node, "reverie_is_fill").toBool()) {

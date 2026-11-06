@@ -113,6 +113,12 @@ Java_com_reverie_paint_core_ReverieCoreBridge_clearLayer(JNIEnv *, jobject, jint
 }
 
 extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_clearLayerToTransparent(JNIEnv *, jobject, jint index)
+{
+    core()->clearLayerToTransparent(index);
+}
+
+extern "C" JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_setLayerName(JNIEnv *env, jobject, jint index, jstring name)
 {
     const char *c = env->GetStringUTFChars(name, nullptr);

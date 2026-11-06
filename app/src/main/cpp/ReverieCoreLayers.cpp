@@ -692,6 +692,34 @@ void ReverieCore::clearLayer(int index)
     markDirty();
 }
 
+// 与 clearLayer 的语义差异: clearLayer 对透明度蒙版做 "清空=重置为无遮罩" 特判
+// (fill 全画布白, Alpha 255); 本函数去掉该特判, 一律 dev->clear() 真清空并释放
+// 全部瓦片。供分格稀疏蒙版兜底重画用: 蒙版透明≡遮挡 (PixelAlpha::applyMaskModulation
+// 对蒙版 alpha==0 按 factor=0 处理), 只需保留白 quad 像素, 若用 clearLayer 会
+// 铺全画布白底, 等于关掉分格裁剪
+void ReverieCore::clearLayerToTransparent(int index)
+{
+    if (!isLayerEditable(index)) {
+        return;
+    }
+    KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
+    if (!dev) {
+        return;
+    }
+    // Krita-native undo: wrap the pixel clear in a transaction
+    KisTransaction txn(kundo2_i18n("Clear"), dev);
+    dev->clear();
+    dev->setDirty();
+    if (m_document) {
+        txn.commit(m_document->undoAdapter());
+        m_redoCount = 0;
+    }
+    // 同 clearLayer: 内容变空后脏区投影叶更新不会重合成已变空的区域, 强制
+    // 全子树重走 + 合并保证投影一致
+    recompositeProjection();
+    markDirty();
+}
+
 void ReverieCore::setCurrentLayer(int index)
 {
     if (index < 0 || index >= m_layers.size() || index == m_currentLayer) {

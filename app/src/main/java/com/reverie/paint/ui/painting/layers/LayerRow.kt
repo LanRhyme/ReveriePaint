@@ -168,12 +168,14 @@ internal fun LayerRow(
     modifier: Modifier = Modifier,
     hasNextSibling: Boolean = false,
     openDepths: Set<Int> = emptySet(),
+    panelCrop: Pair<Long, Boolean>? = null,
     scrollGuardUntil: State<Long> = NoScrollGuard,
 ) {
     val rowHeight = vm.layerRowHeightDp.dp
     val index = layer.index
     val isBg = layer.isBackground
     val visible = layer.visible
+    val isPanelMask = panelCrop != null
     val viewConfiguration = LocalViewConfiguration.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
@@ -322,7 +324,7 @@ internal fun LayerRow(
                                     haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                                     onSelect()
                                 }
-                            } else if (!isRightSwipe && initDx < 0) {
+                            } else if (!isPanelMask && !isRightSwipe && initDx < 0) {
                                 scope.launch { revealAnim.snapTo((startOffset + initDx).coerceIn(-drawerPx.toFloat(), 0f)) }
                             }
 
@@ -346,13 +348,13 @@ internal fun LayerRow(
                                         haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                                         onSelect()
                                     }
-                                } else if (dx < 0 || !isMask) {
+                                } else if (!isPanelMask && (dx < 0 || !isMask)) {
                                     scope.launch { revealAnim.snapTo((startOffset + dx).coerceIn(-drawerPx.toFloat(), 0f)) }
                                 }
                             }
 
                             val currentOffset = revealAnim.value
-                            val shouldReveal = currentOffset < -drawerPx * 0.4f || velocityX < -500f
+                            val shouldReveal = !isPanelMask && (currentOffset < -drawerPx * 0.4f || velocityX < -500f)
                             val targetOffset = if (shouldReveal) -drawerPx.toFloat() else 0f
                             val animSpec = if (shouldReveal) {
                                 spring<Float>(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
@@ -456,22 +458,23 @@ internal fun LayerRow(
                 )
             }
 
-            LayerRowContent(
-                vm = vm,
-                layer = layer,
-                selected = selected,
-                collapsed = collapsed,
-                index = index,
-                onToggleCollapse = onToggleCollapse,
-                onClick = onClick,
-                onRename = onRename,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(rowHeight)
-                    .padding(end = 6.dp),
-                hasNextSibling = hasNextSibling,
-                openDepths = openDepths,
-            )
+                LayerRowContent(
+                    vm = vm,
+                    layer = layer,
+                    selected = selected,
+                    collapsed = collapsed,
+                    index = index,
+                    onToggleCollapse = onToggleCollapse,
+                    onClick = onClick,
+                    onRename = onRename,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(rowHeight)
+                        .padding(end = 6.dp),
+                    hasNextSibling = hasNextSibling,
+                    openDepths = openDepths,
+                    panelCrop = panelCrop,
+                )
             Row(
                 modifier =
                     Modifier
@@ -481,7 +484,9 @@ internal fun LayerRow(
                         .fillMaxHeight(),
             ) {
                 val isMask = com.reverie.paint.model.LayerNodeType.isMask(layer.nodeType)
-                if (!isMask) {
+                if (isMask && isPanelMask) {
+                    // 分格裁剪蒙版行: 抽屉动作整体隐藏 (反相/应用/删除蒙版均不适用)
+                } else if (!isMask) {
                     DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_copy, stringResource(R.string.common_copy)) {
                         vm.copyLayer(index)
                         onRevealClose()
@@ -500,11 +505,22 @@ internal fun LayerRow(
                         onRevealClose()
                     }
                 }
-                DrawerAction(Modifier.weight(1f), Color(0xFFB05552), R.drawable.ic_trash, stringResource(R.string.common_delete)) {
-                    if (!isBg) {
-                        if (isMask) vm.removeMask(index) else vm.removeLayer(index)
+                if (!(isMask && isPanelMask)) {
+                    DrawerAction(Modifier.weight(1f), Color(0xFFB05552), R.drawable.ic_trash, stringResource(R.string.common_delete)) {
+                        if (!isBg) {
+                            if (isMask) {
+                                vm.removeMask(index)
+                            } else {
+                                val pid = vm.panelIdForGroupRow(index)
+                                if (pid != null) {
+                                    vm.deletePanel(pid)
+                                } else {
+                                    vm.removeLayer(index)
+                                }
+                            }
+                        }
+                        onRevealClose()
                     }
-                    onRevealClose()
                 }
             }
         }
@@ -529,6 +545,8 @@ internal fun LayerRowContent(
     modifier: Modifier = Modifier,
     hasNextSibling: Boolean = false,
     openDepths: Set<Int> = emptySet(),
+    // 分格裁剪蒙版行 (panelCropStateFor): 非 null 时眼睛走裁剪开关、副标题改裁剪口径
+    panelCrop: Pair<Long, Boolean>? = null,
 ) {
     val isBg = layer.isBackground
     val visible = layer.visible
@@ -544,7 +562,16 @@ internal fun LayerRowContent(
                 .fillMaxHeight()
                 .clip(RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
                 .background(if (visible) Color.Transparent else Morandi.panel.copy(alpha = 0.35f))
-                .noRippleClickable { vm.toggleLayerVisible(index) },
+                .noRippleClickable {
+                    when {
+                        vm.panelIdForGroupRow(index) != null ->
+                            vm.setPanelRowVisible(vm.panelIdForGroupRow(index)!!, !visible)
+                        // 分格蒙版: 眼睛 = setPanelCrop (可见性 + cropEnabled 元数据同写);
+                        // 跨格容器蒙版 (panelId=-1 哨兵) 无元数据, 可见性即裁剪, 走既有 toggle
+                        panelCrop == null || panelCrop.first == -1L -> vm.toggleLayerVisible(index)
+                        else -> vm.setPanelCrop(panelCrop.first, !visible)
+                    }
+                },
             contentAlignment = Alignment.Center,
         ) {
             Icon(
@@ -664,7 +691,14 @@ internal fun LayerRowContent(
                     }
                 }
             } else {
-                val thumb = vm.thumbFor(layer.index, layer.name)
+                val panelId = vm.panelIdForGroupRow(layer.index)
+                val contentIdx = if (panelId != null) vm.panelContentLayerIndex(panelId) else -1
+                val contentLayer = if (contentIdx >= 0) vm.layers.getOrNull(contentIdx) else null
+                val thumb = if (contentLayer != null) {
+                    vm.thumbFor(contentIdx, contentLayer.name) ?: vm.thumbFor(layer.index, layer.name)
+                } else {
+                    vm.thumbFor(layer.index, layer.name)
+                }
                 if (thumb != null && !thumb.isRecycled) {
                     Image(
                         bitmap = thumb.asImageBitmap(),
@@ -672,6 +706,7 @@ internal fun LayerRowContent(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else if (layer.isGroup) {
+                    val isPanel = vm.panelIdForGroupRow(layer.index) != null
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -679,8 +714,8 @@ internal fun LayerRowContent(
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            painterResource(R.drawable.ic_folder),
-                            contentDescription = stringResource(R.string.layer_add_group),
+                            painterResource(if (isPanel) R.drawable.ic_panel_frame else R.drawable.ic_folder),
+                            contentDescription = stringResource(if (isPanel) R.string.tool_panel else R.string.layer_add_group),
                             tint = Morandi.accent,
                             modifier = Modifier.size(18.dp),
                         )
@@ -689,7 +724,7 @@ internal fun LayerRowContent(
             }
         }
 
-        // 5. Group collapse chevron (embedded right after thumbnail, before layer name)
+        // 5. Group collapse chevron
         if (layer.isGroup) {
             val chevronRot by animateFloatAsState(
                 targetValue = if (collapsed) 0f else 90f,
@@ -785,8 +820,36 @@ internal fun LayerRowContent(
                         )
                     }
                 }
+                val panelId = vm.panelIdForGroupRow(layer.index)
+                if (panelId != null && vm.panelSharesDraw(panelId)) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(Morandi.accent.copy(alpha = 0.16f))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_link),
+                                contentDescription = stringResource(R.string.panel_badge_shared),
+                                tint = Morandi.accent,
+                                modifier = Modifier.size(9.dp),
+                            )
+                            Text(
+                                text = stringResource(R.string.panel_badge_shared),
+                                color = Morandi.accent,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+                val panelTitle = vm.drawUnitTitleForPanelGroup(layer.index)
                 Text(
-                    text = layerDisplayName(layer.name),
+                    text = panelTitle ?: layerDisplayName(layer.name),
                     color = Morandi.text,
                     fontSize = 12.sp,
                     fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
@@ -836,10 +899,13 @@ internal fun LayerRowContent(
                     isMask -> stringResource(R.string.layer_tag_mask_prefix)
                     else -> ""
                 }
-                val desc = if (isMask) {
-                    "$tag${(layer.opacity * 100).roundToInt()}%"
-                } else {
-                    "$tag${(layer.opacity * 100).roundToInt()}% · $blendName"
+                val desc = when {
+                    // 分格裁剪蒙版行: 副标题改「裁剪 · 开/关」口径 (不显示不透明度百分比)
+                    panelCrop != null -> stringResource(
+                        if (panelCrop.second) R.string.panel_crop_state_on else R.string.panel_crop_state_off,
+                    )
+                    isMask -> "$tag${(layer.opacity * 100).roundToInt()}%"
+                    else -> "$tag${(layer.opacity * 100).roundToInt()}% · $blendName"
                 }
                 Text(
                     text = desc,
