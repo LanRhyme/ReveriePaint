@@ -36,6 +36,8 @@ fun LiquifyPanel(
     onBrushSize: (Float) -> Unit,
     hardness: Float = .5f,
     onHardness: (Float) -> Unit = {},
+    /** 笔刷直径上限: 与画笔大小同一口径 (随画布尺寸自适应), 面板不再写死 300px */
+    maxBrushSize: Float = 300f,
     hazeState: HazeState? = null,
 ) {
     val liquifyModeOptions = listOf(
@@ -66,7 +68,7 @@ fun LiquifyPanel(
                 ToolFloatSlider(
                     label = androidx.compose.ui.res.stringResource(R.string.liquify_size),
                     valueText = "${brushSize.roundToInt()}px",
-                    range = 8f..300f,
+                    range = 8f..maxBrushSize.coerceAtLeast(16f),
                     value = brushSize,
                     onValue = onBrushSize,
                     // 与画笔大小滑杆同款对数刻度: 8~40px 这段不再挤在滑杆最左边

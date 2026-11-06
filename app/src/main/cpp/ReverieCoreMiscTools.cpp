@@ -1932,10 +1932,15 @@ void ReverieCore::liquifyAt(qreal fx, qreal fy, qreal tx, qreal ty, qreal streng
             // Phase 2A-2: 预览态 —— 只重建低分辨率预览; 不 run()、不写图层、不触投影合成
             liquifyPreviewBuildLocked();
         }
-        // Phase 6: **提前物化** —— 有预览时屏幕上被覆盖层盖住, 分批落盘对用户不可见。
-        // 这样 rebase/抬笔处的积压大幅变小, 126ms 尖峰被摊到拖动期各帧(每帧 ≤ 预算)。
-        // 注意: 只有队列被清空(全部落盘)才能丢弃重放补点列表。
-        if (!m_liquifyPendingDelta.isNull() && liquifyMatBudgetMs() > 0) {
+        // Phase 6 原做法: "有预览时提前物化" —— 理由是被覆盖层盖住、用户看不见。
+        // 实测不成立: 拖动期按 **band (≤512 宽 × 32 行)** 分批落盘并逐批重组投影, 而覆盖层
+        // 只盖住自己那块, 于是同一帧里"已落盘的带"和"还在预览里的带"相邻出现 —— 快速涂时
+        // 画面像被切开一样(抬笔后预览拆掉、整体物化, 就恢复正常)。
+        //
+        // 现在: 宿主侧(GPU)预览在场时, 拖动期只攒脏区、不落盘; 抬笔/liquifyEnd 的
+        // force 排空一次性物化 (与"预览近似、提交精确"的口径一致)。
+        // 预算守卫仍在上面: 脏区并集超过预算时会先 flush 一次, 防止内存无界增长。
+        if (!m_liquifyPendingDelta.isNull() && liquifyMatBudgetMs() > 0 && !liquifyPreviewHostDraw()) {
             liquifyEnqueueMaterialize(m_liquifyPendingDelta);
             const bool drained = m_liquifyBatchRemaining == 0 && liquifyDrainMaterialize(false);
             m_liquifyPendingDelta = QRect();

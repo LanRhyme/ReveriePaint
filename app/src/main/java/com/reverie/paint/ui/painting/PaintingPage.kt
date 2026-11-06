@@ -484,6 +484,14 @@ fun PaintingPage(
     var liquifyHardness by remember { mutableStateOf(0.5f) }
     var liquifyMode by remember { mutableStateOf(0) }
     var liquifyBrushSize by remember { mutableStateOf(60f) }
+    // 上限随画布自适应 (与画笔大小同一口径): 换到大画布时放宽, 换到小画布时把越界值收回
+    val liquifyMaxSize = vm.effectiveBrushMaxSize.toFloat().coerceAtLeast(16f)
+    LaunchedEffect(liquifyMaxSize) {
+        if (liquifyBrushSize > liquifyMaxSize) {
+            liquifyBrushSize = liquifyMaxSize
+            vm.setLiquifyBrushSize(liquifyMaxSize.toDouble())
+        }
+    }
     // Point-click shape tools share the canvas vertex list
     var polyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
 
@@ -2015,6 +2023,8 @@ fun PaintingPage(
                 mode = liquifyMode,
                 onMode = { liquifyMode = it },
                 brushSize = liquifyBrushSize,
+                // 上限跟画笔大小一致: 随画布自适应 (大画布可以给到 canvas/2)
+                maxBrushSize = liquifyMaxSize,
                 hazeState = hazeState,
                 onBrushSize = {
                     liquifyBrushSize = it
