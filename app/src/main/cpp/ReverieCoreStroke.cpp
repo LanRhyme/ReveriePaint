@@ -551,12 +551,19 @@ void ReverieCore::touchStrokeEnd()
     // Canvas Boundary & Memory Optimization:
     // When not in infinite canvas mode, automatically crop out-of-bounds tiles
     // from the layer's paint device INSIDE the transaction so it's fully tracked by undo.
+    //
+    // 只处理"真的越界"的内容: Krita 的瓦片是 64px 粒度, 内容正好铺满画布时 extent 会外扩
+    // 到瓦片边界 (4000x6000 -> 4032x6016), 这是对齐不是越界。无差别 crop 的代价不只是
+    // 一次整设备写: crop 落点会被记进事务 memento, 于是**每一笔抬笔/撤销都退化成整幅
+    // 画布的投影重合成** —— 24MP 工程实测单笔撤销 6.5 秒 (issue #139)。按一个瓦片格
+    // 放宽后再比较, 瓦片对齐的 overshoot 不再触发 crop。
     if (!m_infiniteCanvas && m_document) {
         const QRect canvasBounds(0, 0, m_document->width(), m_document->height());
         KisPaintDeviceSP dev = pl ? pl->paintDevice() : currentPaintDevice();
         if (dev) {
             const QRect ext = dev->extent();
-            if (!ext.isEmpty() && !canvasBounds.contains(ext)) {
+            const QRect tileSlack = canvasBounds.adjusted(-63, -63, 63, 63);
+            if (!ext.isEmpty() && !tileSlack.contains(ext)) {
                 dev->crop(canvasBounds);
             }
         }
@@ -1651,6 +1658,7 @@ void ReverieCore::replayHistoryCommand(bool redoOp)
     if (!m_document || !m_undoStore) {
         return;
     }
+    reverie::PerfTimer perf("historyReplay");
 
     // 先把调度器/合并器排空再上屏障: 顺序反过来的话屏障会挡在已有任务前面, unlock 之后
     // 它们才落盘, 正好与下一轮 rollforward 抢同一批 tile memento。
@@ -1658,6 +1666,7 @@ void ReverieCore::replayHistoryCommand(bool redoOp)
     if (reverie::mayWaitForImage(m_document->locked())) {
         m_document->waitForDone();
     }
+    perf.phase("waitPre");
 
     RPC_LOG("RPC historyReplay redo=%d locked=%d count=%d index=%d redoCount=%d",
             int(redoOp), int(m_document->locked()), m_undoStore->count(),
@@ -1684,8 +1693,10 @@ void ReverieCore::replayHistoryCommand(bool redoOp)
             ++m_redoCount;
         }
     }
+    perf.phase("apply");
     if (!m_document->locked()) {
         m_document->waitForDone();
+        perf.phase("waitPost");
     }
 }
 
@@ -1809,6 +1820,10 @@ void ReverieCore::undo()
     }
     perf.phase("dirty");
     perf.note("structural", structureChanged ? 1 : 0);
+    perf.note("updPct", (m_docWidth > 0 && m_docHeight > 0)
+                            ? qint64(updateRect.width()) * updateRect.height() * 100
+                                  / (qint64(m_docWidth) * m_docHeight)
+                            : -1);
     m_snapshotPending = false;
 }
 
@@ -1924,6 +1939,10 @@ void ReverieCore::redo()
     }
     perf.phase("dirty");
     perf.note("structural", structureChanged ? 1 : 0);
+    perf.note("updPct", (m_docWidth > 0 && m_docHeight > 0)
+                            ? qint64(updateRect.width()) * updateRect.height() * 100
+                                  / (qint64(m_docWidth) * m_docHeight)
+                            : -1);
     m_snapshotPending = false;
 }
 

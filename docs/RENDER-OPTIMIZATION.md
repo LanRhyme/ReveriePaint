@@ -1076,6 +1076,7 @@ Qt 的 PNG 写出固定走"逐行试 5 种 filter"的启发式, 再按 quality �
 | 显隐组 (24MP / 22 节点) | **14,466 ms** (其中 `waitForDone` 14,459) | **74 ~ 3,804 ms** |
 | 撤销显隐 | **16,737 ms** (其中 `waitForDone` 16,729) | **61 ms ~ 3.8 s** (够冷时与显隐同阶) |
 | 撤销显隐后的缩略图 | 22 个图层各重取一次 (一次 458ms 尖峰) | 只作废改动节点 + 祖先组, 其余全命中 (0ms) |
+| 单笔撤销 (layers 内容铺满画布) | **6,079 ~ 6,607 ms** (投影更新请求 4032×6016 = 整层) | **587 ms** (请求 1344×2368 = 这一笔的包围盒) |
 | 打开工程 (PNG 解码 5.9s 之外) | 12,323 ms | **9,647 ms** |
 
 同一份工程在**旗舰平板 (16GB)** 上已经是 14~20 秒, 在 4GB / SD835 上叠加瓦片换页 (swap) 就是用户
@@ -1090,6 +1091,7 @@ Qt 的 PNG 写出固定走"逐行试 5 种 filter"的启发式, 再按 quality �
 | [`undo` / `redo`](../app/src/main/cpp/ReverieCoreStroke.cpp:1692) | 把"只是显隐变了"从 `structureChanged` 里拆出来 (`visibilityChanged`): 这类撤销只 [`flushProjectionUpdates()`](../app/src/main/cpp/ReverieCoreDocument.cpp:399) (等已排队的更新), 不做整树重合成; 缩略图只作废改动节点与其祖先组 |
 | [`setLayerOpacity` / `setLayerBlendMode`](../app/src/main/cpp/ReverieCoreLayers.cpp:863) | 原来按 `QRect(0,0,w,h)` 标脏, 改成节点级边界 (同一条链) |
 | [`loadRevp` / `loadPsd`](../app/src/main/cpp/ReverieCoreIO.cpp:2205) | 载入期间用 [`ScopedDirtyRequestsBlock`](../app/src/main/cpp/ReverieCoreInternal.h:267) (`KisImage::disableDirtyRequests`) 屏蔽逐层脏请求 —— 否则每解码完一层就触发一轮"该层→根投影"的合并, 22 层 = 根投影被重写 22 遍; 收尾放行后只做**一次**整树重合成。这是 Krita 自己的 `KisProcessingApplicator` 做法 |
+| 抬笔时的越界裁剪 ([`ReverieCoreStroke.cpp`](../app/src/main/cpp/ReverieCoreStroke.cpp:551)) | 原来只要图层 extent 超出画布就 `dev->crop(canvasBounds)`。而瓦片是 64px 粒度, 内容铺满画布时 extent 必然是 4032×6016 (画布 4000×6000) ⇒ **每一笔都 crop 一次整设备**, 且 crop 落点被记进该笔的事务 memento ⇒ 抬笔与撤销的投影更新请求变成"整层"。改为先按一个瓦片格放宽再比较 (`canvasBounds.adjusted(-63,-63,63,63)`), 瓦片对齐的 overshoot 不再触发 crop。这是"单笔撤销 6 秒"的直接成因 |
 
 ### 13.3 取数与回退
 
@@ -1113,7 +1115,17 @@ adb logcat -s RP-PERF
 - 真机手测 (OPD2413 / Android 16): 打开工程 → 显隐组 / 撤回条撤销 / 画一笔 → 撤销, 画面无残留、
   无伪影; 载入后首帧内容完整 (闸门改动没有吞掉任何图层的脏请求)。
 
-### 13.5 未做 (下一步收益排序)
+### 13.5 单笔撤销为什么也要整幅重合成: 抬笔兜底 crop
+
+`updateReq` 诊断日志 (`setprop debug.reverie.perf 1` 后 `RP-PERF op=updateReq node=... w=..h=..`) 显示:
+撤销一笔 400px 的笔画, Krita 收到的投影更新请求是 **4032×6016** (整层) 而不是这笔的包围盒。追下去
+是抬笔路径里的"越界裁剪": `dev->crop(canvasBounds)` 在事务内执行, 于是这笔的二笔 memento 里多出
+一次整设备写入 —— 撤销时 `KisTransactionData::startUpdates()` 拿 `memento->extent()` 发脏, 就是整层。
+
+裁剪本身只该处理"真的有画布外内容"的情况 (无限画布切回有限画布、粘贴到远处等)。瓦片对齐产生的
+≤63px overshoot 不是越界内容, 放宽一个瓦片格后再比较即可。
+
+### 13.6 未做 (下一步收益排序)
 
 | 优先级 | 项 | 说明 |
 |---|---|---|

@@ -13,6 +13,7 @@
 #include "ReverieCoreUndoStore.h"
 #include "RenderLockGate.h"
 #include <kis_abstract_projection_plane.h>
+#include <kis_projection_updates_filter.h>
 
 #include <future>
 #include <QSet>
@@ -50,6 +51,41 @@ void ReverieCore::setupDocumentConnections(KisImageSP image)
             m_lastAsyncUpdateRect = m_lastAsyncUpdateRect.isNull() ? rc : m_lastAsyncUpdateRect.united(rc);
         }
     });
+
+    if (reverie::perfLogEnabled()) {
+        // 诊断: 打印每一次投影更新请求 (节点名 + 请求矩形)。回答的是"这次操作到底让
+        // 哪些节点、在多大范围上重合成" —— 例: 单笔撤销之所以要整幅重合成, 是因为
+        // 交易提交时请求的矩形本身就是整幅。返回 false = 只旁观, 不吞掉更新。
+        class RPLoggingProjectionFilter : public KisProjectionUpdatesFilter
+        {
+        public:
+            bool filter(KisImage *, KisNode *node, const QVector<QRect> &rects, KisProjectionUpdateFlags) override
+            {
+                logRequest(node, rects);
+                return false;
+            }
+            bool filterRefreshGraph(KisImage *, KisNode *node, const QVector<QRect> &rects,
+                                    const QRect &, KisProjectionUpdateFlags) override
+            {
+                logRequest(node, rects);
+                return false;
+            }
+
+        private:
+            static void logRequest(KisNode *node, const QVector<QRect> &rects)
+            {
+                QRect united;
+                for (const QRect &r : rects) {
+                    united = united.isNull() ? r : united.united(r);
+                }
+                __android_log_print(ANDROID_LOG_INFO, "RP-PERF",
+                                    "op=updateReq node=%s w=%d h=%d count=%d",
+                                    node ? node->name().toUtf8().constData() : "?",
+                                    united.width(), united.height(), rects.size());
+            }
+        };
+        image->addProjectionUpdatesFilter(toQShared(new RPLoggingProjectionFilter()));
+    }
 }
 
 ReverieCore::~ReverieCore()
