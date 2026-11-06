@@ -81,12 +81,17 @@ object RecentProjectWidgetHelper {
         val rootDir = File(context.filesDir, "projects")
         val candidateFiles = mutableListOf<File>()
 
+        // 只认真正的工程文件。以前把 .png 也算成"最近画作"，于是工程目录里随手放的一张
+        // 图片会顶到小组件上；点它 → loadProject 拿 png 当工程读 → 失败,
+        // 用户平白收到一条"导入失败: 未能识别的文件格式" (issue: 从桌面小组件打开软件弹导入失败)。
+        val projectExts = listOf("revp", "kra")
+
         if (rootDir.exists()) {
             rootDir.listFiles()?.forEach { file ->
-                if (file.isFile && file.extension.lowercase() in listOf("revp", "kra", "png")) {
+                if (file.isFile && file.extension.lowercase() in projectExts) {
                     candidateFiles.add(file)
                 } else if (file.isDirectory) {
-                    file.listFiles { f -> f.isFile && f.extension.lowercase() in listOf("revp", "kra", "png") }?.let {
+                    file.listFiles { f -> f.isFile && f.extension.lowercase() in projectExts }?.let {
                         candidateFiles.addAll(it)
                     }
                 }
@@ -95,7 +100,7 @@ object RecentProjectWidgetHelper {
 
         val autoDir = File(context.filesDir, "autosave")
         if (autoDir.exists()) {
-            autoDir.listFiles { f -> f.isFile && f.extension.lowercase() in listOf("revp", "kra") }?.let {
+            autoDir.listFiles { f -> f.isFile && f.extension.lowercase() in projectExts }?.let {
                 candidateFiles.addAll(it)
             }
         }
@@ -126,7 +131,10 @@ object RecentProjectWidgetHelper {
      * 将工程文件解析为标准的 Project 领域模型
      */
     fun getProjectFromFile(context: Context, f: File): Project? {
-        if (!f.exists()) return null
+        if (!f.isFile) return null
+        val ext = f.extension.lowercase()
+        // 未知后缀不伪造 Project: 拿它去 loadProject 只会走失败分支弹"导入失败"
+        if (ext != "revp" && ext != "kra" && ext != "png") return null
         var w = 1080
         var h = 1920
         var strokes = 0
@@ -140,7 +148,6 @@ object RecentProjectWidgetHelper {
         var masterPath = ""
         var isAnimation = false
 
-        val ext = f.extension.lowercase()
         if (ext == "revp" || ext == "kra") {
             try {
                 ZipFile(f).use { zip ->

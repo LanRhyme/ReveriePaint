@@ -25,6 +25,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.lifecycle.ViewModelProvider
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.reverie.paint.core.*
 import com.reverie.paint.core.Page
@@ -48,6 +52,9 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_CREATE = "create"
         const val ROUTE_STATS = "stats"
         const val ROUTE_OPEN_PROJECT = "open_project"
+
+        /** 小组件/外部入口认可的工程后缀 */
+        private val PROJECT_EXTENSIONS = setOf("revp", "kra")
 
         /** Apply (or remove) immersive mode on the UI thread. Immersive =
          *  edge-to-edge content (decor fits windows = false) plus hidden
@@ -247,6 +254,54 @@ class MainActivity : ComponentActivity() {
         setupDragAndDrop()
     }
 
+    /**
+     * 桌面小组件/快捷方式直达某份工程。
+     *
+     * 小组件缓存下来的路径随时可能失效: 工程被删/改名, 快照轮转掉, 或者旧版本把工程目录里
+     * 的 .png 也当成"最近画作"。以前这里把拿到的文件直接丢给 [PaintViewModel.loadProject],
+     * 读不成工程就落进 loadProject 的失败分支, 弹一条"导入失败: 未能识别的文件格式"——
+     * 用户只是点了下桌面小组件, 却收到一句莫名其妙的导入失败 (issue: 从小组件打开软件弹导入失败)。
+     *
+     * 现在: 解析全在 IO 线程 (以前在主线程读整包 zip, 大工程会卡一下), 候选路径必须通过
+     * "后缀 + zip 里有 meta.json" 双校验才会真的打开; 校验不过就退到最近一份合法工程,
+     * 再不行就安静地留在画廊 —— 点小组件的语义是"打开软件", 不该因为某份工程坏了报导入错误。
+     */
+    private fun openProjectFromShortcut(rawPath: String?) {
+        val vm = currentViewModel ?: return
+        val helper = com.reverie.paint.ui.widget.RecentProjectWidgetHelper
+        CoroutineScope(Dispatchers.IO).launch {
+            val proj = shortcutProject(helper, rawPath) ?: shortcutProject(helper, null)
+            withContext(Dispatchers.Main) {
+                if (proj != null) vm.loadProject(proj)
+            }
+        }
+    }
+
+    /** [rawPath] 为 null 表示"最近一份工程"; 非工程文件/坏档一律返回 null (调用方静默降级) */
+    private fun shortcutProject(
+        helper: com.reverie.paint.ui.widget.RecentProjectWidgetHelper,
+        rawPath: String?,
+    ): com.reverie.paint.model.Project? {
+        val file = if (rawPath.isNullOrBlank()) {
+            helper.getLatestProjectDisplayData(this)?.filePath?.let { java.io.File(it) }
+        } else {
+            java.io.File(rawPath)
+        } ?: return null
+        if (!isLoadableProject(file)) return null
+        return helper.getProjectFromFile(this, file)
+    }
+
+    /** 后缀必须是工程格式, 且 zip 里真的有 meta.json —— 只读中央目录, 不解大对象 */
+    private fun isLoadableProject(file: java.io.File): Boolean {
+        if (!file.isFile) return false
+        if (file.extension.lowercase() !in PROJECT_EXTENSIONS) return false
+        return try {
+            java.util.zip.ZipFile(file).use { it.getEntry("meta.json") != null }
+        } catch (_: Throwable) {
+            false
+        }
+    }
+
     override fun onNewIntent(intent: Intent) {
         super.onNewIntent(intent)
         setIntent(intent)
@@ -267,26 +322,7 @@ class MainActivity : ComponentActivity() {
                 vm.settingsInitialSubPage = "STATISTICS"
             }
         } else if (route == ROUTE_OPEN_PROJECT) {
-            val path = intent.getStringExtra(EXTRA_PROJECT_PATH)
-            val file = if (!path.isNullOrBlank()) java.io.File(path) else null
-            if (file != null && file.exists()) {
-                currentViewModel?.let { vm ->
-                    val proj = com.reverie.paint.ui.widget.RecentProjectWidgetHelper.getProjectFromFile(this, file)
-                    if (proj != null) {
-                        vm.loadProject(proj)
-                    }
-                }
-            } else {
-                currentViewModel?.let { vm ->
-                    val latestData = com.reverie.paint.ui.widget.RecentProjectWidgetHelper.getLatestProjectDisplayData(this)
-                    if (latestData != null) {
-                        val proj = com.reverie.paint.ui.widget.RecentProjectWidgetHelper.getProjectFromFile(this, java.io.File(latestData.filePath))
-                        if (proj != null) {
-                            vm.loadProject(proj)
-                        }
-                    }
-                }
-            }
+            openProjectFromShortcut(intent.getStringExtra(EXTRA_PROJECT_PATH))
         }
 
         val action = intent.action ?: return
@@ -727,7 +763,7 @@ fun ReverieApp(vm: PaintViewModel = viewModel()) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val unseen = com.reverie.paint.core.CrashHandler.getUnseenCrashLog(context)
             if (unseen != null) {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
                     pendingCrashLog = unseen
                 }
             }
@@ -748,7 +784,7 @@ fun ReverieApp(vm: PaintViewModel = viewModel()) {
         kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.IO) {
             val recoveryFile = com.reverie.paint.core.CrashHandler.checkCrashRecovery(context)
             if (recoveryFile != null) {
-                kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Main) {
+                kotlinx.coroutines.withContext(Dispatchers.Main) {
                     pendingRecoveryFile = recoveryFile
                 }
             } else {
