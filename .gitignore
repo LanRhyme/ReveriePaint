@@ -31,3 +31,6 @@ third_party/UniRig/
 telemetry/worker/.dev.sqlite
 telemetry/worker/.wrangler/
 telemetry/worker/node_modules/
+
+# 回放保真度验证产物 (scripts/replay-verify.py)
+.replay-verify/

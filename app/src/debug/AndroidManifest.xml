@@ -1,0 +1,20 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  debug 源集专有清单: 只合并进 debug/测试包, release 包里不存在。
+  ReplayVerifyReceiver 用于脚本化验证"录制→回放"的保真度 (见 scripts/replay-verify.py),
+  必须 exported 才能被 adb shell am broadcast 直接调用; 它只在 debug 包出现, 不随正式版分发。
+-->
+<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+
+    <application>
+        <receiver
+            android:name="com.reverie.paint.perf.ReplayVerifyReceiver"
+            android:exported="true"
+            android:enabled="true">
+            <intent-filter>
+                <action android:name="com.reverie.paint.DEBUG_REPLAY_VERIFY" />
+            </intent-filter>
+        </receiver>
+    </application>
+
+</manifest>
