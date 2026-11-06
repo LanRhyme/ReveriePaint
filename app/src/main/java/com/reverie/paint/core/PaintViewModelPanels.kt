@@ -1437,39 +1437,9 @@ internal fun PaintViewModel.movePanelsBy(
     }) {
         ReverieCoreBridge.beginUndoMacro(appContext.getString(R.string.panel_op_move))
         try {
-            // 全程无结构变化 (内容平移 + 像素重绘), 索引不漂移: 一次扫描供整批定位
+            // 全程无结构变化 (仅分格边框与蒙版取景框平移, 画布内容原位锚定), 索引不漂移: 一次扫描供整批定位
             val scan = scanEnginePanels()
             val movedDrawIds = jobs.map { it.meta.drawId }.toSet()
-            // 若某 drawId 下全部成员格都在本次平移中, 则其共享画层内容整组平移
-            for (drawId in movedDrawIds) {
-                val allMembers = scan.mirrors.filter { it.meta.drawId == drawId }
-                val movedMembers = jobs.filter { it.meta.drawId == drawId }
-                if (allMembers.isNotEmpty() && allMembers.size == movedMembers.size) {
-                    val share = scan.shareGroups.firstOrNull { it.drawId == drawId }
-                    if (share != null && share.groupId != -1L) {
-                        val sGroup = indexOfLayerId(share.groupId)
-                        val page = LayerSnapshotProbe.read()
-                        if (sGroup >= 0 && page != null) {
-                            val cIndices = contentLayerIdsOf(page, sGroup)
-                                .mapNotNull { cid -> indexOfLayerId(cid).takeIf { it >= 0 } }
-                                .toIntArray()
-                            if (cIndices.isNotEmpty()) {
-                                if (recorder.recording) {
-                                    recorder.toolOp(RecordingEvents.T_MOVE_CONTENT_LAYERS) {
-                                        it.u16(cIndices.size.coerceIn(0, 0xFFFF))
-                                        for (idx in cIndices) it.u16(idx.coerceIn(0, 0xFFFF))
-                                    }
-                                    recorder.toolOp(RecordingEvents.T_MOVE_CONTENT) {
-                                        it.f32(dxi.toFloat())
-                                        it.f32(dyi.toFloat())
-                                    }
-                                }
-                                ReverieCoreBridge.moveLayerContentLayers(cIndices, dxi, dyi, ignoreSelection = true)
-                            }
-                        }
-                    }
-                }
-            }
             for (m in jobs) {
                 val cur = scan.mirrors.firstOrNull { it.panelId == m.panelId }
                 if (cur == null) {
@@ -1483,20 +1453,6 @@ internal fun PaintViewModel.movePanelsBy(
                 val newQuad = oldQuad.movedBy(delta)
                 val json = cur.meta.copy(quad = newQuad).toJson()
                 val resolved = cur.meta.style.resolve(d)
-                val content = contentIndicesOf(scan.layers, cur)
-                if (content.isNotEmpty()) {
-                    if (recorder.recording) {
-                        recorder.toolOp(RecordingEvents.T_MOVE_CONTENT_LAYERS) {
-                            it.u16(content.size.coerceIn(0, 0xFFFF))
-                            for (idx in content) it.u16(idx.coerceIn(0, 0xFFFF))
-                        }
-                        recorder.toolOp(RecordingEvents.T_MOVE_CONTENT) {
-                            it.f32(dxi.toFloat())
-                            it.f32(dyi.toFloat())
-                        }
-                    }
-                    ReverieCoreBridge.moveLayerContentLayers(content, dxi, dyi, ignoreSelection = true)
-                }
                 val ev = PanelMetaEvent(
                     groupIdx = cur.groupIdx,
                     maskIdx = cur.maskIdx,
