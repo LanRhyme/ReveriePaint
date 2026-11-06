@@ -474,8 +474,11 @@ internal fun PanelLongPressMenu(
                         val prevMirror = vm.panels.firstOrNull { it.panelId == prevId }
                         val alreadyLinked = prevMirror != null && curMirror != null && prevMirror.meta.drawId == curMirror.meta.drawId
                         if (!alreadyLinked) {
+                            val targetName = prevMirror?.let { p ->
+                                vm.layers.firstOrNull { it.id == p.groupId }?.name
+                            } ?: "格 $prevId"
                             ToolFloatChip(
-                                label = stringResource(R.string.panel_menu_link_prev),
+                                label = "${stringResource(R.string.panel_menu_link_prev)} ($targetName)",
                                 icon = painterResource(R.drawable.ic_link),
                                 onClick = {
                                     vm.mergePanelDraw(panelId, prevId)
@@ -488,8 +491,11 @@ internal fun PanelLongPressMenu(
                         val nextMirror = vm.panels.firstOrNull { it.panelId == nextId }
                         val alreadyLinked = nextMirror != null && curMirror != null && nextMirror.meta.drawId == curMirror.meta.drawId
                         if (!alreadyLinked) {
+                            val targetName = nextMirror?.let { p ->
+                                vm.layers.firstOrNull { it.id == p.groupId }?.name
+                            } ?: "格 $nextId"
                             ToolFloatChip(
-                                label = stringResource(R.string.panel_menu_link_next),
+                                label = "${stringResource(R.string.panel_menu_link_next)} ($targetName)",
                                 icon = painterResource(R.drawable.ic_link),
                                 onClick = {
                                     vm.mergePanelDraw(panelId, nextId)

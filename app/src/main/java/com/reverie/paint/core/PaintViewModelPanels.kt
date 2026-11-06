@@ -673,12 +673,15 @@ internal fun PaintViewModel.panelContentLayerIndex(panelId: Long): Int {
     return mirror.contentIdx
 }
 
-/** 获取指定分格在视觉/列表顺序上的前一格与后一格 ID */
+/** 获取指定分格在视觉/列表自顶向下顺序上的前一格 (上方) 与后一格 (下方) ID */
 internal fun PaintViewModel.adjacentPanelIds(panelId: Long): Pair<Long?, Long?> {
-    val idx = panels.indexOfFirst { it.panelId == panelId }
-    if (idx < 0) return null to null
-    val prevId = if (idx > 0) panels[idx - 1].panelId else null
-    val nextId = if (idx < panels.size - 1) panels[idx + 1].panelId else null
+    // 图层平铺快照为底层到顶层的自底向上顺序 (高索引 = 视觉顶层 = 图层列表第0行)
+    // 因此图层列表中自顶向下显示的顺序对应 groupIdx 降序
+    val visualPanels = panels.sortedByDescending { it.groupIdx }
+    val vIdx = visualPanels.indexOfFirst { it.panelId == panelId }
+    if (vIdx < 0) return null to null
+    val prevId = if (vIdx > 0) visualPanels[vIdx - 1].panelId else null // 视觉上方一格
+    val nextId = if (vIdx < visualPanels.size - 1) visualPanels[vIdx + 1].panelId else null // 视觉下方一格
     return prevId to nextId
 }
 
