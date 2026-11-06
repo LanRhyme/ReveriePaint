@@ -180,14 +180,14 @@ class CreationStatsDashboardWidget : GlanceAppWidget() {
                         modifier = GlanceModifier
                             .fillMaxWidth()
                             .cornerRadius(10.dp)
-                            .background(GlanceTheme.colors.surfaceVariant)
+                            .background(GlanceTheme.colors.secondaryContainer)
                             .padding(horizontal = 8.dp, vertical = 6.dp),
                     ) {
                         Column {
                             Text(
                                 text = context.getString(R.string.widget_today_creation_title),
                                 style = TextStyle(
-                                    color = GlanceTheme.colors.onSurfaceVariant,
+                                    color = GlanceTheme.colors.onSecondaryContainer,
                                     fontSize = 10.sp,
                                     fontWeight = FontWeight.Medium,
                                 ),
@@ -211,7 +211,7 @@ class CreationStatsDashboardWidget : GlanceAppWidget() {
                                 Text(
                                     text = context.getString(R.string.widget_today_pending),
                                     style = TextStyle(
-                                        color = GlanceTheme.colors.onSurfaceVariant,
+                                        color = GlanceTheme.colors.onSecondaryContainer,
                                         fontSize = 10.sp,
                                     ),
                                     maxLines = 1,
@@ -288,7 +288,7 @@ class CreationStatsDashboardWidget : GlanceAppWidget() {
                         Box(
                             modifier = GlanceModifier
                                 .cornerRadius(6.dp)
-                                .background(GlanceTheme.colors.surfaceVariant)
+                                .background(GlanceTheme.colors.secondaryContainer)
                                 .padding(horizontal = 5.dp, vertical = 2.dp),
                         ) {
                             Text(
@@ -298,7 +298,7 @@ class CreationStatsDashboardWidget : GlanceAppWidget() {
                                     context.getString(R.string.widget_today_badge_pending)
                                 },
                                 style = TextStyle(
-                                    color = if (isTodayDone) GlanceTheme.colors.primary else GlanceTheme.colors.onSurfaceVariant,
+                                    color = if (isTodayDone) GlanceTheme.colors.primary else GlanceTheme.colors.onSecondaryContainer,
                                     fontSize = 9.sp,
                                     fontWeight = if (isTodayDone) FontWeight.Bold else FontWeight.Normal,
                                 ),

@@ -105,7 +105,7 @@ class RecentProjectDashboardWidget : GlanceAppWidget() {
                     modifier = GlanceModifier
                         .size(width = 98.dp, height = 98.dp)
                         .cornerRadius(14.dp)
-                        .background(GlanceTheme.colors.surfaceVariant)
+                        .background(GlanceTheme.colors.secondaryContainer)
                         .clickable(actionStartActivity(if (data != null) openProjectIntent else createIntent)),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -152,7 +152,7 @@ class RecentProjectDashboardWidget : GlanceAppWidget() {
                             provider = ImageProvider(R.drawable.ic_palette),
                             contentDescription = null,
                             modifier = GlanceModifier.size(36.dp),
-                            colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant),
+                            colorFilter = ColorFilter.tint(GlanceTheme.colors.onSecondaryContainer),
                         )
                     }
                 }
@@ -211,7 +211,7 @@ class RecentProjectDashboardWidget : GlanceAppWidget() {
                             modifier = GlanceModifier
                                 .fillMaxWidth()
                                 .cornerRadius(10.dp)
-                                .background(GlanceTheme.colors.surfaceVariant)
+                                .background(GlanceTheme.colors.secondaryContainer)
                                 .padding(horizontal = 9.dp, vertical = 6.dp),
                         ) {
                             Column {
@@ -220,7 +220,7 @@ class RecentProjectDashboardWidget : GlanceAppWidget() {
                                         provider = ImageProvider(R.drawable.ic_image),
                                         contentDescription = null,
                                         modifier = GlanceModifier.size(11.dp),
-                                        colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant),
+                                        colorFilter = ColorFilter.tint(GlanceTheme.colors.onSecondaryContainer),
                                     )
                                     Spacer(modifier = GlanceModifier.width(5.dp))
                                     Text(
@@ -239,13 +239,13 @@ class RecentProjectDashboardWidget : GlanceAppWidget() {
                                         provider = ImageProvider(R.drawable.ic_clock),
                                         contentDescription = null,
                                         modifier = GlanceModifier.size(11.dp),
-                                        colorFilter = ColorFilter.tint(GlanceTheme.colors.onSurfaceVariant),
+                                        colorFilter = ColorFilter.tint(GlanceTheme.colors.onSecondaryContainer),
                                     )
                                     Spacer(modifier = GlanceModifier.width(5.dp))
                                     Text(
                                         text = context.getString(R.string.widget_recent_duration_strokes, durationStr, strokesStr),
                                         style = TextStyle(
-                                            color = GlanceTheme.colors.onSurfaceVariant,
+                                            color = GlanceTheme.colors.onSecondaryContainer,
                                             fontSize = 10.sp,
                                         ),
                                         maxLines = 1,
@@ -293,7 +293,7 @@ class RecentProjectDashboardWidget : GlanceAppWidget() {
                             Row(
                                 modifier = GlanceModifier
                                     .cornerRadius(10.dp)
-                                    .background(GlanceTheme.colors.surfaceVariant)
+                                    .background(GlanceTheme.colors.secondaryContainer)
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                                     .clickable(actionStartActivity(galleryIntent)),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -301,7 +301,7 @@ class RecentProjectDashboardWidget : GlanceAppWidget() {
                                 Text(
                                     text = context.getString(R.string.widget_recent_open_gallery),
                                     style = TextStyle(
-                                        color = GlanceTheme.colors.onSurfaceVariant,
+                                        color = GlanceTheme.colors.onSecondaryContainer,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Medium,
                                     ),
@@ -367,7 +367,7 @@ class RecentProjectDashboardWidget : GlanceAppWidget() {
                             Row(
                                 modifier = GlanceModifier
                                     .cornerRadius(10.dp)
-                                    .background(GlanceTheme.colors.surfaceVariant)
+                                    .background(GlanceTheme.colors.secondaryContainer)
                                     .padding(horizontal = 10.dp, vertical = 6.dp)
                                     .clickable(actionStartActivity(galleryIntent)),
                                 verticalAlignment = Alignment.CenterVertically,
@@ -375,7 +375,7 @@ class RecentProjectDashboardWidget : GlanceAppWidget() {
                                 Text(
                                     text = context.getString(R.string.widget_recent_open_gallery),
                                     style = TextStyle(
-                                        color = GlanceTheme.colors.onSurfaceVariant,
+                                        color = GlanceTheme.colors.onSecondaryContainer,
                                         fontSize = 11.sp,
                                         fontWeight = FontWeight.Medium,
                                     ),
