@@ -254,6 +254,11 @@ internal fun PaintViewModel.notifyLayerChanged(
     }
     onPaintingActivity()
     syncLayersFromNative()
+    // 分格镜像重扫: 分格会话中或已有分格/跨格容器时, 任何图层结构变化都可能让
+    // 分格索引漂移, 从引擎重扫一次 (无分格时零开销, 见 PaintViewModelPanels.kt)。
+    if (panelSessionActive() || panels.isNotEmpty() || panelCrossContainerIdx >= 0) {
+        refreshPanels()
+    }
     // Mirror the C++ solo raw-mode flag into Compose state so the solo
     // floating panel's chips re-highlight immediately after a toggle
     soloRawMode = ReverieCoreBridge.layerSoloRawMode()
@@ -393,6 +398,38 @@ internal fun PaintViewModel.generateDefaultGroupName(): String {
     return if (!hasPlain && idx == 1) prefix else "$prefix $idx"
 }
 
+private inline fun PaintViewModel.executeAddLayerSafely(
+    wasInsidePanel: Boolean,
+    action: () -> Unit,
+) {
+    action()
+    val s = scanEnginePanels()
+    if (s.rootIdx < 0) return
+    val newIdx = ReverieCoreBridge.currentLayerIndex()
+    if (newIdx < 0 || newIdx !in s.layers.indices) return
+
+    if (!wasInsidePanel) {
+        // 用户原先不在具体分格内: 严禁新层被意外卷入分格根组
+        val rootDepth = s.layers[s.rootIdx].depth
+        var isInsideRoot = false
+        if (newIdx > s.rootIdx) {
+            isInsideRoot = true
+            for (i in s.rootIdx + 1..newIdx) {
+                if (s.layers[i].depth <= rootDepth) {
+                    isInsideRoot = false
+                    break
+                }
+            }
+        }
+        if (isInsideRoot) {
+            ReverieCoreBridge.moveLayerRelative(newIdx, s.rootIdx, true)
+        }
+    } else {
+        // 用户原先在某个具体分格内: 就地保留在当前分格组, 确保边框层黑框压顶
+        ensurePanelBordersOnTop(s)
+    }
+}
+
 internal fun PaintViewModel.addLayer() {
     if (transientTransformSelectionPending || canUndoTransformSelection || canRedoTransformSelection) {
         discardTransientTransformSelection()
@@ -403,11 +440,18 @@ internal fun PaintViewModel.addLayer() {
     }
     val defaultName = generateDefaultLayerName()
     Breadcrumbs.record("Layer", "Add layer: $defaultName")
+    val pids = currentPaintingPanelIds()
+    val wasInside = pids.isNotEmpty()
+    if (wasInside) {
+        collapsedPanelIds = collapsedPanelIds - pids
+    }
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
     }) {
-        ReverieCoreBridge.addLayer(defaultName)
+        executeAddLayerSafely(wasInside) {
+            ReverieCoreBridge.addLayer(defaultName)
+        }
     }
 }
 
@@ -422,6 +466,11 @@ internal fun PaintViewModel.importImageToNewLayer(
     }
     val defaultImportName = if (LanguageManager.isChinese()) "导入图片" else "Imported Image"
     val finalName = layerName.ifBlank { defaultImportName }
+    val pids = currentPaintingPanelIds()
+    val wasInside = pids.isNotEmpty()
+    if (wasInside) {
+        collapsedPanelIds = collapsedPanelIds - pids
+    }
     runCore(
         after = {
             clearLayerSelection()
@@ -430,7 +479,9 @@ internal fun PaintViewModel.importImageToNewLayer(
         },
     ) {
         try {
-            ReverieCoreBridge.addLayer(finalName)
+            executeAddLayerSafely(wasInside) {
+                ReverieCoreBridge.addLayer(finalName)
+            }
             val placement = ImageImportHelper.calculateFitPlacement(
                 docW = coreW,
                 docH = coreH,
@@ -982,6 +1033,7 @@ internal fun PaintViewModel.moveLayerToGroup(
     }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.moveLayerToGroup(from, group)
+        ensurePanelBordersOnTop(scanEnginePanels())
     }
 }
 
@@ -1014,6 +1066,7 @@ internal fun PaintViewModel.moveLayersToGroup(
         selectedLayerIndices = layers.filter { it.id in selectedIds || it.name in selectedNames }.map { it.index }.toSet()
     }) {
         ReverieCoreBridge.moveLayersToGroup(effectiveIndices.toIntArray(), group)
+        ensurePanelBordersOnTop(scanEnginePanels())
     }
 }
 
@@ -1282,11 +1335,18 @@ internal fun PaintViewModel.addLayerWithType(
             "$name|$type|$fillColor",
         )
     }
+    val pids = currentPaintingPanelIds()
+    val wasInside = pids.isNotEmpty()
+    if (wasInside) {
+        collapsedPanelIds = collapsedPanelIds - pids
+    }
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
     }) {
-        ReverieCoreBridge.addLayerWithType(name, type, fillColor)
+        executeAddLayerSafely(wasInside) {
+            ReverieCoreBridge.addLayerWithType(name, type, fillColor)
+        }
     }
 }
 
@@ -1305,6 +1365,11 @@ internal fun PaintViewModel.addFillLayer(colorHex: String = brushColor) {
             "$fillLayerName|2|$colorInt",
         )
     }
+    val pids = currentPaintingPanelIds()
+    val wasInside = pids.isNotEmpty()
+    if (wasInside) {
+        collapsedPanelIds = collapsedPanelIds - pids
+    }
     // type=2 仍创建预填色颜料层，由引擎保存显式类型标记
     runCore(
         after = {
@@ -1312,7 +1377,9 @@ internal fun PaintViewModel.addFillLayer(colorHex: String = brushColor) {
             notifyLayerChanged()
         },
     ) {
-        ReverieCoreBridge.addLayerWithType(fillLayerName, 2, colorInt)
+        executeAddLayerSafely(wasInside) {
+            ReverieCoreBridge.addLayerWithType(fillLayerName, 2, colorInt)
+        }
     }
 }
 
@@ -1323,6 +1390,11 @@ internal fun PaintViewModel.addFilterLayer(onOpenFilters: (Int) -> Unit) {
         recorder.layerOp(com.reverie.paint.model.RecordingEvents.L_STAMP)
     }
     val filterLayerName = generateDefaultFilterLayerName()
+    val pids = currentPaintingPanelIds()
+    val wasInside = pids.isNotEmpty()
+    if (wasInside) {
+        collapsedPanelIds = collapsedPanelIds - pids
+    }
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
@@ -1332,7 +1404,9 @@ internal fun PaintViewModel.addFilterLayer(onOpenFilters: (Int) -> Unit) {
             onOpenFilters(cur)
         }
     }) {
-        ReverieCoreBridge.stampVisibleLayers()
+        executeAddLayerSafely(wasInside) {
+            ReverieCoreBridge.stampVisibleLayers()
+        }
     }
 }
 
@@ -1346,11 +1420,18 @@ internal fun PaintViewModel.addStrokeLayer() {
             "$strokeLayerName|6|0",
         )
     }
+    val pids = currentPaintingPanelIds()
+    val wasInside = pids.isNotEmpty()
+    if (wasInside) {
+        collapsedPanelIds = collapsedPanelIds - pids
+    }
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
     }) {
-        ReverieCoreBridge.addLayerWithType(strokeLayerName, 6, 0)
+        executeAddLayerSafely(wasInside) {
+            ReverieCoreBridge.addLayerWithType(strokeLayerName, 6, 0)
+        }
     }
 }
 

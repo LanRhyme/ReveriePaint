@@ -9,6 +9,7 @@
  * ============================================================ */
 #include "ReverieCoreInternal.h"
 #include "PixelAlpha.h"
+#include "ReverieCoreLayerExtras.h"
 #include "ReverieCoreFilterKernels.h"
 #include "ReverieCoreColorSpaceHook.h"
 #include "StrokePresentFastPath.h"
@@ -1285,6 +1286,51 @@ static inline bool nodeIsPassThroughGroup(KisNodeWSP node)
     const KisGroupLayer *grp = dynamic_cast<const KisGroupLayer *>(node.data());
     return grp && grp->passThroughMode();
 }
+
+// 组是否带分格元数据 (漫画分格): 组级透明蒙版 (分格裁剪) 的消费只对分格组
+// 生效 —— 无 meta 的既有文档组级蒙版保持改动前的忽略行为。合成热路径
+// (compositeLayersRange 分支 A/B 与 compositeSoloRange) 一律读 LayerEntry 的
+// panelGroup 缓存位 (syncLayersFromImage 时写入), 不再每遍查侧表; 本谓词保留
+// 给没有 LayerEntry 的场景 (如节点侧写/独立工具路径)。
+static inline bool nodeIsPanelGroup(const KisNode *node)
+{
+    return node && !reverie::layerProperty(node, "reverie_panel").toString().isEmpty();
+}
+
+// 组级透明蒙版调制核心 (分格裁剪): groupBuf[r] 的 BGRA 像素按蒙版像素调制
+// (白=透光, 黑/空=遮挡), 约定与 compositePaintLayer 暂存路径完全一致
+// (PixelAlpha::applyMaskModulation, 4 字节直通)。scratch 由调用方跨调用复用
+// (容量按需扩到 2*byteCount), 热路径零分配。
+// 早退/裁剪: 调制只对组缓冲 extent 与 r 的交集 rr 生效 (交集外组缓冲没有内容,
+// 读写都是 no-op), 多格文档一次格操作只调制被改格的 bbox 而非 11 次全画布;
+// rr 内 alpha 全 0 (applyMaskModulation 对 la==0 直接跳过) 时同样跳过全部读写,
+// 省掉无效的蒙版 readBytes 与整块写回 (多格文档的常规情形)。
+static void applyGroupMaskModulation(KisPaintDeviceSP groupBuf, KisPaintDeviceSP maskDev,
+                                     const QRect &r, QByteArray &scratch)
+{
+    if (!groupBuf || !maskDev || r.isEmpty()) return;
+    const QRect rr = groupBuf->extent().intersected(r);
+    if (rr.isEmpty()) return;
+    const size_t pixelCount = size_t(rr.width()) * rr.height();
+    const size_t byteCount = pixelCount * 4;
+    if (size_t(scratch.size()) < byteCount * 2) {
+        scratch.resize(byteCount * 2);
+    }
+    quint8 *lBuf = reinterpret_cast<quint8 *>(scratch.data());
+    quint8 *mBuf = lBuf + byteCount;
+    groupBuf->readBytes(lBuf, rr.x(), rr.y(), rr.width(), rr.height());
+    bool anyInk = false;
+    for (size_t i = 0; i < pixelCount; ++i) {
+        if (lBuf[i * 4 + 3] != 0) {
+            anyInk = true;
+            break;
+        }
+    }
+    if (!anyInk) return;
+    maskDev->readBytes(mBuf, rr.x(), rr.y(), rr.width(), rr.height());
+    PixelAlpha::applyMaskModulation(lBuf, mBuf, pixelCount);
+    groupBuf->writeBytes(lBuf, rr.x(), rr.y(), rr.width(), rr.height());
+}
 } // namespace
 
 void ReverieCore::compositeSoloRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &full)
@@ -1298,8 +1344,22 @@ void ReverieCore::compositeSoloRange(KisPaintDeviceSP out, int startIdx, int end
             while (j < endIdx && m_layers[j].depth > e.depth) {
                 ++j;
             }
-            // 穿透组: 子层直接合成到 out, 不套用组自身的混合模式/不透明度
-            if (nodeIsPassThroughGroup(KisNodeWSP(e.node))) {
+            // 组级透明蒙版 (分格裁剪): 查找口径与 compositeLayersRange 主循环一致,
+            // 消费同样以分格组 (reverie_panel 非空) 为前提, 与普通合成路径对称
+            int maskEntryIdx = -1;
+            for (int mi = i + 1; mi < j; ++mi) {
+                if (m_layers[mi].depth == e.depth + 1 &&
+                    m_layers[mi].nodeType == NodeTypeTransparencyMask &&
+                    m_layers[mi].visible && m_layers[mi].node) {
+                    maskEntryIdx = mi;
+                    break;
+                }
+            }
+            const bool panelMasked = e.panelGroup && maskEntryIdx >= 0;
+            // 穿透组: 子层直接合成到 out, 不套用组自身的混合模式/不透明度。
+            // 例外与 compositeLayersRange 相同: 带蒙版的分格穿透组退化为下方
+            // 隔离路径, 否则蒙版无处施加 (直接调制 out 会波及已合成的下层像素)。
+            if (nodeIsPassThroughGroup(KisNodeWSP(e.node)) && !panelMasked) {
                 compositeSoloRange(out, i + 1, j, full);
                 i = j;
                 continue;
@@ -1307,6 +1367,29 @@ void ReverieCore::compositeSoloRange(KisPaintDeviceSP out, int startIdx, int end
             KisPaintDeviceSP tmp(new KisPaintDevice(m_document->colorSpace()));
             tmp->fill(full, KoColor(Qt::transparent, m_document->colorSpace()));
             compositeSoloRange(tmp, i + 1, j, full);
+            // 分格组级蒙版: 独显的组隔离合成结果与普通合成一样被格框约束,
+            // 否则独显分格内容会溢出格框
+            // 蒙版钳制 (T2): 调制与最终 blit 同用收窄矩形 (等价性论证见
+            // panelMaskClampRect, 仅空/normal 混合模式)。递归组合保持 full:
+            // solo 路径的子层 blit 硬编码 (0,0) 起点 (坐标语义只在 full 为原点
+            // 全画布时成立), tmp 收窄矩形外的未调制像素不会被 blit 读到。
+            // 调整层不需要 spanHasAdjustment 守卫: 递归组合仍走 full, 调整层
+            // margin 越界读到的是真实合成内容, 调制+blit 钳制依旧逐像素等价。
+            QRect soloR = full;
+            if (panelMasked) {
+                const QString soloOp = e.node->compositeOpId();
+                if (soloOp.isEmpty() || soloOp == QLatin1String("normal")) {
+                    soloR = panelMaskClampRect(maskEntryIdx, full);
+                }
+                if (!soloR.isEmpty()) {
+                    applyGroupMaskModulation(tmp, groupMaskDeviceFor(maskEntryIdx, soloR), soloR, m_subRegionBuffer);
+                }
+            }
+            if (soloR.isEmpty()) {
+                // 蒙版在独显范围内无内容 ⇒ 调制因子恒 0 ⇒ 本组无可见贡献
+                i = j;
+                continue;
+            }
             KisPainter painter(out);
             painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
             painter.setCompositeOpId(e.node->compositeOpId());
@@ -1314,12 +1397,22 @@ void ReverieCore::compositeSoloRange(KisPaintDeviceSP out, int startIdx, int end
             if (layer && !layer->channelFlags().isEmpty()) {
                 painter.setChannelFlags(layer->channelFlags());
             }
-            painter.bitBlt(0, 0, tmp, 0, 0, full.width(), full.height());
+            painter.bitBlt(soloR.x(), soloR.y(), tmp, soloR.x(), soloR.y(), soloR.width(), soloR.height());
             painter.end();
             i = j;
         } else {
             // Leaf: composite only if it belongs to the solo keep set
             if (e.node && m_soloKeepNodes.contains(e.node)) {
+                // 独立蒙版图层 (透明度蒙版等) 不作为普通叶子输出到画布 —— 与
+                // compositeLayersRange 的跳过一致; 独显分格组时蒙版 entry 在
+                // keep 集 (后代扫描含 depth+1), 若照画会把蒙版位图整片盖在内容
+                // 上, 其消费走上方组级调制。例外: 用户直接独显蒙版本身, 仍画出
+                // 蒙版位图便于查看。
+                if (e.node != m_soloedNode &&
+                    e.nodeType >= NodeTypeTransparencyMask && e.nodeType <= NodeTypeSelectionMask) {
+                    ++i;
+                    continue;
+                }
                 if (!m_soloRawMode && (e.isStrokeLayer || e.nodeType == NodeTypeStroke)) {
                     compositeStrokeLayer(out, e, full);
                 } else {
@@ -1346,6 +1439,111 @@ void ReverieCore::compositeSoloRange(KisPaintDeviceSP out, int startIdx, int end
             ++i;
         }
     }
+}
+
+// 组级透明蒙版设备解析 (分格裁剪): 可见的透明蒙版颜料层; 蒙版上有临时笔迹时
+// 先把临时目标合成进 scratch 一并返回。供 compositeLayersRange 的 maskDeviceFor
+// lambda 与 compositeSoloRange 共用 (逻辑同原 lambda, 提为成员以便复用)。
+KisPaintDeviceSP ReverieCore::groupMaskDeviceFor(int mIdx, const QRect &r)
+{
+    if (mIdx < 0 || mIdx >= m_layers.size()) return nullptr;
+    const LayerEntry &me = m_layers[mIdx];
+    if (!me.visible || !me.node) return nullptr;
+    KisPaintLayer *mpl = dynamic_cast<KisPaintLayer *>(me.node);
+    if (!mpl) return nullptr;
+    KisPaintDeviceSP mDev = mpl->paintDevice();
+    if (!mDev) return nullptr;
+    if (mpl->hasTemporaryTarget()) {
+        KisPaintDeviceSP mTemp = mpl->temporaryTarget();
+        if (mTemp) {
+            KisPaintDeviceSP mScratch = strokeOutScratch(r);
+            KisPainter bp(mScratch);
+            bp.setCompositeOpId(QStringLiteral("normal"));
+            bp.bitBlt(r.topLeft(), mDev, r);
+            bp.end();
+
+            KisPainter tp(mScratch);
+            mpl->setupTemporaryPainter(&tp);
+            if (tp.compositeOpId().isEmpty()) tp.setCompositeOpId(QStringLiteral("normal"));
+            if (m_toolMode == ToolEraser && mIdx == m_currentLayer) tp.setCompositeOpId(QStringLiteral("erase"));
+            tp.bitBlt(r.topLeft(), mTemp, r);
+            tp.end();
+            return mScratch;
+        }
+    }
+    return mDev;
+}
+
+// 分格组蒙版钳制矩形 (分格裁剪 T2): 返回本组 组合/调制/blit 的收窄工作矩形。
+//
+// 等价性论证: 钳制矩形 = r ∩ 文档矩形 ∩ 蒙版设备 exactBounds()。分格蒙版的
+// 白域 (可见 quad 像素) 恒 ⊆ exactBounds(), 所以钳制矩形外蒙版像素要么在瓦片
+// 外 (读取为 defaultPixel), 要么在瓦片内但 alpha==0 —— 两种情况经
+// PixelAlpha::applyMaskModulation 调制后 factor 均为 0 (ma==0 时 gray=0,
+// mFactor=0), 组内容在该处贡献 alpha-0 像素, OVER blit 到 out 上是恒等操作。
+// 因此只合成/调制/blit 钳制矩形与原来的全 r 结果逐像素一致, 省掉格外像素的
+// 全部组合、调制与 blit 工作。注意不能只收紧 applyGroupMaskModulation 内部的
+// rr: 界外组内容像素未被调制, 会以原 alpha blit 出去造成泄漏 —— 必须
+// 组合、调制、blit 三者同用收窄矩形。
+//
+// 各守卫理由 (任一不满足即返回原 r, 退回改动前行为):
+//  - r 空 / maskEntryIdx 越界: 无可钳信息;
+//  - 蒙版 entry 不可见 / node 为空 / 取不到颜料设备: 蒙版不生效, 无从收窄;
+//  - 蒙版有 temporaryTarget (运笔中): 临时笔迹不在 paintDevice 的 exactBounds
+//    里, 钳了会裁掉正在画的蒙版笔迹, 保守不钳 (与 groupMaskDeviceFor 的
+//    temporaryTarget 判据同款);
+//  - 蒙版 defaultPixel 的 alpha 非 0: 瓦片外像素按该不透明默认色参与调制,
+//    "界外=遮挡" 不成立, exactBounds 不代表真实白域, 不钳;
+//  - 组 span 内含调整层时调用方放弃钳制 (spanHasAdjustment, 在分支 A/B 调用
+//    前自查): applyAdjustment 以 r.adjusted(-margin..) 向外读组缓冲, 收窄后
+//    边带 [workR, r) 读到的是池化 scratch 的上一次合成残留 (分支 A) 或透明
+//    (分支 B), 滤镜输出边缘被污染/与改动前行为发散;
+//  - 否则 r ∩ 文档矩形 ∩ exactBounds()。
+//
+// exactBounds 成本: 稀疏蒙版瓦片少时近乎廉价; 旧的全画布白底文档蒙版是
+// O(tile) 遍历, 只发生在重合成路径上, 可接受。
+QRect ReverieCore::panelMaskClampRect(int maskEntryIdx, const QRect &r) const
+{
+    if (!m_document || r.isEmpty() || maskEntryIdx < 0 || maskEntryIdx >= m_layers.size()) {
+        return r;
+    }
+    const LayerEntry &me = m_layers[maskEntryIdx];
+    if (!me.visible || !me.node) {
+        return r;
+    }
+    KisPaintLayer *mpl = dynamic_cast<KisPaintLayer *>(me.node);
+    if (!mpl) {
+        return r;
+    }
+    // 运笔中 (临时笔迹未落盘) 保守不钳
+    if (mpl->hasTemporaryTarget()) {
+        return r;
+    }
+    KisPaintDeviceSP mDev = mpl->paintDevice();
+    if (!mDev) {
+        return r;
+    }
+    const KoColorSpace *cs = mDev->colorSpace();
+    if (cs && cs->opacityU8(mDev->defaultPixel().data()) != 0) {
+        return r;
+    }
+    return r.intersected(QRect(0, 0, m_document->width(), m_document->height()))
+            .intersected(mDev->exactBounds());
+}
+
+// entry 区间 [from, to) 内是否存在调整层 entry (不论可见性): 分格组蒙版钳制的
+// 调用方守卫 —— applyAdjustment 以 r.adjusted(-margin..) 向外读组缓冲, 组合/
+// blit 收窄后边带 [workR, r) 不再是干净内容 (分支 A 是池化 scratch 的上次合成
+// 残留, 分支 B 是透明), 滤镜边缘输出被污染或与改动前行为发散, 故含调整层时
+// 整组放弃钳制。solo 路径递归组合保持 full, 无此问题, 不需要该守卫。
+bool ReverieCore::spanHasAdjustment(int from, int to) const
+{
+    for (int i = from; i < to && i < m_layers.size(); ++i) {
+        if (m_layers[i].nodeType == NodeTypeAdjustment) {
+            return true;
+        }
+    }
+    return false;
 }
 
 void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &r,
@@ -1431,33 +1629,21 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
     };
 
     auto maskDeviceFor = [&](int mIdx) -> KisPaintDeviceSP {
-        if (mIdx < 0 || mIdx >= m_layers.size()) return nullptr;
-        const LayerEntry &me = m_layers[mIdx];
-        if (!me.visible || !me.node) return nullptr;
-        KisPaintLayer *mpl = dynamic_cast<KisPaintLayer *>(me.node);
-        if (!mpl) return nullptr;
-        KisPaintDeviceSP mDev = mpl->paintDevice();
-        if (!mDev) return nullptr;
-        if (mpl->hasTemporaryTarget()) {
-            KisPaintDeviceSP mTemp = mpl->temporaryTarget();
-            if (mTemp) {
-                KisPaintDeviceSP mScratch = strokeOutScratch(r);
-                if (!mScratch) return nullptr;
-                KisPainter bp(mScratch);
-                bp.setCompositeOpId(QStringLiteral("normal"));
-                bp.bitBlt(r.topLeft(), mDev, r);
-                bp.end();
+        return groupMaskDeviceFor(mIdx, r);
+    };
 
-                KisPainter tp(mScratch);
-                mpl->setupTemporaryPainter(&tp);
-                if (tp.compositeOpId().isEmpty()) tp.setCompositeOpId(QStringLiteral("normal"));
-                if (m_toolMode == ToolEraser && mIdx == m_currentLayer) tp.setCompositeOpId(QStringLiteral("erase"));
-                tp.bitBlt(r.topLeft(), mTemp, r);
-                tp.end();
-                return mScratch;
-            }
-        }
-        return mDev;
+    // 组级透明蒙版调制 (分格): 组可见子层中带 reverie_is_transparency_mask 的
+    // 颜料层与 paint 层共用同一 maskEntryIdx 查找 (见主循环); 组内子层合成进
+    // 组缓冲后按与 compositePaintLayer 暂存路径完全相同的 region/像素数/stride
+    // (4 字节直通 BGRA) 约定做 applyMaskModulation (白=透光 黑/空=遮挡)。
+    // 调制核心与早退逻辑在文件级 applyGroupMaskModulation (compositeSoloRange
+    // 亦复用); 消费口径见各调用点的分格组判定。
+    // maskR: 调制工作矩形 —— 分格组走 panelMaskClampRect 收窄矩形 (组合/blit
+    // 同用, 见分支 A/B), 非钳制路径传原 r。
+    auto applyGroupMask = [&](KisPaintDeviceSP groupBuf, int maskIdx, const QRect &maskR) {
+        KisPaintDeviceSP mDev = (maskIdx >= 0) ? maskDeviceFor(maskIdx) : nullptr;
+        if (!groupBuf || !mDev) return;
+        applyGroupMaskModulation(groupBuf, mDev, maskR, m_subRegionBuffer);
     };
 
     auto compositePaintLayer = [&](KisPaintDeviceSP target, const LayerEntry &le, int leIdx, bool lockAlpha, qreal overrideOpacity, const QString &overrideOp, int maskIdx = -1) {
@@ -1682,12 +1868,35 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
                 // 穿透混合模式: 子层各自按自身混合模式直接合成到父级上下文,
                 // 组自身的混合模式/不透明度被忽略 (与 Krita 原生 merger 语义一致)。
                 // 此处不能走 tmp 中转, 否则组会退化成隔离组。
-                if (nodeIsPassThroughGroup(KisNodeWSP(e.node))) {
+                // 例外: 组级裁剪蒙版 (分格) 只能作用于组的隔离合成结果 —— 直接在
+                // out 上调制会波及更下层已合成的像素, 所以带可见蒙版的穿透组
+                // 退化为下方 tmp 隔离路径 (蒙版调制见 applyGroupMask)。
+                // 该退化只对分格组 (reverie_panel 非空) 生效: 无 meta 的既有穿透
+                // 组文档回到改动前行为 (直接合成, 组级蒙版忽略)。
+                const bool eIsPanelGroup = e.panelGroup;
+                if (nodeIsPassThroughGroup(KisNodeWSP(e.node)) && (maskEntryIdx < 0 || !eIsPanelGroup)) {
                     compositeLayersRange(out, i + 1, eEnd, r, excludeIdx);
                 } else {
-                    ScratchDeviceGuard tmpGuard(this, r);
+                    // 分格组蒙版钳制 (T2): 组合/调制/blit 三者同用收窄矩形 (等价性
+                    // 论证见 panelMaskClampRect); 仅对混合模式为空/normal 的分格组
+                    // 生效 —— 透明源对其他混合模式不保证恒等, 不钳; 组 span 含
+                    // 调整层时也不钳 (滤镜 margin 越界读组缓冲, 见 spanHasAdjustment)
+                    QRect workR = r;
+                    if (eIsPanelGroup && maskEntryIdx >= 0 && !spanHasAdjustment(i + 1, eEnd)) {
+                        const QString groupOp = e.node->compositeOpId();
+                        if (groupOp.isEmpty() || groupOp == QLatin1String("normal")) {
+                            workR = panelMaskClampRect(maskEntryIdx, r);
+                            if (workR.isEmpty()) {
+                                // 蒙版在本脏区无内容 ⇒ 调制因子恒 0 ⇒ 本组无可见贡献
+                                i = eEnd;
+                                continue;
+                            }
+                        }
+                    }
+                    ScratchDeviceGuard tmpGuard(this, workR);
                     KisPaintDeviceSP tmp = tmpGuard.device();
-                    compositeLayersRange(tmp, i + 1, eEnd, r, excludeIdx);
+                    compositeLayersRange(tmp, i + 1, eEnd, workR, excludeIdx);
+                    applyGroupMask(tmp, eIsPanelGroup ? maskEntryIdx : -1, workR);   // 非分格/无蒙版时内部直通
                     KisPainter painter(out);
                     painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
                     painter.setCompositeOpId(e.node->compositeOpId());
@@ -1695,7 +1904,7 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
                     if (layer && !layer->channelFlags().isEmpty()) {
                         painter.setChannelFlags(layer->channelFlags());
                     }
-                    painter.bitBlt(r.topLeft(), tmp, r);
+                    painter.bitBlt(workR.topLeft(), tmp, workR);
                     painter.end();
                 }
             } else if (e.nodeType == NodeTypeAdjustment) {
@@ -1710,6 +1919,24 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
         }
 
         // 分支 B: 存在剪切蒙版链 (Base Layer + 1..N Clipped Layers)
+        // 分格组基底的蒙版钳制 (T2): 仅对分格组基底、混合模式为空/normal 时把
+        // 基底组合与组蒙版调制收窄到蒙版真实内容范围 (等价性论证见
+        // panelMaskClampRect); 组 span 含调整层时不钳 (同分支 A, 见
+        // spanHasAdjustment); 剪切链层被基底 alpha 锁定, 界外恒 alpha-0,
+        // 链循环与最终 blit 保持用原 r 无需钳
+        QRect panelBaseR = r;
+        if (e.isGroup && maskEntryIdx >= 0 && e.panelGroup && !spanHasAdjustment(i + 1, eEnd)) {
+            const QString baseOp = e.node->compositeOpId();
+            if (baseOp.isEmpty() || baseOp == QLatin1String("normal")) {
+                panelBaseR = panelMaskClampRect(maskEntryIdx, r);
+                if (panelBaseR.isEmpty()) {
+                    // 基底在收窄矩形外全透明 ⇒ 剪切链锁定 alpha 后同样无贡献
+                    // ⇒ 整条"基底+剪切"在本脏区不可见
+                    i = clipEnd;
+                    continue;
+                }
+            }
+        }
         ScratchDeviceGuard clipGuard(this, r);
         KisPaintDeviceSP clipScratch = clipGuard.device();
 
@@ -1717,15 +1944,21 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
         // 穿透组作为剪切基底: 其子层直接合成到 clipScratch, 仍由第 3 步按组的属性合入 out,
         // 保证"被剪切的层"能正确透过基底内容显示
         if (e.isGroup && nodeIsPassThroughGroup(KisNodeWSP(e.node))) {
-            compositeLayersRange(clipScratch, i + 1, eEnd, r, excludeIdx);
+            compositeLayersRange(clipScratch, i + 1, eEnd, panelBaseR, excludeIdx);
         } else if (e.isGroup) {
-            compositeLayersRange(clipScratch, i + 1, eEnd, r, excludeIdx);
+            compositeLayersRange(clipScratch, i + 1, eEnd, panelBaseR, excludeIdx);
         } else if (e.nodeType == NodeTypeAdjustment) {
             applyAdjustment(clipScratch, e);
         } else if (e.isStrokeLayer || e.nodeType == NodeTypeStroke) {
             compositeStrokeLayer(clipScratch, e, r);
         } else {
             compositePaintLayer(clipScratch, e, i, false, 1.0, QStringLiteral("normal"), maskEntryIdx);
+        }
+        // 组作为剪切基底时同样消费组级蒙版 (分格): 先调制基底内容, 之后的剪切链
+        // 以 alpha 锁叠加, 使整条"基底+剪切"都被组蒙版约束; 仅分格组消费,
+        // 与分支 A 的口径一致 (无 meta 的既有文档组级蒙版保持改动前忽略行为)
+        if (e.isGroup && maskEntryIdx >= 0 && e.panelGroup) {
+            applyGroupMask(clipScratch, maskEntryIdx, panelBaseR);
         }
 
         // 2. 依次渲染剪切蒙版层链到 clipScratch (锁定 Alpha 通道)

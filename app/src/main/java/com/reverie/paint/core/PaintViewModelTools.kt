@@ -131,6 +131,12 @@ internal fun PaintViewModel.touchStart(
         }
     }
     val curLayer = layers.firstOrNull { it.index == currentLayerIndex }
+    // 分格工具: 多选格存在时落笔前同步镜像 currentLayerIndex 到跨格内容层 (跨格涂鸦不被
+    // 任何单格蒙版裁剪)。跨格层被隐藏/锁定时不切层, 由下方既有检查按当前层语义拦截;
+    // 结构创建/引擎侧切换在多选确定的瞬间 (框选 UP) 已由 ensureCrossContainer 完成。
+    if (currentToolId == "panel" && panelMultiSelectedIds.isNotEmpty()) {
+        panelBeginCrossStroke()
+    }
     if (isLayerEffectivelyHidden(currentLayerIndex)) {
         showActionToast(R.string.canvas_toast_layer_hidden, com.reverie.paint.R.drawable.ic_eye_off)
         return false
@@ -1133,6 +1139,11 @@ internal fun PaintViewModel.applyTool(toolId: String, force: Boolean = false) {
     }
     if (toolId != "picker") {
         isTemporaryPicker = false
+    }
+    if (currentToolId == "panel" && toolId != "panel") {
+        // 离开分格工具: 单选是纯视觉状态, 清掉; 多选 (跨格绘画的依据) 跨工具保留,
+        // 只在这些时机清: 点空白/点格显式取消、框选被替换、相关格被删、文档切换加载
+        selectedPanelId = null
     }
     currentToolId = toolId
     Breadcrumbs.record("Tool", "Switch tool to: $toolId")

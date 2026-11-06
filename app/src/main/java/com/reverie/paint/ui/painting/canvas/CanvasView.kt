@@ -130,6 +130,9 @@ fun CanvasView(
     val isCursorTouching = remember { mutableStateOf(false) }
     val livePressure = remember { mutableStateOf(1f) }
 
+    // 分格工具手势 ↔ 覆盖层共享预览状态 (触摸层写, 覆盖层与长按菜单读)
+    val panelInteraction = remember { PanelInteractionState() }
+
     // ---- Transform tool state (document coords, lifted for the panel) ----
     // Transformed corner points of the rubber band: 0-3 corners (TL,TR,BR,BL),
     // 4-7 edge midpoints
@@ -353,6 +356,7 @@ fun CanvasView(
                     touchView.invalidate()
                 }
                 touchView.liquifyMode = liquifyMode
+                touchView.panelInteraction = panelInteraction
             },
         )
 
@@ -444,7 +448,13 @@ fun CanvasView(
             wandFlash = wandFlash,
             liveSelectionPath = liveSelectionPath,
             checkerboardPaint = checkerboardPaint,
+            panelInteraction = panelInteraction,
         )
+
+        // 分格长按菜单 (锚在按下点; 触摸层写 menuScreenPos, 这里渲染)
+        if (panelInteraction.menuScreenPos != null) {
+            PanelLongPressMenu(vm = vm, interaction = panelInteraction)
+        }
 
         if (vm.isCurrentLayer3D) {
             val cfg = androidx.compose.ui.platform.LocalConfiguration.current

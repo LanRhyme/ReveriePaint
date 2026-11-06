@@ -25,7 +25,10 @@ import androidx.compose.foundation.layout.widthIn
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.layout.size
+import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
+import androidx.compose.ui.graphics.painter.Painter
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
@@ -152,6 +155,7 @@ fun ToolFloatPanel(
 @Composable
 fun ToolFloatChip(
     label: String,
+    icon: Painter? = null,
     selected: Boolean = false,
     danger: Boolean = false,
     onClick: () -> Unit,
@@ -183,12 +187,25 @@ fun ToolFloatChip(
             .padding(horizontal = 12.dp, vertical = 6.dp),
         contentAlignment = Alignment.Center,
     ) {
-        Text(
-            label,
-            color = if (selected) Morandi.onAccent else if (danger) Color(0xFFE57373) else Morandi.text,
-            fontSize = 12.sp,
-            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
-        )
+        Row(
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            if (icon != null) {
+                Icon(
+                    painter = icon,
+                    contentDescription = null,
+                    tint = if (selected) Morandi.onAccent else if (danger) Color(0xFFE57373) else Morandi.accent,
+                    modifier = Modifier.size(13.dp),
+                )
+            }
+            Text(
+                label,
+                color = if (selected) Morandi.onAccent else if (danger) Color(0xFFE57373) else Morandi.text,
+                fontSize = 12.sp,
+                fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+            )
+        }
     }
 }
 

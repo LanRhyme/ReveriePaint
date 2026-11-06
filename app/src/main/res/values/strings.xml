@@ -1945,6 +1945,8 @@
     <string name="guide_symmetry_mode_rotational">旋转对称</string>
     <string name="guide_symmetry_mode_mirrored">万花筒镜像</string>
     <string name="guide_symmetry_rays">对称轴数量</string>
+    <string name="guide_symmetry_radial_count">放射分支数</string>
+    <string name="guide_symmetry_radial_count_value">%1$d 瓣</string>
     <string name="guide_symmetry_rays_rotational_format">%d 瓣旋转</string>
     <string name="guide_symmetry_rays_mirrored_format">%1$d 轴镜像 (%2$d 瓣)</string>
     <string name="guide_perspective_ray_density">参考线密度</string>
@@ -3529,6 +3531,65 @@
     <string name="replay_export_stage_finalizing">正在封装导出文件…</string>
     <string name="replay_export_stage_saving_gallery">正在写入系统相册…</string>
     <string name="replay_export_hint_4k">4K 分辨率导出耗时较长，建议优先选择 1080p</string>
+
+
+    <!-- 漫画分格 (撤销宏文案) -->
+    <string name="panel_op_create">新建分格</string>
+    <string name="panel_op_shape">调整分格形状</string>
+    <string name="panel_op_move">移动分格</string>
+    <string name="panel_op_delete">删除分格</string>
+    <string name="panel_op_reorder">调整分格顺序</string>
+    <string name="panel_op_duplicate">复制分格</string>
+    <string name="panel_op_cross">跨格内容</string>
+    <string name="panel_op_crop">分格裁剪</string>
+    <string name="panel_op_defaults">分格默认样式</string>
+    <string name="panel_op_style">调整分格样式</string>
+    <string name="panel_op_divide">切分分格</string>
+    <string name="panel_op_merge">合并分格</string>
+    <string name="panel_merge_not_adjacent">无法合并所选的格子</string>
+
+    <!-- 分格工具 -->
+    <string name="tool_panel">分格</string>
+    <string name="panel_defaults_border_width">默认边框粗细</string>
+    <string name="panel_border_width">边框粗细</string>
+    <string name="panel_border_color">边框颜色</string>
+    <string name="panel_h_gap">水平间隔</string>
+    <string name="panel_v_gap">垂直间隔</string>
+    <string name="panel_gap_hint">间隔 = 后续切分的留白与拖拽吸附间距，不改变已有格子</string>
+    <string name="panel_snap_axis">切分锁定水平/垂直</string>
+    <string name="panel_snap_page_center">移动时对齐页面中心</string>
+    <string name="panel_fill">格内填充</string>
+    <string name="panel_use_default">使用默认</string>
+    <string name="panel_overridden">已覆盖</string>
+    <string name="panel_crop">裁剪</string>
+    <string name="panel_crop_state_on">裁剪 · 开</string>
+    <string name="panel_crop_state_off">裁剪 · 关</string>
+    <string name="panel_reset_style">恢复默认</string>
+    <string name="panel_longpress_hint">长按格子可弹出菜单</string>
+    <string name="panel_multi_selected">已选 %1$d 格</string>
+    <string name="panel_cancel_multi">取消多选</string>
+    <string name="panel_menu_move_up">与上一格关联</string>
+    <string name="panel_menu_link_prev">与上一格关联</string>
+    <string name="panel_menu_link_next">与下一格关联</string>
+    <string name="panel_menu_move_down">与下一格关联</string>
+    <string name="panel_menu_delete">删除</string>
+    <string name="panel_menu_duplicate">复制</string>
+    <string name="panel_menu_separate">解散画区关联</string>
+    <string name="panel_menu_separate_group">拆分为独立组</string>
+    <string name="panel_menu_merge_above">合并到上一组</string>
+    <string name="panel_menu_merge_below">合并到下一组</string>
+    <string name="panel_group_default_name">分格组 %1$d</string>
+    <string name="panel_menu_merge">合并</string>
+    <string name="panel_menu_merge_layer">关联画区 (共享绘制)</string>
+    <string name="panel_menu_merge_frame">合并边框 (融为一格)</string>
+    <string name="panel_badge_shared">共享画区</string>
+    <string name="panel_menu_merge_with_adjacent">与相邻格合并画层</string>
+    <string name="panel_draw_unit_title">分格画层 · %1$s</string>
+    <string name="panel_draw_unit_multi">%1$d格</string>
+    <string name="panel_mode_create">建格</string>
+    <string name="panel_mode_divide">切分</string>
+    <string name="panel_corner_radius">圆角</string>
+    <string name="panel_apply_border_all">应用到所有格</string>
     <string name="undo_bar_a11y">撤销历史滑杆</string>
     <string name="undo_bar_position_a11y">历史位置 %1$d，共 %2$d 步</string>
     <string name="undo_bar_bubble_current">当前</string>

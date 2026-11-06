@@ -170,9 +170,11 @@ internal fun PaintViewModel.saveProject(
                 "colorMode": "$colorMode",
                 "layerCount": ${layers.size},
                 "dpi": $docDpi,
+                "panelDefaults": ${panelDefaultsJson()},
                 "selectedLayerIndex": $currentLayerIndex,
                 "activeLayerIndex": $currentLayerIndex,
                 "collapsedGroups": [${collapsedGroupsForSave().joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }}],
+                "collapsedPanels": [${collapsedPanelIds.joinToString(",")}],
                 "active3DLayers": [$layers3DJson]
             }
             """.trimIndent()
@@ -266,9 +268,11 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
                 "masterFilePath": "$currentMasterPath",
                 "docName": "$name",
                 "dpi": $docDpi,
+                "panelDefaults": ${panelDefaultsJson()},
                 "selectedLayerIndex": $currentLayerIndex,
                 "activeLayerIndex": $currentLayerIndex,
                 "collapsedGroups": [${collapsedGroupsForSave().joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }}],
+                "collapsedPanels": [${collapsedPanelIds.joinToString(",")}],
                 "active3DLayers": [$layers3DJson]
             }
             """.trimIndent()
@@ -348,6 +352,7 @@ internal fun PaintViewModel.emergencySaveOnCrash() {
                 "masterFilePath": "$masterPath",
                 "docName": "$name",
                 "dpi": $docDpi,
+                "panelDefaults": ${panelDefaultsJson()},
                 "selectedLayerIndex": $currentLayerIndex,
                 "activeLayerIndex": $currentLayerIndex,
                 "active3DLayers": [$layers3DJson]
@@ -492,8 +497,13 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     }
 
     var loadedCollapsedGroups: Set<String> = emptySet()
+    var loadedCollapsedPanels: Set<Long> = emptySet()
+    // 旧工程 extraJson 没有 collapsedPanels 字段: 首次打开按"每格默认折叠"补一次;
+    // 字段存在 (哪怕空数组 = 用户全部展开过) 则尊重存档, 不再回填
+    var loadedCollapsedPanelsPresent = false
     var loadedCanvasOrientation: com.reverie.paint.model.CanvasOrientation? = null
     var loaded3DStates: List<com.reverie.paint.model.Model3DState> = emptyList()
+    var loadedPanelDefaults: com.reverie.paint.model.PanelDefaults? = null
     var documentLoaded = false
     var isHealed = false
     val loadT0 = android.os.SystemClock.elapsedRealtime()
@@ -522,6 +532,11 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             // 折叠状态要等图层表同步后再还原 (见下方 syncLayersFromNative 之后)
             // 只在加载成功后交出方向；无记录时 pending 为 null，走默认横向。
             pendingCanvasOrientation = loadedCanvasOrientation
+            // 先清空上一份文档的全部分格会话镜像 (含 panelCrossMaskStamp 等跨格缓存),
+            // 再还原本工程的折叠状态与分格默认值
+            resetPanelSessionState()
+            collapsedPanelIds = loadedCollapsedPanels
+            panelDefaults = loadedPanelDefaults ?: DEFAULT_PANEL_DEFAULTS
             initialStrokeCount = p.strokeCount
             totalStrokes = p.strokeCount
             isModified = isRecovered || isHealed // 异常恢复或自愈的工程标记为未保存
@@ -550,6 +565,12 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             // 折叠状态按"名字/名字@序号"还原成层 id 键 —— 必须晚于 syncLayersFromNative,
             // 否则 layers 还是旧文档/空表, 一个都对不上
             applyCollapsedGroupsFromFile(loadedCollapsedGroups)
+            // 文档加载完成后重建分格镜像 (工程里的分格结构/侧表元数据随 maindoc.xml 恢复)
+            refreshPanels()
+            // 旧档没有 collapsedPanels: 现有格补一次默认折叠 (之后用户展开会写回字段, 不再回填)
+            if (!loadedCollapsedPanelsPresent && panels.isNotEmpty()) {
+                collapsedPanelIds = collapsedPanelIds + panels.map { it.panelId }
+            }
             // 工程刚载入时图层面板可能早已打开: 面板打开时的强制刷新跑在 loadRevp 之前,
             // 那一刻 layerCount() 还是 0 (或旧文档), 之后没人再触发, 面板就停在透明缩略图上,
             // 直到第一次落笔 (afterLayerMutation) 才恢复。这里补一次。
@@ -624,6 +645,16 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                                         }
                                         loadedCollapsedGroups = set
                                     }
+                                    val panelArr = json.optJSONArray("collapsedPanels")
+                                    if (panelArr != null) {
+                                        loadedCollapsedPanelsPresent = true
+                                        val panelSet = mutableSetOf<Long>()
+                                        for (i in 0 until panelArr.length()) {
+                                            val v = panelArr.optLong(i, Long.MIN_VALUE)
+                                            if (v != Long.MIN_VALUE) panelSet.add(v)
+                                        }
+                                        loadedCollapsedPanels = panelSet
+                                    }
                                 }
                             }
                         } catch (e: Exception) {
@@ -679,6 +710,19 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                                         }
                                     }
                                     loaded3DStates = parsedStates
+                                }
+                                // 分格默认样式 (无则恢复为出厂默认)
+                                json.optJSONObject("panelDefaults")?.let { pdObj ->
+                                    loadedPanelDefaults = com.reverie.paint.model.PanelDefaults(
+                                        borderWidth = pdObj.optDouble("borderWidth", DEFAULT_PANEL_DEFAULTS.borderWidth.toDouble()).toFloat(),
+                                        borderColor = pdObj.optInt("borderColor", DEFAULT_PANEL_DEFAULTS.borderColor),
+                                        hGap = pdObj.optDouble("hGap", DEFAULT_PANEL_DEFAULTS.hGap.toDouble()).toFloat(),
+                                        vGap = pdObj.optDouble("vGap", DEFAULT_PANEL_DEFAULTS.vGap.toDouble()).toFloat(),
+                                        fillColor = pdObj.optInt("fillColor", DEFAULT_PANEL_DEFAULTS.fillColor),
+                                        fillEnabled = pdObj.optBoolean("fillEnabled", DEFAULT_PANEL_DEFAULTS.fillEnabled),
+                                        cornerRadius = pdObj.optDouble("cornerRadius", DEFAULT_PANEL_DEFAULTS.cornerRadius.toDouble()).toFloat(),
+                                        cropEnabled = pdObj.optBoolean("cropEnabled", true),
+                                    )
                                 }
                             }
                         }
@@ -1281,6 +1325,55 @@ private fun PaintViewModel.buildProjectList(): List<com.reverie.paint.model.Proj
     return list
 }
 
+private fun PaintViewModel.burnInVectorPanelsToFile(targetFile: java.io.File, isJpeg: Boolean) {
+    if (panels.isEmpty()) return
+    val bmp = android.graphics.BitmapFactory.decodeFile(targetFile.absolutePath) ?: return
+    val mutableBmp = if (bmp.isMutable) bmp else bmp.copy(android.graphics.Bitmap.Config.ARGB_8888, true)
+    if (mutableBmp != bmp) bmp.recycle()
+    val canvas = android.graphics.Canvas(mutableBmp)
+    val defaults = panelDefaults
+    val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
+        style = android.graphics.Paint.Style.STROKE
+        strokeJoin = android.graphics.Paint.Join.ROUND
+        strokeCap = android.graphics.Paint.Cap.ROUND
+    }
+    val docW = docWidth.coerceAtLeast(1).toFloat()
+    val docH = docHeight.coerceAtLeast(1).toFloat()
+    val sx = mutableBmp.width / docW
+    val sy = mutableBmp.height / docH
+
+    for (m in panels) {
+        val style = m.meta.style
+        val r = (style.cornerRadius ?: defaults.cornerRadius).toFloat()
+        val bw = (style.borderWidth ?: defaults.borderWidth).toFloat() * sx
+        val bc = style.borderColor ?: defaults.borderColor
+
+        val points = m.meta.quad.roundedCorners(r)
+        val path = android.graphics.Path()
+        points.forEachIndexed { i, pt ->
+            val px = pt.x.toFloat() * sx
+            val py = pt.y.toFloat() * sy
+            if (i == 0) path.moveTo(px, py) else path.lineTo(px, py)
+        }
+        path.close()
+
+        if (bw > 0f) {
+            paint.strokeWidth = bw
+            paint.color = bc
+            canvas.drawPath(path, paint)
+        }
+    }
+
+    targetFile.outputStream().use { out ->
+        if (isJpeg) {
+            mutableBmp.compress(android.graphics.Bitmap.CompressFormat.JPEG, 95, out)
+        } else {
+            mutableBmp.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
+        }
+    }
+    mutableBmp.recycle()
+}
+
 /**
  * Export the current artwork into various formats:
  * PNG, JPG, PSD, TIFF, KRA, REVP
@@ -1306,13 +1399,18 @@ internal fun PaintViewModel.exportDocument(
         val ok = try {
             when (fmt) {
                 "png" -> {
-                    ReverieCoreBridge.savePng(targetFile.absolutePath)
+                    val ok = ReverieCoreBridge.savePng(targetFile.absolutePath)
+                    if (ok) {
+                        burnInVectorPanelsToFile(targetFile, isJpeg = false)
+                    }
+                    ok
                 }
 
                 "jpg", "jpeg" -> {
                     val tempPng = java.io.File(appContext.cacheDir, "temp_jpg_${System.currentTimeMillis()}.png")
                     try {
                         if (ReverieCoreBridge.savePng(tempPng.absolutePath)) {
+                            burnInVectorPanelsToFile(tempPng, isJpeg = false)
                             val bmp = android.graphics.BitmapFactory.decodeFile(tempPng.absolutePath)
                             if (bmp != null) {
                                 // JPEG 不支持 Alpha 通道, 在纯白背景上合成后输出
@@ -1376,6 +1474,7 @@ internal fun PaintViewModel.exportDocument(
                             "createdTime": $canvasCreatedTime,
                             "colorMode": "$colorMode",
                             "layerCount": ${layers.size},
+                            "panelDefaults": ${panelDefaultsJson()},
                             "selectedLayerIndex": $currentLayerIndex,
                             "activeLayerIndex": $currentLayerIndex
                             $authorSnippet
@@ -1519,6 +1618,8 @@ internal fun PaintViewModel.goHome() {
     stopPaintingTimer()
     // 动画播放与状态镜像: 离开绘画页彻底停止并重置动画状态, 避免耗电和跨画布状态残留
     resetAnimationState()
+    // 分格镜像同样是文档级缓存: 回主页即清, 下次进入任何画布都不会残留旧格框
+    resetPanelSessionState()
     // 释放 native 文档: g_core 是进程级单例, 不释放则旧 KisImage (所有图层
     // tile) 一直驻留内存, 重新打开时新旧文档共存推高峰值内存 (大文档被 LMK
     // 杀进程)。排队到渲染线程, FIFO 保证已排队的引擎操作先完成; 之后残留的
@@ -1669,6 +1770,9 @@ internal fun PaintViewModel.startPainting(
                 resetAnimationState()
             }
             collapsedGroupKeys = emptySet()
+            // 新文档无分格树: 清空旧文档的全部分格会话镜像, 避免旧格框残留在新画布
+            resetPanelSessionState()
+            refreshPanels()
             active3DLayers = emptyMap()
             show3DPosePanel = false
         },

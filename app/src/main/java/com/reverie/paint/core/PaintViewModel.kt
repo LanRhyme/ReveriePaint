@@ -2842,6 +2842,18 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    // 分格组折叠状态 (key = 分格 panelId, 元数据随格持久化, 跨会话稳定; 与
+    // collapsedGroupNames 同渠道读写项目 extraJson 的 collapsedPanels 字段)
+    var collapsedPanelIds by mutableStateOf<Set<Long>>(emptySet())
+
+    fun togglePanelCollapsed(panelId: Long) {
+        collapsedPanelIds = if (panelId in collapsedPanelIds) {
+            collapsedPanelIds - panelId
+        } else {
+            collapsedPanelIds + panelId
+        }
+    }
+
     fun setGroupCollapsed(id: Long, collapsed: Boolean) {
         val key = groupCollapseKey(id)
         if (collapsed == (key in collapsedGroupKeys)) return
@@ -4621,6 +4633,7 @@ class PaintViewModel : ViewModel() {
             quickSliderHeightDp = prefs.getInt("quickSliderHeightDp", 175).coerceIn(100, 260)
             toolbarSqueezedWarningDismissed = prefs.getBoolean("toolbarSqueezedWarningDismissed", false)
             panelPinningEnabled = prefs.getBoolean("panelPinningEnabled", false)
+            loadPanelSnapPrefs()
             layerHeaderInheritAlpha = prefs.getBoolean("layerHeaderInheritAlpha", false)
             drawingGuideLinesVisible = prefs.getBoolean("drawing_guide_lines_visible", true)
             leftHandMode = prefs.getBoolean("leftHandMode", false)

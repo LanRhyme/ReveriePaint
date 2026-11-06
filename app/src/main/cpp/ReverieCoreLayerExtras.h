@@ -16,6 +16,7 @@
 
 #include <QHash>
 #include <QSet>
+#include <QString>
 #include <QVariant>
 #include <QtGlobal>
 
@@ -33,6 +34,10 @@ struct NodeExtra {
     int strokePosition = 0;
     int strokeOpacity = 100;
     bool isTransparencyMask = false;
+    // 漫画分格元数据 (四角/样式 JSON), 侧表 key "reverie_panel"; 空串 = 非分格。
+    // copyLayerProperties 做整结构复制 (extras()[to] = it.value()), 本字段自动随拷,
+    // 无需在调用点特判; clearLayerProperties/pruneLayerProperties 按条目整体清理, 同样无需特判。
+    QString panelJson;
 };
 
 QVariant layerProperty(const KisNode *node, const char *key);
