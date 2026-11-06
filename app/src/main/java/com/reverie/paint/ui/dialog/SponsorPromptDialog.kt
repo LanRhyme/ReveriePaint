@@ -138,18 +138,26 @@ fun SponsorPromptDialog(
         modifier = Modifier
             .fillMaxSize()
             .zIndex(100f)
-            .graphicsLayer { this.alpha = p }
-            .background(scrimColor)
-            .pointerInput(Unit) {
-                awaitPointerEventScope {
-                    while (true) {
-                        val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
-                        event.changes.forEach { it.consume() }
-                    }
-                }
-            },
+            .graphicsLayer { this.alpha = p },
         contentAlignment = Alignment.Center,
     ) {
+        // 遮罩必须**独立成一层**放在卡片下面 (同一父级的兄弟里, 后画的在上、先拿到事件)。
+        // 之前 background + pointerInput 挂在外层 Box 上: Initial 阶段是"父 → 子"派发,
+        // 外层先把每个 change 都 consume 掉, 卡片里的按钮就一次都收不到点击 —— 表现就是
+        // 弹窗弹出后什么都点不了, 只能用返回手势关掉。
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .background(scrimColor)
+                .pointerInput(Unit) {
+                    awaitPointerEventScope {
+                        while (true) {
+                            val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
+                            event.changes.forEach { it.consume() }
+                        }
+                    }
+                },
+        )
         // Ambient radial light wash
         Box(
             modifier = Modifier
