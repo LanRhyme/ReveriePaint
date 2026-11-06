@@ -45,6 +45,18 @@
 #include "KisMaskingBrushCompositeOpBase.h"
 #include "KisMaskingBrushCompositeOpFactory.h"
 
+#include <brushengine/kis_paintop_preset.h>
+#include <brushengine/kis_paintop_settings.h>
+#include <kis_brush.h>
+#include <kis_properties_configuration.h>
+#include <KisResourcesInterface.h>
+#include <KisLocalStrokeResources.h>
+#include <KisResourceTypes.h>
+#include <QCryptographicHash>
+#include <QDomDocument>
+#include <QGlobalStatic>
+#include <QHash>
+
 #define MBR_LOG_TAG "RP_MASKING"
 #define MBR_LOGW(...) __android_log_print(ANDROID_LOG_WARN, MBR_LOG_TAG, __VA_ARGS__)
 
@@ -80,6 +92,162 @@ const KoColorSpace *maskingBrushMaskColorSpace(bool *maskIsAlpha)
 }
 
 } // namespace
+
+bool reverieMaskingBrushMaskIsAlpha()
+{
+    bool maskIsAlpha = false;
+    maskingBrushMaskColorSpace(&maskIsAlpha);
+    return maskIsAlpha;
+}
+
+namespace {
+
+/**
+ * 已适配的克隆笔刷缓存: 键 = 原笔尖签名 (filename|md5|brushApplication)。
+ * masking preset 每笔重建, 若每笔都克隆一张笔尖级 QImage 并注册进 m_brushResources
+ * (会话级不回收), 长时间绘画会造成无界内存增长; 以签名去重后整个会话每种笔尖至多克隆一次。
+ */
+struct GrayMaskCloneCache {
+    QHash<QString, KisBrushSP> clones;
+};
+Q_GLOBAL_STATIC(GrayMaskCloneCache, g_grayMaskCloneCache)
+
+} // namespace
+
+KisPaintOpPresetSP adaptMaskingPresetForAlpha8Mask(KisPaintOpPresetSP maskingPreset,
+                                                   bool maskIsAlpha,
+                                                   KisResourcesInterface *resources)
+{
+    // GrayA 掩膜可用 (maskIsAlpha==false) 时上游语义本来就正确, 将来 GrayA 恢复后自动短路
+    if (!maskingPreset || !maskIsAlpha || !resources) return maskingPreset;
+
+    KisPaintOpSettingsSP settings = maskingPreset->settings();
+    if (!settings) return maskingPreset;
+
+    // 克隆笔刷必须注册进副笔刷解析所用的同一资源接口, 否则 stroke 时
+    // KisBrush::fromXML → bestMatch 找不到新签名, 笔画会退化为默认 auto_brush
+    KisLocalStrokeResources *lr = dynamic_cast<KisLocalStrokeResources *>(resources);
+    if (!lr) {
+        MBR_LOGW("masking brush: resources interface is not KisLocalStrokeResources, skip gray adaptation");
+        return maskingPreset;
+    }
+
+    KisResourcesInterfaceSP resIface = settings->resourcesInterface();
+    if (!resIface) return maskingPreset;
+
+    // 副笔刷引用: 上游 getPrefixedProperties 已把 "MaskingBrush/Preset/brush_definition"
+    // 拷贝为 masking settings 的无前缀键 "brush_definition" (XML 字符串)
+    const QString brushDefinition = settings->getString("brush_definition");
+    if (brushDefinition.isEmpty()) return maskingPreset;
+
+    QDomDocument doc;
+    if (!doc.setContent(brushDefinition)) return maskingPreset;
+    QDomElement element = doc.firstChildElement(QStringLiteral("Brush"));
+    if (element.isNull()) return maskingPreset;
+
+    // ALPHAMASK 路径没有灰度丢失问题 (dab 掩膜直接取笔尖 alpha), 只有
+    // IMAGESTAMP 才走 convertFromQImage 被 KoAlphaColorSpace::fromQColor 丢灰度
+    KisBrushSP subBrush = KisBrush::fromXML(element, resIface);
+    if (!subBrush || subBrush->brushApplication() != IMAGESTAMP) return maskingPreset;
+
+    const QImage tip = subBrush->brushTipImage();
+    if (tip.isNull() || tip.width() <= 0 || tip.height() <= 0) {
+        MBR_LOGW("masking brush: IMAGESTAMP tip unavailable, skip gray adaptation");
+        return maskingPreset;
+    }
+
+    const QString cacheKey = subBrush->filename() + QLatin1Char('|')
+        + element.attribute(QStringLiteral("md5sum")) + QLatin1Char('|')
+        + QString::number(int(subBrush->brushApplication()));
+
+    KisBrushSP clone;
+    if (g_grayMaskCloneCache) {
+        clone = g_grayMaskCloneCache->clones.value(cacheKey);
+    }
+
+    if (!clone) {
+        // 把灰度搬运进 alpha: a' = qGray(r,g,b) * a / 255, 像素写为白色 + a'。
+        // 与上游 GrayA 掩膜设备的 preprocessMask = gray*alpha 语义一致
+        // (KisMaskingBrushCompositeOp.h GrayA 分支), 白色 = 全强度, 黑色 = 无。
+        const QImage src = tip.convertToFormat(QImage::Format_ARGB32);
+        if (src.isNull()) {
+            MBR_LOGW("masking brush: tip convertToFormat failed, skip gray adaptation");
+            return maskingPreset;
+        }
+
+        QImage processed(src.size(), QImage::Format_ARGB32);
+        processed.fill(0);
+        bool anyVisible = false;
+        for (int y = 0; y < src.height(); ++y) {
+            const QRgb *srcLine = reinterpret_cast<const QRgb *>(src.constScanLine(y));
+            QRgb *dstLine = reinterpret_cast<QRgb *>(processed.scanLine(y));
+            for (int x = 0; x < src.width(); ++x) {
+                const QRgb p = srcLine[x];
+                const int gray = qGray(qRed(p), qGreen(p), qBlue(p));
+                const int na = qBound(0, gray * qAlpha(p) / 255, 255);
+                dstLine[x] = qRgba(255, 255, 255, na);
+                if (na != 0) anyVisible = true;
+            }
+        }
+        if (!anyVisible) {
+            MBR_LOGW("masking brush: tip fully transparent after gray adaptation, skip");
+            return maskingPreset;
+        }
+
+        clone = subBrush->clone().dynamicCast<KisBrush>();
+        if (!clone) {
+            MBR_LOGW("masking brush: clone sub brush failed, skip gray adaptation");
+            return maskingPreset;
+        }
+
+        // 新 filename + 重算 md5: bestMatch 按 md5 优先命中, 若沿用原 md5 会先撞上
+        // 已注册的原笔刷 (filename 不匹配只罚 2 分), 克隆就永远选不中
+        const QString newFilename = subBrush->filename().isEmpty()
+            ? QStringLiteral("graymask_tip")
+            : subBrush->filename() + QStringLiteral("_graymask");
+        const QString newMd5 = QString::fromLatin1(
+            QCryptographicHash::hash(
+                QByteArray(reinterpret_cast<const char *>(processed.constBits()),
+                           static_cast<int>(processed.sizeInBytes())),
+                QCryptographicHash::Md5).toHex());
+
+        clone->setBrushTipImage(processed);
+        clone->setFilename(newFilename);
+        clone->setMD5Sum(newMd5);
+        if (!clone->name().isEmpty()) {
+            clone->setName(clone->name() + QStringLiteral(" (graymask)"));
+        }
+
+        if (g_grayMaskCloneCache) {
+            g_grayMaskCloneCache->clones.insert(cacheKey, clone);
+        }
+    }
+
+    // 同一 lr 会话内只注册一次; lr 重建 (新会话) 后 bestMatch 落空自动补注册
+    const QString newFilename = clone->filename();
+    const QString newMd5 = clone->md5Sum();
+    KoResourceSP existing = lr->source<KisBrush>(ResourceType::Brushes)
+                                .bestMatch(newMd5, newFilename, QString());
+    if (!existing) {
+        lr->addResource(clone.staticCast<KoResource>());
+    }
+
+    // settings 属性改指克隆: 其余属性 (spacing/angle/scale/ColorAsMask 等) 原样保留,
+    // brushApplication 显式锁 IMAGESTAMP —— 必须走 convertFromQImage 路径只取笔尖
+    // alpha, 才能把烘焙进 alpha 的灰度原样写进 alpha8 掩膜; 不能落到 ALPHAMASK
+    // (实色路径 fillGrayBrushWithColor 的强度 = (255-red)*alpha, 白色笔尖会得全零
+    // 掩膜), 也防克隆笔尖变纯白后 hasColorAndTransparency 被判 false 令解析分支漂移
+    element.setAttribute(QStringLiteral("filename"), newFilename);
+    element.setAttribute(QStringLiteral("md5sum"), newMd5);
+    element.setAttribute(QStringLiteral("brushApplication"), QString::number(int(IMAGESTAMP)));
+    settings->setProperty(QStringLiteral("brush_definition"), doc.toString());
+
+    MBR_LOGW("masking brush: gray adapted tip '%s' -> '%s'",
+             subBrush->filename().toUtf8().constData(),
+             newFilename.toUtf8().constData());
+
+    return maskingPreset;
+}
 
 KisMaskingBrushRenderer::KisMaskingBrushRenderer(KisPaintDeviceSP dstDevice, const QString &compositeOpId)
     : m_dstDevice(dstDevice)

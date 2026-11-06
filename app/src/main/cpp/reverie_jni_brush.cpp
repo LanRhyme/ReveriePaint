@@ -277,38 +277,6 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setBrushCompositeOp(JNIEnv *env, j
 }
 
 JNIEXPORT void JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_setBrushPressureDynamics(JNIEnv *, jobject, jboolean enabled, jdouble size, jdouble opacity, jdouble flow, jint curveType)
-{
-    core()->setBrushPressureDynamics(enabled == JNI_TRUE, size, opacity, flow, curveType);
-}
-
-JNIEXPORT void JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_setBrushOptionDynamics(JNIEnv *env, jobject, jstring optionName, jboolean enabled, jstring sensorId, jstring curvePoints, jdouble strength)
-{
-    const char *optStr = env->GetStringUTFChars(optionName, nullptr);
-    const char *sensorStr = env->GetStringUTFChars(sensorId, nullptr);
-    const char *curveStr = env->GetStringUTFChars(curvePoints, nullptr);
-
-    core()->setBrushOptionDynamics(QString::fromUtf8(optStr), enabled == JNI_TRUE, QString::fromUtf8(sensorStr), QString::fromUtf8(curveStr), strength);
-
-    env->ReleaseStringUTFChars(curvePoints, curveStr);
-    env->ReleaseStringUTFChars(sensorId, sensorStr);
-    env->ReleaseStringUTFChars(optionName, optStr);
-}
-
-JNIEXPORT void JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_setBrushFollowDirection(JNIEnv *, jobject, jboolean enabled)
-{
-    core()->setBrushFollowDirection(enabled == JNI_TRUE);
-}
-
-JNIEXPORT void JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_setBrushJitter(JNIEnv *, jobject, jdouble jitterAngle, jdouble jitterSize)
-{
-    core()->setBrushJitter(jitterAngle, jitterSize);
-}
-
-JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_setBrushMirror(JNIEnv *, jobject, jboolean flipX, jboolean flipY)
 {
     core()->setBrushMirror(flipX == JNI_TRUE, flipY == JNI_TRUE);
@@ -385,36 +353,11 @@ Java_com_reverie_paint_core_ReverieCoreBridge_touchStrokeMoveBatch(JNIEnv *env, 
         return JNI_FALSE;
     }
     const jsize len = env->GetArrayLength(coords);
-    const int stride = (len >= count * 6) ? 6 : 3;
-    if (len < count * stride) {
-        return JNI_FALSE;
-    }
     jfloat *c = env->GetFloatArrayElements(coords, nullptr);
     if (!c) {
         return JNI_FALSE;
     }
-    bool painted = false;
-    if (stride == 6) {
-        for (int i = 0; i < count; ++i) {
-            const int idx = i * 6;
-            if (core()->touchStrokeMove(c[idx], c[idx + 1], c[idx + 2], c[idx + 3], c[idx + 4], c[idx + 5])) {
-                painted = true;
-            }
-        }
-    } else {
-        for (int i = 0; i < count; ++i) {
-            if (core()->touchStrokeMove(c[i * 3], c[i * 3 + 1], c[i * 3 + 2])) {
-                painted = true;
-            }
-        }
-    }
-    // Flush any pending stroke samples remaining at the end of the batch
-    // so ink renders up to the latest point without a 1-frame lag.
-    if (core()->hasPendingStrokeSamples()) {
-        if (core()->flushStrokeBatch()) {
-            painted = true;
-        }
-    }
+    const bool painted = core()->touchStrokeMoveBatchInternal(c, int(len), int(count));
     env->ReleaseFloatArrayElements(coords, c, JNI_ABORT);
     return painted ? JNI_TRUE : JNI_FALSE;
 }
