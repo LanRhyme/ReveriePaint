@@ -9,6 +9,7 @@
  */
 #include "ReverieCoreInternal.h"
 #include "ReverieCoreLayerExtras.h"
+#include <functional>
 #include <QXmlStreamWriter>
 #include <QXmlStreamReader>
 #include <QBuffer>
@@ -97,6 +98,38 @@ void writeFilterAttrs(QXmlStreamWriter &w, const KisFilterConfigurationSP cfg)
 
 } // namespace
 
+// 写一个节点的开始标签 + 属性 (不含子节点)。i 是它在 m_layers 里的下标, 供 filename 使用。
+static void writeLayerElementAttributes(QXmlStreamWriter &w, const ReverieCore::LayerEntry &e, int i)
+{
+    // 预填色颜料层仍保存像素，不能按 generator 重建而丢失后续笔画
+    const bool paintFill = e.node && reverie::layerProperty(&*e.node, "reverie_is_fill").toBool();
+    w.writeStartElement(paintFill ? "paintlayer" : nodeElementName(e.nodeType));
+    writeCommonAttrs(w, e);
+    if (!e.isGroup && e.nodeType != ReverieCore::NodeTypeAdjustment) {
+        // 数据文件名与 saveRevp/saveKra 的逐层 PNG 循环一致(含跳组空洞)
+        w.writeAttribute("filename", QString("layer_%1.png").arg(i, 3, 10, QChar('0')));
+    }
+    if (e.nodeType == ReverieCore::NodeTypeAdjustment) {
+        if (KisAdjustmentLayer *al = dynamic_cast<KisAdjustmentLayer *>(e.node)) {
+            writeFilterAttrs(w, al->filter());
+        }
+    } else if (e.nodeType == ReverieCore::NodeTypeFill) {
+        if (KisGeneratorLayer *gl = dynamic_cast<KisGeneratorLayer *>(e.node)) {
+            QVariant v;
+            const QColor c = (gl->filter() && gl->filter()->getProperty("color", v))
+                ? v.value<QColor>() : QColor(Qt::white);
+            w.writeAttribute("color_argb", QString::number(c.rgba()));
+            if (gl->filter() && gl->filter()->getProperty("pattern_png", v)) {
+                w.writeAttribute("pattern_png", QString::fromLatin1(v.toByteArray().toBase64()));
+            }
+        }
+    } else if (e.nodeType == ReverieCore::NodeTypeFilterMask) {
+        if (KisFilterMask *fm = dynamic_cast<KisFilterMask *>(e.node)) {
+            writeFilterAttrs(w, fm->filter());
+        }
+    }
+}
+
 void ReverieCore::writeLayersXml(QString *out)
 {
     if (!out) return;
@@ -106,47 +139,41 @@ void ReverieCore::writeLayersXml(QString *out)
     w.writeStartDocument();
     w.writeStartElement("layers");
 
-    // m_layers 为树先序; 用 openDepth 栈把扁平序列重组为嵌套结构:
-   // 遇到深度 d 的节点前, 先闭合所有已打开且深度 >= d 的节点。
-    int openDepth = -1;
+    // 嵌套关系**直接照节点树的父子关系写**, 不再用 LayerEntry::depth 反推。
+    // 原因: depth 是给 UI 缩进用的显示深度, 与真实父子关系并不一致 —— 透明度蒙版在
+    // m_layers 里是同层兄弟 (syncLayersFromImage 把它标成 depth+1 只是为了缩进显示)。
+    // 用 depth 重组会把蒙版写成前一个图层的子节点, 层级一旦错位, "遇到深度 d 先闭合
+    // 所有 depth>=d" 的闭合次数就会比开标签多, 把 </layers> 提前关掉, 于是后面的
+    // <paintlayer> 落到根元素外面 —— 存档直接变成非法 XML, 重开时后续图层丢失、
+    // 分组回退 (issue: 用户 "衣服" 图层跑在 </layers> 之后)。
+    // filename 仍取 m_layers 下标, 与 saveRevp/saveKra 的逐层 PNG 循环一一对应。
+    QHash<KisNode *, int> indexOfNode;
+    indexOfNode.reserve(m_layers.size());
     for (int i = 0; i < m_layers.size(); ++i) {
-        const LayerEntry &e = m_layers[i];
-        while (openDepth >= e.depth) {
-            w.writeEndElement();
-            --openDepth;
+        if (m_layers[i].node) {
+            indexOfNode.insert(m_layers[i].node, i);
         }
-        // 预填色颜料层仍保存像素，不能按 generator 重建而丢失后续笔画
-        const bool paintFill = e.node && reverie::layerProperty(&*e.node, "reverie_is_fill").toBool();
-        w.writeStartElement(paintFill ? "paintlayer" : nodeElementName(e.nodeType));
-        writeCommonAttrs(w, e);
-        if (!e.isGroup && e.nodeType != NodeTypeAdjustment) {
-            // 数据文件名与 saveRevp/saveKra 的逐层 PNG 循环一致(含跳组空洞)
-            w.writeAttribute("filename", QString("layer_%1.png").arg(i, 3, 10, QChar('0')));
-        }
-        if (e.nodeType == NodeTypeAdjustment) {
-            if (KisAdjustmentLayer *al = dynamic_cast<KisAdjustmentLayer *>(e.node)) {
-                writeFilterAttrs(w, al->filter());
-            }
-        } else if (e.nodeType == NodeTypeFill) {
-            if (KisGeneratorLayer *gl = dynamic_cast<KisGeneratorLayer *>(e.node)) {
-                QVariant v;
-                const QColor c = (gl->filter() && gl->filter()->getProperty("color", v))
-                    ? v.value<QColor>() : QColor(Qt::white);
-                w.writeAttribute("color_argb", QString::number(c.rgba()));
-                if (gl->filter() && gl->filter()->getProperty("pattern_png", v)) {
-                    w.writeAttribute("pattern_png", QString::fromLatin1(v.toByteArray().toBase64()));
-                }
-            }
-        } else if (e.nodeType == NodeTypeFilterMask) {
-            if (KisFilterMask *fm = dynamic_cast<KisFilterMask *>(e.node)) {
-                writeFilterAttrs(w, fm->filter());
-            }
-        }
-        openDepth = e.depth;
     }
-    while (openDepth >= 0) {
-        w.writeEndElement();
-        --openDepth;
+
+    std::function<void(KisNodeSP)> writeChildren = [&](KisNodeSP parent) {
+        for (KisNodeSP node = parent->firstChild(); node; node = node->nextSibling()) {
+            const auto it = indexOfNode.constFind(node.data());
+            const bool known = (it != indexOfNode.constEnd());
+            if (known) {
+                writeLayerElementAttributes(w, m_layers[it.value()], it.value());
+            }
+            if (node->childCount() > 0) {
+                writeChildren(node);
+            }
+            if (known) {
+                w.writeEndElement();
+            }
+        }
+    };
+
+    KisImageSP image = m_document;
+    if (image && image->rootLayer()) {
+        writeChildren(image->rootLayer());
     }
 
     w.writeEndElement(); // layers
@@ -420,6 +447,9 @@ bool ReverieCore::loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image,
                 if (!attrsApplied) {
                     applyCommonAttrs(node);
                 }
+                if (parents.isEmpty()) {
+                    parents.append(image->rootLayer());
+                }
                 image->addNode(node, parents.last());
                 if (isGroup) parents.append(node);
                 any = true;
@@ -428,7 +458,17 @@ bool ReverieCore::loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image,
             if (r.name() == QLatin1String("group") && parents.size() > 1) {
                 parents.removeLast();
             } else if (r.name() == QLatin1String("layers")) {
-                break;
+                // 宽容解析: 旧版本写坏过的存档里, <paintlayer> 可能落在 </layers> 之后
+                // (根元素提前闭合, 见 writeLayersXml 的注释)。这里**不 break**: 把父链
+                // 退回根节点继续读, 这些游离节点按顶层图层收下 —— 用户丢的图层还能救回来,
+                // 只是分组归属需要重新整理, 并置 healed 让上层知道这次是自愈加载。
+                if (!parents.isEmpty() && parents.size() > 1) {
+                    parents = QVector<KisNodeSP>();
+                    parents.append(image->rootLayer());
+                    if (outHealed) *outHealed = true;
+                } else if (parents.isEmpty()) {
+                    parents.append(image->rootLayer());
+                }
             }
         }
     }
