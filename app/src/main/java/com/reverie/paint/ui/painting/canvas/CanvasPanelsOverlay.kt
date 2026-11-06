@@ -323,6 +323,8 @@ internal fun DrawScope.drawPanelsOverlay(
     // 顶点 (radius 与 style.cornerRadius ?: panelDefaults.cornerRadius 一致)。
     // 每格 Path 重建保留: quad 内容与 doc→位图映射 (缩放/平移) 都会变, 缓存失效
     // 管理成本高于新建; Path 是本覆盖层逐帧的主要分配, 但其余一次性对象已清零
+    val curSelId = vm.selectedPanelId
+    val curSelDrawId = mirrors.firstOrNull { it.panelId == curSelId }?.meta?.drawId
     for (m in mirrors) {
         val path = panelQuadPath(
             m.meta.quad.roundedCorners(panelCornerRadius(m, defaults)),
@@ -331,8 +333,10 @@ internal fun DrawScope.drawPanelsOverlay(
         when {
             m.panelId in interaction.divideHighlightPanelIds ->
                 drawPath(path, Morandi.accent, style = selStroke)
-            m.panelId == vm.selectedPanelId ->
+            m.panelId == curSelId ->
                 drawPath(path, Morandi.accent, style = selStroke)
+            curSelDrawId != null && m.meta.drawId == curSelDrawId && vm.panelSharesDraw(m.panelId) ->
+                drawPath(path, Morandi.accent, style = previewStroke)
             m.panelId in vm.panelMultiSelectedIds ->
                 drawPath(path, PANEL_MULTI_SELECT_COLOR, style = selStroke)
             else ->

@@ -570,6 +570,18 @@ internal fun PaintViewModel.panelSharesDraw(panelId: Long): Boolean {
     return panels.count { it.meta.drawId == drawId } > 1
 }
 
+/** 获取与指定格共用画区的其他伙伴格名称 (以顿号拼接，如「格 2」或「格 2、格 3」)。 */
+internal fun PaintViewModel.panelSharedPeersDescription(panelId: Long): String? {
+    val curMirror = panels.firstOrNull { it.panelId == panelId } ?: return null
+    val peers = panels.filter { it.meta.drawId == curMirror.meta.drawId && it.panelId != panelId }
+    if (peers.isEmpty()) return null
+    val names = peers.map { p ->
+        val groupIdx = indexOfLayerId(p.groupId)
+        if (groupIdx >= 0) layers.getOrNull(groupIdx)?.name ?: "格 ${p.panelId}" else "格 ${p.panelId}"
+    }
+    return names.joinToString("、")
+}
+
 /** 某格是否为其所属 drawId 的主控代表格。 */
 internal fun PaintViewModel.isRepresentativePanel(panelId: Long): Boolean {
     val mirror = panels.firstOrNull { it.panelId == panelId } ?: return false

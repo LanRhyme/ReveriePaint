@@ -3572,6 +3572,7 @@
     <string name="panel_menu_merge_layer">关联画区 (共享绘制)</string>
     <string name="panel_menu_merge_frame">合并边框 (融为一格)</string>
     <string name="panel_badge_shared">共享画区</string>
+    <string name="panel_badge_shared_with">与%1$s共享</string>
     <string name="panel_menu_merge_with_adjacent">与相邻格合并画层</string>
     <string name="panel_draw_unit_title">分格画层 · %1$s</string>
     <string name="panel_draw_unit_multi">%1$d格</string>

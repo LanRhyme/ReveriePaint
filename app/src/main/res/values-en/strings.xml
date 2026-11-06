@@ -3573,6 +3573,7 @@
     <string name="panel_menu_merge_layer">Link Canvas (Shared)</string>
     <string name="panel_menu_merge_frame">Merge Frames (Union)</string>
     <string name="panel_badge_shared">Shared</string>
+    <string name="panel_badge_shared_with">With %1$s</string>
     <string name="panel_menu_merge_with_adjacent">Merge with adjacent panel</string>
     <string name="panel_draw_unit_title">Panel Layer · %1$s</string>
     <string name="panel_draw_unit_multi">%1$d panels</string>
