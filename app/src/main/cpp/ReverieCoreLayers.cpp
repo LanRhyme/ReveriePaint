@@ -748,11 +748,13 @@ void ReverieCore::setLayerVisible(int index, bool visible)
         return;
     }
     if (m_layers[index].visible != visible && m_layers[index].node) {
+        reverie::PerfTimer perf("toggleVisible");
         // Krita-native undo: the visibility command redo() flips the flag
         // (local command - KisImageChangeVisibilityCommand is not exported)
         pushUndoCommand(new ReverieNodeVisibleCommand(
             KisNodeSP(m_layers[index].node), visible,
             kundo2_i18n("Layer Visibility")));
+        perf.phase("cmd");
         m_layers[index].visible = visible;
         if (m_layers[index].background && m_document) {
             const KoColorSpace *cs = m_document->colorSpace();
@@ -762,8 +764,24 @@ void ReverieCore::setLayerVisible(int index, bool visible)
                 m_document->setDefaultProjectionColor(KoColor(Qt::transparent, cs));
             }
         }
-        recompositeProjection();
+        // 显隐是**节点属性**改动: 只把这个节点标脏, 变更矩形由 Krita 调度器按
+        // N_FILTHY / N_ABOVE_FILTHY 从它往父级传播 (与桌面 Krita 的
+        // KisNodePropertyListCommand::doUpdate 同款)。原先这里做的是整棵树按整幅
+        // 画布重合成 —— 24MP / 22 节点工程实测 11~17 秒 (issue #139), 而节点级
+        // 传播只需要"该节点 + 上方祖先"的合成代价。
+        // 背景层还牵动"投影默认像素"(空图区域画布底色), 它不是节点像素, 节点级标脏
+        // 覆盖不到 —— 这一支保持整树重合成 (背景只有一层, 代价与画布大小同阶)。
+        if (reverie::scopedProjectionRefreshEnabled() && !m_layers[index].background) {
+            markNodeDirtyAndFlush(m_layers[index].node);
+            perf.phase("nodeScoped");
+        } else {
+            recompositeProjection();
+            perf.phase("recomposite");
+        }
         markProjectionDirty();
+        perf.phase("markDirty");
+        perf.note("idx", index);
+        perf.note("visible", visible ? 1 : 0);
     }
 }
 
@@ -853,11 +871,9 @@ void ReverieCore::setLayerOpacity(int index, qreal opacity)
     if (m_layers[index].nodeType == NodeTypeAdjustment) {
         recompositeProjection();
     } else {
-        m_layers[index].node->setDirty(QRect(0, 0, m_document->width(), m_document->height()));
-        // 锁住 (对称笔画撤销宏) 时只入队不等, 否则卡死; 解锁后第一帧会先等合并器 (见 RenderLockGate.h)。
-        if (m_document && reverie::mayWaitForImage(m_document->locked())) {
-            m_document->waitForDone();
-        }
+        // 只标该节点自己的内容边界 (组取子层并集), 不再按整幅画布标脏:
+        // 稀疏线稿层在 24MP 画布上没必要让整棵树重算一遍 (issue #139)。
+        markNodeDirtyAndFlush(m_layers[index].node);
     }
     markProjectionDirty();
 }
@@ -896,12 +912,8 @@ void ReverieCore::setLayerBlendMode(int index, const QString &opId)
         if (m_layers[index].nodeType == NodeTypeAdjustment) {
             recompositeProjection();
         } else {
-            m_layers[index].node->setDirty(
-                QRect(0, 0, m_document->width(), m_document->height()));
-            // 锁住 (对称笔画撤销宏) 时只入队不等, 否则卡死; 解锁后第一帧会先等合并器 (见 RenderLockGate.h)。
-            if (m_document && reverie::mayWaitForImage(m_document->locked())) {
-                m_document->waitForDone();
-            }
+            // 同 setLayerOpacity: 节点级变更矩形, 不按整幅画布标脏 (issue #139)
+            markNodeDirtyAndFlush(m_layers[index].node);
         }
         markBlendChanged(index);
     }

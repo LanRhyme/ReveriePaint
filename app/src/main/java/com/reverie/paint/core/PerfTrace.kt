@@ -1089,6 +1089,23 @@ object PerfTrace {
     }
 
     /**
+     * 文档操作 (保存/打开/图层显隐/缩略图刷新) 的阶段计时日志, tag 与 C++ 侧
+     * `RP-PERF` 一致, 只在标尺开启时输出 —— 用来把"一次点击到底卡在哪一段"从
+     * 主观感受变成可对齐的数字 (与引擎侧 `ReveriePerfLog.h` 配合)。
+     *
+     * 形如: `op=toggleVisible roundTripMs=812 idx=19 visible=0` / `op=layerThumbs layers=22 rendered=22 ms=4300`
+     */
+    fun event(op: String, vararg fields: Pair<String, Long>) {
+        if (!enabled) return
+        val sb = StringBuilder(24 + fields.size * 12)
+        sb.append("op=").append(op)
+        for ((key, value) in fields) {
+            sb.append(' ').append(key).append('=').append(value)
+        }
+        Log.i("RP-PERF", sb.toString())
+    }
+
+    /**
      * 读取引擎侧同名诊断 property 的整数值(未设 / 不可读时返回 [def])。
      * 交互类实验(如液化的 latest-state-wins 调度)用它做 A/B, 默认值保持既有行为。
      */

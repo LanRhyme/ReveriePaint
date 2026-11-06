@@ -803,6 +803,24 @@ public:
     void recompositeProjection();
 
     /**
+     * 只等 Krita 调度器把**已经排队**的那一轮投影更新合并完, 不做整图重合成。
+     *
+     * 属性类改动 (显隐 / 不透明度 / 混合模式 / 锁定) 与撤销回放里的属性变更, Krita
+     * 自己已经在 `KisNode::setDirty()` 里按节点算好了 N_FILTHY 变更矩形, 并会从该节点
+     * 往父级传播 —— 再叠一次 `recompositeProjection()` 等于把整棵树按整幅画布重算一遍。
+     * 24MP / 22 节点的工程实测: 整图重合成 11~17 秒 (issue #139), 节点级传播只需
+     * 该节点及其上方祖先的合成代价。
+     */
+    void flushProjectionUpdates();
+
+    /** 把节点标脏并立刻排空调度器 (Krita 自己的 `KisNodePropertyListCommand::doUpdate`
+     *  做法: `m_node->setDirty(tightUserVisibleBounds)`)。节点级粒度, 不碰整棵树。 */
+    void markNodeDirtyAndFlush(KisNode *node);
+
+    /** 显隐变化后只作废"改动节点 + 其祖先组"的缩略图缓存 (组缩略图是子层合成结果)。 */
+    void bumpThumbGensForVisibilityChange(const QVector<bool> &oldVisibilities);
+
+    /**
      * 释放/替换 KisImage 之前排空文档调度器 (含 KisAsyncMerger 合并任务)。
      * 漏掉它会让后台合并线程与文档析构竞态, 触发
      * kis_tile_data_store.cc 的 Q_ASSERT(td->m_store == this) → SIGABRT。

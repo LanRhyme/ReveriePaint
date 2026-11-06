@@ -285,6 +285,18 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
         wrotePixels,
         anyFull,
     )
+    // 整屏重画的帧才值得进日志 (大画幅切显隐/撤销后的那一帧就在这里)
+    val frameMs = (SystemClock.elapsedRealtimeNanos() - tStartNs) / 1_000_000L
+    if (frameMs >= 60L) {
+        PerfTrace.event(
+            "tileFrame",
+            "ms" to frameMs,
+            "prepMs" to (tAfterCompositeNs - tStartNs) / 1_000_000L,
+            "tilesMs" to (tAfterTilesNs - tAfterCompositeNs) / 1_000_000L,
+            "hits" to hits.toLong(),
+            "mp" to ((wrotePixels / 1_000_000L)),
+        )
+    }
 }
 
 /** 瓦片路径的"这一帧没有新像素"收尾 (与整图路径保持同样的重试/液化语义)。 */

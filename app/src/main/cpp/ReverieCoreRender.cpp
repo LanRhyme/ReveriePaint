@@ -372,6 +372,7 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
     // read from that instead of the full projection. No layer state is ever
     // modified, so closing solo restores the document exactly and solo can
     // never corrupt the canvas render or the undo stack.
+    reverie::PerfTimer perf("renderToBuffer");
     KisPaintDeviceSP proj;
     // 锁图 (对称笔画撤销宏) 时只读 locked() (无副作用), 不查询调度器, 也不 waitForDone
     // (见 RenderLockGate.h)。锁住时放行同步合成, 保证主笔与实时镜像脏区每帧上屏。
@@ -412,6 +413,7 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
         }
         m_nativeProjectionValid = false;
     }
+    perf.phase("composite");
     if (!proj) {
         return false;
     }
@@ -476,6 +478,7 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
         return true;
     }
 
+    perf.phase("read1to1");
     // Scaled viewport fallback path (if buffer size != document size). The
     // display buffer persists across frames exactly like the 1:1 path, so the
     // scaled dirty region is blitted straight into it — the old full-frame
@@ -542,6 +545,7 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
     }
     m_lastWrittenRect = written;
     clearDirtyRegions();
+    perf.phase("scale");
     return true;
 }
 
@@ -577,12 +581,14 @@ int ReverieCore::beginTileFrame(QRect *outRects, int cap)
         return 0;
     }
 
+    reverie::PerfTimer perf("tileFramePrep");
     // 与 renderToBuffer 同一套准备: 锁图时放行同步合成脏区, 未锁且调度器忙才等待
     const reverie::RenderGate gate =
         reverie::renderGateFor(image->locked(), [&] { return image->isIdle(); });
     if (gate.waitForMerger) {
         image->waitForDone();
     }
+    perf.phase("waitMerger");
 
     KisPaintDeviceSP proj;
     if (m_soloedNode) {
@@ -607,6 +613,7 @@ int ReverieCore::beginTileFrame(QRect *outRects, int cap)
         }
         m_nativeProjectionValid = false;
     }
+    perf.phase("composite");
     if (!proj) {
         return 0;
     }

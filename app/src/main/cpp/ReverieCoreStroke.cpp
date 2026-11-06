@@ -1709,6 +1709,8 @@ void ReverieCore::undo()
         revertOpenRestorePatch();
     }
 
+    reverie::PerfTimer perf("undo");
+
     QVector<KisNode *> oldNodes;
     oldNodes.reserve(m_layers.size());
     for (const auto &e : m_layers) {
@@ -1730,7 +1732,9 @@ void ReverieCore::undo()
         m_lastAsyncUpdateRect = QRect();
     }
     replayHistoryCommand(false);
+    perf.phase("replay");
     syncLayersFromImage();
+    perf.phase("syncLayers");
 
     const int newW = m_document->width();
     const int newH = m_document->height();
@@ -1746,18 +1750,27 @@ void ReverieCore::undo()
     }
 
     bool structureChanged = sizeChanged || isStructuralCmd || oldNodes.size() != m_layers.size();
+    bool visibilityChanged = false;
     if (!structureChanged) {
         for (int i = 0; i < oldNodes.size(); ++i) {
-            if (oldNodes[i] != m_layers[i].node || oldVisibilities[i] != m_layers[i].visible) {
+            if (oldNodes[i] != m_layers[i].node) {
                 structureChanged = true;
                 break;
+            }
+            if (oldVisibilities[i] != m_layers[i].visible) {
+                visibilityChanged = true;
             }
         }
     }
 
     if (structureChanged) {
         recompositeProjection();
+    } else if (visibilityChanged) {
+        // 只翻了显隐: 命令自己已经按节点标脏 (ReverieNodeVisibleCommand), 调度器会
+        // 从该节点往父级传播, 不需要整棵树按整幅画布重合成 (issue #139)。
+        flushProjectionUpdates();
     }
+    perf.phase("recomposite");
     for (const auto &e : m_layers) {
         if (e.node) {
             auto dev = e.node->paintDevice();
@@ -1778,7 +1791,13 @@ void ReverieCore::undo()
         updateRect = m_lastAsyncUpdateRect;
         m_lastAsyncUpdateRect = QRect();
     }
-    if (!updateRect.isEmpty() && !structureChanged) {
+    if (visibilityChanged && !structureChanged) {
+        // 显隐只改节点属性: 画面整幅可能变 (隐藏的组覆盖整幅), 缩略图则只有"改动的
+        // 节点 + 其祖先组"需要重算 —— 全量 bump 会让每个图层各重取一次缩略图,
+        // 在 24MP 工程上是白花的秒级开销 (issue #139)。
+        markProjectionDirty();
+        bumpThumbGensForVisibilityChange(oldVisibilities);
+    } else if (!updateRect.isEmpty() && !structureChanged) {
         const QRect r = updateRect.intersected(QRect(0, 0, m_docWidth, m_docHeight));
         invalidateStaticUnderlayRect(r);
         markRegionDirty(r);
@@ -1788,6 +1807,8 @@ void ReverieCore::undo()
     } else {
         markDirty();
     }
+    perf.phase("dirty");
+    perf.note("structural", structureChanged ? 1 : 0);
     m_snapshotPending = false;
 }
 
@@ -1808,6 +1829,8 @@ void ReverieCore::redo()
         revertOpenRestorePatch();
     }
 
+    reverie::PerfTimer perf("redo");
+
     QVector<KisNode *> oldNodes;
     oldNodes.reserve(m_layers.size());
     for (const auto &e : m_layers) {
@@ -1824,7 +1847,9 @@ void ReverieCore::redo()
         m_lastAsyncUpdateRect = QRect();
     }
     replayHistoryCommand(true);
+    perf.phase("replay");
     syncLayersFromImage();
+    perf.phase("syncLayers");
 
     const int newW = m_document->width();
     const int newH = m_document->height();
@@ -1840,18 +1865,27 @@ void ReverieCore::redo()
     }
 
     bool structureChanged = sizeChanged || oldNodes.size() != m_layers.size();
+    bool visibilityChanged = false;
     if (!structureChanged) {
         for (int i = 0; i < oldNodes.size(); ++i) {
-            if (oldNodes[i] != m_layers[i].node || oldVisibilities[i] != m_layers[i].visible) {
+            if (oldNodes[i] != m_layers[i].node) {
                 structureChanged = true;
                 break;
+            }
+            if (oldVisibilities[i] != m_layers[i].visible) {
+                visibilityChanged = true;
             }
         }
     }
 
     if (structureChanged) {
         recompositeProjection();
+    } else if (visibilityChanged) {
+        // 只翻了显隐: 命令自己已经按节点标脏 (ReverieNodeVisibleCommand), 调度器会
+        // 从该节点往父级传播, 不需要整棵树按整幅画布重合成 (issue #139)。
+        flushProjectionUpdates();
     }
+    perf.phase("recomposite");
     for (const auto &e : m_layers) {
         if (e.node) {
             auto dev = e.node->paintDevice();
@@ -1872,7 +1906,13 @@ void ReverieCore::redo()
         updateRect = m_lastAsyncUpdateRect;
         m_lastAsyncUpdateRect = QRect();
     }
-    if (!updateRect.isEmpty() && !structureChanged) {
+    if (visibilityChanged && !structureChanged) {
+        // 显隐只改节点属性: 画面整幅可能变 (隐藏的组覆盖整幅), 缩略图则只有"改动的
+        // 节点 + 其祖先组"需要重算 —— 全量 bump 会让每个图层各重取一次缩略图,
+        // 在 24MP 工程上是白花的秒级开销 (issue #139)。
+        markProjectionDirty();
+        bumpThumbGensForVisibilityChange(oldVisibilities);
+    } else if (!updateRect.isEmpty() && !structureChanged) {
         const QRect r = updateRect.intersected(QRect(0, 0, m_docWidth, m_docHeight));
         invalidateStaticUnderlayRect(r);
         markRegionDirty(r);
@@ -1882,6 +1922,8 @@ void ReverieCore::redo()
     } else {
         markDirty();
     }
+    perf.phase("dirty");
+    perf.note("structural", structureChanged ? 1 : 0);
     m_snapshotPending = false;
 }
 

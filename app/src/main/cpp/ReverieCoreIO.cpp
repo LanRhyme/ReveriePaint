@@ -2231,6 +2231,7 @@ bool ReverieCore::loadRevp(const QString &path)
     int kraH = 0;
     QByteArray kraMaindocBytes;
     QString kraDocName = QStringLiteral("Artwork");
+    reverie::PerfTimer loadPerf("loadRevp");
     if (metaData.isEmpty()) {
         if (store->open("maindoc.xml")) {
             kraMaindocBytes = readAllStoreBytes(store.data());
@@ -2337,6 +2338,9 @@ bool ReverieCore::loadRevp(const QString &path)
     KisImageSP image = new KisImage(m_undoStore, w, h, cs, QStringLiteral("Untitled"));
     image->setUndoStore(m_undoStore);
     image->setResolution(1.0, 1.0);
+    // 载入期间屏蔽逐层脏请求 (否则每解码完一层都会触发一轮到根投影的合并, 22 层 =
+    // 根投影被重写 22 遍); 载入结束后一次性整树重合成。
+    ScopedDirtyRequestsBlock dirtyBlock(image);
 
     QJsonArray layersArray = meta["layers"].toArray();
     bool bgLayerVisible = false;
@@ -2350,8 +2354,10 @@ bool ReverieCore::loadRevp(const QString &path)
     bool treeLoaded = false;
     bool treeBgVisible = false;
     bool treeHealed = false;
+    loadPerf.phase("meta");
     if (!layersXml.isEmpty()) {
         treeLoaded = loadLayersXmlTree(layersXml, image, store.data(), &treeBgVisible, &treeHealed);
+        loadPerf.phase("tree");
         if (treeLoaded) {
             bgLayerVisible = treeBgVisible;
             if (treeHealed) {
@@ -2495,6 +2501,8 @@ bool ReverieCore::loadRevp(const QString &path)
     m_docWidth = w;
     m_docHeight = h;
     syncLayersFromImage();
+    loadPerf.phase("syncLayers");
+    loadPerf.note("layers", m_layers.size());
 
     // 恢复描边图层属性
     if (meta.contains("layers")) {
@@ -2678,6 +2686,9 @@ bool ReverieCore::loadRevp(const QString &path)
         }
     }
 
+    // 载入后构建首帧投影: 先放行脏请求, 再做**一次**整树重合成 —— 载入期间攒下的
+    // 逐层脏请求已经被闸门丢弃, 不会再有 22 遍根投影重写 (issue #139)。
+    dirtyBlock.release();
     recompositeProjection();
     m_redoCount = 0;
     int targetLayer = 1;
@@ -2764,6 +2775,9 @@ bool ReverieCore::loadPsd(const QString &path)
 
     KisImageSP image = new KisImage(m_undoStore, w, h, cs, QStringLiteral("Untitled"));
     image->setUndoStore(m_undoStore);
+
+    // 与 loadRevp 同款: 载入期间屏蔽逐层脏请求, 结束后一次性整树重合成 (issue #139)
+    ScopedDirtyRequestsBlock dirtyBlock(image);
 
     // Read resolution from resourceSection if present
     double xRes = 1.0;
@@ -2892,6 +2906,7 @@ bool ReverieCore::loadPsd(const QString &path)
     m_docWidth = w;
     m_docHeight = h;
     syncLayersFromImage();
+    dirtyBlock.release();
     recompositeProjection();
     m_redoCount = 0;
     m_currentLayer = qBound(0, 1, m_layers.size() - 1);
@@ -3278,6 +3293,7 @@ bool ReverieCore::renderLayerThumb(int index, int w, int h, void *dstPixels, int
     if (!m_document || index < 0 || index >= m_layers.size() || !dstPixels || w <= 0 || h <= 0 || dstStride < w * 4) {
         return false;
     }
+    reverie::PerfTimer perf("layerThumb");
     if (m_layers[index].nodeType == NodeTypeAdjustment) {
         return false;
     }
@@ -3292,6 +3308,8 @@ bool ReverieCore::renderLayerThumb(int index, int w, int h, void *dstPixels, int
     // tiny cached thumb instead of regenerating it.
     ThumbCache &cache = m_thumbCache[m_layers[index].node];
     if (cache.imgGen == cache.gen && cache.bounds == ext && cache.img.size() == QSize(w, h)) {
+        perf.note("idx", index);
+        perf.note("hit", 1);
         const int copyH = qMin(h, cache.img.height());
         for (int y = 0; y < copyH; ++y) {
             memcpy(static_cast<char *>(dstPixels) + size_t(y) * dstStride,
@@ -3302,6 +3320,8 @@ bool ReverieCore::renderLayerThumb(int index, int w, int h, void *dstPixels, int
 
     QImage out(w, h, QImage::Format_RGBA8888_Premultiplied);
     out.fill(Qt::transparent);
+    perf.note("idx", index);
+    perf.note("hit", 0);
 
     if (!ext.isEmpty()) {
         try {

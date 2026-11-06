@@ -8,6 +8,7 @@
 #define REVERIECORE_INTERNAL_H
 
 #include "ReverieCore.h"
+#include "ReveriePerfLog.h"
 
 #include <QDir>
 #include <QFile>
@@ -78,6 +79,19 @@ inline bool rpDebugFlag(const char *propName, const char *envName, bool defVal)
     return value.isEmpty() ? defVal : (value.trimmed() != QByteArrayLiteral("0"));
 #endif
 }
+
+/**
+ * 属性类改动的投影刷新策略。默认开 (节点级), `setprop debug.reverie.scopedrefresh 0`
+ * 退回"整棵树按整幅画布重合成"的旧行为 —— 只在真机怀疑节点级传播漏了某类节点
+ * (克隆层 / 图层样式 / 蒙版组合) 时做 A/B 用。
+ */
+namespace reverie {
+inline bool scopedProjectionRefreshEnabled()
+{
+    static const bool enabled = rpDebugFlag("debug.reverie.scopedrefresh", "REVERIE_SCOPEDREFRESH", true);
+    return enabled;
+}
+} // namespace reverie
 
 /** 诊断日志: 默认关闭。热路径 (液化 apply / 填充等) 用它而不是 RPC_LOG —— 这些路径
  *  每秒可触发数十次, 无条件写 logcat 会带来可见的 CPU/IO 开销与发热。
@@ -173,6 +187,7 @@ void revpClearSaveCache();
 #include <kis_group_layer.h>
 #include <kis_layer.h>
 #include <kis_node.h>
+#include <kis_abstract_projection_plane.h>
 #include <KisInterstrokeDataTransactionWrapperFactory.h>
 #include <KisInterstrokeDataFactory.h>
 #include <KisInterstrokeData.h>
@@ -241,6 +256,40 @@ private:
 // via KisTransaction::endAndTake). Krita's undo adapter pushes every
 // addCommand separately, so multi-device edits need an explicit composite
 // to stay a single undo step.
+/**
+ * 载入/批量替换像素期间屏蔽"逐节点脏请求"(Krita 自己的 KisProcessingApplicator 同款做法)。
+ *
+ * 解密后的逐层写回都会 `dev->setDirty()`, 没有这道闸时每写一层就触发一轮
+ * "从该层到根投影"的合并 —— 22 层的工程等于把根投影重写 22 遍。屏蔽之后由调用方
+ * 在最后一轮整树重合成里一次性写完 (`release()` 必须在 refreshGraphAsync 之前调用,
+ * 否则刷新请求自己也会被丢弃)。
+ */
+class ScopedDirtyRequestsBlock
+{
+public:
+    explicit ScopedDirtyRequestsBlock(KisImageSP image)
+        : m_image(image)
+    {
+        if (m_image) {
+            m_image->disableDirtyRequests();
+        }
+    }
+    ~ScopedDirtyRequestsBlock() { release(); }
+    ScopedDirtyRequestsBlock(const ScopedDirtyRequestsBlock &) = delete;
+    ScopedDirtyRequestsBlock &operator=(const ScopedDirtyRequestsBlock &) = delete;
+
+    void release()
+    {
+        if (m_image) {
+            m_image->enableDirtyRequests();
+            m_image = KisImageSP();
+        }
+    }
+
+private:
+    KisImageSP m_image;
+};
+
 class ReverieCompositeCommand : public KUndo2Command
 {
 public:
@@ -305,12 +354,19 @@ class ReverieNodeVisibleCommand : public KUndo2Command
         , m_newVisible(visible)
         , m_oldVisible(node ? node->visible() : false)
     {
+        // 变更矩形在**改属性之前**取一次缓存: 隐藏后节点内容边界不变, 但组节点的
+        // 投影平面边界要遍历子层, 缓存下来可让 撤销/重做 两条路径共用同一块区域
+        // (两端都覆盖 = 旧区域 ∪ 新区域, 与 Krita 的 `oldExtent | newExtent` 一致)。
+        m_dirtyRect = nodeBounds(node);
     }
 
     void redo() override
     {
         if (m_node) {
             m_node->setVisible(m_newVisible);
+            // 与桌面 Krita 的 KisNodePropertyListCommand::doUpdate 同款: 由节点自己
+            // 标脏, 让调度器按 N_FILTHY / N_ABOVE_FILTHY 从它往父级传播。
+            m_node->setDirty(m_dirtyRect);
         }
     }
 
@@ -318,13 +374,30 @@ class ReverieNodeVisibleCommand : public KUndo2Command
     {
         if (m_node) {
             m_node->setVisible(m_oldVisible);
+            m_node->setDirty(m_dirtyRect);
         }
     }
 
 private:
+    static QRect nodeBounds(const KisNodeSP &node)
+    {
+        if (!node) {
+            return QRect();
+        }
+        QRect rect;
+        if (KisAbstractProjectionPlaneSP plane = node->projectionPlane()) {
+            rect = plane->tightUserVisibleBounds();
+        }
+        if (rect.isEmpty()) {
+            rect = node->extent();
+        }
+        return rect;
+    }
+
     KisNodeSP m_node;
     bool m_newVisible;
     bool m_oldVisible;
+    QRect m_dirtyRect;
 };
 
 class ReverieNodeClippingCommand : public KUndo2Command

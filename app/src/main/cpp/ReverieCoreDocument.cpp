@@ -12,6 +12,7 @@
 #include "ReverieCoreColorSpaceHook.h"
 #include "ReverieCoreUndoStore.h"
 #include "RenderLockGate.h"
+#include <kis_abstract_projection_plane.h>
 
 #include <future>
 #include <QSet>
@@ -380,15 +381,70 @@ void ReverieCore::recompositeProjection()
     if (!image) {
         return;
     }
+    reverie::PerfTimer perf("recompositeProjection");
     // 走到这里说明有图层改了像素或属性 (图层操作/撤销/滤镜), 底图不再可信
     invalidateStaticUnderlay();
     image->refreshGraphAsync();
+    perf.phase("graph");
     // 图像被撤销宏锁住时只入队不等: 锁住的调度器排不空队列, waitForDone 会卡死
     // (见 RenderLockGate.h)。任务在 endMacro -> unlock 时派发, 解锁后的第一帧
     // 看到调度器忙会先 waitForDone 再出图。调用方不得在锁住期间指望投影已刷新。
     if (reverie::mayWaitForImage(image->locked())) {
         image->waitForDone();
+        perf.phase("waitDone");
         m_nativeProjectionValid = true;
+    }
+}
+
+void ReverieCore::flushProjectionUpdates()
+{
+    KisImageSP image = m_document;
+    if (!image) {
+        return;
+    }
+    reverie::PerfTimer perf("flushProjectionUpdates");
+    // 走到这里说明有节点改过像素或属性: 底图不再可信
+    invalidateStaticUnderlay();
+    // 与 recompositeProjection 同一套锁语义: 撤销宏锁住时只入队不等 (见 RenderLockGate.h)
+    if (reverie::mayWaitForImage(image->locked())) {
+        image->waitForDone();
+        perf.phase("waitDone");
+        m_nativeProjectionValid = true;
+    }
+}
+
+void ReverieCore::markNodeDirtyAndFlush(KisNode *node)
+{
+    if (!node) {
+        return;
+    }
+    // Krita 在 KisNodePropertyListCommand::doUpdate 里就是这么做的: 用节点自己
+    // 的可见边界 (组取子层并集) 标脏, 变更矩形由调度器按 N_FILTHY / N_ABOVE_FILTHY
+    // 从该节点往父级传播, 兄弟节点不会被重算。
+    QRect rect;
+    if (KisAbstractProjectionPlaneSP plane = node->projectionPlane()) {
+        rect = plane->tightUserVisibleBounds();
+    }
+    if (rect.isEmpty()) {
+        rect = node->extent();
+    }
+    node->setDirty(rect);
+    flushProjectionUpdates();
+}
+
+void ReverieCore::bumpThumbGensForVisibilityChange(const QVector<bool> &oldVisibilities)
+{
+    for (int i = 0; i < m_layers.size() && i < oldVisibilities.size(); ++i) {
+        if (oldVisibilities[i] == m_layers[i].visible) {
+            continue;
+        }
+        // 该节点自己的缩略图 (组: 子层合成结果) 与所有祖先组都要重取
+        for (KisNode *n = m_layers[i].node; n; n = n->parent().data()) {
+            auto it = m_thumbCache.find(n);
+            if (it != m_thumbCache.end()) {
+                ++it->gen;
+            }
+        }
     }
 }
 

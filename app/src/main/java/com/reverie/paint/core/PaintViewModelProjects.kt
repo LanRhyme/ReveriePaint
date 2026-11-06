@@ -182,7 +182,14 @@ internal fun PaintViewModel.saveProject(
         // (single write, no post-save ZIP repackage)
         val recBlob = recorder.serialize()
         android.util.Log.d("RP_IO", "saveRevp blob=${recBlob?.size ?: 0} bytes to ${finalFile.absolutePath}")
+        val saveT0 = android.os.SystemClock.elapsedRealtime()
         val saved = ReverieCoreBridge.saveRevp(finalFile.absolutePath, extraJson, recBlob)
+        PerfTrace.event(
+            "saveProject",
+            "ms" to (android.os.SystemClock.elapsedRealtime() - saveT0),
+            "layers" to layers.size.toLong(),
+            "mb" to (finalFile.length() / (1024L * 1024L)),
+        )
         android.util.Log.d("RP_IO", "saveRevp result=$saved, file exists=${finalFile.exists()}, length=${finalFile.length()}")
         // An old non-empty file is not evidence that this save succeeded.
         // Leave the result unset on false or exception so runCore's after callback cannot report success.
@@ -488,8 +495,16 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     var loaded3DStates: List<com.reverie.paint.model.Model3DState> = emptyList()
     var documentLoaded = false
     var isHealed = false
+    val loadT0 = android.os.SystemClock.elapsedRealtime()
     runCore(
         after = {
+            PerfTrace.event(
+                "loadProject",
+                "ms" to (android.os.SystemClock.elapsedRealtime() - loadT0),
+                "layers" to layers.size.toLong(),
+                "w" to docWidth.toLong(),
+                "h" to docHeight.toLong(),
+            )
             if (!documentLoaded) {
                 Breadcrumbs.record("IO", "loadProject FAILED for: ${p.name}")
                 isBlockingLoading = false

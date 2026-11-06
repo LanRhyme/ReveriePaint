@@ -190,8 +190,10 @@ private fun PaintViewModel.doRefreshLayerThumbs(onlyLayerIds: Set<Long>? = null)
         }
     }) {
         try {
+            val t0 = android.os.SystemClock.elapsedRealtime()
             val n = ReverieCoreBridge.layerCount()
             if (n <= 0) return@runCore
+            var rendered = 0
             for (i in 0 until n) {
                 if (onlyLayerIds != null) {
                     val id = ReverieCoreBridge.layerId(i)
@@ -201,6 +203,7 @@ private fun PaintViewModel.doRefreshLayerThumbs(onlyLayerIds: Set<Long>? = null)
                 // so the background engine thread never writes into a Bitmap actively drawn by UI/GPU
                 val bmp = Bitmap.createBitmap(56, 56, Bitmap.Config.ARGB_8888)
                 if (ReverieCoreBridge.renderLayerThumb(i, bmp)) {
+                    rendered++
                     val idx = i
                     val name = ReverieCoreBridge.layerName(idx)
                     mainHandler.post {
@@ -212,6 +215,12 @@ private fun PaintViewModel.doRefreshLayerThumbs(onlyLayerIds: Set<Long>? = null)
                     bmp.recycle()
                 }
             }
+            PerfTrace.event(
+                "layerThumbs",
+                "layers" to n.toLong(),
+                "rendered" to rendered.toLong(),
+                "ms" to (android.os.SystemClock.elapsedRealtime() - t0),
+            )
         } catch (t: Throwable) {
             android.util.Log.e("PaintViewModel", "doRefreshLayerThumbs error", t)
         }
@@ -541,6 +550,7 @@ internal fun PaintViewModel.toggleLayerVisible(i: Int) {
     if (i !in layers.indices) return
     val current = layers[i].visible
     val target = !current
+    val perfT0 = android.os.SystemClock.elapsedRealtimeNanos()
 
     // 1. 立即乐观更新 UI 状态 (主线程即时响应，眼睛图标无延迟翻转)
     layers = layers.mapIndexed { idx, item ->
@@ -554,7 +564,14 @@ internal fun PaintViewModel.toggleLayerVisible(i: Int) {
 
     // 2. 异步在渲染线程调用 C++ 引擎切换显隐并重组投影 (runCore 完成后自动触发 scheduleRender)
     val isSolo = ReverieCoreBridge.soloActive()
+    val perfIdx = i
     runCore(render = true, after = {
+        PerfTrace.event(
+            "toggleVisible",
+            "roundTripMs" to (android.os.SystemClock.elapsedRealtimeNanos() - perfT0) / 1_000_000L,
+            "idx" to perfIdx.toLong(),
+            "visible" to (if (target) 1L else 0L),
+        )
         isModified = true
         hasPendingMajorOp = true
         onPaintingActivity()

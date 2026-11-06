@@ -25,6 +25,8 @@
 | 内存 | 帧缓存按字节预算淘汰 + `ComponentCallbacks2` 内存压力释放; 缩略图给笔画让路 | 已落地 | 无(自动) |
 | 量测 | `PerfTrace`(Kotlin, 分桶统计) + `revpSaveStats`(C++ 阶段计时) + debug 专属 HUD | 已落地 | `setprop debug.reverie.perf 1` / debug 包设置页 |
 | 显示瓦片 | 512x512 显示瓦片网格 + 引擎离散脏区 (DirtyRectList) + COW/就地写状态机 + ClampedTileDrawer | 已落地 (PR #107) | 见 §9.3 |
+| 投影 | 属性类改动 (显隐/不透明度/混合模式) 与撤销只做**节点级**投影传播; 载入期屏蔽逐层脏请求, 收尾只做一次整树重合成 | 已落地 (issue #139) | `setprop debug.reverie.scopedrefresh 0` 退回旧行为; 见 §13 |
+| 量测 | 引擎侧阶段计时 (`RP-PERF`, 与 Kotlin `PerfTrace.event` 同 tag) 覆盖 打开/显隐/撤销/缩略图/瓦片帧 | 已落地 | `setprop debug.reverie.perf 1`, 见 §6.3 |
 
 **目前仍有真机未回归项**: 液化分辨率保底窗口(132~134px) 与 release 包的整体回归 → §11 清单。
 
@@ -722,6 +724,7 @@ unzip -p app/build/outputs/apk/release/app-release.apk resources.arsc | grep -c 
 | HUD(debug 包) | 设置 → 通用 → 诊断 → 性能标尺 |
 | logcat 窗口行(任意包) | `setprop debug.reverie.perf 1` 后 `adb logcat -s ReveriePerf` |
 | 液化/填充热路径日志 | `setprop debug.reverie.trace 1`(默认关; 打开后 `RPC_TRACE` 生效, [`ReverieCoreInternal.h`](../app/src/main/cpp/ReverieCoreInternal.h:80)) |
+| 引擎侧文档操作阶段计时 | `setprop debug.reverie.perf 1`(进程内读一次, **要重启应用**), 然后 `adb logcat -s RP-PERF`: `op=toggleVisible/undo/recompositeProjection/flushProjectionUpdates/loadRevp/tileFramePrep/tileFrame/layerThumb` 的逐段毫秒数, 见 §13.2 |
 | PNG 档位 A/B | `setprop debug.reverie.pngq <1..89>`(默认 70) |
 
 **怎么用这组数字决策**: 脏比很小而重传 MB/帧 很大 ⇒ 瓶颈是整张纹理重传, tile 化收益最大; 脏比接近
@@ -1052,3 +1055,68 @@ Qt 的 PNG 写出固定走"逐行试 5 种 filter"的启发式, 再按 quality �
 - 旧版本(1.6.0 tag 单独构建的 APK)打开新版本产出的 `.revp`: 4 图层 / 笔画完整, `loadRevp returned true`,
   无自愈分支 (`isHealed=false`)。
 - 反方向 (1.6.0 产物 → 新版本打开另存) 见上一节: 逐字节一致。
+
+## 13. 大画幅 / 多图层文档的"操作级"卡顿 (issue #139)
+
+> 现象来源: [issue #139](https://github.com/LanRhyme/ReveriePaint/issues/139) —— 4000×6000 画布、
+> 14 个稀疏线稿图层 + 7 个组 (共 22 节点)、Samsung Galaxy Tab S4 (Snapdragon 835 / 4GB / Android 10):
+> 打开工程约 1 分钟, 显隐一个组或撤销一次约 40 秒; 同机 Krita / Drawpile 近即时。
+
+### 13.1 根因: 属性改动走了"整棵树 × 整幅画布"的重合成
+
+`setLayerVisible` / `undo` / `redo` 都调用 [`recompositeProjection()`](../app/src/main/cpp/ReverieCoreDocument.cpp:378),
+而它是 **整棵图层树按整幅画布重算一遍**: `KisImage::refreshGraphAsync()` 不带节点与矩形 ⇒ 调度器把
+22 个节点各自的投影在整幅 24MP 上重建 (7 个组投影各 96MB + 根投影 96MB, 读入约 2GB 瓦片),
+然后 `waitForDone()` 在引擎线程上**阻塞**等这一轮跑完。显隐一个组本来只需要"该组 + 根投影"这一条链。
+
+实测 (同文档, 同一台设备, 打开 PerfHud/`RP-PERF` 后取 logcat):
+
+| 操作 | 旧 (整树重合成) | 新 (节点级传播) |
+|---|---|---|
+| 显隐组 (24MP / 22 节点) | **14,466 ms** (其中 `waitForDone` 14,459) | **74 ~ 3,804 ms** |
+| 撤销显隐 | **16,737 ms** (其中 `waitForDone` 16,729) | **61 ms ~ 3.8 s** (够冷时与显隐同阶) |
+| 撤销显隐后的缩略图 | 22 个图层各重取一次 (一次 458ms 尖峰) | 只作废改动节点 + 祖先组, 其余全命中 (0ms) |
+| 打开工程 (PNG 解码 5.9s 之外) | 12,323 ms | **9,647 ms** |
+
+同一份工程在**旗舰平板 (16GB)** 上已经是 14~20 秒, 在 4GB / SD835 上叠加瓦片换页 (swap) 就是用户
+报告的 40 秒。
+
+### 13.2 改法 (全部对照桌面 Krita 的既有做法)
+
+| 位置 | 改动 |
+|---|---|
+| [`setLayerVisible`](../app/src/main/cpp/ReverieCoreLayers.cpp:745) | 改走 [`markNodeDirtyAndFlush()`](../app/src/main/cpp/ReverieCoreDocument.cpp:416): 只 `node->setDirty(tightUserVisibleBounds())`, 变更矩形由调度器按 `N_FILTHY`/`N_ABOVE_FILTHY` 从该节点往父级传播 —— 与 Krita 自己的 `KisNodePropertyListCommand::doUpdate` (libs/image/commands/kis_node_property_list_command.cpp) 同款。背景层例外 (它还牵动投影默认像素), 保持整树重合成 |
+| [`ReverieNodeVisibleCommand`](../app/src/main/cpp/ReverieCoreInternal.h:348) | `redo`/`undo` 里补 `setDirty(构造时缓存的节点边界)`。撤销/重做由历史栈重放, 没有这一步回放完就没有任何脏请求 |
+| [`undo` / `redo`](../app/src/main/cpp/ReverieCoreStroke.cpp:1692) | 把"只是显隐变了"从 `structureChanged` 里拆出来 (`visibilityChanged`): 这类撤销只 [`flushProjectionUpdates()`](../app/src/main/cpp/ReverieCoreDocument.cpp:399) (等已排队的更新), 不做整树重合成; 缩略图只作废改动节点与其祖先组 |
+| [`setLayerOpacity` / `setLayerBlendMode`](../app/src/main/cpp/ReverieCoreLayers.cpp:863) | 原来按 `QRect(0,0,w,h)` 标脏, 改成节点级边界 (同一条链) |
+| [`loadRevp` / `loadPsd`](../app/src/main/cpp/ReverieCoreIO.cpp:2205) | 载入期间用 [`ScopedDirtyRequestsBlock`](../app/src/main/cpp/ReverieCoreInternal.h:267) (`KisImage::disableDirtyRequests`) 屏蔽逐层脏请求 —— 否则每解码完一层就触发一轮"该层→根投影"的合并, 22 层 = 根投影被重写 22 遍; 收尾放行后只做**一次**整树重合成。这是 Krita 自己的 `KisProcessingApplicator` 做法 |
+
+### 13.3 取数与回退
+
+```bash
+adb shell setprop debug.reverie.perf 1     # 引擎 RP-PERF 阶段计时 (进程内只读一次, 重启应用生效)
+adb shell setprop debug.reverie.scopedrefresh 0   # A/B: 退回"整树 × 整幅画布"的旧行为
+adb logcat -s RP-PERF
+```
+
+日志形如 `op=toggleVisible cmd=1ms nodeScoped=2380ms markDirty=0ms total=2392ms idx=19 visible=0`。
+`loadRevp` 行里 `tree=` 是 PNG 解码 (与图层数/画布面积成正比), `syncLayers`/`recompositeProjection`
+分别是图层镜像同步与首帧投影构建。
+
+### 13.4 正确性验证
+
+- **像素等价**: 同一份 4000×6000 工程, 旧行为与新行为各截一张画布区域做逐像素比对 ——
+  "全部可见"状态 **0 个像素不同**; "隐藏组 7"状态 1559 个像素不同 (同一状态下连拍两张也有 1792 个像素
+  抖动, 属渲染抖动而非投影差异), 差异集中在同一条 31 行高的横带。
+- **遮盖语义**: 隐藏组后画布墨量 (暗像素计数) 从 1,021,997 → 905,869, 与"该组 2 层线稿消失"一致;
+  再隐藏组内的层 (已被隐藏的组) 墨量不变, 语义正确。
+- 真机手测 (OPD2413 / Android 16): 打开工程 → 显隐组 / 撤回条撤销 / 画一笔 → 撤销, 画面无残留、
+  无伪影; 载入后首帧内容完整 (闸门改动没有吞掉任何图层的脏请求)。
+
+### 13.5 未做 (下一步收益排序)
+
+| 优先级 | 项 | 说明 |
+|---|---|---|
+| 1 | **视口 LoD 合成** | 现在无论视图缩放多少, 投影与瓦片都在文档 1:1 分辨率上合成 (24MP 全量)。桌面 Krita 靠 LoD 平面在缩放视图下只合成 1/4~1/16 的像素, 这是"打开大图感觉即时"的真正原因, 也是本项目 `§9 第 2 项` 的延伸 |
+| 2 | 结构性变更 (增删层/移层/改画布尺寸) 仍走整树重合成 | 需要按"受影响子树 + 变更矩形"重写, 收益与 1 同阶但风险更高 |
+| 3 | 组投影的内存开销 | 7 个组的投影各占一份整幅瓦片 (稀疏内容下约 100~700MB), 4GB 设备上直接推到 swap 阈值; 用穿透组可省掉, 但会改变混合语义 |
