@@ -465,6 +465,11 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     resetAnimationState()
     resetProjectReferences(loading = true)
     releaseReclaimableCaches(aggressive = true)
+    // 加载期是内存峰值最高的一刻 (旧文档缓冲 + 新文档 + 录制快照可能同时在场)。
+    // displayBitmap 是纯派生数据 (随时能从文档重建), 这里直接放开引用, 让它在 loadRevp
+    // 分配新图像之前就能被回收 —— 1.6.7 的 2048×2048 工程在 8GB 机器上踩过 OOM。
+    // 加载全程有阻塞遮罩, 不会闪出空白画布。
+    displayBitmap = null
     val referenceLoadSession = referenceSession
     // 进画面前先作废上一份文档的瓦片网格, 并把尺寸镜像同步成新文档的声明尺寸:
     // 否则首帧 CanvasView.onSizeChanged 会拿旧 coreW/coreH 算 fitScale, 与渲染线程的
