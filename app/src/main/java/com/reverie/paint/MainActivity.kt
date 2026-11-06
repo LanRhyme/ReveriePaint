@@ -326,6 +326,9 @@ class MainActivity : ComponentActivity() {
         }
 
         val action = intent.action ?: return
+        // 带路由的 intent 只负责跳页面 (小组件导航), 它身上的 data 是 Glance 的导航标记,
+        // 不能进导入流程
+        if (route != null) return
         val uris = mutableListOf<Uri>()
 
         when (action) {
@@ -370,7 +373,13 @@ class MainActivity : ComponentActivity() {
 
             Intent.ACTION_VIEW -> {
                 val viewUri = intent.data ?: intent.clipData?.takeIf { it.itemCount > 0 }?.getItemAt(0)?.uri
-                viewUri?.let { uris.add(it) }
+                // 只接受真正读得出来的来源。桌面小组件走 Glance 的 actionStartActivity, 系统侧
+                // 看到的是 dat=glance-action:/CALLBACK?appWidgetId=...&viewSize=... —— 这串 URI
+                // 根本没有 provider, 以前它被当成"用户要导入的文件", 于是每点一次小组件就弹一条
+                // "导入失败: 未能识别的文件格式" (issue: 从桌面小组件打开软件弹导入失败)。
+                if (viewUri != null && com.reverie.paint.model.IncomingUriPolicy.isImportable(viewUri.scheme)) {
+                    uris.add(viewUri)
+                }
             }
         }
 
