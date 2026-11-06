@@ -169,6 +169,14 @@ object RecordingEvents {
      * "内容缺失 / 各种形状乱入"。定位方法见 scripts/replay-verify.py)。
      */
     const val T_SESSION_START = 51 // undoLimit u16
+
+    /**
+     * 填充 V4: 在 V3 (x/y/tol/sampleMerged/color) 之后补上 expand/feather/closeGap。
+     *
+     * V3 漏了这三个参数, 回放只能吃默认值 (0/0/4), 于是把缩进/羽化/补缝调过的填充
+     * 在回放里形状对不上 (issue: 填充在回放里容易出问题)。
+     */
+    const val T_FILL_V4 = 52 // expand i16, feather u16, closeGap u16
 }
 
 /** Growable byte sink with little-endian primitive writers. */

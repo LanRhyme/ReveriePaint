@@ -403,19 +403,26 @@ private fun PaintViewModel.replayStepLocked(
     // At the end, drain those zero-delta events too; otherwise currentMs == totalMs
     // prevents all later ticks from consuming the remaining moves / stroke-end.
     // 时间按有效时间线推进 (每事件 dt 封顶 idleCapMs), 与 seek / 导出一致。
-    s.currentMs =
-        ReplayTimeline.advance(
-            r,
-            startMs = s.currentMs,
-            targetMs = targetMs,
-            drainAll = targetMs >= s.totalMs,
-            capMs = s.idleCapMs,
-            singleEvent = s.totalMs == 0L,
-        ) { type, nowMs ->
-            s.currentMs = nowMs
-            dispatchReplayLocked(s, type, r, render = false)
-            hasEvents = true
-        }
+    try {
+        s.currentMs =
+            ReplayTimeline.advance(
+                r,
+                startMs = s.currentMs,
+                targetMs = targetMs,
+                drainAll = targetMs >= s.totalMs,
+                capMs = s.idleCapMs,
+                singleEvent = s.totalMs == 0L,
+            ) { type, nowMs ->
+                s.currentMs = nowMs
+                dispatchReplayLocked(s, type, r, render = false)
+                hasEvents = true
+            }
+    } catch (t: Throwable) {
+        // 录制流损坏/遇到未知事件时不能让渲染线程崩掉 (用户只是点了个回放)。
+        // 停播 + 明确提示, 画面留在最后一个能渲染的状态。
+        abortReplayLocked(s, t)
+        return
+    }
 
     if (r.remaining() <= 0) {
         finishReplayLocked(s)
@@ -431,6 +438,33 @@ private fun PaintViewModel.replayStepLocked(
     val next = Runnable { replayStepLocked(s, gen) }
     s.pendingStep = next
     h.postDelayed(next, 16L)
+}
+
+/**
+ * 回放数据不可继续 (录制损坏 / 未知事件 / 越界) 时的收尾: 停播、复位、提示, 绝不抛到
+ * 渲染线程外 —— 以前这里会让整个 App 崩掉, 用户只是点开一个录制而已。
+ */
+private fun PaintViewModel.abortReplayLocked(s: ReplaySession, t: Throwable) {
+    android.util.Log.e("ReveriePaint", "replay aborted: recording unreadable", t)
+    s.pendingStep = null
+    s.stepGen++
+    s.isPlaying = false
+    s.lastStepWallMs = 0L
+    try {
+        ReverieCoreBridge.touchStrokeEnd()
+        ReverieCoreBridge.clearUndoHistory()
+        ReverieCoreBridge.setUndoCaptureEnabled(true)
+    } catch (_: Throwable) {
+    }
+    mainHandler.post {
+        if (replaySession === s) {
+            showActionToast(
+                com.reverie.paint.R.string.toast_project_no_replay_data,
+                com.reverie.paint.R.drawable.ic_alert_triangle,
+            )
+        }
+    }
+    scheduleRender(immediate = true)
 }
 
 private fun PaintViewModel.finishReplayLocked(s: ReplaySession) {
@@ -535,17 +569,22 @@ internal fun PaintViewModel.seekLocked(
     // Seek fast-forwards the document state only: per-event renders are
     // suppressed (one immediate render at the end), otherwise dragging
     // the scrub bar queued hundreds of throttled renders and stalled.
-    s.currentMs =
-        ReplayTimeline.advance(
-            r,
-            startMs = 0L,
-            targetMs = target,
-            drainAll = f >= 1f,
-            capMs = s.idleCapMs,
-        ) { type, nowMs ->
-            s.currentMs = nowMs
-            dispatchReplayLocked(s, type, r, render = false)
-        }
+    try {
+        s.currentMs =
+            ReplayTimeline.advance(
+                r,
+                startMs = 0L,
+                targetMs = target,
+                drainAll = f >= 1f,
+                capMs = s.idleCapMs,
+            ) { type, nowMs ->
+                s.currentMs = nowMs
+                dispatchReplayLocked(s, type, r, render = false)
+            }
+    } catch (t: Throwable) {
+        abortReplayLocked(s, t)
+        return
+    }
     // 进度/时间取实际 (有效) currentMs, 不再直接写 fraction: 否则 UI 停在拖到的
     // 位置, 画面却已越过空闲间隔, 一点继续进度就跳变
     val atEnd = ReplayTimeline.isAtEnd(f, r.remaining())
@@ -670,6 +709,11 @@ internal fun skipReplayEventPayload(
                 T_FILL_V3 -> {
                     r.skip(11)
                     r.skipStr() // color
+                }
+                com.reverie.paint.model.RecordingEvents.T_FILL_V4 -> {
+                    r.skip(11)
+                    r.skipStr() // color
+                    r.skip(6) // expand i16, feather u16, closeGap u16
                 }
                 T_GRADIENT -> r.skip(17) // x1..y2 4*f32, type u8
                 T_GRADIENT_V2 -> r.skip(19) // x1..y2 4*f32, type u8, repeat u8, reverse u8
@@ -1184,6 +1228,19 @@ private fun PaintViewModel.dispatchToolOpLocked(
             val color = r.str()
             com.reverie.paint.core.brushstore.BrushApply.engine.setBrushColor(color)
             ReverieCoreBridge.floodFillAt(x, y, tol, sampleMerged)
+        }
+
+        com.reverie.paint.model.RecordingEvents.T_FILL_V4 -> {
+            val x = r.f32().toInt()
+            val y = r.f32().toInt()
+            val tol = r.u16()
+            val sampleMerged = r.u8() != 0
+            val color = r.str()
+            val expand = r.u16().toShort().toInt()
+            val feather = r.u16()
+            val closeGap = r.u16()
+            com.reverie.paint.core.brushstore.BrushApply.engine.setBrushColor(color)
+            ReverieCoreBridge.floodFillAt(x, y, tol, sampleMerged, expand, feather, closeGap)
         }
 
         T_GRADIENT_V2 -> {

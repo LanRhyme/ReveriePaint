@@ -751,14 +751,17 @@ internal fun PaintViewModel.floodFill(
         return
     }
     if (recorder.recording) {
-        // V3 携带填充色: 引擎用自身 m_brushColor 填充, 回放若不带色会漂到
-        // 上一个 CONTEXT 的颜色
-        recorder.toolOp(T_FILL_V3) {
+        // V4: 携带填充色 + 缩进/羽化/补缝。V3 漏了后三个, 回放会退化成引擎默认值,
+        // 参数调过的填充在回放里形状就对不上了。
+        recorder.toolOp(com.reverie.paint.model.RecordingEvents.T_FILL_V4) {
             it.f32(x)
             it.f32(y)
             it.u16(tolerance.coerceIn(0, 65535))
             it.u8(if (sampleMerged) 1 else 0)
             it.str(brushColor)
+            it.u16(expand.coerceIn(-32768, 32767) and 0xFFFF)
+            it.u16(feather.coerceIn(0, 65535))
+            it.u16(closeGap.coerceIn(0, 65535))
         }
     }
     runCore {
