@@ -505,6 +505,32 @@ def case_filter_curves_invert(w, h, template, workdir):
                           expected, 0.01)
 
 
+def case_timeline(w, h, template, workdir):
+    """时间序列: 每一步之后画面都必须是确定的 (不只是终态)。
+
+    事件时间戳刻意排成 8/16/32/48/64ms, 于是进度 0.25/0.5/0.75/1.0 正好各自
+    落在一次事件之后, 期望图可以逐帧算出来 —— 这能抓到"中间帧内容错/跳变"的
+    问题 (用户说的"一闪一闪、出现各种形状"), 而不只是终态对不对。
+    """
+    base, split = _opaque_blocks(w, h)
+    filled = _filled_left(w, h, base, split)          # 左块被填充色覆盖
+    shifted = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    shifted.paste(filled, (200, 120))                  # 再整体平移
+
+    ev = Ev()
+    ev.session_start(dt=0)
+    ev.context(layer=1, color="#00ff00", dt=8)         # t=8
+    ev.fill_v4(split // 2, h // 2, "#00ff00", tol=0, dt=8)   # t=16  -> filled
+    ev.undo(dt=16)                                     # t=32  -> base
+    ev.redo(dt=16)                                     # t=48  -> filled
+    ev.transform(xtranslate=200, ytranslate=120, dt=16)      # t=64 -> shifted
+
+    steps = [(0.25, filled), (0.5, base.copy()), (0.75, filled.copy()), (1.0, shifted)]
+    case, ev2, expected, tol, snap = _snapshot_case(
+        w, h, template, workdir, "timeline", base, ev, shifted, 0.01)
+    return case, ev2, expected, tol, snap, steps
+
+
 def case_gradient(w, h):
     """线性渐变: 左黑右白 (opacity 1, 无抖动) -> 期望 = 水平线性插值"""
     ev = Ev()
@@ -609,6 +635,7 @@ SNAPSHOT_CASES = {
     "liquify_noop": case_liquify_noop,
     "liquify_bounded": case_liquify_bounded,
     "filter_curves_invert": case_filter_curves_invert,
+    "timeline": case_timeline,
 }
 
 
@@ -631,9 +658,7 @@ def push_and_install(serial, host, remote_name):
     adb(serial, "shell", "rm", "-f", tmp)
 
 
-def compare(replay_revp, expected_paint: Image.Image):
-    with zipfile.ZipFile(replay_revp) as z:
-        got = Image.open(io.BytesIO(z.read("layer_001.png"))).convert("RGBA")
+def _diff_ratio(got: Image.Image, expected_paint: Image.Image):
     if got.size != expected_paint.size:
         return 1.0, {"error": "size mismatch", "got": got.size, "expected": expected_paint.size}
     diff = 0
@@ -646,6 +671,12 @@ def compare(replay_revp, expected_paint: Image.Image):
                 maxd = d
     total = got.size[0] * got.size[1]
     return diff / total, {"diffPixels": diff, "total": total, "maxChannelDelta": maxd}
+
+
+def compare(replay_revp, expected_paint: Image.Image):
+    with zipfile.ZipFile(replay_revp) as z:
+        got = Image.open(io.BytesIO(z.read("layer_001.png"))).convert("RGBA")
+    return _diff_ratio(got, expected_paint)
 
 
 def main():
@@ -676,8 +707,13 @@ def main():
     for name, fn in plan:
         if args.only and name != args.only:
             continue
+        steps = None
         if fn in SNAPSHOT_CASES.values():
-            case, ev, expected, tol, snap = fn(w, h, args.template, workdir)
+            out = fn(w, h, args.template, workdir)
+            if len(out) == 6:
+                case, ev, expected, tol, snap, steps = out
+            else:
+                case, ev, expected, tol, snap = out
         else:
             case, ev, expected, tol = fn(w, h)
             snap = None
@@ -686,10 +722,12 @@ def main():
         push_and_install(args.serial, revp, "%s.revp" % case)
         out_name = "synth-%s" % case
         print(f"\n=== {case} (容差 {tol:.1%}) ===")
+        step_arg = ",".join(str(s[0]) for s in steps) if steps else "1.0"
         r = subprocess.run(
             [sys.executable, os.path.join(HERE, "replay-verify.py"),
              "--serial", args.serial or "", "--project", "%s.revp" % case,
-             "--out", out_name, "--steps", "1.0", "--timeout", "120", "--no-launch", "--keep"],
+             "--out", out_name, "--steps", step_arg, "--timeout", "120",
+             "--no-launch", "--keep"],
             capture_output=True, text=True,
         )
         # replay-verify.py 自己会在拉取前清空该目录, 这里不要再删 (否则会把刚拉下来的产物删掉)
@@ -704,6 +742,27 @@ def main():
             print(r.stdout[-1500:])
             print(r.stderr[-800:])
             failures.append((case, "no replay output"))
+            continue
+        if steps:
+            # 逐帧比较: 第 i 个 step 文件对应第 i 个期望图
+            step_files = sorted(f for f in os.listdir(host_out)
+                                if f.startswith("step_") and f.endswith(".revp"))
+            if len(step_files) != len(steps):
+                failures.append((case, f"step 数不符: 期望 {len(steps)}, 实际 {len(step_files)}"))
+                continue
+            ok_all = True
+            for (frac, want), fn_name in zip(steps, step_files):
+                fp = os.path.join(host_out, fn_name)
+                with zipfile.ZipFile(fp) as z:
+                    got_img = Image.open(io.BytesIO(z.read("layer_001.png"))).convert("RGBA")
+                ratio, info = _diff_ratio(got_img, want)
+                ok_one = ratio <= tol
+                ok_all = ok_all and ok_one
+                print(f"    t={frac:.2f} 差异 {ratio:.4%} "
+                      f"({info.get('diffPixels', '?')} px) {'✅' if ok_one else '❌'}")
+            results.append((case, 0.0 if ok_all else 1.0, {"diffPixels": "-", "total": "-"}, ok_all))
+            if not ok_all:
+                failures.append((case, "中间帧与期望不一致"))
             continue
         checker = CHECKERS.get(case)
         if checker is not None:

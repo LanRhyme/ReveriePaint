@@ -78,6 +78,36 @@ internal object ReplayTimeline {
     ): Boolean = fraction >= 1f || remainingBytes <= 0
 
     /**
+     * 从 [r] 当前位置推进到 [targetMs]，**只应用时间戳不晚于目标的事件**。
+     *
+     * 与 [advance] 的区别：playback 需要"跨过目标的那个事件也执行"（时间到了就画），
+     * 而 seek 必须落在**准确的**位置上 —— 若沿用跨过规则，一次 seek 可能把目标之后
+     * 很远的事件（如 16ms 之后的一次 undo）提前执行掉，画面就与进度条不符：
+     * 拖到 25% 却出现 50% 之后才该有的内容，继续播放又从错误状态开始。
+     */
+    inline fun advanceExclusive(
+        r: RecordingReader,
+        startMs: Long,
+        targetMs: Long,
+        capMs: Long,
+        onEvent: (type: Int, nowMs: Long) -> Unit,
+    ): Long {
+        var cur = startMs
+        while (r.remaining() > 0) {
+            val mark = r.pos
+            val type = r.u8()
+            val dt = effectiveDt(r.varint(), capMs)
+            if (cur + dt > targetMs) {
+                r.pos = mark // 停在边界前, 这条事件留给继续播放
+                break
+            }
+            cur += dt
+            onEvent(type, cur)
+        }
+        return cur
+    }
+
+    /**
      * 从 [r] 当前位置按有效时间线推进: 读出 type 与 dt, 累加有效 dt 后调用
      * [onEvent] (由它读取/派发 payload)。drainAll=true 时消费全部剩余事件;
      * 否则推进到有效时间 >= [targetMs] 为止 (跨过 target 的那个事件会被执行)。

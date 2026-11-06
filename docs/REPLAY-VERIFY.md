@@ -53,6 +53,7 @@ python3 scripts/replay-synth.py --serial <serial> --only fill_tolerance
 | `liquify_noop` | 液化强度 0 不改画面（且后续事件不错位） | 0 px |
 | `liquify_bounded` | 液化强度 1：改动 > 0 且全在掰动中心附近（自定义判定） | 通过 |
 | `filter_curves_invert` | 曲线 LUT（通道反转）提交到图层像素 | 0 px |
+| `timeline` | 时间序列：0.25/0.5/0.75/1.0 四个中间帧各自确定 | 4 帧全 0 px |
 
 ## 判定方式
 
@@ -61,6 +62,19 @@ python3 scripts/replay-synth.py --serial <serial> --only fill_tolerance
   - 液化用几何性质：改动像素数 > 0，且改动全部落在掰动中心的半径内（Krita 的形变网格无法离线复现）
 - **自定义判定的坑**：直接对 RGBA 用 `ImageChops.difference(...).getbbox()` 在只有部分通道变化时可能判成"无差异"，
   要先逐通道取最大值 (`ImageChops.lighter`) 再求 bbox —— 液化用例就踩过这个，差点把"没改动"当成通过
+
+## 时间序列（多步）用例
+
+`timeline` 用例的事件时间戳刻意排成 8/16/32/48/64ms，于是进度 0.25/0.5/0.75/1.0
+正好各自落在一次事件之后，期望图可以逐帧算出来（填充 → 撤销 → 重做 → 平移）。
+
+这个用例抓到过一个真实的 seek 缺陷：`ReplayTimeline.advance` 会执行"跨过目标"的那条事件
+（播放需要这样），但 seek 沿用它就会把目标之后很远的操作提前执行掉 —— 拖到 25% 却出现
+50% 之后才该有的内容，继续播放又从错误状态开始。现在 seek 走 `advanceExclusive`
+（只应用时间戳不晚于目标的事件）。
+
+另外：回放一进页面就自动播放，验证器在每次 seek 前会先 `pauseReplay()`，
+否则断言的是"当前位置 + 目标"而不是"目标位置"。
 
 ## 已知边界
 

@@ -18,6 +18,7 @@ import com.reverie.paint.core.ReverieCoreBridge
 import com.reverie.paint.core.exitReplay
 import com.reverie.paint.core.goReplay
 import com.reverie.paint.core.loadProject
+import com.reverie.paint.core.pauseReplay
 import com.reverie.paint.core.saveProject
 import com.reverie.paint.core.seekReplay
 import com.reverie.paint.ui.widget.RecentProjectWidgetHelper
@@ -170,6 +171,9 @@ class ReplayVerifyReceiver : BroadcastReceiver() {
             val f = fractions[index]
             val ordinal = index
             index++
+            // 回放一进页面就自动播放, 到 seek 时时间线可能已经走过一段 ——
+            // 先停播, 让"seek 到某个进度"是确定的 (否则断言的是"当前位置 + 目标")
+            vm.pauseReplay()
             val t = SystemClock.elapsedRealtime()
             vm.seekReplay(f) { applied ->
                 val seekMs = SystemClock.elapsedRealtime() - t

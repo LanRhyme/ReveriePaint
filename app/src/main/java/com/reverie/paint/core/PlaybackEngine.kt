@@ -570,17 +570,31 @@ internal fun PaintViewModel.seekLocked(
     // suppressed (one immediate render at the end), otherwise dragging
     // the scrub bar queued hundreds of throttled renders and stalled.
     try {
-        s.currentMs =
+        s.currentMs = if (f >= 1f) {
+            // 拖到 100% 必须含最后时间戳上的全部事件
             ReplayTimeline.advance(
                 r,
-                startMs = 0L,
+                startMs = s.currentMs,
                 targetMs = target,
-                drainAll = f >= 1f,
+                drainAll = true,
                 capMs = s.idleCapMs,
             ) { type, nowMs ->
                 s.currentMs = nowMs
                 dispatchReplayLocked(s, type, r, render = false)
             }
+        } else {
+            // 只应用时间戳不晚于目标的那些事件: 否则"跨过目标"的那条会被提前执行,
+            // 画面与进度不符 (拖到 25% 却出现更晚才该有的内容)
+            ReplayTimeline.advanceExclusive(
+                r,
+                startMs = s.currentMs,
+                targetMs = target,
+                capMs = s.idleCapMs,
+            ) { type, nowMs ->
+                s.currentMs = nowMs
+                dispatchReplayLocked(s, type, r, render = false)
+            }
+        }
     } catch (t: Throwable) {
         abortReplayLocked(s, t)
         return
