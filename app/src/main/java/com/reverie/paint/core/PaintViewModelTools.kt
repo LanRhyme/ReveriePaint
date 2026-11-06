@@ -2123,6 +2123,8 @@ internal fun PaintViewModel.liquifyBegin() {
     val multi = layers.size > 1 || selectedLayerIndices.isNotEmpty()
     if (recorder.recording) {
         if (multi) recordLayerSet(recorder, T_LIQUIFY_LAYERS, layers)
+        // 液化同样不带画笔色, 补一条当前上下文再记 begin
+        recordContextBaseline()
         recorder.toolOp(T_LIQUIFY_BEGIN)
     }
     val arr = if (multi) layers.toIntArray() else null

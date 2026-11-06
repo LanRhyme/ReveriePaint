@@ -17,11 +17,13 @@ import com.reverie.paint.core.Page
 import com.reverie.paint.core.ReverieCoreBridge
 import com.reverie.paint.core.exitReplay
 import com.reverie.paint.core.goReplay
+import com.reverie.paint.core.encloseAndFill
 import com.reverie.paint.core.floodFill
 import com.reverie.paint.core.updateBrushColor
 import com.reverie.paint.core.loadProject
 import com.reverie.paint.core.pauseReplay
 import com.reverie.paint.core.saveProject
+import com.reverie.paint.core.startPainting
 import com.reverie.paint.core.seekReplay
 import com.reverie.paint.ui.widget.RecentProjectWidgetHelper
 import org.json.JSONArray
@@ -102,7 +104,12 @@ class ReplayVerifyReceiver : BroadcastReceiver() {
             vm.exitReplay()
         }
         val t0 = SystemClock.elapsedRealtime()
-        vm.loadProject(parsed)
+        if (intent.getStringExtra("newcanvas") != null) {
+            // 新建画布: 录制流短, 便于验证"录制->回放"的单个操作 (老工程的链太长, 解码困难)
+            vm.startPainting(1200, 900)
+        } else {
+            vm.loadProject(parsed)
+        }
         await("load", STEP_TIMEOUT_MS) {
             vm.currentPage == Page.PAINTING && !vm.isBlockingLoading && vm.docWidth > 0
         } onDone { loaded ->
@@ -115,7 +122,19 @@ class ReplayVerifyReceiver : BroadcastReceiver() {
                 // 用真实录制链路做一次填充 (不是合成事件), 用来验证"录制 -> 回放"的填充颜色
                 val (cx, cy) = vm.docWidth / 2 to vm.docHeight / 2
                 vm.updateBrushColor(makeFillColor)
-                vm.floodFill(cx.toFloat(), cy.toFloat(), tolerance = 0)
+                val mode = intent.getStringExtra("makeop") ?: "fill"
+                if (mode == "enclose") {
+                    // 圈涂: 用一个覆盖画布大部分的多边形, 画笔色由 updateBrushColor 设置
+                    val pts = listOf(
+                        cx / 2 to cy / 2,
+                        cx * 3 / 2 to cy / 2,
+                        cx * 3 / 2 to cy * 3 / 2,
+                        cx / 2 to cy * 3 / 2,
+                    )
+                    vm.encloseAndFill(pts)
+                } else {
+                    vm.floodFill(cx.toFloat(), cy.toFloat(), tolerance = 0)
+                }
                 // 必须走 saveProject: 录制是随工程文件一起序列化的 (saveRevp 只存文档)
                 val name = "mf_fill"
                 main.postDelayed({
