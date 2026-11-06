@@ -183,6 +183,30 @@ class ReplayVerifyReceiver : BroadcastReceiver() {
                     next()
                     return@seekReplay
                 }
+                // 先等一帧渲染完, 再抓"上屏内容": 文档状态对不代表用户看到的画面对
+                // (seek 后投影没重新合成时, 画布只剩当前脏区 —— 只比文档会漏掉这类 bug)
+                main.postDelayed({
+                    captureFrame(vm, outDir, ordinal, f, "")
+                    // 再抓一张"晚一些"的帧: 用来区分"投影没重合成"和"抓帧太早, 渲染还没完"
+                    main.postDelayed({
+                        captureFrame(vm, outDir, ordinal, f, "_late")
+                        saveStep(vm, outDir, steps, ordinal, f, seekMs) { next() }
+                    }, 1000)
+                }, 400)
+            }
+        }
+        next()
+    }
+
+    private fun saveStep(
+        vm: PaintViewModel,
+        outDir: File,
+        steps: JSONArray,
+        ordinal: Int,
+        f: Float,
+        seekMs: Long,
+        next: () -> Unit,
+    ) {
                 val target = File(outDir, "step_%02d_%.3f.revp".format(ordinal, f))
                 val t2 = SystemClock.elapsedRealtime()
                 vm.runCore(render = false, after = {
@@ -202,9 +226,30 @@ class ReplayVerifyReceiver : BroadcastReceiver() {
                 }) {
                     ReverieCoreBridge.saveRevp(target.absolutePath)
                 }
+    }
+
+    /** 抓一帧当前上屏内容 (1/4 缩放, 够判定"有没有画出来"), 落 PNG 供脚本比对 */
+    private fun captureFrame(
+        vm: PaintViewModel,
+        outDir: File,
+        ordinal: Int,
+        f: Float,
+        suffix: String,
+    ) {
+        try {
+            val bmp = vm.displayBitmap ?: return
+            val w = (bmp.width / 4).coerceAtLeast(1)
+            val h = (bmp.height / 4).coerceAtLeast(1)
+            val scaled = android.graphics.Bitmap.createScaledBitmap(bmp, w, h, false)
+            val file = File(outDir, "frame_%02d_%.3f%s.png".format(ordinal, f, suffix))
+            file.outputStream().use { out ->
+                scaled.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
             }
+            scaled.recycle()
+            Log.i(TAG, "frame f=$f -> ${file.name}")
+        } catch (t: Throwable) {
+            Log.w(TAG, "frame capture failed", t)
         }
-        next()
     }
 
     /** 轮询条件 (主线程 Handler), 到点或满足后回调一次 */

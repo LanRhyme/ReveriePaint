@@ -14,6 +14,7 @@
 """
 
 import argparse
+import io
 import json
 import os
 import shutil
@@ -21,6 +22,8 @@ import subprocess
 import sys
 import time
 import zipfile
+
+from PIL import Image
 
 PKG = "com.reverie.paint"
 ACTION = "com.reverie.paint.DEBUG_REPLAY_VERIFY"
@@ -140,6 +143,107 @@ def compare_pngs(a_path, b_path):
     return same, report
 
 
+def _ink_ratio(img):
+    """非白像素占比 (白底画布上的"内容量")"""
+    g = img.convert("RGB")
+    total = g.size[0] * g.size[1]
+    if total == 0:
+        return 0.0
+    ink = 0
+    for r, gg, b in g.getdata():
+        if r < 240 or gg < 240 or b < 240:
+            ink += 1
+    return ink / total
+
+
+def _layer_meta(z):
+    """从 layers.xml 读每层的 filename / 可见性 / 不透明度 (合成时必须尊重, 否则会高估文档墨迹)"""
+    import re
+    try:
+        xml = z.read("layers.xml").decode("utf-8", "replace")
+    except KeyError:
+        return {}
+    out = {}
+    for tag in re.findall(r"<[a-z]*layer\b[^>]*>", xml):
+        fn = re.search(r'filename="([^"]+)"', tag)
+        if not fn:
+            continue
+        vis = re.search(r'visible="(\d+)"', tag)
+        opa = re.search(r'opacity="(\d+)"', tag)
+        out[fn.group(1)] = (
+            (vis.group(1) != "0") if vis else True,
+            (int(opa.group(1)) / 255.0) if opa else 1.0,
+        )
+    return out
+
+
+def _merged_doc(step_path, size):
+    """把某进度另存出来的文档合成成"白底 + 各可见层"的画面 (缩到尾帧尺寸)"""
+    with zipfile.ZipFile(step_path) as z:
+        meta = _layer_meta(z)
+        names = [n for n in z.namelist() if n.startswith("layer_") and n.endswith(".png")]
+        merged = Image.new("RGBA", size, (255, 255, 255, 255))
+        for n in names:
+            visible, opacity = meta.get(n, (True, 1.0))
+            if not visible or opacity <= 0.0:
+                continue
+            lay = Image.open(io.BytesIO(z.read(n))).convert("RGBA")
+            if opacity < 1.0:
+                alpha = lay.split()[3].point(lambda v: int(v * opacity))
+                lay.putalpha(alpha)
+            if lay.size != size:
+                lay = lay.resize(size, Image.NEAREST)
+            merged = Image.alpha_composite(merged, lay)
+        return merged
+
+
+def check_frames(host_out, result):
+    """上屏帧墨迹 vs 同进度文档墨迹: 明显偏少说明投影没整幅合成"""
+    frames = sorted(f for f in os.listdir(host_out)
+                    if f.startswith("frame_") and f.endswith(".png"))
+    if not frames:
+        return []
+    steps = sorted(
+        (s for s in result.get("steps", []) if s.get("file")),
+        key=lambda s: float(s.get("fraction", 0)),
+    )
+    print(f"      上屏帧 {len(frames)} 张 (与同进度文档对照)")
+    warnings = []
+    # 帧文件名里带进度: frame_00_0.300.png / frame_00_0.300_late.png —— 按进度配文档,
+    # 不能按顺序配 (一张进度可能有多帧: 早帧 + 晚帧)
+    def frac_of(name):
+        try:
+            base = name.replace("_late.png", ".png")  # 晚帧后缀先去掉, 否则 split 出来是 "late"
+            return float(base.split("_")[-1].replace(".png", ""))
+        except ValueError:
+            return None
+
+    for fname in frames:
+        frame = Image.open(os.path.join(host_out, fname))
+        ratio = None
+        doc_ink = None
+        want = frac_of(fname)
+        idx = next((i for i, st in enumerate(steps)
+                    if want is not None and abs(float(st.get("fraction", 0)) - want) < 1e-3), None)
+        if idx is not None:
+            step_path = os.path.join(host_out, steps[idx]["file"])
+            if os.path.isfile(step_path):
+                try:
+                    doc_ink = _ink_ratio(_merged_doc(step_path, frame.size))
+                    frame_ink = _ink_ratio(frame)
+                    ratio = (frame_ink / doc_ink) if doc_ink > 0 else 1.0
+                except Exception:
+                    ratio = None
+        if ratio is None:
+            print(f"        {fname}: 无对照")
+            continue
+        bad = doc_ink > 0.01 and ratio < 0.6
+        print(f"        {fname}: 帧 {ratio:.2f}x 文档 {'<!-- 帧明显偏少 -->' if bad else ''}{'❌' if bad else '✅'}")
+        if bad:
+            warnings.append(fname)
+    return warnings
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--serial", default=None, help="adb 设备序列号 (多设备时必填)")
@@ -202,9 +306,15 @@ def main():
 
     print("[4/4] 拉取产物并逐层比较像素")
     pull_dir(serial, device_out, host_out)
+    # 上屏帧自检: 文档对不代表用户看到的画面对 —— seek 后若投影没整幅重合成,
+    # 画布上只剩当前脏区 ("显示不出来 / 只剩一条"), 而另存的文档本身是好的。
+    frame_warnings = check_frames(host_out, result)
     final = [s for s in result.get("steps", []) if abs(float(s.get("fraction", 0)) - 1.0) < 1e-6]
     if not final:
-        sys.exit("没有 1.0 这一步, 无法做终态比较 (用 --steps 1.0 至少跑一次)")
+        print("没有 1.0 这一步, 跳过终态比较 (要看终态就用 --steps 1.0 至少跑一次)")
+        if frame_warnings:
+            print(f"上屏帧异常 {len(frame_warnings)} 张: {', '.join(frame_warnings)}")
+        sys.exit(0 if not frame_warnings else 1)
     replay_file = os.path.join(host_out, final[0]["file"])
     original_file = os.path.join(host_out, "original.revp")
     with open(original_file, "wb") as f:
@@ -232,11 +342,14 @@ def main():
         print(f"      只在原件: {report['onlyInA']} 只在回放: {report['onlyInB']}")
 
     print()
-    print("结论:", "✅ 回放与原件逐层一致" if same else "❌ 回放与原件不一致")
+    if frame_warnings:
+        print(f"上屏帧异常 {len(frame_warnings)} 张: {', '.join(frame_warnings)}")
+    ok = same and not frame_warnings
+    print("结论:", "✅ 回放与原件逐层一致" if ok else "❌ 回放与原件不一致")
     print(f"产物: {host_out}")
     if not args.keep and same:
         adb(serial, "shell", "run-as", PKG, "rm", "-rf", device_out, check=False)
-    sys.exit(0 if same else 1)
+    sys.exit(0 if ok else 1)
 
 
 if __name__ == "__main__":
