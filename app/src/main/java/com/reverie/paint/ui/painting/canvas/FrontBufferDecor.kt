@@ -14,6 +14,8 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.panels
+import com.reverie.paint.core.selectedPanelId
 import com.reverie.paint.model.CanvasDecorGeometry
 import com.reverie.paint.model.CanvasPose
 import com.reverie.paint.model.DrawingGuideConfig
@@ -79,6 +81,8 @@ internal class DynamicGuideSnapshot {
     }
 }
 
+private val dummyPanelInteraction = PanelInteractionState()
+
 /**
  * 录制 [FrontBufferDecor] (UI 线程)。只在落笔和"装饰状态变了"时录, 平时每个 MOVE 只做几次引用比较。
  *
@@ -100,6 +104,9 @@ internal class FrontBufferDecorRecorder(private val view: CanvasTouchView) {
     private var keyHasSelection = false
     private var keyTransform = false
     private var keyGrid = false
+    private var keyPanels: Any? = null
+    private var keySelectedPanelId: Long? = null
+    private var keyCurrentLayerIndex: Int = -1
     private var keyPose: CanvasPose? = null
     private var keyRenderW = -1
     private var keyRenderH = -1
@@ -120,6 +127,9 @@ internal class FrontBufferDecorRecorder(private val view: CanvasTouchView) {
             keyHasSelection != v.hasSelection ||
             keyTransform != isTransform ||
             keyGrid != v.pixelGridEnabled ||
+            keyPanels !== v.panels ||
+            keySelectedPanelId != v.selectedPanelId ||
+            keyCurrentLayerIndex != v.currentLayerIndex ||
             keyPose != pose ||
             keyRenderW != v.renderW || keyRenderH != v.renderH ||
             keyDocW != v.docWidth || keyDocH != v.docHeight ||
@@ -132,6 +142,9 @@ internal class FrontBufferDecorRecorder(private val view: CanvasTouchView) {
         hasKey = false
         keyGuide = null
         keyOutline = null
+        keyPanels = null
+        keySelectedPanelId = null
+        keyCurrentLayerIndex = -1
         keyPose = null
     }
 
@@ -146,6 +159,7 @@ internal class FrontBufferDecorRecorder(private val view: CanvasTouchView) {
         val imgH = CanvasDecorGeometry.overlayBitmapSize(v.renderH, v.docHeight)
         if (imgW <= 0 || imgH <= 0) return false
         if (CanvasDecorGeometry.guidesVisible(v.drawingGuide)) return true
+        if (v.panels.isNotEmpty()) return true
         return v.selectionOutlinePath != null && CanvasDecorGeometry.selectionOutlineVisible(
             hasSelection = v.hasSelection,
             isTransform = isTransform,
@@ -173,6 +187,9 @@ internal class FrontBufferDecorRecorder(private val view: CanvasTouchView) {
         keyHasSelection = v.hasSelection
         keyTransform = isTransform
         keyGrid = v.pixelGridEnabled
+        keyPanels = v.panels
+        keySelectedPanelId = v.selectedPanelId
+        keyCurrentLayerIndex = v.currentLayerIndex
         keyPose = pose
         keyRenderW = v.renderW
         keyRenderH = v.renderH
@@ -196,7 +213,8 @@ internal class FrontBufferDecorRecorder(private val view: CanvasTouchView) {
         )
         val imgW = CanvasDecorGeometry.overlayBitmapSize(v.renderW, v.docWidth).toFloat()
         val imgH = CanvasDecorGeometry.overlayBitmapSize(v.renderH, v.docHeight).toFloat()
-        val overlayOn = (guidesOn || antsOn) && imgW > 0f && imgH > 0f
+        val panelsOn = v.panels.isNotEmpty() && imgW > 0f && imgH > 0f
+        val overlayOn = (guidesOn || antsOn || panelsOn) && imgW > 0f && imgH > 0f
 
         val under = if (gridOn) {
             Picture().also { pic ->
@@ -236,6 +254,16 @@ internal class FrontBufferDecorRecorder(private val view: CanvasTouchView) {
                                         zoom = zoom,
                                         fitScale = fit,
                                     )
+                                    if (panelsOn) {
+                                        drawPanelsOverlay(
+                                            vm = v,
+                                            interaction = dummyPanelInteraction,
+                                            bmpWidth = imgW,
+                                            bmpHeight = imgH,
+                                            viewScale = zoom * fit,
+                                            toolActive = false,
+                                        )
+                                    }
                                 }
                             }
                         }

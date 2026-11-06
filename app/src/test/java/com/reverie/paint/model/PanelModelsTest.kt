@@ -543,6 +543,26 @@ class PanelModelsTest {
     }
 
     @Test
+    fun `cutByLine with halfGap on concave dart keeps gutter width and area sum below original`() {
+        val d = dart()
+        val halfGap = 6f
+        // 竖直切线 x=20: 与凹四边形交弦从 (20,0) 到 (20,60)
+        val pair = d.cutByLine(Point2D(20f, -50f), Point2D(20f, 150f), halfGap)
+        assertNotNull(pair)
+        val (q1, q2) = pair!!
+        // 两块均非退化
+        assertTrue(q1.area() > 0f)
+        assertTrue(q2.area() > 0f)
+        // 留白被扣除: 面积之和严格小于原面积
+        assertTrue(q1.area() + q2.area() < d.area())
+        // 两块切弦沿切线法向相距恰好 2*halfGap (竖直切线法向即 x 轴; 与切片顺序无关)
+        val (left, right) = if (q1.corners[0].x < q2.corners[0].x) q1 to q2 else q2 to q1
+        val leftMaxX = left.corners.maxOf { it.x }
+        val rightMinX = right.corners.minOf { it.x }
+        assertEquals(2f * halfGap, rightMinX - leftMaxX, 0.05f)
+    }
+
+    @Test
     fun `cutByLine returns null when line does not intersect`() {
         val s = square(0f, 0f, 100f, 100f)
         assertNull(s.cutByLine(Point2D(200f, 0f), Point2D(200f, 100f), 0f))
@@ -796,6 +816,101 @@ class PanelModelsTest {
         assertNotNull(horizontal)
         assertEquals(1f, horizontal!!.delta.y, 0.001f)
         assertTrue(candidates.none { it.guideAxis == 1 && it.guideCoord == 140f })
+    }
+
+    @Test
+    fun `axisSnapCandidates with zero gaps still snaps flush without non finite guides`() {
+        val neighbor = square(0f, 0f, 100f, 100f)
+        val moving = square(0f, 105f, 100f, 205f)
+        val candidates = axisSnapCandidates(
+            moving, listOf(neighbor), hGap = 0f, vGap = 0f, tolerance = 10f,
+        )
+        // 0 间隔仍产生贴合候选 (guideCoord = 邻边 100), 且全部引导量有限
+        assertTrue("0 间隔应仍给出贴合候选", candidates.isNotEmpty())
+        for (c in candidates) {
+            assertTrue(c.delta.x.isFinite() && c.delta.y.isFinite())
+            assertTrue(c.guideCoord.isFinite())
+        }
+        val flush = candidates.find { it.guideAxis == 1 && it.guideCoord == 100f }
+        assertNotNull(flush)
+        assertEquals(-5f, flush!!.delta.y, 0.001f)
+    }
+
+    @Test
+    fun `snapDivideLine locks a near horizontal drag and spans the target`() {
+        val cell = square(0f, 0f, 200f, 100f)
+        val tol = Math.toRadians(2.5).toFloat()
+        // 起点在左缘中部，手指几乎向右，略微上偏
+        val line = snapDivideLine(Point2D(0f, 40f), Point2D(80f, 41f), listOf(cell), tol)
+        assertEquals(1, line.guideAxis)
+        assertEquals(40f, line.guideCoord, 0.001f)
+        assertEquals(40f, line.start.y, 0.001f)
+        assertEquals(40f, line.end.y, 0.001f)
+        assertTrue(line.start.x <= cell.bounds().left)
+        assertTrue(line.end.x >= cell.bounds().right)
+    }
+
+    @Test
+    fun `snapDivideLine locks a near vertical drag`() {
+        val cell = square(0f, 0f, 100f, 200f)
+        val tol = Math.toRadians(2.5).toFloat()
+        val line = snapDivideLine(Point2D(30f, 0f), Point2D(31f, 90f), listOf(cell), tol)
+        assertEquals(0, line.guideAxis)
+        assertEquals(30f, line.guideCoord, 0.001f)
+        assertEquals(30f, line.start.x, 0.001f)
+        assertEquals(30f, line.end.x, 0.001f)
+        assertTrue(line.start.y <= 0f)
+        assertTrue(line.end.y >= 200f)
+    }
+
+    @Test
+    fun `snapDivideLine leaves a clearly diagonal drag on the finger and does not extend`() {
+        val cell = square(0f, 0f, 200f, 200f)
+        val tol = Math.toRadians(2.5).toFloat()
+        val finger = Point2D(80f, 40f)
+        val line = snapDivideLine(Point2D(0f, 0f), finger, listOf(cell), tol)
+        assertEquals(-1, line.guideAxis)
+        assertEquals(finger.x, line.end.x, 0.001f)
+        assertEquals(finger.y, line.end.y, 0.001f)
+        assertEquals(0f, line.start.x, 0.001f)
+        assertEquals(0f, line.start.y, 0.001f)
+    }
+
+    @Test
+    fun `snapDivideLine does not stretch across a cell the locked line misses`() {
+        val cell = square(0f, 0f, 100f, 100f)
+        val tol = Math.toRadians(2.5).toFloat()
+        // 水平锁在 y=150，格子只到 y=100
+        val line = snapDivideLine(Point2D(10f, 150f), Point2D(40f, 151f), listOf(cell), tol)
+        assertEquals(1, line.guideAxis)
+        assertEquals(10f, line.start.x, 0.001f)
+        assertEquals(40f, line.end.x, 0.001f)
+        assertEquals(150f, line.start.y, 0.001f)
+    }
+
+    @Test
+    fun `pageCenterSnapCandidates hits each axis independently`() {
+        // 页 200x100，中心 (100, 50)。格子中心约 (96, 54)
+        val moving = square(76f, 34f, 116f, 74f)
+        val hits = pageCenterSnapCandidates(moving, pageWidth = 200f, pageHeight = 100f, tolerance = 8f)
+        val x = hits.find { it.guideAxis == 0 }
+        val y = hits.find { it.guideAxis == 1 }
+        assertNotNull(x)
+        assertNotNull(y)
+        assertEquals(100f, x!!.guideCoord, 0.001f)
+        assertEquals(4f, x.delta.x, 0.001f)
+        assertEquals(0f, x.delta.y, 0.001f)
+        assertEquals(50f, y!!.guideCoord, 0.001f)
+        assertEquals(-4f, y.delta.y, 0.001f)
+    }
+
+    @Test
+    fun `pageCenterSnapCandidates drops an axis past tolerance and rejects a bad page`() {
+        val moving = square(0f, 0f, 20f, 20f) // 中心 (10, 10)，页中心 (100, 100)
+        val hits = pageCenterSnapCandidates(moving, 200f, 200f, tolerance = 8f)
+        assertTrue(hits.isEmpty())
+        assertTrue(pageCenterSnapCandidates(moving, pageWidth = 0f, pageHeight = 100f, tolerance = 8f).isEmpty())
+        assertTrue(pageCenterSnapCandidates(moving, pageWidth = Float.NaN, pageHeight = 100f, tolerance = 8f).isEmpty())
     }
 
     @Test
@@ -1143,5 +1258,35 @@ class PanelModelsTest {
         // Excessive inward move that inverts the quad
         val inverted = q.moveEdge(1, Point2D(-150f, 0f))
         assertFalse(inverted.isConvex())
+    }
+
+    @Test
+    fun `parsePanelMetas and serializePanelMetas multi-panel roundtrip and legacy compatibility`() {
+        val q1 = square(0f, 0f, 100f, 100f)
+        val q2 = square(110f, 0f, 210f, 100f)
+        val m1 = PanelMeta(q1, PanelStyle(borderWidth = 4f), true, 1L, 10L)
+        val m2 = PanelMeta(q2, PanelStyle(fillEnabled = true), false, 2L, 10L)
+
+        // Multi-panel serialization and deserialization
+        val json = serializePanelMetas(listOf(m1, m2))
+        val parsed = parsePanelMetas(json)
+        assertEquals(2, parsed.size)
+        assertEquals(1L, parsed[0].panelId)
+        assertEquals(4f, parsed[0].style.borderWidth)
+        assertEquals(2L, parsed[1].panelId)
+        assertTrue(parsed[1].style.fillEnabled == true)
+        assertFalse(parsed[1].cropEnabled)
+
+        // Legacy single-panel backward compatibility
+        val legacyJson = m1.toJson()
+        val parsedLegacy = parsePanelMetas(legacyJson)
+        assertEquals(1, parsedLegacy.size)
+        assertEquals(1L, parsedLegacy[0].panelId)
+        assertEquals(m1.quad, parsedLegacy[0].quad)
+
+        // Invalid and empty inputs
+        assertTrue(parsePanelMetas("").isEmpty())
+        assertTrue(parsePanelMetas("{\"invalid\":123}").isEmpty())
+        assertTrue(parsePanelMetas("{\"panels\":[]}").isEmpty())
     }
 }

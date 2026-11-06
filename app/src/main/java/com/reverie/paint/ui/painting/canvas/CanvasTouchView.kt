@@ -1205,17 +1205,17 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     /**
-     * 格体拖移 gutter 对齐吸附 (目标 A): 针对 movingQuad (单选或多选各格) 调 snapCandidates,
-     * 取与原始 delta 欧氏距离最近的候选 (单轴比较)。命中则修正 delta 并返回参考线。
+     * 格体拖移吸附。多选只保留一条最近的边对边候选。
+     * 单格额外加入整页居中，X/Y 各取本轴最近的一条，可以同时吸住。
      */
     private fun computeBodySnap(
         rawDelta: Point2D,
         currentScale: Float,
-    ): Pair<Point2D, PanelSnapGuide?> {
-        val v = vm ?: return Pair(rawDelta, null)
-        if (panelDragIds.isEmpty() || panelDragStartQuads.isEmpty()) return Pair(rawDelta, null)
+    ): Pair<Point2D, List<PanelSnapGuide>> {
+        val v = vm ?: return Pair(rawDelta, emptyList())
+        if (panelDragIds.isEmpty() || panelDragStartQuads.isEmpty()) return Pair(rawDelta, emptyList())
         val mirrors = v.panels
-        if (mirrors.isEmpty()) return Pair(rawDelta, null)
+        if (mirrors.isEmpty()) return Pair(rawDelta, emptyList())
 
         val neighbors = ArrayList<PanelQuad>(mirrors.size)
         for (m in mirrors) {
@@ -1223,34 +1223,97 @@ class CanvasTouchView(context: Context) : View(context) {
                 neighbors.add(m.meta.quad)
             }
         }
-        if (neighbors.isEmpty()) return Pair(rawDelta, null)
+        val single = panelDragIds.size == 1
+        if (neighbors.isEmpty() && !single) return Pair(rawDelta, emptyList())
 
         val tolerance = (PANEL_SNAP_TOLERANCE_DP * density) / currentScale
         val hGap = v.panelDefaults.hGap
         val vGap = v.panelDefaults.vGap
+        val pageW = v.docWidth.toFloat()
+        val pageH = v.docHeight.toFloat()
 
-        var bestCandidate: PanelSnapCandidate? = null
-        var bestDiff = Float.MAX_VALUE
+        if (!single) {
+            var bestCandidate: PanelSnapCandidate? = null
+            var bestDiff = Float.MAX_VALUE
+            for (startQuad in panelDragStartQuads) {
+                val movedQuad = startQuad.movedBy(rawDelta)
+                val candidates = axisSnapCandidates(movedQuad, neighbors, hGap, vGap, tolerance)
+                for (c in candidates) {
+                    val diff = if (c.guideAxis == 0) abs(c.delta.x) else abs(c.delta.y)
+                    if (diff < bestDiff) {
+                        bestDiff = diff
+                        bestCandidate = c
+                    }
+                }
+            }
+            if (bestCandidate == null) return Pair(rawDelta, emptyList())
+            val snapped = Point2D(rawDelta.x + bestCandidate.delta.x, rawDelta.y + bestCandidate.delta.y)
+            return Pair(snapped, listOf(PanelSnapGuide(bestCandidate.guideAxis, bestCandidate.guideCoord)))
+        }
 
-        for (startQuad in panelDragStartQuads) {
-            val movedQuad = startQuad.movedBy(rawDelta)
-            // 左右对齐用水平间隔, 上下对齐用垂直间隔 (原先两轴都吃 hGap, 水平虚线会对到错误间距)
-            val candidates = axisSnapCandidates(movedQuad, neighbors, hGap, vGap, tolerance)
-            for (c in candidates) {
-                val diff = if (c.guideAxis == 0) abs(c.delta.x) else abs(c.delta.y)
-                if (diff < bestDiff) {
-                    bestDiff = diff
-                    bestCandidate = c
+        var bestX: PanelSnapCandidate? = null
+        var bestY: PanelSnapCandidate? = null
+        var bestXDiff = Float.MAX_VALUE
+        var bestYDiff = Float.MAX_VALUE
+        val movedQuad = panelDragStartQuads[0].movedBy(rawDelta)
+        val candidates = ArrayList<PanelSnapCandidate>()
+        if (neighbors.isNotEmpty()) {
+            candidates.addAll(axisSnapCandidates(movedQuad, neighbors, hGap, vGap, tolerance))
+        }
+        if (v.panelSnapPageCenter) {
+            candidates.addAll(pageCenterSnapCandidates(movedQuad, pageW, pageH, tolerance))
+        }
+        for (c in candidates) {
+            if (c.guideAxis == 0) {
+                val diff = abs(c.delta.x)
+                if (diff < bestXDiff) {
+                    bestXDiff = diff
+                    bestX = c
+                }
+            } else if (c.guideAxis == 1) {
+                val diff = abs(c.delta.y)
+                if (diff < bestYDiff) {
+                    bestYDiff = diff
+                    bestY = c
                 }
             }
         }
+        if (bestX == null && bestY == null) return Pair(rawDelta, emptyList())
+        val snappedDelta = Point2D(
+            rawDelta.x + (bestX?.delta?.x ?: 0f),
+            rawDelta.y + (bestY?.delta?.y ?: 0f),
+        )
+        val guides = ArrayList<PanelSnapGuide>(2)
+        bestX?.let { guides.add(PanelSnapGuide(0, it.guideCoord)) }
+        bestY?.let { guides.add(PanelSnapGuide(1, it.guideCoord)) }
+        return Pair(snappedDelta, guides)
+    }
 
-        if (bestCandidate != null) {
-            val snappedDelta = Point2D(rawDelta.x + bestCandidate.delta.x, rawDelta.y + bestCandidate.delta.y)
-            val guide = PanelSnapGuide(bestCandidate.guideAxis, bestCandidate.guideCoord)
-            return Pair(snappedDelta, guide)
+    /**
+     * 切分线：接近水平或垂直就锁直，并沿锁定方向拉到被切格对边。
+     * 没锁方向时终点仍贴边框。MOVE 与两处 UP 共用。
+     */
+    private fun resolveDivideLine(start: Point2D, finger: Point2D, currentScale: Float): DivideLineSnap {
+        val v = vm
+        if (v?.panelSnapAxis == false) {
+            return DivideLineSnap(start, snapPointToPanelBorders(finger), -1, 0f)
         }
-        return Pair(rawDelta, null)
+        val hitIds = panelDivideHitIds(start, finger, currentScale)
+        val targets = ArrayList<PanelQuad>()
+        if (v != null) {
+            for (m in v.panels) {
+                if (m.panelId in hitIds) targets.add(m.meta.quad)
+            }
+            if (targets.isEmpty()) {
+                val quads = v.panels.map { it.meta.quad }
+                val hit = hitTestPanels(quads, -1, start, -1f)
+                val idx = (hit as? PanelHit.Body)?.panelIndex ?: -1
+                if (idx in v.panels.indices) targets.add(v.panels[idx].meta.quad)
+            }
+        }
+        val locked = snapDivideLine(start, finger, targets, PANEL_PARALLEL_SNAP_ANGLE_RAD)
+        if (locked.guideAxis >= 0) return locked
+        return DivideLineSnap(start, snapPointToPanelBorders(finger), -1, 0f)
     }
 
     /** 边中点拖动吸附: 将整条边平移并吸附到邻格对齐轴或 gutter 间距。 */
@@ -6273,9 +6336,13 @@ class CanvasTouchView(context: Context) : View(context) {
         removeCallbacks(quickShapeHold)
         quickShapeCandidate = null
         v.quickShapeCapture = null
-        val activeLayer = v.layers.firstOrNull { it.index == v.currentLayerIndex }
         val t = effTool()
         val isDrawingTool = t.group == ToolGroup.BRUSH || t.group == ToolGroup.FILL || t.group == ToolGroup.SHAPES
+        // 拆分等结构操作可能把当前层留在隐藏的分格蒙版/边框上，先改回内容层再落笔
+        if (isDrawingTool || tool == Tool.LIQUIFY) {
+            v.retargetOffPanelAuxLayer()
+        }
+        val activeLayer = v.layers.firstOrNull { it.index == v.currentLayerIndex }
 
         if (activeLayer?.isGroup == true && isDrawingTool) {
             v.showActionToast(context.getString(R.string.canvas_toast_group_not_drawable), R.drawable.ic_folder)
@@ -7462,7 +7529,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 // MOVE 只更新本地预览 (供覆盖层绘制); 引擎调用统一留到 UP
                 when (panelDragMode) {
                     PANEL_DRAG_HANDLE -> {
-                        st.snapGuide = null
+                        st.snapGuides = emptyList()
                         val q0 = panelDragStartQuads.firstOrNull()
                         if (q0 != null && panelDragCorner in q0.corners.indices &&
                             panelDragIds.isNotEmpty()
@@ -7477,22 +7544,22 @@ class CanvasTouchView(context: Context) : View(context) {
                             )
                             if (snap != null) {
                                 corners[panelDragCorner] = snap.corner
-                                st.snapGuide = if (snap.guideAxis >= 0) {
-                                    PanelSnapGuide(snap.guideAxis, snap.guideCoord)
+                                st.snapGuides = if (snap.guideAxis >= 0) {
+                                    listOf(PanelSnapGuide(snap.guideAxis, snap.guideCoord))
                                 } else {
-                                    null
+                                    emptyList()
                                 }
                             }
                             st.dragPreviews = listOf(PanelPreviewEntry(panelDragIds[0], PanelQuad(corners)))
                         }
                     }
                     PANEL_DRAG_EDGE_MIDPOINT -> {
-                        st.snapGuide = null
+                        st.snapGuides = emptyList()
                         val q0 = panelDragStartQuads.firstOrNull()
                         if (q0 != null && panelDragEdgeIndex >= 0 && panelDragIds.isNotEmpty()) {
                             val rawDelta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
                             val (snappedQuad, guide) = computeMidpointEdgeSnap(q0, panelDragEdgeIndex, rawDelta, currentScale)
-                            st.snapGuide = guide
+                            st.snapGuides = if (guide != null) listOf(guide) else emptyList()
                             if (snappedQuad != null) {
                                 st.dragPreviews = listOf(PanelPreviewEntry(panelDragIds[0], snappedQuad))
                             }
@@ -7501,7 +7568,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     PANEL_DRAG_EDGE -> {
                         val rawDelta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
                         val (pair, guide) = computeEdgeSnap(rawDelta, currentScale)
-                        st.snapGuide = guide
+                        st.snapGuides = if (guide != null) listOf(guide) else emptyList()
                         st.dragPreviews = if (pair != null) {
                             listOf(
                                 PanelPreviewEntry(panelDragIds[0], pair.first),
@@ -7514,24 +7581,26 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                     PANEL_DRAG_BODY -> {
                         val rawDelta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
-                        val (snappedDelta, guide) = computeBodySnap(rawDelta, currentScale)
-                        st.snapGuide = guide
+                        val (snappedDelta, guides) = computeBodySnap(rawDelta, currentScale)
+                        st.snapGuides = guides
                         st.dragPreviews = panelDragIds.mapIndexed { i, id ->
                             PanelPreviewEntry(id, panelDragStartQuads[i].movedBy(snappedDelta))
                         }
                     }
                     PANEL_DRAG_DIVIDE -> {
-                        st.snapGuide = null
-                        // 预览切线 + 高亮将被切分的格 (纯内存计算, 引擎调用统一留到 UP)
+                        // 预览切线与 UP 共用方向锁; 没锁方向时终点仍贴边框
                         val startDoc = Point2D(panelDragStartDoc.x, panelDragStartDoc.y)
-                        // 切分模式: 预览终点与 UP 同口径吸附到分格边框, 预览线/高亮格集合
-                        // 与实际切分结果一致
-                        val endDoc = snapPointToPanelBorders(Point2D(docPos.x, docPos.y))
-                        st.divideLine = startDoc to endDoc
-                        st.divideHighlightPanelIds = panelDivideHitIds(startDoc, endDoc, currentScale)
+                        val line = resolveDivideLine(startDoc, Point2D(docPos.x, docPos.y), currentScale)
+                        st.divideLine = line.start to line.end
+                        st.divideHighlightPanelIds = panelDivideHitIds(line.start, line.end, currentScale)
+                        st.snapGuides = if (line.guideAxis >= 0) {
+                            listOf(PanelSnapGuide(line.guideAxis, line.guideCoord))
+                        } else {
+                            emptyList()
+                        }
                     }
                     PANEL_DRAG_MARQUEE -> {
-                        st.snapGuide = null
+                        st.snapGuides = emptyList()
                         val left = minOf(panelDragStartDoc.x, docPos.x)
                         val right = maxOf(panelDragStartDoc.x, docPos.x)
                         val top = minOf(panelDragStartDoc.y, docPos.y)
@@ -7539,7 +7608,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         st.marqueeRect = PanelBounds(left, top, right, bottom)
                     }
                     PANEL_DRAG_CREATE -> {
-                        st.snapGuide = null
+                        st.snapGuides = emptyList()
                         st.divideLine = null
                         st.divideHighlightPanelIds = emptySet()
                         val left = minOf(panelDragStartDoc.x, docPos.x)
@@ -7549,7 +7618,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         st.createRect = PanelBounds(left, top, right, bottom)
                     }
                     else -> {
-                        st.snapGuide = null
+                        st.snapGuides = emptyList()
                     }
                 }
             }
@@ -8377,9 +8446,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         }
                         PANEL_DRAG_DIVIDE -> {
                             val startDoc = Point2D(panelDragStartDoc.x, panelDragStartDoc.y)
-                            // 切分模式: 抬笔点同样吸附到分格边线段 (DOWN 已吸附, 两端对齐);
-                            val rawEnd = Point2D(docPos.x, docPos.y)
-                            val endDoc = snapPointToPanelBorders(rawEnd)
+                            val line = resolveDivideLine(startDoc, Point2D(docPos.x, docPos.y), currentScale)
                             // tap/最短切分距离判定用**原始落点** (DOWN 已把起点吸附到边框,
                             // 最多 PANEL_SNAP_TOLERANCE_DP; 用吸附后起点会把拖划距离拉近,
                             // 真实拖线可能被误判成 tap 而丢切分)
@@ -8388,11 +8455,10 @@ class CanvasTouchView(context: Context) : View(context) {
                             if (!rawIsTap &&
                                 rawDist >= (PANEL_CREATE_MIN_DP * density) / currentScale
                             ) {
-                                // 有效拖划 → 切开所有被划过的格 (线段语义, 两端 12dp 延伸兜底;
-                                // 一个撤销宏)。延伸口径与 MOVE 预览共用 panelDivideExtendDocPx
+                                // 有效拖划 → 切开所有被划过的格。方向锁与 MOVE 预览共用 resolveDivideLine
                                 v.dividePanelsByLine(
-                                    startDoc,
-                                    endDoc,
+                                    line.start,
+                                    line.end,
                                     panelDivideExtendDocPx(currentScale),
                                 )
                             }
@@ -8406,11 +8472,10 @@ class CanvasTouchView(context: Context) : View(context) {
                             if (!isTap) {
                                 val snappedDown = snapPointToPanelBorders(Point2D(panelDownRawDoc.x, panelDownRawDoc.y))
                                 val startDoc = Point2D(snappedDown.x, snappedDown.y)
-                                val rawEnd = Point2D(docPos.x, docPos.y)
-                                val endDoc = snapPointToPanelBorders(rawEnd)
+                                val line = resolveDivideLine(startDoc, Point2D(docPos.x, docPos.y), currentScale)
                                 val rawDist = hypot(docPos.x - panelDownRawDoc.x, docPos.y - panelDownRawDoc.y)
                                 if (rawDist >= (PANEL_CREATE_MIN_DP * density) / currentScale) {
-                                    v.dividePanelsByLine(startDoc, endDoc, panelDivideExtendDocPx(currentScale))
+                                    v.dividePanelsByLine(line.start, line.end, panelDivideExtendDocPx(currentScale))
                                 }
                             }
                         }

@@ -37,13 +37,11 @@ import com.reverie.paint.core.panelDefaults
 import com.reverie.paint.core.panelDivideMode
 import com.reverie.paint.core.panelMultiSelectedIds
 import com.reverie.paint.core.duplicatePanel
-import com.reverie.paint.core.panelSharesDraw
 import com.reverie.paint.core.currentPaintingPanelIds
-import com.reverie.paint.core.separatePanelDraw
-import com.reverie.paint.core.findAdjacentPanel
-import com.reverie.paint.core.adjacentPanelIds
-import com.reverie.paint.core.mergePanelDraw
-import com.reverie.paint.core.mergeAllPanelDraws
+import com.reverie.paint.core.adjacentPanelGroupInfo
+import com.reverie.paint.core.canSeparatePanelGroup
+import com.reverie.paint.core.separatePanelToNewGroup
+import com.reverie.paint.core.mergePanelGroup
 import com.reverie.paint.core.deletePanel
 import com.reverie.paint.core.mergePanels
 import com.reverie.paint.core.movePanelZBy
@@ -93,8 +91,8 @@ internal class PanelInteractionState {
     /** 切分高亮格 panelId 集合 (与切线内部相交的格)。 */
     var divideHighlightPanelIds: Set<Long> by mutableStateOf(emptySet())
 
-    /** 吸附参考线 (doc 坐标, 抬起/作废手势时清空)。 */
-    var snapGuide: PanelSnapGuide? by mutableStateOf(null)
+    /** 吸附参考线 (doc 坐标, 抬起/作废手势时清空)。单格居中最多横竖各一条。 */
+    var snapGuides: List<PanelSnapGuide> by mutableStateOf(emptyList())
 
     /** 长按菜单锚点 (画布视图内坐标) 与目标格。 */
     var menuScreenPos: Offset? by mutableStateOf(null)
@@ -107,7 +105,7 @@ internal class PanelInteractionState {
         createRect = null
         divideLine = null
         divideHighlightPanelIds = emptySet()
-        snapGuide = null
+        snapGuides = emptyList()
     }
 
     fun dismissMenu() {
@@ -231,7 +229,7 @@ internal fun DrawScope.drawPanelsOverlay(
     val hasSelection = vm.selectedPanelId != null || vm.panelMultiSelectedIds.isNotEmpty()
     if (mirrors.isEmpty() && !hasSelection &&
         interaction.createRect == null && interaction.marqueeRect == null &&
-        interaction.divideLine == null && interaction.snapGuide == null
+        interaction.divideLine == null && interaction.snapGuides.isEmpty()
     ) {
         return
     }
@@ -264,20 +262,23 @@ internal fun DrawScope.drawPanelsOverlay(
         }
     }
 
-    // 0.5. 非分格工具 (画笔/橡皮等): 四角拖动点绝对不画; 仅当正在画分格画层时以清晰线框勾勒所属全部格子
+    // 0.5. 非分格工具 (画笔/橡皮等): 四角拖动点绝对不画; 保留可绘制区域提醒框
     if (!toolActive) {
         val activePids = vm.currentPaintingPanelIds()
-        if (activePids.isNotEmpty()) {
-            val hintShadowStroke = panelHintShadowStroke
-            for (m in mirrors) {
-                if (m.panelId in activePids) {
-                    val path = panelQuadPath(
-                        m.meta.quad.roundedCorners(panelCornerRadius(m, defaults)),
-                        bmpWidth, bmpHeight, scX, scY,
-                    )
-                    drawPath(path, Color(0x33000000), style = hintShadowStroke)
-                    drawPath(path, PANEL_PAINT_HINT_COLOR, style = selStroke)
-                }
+        val hintShadowStroke = panelHintShadowStroke
+        val safeBoundaryStroke = Stroke(width = (1f * scX).coerceAtLeast(1f))
+        for (m in mirrors) {
+            val path = panelQuadPath(
+                m.meta.quad.roundedCorners(panelCornerRadius(m, defaults)),
+                bmpWidth, bmpHeight, scX, scY,
+            )
+            if (m.panelId in activePids) {
+                // 当前正选中的绘制图层所在格/组: 以高对比莫兰迪强调色勾勒安全作画边界
+                drawPath(path, Color(0x33000000), style = hintShadowStroke)
+                drawPath(path, PANEL_PAINT_HINT_COLOR, style = selStroke)
+            } else {
+                // 其余分格: 绘制极为轻微柔和的虚淡安全界线提醒 (0x38808080)
+                drawPath(path, Color(0x38808080), style = safeBoundaryStroke)
             }
         }
         return
@@ -304,7 +305,7 @@ internal fun DrawScope.drawPanelsOverlay(
         }
         drawPath(linePath, Morandi.accent, style = previewStroke)
     }
-    interaction.snapGuide?.let { guide ->
+    for (guide in interaction.snapGuides) {
         // 吸附线随拖动位置实时变化, Path 必须逐帧重建 (Paint/Stroke 已复用)
         val linePath = Path()
         if (guide.axis == 0) {
@@ -324,7 +325,7 @@ internal fun DrawScope.drawPanelsOverlay(
     // 每格 Path 重建保留: quad 内容与 doc→位图映射 (缩放/平移) 都会变, 缓存失效
     // 管理成本高于新建; Path 是本覆盖层逐帧的主要分配, 但其余一次性对象已清零
     val curSelId = vm.selectedPanelId
-    val curSelDrawId = mirrors.firstOrNull { it.panelId == curSelId }?.meta?.drawId
+    val curSelGroupId = mirrors.firstOrNull { it.panelId == curSelId }?.groupId
     for (m in mirrors) {
         val path = panelQuadPath(
             m.meta.quad.roundedCorners(panelCornerRadius(m, defaults)),
@@ -335,7 +336,7 @@ internal fun DrawScope.drawPanelsOverlay(
                 drawPath(path, Morandi.accent, style = selStroke)
             m.panelId == curSelId ->
                 drawPath(path, Morandi.accent, style = selStroke)
-            curSelDrawId != null && m.meta.drawId == curSelDrawId && vm.panelSharesDraw(m.panelId) ->
+            curSelGroupId != null && m.groupId == curSelGroupId ->
                 drawPath(path, Morandi.accent, style = previewStroke)
             m.panelId in vm.panelMultiSelectedIds ->
                 drawPath(path, PANEL_MULTI_SELECT_COLOR, style = selStroke)
@@ -436,15 +437,6 @@ internal fun PanelLongPressMenu(
                 )
                 if (vm.panelMultiSelectedIds.size >= 2) {
                     ToolFloatChip(
-                        label = stringResource(R.string.panel_menu_merge_layer),
-                        icon = painterResource(R.drawable.ic_link),
-                        onClick = {
-                            val ids = vm.panelMultiSelectedIds
-                            vm.mergeAllPanelDraws(ids)
-                            interaction.dismissMenu()
-                        },
-                    )
-                    ToolFloatChip(
                         label = stringResource(R.string.panel_menu_merge_frame),
                         icon = painterResource(R.drawable.ic_panel_frame),
                         onClick = {
@@ -456,49 +448,51 @@ internal fun PanelLongPressMenu(
                 }
             }
             if (panelId != null) {
-                // 单选态: 画区关联联动与管理
+                // 单选态: 分格组管理 (拆分为独立组 / 上下合并)
                 if (vm.panelMultiSelectedIds.isEmpty()) {
-                    val (prevId, nextId) = vm.adjacentPanelIds(panelId)
                     val curMirror = vm.panels.firstOrNull { it.panelId == panelId }
-                    if (vm.panelSharesDraw(panelId)) {
-                        ToolFloatChip(
-                            label = stringResource(R.string.panel_menu_separate),
-                            icon = painterResource(R.drawable.ic_unlink),
-                            onClick = {
-                                vm.separatePanelDraw(panelId)
-                                interaction.dismissMenu()
-                            },
-                        )
-                    }
-                    if (prevId != null) {
-                        val prevMirror = vm.panels.firstOrNull { it.panelId == prevId }
-                        val alreadyLinked = prevMirror != null && curMirror != null && prevMirror.meta.drawId == curMirror.meta.drawId
-                        if (!alreadyLinked) {
-                            val targetName = prevMirror?.let { p ->
-                                vm.layers.firstOrNull { it.id == p.groupId }?.name
-                            } ?: "格 $prevId"
+                    if (curMirror != null) {
+                        // 1. 拆分为独立组 (当前组拥有 ≥2 个格子时允许拆分)
+                        if (vm.canSeparatePanelGroup(panelId)) {
                             ToolFloatChip(
-                                label = "${stringResource(R.string.panel_menu_link_prev)} ($targetName)",
-                                icon = painterResource(R.drawable.ic_link),
+                                label = stringResource(R.string.panel_menu_separate_group),
+                                icon = painterResource(R.drawable.ic_unlink),
                                 onClick = {
-                                    vm.mergePanelDraw(panelId, prevId)
+                                    vm.separatePanelToNewGroup(panelId)
                                     interaction.dismissMenu()
                                 },
                             )
                         }
-                    }
-                    if (nextId != null) {
-                        val nextMirror = vm.panels.firstOrNull { it.panelId == nextId }
-                        val alreadyLinked = nextMirror != null && curMirror != null && nextMirror.meta.drawId == curMirror.meta.drawId
-                        if (!alreadyLinked) {
-                            val targetName = nextMirror?.let { p ->
-                                vm.layers.firstOrNull { it.id == p.groupId }?.name
-                            } ?: "格 $nextId"
+                        // 2. 合并到上一组 / 合并到下一组
+                        val (prevGId, nextGId) = vm.adjacentPanelGroupInfo(panelId)
+                        if (prevGId != null) {
+                            val prevName = vm.layers.firstOrNull { it.id == prevGId }?.name
+                            val label = if (prevName != null) {
+                                "${stringResource(R.string.panel_menu_merge_above)} ($prevName)"
+                            } else {
+                                stringResource(R.string.panel_menu_merge_above)
+                            }
                             ToolFloatChip(
-                                label = "${stringResource(R.string.panel_menu_link_next)} ($targetName)",
+                                label = label,
                                 icon = painterResource(R.drawable.ic_link),
                                 onClick = {
-                                    vm.mergePanelDraw(panelId, nextId)
+                                    vm.mergePanelGroup(curMirror.groupId, prevGId)
+                                    interaction.dismissMenu()
+                                },
+                            )
+                        }
+                        if (nextGId != null) {
+                            val nextName = vm.layers.firstOrNull { it.id == nextGId }?.name
+                            val label = if (nextName != null) {
+                                "${stringResource(R.string.panel_menu_merge_below)} ($nextName)"
+                            } else {
+                                stringResource(R.string.panel_menu_merge_below)
+                            }
+                            ToolFloatChip(
+                                label = label,
+                                icon = painterResource(R.drawable.ic_link),
+                                onClick = {
+                                    vm.mergePanelGroup(curMirror.groupId, nextGId)
                                     interaction.dismissMenu()
                                 },
                             )

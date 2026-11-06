@@ -838,14 +838,8 @@ internal fun LayerRowContent(
                                 tint = Morandi.accent,
                                 modifier = Modifier.size(9.dp),
                             )
-                            val peerDesc = vm.panelSharedPeersDescription(panelId)
-                            val badgeLabel = if (!peerDesc.isNullOrEmpty()) {
-                                stringResource(R.string.panel_badge_shared_with, peerDesc)
-                            } else {
-                                stringResource(R.string.panel_badge_shared)
-                            }
                             Text(
-                                text = badgeLabel,
+                                text = stringResource(R.string.panel_badge_shared),
                                 color = Morandi.accent,
                                 fontSize = 9.sp,
                                 fontWeight = FontWeight.Bold,

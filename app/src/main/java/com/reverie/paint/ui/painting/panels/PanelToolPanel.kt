@@ -41,9 +41,13 @@ import com.reverie.paint.core.applyPanelDefaults
 import com.reverie.paint.core.panelDefaults
 import com.reverie.paint.core.panelDivideMode
 import com.reverie.paint.core.panelMultiSelectedIds
+import com.reverie.paint.core.panelSnapAxis
+import com.reverie.paint.core.panelSnapPageCenter
 import com.reverie.paint.core.panels
 import com.reverie.paint.core.selectedPanelId
 import com.reverie.paint.core.setPanelDivideMode
+import com.reverie.paint.core.setPanelSnapAxis
+import com.reverie.paint.core.setPanelSnapPageCenter
 import com.reverie.paint.core.updatePanelStyle
 import com.reverie.paint.model.PanelStyle
 import com.reverie.paint.ui.theme.Morandi
@@ -192,6 +196,33 @@ private fun PanelPropertiesSection(vm: PaintViewModel, mirror: PanelMirror?) {
                 if (vGapDraft != d.vGap) vm.applyPanelDefaults(d.copy(vGap = vGapDraft))
             },
         )
+        Text(
+            text = stringResource(R.string.panel_gap_hint),
+            color = Morandi.subText,
+            fontSize = 10.sp,
+        )
+        val divideMode = vm.panelDivideMode
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(
+                    if (divideMode) R.string.panel_snap_axis else R.string.panel_snap_page_center,
+                ),
+                color = Morandi.subText,
+                fontSize = 12.sp,
+                modifier = Modifier.weight(1f),
+            )
+            Switch(
+                checked = if (divideMode) vm.panelSnapAxis else vm.panelSnapPageCenter,
+                onCheckedChange = { on ->
+                    if (divideMode) vm.setPanelSnapAxis(on) else vm.setPanelSnapPageCenter(on)
+                },
+                colors = MorandiSwitchColors(),
+            )
+        }
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,

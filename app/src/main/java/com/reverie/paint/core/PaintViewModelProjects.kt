@@ -516,8 +516,10 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             // 折叠状态要等图层表同步后再还原 (见下方 syncLayersFromNative 之后)
             // 只在加载成功后交出方向；无记录时 pending 为 null，走默认横向。
             pendingCanvasOrientation = loadedCanvasOrientation
+            // 先清空上一份文档的全部分格会话镜像 (含 panelCrossMaskStamp 等跨格缓存),
+            // 再还原本工程的折叠状态与分格默认值
+            resetPanelSessionState()
             collapsedPanelIds = loadedCollapsedPanels
-            resetPanelDefaultCollapse()
             panelDefaults = loadedPanelDefaults ?: DEFAULT_PANEL_DEFAULTS
             initialStrokeCount = p.strokeCount
             totalStrokes = p.strokeCount
@@ -1596,6 +1598,8 @@ internal fun PaintViewModel.goHome() {
     stopPaintingTimer()
     // 动画播放与状态镜像: 离开绘画页彻底停止并重置动画状态, 避免耗电和跨画布状态残留
     resetAnimationState()
+    // 分格镜像同样是文档级缓存: 回主页即清, 下次进入任何画布都不会残留旧格框
+    resetPanelSessionState()
     // 释放 native 文档: g_core 是进程级单例, 不释放则旧 KisImage (所有图层
     // tile) 一直驻留内存, 重新打开时新旧文档共存推高峰值内存 (大文档被 LMK
     // 杀进程)。排队到渲染线程, FIFO 保证已排队的引擎操作先完成; 之后残留的
@@ -1747,8 +1751,9 @@ internal fun PaintViewModel.startPainting(
                 resetAnimationState()
             }
             collapsedGroupKeys = emptySet()
-            collapsedPanelIds = emptySet()
-            resetPanelDefaultCollapse()
+            // 新文档无分格树: 清空旧文档的全部分格会话镜像, 避免旧格框残留在新画布
+            resetPanelSessionState()
+            refreshPanels()
             active3DLayers = emptyMap()
             show3DPosePanel = false
         },

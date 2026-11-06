@@ -1,8 +1,11 @@
 /* SPDX-License-Identifier: GPL-3.0-or-later */
 package com.reverie.paint.model
 
+import kotlin.math.PI
 import kotlin.math.abs
+import kotlin.math.atan2
 import kotlin.math.hypot
+import kotlin.math.min
 import kotlin.math.sin
 
 /**
@@ -776,6 +779,102 @@ fun axisSnapCandidates(
 }
 
 /**
+ * 切分拖刀的结果。guideAxis：-1 没锁方向，0 竖线，1 横线。
+ * 只锁水平/垂直，不居中。
+ */
+data class DivideLineSnap(
+    val start: Point2D,
+    val end: Point2D,
+    val guideAxis: Int,
+    val guideCoord: Float,
+)
+
+/**
+ * 切线方向锁。手指方向与水平或垂直相差不超过 [angleToleranceRad] 时，
+ * 终点锁成水平或垂直；锁定坐标穿过 [targets] 的包围盒时，把线段拉到这些盒子的对边再外扩 1px。
+ * 没锁方向时原样返回手指终点，不延伸。不读间隔，也不吸中线。
+ */
+fun snapDivideLine(
+    start: Point2D,
+    finger: Point2D,
+    targets: List<PanelQuad>,
+    angleToleranceRad: Float,
+): DivideLineSnap {
+    if (!start.x.isFinite() || !start.y.isFinite() || !finger.x.isFinite() || !finger.y.isFinite()) {
+        return DivideLineSnap(start, finger, -1, 0f)
+    }
+    if (!angleToleranceRad.isFinite() || angleToleranceRad <= 0f) {
+        return DivideLineSnap(start, finger, -1, 0f)
+    }
+    val dx = finger.x - start.x
+    val dy = finger.y - start.y
+    if (hypot(dx, dy) < MIN_EDGE_EPS) return DivideLineSnap(start, finger, -1, 0f)
+    val absAng = abs(atan2(dy.toDouble(), dx.toDouble()))
+    val toHorizontal = min(absAng, PI - absAng)
+    val toVertical = abs(absAng - PI / 2.0)
+    val lockHorizontal = toHorizontal <= angleToleranceRad
+    val lockVertical = toVertical <= angleToleranceRad
+    if (!lockHorizontal && !lockVertical) return DivideLineSnap(start, finger, -1, 0f)
+    val vertical = lockVertical && (!lockHorizontal || toVertical < toHorizontal)
+    return if (vertical) {
+        val crossed = targets.filter { q ->
+            val b = q.bounds()
+            start.x >= b.left && start.x <= b.right
+        }
+        val (y0, y1) = if (crossed.isEmpty()) {
+            start.y to finger.y
+        } else {
+            val top = crossed.minOf { it.bounds().top } - 1f
+            val bottom = crossed.maxOf { it.bounds().bottom } + 1f
+            top to bottom
+        }
+        DivideLineSnap(Point2D(start.x, y0), Point2D(start.x, y1), 0, start.x)
+    } else {
+        val crossed = targets.filter { q ->
+            val b = q.bounds()
+            start.y >= b.top && start.y <= b.bottom
+        }
+        val (x0, x1) = if (crossed.isEmpty()) {
+            start.x to finger.x
+        } else {
+            val left = crossed.minOf { it.bounds().left } - 1f
+            val right = crossed.maxOf { it.bounds().right } + 1f
+            left to right
+        }
+        DivideLineSnap(Point2D(x0, start.y), Point2D(x1, start.y), 1, start.y)
+    }
+}
+
+/**
+ * 单格相对整页的居中候选。竖直中线对 [pageWidth]/2，水平中线对 [pageHeight]/2。
+ * 两轴各自独立，超出 [tolerance] 的轴不产生候选。不看邻格，也不读间隔。
+ */
+fun pageCenterSnapCandidates(
+    moving: PanelQuad,
+    pageWidth: Float,
+    pageHeight: Float,
+    tolerance: Float,
+): List<PanelSnapCandidate> {
+    if (!tolerance.isFinite() || tolerance < 0f) return emptyList()
+    if (!pageWidth.isFinite() || pageWidth <= 0f || !pageHeight.isFinite() || pageHeight <= 0f) return emptyList()
+    if (moving.corners.any { !it.x.isFinite() || !it.y.isFinite() }) return emptyList()
+    if (moving.area() < DEGENERATE_AREA_EPS) return emptyList()
+    val c = moving.centroid()
+    val out = ArrayList<PanelSnapCandidate>(2)
+    val pageCx = pageWidth / 2f
+    val pageCy = pageHeight / 2f
+    val dx = pageCx - c.x
+    if (abs(dx) <= tolerance) {
+        out.add(PanelSnapCandidate(Point2D(dx, 0f), guideAxis = 0, guideCoord = pageCx))
+    }
+    val dy = pageCy - c.y
+    if (abs(dy) <= tolerance) {
+        out.add(PanelSnapCandidate(Point2D(0f, dy), guideAxis = 1, guideCoord = pageCy))
+    }
+    return out
+}
+
+/**
  * 整边平行吸附候选 (斜边版 gutter 对齐)。
  *
  * 被拖边 [draggedEdgeIndex] (整边拖拽中角度不变) 与某邻格边方向差 < [angleToleranceRad]
@@ -1087,6 +1186,10 @@ fun PanelMeta.toJson(): String {
  */
 fun parsePanelMeta(json: String): PanelMeta? {
     val root = PanelJsonParser.parse(json) as? PanelJsonObject ?: return null
+    return parsePanelMetaFromObject(root)
+}
+
+private fun parsePanelMetaFromObject(root: PanelJsonObject): PanelMeta? {
     val panelId = (root.fields["panelId"] as? PanelJsonNumber)?.raw?.toLongOrNull() ?: return null
     val cropEnabled = (root.fields["cropEnabled"] as? PanelJsonBoolean)?.value ?: return null
     val quadObj = root.fields["quad"] as? PanelJsonObject ?: return null
@@ -1120,6 +1223,40 @@ fun parsePanelMeta(json: String): PanelMeta? {
         else -> return null
     }
     return PanelMeta(PanelQuad(corners), style, cropEnabled, panelId, drawId)
+}
+
+/**
+ * 反序列化分格组内的一组分格元数据。支持 `{"panels":[...]}` 阵列，同时向下兼容单格 `{"panelId":...}` 结构。
+ */
+fun parsePanelMetas(json: String): List<PanelMeta> {
+    if (json.isBlank()) return emptyList()
+    val root = PanelJsonParser.parse(json) as? PanelJsonObject ?: return emptyList()
+    val panelsArr = root.fields["panels"] as? PanelJsonArray
+    if (panelsArr != null) {
+        val list = ArrayList<PanelMeta>(panelsArr.items.size)
+        for (item in panelsArr.items) {
+            val obj = item as? PanelJsonObject ?: continue
+            parsePanelMetaFromObject(obj)?.let { list.add(it) }
+        }
+        if (list.isNotEmpty()) return list
+    }
+    val single = parsePanelMetaFromObject(root)
+    return if (single != null) listOf(single) else emptyList()
+}
+
+/**
+ * 序列化分格组内的一组分格元数据。
+ */
+fun serializePanelMetas(panels: List<PanelMeta>): String {
+    if (panels.isEmpty()) return ""
+    val sb = StringBuilder(256 * panels.size)
+    sb.append("{\"panels\":[")
+    panels.forEachIndexed { i, p ->
+        if (i > 0) sb.append(',')
+        sb.append(p.toJson())
+    }
+    sb.append("]}")
+    return sb.toString()
 }
 
 /** 手写极简 JSON 值模型 (仅覆盖分格元数据用到的类型)。 */

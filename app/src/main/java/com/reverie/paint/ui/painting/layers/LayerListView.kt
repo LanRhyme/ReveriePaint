@@ -210,7 +210,9 @@ internal fun LayerListView(
                     if (vm.layers[j].depth == parentDepth + 1) siblings.add(j)
                 }
                 for (j in siblings.reversed()) {
-                    if (vm.isPanelTreeHidden(j) || vm.panelCropStateFor(j) != null) continue
+                    // 分格裁剪蒙版必须留下: 浮窗已没有裁剪开关, 只有这一行的眼睛能 setPanelCrop。
+                    // 填充/边框和跨格容器仍由 isPanelTreeHidden 收掉。
+                    if (vm.isPanelTreeHidden(j)) continue
                     val c = vm.layers[j]
                     out.add(c)
                     // 分格组与普通组统一遵循折叠状态 (groupRowCollapsed)
@@ -1081,8 +1083,13 @@ internal fun LayerListView(
                                     vm.cancelSoloIfSwitchingLayer()
                                     selectedIndex = layer.index
                                     vm.selectedPanelId = panelId
+                                    vm.currentToolId = "panel"
                                     val content = vm.panelContentLayerIndex(panelId)
                                     if (content >= 0) vm.setCurrentLayer(content)
+                                } else if (layer.index == vm.panelRootGroupIdx) {
+                                    vm.cancelSoloIfSwitchingLayer()
+                                    selectedIndex = layer.index
+                                    vm.currentToolId = "panel"
                                 } else if (layer.index == selectedIndex) {
                                     onOpenDetail(layer.index)
                                 } else {

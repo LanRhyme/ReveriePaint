@@ -4556,6 +4556,7 @@ class PaintViewModel : ViewModel() {
             quickSliderHeightDp = prefs.getInt("quickSliderHeightDp", 175).coerceIn(100, 260)
             toolbarSqueezedWarningDismissed = prefs.getBoolean("toolbarSqueezedWarningDismissed", false)
             panelPinningEnabled = prefs.getBoolean("panelPinningEnabled", false)
+            loadPanelSnapPrefs()
             layerHeaderInheritAlpha = prefs.getBoolean("layerHeaderInheritAlpha", false)
             drawingGuideLinesVisible = prefs.getBoolean("drawing_guide_lines_visible", true)
             leftHandMode = prefs.getBoolean("leftHandMode", false)
