@@ -158,6 +158,17 @@ object RecordingEvents {
     const val T_ENCLOSE_FILL = 48 // count u16, points x/y f32[], tol u16, merged u8, expand i16, feather u16, closeGap u16, method u8, color u32, incContour u8
     const val T_PRESET_SELECT_V2 = 50 // idx u16 (0xFFFF 哨兵), name str, presetId str, 有效字节 md5 str（W-12，v2 管理的预设）
     const val T_GRADIENT_V3 = 49 // x1..y2 f32, type u8, repeat u8, reverse u8, opacity f32, dither u8, blendMode str, count u16, stops (pos f32, color u32)...
+
+    /**
+     * 会话边界: 每次 [PaintRecorder.beginSession] (新建画布 / 打开工程) 作为该会话的
+     * 第一条事件发出。payload: undoLimit u16。
+     *
+     * 为什么必须记: 撤销栈不跨会话 (打开工程 = 全新栈), 而录制是**跨会话累积**的。
+     * 回放若把整段录制灌进同一个撤销栈, 后面每个 T_UNDO/T_REDO 都会命中与当时
+     * 不同的命令 —— 轻则少画几笔, 重则整层内容被回退掉 (issue: 复杂作品回放
+     * "内容缺失 / 各种形状乱入"。定位方法见 scripts/replay-verify.py)。
+     */
+    const val T_SESSION_START = 51 // undoLimit u16
 }
 
 /** Growable byte sink with little-endian primitive writers. */

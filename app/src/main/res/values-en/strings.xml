@@ -1982,6 +1982,7 @@
     <string name="replay_title_with_doc">Replay · %s</string>
     <string name="replay_preparing_canvas">Preparing canvas...</string>
     <string name="replay_playing_status">Playing</string>
+    <string name="replay_seeking">Seeking…</string>
     <string name="replay_restart">Play from Start</string>
     <string name="replay_custom_speed_title">Custom Speed</string>
     <string name="contributors_title">Contributors</string>

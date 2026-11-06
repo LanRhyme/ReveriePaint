@@ -108,6 +108,7 @@ class PaintRecorder {
         snapshotSource: File?,
         snapshotTempDir: File,
         prior: ParsedRecording? = null,
+        undoLimit: Int = 0,
     ) {
         endSession()
         lastPatternPng = null
@@ -119,6 +120,11 @@ class PaintRecorder {
         lastEventMs = android.os.SystemClock.elapsedRealtime()
         sessionStartMs = lastEventMs
         android.util.Log.d("ReverieRec", "beginSession w=$w h=$h snap=${snapshotSource != null} prior=${prior != null}")
+        // 本会话第一条事件: 会话边界 (回放据此重置撤销栈, 与"打开工程=新栈"一致)
+        emit(com.reverie.paint.model.RecordingEvents.TOOL_OP) { b ->
+            b.u8(com.reverie.paint.model.RecordingEvents.T_SESSION_START)
+            b.u16(undoLimit.coerceIn(0, 0xFFFF))
+        }
         lastToolMode = -2
         lastPreset = -2
         lastSize = Double.NaN
@@ -137,7 +143,23 @@ class PaintRecorder {
                 priorTotalMs = if (priorEvents != null) prior.totalMs else 0L
             }
             val snap = prior.snapshot
-            if (snap != null && snap.isNotEmpty()) {
+            if (snap == null || snap.isEmpty()) {
+                // 历史链里没有快照 = 这段历史无法被忠实回放 (回放只能从空白画布重建,
+                // 而当时的编辑依赖更早的文档状态与撤销栈)。以前这里什么都不做, 于是
+                // "没有快照" 会一直传染下去: 之后每次保存都还是没有快照, 回放永远缺内容。
+                // 现在改成**断开历史链、用当前工程文件重新锚定**: 丢掉无法复现的旧事件,
+                // 让回放从"现在的画面"开始, 之后每一笔都忠实。
+                synchronized(ioLock) {
+                    priorEvents = null
+                    priorEventCount = 0
+                    priorTotalMs = 0L
+                }
+                android.util.Log.i(
+                    "ReveriePaint",
+                    "recording prior chain dropped (no snapshot): re-anchor with current file",
+                )
+                copySnapshotFrom(snapshotSource, snapshotTempDir)
+            } else {
                 try {
                     snapshotTempDir.mkdirs()
                     // Keep the extension consistent with the source format so
@@ -156,25 +178,29 @@ class PaintRecorder {
                     snapshotFile = null
                 }
             }
-        } else if (snapshotSource != null && snapshotSource.exists() && snapshotSource.length() > 0) {
-            try {
-                // 超大工程文件 (>64MB) 跳过全量落盘复制作为录制快照, 避免在打开大工程时发生磁盘与内存争抢
-                if (snapshotSource.length() <= 64L * 1024 * 1024) {
-                    snapshotTempDir.mkdirs()
-                    val ext = snapshotSource.extension
-                    val target = File.createTempFile("initial-", if (ext.isEmpty()) null else ".$ext", snapshotTempDir)
-                    snapshotSource.inputStream().use { i ->
-                        target.outputStream().use { o -> i.copyTo(o, 64 * 1024) }
-                    }
-                    snapshotFile = target
-                } else {
-                    android.util.Log.i("ReveriePaint", "recording snapshot skipped for oversized file: ${snapshotSource.length()} bytes")
-                    snapshotFile = null
-                }
-            } catch (t: Throwable) {
-                android.util.Log.e("ReveriePaint", "recording snapshot copy failed", t)
+        } else {
+            copySnapshotFrom(snapshotSource, snapshotTempDir)
+        }
+    }
+
+    /** 把工程文件复制成录制快照 (回放起点)。[source] 为空/过大/复制失败时保持无快照。 */
+    private fun copySnapshotFrom(source: File?, dir: File) {
+        if (source == null || !source.exists() || source.length() <= 0L) return
+        try {
+            // 超大工程文件 (>64MB) 跳过全量落盘复制, 避免打开大工程时磁盘与内存争抢
+            if (source.length() > 64L * 1024 * 1024) {
+                android.util.Log.i("ReveriePaint", "recording snapshot skipped for oversized file: ${source.length()} bytes")
                 snapshotFile = null
+                return
             }
+            dir.mkdirs()
+            val ext = source.extension
+            val target = File.createTempFile("initial-", if (ext.isEmpty()) null else ".$ext", dir)
+            source.inputStream().use { i -> target.outputStream().use { o -> i.copyTo(o, 64 * 1024) } }
+            snapshotFile = target
+        } catch (t: Throwable) {
+            android.util.Log.e("ReveriePaint", "recording snapshot copy failed", t)
+            snapshotFile = null
         }
     }
 

@@ -1982,6 +1982,7 @@
     <string name="replay_title_with_doc">回放 · %s</string>
     <string name="replay_preparing_canvas">正在准备画布...</string>
     <string name="replay_playing_status">回放中</string>
+    <string name="replay_seeking">定位中…</string>
     <string name="replay_restart">从头播放</string>
     <string name="replay_custom_speed_title">自定义播放倍速</string>
     <string name="contributors_title">贡献者</string>

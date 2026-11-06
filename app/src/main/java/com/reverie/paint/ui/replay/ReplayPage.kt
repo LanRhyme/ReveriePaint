@@ -105,6 +105,9 @@ private class CreateReplayDocWithMime : ActivityResultContract<Pair<String, Stri
  * canvas. The engine (C++ document + render pipeline) is reused as-is; the
  * page only renders vm.displayBitmap and drives playback via the ViewModel.
  */
+/** 回放自定义速率上限 (预设最高 128x, 自定义允许到 512x) */
+private const val MAX_REPLAY_SPEED = 512f
+
 @Composable
 fun ReplayPage(vm: PaintViewModel) {
     val colors = Theme.current
@@ -120,7 +123,10 @@ fun ReplayPage(vm: PaintViewModel) {
     var resumeAfterSeek by remember { mutableStateOf(false) }
     var showCustomSpeedDialog by remember { mutableStateOf(false) }
     var showExportDialog by remember { mutableStateOf(false) }
-    val presetSpeeds = remember { listOf(0.5f, 1f, 2f, 4f, 8f, 16f, 32f) }
+    // 定位 (seek) 在渲染线程上是一次完整重放, 大工程要几秒; 期间给个明确反馈,
+    // 否则拖动条撒手后画面纹丝不动, 看起来像"拖了没用"
+    var seekPending by remember { mutableStateOf(false) }
+    val presetSpeeds = remember { listOf(0.5f, 1f, 2f, 4f, 8f, 16f, 32f, 64f, 128f) }
 
     LaunchedEffect(canvasW, canvasH) {
         if (canvasW > 0 && canvasH > 0) {
@@ -300,7 +306,9 @@ fun ReplayPage(vm: PaintViewModel) {
                                     val target = dragProgress
                                     if (target >= 0f) {
                                         // seek 完成前保持显示拖到的位置, 避免滑块弹回旧进度
+                                        seekPending = true
                                         vm.seekReplay(target) { applied ->
+                                            seekPending = false
                                             if (!isDragging) {
                                                 dragProgress = -1f
                                                 if (applied && resumeAfterSeek) {
@@ -333,6 +341,20 @@ fun ReplayPage(vm: PaintViewModel) {
                     }
                 }
             }
+        }
+    }
+
+    if (seekPending) {
+        Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+            Text(
+                text = stringResource(R.string.replay_seeking),
+                color = colors.onAccent,
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(colors.accent.copy(alpha = 0.86f))
+                    .padding(horizontal = 14.dp, vertical = 7.dp),
+            )
         }
     }
 
@@ -890,7 +912,7 @@ private fun CustomSpeedDialog(
             }
         )
     }
-    var sliderValue by remember { mutableFloatStateOf(initialSpeed.coerceIn(0.1f, 128f)) }
+    var sliderValue by remember { mutableFloatStateOf(initialSpeed.coerceIn(0.1f, MAX_REPLAY_SPEED)) }
 
     Dialog(onDismissRequest = onDismiss) {
         Box(
@@ -924,7 +946,7 @@ private fun CustomSpeedDialog(
                         onValueChange = { str ->
                             textValue = str
                             str.toFloatOrNull()?.let {
-                                if (it in 0.1f..128f) sliderValue = it
+                                if (it in 0.1f..MAX_REPLAY_SPEED) sliderValue = it
                             }
                         },
                         textStyle =
@@ -945,7 +967,7 @@ private fun CustomSpeedDialog(
                 }
                 Spacer(Modifier.height(14.dp))
                 ReSlider(
-                    value = sliderValue.coerceIn(0.5f, 64f),
+                    value = sliderValue.coerceIn(0.5f, MAX_REPLAY_SPEED),
                     onValue = {
                         sliderValue = it
                         textValue =
@@ -992,7 +1014,7 @@ private fun CustomSpeedDialog(
                         primary = true,
                         onClick = {
                             val v = textValue.toFloatOrNull() ?: sliderValue
-                            onConfirm(v.coerceIn(0.1f, 128f))
+                            onConfirm(v.coerceIn(0.1f, MAX_REPLAY_SPEED))
                         },
                     )
                 }

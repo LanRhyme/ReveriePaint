@@ -498,11 +498,12 @@ internal fun PaintViewModel.resetReplayDocLocked(
         setRenderViewport(coreW, coreH)
         ReverieCoreBridge.touchStrokeCancel()
         ReverieCoreBridge.resetStrokeCounter()
-        // 回放期间不设撤销步数限制(0 = 无限): 回放严格重放笔画和 T_UNDO/T_REDO，
-        // 若使用常规 50 步上限，超过 50 步后旧命令从栈底被截断淘汰并调用 purgeHistory()，
-        // 后续遇到录制流中的 T_REDO 时将访问已损坏的 Memento 导致 SIGABRT 闪退。
+        // 撤销上限先按当前设置来 (旧录制没有会话边界事件, 至少与常规行为一致);
+        // 录制里带 T_SESSION_START 时, 每个会话边界会再精确套用当时的值 + 清栈 ——
+        // 撤销栈不跨会话, 而录制是跨会话累积的, 只有边界处清栈才能让
+        // 每个 T_UNDO/T_REDO 命中的命令与当时一致 (否则复杂作品回放会掉内容)。
         // 退出回放时在 exitReplay() 中恢复正常 maxUndoSteps 并清空栈。
-        ReverieCoreBridge.setUndoLimit(0)
+        ReverieCoreBridge.setUndoLimit(maxUndoSteps)
         ReverieCoreBridge.setUndoCaptureEnabled(true)
         ReverieCoreBridge.clearUndoHistory()
         // Paint the initial frame right away so the canvas isn't stale
@@ -520,10 +521,16 @@ internal fun PaintViewModel.seekLocked(
 ) {
     val f = fraction.coerceIn(0f, 1f)
     val target = ReplayTimeline.targetMsFor(f, s.totalMs)
-    resetReplayDocLocked(s)
     val r = s.reader
-    r.pos = 0
-    s.currentMs = 0
+    // 只往回拖才需要重载快照。往后拖可以直接从当前状态继续快进 —— 以前每次都
+    // resetReplayDocLocked (整个工程重新 loadRevp), 大工程一次 seek 就是十几秒,
+    // 用户感觉"拖动条根本没用" (issue: 回放的拖动条没用)。
+    val backward = target < s.currentMs
+    if (backward) {
+        resetReplayDocLocked(s)
+        r.pos = 0
+        s.currentMs = 0
+    }
     // Seeking to 100% must include every event at the final timestamp as well.
     // Seek fast-forwards the document state only: per-event renders are
     // suppressed (one immediate render at the end), otherwise dragging
@@ -723,6 +730,7 @@ internal fun skipReplayEventPayload(
                     val n = r.u16()
                     r.skip(n * 2)
                 }
+                com.reverie.paint.model.RecordingEvents.T_SESSION_START -> r.skip(2) // undoLimit u16
                 // 未知子类型：payload 长度不可知，继续往下读一定错位（且不会报错）。
                 // 明确失败好过静默算错——effectiveTotalMs 会降级为 -1，导出走 onError。
                 else -> unknownReplayEvent("tool_op", op)
@@ -1529,6 +1537,16 @@ private fun PaintViewModel.dispatchToolOpLocked(
             // recordings never contain this event)
             val n = r.u16()
             pendingReplayLayers = if (n > 0) IntArray(n) { r.u16() } else null
+        }
+
+        com.reverie.paint.model.RecordingEvents.T_SESSION_START -> {
+            // 会话边界: 撤销栈不跨会话 (打开工程 = 全新栈), 而录制是跨会话累积的。
+            // 回放这里必须同样清栈并套用录制时的撤销上限, 否则后续每个 T_UNDO/T_REDO
+            // 都会命中与当时不同的命令 —— 轻则少几笔, 重则整层内容被回退掉
+            // (issue: 复杂作品回放内容缺失/乱入; 诊断工具 scripts/replay-verify.py)。
+            val limit = r.u16()
+            ReverieCoreBridge.clearUndoHistory()
+            ReverieCoreBridge.setUndoLimit(limit)
         }
 
         T_SHAPE_STROKE_WIDTH -> {
