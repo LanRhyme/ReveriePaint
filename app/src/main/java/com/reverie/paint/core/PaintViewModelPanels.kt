@@ -577,15 +577,8 @@ internal fun PaintViewModel.isRepresentativePanel(panelId: Long): Boolean {
     return firstWithDrawId.panelId == panelId
 }
 
-/** 为分格组行生成图层显示标题。未关联返回 null (沿用原名), 关联多格返回「原名 🔗」。 */
-internal fun PaintViewModel.drawUnitTitleForPanelGroup(layerIndex: Int): String? {
-    val pid = panelIdForGroupRow(layerIndex) ?: return null
-    if (panelSharesDraw(pid)) {
-        val baseName = layers.getOrNull(layerIndex)?.name ?: "格 $pid"
-        return "$baseName 🔗"
-    }
-    return null
-}
+/** 为分格组行生成图层显示标题 (保持原名，关联状态由 LayerRow 的矢量徽标呈现)。 */
+internal fun PaintViewModel.drawUnitTitleForPanelGroup(layerIndex: Int): String? = null
 
 /** [targetIdx] 是否落在 [groupIdx] 子树内 (含自身); 读 UI 镜像, 零 JNI 零分配。 */
 internal fun PaintViewModel.isInGroupSubtree(groupIdx: Int, targetIdx: Int): Boolean {

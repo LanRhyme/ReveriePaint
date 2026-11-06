@@ -24,6 +24,7 @@ import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
+import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
@@ -432,6 +433,7 @@ internal fun PanelLongPressMenu(
                 if (vm.panelMultiSelectedIds.size >= 2) {
                     ToolFloatChip(
                         label = stringResource(R.string.panel_menu_merge_layer),
+                        icon = painterResource(R.drawable.ic_link),
                         onClick = {
                             val ids = vm.panelMultiSelectedIds
                             vm.mergeAllPanelDraws(ids)
@@ -440,6 +442,7 @@ internal fun PanelLongPressMenu(
                     )
                     ToolFloatChip(
                         label = stringResource(R.string.panel_menu_merge_frame),
+                        icon = painterResource(R.drawable.ic_panel_frame),
                         onClick = {
                             val ids = vm.panelMultiSelectedIds
                             vm.mergePanels(ids)
@@ -456,6 +459,7 @@ internal fun PanelLongPressMenu(
                     if (vm.panelSharesDraw(panelId)) {
                         ToolFloatChip(
                             label = stringResource(R.string.panel_menu_separate),
+                            icon = painterResource(R.drawable.ic_unlink),
                             onClick = {
                                 vm.separatePanelDraw(panelId)
                                 interaction.dismissMenu()
@@ -468,6 +472,7 @@ internal fun PanelLongPressMenu(
                         if (!alreadyLinked) {
                             ToolFloatChip(
                                 label = stringResource(R.string.panel_menu_link_prev),
+                                icon = painterResource(R.drawable.ic_link),
                                 onClick = {
                                     vm.mergePanelDraw(panelId, prevId)
                                     interaction.dismissMenu()
@@ -481,6 +486,7 @@ internal fun PanelLongPressMenu(
                         if (!alreadyLinked) {
                             ToolFloatChip(
                                 label = stringResource(R.string.panel_menu_link_next),
+                                icon = painterResource(R.drawable.ic_link),
                                 onClick = {
                                     vm.mergePanelDraw(panelId, nextId)
                                     interaction.dismissMenu()
@@ -490,17 +496,19 @@ internal fun PanelLongPressMenu(
                     }
                 }
                 ToolFloatChip(
-                    label = stringResource(R.string.panel_menu_delete),
-                    danger = true,
+                    label = stringResource(R.string.panel_menu_duplicate),
+                    icon = painterResource(R.drawable.ic_copy),
                     onClick = {
-                        vm.deletePanel(panelId)
+                        vm.duplicatePanel(panelId)
                         interaction.dismissMenu()
                     },
                 )
                 ToolFloatChip(
-                    label = stringResource(R.string.panel_menu_duplicate),
+                    label = stringResource(R.string.panel_menu_delete),
+                    icon = painterResource(R.drawable.ic_trash),
+                    danger = true,
                     onClick = {
-                        vm.duplicatePanel(panelId)
+                        vm.deletePanel(panelId)
                         interaction.dismissMenu()
                     },
                 )

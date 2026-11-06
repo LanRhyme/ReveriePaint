@@ -706,6 +706,7 @@ internal fun LayerRowContent(
                         modifier = Modifier.fillMaxSize(),
                     )
                 } else if (layer.isGroup) {
+                    val isPanel = vm.panelIdForGroupRow(layer.index) != null
                     Box(
                         modifier = Modifier
                             .fillMaxSize()
@@ -713,8 +714,8 @@ internal fun LayerRowContent(
                         contentAlignment = Alignment.Center,
                     ) {
                         Icon(
-                            painterResource(R.drawable.ic_folder),
-                            contentDescription = stringResource(R.string.layer_add_group),
+                            painterResource(if (isPanel) R.drawable.ic_panel_frame else R.drawable.ic_folder),
+                            contentDescription = stringResource(if (isPanel) R.string.tool_panel else R.string.layer_add_group),
                             tint = Morandi.accent,
                             modifier = Modifier.size(18.dp),
                         )
@@ -817,6 +818,33 @@ internal fun LayerRowContent(
                             fontSize = 9.sp,
                             fontWeight = FontWeight.Bold,
                         )
+                    }
+                }
+                val panelId = vm.panelIdForGroupRow(layer.index)
+                if (panelId != null && vm.panelSharesDraw(panelId)) {
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(Morandi.accent.copy(alpha = 0.16f))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(2.dp),
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_link),
+                                contentDescription = stringResource(R.string.panel_badge_shared),
+                                tint = Morandi.accent,
+                                modifier = Modifier.size(9.dp),
+                            )
+                            Text(
+                                text = stringResource(R.string.panel_badge_shared),
+                                color = Morandi.accent,
+                                fontSize = 9.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                     }
                 }
                 val panelTitle = vm.drawUnitTitleForPanelGroup(layer.index)
