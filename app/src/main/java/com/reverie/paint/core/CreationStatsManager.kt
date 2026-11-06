@@ -58,6 +58,10 @@ object CreationStatsManager {
     fun backfillIfFirstTime(context: Context, projects: List<Project>) {
         val root = loadRaw(context)
         if (root.optBoolean("backfilled", false)) return
+        // 桌面小组件也会调 getSummary(context)，而它拿不到画作列表 (projects 为空)。
+        // 那时若就把 backfilled 置成 true，一次性回溯就永远跑不掉了——历史活跃网格
+        // 会一直是空的 (用户反馈过"统计里什么都没有")。没有可回溯的数据就什么都不做。
+        if (projects.isEmpty()) return
 
         val dailyObj = root.optJSONObject("daily") ?: JSONObject().also { root.put("daily", it) }
         val brushUsage = root.optJSONObject("brushUsage") ?: JSONObject().also { root.put("brushUsage", it) }
