@@ -15,6 +15,7 @@ import com.reverie.paint.MainActivity
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.Page
 import com.reverie.paint.core.ReverieCoreBridge
+import com.reverie.paint.core.exitReplay
 import com.reverie.paint.core.goReplay
 import com.reverie.paint.core.loadProject
 import com.reverie.paint.core.saveProject
@@ -91,6 +92,11 @@ class ReplayVerifyReceiver : BroadcastReceiver() {
         result.put("hasRecording", parsed.hasRecording)
         Log.i(TAG, "start replay verify: ${project.name} ${parsed.width}x${parsed.height} steps=$fractions")
 
+        // 上一轮用例可能还停在回放页: 先退干净, 否则下面的 await 会被"上一次的会话"
+        // 直接满足, seek 打在旧会话上 → 拿到旧文档 (曾经因此误判成回放 bug)
+        if (vm.currentPage == Page.REPLAY) {
+            vm.exitReplay()
+        }
         val t0 = SystemClock.elapsedRealtime()
         vm.loadProject(parsed)
         await("load", STEP_TIMEOUT_MS) {
@@ -122,9 +128,13 @@ class ReplayVerifyReceiver : BroadcastReceiver() {
                 fail(outDir, result, "project_unreadable_after_load")
                 return@onDone
             }
+            val beforeSession = vm.replaySession
             vm.goReplay(projectForReplay)
             await("replay-open", STEP_TIMEOUT_MS) {
-                vm.currentPage == Page.REPLAY && !vm.isBlockingLoading && vm.replaySession != null
+                vm.currentPage == Page.REPLAY &&
+                    !vm.isBlockingLoading &&
+                    vm.replaySession != null &&
+                    vm.replaySession !== beforeSession
             } onDone { opened ->
                 result.put("replayOpenMs", SystemClock.elapsedRealtime() - t1)
                 if (!opened) {

@@ -56,6 +56,10 @@ def write_host_file(serial, host_path, device_path):
 
 
 def pull_dir(serial, device_dir, host_dir):
+    # 同一 --out 名重复跑时, 先清空宿主机目录: 否则拉取失败会静默复用上一次的产物
+    # (曾经因此把"旧用例的图"当成新结果, 误判成回放 bug)
+    if os.path.isdir(host_dir):
+        shutil.rmtree(host_dir, ignore_errors=True)
     os.makedirs(host_dir, exist_ok=True)
     listing = run_as(serial, "ls", device_dir).decode("utf-8", "replace").split()
     for name in listing:

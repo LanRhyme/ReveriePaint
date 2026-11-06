@@ -136,6 +136,27 @@ class Ev:
             p += struct.pack("<d", v)
         self.tool(T_TRANSFORM, bytes(p), dt=dt)
 
+    def undo(self, dt=16):
+        self.tool(36, b"", dt=dt)
+
+    def redo(self, dt=16):
+        self.tool(37, b"", dt=dt)
+
+    def gradient_v3(self, x1, y1, x2, y2, stops, gtype=0, repeat=0, reverse=False,
+                    opacity=1.0, dither=False, blend="normal", dt=16):
+        """stops = [(pos 0..1, 0xAARRGGBB), ...] 由左到右"""
+        p = bytearray()
+        p += struct.pack("<ffff", x1, y1, x2, y2)
+        p += struct.pack("<BBB", gtype, repeat, 1 if reverse else 0)
+        p += struct.pack("<f", opacity)
+        p += struct.pack("<B", 1 if dither else 0)
+        raw = blend.encode()
+        p += varint(len(raw)) + raw
+        p += struct.pack("<H", len(stops))
+        for pos, color in stops:
+            p += struct.pack("<fI", pos, color & 0xFFFFFFFF)
+        self.tool(49, bytes(p), dt=dt)
+
     def preset(self, idx, name, preset_id, md5, dt=8):
         p = bytearray()
         p += struct.pack("<H", idx & 0xFFFF)
@@ -304,6 +325,72 @@ def case_fill_tolerance(w, h, template, workdir):
     return "fill_tolerance", ev, expected, 0.01, snap_bytes
 
 
+def _snapshot_case(w, h, template, workdir, name, base, ev, expected, tol):
+    snapshot = os.path.join(workdir, "snap_%s.revp" % name)
+    make_snapshot_revp(template, snapshot, base)
+    with open(snapshot, "rb") as f:
+        return name, ev, expected, tol, f.read()
+
+
+def _opaque_blocks(w, h):
+    """不透明双色块底板: 左红右蓝, 覆盖整幅 (排除 alpha 语义干扰, 只测填充/撤销/重做本身)"""
+    base = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    split = w // 2
+    ImageDraw.Draw(base).rectangle([0, 0, split - 1, h], fill=(200, 30, 30, 255))
+    ImageDraw.Draw(base).rectangle([split, 0, w - 1, h], fill=(30, 30, 200, 255))
+    return base, split
+
+
+def _filled_left(w, h, base, split):
+    out = base.copy()
+    ImageDraw.Draw(out).rectangle([0, 0, split - 1, h], fill=(0, 255, 0, 255))
+    return out
+
+
+def case_undo_fill(w, h, template, workdir):
+    """填充后撤销: 期望回到快照画面 (验证 T_UNDO 撤销的确实是这条填充)"""
+    base, split = _opaque_blocks(w, h)
+    ev = Ev()
+    ev.session_start()
+    ev.context(layer=1, color="#00ff00")
+    ev.fill_v4(split // 2, h // 2, "#00ff00", tol=0)
+    ev.undo()
+    return _snapshot_case(w, h, template, workdir, "undo_fill", base, ev, base.copy(), 0.01)
+
+
+def case_redo_fill(w, h, template, workdir):
+    """填充 → 撤销 → 重做: 期望最终是填充后画面"""
+    base, split = _opaque_blocks(w, h)
+    ev = Ev()
+    ev.session_start()
+    ev.context(layer=1, color="#00ff00")
+    ev.fill_v4(split // 2, h // 2, "#00ff00", tol=0)
+    ev.undo()
+    ev.redo()
+    return _snapshot_case(w, h, template, workdir, "redo_fill", base, ev,
+                          _filled_left(w, h, base, split), 0.01)
+
+
+def _transparent_mask(img):
+    alpha = img.convert("RGBA").split()[3]
+    return alpha.point(lambda v: 255 if v < 8 else 0)
+
+
+def case_gradient(w, h):
+    """线性渐变: 左黑右白 (opacity 1, 无抖动) -> 期望 = 水平线性插值"""
+    ev = Ev()
+    ev.session_start()
+    ev.context(layer=1, color="#000000")
+    ev.gradient_v3(0, 0, w - 1, 0, [(0.0, 0xFF000000), (1.0, 0xFFFFFFFF)], dither=False)
+    expected = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    px = expected.load()
+    for x in range(w):
+        v = int(round(255.0 * x / max(1, w - 1)))
+        for y in range(h):
+            px[x, y] = (v, v, v, 255)
+    return "gradient_linear", ev, expected, 0.03
+
+
 def case_enclose_transparent(w, h):
     """圈涂填充 (区域模式=仅透明区域): 空白层上落到"多边形内部"。
     区域模式 method=2 = SelectRegionsFilledWithTransparent, 用画笔色填充。"""
@@ -347,12 +434,15 @@ def case_transform_translate(w, h):
 CASES = {
     "fill_whole": case_fill_whole,
     "transform_translate": case_transform_translate,
+    "gradient_linear": case_gradient,
 }
 
 # 带快照用例: 起点是一份自带内容的画面 (轮廓/色块), 期望 = 该内容 + 事件流的结果
 SNAPSHOT_CASES = {
     "enclose_in_outline": case_enclose_in_outline,
     "fill_tolerance": case_fill_tolerance,
+    "undo_fill": case_undo_fill,
+    "redo_fill": case_redo_fill,
 }
 
 
@@ -433,6 +523,7 @@ def main():
              "--out", out_name, "--steps", "1.0", "--timeout", "120", "--no-launch", "--keep"],
             capture_output=True, text=True,
         )
+        # replay-verify.py 自己会在拉取前清空该目录, 这里不要再删 (否则会把刚拉下来的产物删掉)
         host_out = os.path.join(HERE, "..", ".replay-verify", out_name)
         host_out = os.path.abspath(host_out)
         step = None
