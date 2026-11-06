@@ -318,7 +318,12 @@ internal fun PaintViewModel.exportReplay(
 
                 profiler.measureRender {
                     profiler.renderCalls++
-                    if (forceFullThisFrame) profiler.renderFull++ else profiler.renderIncremental++
+                    if (forceFullThisFrame) {
+                        profiler.renderFull++
+                        ReverieCoreBridge.beginRenderTiles(outDirtyRect)
+                    } else {
+                        profiler.renderIncremental++
+                    }
                     val ok = ReverieCoreBridge.renderToBuffer(srcBmp, forceFullThisFrame, outDirtyRect)
                     if (!ok) profiler.renderSkips++
                     ok

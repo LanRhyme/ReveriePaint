@@ -5626,24 +5626,26 @@ class PaintViewModel : ViewModel() {
         if (viewW <= 0 || viewH <= 0) return
         // coreW/coreH 由渲染线程在换文档 (loadProject/startPainting 的 newDocument) 时写入。
         // 在 UI 线程上读会和它竞态, 把 renderW/renderH 写回旧尺寸, 首帧瓦片与文档尺寸错位。
-        // 投递到渲染线程, 与文档尺寸变更串行执行。渲染线程还没起来时不可能有换文档在跑,
-        // 就地应用 (不能丢掉: 之后不会再有 onSizeChanged 补这一次)。
+        // 投递到渲染线程, 与文档尺寸变更串行执行。渲染线程还没起来或当前已在渲染线程时
+        // 就地应用, 避免 resetReplayDocLocked / seekLocked 等渲染线程路径把视口更新排到队尾。
         val h = renderHandler
-        if (h == null) {
+        if (h == null || Looper.myLooper() === h.looper) {
             applyRenderViewport()
         } else {
             h.post { applyRenderViewport() }
         }
     }
 
-    private fun applyRenderViewport() {
+    internal fun applyRenderViewport(scheduleIfChanged: Boolean = true) {
         val nw = maxOf(1, coreW)
         val nh = maxOf(1, coreH)
         if (nw != renderW || nh != renderH) {
             renderW = nw
             renderH = nh
             displayBufferInvalid = true
-            scheduleRender(immediate = true)
+            if (scheduleIfChanged) {
+                scheduleRender(immediate = true)
+            }
         }
     }
 
@@ -5695,6 +5697,7 @@ class PaintViewModel : ViewModel() {
     private val backMissingRect = android.graphics.Rect()
     private val frontMissingRect = android.graphics.Rect()
     private val renderDirty = IntArray(4)
+    internal val forceFullDummyDirtyRects = IntArray(4)
     private var hasWrittenRect = false
 
     // 本帧实际写入区域 (渲染缓冲坐标 x/y/w/h), 供 UI 侧做局部失效。
@@ -6790,19 +6793,15 @@ class PaintViewModel : ViewModel() {
         }
         clearDisplayTileGrid()
 
-        val sizeMismatch = backBuffer == null || backBuffer?.width != w || backBuffer?.height != h
-        val reallocated = sizeMismatch || displayBufferInvalid
-        if (reallocated) {
+        val sizeMismatch =
+            backBuffer == null || backBuffer?.width != w || backBuffer?.height != h ||
+                frontBuffer == null || frontBuffer?.width != w || frontBuffer?.height != h
+        val wasInvalid = displayBufferInvalid
+        val forceFull = sizeMismatch || wasInvalid
+        if (sizeMismatch) {
             try {
                 frontBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                 backBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                displayBufferInvalid = false
-                frontMissingRect.setEmpty()
-                backMissingRect.setEmpty()
-                synchronized(largeBitmapDirtyRect) { largeBitmapDirtyRect.setEmpty() }
-                hasWrittenRect = false
-                // 缓冲重分配后旧脏区已无意义, 清掉免得 UI 侧拿它做局部失效
-                renderDirtySnapshot = null
             } catch (oom: OutOfMemoryError) {
                 android.util.Log.e("PaintViewModel", "OOM allocating front/back buffers ($w x $h)", oom)
                 releaseReclaimableCaches(aggressive = true)
@@ -6810,36 +6809,51 @@ class PaintViewModel : ViewModel() {
                 try {
                     frontBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
                     backBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                    displayBufferInvalid = false
-                    frontMissingRect.setEmpty()
-                    backMissingRect.setEmpty()
-                    synchronized(largeBitmapDirtyRect) { largeBitmapDirtyRect.setEmpty() }
-                    hasWrittenRect = false
-                    renderDirtySnapshot = null
                 } catch (retryOom: OutOfMemoryError) {
                     android.util.Log.e("PaintViewModel", "OOM retry failed, aborting frame", retryOom)
                     return
                 }
             }
         }
+        if (forceFull) {
+            displayBufferInvalid = false
+            frontMissingRect.setEmpty()
+            backMissingRect.setEmpty()
+            synchronized(largeBitmapDirtyRect) { largeBitmapDirtyRect.setEmpty() }
+            hasWrittenRect = false
+            // 全量重绘或缓冲重分配后旧脏区已无意义, 清掉免得 UI 侧拿它做局部失效
+            renderDirtySnapshot = null
+        }
 
         val front = frontBuffer
         val back = backBuffer ?: return
 
         // Synchronize all cumulative regions missing from backBuffer using frontBuffer
-        if (!reallocated && !backMissingRect.isEmpty && front != null) {
+        if (!forceFull && !backMissingRect.isEmpty && front != null) {
             syncCanvas.setBitmap(back)
             syncCanvas.drawBitmap(front, backMissingRect, backMissingRect, syncPaint)
             backMissingRect.setEmpty()
         }
 
-        val forceFull = reallocated
         // Phase 2B: 先取 AGSL 预览数据再渲染 —— 放在 renderToBuffer 之前, 免得
         // "无脏区 ⇒ 直接 return" 的分支把这帧的预览更新吞掉(GPU 模式下缓冲本来就不变)。
         pollLiquifyGpuPreview()
         // 干预实验(§4.16): 每渲染采样一次液化 apply 统计 —— 提高采样频率, 才能抓到
         // 拖动中每次 rebase/物化的单次耗时尖峰(原先只在 1s 定时器里取, 只能拿到"最后一次")。
         pollLiquifyStats()
+
+        // C++ recompositeProjection() (newDocument / loadRevp / loadPng / 图层与滤镜操作)
+        // 以及 undo()/redo() 会把 m_nativeProjectionValid 置为 true, 而 touchStrokeStart/Move/End
+        // 直接向图层 paintDevice 落墨却不清除 m_nativeProjectionValid。回放或 Seek 静默重放期间
+        // (render = false) 笔画闭合后 m_drawing == false, 若 m_nativeProjectionValid 仍为 true,
+        // renderToBuffer(forceFull = true) 会判定 mustComposite == false 而跳过 compositeDirtyRegions,
+        // 直接把空白 projection 拷入显示缓冲并清空 m_dirtyRect, 导致画布大面积空白/仅局部笔画脏区显现。
+        // 在全量帧进入 renderToBuffer 前先调一次 beginRenderTiles 将 m_nativeProjectionValid 复位为 false,
+        // 紧接着 renderToBuffer(forceFull = true) 的 bufReset 会执行 setDirtyFullFrame(0, 0, iw, ih),
+        // 从而 100% 触发全画布 compositeDirtyRegions(proj)。
+        if (forceFull) {
+            ReverieCoreBridge.beginRenderTiles(forceFullDummyDirtyRects)
+        }
 
         // renderToBuffer 是每帧最重的一步 (合成 + 像素转换)。标尺开启时按渲染路径分桶
         // 计时 (全量/增量/跳过), 关闭时整段只剩一次布尔判断 —— 分桶是为了回答
@@ -6862,6 +6876,9 @@ class PaintViewModel : ViewModel() {
         }
         PerfTrace.tick("render.calls", 1000L)
         if (!ok) {
+            if (forceFull) {
+                displayBufferInvalid = true
+            }
             if (ReverieCoreBridge.renderPendingDirty()) {
                 renderFollowUpPending = true
                 rh?.postDelayed({ doRender() }, 4L)

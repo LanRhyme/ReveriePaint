@@ -168,4 +168,25 @@ class SourceInvariantsTest {
         assertEquals(1, Regex("""reloadBrushPresets\(selectName = result\.presetName\)""").findAll(io).count())
         assertEquals(1, Regex("""reloadBrushPresets\(selectName = lastPreset\)""").findAll(io).count())
     }
+
+    @Test
+    fun `回放 Seek 与全量重绘必须复位原生投影有效标志并复用同尺寸双缓冲`() {
+        val playback = File(mainRoot, "com/reverie/paint/core/PlaybackEngine.kt").readText()
+        val seekBody = playback.substringAfter("internal fun PaintViewModel.seekLocked(").substringBefore("// ---- Event dispatch")
+        assertTrue("seekLocked 必须抑制 resetReplayDocLocked 的冗余初始渲染", seekBody.contains("resetReplayDocLocked(s, scheduleInitialRender = false)"))
+        assertTrue("seekLocked 末尾必须置位 displayBufferInvalid = true", seekBody.contains("displayBufferInvalid = true"))
+        assertTrue("seekLocked 末尾必须同步执行 doRender()", seekBody.contains("doRender()"))
+
+        val resetBody = playback.substringAfter("internal fun PaintViewModel.resetReplayDocLocked(").substringBefore("internal fun PaintViewModel.seekLocked(")
+        assertTrue("resetReplayDocLocked 必须调用 beginRenderTiles 复位 m_nativeProjectionValid", resetBody.contains("ReverieCoreBridge.beginRenderTiles(forceFullDummyDirtyRects)"))
+        assertTrue("resetReplayDocLocked 必须置位 displayBufferInvalid = true", resetBody.contains("displayBufferInvalid = true"))
+
+        val vm = File(mainRoot, "com/reverie/paint/core/PaintViewModel.kt").readText()
+        val renderBody = vm.substringAfter("private fun doRenderBody()").substringBefore("internal fun publishRenderWrittenRect")
+        assertTrue("doRenderBody 只在 sizeMismatch 时重分配 Bitmap，同尺寸全量重绘零分配复用", renderBody.contains("if (sizeMismatch)"))
+        assertTrue(
+            "doRenderBody 在 forceFull 时必须先调用 beginRenderTiles 清除 m_nativeProjectionValid 再调用 renderToBuffer",
+            renderBody.indexOf("ReverieCoreBridge.beginRenderTiles(forceFullDummyDirtyRects)") in 1 until renderBody.indexOf("ReverieCoreBridge.renderToBuffer(back, forceFull, renderDirty)"),
+        )
+    }
 }

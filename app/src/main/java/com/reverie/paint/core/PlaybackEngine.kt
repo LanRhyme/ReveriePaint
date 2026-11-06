@@ -482,6 +482,7 @@ private fun PaintViewModel.finishReplayLocked(s: ReplaySession) {
     // accumulated and re-enable normal undo capture for the next session
     ReverieCoreBridge.clearUndoHistory()
     ReverieCoreBridge.setUndoCaptureEnabled(true)
+    displayBufferInvalid = true
     scheduleRender(immediate = true)
     refreshLayerThumbs()
 }
@@ -525,11 +526,13 @@ internal fun PaintViewModel.resetReplayDocLocked(
         ReverieCoreBridge.setLiquifyPreviewHostDrawMode(2)
         coreW = ReverieCoreBridge.docWidth()
         coreH = ReverieCoreBridge.docHeight()
-        // setRenderViewport applies the same 4096 GPU-texture clamp the live
-        // canvas uses; assigning coreW/coreH directly broke huge documents
-        renderW = -1
-        renderH = -1
-        setRenderViewport(coreW, coreH)
+        // Reset native m_nativeProjectionValid = false immediately after document
+        // creation/snapshot load so subsequent strokes replayed in silent batches
+        // (render = false) always trigger compositeDirtyRegions(proj).
+        ReverieCoreBridge.beginRenderTiles(forceFullDummyDirtyRects)
+        renderW = maxOf(1, coreW)
+        renderH = maxOf(1, coreH)
+        displayBufferInvalid = true
         ReverieCoreBridge.touchStrokeCancel()
         ReverieCoreBridge.resetStrokeCounter()
         // 撤销上限先按当前设置来 (旧录制没有会话边界事件, 至少与常规行为一致);
@@ -561,7 +564,7 @@ internal fun PaintViewModel.seekLocked(
     // 用户感觉"拖动条根本没用" (issue: 回放的拖动条没用)。
     val backward = target < s.currentMs
     if (backward) {
-        resetReplayDocLocked(s)
+        resetReplayDocLocked(s, scheduleInitialRender = false)
         r.pos = 0
         s.currentMs = 0
     }
@@ -606,7 +609,13 @@ internal fun PaintViewModel.seekLocked(
     s.progress = if (atEnd) 1f else ReplayTimeline.progressOf(s.currentMs, s.totalMs)
     s.lastProgressWallMs = android.os.SystemClock.elapsedRealtime()
     s.lastStepWallMs = android.os.SystemClock.elapsedRealtime()
-    scheduleRender(immediate = true)
+    // Seek 重建或快进了文档状态: 强制置位 displayBufferInvalid,
+    // 并就地在渲染线程同步执行 doRender(), 确保全画布投影合成与帧发布在 onDone 回调前完成。
+    displayBufferInvalid = true
+    pendingRenderRunnable?.let { renderHandler?.removeCallbacks(it) }
+    pendingRenderRunnable = null
+    renderScheduled = false
+    doRender()
 }
 
 // ---- Event dispatch (render thread; direct bridge calls, no re-recording) ----
@@ -859,6 +868,8 @@ internal fun PaintViewModel.dispatchReplayLocked(
         STROKE_CANCEL -> {
             s.cursorActive = false
             ReverieCoreBridge.touchStrokeCancel()
+            displayBufferInvalid = true
+            if (render) scheduleRender(immediate = true)
         }
 
         CONTEXT -> {
@@ -906,10 +917,28 @@ internal fun PaintViewModel.dispatchReplayLocked(
 
         LAYER_OP -> {
             dispatchLayerOpLocked(r.u8(), r.u16(), r.str())
+            ReverieCoreBridge.beginRenderTiles(forceFullDummyDirtyRects)
+            displayBufferInvalid = true
+            if (render) scheduleRender(immediate = true)
         }
 
         TOOL_OP -> {
-            dispatchToolOpLocked(r.u8(), r)
+            val op = r.u8()
+            dispatchToolOpLocked(op, r)
+            if (op != T_PRESET_SELECT &&
+                op != com.reverie.paint.model.RecordingEvents.T_PRESET_SELECT_V2 &&
+                op != T_LIQUIFY_SIZE &&
+                op != com.reverie.paint.model.RecordingEvents.T_LIQUIFY_PROFILE &&
+                op != T_LIQUIFY_LAYERS &&
+                op != T_MOVE_CONTENT_LAYERS &&
+                op != T_TRANSFORM_LAYERS &&
+                op != T_SHAPE_STROKE_WIDTH &&
+                op != T_SELECT_MODE
+            ) {
+                ReverieCoreBridge.beginRenderTiles(forceFullDummyDirtyRects)
+                displayBufferInvalid = true
+                if (render) scheduleRender(immediate = true)
+            }
         }
 
         FILTER -> {
@@ -921,6 +950,9 @@ internal fun PaintViewModel.dispatchReplayLocked(
             val p4 = r.f64()
             val name = r.str()
             replayFilterLocked(index, filterType, p1, p2, p3, p4, name)
+            ReverieCoreBridge.beginRenderTiles(forceFullDummyDirtyRects)
+            displayBufferInvalid = true
+            if (render) scheduleRender(immediate = true)
         }
 
         FILTER_LUT -> {
@@ -930,6 +962,9 @@ internal fun PaintViewModel.dispatchReplayLocked(
             val bytes = r.readBytes(len)
             val name = r.str()
             replayFilterLutLocked(index, kind, bytes, name)
+            ReverieCoreBridge.beginRenderTiles(forceFullDummyDirtyRects)
+            displayBufferInvalid = true
+            if (render) scheduleRender(immediate = true)
         }
     }
 }
