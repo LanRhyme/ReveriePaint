@@ -251,9 +251,31 @@ fun ToolFloatSlider(
     modifier: Modifier = Modifier,
     labelWidth: Dp? = null,
     onRelease: (() -> Unit)? = null,
+    /**
+     * 对数刻度: 与画笔大小滑杆同一套算法 (value = exp(ln(min) + f·(ln(max)-ln(min))))。
+     *
+     * 为什么需要: 液化笔刷 8..300px 用线性刻度时, 8~40px 这段挤在滑杆最左边一小截, 调不精细;
+     * 画笔大小滑杆早就用对数刻度 (KisLogarithmicSliderSpinBox 同款), 小尺寸给细分辨率、
+     * 大尺寸给粗分辨率。液化也照这个来。
+     */
+    logScale: Boolean = false,
 ) {
     var showDialog by remember { mutableStateOf(false) }
     val span = maxOf(0.001f, range.endInclusive - range.start)
+    val logMin = kotlin.math.ln(range.start.coerceAtLeast(1e-3f))
+    val logSpan = (kotlin.math.ln(range.endInclusive.coerceAtLeast(range.start + 1e-3f)) - logMin)
+        .coerceAtLeast(1e-6f)
+    fun fractionOf(v: Float): Float = if (logScale) {
+        ((kotlin.math.ln(v.coerceIn(range.start, range.endInclusive).coerceAtLeast(1e-3f)) - logMin) / logSpan)
+            .coerceIn(0f, 1f)
+    } else {
+        ((v - range.start) / span).coerceIn(0f, 1f)
+    }
+    fun valueOf(f: Float): Float = if (logScale) {
+        kotlin.math.exp(logMin + f * logSpan).coerceIn(range.start, range.endInclusive)
+    } else {
+        range.start + f * span
+    }
 
     Row(
         modifier = modifier,
@@ -270,8 +292,8 @@ fun ToolFloatSlider(
             modifier = if (labelWidth != null) Modifier.widthIn(min = labelWidth) else Modifier,
         )
         com.reverie.paint.ui.components.ReSlider(
-            value = ((value - range.start) / span).coerceIn(0f, 1f),
-            onValue = { frac -> onValue(range.start + frac * span) },
+            value = fractionOf(value),
+            onValue = { frac -> onValue(valueOf(frac)) },
             onRelease = onRelease,
             modifier = Modifier.weight(1f),
         )

@@ -69,6 +69,8 @@ fun LiquifyPanel(
                     range = 8f..300f,
                     value = brushSize,
                     onValue = onBrushSize,
+                    // 与画笔大小滑杆同款对数刻度: 8~40px 这段不再挤在滑杆最左边
+                    logScale = true,
                 )
                 ToolFloatSlider(
                     label = androidx.compose.ui.res.stringResource(R.string.liquify_strength),

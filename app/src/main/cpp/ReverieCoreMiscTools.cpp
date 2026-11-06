@@ -372,6 +372,24 @@ bool liquifyRebaseNoFlush()
     return false;
 }
 
+// 重采样核: 默认三次卷积 (Catmull-Rom), `setprop debug.reverie.lqbilinear 1` 退回双线性。
+// 为什么换核: 每次手势都会把形变结果落回图层, 下一次手势从落盘结果重新采样 —— 双线性每
+// 过一遍抹平 0.5~1px 边缘, 涂几次线条就糊; 三次卷积单遍基本无损。
+bool liquifyBicubicRequested()
+{
+#if defined(Q_OS_ANDROID)
+    char value[PROP_VALUE_MAX] = {0};
+    if (__system_property_get("debug.reverie.lqbilinear", value) > 0 && value[0]) {
+        return QByteArray(value).toInt() == 0;
+    }
+#else
+    if (qEnvironmentVariableIsSet("REVERIE_LQ_BILINEAR")) {
+        return qgetenv("REVERIE_LQ_BILINEAR").toInt() == 0;
+    }
+#endif
+    return true;
+}
+
 // Materialize an inverse map against the gesture's immutable, tile-shared source.
 // Neither writeback bands nor preview cache windows define source boundaries.
 bool warpInverseField(const LiquifyInverseField &field, KisPaintDeviceSP src, KisPaintDeviceSP dst,
@@ -384,6 +402,7 @@ bool warpInverseField(const LiquifyInverseField &field, KisPaintDeviceSP src, Ki
     float right = float(area.right()), bottom = float(area.bottom());
     // Bounds of a bilinear map attain their extrema at grid vertices. Include
     // every pixel here as the scratch offsets are also used by the sampling pass.
+    const bool bicubic = liquifyBicubicRequested();
     thread_local std::vector<LiquifyInverseField::Point> offsets;
     offsets.resize(size_t(area.width()) * area.height());
     LiquifyInverseField::SamplingCache cache;
@@ -396,8 +415,11 @@ bool warpInverseField(const LiquifyInverseField &field, KisPaintDeviceSP src, Ki
             top = std::min(top, py - off.y); bottom = std::max(bottom, py - off.y);
         }
     }
-    const QRect need = QRect(QPoint(int(std::floor(left)), int(std::floor(top))),
-                             QPoint(int(std::ceil(right)) + 1, int(std::ceil(bottom)) + 1)) & doc;
+    // 三次卷积要 2px 邻域: 先把取样矩形外扩, 再夹到文档内 —— 否则四角会取到"透明",
+    // 表现为边缘一圈半透黑边。
+    const int kernelPad = liquifyBicubicRequested() ? 2 : 1;
+    const QRect need = QRect(QPoint(int(std::floor(left)) - kernelPad, int(std::floor(top)) - kernelPad),
+                             QPoint(int(std::ceil(right)) + kernelPad, int(std::ceil(bottom)) + kernelPad)) & doc;
     if (need.isEmpty()) return false;
     thread_local QByteArray source, output;
     source.resize(qint64(need.width()) * need.height() * ps);
@@ -419,13 +441,23 @@ bool warpInverseField(const LiquifyInverseField &field, KisPaintDeviceSP src, Ki
             const float u = float(area.x() + x - need.x()) - off.x;
             const float v = float(area.y() + y - need.y()) - off.y;
             const int ix = int(std::floor(u)), iy = int(std::floor(v));
-            static constexpr uint8_t transparent[4] = {};
+            // 边缘**复制**而不是透明: 三次卷积的负权重会把"透明"放大成暗角
+            const auto clampX = [&](int px) { return px < 0 ? 0 : (px >= need.width() ? need.width() - 1 : px); };
+            const auto clampY = [&](int py) { return py < 0 ? 0 : (py >= need.height() ? need.height() - 1 : py); };
             const auto pixel = [&](int px, int py) -> const uint8_t * {
-                return px < 0 || py < 0 || px >= need.width() || py >= need.height()
-                    ? transparent : bytes + (size_t(py) * need.width() + px) * ps;
+                return bytes + (size_t(clampY(py)) * need.width() + clampX(px)) * ps;
             };
-            LiquifyPixelSampling::bilinear(pixel(ix,iy),pixel(ix+1,iy),pixel(ix,iy+1),pixel(ix+1,iy+1),
-                u-ix,v-iy,ps,result + (size_t(y)*area.width()+x)*ps);
+            uint8_t *out = result + (size_t(y) * area.width() + x) * ps;
+            if (bicubic) {
+                const uint8_t *tap[16];
+                for (int j = 0; j < 4; ++j) {
+                    for (int i = 0; i < 4; ++i) tap[j * 4 + i] = pixel(ix - 1 + i, iy - 1 + j);
+                }
+                LiquifyPixelSampling::bicubic16(tap, u - ix, v - iy, ps, out);
+            } else {
+                LiquifyPixelSampling::bilinear(pixel(ix,iy),pixel(ix+1,iy),pixel(ix,iy+1),pixel(ix+1,iy+1),
+                    u-ix,v-iy,ps,out);
+            }
         }
     }
     dst->writeBytes(result, area.x(), area.y(), area.width(), area.height());
