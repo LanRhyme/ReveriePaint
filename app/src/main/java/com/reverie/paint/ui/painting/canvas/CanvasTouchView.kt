@@ -659,7 +659,7 @@ class CanvasTouchView(context: Context) : View(context) {
         } else {
             event.getAxisValue(MotionEvent.AXIS_TILT, pointerIndex)
         }
-        if (tiltRad.isNaN() || tiltRad <= 0.0001f) {
+        if (!tiltRad.isFinite() || tiltRad < 0f) {
             touchTiltX = 0.0
             touchTiltY = 0.0
             touchRotation = 0.0
@@ -685,6 +685,29 @@ class CanvasTouchView(context: Context) : View(context) {
         // AXIS_ORIENTATION 代表的是笔身在屏幕上的方位角（指向方向），绝不能作为 Krita 笔轴自转注入，
         // 否则将导致带自转或动态朝向计算的笔刷在画弧线、折线时 dab 剧烈扭曲撕裂。此处固定为 0.0。
         touchRotation = 0.0
+    }
+
+    // ---- 笔画有效倾角: 硬件倾角直通 (手指/零倾角笔为 0, 与 Krita 无倾角输入一致) ----
+    // touchTiltX/Y 来自 updateStylusSensors; strokeTiltX/Y 是笔画采样真正下发的倾角。
+    // 单位: 度, 幅值 = 自垂直倾角 (AXIS_TILT 口径), 范围 [-60,60]。
+    private var strokeTiltX: Double = 0.0
+    private var strokeTiltY: Double = 0.0
+
+    /** 最近一次真实输入压感 (原始, 未过校准): 抬笔收尾补点的"真实末端压感"来源 */
+    private var lastStrokeRawPressure: Float = Float.NaN
+
+    /** 落笔: 倾角直通硬件值 (docX/docY 不再使用, 保留签名以免改动全部调用点) */
+    @Suppress("UNUSED_PARAMETER")
+    private fun beginStrokeTilt(hwTiltX: Double, hwTiltY: Double, docX: Float, docY: Float) {
+        strokeTiltX = StrokeTiltPolicy.component(hwTiltX)
+        strokeTiltY = StrokeTiltPolicy.component(hwTiltY)
+    }
+
+    /** 每个采样点: 倾角直通硬件值; 必须在消费该点坐标的 touchMove 之前调用 */
+    @Suppress("UNUSED_PARAMETER")
+    private fun resolveStrokeTilt(hwTiltX: Double, hwTiltY: Double, docX: Float, docY: Float) {
+        strokeTiltX = StrokeTiltPolicy.component(hwTiltX)
+        strokeTiltY = StrokeTiltPolicy.component(hwTiltY)
     }
 
     // 文本交互状态
@@ -1652,13 +1675,16 @@ class CanvasTouchView(context: Context) : View(context) {
      * 抬笔时把主笔的追赶点 (平滑未追完的剩余段) 与尾锋点同步写进镜像分支。
      *
      * 必须与 `PaintViewModelTools.touchEnd` 里主笔那两段逐字对齐 —— 同一条
-     * `strokeSmoothingType` 判定、同一个缓动、同一个压力衰减与下限, 否则抬笔重放后
-     * 镜像笔迹的末端与主笔对不上。放在界面层是因为对称几何属于界面侧 (引擎不知道
-     * 对称模式), 不能反过来让 ViewModel 依赖它。
+     * `strokeSmoothingType` 判定、同一个缓动、同一套步数预算/压感过渡/时间戳步进
+     * (R4-B: 追赶点+尾锋点总数 ≤3 步、压感从平滑值线性过渡到抬笔末端压感、每步 +4ms),
+     * 否则抬笔重放后镜像笔迹的末端与主笔对不上。放在界面层是因为对称几何属于界面侧
+     * (引擎不知道对称模式), 不能反过来让 ViewModel 依赖它。
+     *
+     * [tailEndPressure] 与 touchEnd 收到的值同源 (handleToolUp 计算一次两边传), 保证逐字一致。
      */
-    private fun appendMirrorCatchUpAndTaper(v: PaintViewModel, eventTimeMs: Long) {
-        val tiltX = touchTiltX.toFloat()
-        val tiltY = touchTiltY.toFloat()
+    private fun appendMirrorCatchUpAndTaper(v: PaintViewModel, eventTimeMs: Long, tailEndPressure: Double) {
+        val tiltX = strokeTiltX.toFloat()
+        val tiltY = strokeTiltY.toFloat()
         val rotation = touchRotation.toFloat()
         val needCatchUp = when (v.strokeSmoothingType) {
             PaintViewModel.SMOOTHING_OFF -> false
@@ -1666,41 +1692,43 @@ class CanvasTouchView(context: Context) : View(context) {
                 (v.strokeSmoothnessDistanceMin > 0.0 || v.strokeSmoothnessDistanceMax > 0.0)
             else -> maxOf(v.strokeStabilizer.toDouble(), v.brushStreamline) > 0.0
         }
+        // 与 touchEnd 共用同一套步数计划 (tailStepPlan 单一来源); 剩余 ≤0.5px 追赶 0 步,
+        // 同样不发零时差重复样本, 保证主/镜像收笔补点总数与位置逐字一致
+        val taperRuns = StrokeTailMath.taperWillRun(v.brushTaper, v.lastStrokeDeltaX, v.lastStrokeDeltaY)
+        val tailDx = v.lastStrokeX - v.smoothedStrokeX
+        val tailDy = v.lastStrokeY - v.smoothedStrokeY
+        val tailRemainingDist = hypot(tailDx.toDouble(), tailDy.toDouble())
+        val tailPlan = StrokeTailMath.tailStepPlan(needCatchUp, tailRemainingDist, taperRuns)
         // 尾锋起点跟着 touchEnd 的推进走: 追赶跑完时 smoothed 已被拉到 lastStroke
+        val startP = v.smoothedStrokePressure
         var tailX = v.smoothedStrokeX
         var tailY = v.smoothedStrokeY
-        val tailP = v.smoothedStrokePressure
-        if (needCatchUp) {
-            val dx = v.lastStrokeX - tailX
-            val dy = v.lastStrokeY - tailY
-            val remainingDist = hypot(dx.toDouble(), dy.toDouble())
-            if (remainingDist > 0.5) {
-                val steps = when {
-                    remainingDist > 40.0 -> 8
-                    remainingDist > 20.0 -> 6
-                    remainingDist > 8.0 -> 4
-                    remainingDist > 2.0 -> 2
-                    else -> 1
-                }
-                val startX = tailX
-                val startY = tailY
-                for (step in 1..steps) {
-                    val t = step.toFloat() / steps
-                    val ease = 1f - (1f - t) * (1f - t) * (1f - t)
-                    val curX = startX + dx * ease
-                    val curY = startY + dy * ease
-                    appendSymmetricSamplePair(curX, curY, tailP, tiltX, tiltY, rotation, eventTimeMs)
-                }
-                tailX = v.lastStrokeX
-                tailY = v.lastStrokeY
+        var tailP = startP
+        if (needCatchUp && tailRemainingDist > 0.5 && tailPlan.catchUpSteps > 0) {
+            val steps = tailPlan.catchUpSteps
+            val startX = tailX
+            val startY = tailY
+            for (step in 1..steps) {
+                val t = step.toFloat() / steps
+                val ease = StrokeTailMath.easeOutCubic(t)
+                val curX = startX + tailDx * ease
+                val curY = startY + tailDy * ease
+                val curP = StrokeTailMath.tailPressure(startP, tailEndPressure, t)
+                appendSymmetricSamplePair(
+                    curX, curY, curP, tiltX, tiltY, rotation,
+                    eventTimeMs + step * StrokeTailMath.TAIL_STEP_DT_MS,
+                )
             }
+            tailX = v.lastStrokeX
+            tailY = v.lastStrokeY
+            tailP = StrokeTailMath.tailPressure(startP, tailEndPressure, 1f)
         }
-        if (v.brushTaper > 0.0) {
+        if (taperRuns) {
             val norm = hypot(v.lastStrokeDeltaX.toDouble(), v.lastStrokeDeltaY.toDouble()).toFloat()
             if (norm > 0.5f) {
                 val nx = v.lastStrokeDeltaX / norm
                 val ny = v.lastStrokeDeltaY / norm
-                val taperSteps = 4
+                val taperSteps = tailPlan.taperSteps
                 val stepLen = (v.brushSize * v.brushTaper * 0.75).toFloat() / taperSteps
                 var tx = tailX
                 var ty = tailY
@@ -1708,9 +1736,11 @@ class CanvasTouchView(context: Context) : View(context) {
                 for (i in 1..taperSteps) {
                     tx += nx * stepLen
                     ty += ny * stepLen
-                    tp *= (1.0 - 0.7 * (i.toDouble() / taperSteps))
-                    val curP = maxOf(0.02, tp)
-                    appendSymmetricSamplePair(tx, ty, curP, tiltX, tiltY, rotation, eventTimeMs)
+                    tp = StrokeTailMath.taperPressure(tp, i, taperSteps)
+                    appendSymmetricSamplePair(
+                        tx, ty, tp, tiltX, tiltY, rotation,
+                        eventTimeMs + (tailPlan.catchUpSteps + i) * StrokeTailMath.TAIL_STEP_DT_MS,
+                    )
                 }
             }
         }
@@ -4811,7 +4841,7 @@ class CanvasTouchView(context: Context) : View(context) {
 
                     // 笔尖接触瞬间立即启动绘图，彻底消除长按判定位移容差带来的起笔延迟
                     updateStylusSensors(event, stylusPointerIndex, isStylus = true)
-                    handleToolDown(screenPos, docPos, pressure, isStylus = true, touchTiltX, touchTiltY, touchRotation)
+                    handleToolDown(screenPos, docPos, pressure, isStylus = true, touchTiltX, touchTiltY, touchRotation, eventTimeMs = event.eventTime)
                     // 真墨按住时这一笔由前缓冲呈现, 不再整屏失效主画布。
                     if (!realInk.wantsHold()) invalidate()
 
@@ -5832,6 +5862,7 @@ class CanvasTouchView(context: Context) : View(context) {
         tiltX: Double = 0.0,
         tiltY: Double = 0.0,
         rotation: Double = 0.0,
+        eventTimeMs: Long = 0L,
     ) {
         val v = vm ?: return
         // 落笔时按用户偏好收起「临时态」快捷调色盘(默认不收起, 见 quickColorAutoHideOnStroke)
@@ -5900,7 +5931,9 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                 }
                 val overrideTool = if (effTool() == Tool.ERASER && tool != Tool.ERASER) "eraser" else null
-                strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble(), tiltX, tiltY, rotation, toolOverride = overrideTool)
+                lastStrokeRawPressure = pressure
+                beginStrokeTilt(tiltX, tiltY, docPos.x, docPos.y)
+                strokeStarted = v.touchStart(docPos.x, docPos.y, pressure.toDouble(), strokeTiltX, strokeTiltY, rotation, toolOverride = overrideTool, inputEventTimeMs = eventTimeMs)
                 if (strokeStarted) {
                     // 纸张摩擦音效: 落笔起振 (橡皮稍收音量, 附带初始落笔压感)
                     getOrCreateStylusDriver()?.feedbackManager?.startStrokeSound(effTool() == Tool.ERASER, pressure.toFloat())
@@ -5911,8 +5944,8 @@ class CanvasTouchView(context: Context) : View(context) {
 
                 if (hasSymmetry) {
                     updateSymmetryPressureLut(v)
-                    val stx = tiltX.toFloat()
-                    val sty = tiltY.toFloat()
+                    val stx = strokeTiltX.toFloat()
+                    val sty = strokeTiltY.toFloat()
                     val srot = rotation.toFloat()
                     prepareMirrorBranches(
                         symmetricSamplesFor(v.smoothedStrokeX, v.smoothedStrokeY, stx, sty, srot).size
@@ -6272,12 +6305,14 @@ class CanvasTouchView(context: Context) : View(context) {
                     val startDoc = if (firstDocPos != Offset.Zero) firstDocPos else docPos
                     firstDocPos = startDoc
                     updateStylusSensors(event, pointerIndex, isStylus, historyPos = -1)
+                    lastStrokeRawPressure = pressure
+                    beginStrokeTilt(touchTiltX, touchTiltY, startDoc.x, startDoc.y)
                     if (hasSymmetry) {
                         safeBeginSymmetryUndoMacro()
                         clearPredictionState(triggerInvalidate = false)
                     }
                     val overrideTool = if (effTool() == Tool.ERASER && tool != Tool.ERASER) "eraser" else null
-                    strokeStarted = v.touchStart(startDoc.x, startDoc.y, pressure.toDouble(), touchTiltX, touchTiltY, touchRotation, toolOverride = overrideTool)
+                    strokeStarted = v.touchStart(startDoc.x, startDoc.y, pressure.toDouble(), strokeTiltX, strokeTiltY, touchRotation, toolOverride = overrideTool, inputEventTimeMs = event.eventTime)
                     if (strokeStarted) {
                         if (isStylus) {
                             getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (effTool() == Tool.ERASER))
@@ -6287,8 +6322,8 @@ class CanvasTouchView(context: Context) : View(context) {
                         lastSoundTimeMs = 0L
                         if (hasSymmetry) {
                             updateSymmetryPressureLut(v)
-                            val stx = touchTiltX.toFloat()
-                            val sty = touchTiltY.toFloat()
+                            val stx = strokeTiltX.toFloat()
+                            val sty = strokeTiltY.toFloat()
                             val srot = touchRotation.toFloat()
                             prepareMirrorBranches(
                                 symmetricSamplesFor(v.smoothedStrokeX, v.smoothedStrokeY, stx, sty, srot).size
@@ -6332,11 +6367,12 @@ class CanvasTouchView(context: Context) : View(context) {
                     } else 1f
                     val hTime = event.getHistoricalEventTime(i)
                     updateStylusSensors(event, pointerIndex, isStylus, historyPos = i)
-                    v.touchMove(hAssisted.x, hAssisted.y, hP.toDouble(), hTime, touchTiltX, touchTiltY, touchRotation)
+                    resolveStrokeTilt(touchTiltX, touchTiltY, hAssisted.x, hAssisted.y)
+                    v.touchMove(hAssisted.x, hAssisted.y, hP.toDouble(), hTime, strokeTiltX, strokeTiltY, touchRotation)
                     if (hasSymmetry) {
                         appendSymmetricSamplePair(
                             v.smoothedStrokeX, v.smoothedStrokeY, v.smoothedStrokePressure,
-                            touchTiltX.toFloat(), touchTiltY.toFloat(), touchRotation.toFloat(),
+                            strokeTiltX.toFloat(), strokeTiltY.toFloat(), touchRotation.toFloat(),
                             eventTimeMs = hTime
                         )
                     }
@@ -6613,13 +6649,15 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
 
                 updateStylusSensors(event, pointerIndex, isStylus, historyPos = -1)
+                lastStrokeRawPressure = pressure
+                resolveStrokeTilt(touchTiltX, touchTiltY, effectiveDocPos.x, effectiveDocPos.y)
                 v.touchMove(
                     effectiveDocPos.x,
                     effectiveDocPos.y,
                     pressure.toDouble(),
                     event.eventTime,
-                    touchTiltX,
-                    touchTiltY,
+                    strokeTiltX,
+                    strokeTiltY,
                     touchRotation,
                     predDocX,
                     predDocY,
@@ -6639,7 +6677,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 if (hasSymmetry) {
                     appendSymmetricSamplePair(
                         v.smoothedStrokeX, v.smoothedStrokeY, v.smoothedStrokePressure,
-                        touchTiltX.toFloat(), touchTiltY.toFloat(), touchRotation.toFloat(),
+                        strokeTiltX.toFloat(), strokeTiltY.toFloat(), touchRotation.toFloat(),
                         eventTimeMs = event.eventTime
                     )
                     if (!v.symmetryMirrorLive && !realInk.held) {
@@ -7360,11 +7398,23 @@ class CanvasTouchView(context: Context) : View(context) {
                         val isEraserStroke = (strokeTool == Tool.ERASER) || (v.isEraserMode && strokeTool == Tool.BRUSH)
                         val overrideTool = if (strokeTool == Tool.ERASER && tool != Tool.ERASER) "eraser" else null
                         // touchEnd 会给主笔补发追赶点与尾锋点。这些点也必须进镜像分支, 否则镜像笔迹缺少收尾
+                        // R4-B: 抬笔末端压感 (最近一次真实输入过校准后的有效压感);
+                        // 镜像收尾与主笔收尾用同一个值, 保证两条收笔补点序列逐字一致
+                        val tailEndP = if (lastStrokeRawPressure.isFinite() && lastStrokeRawPressure in 0f..1f) {
+                            v.computeEffectivePressure(lastStrokeRawPressure.toDouble())
+                        } else v.smoothedStrokePressure
                         if (hasMirrorSamples) {
-                            appendMirrorCatchUpAndTaper(v, event.eventTime)
+                            appendMirrorCatchUpAndTaper(v, event.eventTime, tailEndP)
                         }
                         // 仅当没有镜像分支重放时主笔才立即全量渲染且立即还原覆盖状态；有分支则在镜像分支执行完毕后统一渲染与还原
-                        v.touchEnd(render = !hasBranchesToReplay, deferOverrideRestore = hasBranchesToReplay, strokeSeq = realInk.currentStrokeSeq)
+                        v.touchEnd(
+                            render = !hasBranchesToReplay,
+                            deferOverrideRestore = hasBranchesToReplay,
+                            strokeSeq = realInk.currentStrokeSeq,
+                            tailEndPressure = tailEndP,
+                            tailTiltX = strokeTiltX,
+                            tailTiltY = strokeTiltY,
+                        )
                         if (hasBranchesToReplay) {
                             // 镜像分支重放走主画布刷新, 前缓冲这一笔就此交还。
                             realInk.releaseAndCatchUp()
