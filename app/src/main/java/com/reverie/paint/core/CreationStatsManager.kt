@@ -21,12 +21,22 @@ import java.util.Locale
  */
 object CreationStatsManager {
     private const val FILE_NAME = "creation_stats.json"
-    private val dateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
+
 
     private var cachedSummary: CreationStatsSummary? = null
     private var isBackfilled = false
 
-    fun getTodayString(): String = dateFormat.format(Date())
+    /**
+     * 今天 (yyyy-MM-dd)。
+     *
+     * 刻意**每次新建** SimpleDateFormat: 它非线程安全, 而这个函数被渲染线程(保存/自动保存)、
+     * UI(统计页) 与小组件刷新同时调用 —— 共享一个实例会偶发解析出乱码日期, 直接写成一条新
+     * 的"天"记录, 统计里多出一堆异常日期。
+     */
+    fun getTodayString(): String = newDateFormat().format(Date())
+
+    /** 每次新建: SimpleDateFormat 非线程安全, 而统计读写来自渲染线程 / UI / 小组件。 */
+    private fun newDateFormat(): SimpleDateFormat = SimpleDateFormat("yyyy-MM-dd", Locale.US)
 
     private fun getFile(context: Context): File = File(context.filesDir, FILE_NAME)
 
@@ -45,7 +55,16 @@ object CreationStatsManager {
     fun saveRaw(context: Context, json: JSONObject) {
         try {
             val file = getFile(context)
-            file.writeText(json.toString(), Charsets.UTF_8)
+            // 原子写: 先写 .tmp 再 rename。直接 writeText 时进程被杀/崩溃会留下半截 JSON,
+            // loadRaw 解析失败后返回空对象 —— 用户的历史统计一次性全没 (与 BACKUP-ATOMIC-RESTORE
+            // 一个道理, 这里是最容易踩的一处)。
+            val tmp = File(file.parentFile, file.name + ".tmp")
+            tmp.writeText(json.toString(), Charsets.UTF_8)
+            if (!tmp.renameTo(file)) {
+                // rename 失败 (极少数文件系统状态): 退回直接覆盖, 至少不丢这次数据
+                file.writeText(json.toString(), Charsets.UTF_8)
+                tmp.delete()
+            }
             cachedSummary = null
             com.reverie.paint.ui.widget.CreationStatsWidgetHelper.notifyAllWidgets(context)
         } catch (_: Exception) {}
@@ -69,7 +88,7 @@ object CreationStatsManager {
         for (p in projects) {
             val timestamp = p.lastModified
             if (timestamp <= 0L) continue
-            val dateStr = dateFormat.format(Date(timestamp))
+            val dateStr = newDateFormat().format(Date(timestamp))
 
             val day = dailyObj.optJSONObject(dateStr) ?: JSONObject().also { dailyObj.put(dateStr, it) }
             val existingStrokes = day.optInt("strokes", 0)
@@ -151,7 +170,7 @@ object CreationStatsManager {
     fun computeStreaks(activeDates: Set<String>, todayStr: String): Pair<Int, Int> {
         if (activeDates.isEmpty()) return Pair(0, 0)
         val cal = Calendar.getInstance()
-        val todayDate = try { dateFormat.parse(todayStr) } catch (_: Exception) { null } ?: Date()
+        val todayDate = try { newDateFormat().parse(todayStr) } catch (_: Exception) { null } ?: Date()
         cal.time = todayDate
 
         val todayActive = activeDates.contains(todayStr)
@@ -160,13 +179,13 @@ object CreationStatsManager {
         }
 
         var currentStreak = 0
-        while (activeDates.contains(dateFormat.format(cal.time))) {
+        while (activeDates.contains(newDateFormat().format(cal.time))) {
             currentStreak++
             cal.add(Calendar.DAY_OF_YEAR, -1)
         }
 
         val sortedDates = activeDates.mapNotNull {
-            try { dateFormat.parse(it) } catch (_: Exception) { null }
+            try { newDateFormat().parse(it) } catch (_: Exception) { null }
         }.sorted()
 
         var maxStreak = if (sortedDates.isNotEmpty()) 1 else 0
@@ -240,7 +259,7 @@ object CreationStatsManager {
         cal.add(Calendar.DAY_OF_YEAR, -365)
         val oneYearAgo = cal.time
         val activeDaysPastYear = dailyMap.filter {
-            val d = try { dateFormat.parse(it.key) } catch (_: Exception) { null }
+            val d = try { newDateFormat().parse(it.key) } catch (_: Exception) { null }
             d != null && d.after(oneYearAgo) && it.value.level > 0
         }.size
 
