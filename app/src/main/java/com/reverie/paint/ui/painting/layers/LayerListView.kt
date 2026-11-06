@@ -865,7 +865,9 @@ internal fun LayerListView(
         // screen*3/4 minus the panel header (~56dp); scrolls beyond that
         val cfg = LocalConfiguration.current
         val maxListH = (cfg.screenHeightDp * 3 / 4 - 56).dp
-        val targetListH = (rowHeight * vm.layers.size.toFloat()).coerceAtMost(maxListH)
+        // 用**可见行数**而不是图层总数: 折叠的组子层不占高度, 用 vm.layers.size 会算多,
+        // 下方留出一片空白 (用户反馈: 有收起的分格/图层组时列表下面空一截)
+        val targetListH = (rowHeight * displayRows.size.toFloat()).coerceAtMost(maxListH)
         val listH by animateDpAsState(targetListH, tween(200), label = "listH")
         // 双指捏合合并 Toast 文案在组合期解析 (Lint: LocalContextGetResourceValueCall)
         val pinchMergedMsg = stringResource(R.string.layer_toast_pinch_merged)
