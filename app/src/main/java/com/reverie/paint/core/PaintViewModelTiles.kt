@@ -237,6 +237,7 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
         releaseFullCanvasBuffers()
     }
 
+    val tDiagPub0 = if (PerfTrace.enabled) SystemClock.elapsedRealtimeNanos() else 0L
     publishTileSnapshotIfNeeded(grid, tiles)
     tileRevision++
     // 前缓冲真墨: 运笔按住时把本帧离散脏区从瓦片烤好贴上前缓冲, 接住了就不失效主画布。
@@ -254,10 +255,23 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
                 writtenBottom,
                 anyFull,
             )
+    val tDiagPresent1 = if (tDiagPub0 != 0L) SystemClock.elapsedRealtimeNanos() else 0L
     sink?.finishFrame(kept)
     sink?.onTileFrameEnd(tileRevision)
     if (LandDiag.enabled && LandDiag.armed) LandDiag.noteRender(inPlaceCount, tornInPlace)
+    val tDiagPresent2 = if (tDiagPub0 != 0L) SystemClock.elapsedRealtimeNanos() else 0L
     notifyCanvasFramePublished(keptOnFrontBuffer = kept)
+    if (tDiagPub0 != 0L) {
+        val end = SystemClock.elapsedRealtimeNanos()
+        val total = (end - tAfterTilesNs) / 1_000_000.0
+        if (total >= 20.0) {
+            PerfTrace.log(
+                "tileTail pub=${(tDiagPresent1 - tDiagPub0) / 1_000_000.0}ms " +
+                    "present=${(tDiagPresent2 - tDiagPresent1) / 1_000_000.0}ms " +
+                    "notify=${(end - tDiagPresent2) / 1_000_000.0}ms total=${"%.1f".format(total)}ms kept=$kept",
+            )
+        }
+    }
     // 被撕裂的那张瓦片在前缓冲上是完整的, 但主画布的纹理可能是半张: 补一次失效让 HWUI 重传。
     if (kept && tornInPlace) invalidateCanvasFromRender()
     if (retryNeeded) {

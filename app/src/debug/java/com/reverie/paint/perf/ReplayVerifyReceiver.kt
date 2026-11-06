@@ -20,6 +20,8 @@ import com.reverie.paint.core.goReplay
 import com.reverie.paint.core.encloseAndFill
 import com.reverie.paint.core.floodFill
 import com.reverie.paint.core.updateBrushColor
+import com.reverie.paint.core.requestUiCommand
+import com.reverie.paint.core.updateBrushSize
 import com.reverie.paint.core.loadProject
 import com.reverie.paint.core.pauseReplay
 import com.reverie.paint.core.saveProject
@@ -73,6 +75,7 @@ class ReplayVerifyReceiver : BroadcastReceiver() {
         }
         val resaveTo = intent.getStringExtra("resave")
         val makeFillColor = intent.getStringExtra("makefill")
+        val perfZoom = intent.getStringExtra("perfzoom")
         val fractions = (intent.getStringExtra("steps") ?: "1.0")
             .split(',')
             .mapNotNull { it.trim().toFloatOrNull() }
@@ -82,6 +85,30 @@ class ReplayVerifyReceiver : BroadcastReceiver() {
             Log.e(TAG, "no view model (app not started?)")
             return
         }
+        if (intent.getStringExtra("perfdump") != null) {
+            // 把标尺里的当代读数打到 logcat, 脚本直接取数 (不用截图读屏)
+            val text = com.reverie.paint.core.PerfTrace.hudText()
+            Log.i("RP-PERFBENCH", "presentWaitP50=${com.reverie.paint.core.PerfTrace.presentWaitP50Ms}ms "
+                + "P95=${com.reverie.paint.core.PerfTrace.presentWaitP95Ms}ms")
+            text.split('\n').forEach { Log.i("RP-PERFBENCH", it) }
+            return
+        }
+        if (perfZoom != null) {
+            // 绘制卡顿测量前置: 打开标尺/计时 + 允许手指绘制 + 指定笔刷大小与缩放档
+            vm.updatePerfHudEnabled(true)
+            vm.updatePenOnlyMode(false)
+            val size = intent.getStringExtra("brushsize")?.toDoubleOrNull()
+            if (size != null) vm.updateBrushSize(size)
+            vm.updateBrushColor(intent.getStringExtra("brushcolor") ?: "#ff0000")
+            val zoomSteps = perfZoom.toIntOrNull() ?: 0
+            if (zoomSteps <= 0) {
+                vm.requestUiCommand("zoom_100")
+            } else {
+                repeat(zoomSteps) { vm.requestUiCommand("zoom_in") }
+            }
+            Log.i(TAG, "perf prep: zoom=$perfZoom brush=$size penOnly=false (HUD on)")
+            return
+        }
         val project = File(path)
         val outDir = File(outPath)
         val result = JSONObject()
@@ -89,14 +116,20 @@ class ReplayVerifyReceiver : BroadcastReceiver() {
             .put("startedAt", System.currentTimeMillis())
         outDir.mkdirs()
 
-        val parsed = RecentProjectWidgetHelper.getProjectFromFile(context, project)
-        if (parsed == null) {
+        // newcanvas 模式不读工程 (用于在空白画布上跑性能/录制对照)
+        val useNewCanvas = intent.getStringExtra("newcanvas") != null
+        val parsed = if (useNewCanvas) {
+            null
+        } else {
+            RecentProjectWidgetHelper.getProjectFromFile(context, project)
+        }
+        if (parsed == null && !useNewCanvas) {
             fail(outDir, result, "project_unreadable")
             return
         }
-        result.put("docW", parsed.width).put("docH", parsed.height)
-        result.put("hasRecording", parsed.hasRecording)
-        Log.i(TAG, "start replay verify: ${project.name} ${parsed.width}x${parsed.height} steps=$fractions")
+        result.put("docW", parsed?.width ?: 0).put("docH", parsed?.height ?: 0)
+        result.put("hasRecording", parsed?.hasRecording ?: false)
+        Log.i(TAG, "start replay verify: ${project.name} ${parsed?.width}x${parsed?.height} steps=$fractions")
 
         // 上一轮用例可能还停在回放页: 先退干净, 否则下面的 await 会被"上一次的会话"
         // 直接满足, seek 打在旧会话上 → 拿到旧文档 (曾经因此误判成回放 bug)
@@ -108,7 +141,7 @@ class ReplayVerifyReceiver : BroadcastReceiver() {
             // 新建画布: 录制流短, 便于验证"录制->回放"的单个操作 (老工程的链太长, 解码困难)
             vm.startPainting(1200, 900)
         } else {
-            vm.loadProject(parsed)
+            parsed?.let { vm.loadProject(it) }
         }
         await("load", STEP_TIMEOUT_MS) {
             vm.currentPage == Page.PAINTING && !vm.isBlockingLoading && vm.docWidth > 0

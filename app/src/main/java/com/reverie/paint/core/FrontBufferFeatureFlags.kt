@@ -34,6 +34,17 @@ internal object FrontBufferFeatureFlags {
         )
     }
 
+    /**
+     * 前缓冲"真墨"单帧允许烤的最大屏幕面积 (像素)。超过就走主画布兜底。
+     *
+     * 为什么要有: 放大画布时同一笔在屏幕上的覆盖面积按 zoom² 增长, 每帧烤出来的成本
+     * 会到几十~一两百毫秒, 帧率掉到个位数 (实测 7.4x + 400px 笔刷: frame p95 274ms)。
+     * 默认 1.2M 像素 (≈4.8MB); 设 0 关闭该保护。
+     */
+    val maxInkAreaPx: Long by lazy {
+        (PerfTrace.debugPropInt("debug.reverie.fb_max_ink_kpx", 1200).coerceAtLeast(0)).toLong() * 1000L
+    }
+
     val holeMargin: Int by lazy {
         PerfTrace.debugPropInt("debug.reverie.fb_hole_margin", HoleMaskGrid.DEFAULT_MARGIN).coerceIn(0, 16)
     }

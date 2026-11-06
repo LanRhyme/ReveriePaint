@@ -17,6 +17,7 @@ import android.os.Build
 import android.os.SystemClock
 import com.reverie.paint.core.LandDiag
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.PerfTrace
 import com.reverie.paint.core.PublishedTiles
 import com.reverie.paint.core.RealInkSink
 import com.reverie.paint.core.ReverieCoreBridge
@@ -545,6 +546,36 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
             releaseAndCatchUp()
             synchronized(pendingLock) { pendingCount = 0 }
             return false
+        }
+        // 放大画布 + 大笔刷时, 每帧脏区在**屏幕**上的覆盖面积随 zoom² 增长: 烤一次要几十到
+        // 一两百毫秒, 帧率掉到个位数 (用户感受: 明显卡顿)。超过阈值就别占这个便宜 —— 前缓冲
+        // 让开, 主画布按瓦片贴 (那一路只要几毫秒), 顺滑优先于最后一个像素的延迟。
+        if (count > 0) {
+            var l = Int.MAX_VALUE
+            var t = Int.MAX_VALUE
+            var r = Int.MIN_VALUE
+            var b = Int.MIN_VALUE
+            for (i in 0 until count) {
+                val o = i * 4
+                val rl = maxOf(rects[o], writtenLeft)
+                val rt = maxOf(rects[o + 1], writtenTop)
+                val rr = minOf(rects[o] + rects[o + 2], writtenRight)
+                val rb = minOf(rects[o + 1] + rects[o + 3], writtenBottom)
+                if (rr <= rl || rb <= rt) continue
+                if (rl < l) l = rl
+                if (rt < t) t = rt
+                if (rr > r) r = rr
+                if (rb > b) b = rb
+            }
+            if (r > l && b > t) {
+                val area = (r - l).toLong() * (b - t)
+                if (area > FrontBufferFeatureFlags.maxInkAreaPx) {
+                    PerfTrace.tick("inkSkipBigArea")
+                    releaseAndCatchUp()
+                    synchronized(pendingLock) { pendingCount = 0 }
+                    return false
+                }
+            }
         }
         synchronized(pendingLock) {
             for (d in 0 until count) {
