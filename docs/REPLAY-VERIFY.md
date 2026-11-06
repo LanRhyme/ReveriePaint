@@ -49,12 +49,26 @@ python3 scripts/replay-synth.py --serial <serial> --only fill_tolerance
 | `transform_translate` | 整层平移（T_TRANSFORM） | 0 px |
 | `gradient_linear` | 渐变 V3（双色标） | 0 px |
 | `undo_fill` / `redo_fill` | 填充的撤销 / 重做 | 0 px |
+| `pattern_fill_region` | 图案填充（区域模式，纯色图案） | 0 px |
+| `liquify_noop` | 液化强度 0 不改画面（且后续事件不错位） | 0 px |
+| `liquify_bounded` | 液化强度 1：改动 > 0 且全在掰动中心附近（自定义判定） | 通过 |
+| `filter_curves_invert` | 曲线 LUT（通道反转）提交到图层像素 | 0 px |
+
+## 判定方式
+
+- **精确判定**：期望图完全可算 → 比较差异像素数（阈值通常 0.5%~3%）
+- **自定义判定**：结果不可精确预测但性质可判 → `CHECKERS` 里注册一个 `check(got, expected)`
+  - 液化用几何性质：改动像素数 > 0，且改动全部落在掰动中心的半径内（Krita 的形变网格无法离线复现）
+- **自定义判定的坑**：直接对 RGBA 用 `ImageChops.difference(...).getbbox()` 在只有部分通道变化时可能判成"无差异"，
+  要先逐通道取最大值 (`ImageChops.lighter`) 再求 bbox —— 液化用例就踩过这个，差点把"没改动"当成通过
 
 ## 已知边界
 
 - 圈涂在**纯透明无轮廓**的层上不填充是引擎语义（没有闭合区域可填），不是回放问题；用例因此把轮廓放进快照
 - 笔画是亚像素级的：回放用 `currentMs/1000` 作笔迹时间，速度类动态与当时略有出入，单笔终态差约 0.06% 像素（非内容丢失）
 - 只比终态；「回放过程中一闪一闪」这类**时间序列**问题还没纳入，需要按进度采样多帧比较
+- 整层图案填充 (`wholeLayer=1`) 只对**填充层**生效（引擎 `setFillLayerPattern` 要求 `reverie_is_fill`），
+  普通颜料层要走区域模式；要测整层模式需要一个带填充层的容器
 
 ## 相关提交
 

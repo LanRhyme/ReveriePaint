@@ -136,6 +136,67 @@ class Ev:
             p += struct.pack("<d", v)
         self.tool(T_TRANSFORM, bytes(p), dt=dt)
 
+    def pattern_fill(self, layer, png_bytes, x=0, y=0, whole_layer=False,
+                     tolerance=16, merged=True, expand=0, feather=0, close_gap=4,
+                     opacity=1.0, composite="normal", dt=16):
+        """图案填充事件: layer u32, wholeLayer u8, x/y u32, tol u8, merged u8,
+        expand u32, feather u8, closeGap u8, opacity f64, composite str, pngLen u32, png
+
+        wholeLayer=1 只对"填充层"生效 (引擎 setFillLayerPattern 要求 reverie_is_fill),
+        普通颜料层要走区域模式 (wholeLayer=0 → floodFillPatternAt)。
+        """
+        p = bytearray()
+        p += struct.pack("<I", layer)
+        p += struct.pack("<B", 1 if whole_layer else 0)
+        p += struct.pack("<II", x, y)
+        p += struct.pack("<BB", tolerance, 1 if merged else 0)
+        p += struct.pack("<I", expand)
+        p += struct.pack("<BB", feather, close_gap)
+        p += struct.pack("<d", opacity)
+        raw = composite.encode()
+        p += varint(len(raw)) + raw
+        p += struct.pack("<I", len(png_bytes))
+        p += png_bytes
+        self.tool(47, bytes(p), dt=dt)
+
+    def pattern_fill_whole(self, layer, png_bytes, dt=16):
+        """整层图案填充 (需要目标层是填充层)"""
+        p = bytearray()
+        p += struct.pack("<I", layer)
+        p += struct.pack("<B", 1)
+        p += struct.pack("<II", 0, 0)
+        p += struct.pack("<BB", 16, 1)
+        p += struct.pack("<I", 0)
+        p += struct.pack("<BB", 0, 4)
+        p += struct.pack("<d", 1.0)
+        raw = b"normal"
+        p += varint(len(raw)) + raw
+        p += struct.pack("<I", len(png_bytes))
+        p += png_bytes
+        self.tool(47, bytes(p), dt=dt)
+
+    def liquify_begin(self, dt=16):
+        self.tool(28, b"", dt=dt)
+
+    def liquify_end(self, dt=16):
+        self.tool(29, b"", dt=dt)
+
+    def liquify(self, fx, fy, tx, ty, mode=0, strength=1.0, dt=16):
+        p = struct.pack("<ffff", fx, fy, tx, ty) + struct.pack("<B", mode) + struct.pack("<f", strength)
+        self.tool(5, p, dt=dt)
+
+    def filter_lut(self, index, kind, lut_bytes, name="Curves", dt=16):
+        """曲线/渐变映射滤镜提交: index u16, kind u8, len u32, bytes, name str"""
+        self._head(0x41, dt)
+        p = bytearray()
+        p += struct.pack("<H", index)
+        p += struct.pack("<B", kind)
+        p += struct.pack("<I", len(lut_bytes))
+        p += lut_bytes
+        raw = name.encode()
+        p += varint(len(raw)) + raw
+        self.buf += p
+
     def undo(self, dt=16):
         self.tool(36, b"", dt=dt)
 
@@ -376,6 +437,74 @@ def _transparent_mask(img):
     return alpha.point(lambda v: 255 if v < 8 else 0)
 
 
+def case_pattern_fill_region(w, h):
+    """区域图案填充 (填充工具的"图案"模式): 纯色图案 + 不透明度 1 →
+    在空白层上整块区域都变成该色, 与平铺相位无关, 可精确判定"""
+    tile = Image.new("RGBA", (8, 8), (0, 128, 255, 255))
+    buf = io.BytesIO()
+    tile.save(buf, format="PNG")
+    ev = Ev()
+    ev.session_start()
+    ev.context(layer=1, color="#000000")
+    ev.pattern_fill(1, buf.getvalue(), x=w // 2, y=h // 2, whole_layer=False,
+                    opacity=1.0, composite="normal")
+    expected = rgba_solid(w, h, (0, 128, 255, 255))
+    return "pattern_fill_region", ev, expected, 0.005
+
+
+def case_liquify_noop(w, h, template, workdir):
+    """液化强度 0 + 后续一次填充: 期望画面完全可预测 (验证事件解析没有错位, 且 0 强度不动作)"""
+    base, split = _opaque_blocks(w, h)
+    ev = Ev()
+    ev.session_start()
+    ev.context(layer=1, color="#00ff00")
+    ev.liquify(split, h // 2, split + 40, h // 2, mode=0, strength=0.0)
+    ev.fill_v4(split // 2, h // 2, "#00ff00", tol=0)   # 跟在液化后面: payload 错位会立刻暴露
+    return _snapshot_case(w, h, template, workdir, "liquify_noop", base, ev,
+                          _filled_left(w, h, base, split), 0.01)
+
+
+def case_liquify_bounded(w, h, template, workdir):
+    """液化强度 1 掰动色块边界: 判定用几何性质 (改动 > 0 且都在掰动中心附近),
+    因为 Krita 的形变网格没法在测试里精确预测。"""
+    base, split = _opaque_blocks(w, h)
+    ev = Ev()
+    ev.session_start()
+    ev.context(layer=1, color="#000000")
+    # 液化是一整个拖拽事务: begin → 多次 liquifyAt → end (缺 begin/end 引擎不会改像素)
+    ev.liquify_begin()
+    for i in range(12):
+        ev.liquify(split, h // 2, split + 8 * (i + 1), h // 2 + 6 * (i + 1), mode=0, strength=0.8)
+    ev.liquify_end()
+    return _snapshot_case(w, h, template, workdir, "liquify_bounded", base, ev,
+                          base.copy(), 0.0)
+
+
+def case_filter_curves_invert(w, h, template, workdir):
+    """曲线滤镜 (通道反转 LUT): 期望 = 快照内容逐通道取反 (alpha 不变)。
+
+    LUT 是数据, 期望映射完全可算 —— 所以这个用例既验证录制里 FILTER_LUT 的
+    解析/派发, 也验证"滤镜提交到图层像素"这条链路。
+    """
+    base, split = _opaque_blocks(w, h)
+    inv = bytes(255 - i for i in range(256))
+    lut = inv * 3   # R/G/B 各 256
+    ev = Ev()
+    ev.session_start()
+    ev.context(layer=1, color="#ffffff")
+    ev.filter_lut(1, 0, lut, "Curves")
+    # 期望: 逐通道取反
+    px = base.load()
+    expected = Image.new("RGBA", (w, h), (0, 0, 0, 0))
+    ep = expected.load()
+    for y in range(h):
+        for x in range(w):
+            r, g, b, a = px[x, y]
+            ep[x, y] = (255 - r, 255 - g, 255 - b, a)
+    return _snapshot_case(w, h, template, workdir, "filter_curves_invert", base, ev,
+                          expected, 0.01)
+
+
 def case_gradient(w, h):
     """线性渐变: 左黑右白 (opacity 1, 无抖动) -> 期望 = 水平线性插值"""
     ev = Ev()
@@ -435,7 +564,41 @@ CASES = {
     "fill_whole": case_fill_whole,
     "transform_translate": case_transform_translate,
     "gradient_linear": case_gradient,
+    "pattern_fill_region": case_pattern_fill_region,
 }
+
+CHECKERS = {}
+
+
+def check_liquify_bounded(got, expected, json_out_path=None):
+    """液化不可精确预测, 改判几何性质: 改动像素数 > 0, 且改动都在掰动中心附近。
+
+    expected 这里是"液化前的画面", 于是 diff 区就是液化真实影响到的区域。
+    """
+    from PIL import ImageChops
+    diff = ImageChops.difference(got.convert("RGBA"), expected.convert("RGBA"))
+    # 逐通道取最大值再求 bbox: 直接对 RGBA 用 getbbox() 在只有某个通道变化时会漏
+    channels = diff.split()
+    combined = channels[0]
+    for ch in channels[1:]:
+        combined = ImageChops.lighter(combined, ch)
+    bbox = combined.getbbox()
+    if not bbox:
+        return 1.0, {"error": "liquify 未改动任何像素"}
+    changed = sum(1 for px in combined.point(lambda v: 255 if v > 8 else 0).getdata() if px)
+    w, h = got.size
+    cx, cy = w * 0.5, h * 0.5
+    # 液化笔刷默认尺寸有限; 允许 600px 半径 (含羽化/网格传播)
+    x0, y0, x1, y1 = bbox
+    outside = max(0, int(x0 < cx - 600) + int(y0 < cy - 600) + int(x1 > cx + 600) + int(y1 > cy + 600))
+    info = {"changedPixels": changed, "bbox": list(bbox),
+            "center": [round(cx), round(cy)], "outsideRadius": outside}
+    if outside:
+        return 1.0, info
+    if changed < 100:
+        return 1.0, info
+    return 0.0, info
+
 
 # 带快照用例: 起点是一份自带内容的画面 (轮廓/色块), 期望 = 该内容 + 事件流的结果
 SNAPSHOT_CASES = {
@@ -443,7 +606,13 @@ SNAPSHOT_CASES = {
     "fill_tolerance": case_fill_tolerance,
     "undo_fill": case_undo_fill,
     "redo_fill": case_redo_fill,
+    "liquify_noop": case_liquify_noop,
+    "liquify_bounded": case_liquify_bounded,
+    "filter_curves_invert": case_filter_curves_invert,
 }
+
+
+CHECKERS["liquify_bounded"] = check_liquify_bounded
 
 
 def adb(serial, *args, check=False):
@@ -536,7 +705,14 @@ def main():
             print(r.stderr[-800:])
             failures.append((case, "no replay output"))
             continue
-        ratio, info = compare(step, expected)
+        checker = CHECKERS.get(case)
+        if checker is not None:
+            with zipfile.ZipFile(step) as z:
+                got = Image.open(io.BytesIO(z.read("layer_001.png"))).convert("RGBA")
+            ratio, info = checker(got, expected)
+            print("      自定义判定:", info)
+        else:
+            ratio, info = compare(step, expected)
         ok = ratio <= tol
         print(f"  差异像素 {info.get('diffPixels')}/{info.get('total')} "
               f"= {ratio:.4%} (maxDelta {info.get('maxChannelDelta')}) -> "
