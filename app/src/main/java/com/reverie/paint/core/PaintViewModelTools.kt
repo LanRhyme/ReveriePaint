@@ -876,6 +876,54 @@ internal fun PaintViewModel.replaySymmetricBranches(
 }
 
 /**
+ * 会话开始时写一条"完整上下文"基线 (画笔/颜色/不透明度/图层)。
+ *
+ * 为什么要基线: 录制只记**变化**, 而像圈涂填充、液化这类操作本身不带画笔色,
+ * 回放时只能依赖前面最近的 CONTEXT。会话刚开始时如果没有任何 CONTEXT,
+ * 回放就会用引擎默认色 —— 表现为"填充/圈涂回放出来是黑的"。
+ */
+internal fun PaintViewModel.recordContextBaseline() {
+    if (!recorder.recording) return
+    val mode = if (isEraserMode && currentToolId == "brush") 1 else when (currentToolId) {
+        "brush" -> 0
+        "eraser" -> 1
+        "smudge" -> 3
+        else -> -1
+    }
+    recorder.captureContext(
+        toolMode = mode,
+        preset = brushPresetIndex,
+        size = brushSize,
+        opacity = brushOpacity,
+        flow = brushFlow,
+        compositeOp = if (mode == 1) "erase" else brushCompositeOp,
+        color = brushColor,
+        // 会话刚开始时 currentLayerIndex 可能还没同步 (-1), 写成 0xFFFF 哨兵会让回放
+        // setCurrentLayer 收到越界值; 这里落到 0, 后续 CONTEXT 会纠正
+        layer = if (currentLayerIndex >= 0) currentLayerIndex else 0,
+    )
+    val pid = brushPresets.firstOrNull { it.index == brushPresetIndex }?.id
+    val customized = pid?.let { BrushStoreVm.hasEffectivePreset(it) } == true
+    recorder.captureContextExt(
+        softness = brushSoftness,
+        spacing = brushSpacing,
+        angle = brushAngle,
+        scatter = brushScatter,
+        rotation = brushRotation,
+        ratio = brushRatio,
+        sharpness = brushSharpness,
+        smudgeRate = brushSmudgeRate,
+        smudgeLength = brushSmudgeLength,
+        secondaryColor = brushSecondaryColor,
+        airbrushEnabled = brushAirbrush,
+        airbrushRate = brushAirbrushRate,
+        isCustomized = customized,
+        spacingCustomized = customized,
+    )
+    recorder.captureBrushFade(brushFade)
+}
+
+/**
  * 仅把已快照的镜像分支写入录制流 (P1 共享实现)。
  * 只做 recorder.captureContext/captureContextExt/captureBrushFade/
  * strokeStart/strokeMove/strokeEnd, 不发引擎、不 endUndoMacro、不渲染。

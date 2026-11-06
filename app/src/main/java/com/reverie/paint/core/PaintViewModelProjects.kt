@@ -697,6 +697,8 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                         null
                     }
                 recorder.beginSession(coreW, coreH, file, recSessionDir(), priorRec, undoLimit = maxUndoSteps)
+                // 会话起点写完整上下文: 圈涂/液化这类不带画笔色的操作靠它拿回颜色
+                recordContextBaseline()
                 // 打开的工程可能是动画工程 (KRA/REVP 内已存有关键帧通道)。这里在
                 // 渲染线程上补同步一次动画状态, 并让时间轴自动展开 —— 否则用户
                 // 重新打开逐帧工程时会看不到任何帧的证据, 以为帧全丢了。
@@ -1715,6 +1717,7 @@ internal fun PaintViewModel.startPainting(
                     snapshotTempDir = recSessionDir(),
                     undoLimit = maxUndoSteps,
                 )
+                recordContextBaseline()
             }
         } finally {
             if (initialBitmap != null && !initialBitmap.isRecycled) {

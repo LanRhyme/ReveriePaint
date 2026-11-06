@@ -17,6 +17,8 @@ import com.reverie.paint.core.Page
 import com.reverie.paint.core.ReverieCoreBridge
 import com.reverie.paint.core.exitReplay
 import com.reverie.paint.core.goReplay
+import com.reverie.paint.core.floodFill
+import com.reverie.paint.core.updateBrushColor
 import com.reverie.paint.core.loadProject
 import com.reverie.paint.core.pauseReplay
 import com.reverie.paint.core.saveProject
@@ -68,6 +70,7 @@ class ReplayVerifyReceiver : BroadcastReceiver() {
             return
         }
         val resaveTo = intent.getStringExtra("resave")
+        val makeFillColor = intent.getStringExtra("makefill")
         val fractions = (intent.getStringExtra("steps") ?: "1.0")
             .split(',')
             .mapNotNull { it.trim().toFloatOrNull() }
@@ -106,6 +109,29 @@ class ReplayVerifyReceiver : BroadcastReceiver() {
             result.put("loadMs", SystemClock.elapsedRealtime() - t0)
             if (!loaded) {
                 fail(outDir, result, "load_timeout")
+                return@onDone
+            }
+            if (!makeFillColor.isNullOrBlank()) {
+                // 用真实录制链路做一次填充 (不是合成事件), 用来验证"录制 -> 回放"的填充颜色
+                val (cx, cy) = vm.docWidth / 2 to vm.docHeight / 2
+                vm.updateBrushColor(makeFillColor)
+                vm.floodFill(cx.toFloat(), cy.toFloat(), tolerance = 0)
+                // 必须走 saveProject: 录制是随工程文件一起序列化的 (saveRevp 只存文档)
+                val name = "mf_fill"
+                main.postDelayed({
+                    vm.saveProject(name, onComplete = {
+                        val target = File(
+                            (outPath.substringBefore("/verify").ifEmpty { "/data/data/com.reverie.paint/files" })
+                                + "/projects/$name.revp",
+                        )
+                        result.put("makeFill", target.absolutePath)
+                        result.put("makeFillColor", makeFillColor)
+                        result.put("ok", true)
+                        result.put("finishedAt", System.currentTimeMillis())
+                        writeResult(outDir, result)
+                        Log.i(TAG, "makefill done: ${target.absolutePath} ${target.length()}B")
+                    })
+                }, 300)
                 return@onDone
             }
             if (!resaveTo.isNullOrBlank()) {

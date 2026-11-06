@@ -144,21 +144,21 @@ class PaintRecorder {
             }
             val snap = prior.snapshot
             if (snap == null || snap.isEmpty()) {
-                // 历史链里没有快照 = 这段历史无法被忠实回放 (回放只能从空白画布重建,
-                // 而当时的编辑依赖更早的文档状态与撤销栈)。以前这里什么都不做, 于是
-                // "没有快照" 会一直传染下去: 之后每次保存都还是没有快照, 回放永远缺内容。
-                // 现在改成**断开历史链、用当前工程文件重新锚定**: 丢掉无法复现的旧事件,
-                // 让回放从"现在的画面"开始, 之后每一笔都忠实。
+                // 历史链没有快照: 这段历史的起点无从得知 (回放只能从空白画布重建)。
+                // **绝不能丢历史** —— 之前这里"断开历史链换当前文件重锚定", 结果用户
+                // 一保存, 之前的十几小时绘制记录就没了。历史留着, 回放从空白开始,
+                // 至少内容还在; 想要忠实回放就从现在起重新累积 (新会话会带基线上下文)。
                 synchronized(ioLock) {
-                    priorEvents = null
-                    priorEventCount = 0
-                    priorTotalMs = 0L
+                    priorEvents = prior.events.takeIf { it.isNotEmpty() && it.size <= MAX_RECORDING_BYTES }
+                    priorEventCount = if (priorEvents != null) prior.eventCount else 0
+                    priorTotalMs = if (priorEvents != null) prior.totalMs else 0L
                 }
                 android.util.Log.i(
                     "ReveriePaint",
-                    "recording prior chain dropped (no snapshot): re-anchor with current file",
+                    "recording prior chain has no snapshot: keep history (replay starts from blank canvas)",
                 )
-                copySnapshotFrom(snapshotSource, snapshotTempDir)
+                // 没有起点快照时不能拿当前文件当快照 —— 那会让历史事件叠加在"已经画好的画"上
+                // (双重绘制)。保持无快照 = 回放从空白重建, 与历史链的语义一致。
             } else {
                 try {
                     snapshotTempDir.mkdirs()
