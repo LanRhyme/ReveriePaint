@@ -568,9 +568,22 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
                 if (rb > b) b = rb
             }
             if (r > l && b > t) {
-                val area = (r - l).toLong() * (b - t)
+                // dirtyRects 是文档/位图像素; 烘焙成本按屏幕覆盖面积 (zoom²) 走。
+                val p = pose
+                val vw = view.width
+                val vh = view.height
+                val area = if (p != null && vw > 0 && vh > 0) {
+                    RealInkPresent.screenAreaOfBmpRect(p, l, t, r, b, vw, vh, screenBounds)
+                } else {
+                    (r - l).toLong() * (b - t)
+                }
                 if (area > FrontBufferFeatureFlags.maxInkAreaPx) {
                     PerfTrace.tick("inkSkipBigArea")
+                    android.util.Log.i(
+                        "RealInkController",
+                        "ev=ink_skip_big_area screenArea=$area max=${FrontBufferFeatureFlags.maxInkAreaPx} " +
+                            "doc=${r - l}x${b - t} view=${vw}x${vh} scale=${p?.scale}",
+                    )
                     releaseAndCatchUp()
                     synchronized(pendingLock) { pendingCount = 0 }
                     return false

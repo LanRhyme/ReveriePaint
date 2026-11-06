@@ -303,4 +303,17 @@ class RealInkPresentTest {
         )
         assertFalse(RealInkPresent.bakeCoversScreenRect(pose(), 90f, 90f, 90f, 120f, 491, 441, 519, 469))
     }
+
+    @Test
+    fun `screen area of a bitmap rect grows with the square of zoom`() {
+        val out = IntArray(4)
+        val docArea = RealInkPresent.screenAreaOfBmpRect(pose(scale = 1f), 0, 0, 200, 100, 2000, 2000, out)
+        val zoomed = RealInkPresent.screenAreaOfBmpRect(pose(scale = 4f), 0, 0, 200, 100, 2000, 2000, out)
+        assertEquals(200L * 100L, docArea)
+        assertEquals(docArea * 16L, zoomed)
+        // 文档面积只有 2 万, 远低于默认 1.2M 阈值; 4x 后屏幕面积 32 万。
+        // 用错坐标空间会让"大笔刷 + 放大"的保护失效。
+        assertTrue(zoomed > docArea)
+        assertEquals(0L, RealInkPresent.screenAreaOfBmpRect(pose(), 10, 20, 30, 40, 300, 300, out))
+    }
 }

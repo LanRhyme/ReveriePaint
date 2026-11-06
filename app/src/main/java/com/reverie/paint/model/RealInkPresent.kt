@@ -94,6 +94,27 @@ object RealInkPresent {
     }
 
     /**
+     * 文档/位图坐标矩形变换到屏幕后的面积 (像素)。前缓冲真墨的烘焙成本跟这块
+     * **屏幕**面积走, 随 zoom² 增长; 用文档面积去跟阈值比会让大笔刷放大时的保护永不触发。
+     * 位图矩形完全落在视口外时返回 0。
+     */
+    fun screenAreaOfBmpRect(
+        pose: CanvasPose,
+        l: Int,
+        t: Int,
+        r: Int,
+        b: Int,
+        viewW: Int,
+        viewH: Int,
+        out: IntArray,
+    ): Long {
+        if (!bmpRectToScreenBounds(pose, l.toFloat(), t.toFloat(), r.toFloat(), b.toFloat(), viewW, viewH, 0, out)) {
+            return 0L
+        }
+        return (out[2] - out[0]).toLong() * (out[3] - out[1]).toLong()
+    }
+
+    /**
      * 烤屏幕槽位图时的**源位图**子矩形: 脏区每边外扩 `PAD_PX + 2` 个屏幕像素换算回位图像素
      * (屏幕像素 / scale)，再夹在位图内。
      *
