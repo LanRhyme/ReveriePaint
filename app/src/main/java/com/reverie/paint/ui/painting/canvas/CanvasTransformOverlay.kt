@@ -166,12 +166,11 @@ internal fun DrawScope.drawTransformPreview(
                     } else {
                         // Standard / Free / Move Affine Transform
                         val c = tfState.bounds.center
-                        val b = tfState.bounds
                         withTransform({
-                            translate(c.x * scX - bmp.width / 2f + tfState.tx * scX, c.y * scY - bmp.height / 2f + tfState.ty * scY)
+                            translate((c.x + tfState.tx) * scX - bmp.width / 2f, (c.y + tfState.ty) * scY - bmp.height / 2f)
                             rotate(tfState.rotation, pivot = Offset.Zero)
                             scale(tfState.scaleX, tfState.scaleY, pivot = Offset.Zero)
-                            translate(-c.x * scX + bmp.width / 2f, -c.y * scY + bmp.height / 2f)
+                            translate(-c.x * scX, -c.y * scY)
                         }) {
                             // 整张预览位图都要画: 预览位图 = 画布尺寸、里面只有"这次要被
                             // 变换的内容"(有选区时引擎只抠了选区内的像素)。以前只画变换框
@@ -185,10 +184,7 @@ internal fun DrawScope.drawTransformPreview(
                                 previewBmp.width.coerceAtLeast(1),
                                 previewBmp.height.coerceAtLeast(1),
                             )
-                            val dstOffset = androidx.compose.ui.unit.IntOffset(
-                                (-bmp.width / 2f).toInt(),
-                                (-bmp.height / 2f).toInt(),
-                            )
+                            val dstOffset = androidx.compose.ui.unit.IntOffset(0, 0)
                             val dstSize = androidx.compose.ui.unit.IntSize(
                                 (previewBmp.width * scX).toInt().coerceAtLeast(1),
                                 (previewBmp.height * scY).toInt().coerceAtLeast(1),

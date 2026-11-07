@@ -35,11 +35,16 @@ bool ReverieCore::applyPerspectiveTransform(
         bounds = QRect(0, 0, image->width(), image->height());
     }
 
+    const double bx = (origW > 0 && origH > 0) ? origX : bounds.x();
+    const double by = (origW > 0 && origH > 0) ? origY : bounds.y();
+    const double bw = (origW > 0 && origH > 0) ? origW : bounds.width();
+    const double bh = (origW > 0 && origH > 0) ? origH : bounds.height();
+
     QPolygonF srcQuad;
-    srcQuad << QPointF(bounds.topLeft())
-            << QPointF(bounds.topRight())
-            << QPointF(bounds.bottomRight())
-            << QPointF(bounds.bottomLeft());
+    srcQuad << QPointF(bx, by)
+            << QPointF(bx + bw, by)
+            << QPointF(bx + bw, by + bh)
+            << QPointF(bx, by + bh);
 
     QPolygonF dstQuad;
     dstQuad << QPointF(x0, y0)
@@ -251,15 +256,17 @@ bool ReverieCore::applyTransform(double xscale, double yscale,
         center = QPointF(originX, originY);
     } else {
         center = bounds.center();
+        clampTransformPivotToSelection(center, "applyTransform");
     }
-    clampTransformPivotToSelection(center, "applyTransform");
 
-    QTransform tf;
-    tf.scale(xscale, yscale);
-    tf.shear(0, yshear);
-    tf.shear(xshear, 0);
-    tf.rotateRadians(rotationRad);
-    QPointF mappedC = tf.map(center);
+    QTransform SC = QTransform::fromScale(xscale, yscale);
+    QTransform S;
+    S.shear(0, yshear);
+    S.shear(xshear, 0);
+    QTransform R;
+    R.rotateRadians(rotationRad);
+    QTransform tfWorkerNoTrans = SC * S * R;
+    QPointF mappedC = tfWorkerNoTrans.map(center);
     double effectiveTx = center.x() - mappedC.x() + xtranslate;
     double effectiveTy = center.y() - mappedC.y() + ytranslate;
 
@@ -389,18 +396,17 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
         center = QPointF(originX, originY);
     } else {
         center = shared.center();
+        clampTransformPivotToSelection(center, "applyTransformLayers");
     }
-    // 有选区时轴心必须落在选区里: 纯平移与轴心无关, 但翻转/旋转/缩放会把选区内容
-    // 甩到"以那个轴心镜像"的位置 —— 用户报的"做完变换选区的东西随机漂移"就是这类
-    // (UI 的变换框来自整层/多选目标的包围盒, 和真正的选区不是同一块时就会踩到)。
-    clampTransformPivotToSelection(center, "applyTransformLayers");
 
-    QTransform tf;
-    tf.scale(xscale, yscale);
-    tf.shear(0, yshear);
-    tf.shear(xshear, 0);
-    tf.rotateRadians(rotationRad);
-    QPointF mappedC = tf.map(center);
+    QTransform SC = QTransform::fromScale(xscale, yscale);
+    QTransform S;
+    S.shear(0, yshear);
+    S.shear(xshear, 0);
+    QTransform R;
+    R.rotateRadians(rotationRad);
+    QTransform tfWorkerNoTrans = SC * S * R;
+    QPointF mappedC = tfWorkerNoTrans.map(center);
     const double effectiveTx = center.x() - mappedC.x() + xtranslate;
     const double effectiveTy = center.y() - mappedC.y() + ytranslate;
 
