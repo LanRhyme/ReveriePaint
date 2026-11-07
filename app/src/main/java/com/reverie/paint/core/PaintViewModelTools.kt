@@ -72,6 +72,7 @@ internal fun PaintViewModel.touchStart(
     }
 
     onPaintingActivity()
+    onStylusStrokeStarted()
     strokeStartInputTimeMs = if (inputEventTimeMs > 0L) inputEventTimeMs else android.os.SystemClock.uptimeMillis()
     smoothedStrokeX = x
     smoothedStrokeY = y
@@ -99,22 +100,27 @@ internal fun PaintViewModel.touchStart(
     }
     if (isLayerEffectivelyHidden(currentLayerIndex)) {
         showActionToast(R.string.canvas_toast_layer_hidden, com.reverie.paint.R.drawable.ic_eye_off)
+        onStylusStrokeEnded()
         return false
     }
     if (curLayer?.nodeType == 3) {
         showActionToast(R.string.canvas_toast_filter_not_drawable, com.reverie.paint.R.drawable.ic_image_adjust)
+        onStylusStrokeEnded()
         return false
     }
     if (curLayer?.nodeType == com.reverie.paint.model.LayerNodeType.SELECTION_MASK) {
         showActionToast(R.string.canvas_toast_selection_mask_not_drawable, com.reverie.paint.R.drawable.ic_select)
+        onStylusStrokeEnded()
         return false
     }
     if (curLayer?.isGroup == true) {
         showActionToast(R.string.canvas_toast_group_not_drawable, com.reverie.paint.R.drawable.ic_folder)
+        onStylusStrokeEnded()
         return false
     }
     if (curLayer?.locked == true) {
         showActionToast(R.string.canvas_toast_layer_locked, com.reverie.paint.R.drawable.ic_lock)
+        onStylusStrokeEnded()
         return false
     }
 
@@ -454,6 +460,7 @@ internal fun PaintViewModel.touchEnd(
 ) {
     stopAirbrush()
     disarmStrokeStartKick()
+    onStylusStrokeEnded()
     lastStrokeEndElapsedMs = android.os.SystemClock.elapsedRealtime()
     isModified = true
     totalStrokes++
@@ -588,6 +595,7 @@ internal fun PaintViewModel.touchCancel() {
     quickShapeCapture = null
     stopAirbrush()
     disarmStrokeStartKick()
+    onStylusStrokeEnded()
     // Drop undelivered samples so the queued drain cannot append to a stroke
     // whose cancel (transaction revert) is already in flight behind it.
     mirrorGate.cancel()

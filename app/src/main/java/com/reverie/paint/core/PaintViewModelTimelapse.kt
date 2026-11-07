@@ -30,7 +30,7 @@ private const val TAG_TIMELAPSE = "RP_Timelapse"
 /** 后台单一抓帧执行器，避免并发把系统拖死 */
 private val timelapseExecutor = Executors.newSingleThreadExecutor { r ->
     Thread(r, "RP-TimelapseCaptureThread").apply {
-        priority = Thread.NORM_PRIORITY - 1
+        priority = Thread.MIN_PRIORITY
     }
 }
 
@@ -38,6 +38,19 @@ private val timelapseExecutor = Executors.newSingleThreadExecutor { r ->
 private val isTimelapseCapturing = AtomicBoolean(false)
 /** 当正在抓帧时又有新的变化产生，标记在当前抓帧结束后自动补抓一帧 */
 private val pendingTimelapseCapture = AtomicBoolean(false)
+
+/** 标记当前笔触是否处于触控绘制中 */
+@Volatile
+internal var isStylusTouching: Boolean = false
+
+/** 延时摄影空闲防抖抓帧的延迟时间 (毫秒)，作画停笔后等待该空闲窗口才执行快照，绝不阻塞连续绘制 */
+private const val TIMELAPSE_IDLE_DELAY_MS = 1000L
+
+/** 上次成功触发捕获的时间戳 (毫秒) */
+private var lastCaptureTriggerTimeMs: Long = 0L
+
+/** 空闲防抖抓帧 Runnable 引用 */
+private var pendingIdleCaptureRunnable: Runnable? = null
 
 /** 当前激活的帧捕获器缓存 */
 private var cachedFrameRecorder: FrameRecorder? = null
@@ -128,44 +141,116 @@ private fun PaintViewModel.getOrCreateFrameRecorder(): FrameRecorder? {
 }
 
 /**
+ * 触摸落笔通知：正在进行实时绘制，暂停/顺延所有延时摄影快照任务，确保绘画线程零阻塞
+ */
+fun PaintViewModel.onStylusStrokeStarted() {
+    isStylusTouching = true
+    pendingIdleCaptureRunnable?.let {
+        mainHandler.removeCallbacks(it)
+        pendingIdleCaptureRunnable = null
+    }
+}
+
+/**
+ * 触摸抬笔通知
+ */
+fun PaintViewModel.onStylusStrokeEnded() {
+    isStylusTouching = false
+}
+
+/**
+ * 立即冲刷任何处于防抖等待队列中的快照任务 (在保存工程或进入回放前调用，确保最新笔迹入帧)
+ */
+fun PaintViewModel.flushPendingTimelapseCapture() {
+    pendingIdleCaptureRunnable?.let {
+        mainHandler.removeCallbacks(it)
+        pendingIdleCaptureRunnable = null
+        executeTimelapseCaptureNow(force = true)
+    }
+}
+
+/**
  * 重置延时摄影运行时捕获状态
  */
 fun PaintViewModel.resetTimelapseCaptureState() {
+    isStylusTouching = false
+    pendingIdleCaptureRunnable?.let {
+        mainHandler.removeCallbacks(it)
+        pendingIdleCaptureRunnable = null
+    }
     isTimelapseCapturing.set(false)
     pendingTimelapseCapture.set(false)
+    lastCaptureTriggerTimeMs = 0L
     cachedFrameRecorder = null
     cachedFramesDirPath = null
 }
 
 /**
- * 触发一次后台画布抓帧。
- * - 只有在开启录制且处于绘画状态时生效
- * - 两段式零阻塞流水线：
- *   1. 在 Core 渲染线程执行超轻量 exportJpg 抓取快照 (~25ms)，完全遵守架构铁律与单实例引擎约束
- *   2. 将 JPG 转交后台专用线程执行降采样 (≤1280)、密集指纹比对与 WEBP 无损/高质量压缩写盘
- * - 若抓帧期间产生新的绘制动作，在捕获器空闲后自动补抓最新画面，保证不漏帧
+ * 触发一次延时摄影抓帧任务。
+ * - 智能防抖：作画中频繁抬笔 (如排线、连续笔画) 自动顺延抓帧，仅在用户停笔空闲 (1.0s) 时异步落帧
+ * - 零阻塞保证：绘制期间完全不调用 savePng，绝不抢占 Core 渲染线程
  */
 fun PaintViewModel.triggerTimelapseCapture(isChanged: Boolean = true, force: Boolean = false) {
     if (!timelapseRecordingEnabled || currentProjectFile == null) {
         return
     }
 
-    if (!isTimelapseCapturing.compareAndSet(false, true)) {
-        if (isChanged) {
-            pendingTimelapseCapture.set(true)
+    if (force) {
+        pendingIdleCaptureRunnable?.let {
+            mainHandler.removeCallbacks(it)
+            pendingIdleCaptureRunnable = null
         }
+        executeTimelapseCaptureNow(force = true)
+        return
+    }
+
+    if (!isChanged) return
+
+    pendingIdleCaptureRunnable?.let { mainHandler.removeCallbacks(it) }
+    val runnable = Runnable {
+        pendingIdleCaptureRunnable = null
+        executeTimelapseCaptureNow(force = false)
+    }
+    pendingIdleCaptureRunnable = runnable
+    mainHandler.postDelayed(runnable, TIMELAPSE_IDLE_DELAY_MS)
+}
+
+/**
+ * 真正执行抓帧操作
+ */
+private fun PaintViewModel.executeTimelapseCaptureNow(force: Boolean) {
+    if (!timelapseRecordingEnabled || currentProjectFile == null) {
+        return
+    }
+
+    if (!force && (isStylusTouching || isStrokeRenderActive())) {
+        // 用户仍在作画或底层渲染活跃，绝不抢占渲染线程，顺延防抖
+        triggerTimelapseCapture(isChanged = true, force = false)
+        return
+    }
+
+    if (!isTimelapseCapturing.compareAndSet(false, true)) {
+        pendingTimelapseCapture.set(true)
         return
     }
 
     val nowMs = System.currentTimeMillis()
     val recorder = getOrCreateFrameRecorder()
-    if (recorder == null || (!force && !recorder.shouldCapture(nowMs, isChanged))) {
+    if (recorder == null || (!force && !recorder.shouldCapture(nowMs, isChanged = true))) {
         isTimelapseCapturing.set(false)
         return
     }
 
+    lastCaptureTriggerTimeMs = SystemClock.uptimeMillis()
     val tempPng = File(appContext.cacheDir, "timelapse_snap_${nowMs}_${System.nanoTime() % 1000}.png")
     runCore(render = false) {
+        if (!force && (isStylusTouching || isStrokeRenderActive())) {
+            isTimelapseCapturing.set(false)
+            mainHandler.post {
+                triggerTimelapseCapture(isChanged = true, force = false)
+            }
+            return@runCore
+        }
         val saveStart = SystemClock.uptimeMillis()
         val saveOk = try {
             ReverieCoreBridge.savePng(tempPng.absolutePath)
@@ -217,7 +302,7 @@ fun PaintViewModel.triggerTimelapseCapture(isChanged: Boolean = true, force: Boo
                     isTimelapseCapturing.set(false)
                     if (pendingTimelapseCapture.compareAndSet(true, false)) {
                         mainHandler.post {
-                            triggerTimelapseCapture(isChanged = true)
+                            triggerTimelapseCapture(isChanged = true, force = false)
                         }
                     }
                 }
@@ -227,7 +312,7 @@ fun PaintViewModel.triggerTimelapseCapture(isChanged: Boolean = true, force: Boo
             isTimelapseCapturing.set(false)
             if (pendingTimelapseCapture.compareAndSet(true, false)) {
                 mainHandler.post {
-                    triggerTimelapseCapture(isChanged = true)
+                    triggerTimelapseCapture(isChanged = true, force = false)
                 }
             }
         }

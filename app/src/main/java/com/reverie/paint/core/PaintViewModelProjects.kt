@@ -106,6 +106,7 @@ internal fun PaintViewModel.saveProject(
     val referenceProfile = referenceProfileId
     val previousReferencePath = currentProjectFile
     tickPaintingTimer()
+    flushPendingTimelapseCapture()
     isBlockingLoading = true
     blockingLoadingMessage = getString(R.string.project_saving_progress)
     var savedFile: File? = null
@@ -1837,6 +1838,9 @@ internal fun PaintViewModel.startPainting(
 
 /** 进入延时摄影序列帧回放页 */
 internal fun PaintViewModel.goReplay(p: com.reverie.paint.model.Project? = null) {
+    if (p == null) {
+        flushPendingTimelapseCapture()
+    }
     stopPaintingTimer()
     resetAnimationState()
     replayProject = p
