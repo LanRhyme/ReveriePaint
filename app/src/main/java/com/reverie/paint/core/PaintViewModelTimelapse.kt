@@ -153,6 +153,20 @@ fun PaintViewModel.getTimelapseFramesDir(project: Project? = null): File? {
  * 并递归清理旧 frames 文件夹，彻底根除主页画廊中出现异常 frames 画集的问题。
  */
 fun PaintViewModel.migrateLegacyTimelapseStorage() {
+    // 只在进程内跑一次: buildProjectList 每次刷新都会调用它, 并发进入时一个线程刚删完
+    // 目录、另一个线程才走到 deleteRecursively(), 会踩中 Kotlin 的
+    // "rootDir must be verified to be directory beforehand" 断言直接崩主线程。
+    if (!timelapseMigrationDone.compareAndSet(false, true)) return
+    try {
+        migrateLegacyTimelapseStorageLocked()
+    } catch (t: Throwable) {
+        android.util.Log.w("ReveriePaint", "timelapse legacy migration failed", t)
+    }
+}
+
+private val timelapseMigrationDone = java.util.concurrent.atomic.AtomicBoolean(false)
+
+private fun PaintViewModel.migrateLegacyTimelapseStorageLocked() {
     val rootDir = projectDir()
     val targetRoot = timelapseRootDir()
 
@@ -174,7 +188,8 @@ fun PaintViewModel.migrateLegacyTimelapseStorage() {
                 sub.delete()
             }
         }
-        framesDir.deleteRecursively()
+        runCatching { framesDir.deleteRecursively() }
+            .onFailure { android.util.Log.w("ReveriePaint", "frames dir cleanup skipped: ${it.message}") }
     }
 
     // 根目录 frames
