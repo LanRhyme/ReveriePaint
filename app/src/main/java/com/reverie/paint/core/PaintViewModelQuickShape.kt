@@ -177,21 +177,6 @@ private fun PaintViewModel.handleReplayFailure(generation: Int) {
     }
 }
 
-private fun PaintViewModel.recordStrokeSamples(draft: QuickShapeDraft, shape: QuickShapeResult) {
-    if (!recorder.recording) return
-    val samples = QuickShapeReplay.samples(
-        draft.original,
-        shape,
-        quickShapePerPointPressureEnabled,
-        draft.recognizedShape
-    )
-    if (samples.size < 12) return
-    recorder.strokeStart(samples[0], samples[1], samples[2])
-    for (i in 6 until samples.size step 6) {
-        recorder.strokeMove(samples[i], samples[i + 1], samples[i + 2])
-    }
-    recorder.strokeEnd()
-}
 
 internal fun PaintViewModel.commitQuickShape() {
     val draft = quickShapeDraft ?: return
@@ -218,6 +203,7 @@ internal fun PaintViewModel.commitQuickShape() {
             quickShapeDraft = null
             isQuickShapeEditing = false
             refreshLayerThumbs()
+            triggerTimelapseCapture(isChanged = true)
         }
     }) {
         val gen = quickShapePreviewGeneration.get()
@@ -226,10 +212,6 @@ internal fun PaintViewModel.commitQuickShape() {
             QuickShapeAction.EndPreview -> {
                 ReverieCoreBridge.touchStrokeEnd()
                 ReverieCoreBridge.discardStashedStrokePatch()
-                if (recorder.recording) {
-                    recorder.strokeCancel()
-                    recordStrokeSamples(draft, shape)
-                }
                 isModified = true
                 onPaintingActivity()
                 success = true
@@ -239,10 +221,6 @@ internal fun PaintViewModel.commitQuickShape() {
                 if (replayed && quickShapeSession.phase == QuickShapePhase.PreviewOpen) {
                     ReverieCoreBridge.touchStrokeEnd()
                     ReverieCoreBridge.discardStashedStrokePatch()
-                    if (recorder.recording) {
-                        recorder.strokeCancel()
-                        recordStrokeSamples(draft, shape)
-                    }
                     isModified = true
                     onPaintingActivity()
                     success = true
@@ -252,7 +230,6 @@ internal fun PaintViewModel.commitQuickShape() {
             }
             QuickShapeAction.EndOriginal -> {
                 ReverieCoreBridge.touchStrokeEnd()
-                if (recorder.recording) recorder.strokeEnd()
                 isModified = true
                 onPaintingActivity()
                 success = true
@@ -291,7 +268,6 @@ internal fun PaintViewModel.cancelQuickShape() {
         when (coreAction) {
             QuickShapeAction.EndOriginal -> {
                 ReverieCoreBridge.touchStrokeEnd()
-                if (recorder.recording) recorder.strokeEnd()
                 closeEditor = true
             }
             QuickShapeAction.CancelPreviewCommitStash -> {
@@ -299,7 +275,6 @@ internal fun PaintViewModel.cancelQuickShape() {
                 val restored = ReverieCoreBridge.restoreStashedStrokePatchOpen()
                 if (restored) {
                     ReverieCoreBridge.commitStashedStrokePatch()
-                    if (recorder.recording) recorder.strokeEnd()
                     closeEditor = true
                 } else {
                     quickShapeSession.restoreFailed() // 进入 StashOnly，保持编辑器打开
@@ -307,14 +282,12 @@ internal fun PaintViewModel.cancelQuickShape() {
             }
             QuickShapeAction.CommitRestore -> {
                 ReverieCoreBridge.commitStashedStrokePatch()
-                if (recorder.recording) recorder.strokeEnd()
                 closeEditor = true
             }
             QuickShapeAction.RestoreAndCommitStash -> {
                 val restored = ReverieCoreBridge.restoreStashedStrokePatchOpen()
                 if (restored) {
                     ReverieCoreBridge.commitStashedStrokePatch()
-                    if (recorder.recording) recorder.strokeEnd()
                     closeEditor = true
                 } else {
                     // 写回依然失败，继续留在 StashOnly，不关编辑器

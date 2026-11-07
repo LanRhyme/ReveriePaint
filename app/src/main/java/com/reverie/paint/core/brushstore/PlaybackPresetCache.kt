@@ -4,9 +4,7 @@
 
 package com.reverie.paint.core.brushstore
 
-import com.reverie.paint.core.ReverieCoreBridge
-import com.reverie.paint.model.RecordingBuffer
-import com.reverie.paint.model.RecordingReader
+
 import com.reverie.paint.core.KppHelper
 import java.io.File
 
@@ -36,20 +34,7 @@ object PlaybackPresetCache {
 
     data class Select(val index: Int, val name: String, val presetId: String, val md5: String)
 
-    fun write(b: RecordingBuffer, s: Select) {
-        b.u16(if (s.index < 0) 0xFFFF else s.index.coerceIn(0, 0xFFFE))
-        b.str(s.name)
-        b.str(s.presetId)
-        b.str(s.md5)
-    }
 
-    fun read(r: RecordingReader): Select {
-        val idx = r.u16()
-        val name = r.str()
-        val id = r.str()
-        val md5 = r.str()
-        return Select(if (idx == 0xFFFF) -1 else idx, name, id, md5)
-    }
 
     fun cacheDir(storeRoot: File) = File(storeRoot, DIR)
 

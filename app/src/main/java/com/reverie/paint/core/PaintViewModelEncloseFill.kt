@@ -70,23 +70,6 @@ internal fun PaintViewModel.encloseAndFill(
         return
     }
 
-    if (recorder.recording) {
-        // 圈涂事件本身不带画笔色 (payload 里的 color 是"区域选择色"), 回放靠前面最近的
-        // CONTEXT 取色。用户换色不产生笔画就不会有 CONTEXT —— 必须在这里补一条,
-        // 否则回放会用会话起点的旧颜色 (表现为"圈涂用的蓝色, 回放变红")
-        recordContextBaseline()
-        recorder.encloseFill(
-            points,
-            tolerance,
-            sampleMerged,
-            expand,
-            feather,
-            closeGap,
-            regionMode.methodValue,
-            specificColor,
-            includeContour,
-        )
-    }
 
     val xs = IntArray(points.size) { points[it].first }
     val ys = IntArray(points.size) { points[it].second }

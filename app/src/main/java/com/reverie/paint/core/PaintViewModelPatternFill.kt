@@ -20,7 +20,6 @@ internal fun PaintViewModel.floodFillPattern(
 }
 
 private fun PaintViewModel.applyPatternFill(event: PatternFillEvent) {
-    if (recorder.recording) recorder.patternFill(event)
     var success = false
     runCore(after = {
         if (success) notifyLayerChanged(pixelChanged = true)

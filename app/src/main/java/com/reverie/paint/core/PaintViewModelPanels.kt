@@ -13,7 +13,6 @@ import com.reverie.paint.model.PanelMeta
 import com.reverie.paint.model.PanelQuad
 import com.reverie.paint.model.PanelStyle
 import com.reverie.paint.model.Point2D
-import com.reverie.paint.model.RecordingEvents
 import com.reverie.paint.model.ResolvedPanelStyle
 import com.reverie.paint.model.parsePanelMeta
 import com.reverie.paint.model.parsePanelMetas
@@ -847,14 +846,10 @@ internal fun PaintViewModel.createPanelAt(quad: PanelQuad) {
             val build = buildPanelStructureOp(meta, meta.style.resolve(panelDefaults)) ?: return@runCore
             // 切分继承父格 crop=false 时隐藏新蒙版
             if (!meta.cropEnabled && build.maskIdx >= 0) {
-                if (recorder.recording) {
-                    recorder.layerOp(RecordingEvents.L_VISIBLE, build.maskIdx, "0")
-                }
                 ReverieCoreBridge.setLayerVisible(build.maskIdx, false)
             }
             // 停在内容层, 双击进格/直接作画的目标一致
             if (build.contentIdx >= 0) {
-                if (recorder.recording) recorder.layerOp(RecordingEvents.L_SET_CURRENT, build.contentIdx)
                 ReverieCoreBridge.setCurrentLayer(build.contentIdx)
             }
         } finally {
@@ -887,25 +882,20 @@ private fun PaintViewModel.buildPanelStructureOp(
     if (rootIdx < 0) {
         val topIdx = topmostRootLayerIdx()
         if (topIdx >= 0) {
-            if (recorder.recording) recorder.layerOp(RecordingEvents.L_SET_CURRENT, topIdx)
             ReverieCoreBridge.setCurrentLayer(topIdx)
         }
-        if (recorder.recording) recorder.layerOp(RecordingEvents.L_ADD_GROUP)
         rootIdx = ReverieCoreBridge.addGroupLayer(ROOT_GROUP_NAME)
         if (rootIdx < 0) return null
         ReverieCoreBridge.setPanelMeta(rootIdx, panelDefaultsJson())
     }
     // 2. 分格组挂到根组底部 (current=组 → 组内最底; 各格间 z 序由 movePanelZBy 调整)
-    if (recorder.recording) recorder.layerOp(RecordingEvents.L_SET_CURRENT, rootIdx)
     ReverieCoreBridge.setCurrentLayer(rootIdx)
-    if (recorder.recording) recorder.layerOp(RecordingEvents.L_ADD_GROUP)
     val groupCount = scan.mirrors.map { it.groupId }.distinct().size
     val groupName = appContext.getString(R.string.panel_group_default_name, groupCount + 1)
     val groupIdx = ReverieCoreBridge.addGroupLayer(groupName)
     if (groupIdx < 0) return null
     val groupId = ReverieCoreBridge.layerId(groupIdx)
     // 3. 组内自底向上: 填充 → 内容 → 边框。切分出的小半不建内容层，画留在共用层。
-    if (recorder.recording) recorder.layerOp(RecordingEvents.L_SET_CURRENT, groupIdx)
     ReverieCoreBridge.setCurrentLayer(groupIdx)
     val childNames = if (includeContent) {
         listOf(FILL_LAYER_NAME, CONTENT_LAYER_NAME, BORDER_LAYER_NAME)
@@ -913,16 +903,10 @@ private fun PaintViewModel.buildPanelStructureOp(
         listOf(FILL_LAYER_NAME, BORDER_LAYER_NAME)
     }
     for (name in childNames) {
-        if (recorder.recording) {
-            recorder.layerOp(
-                RecordingEvents.L_ADD_LAYER_TYPE, 0, "$name|0|${0xFFFFFFFF.toInt()}",
-            )
-        }
         ReverieCoreBridge.addLayerWithType(name, 0, 0xFFFFFFFF.toInt())
     }
     // 4. 裁剪蒙版 = 分格组的同级上方兄弟 (addMaskToLayer 现有行为), 完成后 current=蒙版
     if (!ReverieCoreBridge.addMaskToLayer(groupIdx, MASK_TYPE_TRANSPARENCY)) return null
-    if (recorder.recording) recorder.layerOp(RecordingEvents.L_ADD_MASK, groupIdx, "0")
     // 5. 重扫定位真实索引 (组/子层/蒙版都已稳定)
     val groupNow = indexOfLayerId(groupId)
     val page = LayerSnapshotProbe.read()
@@ -942,9 +926,6 @@ private fun PaintViewModel.buildPanelStructureOp(
     )
     // 6. 元数据 + 视觉重绘 (黑底白 quad 蒙版 / 填充 / 边框环)
     applyPanelMetaEvent(ev)
-    if (recorder.recording) {
-        recorder.layerOp(RecordingEvents.L_PANEL_META, ev.groupIdx, PanelMetaCodec.encode(ev))
-    }
     return PanelBuildResult(
         groupIdx = groupNow,
         groupId = groupId,
@@ -967,12 +948,10 @@ private fun contentLayerIdsOf(page: SnapshotPage, groupIdx: Int): List<Long> {
 private fun PaintViewModel.removePanelNodesById(mirror: PanelMirror) {
     val maskNow = indexOfLayerId(mirror.maskId)
     if (maskNow >= 0) {
-        if (recorder.recording) recorder.layerOp(RecordingEvents.L_REMOVE, maskNow)
         ReverieCoreBridge.removeLayer(maskNow)
     }
     val groupNow = indexOfLayerId(mirror.groupId)
     if (groupNow >= 0) {
-        if (recorder.recording) recorder.layerOp(RecordingEvents.L_REMOVE, groupNow)
         ReverieCoreBridge.removeLayer(groupNow)
     }
 }
@@ -1013,9 +992,6 @@ internal fun PaintViewModel.syncGroupMaskAndBorders(groupId: Long) {
             cornerRadius = 0f,
         )
         applyPanelMetaEvent(ev)
-        if (recorder.recording) {
-            recorder.layerOp(RecordingEvents.L_PANEL_META, ev.groupIdx, PanelMetaCodec.encode(ev))
-        }
     }
 
     if (borderNow >= 0) {
@@ -1141,9 +1117,6 @@ internal fun PaintViewModel.syncPanelMasks(drawId: Long) {
             maskQuadRadii = radii,
         )
         applyPanelMetaEvent(ev)
-        if (recorder.recording) {
-            recorder.layerOp(RecordingEvents.L_PANEL_META, -1, PanelMetaCodec.encode(ev))
-        }
     }
 }
 
@@ -1168,21 +1141,15 @@ internal fun PaintViewModel.separatePanelToNewGroup(panelId: Long) {
 
             // 1. 创建新分格组
             val groupCount = scan.mirrors.map { it.groupId }.distinct().size
-            if (recorder.recording) recorder.layerOp(RecordingEvents.L_SET_CURRENT, rootIdx)
             ReverieCoreBridge.setCurrentLayer(rootIdx)
-            if (recorder.recording) recorder.layerOp(RecordingEvents.L_ADD_GROUP)
             val newGroupName = appContext.getString(R.string.panel_group_default_name, groupCount + 1)
             val newGroupIdx = ReverieCoreBridge.addGroupLayer(newGroupName)
             if (newGroupIdx < 0) return@runCore
             val newGroupId = ReverieCoreBridge.layerId(newGroupIdx)
 
             // 2. 组内辅助层: 格内填充与格边框
-            if (recorder.recording) recorder.layerOp(RecordingEvents.L_SET_CURRENT, newGroupIdx)
             ReverieCoreBridge.setCurrentLayer(newGroupIdx)
             for (name in listOf(FILL_LAYER_NAME, BORDER_LAYER_NAME)) {
-                if (recorder.recording) {
-                    recorder.layerOp(RecordingEvents.L_ADD_LAYER_TYPE, 0, "$name|0|${0xFFFFFFFF.toInt()}")
-                }
                 ReverieCoreBridge.addLayerWithType(name, 0, 0xFFFFFFFF.toInt())
             }
 
@@ -1207,7 +1174,6 @@ internal fun PaintViewModel.separatePanelToNewGroup(panelId: Long) {
             val targetGrpNow = indexOfLayerId(newGroupId)
             if (targetGrpNow >= 0) {
                 ReverieCoreBridge.addMaskToLayer(targetGrpNow, MASK_TYPE_TRANSPARENCY)
-                if (recorder.recording) recorder.layerOp(RecordingEvents.L_ADD_MASK, targetGrpNow, "0")
             }
 
             // 5. 更新两组的分格元数据
@@ -1236,7 +1202,6 @@ internal fun PaintViewModel.separatePanelToNewGroup(panelId: Long) {
                 val paintId = contentLayerIdsOf(pageAfter, newGrpFinal).lastOrNull()
                 val paintIdx = paintId?.let { indexOfLayerId(it) } ?: -1
                 if (paintIdx >= 0) {
-                    if (recorder.recording) recorder.layerOp(RecordingEvents.L_SET_CURRENT, paintIdx)
                     ReverieCoreBridge.setCurrentLayer(paintIdx)
                 }
             }
@@ -1308,12 +1273,10 @@ internal fun PaintViewModel.mergePanelGroup(sourceGroupId: Long, targetGroupId: 
             val srcMirror = srcPanels.first()
             val srcMaskNow = indexOfLayerId(srcMirror.maskId)
             if (srcMaskNow >= 0) {
-                if (recorder.recording) recorder.layerOp(RecordingEvents.L_REMOVE, srcMaskNow)
                 ReverieCoreBridge.removeLayer(srcMaskNow)
             }
             val srcGrpNow2 = indexOfLayerId(sourceGroupId)
             if (srcGrpNow2 >= 0) {
-                if (recorder.recording) recorder.layerOp(RecordingEvents.L_REMOVE, srcGrpNow2)
                 ReverieCoreBridge.removeLayer(srcGrpNow2)
             }
 
@@ -1385,9 +1348,6 @@ internal fun PaintViewModel.mergeAllPanelDraws(panelIds: Collection<Long>) {
                     fillColor = resolved.fillColor, fillEnabled = resolved.fillEnabled,
                     cornerRadius = resolved.cornerRadius,
                 )
-                if (recorder.recording) {
-                    recorder.layerOp(RecordingEvents.L_PANEL_META, groupIdx, PanelMetaCodec.encode(ev))
-                }
             }
 
             // 2. 将非主代表格的内容画层并入主代表格（合流共享，零像素丢失）
@@ -1425,15 +1385,9 @@ internal fun PaintViewModel.setPanelRowVisible(panelId: Long, visible: Boolean) 
         val cur = scan.mirrors.firstOrNull { it.panelId == panelId } ?: return@runCore
         val maskOn = visible && cur.meta.cropEnabled
         if (cur.groupIdx >= 0) {
-            if (recorder.recording) {
-                recorder.layerOp(RecordingEvents.L_VISIBLE, cur.groupIdx, if (visible) "1" else "0")
-            }
             ReverieCoreBridge.setLayerVisible(cur.groupIdx, visible)
         }
         if (cur.maskIdx >= 0) {
-            if (recorder.recording) {
-                recorder.layerOp(RecordingEvents.L_VISIBLE, cur.maskIdx, if (maskOn) "1" else "0")
-            }
             ReverieCoreBridge.setLayerVisible(cur.maskIdx, maskOn)
         }
     }
@@ -1494,9 +1448,6 @@ internal fun PaintViewModel.mergePanels(ids: Set<Long>) {
                 if (idx < 0) continue
                 val groupNow = indexOfLayerId(build.groupId)
                 if (groupNow < 0) continue
-                if (recorder.recording) {
-                    recorder.layerOp(RecordingEvents.L_MOVE_TO_GROUP, idx, groupNow.toString())
-                }
                 ReverieCoreBridge.moveLayerToGroup(idx, groupNow)
             }
             // 删源格
@@ -1751,20 +1702,12 @@ internal fun PaintViewModel.movePanelZBy(
         if (target == null || target !in scan.layers.indices) return@runCore
         ReverieCoreBridge.beginUndoMacro(appContext.getString(R.string.panel_op_reorder))
         try {
-            if (recorder.recording) {
-                recorder.layerOp(
-                    RecordingEvents.L_MOVE_RELATIVE, cur.groupIdx, "$target:${if (up) 1 else 0}",
-                )
-            }
             if (!ReverieCoreBridge.moveLayerRelative(cur.groupIdx, target, up)) return@runCore
             // 蒙版紧跟组上方 (按节点 id 兜底, 引擎成对移动外的保险)
             val newGroupIdx = indexOfLayerId(cur.groupId)
             if (newGroupIdx >= 0 && cur.maskId != -1L) {
                 val maskNow = indexOfLayerId(cur.maskId)
                 if (maskNow >= 0 && maskNow != newGroupIdx + 1) {
-                    if (recorder.recording) {
-                        recorder.layerOp(RecordingEvents.L_MOVE_RELATIVE, maskNow, "$newGroupIdx:1")
-                    }
                     ReverieCoreBridge.moveLayerRelative(maskNow, newGroupIdx, true)
                 }
             }
@@ -1790,7 +1733,6 @@ internal fun PaintViewModel.duplicatePanel(id: Long) {
         val cur = scan.mirrors.firstOrNull { it.panelId == id } ?: return@runCore
         ReverieCoreBridge.beginUndoMacro(appContext.getString(R.string.panel_op_duplicate))
         try {
-            if (recorder.recording) recorder.layerOp(RecordingEvents.L_COPY, cur.groupIdx)
             val newIdx = ReverieCoreBridge.copyLayer(cur.groupIdx)
             if (newIdx < 0) return@runCore
             val newGroupId = ReverieCoreBridge.layerId(newIdx)
@@ -1834,25 +1776,16 @@ internal fun PaintViewModel.ensureCrossContainer(ids: Set<Long>) {
                 if (rootIdx < 0) return@runCore
                 // 顶部插入: current = 根组最顶子层 (空根则根组本身 → 组内最底, 单子层无碍)
                 val topChild = topmostChildOf(scan.layers, rootIdx)
-                if (recorder.recording) recorder.layerOp(RecordingEvents.L_SET_CURRENT, topChild)
                 ReverieCoreBridge.setCurrentLayer(topChild)
-                if (recorder.recording) recorder.layerOp(RecordingEvents.L_ADD_GROUP)
                 cross = ReverieCoreBridge.addGroupLayer(CROSS_GROUP_NAME)
                 if (cross < 0) return@runCore
                 val crossGroupId = ReverieCoreBridge.layerId(cross)
                 // 内容层 (current=组 → 组内)
-                if (recorder.recording) recorder.layerOp(RecordingEvents.L_SET_CURRENT, cross)
                 ReverieCoreBridge.setCurrentLayer(cross)
-                if (recorder.recording) {
-                    recorder.layerOp(
-                        RecordingEvents.L_ADD_LAYER_TYPE, 0, "$CROSS_LAYER_NAME|0|${0xFFFFFFFF.toInt()}",
-                    )
-                }
                 ReverieCoreBridge.addLayerWithType(CROSS_LAYER_NAME, 0, 0xFFFFFFFF.toInt())
                 contentId = ReverieCoreBridge.layerId(ReverieCoreBridge.currentLayerIndex())
                 // 蒙版 (current=蒙版); 成功才落录制, 失败时黑底不会误画进内容层
                 if (!ReverieCoreBridge.addMaskToLayer(cross, MASK_TYPE_TRANSPARENCY)) return@runCore
-                if (recorder.recording) recorder.layerOp(RecordingEvents.L_ADD_MASK, cross, "0")
                 crossMask = ReverieCoreBridge.currentLayerIndex()
                 cross = indexOfLayerId(crossGroupId)
             } else {
@@ -1868,7 +1801,6 @@ internal fun PaintViewModel.ensureCrossContainer(ids: Set<Long>) {
         // 落笔目标 = 跨格内容层
         val contentIdx = indexOfLayerId(contentId)
         if (contentIdx >= 0) {
-            if (recorder.recording) recorder.layerOp(RecordingEvents.L_SET_CURRENT, contentIdx)
             ReverieCoreBridge.setCurrentLayer(contentIdx)
         }
     }
@@ -1891,9 +1823,6 @@ private fun PaintViewModel.repaintCrossMask(
         maskQuadRadii = mirrors.map { it.meta.style.cornerRadius ?: d.cornerRadius },
     )
     applyPanelMetaEvent(ev)
-    if (recorder.recording) {
-        recorder.layerOp(RecordingEvents.L_PANEL_META, crossGroupIdx, PanelMetaCodec.encode(ev))
-    }
 }
 
 /** [PaintViewModel.ensureCrossContainer] 用: 根组最顶直接子层 (跳过附属蒙版); 空根返回根组本身。 */
@@ -1942,9 +1871,6 @@ internal fun PaintViewModel.setPanelCrop(
         ReverieCoreBridge.beginUndoMacro(appContext.getString(R.string.panel_op_crop))
         try {
             if (cur.maskIdx >= 0) {
-                if (recorder.recording) {
-                    recorder.layerOp(RecordingEvents.L_VISIBLE, cur.maskIdx, if (crop) "1" else "0")
-                }
                 ReverieCoreBridge.setLayerVisible(cur.maskIdx, crop)
             }
             // 只写元数据 (蒙版像素不变, maskIdx=-1 跳过重绘)
@@ -1955,9 +1881,6 @@ internal fun PaintViewModel.setPanelCrop(
                 cornerRadius = resolved.cornerRadius,
             )
             applyPanelMetaEvent(ev)
-            if (recorder.recording) {
-                recorder.layerOp(RecordingEvents.L_PANEL_META, cur.groupIdx, PanelMetaCodec.encode(ev))
-            }
         } finally {
             ReverieCoreBridge.endUndoMacro()
         }

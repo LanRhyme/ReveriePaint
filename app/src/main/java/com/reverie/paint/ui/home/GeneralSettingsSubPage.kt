@@ -39,6 +39,7 @@ import com.reverie.paint.R
 import com.reverie.paint.core.AppLanguage
 import com.reverie.paint.core.LanguageManager
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.*
 import com.reverie.paint.ui.dialog.RecentAutoSavesDialog
 import com.reverie.paint.ui.theme.Theme
 
@@ -209,6 +210,56 @@ internal fun GeneralSettingsSubPage(
                     title = stringResource(R.string.settings_auto_save_info_title),
                     text = stringResource(R.string.settings_auto_save_info_desc),
                 )
+            }
+
+            // Section 2.5: 延时摄影录制
+            SettingCategoryTitle(stringResource(R.string.settings_category_timelapse))
+            SettingGroup {
+                val timelapseTotal = if (vm.timelapseRecordingEnabled) 3 else 1
+                SettingSwitchGroupItem(
+                    icon = Icons.Rounded.History,
+                    title = stringResource(R.string.settings_timelapse_enable),
+                    summary = stringResource(R.string.settings_timelapse_enable_sub),
+                    checked = vm.timelapseRecordingEnabled,
+                    shape = settingGroupShape(0, timelapseTotal),
+                    onCheckedChange = { vm.updateTimelapseRecordingEnabled(it) },
+                )
+
+                if (vm.timelapseRecordingEnabled) {
+                    val intervalOptions = listOf(
+                        200L to stringResource(R.string.settings_timelapse_interval_sec_unit, "0.2"),
+                        500L to stringResource(R.string.settings_timelapse_interval_sec_unit, "0.5"),
+                        1000L to stringResource(R.string.settings_timelapse_interval_sec_unit, "1.0"),
+                        2000L to stringResource(R.string.settings_timelapse_interval_sec_unit, "2.0"),
+                    )
+
+                    SettingSegmentGroupItem(
+                        icon = Icons.Rounded.Schedule,
+                        title = stringResource(R.string.settings_timelapse_min_interval),
+                        summary = stringResource(R.string.settings_timelapse_min_interval_sub),
+                        options = intervalOptions,
+                        selected = vm.timelapseMinIntervalMs,
+                        shape = settingGroupShape(1, timelapseTotal),
+                        onSelect = { vm.updateTimelapseMinInterval(it) },
+                    )
+
+                    val maxFramesOptions = listOf(
+                        1000 to stringResource(R.string.settings_timelapse_frames_unit, 1000),
+                        2000 to stringResource(R.string.settings_timelapse_frames_unit, 2000),
+                        3000 to stringResource(R.string.settings_timelapse_frames_unit, 3000),
+                        5000 to stringResource(R.string.settings_timelapse_frames_unit, 5000),
+                    )
+
+                    SettingSegmentGroupItem(
+                        icon = Icons.Rounded.Speed,
+                        title = stringResource(R.string.settings_timelapse_max_frames),
+                        summary = stringResource(R.string.settings_timelapse_max_frames_sub),
+                        options = maxFramesOptions,
+                        selected = vm.timelapseMaxFrames,
+                        shape = settingGroupShape(2, timelapseTotal),
+                        onSelect = { vm.updateTimelapseMaxFrames(it) },
+                    )
+                }
             }
 
             // Section 3: 存储与撤销性能

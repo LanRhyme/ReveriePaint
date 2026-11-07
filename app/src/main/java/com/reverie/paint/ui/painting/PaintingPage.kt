@@ -92,6 +92,7 @@ import androidx.compose.ui.zIndex
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import kotlinx.coroutines.isActive
 import com.reverie.paint.model.CanvasOrientation
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.ToolGroup
@@ -219,6 +220,17 @@ fun PaintingPage(
         if (vm.actionToastRevision > 0L && vm.actionToastMessage != null) {
             kotlinx.coroutines.delay(1000)
             vm.clearActionToast()
+        }
+    }
+
+    // 延时摄影周期性抓帧驱动 (每 200ms / 最小间隔检查一次画面变更)
+    LaunchedEffect(vm.timelapseRecordingEnabled) {
+        if (!vm.timelapseRecordingEnabled) return@LaunchedEffect
+        while (isActive) {
+            kotlinx.coroutines.delay(vm.timelapseMinIntervalMs.coerceAtLeast(200L))
+            if (vm.isModified) {
+                vm.triggerTimelapseCapture(isChanged = true)
+            }
         }
     }
 

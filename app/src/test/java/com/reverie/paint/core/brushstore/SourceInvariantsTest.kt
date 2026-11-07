@@ -72,14 +72,6 @@ class SourceInvariantsTest {
         assertEquals(emptyList<String>(), hits(re, except = setOf("ResourceStore.kt")))
     }
 
-    @Test
-    fun `gap1 回放不自带笔刷 setter 也不用正则读 kpp`() {
-        // 回放里的笔刷参数只经 BrushApply（同一个施加入口）；kpp 里的图案名走 KppXml，不用正则
-        val setters = Regex("""ReverieCoreBridge\.(setBrush\w+|setToolMode)\(""")
-        assertEquals(emptyList<String>(), hits(setters, only = setOf("PlaybackEngine.kt")))
-        val regexUse = Regex("""\bRegex\(""")
-        assertEquals(emptyList<String>(), hits(regexUse, only = setOf("PlaybackPresetCache.kt")))
-    }
 
     @Test
     fun `gap2 笔刷参数只有 brushParams 一个所有者 brushX 是只读派生 笔画原值镜像已删`() {
@@ -170,16 +162,7 @@ class SourceInvariantsTest {
     }
 
     @Test
-    fun `回放 Seek 与全量重绘必须复位原生投影有效标志并复用同尺寸双缓冲`() {
-        val playback = File(mainRoot, "com/reverie/paint/core/PlaybackEngine.kt").readText()
-        val seekBody = playback.substringAfter("internal fun PaintViewModel.seekLocked(").substringBefore("// ---- Event dispatch")
-        assertTrue("seekLocked 必须抑制 resetReplayDocLocked 的冗余初始渲染", seekBody.contains("resetReplayDocLocked(s, scheduleInitialRender = false)"))
-        assertTrue("seekLocked 末尾必须置位 displayBufferInvalid = true", seekBody.contains("displayBufferInvalid = true"))
-        assertTrue("seekLocked 末尾必须同步执行 doRender()", seekBody.contains("doRender()"))
-
-        val resetBody = playback.substringAfter("internal fun PaintViewModel.resetReplayDocLocked(").substringBefore("internal fun PaintViewModel.seekLocked(")
-        assertTrue("resetReplayDocLocked 必须调用 beginRenderTiles 复位 m_nativeProjectionValid", resetBody.contains("ReverieCoreBridge.beginRenderTiles(forceFullDummyDirtyRects)"))
-        assertTrue("resetReplayDocLocked 必须置位 displayBufferInvalid = true", resetBody.contains("displayBufferInvalid = true"))
+    fun `全量重绘必须复位原生投影有效标志并复用同尺寸双缓冲`() {
 
         val vm = File(mainRoot, "com/reverie/paint/core/PaintViewModel.kt").readText()
         val renderBody = vm.substringAfter("private fun doRenderBody()").substringBefore("internal fun publishRenderWrittenRect")

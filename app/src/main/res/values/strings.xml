@@ -3654,5 +3654,27 @@
     <string name="widget_time_minutes_ago">%1$d分钟前</string>
     <string name="widget_time_today">今天 %1$s</string>
     <string name="widget_time_yesterday">昨天 %1$s</string>
+
+    <!-- 延时摄影录制 -->
+    <string name="settings_category_timelapse">延时摄影录制</string>
+    <string name="settings_timelapse_enable">开启延时摄影录制</string>
+    <string name="settings_timelapse_enable_sub">绘画时周期性抓取画布并存为帧，后续可导出为视频</string>
+    <string name="settings_timelapse_min_interval">最小抓帧间隔</string>
+    <string name="settings_timelapse_min_interval_sub">两次抓帧之间的最小时间间隔</string>
+    <string name="settings_timelapse_interval_sec_unit">%s秒</string>
+    <string name="settings_timelapse_max_frames">单工程帧数上限</string>
+    <string name="settings_timelapse_max_frames_sub">达到上限后每5帧抽样1帧继续记录</string>
+    <string name="settings_timelapse_frames_unit">%d 帧</string>
+    <string name="timelapse_export_title">延时摄影</string>
+    <string name="timelapse_export_desc">导出延时摄影为 MP4 视频</string>
+    <string name="timelapse_export_tag">MP4</string>
+    <string name="timelapse_export_preview">延时摄影预览</string>
+    <string name="timelapse_export_frame_counter">%1$d / %2$d 帧</string>
+    <string name="timelapse_export_btn">导出 MP4</string>
+    <string name="timelapse_export_to_gallery">导出到相册</string>
+    <string name="timelapse_export_success">延时摄影已保存至相册</string>
+    <string name="timelapse_export_err_no_frames">当前工程未找到延时摄影帧</string>
+    <string name="timelapse_export_err_failed">延时摄影导出失败</string>
+    <string name="timelapse_exporting">正在合成延时摄影视频…</string>
 </resources>
 

@@ -83,8 +83,6 @@ internal fun PaintViewModel.releaseReclaimableCaches(aggressive: Boolean) {
         if (bmp !== showing && !bmp.isRecycled) bmp.recycle()
     }
     anim.playbackRamCache.clear()
-    // 录制器的快照字节缓存同样是"随时能从磁盘重建"的几十 MB 级数据
-    recorder.dropSnapshotCache()
     if (aggressive) {
         clearLayerThumbs()
     }

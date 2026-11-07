@@ -3655,5 +3655,27 @@
     <string name="widget_time_minutes_ago">%1$dm ago</string>
     <string name="widget_time_today">Today %1$s</string>
     <string name="widget_time_yesterday">Yesterday %1$s</string>
+
+    <!-- Timelapse Recording -->
+    <string name="settings_category_timelapse">Timelapse Recording</string>
+    <string name="settings_timelapse_enable">Enable Timelapse Recording</string>
+    <string name="settings_timelapse_enable_sub">Periodically captures canvas frames while painting for video export</string>
+    <string name="settings_timelapse_min_interval">Minimum Capture Interval</string>
+    <string name="settings_timelapse_min_interval_sub">Minimum time between consecutive frame captures</string>
+    <string name="settings_timelapse_interval_sec_unit">%ss</string>
+    <string name="settings_timelapse_max_frames">Max Frames Per Project</string>
+    <string name="settings_timelapse_max_frames_sub">Samples 1 in 5 frames after reaching limit</string>
+    <string name="settings_timelapse_frames_unit">%d frames</string>
+    <string name="timelapse_export_title">Timelapse</string>
+    <string name="timelapse_export_desc">Export timelapse as MP4 video</string>
+    <string name="timelapse_export_tag">MP4</string>
+    <string name="timelapse_export_preview">Timelapse Preview</string>
+    <string name="timelapse_export_frame_counter">%1$d / %2$d frames</string>
+    <string name="timelapse_export_btn">Export MP4</string>
+    <string name="timelapse_export_to_gallery">Save to Gallery</string>
+    <string name="timelapse_export_success">Timelapse video saved to gallery</string>
+    <string name="timelapse_export_err_no_frames">No timelapse frames found for this project</string>
+    <string name="timelapse_export_err_failed">Failed to export timelapse video</string>
+    <string name="timelapse_exporting">Encoding timelapse video…</string>
 </resources>
 

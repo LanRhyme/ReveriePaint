@@ -20,46 +20,6 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.reverie.paint.R
 import com.reverie.paint.model.*
-import com.reverie.paint.model.RecordingEvents.T_CLEAR_SELECTION
-import com.reverie.paint.model.RecordingEvents.T_FILL_V3
-import com.reverie.paint.model.RecordingEvents.T_GRADIENT_V2
-import com.reverie.paint.model.RecordingEvents.T_GRADIENT_V3
-import com.reverie.paint.model.RecordingEvents.T_REDO
-import com.reverie.paint.model.RecordingEvents.T_UNDO
-import com.reverie.paint.model.RecordingEvents.T_CONTIGUOUS_V2
-import com.reverie.paint.model.RecordingEvents.T_CONTRACT
-import com.reverie.paint.model.RecordingEvents.T_CROP
-import com.reverie.paint.model.RecordingEvents.T_EXPAND
-import com.reverie.paint.model.RecordingEvents.T_FEATHER
-import com.reverie.paint.model.RecordingEvents.T_FILL
-import com.reverie.paint.model.RecordingEvents.T_GRADIENT
-import com.reverie.paint.model.RecordingEvents.T_INVERT_SELECTION
-import com.reverie.paint.model.RecordingEvents.T_LASSO
-import com.reverie.paint.model.RecordingEvents.T_LASSO_CLEAR
-import com.reverie.paint.model.RecordingEvents.T_LASSO_FILL
-import com.reverie.paint.model.RecordingEvents.T_LIQUIFY
-import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_BEGIN
-import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_CANCEL
-import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_END
-import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_LAYERS
-import com.reverie.paint.model.RecordingEvents.T_LIQUIFY_SIZE
-import com.reverie.paint.model.RecordingEvents.T_MOVE_CONTENT
-import com.reverie.paint.model.RecordingEvents.T_MOVE_CONTENT_LAYERS
-import com.reverie.paint.model.RecordingEvents.T_PERSPECTIVE
-import com.reverie.paint.model.RecordingEvents.T_POLYGON
-import com.reverie.paint.model.RecordingEvents.T_SELECT_ALL
-import com.reverie.paint.model.RecordingEvents.T_SELECT_ALL_CANVAS
-import com.reverie.paint.model.RecordingEvents.T_SELECT_MODE
-import com.reverie.paint.model.RecordingEvents.T_SELECT_POLYGON
-import com.reverie.paint.model.RecordingEvents.T_SELECT_SHAPE
-import com.reverie.paint.model.RecordingEvents.T_SHAPE
-import com.reverie.paint.model.RecordingEvents.T_SHAPE_STROKE_WIDTH
-import com.reverie.paint.model.RecordingEvents.T_SIMILAR_V2
-import com.reverie.paint.model.RecordingEvents.T_SMOOTH
-import com.reverie.paint.model.RecordingEvents.T_TEXT
-import com.reverie.paint.model.RecordingEvents.T_TRANSFORM
-import com.reverie.paint.model.RecordingEvents.T_TRANSFORM_LAYERS
-import com.reverie.paint.model.RecordingEvents.T_WARP
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -228,51 +188,6 @@ internal fun PaintViewModel.touchStart(
     }
 
     val isModeEraser = isEraserOverride || (isEraserMode && currentToolId == "brush")
-    if (recorder.recording) {
-        val mode = if (isModeEraser) 1 else when (currentToolId) {
-            "brush" -> 0
-            "eraser" -> 1
-            "smudge" -> 3
-            else -> -1
-        }
-        val strokePreset = if (isEraserOverride && eraserPresetIdx >= 0) eraserPresetIdx else brushPresetIndex
-        val strokeSize = if (isEraserOverride) effEraserSize else brushSize
-        val strokeOpacity = if (isEraserOverride) effEraserOpacity else brushOpacity
-        val strokeFlow = if (isEraserOverride) effEraserFlow else brushFlow
-        val strokeOp = if (isModeEraser) "erase" else brushCompositeOp
-
-        recorder.captureContext(
-            toolMode = mode,
-            preset = strokePreset,
-            size = strokeSize,
-            opacity = strokeOpacity,
-            flow = strokeFlow,
-            compositeOp = strokeOp,
-            color = strokeColor,
-            layer = currentLayerIndex,
-        )
-        val strokePid = brushPresets.firstOrNull { it.index == strokePreset }?.id
-        val strokeCustomized = strokePid?.let { BrushStoreVm.hasEffectivePreset(it) } == true
-        recorder.captureContextExt(
-            softness = brushSoftness,
-            spacing = brushSpacing,
-            angle = brushAngle,
-            scatter = brushScatter,
-            rotation = brushRotation,
-            ratio = brushRatio,
-            sharpness = brushSharpness,
-            smudgeRate = brushSmudgeRate,
-            smudgeLength = brushSmudgeLength,
-            secondaryColor = brushSecondaryColor,
-            airbrushEnabled = brushAirbrush,
-            airbrushRate = brushAirbrushRate,
-            // 与回读非空等价（回读恒标这两项为 true），只 stat 不读盘
-            isCustomized = strokeCustomized,
-            spacingCustomized = strokeCustomized,
-        )
-        recorder.captureBrushFade(brushFade)
-        recorder.strokeStart(x, y, effPressure.toFloat())
-    }
     val mode = if (isModeEraser) 1 else when (currentToolId) {
         "brush" -> 0
         "eraser" -> 1
@@ -522,9 +437,6 @@ internal fun PaintViewModel.touchMove(
             }
         }
     }
-    if (recorder.recording) {
-        recorder.strokeMove(effX, effY, effP.toFloat())
-    }
     quickShapeCapture?.append(effX, effY, effP.toFloat(), safeTiltX.toFloat(), safeTiltY.toFloat())
     queueStrokeMove(effX, effY, effP, inputEventTimeMs, safeTiltX, safeTiltY, safeRotation)
 }
@@ -577,9 +489,6 @@ internal fun PaintViewModel.touchEnd(
             val curX = startX + tailDx * ease
             val curY = startY + tailDy * ease
             val curP = StrokeTailMath.tailPressure(startP, tailEndPressure, t)
-            if (recorder.recording) {
-                recorder.strokeMove(curX, curY, curP.toFloat())
-            }
             queueStrokeMove(
                 curX, curY, curP,
                 lastInputEventTimeMs + step * StrokeTailMath.TAIL_STEP_DT_MS,
@@ -609,9 +518,6 @@ internal fun PaintViewModel.touchEnd(
                 tx += nx * stepLen
                 ty += ny * stepLen
                 tp = StrokeTailMath.taperPressure(tp, i, taperSteps)
-                if (recorder.recording) {
-                    recorder.strokeMove(tx, ty, tp.toFloat())
-                }
                 queueStrokeMove(
                     tx, ty, tp,
                     lastInputEventTimeMs + (tailPlan.catchUpSteps + i) * StrokeTailMath.TAIL_STEP_DT_MS,
@@ -622,12 +528,6 @@ internal fun PaintViewModel.touchEnd(
     }
 
 
-    if (recorder.recording) {
-        recorder.strokeEnd()
-        android.util.Log.d("ReverieRec", "strokeEnd count=${recorder.eventCount}")
-    } else {
-        android.util.Log.d("ReverieRec", "touchEnd: recorder NOT recording")
-    }
     val hadOverride = (activeStrokeToolOverride != null)
     val presetSwitched = activeStrokePresetSwitched
     if (!deferOverrideRestore) {
@@ -643,6 +543,7 @@ internal fun PaintViewModel.touchEnd(
                 findLayerAndAncestorIds(currentLayerIndex).takeIf { it.isNotEmpty() }
             } else null
             refreshLayerThumbs(onlyLayerIds = targetIds)
+            triggerTimelapseCapture(isChanged = true)
         }) {
             drainPendingStrokeBatchOnRenderThread()
             drainMirrorBatchesOnRenderThread()
@@ -661,7 +562,9 @@ internal fun PaintViewModel.touchEnd(
             }
         }
     } else {
-        runCore(render = false) {
+        runCore(render = false, after = {
+            triggerTimelapseCapture(isChanged = true)
+        }) {
             drainPendingStrokeBatchOnRenderThread()
             drainMirrorBatchesOnRenderThread()
             ReverieCoreBridge.touchStrokeEnd()
@@ -689,9 +592,6 @@ internal fun PaintViewModel.touchCancel() {
     // whose cancel (transaction revert) is already in flight behind it.
     mirrorGate.cancel()
     clearPendingStrokeSamples()
-    if (recorder.recording) {
-        recorder.strokeCancel()
-    }
     val hadOverride = (activeStrokeToolOverride != null)
     val presetSwitched = activeStrokePresetSwitched
     activeStrokeToolOverride = null
@@ -798,10 +698,6 @@ internal fun PaintViewModel.replaySymmetricBranches(
     isModified = true
     onPaintingActivity()
 
-    // 录制器时间线录制 (与主笔画保持完全一致的图层/笔刷上下文)。
-    // 与 recordMirroredBranchesOnly 共享同一份写入逻辑, 避免两处格式漂移。
-    recordMirroredBranchesToRecorder(activeBranches, activeCounts, totalActive, isEraser)
-
     val mode = if (isEraser || (isEraserMode && currentToolId == "brush")) 1 else when (currentToolId) {
         "brush" -> 0
         "eraser" -> 1
@@ -888,144 +784,14 @@ internal fun PaintViewModel.replaySymmetricBranches(
  * 回放时只能依赖前面最近的 CONTEXT。会话刚开始时如果没有任何 CONTEXT,
  * 回放就会用引擎默认色 —— 表现为"填充/圈涂回放出来是黑的"。
  */
-internal fun PaintViewModel.recordContextBaseline() {
-    if (!recorder.recording) return
-    val mode = if (isEraserMode && currentToolId == "brush") 1 else when (currentToolId) {
-        "brush" -> 0
-        "eraser" -> 1
-        "smudge" -> 3
-        else -> -1
-    }
-    recorder.captureContext(
-        toolMode = mode,
-        preset = brushPresetIndex,
-        size = brushSize,
-        opacity = brushOpacity,
-        flow = brushFlow,
-        compositeOp = if (mode == 1) "erase" else brushCompositeOp,
-        color = brushColor,
-        // 会话刚开始时 currentLayerIndex 可能还没同步 (-1), 写成 0xFFFF 哨兵会让回放
-        // setCurrentLayer 收到越界值; 这里落到 0, 后续 CONTEXT 会纠正
-        layer = if (currentLayerIndex >= 0) currentLayerIndex else 0,
-    )
-    val pid = brushPresets.firstOrNull { it.index == brushPresetIndex }?.id
-    val customized = pid?.let { BrushStoreVm.hasEffectivePreset(it) } == true
-    recorder.captureContextExt(
-        softness = brushSoftness,
-        spacing = brushSpacing,
-        angle = brushAngle,
-        scatter = brushScatter,
-        rotation = brushRotation,
-        ratio = brushRatio,
-        sharpness = brushSharpness,
-        smudgeRate = brushSmudgeRate,
-        smudgeLength = brushSmudgeLength,
-        secondaryColor = brushSecondaryColor,
-        airbrushEnabled = brushAirbrush,
-        airbrushRate = brushAirbrushRate,
-        isCustomized = customized,
-        spacingCustomized = customized,
-    )
-    recorder.captureBrushFade(brushFade)
-}
+internal fun PaintViewModel.recordContextBaseline() {}
 
-/**
- * 仅把已快照的镜像分支写入录制流 (P1 共享实现)。
- * 只做 recorder.captureContext/captureContextExt/captureBrushFade/
- * strokeStart/strokeMove/strokeEnd, 不发引擎、不 endUndoMacro、不渲染。
- * 调用方保证 activeBranches 是 stride 7 的镜像缓冲快照。
- */
-private fun PaintViewModel.recordMirroredBranchesToRecorder(
-    activeBranches: List<FloatArray>,
-    activeCounts: IntArray,
-    totalActive: Int,
-    isEraser: Boolean,
-) {
-    if (!recorder.recording) return
-    val stride = PaintViewModel.STROKE_SAMPLE_STRIDE_WITH_TIME
-    val toolMode = if (isEraser || (isEraserMode && currentToolId == "brush")) 1 else when (currentToolId) {
-        "brush" -> 0
-        "eraser" -> 1
-        "smudge" -> 3
-        else -> -1
-    }
-    for (b in 0 until totalActive) {
-        val buf = activeBranches[b]
-        val count = activeCounts[b]
-        recorder.captureContext(
-            toolMode = toolMode,
-            preset = brushPresetIndex,
-            size = brushSize,
-            opacity = brushOpacity,
-            flow = brushFlow,
-            compositeOp = if (isEraser || (isEraserMode && currentToolId == "brush")) "erase" else brushCompositeOp,
-            color = brushColor,
-            layer = currentLayerIndex,
-        )
-        val curPid = brushPresets.firstOrNull { it.index == brushPresetIndex }?.id
-        val curCustomized = curPid?.let { BrushStoreVm.hasEffectivePreset(it) } == true
-        recorder.captureContextExt(
-            softness = brushSoftness,
-            spacing = brushSpacing,
-            angle = brushAngle,
-            scatter = brushScatter,
-            rotation = brushRotation,
-            ratio = brushRatio,
-            sharpness = brushSharpness,
-            smudgeRate = brushSmudgeRate,
-            smudgeLength = brushSmudgeLength,
-            secondaryColor = brushSecondaryColor,
-            airbrushEnabled = brushAirbrush,
-            airbrushRate = brushAirbrushRate,
-            isCustomized = curCustomized,
-            spacingCustomized = curCustomized,
-        )
-        recorder.captureBrushFade(brushFade)
-        val effStartP = buf[2].coerceIn(0f, 1f)
-        recorder.strokeStart(buf[0], buf[1], effStartP)
-        for (i in 1 until count) {
-            val base = i * stride
-            val effP = buf[base + 2].coerceIn(0f, 1f)
-            recorder.strokeMove(buf[base], buf[base + 1], effP)
-        }
-        recorder.strokeEnd()
-    }
-}
-
-/**
- * P1: 实时对称 (liveMirror) 时仅补录镜像分支。
- * 抬笔已跳过 replaySymmetricBranches, 镜像墨已实时入图层, 这里只把
- * mirroredSamples 写进 recorder, 不发引擎、不碰撤销宏、不渲染。
- * 必须在 CanvasTouchView 清缓冲 (resetMirrorBranches) 之前调用,
- * 且须在 touchEnd 之后调用 (主笔 strokeEnd 已落盘, 顺序与重放路径一致)。
- * liveMirror==false 时走 replay 已录制, 不要重复调用。
- */
 internal fun PaintViewModel.recordMirroredBranchesOnly(
     mirroredSamples: List<FloatArray>,
     mirroredSizes: IntArray,
     branchCount: Int = mirroredSamples.size,
     isEraser: Boolean = false,
-) {
-    if (!recorder.recording) return
-    if (branchCount <= 0) return
-    val stride = PaintViewModel.STROKE_SAMPLE_STRIDE_WITH_TIME
-    val activeBranches = ArrayList<FloatArray>(branchCount)
-    val activeCounts = IntArray(branchCount)
-    var totalActive = 0
-    for (b in 0 until branchCount) {
-        val count = mirroredSizes.getOrNull(b) ?: 0
-        val buf = mirroredSamples.getOrNull(b)
-        if (count >= 1 && buf != null && buf.size >= count * stride) {
-            val slice = FloatArray(count * stride)
-            System.arraycopy(buf, 0, slice, 0, count * stride)
-            activeBranches.add(slice)
-            activeCounts[totalActive] = count
-            totalActive++
-        }
-    }
-    if (totalActive == 0) return
-    recordMirroredBranchesToRecorder(activeBranches, activeCounts, totalActive, isEraser)
-}
+) {}
 
 /**
  * 把"当前工具"的工具态重新推给引擎（幂等，不重载预设）。
@@ -1281,18 +1047,6 @@ internal fun PaintViewModel.gradientFill(
     repeat: Int = gradientRepeat,
     reverse: Boolean = gradientReverse,
 ) {
-    if (recorder.recording) {
-        recorder.toolOp(T_GRADIENT_V2) {
-            // 字段顺序须与回放分发/注释约定一致: 4×f32 坐标在前, type 在后
-            it.f32(x1.toFloat())
-            it.f32(y1.toFloat())
-            it.f32(x2.toFloat())
-            it.f32(y2.toFloat())
-            it.u8(type)
-            it.u8(repeat.coerceIn(0, 255))
-            it.u8(if (reverse) 1 else 0)
-        }
-    }
     runCore { ReverieCoreBridge.gradientFill(x1, y1, x2, y2, type, repeat, reverse) }
 }
 
@@ -1310,26 +1064,6 @@ internal fun PaintViewModel.gradientFillV3(
     stopPositions: FloatArray = floatArrayOf(0f, 1f),
     stopColors: IntArray = intArrayOf(android.graphics.Color.BLACK, android.graphics.Color.WHITE),
 ) {
-    if (recorder.recording) {
-        recorder.toolOp(T_GRADIENT_V3) {
-            it.f32(x1.toFloat())
-            it.f32(y1.toFloat())
-            it.f32(x2.toFloat())
-            it.f32(y2.toFloat())
-            it.u8(type)
-            it.u8(repeat.coerceIn(0, 255))
-            it.u8(if (reverse) 1 else 0)
-            it.f32(opacity)
-            it.u8(if (dither) 1 else 0)
-            it.str(blendMode)
-            val nStops = minOf(stopPositions.size, stopColors.size).coerceIn(0, 65535)
-            it.u16(nStops)
-            for (i in 0 until nStops) {
-                it.f32(stopPositions[i])
-                it.u32(stopColors[i])
-            }
-        }
-    }
     runCore {
         ReverieCoreBridge.gradientFillV3(
             x1, y1, x2, y2, type, repeat, reverse,
@@ -1396,15 +1130,6 @@ internal fun PaintViewModel.selectShape(
 ) {
     discardTransientTransformSelection()
     var ov: android.graphics.Bitmap? = null
-    if (recorder.recording) {
-        recorder.toolOp(T_SELECT_SHAPE) {
-            it.u8(kind)
-            it.f32(x1.toFloat())
-            it.f32(y1.toFloat())
-            it.f32(x2.toFloat())
-            it.f32(y2.toFloat())
-        }
-    }
     val vw = (renderW.takeIf { it > 0 } ?: docWidth.coerceAtLeast(1)).toFloat()
     val vh = (renderH.takeIf { it > 0 } ?: docHeight.coerceAtLeast(1)).toFloat()
     val dw = if (docWidth > 0) docWidth.toFloat() else vw
@@ -1437,9 +1162,6 @@ internal fun PaintViewModel.selectShape(
 internal fun PaintViewModel.selectPolygon(points: List<Pair<Int, Int>>) {
     if (points.size < 3) return
     discardTransientTransformSelection()
-    if (recorder.recording) {
-        recorder.pointsOp(T_SELECT_POLYGON, points)
-    }
     val xs = IntArray(points.size) { points[it].first }
     val ys = IntArray(points.size) { points[it].second }
     var ov: android.graphics.Bitmap? = null
@@ -1473,16 +1195,6 @@ internal fun PaintViewModel.drawPolygon(
     closed: Boolean,
 ) {
     if (points.size < 2) return
-    if (recorder.recording) {
-        recorder.toolOp(T_POLYGON) {
-            it.u8(if (closed) 1 else 0)
-            it.u16(points.size)
-            for ((x, y) in points) {
-                it.f32(x.toFloat())
-                it.f32(y.toFloat())
-            }
-        }
-    }
     val xs = IntArray(points.size) { points[it].first }
     val ys = IntArray(points.size) { points[it].second }
     runCore { ReverieCoreBridge.drawPolygon(xs, ys, points.size, closed) }
@@ -1496,13 +1208,6 @@ internal fun PaintViewModel.moveLayerContent(
     val layers = editTargetLayers()
     if (layers.isEmpty()) return
     val multi = layers.size > 1 || selectedLayerIndices.isNotEmpty()
-    if (recorder.recording) {
-        if (multi) recordLayerSet(recorder, T_MOVE_CONTENT_LAYERS, layers)
-        recorder.toolOp(T_MOVE_CONTENT) {
-            it.f32(dx.toFloat())
-            it.f32(dy.toFloat())
-        }
-    }
     val arr = if (multi) layers.toIntArray() else null
     runCore(render = true, after = {
         notifyLayerChanged(pixelChanged = true)
@@ -1524,14 +1229,6 @@ internal fun PaintViewModel.cropCanvas(
     w: Int,
     h: Int,
 ) {
-    if (recorder.recording) {
-        recorder.toolOp(T_CROP) {
-            it.u16(x.coerceAtLeast(0))
-            it.u16(y.coerceAtLeast(0))
-            it.u16(w.coerceAtLeast(0))
-            it.u16(h.coerceAtLeast(0))
-        }
-    }
     runCore(after = {
         // The document size changed in C++ - keep coreW/coreH and docWidth/docHeight in sync or
         // the viewport render reads stale dimensions (crop crash)
@@ -1611,9 +1308,6 @@ internal fun PaintViewModel.contentBounds(): IntArray? {
 }
 
 internal fun PaintViewModel.setShapeStrokeWidth(w: Double) {
-    if (recorder.recording) {
-        recorder.toolOp(T_SHAPE_STROKE_WIDTH) { it.f32(w.toFloat()) }
-    }
     runCore { ReverieCoreBridge.setShapeStrokeWidth(w) }
 }
 
@@ -1638,20 +1332,6 @@ internal fun PaintViewModel.applyTransform(
         return
     }
     val multi = layers.size > 1 || selectedLayerIndices.isNotEmpty()
-    if (recorder.recording) {
-        if (multi) recordLayerSet(recorder, T_TRANSFORM_LAYERS, layers)
-        recorder.toolOp(T_TRANSFORM) {
-            it.f64(xscale)
-            it.f64(yscale)
-            it.f64(xshear)
-            it.f64(yshear)
-            it.f64(rotationRad)
-            it.f64(xtranslate)
-            it.f64(ytranslate)
-            it.f64(originX)
-            it.f64(originY)
-        }
-    }
     val copyOnly = transformCopyOnly
     val wasSelectionPending = isSelectionTransformPending
     val hadSelection = hasSelection
@@ -1730,22 +1410,6 @@ internal fun PaintViewModel.applyPerspectiveTransform(
     origW: Double,
     origH: Double,
 ) {
-    if (recorder.recording) {
-        recorder.toolOp(T_PERSPECTIVE) {
-            it.f64(x0)
-            it.f64(y0)
-            it.f64(x1)
-            it.f64(y1)
-            it.f64(x2)
-            it.f64(y2)
-            it.f64(x3)
-            it.f64(y3)
-            it.f64(origX)
-            it.f64(origY)
-            it.f64(origW)
-            it.f64(origH)
-        }
-    }
     val wasSelectionPending = isSelectionTransformPending
     val hadSelection = hasSelection
     val targetTool = com.reverie.paint.model.Tool.fromId(currentToolId)
@@ -1802,23 +1466,6 @@ internal fun PaintViewModel.applyWarpMeshTransform(
     origW: Double,
     origH: Double,
 ) {
-    if (recorder.recording && origPoints.size == transfPoints.size) {
-        recorder.toolOp(T_WARP) {
-            it.u16(origPoints.size)
-            for (p in origPoints) {
-                it.f32(p.x)
-                it.f32(p.y)
-            }
-            for (p in transfPoints) {
-                it.f32(p.x)
-                it.f32(p.y)
-            }
-            it.f64(origX)
-            it.f64(origY)
-            it.f64(origW)
-            it.f64(origH)
-        }
-    }
     val count = origPoints.size
     val ox = DoubleArray(count) { origPoints[it].x.toDouble() }
     val oy = DoubleArray(count) { origPoints[it].y.toDouble() }
@@ -1969,9 +1616,6 @@ internal fun PaintViewModel.undo(fromPanel: Boolean = false, settled: (() -> Uni
     }) {
         if (ReverieCoreBridge.canUndo()) {
             Breadcrumbs.record("History", "Undo")
-            if (recorder.recording) {
-                recorder.toolOp(T_UNDO) { }
-            }
             ReverieCoreBridge.undo()
             if (restoreTransformSel) {
                 val count = ReverieCoreBridge.storedSelectionCount()
@@ -2055,9 +1699,6 @@ internal fun PaintViewModel.redo(fromPanel: Boolean = false, settled: (() -> Uni
     }) {
         if (ReverieCoreBridge.canRedo()) {
             Breadcrumbs.record("History", "Redo")
-            if (recorder.recording) {
-                recorder.toolOp(T_REDO) { }
-            }
             ReverieCoreBridge.redo()
             if (restoreRedoSel) {
                 ReverieCoreBridge.setUndoCaptureEnabled(false)
@@ -2078,9 +1719,6 @@ internal fun PaintViewModel.redo(fromPanel: Boolean = false, settled: (() -> Uni
 }
 
 internal fun PaintViewModel.setLiquifyBrushSize(size: Double) {
-    if (recorder.recording) {
-        recorder.toolOp(T_LIQUIFY_SIZE) { it.f32(size.toFloat()) }
-    }
     runCore { ReverieCoreBridge.setLiquifyBrushSize(size) }
 }
 
@@ -2112,18 +1750,6 @@ internal fun PaintViewModel.editTargetLayers(): List<Int> {
     }.distinct().sorted()
 }
 
-private fun recordLayerSet(
-    recorder: PaintRecorder,
-    op: Int,
-    layers: List<Int>,
-) {
-    recorder.toolOp(op) {
-        it.u16(layers.size.coerceIn(0, 65535))
-        for (l in layers) {
-            it.u16(l.coerceIn(0, 65535))
-        }
-    }
-}
 
 /** One undo transaction for a whole liquify drag gesture. Selected layers
  *  (multi-select) warp together as one undo step. */
@@ -2132,12 +1758,6 @@ internal fun PaintViewModel.liquifyBegin() {
     liquifyPresentation.cancel()
     val layers = editTargetLayers()
     val multi = layers.size > 1 || selectedLayerIndices.isNotEmpty()
-    if (recorder.recording) {
-        if (multi) recordLayerSet(recorder, T_LIQUIFY_LAYERS, layers)
-        // 液化同样不带画笔色, 补一条当前上下文再记 begin
-        recordContextBaseline()
-        recorder.toolOp(T_LIQUIFY_BEGIN)
-    }
     val arr = if (multi) layers.toIntArray() else null
     // Phase 2B: 每次手势开始时定一次"预览由谁画"(GPU 覆盖层 / 引擎侧 CPU 叠加), 并显式写进
     // 引擎 —— 这样 property 与 Kotlin 侧判定即使不一致, 也不会两边都不画。
@@ -2158,10 +1778,6 @@ internal fun PaintViewModel.liquifyBegin() {
 
 internal fun PaintViewModel.configureLiquifyProfile(hardness: Float) {
     val h = hardness.coerceIn(0f, 1f)
-    if (recorder.recording) recorder.toolOp(com.reverie.paint.model.RecordingEvents.T_LIQUIFY_PROFILE) {
-        it.u8(1)
-        it.f32(h)
-    }
     runCore(render = false) { ReverieCoreBridge.setLiquifyProfile(true, h.toDouble()) }
 }
 
@@ -2184,7 +1800,6 @@ internal fun PaintViewModel.replayLiquifyFieldDabs(dabs: FloatArray, count: Int,
 }
 
 internal fun PaintViewModel.liquifyEnd() {
-    if (recorder.recording) recorder.toolOp(T_LIQUIFY_END)
     val gesture = liquifyPresentationGesture
     val retirePreview = LiquifyGpuPreview.requested
     runCore(after = { refreshLayerThumbs() }) {
@@ -2270,9 +1885,6 @@ internal fun PaintViewModel.liquifyFieldEndFromOverlay(
     dabCount: Int,
     dabStride: Int,
 ) {
-    if (recorder.recording) {
-        recorder.toolOp(T_LIQUIFY_END)
-    }
     val gesture = LiquifyGlesPreview.gestureId
     val presentationGesture = liquifyPresentationGesture
     val replayDabs = dabs.copyOf(dabCount * dabStride)
@@ -2349,23 +1961,10 @@ internal fun PaintViewModel.recordLiquifyDab(
     ty: Float,
     mode: Int,
     strength: Float,
-) {
-    if (!recorder.recording) return
-    recorder.toolOp(T_LIQUIFY) {
-        it.f32(fx)
-        it.f32(fy)
-        it.f32(tx)
-        it.f32(ty)
-        it.u8(mode)
-        it.f32(strength)
-    }
-}
+) {}
 
 internal fun PaintViewModel.liquifyCancel() {
     liquifyPresentation.cancel()
-    if (recorder.recording) {
-        recorder.toolOp(T_LIQUIFY_CANCEL)
-    }
     LiquifyGpuPreview.clear()
     runCore(after = { scheduleRender(immediate = true) }) {
         ReverieCoreBridge.liquifyCancel()
@@ -2403,20 +2002,6 @@ private val liquifyDabBuffers = LiquifyDabBuffers()
 
 internal fun PaintViewModel.liquifyBatch(buf: FloatArray, count: Int) {
     if (count <= 0 || buf.size < count * LIQUIFY_DAB_STRIDE) return
-    if (recorder.recording) {
-        // 录制流与逐点路径逐字节一致(回放走经典逐点路径, 必须能复现同一段形变)
-        for (i in 0 until count) {
-            val b = i * LIQUIFY_DAB_STRIDE
-            recorder.toolOp(T_LIQUIFY) {
-                it.f32(buf[b])
-                it.f32(buf[b + 1])
-                it.f32(buf[b + 2])
-                it.f32(buf[b + 3])
-                it.u8(buf[b + 5].toInt())
-                it.f32(buf[b + 4])
-            }
-        }
-    }
     if (renderHandler == null) return
     val batch = liquifyDabBuffers.capture(buf, count)
     runCore {
@@ -2436,16 +2021,6 @@ internal fun PaintViewModel.liquify(
     mode: Int,
     strength: Double = 0.9,
 ) {
-    if (recorder.recording) {
-        recorder.toolOp(T_LIQUIFY) {
-            it.f32(fx)
-            it.f32(fy)
-            it.f32(tx)
-            it.f32(ty)
-            it.u8(mode)
-            it.f32(strength.toFloat())
-        }
-    }
     runCore {
         ReverieCoreBridge.liquifyAt(
             fx,

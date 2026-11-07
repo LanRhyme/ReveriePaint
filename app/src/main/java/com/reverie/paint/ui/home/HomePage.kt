@@ -83,6 +83,7 @@ import com.reverie.paint.ui.components.TelemetryNoticeBar
 import com.reverie.paint.R
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.dialog.RecentAutoSavesDialog
+import com.reverie.paint.ui.painting.TimelapseDialog
 import com.reverie.paint.ui.dialog.SponsorPromptDialog
 import com.reverie.paint.ui.dialog.SponsorsDialog
 import com.reverie.paint.core.*
@@ -140,6 +141,7 @@ fun HomePage(vm: PaintViewModel) {
     // Long-press Context Menu on card
     var longPressedProject by remember { mutableStateOf<Project?>(null) }
     var detailsProject by remember { mutableStateOf<Project?>(null) }
+    var timelapseProject by remember { mutableStateOf<Project?>(null) }
 
     // Choose folder cover dialog
     var showChooseCoverDialog by remember { mutableStateOf(false) }
@@ -340,6 +342,14 @@ fun HomePage(vm: PaintViewModel) {
             colors = colors,
             project = detailsProject!!,
             onDismiss = { detailsProject = null },
+        )
+    }
+
+    if (timelapseProject != null) {
+        TimelapseDialog(
+            vm = vm,
+            project = timelapseProject,
+            onDismiss = { timelapseProject = null },
         )
     }
 
@@ -1343,6 +1353,18 @@ fun HomePage(vm: PaintViewModel) {
                                                         onClick = {
                                                             longPressedProject = null
                                                             vm.goReplay(p)
+                                                        },
+                                                    )
+                                                }
+                                                if (!p.isFolder && vm.getTimelapseFrameCount(p) > 0) {
+                                                    HomeDropdownMenuItem(
+                                                        text = stringResource(R.string.timelapse_export_title),
+                                                        icon = R.drawable.ic_play,
+                                                        textColor = colors.accent,
+                                                        iconColor = colors.accent,
+                                                        onClick = {
+                                                            longPressedProject = null
+                                                            timelapseProject = p
                                                         },
                                                     )
                                                 }

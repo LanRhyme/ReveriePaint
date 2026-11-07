@@ -81,6 +81,7 @@ import com.reverie.paint.core.exportAnimation
 import com.reverie.paint.core.exportAnimationToGallery
 import com.reverie.paint.core.exportDocument
 import com.reverie.paint.core.exportImageToGallery
+import com.reverie.paint.core.getTimelapseFrameCount
 import com.reverie.paint.core.playbackEndFrame
 import com.reverie.paint.core.shareAnimation
 import com.reverie.paint.ui.components.ReSwitch
@@ -720,6 +721,69 @@ private fun StaticExportSection(
                     Toast.makeText(context, context.resources.getString(R.string.template_save_success), Toast.LENGTH_SHORT).show()
                     onClose()
                 },
+            )
+        }
+
+        // 延时摄影录制与导出卡片
+        var showTimelapseDialog by remember { mutableStateOf(false) }
+        val timelapseInteraction = remember { MutableInteractionSource() }
+        val frameCount = vm.getTimelapseFrameCount()
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .pressScale(timelapseInteraction, pressedScale = 0.98f)
+                .clip(RoundedCornerShape(12.dp))
+                .background(Morandi.panelHi.copy(alpha = 0.6f))
+                .clickable(interactionSource = timelapseInteraction, indication = null) {
+                    showTimelapseDialog = true
+                }
+                .padding(horizontal = 14.dp, vertical = 10.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .size(34.dp)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Morandi.accent.copy(alpha = 0.16f)),
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_play),
+                    contentDescription = null,
+                    tint = Morandi.accent,
+                    modifier = Modifier.size(18.dp),
+                )
+            }
+            Column(modifier = Modifier.weight(1f)) {
+                Text(
+                    text = stringResource(R.string.timelapse_export_title),
+                    color = Morandi.text,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    text = if (frameCount > 0) {
+                        stringResource(R.string.timelapse_export_frame_counter, frameCount, frameCount)
+                    } else {
+                        stringResource(R.string.timelapse_export_desc)
+                    },
+                    color = Morandi.subText,
+                    fontSize = 11.sp,
+                )
+            }
+            Icon(
+                painter = painterResource(R.drawable.ic_chevron),
+                contentDescription = null,
+                tint = Morandi.subText.copy(alpha = 0.6f),
+                modifier = Modifier.size(16.dp),
+            )
+        }
+
+        if (showTimelapseDialog) {
+            TimelapseDialog(
+                vm = vm,
+                onDismiss = { showTimelapseDialog = false },
             )
         }
     }

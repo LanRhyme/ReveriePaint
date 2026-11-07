@@ -178,12 +178,8 @@ internal fun PaintViewModel.saveProject(
                 "active3DLayers": [$layers3DJson]
             }
             """.trimIndent()
-        // Recording blob goes straight into the .revp via the C++ store
-        // (single write, no post-save ZIP repackage)
-        val recBlob = recorder.serialize()
-        android.util.Log.d("RP_IO", "saveRevp blob=${recBlob?.size ?: 0} bytes to ${finalFile.absolutePath}")
         val saveT0 = android.os.SystemClock.elapsedRealtime()
-        val saved = ReverieCoreBridge.saveRevp(finalFile.absolutePath, extraJson, recBlob)
+        val saved = ReverieCoreBridge.saveRevp(finalFile.absolutePath, extraJson, null)
         PerfTrace.event(
             "saveProject",
             "ms" to (android.os.SystemClock.elapsedRealtime() - saveT0),
@@ -276,8 +272,6 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
                 "active3DLayers": [$layers3DJson]
             }
             """.trimIndent()
-        val recBlob = recorder.serialize()
-        android.util.Log.d("RP_IO", "autoSaveRevpAsync blob=${recBlob?.size ?: 0} bytes to ${autoSaveFile.absolutePath}")
         val backupFile = File(autoSaveFile.parentFile, "${autoSaveFile.name}.bak")
         val oldFileSize = if (autoSaveFile.exists()) autoSaveFile.length() else 0L
         if (oldFileSize > 50_000L) {
@@ -286,7 +280,7 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
             } catch (_: Throwable) {}
         }
         val saveStartTime = System.currentTimeMillis()
-        val saved = ReverieCoreBridge.saveRevpAsync(autoSaveFile.absolutePath, extraJson, recBlob)
+        val saved = ReverieCoreBridge.saveRevpAsync(autoSaveFile.absolutePath, extraJson, null)
         android.util.Log.d("RP_IO", "autoSaveRevpAsync triggered=$saved")
 
         if (saved) {
@@ -358,8 +352,7 @@ internal fun PaintViewModel.emergencySaveOnCrash() {
                 "active3DLayers": [$layers3DJson]
             }
             """.trimIndent()
-        val recBlob = try { recorder.serialize() } catch (_: Throwable) { null }
-        val saved = ReverieCoreBridge.saveRevp(emergencyFile.absolutePath, extraJson, recBlob)
+        val saved = ReverieCoreBridge.saveRevp(emergencyFile.absolutePath, extraJson, null)
         if (saved && emergencyFile.exists() && emergencyFile.length() > 0) {
             referenceStore.bind(emergencyFile.absolutePath, referenceProfileId)
             AutoSaveHistoryManager.recordSnapshot(
@@ -451,7 +444,6 @@ internal fun PaintViewModel.discardAndExit() {
 
 /** Recording blob is now written directly by the C++ store during
  *  saveRevp (single write, no post-save ZIP repackage). */
-private fun PaintViewModel.recSessionDir(): File = File(appContext.filesDir, "rec_session")
 
 internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     android.util.Log.d("RP_IO", "loadProject START: name=${p.name}, path=${p.filePath}, isAutoSaved=${p.isAutoSaved}")
@@ -736,18 +728,7 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 if (targetLayer in 0 until nLayers) {
                     ReverieCoreBridge.setCurrentLayer(targetLayer)
                 }
-                // Chain the project's own recording so new strokes extend the
-                // existing history instead of replaying on top of a baked
-                // static image (snapshot = the recording's initial document).
-                val priorRec =
-                    if (file.extension.equals("revp", ignoreCase = true)) {
-                        PaintRecorder.readRecordingEntry(file)
-                    } else {
-                        null
-                    }
-                recorder.beginSession(coreW, coreH, file, recSessionDir(), priorRec, undoLimit = maxUndoSteps)
-                // 会话起点写完整上下文: 圈涂/液化这类不带画笔色的操作靠它拿回颜色
-                recordContextBaseline()
+
                 // 打开的工程可能是动画工程 (KRA/REVP 内已存有关键帧通道)。这里在
                 // 渲染线程上补同步一次动画状态, 并让时间轴自动展开 —— 否则用户
                 // 重新打开逐帧工程时会看不到任何帧的证据, 以为帧全丢了。
@@ -878,6 +859,7 @@ internal fun PaintViewModel.deleteProject(p: com.reverie.paint.model.Project) {
     } else {
         val file = File(p.filePath)
         if (file.exists()) file.delete()
+        getTimelapseFramesDir(p)?.let { if (it.exists()) it.deleteRecursively() }
     }
     if (!File(p.filePath).exists()) forgetLocalReferences(File(p.filePath))
     refreshProjects()
@@ -895,7 +877,14 @@ internal fun PaintViewModel.renameProject(
             } else {
                 File(file.parentFile, "${newName.trim()}.${file.extension}")
             }
-        if (file.renameTo(target)) referenceStore.move(file, target)
+        if (file.renameTo(target)) {
+            referenceStore.move(file, target)
+            val oldFrames = getTimelapseFramesDir(p)
+            val newFrames = file.parentFile?.let { File(it, "frames/${newName.trim()}") }
+            if (oldFrames?.exists() == true && newFrames != null) {
+                oldFrames.renameTo(newFrames)
+            }
+        }
     }
     refreshProjects()
 }
@@ -914,6 +903,7 @@ internal fun PaintViewModel.deleteProjects(projects: List<com.reverie.paint.mode
         } else {
             val file = File(p.filePath)
             if (file.exists()) file.delete()
+            getTimelapseFramesDir(p)?.let { if (it.exists()) it.deleteRecursively() }
         }
         if (!File(p.filePath).exists()) forgetLocalReferences(File(p.filePath))
     }
@@ -961,6 +951,11 @@ private fun PaintViewModel.duplicateProjectFiles(
                         }
                         source.inputStream().use { input ->
                             requireNotNull(target).outputStream().use { output -> input.copyTo(output) }
+                        }
+                        val srcFrames = getTimelapseFramesDir(project)
+                        val dstFrames = target?.parentFile?.let { File(it, "frames/$name") }
+                        if (srcFrames?.exists() == true && dstFrames != null) {
+                            srcFrames.copyRecursively(dstFrames, overwrite = true)
                         }
                         name
                     } catch (e: Exception) {
@@ -1107,7 +1102,9 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
                     }
                     previewPath = cacheThumb.absolutePath
                 }
-                hasRec = zip.getEntry("recording") != null
+                val framesDir = File(f.parentFile, "frames/${f.nameWithoutExtension}")
+                hasRec = framesDir.exists() && framesDir.isDirectory &&
+                    (framesDir.list { _, name -> name.startsWith("frame_") && name.endsWith(".webp") }?.isNotEmpty() == true)
             } finally {
                 zip.close()
             }
@@ -1485,7 +1482,7 @@ internal fun PaintViewModel.exportDocument(
                             $authorSnippet
                         }
                         """.trimIndent()
-                    ReverieCoreBridge.saveRevp(targetFile.absolutePath, extraJson, recorder.serialize())
+                    ReverieCoreBridge.saveRevp(targetFile.absolutePath, extraJson, null)
                 }
 
                 "webp" -> {
@@ -1619,7 +1616,6 @@ internal fun PaintViewModel.exportImageToGallery(
 
 internal fun PaintViewModel.goHome() {
     resetProjectReferences()
-    recorder.endSession()
     stopPaintingTimer()
     // 动画播放与状态镜像: 离开绘画页彻底停止并重置动画状态, 避免耗电和跨画布状态残留
     resetAnimationState()
@@ -1820,13 +1816,6 @@ internal fun PaintViewModel.startPainting(
                         ReverieCoreBridge.setUndoCaptureEnabled(true)
                     }
                 }
-                recorder.beginSession(
-                    w, h,
-                    snapshotSource = initialSnapshotFile,
-                    snapshotTempDir = recSessionDir(),
-                    undoLimit = maxUndoSteps,
-                )
-                recordContextBaseline()
             }
         } finally {
             if (initialBitmap != null && !initialBitmap.isRecycled) {
@@ -1837,41 +1826,26 @@ internal fun PaintViewModel.startPainting(
     }
 }
 
-/** Enter the replay page for a project that embeds a recording. */
+/** 进入延时摄影序列帧回放页 */
 internal fun PaintViewModel.goReplay(p: com.reverie.paint.model.Project) {
-    recorder.endSession()
     stopPaintingTimer()
-    // 回放页与动画互斥: 停播并重置动画状态, 避免后台渲染和画布覆盖
     resetAnimationState()
+    val frameCount = getTimelapseFrameCount(p)
+    if (frameCount == 0) {
+        showActionToast(R.string.toast_project_no_replay_data, R.drawable.ic_clock)
+        return
+    }
+    replayProject = p
     currentPage = Page.REPLAY
-    isBlockingLoading = true
-    blockingLoadingMessage = getString(R.string.project_preparing_replay)
-    var session: ReplaySession? = null
-    runCore(
-        after = {
-            isBlockingLoading = false
-            if (session == null) {
-                showActionToast(R.string.toast_project_no_replay_data, R.drawable.ic_clock)
-                goHome()
-                return@runCore
-            }
-            val s = session!!
-            replaySession = s
-            docWidth = s.docW
-            docHeight = s.docH
-            checkBrushSizeLimit()
-            s.currentMs = 0
-            s.progress = 0f
-            s.elapsedMs = 0L
-            s.lastProgressWallMs = android.os.SystemClock.elapsedRealtime()
-            s.isPlaying = true
-            scheduleReplayStep(s)
-        },
-    ) {
-        session = ReplaySession.load(java.io.File(p.filePath), File(appContext.filesDir, "replay_tmp"))
-        if (session != null) {
-            resetReplayDocLocked(session!!)
-        }
+}
+
+/** 退出回放页 */
+internal fun PaintViewModel.exitReplay() {
+    replayProject = null
+    if (docWidth > 0 && currentProjectFile != null) {
+        currentPage = Page.PAINTING
+    } else {
+        goHome()
     }
 }
 

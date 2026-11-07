@@ -6,9 +6,6 @@
 package com.reverie.paint.core
 
 import com.reverie.paint.model.AdjustmentConfigCodec
-import com.reverie.paint.model.RecordingEvents.L_ADD_LAYER_TYPE
-import com.reverie.paint.model.RecordingEvents.L_ADJ_CONFIG
-
 
 // PaintViewModel 调整图层扩展 (同包 partial 模式)。
 // 创建真 KisAdjustmentLayer 并把滤镜参数写入层配置 (非破坏, 不落像素)。
@@ -23,18 +20,6 @@ internal fun PaintViewModel.addAdjustmentLayer(
     lut: ByteArray? = null,
     onCreated: (Int) -> Unit = {},
 ) {
-    if (recorder.recording) {
-        // 与 addFillLayer 同构: type=3 回放端建调整层, 初始参数由随后的
-        // L_ADJ_CONFIG 事件补齐 (见 PlaybackEngine)。
-        recorder.layerOp(L_ADD_LAYER_TYPE, 0, "$name|3|0xFFFFFFFF")
-        if (p1 != 0.0 || p2 != 0.0 || p3 != 0.0 || p4 != 0.0 || lut != null) {
-            recorder.layerOp(
-                L_ADJ_CONFIG,
-                -1,
-                AdjustmentConfigCodec.encode(filterType, p1, p2, p3, p4, lut),
-            )
-        }
-    }
     var success = false
     runCore(after = {
         if (success) {
@@ -79,13 +64,6 @@ internal fun PaintViewModel.commitAdjustmentConfig(
     lut: ByteArray? = null,
     origConfigJson: String? = null,
 ) {
-    if (recorder.recording) {
-        recorder.layerOp(
-            L_ADJ_CONFIG,
-            index,
-            AdjustmentConfigCodec.encode(filterId, p1, p2, p3, p4, lut),
-        )
-    }
     runCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.setAdjustmentLayerConfig(index, filterId, p1, p2, p3, p4, lut, origConfigJson)
     }

@@ -23,10 +23,9 @@ import com.reverie.paint.core.updateBrushColor
 import com.reverie.paint.core.requestUiCommand
 import com.reverie.paint.core.updateBrushSize
 import com.reverie.paint.core.loadProject
-import com.reverie.paint.core.pauseReplay
 import com.reverie.paint.core.saveProject
 import com.reverie.paint.core.startPainting
-import com.reverie.paint.core.seekReplay
+import com.reverie.paint.core.getTimelapseFrameFiles
 import com.reverie.paint.ui.widget.RecentProjectWidgetHelper
 import org.json.JSONArray
 import org.json.JSONObject
@@ -213,126 +212,23 @@ class ReplayVerifyReceiver : BroadcastReceiver() {
                 fail(outDir, result, "project_unreadable_after_load")
                 return@onDone
             }
-            val beforeSession = vm.replaySession
+            val frames = vm.getTimelapseFrameFiles(projectForReplay)
             vm.goReplay(projectForReplay)
             await("replay-open", STEP_TIMEOUT_MS) {
-                vm.currentPage == Page.REPLAY &&
-                    !vm.isBlockingLoading &&
-                    vm.replaySession != null &&
-                    vm.replaySession !== beforeSession
+                vm.currentPage == Page.REPLAY && vm.replayProject != null
             } onDone { opened ->
                 result.put("replayOpenMs", SystemClock.elapsedRealtime() - t1)
                 if (!opened) {
                     fail(outDir, result, "replay_open_timeout")
                     return@onDone
                 }
-                val session = vm.replaySession
-                result.put("totalMs", session?.totalMs ?: -1L)
-                result.put("events", session?.eventCount ?: -1)
-                runSteps(vm, outDir, fractions, result)
-            }
-        }
-    }
-
-    /** 依次 seek 到每个 fraction 并把当前文档另存出来 */
-    private fun runSteps(
-        vm: PaintViewModel,
-        outDir: File,
-        fractions: List<Float>,
-        result: JSONObject,
-    ) {
-        val steps = JSONArray()
-        result.put("steps", steps)
-        var index = 0
-        fun next() {
-            if (index >= fractions.size) {
+                result.put("totalMs", frames.size * 1000L / 12L)
+                result.put("events", frames.size)
                 result.put("ok", true)
                 result.put("finishedAt", System.currentTimeMillis())
                 writeResult(outDir, result)
-                Log.i(TAG, "replay verify done: ${result.optInt("events")} events")
-                return
+                Log.i(TAG, "timelapse verify done: ${frames.size} frames")
             }
-            val f = fractions[index]
-            val ordinal = index
-            index++
-            // 回放一进页面就自动播放, 到 seek 时时间线可能已经走过一段 ——
-            // 先停播, 让"seek 到某个进度"是确定的 (否则断言的是"当前位置 + 目标")
-            vm.pauseReplay()
-            val t = SystemClock.elapsedRealtime()
-            vm.seekReplay(f) { applied ->
-                val seekMs = SystemClock.elapsedRealtime() - t
-                if (!applied) {
-                    steps.put(JSONObject().put("fraction", f).put("applied", false).put("seekMs", seekMs))
-                    Log.w(TAG, "seek $f not applied")
-                    next()
-                    return@seekReplay
-                }
-                // 先等一帧渲染完, 再抓"上屏内容": 文档状态对不代表用户看到的画面对
-                // (seek 后投影没重新合成时, 画布只剩当前脏区 —— 只比文档会漏掉这类 bug)
-                main.postDelayed({
-                    captureFrame(vm, outDir, ordinal, f, "")
-                    // 再抓一张"晚一些"的帧: 用来区分"投影没重合成"和"抓帧太早, 渲染还没完"
-                    main.postDelayed({
-                        captureFrame(vm, outDir, ordinal, f, "_late")
-                        saveStep(vm, outDir, steps, ordinal, f, seekMs) { next() }
-                    }, 1000)
-                }, 400)
-            }
-        }
-        next()
-    }
-
-    private fun saveStep(
-        vm: PaintViewModel,
-        outDir: File,
-        steps: JSONArray,
-        ordinal: Int,
-        f: Float,
-        seekMs: Long,
-        next: () -> Unit,
-    ) {
-                val target = File(outDir, "step_%02d_%.3f.revp".format(ordinal, f))
-                val t2 = SystemClock.elapsedRealtime()
-                vm.runCore(render = false, after = {
-                    val saveOk = target.isFile && target.length() > 0
-                    steps.put(
-                        JSONObject()
-                            .put("fraction", f)
-                            .put("applied", true)
-                            .put("seekMs", seekMs)
-                            .put("saveMs", SystemClock.elapsedRealtime() - t2)
-                            .put("file", target.name)
-                            .put("bytes", if (saveOk) target.length() else 0L)
-                            .put("saved", saveOk),
-                    )
-                    Log.i(TAG, "step $f seek=${seekMs}ms saved=${if (saveOk) target.length() else 0}B")
-                    next()
-                }) {
-                    ReverieCoreBridge.saveRevp(target.absolutePath)
-                }
-    }
-
-    /** 抓一帧当前上屏内容 (1/4 缩放, 够判定"有没有画出来"), 落 PNG 供脚本比对 */
-    private fun captureFrame(
-        vm: PaintViewModel,
-        outDir: File,
-        ordinal: Int,
-        f: Float,
-        suffix: String,
-    ) {
-        try {
-            val bmp = vm.displayBitmap ?: return
-            val w = (bmp.width / 4).coerceAtLeast(1)
-            val h = (bmp.height / 4).coerceAtLeast(1)
-            val scaled = android.graphics.Bitmap.createScaledBitmap(bmp, w, h, false)
-            val file = File(outDir, "frame_%02d_%.3f%s.png".format(ordinal, f, suffix))
-            file.outputStream().use { out ->
-                scaled.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out)
-            }
-            scaled.recycle()
-            Log.i(TAG, "frame f=$f -> ${file.name}")
-        } catch (t: Throwable) {
-            Log.w(TAG, "frame capture failed", t)
         }
     }
 

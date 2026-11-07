@@ -276,6 +276,11 @@ class PaintViewModel : ViewModel() {
     var strokesSinceLastAutoSave by mutableIntStateOf(0)
     var hasPendingMajorOp by mutableStateOf(false)
 
+    // Timelapse Recording state (default enabled for seamless replay)
+    var timelapseRecordingEnabled by mutableStateOf(true)
+    var timelapseMinIntervalMs by mutableLongStateOf(200L)
+    var timelapseMaxFrames by mutableIntStateOf(3000)
+
     /**
      * 只改了"选中图层"、没改内容 (见 [notifyLayerChanged] 的 contentChanged)。
      *
@@ -4902,6 +4907,9 @@ class PaintViewModel : ViewModel() {
             renderScheduleMode = com.reverie.paint.model.RenderScheduleMode.fromId(
                 prefs.getInt("renderScheduleMode", com.reverie.paint.model.RenderScheduleMode.PERFORMANCE.id)
             )
+            timelapseRecordingEnabled = prefs.getBoolean("timelapse_recording", true)
+            timelapseMinIntervalMs = prefs.getLong("timelapse_min_interval_ms", 200L).coerceIn(100L, 5000L)
+            timelapseMaxFrames = prefs.getInt("timelapse_max_frames", 3000).coerceIn(100, 20000)
 
             val presetsJson = prefs.getString("author_profile_presets_json", null)
             val parsedPresets = com.reverie.paint.model.AuthorProfilePreset.listFromJson(presetsJson)
@@ -5852,8 +5860,6 @@ class PaintViewModel : ViewModel() {
         mainHandler.removeCallbacks(persistToolStatesRunnable)
         persistToolBrushStates()
         BrushStoreVm.flushAllPending()
-        recorder.endSession()
-        replaySession?.stop()
         closePerformanceHintSession()
         renderThread?.quitSafely()
         unregisterMemoryPressureCallbacks()
@@ -6705,16 +6711,6 @@ class PaintViewModel : ViewModel() {
         pendingCoreOps.decrementPositive()
         if (painted) {
             scheduleRender()
-            // Airbrush hold-still ticks enter the recording as ordinary
-            // STROKE_MOVE samples at the same position/pressure, so playback
-            // reproduces the continuous ink at the recorded cadence.
-            if (recorder.recording) {
-                recorder.strokeMove(
-                    pendingSampleX.toFloat(),
-                    pendingSampleY.toFloat(),
-                    pendingSampleP.toFloat(),
-                )
-            }
         }
         h.postDelayed(airbrushRunnable, airbrushIntervalMs)
     }
@@ -7292,20 +7288,9 @@ class PaintViewModel : ViewModel() {
 
     internal var filterPreviewJob: kotlinx.coroutines.Job? = null
 
-    // ---- Drawing-process recording / playback (录制回放) ----
-
-    /** Session recorder: captures strokes, context and document ops. */
-    internal val recorder = PaintRecorder()
-
-    /** Active replay session; null while not replaying. */
-    var replaySession by mutableStateOf<ReplaySession?>(null)
+    // ---- Replay (延时摄影回放) ----
+    var replayProject by mutableStateOf<com.reverie.paint.model.Project?>(null)
         internal set
-
-    /** Last scalar filter preview params [type, p1..p4] captured at commit. */
-    internal var lastFilterPreviewParams: DoubleArray? = null
-    // LUT payloads captured for recording (curves RGB 3x256B / gradient map 256 ints)
-    internal var lastCurvesLUT: ByteArray? = null
-    internal var lastGradientMapLut: IntArray? = null
 }
 
 enum class Page { HOME, CREATE, PAINTING, REPLAY }
