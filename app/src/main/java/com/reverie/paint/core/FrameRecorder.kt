@@ -67,7 +67,7 @@ class FrameRecorder(
      */
     fun capture(bitmap: Bitmap?, nowMs: Long, isChanged: Boolean = true, force: Boolean = false): File? {
         if (bitmap == null || bitmap.isRecycled) return null
-        if (!force && !shouldCapture(nowMs, isChanged)) return null
+        if (!force && !isChanged) return null
 
         return try {
             val w = bitmap.width

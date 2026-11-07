@@ -130,11 +130,7 @@ internal fun PaintViewModel.saveProject(
             previousReferencePath?.takeIf { it != targetFile.absolutePath }?.let { oldPath ->
                 referenceStore.forgetPath(oldPath)
                 val oldFile = File(oldPath)
-                val oldFrames = oldFile.parentFile?.let { File(it, "frames/${oldFile.nameWithoutExtension}") }
-                val newFrames = targetFile.parentFile?.let { File(it, "frames/${targetFile.nameWithoutExtension}") }
-                if (oldFrames?.exists() == true && newFrames != null && oldFrames.absolutePath != newFrames.absolutePath) {
-                    oldFrames.renameTo(newFrames)
-                }
+                renameTimelapseData(oldFile.nameWithoutExtension, targetFile.nameWithoutExtension)
             }
             referenceStore.bind(targetFile.absolutePath, referenceProfile)
             initialStrokeCount = totalStrokes
@@ -868,7 +864,7 @@ internal fun PaintViewModel.deleteProject(p: com.reverie.paint.model.Project) {
     } else {
         val file = File(p.filePath)
         if (file.exists()) file.delete()
-        getTimelapseFramesDir(p)?.let { if (it.exists()) it.deleteRecursively() }
+        deleteTimelapseData(p)
     }
     if (!File(p.filePath).exists()) forgetLocalReferences(File(p.filePath))
     refreshProjects()
@@ -888,10 +884,8 @@ internal fun PaintViewModel.renameProject(
             }
         if (file.renameTo(target)) {
             referenceStore.move(file, target)
-            val oldFrames = getTimelapseFramesDir(p)
-            val newFrames = file.parentFile?.let { File(it, "frames/${newName.trim()}") }
-            if (oldFrames?.exists() == true && newFrames != null) {
-                oldFrames.renameTo(newFrames)
+            if (!p.isFolder) {
+                renameTimelapseData(p.name, newName.trim())
             }
         }
     }
@@ -912,7 +906,7 @@ internal fun PaintViewModel.deleteProjects(projects: List<com.reverie.paint.mode
         } else {
             val file = File(p.filePath)
             if (file.exists()) file.delete()
-            getTimelapseFramesDir(p)?.let { if (it.exists()) it.deleteRecursively() }
+            deleteTimelapseData(p)
         }
         if (!File(p.filePath).exists()) forgetLocalReferences(File(p.filePath))
     }
@@ -1194,6 +1188,7 @@ internal fun PaintViewModel.refreshProjects() {
 
 /** 纯 IO 部分: 扫描目录并把每个工程解析成 [Project] (带 mtime/size 元数据缓存) */
 private fun PaintViewModel.buildProjectList(): List<com.reverie.paint.model.Project> {
+    migrateLegacyTimelapseStorage()
     val rootDir = projectDir()
     if (!rootDir.exists()) return emptyList()
 

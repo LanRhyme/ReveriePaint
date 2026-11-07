@@ -43,13 +43,10 @@ private val pendingTimelapseCapture = AtomicBoolean(false)
 @Volatile
 internal var isStylusTouching: Boolean = false
 
-/** 延时摄影空闲防抖抓帧的延迟时间 (毫秒)，作画停笔后等待该空闲窗口才执行快照，绝不阻塞连续绘制 */
-private const val TIMELAPSE_IDLE_DELAY_MS = 1000L
-
 /** 上次成功触发捕获的时间戳 (毫秒) */
 private var lastCaptureTriggerTimeMs: Long = 0L
 
-/** 空闲防抖抓帧 Runnable 引用 */
+/** 节流窗口补齐收尾帧 Runnable 引用 */
 private var pendingIdleCaptureRunnable: Runnable? = null
 
 /** 当前激活的帧捕获器缓存 */
@@ -111,14 +108,121 @@ fun PaintViewModel.updateTimelapseQuality(quality: Int) {
 }
 
 /**
- * 获取指定或当前工程的延时摄影帧目录：<工程目录>/frames/<工程名>/
+ * 延时摄影专属私有存储根目录：<filesDir>/timelapse/
+ * 彻底独立于工程目录，杜绝在主页画廊中产生异常 frames 画集。
+ */
+internal fun PaintViewModel.timelapseRootDir(): File {
+    val dir = File(appContext.filesDir, "timelapse")
+    if (!dir.exists()) dir.mkdirs()
+    return dir
+}
+
+/**
+ * 获取指定或当前工程的延时摄影帧目录：<filesDir>/timelapse/<工程名>/
+ * 具备自动从旧版 <工程目录>/frames/<工程名>/ 迁移的能力。
  */
 fun PaintViewModel.getTimelapseFramesDir(project: Project? = null): File? {
     val filePath = project?.filePath ?: currentProjectFile ?: return null
     val projFile = File(filePath)
-    val parentDir = projFile.parentFile ?: return null
     val projName = projFile.nameWithoutExtension
-    return File(parentDir, "frames/$projName")
+    val newDir = File(timelapseRootDir(), projName)
+
+    // 旧版路径迁移检测：若旧路径存在，就地迁移到独立私有目录
+    val legacyDir = projFile.parentFile?.let { File(it, "frames/$projName") }
+    if (legacyDir?.exists() == true && legacyDir.isDirectory) {
+        if (!newDir.exists()) {
+            legacyDir.renameTo(newDir)
+        } else {
+            legacyDir.listFiles()?.forEach { f ->
+                val dest = File(newDir, f.name)
+                if (!dest.exists()) f.renameTo(dest) else f.delete()
+            }
+            legacyDir.delete()
+        }
+        val legacyParent = projFile.parentFile?.let { File(it, "frames") }
+        if (legacyParent?.listFiles()?.isEmpty() == true) {
+            legacyParent.delete()
+        }
+    }
+
+    return newDir
+}
+
+/**
+ * 全局扫描工程目录，将历史残留的 projects/frames/ 及子画集内的 frames 迁移至独立私有目录，
+ * 并递归清理旧 frames 文件夹，彻底根除主页画廊中出现异常 frames 画集的问题。
+ */
+fun PaintViewModel.migrateLegacyTimelapseStorage() {
+    val rootDir = projectDir()
+    val targetRoot = timelapseRootDir()
+
+    fun migrateFramesDir(framesDir: File) {
+        if (!framesDir.exists() || !framesDir.isDirectory) return
+        framesDir.listFiles()?.forEach { sub ->
+            if (sub.isDirectory) {
+                val dest = File(targetRoot, sub.name)
+                if (!dest.exists()) {
+                    sub.renameTo(dest)
+                } else {
+                    sub.listFiles()?.forEach { f ->
+                        val df = File(dest, f.name)
+                        if (!df.exists()) f.renameTo(df) else f.delete()
+                    }
+                    sub.delete()
+                }
+            } else {
+                sub.delete()
+            }
+        }
+        framesDir.deleteRecursively()
+    }
+
+    // 根目录 frames
+    migrateFramesDir(File(rootDir, "frames"))
+
+    // 子画集内的 frames
+    rootDir.listFiles()?.forEach { entry ->
+        if (entry.isDirectory && entry.name != "frames") {
+            migrateFramesDir(File(entry, "frames"))
+        }
+    }
+}
+
+/**
+ * 重命名工程时同步迁移延时摄影数据目录。
+ */
+fun PaintViewModel.renameTimelapseData(oldName: String, newName: String) {
+    val cleanOld = oldName.trim()
+    val cleanNew = newName.trim()
+    if (cleanOld.isEmpty() || cleanNew.isEmpty() || cleanOld == cleanNew) return
+    val root = timelapseRootDir()
+    val oldDir = File(root, cleanOld)
+    val newDir = File(root, cleanNew)
+    if (oldDir.exists() && oldDir.isDirectory) {
+        if (!newDir.exists()) {
+            oldDir.renameTo(newDir)
+        } else {
+            oldDir.listFiles()?.forEach { f ->
+                val df = File(newDir, f.name)
+                if (!df.exists()) f.renameTo(df) else f.delete()
+            }
+            oldDir.deleteRecursively()
+        }
+    }
+    cachedFrameRecorder = null
+    cachedFramesDirPath = null
+}
+
+/**
+ * 删除工程时彻底清理对应延时摄影数据目录。
+ */
+fun PaintViewModel.deleteTimelapseData(project: Project) {
+    val dir = getTimelapseFramesDir(project) ?: return
+    if (dir.exists()) {
+        dir.deleteRecursively()
+    }
+    cachedFrameRecorder = null
+    cachedFramesDirPath = null
 }
 
 /**
@@ -164,14 +268,10 @@ private fun PaintViewModel.getOrCreateFrameRecorder(): FrameRecorder? {
 }
 
 /**
- * 触摸落笔通知：正在进行实时绘制，暂停/顺延所有延时摄影快照任务，确保绘画线程零阻塞
+ * 触摸落笔通知：仅更新触控状态，不打断或取消上一步已完成笔迹的后台入帧
  */
 fun PaintViewModel.onStylusStrokeStarted() {
     isStylusTouching = true
-    pendingIdleCaptureRunnable?.let {
-        mainHandler.removeCallbacks(it)
-        pendingIdleCaptureRunnable = null
-    }
 }
 
 /**
@@ -209,9 +309,11 @@ fun PaintViewModel.resetTimelapseCaptureState() {
 }
 
 /**
- * 触发一次延时摄影抓帧任务。
- * - 智能防抖：作画中频繁抬笔 (如排线、连续笔画) 自动顺延抓帧，仅在用户停笔空闲 (1.0s) 时异步落帧
- * - 零阻塞保证：绘制期间完全不调用 savePng，绝不抢占 Core 渲染线程
+ * 触发一次延时摄影抓帧任务 (Procreate 式逐笔自适应捕获)。
+ * - 每次抬笔 (touchEnd)、撤销/重做或图层改动后立即响应
+ * - 由用户配置的最小抓帧间隔 (timelapseMinIntervalMs, 默认 200ms) 统一节流
+ * - 节流期外：立即发起快照并压入后台线程编码
+ * - 节流期内：调度轻量定时器，保证收尾终帧必定补齐，不遗漏最新笔画
  */
 fun PaintViewModel.triggerTimelapseCapture(isChanged: Boolean = true, force: Boolean = false) {
     if (!timelapseRecordingEnabled || currentProjectFile == null) {
@@ -229,13 +331,28 @@ fun PaintViewModel.triggerTimelapseCapture(isChanged: Boolean = true, force: Boo
 
     if (!isChanged) return
 
-    pendingIdleCaptureRunnable?.let { mainHandler.removeCallbacks(it) }
-    val runnable = Runnable {
-        pendingIdleCaptureRunnable = null
+    val nowUptime = SystemClock.uptimeMillis()
+    val elapsed = nowUptime - lastCaptureTriggerTimeMs
+    val minInterval = timelapseMinIntervalMs.coerceIn(50L, 5000L)
+
+    if (elapsed >= minInterval) {
+        pendingIdleCaptureRunnable?.let {
+            mainHandler.removeCallbacks(it)
+            pendingIdleCaptureRunnable = null
+        }
         executeTimelapseCaptureNow(force = false)
+    } else {
+        // 处于节流窗口：调度补齐收尾帧
+        if (pendingIdleCaptureRunnable == null) {
+            val remainDelay = (minInterval - elapsed).coerceAtLeast(10L)
+            val runnable = Runnable {
+                pendingIdleCaptureRunnable = null
+                executeTimelapseCaptureNow(force = false)
+            }
+            pendingIdleCaptureRunnable = runnable
+            mainHandler.postDelayed(runnable, remainDelay)
+        }
     }
-    pendingIdleCaptureRunnable = runnable
-    mainHandler.postDelayed(runnable, TIMELAPSE_IDLE_DELAY_MS)
 }
 
 /**
@@ -243,12 +360,6 @@ fun PaintViewModel.triggerTimelapseCapture(isChanged: Boolean = true, force: Boo
  */
 private fun PaintViewModel.executeTimelapseCaptureNow(force: Boolean) {
     if (!timelapseRecordingEnabled || currentProjectFile == null) {
-        return
-    }
-
-    if (!force && (isStylusTouching || isStrokeRenderActive())) {
-        // 用户仍在作画或底层渲染活跃，顺延防抖
-        triggerTimelapseCapture(isChanged = true, force = false)
         return
     }
 
@@ -291,15 +402,6 @@ private fun PaintViewModel.executeTimelapseCaptureNow(force: Boolean) {
 
     lastCaptureTriggerTimeMs = SystemClock.uptimeMillis()
     runCore(render = false) {
-        if (!force && (isStylusTouching || isStrokeRenderActive())) {
-            isTimelapseCapturing.set(false)
-            captureBitmap.recycle()
-            mainHandler.post {
-                triggerTimelapseCapture(isChanged = true, force = false)
-            }
-            return@runCore
-        }
-
         val renderStart = SystemClock.uptimeMillis()
         val renderOk = try {
             ReverieCoreBridge.renderDocumentThumb(captureBitmap)

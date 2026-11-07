@@ -809,6 +809,7 @@ fun PaintingPage(
 
     androidx.compose.runtime.DisposableEffect(Unit) {
         onDispose {
+            vm.flushPendingTimelapseCapture()
             if (tfState.active || vm.transformPreviewBitmap != null) {
                 vm.cancelTransformPreview()
                 tfState.active = false

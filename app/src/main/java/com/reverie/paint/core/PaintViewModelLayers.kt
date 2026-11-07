@@ -251,6 +251,7 @@ internal fun PaintViewModel.notifyLayerChanged(
     if (contentChanged) {
         isModified = true
         hasPendingMajorOp = true
+        triggerTimelapseCapture(isChanged = true)
     }
     onPaintingActivity()
     syncLayersFromNative()
