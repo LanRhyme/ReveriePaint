@@ -1987,6 +1987,16 @@
     <string name="replay_seeking">定位中…</string>
     <string name="replay_restart">从头播放</string>
     <string name="replay_custom_speed_title">自定义播放倍速</string>
+    <string name="replay_speed_custom">自定义倍速…</string>
+    <string name="replay_speed_custom_active">自定义 (%s)</string>
+    <string name="replay_speed_custom_desc">自由设置播放倍速 (0.25x ~ 128x)</string>
+    <string name="replay_loop">循环播放</string>
+    <string name="replay_step_back">后退一帧 (长按跳至开头)</string>
+    <string name="replay_step_forward">前进一帧 (长按跳至结尾)</string>
+    <string name="replay_export_frames_badge">%d 帧</string>
+    <string name="replay_export_progress_frames">%1$d / %2$d 帧</string>
+    <string name="replay_export_range_frames_origin">%1$d 帧 · %2$s</string>
+    <string name="replay_export_range_frames_timelapse">%1$d 帧 (缩时至 %2$ds)</string>
     <string name="contributors_title">贡献者</string>
     <string name="contributors_loading">正在加载贡献者列表...</string>
     <string name="contributors_load_failed">加载失败</string>
