@@ -1827,7 +1827,7 @@ internal fun PaintViewModel.startPainting(
 }
 
 /** 进入延时摄影序列帧回放页 */
-internal fun PaintViewModel.goReplay(p: com.reverie.paint.model.Project) {
+internal fun PaintViewModel.goReplay(p: com.reverie.paint.model.Project? = null) {
     stopPaintingTimer()
     resetAnimationState()
     val frameCount = getTimelapseFrameCount(p)

@@ -82,6 +82,7 @@ import com.reverie.paint.core.exportAnimationToGallery
 import com.reverie.paint.core.exportDocument
 import com.reverie.paint.core.exportImageToGallery
 import com.reverie.paint.core.getTimelapseFrameCount
+import com.reverie.paint.core.goReplay
 import com.reverie.paint.core.playbackEndFrame
 import com.reverie.paint.core.shareAnimation
 import com.reverie.paint.ui.components.ReSwitch
@@ -724,8 +725,7 @@ private fun StaticExportSection(
             )
         }
 
-        // 延时摄影录制与导出卡片
-        var showTimelapseDialog by remember { mutableStateOf(false) }
+        // 延时摄影录制与回放卡片
         val timelapseInteraction = remember { MutableInteractionSource() }
         val frameCount = vm.getTimelapseFrameCount()
         Row(
@@ -735,7 +735,8 @@ private fun StaticExportSection(
                 .clip(RoundedCornerShape(12.dp))
                 .background(Morandi.panelHi.copy(alpha = 0.6f))
                 .clickable(interactionSource = timelapseInteraction, indication = null) {
-                    showTimelapseDialog = true
+                    onClose()
+                    vm.goReplay()
                 }
                 .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalAlignment = Alignment.CenterVertically,
@@ -777,13 +778,6 @@ private fun StaticExportSection(
                 contentDescription = null,
                 tint = Morandi.subText.copy(alpha = 0.6f),
                 modifier = Modifier.size(16.dp),
-            )
-        }
-
-        if (showTimelapseDialog) {
-            TimelapseDialog(
-                vm = vm,
-                onDismiss = { showTimelapseDialog = false },
             )
         }
     }

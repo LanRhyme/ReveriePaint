@@ -713,6 +713,14 @@ internal fun ProjectDetailsDialog(
         formatDuration(project.elapsedSeconds)
     }
 
+    val hasReplay = remember(project) {
+        project.hasRecording || run {
+            val projFile = java.io.File(project.filePath)
+            val framesDir = java.io.File(projFile.parentFile, "frames/${projFile.nameWithoutExtension}")
+            framesDir.exists() && framesDir.isDirectory && (framesDir.list()?.isNotEmpty() == true)
+        }
+    }
+
     Dialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
@@ -787,7 +795,7 @@ internal fun ProjectDetailsDialog(
                                     fontWeight = FontWeight.Medium,
                                 )
                             }
-                            if (project.hasRecording) {
+                            if (hasReplay) {
                                 Spacer(Modifier.width(6.dp))
                                 Box(
                                     modifier = Modifier

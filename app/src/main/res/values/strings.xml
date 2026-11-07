@@ -136,7 +136,7 @@
     <string name="gallery_stroke_count">%d 笔</string>
     <string name="gallery_action_open_stack">打开画集</string>
     <string name="gallery_action_open_artwork">打开作品</string>
-    <string name="gallery_action_replay">回放</string>
+    <string name="gallery_action_replay">延时摄影</string>
     <string name="gallery_action_share_artwork">分享作品</string>
     <string name="gallery_action_move_to_stack">移动到画集...</string>
     <string name="gallery_action_delete_stack">删除画集</string>
@@ -515,7 +515,7 @@
     <string name="toast_project_autosaved">作品已自动保存</string>
     <string name="toast_project_restored_autosave">已恢复到最后一次自动保存的状态</string>
     <string name="toast_project_duplicate_created">已创建副本: %s</string>
-    <string name="toast_project_no_replay_data">此作品没有回放数据</string>
+    <string name="toast_project_no_replay_data">此作品没有延时摄影数据</string>
     <string name="toast_project_inserted_layer">已插入新图层: %s</string>
     <string name="toast_project_imported_to_gallery">已在后台导入至画廊</string>
     <string name="toast_project_export_failed">导出 %s 失败</string>
@@ -1980,10 +1980,10 @@
     <string name="timeline_span_tip">%1$d 帧 · 1拍%2$d</string>
 
     <!-- Replay & Dialogs -->
-    <string name="replay_title">回放</string>
-    <string name="replay_title_with_doc">回放 · %s</string>
-    <string name="replay_preparing_canvas">正在准备画布...</string>
-    <string name="replay_playing_status">回放中</string>
+    <string name="replay_title">延时摄影</string>
+    <string name="replay_title_with_doc">延时摄影 · %s</string>
+    <string name="replay_preparing_canvas">正在准备延时摄影画面...</string>
+    <string name="replay_playing_status">播放中</string>
     <string name="replay_seeking">定位中…</string>
     <string name="replay_restart">从头播放</string>
     <string name="replay_custom_speed_title">自定义播放倍速</string>
@@ -3503,11 +3503,12 @@
     <string name="brush_gate_auto_tip_only">图片笔尖不支持（仅作用于参数化笔尖）</string>
     <string name="brush_possibly_modified_hint">此笔刷的原始文件可能曾被旧版本修改，重置将回到迁移时的状态。</string>
 
-    <!-- 回放缩时导出 (Replay Export) -->
-    <string name="replay_export_btn">导出回放</string>
-    <string name="replay_export_title">导出绘画回放</string>
+    <!-- 延时摄影缩时导出 (Timelapse Export) -->
+    <string name="replay_export_btn">导出延时摄影</string>
+    <string name="replay_export_title">导出延时摄影</string>
     <string name="replay_export_format_label">导出格式</string>
     <string name="replay_export_duration_label">缩时时长</string>
+    <string name="replay_export_duration_original">原速</string>
     <string name="replay_export_range_label">导出区间</string>
     <string name="replay_export_scale_label">输出尺寸</string>
     <string name="replay_export_show_cursor">显示笔刷光标轨迹圆环</string>
@@ -3515,10 +3516,11 @@
     <string name="replay_export_hold_end">结尾定格 1 秒展示成图</string>
     <string name="replay_export_save_gallery">存至相册</string>
     <string name="replay_export_save_zip">保存 ZIP</string>
-    <string name="replay_export_share_btn">分享回放</string>
-    <string name="replay_export_progress_title">正在导出回放</string>
-    <string name="replay_export_toast_saved">回放已导出保存</string>
-    <string name="replay_export_err_no_data">当前作品无可用回放数据</string>
+    <string name="replay_export_save_file">保存文件</string>
+    <string name="replay_export_share_btn">分享延时摄影</string>
+    <string name="replay_export_progress_title">正在导出延时摄影</string>
+    <string name="replay_export_toast_saved">延时摄影已导出保存</string>
+    <string name="replay_export_err_no_data">当前作品暂无延时摄影帧</string>
     <string name="replay_export_err_empty_frames">导出帧数为空</string>
     <string name="replay_export_err_encoder_start">启动 %1$s 编码器失败</string>
     <string name="replay_export_err_encode_frame">写入第 %1$d 帧失败</string>

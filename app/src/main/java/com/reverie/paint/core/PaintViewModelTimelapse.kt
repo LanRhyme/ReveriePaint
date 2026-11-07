@@ -7,6 +7,10 @@ package com.reverie.paint.core
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Canvas
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.Typeface
 import android.net.Uri
 import android.os.SystemClock
 import android.util.Log
@@ -17,6 +21,9 @@ import com.reverie.paint.model.Project
 import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.max
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 private const val TAG_TIMELAPSE = "RP_Timelapse"
 
@@ -199,61 +206,330 @@ fun PaintViewModel.triggerTimelapseCapture(isChanged: Boolean = true) {
 }
 
 /**
- * 导出延时摄影视频并保存至系统相册 Movies/ReveriePaint。
+ * 延时摄影导出参数配置
+ *
+ * @param format 导出格式: "mp4", "gif", "zip"
+ * @param durationSec 目标视频时长 (秒): 15, 30, 60; 若为 0 则为原速
+ * @param fps 导出帧率 (MP4/ZIP 默认为 12 或 30, GIF 为 12)
+ * @param scale 分辨率缩放比例 (1.0f, 0.5f, 0.25f)
+ * @param startFraction 导出起始进度区间 (0f..1f)
+ * @param endFraction 导出结束进度区间 (0f..1f)
+ * @param showWatermark 是否在导出帧右下角叠加作者水印
+ * @param holdEndFrames 是否在结尾追加 1 秒定格帧以展示最终完成作品
  */
-fun PaintViewModel.exportTimelapseVideo(
+data class TimelapseExportOptions(
+    val format: String = "mp4",
+    val durationSec: Int = 0,
+    val fps: Int = 12,
+    val scale: Float = 1.0f,
+    val startFraction: Float = 0f,
+    val endFraction: Float = 1f,
+    val showWatermark: Boolean = false,
+    val holdEndFrames: Boolean = true,
+)
+
+/**
+ * 统一执行延时摄影帧序列编码导出 (后台线程执行)。
+ */
+fun PaintViewModel.exportTimelapse(
     project: Project? = null,
-    fps: Int = 12,
-    onProgress: (current: Int, total: Int) -> Unit = { _, _ -> },
-    onSuccess: (Uri) -> Unit,
-    onError: (String) -> Unit,
+    options: TimelapseExportOptions,
+    targetFile: File,
     isCancelled: () -> Boolean = { false },
+    onProgress: (current: Int, total: Int, stage: String) -> Unit = { _, _, _ -> },
+    onSuccess: (File) -> Unit,
+    onError: (String) -> Unit,
 ) {
-    val framesDir = getTimelapseFramesDir(project)
-    if (framesDir == null || !framesDir.exists() || !framesDir.isDirectory) {
-        onError(getString(R.string.timelapse_export_err_no_frames))
+    val allFrameFiles = getTimelapseFrameFiles(project)
+    if (allFrameFiles.isEmpty()) {
+        val msg = getString(R.string.replay_export_err_no_data)
+        mainHandler.post { onError(msg) }
         return
     }
 
-    val frameCount = getTimelapseFrameCount(project)
-    if (frameCount == 0) {
-        onError(getString(R.string.timelapse_export_err_no_frames))
+    val fmt = options.format.lowercase()
+    val scale = options.scale.coerceIn(0.1f, 1.0f)
+    val fps = if (fmt == "gif") options.fps.coerceIn(8, 24) else options.fps.coerceIn(12, 60)
+    val startFrac = options.startFraction.coerceIn(0f, 0.99f)
+    val endFrac = options.endFraction.coerceIn(startFrac + 0.01f, 1f)
+
+    val totalFrames = allFrameFiles.size
+    val startIdx = (totalFrames * startFrac).toInt().coerceIn(0, totalFrames - 1)
+    val endIdx = (totalFrames * endFrac).toInt().coerceIn(startIdx, totalFrames - 1)
+    val selectedFiles = allFrameFiles.subList(startIdx, endIdx + 1)
+
+    if (selectedFiles.isEmpty()) {
+        val msg = getString(R.string.replay_export_err_empty_frames)
+        mainHandler.post { onError(msg) }
         return
     }
 
-    val projName = project?.name ?: docName
-    val tempMp4 = File(appContext.cacheDir, "timelapse_export_${System.currentTimeMillis()}.mp4")
+    // 预构建水印文本
+    val watermarkText: String =
+        if (options.showWatermark) {
+            val authorName = authorProfile.name.trim().ifEmpty { authorProfile.nickname.trim() }
+            val copyText = authorProfile.copyright.trim()
+            val curDocName = project?.name ?: docName
+            when {
+                authorName.isNotEmpty() -> "© $authorName · ReveriePaint"
+                copyText.isNotEmpty() -> copyText
+                curDocName.isNotBlank() -> "${curDocName.trim()} · ReveriePaint"
+                else -> "ReveriePaint"
+            }
+        } else {
+            ""
+        }
 
     Thread({
+        var encodeSession: FrameEncodingSession? = null
         try {
-            val ok = TimelapseExport.encode(
-                framesDir = framesDir,
-                outFile = tempMp4,
-                fps = fps,
-                onProgress = onProgress,
-                isCancelled = isCancelled,
-            )
+            if (isCancelled()) throw InterruptedException(getString(R.string.replay_export_err_cancelled))
 
-            if (!ok || !tempMp4.exists() || tempMp4.length() <= 0L) {
-                tempMp4.delete()
-                val msg = getString(R.string.timelapse_export_err_failed)
-                mainHandler.post { onError(msg) }
-                return@Thread
+            val firstFile = selectedFiles[0]
+            val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+            BitmapFactory.decodeFile(firstFile.absolutePath, bounds)
+            val baseW = if (bounds.outWidth > 0) bounds.outWidth else 1280
+            val baseH = if (bounds.outHeight > 0) bounds.outHeight else 720
+            val (targetW, targetH) = computeExportDimensions(baseW, baseH, scale, fmt)
+
+            encodeSession = FrameEncodingSession(
+                vm = this,
+                format = fmt,
+                targetFile = targetFile,
+                targetW = targetW,
+                targetH = targetH,
+                fps = fps,
+            )
+            encodeSession.start()
+
+            // 采样计算
+            val targetActiveFrames =
+                if (options.durationSec > 0) {
+                    max(fps, options.durationSec * fps)
+                } else {
+                    selectedFiles.size
+                }
+            val holdFrames = if (options.holdEndFrames) fps else 0
+            val totalOutputFrames = targetActiveFrames + holdFrames
+
+            // 水印画笔
+            val wmFontSize = max(11f, min(targetW, targetH) * 0.022f)
+            val wmPaddingH = wmFontSize * 0.65f
+            val wmPaddingV = wmFontSize * 0.38f
+            val wmMargin = wmFontSize * 0.75f
+            val watermarkTextPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                color = 0xE6FFFFFF.toInt()
+                textSize = wmFontSize
+                typeface = Typeface.create(Typeface.SANS_SERIF, Typeface.BOLD)
+                setShadowLayer(3f, 0f, 1f, 0x99000000.toInt())
+            }
+            val watermarkBgPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                style = Paint.Style.FILL
+                color = 0x66141318
+            }
+            val wmTextWidth = if (watermarkText.isNotEmpty()) watermarkTextPaint.measureText(watermarkText) else 0f
+            val wmBoxRectF = RectF()
+
+            var lastRenderedBmp: Bitmap? = null
+            var lastSrcIdx = -1
+
+            val stageAnalyzing = getString(R.string.replay_export_stage_analyzing)
+            mainHandler.post { onProgress(0, totalOutputFrames, stageAnalyzing) }
+
+            for (step in 0 until targetActiveFrames) {
+                if (isCancelled()) throw InterruptedException(getString(R.string.replay_export_err_cancelled))
+
+                val curFrame = step + 1
+                val stageMsg = getString(R.string.replay_export_stage_rendering_frame, curFrame, totalOutputFrames)
+                mainHandler.post { onProgress(curFrame, totalOutputFrames, stageMsg) }
+
+                val srcIdx =
+                    if (options.durationSec > 0) {
+                        ((step.toDouble() / max(1, targetActiveFrames - 1)) * (selectedFiles.size - 1)).roundToInt()
+                    } else {
+                        step
+                    }
+
+                val frameBmp: Bitmap
+                if (srcIdx == lastSrcIdx && lastRenderedBmp != null) {
+                    frameBmp = lastRenderedBmp
+                } else {
+                    val rawBmp = BitmapFactory.decodeFile(selectedFiles[srcIdx].absolutePath)
+                        ?: continue
+                    val scaled =
+                        if (rawBmp.width != targetW || rawBmp.height != targetH) {
+                            Bitmap.createScaledBitmap(rawBmp, targetW, targetH, true).also {
+                                if (it !== rawBmp) rawBmp.recycle()
+                            }
+                        } else {
+                            rawBmp
+                        }
+
+                    val workingBmp =
+                        if (!scaled.isMutable) {
+                            scaled.copy(Bitmap.Config.ARGB_8888, true).also { scaled.recycle() }
+                        } else {
+                            scaled
+                        }
+
+                    if (watermarkText.isNotEmpty()) {
+                        val canvas = Canvas(workingBmp)
+                        val boxW = wmTextWidth + wmPaddingH * 2f
+                        val boxH = wmFontSize + wmPaddingV * 2f
+                        val boxLeft = targetW - boxW - wmMargin
+                        val boxTop = targetH - boxH - wmMargin
+                        wmBoxRectF.set(boxLeft, boxTop, boxLeft + boxW, boxTop + boxH)
+                        val corner = boxH * 0.35f
+                        canvas.drawRoundRect(wmBoxRectF, corner, corner, watermarkBgPaint)
+                        val textX = boxLeft + wmPaddingH
+                        val textY = boxTop + wmPaddingV + wmFontSize * 0.82f
+                        canvas.drawText(watermarkText, textX, textY, watermarkTextPaint)
+                    }
+
+                    if (lastRenderedBmp != null && lastRenderedBmp !== workingBmp) {
+                        lastRenderedBmp?.recycle()
+                    }
+                    lastRenderedBmp = workingBmp
+                    lastSrcIdx = srcIdx
+                    frameBmp = workingBmp
+                }
+
+                encodeSession.addFrame(frameBmp, isCancelled, curFrame, repeatCount = 1)
             }
 
-            // 保存到系统相册 Movies/ReveriePaint (复用 PaintViewModelAnimationExport.kt 中的方法)
-            val fileName = "${projName}_timelapse.mp4"
+            // 结尾定格帧
+            if (holdFrames > 0 && lastRenderedBmp != null) {
+                if (isCancelled()) throw InterruptedException(getString(R.string.replay_export_err_cancelled))
+                val holdMsg = getString(R.string.replay_export_stage_holding_frame, totalOutputFrames, totalOutputFrames)
+                mainHandler.post { onProgress(totalOutputFrames, totalOutputFrames, holdMsg) }
+                encodeSession.addFrame(lastRenderedBmp, isCancelled, totalOutputFrames, repeatCount = holdFrames)
+            }
+
+            lastRenderedBmp?.recycle()
+
+            val finalizingMsg = getString(R.string.replay_export_stage_finalizing)
+            mainHandler.post { onProgress(totalOutputFrames, totalOutputFrames, finalizingMsg) }
+            encodeSession.finish(isCancelled)
+
+            mainHandler.post { onSuccess(targetFile) }
+        } catch (t: Throwable) {
+            targetFile.delete()
+            val msg =
+                if (t is InterruptedException) {
+                    getString(R.string.replay_export_err_cancelled)
+                } else {
+                    getString(R.string.replay_export_err_failed, t.message ?: t.javaClass.simpleName)
+                }
+            mainHandler.post { onError(msg) }
+        } finally {
+            encodeSession?.closeQuietly()
+        }
+    }, "RP-TimelapseAdvancedExport").start()
+}
+
+/**
+ * 导出延时摄影并保存至系统相册 (MP4 或 GIF)。
+ */
+fun PaintViewModel.exportTimelapseToGallery(
+    project: Project? = null,
+    options: TimelapseExportOptions,
+    isCancelled: () -> Boolean = { false },
+    onProgress: (current: Int, total: Int, stage: String) -> Unit = { _, _, _ -> },
+    onSuccess: (Uri) -> Unit,
+    onError: (String) -> Unit,
+) {
+    val fmt = options.format.lowercase()
+    if (fmt != "gif" && fmt != "mp4") {
+        val msg = getString(R.string.replay_export_err_gallery_format)
+        mainHandler.post { onError(msg) }
+        return
+    }
+    val isGif = fmt == "gif"
+    val projName = project?.name ?: docName
+    val safeName = sanitizeExportFileName(projName)
+    val fileName = "${safeName}_timelapse_${System.currentTimeMillis()}.$fmt"
+    val tempFile = File(appContext.cacheDir, fileName)
+
+    exportTimelapse(
+        project = project,
+        options = options,
+        targetFile = tempFile,
+        isCancelled = isCancelled,
+        onProgress = onProgress,
+        onSuccess = { file ->
+            val savingMsg = getString(R.string.replay_export_stage_saving_gallery)
+            onProgress(1, 1, savingMsg)
             saveExportFileToGalleryAsync(
-                tempFile = tempMp4,
+                tempFile = file,
                 fileName = fileName,
-                isGif = false,
+                isGif = isGif,
                 onSuccess = onSuccess,
                 onError = onError,
             )
-        } catch (t: Throwable) {
-            tempMp4.delete()
-            val msg = t.message ?: getString(R.string.timelapse_export_err_failed)
-            mainHandler.post { onError(msg) }
-        }
-    }, "RP-TimelapseExportThread").start()
+        },
+        onError = onError,
+    )
+}
+
+/**
+ * 导出延时摄影并写入指定 SAF Uri (如 ZIP 或自定义保存位置)。
+ */
+fun PaintViewModel.exportTimelapseToUri(
+    project: Project? = null,
+    options: TimelapseExportOptions,
+    targetUri: Uri,
+    isCancelled: () -> Boolean = { false },
+    onProgress: (current: Int, total: Int, stage: String) -> Unit = { _, _, _ -> },
+    onSuccess: () -> Unit,
+    onError: (String) -> Unit,
+) {
+    val ext = options.format.lowercase()
+    val projName = project?.name ?: docName
+    val safeName = sanitizeExportFileName(projName)
+    val tempFile = File(appContext.cacheDir, "${safeName}_timelapse_${System.currentTimeMillis()}.$ext")
+
+    exportTimelapse(
+        project = project,
+        options = options,
+        targetFile = tempFile,
+        isCancelled = isCancelled,
+        onProgress = onProgress,
+        onSuccess = { file ->
+            copyExportFileToUriAsync(
+                tempFile = file,
+                targetUri = targetUri,
+                onSuccess = onSuccess,
+                onError = onError,
+            )
+        },
+        onError = onError,
+    )
+}
+
+/**
+ * 导出延时摄影并生成供系统分享的临时文件。
+ */
+fun PaintViewModel.shareTimelapse(
+    project: Project? = null,
+    options: TimelapseExportOptions,
+    isCancelled: () -> Boolean = { false },
+    onProgress: (current: Int, total: Int, stage: String) -> Unit = { _, _, _ -> },
+    onSuccess: (File) -> Unit,
+    onError: (String) -> Unit = {},
+) {
+    val ext = options.format.lowercase()
+    val shareDir = File(appContext.cacheDir, "share_timelapse")
+    shareDir.mkdirs()
+    val projName = project?.name ?: docName
+    val safeName = sanitizeExportFileName(projName)
+    val shareFile = File(shareDir, "${safeName}_timelapse.$ext")
+    exportTimelapse(
+        project = project,
+        options = options,
+        targetFile = shareFile,
+        isCancelled = isCancelled,
+        onProgress = onProgress,
+        onSuccess = onSuccess,
+        onError = onError,
+    )
 }

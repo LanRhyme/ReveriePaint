@@ -136,7 +136,7 @@
     <string name="gallery_stroke_count">%d strokes</string>
     <string name="gallery_action_open_stack">Open Stack</string>
     <string name="gallery_action_open_artwork">Open Artwork</string>
-    <string name="gallery_action_replay">Replay</string>
+    <string name="gallery_action_replay">Timelapse</string>
     <string name="gallery_action_share_artwork">Share Artwork</string>
     <string name="gallery_action_move_to_stack">Move to Stack...</string>
     <string name="gallery_action_delete_stack">Delete Stack</string>
@@ -515,7 +515,7 @@
     <string name="toast_project_autosaved">Artwork autosaved</string>
     <string name="toast_project_restored_autosave">Restored to last autosaved state</string>
     <string name="toast_project_duplicate_created">Created copy: %s</string>
-    <string name="toast_project_no_replay_data">No replay data for this artwork</string>
+    <string name="toast_project_no_replay_data">No timelapse data for this artwork</string>
     <string name="toast_project_inserted_layer">Inserted new layer: %s</string>
     <string name="toast_project_imported_to_gallery">Imported to gallery in background</string>
     <string name="toast_project_export_failed">Failed to export %s</string>
@@ -1980,9 +1980,9 @@
     <string name="timeline_span_tip">%1$d frames · 1\'s on %2$d</string>
 
     <!-- Replay & Dialogs -->
-    <string name="replay_title">Replay</string>
-    <string name="replay_title_with_doc">Replay · %s</string>
-    <string name="replay_preparing_canvas">Preparing canvas...</string>
+    <string name="replay_title">Timelapse</string>
+    <string name="replay_title_with_doc">Timelapse · %s</string>
+    <string name="replay_preparing_canvas">Preparing timelapse canvas...</string>
     <string name="replay_playing_status">Playing</string>
     <string name="replay_seeking">Seeking…</string>
     <string name="replay_restart">Play from Start</string>
@@ -3503,11 +3503,12 @@
     <string name="brush_gate_auto_tip_only">Not supported by image tips (parametric tips only)</string>
     <string name="brush_possibly_modified_hint">The original file of this brush may have been modified by an older version; reset returns to its state at migration.</string>
 
-    <!-- Replay Export -->
-    <string name="replay_export_btn">Export Replay</string>
-    <string name="replay_export_title">Export Timelapse Replay</string>
+    <!-- Timelapse Export -->
+    <string name="replay_export_btn">Export Timelapse</string>
+    <string name="replay_export_title">Export Timelapse</string>
     <string name="replay_export_format_label">Format</string>
     <string name="replay_export_duration_label">Duration</string>
+    <string name="replay_export_duration_original">Original</string>
     <string name="replay_export_range_label">Time Range</string>
     <string name="replay_export_scale_label">Resolution</string>
     <string name="replay_export_show_cursor">Show brush cursor ring</string>
@@ -3515,10 +3516,11 @@
     <string name="replay_export_hold_end">Hold final artwork for 1s</string>
     <string name="replay_export_save_gallery">Save to Gallery</string>
     <string name="replay_export_save_zip">Save ZIP</string>
-    <string name="replay_export_share_btn">Share Replay</string>
-    <string name="replay_export_progress_title">Exporting Replay</string>
-    <string name="replay_export_toast_saved">Replay exported successfully</string>
-    <string name="replay_export_err_no_data">No replay data available for this artwork</string>
+    <string name="replay_export_save_file">Save File</string>
+    <string name="replay_export_share_btn">Share Timelapse</string>
+    <string name="replay_export_progress_title">Exporting Timelapse</string>
+    <string name="replay_export_toast_saved">Timelapse exported successfully</string>
+    <string name="replay_export_err_no_data">No timelapse frames available for this artwork</string>
     <string name="replay_export_err_empty_frames">No frames to export</string>
     <string name="replay_export_err_encoder_start">Failed to start %1$s encoder</string>
     <string name="replay_export_err_encode_frame">Failed to encode frame #%1$d</string>
