@@ -714,10 +714,16 @@ internal fun ProjectDetailsDialog(
     }
 
     val hasReplay = remember(project) {
+        // 延时摄影帧现在存放在私有目录 <filesDir>/timelapse/<工程名>/ (与工程目录解耦),
+        // 原来这里只看 <工程目录>/frames/<工程名>/ —— 那已是迁移前的旧路径, 会让
+        // 明明有帧的工程显示"没有回放"。
         project.hasRecording || run {
             val projFile = java.io.File(project.filePath)
-            val framesDir = java.io.File(projFile.parentFile, "frames/${projFile.nameWithoutExtension}")
-            framesDir.exists() && framesDir.isDirectory && (framesDir.list()?.isNotEmpty() == true)
+            val newDir = java.io.File(java.io.File(context.filesDir, "timelapse"), projFile.nameWithoutExtension)
+            val legacyDir = java.io.File(projFile.parentFile, "frames/${projFile.nameWithoutExtension}")
+            listOf(newDir, legacyDir).any { d ->
+                d.exists() && d.isDirectory && (d.list()?.isNotEmpty() == true)
+            }
         }
     }
 

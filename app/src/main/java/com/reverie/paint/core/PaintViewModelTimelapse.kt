@@ -117,6 +117,9 @@ internal fun PaintViewModel.timelapseRootDir(): File {
     return dir
 }
 
+/** 只读访问延时摄影根目录 (不触发 mkdirs), 供 UI 判断"有没有帧"。 */
+fun PaintViewModel.filesDirForTimelapse(): File = File(appContext.filesDir, "timelapse")
+
 /**
  * 获取指定或当前工程的延时摄影帧目录：<filesDir>/timelapse/<工程名>/
  * 具备自动从旧版 <工程目录>/frames/<工程名>/ 迁移的能力。

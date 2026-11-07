@@ -443,13 +443,6 @@ internal fun PaintViewModel.discardAndExit() {
     goHome()
 }
 
-/** Append the session recording as a "recording" entry inside the .revp
- *  ZIP container. The file is repackaged entry-by-entry (streamed, no
- *  full-file RAM buffering) and atomically swapped back in place. */
-
-/** Recording blob is now written directly by the C++ store during
- *  saveRevp (single write, no post-save ZIP repackage). */
-
 internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     android.util.Log.d("RP_IO", "loadProject START: name=${p.name}, path=${p.filePath}, isAutoSaved=${p.isAutoSaved}")
     if (quickShapeDraft?.nativeOriginalActive == true) {
@@ -462,11 +455,8 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     resetAnimationState()
     resetProjectReferences(loading = true)
     releaseReclaimableCaches(aggressive = true)
-    // 加载期是内存峰值最高的一刻 (旧文档缓冲 + 新文档 + 录制快照可能同时在场)。
-    // displayBitmap 是纯派生数据 (随时能从文档重建), 这里直接放开引用, 让它在 loadRevp
-    // 分配新图像之前就能被回收 —— 1.6.7 的 2048×2048 工程在 8GB 机器上踩过 OOM。
-    // 加载全程有阻塞遮罩, 不会闪出空白画布。
-    displayBitmap = null
+    // 注: 这里曾试过在加载前放开 displayBitmap 以压内存峰值, 但会造成首帧空白与
+    // 同一工程二次进入失败, 已撤掉; 内存峰值改由 releaseReclaimableCaches 处理。
     val referenceLoadSession = referenceSession
     // 进画面前先作废上一份文档的瓦片网格, 并把尺寸镜像同步成新文档的声明尺寸:
     // 否则首帧 CanvasView.onSizeChanged 会拿旧 coreW/coreH 算 fitScale, 与渲染线程的
