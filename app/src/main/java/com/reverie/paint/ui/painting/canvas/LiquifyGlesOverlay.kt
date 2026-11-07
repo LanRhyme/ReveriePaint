@@ -1342,11 +1342,6 @@ internal class LiquifyGlesOverlay(context: Context) :
                         vec4 base = texture2D(uUnderlay, (doc - uCropOrigin) / uCropSize);
                         color = color + base * (1.0 - color.a);
                     }
-                    // Match CanvasTouchView's centered BitmapShader coordinates.
-                    vec2 cell = floor(((doc - uCropOrigin) / uCropSize - 0.5) * uSceneSize / 24.0);
-                    float parity = mod(cell.x + cell.y, 2.0);
-                    vec3 checker = mix(vec3(1.0), vec3(228.0,230.0,235.0)/255.0, parity);
-                    color = vec4(color.rgb + checker * (1.0 - color.a), 1.0);
                 }
                 gl_FragColor = color;
             }

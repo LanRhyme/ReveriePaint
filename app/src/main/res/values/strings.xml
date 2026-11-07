@@ -2486,6 +2486,12 @@
     <string name="theme_canvas_bg_desc">自定义绘画与回放界面中画布周围工作区的底色</string>
     <string name="theme_canvas_bg_follow">跟随主题</string>
     <string name="theme_custom_canvas_bg">自定义画布背景</string>
+    <string name="theme_canvas_grid_title">背景网格</string>
+    <string name="theme_canvas_grid_desc">在画布工作区背景与透明区域呈现静止微透质感网格</string>
+    <string name="theme_canvas_grid_opacity">网格不透明度</string>
+    <string name="theme_canvas_grid_opacity_desc">调节背景网格线条深浅，低不透明度更显轻盈素雅</string>
+    <string name="theme_canvas_grid_size">网格尺寸</string>
+    <string name="theme_canvas_grid_size_desc">控制网格单元格疏密间距</string>
     <string name="theme_home_bg_category">主页背景图</string>
     <string name="theme_home_bg_title">主页自定义壁纸</string>
     <string name="theme_home_bg_desc">导入个人壁纸作为主页背景，并调节虚化与透明度</string>

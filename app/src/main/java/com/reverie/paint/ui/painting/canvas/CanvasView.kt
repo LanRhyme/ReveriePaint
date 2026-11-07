@@ -19,12 +19,15 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.withTransform
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.graphics.toArgb
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.PointerType
@@ -42,6 +45,7 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.min
+import kotlin.math.roundToInt
 import kotlin.math.sin
 
 /**
@@ -204,17 +208,32 @@ fun CanvasView(
     }
 
     val context = androidx.compose.ui.platform.LocalContext.current
-    val checkerboardPaint =
-        remember {
-            val tileSize = 24
-            val bmp = android.graphics.Bitmap.createBitmap(tileSize * 2, tileSize * 2, android.graphics.Bitmap.Config.ARGB_8888)
-            val cv = android.graphics.Canvas(bmp)
-            val p1 = android.graphics.Paint().apply { color = android.graphics.Color.WHITE }
-            val p2 = android.graphics.Paint().apply { color = android.graphics.Color.rgb(228, 230, 235) }
-            cv.drawRect(0f, 0f, tileSize.toFloat(), tileSize.toFloat(), p1)
-            cv.drawRect(tileSize.toFloat(), 0f, (tileSize * 2).toFloat(), tileSize.toFloat(), p2)
-            cv.drawRect(0f, tileSize.toFloat(), tileSize.toFloat(), (tileSize * 2).toFloat(), p2)
-            cv.drawRect(tileSize.toFloat(), tileSize.toFloat(), (tileSize * 2).toFloat(), (tileSize * 2).toFloat(), p1)
+    val canvasBg = Morandi.canvasBg
+    val gridEnabled = vm.canvasGridEnabled
+    val gridOpacity = vm.canvasGridOpacity
+    val gridSizeDp = vm.canvasGridSizeDp
+    val density = androidx.compose.ui.platform.LocalDensity.current.density
+
+    // 视口静止网格: 铺满工作区与透明画布，手势缩放/平移/旋转时保持屏幕空间静止，采用 BitmapShader 硬件加速平铺
+    val canvasGridPaint =
+        remember(canvasBg, gridEnabled, gridOpacity, gridSizeDp, density) {
+            if (!gridEnabled || gridOpacity <= 0f) return@remember null
+            val sizePx = (gridSizeDp * density).roundToInt().coerceAtLeast(8)
+            val bmp = android.graphics.Bitmap.createBitmap(sizePx, sizePx, android.graphics.Bitmap.Config.ARGB_8888)
+            val isDark = canvasBg.luminance() < 0.5f
+            val alphaInt = (gridOpacity * 255f).roundToInt().coerceIn(0, 255)
+            val lineColor =
+                if (isDark) {
+                    android.graphics.Color.argb(alphaInt, 255, 255, 255)
+                } else {
+                    android.graphics.Color.argb(alphaInt, 0, 0, 0)
+                }
+            val pixels = IntArray(sizePx * sizePx)
+            for (i in 0 until sizePx) {
+                pixels[i] = lineColor
+                pixels[i * sizePx] = lineColor
+            }
+            bmp.setPixels(pixels, 0, sizePx, 0, 0, sizePx, sizePx)
             val shader =
                 android.graphics.BitmapShader(
                     bmp,
@@ -222,6 +241,14 @@ fun CanvasView(
                     android.graphics.Shader.TileMode.REPEAT,
                 )
             android.graphics.Paint().apply { this.shader = shader }
+        }
+
+    val canvasBackgroundPaint =
+        remember(canvasBg) {
+            android.graphics.Paint().apply {
+                color = canvasBg.toArgb()
+                style = android.graphics.Paint.Style.FILL
+            }
         }
     // 仅绘制类工具在画布上隐藏系统指针（且用户未选择“系统指针”光标样式时）；其他工具及画布外的面板保持默认指针
     val hideSystemCursorForTool =
@@ -275,7 +302,13 @@ fun CanvasView(
                         onFitScale(min(it.width.toFloat() / dw, it.height.toFloat() / dh) * 0.88f)
                     }
                     vm.setRenderViewport(it.width, it.height)
-                }.background(Morandi.canvasBg),
+                }
+                .drawBehind {
+                    drawRect(canvasBg)
+                    canvasGridPaint?.let { p ->
+                        drawContext.canvas.nativeCanvas.drawRect(0f, 0f, size.width, size.height, p)
+                    }
+                },
     ) {
         // 原生硬件级触控与画布直出层 (完全隔离 onHover 与 onTouch，驱动 144Hz 画布位图渲染与手势)
         var touchViewRef by remember { mutableStateOf<CanvasTouchView?>(null) }
@@ -297,7 +330,7 @@ fun CanvasView(
                 touchView.vm = vm
                 touchView.tool = tool
                 touchView.tfState = tfState
-                touchView.checkerboardPaint = checkerboardPaint
+                touchView.checkerboardPaint = canvasBackgroundPaint
                 touchView.viewW = viewW
                 touchView.viewH = viewH
                 touchView.setSpacePanning(vm?.isSpacePanning == true)
@@ -447,7 +480,7 @@ fun CanvasView(
             livePressure = livePressure,
             wandFlash = wandFlash,
             liveSelectionPath = liveSelectionPath,
-            checkerboardPaint = checkerboardPaint,
+            checkerboardPaint = canvasBackgroundPaint,
             panelInteraction = panelInteraction,
         )
 

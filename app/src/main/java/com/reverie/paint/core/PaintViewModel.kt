@@ -4277,6 +4277,45 @@ class PaintViewModel : ViewModel() {
         applyCurrentTheme()
     }
 
+    var canvasGridEnabled by mutableStateOf(true)
+    var canvasGridOpacity by mutableFloatStateOf(0.08f)
+    var canvasGridSizeDp by mutableIntStateOf(16)
+
+    fun updateCanvasGridEnabled(enabled: Boolean) {
+        canvasGridEnabled = enabled
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("canvas_grid_enabled", enabled)
+                .apply()
+        }
+    }
+
+    fun updateCanvasGridOpacity(opacity: Float) {
+        val clamped = opacity.coerceIn(0.05f, 0.60f)
+        canvasGridOpacity = clamped
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putFloat("canvas_grid_opacity", clamped)
+                .apply()
+        }
+    }
+
+    fun updateCanvasGridSizeDp(sizeDp: Int) {
+        val clamped = sizeDp.coerceIn(12, 48)
+        canvasGridSizeDp = clamped
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putInt("canvas_grid_size_dp", clamped)
+                .apply()
+        }
+    }
+
     fun updateAccentColor(hex: String) {
         accentColorHex = hex
         if (::appContext.isInitialized) {
@@ -4687,6 +4726,9 @@ class PaintViewModel : ViewModel() {
             val savedAccent = prefs.getString("accentColor", "#879ED1") ?: "#879ED1"
             accentColorHex = if (savedAccent.equals("#0A84FF", ignoreCase = true) || savedAccent.equals("#5E8BA8", ignoreCase = true) || savedAccent.equals("#5A6E8A", ignoreCase = true)) "#879ED1" else savedAccent
             canvasBgColorHex = prefs.getString("canvasBgColor", "DEFAULT") ?: "DEFAULT"
+            canvasGridEnabled = prefs.getBoolean("canvas_grid_enabled", true)
+            canvasGridOpacity = prefs.getFloat("canvas_grid_opacity", 0.08f).coerceIn(0.05f, 0.60f)
+            canvasGridSizeDp = prefs.getInt("canvas_grid_size_dp", 16).coerceIn(12, 48)
             homeCustomBgEnabled = prefs.getBoolean("home_custom_bg_enabled", false)
             homeCustomBgOpacity = prefs.getFloat("home_custom_bg_opacity", 0.85f).coerceIn(0.1f, 1.0f)
             homeCustomBgBlurDp = prefs.getFloat("home_custom_bg_blur", 0f).coerceIn(0f, 30f)

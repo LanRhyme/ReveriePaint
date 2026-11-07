@@ -44,6 +44,7 @@ import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Brightness4
 import androidx.compose.material.icons.rounded.ColorLens
 import androidx.compose.material.icons.rounded.Fullscreen
+import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.Height
 import androidx.compose.material.icons.rounded.Layers
 import kotlin.math.roundToInt
@@ -324,9 +325,10 @@ internal fun ThemeSettingsSubPage(
 
             Spacer(Modifier.height(8.dp))
 
-            // 画布工作区背景底色
+            // 画布工作区背景底色与静态网格
+            val canvasBgItems = if (vm.canvasGridEnabled) 4 else 2
             SettingGroup {
-                SettingCardBox(shape = settingGroupShape(0, 1)) {
+                SettingCardBox(shape = settingGroupShape(0, canvasBgItems)) {
                     Column(modifier = Modifier.fillMaxWidth()) {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
@@ -444,6 +446,44 @@ internal fun ThemeSettingsSubPage(
                             }
                         }
                     }
+                }
+
+                // 背景网格总开关
+                SettingSwitchGroupItem(
+                    icon = Icons.Rounded.GridOn,
+                    title = stringResource(R.string.theme_canvas_grid_title),
+                    summary = stringResource(R.string.theme_canvas_grid_desc),
+                    checked = vm.canvasGridEnabled,
+                    onCheckedChange = { vm.updateCanvasGridEnabled(it) },
+                    shape = settingGroupShape(1, canvasBgItems),
+                )
+
+                if (vm.canvasGridEnabled) {
+                    // 网格不透明度滑块
+                    SettingSliderGroupItem(
+                        icon = Icons.Rounded.Opacity,
+                        title = stringResource(R.string.theme_canvas_grid_opacity),
+                        summary = stringResource(R.string.theme_canvas_grid_opacity_desc),
+                        valueText = "${(vm.canvasGridOpacity * 100).roundToInt()}%",
+                        sliderFraction = (vm.canvasGridOpacity - 0.05f) / 0.55f,
+                        shape = settingGroupShape(2, canvasBgItems),
+                        onValueChange = { fraction ->
+                            vm.updateCanvasGridOpacity(0.05f + fraction * 0.55f)
+                        },
+                    )
+
+                    // 网格尺寸滑块
+                    SettingSliderGroupItem(
+                        icon = Icons.Rounded.AspectRatio,
+                        title = stringResource(R.string.theme_canvas_grid_size),
+                        summary = stringResource(R.string.theme_canvas_grid_size_desc),
+                        valueText = "${vm.canvasGridSizeDp} dp",
+                        sliderFraction = (vm.canvasGridSizeDp - 12f) / (48f - 12f),
+                        shape = settingGroupShape(3, canvasBgItems),
+                        onValueChange = { fraction ->
+                            vm.updateCanvasGridSizeDp((12f + fraction * 36f).roundToInt())
+                        },
+                    )
                 }
             }
 

@@ -2486,6 +2486,12 @@
     <string name="theme_canvas_bg_desc">Customize the workspace color surrounding the canvas in painting and replay</string>
     <string name="theme_canvas_bg_follow">Follow Theme</string>
     <string name="theme_custom_canvas_bg">Custom Canvas Background</string>
+    <string name="theme_canvas_grid_title">Background Grid</string>
+    <string name="theme_canvas_grid_desc">Display a subtle textured viewport grid on workspace background and transparent canvas</string>
+    <string name="theme_canvas_grid_opacity">Grid Opacity</string>
+    <string name="theme_canvas_grid_opacity_desc">Adjust grid line opacity for a clean, understated texture</string>
+    <string name="theme_canvas_grid_size">Grid Size</string>
+    <string name="theme_canvas_grid_size_desc">Control grid cell spacing and density</string>
     <string name="theme_home_bg_category">Home Background</string>
     <string name="theme_home_bg_title">Custom Wallpaper</string>
     <string name="theme_home_bg_desc">Import a personal wallpaper for the home page with blur and opacity controls</string>

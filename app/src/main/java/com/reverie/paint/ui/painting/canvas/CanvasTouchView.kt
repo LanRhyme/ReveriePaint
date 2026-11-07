@@ -3120,10 +3120,6 @@ class CanvasTouchView(context: Context) : View(context) {
                 )
             }
 
-            // 绘制透明棋盘格
-            checkerboardPaint?.let { cb ->
-                canvas.drawRect(-imgW / 2f, -imgH / 2f, imgW / 2f, imgH / 2f, cb)
-            }
 
             // 绘制真实画布像素
             directBitmapPaint.isFilterBitmap = v.magnificationInterpolation
