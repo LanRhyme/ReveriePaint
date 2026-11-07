@@ -280,6 +280,8 @@ class PaintViewModel : ViewModel() {
     var timelapseRecordingEnabled by mutableStateOf(true)
     var timelapseMinIntervalMs by mutableLongStateOf(200L)
     var timelapseMaxFrames by mutableIntStateOf(3000)
+    var timelapseResolution by mutableIntStateOf(1080)
+    var timelapseQuality by mutableIntStateOf(85)
 
     /**
      * 只改了"选中图层"、没改内容 (见 [notifyLayerChanged] 的 contentChanged)。
@@ -4910,6 +4912,8 @@ class PaintViewModel : ViewModel() {
             timelapseRecordingEnabled = prefs.getBoolean("timelapse_recording", true)
             timelapseMinIntervalMs = prefs.getLong("timelapse_min_interval_ms", 200L).coerceIn(100L, 5000L)
             timelapseMaxFrames = prefs.getInt("timelapse_max_frames", 3000).coerceIn(100, 20000)
+            timelapseResolution = prefs.getInt("timelapse_resolution", 1080).coerceIn(480, 3840)
+            timelapseQuality = prefs.getInt("timelapse_quality", 85).coerceIn(50, 100)
 
             val presetsJson = prefs.getString("author_profile_presets_json", null)
             val parsedPresets = com.reverie.paint.model.AuthorProfilePreset.listFromJson(presetsJson)

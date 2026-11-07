@@ -1075,6 +1075,10 @@ object ReverieCoreBridge {
         bitmap: Bitmap,
     ): Boolean
 
+    external fun renderDocumentThumb(
+        bitmap: Bitmap,
+    ): Boolean
+
     external fun startTransformPreview(bitmap: Bitmap): Boolean
 
     external fun startTransformPreviewLayers(

@@ -3410,3 +3410,37 @@ int ReverieCore::docHeight() const
 {
     return m_docHeight;
 }
+
+bool ReverieCore::renderDocumentThumb(int w, int h, void *dstPixels, int dstStride)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image || !dstPixels || w <= 0 || h <= 0 || dstStride < w * 4) {
+        return false;
+    }
+    reverie::PerfTimer perf("renderDocumentThumb");
+    KisPaintDeviceSP dev = image->projection();
+    if (!dev) {
+        return false;
+    }
+    const QRect docRect(0, 0, image->width(), image->height());
+    QImage thumb;
+    try {
+        thumb = dev->createThumbnailUncached(w, h, docRect);
+    } catch (...) {
+        return false;
+    }
+    if (thumb.isNull()) {
+        return false;
+    }
+    QImage rgbImg = (thumb.format() == QImage::Format_RGBA8888_Premultiplied)
+        ? thumb
+        : thumb.convertToFormat(QImage::Format_RGBA8888_Premultiplied);
+    const int copyH = qMin(h, rgbImg.height());
+    const int copyW = qMin(w, rgbImg.width());
+    for (int y = 0; y < copyH; ++y) {
+        memcpy(static_cast<char *>(dstPixels) + size_t(y) * dstStride,
+               rgbImg.constScanLine(y), size_t(copyW) * 4);
+    }
+    return true;
+}
+

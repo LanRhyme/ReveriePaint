@@ -89,6 +89,28 @@ fun PaintViewModel.updateTimelapseMaxFrames(maxFrames: Int) {
 }
 
 /**
+ * 更新延时摄影分辨率长边规格 (像素) 并持久化。
+ */
+fun PaintViewModel.updateTimelapseResolution(resolution: Int) {
+    timelapseResolution = resolution.coerceIn(480, 3840)
+    appContext.getSharedPreferences("paint_prefs", Context.MODE_PRIVATE).edit {
+        putInt("timelapse_resolution", timelapseResolution)
+    }
+    cachedFrameRecorder = null
+}
+
+/**
+ * 更新延时摄影 WebP 压缩画质 (50~100) 并持久化。
+ */
+fun PaintViewModel.updateTimelapseQuality(quality: Int) {
+    timelapseQuality = quality.coerceIn(50, 100)
+    appContext.getSharedPreferences("paint_prefs", Context.MODE_PRIVATE).edit {
+        putInt("timelapse_quality", timelapseQuality)
+    }
+    cachedFrameRecorder = null
+}
+
+/**
  * 获取指定或当前工程的延时摄影帧目录：<工程目录>/frames/<工程名>/
  */
 fun PaintViewModel.getTimelapseFramesDir(project: Project? = null): File? {
@@ -134,6 +156,7 @@ private fun PaintViewModel.getOrCreateFrameRecorder(): FrameRecorder? {
         dir = framesDir,
         minIntervalMs = timelapseMinIntervalMs,
         maxFrames = timelapseMaxFrames,
+        quality = timelapseQuality,
     ).also {
         cachedFrameRecorder = it
         cachedFramesDirPath = framesDir.absolutePath
@@ -224,7 +247,7 @@ private fun PaintViewModel.executeTimelapseCaptureNow(force: Boolean) {
     }
 
     if (!force && (isStylusTouching || isStrokeRenderActive())) {
-        // 用户仍在作画或底层渲染活跃，绝不抢占渲染线程，顺延防抖
+        // 用户仍在作画或底层渲染活跃，顺延防抖
         triggerTimelapseCapture(isChanged = true, force = false)
         return
     }
@@ -241,63 +264,69 @@ private fun PaintViewModel.executeTimelapseCaptureNow(force: Boolean) {
         return
     }
 
+    val docW = docWidth
+    val docH = docHeight
+    if (docW <= 0 || docH <= 0) {
+        isTimelapseCapturing.set(false)
+        return
+    }
+
+    // 根据用户设置的画质分辨率 (如 720, 1080, 1440, 2160) 等比例计算抓帧尺寸
+    val maxDim = timelapseResolution.coerceIn(480, 3840)
+    val (targetW, targetH) = if (docW >= docH) {
+        val h = (docH.toFloat() / docW.toFloat() * maxDim).roundToInt().coerceAtLeast(2)
+        maxDim to h
+    } else {
+        val w = (docW.toFloat() / docH.toFloat() * maxDim).roundToInt().coerceAtLeast(2)
+        w to maxDim
+    }
+
+    val captureBitmap = try {
+        Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
+    } catch (e: Throwable) {
+        Log.e(TAG_TIMELAPSE, "Failed to allocate capture bitmap", e)
+        isTimelapseCapturing.set(false)
+        return
+    }
+
     lastCaptureTriggerTimeMs = SystemClock.uptimeMillis()
-    val tempPng = File(appContext.cacheDir, "timelapse_snap_${nowMs}_${System.nanoTime() % 1000}.png")
     runCore(render = false) {
         if (!force && (isStylusTouching || isStrokeRenderActive())) {
             isTimelapseCapturing.set(false)
+            captureBitmap.recycle()
             mainHandler.post {
                 triggerTimelapseCapture(isChanged = true, force = false)
             }
             return@runCore
         }
-        val saveStart = SystemClock.uptimeMillis()
-        val saveOk = try {
-            ReverieCoreBridge.savePng(tempPng.absolutePath)
+
+        val renderStart = SystemClock.uptimeMillis()
+        val renderOk = try {
+            ReverieCoreBridge.renderDocumentThumb(captureBitmap)
         } catch (t: Throwable) {
-            Log.e(TAG_TIMELAPSE, "ReverieCoreBridge.savePng failed", t)
+            Log.e(TAG_TIMELAPSE, "ReverieCoreBridge.renderDocumentThumb failed", t)
             false
         }
-        val saveElapsed = SystemClock.uptimeMillis() - saveStart
-        if (saveElapsed > 300L) {
-            Log.w(TAG_TIMELAPSE, "ReverieCoreBridge.savePng took ${saveElapsed}ms")
+        val renderElapsed = SystemClock.uptimeMillis() - renderStart
+        if (renderElapsed > 30L) {
+            Log.w(TAG_TIMELAPSE, "ReverieCoreBridge.renderDocumentThumb took ${renderElapsed}ms")
         }
 
-        if (saveOk && tempPng.exists() && tempPng.length() > 0L) {
+        if (renderOk) {
             timelapseExecutor.execute {
                 val startUptime = SystemClock.uptimeMillis()
                 try {
-                    // 1. 探测原始尺寸并计算降采样 inSampleSize (目标长边 ≤1280)
-                    val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeFile(tempPng.absolutePath, boundsOpts)
-                    val maxDim = maxOf(boundsOpts.outWidth, boundsOpts.outHeight)
-                    var sampleSize = 1
-                    if (maxDim > 1280) {
-                        while ((maxDim / (sampleSize * 2)) >= 1280) {
-                            sampleSize *= 2
-                        }
-                    }
-
-                    // 2. 降采样解码
-                    val decodeOpts = BitmapFactory.Options().apply {
-                        inSampleSize = sampleSize
-                        inPreferredConfig = Bitmap.Config.ARGB_8888
-                    }
-                    val bmp = BitmapFactory.decodeFile(tempPng.absolutePath, decodeOpts)
-                    if (bmp != null) {
-                        val savedFile = recorder.capture(bmp, nowMs, isChanged = true, force = force)
-                        if (savedFile != null) {
-                            Log.d(TAG_TIMELAPSE, "Captured frame: count=${recorder.frameCount}, savedFile=${savedFile.name}")
-                        }
-                        bmp.recycle()
+                    val savedFile = recorder.capture(captureBitmap, nowMs, isChanged = true, force = force)
+                    if (savedFile != null) {
+                        Log.d(TAG_TIMELAPSE, "Captured frame: count=${recorder.frameCount}, savedFile=${savedFile.name}")
                     }
                 } catch (t: Throwable) {
                     Log.e(TAG_TIMELAPSE, "Exception during timelapse capture processing", t)
                 } finally {
-                    if (tempPng.exists()) tempPng.delete()
+                    captureBitmap.recycle()
                     val elapsed = SystemClock.uptimeMillis() - startUptime
-                    if (elapsed > 500L) {
-                        Log.w(TAG_TIMELAPSE, "Timelapse capture processing took ${elapsed}ms > 500ms")
+                    if (elapsed > 300L) {
+                        Log.w(TAG_TIMELAPSE, "Timelapse capture processing took ${elapsed}ms > 300ms")
                     }
                     isTimelapseCapturing.set(false)
                     if (pendingTimelapseCapture.compareAndSet(true, false)) {
@@ -308,7 +337,7 @@ private fun PaintViewModel.executeTimelapseCaptureNow(force: Boolean) {
                 }
             }
         } else {
-            if (tempPng.exists()) tempPng.delete()
+            captureBitmap.recycle()
             isTimelapseCapturing.set(false)
             if (pendingTimelapseCapture.compareAndSet(true, false)) {
                 mainHandler.post {

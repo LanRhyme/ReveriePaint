@@ -3665,6 +3665,17 @@
     <string name="settings_timelapse_min_interval">Minimum Capture Interval</string>
     <string name="settings_timelapse_min_interval_sub">Minimum time between consecutive frame captures</string>
     <string name="settings_timelapse_interval_sec_unit">%ss</string>
+    <string name="settings_timelapse_resolution">Recording Resolution</string>
+    <string name="settings_timelapse_resolution_sub">Max dimension of captured frames, affects sharpness and storage</string>
+    <string name="settings_timelapse_quality">Recording Quality</string>
+    <string name="settings_timelapse_quality_sub">WebP compression quality per frame</string>
+    <string name="settings_timelapse_res_720p">720P</string>
+    <string name="settings_timelapse_res_1080p">1080P</string>
+    <string name="settings_timelapse_res_2k">2K</string>
+    <string name="settings_timelapse_res_4k">4K</string>
+    <string name="settings_timelapse_quality_standard">Standard</string>
+    <string name="settings_timelapse_quality_high">High</string>
+    <string name="settings_timelapse_quality_ultra">Ultra</string>
     <string name="settings_timelapse_max_frames">Max Frames Per Project</string>
     <string name="settings_timelapse_max_frames_sub">Samples 1 in 5 frames after reaching limit</string>
     <string name="settings_timelapse_frames_unit">%d frames</string>

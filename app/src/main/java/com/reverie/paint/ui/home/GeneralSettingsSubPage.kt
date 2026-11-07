@@ -18,6 +18,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ExitToApp
+import androidx.compose.material.icons.rounded.AspectRatio
+import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.DeveloperMode
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Language
@@ -215,7 +217,7 @@ internal fun GeneralSettingsSubPage(
             // Section 2.5: 延时摄影录制
             SettingCategoryTitle(stringResource(R.string.settings_category_timelapse))
             SettingGroup {
-                val timelapseTotal = if (vm.timelapseRecordingEnabled) 3 else 1
+                val timelapseTotal = if (vm.timelapseRecordingEnabled) 5 else 1
                 SettingSwitchGroupItem(
                     icon = Icons.Rounded.History,
                     title = stringResource(R.string.settings_timelapse_enable),
@@ -226,6 +228,39 @@ internal fun GeneralSettingsSubPage(
                 )
 
                 if (vm.timelapseRecordingEnabled) {
+                    val resolutionOptions = listOf(
+                        720 to stringResource(R.string.settings_timelapse_res_720p),
+                        1080 to stringResource(R.string.settings_timelapse_res_1080p),
+                        1440 to stringResource(R.string.settings_timelapse_res_2k),
+                        2160 to stringResource(R.string.settings_timelapse_res_4k),
+                    )
+
+                    SettingSegmentGroupItem(
+                        icon = Icons.Rounded.AspectRatio,
+                        title = stringResource(R.string.settings_timelapse_resolution),
+                        summary = stringResource(R.string.settings_timelapse_resolution_sub),
+                        options = resolutionOptions,
+                        selected = vm.timelapseResolution,
+                        shape = settingGroupShape(1, timelapseTotal),
+                        onSelect = { vm.updateTimelapseResolution(it) },
+                    )
+
+                    val qualityOptions = listOf(
+                        75 to stringResource(R.string.settings_timelapse_quality_standard),
+                        85 to stringResource(R.string.settings_timelapse_quality_high),
+                        95 to stringResource(R.string.settings_timelapse_quality_ultra),
+                    )
+
+                    SettingSegmentGroupItem(
+                        icon = Icons.Rounded.AutoFixHigh,
+                        title = stringResource(R.string.settings_timelapse_quality),
+                        summary = stringResource(R.string.settings_timelapse_quality_sub),
+                        options = qualityOptions,
+                        selected = vm.timelapseQuality,
+                        shape = settingGroupShape(2, timelapseTotal),
+                        onSelect = { vm.updateTimelapseQuality(it) },
+                    )
+
                     val intervalOptions = listOf(
                         200L to stringResource(R.string.settings_timelapse_interval_sec_unit, "0.2"),
                         500L to stringResource(R.string.settings_timelapse_interval_sec_unit, "0.5"),
@@ -239,7 +274,7 @@ internal fun GeneralSettingsSubPage(
                         summary = stringResource(R.string.settings_timelapse_min_interval_sub),
                         options = intervalOptions,
                         selected = vm.timelapseMinIntervalMs,
-                        shape = settingGroupShape(1, timelapseTotal),
+                        shape = settingGroupShape(3, timelapseTotal),
                         onSelect = { vm.updateTimelapseMinInterval(it) },
                     )
 
@@ -256,7 +291,7 @@ internal fun GeneralSettingsSubPage(
                         summary = stringResource(R.string.settings_timelapse_max_frames_sub),
                         options = maxFramesOptions,
                         selected = vm.timelapseMaxFrames,
-                        shape = settingGroupShape(2, timelapseTotal),
+                        shape = settingGroupShape(4, timelapseTotal),
                         onSelect = { vm.updateTimelapseMaxFrames(it) },
                     )
                 }

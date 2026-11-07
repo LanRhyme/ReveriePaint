@@ -154,4 +154,32 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setAuthorProfile(JNIEnv *env, jobj
     env->ReleaseStringUTFChars(json, c);
     return JNI_TRUE;
 }
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_renderDocumentThumb(JNIEnv *env, jobject, jobject bitmap)
+{
+    if (!bitmap) {
+        return JNI_FALSE;
+    }
+    AndroidBitmapInfo info;
+    if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        return JNI_FALSE;
+    }
+    if (info.format != ANDROID_BITMAP_FORMAT_RGBA_8888 || info.width <= 0 || info.height <= 0 || info.stride < (info.width * 4)) {
+        return JNI_FALSE;
+    }
+    void *pixels = nullptr;
+    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        return JNI_FALSE;
+    }
+    bool ok = false;
+    try {
+        ok = core()->renderDocumentThumb(info.width, info.height, pixels, info.stride);
+    } catch (...) {
+        __android_log_print(ANDROID_LOG_ERROR, "ReverieCore", "renderDocumentThumb threw exception");
+        ok = false;
+    }
+    AndroidBitmap_unlockPixels(env, bitmap);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
 }

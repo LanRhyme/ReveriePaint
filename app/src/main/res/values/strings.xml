@@ -3664,6 +3664,17 @@
     <string name="settings_timelapse_min_interval">最小抓帧间隔</string>
     <string name="settings_timelapse_min_interval_sub">两次抓帧之间的最小时间间隔</string>
     <string name="settings_timelapse_interval_sec_unit">%s秒</string>
+    <string name="settings_timelapse_resolution">录制分辨率</string>
+    <string name="settings_timelapse_resolution_sub">画面长边像素规格，影响清晰度与存储空间</string>
+    <string name="settings_timelapse_quality">录制压缩画质</string>
+    <string name="settings_timelapse_quality_sub">单帧 WebP 压缩质量，画质越高细节保留越好</string>
+    <string name="settings_timelapse_res_720p">720P</string>
+    <string name="settings_timelapse_res_1080p">1080P</string>
+    <string name="settings_timelapse_res_2k">2K</string>
+    <string name="settings_timelapse_res_4k">4K</string>
+    <string name="settings_timelapse_quality_standard">标准</string>
+    <string name="settings_timelapse_quality_high">优质</string>
+    <string name="settings_timelapse_quality_ultra">极佳</string>
     <string name="settings_timelapse_max_frames">单工程帧数上限</string>
     <string name="settings_timelapse_max_frames_sub">达到上限后每5帧抽样1帧继续记录</string>
     <string name="settings_timelapse_frames_unit">%d 帧</string>

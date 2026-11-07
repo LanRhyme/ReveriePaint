@@ -1091,6 +1091,10 @@ public:
     // scaled to (w, h). Perfect 1:1 spatial alignment with the canvas.
     bool renderLayerCanvas(int index, int w, int h, void *dstPixels, int dstStride);
 
+    // Render the merged document content into an RGBA buffer (w*h*4 bytes,
+    // row stride dstStride) scaled to (w, h). High-performance in-memory snapshot for timelapse frames.
+    bool renderDocumentThumb(int w, int h, void *dstPixels, int dstStride);
+
     // Load a PNG into a new document (single background layer).
     bool loadPng(const QString &path);
     int docWidth() const;

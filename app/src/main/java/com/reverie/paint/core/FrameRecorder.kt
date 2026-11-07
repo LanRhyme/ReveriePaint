@@ -21,6 +21,7 @@ class FrameRecorder(
     val dir: File,
     val minIntervalMs: Long = 200L,
     val maxFrames: Int = 3000,
+    val quality: Int = 80,
 ) {
     private var _frameCount: Int = 0
     val frameCount: Int get() = _frameCount
@@ -60,9 +61,8 @@ class FrameRecorder(
 
     /**
      * 将位图保存为帧文件。
-     * - 降采样: 长边 ≤ 1280
      * - 变化检测: 连续两帧若像素哈希一致且非强制抓帧则丢弃
-     * - WEBP 质量 80, 零填充序号
+     * - WEBP 压缩, 零填充序号
      * 失败返回 null, 绝不抛异常。
      */
     fun capture(bitmap: Bitmap?, nowMs: Long, isChanged: Boolean = true, force: Boolean = false): File? {
@@ -74,19 +74,8 @@ class FrameRecorder(
             val h = bitmap.height
             if (w <= 0 || h <= 0) return null
 
-            val maxDim = maxOf(w, h)
-            val scaledBitmap = if (maxDim > 1280) {
-                val scale = 1280f / maxDim
-                val nw = (w * scale).roundToInt().coerceAtLeast(2)
-                val nh = (h * scale).roundToInt().coerceAtLeast(2)
-                Bitmap.createScaledBitmap(bitmap, nw, nh, true)
-            } else {
-                bitmap
-            }
-
-            val hash = computeBitmapHash(scaledBitmap)
+            val hash = computeBitmapHash(bitmap)
             if (!force && _frameCount > 0 && hash == lastFrameHash) {
-                if (scaledBitmap !== bitmap) scaledBitmap.recycle()
                 return null
             }
 
@@ -101,7 +90,7 @@ class FrameRecorder(
             }
 
             tempFile.outputStream().use { out ->
-                scaledBitmap.compress(compressFormat, 80, out)
+                bitmap.compress(compressFormat, quality.coerceIn(10, 100), out)
             }
 
             if (tempFile.exists() && tempFile.length() > 0L) {
@@ -110,16 +99,13 @@ class FrameRecorder(
                     _frameCount++
                     lastCaptureTimeMs = nowMs
                     lastFrameHash = hash
-                    if (scaledBitmap !== bitmap) scaledBitmap.recycle()
                     targetFile
                 } else {
                     tempFile.delete()
-                    if (scaledBitmap !== bitmap) scaledBitmap.recycle()
                     null
                 }
             } else {
                 tempFile.delete()
-                if (scaledBitmap !== bitmap) scaledBitmap.recycle()
                 null
             }
         } catch (_: Throwable) {
