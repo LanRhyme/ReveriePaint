@@ -33,7 +33,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.TransformOrigin
@@ -278,7 +277,6 @@ internal fun FrameMenuPopup(
                     alpha = p
                     transformOrigin = TransformOrigin(0.5f, 1f)
                 }
-                .shadow(16.dp, menuShape, ambientColor = Color.Black.copy(alpha = 0.35f), spotColor = Color.Black.copy(alpha = 0.45f))
                 .clip(menuShape)
                 .background(Morandi.panelHi.copy(alpha = 0.96f))
                 .border(
@@ -499,7 +497,6 @@ internal fun TrackMenuPopup(
                     alpha = p
                     transformOrigin = TransformOrigin(0.5f, 1f)
                 }
-                .shadow(16.dp, menuShape, ambientColor = Color.Black.copy(alpha = 0.35f), spotColor = Color.Black.copy(alpha = 0.45f))
                 .clip(menuShape)
                 .background(Morandi.panelHi.copy(alpha = 0.96f))
                 .border(

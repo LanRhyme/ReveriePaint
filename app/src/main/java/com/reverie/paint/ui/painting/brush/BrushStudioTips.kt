@@ -41,7 +41,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -465,7 +464,6 @@ internal fun BrushPatternPickerModal(
                     .widthIn(min = 320.dp, max = 560.dp)
                     .fillMaxWidth(0.88f)
                     .fillMaxHeight(0.78f)
-                    .shadow(16.dp, RoundedCornerShape(14.dp), spotColor = Color.Black.copy(alpha = 0.5f))
                     .clip(RoundedCornerShape(14.dp))
                     .background(Morandi.panel)
                     .glassBorder(RoundedCornerShape(14.dp))

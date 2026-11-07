@@ -40,7 +40,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.res.painterResource
@@ -78,7 +77,6 @@ internal fun SavedSelectionsPopup(
         modifier = modifier
             .reportUiSlot(vm, UiPanelSlot.SAVED_SELECTIONS_POPUP)
             .width(290.dp)
-            .shadow(16.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.35f))
             .clip(RoundedCornerShape(16.dp))
             .background(Morandi.panel)
             .glassBorder(RoundedCornerShape(16.dp))

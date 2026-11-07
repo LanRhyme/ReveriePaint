@@ -51,7 +51,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.geometry.Offset
@@ -226,7 +225,6 @@ fun QuickOklchWindow(
                     vm.quickOklchWindowWidth = size.width.toFloat()
                     vm.quickOklchWindowHeight = size.height.toFloat()
                 }
-                .shadow(16.dp, windowShape, spotColor = Color.Black.copy(alpha = 0.5f))
                 .systemHoverIcon(context)
                 .clip(windowShape)
                 .evadablePanelSurface(
@@ -1314,7 +1312,6 @@ private fun OklchValueInputDialog(
         Box(
             modifier = Modifier
                 .width(220.dp)
-                .shadow(16.dp, RoundedCornerShape(14.dp))
                 .clip(RoundedCornerShape(14.dp))
                 .background(Morandi.panel)
                 .glassBorder(RoundedCornerShape(14.dp))

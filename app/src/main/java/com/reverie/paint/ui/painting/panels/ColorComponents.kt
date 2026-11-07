@@ -28,7 +28,6 @@ import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LocalTextStyle
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.reverie.paint.ui.theme.glassBorder
@@ -1046,7 +1045,6 @@ fun CompactColorPickerPopup(
                         modifier = Modifier
                             .width(popupW)
                             .noRippleClickable { /* consume click */ }
-                            .shadow(24.dp, RoundedCornerShape(18.dp), spotColor = Color.Black.copy(alpha = 0.45f))
                             .clip(RoundedCornerShape(18.dp))
                             .background(Morandi.panel)
                             .glassBorder(RoundedCornerShape(18.dp))

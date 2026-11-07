@@ -19,7 +19,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.res.stringResource
@@ -80,7 +79,6 @@ fun TopBar(
         // 顶栏真实屏幕边界 (root 坐标) 回写 ViewModel, 供 CanvasTouchView 做前缓冲的 UI 避让
         .reportUiSlot(vm, UiPanelSlot.TOP_BAR)
         .pointerHoverIcon(com.reverie.paint.ui.theme.systemDefaultPointerIcon(context), overrideDescendants = true)
-        .shadow(10.dp, shape, spotColor = Color.Black.copy(alpha = 0.5f))
         .clip(shape)
         .then(
             if (vm.blurBackground && hazeState != null) {

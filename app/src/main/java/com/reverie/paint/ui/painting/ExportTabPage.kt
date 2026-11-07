@@ -53,7 +53,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -510,7 +509,6 @@ private fun StaticExportSection(
                 .fillMaxWidth()
                 .pressScale(exportInteraction, pressedScale = 0.97f)
                 .height(44.dp)
-                .shadow(8.dp, RoundedCornerShape(12.dp), spotColor = Color.Black.copy(alpha = 0.25f))
                 .clip(RoundedCornerShape(12.dp))
                 .liquidHighlight(exportInteraction, Color.White, radius = 80.dp)
                 .background(if (isExporting) Morandi.accent.copy(alpha = 0.6f) else Morandi.accent)
@@ -1374,7 +1372,6 @@ private fun AnimationExportSection(
                 .fillMaxWidth()
                 .pressScale(exportInteraction, pressedScale = 0.97f)
                 .height(44.dp)
-                .shadow(8.dp, RoundedCornerShape(12.dp), spotColor = Color.Black.copy(alpha = 0.25f))
                 .clip(RoundedCornerShape(12.dp))
                 .liquidHighlight(exportInteraction, Color.White, radius = 80.dp)
                 .background(if (isExporting) Morandi.accent.copy(alpha = 0.6f) else Morandi.accent)

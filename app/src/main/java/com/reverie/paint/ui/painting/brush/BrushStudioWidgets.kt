@@ -39,7 +39,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size

@@ -56,7 +56,6 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.Brush
 import kotlinx.coroutines.delay
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.layout.onSizeChanged
 import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.ui.platform.LocalDensity
@@ -282,7 +281,6 @@ fun ToolButtonsContent(
         modifier = modifier
             // 工具栏按钮真实屏幕边界回写 ViewModel (CanvasTouchView 前缓冲 UI 避让用)
             .reportUiSlot(vm, UiPanelSlot.TOOL_RAIL)
-            .shadow(10.dp, shape, spotColor = Color.Black.copy(alpha = 0.5f))
             .clip(shape)
             .then(
                 if (vm.blurBackground && hazeState != null) {
@@ -450,7 +448,6 @@ fun ToolButtonsContent(
                                                 onTool(t)
                                             }
                                         }
-                                        .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.25f))
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(Morandi.panel.copy(alpha = popupAlpha))
                                         .glassBorder(RoundedCornerShape(8.dp))
@@ -623,7 +620,6 @@ fun SlidersPanelContent(
     val contentModifier = modifier
         // 滑块栏真实屏幕边界回写 ViewModel (CanvasTouchView 前缓冲 UI 避让用)
         .reportUiSlot(vm, UiPanelSlot.SLIDER_RAIL)
-        .shadow(10.dp, shape, spotColor = Color.Black.copy(alpha = 0.5f))
         .clip(shape)
         .then(
             if (vm.blurBackground && hazeState != null) {

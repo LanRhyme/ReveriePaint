@@ -6,7 +6,6 @@ package com.reverie.paint.ui.painting.layers
 
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.VectorConverter
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
@@ -131,12 +130,6 @@ fun LayerDragOverlay(
         label = "cardAlpha",
     )
 
-    val cardElevation by animateDpAsState(
-        targetValue = if (!settling) 20.dp else 0.dp,
-        animationSpec = spring(dampingRatio = 0.75f, stiffness = 450f),
-        label = "cardElevation",
-    )
-
     val fanOffset by animateFloatAsState(
         targetValue = if (!settling) 1f else 0f,
         animationSpec = spring(dampingRatio = 0.72f, stiffness = 420f),
@@ -171,7 +164,6 @@ fun LayerDragOverlay(
                     scaleY = cardScale
                     rotationZ = cardTilt
                     alpha = cardAlpha
-                    shadowElevation = with(density) { cardElevation.toPx() }
                     shape = RoundedCornerShape(8.dp)
                     clip = false
                 },
@@ -227,7 +219,6 @@ fun LayerDragOverlay(
                         .zIndex(20f),
                     shape = CircleShape,
                     color = Morandi.accent,
-                    shadowElevation = 6.dp,
                 ) {
                     Box(
                         modifier = Modifier

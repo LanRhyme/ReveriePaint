@@ -25,7 +25,6 @@ import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerId
 import androidx.compose.ui.input.pointer.pointerInput
@@ -101,7 +100,6 @@ fun QuickShapeTopBar(
     Column(
         modifier = modifier
             .widthIn(max = 320.dp)
-            .shadow(16.dp, RoundedCornerShape(14.dp))
             .background(Morandi.panel.copy(alpha = 0.75f), RoundedCornerShape(14.dp))
             .glassBorder(RoundedCornerShape(14.dp))
             .padding(horizontal = 10.dp, vertical = 8.dp),

@@ -22,7 +22,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
@@ -1055,7 +1054,6 @@ internal fun BrushTipPickerModal(
                     .widthIn(min = 320.dp, max = 560.dp)
                     .fillMaxWidth(0.88f)
                     .fillMaxHeight(0.78f)
-                    .shadow(16.dp, RoundedCornerShape(14.dp), spotColor = Color.Black.copy(alpha = 0.5f))
                     .clip(RoundedCornerShape(14.dp))
                     .background(Morandi.panel)
                     .glassBorder(RoundedCornerShape(14.dp))

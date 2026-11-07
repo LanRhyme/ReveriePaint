@@ -38,7 +38,6 @@ import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.material3.Surface
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.window.Dialog
 import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed

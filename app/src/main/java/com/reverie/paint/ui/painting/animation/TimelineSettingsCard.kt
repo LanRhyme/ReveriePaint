@@ -34,7 +34,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.graphics.Color
@@ -89,7 +88,6 @@ internal fun AnimationSettingsCard(
         modifier = Modifier
             .reportUiSlot(vm, UiPanelSlot.ANIMATION_SETTINGS_CARD)
             .padding(end = 8.dp, bottom = 8.dp)
-            .shadow(16.dp, shape, spotColor = Color.Black.copy(alpha = 0.45f))
             .clip(shape)
             .then(
                 if (vm.blurBackground && hazeState != null) {

@@ -27,7 +27,6 @@ import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.focusable
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.luminance
 import kotlinx.coroutines.launch
 import androidx.compose.ui.focus.FocusRequester
@@ -1702,7 +1701,6 @@ fun PaintingPage(
                         Box(
                             modifier =
                                 Modifier
-                                    .shadow(12.dp, RoundedCornerShape(10.dp), spotColor = Color.Black.copy(alpha = 0.35f))
                                     .systemHoverIcon(popupContext)
                                     .clip(RoundedCornerShape(10.dp))
                                     .background(Morandi.panel)
@@ -2196,7 +2194,6 @@ fun PaintingPage(
             Box(
                 modifier = Modifier
                     .reportUiSlot(vm, UiPanelSlot.ACTIVE_SELECTION_PILL)
-                    .shadow(10.dp, CircleShape, spotColor = Color.Black.copy(alpha = 0.3f))
                     .clip(CircleShape)
                     .background(Morandi.panelHi)
                     .glassBorder(CircleShape)
@@ -2327,7 +2324,6 @@ fun PaintingPage(
                 modifier =
                     Modifier
                         .reportUiSlot(vm, UiPanelSlot.TOP_HUD_TOAST)
-                        .shadow(8.dp, RoundedCornerShape(10.dp), spotColor = Color.Black.copy(alpha = 0.3f))
                         .clip(RoundedCornerShape(10.dp))
                         .background(Morandi.panelHi.copy(alpha = 0.94f))
                         .glassBorder(RoundedCornerShape(10.dp))
@@ -2767,7 +2763,6 @@ fun PaintingPage(
                 Box(
                     modifier =
                         Modifier
-                            .shadow(20.dp, RoundedCornerShape(18.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                             .clip(RoundedCornerShape(18.dp))
                             .background(Morandi.panelHi)
                             .glassBorder(RoundedCornerShape(18.dp))
@@ -2811,7 +2806,6 @@ fun PaintingPage(
                     modifier = Modifier
                         .offset(x = xDp - 20.dp, y = yDp - 20.dp)
                         .size(40.dp)
-                        .shadow(elevation = 12.dp, shape = CircleShape)
                         .clip(CircleShape)
                         .background(dropColor)
                         .border(2.5.dp, Color.White, CircleShape)
@@ -2929,7 +2923,6 @@ private fun TransformIndicatorHud(
             modifier =
                 Modifier
                     .reportUiSlot(vm, UiPanelSlot.TOP_HUD_TOAST)
-                    .shadow(8.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.3f))
                     .clip(RoundedCornerShape(8.dp))
                     .background(Morandi.panelHi.copy(alpha = 0.94f))
                     .glassBorder(RoundedCornerShape(8.dp))

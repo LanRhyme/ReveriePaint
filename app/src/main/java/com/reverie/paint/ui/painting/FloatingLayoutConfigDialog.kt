@@ -6,7 +6,6 @@ package com.reverie.paint.ui.painting
 
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.core.Spring
-import androidx.compose.animation.core.animateDpAsState
 import androidx.compose.animation.core.animateFloatAsState
 import androidx.compose.animation.core.spring
 import androidx.compose.foundation.background
@@ -48,7 +47,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Brush
@@ -225,7 +223,6 @@ fun FloatingLayoutConfigDialog(
                         modifier = Modifier
                             .weight(1.22f)
                             .fillMaxHeight()
-                            .shadow(10.dp, RoundedCornerShape(18.dp), spotColor = Color.Black.copy(alpha = 0.28f))
                             .clip(RoundedCornerShape(18.dp))
                             .background(colors.panelHi.copy(alpha = 0.55f))
                             .glassBorder(RoundedCornerShape(18.dp))
@@ -255,7 +252,6 @@ fun FloatingLayoutConfigDialog(
                                 modifier = Modifier
                                     .fillMaxSize(0.62f)
                                     .align(Alignment.Center)
-                                    .shadow(4.dp, RoundedCornerShape(8.dp), spotColor = Color.Black.copy(alpha = 0.08f))
                                     .clip(RoundedCornerShape(8.dp))
                                     .background(colors.panel.copy(alpha = 0.35f))
                                     .border(1.dp, colors.border.copy(alpha = 0.15f), RoundedCornerShape(8.dp)),
@@ -1042,10 +1038,6 @@ private fun BoxWithConstraintsScope.DraggablePanelCapsule(
     val slotModifier = resolveSlotAlignmentModifier(pos.edge, pos.alignment, layerIndex)
     val isH = pos.edge.isHorizontal
 
-    val elevation by animateDpAsState(
-        targetValue = if (isDragging) 10.dp else if (isSelected) 5.dp else 1.5.dp,
-        label = "capsuleElevation"
-    )
     val scaleAnim by animateFloatAsState(
         targetValue = if (isDragging) 1.06f else if (isSelected) 1.02f else 1.0f,
         animationSpec = spring(stiffness = Spring.StiffnessMediumLow),
@@ -1091,7 +1083,6 @@ private fun BoxWithConstraintsScope.DraggablePanelCapsule(
             .clickable(onClick = onSelect)
             .width(if (isH) 78.dp else 34.dp)
             .height(if (isH) 28.dp else 60.dp)
-            .shadow(elevation, RoundedCornerShape(7.dp), spotColor = Color.Black.copy(alpha = 0.32f))
             .clip(RoundedCornerShape(7.dp))
             .background(
                 Brush.linearGradient(

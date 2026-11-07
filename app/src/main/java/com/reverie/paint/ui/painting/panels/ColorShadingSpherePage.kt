@@ -24,7 +24,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
@@ -359,7 +358,6 @@ private fun ColorPinItem(
         Box(
             modifier = Modifier
                 .size(20.dp)
-                .shadow(2.dp, CircleShape)
                 .clip(CircleShape)
                 .background(chipColor)
                 .border(

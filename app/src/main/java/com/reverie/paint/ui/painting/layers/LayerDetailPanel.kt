@@ -28,7 +28,6 @@ import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.ui.draw.shadow
 import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.gestures.awaitEachGesture
@@ -753,7 +752,6 @@ internal fun LayerDetailPage(
                             modifier =
                                 Modifier
                                     .fillMaxWidth(0.9f)
-                                    .shadow(16.dp, RoundedCornerShape(14.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                                     .clip(RoundedCornerShape(14.dp))
                                     .background(Morandi.panel)
                                     .glassBorder(RoundedCornerShape(14.dp))
@@ -993,7 +991,6 @@ internal fun LayerDetailPage(
                     modifier =
                         Modifier
                             .fillMaxWidth(0.9f)
-                            .shadow(16.dp, RoundedCornerShape(14.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                             .clip(RoundedCornerShape(14.dp))
                             .background(Morandi.panel)
                             .glassBorder(RoundedCornerShape(14.dp))
@@ -1047,7 +1044,6 @@ internal fun LayerDetailPage(
                     modifier =
                         Modifier
                             .fillMaxWidth(0.9f)
-                            .shadow(16.dp, RoundedCornerShape(14.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                             .clip(RoundedCornerShape(14.dp))
                             .background(Morandi.panel)
                             .glassBorder(RoundedCornerShape(14.dp))
@@ -1107,7 +1103,6 @@ internal fun LayerDetailPage(
                     modifier =
                         Modifier
                             .fillMaxWidth(0.9f)
-                            .shadow(16.dp, RoundedCornerShape(14.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                             .clip(RoundedCornerShape(14.dp))
                             .background(Morandi.panel)
                             .glassBorder(RoundedCornerShape(14.dp))
@@ -1880,7 +1875,6 @@ private fun Layer3DDetailPage(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(0.9f)
-                        .shadow(16.dp, RoundedCornerShape(14.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                         .clip(RoundedCornerShape(14.dp))
                         .background(Morandi.panel)
                         .glassBorder(RoundedCornerShape(14.dp))
@@ -1941,7 +1935,6 @@ private fun Layer3DDetailPage(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth(0.9f)
-                        .shadow(16.dp, RoundedCornerShape(14.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                         .clip(RoundedCornerShape(14.dp))
                         .background(Morandi.panel)
                         .glassBorder(RoundedCornerShape(14.dp))

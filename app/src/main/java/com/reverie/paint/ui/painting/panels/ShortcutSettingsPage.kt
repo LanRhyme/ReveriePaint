@@ -37,7 +37,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.FocusRequester
 import androidx.compose.ui.focus.focusRequester
 import androidx.compose.ui.focus.onFocusChanged
@@ -749,7 +748,6 @@ private fun ShortcutRecordDialog(
         Box(
             modifier = Modifier
                 .width(300.dp)
-                .shadow(20.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.45f))
                 .clip(RoundedCornerShape(16.dp))
                 .background(Morandi.panel)
                 .focusRequester(focusRequester)
@@ -1079,7 +1077,6 @@ private fun ShortcutSchemeDialog(
         Box(
             modifier = Modifier
                 .width(320.dp)
-                .shadow(20.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.45f))
                 .clip(RoundedCornerShape(16.dp))
                 .background(Morandi.panel)
                 .padding(14.dp),

@@ -33,7 +33,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
@@ -194,7 +193,6 @@ fun QuickLayerWindow(
                     vm.quickLayerWindowWidth = size.width.toFloat()
                     vm.quickLayerWindowHeight = size.height.toFloat()
                 }
-                .shadow(14.dp, windowShape)
                 .systemHoverIcon(context)
                 .clip(windowShape)
                 .evadablePanelSurface(

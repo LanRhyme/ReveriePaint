@@ -31,7 +31,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
@@ -140,7 +139,6 @@ fun ReferenceAlbumPickerSheet(
                 .fillMaxWidth(0.92f)
                 .heightIn(min = 400.dp, max = 680.dp)
                 .fillMaxHeight(0.86f)
-                .shadow(24.dp, RoundedCornerShape(20.dp))
                 .clip(RoundedCornerShape(20.dp))
                 .background(Morandi.panelHi)
                 .glassBorder(RoundedCornerShape(20.dp))

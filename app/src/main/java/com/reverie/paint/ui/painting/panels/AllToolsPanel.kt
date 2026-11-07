@@ -21,7 +21,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
@@ -129,7 +128,6 @@ fun AllToolsPanel(
                 .then(basePaddingModifier)
                 .noRippleClickable { /* consume clicks inside panel */ }
                 .width(236.dp)
-                .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.5f))
                 .clip(panelShape)
                 .then(
                     if (vm.blurBackground && hazeState != null) {

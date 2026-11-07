@@ -29,7 +29,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -72,7 +71,6 @@ internal fun ShiftTraceCapsule(
         Row(
             modifier = Modifier
                 .reportUiSlot(vm, UiPanelSlot.SHIFT_TRACE_CAPSULE)
-                .shadow(16.dp, shape, ambientColor = Color.Black.copy(alpha = 0.3f), spotColor = Color.Black.copy(alpha = 0.4f))
                 .clip(shape)
                 .background(Morandi.panelHi.copy(alpha = 0.94f))
                 .border(

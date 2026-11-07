@@ -9,7 +9,6 @@ import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.ui.draw.shadow
 import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.scrollBy
@@ -175,7 +174,6 @@ fun ToolbarCustomizeDialog(
                     .heightIn(max = 560.dp)
                     .fillMaxWidth(0.90f)
                     .fillMaxHeight(0.75f)
-                    .shadow(20.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                     .clip(RoundedCornerShape(16.dp))
                     .background(Morandi.panel)
                     .glassBorder(RoundedCornerShape(16.dp))
@@ -358,7 +356,6 @@ fun ToolbarCustomizeDialog(
                                         .graphicsLayer {
                                             scaleX = 1.02f
                                             scaleY = 1.02f
-                                            shadowElevation = with(density) { 14.dp.toPx() }
                                         }
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(Morandi.panelHi)

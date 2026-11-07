@@ -30,7 +30,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
@@ -169,7 +168,6 @@ fun ReferenceWindow(
             }
             .size(vm.referenceWindowWidth.dp, vm.referenceWindowHeight.dp)
             .reportUiSlot(vm, UiPanelSlot.REFERENCE_WINDOW)
-            .shadow(14.dp, windowShape)
             .systemHoverIcon(context)
             .clip(windowShape)
             .evadablePanelSurface(
@@ -1175,7 +1173,6 @@ private fun ReferenceSettingsPopup(
         Box(
             modifier = Modifier
                 .width(180.dp)
-                .shadow(16.dp, RoundedCornerShape(14.dp))
                 .clip(RoundedCornerShape(14.dp))
                 .background(Morandi.panelHi)
                 .glassBorder(RoundedCornerShape(14.dp))

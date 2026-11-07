@@ -29,7 +29,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -164,7 +163,6 @@ fun QuickBrushWindow(
                     vm.quickBrushWindowWidth = size.width.toFloat()
                     vm.quickBrushWindowHeight = size.height.toFloat()
                 }
-                .shadow(12.dp, windowShape)
                 .systemHoverIcon(context)
                 .clip(windowShape)
                 .evadablePanelSurface(
@@ -644,7 +642,6 @@ fun QuickBrushWindow(
                 if (currentToast != null) {
                     Box(
                         modifier = Modifier
-                            .shadow(8.dp, RoundedCornerShape(10.dp), spotColor = Color.Black.copy(alpha = 0.22f))
                             .clip(RoundedCornerShape(10.dp))
                             .background(Morandi.panelHi.copy(alpha = 0.96f))
                             .padding(horizontal = 10.dp, vertical = 5.dp),

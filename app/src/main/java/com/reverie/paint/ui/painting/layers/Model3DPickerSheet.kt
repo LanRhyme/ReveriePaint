@@ -23,7 +23,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalContext
@@ -103,7 +102,6 @@ fun Model3DPickerSheet(
                         }
                     )
                     .clickable(enabled = false) {} // 拦截点击穿透
-                    .shadow(16.dp, sheetShape, ambientColor = Color.Black.copy(alpha = 0.3f))
                     .clip(sheetShape)
                     .background(Morandi.panel)
                     .border(1.dp, Morandi.border.copy(alpha = 0.4f), sheetShape)

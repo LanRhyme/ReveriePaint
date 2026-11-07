@@ -71,7 +71,6 @@ import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.text.font.FontWeight
@@ -493,7 +492,6 @@ fun BrushPanel(
                 .systemHoverIcon(context)
                 .width(320.dp)
                 .fillMaxHeight(0.75f)
-                .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.45f))
                 .clip(panelShape)
                 .evadablePanelSurface(
                     vm = vm,

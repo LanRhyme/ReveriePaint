@@ -49,7 +49,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.annotation.StringRes
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
@@ -306,7 +305,6 @@ internal fun FilterTopPillHUD(
     Box(
         modifier = modifier
             .then(if (vm != null) Modifier.reportUiSlot(vm, UiPanelSlot.TOP_HUD_TOAST) else Modifier)
-            .shadow(12.dp, pillShape, spotColor = Color.Black.copy(alpha = 0.45f))
             .clip(pillShape)
             .then(
                 if (vm?.blurBackground != false && hazeState != null) {
@@ -528,7 +526,6 @@ internal fun FilterBottomDock(
 
     Box(
         modifier = modifier
-            .shadow(16.dp, dockShape, spotColor = Color.Black.copy(alpha = 0.5f))
             .clip(dockShape)
             .then(
                 if (vm?.blurBackground != false && hazeState != null) {

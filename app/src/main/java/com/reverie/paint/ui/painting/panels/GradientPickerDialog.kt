@@ -39,7 +39,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.toArgb
@@ -120,7 +119,6 @@ fun GradientPickerDialog(
         Box(
             modifier = Modifier
                 .width(360.dp)
-                .shadow(16.dp, RoundedCornerShape(20.dp))
                 .clip(RoundedCornerShape(20.dp))
                 .background(Morandi.panel)
                 .padding(20.dp),
@@ -265,7 +263,6 @@ fun GradientPickerDialog(
                             modifier = Modifier
                                 .offset { IntOffset((stop.pos * trackWidthPx - 12.dp.toPx()).toInt(), 4.dp.toPx().toInt()) }
                                 .size(24.dp)
-                                .shadow(if (isSelected) 6.dp else 2.dp, CircleShape)
                                 .clip(CircleShape)
                                 .background(Morandi.panel)
                                 .border(
@@ -443,7 +440,6 @@ fun GradientPickerDialog(
                                     fontWeight = FontWeight.Bold,
                                     color = Color.White,
                                     modifier = Modifier
-                                        .shadow(2.dp)
                                         .background(Color.Black.copy(alpha = 0.35f), RoundedCornerShape(4.dp))
                                         .padding(horizontal = 4.dp, vertical = 2.dp),
                                 )

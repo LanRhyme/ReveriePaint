@@ -22,7 +22,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -113,7 +112,6 @@ fun Floating3DToolbar(
                     restX = pos.x - offsetX
                     restY = pos.y - offsetY
                 }
-                .shadow(10.dp, RoundedCornerShape(22.dp), ambientColor = Color.Black.copy(alpha = 0.2f))
                 .clip(RoundedCornerShape(22.dp))
                 .background(Morandi.panel.copy(alpha = 0.94f))
                 .border(1.dp, Morandi.border.copy(alpha = 0.35f), RoundedCornerShape(22.dp))

@@ -20,7 +20,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.res.painterResource
@@ -192,7 +191,6 @@ fun PoseAdjustmentPanel(
     Column(
         modifier = modifier
             .widthIn(max = if (isPhone) 480.dp else 360.dp)
-            .shadow(16.dp, panelShape, ambientColor = Color.Black.copy(alpha = 0.28f))
             .clip(panelShape)
             .background(Morandi.panel.copy(alpha = 0.96f))
             .border(1.dp, Morandi.border.copy(alpha = 0.45f), panelShape)

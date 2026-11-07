@@ -29,7 +29,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
@@ -66,7 +65,6 @@ fun DrawingGuidePanel(
             .width(320.dp)
             // 前缓冲 setZOrderOnTop: 必须登记槽位, 贴墨时 clipOutUi 挖孔露出本面板, 否则按住会盖住辅助设置窗。
             .reportUiSlot(vm, UiPanelSlot.DRAWING_GUIDE_PANEL)
-            .shadow(16.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.45f))
             .clip(panelShape)
             .evadablePanelSurface(
                 vm = vm,

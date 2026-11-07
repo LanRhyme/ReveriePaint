@@ -16,7 +16,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
-import androidx.compose.ui.draw.shadow
 import com.reverie.paint.ui.components.liquidHighlight
 import com.reverie.paint.ui.components.pressScale
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -109,7 +108,6 @@ internal fun CanvasTabPage(
             Box(
                 modifier = Modifier
                     .width(320.dp)
-                    .shadow(20.dp, RoundedCornerShape(16.dp), spotColor = Color.Black.copy(alpha = 0.4f))
                     .clip(RoundedCornerShape(16.dp))
                     .background(Morandi.panel)
                     .padding(20.dp)

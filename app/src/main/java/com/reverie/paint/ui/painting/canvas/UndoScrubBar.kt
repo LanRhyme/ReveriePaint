@@ -40,7 +40,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalDensity
@@ -199,7 +198,6 @@ fun UndoScrubBar(
                     modifier = Modifier
                         .offset { IntOffset(bubbleLeftPx.roundToInt(), bubbleTopPx.roundToInt()) }
                         .onSizeChanged { bubbleWidthPx = it.width.toFloat() }
-                        .shadow(6.dp, RoundedCornerShape(12.dp), spotColor = Morandi.accent.copy(alpha = 0.45f))
                         .clip(RoundedCornerShape(12.dp))
                         .background(Morandi.accent)
                         .defaultMinSize(minWidth = 48.dp)
@@ -221,7 +219,6 @@ fun UndoScrubBar(
                     .width(effectiveBarWidth)
                     .height(UNDO_BAR_HEIGHT.dp)
                     .reportUiSlot(vm, UiPanelSlot.UNDO_SCRUB_BAR)
-                    .shadow(10.dp, capsuleShape, spotColor = Color.Black.copy(alpha = 0.25f))
                     .clip(capsuleShape)
                     .then(
                         if (vm.blurBackground && hazeState != null) {

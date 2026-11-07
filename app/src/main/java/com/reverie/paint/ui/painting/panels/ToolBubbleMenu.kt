@@ -41,7 +41,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Outline
@@ -427,7 +426,6 @@ fun <T> ToolBubbleMenu(
             Box(
                 modifier = modifier
                     .onSizeChanged { popupWidthPx = it.width.toFloat() }
-                    .shadow(12.dp, bubbleShape, spotColor = Color.Black.copy(alpha = 0.5f))
                     .clip(bubbleShape)
                     .background(Morandi.panel.copy(alpha = 0.96f))
                     .glassBorder(bubbleShape)

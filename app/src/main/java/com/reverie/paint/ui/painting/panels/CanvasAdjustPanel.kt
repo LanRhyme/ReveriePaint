@@ -46,7 +46,6 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -165,7 +164,6 @@ fun CanvasAdjustPanel(
                 .onSizeChanged { panelSize = it }
                 // 展开态固定宽度保证分组对齐; 折叠态收窄为一条紧凑标题栏
                 .width(if (collapsed) minOf(216.dp, panelMaxW) else panelTargetW)
-                .shadow(14.dp, panelShape, spotColor = Color.Black.copy(alpha = 0.45f))
                 .clip(panelShape)
                 .then(
                     if (vm.blurBackground && hazeState != null) {

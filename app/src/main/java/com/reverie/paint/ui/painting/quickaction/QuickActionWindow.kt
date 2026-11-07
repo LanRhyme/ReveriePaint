@@ -24,7 +24,6 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
-import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -176,7 +175,6 @@ fun QuickActionWindow(
                     vm.quickActionWindowWidth = size.width.toFloat()
                     vm.quickActionWindowHeight = size.height.toFloat()
                 }
-                .shadow(12.dp, windowShape)
                 .systemHoverIcon(context)
                 .clip(windowShape)
                 .evadablePanelSurface(
@@ -565,7 +563,6 @@ fun QuickActionWindow(
                 if (toastText != null) {
                     Box(
                         modifier = Modifier
-                            .shadow(8.dp, RoundedCornerShape(10.dp), spotColor = Color.Black.copy(alpha = 0.25f))
                             .clip(RoundedCornerShape(10.dp))
                             .background(Morandi.panelHi.copy(alpha = 0.96f))
                             .padding(horizontal = 10.dp, vertical = 5.dp),
@@ -787,7 +784,6 @@ private fun QuickActionsEditDialog(
                     .widthIn(max = if (isWideScreen) 660.dp else 460.dp)
                     .fillMaxWidth(0.92f)
                     .heightIn(max = if (isWideScreen) 540.dp else 600.dp)
-                    .shadow(20.dp, dialogShape, spotColor = Color.Black.copy(alpha = 0.45f))
                     .clip(dialogShape)
                     .background(Morandi.panel)
                     .glassBorder(dialogShape)
@@ -1213,7 +1209,6 @@ private fun QuickActionsPreviewCard(
     ) {
         Box(
             modifier = Modifier
-                .shadow(6.dp, windowShape)
                 .clip(windowShape)
                 .background(Morandi.panel)
                 .padding(4.dp),

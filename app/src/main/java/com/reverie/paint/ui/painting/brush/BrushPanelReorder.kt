@@ -36,7 +36,6 @@ import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.input.pointer.positionChange
-import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
@@ -150,7 +149,6 @@ internal fun CategoryDragOverlay(
     offsetY: Float,
     modifier: Modifier = Modifier,
 ) {
-    val density = LocalDensity.current
     val displayName = brushCategoryDisplayName(category)
     Box(
         modifier = modifier
@@ -161,7 +159,6 @@ internal fun CategoryDragOverlay(
             .graphicsLayer {
                 scaleX = 1.05f
                 scaleY = 1.05f
-                shadowElevation = with(density) { 10.dp.toPx() }
             }
             .clip(RoundedCornerShape(8.dp))
             .background(Morandi.panelHi)
@@ -202,7 +199,6 @@ internal fun PresetListDragOverlay(
     isModified: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val density = LocalDensity.current
     Row(
         modifier = modifier
             .offset { IntOffset(0, offsetY.roundToInt()) }
@@ -211,7 +207,6 @@ internal fun PresetListDragOverlay(
             .graphicsLayer {
                 scaleX = 1.03f
                 scaleY = 1.03f
-                shadowElevation = with(density) { 12.dp.toPx() }
             }
             .clip(RoundedCornerShape(10.dp))
             .background(Morandi.panelHi)
@@ -300,7 +295,6 @@ internal fun PresetGridDragOverlay(
     isModified: Boolean,
     modifier: Modifier = Modifier,
 ) {
-    val density = LocalDensity.current
     Column(
         modifier = modifier
             .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
@@ -308,7 +302,6 @@ internal fun PresetGridDragOverlay(
             .graphicsLayer {
                 scaleX = 1.08f
                 scaleY = 1.08f
-                shadowElevation = with(density) { 14.dp.toPx() }
             }
             .clip(RoundedCornerShape(8.dp))
             .background(Morandi.panelHi)
