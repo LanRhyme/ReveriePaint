@@ -405,6 +405,7 @@ fun PaintViewModel.importDocuments(
                 tempFile.delete()
 
                 if (success) {
+                    purgeTimelapseFrames(com.reverie.paint.model.Project(name = candidateName, filePath = targetFile.absolutePath))
                     successCount++
                     lastImportedName = candidateName
                 }

@@ -805,7 +805,10 @@ internal fun PaintViewModel.moveProjectToFolder(
     val destDir = if (targetFolderName.isNullOrBlank()) root else File(root, targetFolderName)
     if (!destDir.exists()) destDir.mkdirs()
     val destFile = File(destDir, srcFile.name)
-    if (srcFile.renameTo(destFile)) referenceStore.move(srcFile, destFile)
+    if (srcFile.renameTo(destFile)) {
+        referenceStore.move(srcFile, destFile)
+        renameTimelapseData(oldFile = srcFile, newFile = destFile)
+    }
     refreshProjects()
 }
 
@@ -821,7 +824,10 @@ internal fun PaintViewModel.moveProjectsToFolder(
             val srcFile = File(p.filePath)
             if (srcFile.exists()) {
                 val destFile = File(destDir, srcFile.name)
-                if (srcFile.renameTo(destFile)) referenceStore.move(srcFile, destFile)
+                if (srcFile.renameTo(destFile)) {
+                    referenceStore.move(srcFile, destFile)
+                    renameTimelapseData(oldFile = srcFile, newFile = destFile)
+                }
             }
         }
     }
@@ -973,13 +979,10 @@ private fun PaintViewModel.duplicateProjectFiles(
                             requireNotNull(target).outputStream().use { output -> input.copyTo(output) }
                         }
                         val srcFrames = getTimelapseFramesDir(project)
-                        val targetFile = target
-                        if (targetFile != null) {
-                            val dstProject = com.reverie.paint.model.Project(name = name, filePath = targetFile.absolutePath)
-                            val dstFrames = getTimelapseFramesDir(dstProject)
-                            if (srcFrames?.exists() == true && dstFrames != null) {
-                                srcFrames.copyRecursively(dstFrames, overwrite = true)
-                            }
+                        val dstProject = com.reverie.paint.model.Project(name = name, filePath = target.absolutePath)
+                        val dstFrames = getTimelapseFramesDir(dstProject)
+                        if (srcFrames?.exists() == true && dstFrames != null) {
+                            srcFrames.copyRecursively(dstFrames, overwrite = true)
                         }
                         name
                     } catch (e: Exception) {
