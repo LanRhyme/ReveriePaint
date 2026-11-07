@@ -65,6 +65,14 @@ internal fun PaintViewModel.updateUndoToastEnabled(enabled: Boolean) {
     saveViewSettings()
 }
 
+internal fun PaintViewModel.updateUndoBarEnabled(enabled: Boolean) {
+    undoBarEnabled = enabled
+    if (!enabled) {
+        hideUndoBar()
+    }
+    saveViewSettings()
+}
+
 internal fun PaintViewModel.updateStrokeStabilizer(value: Float) {
     strokeStabilizer = value.coerceIn(0f, 1f)
     saveViewSettings()
@@ -146,6 +154,7 @@ internal fun PaintViewModel.saveViewSettings() {
         o.put("mag_interpolation", magnificationInterpolation)
         o.put("pixel_grid", pixelGridEnabled)
         o.put("undo_toast", undoToastEnabled)
+        o.put("undo_bar", undoBarEnabled)
         o.put("stroke_stabilizer", strokeStabilizer.toDouble())
         o.put("brush_size_scales_with_canvas", brushSizeScalesWithCanvas)
         o.put("is_view_transform_locked", isViewTransformLocked)
@@ -178,6 +187,7 @@ internal fun PaintViewModel.loadViewSettings() {
         magnificationInterpolation = o.optBoolean("mag_interpolation", true)
         pixelGridEnabled = o.optBoolean("pixel_grid", true)
         undoToastEnabled = o.optBoolean("undo_toast", true)
+        undoBarEnabled = o.optBoolean("undo_bar", true)
         strokeStabilizer = o.optDouble("stroke_stabilizer", 0.0).toFloat().coerceIn(0f, 1f)
         brushSizeScalesWithCanvas = o.optBoolean("brush_size_scales_with_canvas", true)
         isViewTransformLocked = o.optBoolean("is_view_transform_locked", false)

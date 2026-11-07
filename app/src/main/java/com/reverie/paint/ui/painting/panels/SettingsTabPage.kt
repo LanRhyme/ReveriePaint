@@ -451,6 +451,34 @@ internal fun SettingsTabPage(
 
                         SettingsInnerDivider()
 
+                        // 滑动撤销条
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                Text(
+                                    text = stringResource(R.string.settings_undo_scrub_bar_title),
+                                    color = Morandi.text,
+                                    fontSize = 13.sp,
+                                )
+                                Text(
+                                    text = stringResource(R.string.settings_undo_scrub_bar_desc),
+                                    color = Morandi.subText,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                            ReSwitch(
+                                checked = vm.undoBarEnabled,
+                                onChecked = { vm.updateUndoBarEnabled(it) },
+                            )
+                        }
+
+                        SettingsInnerDivider()
+
                         // 笔刷上限跟随画布
                         Row(
                             modifier = Modifier

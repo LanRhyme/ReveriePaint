@@ -1064,6 +1064,8 @@
     <string name="settings_magnification_interpolation">放大插值</string>
     <string name="settings_pixel_grid">放大显示网格线</string>
     <string name="settings_undo_toast">撤销操作提醒</string>
+    <string name="settings_undo_scrub_bar_title">滑动撤销条</string>
+    <string name="settings_undo_scrub_bar_desc">连续撤销或重做时在底部唤出滑块，支持左右滑动快速穿梭历史步数</string>
     <string name="settings_two_finger_undo_title">双指点击屏幕撤销</string>
     <string name="settings_two_finger_undo_desc">双指轻点画布撤销上一步操作</string>
     <string name="settings_three_finger_redo_title">三指点击屏幕恢复（重做）</string>

@@ -2151,15 +2151,17 @@ fun PaintingPage(
         }
 
         // ---- Undo History Scrub Bar (撤回条浮动滑杆: 显隐/空闲自动隐藏由组件自理) ----
-        UndoScrubBar(
-            vm = vm,
-            hazeState = hazeState,
-            modifier = Modifier
-                .align(Alignment.BottomCenter)
-                .padding(bottom = bottomDockPadding + 64.dp)
-                // 高于 ToolRail/TopBar (50f) 与时间轴 (20f), 低于选区浮窗 (65f) 与弹窗 (100f)
-                .zIndex(55f),
-        )
+        if (vm.undoBarEnabled) {
+            UndoScrubBar(
+                vm = vm,
+                hazeState = hazeState,
+                modifier = Modifier
+                    .align(Alignment.BottomCenter)
+                    .padding(bottom = bottomDockPadding + 64.dp)
+                    // 高于 ToolRail/TopBar (50f) 与时间轴 (20f), 低于选区浮窗 (65f) 与弹窗 (100f)
+                    .zIndex(55f),
+            )
+        }
 
         // ---- Saved Selections Popup (选区历史悬浮面板) ----
         androidx.compose.animation.AnimatedVisibility(

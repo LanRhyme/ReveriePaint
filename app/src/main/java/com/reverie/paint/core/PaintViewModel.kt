@@ -2363,6 +2363,7 @@ class PaintViewModel : ViewModel() {
     var magnificationInterpolation by mutableStateOf(true) // 放大插值
     var pixelGridEnabled by mutableStateOf(true) // 放大显示网格线
     var undoToastEnabled by mutableStateOf(true) // 撤销操作提醒
+    var undoBarEnabled by mutableStateOf(true) // 连续撤销/重做滑动条 (默认开启)
 
     // Canvas View Lock (固定画布缩放与旋转，保留双指平移)
     var isViewTransformLocked by mutableStateOf(false)

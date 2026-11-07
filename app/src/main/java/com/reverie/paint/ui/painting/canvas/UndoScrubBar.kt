@@ -97,6 +97,8 @@ fun UndoScrubBar(
     hazeState: HazeState?,
     modifier: Modifier = Modifier,
 ) {
+    if (!vm.undoBarEnabled) return
+
     // 首次进入绘画页: 刷新一次计数镜像 (显示判断由 ViewModel 状态驱动)
     LaunchedEffect(Unit) {
         vm.refreshUndoCounts()

@@ -57,6 +57,7 @@ internal fun PaintViewModel.onUndoBarActivity() {
  * 显式请求展示撤回滑条 (面板按钮点击或长按连续撤销/重做触发)。
  */
 internal fun PaintViewModel.requestUndoBarShow() {
+    if (!undoBarEnabled) return
     undoBarShowRequested = true
     if (canShowUndoBar()) {
         refreshUndoCounts()
@@ -86,6 +87,7 @@ internal fun PaintViewModel.hideUndoBar() {
  * - 普通单次撤销: 仅记下时间戳, 不唤出滑条。
  */
 internal fun PaintViewModel.onHistoryActionTriggered(fromPanel: Boolean = false) {
+    if (!undoBarEnabled) return
     val now = android.os.SystemClock.elapsedRealtime()
     if (fromPanel) {
         undoBarShowRequested = true
@@ -173,6 +175,7 @@ internal fun PaintViewModel.scrubTo(target: Int) {
  * 注意: 长按连续撤销期间手指按在画布上 (isContinuousUndoing=true), 此情况属于合法的撤回交互, 允许显示。
  */
 internal fun PaintViewModel.canShowUndoBar(): Boolean {
+    if (!undoBarEnabled) return false
     // 变换期间撤销/重做被引擎拒绝 (见 isHistoryBlockedByTransform), 泵发步会停摆, 一律不发
     if (isHistoryBlockedByTransform) return false
     if (isQuickShapeEditing) return false

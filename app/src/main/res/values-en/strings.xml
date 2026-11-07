@@ -1064,6 +1064,8 @@
     <string name="settings_magnification_interpolation">Interpolate Zoom</string>
     <string name="settings_pixel_grid">Pixel Grid When Zoomed</string>
     <string name="settings_undo_toast">Undo Notifications</string>
+    <string name="settings_undo_scrub_bar_title">Undo History Scrub Bar</string>
+    <string name="settings_undo_scrub_bar_desc">Display a slider at the bottom during consecutive undo/redo to scrub through history</string>
     <string name="settings_two_finger_undo_title">Two-Finger Tap to Undo</string>
     <string name="settings_two_finger_undo_desc">Tap canvas with two fingers to undo last stroke</string>
     <string name="settings_three_finger_redo_title">Three-Finger Tap to Redo</string>
