@@ -18,6 +18,7 @@ import androidx.core.content.edit
 import com.reverie.paint.R
 import com.reverie.paint.core.export.TimelapseExport
 import com.reverie.paint.model.Project
+import com.reverie.paint.model.TimelapseStorage
 import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
@@ -52,6 +53,26 @@ private var pendingIdleCaptureRunnable: Runnable? = null
 /** 当前激活的帧捕获器缓存 */
 private var cachedFrameRecorder: FrameRecorder? = null
 private var cachedFramesDirPath: String? = null
+
+/**
+ * 重置延时摄影录制器缓存
+ */
+internal fun PaintViewModel.resetTimelapseRecorderCache() {
+    cachedFrameRecorder = null
+    cachedFramesDirPath = null
+}
+
+/**
+ * 彻底清理指定或当前工程的延时摄影帧目录并重置录制器
+ */
+internal fun PaintViewModel.purgeTimelapseFrames(project: Project? = null) {
+    getTimelapseFramesDir(project)?.let { framesDir ->
+        if (framesDir.exists()) {
+            framesDir.deleteRecursively()
+        }
+    }
+    resetTimelapseRecorderCache()
+}
 
 /**
  * 更新延时摄影录制开关并持久化。
@@ -121,34 +142,30 @@ internal fun PaintViewModel.timelapseRootDir(): File {
 fun PaintViewModel.filesDirForTimelapse(): File = File(appContext.filesDir, "timelapse")
 
 /**
- * 获取指定或当前工程的延时摄影帧目录：<filesDir>/timelapse/<工程名>/
- * 具备自动从旧版 <工程目录>/frames/<工程名>/ 迁移的能力。
+ * 获取指定或当前工程的延时摄影帧目录：<filesDir>/timelapse/<dirName>/
+ * 具备自动画集层级隔离、剥离草稿标记与旧路径迁移能力
  */
 fun PaintViewModel.getTimelapseFramesDir(project: Project? = null): File? {
     val filePath = project?.filePath ?: currentProjectFile ?: return null
-    val projFile = File(filePath)
-    val projName = projFile.nameWithoutExtension
-    val newDir = File(timelapseRootDir(), projName)
+    val projectName = project?.name ?: docName.ifBlank { null }
+    val masterFilePath = project?.masterFilePath?.takeIf { it.isNotBlank() }
+    return TimelapseStorage.resolveTimelapseFramesDir(
+        filesDir = appContext.filesDir,
+        filePath = filePath,
+        projectName = projectName,
+        masterFilePath = masterFilePath,
+    )
+}
 
-    // 旧版路径迁移检测：若旧路径存在，就地迁移到独立私有目录
-    val legacyDir = projFile.parentFile?.let { File(it, "frames/$projName") }
-    if (legacyDir?.exists() == true && legacyDir.isDirectory) {
-        if (!newDir.exists()) {
-            legacyDir.renameTo(newDir)
-        } else {
-            legacyDir.listFiles()?.forEach { f ->
-                val dest = File(newDir, f.name)
-                if (!dest.exists()) f.renameTo(dest) else f.delete()
-            }
-            legacyDir.delete()
-        }
-        val legacyParent = projFile.parentFile?.let { File(it, "frames") }
-        if (legacyParent?.listFiles()?.isEmpty() == true) {
-            legacyParent.delete()
-        }
-    }
-
-    return newDir
+/**
+ * 获取指定文件路径的延时摄影帧目录
+ */
+fun PaintViewModel.getTimelapseFramesDir(file: File): File? {
+    return TimelapseStorage.resolveTimelapseFramesDir(
+        filesDir = appContext.filesDir,
+        filePath = file.absolutePath,
+        projectName = file.nameWithoutExtension,
+    )
 }
 
 /**
@@ -207,7 +224,73 @@ private fun PaintViewModel.migrateLegacyTimelapseStorageLocked() {
 }
 
 /**
- * 重命名工程时同步迁移延时摄影数据目录。
+ * 重命名工程时同步迁移延时摄影数据目录 (基于文件路径感知画集前缀)
+ */
+fun PaintViewModel.renameTimelapseData(oldFile: File, newFile: File) {
+    val oldDir = getTimelapseFramesDir(oldFile)
+    val newDir = getTimelapseFramesDir(newFile)
+    if (oldDir != null && newDir != null && oldDir.exists() && oldDir.absolutePath != newDir.absolutePath) {
+        if (!newDir.exists()) {
+            oldDir.renameTo(newDir)
+        } else {
+            oldDir.listFiles()?.forEach { f ->
+                val df = File(newDir, f.name)
+                if (!df.exists()) f.renameTo(df) else f.delete()
+            }
+            oldDir.deleteRecursively()
+        }
+    }
+    cachedFrameRecorder = null
+    cachedFramesDirPath = null
+}
+
+/**
+ * 重命名画集时同步迁移其下所有工程的延时摄影帧目录前缀
+ */
+fun PaintViewModel.renameTimelapseFolder(oldFolderName: String, newFolderName: String) {
+    val cleanOld = oldFolderName.trim()
+    val cleanNew = newFolderName.trim()
+    if (cleanOld.isEmpty() || cleanNew.isEmpty() || cleanOld == cleanNew) return
+    val root = timelapseRootDir()
+    val prefix = "${cleanOld}__"
+    root.listFiles()?.forEach { dir ->
+        if (dir.isDirectory && dir.name.startsWith(prefix)) {
+            val suffix = dir.name.removePrefix(prefix)
+            val newDir = File(root, "${cleanNew}__$suffix")
+            if (!newDir.exists()) {
+                dir.renameTo(newDir)
+            } else {
+                dir.listFiles()?.forEach { f ->
+                    val df = File(newDir, f.name)
+                    if (!df.exists()) f.renameTo(df) else f.delete()
+                }
+                dir.deleteRecursively()
+            }
+        }
+    }
+    cachedFrameRecorder = null
+    cachedFramesDirPath = null
+}
+
+/**
+ * 彻底清理指定画集下所有工程的延时摄影帧目录
+ */
+fun PaintViewModel.cleanTimelapseFolder(folderName: String) {
+    val clean = folderName.trim()
+    if (clean.isEmpty()) return
+    val root = timelapseRootDir()
+    val prefix = "${clean}__"
+    root.listFiles()?.forEach { dir ->
+        if (dir.isDirectory && dir.name.startsWith(prefix)) {
+            dir.deleteRecursively()
+        }
+    }
+    cachedFrameRecorder = null
+    cachedFramesDirPath = null
+}
+
+/**
+ * 重命名工程时同步迁移延时摄影数据目录 (保留按纯工程名调用的兼容能力)
  */
 fun PaintViewModel.renameTimelapseData(oldName: String, newName: String) {
     val cleanOld = oldName.trim()
@@ -232,12 +315,25 @@ fun PaintViewModel.renameTimelapseData(oldName: String, newName: String) {
 }
 
 /**
- * 删除工程时彻底清理对应延时摄影数据目录。
+ * 删除工程时彻底清理对应延时摄影数据目录
  */
 fun PaintViewModel.deleteTimelapseData(project: Project) {
-    val dir = getTimelapseFramesDir(project) ?: return
-    if (dir.exists()) {
+    val dir = getTimelapseFramesDir(project)
+    if (dir?.exists() == true) {
         dir.deleteRecursively()
+    }
+    // 兜底清理可能遗留的旧扁平目录 (仅当根目录下不存在同名正规工程时才清理)
+    val projFile = File(project.filePath)
+    val cleanName = TimelapseStorage.cleanProjectName(project.name.ifBlank { projFile.nameWithoutExtension })
+    if (cleanName.isNotEmpty()) {
+        val rootDir = projectDir()
+        val rootHasSameProject = File(rootDir, "$cleanName.revp").exists() || File(rootDir, "$cleanName.kra").exists()
+        if (!rootHasSameProject) {
+            val flatDir = File(timelapseRootDir(), cleanName)
+            if (flatDir.exists() && flatDir.absolutePath != dir?.absolutePath) {
+                flatDir.deleteRecursively()
+            }
+        }
     }
     cachedFrameRecorder = null
     cachedFramesDirPath = null

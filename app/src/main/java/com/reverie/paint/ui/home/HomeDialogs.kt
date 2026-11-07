@@ -51,6 +51,7 @@ import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Project
+import com.reverie.paint.model.TimelapseStorage
 import com.reverie.paint.ui.theme.AppColors
 import com.reverie.paint.ui.theme.Theme
 import java.io.File
@@ -714,16 +715,16 @@ internal fun ProjectDetailsDialog(
     }
 
     val hasReplay = remember(project) {
-        // 延时摄影帧现在存放在私有目录 <filesDir>/timelapse/<工程名>/ (与工程目录解耦),
-        // 原来这里只看 <工程目录>/frames/<工程名>/ —— 那已是迁移前的旧路径, 会让
-        // 明明有帧的工程显示"没有回放"。
+        // 延时摄影帧存放在私有目录 <filesDir>/timelapse/<dirName>/
+        // 统一使用 TimelapseStorage 解析以支持画集隔离与去草稿标记
         project.hasRecording || run {
-            val projFile = java.io.File(project.filePath)
-            val newDir = java.io.File(java.io.File(context.filesDir, "timelapse"), projFile.nameWithoutExtension)
-            val legacyDir = java.io.File(projFile.parentFile, "frames/${projFile.nameWithoutExtension}")
-            listOf(newDir, legacyDir).any { d ->
-                d.exists() && d.isDirectory && (d.list()?.isNotEmpty() == true)
-            }
+            val dir = TimelapseStorage.resolveTimelapseFramesDir(
+                filesDir = context.filesDir,
+                filePath = project.filePath,
+                projectName = project.name,
+                masterFilePath = project.masterFilePath.takeIf { it.isNotBlank() },
+            )
+            dir?.exists() == true && dir.isDirectory && (dir.list()?.isNotEmpty() == true)
         }
     }
 

@@ -130,7 +130,7 @@ internal fun PaintViewModel.saveProject(
             previousReferencePath?.takeIf { it != targetFile.absolutePath }?.let { oldPath ->
                 referenceStore.forgetPath(oldPath)
                 val oldFile = File(oldPath)
-                renameTimelapseData(oldFile.nameWithoutExtension, targetFile.nameWithoutExtension)
+                renameTimelapseData(oldFile, targetFile)
             }
             referenceStore.bind(targetFile.absolutePath, referenceProfile)
             initialStrokeCount = totalStrokes
@@ -438,6 +438,11 @@ internal fun PaintViewModel.discardAndExit() {
     if (currentProjectFile != null && (currentProjectFile!!.contains(".autosave") || currentProjectFile!!.contains(".emergency"))) {
         val f = File(currentProjectFile!!)
         if (f.exists()) f.delete()
+    }
+    // 若当前为未保存过的新建工程，丢弃作画时同步清理本次录制的延时摄影残留帧
+    val masterFile = currentProjectFile?.let { File(it) }
+    if (masterFile == null || !masterFile.exists()) {
+        purgeTimelapseFrames()
     }
     // 2. 退出到画廊主页
     goHome()
@@ -849,8 +854,18 @@ internal fun PaintViewModel.deleteProject(p: com.reverie.paint.model.Project) {
     if (p.isFolder) {
         val dir = File(p.filePath)
         if (dir.exists() && dir.isDirectory) {
+            dir.walkTopDown().forEach { subFile ->
+                if (subFile.isFile && subFile.extension.lowercase() in listOf("revp", "kra")) {
+                    val subProj = com.reverie.paint.model.Project(
+                        name = subFile.nameWithoutExtension.removeSuffix(".autosave"),
+                        filePath = subFile.absolutePath,
+                    )
+                    deleteTimelapseData(subProj)
+                }
+            }
             dir.deleteRecursively()
         }
+        cleanTimelapseFolder(dir.name)
     } else {
         val file = File(p.filePath)
         if (file.exists()) file.delete()
@@ -874,8 +889,10 @@ internal fun PaintViewModel.renameProject(
             }
         if (file.renameTo(target)) {
             referenceStore.move(file, target)
-            if (!p.isFolder) {
-                renameTimelapseData(p.name, newName.trim())
+            if (p.isFolder) {
+                renameTimelapseFolder(p.name, newName.trim())
+            } else {
+                renameTimelapseData(oldFile = file, newFile = target)
             }
         }
     }
@@ -891,8 +908,18 @@ internal fun PaintViewModel.deleteProjects(projects: List<com.reverie.paint.mode
         if (p.isFolder) {
             val dir = File(p.filePath)
             if (dir.exists() && dir.isDirectory) {
+                dir.walkTopDown().forEach { subFile ->
+                    if (subFile.isFile && subFile.extension.lowercase() in listOf("revp", "kra")) {
+                        val subProj = com.reverie.paint.model.Project(
+                            name = subFile.nameWithoutExtension.removeSuffix(".autosave"),
+                            filePath = subFile.absolutePath,
+                        )
+                        deleteTimelapseData(subProj)
+                    }
+                }
                 dir.deleteRecursively()
             }
+            cleanTimelapseFolder(dir.name)
         } else {
             val file = File(p.filePath)
             if (file.exists()) file.delete()
@@ -946,9 +973,13 @@ private fun PaintViewModel.duplicateProjectFiles(
                             requireNotNull(target).outputStream().use { output -> input.copyTo(output) }
                         }
                         val srcFrames = getTimelapseFramesDir(project)
-                        val dstFrames = target?.parentFile?.let { File(it, "frames/$name") }
-                        if (srcFrames?.exists() == true && dstFrames != null) {
-                            srcFrames.copyRecursively(dstFrames, overwrite = true)
+                        val targetFile = target
+                        if (targetFile != null) {
+                            val dstProject = com.reverie.paint.model.Project(name = name, filePath = targetFile.absolutePath)
+                            val dstFrames = getTimelapseFramesDir(dstProject)
+                            if (srcFrames?.exists() == true && dstFrames != null) {
+                                srcFrames.copyRecursively(dstFrames, overwrite = true)
+                            }
                         }
                         name
                     } catch (e: Exception) {
@@ -1095,9 +1126,9 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
                     }
                     previewPath = cacheThumb.absolutePath
                 }
-                val framesDir = File(f.parentFile, "frames/${f.nameWithoutExtension}")
-                hasRec = framesDir.exists() && framesDir.isDirectory &&
-                    (framesDir.list { _, name -> name.startsWith("frame_") && name.endsWith(".webp") }?.isNotEmpty() == true)
+                val framesDir = getTimelapseFramesDir(f)
+                hasRec = framesDir?.exists() == true && framesDir.isDirectory &&
+                    (framesDir.list { _, name -> name.startsWith("frame_") && (name.endsWith(".webp") || name.endsWith(".png")) }?.isNotEmpty() == true)
             } finally {
                 zip.close()
             }
@@ -1703,6 +1734,8 @@ internal fun PaintViewModel.startPainting(
     val targetDir = currentFolder?.let { File(it.filePath) }?.takeIf { it.exists() && it.isDirectory }
         ?: projectDir()
     currentProjectFile = File(targetDir, "$actualName.revp").absolutePath
+    // 新建画布：显式清空同名残留延时摄影帧目录，杜绝继承任何历史同名残留帧
+    purgeTimelapseFrames()
     recordCanvasCreated()
     // 新建工程无记录：默认横向（0°），不继承上一工程的方向。
     pendingCanvasOrientation = null
