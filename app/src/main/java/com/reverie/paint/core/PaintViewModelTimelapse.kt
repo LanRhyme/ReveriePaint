@@ -392,16 +392,20 @@ private fun PaintViewModel.executeTimelapseCaptureNow(force: Boolean) {
         w to maxDim
     }
 
-    val captureBitmap = try {
-        Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
-    } catch (e: Throwable) {
-        Log.e(TAG_TIMELAPSE, "Failed to allocate capture bitmap", e)
-        isTimelapseCapturing.set(false)
-        return
-    }
+    // 记录抓帧时的工程: 后台压缩期间用户可能切工程/删工程数据, 落盘前要再确认一次
+    val projectPathAtSchedule = currentProjectFile
 
     lastCaptureTriggerTimeMs = SystemClock.uptimeMillis()
     runCore(render = false) {
+        // 位图在引擎 lambda 内部分配: 原先在 runCore 之前分配, 一旦 lambda 没被执行
+        // (引擎队列异常/文档已销毁) 这块 ARGB_8888 (可达数 MB) 就没人回收。
+        val captureBitmap = try {
+            Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
+        } catch (e: Throwable) {
+            Log.e(TAG_TIMELAPSE, "Failed to allocate capture bitmap", e)
+            isTimelapseCapturing.set(false)
+            return@runCore
+        }
         val renderStart = SystemClock.uptimeMillis()
         val renderOk = try {
             ReverieCoreBridge.renderDocumentThumb(captureBitmap)
@@ -418,6 +422,10 @@ private fun PaintViewModel.executeTimelapseCaptureNow(force: Boolean) {
             timelapseExecutor.execute {
                 val startUptime = SystemClock.uptimeMillis()
                 try {
+                    if (currentProjectFile != projectPathAtSchedule) {
+                        Log.i(TAG_TIMELAPSE, "skip frame: project switched during capture")
+                        return@execute
+                    }
                     val savedFile = recorder.capture(captureBitmap, nowMs, isChanged = true, force = force)
                     if (savedFile != null) {
                         Log.d(TAG_TIMELAPSE, "Captured frame: count=${recorder.frameCount}, savedFile=${savedFile.name}")

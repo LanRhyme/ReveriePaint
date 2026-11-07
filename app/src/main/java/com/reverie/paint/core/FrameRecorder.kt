@@ -30,6 +30,7 @@ class FrameRecorder(
 
     private var lastCaptureTimeMs: Long = 0L
     private var lastFrameFingerprint: IntArray? = null
+    private val decimating = java.util.concurrent.atomic.AtomicBoolean(false)
 
     init {
         if (!dir.exists()) {
@@ -54,12 +55,37 @@ class FrameRecorder(
     }
 
     /**
+     * 异步请求抽稀: 交给后台维护线程执行, 抓帧线程立即返回。
+     *
+     * 同时刻只允许一个抽稀任务, 避免两个任务互相 rename 撞名; 抽稀期间新帧照旧写入
+     * (新帧序号落在已拍平区间之后, 与抽稀改动的历史区间不重叠)。
+     */
+    fun requestDecimateAsync() {
+        if (!decimating.compareAndSet(false, true)) return
+        DECIMATE_EXECUTOR.execute {
+            try {
+                val newCount = decimateDir(dir, 2)
+                synchronized(this) {
+                    _frameCount = newCount
+                    lastFrameFingerprint = null
+                }
+            } catch (t: Throwable) {
+                android.util.Log.w("FrameRecorder", "async decimate failed", t)
+            } finally {
+                decimating.set(false)
+            }
+        }
+    }
+
+    /**
      * 对当前记录目录执行历史帧抽稀减半。
      */
     fun decimate(factor: Int = 2): Int {
         val newCount = decimateDir(dir, factor)
-        _frameCount = newCount
-        lastFrameFingerprint = null
+        synchronized(this) {
+            _frameCount = newCount
+            lastFrameFingerprint = null
+        }
         return newCount
     }
 
@@ -85,9 +111,12 @@ class FrameRecorder(
                 return null
             }
 
-            // 2. 帧数达到上限时自动触发历史帧对半抽稀，严格硬封顶存储
+            // 2. 帧数达到上限: **异步**触发历史帧对半抽稀。
+            //    原先在抓帧线程里同步 rename/delete 3000 个文件, 会把这条单线程执行器
+            //    独占数秒, 期间用户画的内容全部丢帧。改为后台维护线程 + 本帧跳过。
             if (_frameCount >= maxFrames) {
-                decimate(factor = 2)
+                requestDecimateAsync()
+                return null
             }
 
             val targetFile = File(dir, frameName(_frameCount))
@@ -100,8 +129,14 @@ class FrameRecorder(
                 Bitmap.CompressFormat.WEBP
             }
 
-            tempFile.outputStream().use { out ->
-                bitmap.compress(compressFormat, quality.coerceIn(10, 100), out)
+            try {
+                tempFile.outputStream().use { out ->
+                    bitmap.compress(compressFormat, quality.coerceIn(10, 100), out)
+                }
+            } catch (t: Throwable) {
+                // 半截写失败: 清掉临时文件, 否则 .tmp 会一直趴在帧目录里
+                tempFile.delete()
+                throw t
             }
 
             if (tempFile.exists() && tempFile.length() > 0L) {
@@ -137,6 +172,20 @@ class FrameRecorder(
     internal fun computeFingerprint(bmp: Bitmap): IntArray {
         val sampleW = 48
         val sampleH = 48
+        // 先缩到 48x48 再整块 getPixels: 原来逐点 getPixel 每次都是一次 JNI 调用
+        // (48*48=2304 次), 在 MIN_PRIORITY 抓帧线程上会把单帧处理时间拉长一个量级。
+        val scaled = try {
+            Bitmap.createScaledBitmap(bmp, sampleW, sampleH, false)
+        } catch (_: Throwable) {
+            null
+        }
+        if (scaled != null) {
+            val pixels = IntArray(sampleW * sampleH)
+            scaled.getPixels(pixels, 0, sampleW, 0, 0, sampleW, sampleH)
+            if (scaled !== bmp) scaled.recycle()
+            return pixels
+        }
+        // 兜底: 缩放开销失败时退回逐步采样 (保证不抛)
         val result = IntArray(sampleW * sampleH)
         val stepX = maxOf(1, bmp.width / sampleW)
         val stepY = maxOf(1, bmp.height / sampleH)
@@ -152,6 +201,11 @@ class FrameRecorder(
     }
 
     companion object {
+        /** 抽稀专用单线程: 只做文件维护, 不与抓帧抢同一条执行器 */
+        private val DECIMATE_EXECUTOR = java.util.concurrent.Executors.newSingleThreadExecutor { r ->
+            Thread(r, "RP-TimelapseDecimate").apply { priority = Thread.MIN_PRIORITY }
+        }
+
         val FRAME_REGEX = Regex("""frame_\d{5}\.webp""")
 
         /**

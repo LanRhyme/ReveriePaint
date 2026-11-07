@@ -939,7 +939,7 @@ fun ReplayPage(vm: PaintViewModel) {
                                     vm.clearTimelapseData(project)
                                     Toast.makeText(
                                         context,
-                                        context.getString(R.string.timelapse_cleared_toast),
+                                        R.string.timelapse_cleared_toast,
                                         Toast.LENGTH_SHORT,
                                     ).show()
                                     vm.exitReplay()
@@ -1037,7 +1037,7 @@ fun ReplayPage(vm: PaintViewModel) {
                                                 currentFrameIndex = (currentFrameIndex / 2).coerceIn(0, (newCount - 1).coerceAtLeast(0))
                                                 android.widget.Toast.makeText(
                                                     context,
-                                                    context.getString(
+                                                    context.applicationContext.getString(
                                                         R.string.timelapse_compact_success,
                                                         formatByteSize(freedBytes),
                                                     ),
@@ -1183,7 +1183,7 @@ private fun TimelapseExportSheet(
                     isExporting = false
                     Toast.makeText(
                         context,
-                        context.getString(R.string.replay_export_toast_saved),
+                        R.string.replay_export_toast_saved,
                         Toast.LENGTH_LONG,
                     ).show()
                     onDismiss()
@@ -1592,7 +1592,7 @@ private fun TimelapseExportSheet(
                                             isExporting = false
                                             Toast.makeText(
                                                 context,
-                                                context.getString(R.string.timelapse_export_success),
+                                                R.string.timelapse_export_success,
                                                 Toast.LENGTH_LONG,
                                             ).show()
                                             onDismiss()
