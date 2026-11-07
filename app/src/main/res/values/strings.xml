@@ -3678,5 +3678,11 @@
     <string name="timelapse_export_err_no_frames">当前工程未找到延时摄影帧</string>
     <string name="timelapse_export_err_failed">延时摄影导出失败</string>
     <string name="timelapse_exporting">正在合成延时摄影视频…</string>
+    <string name="timelapse_clear_title">清理延时摄影</string>
+    <string name="timelapse_clear_desc">确定要删除当前工程的所有延时摄影帧吗？此操作不可撤销，已释放的磁盘空间无法恢复</string>
+    <string name="timelapse_clear_info">%1$d 帧 · 约 %2$s</string>
+    <string name="timelapse_clear_btn">清理延时摄影</string>
+    <string name="timelapse_clear_confirm">确认清理</string>
+    <string name="timelapse_cleared_toast">延时摄影帧已成功清理</string>
 </resources>
 

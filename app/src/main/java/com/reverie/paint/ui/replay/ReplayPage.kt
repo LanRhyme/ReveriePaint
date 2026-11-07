@@ -26,7 +26,6 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -49,6 +48,8 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.Close
 import androidx.compose.material3.Button
 import androidx.compose.material3.ButtonDefaults
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
@@ -83,14 +84,18 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.TimelapseExportOptions
+import com.reverie.paint.core.clearTimelapseData
 import com.reverie.paint.core.exitReplay
 import com.reverie.paint.core.exportTimelapseToGallery
 import com.reverie.paint.core.exportTimelapseToUri
+import com.reverie.paint.core.formatByteSize
 import com.reverie.paint.core.getTimelapseFrameFiles
+import com.reverie.paint.core.getTimelapseTotalBytes
 import com.reverie.paint.core.shareTimelapse
 import com.reverie.paint.model.Project
 import com.reverie.paint.ui.components.ReIconButton
@@ -136,8 +141,8 @@ private class CreateDocumentWithMime : ActivityResultContract<Pair<String, Strin
 }
 
 /**
- * 延时摄影独立全屏回放页。
- * 基于周期捕获的 frame_%05d.webp 序列帧进行全屏播放、沉浸控制与高级导出。
+ * 延时摄影独立全屏回放页 (Procreate 极简浮岛风格)。
+ * 基于周期捕获的 frame_%05d.webp 序列帧进行全屏播放、沉浸控制、手动清理与高级导出。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -156,10 +161,14 @@ fun ReplayPage(vm: PaintViewModel) {
     var isDragging by remember { mutableStateOf(false) }
     var dragProgress by remember { mutableFloatStateOf(-1f) }
 
-    // 沉浸模式控制条显隐状态 (单击画面切换)
+    // 沉浸模式控制条显隐状态 (单击画面平滑切换)
     var showControls by remember { mutableStateOf(true) }
     // 高级导出抽屉显隐状态
     var showExportSheet by remember { mutableStateOf(false) }
+    // 清理延时摄影确认弹窗状态
+    var showClearConfirmDialog by remember { mutableStateOf(false) }
+    // 折叠式倍速选择菜单展开状态
+    var showSpeedDropdown by remember { mutableStateOf(false) }
 
     // 手势缩放与平移状态
     var scale by remember { mutableFloatStateOf(1f) }
@@ -168,10 +177,10 @@ fun ReplayPage(vm: PaintViewModel) {
     val presetSpeeds = remember { listOf(0.5f, 1f, 2f, 4f, 8f) }
 
     BackHandler {
-        if (showExportSheet) {
-            showExportSheet = false
-        } else {
-            vm.exitReplay()
+        when {
+            showClearConfirmDialog -> showClearConfirmDialog = false
+            showExportSheet -> showExportSheet = false
+            else -> vm.exitReplay()
         }
     }
 
@@ -289,7 +298,7 @@ fun ReplayPage(vm: PaintViewModel) {
             }
         }
 
-        // ---- 沉浸模式下播放状态角标 (控制条隐藏但仍在播放时提示) ----
+        // ---- 沉浸模式下播放状态角标 (控制条隐藏且正在播放时提示) ----
         AnimatedVisibility(
             visible = isPlaying && !showControls,
             enter = fadeIn(),
@@ -321,7 +330,7 @@ fun ReplayPage(vm: PaintViewModel) {
             }
         }
 
-        // ---- 顶部悬浮磨砂胶囊栏 ----
+        // ---- 顶部 Procreate 极简悬浮胶囊栏 ----
         AnimatedVisibility(
             visible = showControls,
             enter = fadeIn() + slideInVertically { -it },
@@ -333,19 +342,19 @@ fun ReplayPage(vm: PaintViewModel) {
         ) {
             Surface(
                 shape = RoundedCornerShape(24.dp),
-                color = colors.panel.copy(alpha = 0.94f),
+                color = colors.panel.copy(alpha = 0.90f),
                 tonalElevation = 6.dp,
                 shadowElevation = 8.dp,
-                border = BorderStroke(1.dp, colors.panelHi.copy(alpha = 0.6f)),
+                border = BorderStroke(1.dp, colors.panelHi.copy(alpha = 0.5f)),
                 modifier = Modifier
                     .fillMaxWidth()
                     .widthIn(max = 760.dp)
-                    .height(52.dp),
+                    .height(48.dp),
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 6.dp),
+                        .padding(horizontal = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     ReIconButton(
@@ -357,11 +366,7 @@ fun ReplayPage(vm: PaintViewModel) {
                     Spacer(Modifier.width(4.dp))
                     val docName = project?.name?.ifBlank { vm.docName } ?: vm.docName
                     Text(
-                        text = if (docName.isNotBlank()) {
-                            stringResource(R.string.replay_title_with_doc, docName)
-                        } else {
-                            stringResource(R.string.replay_title)
-                        },
+                        text = docName.ifBlank { stringResource(R.string.replay_title) },
                         color = colors.text,
                         fontSize = 15.sp,
                         fontWeight = FontWeight.SemiBold,
@@ -369,35 +374,34 @@ fun ReplayPage(vm: PaintViewModel) {
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f, fill = false),
                     )
-                    Spacer(Modifier.width(8.dp))
-                    // 倍速切换胶囊
-                    Row(
-                        modifier = Modifier
-                            .weight(1f)
-                            .horizontalScroll(rememberScrollState()),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp, Alignment.End),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        presetSpeeds.forEach { sp ->
-                            val isSelected = speed == sp
-                            Box(
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) colors.accent else colors.panelHi.copy(alpha = 0.6f))
-                                    .clickable { speed = sp }
-                                    .padding(horizontal = 8.dp, vertical = 5.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = if (sp >= 1f) "${sp.toInt()}x" else "0.5x",
-                                    color = if (isSelected) colors.onAccent else colors.text,
-                                    fontSize = 11.sp,
-                                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                                )
-                            }
-                        }
-                    }
                     Spacer(Modifier.width(6.dp))
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(colors.panelHi.copy(alpha = 0.6f))
+                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            text = "${frameFiles.size} 帧",
+                            color = colors.subText,
+                            fontSize = 11.sp,
+                        )
+                    }
+
+                    Spacer(Modifier.weight(1f))
+
+                    // 清理延时摄影垃圾桶
+                    if (frameFiles.isNotEmpty()) {
+                        ReIconButton(
+                            icon = R.drawable.ic_trash,
+                            desc = stringResource(R.string.timelapse_clear_btn),
+                            onTap = { showClearConfirmDialog = true },
+                            tint = colors.subText,
+                        )
+                        Spacer(Modifier.width(2.dp))
+                    }
+
+                    // 导出按钮
                     if (frameFiles.isNotEmpty()) {
                         ReIconButton(
                             icon = R.drawable.ic_export,
@@ -413,7 +417,7 @@ fun ReplayPage(vm: PaintViewModel) {
             }
         }
 
-        // ---- 底部悬浮磨砂胶囊控制条 ----
+        // ---- 底部 Procreate 极简一体式流体播放条 ----
         AnimatedVisibility(
             visible = showControls && frameFiles.isNotEmpty(),
             enter = fadeIn() + slideInVertically { it },
@@ -433,25 +437,26 @@ fun ReplayPage(vm: PaintViewModel) {
             }
 
             Surface(
-                shape = RoundedCornerShape(28.dp),
-                color = colors.panel.copy(alpha = 0.94f),
+                shape = RoundedCornerShape(26.dp),
+                color = colors.panel.copy(alpha = 0.90f),
                 tonalElevation = 6.dp,
                 shadowElevation = 8.dp,
-                border = BorderStroke(1.dp, colors.panelHi.copy(alpha = 0.6f)),
+                border = BorderStroke(1.dp, colors.panelHi.copy(alpha = 0.5f)),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .widthIn(max = 760.dp),
+                    .widthIn(max = 760.dp)
+                    .height(54.dp),
             ) {
                 Row(
                     modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 14.dp, vertical = 10.dp),
+                        .fillMaxSize()
+                        .padding(horizontal = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    // 播放 / 暂停切换按钮
+                    // 播放 / 暂停圆形按钮
                     Box(
                         modifier = Modifier
-                            .size(46.dp)
+                            .size(38.dp)
                             .clip(CircleShape)
                             .background(colors.accent)
                             .clickable {
@@ -470,50 +475,11 @@ fun ReplayPage(vm: PaintViewModel) {
                             painter = painterResource(if (isPlaying) R.drawable.ic_pause else R.drawable.ic_play),
                             contentDescription = if (isPlaying) stringResource(R.string.pause) else stringResource(R.string.play),
                             tint = colors.onAccent,
-                            modifier = Modifier.size(22.dp),
+                            modifier = Modifier.size(18.dp),
                         )
                     }
 
-                    Spacer(Modifier.width(14.dp))
-
-                    // 时间轴拖拽与指示
-                    Column(Modifier.weight(1f)) {
-                        ReSlider(
-                            value = currentProgress.coerceIn(0f, 1f),
-                            onValue = { v ->
-                                isDragging = true
-                                dragProgress = v
-                                currentFrameIndex = ((totalFrames - 1) * v).toInt().coerceIn(0, totalFrames - 1)
-                            },
-                            onRelease = {
-                                isDragging = false
-                                dragProgress = -1f
-                            },
-                            height = 20,
-                        )
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                        ) {
-                            val currentSec = (currentFrameIndex / 12f).toDouble()
-                            val totalSec = (totalFrames / 12f).toDouble()
-                            Text(
-                                text = String.format(Locale.US, "%02d:%02d / %02d:%02d",
-                                    (currentSec / 60).toInt(), (currentSec % 60).toInt(),
-                                    (totalSec / 60).toInt(), (totalSec % 60).toInt(),
-                                ),
-                                color = colors.subText,
-                                fontSize = 11.sp,
-                            )
-                            Text(
-                                text = "${currentFrameIndex + 1} / $totalFrames",
-                                color = colors.subText,
-                                fontSize = 11.sp,
-                            )
-                        }
-                    }
-
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(6.dp))
 
                     // 从头播放按钮
                     ReIconButton(
@@ -525,6 +491,178 @@ fun ReplayPage(vm: PaintViewModel) {
                         },
                         tint = colors.text,
                     )
+
+                    Spacer(Modifier.width(8.dp))
+
+                    // 紧凑时间指示
+                    val currentSec = (currentFrameIndex / 12f).toDouble()
+                    val totalSec = (totalFrames / 12f).toDouble()
+                    Text(
+                        text = String.format(Locale.US, "%02d:%02d / %02d:%02d",
+                            (currentSec / 60).toInt(), (currentSec % 60).toInt(),
+                            (totalSec / 60).toInt(), (totalSec % 60).toInt(),
+                        ),
+                        color = colors.subText,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+
+                    Spacer(Modifier.width(10.dp))
+
+                    // 流体细线时间轴滑块
+                    Box(
+                        modifier = Modifier.weight(1f),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        ReSlider(
+                            value = currentProgress.coerceIn(0f, 1f),
+                            onValue = { v ->
+                                isDragging = true
+                                dragProgress = v
+                                currentFrameIndex = ((totalFrames - 1) * v).toInt().coerceIn(0, totalFrames - 1)
+                            },
+                            onRelease = {
+                                isDragging = false
+                                dragProgress = -1f
+                            },
+                            height = 18,
+                        )
+                    }
+
+                    Spacer(Modifier.width(10.dp))
+
+                    // 折叠式倍速切换小胶囊 (1x ▾)
+                    Box {
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(colors.panelHi.copy(alpha = 0.8f))
+                                .clickable { showSpeedDropdown = true }
+                                .padding(horizontal = 8.dp, vertical = 6.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                        ) {
+                            Text(
+                                text = if (speed >= 1f) "${speed.toInt()}x" else "0.5x",
+                                color = colors.text,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            Icon(
+                                painter = painterResource(R.drawable.ic_chevron_down),
+                                contentDescription = null,
+                                tint = colors.subText,
+                                modifier = Modifier.size(12.dp),
+                            )
+                        }
+
+                        DropdownMenu(
+                            expanded = showSpeedDropdown,
+                            onDismissRequest = { showSpeedDropdown = false },
+                            modifier = Modifier.background(colors.panel),
+                        ) {
+                            presetSpeeds.forEach { sp ->
+                                val isSel = speed == sp
+                                DropdownMenuItem(
+                                    text = {
+                                        Text(
+                                            text = if (sp >= 1f) "${sp.toInt()}x" else "0.5x",
+                                            color = if (isSel) colors.accent else colors.text,
+                                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                            fontSize = 13.sp,
+                                        )
+                                    },
+                                    onClick = {
+                                        speed = sp
+                                        showSpeedDropdown = false
+                                    },
+                                )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---- 清理延时摄影二次确认弹窗 ----
+        if (showClearConfirmDialog) {
+            val totalBytes = remember(frameFiles) { vm.getTimelapseTotalBytes(project) }
+            Dialog(onDismissRequest = { showClearConfirmDialog = false }) {
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = colors.panel,
+                    tonalElevation = 6.dp,
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .widthIn(max = 420.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(22.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.timelapse_clear_title),
+                            color = colors.text,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = stringResource(R.string.timelapse_clear_desc),
+                            color = colors.subText,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp,
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(colors.panelHi.copy(alpha = 0.5f))
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.timelapse_clear_info, frameFiles.size, formatByteSize(totalBytes)),
+                                color = colors.accent,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            ReTextButton(
+                                text = stringResource(R.string.cancel),
+                                onClick = { showClearConfirmDialog = false },
+                                textColor = colors.text,
+                            )
+                            Button(
+                                onClick = {
+                                    showClearConfirmDialog = false
+                                    vm.clearTimelapseData(project)
+                                    Toast.makeText(
+                                        context,
+                                        context.getString(R.string.timelapse_cleared_toast),
+                                        Toast.LENGTH_SHORT,
+                                    ).show()
+                                    vm.exitReplay()
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = colors.error,
+                                    contentColor = Color.White,
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.timelapse_clear_confirm),
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -536,15 +674,19 @@ fun ReplayPage(vm: PaintViewModel) {
                 project = project,
                 frameFiles = frameFiles,
                 onDismiss = { showExportSheet = false },
+                onTriggerClear = {
+                    showExportSheet = false
+                    showClearConfirmDialog = true
+                },
             )
         }
     }
 }
 
 /**
- * 延时摄影高级导出抽屉。
+ * 延时摄影高级导出抽屉 (精致莫兰迪分段卡片风格)。
  * 包含格式 (MP4/GIF/ZIP)、时长 (15s/30s/60s/原速)、区间裁剪 (RangeSlider)、
- * 分辨率缩放 (100%/50%/25%)、结尾定格、作者水印，以及相册保存、SAF 文件存储与系统分享。
+ * 分辨率缩放 (100%/50%/25%)、结尾定格、作者水印、相册直存 (DCIM)、SAF 文件存储、系统分享与清理缓存。
  */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -553,6 +695,7 @@ private fun TimelapseExportSheet(
     project: Project?,
     frameFiles: List<File>,
     onDismiss: () -> Unit,
+    onTriggerClear: () -> Unit,
 ) {
     val context = LocalContext.current
     val colors = Theme.current
@@ -681,7 +824,7 @@ private fun TimelapseExportSheet(
                     Text(
                         text = stringResource(R.string.replay_export_title),
                         color = colors.text,
-                        fontSize = 18.sp,
+                        fontSize = 17.sp,
                         fontWeight = FontWeight.Bold,
                     )
                     Spacer(Modifier.width(8.dp))
@@ -766,16 +909,16 @@ private fun TimelapseExportSheet(
                     Spacer(Modifier.height(12.dp))
                 }
             } else {
-                // ---- 导出高级选项配置表单 ----
+                // ---- 导出高级选项配置表单 (莫兰迪卡片风格) ----
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
                         .verticalScroll(rememberScrollState())
-                        .padding(horizontal = 20.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                        .padding(horizontal = 20.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(14.dp),
                 ) {
                     // 1. 导出格式选择
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         Text(
                             text = stringResource(R.string.replay_export_format_label),
                             color = colors.subText,
@@ -792,9 +935,9 @@ private fun TimelapseExportSheet(
                                     modifier = Modifier
                                         .weight(1f)
                                         .clip(RoundedCornerShape(10.dp))
-                                        .background(if (isSel) colors.accent else colors.panelHi)
+                                        .background(if (isSel) colors.accent else colors.panelHi.copy(alpha = 0.6f))
                                         .clickable { exportFormat = fmt }
-                                        .padding(vertical = 10.dp),
+                                        .padding(vertical = 9.dp),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Text(
@@ -810,7 +953,7 @@ private fun TimelapseExportSheet(
 
                     // 2. 缩时时长 (ZIP 格式不适用)
                     if (exportFormat != "zip") {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                             Text(
                                 text = stringResource(R.string.replay_export_duration_label),
                                 color = colors.subText,
@@ -832,9 +975,9 @@ private fun TimelapseExportSheet(
                                         modifier = Modifier
                                             .weight(1f)
                                             .clip(RoundedCornerShape(10.dp))
-                                            .background(if (isSel) colors.accent else colors.panelHi)
+                                            .background(if (isSel) colors.accent else colors.panelHi.copy(alpha = 0.6f))
                                             .clickable { selectedDurationSec = sec }
-                                            .padding(vertical = 10.dp),
+                                            .padding(vertical = 9.dp),
                                         contentAlignment = Alignment.Center,
                                     ) {
                                         Text(
@@ -850,7 +993,7 @@ private fun TimelapseExportSheet(
                     }
 
                     // 3. 导出区间裁剪 (RangeSlider)
-                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                         val totalFrames = frameFiles.size
                         val selStartIdx = (totalFrames * rangeStart).toInt().coerceIn(0, totalFrames - 1)
                         val selEndIdx = (totalFrames * rangeEnd).toInt().coerceIn(selStartIdx, totalFrames - 1)
@@ -894,7 +1037,7 @@ private fun TimelapseExportSheet(
                     }
 
                     // 4. 输出尺寸缩放
-                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
                         val outW = (baseW * selectedScale).roundToInt()
                         val outH = (baseH * selectedScale).roundToInt()
                         Row(
@@ -924,9 +1067,9 @@ private fun TimelapseExportSheet(
                                     modifier = Modifier
                                         .weight(1f)
                                         .clip(RoundedCornerShape(10.dp))
-                                        .background(if (isSel) colors.accent else colors.panelHi)
+                                        .background(if (isSel) colors.accent else colors.panelHi.copy(alpha = 0.6f))
                                         .clickable { selectedScale = scale }
-                                        .padding(vertical = 10.dp),
+                                        .padding(vertical = 9.dp),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Text(
@@ -980,7 +1123,7 @@ private fun TimelapseExportSheet(
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .padding(top = 4.dp, bottom = 12.dp),
+                            .padding(top = 4.dp),
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
@@ -1134,6 +1277,31 @@ private fun TimelapseExportSheet(
                                 fontSize = 14.sp,
                             )
                         }
+                    }
+
+                    // 7. 抽屉底部清理延时摄影入口
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(8.dp))
+                            .clickable { onTriggerClear() }
+                            .padding(vertical = 6.dp),
+                        horizontalArrangement = Arrangement.Center,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_trash),
+                            contentDescription = null,
+                            tint = colors.error,
+                            modifier = Modifier.size(15.dp),
+                        )
+                        Spacer(Modifier.width(6.dp))
+                        Text(
+                            text = stringResource(R.string.timelapse_clear_btn),
+                            color = colors.error,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
                     }
                 }
             }

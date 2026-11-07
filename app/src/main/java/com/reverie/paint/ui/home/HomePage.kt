@@ -1338,8 +1338,6 @@ fun HomePage(vm: PaintViewModel) {
                                                     HomeDropdownMenuItem(
                                                         text = stringResource(R.string.gallery_action_replay),
                                                         icon = R.drawable.ic_play,
-                                                        textColor = colors.accent,
-                                                        iconColor = colors.accent,
                                                         onClick = {
                                                             longPressedProject = null
                                                             vm.goReplay(p)

@@ -210,7 +210,7 @@ internal fun PaintViewModel.saveExportFileToGalleryAsync(
     onError: (String) -> Unit,
 ) {
     val mimeType = if (isGif) "image/gif" else "video/mp4"
-    val relDir = if (isGif) Environment.DIRECTORY_PICTURES else Environment.DIRECTORY_MOVIES
+    val relDir = if (isGif) Environment.DIRECTORY_PICTURES else Environment.DIRECTORY_DCIM
 
     Thread(
         {
@@ -279,11 +279,16 @@ internal fun PaintViewModel.saveExportFileToGalleryAsync(
                     try {
                         val scanPath =
                             legacyTargetFile?.absolutePath ?: run {
-                                @Suppress("DEPRECATION")
-                                val pathQuery = resolver.query(uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null)
-                                pathQuery?.use { c ->
-                                    if (c.moveToFirst()) c.getString(0) else null
+                                val queryPath = try {
+                                    @Suppress("DEPRECATION")
+                                    val pathQuery = resolver.query(uri, arrayOf(MediaStore.MediaColumns.DATA), null, null, null)
+                                    pathQuery?.use { c ->
+                                        if (c.moveToFirst()) c.getString(0) else null
+                                    }
+                                } catch (_: Exception) {
+                                    null
                                 }
+                                queryPath ?: File(Environment.getExternalStoragePublicDirectory(relDir), "ReveriePaint/$fileName").absolutePath
                             }
                         if (scanPath != null) {
                             MediaScannerConnection.scanFile(

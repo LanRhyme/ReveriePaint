@@ -3679,5 +3679,11 @@
     <string name="timelapse_export_err_no_frames">No timelapse frames found for this project</string>
     <string name="timelapse_export_err_failed">Failed to export timelapse video</string>
     <string name="timelapse_exporting">Encoding timelapse video…</string>
+    <string name="timelapse_clear_title">Clear Timelapse</string>
+    <string name="timelapse_clear_desc">Are you sure you want to delete all timelapse frames for this project? This action cannot be undone</string>
+    <string name="timelapse_clear_info">%1$d frames · approx. %2$s</string>
+    <string name="timelapse_clear_btn">Clear Timelapse</string>
+    <string name="timelapse_clear_confirm">Confirm Clear</string>
+    <string name="timelapse_cleared_toast">Timelapse frames cleared successfully</string>
 </resources>
 

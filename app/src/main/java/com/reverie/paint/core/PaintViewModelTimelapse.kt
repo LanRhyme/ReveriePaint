@@ -533,3 +533,53 @@ fun PaintViewModel.shareTimelapse(
         onError = onError,
     )
 }
+
+/**
+ * 获取指定或当前工程的延时摄影帧总占用字节数。
+ */
+fun PaintViewModel.getTimelapseTotalBytes(project: Project? = null): Long {
+    val dir = getTimelapseFramesDir(project) ?: return 0L
+    if (!dir.exists() || !dir.isDirectory) return 0L
+    var total = 0L
+    dir.listFiles()?.forEach { if (it.isFile) total += it.length() }
+    return total
+}
+
+/**
+ * 清理指定或当前工程的延时摄影帧目录并重置捕获器缓存。
+ * 返回释放的总字节数。
+ */
+fun PaintViewModel.clearTimelapseData(project: Project? = null): Long {
+    val dir = getTimelapseFramesDir(project) ?: return 0L
+    if (!dir.exists() || !dir.isDirectory) return 0L
+    var freed = 0L
+    try {
+        dir.listFiles()?.forEach { f ->
+            if (f.isFile) {
+                freed += f.length()
+                f.delete()
+            }
+        }
+        dir.delete()
+    } catch (e: Exception) {
+        Log.e(TAG_TIMELAPSE, "clearTimelapseData failed", e)
+    }
+    cachedFrameRecorder = null
+    cachedFramesDirPath = null
+    return freed
+}
+
+/**
+ * 格式化字节大小显示。
+ */
+fun formatByteSize(bytes: Long): String {
+    if (bytes <= 0) return "0 KB"
+    val kb = bytes / 1024.0
+    val mb = kb / 1024.0
+    return if (mb >= 1.0) {
+        String.format(java.util.Locale.US, "%.1f MB", mb)
+    } else {
+        String.format(java.util.Locale.US, "%.0f KB", kb)
+    }
+}
+
