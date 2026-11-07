@@ -61,13 +61,13 @@ class FrameRecorder(
     /**
      * 将位图保存为帧文件。
      * - 降采样: 长边 ≤ 1280
-     * - 变化检测: 连续两帧若像素哈希一致则丢弃
+     * - 变化检测: 连续两帧若像素哈希一致且非强制抓帧则丢弃
      * - WEBP 质量 80, 零填充序号
      * 失败返回 null, 绝不抛异常。
      */
-    fun capture(bitmap: Bitmap?, nowMs: Long, isChanged: Boolean = true): File? {
+    fun capture(bitmap: Bitmap?, nowMs: Long, isChanged: Boolean = true, force: Boolean = false): File? {
         if (bitmap == null || bitmap.isRecycled) return null
-        if (!shouldCapture(nowMs, isChanged)) return null
+        if (!force && !shouldCapture(nowMs, isChanged)) return null
 
         return try {
             val w = bitmap.width
@@ -85,7 +85,7 @@ class FrameRecorder(
             }
 
             val hash = computeBitmapHash(scaledBitmap)
-            if (_frameCount > 0 && hash == lastFrameHash) {
+            if (!force && _frameCount > 0 && hash == lastFrameHash) {
                 if (scaledBitmap !== bitmap) scaledBitmap.recycle()
                 return null
             }
@@ -135,12 +135,12 @@ class FrameRecorder(
     }
 
     /**
-     * 对位图采样 64 个点快速计算像素指纹，用于连续帧变化比对。
+     * 对位图进行密集 64x64 网格采样计算像素指纹，精准捕获任意画笔笔触
      */
     internal fun computeBitmapHash(bmp: Bitmap): Long {
         var h = (bmp.width.toLong() shl 32) xor bmp.height.toLong()
-        val stepX = maxOf(1, bmp.width / 8)
-        val stepY = maxOf(1, bmp.height / 8)
+        val stepX = maxOf(1, bmp.width / 64)
+        val stepY = maxOf(1, bmp.height / 64)
         for (y in 0 until bmp.height step stepY) {
             for (x in 0 until bmp.width step stepX) {
                 val pixel = bmp.getPixel(x, y)

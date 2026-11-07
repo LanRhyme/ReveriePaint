@@ -223,14 +223,11 @@ fun PaintingPage(
         }
     }
 
-    // 延时摄影周期性抓帧驱动 (每 200ms / 最小间隔检查一次画面变更)
-    LaunchedEffect(vm.timelapseRecordingEnabled) {
-        if (!vm.timelapseRecordingEnabled) return@LaunchedEffect
-        while (isActive) {
-            kotlinx.coroutines.delay(vm.timelapseMinIntervalMs.coerceAtLeast(200L))
-            if (vm.isModified) {
-                vm.triggerTimelapseCapture(isChanged = true)
-            }
+    // 画布初次就绪时抓取第 0 帧作为延时摄影初始底图
+    LaunchedEffect(vm.timelapseRecordingEnabled, vm.currentProjectFile) {
+        if (vm.timelapseRecordingEnabled && vm.currentProjectFile != null && vm.getTimelapseFrameCount() == 0) {
+            kotlinx.coroutines.delay(350L) // 稍作等待确保图层与底色合成就绪
+            vm.triggerTimelapseCapture(isChanged = true, force = true)
         }
     }
 

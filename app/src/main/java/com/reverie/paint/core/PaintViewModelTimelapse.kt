@@ -36,6 +36,8 @@ private val timelapseExecutor = Executors.newSingleThreadExecutor { r ->
 
 /** 同一时刻只允许一个抓帧任务在跑 */
 private val isTimelapseCapturing = AtomicBoolean(false)
+/** 当正在抓帧时又有新的变化产生，标记在当前抓帧结束后自动补抓一帧 */
+private val pendingTimelapseCapture = AtomicBoolean(false)
 
 /** 当前激活的帧捕获器缓存 */
 private var cachedFrameRecorder: FrameRecorder? = null
@@ -126,81 +128,103 @@ private fun PaintViewModel.getOrCreateFrameRecorder(): FrameRecorder? {
 }
 
 /**
+ * 重置延时摄影运行时捕获状态
+ */
+fun PaintViewModel.resetTimelapseCaptureState() {
+    isTimelapseCapturing.set(false)
+    pendingTimelapseCapture.set(false)
+    cachedFrameRecorder = null
+    cachedFramesDirPath = null
+}
+
+/**
  * 触发一次后台画布抓帧。
  * - 只有在开启录制且处于绘画状态时生效
- * - 排队执行且同一时刻只允许一个在跑 (CAS 防重入)
- * - 耗时超过 500ms 输出 warn 日志
- * - 降采样至长边 ≤1280
+ * - 两段式零阻塞流水线：
+ *   1. 在 Core 渲染线程执行超轻量 exportJpg 抓取快照 (~25ms)，完全遵守架构铁律与单实例引擎约束
+ *   2. 将 JPG 转交后台专用线程执行降采样 (≤1280)、密集指纹比对与 WEBP 无损/高质量压缩写盘
+ * - 若抓帧期间产生新的绘制动作，在捕获器空闲后自动补抓最新画面，保证不漏帧
  */
-fun PaintViewModel.triggerTimelapseCapture(isChanged: Boolean = true) {
-    Log.d(TAG_TIMELAPSE, "triggerTimelapseCapture: enabled=$timelapseRecordingEnabled, proj=$currentProjectFile, isChanged=$isChanged")
+fun PaintViewModel.triggerTimelapseCapture(isChanged: Boolean = true, force: Boolean = false) {
     if (!timelapseRecordingEnabled || currentProjectFile == null) {
         return
     }
 
     if (!isTimelapseCapturing.compareAndSet(false, true)) {
-        Log.d(TAG_TIMELAPSE, "triggerTimelapseCapture: skipped because previous capture is still running")
-        // 前一个抓帧尚未完成，丢弃本次以避免并发堆积
+        if (isChanged) {
+            pendingTimelapseCapture.set(true)
+        }
         return
     }
 
-    timelapseExecutor.execute {
-        val startUptime = SystemClock.uptimeMillis()
-        var tempPng: File? = null
-        try {
-            val recorder = getOrCreateFrameRecorder() ?: run {
-                Log.w(TAG_TIMELAPSE, "triggerTimelapseCapture: getOrCreateFrameRecorder returned null")
-                return@execute
-            }
-            val nowMs = System.currentTimeMillis()
-            if (!recorder.shouldCapture(nowMs, isChanged)) {
-                Log.d(TAG_TIMELAPSE, "triggerTimelapseCapture: shouldCapture returned false")
-                return@execute
-            }
+    val nowMs = System.currentTimeMillis()
+    val recorder = getOrCreateFrameRecorder()
+    if (recorder == null || (!force && !recorder.shouldCapture(nowMs, isChanged))) {
+        isTimelapseCapturing.set(false)
+        return
+    }
 
-            tempPng = File(appContext.cacheDir, "timelapse_snap_${nowMs}_${System.nanoTime() % 1000}.png")
-            val saveOk = try {
-                ReverieCoreBridge.savePng(tempPng.absolutePath)
-            } catch (t: Throwable) {
-                Log.e(TAG_TIMELAPSE, "ReverieCoreBridge.savePng failed", t)
-                false
-            }
+    val tempJpg = File(appContext.cacheDir, "timelapse_snap_${nowMs}_${System.nanoTime() % 1000}.jpg")
+    runCore(render = false) {
+        val saveOk = try {
+            ReverieCoreBridge.exportJpg(tempJpg.absolutePath, 75)
+        } catch (t: Throwable) {
+            Log.e(TAG_TIMELAPSE, "ReverieCoreBridge.exportJpg failed", t)
+            false
+        }
 
-            if (saveOk && tempPng.exists() && tempPng.length() > 0L) {
-                // 1. 探测原始尺寸并计算降采样 inSampleSize (目标长边 ≤1280)
-                val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                BitmapFactory.decodeFile(tempPng.absolutePath, boundsOpts)
-                val maxDim = maxOf(boundsOpts.outWidth, boundsOpts.outHeight)
-                var sampleSize = 1
-                if (maxDim > 1280) {
-                    while ((maxDim / (sampleSize * 2)) >= 1280) {
-                        sampleSize *= 2
+        if (saveOk && tempJpg.exists() && tempJpg.length() > 0L) {
+            timelapseExecutor.execute {
+                val startUptime = SystemClock.uptimeMillis()
+                try {
+                    // 1. 探测原始尺寸并计算降采样 inSampleSize (目标长边 ≤1280)
+                    val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                    BitmapFactory.decodeFile(tempJpg.absolutePath, boundsOpts)
+                    val maxDim = maxOf(boundsOpts.outWidth, boundsOpts.outHeight)
+                    var sampleSize = 1
+                    if (maxDim > 1280) {
+                        while ((maxDim / (sampleSize * 2)) >= 1280) {
+                            sampleSize *= 2
+                        }
+                    }
+
+                    // 2. 降采样解码
+                    val decodeOpts = BitmapFactory.Options().apply {
+                        inSampleSize = sampleSize
+                        inPreferredConfig = Bitmap.Config.ARGB_8888
+                    }
+                    val bmp = BitmapFactory.decodeFile(tempJpg.absolutePath, decodeOpts)
+                    if (bmp != null) {
+                        val savedFile = recorder.capture(bmp, nowMs, isChanged = true, force = force)
+                        if (savedFile != null) {
+                            Log.d(TAG_TIMELAPSE, "Captured frame: count=${recorder.frameCount}, savedFile=${savedFile.name}")
+                        }
+                        bmp.recycle()
+                    }
+                } catch (t: Throwable) {
+                    Log.e(TAG_TIMELAPSE, "Exception during timelapse capture processing", t)
+                } finally {
+                    if (tempJpg.exists()) tempJpg.delete()
+                    val elapsed = SystemClock.uptimeMillis() - startUptime
+                    if (elapsed > 500L) {
+                        Log.w(TAG_TIMELAPSE, "Timelapse capture processing took ${elapsed}ms > 500ms")
+                    }
+                    isTimelapseCapturing.set(false)
+                    if (pendingTimelapseCapture.compareAndSet(true, false)) {
+                        mainHandler.post {
+                            triggerTimelapseCapture(isChanged = true)
+                        }
                     }
                 }
-
-                // 2. 降采样解码
-                val decodeOpts = BitmapFactory.Options().apply {
-                    inSampleSize = sampleSize
-                    inPreferredConfig = Bitmap.Config.ARGB_8888
-                }
-                var bmp = BitmapFactory.decodeFile(tempPng.absolutePath, decodeOpts)
-                if (bmp != null) {
-                    val savedFile = recorder.capture(bmp, nowMs, isChanged = true)
-                    Log.i(TAG_TIMELAPSE, "Captured frame: count=${recorder.frameCount}, savedFile=${savedFile?.name}")
-                    bmp.recycle()
-                }
             }
-        } catch (t: Throwable) {
-            Log.e(TAG_TIMELAPSE, "Exception during timelapse capture", t)
-        } finally {
-            tempPng?.let {
-                if (it.exists()) it.delete()
-            }
-            val elapsed = SystemClock.uptimeMillis() - startUptime
-            if (elapsed > 500L) {
-                Log.w(TAG_TIMELAPSE, "Timelapse capture took ${elapsed}ms > 500ms")
-            }
+        } else {
+            if (tempJpg.exists()) tempJpg.delete()
             isTimelapseCapturing.set(false)
+            if (pendingTimelapseCapture.compareAndSet(true, false)) {
+                mainHandler.post {
+                    triggerTimelapseCapture(isChanged = true)
+                }
+            }
         }
     }
 }

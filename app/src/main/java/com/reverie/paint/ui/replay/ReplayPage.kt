@@ -153,6 +153,9 @@ fun ReplayPage(vm: PaintViewModel) {
     val frameFiles = remember(project, vm.currentProjectFile) {
         vm.getTimelapseFrameFiles(project)
     }
+    val totalBytesSnapshot = remember(frameFiles) {
+        vm.getTimelapseTotalBytes(project)
+    }
 
     var currentFrameIndex by remember { mutableIntStateOf(0) }
     var currentBitmap by remember { mutableStateOf<Bitmap?>(null) }
@@ -330,94 +333,149 @@ fun ReplayPage(vm: PaintViewModel) {
             }
         }
 
-        // ---- 顶部 Procreate 极简悬浮胶囊栏 ----
+        // ---- 顶部全宽统一样式导航栏 ----
         AnimatedVisibility(
             visible = showControls,
             enter = fadeIn() + slideInVertically { -it },
             exit = fadeOut() + slideOutVertically { -it },
-            modifier = Modifier
-                .align(Alignment.TopCenter)
-                .statusBarsPadding()
-                .padding(top = 10.dp, start = 16.dp, end = 16.dp),
+            modifier = Modifier.align(Alignment.TopCenter),
         ) {
             Surface(
-                shape = RoundedCornerShape(24.dp),
-                color = colors.panel.copy(alpha = 0.90f),
-                tonalElevation = 6.dp,
+                color = colors.panel.copy(alpha = 0.95f),
+                tonalElevation = 4.dp,
                 shadowElevation = 8.dp,
-                border = BorderStroke(1.dp, colors.panelHi.copy(alpha = 0.5f)),
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .widthIn(max = 760.dp)
-                    .height(48.dp),
+                border = BorderStroke(1.dp, colors.panelHi.copy(alpha = 0.6f)),
+                modifier = Modifier.fillMaxWidth(),
             ) {
                 Row(
                     modifier = Modifier
-                        .fillMaxSize()
-                        .padding(horizontal = 8.dp),
+                        .fillMaxWidth()
+                        .statusBarsPadding()
+                        .height(54.dp)
+                        .padding(horizontal = 16.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ReIconButton(
-                        icon = R.drawable.ic_arrow_left,
-                        desc = stringResource(R.string.back),
-                        onTap = { vm.exitReplay() },
-                        tint = colors.text,
-                    )
-                    Spacer(Modifier.width(4.dp))
-                    val docName = project?.name?.ifBlank { vm.docName } ?: vm.docName
-                    Text(
-                        text = docName.ifBlank { stringResource(R.string.replay_title) },
-                        color = colors.text,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        modifier = Modifier.weight(1f, fill = false),
-                    )
-                    Spacer(Modifier.width(6.dp))
+                    // 返回按钮
                     Box(
                         modifier = Modifier
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(colors.panelHi.copy(alpha = 0.6f))
-                            .padding(horizontal = 6.dp, vertical = 2.dp),
+                            .size(36.dp)
+                            .clip(CircleShape)
+                            .background(colors.panelHi)
+                            .clickable { vm.exitReplay() },
+                        contentAlignment = Alignment.Center,
                     ) {
-                        Text(
-                            text = "${frameFiles.size} 帧",
-                            color = colors.subText,
-                            fontSize = 11.sp,
+                        Icon(
+                            painter = painterResource(R.drawable.ic_arrow_left),
+                            contentDescription = stringResource(R.string.back),
+                            tint = colors.text,
+                            modifier = Modifier.size(18.dp),
                         )
+                    }
+
+                    Spacer(Modifier.width(14.dp))
+
+                    // 作品标题与延时摄影元信息
+                    val docName = project?.name?.ifBlank { vm.docName } ?: vm.docName
+                    Column(
+                        modifier = Modifier.weight(1f, fill = false),
+                        verticalArrangement = Arrangement.Center,
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Text(
+                                text = docName.ifBlank { stringResource(R.string.replay_title) },
+                                color = colors.text,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.Bold,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Spacer(Modifier.width(8.dp))
+                            Box(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(colors.accent.copy(alpha = 0.15f))
+                                    .padding(horizontal = 8.dp, vertical = 2.dp),
+                            ) {
+                                Text(
+                                    text = stringResource(R.string.replay_title),
+                                    color = colors.accent,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                            }
+                        }
+                        if (frameFiles.isNotEmpty()) {
+                            Spacer(Modifier.height(2.dp))
+                            Text(
+                                text = stringResource(R.string.timelapse_clear_info, frameFiles.size, formatByteSize(totalBytesSnapshot)),
+                                color = colors.subText,
+                                fontSize = 12.sp,
+                            )
+                        }
                     }
 
                     Spacer(Modifier.weight(1f))
 
-                    // 清理延时摄影垃圾桶
+                    // 右侧动作区：清理 + 导出
                     if (frameFiles.isNotEmpty()) {
-                        ReIconButton(
-                            icon = R.drawable.ic_trash,
-                            desc = stringResource(R.string.timelapse_clear_btn),
-                            onTap = { showClearConfirmDialog = true },
-                            tint = colors.subText,
-                        )
-                        Spacer(Modifier.width(2.dp))
-                    }
+                        // 清理延时摄影按钮
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(colors.panelHi.copy(alpha = 0.6f))
+                                .clickable { showClearConfirmDialog = true }
+                                .padding(horizontal = 12.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_trash),
+                                contentDescription = stringResource(R.string.timelapse_clear_btn),
+                                tint = colors.subText,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = stringResource(R.string.timelapse_clear_btn),
+                                color = colors.text,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
 
-                    // 导出按钮
-                    if (frameFiles.isNotEmpty()) {
-                        ReIconButton(
-                            icon = R.drawable.ic_export,
-                            desc = stringResource(R.string.replay_export_btn),
-                            onTap = {
-                                isPlaying = false
-                                showExportSheet = true
-                            },
-                            tint = colors.accent,
-                        )
+                        Spacer(Modifier.width(10.dp))
+
+                        // 导出按钮 (主题色高亮按钮)
+                        Row(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(colors.accent)
+                                .clickable {
+                                    isPlaying = false
+                                    showExportSheet = true
+                                }
+                                .padding(horizontal = 14.dp, vertical = 7.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Icon(
+                                painter = painterResource(R.drawable.ic_export),
+                                contentDescription = stringResource(R.string.replay_export_btn),
+                                tint = colors.onAccent,
+                                modifier = Modifier.size(16.dp),
+                            )
+                            Spacer(Modifier.width(6.dp))
+                            Text(
+                                text = stringResource(R.string.replay_export_btn),
+                                color = colors.onAccent,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
                     }
                 }
             }
         }
 
-        // ---- 底部 Procreate 极简一体式流体播放条 ----
+        // ---- 底部浮动控制条 ----
         AnimatedVisibility(
             visible = showControls && frameFiles.isNotEmpty(),
             enter = fadeIn() + slideInVertically { it },
@@ -437,20 +495,20 @@ fun ReplayPage(vm: PaintViewModel) {
             }
 
             Surface(
-                shape = RoundedCornerShape(26.dp),
-                color = colors.panel.copy(alpha = 0.90f),
+                shape = RoundedCornerShape(22.dp),
+                color = colors.panel.copy(alpha = 0.95f),
                 tonalElevation = 6.dp,
-                shadowElevation = 8.dp,
-                border = BorderStroke(1.dp, colors.panelHi.copy(alpha = 0.5f)),
+                shadowElevation = 10.dp,
+                border = BorderStroke(1.dp, colors.panelHi.copy(alpha = 0.6f)),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .widthIn(max = 760.dp)
-                    .height(54.dp),
+                    .widthIn(max = 840.dp)
+                    .height(56.dp),
             ) {
                 Row(
                     modifier = Modifier
                         .fillMaxSize()
-                        .padding(horizontal = 10.dp),
+                        .padding(horizontal = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     // 播放 / 暂停圆形按钮
@@ -479,9 +537,51 @@ fun ReplayPage(vm: PaintViewModel) {
                         )
                     }
 
-                    Spacer(Modifier.width(6.dp))
+                    Spacer(Modifier.width(8.dp))
 
-                    // 从头播放按钮
+                    // 后退一帧
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .clickable {
+                                isPlaying = false
+                                currentFrameIndex = (currentFrameIndex - 1).coerceAtLeast(0)
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_chevron),
+                            contentDescription = null,
+                            tint = if (currentFrameIndex > 0) colors.text else colors.subText.copy(alpha = 0.4f),
+                            modifier = Modifier
+                                .size(16.dp)
+                                .graphicsLayer { rotationZ = 180f },
+                        )
+                    }
+
+                    // 前进一帧
+                    Box(
+                        modifier = Modifier
+                            .size(32.dp)
+                            .clip(CircleShape)
+                            .clickable {
+                                isPlaying = false
+                                currentFrameIndex = (currentFrameIndex + 1).coerceAtMost(totalFrames - 1)
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_chevron),
+                            contentDescription = null,
+                            tint = if (currentFrameIndex < totalFrames - 1) colors.text else colors.subText.copy(alpha = 0.4f),
+                            modifier = Modifier.size(16.dp),
+                        )
+                    }
+
+                    Spacer(Modifier.width(4.dp))
+
+                    // 从头播放
                     ReIconButton(
                         icon = R.drawable.ic_refresh,
                         desc = stringResource(R.string.replay_restart),
@@ -494,7 +594,7 @@ fun ReplayPage(vm: PaintViewModel) {
 
                     Spacer(Modifier.width(8.dp))
 
-                    // 紧凑时间指示
+                    // 进度时间指示
                     val currentSec = (currentFrameIndex / 12f).toDouble()
                     val totalSec = (totalFrames / 12f).toDouble()
                     Text(
@@ -507,7 +607,7 @@ fun ReplayPage(vm: PaintViewModel) {
                         fontWeight = FontWeight.Medium,
                     )
 
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(12.dp))
 
                     // 流体细线时间轴滑块
                     Box(
@@ -525,13 +625,13 @@ fun ReplayPage(vm: PaintViewModel) {
                                 isDragging = false
                                 dragProgress = -1f
                             },
-                            height = 18,
+                            height = 20,
                         )
                     }
 
-                    Spacer(Modifier.width(10.dp))
+                    Spacer(Modifier.width(12.dp))
 
-                    // 折叠式倍速切换小胶囊 (1x ▾)
+                    // 倍速切换小胶囊 (1x ▾)
                     Box {
                         Row(
                             modifier = Modifier
@@ -540,7 +640,7 @@ fun ReplayPage(vm: PaintViewModel) {
                                 .clickable { showSpeedDropdown = true }
                                 .padding(horizontal = 8.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Text(
                                 text = if (speed >= 1f) "${speed.toInt()}x" else "0.5x",

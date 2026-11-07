@@ -656,7 +656,9 @@ internal fun PaintViewModel.floodFill(
         floodFillPattern(x, y, tolerance, sampleMerged, expand, feather, closeGap)
         return
     }
-    runCore {
+    runCore(after = {
+        triggerTimelapseCapture(isChanged = true)
+    }) {
         ReverieCoreBridge.floodFillAt(x.toInt(), y.toInt(), tolerance, sampleMerged, expand, feather, closeGap)
         // 填充直接改了当前帧像素, 洋葱皮缓存要失效 (它不感知帧内改动)
         ReverieCoreBridge.flushOnionSkinCaches()

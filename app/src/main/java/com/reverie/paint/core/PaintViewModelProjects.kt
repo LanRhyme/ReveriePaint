@@ -126,7 +126,15 @@ internal fun PaintViewModel.saveProject(
             currentProjectFile = targetFile.absolutePath
             // Renaming from the save dialog moves this working association; do not let the
             // previous file and the renamed artwork share a mutable reference selection.
-            previousReferencePath?.takeIf { it != targetFile.absolutePath }?.let(referenceStore::forgetPath)
+            previousReferencePath?.takeIf { it != targetFile.absolutePath }?.let { oldPath ->
+                referenceStore.forgetPath(oldPath)
+                val oldFile = File(oldPath)
+                val oldFrames = oldFile.parentFile?.let { File(it, "frames/${oldFile.nameWithoutExtension}") }
+                val newFrames = targetFile.parentFile?.let { File(it, "frames/${targetFile.nameWithoutExtension}") }
+                if (oldFrames?.exists() == true && newFrames != null && oldFrames.absolutePath != newFrames.absolutePath) {
+                    oldFrames.renameTo(newFrames)
+                }
+            }
             referenceStore.bind(targetFile.absolutePath, referenceProfile)
             initialStrokeCount = totalStrokes
             isModified = false
@@ -1627,6 +1635,7 @@ internal fun PaintViewModel.goHome() {
     // 渲染/保存调用在 C++ 侧空文档防护中安全返回。
     runCore(render = false) { ReverieCoreBridge.closeDocument() }
     currentProjectFile = null
+    resetTimelapseCaptureState()
     // 退出即清待恢复方向；丢弃退出不写盘，方向回落到上次保存值。
     pendingCanvasOrientation = null
     docName = ""
