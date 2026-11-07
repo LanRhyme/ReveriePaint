@@ -1839,11 +1839,6 @@ internal fun PaintViewModel.startPainting(
 internal fun PaintViewModel.goReplay(p: com.reverie.paint.model.Project? = null) {
     stopPaintingTimer()
     resetAnimationState()
-    val frameCount = getTimelapseFrameCount(p)
-    if (frameCount == 0) {
-        showActionToast(R.string.toast_project_no_replay_data, R.drawable.ic_clock)
-        return
-    }
     replayProject = p
     currentPage = Page.REPLAY
 }

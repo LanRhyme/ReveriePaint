@@ -164,22 +164,27 @@ fun PaintViewModel.triggerTimelapseCapture(isChanged: Boolean = true, force: Boo
         return
     }
 
-    val tempJpg = File(appContext.cacheDir, "timelapse_snap_${nowMs}_${System.nanoTime() % 1000}.jpg")
+    val tempPng = File(appContext.cacheDir, "timelapse_snap_${nowMs}_${System.nanoTime() % 1000}.png")
     runCore(render = false) {
+        val saveStart = SystemClock.uptimeMillis()
         val saveOk = try {
-            ReverieCoreBridge.exportJpg(tempJpg.absolutePath, 75)
+            ReverieCoreBridge.savePng(tempPng.absolutePath)
         } catch (t: Throwable) {
-            Log.e(TAG_TIMELAPSE, "ReverieCoreBridge.exportJpg failed", t)
+            Log.e(TAG_TIMELAPSE, "ReverieCoreBridge.savePng failed", t)
             false
         }
+        val saveElapsed = SystemClock.uptimeMillis() - saveStart
+        if (saveElapsed > 300L) {
+            Log.w(TAG_TIMELAPSE, "ReverieCoreBridge.savePng took ${saveElapsed}ms")
+        }
 
-        if (saveOk && tempJpg.exists() && tempJpg.length() > 0L) {
+        if (saveOk && tempPng.exists() && tempPng.length() > 0L) {
             timelapseExecutor.execute {
                 val startUptime = SystemClock.uptimeMillis()
                 try {
                     // 1. 探测原始尺寸并计算降采样 inSampleSize (目标长边 ≤1280)
                     val boundsOpts = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeFile(tempJpg.absolutePath, boundsOpts)
+                    BitmapFactory.decodeFile(tempPng.absolutePath, boundsOpts)
                     val maxDim = maxOf(boundsOpts.outWidth, boundsOpts.outHeight)
                     var sampleSize = 1
                     if (maxDim > 1280) {
@@ -193,7 +198,7 @@ fun PaintViewModel.triggerTimelapseCapture(isChanged: Boolean = true, force: Boo
                         inSampleSize = sampleSize
                         inPreferredConfig = Bitmap.Config.ARGB_8888
                     }
-                    val bmp = BitmapFactory.decodeFile(tempJpg.absolutePath, decodeOpts)
+                    val bmp = BitmapFactory.decodeFile(tempPng.absolutePath, decodeOpts)
                     if (bmp != null) {
                         val savedFile = recorder.capture(bmp, nowMs, isChanged = true, force = force)
                         if (savedFile != null) {
@@ -204,7 +209,7 @@ fun PaintViewModel.triggerTimelapseCapture(isChanged: Boolean = true, force: Boo
                 } catch (t: Throwable) {
                     Log.e(TAG_TIMELAPSE, "Exception during timelapse capture processing", t)
                 } finally {
-                    if (tempJpg.exists()) tempJpg.delete()
+                    if (tempPng.exists()) tempPng.delete()
                     val elapsed = SystemClock.uptimeMillis() - startUptime
                     if (elapsed > 500L) {
                         Log.w(TAG_TIMELAPSE, "Timelapse capture processing took ${elapsed}ms > 500ms")
@@ -218,7 +223,7 @@ fun PaintViewModel.triggerTimelapseCapture(isChanged: Boolean = true, force: Boo
                 }
             }
         } else {
-            if (tempJpg.exists()) tempJpg.delete()
+            if (tempPng.exists()) tempPng.delete()
             isTimelapseCapturing.set(false)
             if (pendingTimelapseCapture.compareAndSet(true, false)) {
                 mainHandler.post {
