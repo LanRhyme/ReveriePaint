@@ -3707,5 +3707,11 @@
     <string name="timelapse_clear_btn">清理延时摄影</string>
     <string name="timelapse_clear_confirm">确认清理</string>
     <string name="timelapse_cleared_toast">延时摄影帧已成功清理</string>
+    <string name="timelapse_compact_btn">瘦身</string>
+    <string name="timelapse_compact_title">延时摄影瘦身</string>
+    <string name="timelapse_compact_desc">对历史序列帧进行隔帧抽稀减半，保留首尾帧与完整绘制过程，可立即释放约 50% 存储空间</string>
+    <string name="timelapse_compact_info">当前 %1$d 帧 → 瘦身后约 %2$d 帧（预计释放约 %3$s）</string>
+    <string name="timelapse_compact_confirm">立即瘦身</string>
+    <string name="timelapse_compact_success">瘦身完成，已释放 %1$s 存储空间</string>
 </resources>
 

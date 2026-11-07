@@ -3708,5 +3708,11 @@
     <string name="timelapse_clear_btn">Clear Timelapse</string>
     <string name="timelapse_clear_confirm">Confirm Clear</string>
     <string name="timelapse_cleared_toast">Timelapse frames cleared successfully</string>
+    <string name="timelapse_compact_btn">Thin</string>
+    <string name="timelapse_compact_title">Thin Timelapse Frames</string>
+    <string name="timelapse_compact_desc">Halve history frames by decimation while preserving full progress, freeing ~50% storage immediately</string>
+    <string name="timelapse_compact_info">Current %1$d frames → ~%2$d frames (estimated to free ~%3$s)</string>
+    <string name="timelapse_compact_confirm">Thin Now</string>
+    <string name="timelapse_compact_success">Completed, freed %1$s storage</string>
 </resources>
 

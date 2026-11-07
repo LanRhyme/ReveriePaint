@@ -92,12 +92,15 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.ui.window.Dialog
 import androidx.core.content.FileProvider
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.TimelapseExportOptions
 import com.reverie.paint.core.clearTimelapseData
+import com.reverie.paint.core.compactTimelapseData
 import com.reverie.paint.core.exitReplay
 import com.reverie.paint.core.exportTimelapseToGallery
 import com.reverie.paint.core.exportTimelapseToUri
@@ -116,6 +119,7 @@ import com.reverie.paint.ui.theme.Theme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.Locale
@@ -132,6 +136,9 @@ private object ReplayBitmapCache {
     fun get(path: String): Bitmap? = cache.get(path)
     fun put(path: String, bitmap: Bitmap) {
         cache.put(path, bitmap)
+    }
+    fun clear() {
+        cache.evictAll()
     }
 }
 
@@ -158,9 +165,11 @@ private class CreateDocumentWithMime : ActivityResultContract<Pair<String, Strin
 @Composable
 fun ReplayPage(vm: PaintViewModel) {
     val context = LocalContext.current
+    val coroutineScope = rememberCoroutineScope()
     val colors = Theme.current
     val project = vm.replayProject
-    val frameFiles = remember(project, vm.currentProjectFile) {
+    var refreshTrigger by remember { mutableIntStateOf(0) }
+    val frameFiles = remember(project, vm.currentProjectFile, refreshTrigger) {
         vm.getTimelapseFrameFiles(project)
     }
     val totalBytesSnapshot = remember(frameFiles) {
@@ -188,6 +197,9 @@ fun ReplayPage(vm: PaintViewModel) {
     var showExportSheet by remember { mutableStateOf(false) }
     // 清理延时摄影确认弹窗状态
     var showClearConfirmDialog by remember { mutableStateOf(false) }
+    // 延时摄影瘦身抽稀确认弹窗状态
+    var showCompactConfirmDialog by remember { mutableStateOf(false) }
+    var isCompacting by remember { mutableStateOf(false) }
     // 折叠式倍速选择菜单展开状态
     var showSpeedDropdown by remember { mutableStateOf(false) }
     // 自定义倍速弹窗状态
@@ -203,6 +215,7 @@ fun ReplayPage(vm: PaintViewModel) {
         when {
             showCustomSpeedDialog -> showCustomSpeedDialog = false
             showClearConfirmDialog -> showClearConfirmDialog = false
+            showCompactConfirmDialog -> if (!isCompacting) showCompactConfirmDialog = false
             showExportSheet -> showExportSheet = false
             else -> vm.exitReplay()
         }
@@ -519,8 +532,36 @@ fun ReplayPage(vm: PaintViewModel) {
 
                     Spacer(Modifier.weight(1f))
 
-                    // 右侧动作区：清理 + 导出
+                    // 右侧动作区：瘦身 + 清理 + 导出
                     if (frameFiles.isNotEmpty()) {
+                        // 延时摄影瘦身按钮 (仅在帧数 >= 10 时显示，避免过少帧数无意义抽稀)
+                        if (frameFiles.size >= 10) {
+                            Row(
+                                modifier = Modifier
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(colors.panelHi.copy(alpha = 0.6f))
+                                    .clickable { showCompactConfirmDialog = true }
+                                    .padding(horizontal = 12.dp, vertical = 7.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_cut),
+                                    contentDescription = stringResource(R.string.timelapse_compact_btn),
+                                    tint = colors.subText,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                                Spacer(Modifier.width(6.dp))
+                                Text(
+                                    text = stringResource(R.string.timelapse_compact_btn),
+                                    color = colors.text,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                )
+                            }
+
+                            Spacer(Modifier.width(10.dp))
+                        }
+
                         // 清理延时摄影按钮
                         Row(
                             modifier = Modifier
@@ -914,6 +955,117 @@ fun ReplayPage(vm: PaintViewModel) {
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.SemiBold,
                                 )
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        // ---- 延时摄影瘦身抽稀二次确认弹窗 ----
+        if (showCompactConfirmDialog) {
+            Dialog(onDismissRequest = { if (!isCompacting) showCompactConfirmDialog = false }) {
+                Surface(
+                    shape = RoundedCornerShape(18.dp),
+                    color = colors.panel,
+                    tonalElevation = 6.dp,
+                    modifier = Modifier
+                        .fillMaxWidth(0.9f)
+                        .widthIn(max = 420.dp),
+                ) {
+                    Column(
+                        modifier = Modifier.padding(22.dp),
+                        verticalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.timelapse_compact_title),
+                            color = colors.text,
+                            fontSize = 17.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                        Text(
+                            text = stringResource(R.string.timelapse_compact_desc),
+                            color = colors.subText,
+                            fontSize = 13.sp,
+                            lineHeight = 18.sp,
+                        )
+                        Box(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(colors.panelHi.copy(alpha = 0.5f))
+                                .padding(horizontal = 12.dp, vertical = 8.dp),
+                        ) {
+                            val estimatedNewCount = (frameFiles.size + 1) / 2
+                            val estimatedFreed = totalBytesSnapshot / 2
+                            Text(
+                                text = stringResource(
+                                    R.string.timelapse_compact_info,
+                                    frameFiles.size,
+                                    estimatedNewCount,
+                                    formatByteSize(estimatedFreed),
+                                ),
+                                color = colors.accent,
+                                fontSize = 12.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(top = 8.dp),
+                            horizontalArrangement = Arrangement.spacedBy(10.dp, Alignment.End),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            ReTextButton(
+                                text = stringResource(R.string.cancel),
+                                onClick = { if (!isCompacting) showCompactConfirmDialog = false },
+                                textColor = colors.text,
+                            )
+                            Button(
+                                onClick = {
+                                    if (isCompacting) return@Button
+                                    isCompacting = true
+                                    coroutineScope.launch {
+                                        withContext(Dispatchers.IO) {
+                                            val (newCount, freedBytes) = vm.compactTimelapseData(project)
+                                            ReplayBitmapCache.clear()
+                                            withContext(Dispatchers.Main) {
+                                                isCompacting = false
+                                                showCompactConfirmDialog = false
+                                                refreshTrigger++
+                                                currentFrameIndex = (currentFrameIndex / 2).coerceIn(0, (newCount - 1).coerceAtLeast(0))
+                                                android.widget.Toast.makeText(
+                                                    context,
+                                                    context.getString(
+                                                        R.string.timelapse_compact_success,
+                                                        formatByteSize(freedBytes),
+                                                    ),
+                                                    android.widget.Toast.LENGTH_SHORT,
+                                                ).show()
+                                            }
+                                        }
+                                    }
+                                },
+                                colors = ButtonDefaults.buttonColors(
+                                    containerColor = colors.accent,
+                                    contentColor = Color.White,
+                                ),
+                                shape = RoundedCornerShape(10.dp),
+                            ) {
+                                if (isCompacting) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(16.dp),
+                                        strokeWidth = 2.dp,
+                                        color = Color.White,
+                                    )
+                                } else {
+                                    Text(
+                                        text = stringResource(R.string.timelapse_compact_confirm),
+                                        fontSize = 13.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
                             }
                         }
                     }

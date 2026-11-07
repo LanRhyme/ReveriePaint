@@ -815,6 +815,25 @@ fun PaintViewModel.clearTimelapseData(project: Project? = null): Long {
 }
 
 /**
+ * 对指定或当前工程的延时摄影帧执行抽稀瘦身（减半）。
+ * 返回 Pair(瘦身后帧数, 释放的字节数)。
+ */
+fun PaintViewModel.compactTimelapseData(project: Project? = null): Pair<Int, Long> {
+    val dir = getTimelapseFramesDir(project) ?: return 0 to 0L
+    if (!dir.exists() || !dir.isDirectory) return 0 to 0L
+    val beforeBytes = getTimelapseTotalBytes(project)
+
+    val recorder = getOrCreateFrameRecorder()
+    val newCount = recorder?.decimate() ?: FrameRecorder.decimateDir(dir)
+    val afterBytes = getTimelapseTotalBytes(project)
+    val freed = (beforeBytes - afterBytes).coerceAtLeast(0L)
+
+    cachedFrameRecorder = null
+    cachedFramesDirPath = null
+    return newCount to freed
+}
+
+/**
  * 格式化字节大小显示。
  */
 fun formatByteSize(bytes: Long): String {
