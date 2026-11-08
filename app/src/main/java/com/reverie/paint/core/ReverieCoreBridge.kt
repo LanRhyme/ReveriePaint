@@ -736,20 +736,6 @@ object ReverieCoreBridge {
         outWritten: IntArray,
     ): Boolean
 
-    /**
-     * 视口 LoD 版本的瓦片写像素: [bitmap] 是**显示像素** (bufW x bufH), 覆盖文档矩形
-     * `bufW*docScale x bufH*docScale`; 每个输出像素取 docScale x docScale 的文档像素做盒式
-     * 平均。`docScale == 1` 时等价于 [renderTileToBuffer]。脏区仍是文档坐标。
-     */
-    external fun renderTileToBufferScaled(
-        bitmap: Bitmap,
-        docX: Int,
-        docY: Int,
-        docScale: Int,
-        dirtyRects: IntArray,
-        outWritten: IntArray,
-    ): Boolean
-
     external fun pickColorAt(
         x: Int,
         y: Int,

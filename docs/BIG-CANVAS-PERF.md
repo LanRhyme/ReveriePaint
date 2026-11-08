@@ -189,70 +189,26 @@ Active Tool: transform   Document: 6400 x 10240   Native Heap: Allocated=2598 MB
 真机回归（6400x10240）：标准 / 微调两种模式都能正常显示预览与手柄、无崩溃、施加后画布正常；
 变换框/手柄/网格全部按文档坐标绘制，缩放后仍与内容对齐。
 
-## 4.4 视口 LoD：缩放视图下只合成屏幕上看得见的分辨率（已做）
-
-问题：显示瓦片一律按文档 1:1 合成。整幅 52~65 MP 缩到屏幕（最常见的看画状态）时，
-显存里躺着 200~250 MB 瓦片、HWUI 每帧还要重传 MB 级纹理 —— 而屏幕上真正需要的
-只有 `屏幕像素量` 那么大的图。桌面 Krita 打开大图"感觉很轻"靠的就是 LoD 平面。
-
-做法（显示瓦片按 1/2、1/4、1/8 合成，档位跟着视图缩放走）：
-
-- **网格两级坐标**（`DisplayTileGrid`）：新增 `docScale` —— `width/height` 是显示像素
-  （= 文档像素 / docScale），`docW/docH` 是文档像素；瓦片位图只有显示尺寸，落点/尺寸按文档算
-  （`docLeft/docTop/docTileWidth/docTileHeight`、`tilesIntersectingDoc`）；
-- **引擎** `renderTileToBufferScaled`：位图 `bufW x bufH` 覆盖 `bufW*scale x bufH*scale` 的文档
-  矩形, 脏区仍是文档坐标, 一次 `readBytes` 读进来后做 `scale x scale` **盒式平均**
-  （最近邻在 1/4、1/8 下会把细线整条丢掉), 再走画布同一条 `PixelAlpha::toDisplay` 出 RGBA 预乘；
-- **档位**（`LodScalePolicy`）：`viewScale` → `ceil(1/viewScale)` 向上取 2 的幂, 夹在 1..8；
-  视图只在缩放停下来 250ms 后才切档（捏合过程中切档会反复重建网格）；文档刚打开、视图还没报
-  缩放时按"整幅适配视图"先估一档, 首帧就按正确档位建网格（否则会先建一份 200 MB 的 1:1 网格
-  再扔掉）；
-- **让开的路径**：前缓冲真墨（烤像素按文档坐标, LoD 下再维护一套没有收益）与
-  `composeTileSnapshot`（参考窗口/液化按整图消费）在 `docScale > 1` 时跳过, 放大回 1:1 自动恢复。
-
-真机实测（OPD2413, 6400x8192 空白文档, 同一串 12 次快速运笔, 整幅适配视图）：
-
-| 指标 | 1:1（`debug.reverie.lod 0`） | LoD 1/4（默认） |
-|---|---|---|
-| 显示瓦片显存 | 200 MB（208 张） | **12 MB（16 张）** |
-| 每帧纹理重传 | 5.3 MB | **0.5 MB** |
-| 帧时间 p50 / p90 / p95 | 15 / 19 / 23 ms | **8 / 10 / 11 ms** |
-| 掉帧率 | 45.9% | **1.0%** |
-| Native Heap | 1346 MB | 1113 MB |
-| Graphics | 193 MB | 96 MB |
-
-质量：缩到 1/4 用盒式平均，线稿边缘与笔画位置与 1:1 一致（不是最近邻的锯齿/丢线）；
-放大回 100% 自动切回 1:1 重写网格，实测 0.64 → 档位 2、1.11 → 档位 1，切换无跳变。
-
-开关：`debug.reverie.lod`（默认 1 开）、`debug.reverie.lod_max`（最大档位，默认 8）。
-
-仍按文档分辨率做、LoD 帮不上的部分：引擎侧的**合成**（`composite=7ms` 量级, 与脏区面积同阶）
-与油画笔的颜料混色 —— 那是"合成分辨率"层面的事，下一步才考虑。
-
 ## 5. 未做（下一步收益排序）
 
 | 优先级 | 项 | 说明 |
 |---|---|---|
 | 1 | **视口内按需分配瓦片（懒瓦片）** | 现在 `ensureDisplayTileGrid` 一次性把整份文档的瓦片全部分配 + 全量写入（250 MB / 首帧 153 ms，实测）。把"当前视口"（`CanvasTouchView.visibleBitmapBounds()`，已有）投给渲染线程后，只分配/只写视口内的瓦片（100% 缩放下 ≈20 张 = 20 MB），视口外的瓦片标脏留待滚动进来再写。需要小心 COW 状态机与 `publishStaging` 的"整网格写完才发布"闸门 |
-| 1b | **合成分辨率也走 LoD** | 现在显示瓦片按 1/4 合成了，但引擎每帧的投影重组（`composite=` 7ms 量级）仍按文档分辨率跑；真要在超大画布上继续提帧率，得让投影也按档位合成（Krita 的 LoD 平面） |
-| 4 | 自动保存 | `autoSaveProject()` 走引擎线程整份编码（实测 6400x8192 约 1.6s + PNG 2.3s），大画布上是一次秒级冻结。应改成分块/增量或至少延后 + 提示 |
-| 5 | 参考窗口整图快照 | `composeTileSnapshot()` 在参考窗口/液化需要整图时拼一份全幅位图（三缓冲，超大画布 = 3 x 250 MB）。LoD 档位 > 1 时已直接跳过（那些功能只在 1:1 下用），仍是 1:1 下的隐患 |
+| 2 | **视口 LoD 合成（缩放到 1/4~1/16）** | 适配"整幅 65 MP 缩到屏幕"这个最常见场景：此时视口覆盖整份文档，懒瓦片也帮不上。桌面 Krita 的"打开大图感觉即时"靠的就是 LoD 平面。引擎侧可以用 Krita 的 `createThumbnailDeviceOversampled` 思路（开销按**输出**像素算，不按源像素）做 1/2^k 采样，但仍需按缩放级别切网格，且要处理笔画在 LoD 层上的增量 |
+| 4 | 自动保存 / 变换预览的全幅位图 | `startTransformPreview()` 仍 `createBitmap(docWidth, docHeight)`（250 MB）；`autoSaveProject()` 走引擎线程整份编码。两者都是"一次性长任务"，应改成可见区域/分块，或至少在超大画布上延后 + 提示 |
+| 5 | 参考窗口整图快照 | `composeTileSnapshot()` 在参考窗口/液化需要整图时拼一份全幅位图（三缓冲，超大画布 = 3 x 250 MB）。仅在那些功能打开时才发生 |
 
 ## 6. 验证
 
-- 机械：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（`DisplayTileGridTest` 的
-  65.5 MP / 超预算 / 预算可配断言、`LodScalePolicyTest`、`SelectionOverlayPolicyTest`、
-  `TransformPreviewPolicyTest`）、`assembleDebug -PbuildNative`、`check_jni_symbols.sh`
-  （336/336 x 2 ABI）、`check_native_symbols.sh`。
+- 机械：`:app:compileDebugKotlin`、`:app:testDebugUnitTest`（`DisplayTileGridTest` 新增
+  65.5 MP / 超预算 / 预算可配三组断言）。
 - 真机（已做，OPD2413 / Android 16 / 16GB，见 §4 与 §4.1 的实测表）：
   6400x10240 PSD 导入 → 描笔 94~114 fps（旧路径 13~14 fps）、p95 27ms（旧 150ms）、
   每帧纹理 0.7~1.0 MB（旧 250 MB）、Native Heap 1.37 GB（旧 1.66 GB）；
   延时摄影抓帧 28~32 ms（旧 90~95 ms），2048x2048 上 11 ms（旧 110~117 ms）；
-  另已手测：高倍缩放无瓦片接缝、撤销/重做、图层显隐、画廊缩略图；
-  LoD：整幅适配时 8/10/11 ms、掉帧 1.0%、显存 12 MB（见 §4.4），放大到 100% 自动切回 1:1。
+  另已手测：高倍缩放无瓦片接缝、撤销/重做、图层显隐、画廊缩略图。
 - 复现命令：
   ```bash
   adb shell setprop debug.reverie.perf 1        # RP-PERF / ReveriePerf 日志
   adb shell setprop debug.reverie.display_tiles 0   # 退回整图双缓冲（对照）
-  adb shell setprop debug.reverie.lod 0             # 关掉视口 LoD（对照）
   ```

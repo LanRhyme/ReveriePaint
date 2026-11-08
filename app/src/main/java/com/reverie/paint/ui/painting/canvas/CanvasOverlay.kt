@@ -188,9 +188,8 @@ internal fun CanvasOverlay(
 
         val tiles = vm.displayTiles.drawable()
         val displayBmp = if (tiles != null) null else vm.displayBitmap?.takeIf { !it.isRecycled }
-        // 覆盖层一律画在**文档**空间: LoD 下瓦片位图是缩小过的 (grid.width < docW)。
-        val bmpW = tiles?.grid?.docW ?: displayBmp?.width ?: vm.docWidth.takeIf { it > 0 } ?: 1
-        val bmpH = tiles?.grid?.docH ?: displayBmp?.height ?: vm.docHeight.takeIf { it > 0 } ?: 1
+        val bmpW = tiles?.grid?.width ?: displayBmp?.width ?: vm.docWidth.takeIf { it > 0 } ?: 1
+        val bmpH = tiles?.grid?.height ?: displayBmp?.height ?: vm.docHeight.takeIf { it > 0 } ?: 1
         val bmp = object {
             // 上游 ed32b1a8 口径 (瓦片网格 → 整图 → 文档); B 线 overlayBitmapSize 仅供前缓冲重放路径使用
             val width: Int = bmpW

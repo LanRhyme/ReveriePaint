@@ -1022,15 +1022,6 @@ public:
     bool renderTileToBuffer(quint8 *buffer, int bufW, int bufH, int docX, int docY,
                             const QRect *dirtyRects, int dirtyCount, QRect *outWritten);
 
-    /**
-     * 视口 LoD 的瓦片写像素: 位图是显示像素 (bufW x bufH), 覆盖 `bufW*scale x bufH*scale`
-     * 的文档矩形; 每个输出像素取 scale x scale 的文档像素做盒式平均。
-     * scale <= 1 时直接转给 [renderTileToBuffer]。
-     */
-    bool renderTileToBufferScaled(quint8 *buffer, int bufW, int bufH,
-                                  int docX, int docY, int scale,
-                                  const QRect *dirtyRects, int dirtyCount, QRect *outWritten);
-
     // Sample the composited color at document-space coordinates;
     // returns "#rrggbb" or empty if outside the document.
     QString pickColorAt(int x, int y, bool currentLayerOnly = false);

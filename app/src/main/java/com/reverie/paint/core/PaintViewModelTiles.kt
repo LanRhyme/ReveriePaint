@@ -82,12 +82,10 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
             hitList[hits++] = i
         }
     }
-    val docScale = grid.docScale
     for (d in 0 until dirtyCount) {
         val b = d * 4
-        // 引擎给的脏区是**文档**坐标; LoD 下要先落到显示瓦片上 (tilesIntersectingDoc 内部换算)。
         val n =
-            grid.tilesIntersectingDoc(
+            grid.tilesIntersecting(
                 dirtyRects[b],
                 dirtyRects[b + 1],
                 dirtyRects[b] + dirtyRects[b + 2],
@@ -130,11 +128,8 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
         val ty = idx / cols
         val tw = grid.tileWidth(tx)
         val th = grid.tileHeight(ty)
-        // 位图像素尺寸 = tw x th; 它在文档空间里的落点/尺寸要乘 docScale (LoD)。
-        val left = grid.docLeft(tx)
-        val top = grid.docTop(ty)
-        val docTw = grid.docTileWidth(tx)
-        val docTh = grid.docTileHeight(ty)
+        val left = grid.tileLeft(tx)
+        val top = grid.tileTop(ty)
         val old = tiles.get(idx)
         val validOld = old != null && !old.isRecycled && old.width == tw && old.height == th
         // 位图尺寸对不上 (角落瓦片/文档尺寸变了) 只能整块写。
@@ -156,11 +151,11 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
         val ok =
             try {
                 if (full) {
-                    ReverieCoreBridge.renderTileToBufferScaled(dst, left, top, docScale, EMPTY_DIRTY, written)
+                    ReverieCoreBridge.renderTileToBuffer(dst, left, top, EMPTY_DIRTY, written)
                 } else {
                     // 就地写时 dst 里就是最新的完整像素; 换片时若本帧有某块脏区已完全盖住
                     // 整张瓦片, 也不必先整块拷贝旧像素。
-                    if (!inPlace && !isTileCoveredByDirty(dirtyRects, dirtyCount, left, top, docTw, docTh)) {
+                    if (!inPlace && !isTileCoveredByDirty(dirtyRects, dirtyCount, left, top, tw, th)) {
                         // 后备位图若是本瓦片几帧前的旧版本, 只补拷之后写过的区域 (逐像素同整块拷贝)。
                         val mode =
                             if (spareVersion >= 0) ledger.deltaSince(idx, spareVersion, deltaBox) else TileDeltaLedger.DELTA_FULL
@@ -170,7 +165,7 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
                             else -> copyTileInto(old!!, dst)
                         }
                     }
-                    ReverieCoreBridge.renderTileToBufferScaled(dst, left, top, docScale, dirtyRects, written)
+                    ReverieCoreBridge.renderTileToBuffer(dst, left, top, dirtyRects, written)
                 }
             } catch (t: Throwable) {
                 android.util.Log.e("PaintViewModel", "renderTileToBuffer failed at ($tx,$ty)", t)
@@ -199,14 +194,13 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
                 if (validOld) st.retireTileToCooling(old, idx, prevVersion) else st.retireToCooling(old)
             }
         }
-        recordTileWrite(ledger, idx, full, left, top, tw, th, written, dirtyRects, dirtyCount, docScale)
+        recordTileWrite(ledger, idx, full, left, top, tw, th, written, dirtyRects, dirtyCount)
         if (needsFull[idx]) anyFull = true
         needsFull[idx] = false
-        // written 是瓦片局部**显示**像素; 换成文档坐标才能做失效/前缓冲/账本
-        val wl = left + written[0] * docScale
-        val wt = top + written[1] * docScale
-        val wr = wl + written[2] * docScale
-        val wb = wt + written[3] * docScale
+        val wl = left + written[0]
+        val wt = top + written[1]
+        val wr = wl + written[2]
+        val wb = wt + written[3]
         if (wl < writtenLeft) writtenLeft = wl
         if (wt < writtenTop) writtenTop = wt
         if (wr > writtenRight) writtenRight = wr
@@ -263,13 +257,10 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
     publishTileSnapshotIfNeeded(grid, tiles)
     tileRevision++
     // 前缓冲真墨: 运笔按住时把本帧离散脏区从瓦片烤好贴上前缓冲, 接住了就不失效主画布。
-    // 视口 LoD 下瓦片位图是缩小过的, 前缓冲那条路按文档像素烤 —— 直接让开 (交给主画布按瓦片贴),
-    // 缩放视图下多几毫秒延迟可以接受, 换来不用为两个分辨率各维护一套烘焙逻辑。
     val sink = realInkSink
     val published = st.published
-    val lodActive = grid.docScale > 1
     val kept =
-        !lodActive && sink != null && published != null &&
+        sink != null && published != null &&
             sink.presentTileFrame(
                 published,
                 dirtyRects,
@@ -360,27 +351,19 @@ private fun PaintViewModel.onTileRenderNoWork() {
  */
 private fun PaintViewModel.ensureDisplayTileGrid(w: Int, h: Int): PublishedTiles? {
     val st = displayTiles
-    // 视口 LoD: 网格的 docScale 跟着视图缩放走。视图还没报过缩放 (刚打开文档的第一帧)
-    // 就先按"整幅适配屏幕"估一个档位 —— 否则第一帧会先按 1:1 建一份 200~250MB 的网格,
-    // 300ms 后再整个扔掉重建。
-    val docScale = resolveDisplayDocScale(w, h)
     val existing = st.published
     // displayBufferInvalid 覆盖"尺寸没变但文档换了"的情况 (加载工程、新建画布、动画导出),
     // 那些路径只置标志不置尺寸 —— 不重建就会留着上一份文档的瓦片像素。
-    if (existing != null && existing.grid.docW == w && existing.grid.docH == h &&
-        existing.grid.docScale == docScale && !displayBufferInvalid
-    ) {
+    if (existing != null && existing.grid.width == w && existing.grid.height == h && !displayBufferInvalid) {
         st.dropStaging()
         return existing
     }
     // 上一帧已经为同一尺寸开好暂存网格但还没写完: 接着写它, 不重复分配。
     val staged = st.staging
-    if (staged != null && staged.grid.docW == w && staged.grid.docH == h &&
-        staged.grid.docScale == docScale && !displayBufferInvalid
-    ) {
+    if (staged != null && staged.grid.width == w && staged.grid.height == h && !displayBufferInvalid) {
         return staged
     }
-    val grid = DisplayTileGrid(w, h, DisplayTileGrid.TILE, docScale)
+    val grid = DisplayTileGrid(w, h)
     if (grid.isEmpty) return null
     // 大画布上一次分配失败常常只是瞬时压力 (加载峰值 / 旧文档还没回收): 先回收一轮再试一次,
     // 两次都失败才熔断。否则一次瞬时 OOM 会把这份文档永久钉在最差的整图路径上。
@@ -422,34 +405,12 @@ private fun PaintViewModel.ensureDisplayTileGrid(w: Int, h: Int): PublishedTiles
     if (PerfTrace.enabled) {
         // 大画布上这行是"到底走了哪条路径、要多少显存"的唯一证据 (250MB 级文档尤其需要)。
         PerfTrace.log(
-            "displayTiles doc=${grid.docW}x${grid.docH} scale=${grid.docScale} " +
-                "grid=${grid.width}x${grid.height} tiles=${grid.tileCount} " +
-                "bytes=${DisplayTileGrid.displayBytes(grid.width, grid.height) / (1024L * 1024L)}MB " +
+            "displayTiles grid=${grid.width}x${grid.height} tiles=${grid.tileCount} " +
+                "bytes=${DisplayTileGrid.displayBytes(w, h) / (1024L * 1024L)}MB " +
                 "budget=${DisplayTileFlags.budgetBytes / (1024L * 1024L)}MB",
         )
     }
     return st.staging
-}
-
-/**
- * 建网格前决定 LoD 档位。视图已经报过缩放就用它 (主循环里 [PaintViewModel.onViewScaleChanged]
- * 维护), 还没报过就按"文档整幅适配视图"估一次并写回 [PaintViewModel.displayDocScale] —— 第一帧
- * 就按正确档位建网格, 省掉一次 200~250MB 的建了就扔。
- */
-private fun PaintViewModel.resolveDisplayDocScale(w: Int, h: Int): Int {
-    if (!DisplayTileFlags.lodEnabled) return 1
-    if (lastViewScale > 0f) return displayDocScale
-    if (w <= 0 || h <= 0) return displayDocScale
-    val vw = viewportW
-    val vh = viewportH
-    if (vw <= 0 || vh <= 0) return displayDocScale
-    val fit = minOf(vw.toFloat() / w.toFloat(), vh.toFloat() / h.toFloat())
-    val est = com.reverie.paint.model.LodScalePolicy.choose(fit, DisplayTileFlags.lodMaxScale)
-    if (est != displayDocScale && PerfTrace.enabled) {
-        PerfTrace.log("lod estimate scale=$est fit=$fit (视图还没报缩放)")
-    }
-    displayDocScale = est
-    return est
 }
 
 /** 切回整图路径 (缩放回退 / 动画播放 / 回放页) 或换文档时丢掉瓦片网格。只在渲染线程调用。 */
@@ -560,7 +521,6 @@ private fun recordTileWrite(
     written: IntArray,
     rects: IntArray,
     count: Int,
-    docScale: Int = 1,
 ) {
     if (full) {
         ledger.recordWrite(idx, 0, 0, tw, th)
@@ -576,14 +536,12 @@ private fun recordTileWrite(
         r = Int.MIN_VALUE
         b = Int.MIN_VALUE
     }
-    val s = if (docScale > 0) docScale else 1
     for (d in 0 until count) {
         val o = d * 4
-        // 脏区是文档坐标, 账本记的是**位图**像素 (LoD 下差 docScale 倍): 向外取整再夹紧。
-        val dl = maxOf((rects[o] - left) / s, 0)
-        val dt = maxOf((rects[o + 1] - top) / s, 0)
-        val dr = minOf((rects[o] + rects[o + 2] - left + s - 1) / s, tw)
-        val db = minOf((rects[o + 1] + rects[o + 3] - top + s - 1) / s, th)
+        val dl = maxOf(rects[o] - left, 0)
+        val dt = maxOf(rects[o + 1] - top, 0)
+        val dr = minOf(rects[o] + rects[o + 2] - left, tw)
+        val db = minOf(rects[o + 1] + rects[o + 3] - top, th)
         if (dl >= dr || dt >= db) continue
         if (dl < l) l = dl
         if (dt < t) t = dt
@@ -611,9 +569,6 @@ private fun copyTileInto(src: Bitmap, dst: Bitmap) {
  * 整图快照是整幅画布的软件拼装, 每帧都做会把瓦片网格省下的带宽原样还回去。
  */
 private fun PaintViewModel.publishTileSnapshotIfNeeded(grid: DisplayTileGrid, tiles: AtomicReferenceArray<Bitmap?>) {
-    // 视口 LoD 下瓦片位图不是文档像素, 拼出来的"整图"尺寸对不上 (参考窗口/液化都按文档尺寸消费),
-    // 这一层直接跳过: 真正需要整图时把视图缩放放大到 1:1 就会重建网格。
-    if (grid.docScale > 1) return
     val liquifyPending = liquifyPresentation.isPending(liquifyPresentationGesture)
     val refCanvasActive = referenceWindowOpen && referenceActiveTab == 1
     if (!refCanvasActive && !liquifyPending) return
