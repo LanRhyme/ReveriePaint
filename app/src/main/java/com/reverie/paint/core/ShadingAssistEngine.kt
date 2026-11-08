@@ -23,6 +23,7 @@ import java.nio.FloatBuffer
 import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 import kotlin.math.sqrt
 
 /**
@@ -69,7 +70,9 @@ object ShadingAssistEngine {
         modelFile: File?,
         useAiModel: Boolean = false,
         volumeSmoothness: Float = 30.0f,
-        targetResolution: Int = 1024
+        targetResolution: Int = 1024,
+        rollingBallContour: Boolean = true,
+        rollingBallRadius: Int = 8
     ): NormalField = withContext(Dispatchers.Default) {
         if (useAiModel && modelFile != null && modelFile.exists() && modelFile.length() > 0) {
             try {
@@ -81,7 +84,7 @@ object ShadingAssistEngine {
                 Log.w(TAG, "ONNX inference failed, smoothly falling back to CSP normal field", e)
             }
         }
-        generateCspNormalField(baseBitmap, volumeSmoothness, targetResolution)
+        generateCspNormalField(baseBitmap, volumeSmoothness, targetResolution, rollingBallContour, rollingBallRadius)
     }
 
     /**
@@ -391,7 +394,9 @@ object ShadingAssistEngine {
     fun generateCspNormalField(
         baseBitmap: Bitmap,
         volumeSmoothness: Float = 30.0f,
-        targetResolution: Int = 1024
+        targetResolution: Int = 1024,
+        rollingBallContour: Boolean = true,
+        rollingBallRadius: Int = 8
     ): NormalField {
         val w = min(baseBitmap.width, targetResolution).coerceAtLeast(64)
         val h = min(baseBitmap.height, targetResolution).coerceAtLeast(64)
@@ -406,29 +411,57 @@ object ShadingAssistEngine {
         scaledBase.getPixels(basePixels, 0, w, 0, 0, w, h)
         if (scaledBase != baseBitmap) scaledBase.recycle()
 
-        // 1. 构建底色外部边界并求解欧氏距离场 (从画布透明处向内扩散)
-        val dist = FloatArray(w * h) {
-            val a = (basePixels[it] ushr 24) and 0xFF
-            if (a < 25) 0.0f else 1e6f
-        }
+        // 1. 构建底色外部边界并求解欧氏距离场 (从画布透明/背景处向内扩散)
+        val isForeground = BooleanArray(w * h)
         var hasTransparent = false
         for (p in 0 until w * h) {
-            if (dist[p] == 0f) {
+            val a = (basePixels[p] ushr 24) and 0xFF
+            if (a < 25) {
                 hasTransparent = true
-                break
+            } else {
+                isForeground[p] = true
             }
         }
+
+        // 若整张画布全不透明 (如在白底平铺背景上绘制角色)，通过亮度区分亮背景与角色前景
         if (!hasTransparent) {
-            // 若整张画布全不透明 (如在单层平铺背景上绘制)，将画布最外圈边缘作为距离场边界
-            for (x in 0 until w) {
-                dist[0 * w + x] = 0f
-                dist[(h - 1) * w + x] = 0f
+            var hasWhiteBg = false
+            for (p in 0 until w * h) {
+                val pix = basePixels[p]
+                val r = (pix shr 16) and 0xFF
+                val g = (pix shr 8) and 0xFF
+                val b = pix and 0xFF
+                val lum = (r * 299 + g * 587 + b * 114) / 1000
+                if (lum >= 245) {
+                    isForeground[p] = false
+                    hasWhiteBg = true
+                } else {
+                    isForeground[p] = true
+                }
             }
-            for (y in 0 until h) {
-                dist[y * w + 0] = 0f
-                dist[y * w + (w - 1)] = 0f
+            if (!hasWhiteBg) {
+                // 若全图都是深色无背景，降级为将画布最外圈边缘作为背景边界
+                for (x in 0 until w) {
+                    isForeground[0 * w + x] = false
+                    isForeground[(h - 1) * w + x] = false
+                }
+                for (y in 0 until h) {
+                    isForeground[y * w + 0] = false
+                    isForeground[y * w + (w - 1)] = false
+                }
             }
         }
+
+        // 原理 1: 轮廓滚球闭合 (Rolling Ball Silhouette Closure)
+        // 通过形态学闭合运算 (膨胀后腐蚀) 自动闭合断裂线稿或发丝缝隙，杜绝距离场向内漏气
+        val closedForeground = if (rollingBallContour) {
+            val scaledRad = ((rollingBallRadius * w) / 512.0f).toInt().coerceIn(2, 24)
+            morphologicalClose(isForeground, w, h, scaledRad)
+        } else {
+            isForeground
+        }
+
+        val dist = FloatArray(w * h) { if (closedForeground[it]) 1e6f else 0.0f }
         computeDistanceField(dist, w, h)
 
         // 2. Sobel 梯度
@@ -555,6 +588,281 @@ object ShadingAssistEngine {
     }
 
     /**
+     * 形态学闭合运算 (Dilation followed by Erosion)
+     * 滚球闭合断裂线稿或缝隙，使距离场不向内漏气
+     */
+    private fun morphologicalClose(mask: BooleanArray, w: Int, h: Int, radius: Int): BooleanArray {
+        if (radius <= 0) return mask
+        val r = radius.coerceIn(1, 24)
+        val temp = BooleanArray(w * h)
+        val dilated = BooleanArray(w * h)
+
+        // 水平膨胀 (滑动窗口 O(1))
+        for (y in 0 until h) {
+            val row = y * w
+            var activeCount = 0
+            for (x in 0 until min(w, r + 1)) {
+                if (mask[row + x]) activeCount++
+            }
+            for (x in 0 until w) {
+                temp[row + x] = (activeCount > 0)
+                val removeX = x - r
+                if (removeX >= 0 && mask[row + removeX]) activeCount--
+                val addX = x + r + 1
+                if (addX < w && mask[row + addX]) activeCount++
+            }
+        }
+
+        // 垂直膨胀
+        for (x in 0 until w) {
+            var activeCount = 0
+            for (y in 0 until min(h, r + 1)) {
+                if (temp[y * w + x]) activeCount++
+            }
+            for (y in 0 until h) {
+                dilated[y * w + x] = (activeCount > 0)
+                val removeY = y - r
+                if (removeY >= 0 && temp[removeY * w + x]) activeCount--
+                val addY = y + r + 1
+                if (addY < h && temp[addY * w + x]) activeCount++
+            }
+        }
+
+        // 腐蚀 (Erosion)
+        val closed = BooleanArray(w * h)
+
+        // 水平腐蚀
+        for (y in 0 until h) {
+            val row = y * w
+            var activeCount = 0
+            for (x in 0 until min(w, r + 1)) {
+                if (dilated[row + x]) activeCount++
+            }
+            for (x in 0 until w) {
+                val winLeft = max(0, x - r)
+                val winRight = min(w - 1, x + r)
+                val winSize = winRight - winLeft + 1
+                temp[row + x] = (activeCount >= winSize)
+
+                val removeX = x - r
+                if (removeX >= 0 && dilated[row + removeX]) activeCount--
+                val addX = x + r + 1
+                if (addX < w && dilated[row + addX]) activeCount++
+            }
+        }
+
+        // 垂直腐蚀
+        for (x in 0 until w) {
+            var activeCount = 0
+            for (y in 0 until min(h, r + 1)) {
+                if (temp[y * w + x]) activeCount++
+            }
+            for (y in 0 until h) {
+                val winTop = max(0, y - r)
+                val winBottom = min(h - 1, y + r)
+                val winSize = winBottom - winTop + 1
+                closed[y * w + x] = (activeCount >= winSize)
+
+                val removeY = y - r
+                if (removeY >= 0 && temp[removeY * w + x]) activeCount--
+                val addY = y + r + 1
+                if (addY < h && temp[addY * w + x]) activeCount++
+            }
+        }
+
+        return closed
+    }
+
+    /**
+     * 将像素归类为 16 种材质色彩族 (4 种无彩色明度族 + 12 种有彩色色相族)
+     */
+    private fun classifyPixelMaterial(pixel: Int): Int {
+        val r = (pixel shr 16) and 0xFF
+        val g = (pixel shr 8) and 0xFF
+        val b = pixel and 0xFF
+        val maxC = max(r, max(g, b))
+        val minC = min(r, min(g, b))
+        val delta = maxC - minC
+        val lum = (maxC + minC) / (2f * 255f)
+        val sat = if (delta == 0) 0f else delta.toFloat() / (if (lum <= 0.5f) (maxC + minC).toFloat() else (510f - maxC - minC).toFloat())
+
+        if (sat < 0.12f) {
+            return (lum * 3.99f).toInt().coerceIn(0, 3)
+        }
+
+        var hue = if (delta == 0) 0f else when (maxC) {
+            r -> ((g - b).toFloat() / delta) % 6f
+            g -> ((b - r).toFloat() / delta) + 2f
+            else -> ((r - g).toFloat() / delta) + 4f
+        } * 60f
+        if (hue < 0f) hue += 360f
+
+        val sector = (hue / 30f).toInt().coerceIn(0, 11)
+        return 4 + sector
+    }
+
+    /**
+     * 原理 7: 连通域清碎渣与闭塞孔洞填充 (BFS 过滤小于 threshold 的孤立阴影斑点与针孔)
+     */
+    private fun cleanIslandsAndHoles(
+        mask: ByteArray,
+        scores: FloatArray,
+        w: Int,
+        h: Int,
+        threshold: Int
+    ) {
+        val count = w * h
+        if (count == 0 || threshold <= 1) return
+        val visited = BooleanArray(count)
+        val queue = IntArray(count)
+        val compPixels = IntArray(threshold + 1)
+
+        // 1. 清除孤立微小阴影碎渣 (mask > 0 的小连通域清零)
+        for (i in 0 until count) {
+            if (visited[i] || mask[i].toInt() == 0 || scores[i] <= -900f) continue
+            var head = 0
+            var tail = 0
+            queue[tail++] = i
+            visited[i] = true
+
+            var compSize = 0
+            var isSmall = true
+
+            while (head < tail) {
+                val curr = queue[head++]
+                if (compSize < threshold) {
+                    compPixels[compSize] = curr
+                }
+                compSize++
+                if (compSize > threshold) {
+                    isSmall = false
+                }
+
+                val cx = curr % w
+                val cy = curr / w
+
+                if (cx > 0) {
+                    val n = curr - 1
+                    if (!visited[n] && mask[n].toInt() > 0 && scores[n] > -900f) {
+                        visited[n] = true
+                        queue[tail++] = n
+                    }
+                }
+                if (cx < w - 1) {
+                    val n = curr + 1
+                    if (!visited[n] && mask[n].toInt() > 0 && scores[n] > -900f) {
+                        visited[n] = true
+                        queue[tail++] = n
+                    }
+                }
+                if (cy > 0) {
+                    val n = curr - w
+                    if (!visited[n] && mask[n].toInt() > 0 && scores[n] > -900f) {
+                        visited[n] = true
+                        queue[tail++] = n
+                    }
+                }
+                if (cy < h - 1) {
+                    val n = curr + w
+                    if (!visited[n] && mask[n].toInt() > 0 && scores[n] > -900f) {
+                        visited[n] = true
+                        queue[tail++] = n
+                    }
+                }
+            }
+
+            if (isSmall && compSize <= threshold) {
+                for (k in 0 until compSize) {
+                    mask[compPixels[k]] = 0
+                }
+            }
+        }
+
+        // 2. 闭塞孔洞填充 (角色内部 mask == 0 的微小孔洞填补为 1)
+        visited.fill(false)
+        for (i in 0 until count) {
+            if (visited[i] || mask[i].toInt() != 0 || scores[i] <= -900f) continue
+            var head = 0
+            var tail = 0
+            queue[tail++] = i
+            visited[i] = true
+
+            var compSize = 0
+            var isSmall = true
+            var touchesBackground = false
+
+            while (head < tail) {
+                val curr = queue[head++]
+                if (compSize < threshold) {
+                    compPixels[compSize] = curr
+                }
+                compSize++
+                if (compSize > threshold) {
+                    isSmall = false
+                }
+
+                val cx = curr % w
+                val cy = curr / w
+
+                if (cx == 0 || cx == w - 1 || cy == 0 || cy == h - 1) {
+                    touchesBackground = true
+                }
+
+                if (cx > 0) {
+                    val n = curr - 1
+                    if (!visited[n]) {
+                        if (scores[n] <= -900f) {
+                            touchesBackground = true
+                        } else if (mask[n].toInt() == 0) {
+                            visited[n] = true
+                            queue[tail++] = n
+                        }
+                    }
+                }
+                if (cx < w - 1) {
+                    val n = curr + 1
+                    if (!visited[n]) {
+                        if (scores[n] <= -900f) {
+                            touchesBackground = true
+                        } else if (mask[n].toInt() == 0) {
+                            visited[n] = true
+                            queue[tail++] = n
+                        }
+                    }
+                }
+                if (cy > 0) {
+                    val n = curr - w
+                    if (!visited[n]) {
+                        if (scores[n] <= -900f) {
+                            touchesBackground = true
+                        } else if (mask[n].toInt() == 0) {
+                            visited[n] = true
+                            queue[tail++] = n
+                        }
+                    }
+                }
+                if (cy < h - 1) {
+                    val n = curr + w
+                    if (!visited[n]) {
+                        if (scores[n] <= -900f) {
+                            touchesBackground = true
+                        } else if (mask[n].toInt() == 0) {
+                            visited[n] = true
+                            queue[tail++] = n
+                        }
+                    }
+                }
+            }
+
+            if (isSmall && compSize <= threshold && !touchesBackground) {
+                for (k in 0 until compSize) {
+                    mask[compPixels[k]] = 1
+                }
+            }
+        }
+    }
+
+    /**
      * 实时渲染阴影位图 (可在后台并发线程或协程中极速执行)
      * 输出的 Bitmap 可直接交由 Compose 60fps 实时预览或盖印进图层
      */
@@ -639,6 +947,23 @@ object ShadingAssistEngine {
         val cutoff2 = cutoff + (threshold1 - threshold2).coerceAtLeast(0.1f) * 1.4f
         val aoIntensity = config.ambientOcclusionIntensity.coerceIn(0f, 1f)
 
+        // 材质色彩分族极值统计 (用于原理 9 相对测光)
+        val clusterMinLum = FloatArray(16) { 1.0f }
+        val clusterMaxLum = FloatArray(16) { 0.0f }
+        if (config.materialAdaptiveMetering) {
+            for (i in 0 until outWidth * outHeight) {
+                val p = basePixels[i]
+                if (((p ushr 24) and 0xFF) < 5) continue
+                val cId = classifyPixelMaterial(p)
+                val r = (p shr 16) and 0xFF
+                val g = (p shr 8) and 0xFF
+                val b = p and 0xFF
+                val lum = (r * 299 + g * 587 + b * 114) / 255000f
+                if (lum < clusterMinLum[cId]) clusterMinLum[cId] = lum
+                if (lum > clusterMaxLum[cId]) clusterMaxLum[cId] = lum
+            }
+        }
+
         // Pass 1: 计算基础阴影评分 (体积法线三维点积 + 定向投射遮挡 + 线稿深缝接触 AO)
         coroutineScope {
             val jobs = (0 until cores).map { coreIdx ->
@@ -669,8 +994,34 @@ object ShadingAssistEngine {
                             // 2D 主平面光源方向 (rayDx, rayDy) 主导二次元赛璐珞侧光截断
                             val dot2D = normalVec[0] * rayDx + normalVec[1] * rayDy
                             // Z 轴仰角贡献作为微调调制 (elevation modulation)，不淹没主方向
-                            val formDot = dot2D * (1.0f - lz * 0.35f) + (normalVec[2] * lz - 0.40f) * 0.25f
-                            val formScore = -formDot
+                            val rawFormDot = dot2D * (1.0f - lz * 0.35f) + (normalVec[2] * lz - 0.40f) * 0.25f
+
+                            // 原理 6: 画师经验打光比例映射 (顺光保留约 15% 边缘转折阴影，逆光覆盖约 85%-90%)
+                            val formDot = if (config.artistExperienceCurve) {
+                                if (rawFormDot >= 0f) {
+                                    rawFormDot.toDouble().pow(0.75).toFloat()
+                                } else {
+                                    -( (-rawFormDot).toDouble().pow(1.18).toFloat() )
+                                }
+                            } else {
+                                rawFormDot
+                            }
+                            var formScore = -formDot
+
+                            // 原理 9: 材质色彩分族相对测光 (同一材质族内相对测光，防止黑衣服泛黑死黑)
+                            if (config.materialAdaptiveMetering) {
+                                val cId = classifyPixelMaterial(basePixel)
+                                val cMin = clusterMinLum[cId]
+                                val cMax = clusterMaxLum[cId]
+                                val range = (cMax - cMin).coerceAtLeast(0.08f)
+                                val r = (basePixel shr 16) and 0xFF
+                                val g = (basePixel shr 8) and 0xFF
+                                val b = basePixel and 0xFF
+                                val lum = (r * 299 + g * 587 + b * 114) / 255000f
+                                val relLum = ((lum - cMin) / range).coerceIn(0f, 1f)
+                                val materialBias = (0.5f - relLum) * (config.materialMeteringStrength.coerceIn(0f, 1f) * 0.35f)
+                                formScore += materialBias
+                            }
 
                             // 2. 线稿接触与投射阴影 + 死角闭塞 AO
                             var lineCast = 0.0f
@@ -831,9 +1182,9 @@ object ShadingAssistEngine {
             return@withContext null
         }
 
-        // Pass 3: 赛璐珞二分掩码生成与形态学平滑 (Sub-pixel Morphological Smoothing)
+        // Pass 3: 赛璐珞二分掩码生成、连通域清碎渣与形态学平滑 (Sub-pixel Morphological Smoothing)
         // 消除离散像素阶梯锯齿与孤立噪点，获得动画工作室级别光洁明暗交界线
-        val finalMask = if (isCel && config.morphologicalSmoothRadius > 0) {
+        val finalMask = if (isCel && (config.morphologicalSmoothRadius > 0 || config.cleanSmallIslands)) {
             val initialMask = ByteArray(outWidth * outHeight)
             for (i in 0 until outWidth * outHeight) {
                 val sc = snappedScores[i]
@@ -846,57 +1197,68 @@ object ShadingAssistEngine {
                 }
             }
 
-            val smoothMask = ByteArray(outWidth * outHeight)
-            val rad = config.morphologicalSmoothRadius.coerceIn(1, 3)
+            // 原理 7: 连通域清碎渣与闭塞孔洞填充 (消除小于 islandThreshold 像素的孤立噪点与针孔)
+            if (config.cleanSmallIslands) {
+                val scaledThreshold = (config.islandThreshold * (outWidth / 512.0f) * (outHeight / 512.0f))
+                    .toInt().coerceIn(4, 150)
+                cleanIslandsAndHoles(initialMask, snappedScores, outWidth, outHeight, scaledThreshold)
+            }
 
-            coroutineScope {
-                val jobs = (0 until cores).map { coreIdx ->
-                    async {
-                        val startY = coreIdx * rowsPerChunk
-                        val endY = min(outHeight, startY + rowsPerChunk)
+            if (config.morphologicalSmoothRadius > 0) {
+                val smoothMask = ByteArray(outWidth * outHeight)
+                val rad = config.morphologicalSmoothRadius.coerceIn(1, 3)
 
-                        for (y in startY until endY) {
-                            val rowOffset = y * outWidth
-                            for (x in 0 until outWidth) {
-                                val pIdx = rowOffset + x
-                                if (snappedScores[pIdx] <= -900f) {
-                                    smoothMask[pIdx] = 0
-                                    continue
-                                }
+                coroutineScope {
+                    val jobs = (0 until cores).map { coreIdx ->
+                        async {
+                            val startY = coreIdx * rowsPerChunk
+                            val endY = min(outHeight, startY + rowsPerChunk)
 
-                                var ones = 0
-                                var twos = 0
-                                var total = 0
-
-                                for (dy in -rad..rad) {
-                                    val ny = y + dy
-                                    if (ny !in 0 until outHeight) continue
-                                    val nRow = ny * outWidth
-                                    for (dx in -rad..rad) {
-                                        val nx = x + dx
-                                        if (nx !in 0 until outWidth) continue
-                                        val v = initialMask[nRow + nx].toInt()
-                                        if (v >= 1) ones++
-                                        if (v >= 2) twos++
-                                        total++
+                            for (y in startY until endY) {
+                                val rowOffset = y * outWidth
+                                for (x in 0 until outWidth) {
+                                    val pIdx = rowOffset + x
+                                    if (snappedScores[pIdx] <= -900f) {
+                                        smoothMask[pIdx] = 0
+                                        continue
                                     }
-                                }
 
-                                val majThreshold = total / 2
-                                smoothMask[pIdx] = if (isTwoStep && twos > majThreshold) {
-                                    2
-                                } else if (ones > majThreshold) {
-                                    1
-                                } else {
-                                    0
+                                    var ones = 0
+                                    var twos = 0
+                                    var total = 0
+
+                                    for (dy in -rad..rad) {
+                                        val ny = y + dy
+                                        if (ny !in 0 until outHeight) continue
+                                        val nRow = ny * outWidth
+                                        for (dx in -rad..rad) {
+                                            val nx = x + dx
+                                            if (nx !in 0 until outWidth) continue
+                                            val v = initialMask[nRow + nx].toInt()
+                                            if (v >= 1) ones++
+                                            if (v >= 2) twos++
+                                            total++
+                                        }
+                                    }
+
+                                    val majThreshold = total / 2
+                                    smoothMask[pIdx] = if (isTwoStep && twos > majThreshold) {
+                                        2
+                                    } else if (ones > majThreshold) {
+                                        1
+                                    } else {
+                                        0
+                                    }
                                 }
                             }
                         }
                     }
+                    jobs.awaitAll()
                 }
-                jobs.awaitAll()
+                smoothMask
+            } else {
+                initialMask
             }
-            smoothMask
         } else {
             null
         }

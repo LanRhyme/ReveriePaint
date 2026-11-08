@@ -3354,6 +3354,15 @@
     <string name="shading_assist_color_edge_snap_tol">Snap Tolerance</string>
     <string name="shading_assist_morphological_smooth">Cel Smoothing</string>
     <string name="shading_assist_ambient_occlusion">Crevice AO</string>
+    <string name="shading_assist_material_metering">Material Adaptive Metering</string>
+    <string name="shading_assist_material_metering_desc">Relative metering by color family, preventing dark clothes from turning pure black</string>
+    <string name="shading_assist_material_metering_strength">Metering Strength</string>
+    <string name="shading_assist_artist_experience_curve">Artist Lighting Curve</string>
+    <string name="shading_assist_artist_experience_curve_desc">Empirical anime cel lighting angle mapping, clean front light and bold backlight</string>
+    <string name="shading_assist_rolling_ball_contour">Rolling Ball Contour Closure</string>
+    <string name="shading_assist_rolling_ball_contour_desc">Bridges loose lineart gaps &amp; opaque borders to prevent shadow leaks</string>
+    <string name="shading_assist_clean_small_islands">Island Cleanup &amp; Level-set Smoothing</string>
+    <string name="shading_assist_clean_small_islands_desc">Eliminates isolated shadow debris &amp; pinholes, smoothing terminator lines</string>
 
     <!-- 3D Reference Layer -->
     <string name="layer_new_3d_reference">New 3D Reference Layer</string>

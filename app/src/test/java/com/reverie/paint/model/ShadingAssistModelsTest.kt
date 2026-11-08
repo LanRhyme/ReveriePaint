@@ -74,12 +74,38 @@ class ShadingAssistModelsTest {
             colorEdgeSnapping = true,
             colorEdgeSnapTolerance = 0.6f,
             morphologicalSmoothRadius = 2,
-            ambientOcclusionIntensity = 0.45f
+            ambientOcclusionIntensity = 0.45f,
+            materialAdaptiveMetering = true,
+            materialMeteringStrength = 0.7f,
+            rollingBallContour = true,
+            rollingBallRadius = 10,
+            cleanSmallIslands = true,
+            islandThreshold = 20,
+            artistExperienceCurve = true
         )
         assertTrue(config.colorEdgeSnapping)
         assertEquals(0.6f, config.colorEdgeSnapTolerance, 1e-4f)
         assertEquals(2, config.morphologicalSmoothRadius)
         assertEquals(0.45f, config.ambientOcclusionIntensity, 1e-4f)
+        assertTrue(config.materialAdaptiveMetering)
+        assertEquals(0.7f, config.materialMeteringStrength, 1e-4f)
+        assertTrue(config.rollingBallContour)
+        assertEquals(10, config.rollingBallRadius)
+        assertTrue(config.cleanSmallIslands)
+        assertEquals(20, config.islandThreshold)
+        assertTrue(config.artistExperienceCurve)
+    }
+
+    @Test
+    fun `test default phase 1 auto shading features are active`() {
+        val defaultConfig = ShadingAssistConfig()
+        assertTrue(defaultConfig.materialAdaptiveMetering)
+        assertTrue(defaultConfig.rollingBallContour)
+        assertTrue(defaultConfig.cleanSmallIslands)
+        assertTrue(defaultConfig.artistExperienceCurve)
+        assertEquals(0.65f, defaultConfig.materialMeteringStrength, 1e-4f)
+        assertEquals(8, defaultConfig.rollingBallRadius)
+        assertEquals(18, defaultConfig.islandThreshold)
     }
 }
 

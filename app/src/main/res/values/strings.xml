@@ -3354,6 +3354,15 @@
     <string name="shading_assist_color_edge_snap_tol">吸附容差</string>
     <string name="shading_assist_morphological_smooth">赛璐珞平滑</string>
     <string name="shading_assist_ambient_occlusion">死角接触 AO</string>
+    <string name="shading_assist_material_metering">材质自适应测光</string>
+    <string name="shading_assist_material_metering_desc">依材质色彩分族相对测光，黑衣服不泛黑，白衣服有阴影</string>
+    <string name="shading_assist_material_metering_strength">测光自适应强度</string>
+    <string name="shading_assist_artist_experience_curve">画师经验打光</string>
+    <string name="shading_assist_artist_experience_curve_desc">依据动漫二分打光经验映射夹角，正光纯净逆光饱满</string>
+    <string name="shading_assist_rolling_ball_contour">轮廓滚球闭合</string>
+    <string name="shading_assist_rolling_ball_contour_desc">闭合不闭合线稿与不透明背景边缘，杜绝内部漏光</string>
+    <string name="shading_assist_clean_small_islands">连通域清渣与零线磨平</string>
+    <string name="shading_assist_clean_small_islands_desc">消除孤立阴影碎渣与针孔，平滑明暗交界线</string>
 
     <!-- 3D Reference Layer -->
     <string name="layer_new_3d_reference">新建 3D 参考图层</string>

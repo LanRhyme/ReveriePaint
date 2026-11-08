@@ -816,6 +816,133 @@ fun ShadingAssistDialog(
                                                 )
                                             }
                                         }
+
+                                        // 5. 材质自适应测光 (原理 9: 依色彩分族相对测光，黑衣服不泛黑，白衣服有阴影)
+                                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = stringResource(R.string.shading_assist_material_metering),
+                                                        fontSize = 11.sp,
+                                                        color = Morandi.text
+                                                    )
+                                                    Text(
+                                                        text = stringResource(R.string.shading_assist_material_metering_desc),
+                                                        fontSize = 9.sp,
+                                                        color = Morandi.subText
+                                                    )
+                                                }
+                                                ReSwitch(
+                                                    checked = config.materialAdaptiveMetering,
+                                                    onChecked = {
+                                                        vm.updateShadingConfig(vm.shadingAssistConfig.copy(materialAdaptiveMetering = it))
+                                                    }
+                                                )
+                                            }
+                                            if (config.materialAdaptiveMetering) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Text(
+                                                        text = stringResource(R.string.shading_assist_material_metering_strength),
+                                                        fontSize = 10.sp,
+                                                        color = Morandi.subText
+                                                    )
+                                                    Text(
+                                                        text = "${(config.materialMeteringStrength * 100).toInt()}%",
+                                                        fontSize = 10.sp,
+                                                        color = Morandi.text
+                                                    )
+                                                }
+                                                ReSlider(
+                                                    value = config.materialMeteringStrength,
+                                                    onValue = { vm.updateShadingConfig(vm.shadingAssistConfig.copy(materialMeteringStrength = it)) }
+                                                )
+                                            }
+                                        }
+
+                                        // 6. 画师经验打光 (原理 6: 依据二次元打光经验映射夹角，正光纯净逆光饱满)
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = stringResource(R.string.shading_assist_artist_experience_curve),
+                                                    fontSize = 11.sp,
+                                                    color = Morandi.text
+                                                )
+                                                Text(
+                                                    text = stringResource(R.string.shading_assist_artist_experience_curve_desc),
+                                                    fontSize = 9.sp,
+                                                    color = Morandi.subText
+                                                )
+                                            }
+                                            ReSwitch(
+                                                checked = config.artistExperienceCurve,
+                                                onChecked = {
+                                                    vm.updateShadingConfig(vm.shadingAssistConfig.copy(artistExperienceCurve = it))
+                                                }
+                                            )
+                                        }
+
+                                        // 7. 连通域清渣与零线磨平 (原理 7: 消除孤立阴影碎渣与针孔)
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = stringResource(R.string.shading_assist_clean_small_islands),
+                                                    fontSize = 11.sp,
+                                                    color = Morandi.text
+                                                )
+                                                Text(
+                                                    text = stringResource(R.string.shading_assist_clean_small_islands_desc),
+                                                    fontSize = 9.sp,
+                                                    color = Morandi.subText
+                                                )
+                                            }
+                                            ReSwitch(
+                                                checked = config.cleanSmallIslands,
+                                                onChecked = {
+                                                    vm.updateShadingConfig(vm.shadingAssistConfig.copy(cleanSmallIslands = it))
+                                                }
+                                            )
+                                        }
+
+                                        // 8. 轮廓滚球闭合 (原理 1: 滚球膨胀桥接断线线稿与透明边界，杜绝漏光)
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = stringResource(R.string.shading_assist_rolling_ball_contour),
+                                                    fontSize = 11.sp,
+                                                    color = Morandi.text
+                                                )
+                                                Text(
+                                                    text = stringResource(R.string.shading_assist_rolling_ball_contour_desc),
+                                                    fontSize = 9.sp,
+                                                    color = Morandi.subText
+                                                )
+                                            }
+                                            ReSwitch(
+                                                checked = config.rollingBallContour,
+                                                onChecked = {
+                                                    vm.updateShadingConfig(vm.shadingAssistConfig.copy(rollingBallContour = it))
+                                                }
+                                            )
+                                        }
                                     }
                                 }
                             } else if (config.lineArtOcclusion) {

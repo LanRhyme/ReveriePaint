@@ -130,7 +130,13 @@ internal fun PaintViewModel.openShadingAssist() {
         val normalField = if (rawDepth != null) {
             ShadingAssistEngine.computeNormalFieldFromDepth(rawDepth, shadingAssistConfig.volumeSmoothness)
         } else {
-            ShadingAssistEngine.generateCspNormalField(baseBmp, shadingAssistConfig.volumeSmoothness, previewW)
+            ShadingAssistEngine.generateCspNormalField(
+                baseBmp,
+                shadingAssistConfig.volumeSmoothness,
+                previewW,
+                shadingAssistConfig.rollingBallContour,
+                shadingAssistConfig.rollingBallRadius
+            )
         }
         shadingAssistNormalField = normalField
 
@@ -179,12 +185,14 @@ internal fun PaintViewModel.updateShadingConfig(
     val lineLayerChanged = reloadLineart || (newConfig.referenceLineLayerId != shadingAssistConfig.referenceLineLayerId)
     val modelModeChanged = newConfig.useAiModel != shadingAssistConfig.useAiModel
     val smoothnessChanged = newConfig.volumeSmoothness != shadingAssistConfig.volumeSmoothness
+    val contourChanged = (newConfig.rollingBallContour != shadingAssistConfig.rollingBallContour) ||
+        (newConfig.rollingBallRadius != shadingAssistConfig.rollingBallRadius)
     shadingAssistConfig = newConfig
 
     val baseBmp = shadingAssistBaseBitmap ?: return
     if (baseBmp.isRecycled) return
 
-    if (lineLayerChanged || modelModeChanged) {
+    if (lineLayerChanged || modelModeChanged || contourChanged) {
         shadingAssistComputeJob?.cancel()
         shadingAssistIsProcessing = true
         shadingAssistComputeJob = viewModelScope.launch(Dispatchers.Default) {
@@ -227,7 +235,13 @@ internal fun PaintViewModel.updateShadingConfig(
             val normalField = if (rawDepth != null) {
                 ShadingAssistEngine.computeNormalFieldFromDepth(rawDepth, newConfig.volumeSmoothness)
             } else {
-                ShadingAssistEngine.generateCspNormalField(baseBmp, newConfig.volumeSmoothness, baseBmp.width)
+                ShadingAssistEngine.generateCspNormalField(
+                    baseBmp,
+                    newConfig.volumeSmoothness,
+                    baseBmp.width,
+                    newConfig.rollingBallContour,
+                    newConfig.rollingBallRadius
+                )
             }
             shadingAssistNormalField = normalField
 
@@ -412,7 +426,13 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
         val normalField = if (rawDepth != null) {
             ShadingAssistEngine.computeNormalFieldFromDepth(rawDepth, shadingAssistConfig.volumeSmoothness)
         } else {
-            ShadingAssistEngine.generateCspNormalField(fullBase, shadingAssistConfig.volumeSmoothness, targetRes)
+            ShadingAssistEngine.generateCspNormalField(
+                fullBase,
+                shadingAssistConfig.volumeSmoothness,
+                targetRes,
+                shadingAssistConfig.rollingBallContour,
+                shadingAssistConfig.rollingBallRadius
+            )
         }
 
         // 3. 全分辨率光照与线稿遮挡计算

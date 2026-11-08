@@ -55,7 +55,14 @@ data class ShadingAssistConfig(
     val ambientOcclusionIntensity: Float = 0.15f,
     val referenceLineLayerId: Int? = null,
     val useAiModel: Boolean = true,
-    val downsampleTargetSize: Int = 1024
+    val downsampleTargetSize: Int = 1024,
+    val materialAdaptiveMetering: Boolean = true,
+    val materialMeteringStrength: Float = 0.65f,
+    val rollingBallContour: Boolean = true,
+    val rollingBallRadius: Int = 8,
+    val cleanSmallIslands: Boolean = true,
+    val islandThreshold: Int = 18,
+    val artistExperienceCurve: Boolean = true
 ) {
     /**
      * 计算归一化的三维光源方向向量 (Lx, Ly, Lz)
