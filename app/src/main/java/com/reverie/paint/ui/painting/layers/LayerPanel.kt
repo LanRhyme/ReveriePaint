@@ -241,7 +241,12 @@ fun LayerPanel(
     val latestPassThroughCb by rememberUpdatedState(onCanvasPassThroughChanged)
     // 先登记孔径 (本帧布局), 再放开按住 (效果在布局后执行, 宿主下一帧重组)。
     LaunchedEffect(isFilterAdjust) { latestPassThroughCb(isFilterAdjust) }
-    DisposableEffect(Unit) { onDispose { latestPassThroughCb(false) } }
+    DisposableEffect(Unit) {
+        onDispose {
+            latestPassThroughCb(false)
+            vm.layerPanelMeasuredBounds = null
+        }
+    }
 
     val cardContent: @Composable (Modifier) -> Unit = { cardModifier ->
         Column(
@@ -251,6 +256,11 @@ fun LayerPanel(
                     .width(300.dp)
                     .heightIn(max = (LocalConfiguration.current.screenHeightDp * 3 / 4).dp)
                     .clip(panelShape)
+                    .onGloballyPositioned { coords ->
+                        if (coords.isAttached) {
+                            vm.layerPanelMeasuredBounds = coords.boundsInRoot()
+                        }
+                    }
                     .evadablePanelSurface(
                         vm = vm,
                         slot = UiPanelSlot.PINNED_LAYER_PANEL,

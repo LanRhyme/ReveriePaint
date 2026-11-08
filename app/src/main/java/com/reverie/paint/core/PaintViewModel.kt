@@ -2000,6 +2000,39 @@ class PaintViewModel : ViewModel() {
         } catch (_: Exception) {}
     }
 
+    // 新手引导与工作区指引状态
+    var onboardingActive by mutableStateOf(false)
+    var onboardingStep by mutableIntStateOf(0)
+    var layerPanelMeasuredBounds by mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
+    var allToolsPanelMeasuredBounds by mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
+    var viewToolsMeasuredBounds by mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
+
+    fun checkOnboardingTrigger() {
+        if (!::appContext.isInitialized) return
+        val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        val completed = prefs.getBoolean("onboarding_completed_v1", false)
+        if (!completed) {
+            onboardingActive = true
+            onboardingStep = 0
+        }
+    }
+
+    fun dismissOnboarding(markCompleted: Boolean = true) {
+        onboardingActive = false
+        layerPanelMeasuredBounds = null
+        allToolsPanelMeasuredBounds = null
+        viewToolsMeasuredBounds = null
+        if (markCompleted && ::appContext.isInitialized) {
+            val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+            prefs.edit().putBoolean("onboarding_completed_v1", true).apply()
+        }
+    }
+
+    fun startOnboarding() {
+        onboardingStep = 0
+        onboardingActive = true
+    }
+
     // 赞助提示与使用里程碑统计
     var showSponsorPromptDialog by mutableStateOf(false)
     var launchCount by mutableIntStateOf(0)

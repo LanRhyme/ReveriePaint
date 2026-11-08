@@ -186,6 +186,7 @@ fun PaintingPage(
         try {
             focusRequester.requestFocus()
         } catch (_: Exception) {}
+        vm.checkOnboardingTrigger()
     }
     // Gesture-driven transforms: exposed as State objects so CanvasView/
     // CanvasOverlay read them inside draw lambdas — pinch writes then only
@@ -2846,6 +2847,15 @@ fun PaintingPage(
                 onViewTransform = { z, r, px, py -> canvasTouchView?.applyViewTransform(z, r, px, py) },
                 topPadding = (topDockPadding - 8.dp).coerceAtLeast(16.dp),
                 modifier = Modifier.fillMaxSize().zIndex(2000f),
+            )
+        }
+
+        // 新手功能与工作区自定义聚光灯引导
+        if (vm.onboardingActive) {
+            OnboardingSpotlight(
+                vm = vm,
+                onSetLayerPanelOpen = { layerPanelOpen = it },
+                onSetMoreToolsOpen = { moreToolsOpen = it },
             )
         }
     }

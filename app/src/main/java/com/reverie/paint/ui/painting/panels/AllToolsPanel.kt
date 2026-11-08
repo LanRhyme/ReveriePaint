@@ -10,18 +10,25 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -72,6 +79,18 @@ fun AllToolsPanel(
 
     val context = androidx.compose.ui.platform.LocalContext.current
     val panelShape = RoundedCornerShape(14.dp)
+
+    DisposableEffect(Unit) {
+        onDispose {
+            vm.allToolsPanelMeasuredBounds = null
+            vm.viewToolsMeasuredBounds = null
+        }
+    }
+
+    var viewToolsTop by remember { mutableFloatStateOf(0f) }
+    var viewToolsBottom by remember { mutableFloatStateOf(0f) }
+    var viewToolsLeft by remember { mutableFloatStateOf(0f) }
+    var viewToolsRight by remember { mutableFloatStateOf(0f) }
 
     Box(
         modifier = modifier
@@ -129,6 +148,11 @@ fun AllToolsPanel(
                 .noRippleClickable { /* consume clicks inside panel */ }
                 .width(236.dp)
                 .clip(panelShape)
+                .onGloballyPositioned { coords ->
+                    if (coords.isAttached) {
+                        vm.allToolsPanelMeasuredBounds = coords.boundsInRoot()
+                    }
+                }
                 .then(
                     if (vm.blurBackground && hazeState != null) {
                         Modifier.hazeChild(
@@ -171,19 +195,57 @@ fun AllToolsPanel(
                     )
                 }
 
+                val listState = rememberLazyListState()
+                LaunchedEffect(vm.onboardingActive, vm.onboardingStep) {
+                    if (vm.onboardingActive && vm.onboardingStep == 2) {
+                        val viewGroupIndex = groupedTools.indexOfFirst { it.first == ToolGroup.VIEW }
+                        if (viewGroupIndex != -1) {
+                            var itemIndex = 0
+                            for (i in 0 until viewGroupIndex) {
+                                itemIndex += 1 // header
+                                val count = groupedTools[i].second.size
+                                itemIndex += (count + 1) / 2 // chunked rows
+                            }
+                            listState.animateScrollToItem(itemIndex)
+                        }
+                    }
+                }
+
                 LazyColumn(
+                    state = listState,
                     modifier = Modifier.weight(1f, fill = false),
                     verticalArrangement = Arrangement.spacedBy(4.dp)
                 ) {
                     groupedTools.forEach { (group, tools) ->
+                        val isViewGroup = group == ToolGroup.VIEW
                         item(key = group.name) {
-                            Text(
-                                group.displayName,
-                                color = Morandi.subText,
-                                fontSize = 10.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp),
-                            )
+                            Box(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .then(
+                                        if (isViewGroup) {
+                                            Modifier.onGloballyPositioned { coords ->
+                                                if (coords.isAttached) {
+                                                    val b = coords.boundsInRoot()
+                                                    viewToolsTop = b.top
+                                                    viewToolsLeft = if (viewToolsLeft == 0f) b.left else minOf(viewToolsLeft, b.left)
+                                                    viewToolsRight = maxOf(viewToolsRight, b.right)
+                                                    if (viewToolsBottom > viewToolsTop) {
+                                                        vm.viewToolsMeasuredBounds = Rect(viewToolsLeft, viewToolsTop, viewToolsRight, viewToolsBottom)
+                                                    }
+                                                }
+                                            }
+                                        } else Modifier
+                                    )
+                            ) {
+                                Text(
+                                    group.displayName,
+                                    color = Morandi.subText,
+                                    fontSize = 10.5.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    modifier = Modifier.padding(start = 4.dp, top = 6.dp, bottom = 2.dp),
+                                )
+                            }
                         }
 
                         val itemsList = buildList {
@@ -197,7 +259,23 @@ fun AllToolsPanel(
                         val chunked = itemsList.chunked(2)
                         items(chunked) { rowTools ->
                             Row(
-                                modifier = Modifier.fillMaxWidth(),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .then(
+                                        if (isViewGroup) {
+                                            Modifier.onGloballyPositioned { coords ->
+                                                if (coords.isAttached) {
+                                                    val b = coords.boundsInRoot()
+                                                    viewToolsBottom = maxOf(viewToolsBottom, b.bottom)
+                                                    viewToolsLeft = if (viewToolsLeft == 0f) b.left else minOf(viewToolsLeft, b.left)
+                                                    viewToolsRight = maxOf(viewToolsRight, b.right)
+                                                    if (viewToolsTop > 0f) {
+                                                        vm.viewToolsMeasuredBounds = Rect(viewToolsLeft, viewToolsTop, viewToolsRight, viewToolsBottom)
+                                                    }
+                                                }
+                                            }
+                                        } else Modifier
+                                    ),
                                 horizontalArrangement = Arrangement.spacedBy(6.dp)
                             ) {
                                 rowTools.forEach { item ->

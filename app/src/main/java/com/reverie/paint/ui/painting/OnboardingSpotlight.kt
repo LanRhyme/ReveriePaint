@@ -1,0 +1,768 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+package com.reverie.paint.ui.painting
+
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.core.Spring
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+import androidx.compose.animation.core.tween
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.background
+import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
+import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
+import androidx.compose.ui.Alignment
+import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
+import androidx.compose.ui.geometry.CornerRadius
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.BlendMode
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.CompositingStrategy
+import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.res.painterResource
+import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
+import com.reverie.paint.R
+import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.model.UiPanelSlot
+import com.reverie.paint.ui.components.ReButton
+import com.reverie.paint.ui.components.ReSlider
+import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.theme.glassBorder
+import kotlin.math.roundToInt
+
+private const val TOTAL_STEPS = 7
+
+/**
+ * 沉浸式聚光灯新手引导 (Spotlight / Coach Marks)
+ *
+ * 采用统一的半透明暗色遮罩柔和高亮目标区域，包含 7 大核心步骤：
+ * 1. 侧边工具栏与笔刷工坊 (ToolRail)
+ * 2. 调节滑块与调色板 (SliderRail，直接支持在卡片内拖动微调滑块长度)
+ * 3. 快捷面板与辅助视图 (AllToolsPanel 中的视图类型独立小窗：参考图、快捷笔刷、快捷颜色、快捷图层、快捷操作、OKLCH 调色)
+ * 4. 顶栏导航与基础控制 (TopBar)
+ * 5. 图层面板与进阶功能 (自动展开图层面板并根据实测 bounds 精准聚焦，详解特殊图层与常用操作)
+ * 6. 画布高频手势速查 (中心双指/三指交互)
+ * 7. 如何自定义专属工作区 (面板固定与自由平移、外观与布局自由悬浮模式、自定义工具栏)
+ */
+@Composable
+fun OnboardingSpotlight(
+    vm: PaintViewModel,
+    onSetLayerPanelOpen: (Boolean) -> Unit,
+    onSetMoreToolsOpen: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (!vm.onboardingActive) return
+
+    val density = LocalDensity.current
+    val currentStep = vm.onboardingStep.coerceIn(0, TOTAL_STEPS - 1)
+
+    // 根据步骤自动调出对应面板，切换离开时若未固定则自动收起
+    LaunchedEffect(currentStep) {
+        when (currentStep) {
+            2 -> {
+                // 打开扩展工具面板 (快捷面板与视图工具)
+                onSetMoreToolsOpen(true)
+                if (!vm.isLayerPanelPinned) onSetLayerPanelOpen(false)
+            }
+            4 -> {
+                // 打开图层面板
+                onSetMoreToolsOpen(false)
+                onSetLayerPanelOpen(true)
+            }
+            else -> {
+                onSetMoreToolsOpen(false)
+                if (!vm.isLayerPanelPinned) onSetLayerPanelOpen(false)
+            }
+        }
+    }
+
+    val closeGuide = {
+        onSetMoreToolsOpen(false)
+        if (!vm.isLayerPanelPinned) {
+            onSetLayerPanelOpen(false)
+        }
+        vm.dismissOnboarding(markCompleted = true)
+    }
+
+    BoxWithConstraints(
+        modifier = modifier
+            .fillMaxSize()
+            .zIndex(750f)
+            .pointerInput(Unit) {
+                detectTapGestures { /* 阻断点击穿透到画布与工具层 */ }
+            },
+    ) {
+        val screenWidthPx = constraints.maxWidth.toFloat()
+        val screenHeightPx = constraints.maxHeight.toFloat()
+        val padPx = with(density) { 8.dp.toPx() }
+
+        // 计算当前步骤的高亮目标（基于实测布局精确圈选）
+        val targetRect = remember(
+            currentStep,
+            screenWidthPx,
+            screenHeightPx,
+            vm.panelOcclusion.version,
+            vm.leftHandMode,
+            vm.layerPanelMeasuredBounds,
+            vm.allToolsPanelMeasuredBounds,
+            vm.viewToolsMeasuredBounds,
+        ) {
+            computeStepTargetRect(
+                step = currentStep,
+                vm = vm,
+                screenWidth = screenWidthPx,
+                screenHeight = screenHeightPx,
+                padPx = padPx,
+                density = density.density,
+            )
+        }
+
+        // 高亮区域平滑过渡动效
+        val animSpec = spring<Float>(
+            dampingRatio = Spring.DampingRatioLowBouncy,
+            stiffness = Spring.StiffnessLow,
+        )
+        val animLeft by animateFloatAsState(targetRect.left, animSpec, label = "spotlight_l")
+        val animTop by animateFloatAsState(targetRect.top, animSpec, label = "spotlight_t")
+        val animRight by animateFloatAsState(targetRect.right, animSpec, label = "spotlight_r")
+        val animBottom by animateFloatAsState(targetRect.bottom, animSpec, label = "spotlight_b")
+
+        val cornerRadiusPx = with(density) { 18.dp.toPx() }
+
+        // 聚光灯遮罩：离屏渲染层 + Clear 挖孔 + 强调光圈
+        Box(
+            modifier = Modifier
+                .fillMaxSize()
+                .graphicsLayer(compositingStrategy = CompositingStrategy.Offscreen)
+                .drawBehind {
+                    // 1. 半透明暗色遮罩
+                    drawRect(Color(0xB31A1817))
+
+                    // 2. 聚光灯挖孔 (圆角矩形)
+                    val w = (animRight - animLeft).coerceAtLeast(0f)
+                    val h = (animBottom - animTop).coerceAtLeast(0f)
+                    if (w > 0f && h > 0f) {
+                        drawRoundRect(
+                            color = Color.Black,
+                            topLeft = Offset(animLeft, animTop),
+                            size = Size(w, h),
+                            cornerRadius = CornerRadius(cornerRadiusPx, cornerRadiusPx),
+                            blendMode = BlendMode.Clear,
+                        )
+
+                        // 3. 柔和聚焦光圈
+                        drawRoundRect(
+                            color = Morandi.accent.copy(alpha = 0.85f),
+                            topLeft = Offset(animLeft, animTop),
+                            size = Size(w, h),
+                            cornerRadius = CornerRadius(cornerRadiusPx, cornerRadiusPx),
+                            style = Stroke(width = 2.5.dp.toPx()),
+                        )
+                    }
+                },
+        )
+
+        // 引导气泡卡片自适应定位
+        val cardMarginDp = 16.dp
+        val cardMarginPx = with(density) { cardMarginDp.toPx() }
+        val cardWidthDp = 390.dp
+        val cardWidthPx = with(density) { cardWidthDp.toPx() }
+
+        val (cardX, cardY) = computeCardPosition(
+            step = currentStep,
+            targetTop = animTop,
+            targetBottom = animBottom,
+            targetLeft = animLeft,
+            targetRight = animRight,
+            screenWidth = screenWidthPx,
+            screenHeight = screenHeightPx,
+            cardWidthPx = cardWidthPx,
+            marginPx = cardMarginPx,
+        )
+
+        Box(
+            modifier = Modifier
+                .offset { IntOffset(cardX.roundToInt(), cardY.roundToInt()) }
+                .widthIn(max = cardWidthDp)
+                .padding(horizontal = cardMarginDp),
+        ) {
+            OnboardingCard(
+                vm = vm,
+                step = currentStep,
+                totalSteps = TOTAL_STEPS,
+                onPrev = {
+                    if (vm.onboardingStep > 0) vm.onboardingStep--
+                },
+                onNext = {
+                    if (vm.onboardingStep < TOTAL_STEPS - 1) {
+                        vm.onboardingStep++
+                    } else {
+                        closeGuide()
+                    }
+                },
+                onSkip = closeGuide,
+            )
+        }
+    }
+}
+
+/**
+ * 计算步骤目标聚光灯矩形（保证每一步的目标均稳定存在且精确圈选）
+ */
+private fun computeStepTargetRect(
+    step: Int,
+    vm: PaintViewModel,
+    screenWidth: Float,
+    screenHeight: Float,
+    padPx: Float,
+    density: Float,
+): Rect {
+    val buf = FloatArray(4)
+    return when (step) {
+        0 -> {
+            // 第 1 步：侧边工具栏 (ToolRail) —— 绘图工具与笔刷库
+            if (vm.panelOcclusion.bounds(UiPanelSlot.TOOL_RAIL, buf) && (buf[2] - buf[0]) > 10f) {
+                Rect(
+                    (buf[0] - padPx).coerceAtLeast(0f),
+                    (buf[1] - padPx).coerceAtLeast(0f),
+                    (buf[2] + padPx).coerceAtMost(screenWidth),
+                    (buf[3] + padPx).coerceAtMost(screenHeight),
+                )
+            } else {
+                if (vm.leftHandMode) {
+                    Rect(screenWidth - 56f * density, 48f * density, screenWidth, screenHeight * 0.55f)
+                } else {
+                    Rect(0f, 48f * density, 56f * density, screenHeight * 0.55f)
+                }
+            }
+        }
+        1 -> {
+            // 第 2 步：调节滑块与调色板 (SliderRail)
+            if (vm.panelOcclusion.bounds(UiPanelSlot.SLIDER_RAIL, buf) && (buf[2] - buf[0]) > 10f) {
+                Rect(
+                    (buf[0] - padPx).coerceAtLeast(0f),
+                    (buf[1] - padPx).coerceAtLeast(0f),
+                    (buf[2] + padPx).coerceAtMost(screenWidth),
+                    (buf[3] + padPx).coerceAtMost(screenHeight),
+                )
+            } else {
+                if (vm.leftHandMode) {
+                    Rect(screenWidth - 56f * density, screenHeight * 0.45f, screenWidth, screenHeight - 16f * density)
+                } else {
+                    Rect(0f, screenHeight * 0.45f, 56f * density, screenHeight - 16f * density)
+                }
+            }
+        }
+        2 -> {
+            // 第 3 步：快捷面板与辅助视图 (AllToolsPanel 中的视图类型工具)
+            val viewBounds = vm.viewToolsMeasuredBounds
+            val panelBounds = vm.allToolsPanelMeasuredBounds
+            if (viewBounds != null && viewBounds.width > 20f && viewBounds.height > 20f) {
+                Rect(
+                    (viewBounds.left - padPx).coerceAtLeast(0f),
+                    (viewBounds.top - padPx).coerceAtLeast(0f),
+                    (viewBounds.right + padPx).coerceAtMost(screenWidth),
+                    (viewBounds.bottom + padPx).coerceAtMost(screenHeight),
+                )
+            } else if (panelBounds != null && panelBounds.width > 20f && panelBounds.height > 20f) {
+                Rect(
+                    (panelBounds.left - padPx).coerceAtLeast(0f),
+                    (panelBounds.top - padPx).coerceAtLeast(0f),
+                    (panelBounds.right + padPx).coerceAtMost(screenWidth),
+                    (panelBounds.bottom + padPx).coerceAtMost(screenHeight),
+                )
+            } else {
+                if (vm.leftHandMode) {
+                    Rect(screenWidth - 290f * density, 48f * density, screenWidth - 52f * density, screenHeight * 0.75f)
+                } else {
+                    Rect(52f * density, 48f * density, 290f * density, screenHeight * 0.75f)
+                }
+            }
+        }
+        3 -> {
+            // 第 4 步：顶栏导航与基础控制 (TopBar)
+            if (vm.panelOcclusion.bounds(UiPanelSlot.TOP_BAR, buf) && (buf[2] - buf[0]) > 10f) {
+                Rect(
+                    (buf[0] - padPx).coerceAtLeast(0f),
+                    (buf[1] - padPx).coerceAtLeast(0f),
+                    (buf[2] + padPx).coerceAtMost(screenWidth),
+                    (buf[3] + padPx).coerceAtMost(screenHeight),
+                )
+            } else {
+                if (vm.leftHandMode) {
+                    Rect(0f, 0f, screenWidth * 0.45f, 56f * density)
+                } else {
+                    Rect(screenWidth * 0.55f, 0f, screenWidth, 56f * density)
+                }
+            }
+        }
+        4 -> {
+            // 第 5 步：图层面板与进阶功能 (自动展开图层面板并使用实测 bounds 精准聚焦)
+            val measured = vm.layerPanelMeasuredBounds
+            if (measured != null && measured.width > 20f && measured.height > 20f) {
+                Rect(
+                    (measured.left - padPx).coerceAtLeast(0f),
+                    (measured.top - padPx).coerceAtLeast(0f),
+                    (measured.right + padPx).coerceAtMost(screenWidth),
+                    (measured.bottom + padPx).coerceAtMost(screenHeight),
+                )
+            } else {
+                val panelW = 300f * density
+                val panelTop = 44f * density
+                val panelHeight = (screenHeight * 0.55f).coerceAtLeast(320f * density)
+                if (vm.leftHandMode) {
+                    Rect(8f * density, panelTop, 8f * density + panelW, panelTop + panelHeight)
+                } else {
+                    Rect(screenWidth - panelW - 8f * density, panelTop, screenWidth - 8f * density, panelTop + panelHeight)
+                }
+            }
+        }
+        5 -> {
+            // 第 6 步：画布核心手势速查 (中心画布区域)
+            val cx = screenWidth / 2f
+            val cy = screenHeight / 2f
+            val radius = minOf(screenWidth, screenHeight) * 0.20f
+            Rect(cx - radius, cy - radius, cx + radius, cy + radius)
+        }
+        6 -> {
+            // 第 7 步：如何自定义专属工作区 (高亮聚焦顶栏设置与工作区配置入口)
+            if (vm.panelOcclusion.bounds(UiPanelSlot.TOP_BAR, buf) && (buf[2] - buf[0]) > 10f) {
+                Rect(
+                    (buf[0] - padPx).coerceAtLeast(0f),
+                    (buf[1] - padPx).coerceAtLeast(0f),
+                    (buf[2] + padPx).coerceAtMost(screenWidth),
+                    (buf[3] + padPx).coerceAtMost(screenHeight),
+                )
+            } else {
+                if (vm.leftHandMode) {
+                    Rect(0f, 0f, screenWidth * 0.45f, 56f * density)
+                } else {
+                    Rect(screenWidth * 0.55f, 0f, screenWidth, 56f * density)
+                }
+            }
+        }
+        else -> Rect.Zero
+    }
+}
+
+/**
+ * 计算气泡卡片自适应呈现坐标
+ */
+private fun computeCardPosition(
+    step: Int,
+    targetTop: Float,
+    targetBottom: Float,
+    targetLeft: Float,
+    targetRight: Float,
+    screenWidth: Float,
+    screenHeight: Float,
+    cardWidthPx: Float,
+    marginPx: Float,
+): Pair<Float, Float> {
+    val estimatedCardHeight = 310f * 3f
+
+    var x = (screenWidth - cardWidthPx) / 2f
+    var y: Float
+
+    when (step) {
+        0, 1 -> {
+            // 侧边栏：如果工具条在左侧，卡片放右侧；如果工具条在右侧，卡片放左侧
+            if (targetRight < screenWidth * 0.5f) {
+                x = (targetRight + marginPx).coerceAtMost(screenWidth - cardWidthPx - marginPx)
+                y = (targetTop + targetBottom - estimatedCardHeight * 0.5f) / 2f
+            } else {
+                x = (targetLeft - cardWidthPx - marginPx).coerceAtLeast(marginPx)
+                y = (targetTop + targetBottom - estimatedCardHeight * 0.5f) / 2f
+            }
+        }
+        2 -> {
+            // 快捷面板与视图工具：AllToolsPanel 展开在侧边栏旁
+            if (targetRight < screenWidth * 0.5f) {
+                x = (targetRight + marginPx).coerceAtMost(screenWidth - cardWidthPx - marginPx)
+                y = targetTop.coerceAtLeast(marginPx)
+            } else {
+                x = (targetLeft - cardWidthPx - marginPx).coerceAtLeast(marginPx)
+                y = targetTop.coerceAtLeast(marginPx)
+            }
+        }
+        3, 6 -> {
+            // 顶栏步骤：卡片放在顶栏下方
+            if (targetLeft > screenWidth * 0.4f) {
+                x = (targetRight - cardWidthPx).coerceAtLeast(marginPx)
+            } else if (targetRight < screenWidth * 0.6f) {
+                x = targetLeft.coerceAtLeast(marginPx)
+            }
+            y = targetBottom + marginPx
+        }
+        4 -> {
+            // 图层面板步骤：卡片与图层面板并列
+            if (targetRight < screenWidth * 0.5f) {
+                // 图层面板在左侧，卡片放在面板右侧
+                x = (targetRight + marginPx).coerceAtMost(screenWidth - cardWidthPx - marginPx)
+                y = targetTop + 16f
+            } else {
+                // 图层面板在右侧，卡片放在面板左侧
+                x = (targetLeft - cardWidthPx - marginPx).coerceAtLeast(marginPx)
+                y = targetTop + 16f
+            }
+        }
+        5 -> {
+            // 手势：位于中心挖孔下方
+            y = (targetBottom + marginPx).coerceAtMost(screenHeight - estimatedCardHeight - marginPx)
+        }
+        else -> {
+            y = (screenHeight - estimatedCardHeight) / 2f
+        }
+    }
+
+    // 屏幕边缘约束保证不溢出
+    x = x.coerceIn(marginPx, (screenWidth - cardWidthPx - marginPx).coerceAtLeast(marginPx))
+    y = y.coerceIn(marginPx, (screenHeight - estimatedCardHeight * 0.65f - marginPx).coerceAtLeast(marginPx))
+
+    return Pair(x, y)
+}
+
+/**
+ * 莫兰迪风格引导气泡卡片
+ */
+@Composable
+private fun OnboardingCard(
+    vm: PaintViewModel,
+    step: Int,
+    totalSteps: Int,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    onSkip: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val titleRes = when (step) {
+        0 -> R.string.onboarding_step1_title
+        1 -> R.string.onboarding_step2_title
+        2 -> R.string.onboarding_step3_title
+        3 -> R.string.onboarding_step4_title
+        4 -> R.string.onboarding_step5_title
+        5 -> R.string.onboarding_step6_title
+        else -> R.string.onboarding_step7_title
+    }
+
+    val descRes = when (step) {
+        0 -> R.string.onboarding_step1_desc
+        1 -> R.string.onboarding_step2_desc
+        2 -> R.string.onboarding_step3_desc
+        3 -> R.string.onboarding_step4_desc
+        4 -> R.string.onboarding_step5_desc
+        5 -> R.string.onboarding_step6_desc
+        else -> R.string.onboarding_step7_desc
+    }
+
+    val icons = when (step) {
+        0 -> listOf(R.drawable.ic_brush, R.drawable.ic_eraser, R.drawable.ic_smudge)
+        1 -> listOf(R.drawable.ic_sliders, R.drawable.ic_picker, R.drawable.ic_palette)
+        2 -> listOf(R.drawable.ic_focus_view, R.drawable.ic_palette, R.drawable.ic_sliders)
+        3 -> listOf(R.drawable.ic_undo, R.drawable.ic_redo, R.drawable.ic_settings)
+        4 -> listOf(R.drawable.ic_layers, R.drawable.ic_clip, R.drawable.ic_grid)
+        5 -> listOf(R.drawable.ic_hand, R.drawable.ic_undo, R.drawable.ic_redo)
+        else -> listOf(R.drawable.ic_panel_frame, R.drawable.ic_sliders, R.drawable.ic_settings)
+    }
+
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(20.dp))
+            .background(Morandi.panelHi.copy(alpha = 0.98f))
+            .glassBorder(RoundedCornerShape(20.dp))
+            .padding(horizontal = 20.dp, vertical = 18.dp),
+    ) {
+        // 头部：步骤序号指示与特性小图标
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // 步骤进度徽标
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Morandi.accent.copy(alpha = 0.16f))
+                    .padding(horizontal = 9.dp, vertical = 4.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.onboarding_step_format, step + 1, totalSteps),
+                    color = Morandi.accent,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+            }
+
+            // 特性提示图标组
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                icons.forEach { iconRes ->
+                    Box(
+                        modifier = Modifier
+                            .size(28.dp)
+                            .clip(CircleShape)
+                            .background(Morandi.panel.copy(alpha = 0.85f)),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(iconRes),
+                            contentDescription = null,
+                            tint = Morandi.icon,
+                            modifier = Modifier.size(15.dp),
+                        )
+                    }
+                }
+            }
+        }
+
+        Spacer(Modifier.height(14.dp))
+
+        // 标题与说明文字
+        AnimatedContent(
+            targetState = Pair(titleRes, descRes),
+            transitionSpec = {
+                fadeIn(tween(180)) togetherWith fadeOut(tween(140))
+            },
+            label = "onboarding_text_transition",
+        ) { (tRes, dRes) ->
+            Column {
+                Text(
+                    text = stringResource(tRes),
+                    color = Morandi.text,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    text = stringResource(dRes),
+                    color = Morandi.subText,
+                    fontSize = 13.sp,
+                    lineHeight = 19.sp,
+                )
+            }
+        }
+
+        // 步骤专属特性小板块与交互式微调控件
+        when (step) {
+            1 -> {
+                // 第 2 步：支持直接调整滑块长度，无需跳转设置中
+                Spacer(Modifier.height(12.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Morandi.panel.copy(alpha = 0.6f))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                ) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.onboarding_step2_slider_height_title),
+                            color = Morandi.text,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            text = "${vm.quickSliderHeightDp} dp",
+                            color = Morandi.accent,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                    Spacer(Modifier.height(6.dp))
+                    ReSlider(
+                        value = ((vm.quickSliderHeightDp - 100f) / 160f).coerceIn(0f, 1f),
+                        onValue = { fraction ->
+                            val newHeight = (100f + fraction * 160f).roundToInt()
+                            vm.updateQuickSliderHeight(newHeight)
+                        },
+                        height = 24,
+                    )
+                    Spacer(Modifier.height(4.dp))
+                    Text(
+                        text = stringResource(R.string.onboarding_step2_slider_height_hint),
+                        color = Morandi.subText,
+                        fontSize = 11.sp,
+                        lineHeight = 15.sp,
+                    )
+                }
+            }
+            2 -> {
+                // 第 3 步：快捷面板与视图工具专属提示小板块
+                Spacer(Modifier.height(12.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Morandi.panel.copy(alpha = 0.6f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    FeatureTipRow(R.drawable.ic_focus_view, stringResource(R.string.onboarding_view_tip_ref))
+                    FeatureTipRow(R.drawable.ic_sliders, stringResource(R.string.onboarding_view_tip_floats))
+                    FeatureTipRow(R.drawable.ic_palette, stringResource(R.string.onboarding_view_tip_oklch))
+                }
+            }
+            4 -> {
+                // 第 5 步：图层面板与进阶功能专属提示小板块
+                Spacer(Modifier.height(12.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Morandi.panel.copy(alpha = 0.6f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    FeatureTipRow(R.drawable.ic_layers, stringResource(R.string.onboarding_layer_tip_more))
+                    FeatureTipRow(R.drawable.ic_clip, stringResource(R.string.onboarding_layer_tip_ops))
+                    FeatureTipRow(R.drawable.ic_image_adjust, stringResource(R.string.onboarding_layer_tip_details))
+                    FeatureTipRow(R.drawable.ic_hand, stringResource(R.string.onboarding_layer_tip_gestures))
+                }
+            }
+            5 -> {
+                // 第 6 步：手势步骤专属小板块
+                Spacer(Modifier.height(12.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Morandi.panel.copy(alpha = 0.6f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    FeatureTipRow(R.drawable.ic_undo, stringResource(R.string.onboarding_gesture_undo))
+                    FeatureTipRow(R.drawable.ic_redo, stringResource(R.string.onboarding_gesture_redo))
+                    FeatureTipRow(R.drawable.ic_hand, stringResource(R.string.onboarding_gesture_pinch))
+                    FeatureTipRow(R.drawable.ic_focus_view, stringResource(R.string.onboarding_gesture_fit))
+                }
+            }
+            6 -> {
+                // 第 7 步：自定义工作区专属小板块
+                Spacer(Modifier.height(12.dp))
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Morandi.panel.copy(alpha = 0.6f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    FeatureTipRow(R.drawable.ic_panel_frame, stringResource(R.string.onboarding_ws_tip_drag))
+                    FeatureTipRow(R.drawable.ic_sliders, stringResource(R.string.onboarding_ws_tip_layout))
+                    FeatureTipRow(R.drawable.ic_settings, stringResource(R.string.onboarding_ws_tip_topbar))
+                }
+            }
+        }
+
+        Spacer(Modifier.height(18.dp))
+
+        // 底部操作栏：跳过 + 上一步 + 下一步/完成
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // 跳过按钮
+            Text(
+                text = stringResource(R.string.onboarding_skip),
+                color = Morandi.subText.copy(alpha = 0.85f),
+                fontSize = 13.sp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onSkip,
+                    )
+                    .padding(horizontal = 6.dp, vertical = 6.dp),
+            )
+
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (step > 0) {
+                    ReButton(
+                        text = stringResource(R.string.onboarding_prev),
+                        onClick = onPrev,
+                        primary = false,
+                    )
+                }
+
+                ReButton(
+                    text = stringResource(if (step < totalSteps - 1) R.string.onboarding_next else R.string.onboarding_finish),
+                    onClick = onNext,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeatureTipRow(iconRes: Int, text: String) {
+    Row(
+        modifier = Modifier.fillMaxWidth(),
+        verticalAlignment = Alignment.Top,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Icon(
+            painter = painterResource(iconRes),
+            contentDescription = null,
+            tint = Morandi.accent,
+            modifier = Modifier
+                .padding(top = 2.dp)
+                .size(15.dp),
+        )
+        Text(
+            text = text,
+            color = Morandi.text,
+            fontSize = 12.sp,
+            lineHeight = 17.sp,
+            fontWeight = FontWeight.Medium,
+        )
+    }
+}

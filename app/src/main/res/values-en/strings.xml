@@ -3714,5 +3714,44 @@
     <string name="timelapse_compact_info">Current %1$d frames → ~%2$d frames (estimated to free ~%3$s)</string>
     <string name="timelapse_compact_confirm">Thin Now</string>
     <string name="timelapse_compact_success">Completed, freed %1$s storage</string>
+
+    <!-- Novice Onboarding -->
+    <string name="onboarding_skip">Skip</string>
+    <string name="onboarding_prev">Previous</string>
+    <string name="onboarding_next">Next</string>
+    <string name="onboarding_finish">Start Painting</string>
+    <string name="onboarding_step_format">%1$d / %2$d</string>
+    <string name="onboarding_step1_title">Tool Rail &amp; Brush Studio</string>
+    <string name="onboarding_step1_desc">Primary drawing tools (Brush, Eraser, Smudge). Tip: Tap the selected brush icon again to open Brush Presets &amp; Brush Studio; tap the bottom \"···\" to reveal all tools</string>
+    <string name="onboarding_step2_title">Sliders &amp; Color Palette</string>
+    <string name="onboarding_step2_desc">Slide up/down to adjust brush size and opacity. The center square toggles the quick eyedropper. Tap the bottom color ring to open the full palette</string>
+    <string name="onboarding_step2_slider_height_title">Adjust Slider Length</string>
+    <string name="onboarding_step2_slider_height_hint">Drag to adjust slider height in real time without entering settings</string>
+    <string name="onboarding_step3_title">Quick Panels &amp; View Tools</string>
+    <string name="onboarding_step3_desc">Tap \"···\" at the bottom of the toolbar to open expanded tools. The View section hosts handy floating windows: Reference, Quick Brush, Quick Color, Quick Layer, Quick Actions, and OKLCH color picker</string>
+    <string name="onboarding_view_tip_ref">Reference Window: Import multiple references, zoom/rotate freely, and long press to pick colors</string>
+    <string name="onboarding_view_tip_floats">Quick Windows: Brush, color, layer, and actions can float freely over canvas</string>
+    <string name="onboarding_view_tip_oklch">OKLCH Palette: Perceptually uniform color model for cleaner tints and shades</string>
+    <string name="onboarding_step4_title">Top Bar &amp; Basic Controls</string>
+    <string name="onboarding_step4_desc">Undo/Redo on the left. The right side holds the Layer Panel entry, project settings (stabilization, gestures, layout), and exit</string>
+    <string name="onboarding_step5_title">Layer Panel &amp; Advanced Features</string>
+    <string name="onboarding_step5_desc">Core workspace for layer hierarchy, special layer types, and editing. Expand and reposition anytime</string>
+    <string name="onboarding_step6_title">Canvas Gestures Quick Reference</string>
+    <string name="onboarding_step6_desc">2-finger tap to Undo, 3-finger tap to Redo. Pinch with 2 fingers to pan, zoom, and rotate. Quick pinch inward to fit canvas</string>
+    <string name="onboarding_step7_title">Workspace Customization</string>
+    <string name="onboarding_step7_desc">1. Free drag &amp; pin: Go to Settings -&gt; View Display -&gt; Panel Pinning &amp; Free Pan; 2. Floating layout: Go to Settings -&gt; More Settings -&gt; Appearance &amp; Layout -&gt; Floating Mode; 3. Customize tools: Tap \"···\" -&gt; Customize in the toolbar</string>
+    <string name="onboarding_layer_tip_more">Special Layer Types: Tap the layer-stack icon next to New Layer to create 3D reference, filter, stroke/fill layers, and masks</string>
+    <string name="onboarding_layer_tip_ops">Top Actions: Merge Down, Alpha Lock (paint existing pixels only), and Clipping Mask</string>
+    <string name="onboarding_layer_tip_details">Blending &amp; Properties: Tap a layer row to open details for opacity, blend modes, and filters</string>
+    <string name="onboarding_layer_tip_gestures">Layer Gestures: Long press to reorder; swipe left for drawer actions; pinch 2 adjacent layers to merge</string>
+    <string name="onboarding_gesture_undo">2-Finger Tap · Undo</string>
+    <string name="onboarding_gesture_redo">3-Finger Tap · Redo</string>
+    <string name="onboarding_gesture_pinch">2-Finger Pinch · Pan, Zoom &amp; Rotate</string>
+    <string name="onboarding_gesture_fit">Quick Pinch In · Fit Canvas</string>
+    <string name="onboarding_ws_tip_drag">Settings -&gt; View Display: Enable Panel Pinning &amp; Free Pan</string>
+    <string name="onboarding_ws_tip_layout">Settings -&gt; More Settings -&gt; Appearance &amp; Layout: Enable Floating Mode</string>
+    <string name="onboarding_ws_tip_topbar">Tool Rail \"···\" -&gt; Customize: Pin or unpin favorite tools</string>
+    <string name="settings_replay_onboarding">Beginner’s Guide</string>
+    <string name="settings_replay_onboarding_desc">Replay the feature tour and workspace customization guide</string>
 </resources>
 

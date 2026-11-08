@@ -3713,5 +3713,44 @@
     <string name="timelapse_compact_info">当前 %1$d 帧 → 瘦身后约 %2$d 帧（预计释放约 %3$s）</string>
     <string name="timelapse_compact_confirm">立即瘦身</string>
     <string name="timelapse_compact_success">瘦身完成，已释放 %1$s 存储空间</string>
+
+    <!-- 新手引导 (Novice Onboarding) -->
+    <string name="onboarding_skip">跳过</string>
+    <string name="onboarding_prev">上一步</string>
+    <string name="onboarding_next">下一步</string>
+    <string name="onboarding_finish">开始创作</string>
+    <string name="onboarding_step_format">%1$d / %2$d</string>
+    <string name="onboarding_step1_title">侧边工具栏与笔刷工坊</string>
+    <string name="onboarding_step1_desc">绘图工具核心控制区（笔刷、橡皮擦与涂抹）。技巧：再次轻点当前选中的笔刷图标，可立即呼出笔刷预设库与笔刷工坊；轻点底部「···」可展开全部扩展工具</string>
+    <string name="onboarding_step2_title">调节滑块与调色板</string>
+    <string name="onboarding_step2_desc">上下滑动可即时调节笔刷尺寸与不透明度，中间方块支持快速吸色与常用工具切换。轻点最下方的颜色圆环可展开完整调色板（色轮、方块、调和色与色板库）</string>
+    <string name="onboarding_step2_slider_height_title">实时微调滑块长度</string>
+    <string name="onboarding_step2_slider_height_hint">拖动即可调整滑块高度范围，两侧滑块将实时同步生效</string>
+    <string name="onboarding_step3_title">快捷面板与辅助视图</string>
+    <string name="onboarding_step3_desc">点击侧边栏底部「···」可展开全量工具。在「视图」板块中汇聚了常用的独立悬浮小窗：参考图、快捷笔刷、快捷颜色、快捷图层、快捷操作与 OKLCH 调色等，随用随开</string>
+    <string name="onboarding_view_tip_ref">参考图浮窗：支持导入多张参考图、无级缩放旋转与长按直接取色</string>
+    <string name="onboarding_view_tip_floats">快捷操作与浮窗：笔刷、颜色、图层与快捷操作均可作为轻量级小窗常驻画布</string>
+    <string name="onboarding_view_tip_oklch">OKLCH 调色：基于人眼感知均匀的色彩模型，高光与暗部混色更纯净自然</string>
+    <string name="onboarding_step4_title">顶栏导航与基础控制</string>
+    <string name="onboarding_step4_desc">左侧提供撤销与重做；右侧包含图层面板入口、工程设置（防抖、手势、悬浮排布）以及安全退出工程</string>
+    <string name="onboarding_step5_title">图层面板与进阶功能</string>
+    <string name="onboarding_step5_desc">管理图层层叠、特殊图层与常用修图技巧的核心工作区，支持随时展开并自由拖动</string>
+    <string name="onboarding_step6_title">画布高频手势速查</string>
+    <string name="onboarding_step6_desc">双指轻点撤销、三指轻点重做；双指捏合自由平移、缩放与旋转画布；双指快速向内一捏自适应全屏居中</string>
+    <string name="onboarding_step7_title">如何自定义专属工作区</string>
+    <string name="onboarding_step7_desc">① 自由平移与固定：进入顶栏「设置 -> 视图显示」，开启「面板固定与自由平移」，即可解锁把手任意拖动浮窗并在任意位置钉住常驻；② 自由悬浮排布：进入「设置 -> 更多设置 -> 外观与布局」，开启「自由悬浮模式」可将顶栏、工具栏与滑块分别摆放到屏幕任意边缘；③ 自定义工具：在侧边栏底部点击「···更多」->「自定义」增减常用工具</string>
+    <string name="onboarding_layer_tip_more">特殊图层类型：点击新建旁「图层叠加图标」，可创建 3D 参考图层、滤镜图层、描边/填充图层及蒙版</string>
+    <string name="onboarding_layer_tip_ops">顶部快捷操作：支持向下合并、Alpha 锁定（仅绘制已有像素）、剪贴蒙版（限制在下方形状内）</string>
+    <string name="onboarding_layer_tip_details">混合模式与属性：轻点图层行可进入详情页微调不透明度、混合模式（正片叠底/滤色/叠加）与滤镜</string>
+    <string name="onboarding_layer_tip_gestures">图层交互手势：长按拖拽重排顺序；向左滑动图层行展开操作抽屉；双指捏合相邻两图层可快速合并</string>
+    <string name="onboarding_gesture_undo">双指轻点 · 撤销</string>
+    <string name="onboarding_gesture_redo">三指轻点 · 重做</string>
+    <string name="onboarding_gesture_pinch">双指捏合 · 缩放与旋转</string>
+    <string name="onboarding_gesture_fit">向内快捏 · 全屏居中自适应</string>
+    <string name="onboarding_ws_tip_drag">设置 -> 视图显示：开启「面板固定与自由平移」</string>
+    <string name="onboarding_ws_tip_layout">设置 -> 更多设置 -> 外观与布局：开启自由悬浮模式</string>
+    <string name="onboarding_ws_tip_topbar">工具栏底部「···」-> 自定义：增减常用绘图工具</string>
+    <string name="settings_replay_onboarding">新手功能引导</string>
+    <string name="settings_replay_onboarding_desc">重新查看核心功能布局与工作区定制指引</string>
 </resources>
 

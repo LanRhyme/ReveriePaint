@@ -1304,6 +1304,16 @@ internal fun SettingsTabPage(
                     // 4. 高级设置
                     SettingsGroupCard(title = stringResource(R.string.settings_group_advanced)) {
                         SettingNavRow(
+                            title = stringResource(R.string.settings_replay_onboarding),
+                            icon = R.drawable.ic_help_circle,
+                        ) {
+                            vm.startOnboarding()
+                            onClose()
+                        }
+
+                        SettingsInnerDivider()
+
+                        SettingNavRow(
                             title = stringResource(R.string.settings_more_settings),
                             icon = R.drawable.ic_settings,
                         ) {
