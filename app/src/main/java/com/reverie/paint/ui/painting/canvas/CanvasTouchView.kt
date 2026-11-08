@@ -3093,10 +3093,17 @@ class CanvasTouchView(context: Context) : View(context) {
         // =========================================================================
         // 1:1 路径下瓦片网格是画布的唯一来源; 整图 displayBitmap 只在整图路径 (缩放回退/
         // 动画播放/超大画布) 或网格尚未建立时才画 —— 两者绝不同帧一起画。
+        // 换文档期间 (网格已作废、新文档首帧还没上屏) 两个来源都**不许**画: 那时候手里的
+        // 整图位图装的是上一份文档, 画出来就是"打开工程时一直显示上一个文件"。
         // 先读修订号再读瓦片引用: drawnRev 只会偏小不会偏大, 避免误把尚未绘制的更新版本判定为已追平。
         val drawnRev = v.tileRevision
         val tiles = v.displayTiles.drawable()
-        val bmp = if (tiles != null) null else (v.displayBitmap ?: docBitmap)?.takeIf { !it.isRecycled }
+        val bmp =
+            if (tiles != null || v.documentSwitchPending) {
+                null
+            } else {
+                (v.displayBitmap ?: docBitmap)?.takeIf { !it.isRecycled }
+            }
         val sceneW = tiles?.grid?.width ?: (bmp?.width ?: 0)
         val sceneH = tiles?.grid?.height ?: (bmp?.height ?: 0)
         if (sceneW > 0 && sceneH > 0) {

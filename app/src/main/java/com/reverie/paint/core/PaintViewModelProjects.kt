@@ -519,6 +519,8 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 showActionToast(R.string.toast_project_import_unsupported, R.drawable.ic_alert_triangle)
                 // 加载失败不留旧方向。
                 pendingCanvasOrientation = null
+                // 换文档标记必须收掉: 失败时不会再有"新文档首帧", 否则画布会一直不画东西。
+                cancelAwaitingFirstFrameAfterLoad()
                 return@runCore
             }
             Breadcrumbs.record("IO", "loadProject SUCCESS: ${p.name} (healed=$isHealed)")
@@ -614,6 +616,10 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 val targetTool = currentToolId.ifBlank { "brush" }
                 applyTool(targetTool, force = true)
             }
+            // 遮罩留到新文档的第一帧真的上屏为止: 从 discardTileGridForDocumentSwitch 起
+            // 画布就不画任何文档像素了 (旧网格已作废、旧整图缓冲已放掉), 提前撤遮罩只会
+            // 让用户看到一片空白 —— 那正是上一次"加载前清 displayBitmap"被回退的原因。
+            beginAwaitingFirstFrameAfterLoad()
             if (isRecovered) {
                 showActionToast(R.string.toast_project_restored_autosave, R.drawable.ic_save)
             } else if (isHealed) {
@@ -856,6 +862,30 @@ internal fun PaintViewModel.clearFolderCover(
     refreshProjects()
 }
 
+/**
+ * 画廊缩略图的磁盘缓存文件 (`cacheDir/<工程名>_thumb.png`, 见 `buildProjectList`)。
+ *
+ * 缓存 key 是**工程名**而不是路径, 所以删除/重命名工程时必须同步清掉, 否则同名工程
+ * (恢复备份、从别处拷回同一个 .revp) 会命中**已被删除的那个工程**的预览图 ——
+ * `lastModified()` 比 .revp 新时, 刷新条件 `cacheThumb.lastModified() < f.lastModified()`
+ * 甚至不会再生成, 于是画廊里一直挂着删掉的那张图。
+ */
+internal fun PaintViewModel.projectThumbCacheFile(projectName: String): File =
+    File(appContext.cacheDir, "${projectName}_thumb.png")
+
+/** 删掉某个工程名对应的画廊缩略图磁盘缓存 (删除/重命名时调用)。 */
+internal fun PaintViewModel.dropProjectThumbCache(projectName: String) {
+    if (projectName.isBlank()) return
+    runCatching {
+        val f = projectThumbCacheFile(projectName)
+        if (f.exists()) f.delete()
+        // 迁移前的命名: `<文件名>_thumb.png` 与本函数同源, 但 autosave 的 nameWithoutExtension
+        // 可能带 .autosave 后缀, 两种都清一遍。
+        val alt = File(appContext.cacheDir, "${projectName.removeSuffix(".autosave")}_thumb.png")
+        if (alt.exists()) alt.delete()
+    }
+}
+
 internal fun PaintViewModel.deleteProject(p: com.reverie.paint.model.Project) {
     if (p.isFolder) {
         val dir = File(p.filePath)
@@ -867,6 +897,7 @@ internal fun PaintViewModel.deleteProject(p: com.reverie.paint.model.Project) {
                         filePath = subFile.absolutePath,
                     )
                     deleteTimelapseData(subProj)
+                    dropProjectThumbCache(subFile.nameWithoutExtension)
                 }
             }
             dir.deleteRecursively()
@@ -875,6 +906,7 @@ internal fun PaintViewModel.deleteProject(p: com.reverie.paint.model.Project) {
     } else {
         val file = File(p.filePath)
         if (file.exists()) file.delete()
+        dropProjectThumbCache(file.nameWithoutExtension)
         deleteTimelapseData(p)
     }
     if (!File(p.filePath).exists()) forgetLocalReferences(File(p.filePath))
@@ -899,6 +931,9 @@ internal fun PaintViewModel.renameProject(
                 renameTimelapseFolder(p.name, newName.trim())
             } else {
                 renameTimelapseData(oldFile = file, newFile = target)
+                // 缩略图缓存按工程名索引: 旧名的缓存留着不仅是垃圾, 改回旧名时会命中
+                // 改名前的旧预览 (缓存并没随 .revp 变过)。
+                dropProjectThumbCache(file.nameWithoutExtension)
             }
         }
     }
@@ -921,6 +956,7 @@ internal fun PaintViewModel.deleteProjects(projects: List<com.reverie.paint.mode
                             filePath = subFile.absolutePath,
                         )
                         deleteTimelapseData(subProj)
+                        dropProjectThumbCache(subFile.nameWithoutExtension)
                     }
                 }
                 dir.deleteRecursively()
@@ -929,6 +965,7 @@ internal fun PaintViewModel.deleteProjects(projects: List<com.reverie.paint.mode
         } else {
             val file = File(p.filePath)
             if (file.exists()) file.delete()
+            dropProjectThumbCache(file.nameWithoutExtension)
             deleteTimelapseData(p)
         }
         if (!File(p.filePath).exists()) forgetLocalReferences(File(p.filePath))
@@ -1669,6 +1706,9 @@ internal fun PaintViewModel.goHome() {
     // Safety net: clear any stuck loading overlay (e.g. if a runCore op threw
     // before after() could set isBlockingLoading = false)
     isBlockingLoading = false
+    // 同时收掉"换文档等首帧"的标记: 回到画廊后不会再有新文档的首帧, 留着会让下次进画布
+    // 的画布前几帧什么都不画。
+    cancelAwaitingFirstFrameAfterLoad()
     active3DLayers = emptyMap()
     show3DPosePanel = false
     currentPage = Page.HOME
@@ -1790,6 +1830,8 @@ internal fun PaintViewModel.startPainting(
                 val targetTool = currentToolId.ifBlank { "brush" }
                 applyTool(targetTool, force = true)
             }
+            // 同 loadProject: 新画布第一帧上屏前不让画布画任何文档像素 (遮罩也留到那一刻)。
+            beginAwaitingFirstFrameAfterLoad()
             if (animation) {
                 anim.enabled = true
                 anim.panelOpen = true

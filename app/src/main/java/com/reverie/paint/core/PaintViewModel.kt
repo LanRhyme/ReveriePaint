@@ -5738,11 +5738,67 @@ class PaintViewModel : ViewModel() {
     internal val displayTiles = DisplayTileState()
 
     /**
+     * 当前文档的瓦片网格分配曾经 OOM 失败 ⇒ 这份文档整份退回整图双缓冲路径 (熔断)。
+     * 只在渲染线程写, 换文档时由 [discardTileGridForDocumentSwitch] 复位。
+     */
+    @Volatile internal var displayTilesUnavailableForDoc = false
+
+    /**
      * 画布当前有可上屏的像素: 瓦片网格已发布, 或整图路径已有 [displayBitmap]。
      * 液化这类"必须有画布画面"的功能用它做门 —— 瓦片路径下不一定存在整图位图。
      */
     internal val hasDisplaySurface: Boolean
         get() = displayTiles.drawable() != null || displayBitmap != null
+
+    /**
+     * 换文档进行中: 从 [discardTileGridForDocumentSwitch] 到新文档的第一帧真正上屏为止。
+     *
+     * 为什么需要这个概念: `drawCanvas` 只有两个文档像素来源 —— 瓦片网格与 [displayBitmap]。
+     * 换文档时网格会立刻作废 (UI 线程可见), 但整图双缓冲里装的是**上一份文档**的像素,
+     * 于是加载全程画布上一直是上一个文件的画面 (加载遮罩只有 45% 黑, 透得清清楚楚);
+     * 若反过来把缓冲提前清空, 又会变成"白屏闪一下"。
+     *
+     * 这里不赌某一份缓冲, 而是让绘制路径知道"换文档还没结束" —— 期间不画任何文档像素
+     * ([CanvasTouchView.drawCanvas]), 加载遮罩用不透明底色, 新文档第一帧上屏后才放行。
+     */
+    @Volatile internal var documentSwitchPending = false
+
+    /** [documentSwitchPending] 的 Compose 镜像 (Compose 只认状态; 渲染线程读上面那个 volatile)。 */
+    var awaitingFirstFrameAfterLoad by mutableStateOf(false)
+        internal set
+
+    private val postedClearAwaitingFirstFrame =
+        Runnable {
+            documentSwitchPending = false
+            awaitingFirstFrameAfterLoad = false
+        }
+
+    /**
+     * 主线程: 加载/新建收尾, 等新文档的第一帧上屏。
+     *
+     * 顺序是确定的: `runCore` 的引擎操作与渲染帧同在一个 Handler 队列上, 所以这里
+     * "先 scheduleRender 再 post 收尾" ⇒ 收尾一定跑在那一帧之后。不用猜"哪一帧是新文档的",
+     * 也不依赖 `notifyCanvasFramePublished` (加载期间也可能有帧, 那帧画的还是旧文档)。
+     */
+    internal fun beginAwaitingFirstFrameAfterLoad() {
+        documentSwitchPending = true
+        awaitingFirstFrameAfterLoad = true
+        mainHandler.removeCallbacks(postedClearAwaitingFirstFrame)
+        mainHandler.postDelayed(postedClearAwaitingFirstFrame, FIRST_FRAME_GUARD_TIMEOUT_MS)
+        val h = renderHandler
+        if (h == null) {
+            postedClearAwaitingFirstFrame.run()
+            return
+        }
+        scheduleRender(immediate = true)
+        h.post { mainHandler.post(postedClearAwaitingFirstFrame) }
+    }
+
+    /** 主线程: 放弃等待 (加载失败 / 返回画廊 / 超时兜底)。 */
+    internal fun cancelAwaitingFirstFrameAfterLoad() {
+        mainHandler.removeCallbacks(postedClearAwaitingFirstFrame)
+        postedClearAwaitingFirstFrame.run()
+    }
 
     // Cumulative dirty rect for large bitmap tiling (> 100MB) synchronization
     private val largeBitmapDirtyRect = android.graphics.Rect()
@@ -6024,6 +6080,14 @@ class PaintViewModel : ViewModel() {
     companion object {
         /** 见 [frontBufferQuietUntilMs]。取实测窗口的上沿，避免卡在 3 秒边界上仍裂开。 */
         const val NEW_CANVAS_FRONT_BUFFER_QUIET_MS = 3_200L
+
+        /**
+         * 换文档后等第一帧上屏的兜底上限。正常路径由"渲染帧之后就绪"的收尾精确放行, 这个
+         * 超时只防渲染线程异常/引擎无输出时画面永远停在"加载中"。
+         * 大画布上首帧要写满整份文档的瓦片 (6400x10240 = 260 张 / 250MB, 真机 0.3~1s),
+         * 所以给得比一帧宽松得多。
+         */
+        const val FIRST_FRAME_GUARD_TIMEOUT_MS = 8_000L
 
         @Volatile var currentInstance: PaintViewModel? = null
         const val SMOOTHING_OFF = 0

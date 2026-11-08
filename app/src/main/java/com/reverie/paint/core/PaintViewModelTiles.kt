@@ -26,9 +26,25 @@ import java.util.concurrent.atomic.AtomicReferenceArray
 
 private val EMPTY_DIRTY = IntArray(0)
 
-/** 这一帧是否走瓦片路径 (判定规则见 [DisplayTileGrid.shouldUse])。 */
+/**
+ * 这一帧是否走瓦片路径 (判定规则见 [DisplayTileGrid.shouldUse])。
+ *
+ * [PaintViewModel.displayTilesUnavailableForDoc] 是 OOM 熔断: 这份文档的瓦片网格曾经分配
+ * 失败就整份退回整图路径, 不再每帧重试 —— 否则渲染线程会在"分配 250MB → OOM → 回收 → 再分配"
+ * 的循环里空转, 比整图路径还糟。
+ */
 internal fun PaintViewModel.shouldRenderDisplayTiles(w: Int, h: Int): Boolean =
-    DisplayTileGrid.shouldUse(w, h, coreW, coreH, anim.isPlaying, currentPage == Page.REPLAY)
+    DisplayTileFlags.enabled &&
+        !displayTilesUnavailableForDoc &&
+        DisplayTileGrid.shouldUse(
+            w,
+            h,
+            coreW,
+            coreH,
+            anim.isPlaying,
+            currentPage == Page.REPLAY,
+            DisplayTileFlags.budgetBytes,
+        )
 
 internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
     val st = displayTiles
@@ -349,24 +365,51 @@ private fun PaintViewModel.ensureDisplayTileGrid(w: Int, h: Int): PublishedTiles
     }
     val grid = DisplayTileGrid(w, h)
     if (grid.isEmpty) return null
-    val arr = AtomicReferenceArray<Bitmap?>(grid.tileCount)
-    try {
-        for (ty in 0 until grid.rows) {
-            for (tx in 0 until grid.cols) {
-                arr.set(
-                    grid.tileIndex(tx, ty),
-                    Bitmap.createBitmap(grid.tileWidth(tx), grid.tileHeight(ty), Bitmap.Config.ARGB_8888),
-                )
+    // 大画布上一次分配失败常常只是瞬时压力 (加载峰值 / 旧文档还没回收): 先回收一轮再试一次,
+    // 两次都失败才熔断。否则一次瞬时 OOM 会把这份文档永久钉在最差的整图路径上。
+    var arr: AtomicReferenceArray<Bitmap?>? = null
+    for (attempt in 0 until 2) {
+        val a = AtomicReferenceArray<Bitmap?>(grid.tileCount)
+        try {
+            for (ty in 0 until grid.rows) {
+                for (tx in 0 until grid.cols) {
+                    a.set(
+                        grid.tileIndex(tx, ty),
+                        Bitmap.createBitmap(grid.tileWidth(tx), grid.tileHeight(ty), Bitmap.Config.ARGB_8888),
+                    )
+                }
             }
+            arr = a
+            break
+        } catch (oom: OutOfMemoryError) {
+            android.util.Log.e(
+                "PaintViewModel",
+                "OOM allocating display tile grid ($w x $h) attempt=${attempt + 1}",
+                oom,
+            )
+            if (attempt == 0) releaseReclaimableCaches(aggressive = true)
         }
-    } catch (oom: OutOfMemoryError) {
-        android.util.Log.e("PaintViewModel", "OOM allocating display tile grid ($w x $h)", oom)
-        releaseReclaimableCaches(aggressive = true)
+    }
+    val allocated = arr
+    if (allocated == null) {
+        // 熔断: 这份文档从此走整图路径, 不再每帧尝试重分配 (见 shouldRenderDisplayTiles)。
+        // 同时置 displayBufferInvalid, 让下一帧的整图路径做一次全量帧 (否则它手里只有旧文档像素)。
+        displayTilesUnavailableForDoc = true
+        displayBufferInvalid = true
+        scheduleRender(immediate = true)
         return null
     }
-    st.beginStaging(grid, arr)
+    st.beginStaging(grid, allocated)
     displayBufferInvalid = false
     clearRenderWrittenRect()
+    if (PerfTrace.enabled) {
+        // 大画布上这行是"到底走了哪条路径、要多少显存"的唯一证据 (250MB 级文档尤其需要)。
+        PerfTrace.log(
+            "displayTiles grid=${grid.width}x${grid.height} tiles=${grid.tileCount} " +
+                "bytes=${DisplayTileGrid.displayBytes(w, h) / (1024L * 1024L)}MB " +
+                "budget=${DisplayTileFlags.budgetBytes / (1024L * 1024L)}MB",
+        )
+    }
     return st.staging
 }
 
@@ -384,19 +427,33 @@ internal fun PaintViewModel.clearDisplayTileGrid() {
  *
  * 不在 UI 线程上改网格: 只登记一次作废请求 (onDraw 立刻不再画旧网格), 真正的清理投递到
  * 渲染线程, 与渲染帧串行。
+ *
+ * 同时把整图双缓冲也放掉: 那两份位图里装的是**上一份文档**的像素, 新文档的首帧还没上屏
+ * 之前 onDraw 会照画不误 —— 这就是"加载时一直显示上一次打开的文件"的成因 (网格作废后
+ * `drawCanvas` 会退到 `displayBitmap ?: docBitmap`)。释放后画布只画背景色, 加载遮罩和
+ * [PaintViewModel.awaitingFirstFrameAfterLoad] 负责盖住这段空白窗口。
  */
 internal fun PaintViewModel.discardTileGridForDocumentSwitch() {
     realInkSink?.onDocumentDiscarded()
+    // 新文档的尺寸/图层结构都可能不同: 上一份文档的 OOM 熔断不该带过来。
+    displayTilesUnavailableForDoc = false
+    // 从这一刻起到新文档第一帧上屏, 画布不画任何文档像素 —— 旧网格已作废, 旧整图缓冲
+    // 也即将被放掉, 中间任何一帧都不该再拿上一份文档的像素顶上 (见 documentSwitchPending)。
+    documentSwitchPending = true
     val st = displayTiles
     val gen = st.requestDiscard()
     val rh = renderHandler
     if (rh == null) {
         // 渲染线程还没起来: 不可能有网格, 直接视为已处理。
+        releaseFullCanvasBuffers()
         st.markDiscardHandled(gen)
         return
     }
     rh.post {
         clearDisplayTileGrid()
+        releaseFullCanvasBuffers()
+        // 整图路径下一帧必须重建成新文档的全量帧, 不能用 (已经放掉的) 旧缓冲做增量。
+        displayBufferInvalid = true
         st.markDiscardHandled(gen)
     }
 }

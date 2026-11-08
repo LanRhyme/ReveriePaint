@@ -2720,8 +2720,11 @@ fun PaintingPage(
         }
 
         // Blocking Loading & Saving Modal Overlay (prevents any clicks/interactions)
+        // 换文档期间 (vm.awaitingFirstFrameAfterLoad) 遮罩必须盖到新文档第一帧上屏: 那段时间
+        // 画布上一个文档像素都没有, 提前撤遮罩就是一片空白; 底色也换成不透明的画布底色
+        // (半透明黑下面透出来的, 只会是"换文档前的残影")。
         androidx.compose.animation.AnimatedVisibility(
-            visible = vm.isBlockingLoading,
+            visible = vm.isBlockingLoading || vm.awaitingFirstFrameAfterLoad,
             enter =
                 androidx.compose.animation.fadeIn(
                     androidx.compose.animation.core
@@ -2749,8 +2752,12 @@ fun PaintingPage(
                     Modifier
                         .fillMaxSize()
                         .background(
-                            androidx.compose.ui.graphics.Color.Black
-                                .copy(alpha = 0.45f),
+                            if (vm.awaitingFirstFrameAfterLoad) {
+                                Morandi.canvasBg
+                            } else {
+                                androidx.compose.ui.graphics.Color.Black
+                                    .copy(alpha = 0.45f)
+                            },
                         ).clickable(
                             interactionSource =
                                 remember {
