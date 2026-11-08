@@ -24,6 +24,33 @@ jobs:
       - name: Grant execute permission for gradlew
         run: chmod +x gradlew
 
+      - name: Cache Gradle wrapper distribution
+        # 只缓存 ~/.gradle/caches 时, 每次构建都要重新从 services.gradle.org 下 ~230MB 的
+        # gradle-9.5.0-all.zip; GitHub 侧偶发读超时 (networkTimeout 只有 10s) 会让整个
+        # Release 构建在第一步就失败 (1.8.2 首次发布即因此失败两次)。这里把 wrapper 的
+        # 发行包一起缓存, 并给首次下载加带重试的预热。
+        uses: actions/cache@v4
+        with:
+          path: |
+            ~/.gradle/wrapper/dists
+            ~/.gradle/caches
+          key: gradle-w-${{ hashFiles('gradle/wrapper/gradle-wrapper.properties') }}
+          restore-keys: gradle-w-
+
+      - name: Prefetch Gradle distribution (retry)
+        run: |
+          for i in 1 2 3 4; do
+            if ./gradlew --version >/dev/null 2>&1; then
+              echo "gradle distribution ready (attempt $i)"
+              exit 0
+            fi
+            echo "gradle download attempt $i failed, retrying..."
+            sleep 15
+          done
+          echo "gradle distribution download failed after retries" >&2
+          exit 1
+
+
       - name: Write Aifadian Config
         env:
           AIFADIAN_API_TOKEN: ${{ secrets.AIFADIAN_API_TOKEN }}
