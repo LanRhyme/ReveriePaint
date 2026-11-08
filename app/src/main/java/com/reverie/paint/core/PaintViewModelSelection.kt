@@ -70,15 +70,24 @@ internal fun PaintViewModel.smoothSelection(radius: Int) {
     }
 }
 
+/**
+ * 选区叠加层位图的尺寸: 与画布同比例, 但总像素封顶 (见 [com.reverie.paint.model.SelectionOverlayPolicy])。
+ *
+ * 叠加层最终会被 `CanvasOverlay` 拉伸到画布矩形绘制, 所以不需要文档分辨率。按文档尺寸要像素
+ * 在 6400x10240 上就是三份 250 MB (C++ 缓冲 / JNI IntArray / Kotlin 位图), 真机实测一次套索
+ * 让 Native Heap 涨 1.1 GB; 自由套索拖动时这条路径还是节流重入的。
+ */
+internal fun PaintViewModel.selectionOverlaySize(): Pair<Int, Int> =
+    com.reverie.paint.model.SelectionOverlayPolicy.overlaySize(maxOf(1, renderW), maxOf(1, renderH))
+
 /** Build the selection overlay bitmap on the render thread (must be
- *  called inside a runCore op). The full-document mask is downsampled to
- *  the viewport size so it matches the canvas bitmap 1:1. */
+ *  called inside a runCore op). 叠加层按 [selectionOverlaySize] 的预算降采样,
+ *  绘制侧再拉伸到画布矩形。 */
 internal fun PaintViewModel.buildSelectionOverlayLocked(): android.graphics.Bitmap? {
-    // The C++ side samples the selection mask at the viewport stride and
+    // The C++ side samples the selection mask at the requested stride and
     // returns the ARGB overlay pixels directly - one JNI round trip
     // instead of a full-document mask readBytes plus a 2M-pixel scan here
-    val vw = maxOf(1, renderW)
-    val vh = maxOf(1, renderH)
+    val (vw, vh) = selectionOverlaySize()
     val px = ReverieCoreBridge.selectionOverlayScaled(vw, vh) ?: run {
         pendingSelectionOutlinePath = null
         return null
@@ -95,12 +104,16 @@ internal fun PaintViewModel.buildSelectionOverlayLocked(): android.graphics.Bitm
         val numPolys = outlineData[0]
         val path = androidx.compose.ui.graphics.Path()
         var idx = 1
-        val dw = if (docWidth > 0) docWidth.toFloat() else vw.toFloat()
-        val dh = if (docHeight > 0) docHeight.toFloat() else vh.toFloat()
-        val scX = vw.toFloat() / dw
-        val scY = vh.toFloat() / dh
-        val halfW = vw.toFloat() / 2f
-        val halfH = vh.toFloat() / 2f
+        // 轮廓走**画布空间** (renderW/renderH = 场景尺寸), 与叠加层位图自身分辨率无关 ——
+        // 位图会被拉伸绘制, 但 Path 是按坐标直接画的, 用叠加层尺寸就会缩到角落。
+        val sceneW = maxOf(1, renderW).toFloat()
+        val sceneH = maxOf(1, renderH).toFloat()
+        val dw = if (docWidth > 0) docWidth.toFloat() else sceneW
+        val dh = if (docHeight > 0) docHeight.toFloat() else sceneH
+        val scX = sceneW / dw
+        val scY = sceneH / dh
+        val halfW = sceneW / 2f
+        val halfH = sceneH / 2f
         for (p in 0 until numPolys) {
             if (idx >= outlineData.size) break
             val count = outlineData[idx++]
@@ -217,8 +230,7 @@ internal fun PaintViewModel.previewLasso(points: List<Pair<Int, Int>>) {
     if (points.size < 3) return
     val xs = IntArray(points.size) { points[it].first }
     val ys = IntArray(points.size) { points[it].second }
-    val vw = maxOf(1, renderW)
-    val vh = maxOf(1, renderH)
+    val (vw, vh) = selectionOverlaySize()
     var ov: android.graphics.Bitmap? = null
     runCore(render = false, after = {
         selectionOverlayBitmap = ov
@@ -241,8 +253,7 @@ internal fun PaintViewModel.previewLassoSync(points: List<Pair<Int, Int>>) {
     if (points.size < 3) return
     val xs = IntArray(points.size) { points[it].first }
     val ys = IntArray(points.size) { points[it].second }
-    val vw = maxOf(1, renderW)
-    val vh = maxOf(1, renderH)
+    val (vw, vh) = selectionOverlaySize()
     var ov: android.graphics.Bitmap? = null
     val latch = java.util.concurrent.CountDownLatch(1)
     runCore(render = false, after = {

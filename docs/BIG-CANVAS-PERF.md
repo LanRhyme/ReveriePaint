@@ -131,13 +131,42 @@ W RP_Timelapse: ReverieCoreBridge.renderDocumentThumb took 92ms
 用户设置（抓帧分辨率 / 最小间隔）完全按用户选择执行 —— 之前那版"按画布大小自动降质降频"
 已撤回（commit `1dcc5905`）。
 
+## 4.2 选区叠加层：大画布上会直接崩，且一次 +1.1 GB
+
+真机（6400x10240）做一次套索，进程被 HWUI 拒绝绘制并崩溃：
+
+```
+java.lang.RuntimeException: Canvas: trying to draw too large(262144000bytes) bitmap.
+  at android.graphics.RecordingCanvas.throwIfCannotDraw(RecordingCanvas.java:267)
+  at com.reverie.paint.ui.painting.canvas.CanvasOverlayKt ... (CanvasOverlay.kt:1258)
+--- [App Context & Canvas State] ---
+Active Tool: lasso   Document: 6400 x 10240   Native Heap: Allocated=2330 MB
+```
+
+根因：选区遮罩位图一直按 `renderW/renderH`（= 文档尺寸）要像素，于是一份叠加层是**三份 250 MB**：
+C++ `selectionOverlayScaled` 里的 `QVector<quint32>`、JNI 回来的 `IntArray`、Kotlin 的
+ARGB_8888 位图；而 250 MB 单张位图也超过 HWUI 单次绘制的体积上限（这就是崩溃那一行）。
+自由套索拖动时这条路径还是**节流重入**的 —— 每次拖动预览都重来一遍。
+
+改法（`model/SelectionOverlayPolicy` + `PaintViewModelSelection`）：
+
+- 叠加层按"总像素 ≤ 2.1 MP（正好容纳 1080p）、保持长宽比、只缩不放"计算：
+  6400x10240 → 1146x1834，每份 ~8 MB（C++ / JNI / Bitmap 合计 ~24 MB）；
+- 叠加层本来就会被 `CanvasOverlay` 拉伸到画布矩形绘制（`drawBitmap(bmp, null, sceneRect)`），
+  所以缩了不影响显示；**选区蚂蚁线轮廓**改成按画布空间（`renderW/docW`）生成，不再跟着
+  叠加层分辨率走 —— 否则轮廓会缩到角落；
+- 同一条预算用在三处：`buildSelectionOverlayLocked`、`previewLasso`、`previewLassoSync`。
+
+真机回归：6400x10240 上魔棒选区正常上屏（斑马纹 + 蚂蚁线与笔画边缘严丝合缝），无崩溃；
+整份文档做一次选区的 Native Heap 增量从 +1.1 GB 降到 ~+0.28 GB（其中大头是 Krita 自己的
+65 MB 选区掩码与撤销数据，与叠加层无关）。
+
 ## 5. 未做（下一步收益排序）
 
 | 优先级 | 项 | 说明 |
 |---|---|---|
 | 1 | **视口内按需分配瓦片（懒瓦片）** | 现在 `ensureDisplayTileGrid` 一次性把整份文档的瓦片全部分配 + 全量写入（250 MB / 首帧 153 ms，实测）。把"当前视口"（`CanvasTouchView.visibleBitmapBounds()`，已有）投给渲染线程后，只分配/只写视口内的瓦片（100% 缩放下 ≈20 张 = 20 MB），视口外的瓦片标脏留待滚动进来再写。需要小心 COW 状态机与 `publishStaging` 的"整网格写完才发布"闸门 |
 | 2 | **视口 LoD 合成（缩放到 1/4~1/16）** | 适配"整幅 65 MP 缩到屏幕"这个最常见场景：此时视口覆盖整份文档，懒瓦片也帮不上。桌面 Krita 的"打开大图感觉即时"靠的就是 LoD 平面。引擎侧可以用 Krita 的 `createThumbnailDeviceOversampled` 思路（开销按**输出**像素算，不按源像素）做 1/2^k 采样，但仍需按缩放级别切网格，且要处理笔画在 LoD 层上的增量 |
-| 3 | 选区浮层按文档尺寸分配 | `buildSelectionOverlayLocked()` 用 `renderW/renderH`（= 文档尺寸）向 JNI 要叠加像素：65 MP 画布上是一次 250 MB `IntArray` + 250 MB 位图（`selectionOverlayScaled`）。套索/魔棒/羽化在超大画布上就是这个量级，应改成按屏幕分辨率采样 |
 | 4 | 自动保存 / 变换预览的全幅位图 | `startTransformPreview()` 仍 `createBitmap(docWidth, docHeight)`（250 MB）；`autoSaveProject()` 走引擎线程整份编码。两者都是"一次性长任务"，应改成可见区域/分块，或至少在超大画布上延后 + 提示 |
 | 5 | 参考窗口整图快照 | `composeTileSnapshot()` 在参考窗口/液化需要整图时拼一份全幅位图（三缓冲，超大画布 = 3 x 250 MB）。仅在那些功能打开时才发生 |
 
