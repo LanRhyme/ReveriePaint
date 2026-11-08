@@ -161,6 +161,42 @@ ARGB_8888 位图；而 250 MB 单张位图也超过 HWUI 单次绘制的体积�
 整份文档做一次选区的 Native Heap 增量从 +1.1 GB 降到 ~+0.28 GB（其中大头是 Krita 自己的
 65 MB 选区掩码与撤销数据，与叠加层无关）。
 
+## 4.3 已知未修：变换工具的预览位图也是全幅的（同样会崩）
+
+同一份 6400x10240 文档上点「变换」并拖动，进程崩溃（`crash_java_20261108_120426.log`）：
+
+```
+java.lang.RuntimeException: Canvas: trying to draw too large(262144000bytes) bitmap.
+  at android.graphics.RecordingCanvas.throwIfCannotDraw(RecordingCanvas.java:267)
+  at ... CanvasTransformOverlay.kt（drawBitmap / drawBitmapMesh 那条路径）
+--- [App Context & Canvas State] ---
+Active Tool: transform   Document: 6400 x 10240   Native Heap: Allocated=2598 MB
+```
+
+根因与选区叠加层同一族：`startTransformPreview()` 让引擎生成一张**全幅**
+`QImage::Format_RGBA8888_Premultiplied`（`ReverieCoreTransform.cpp:632` 附近 `QImage qimg(iw, ih, ...)`），
+Kotlin 侧再 `Bitmap.createBitmap(docWidth, docHeight)`（`PaintViewModelTools.kt:2052`）承接，
+然后 `CanvasTransformOverlay` 用 `drawBitmap` / `drawBitmapMesh` 直接画这张 250 MB 位图 ——
+超过 HWUI 单次绘制上限即抛异常。
+
+### 修法设计（下一轮）
+
+不能只缩位图：`CanvasTransformOverlay` 的三种模式（FREE / PERSPECTIVE / DISTORT）都默认
+"位图尺寸 == 文档尺寸"（`scX = bmp.width / docWidth` 恒为 1），要缩就得把"位图空间 ↔ 文档空间"
+的比例显式化：
+
+1. 引擎 `startTransformPreview` 增加目标尺寸参数，按 `max(prevW, prevH) ≤ 4096` 等比缩小做一次
+   scaled blit（`KisPainter::drawDevice` + 变换，或逐行 1/N 抽样——与缩略图快路径同一套）；
+2. Kotlin 承接位图按同比例缩小（≤ 64 MB，HWUI 安全）；
+3. `CanvasTransformOverlay`：
+   - FREE：`drawBitmap(previewBmp, null, RectF(0,0,docW,docH), paint)` 后再叠用户矩阵；
+   - PERSPECTIVE：`drawBitmapMesh(bmp, 1, 1, dstQuad 顶点)` 与位图分辨率无关，只需顶点留在文档空间；
+   - DISTORT：crop 矩形按 `doc/bitmap` 比例换算，mesh 顶点直接算在文档空间（现有 `scX/scY`
+     这套折中就可以删掉）。
+
+另一条更彻底的路：预览只覆盖**变换框内**的内容（`tfState.bounds` 与图层内容包围盒的交集），
+这也是桌面 Krita 的做法（transform 的 preview device 只覆盖被变换区域，不是整幅画布）。
+
 ## 5. 未做（下一步收益排序）
 
 | 优先级 | 项 | 说明 |
