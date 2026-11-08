@@ -1048,6 +1048,8 @@
     <string name="settings_quick_slider_height_standard">Standard</string>
     <string name="settings_quick_slider_height_long">Extended</string>
     <string name="settings_layer_row_height">Layer row height</string>
+    <string name="settings_layer_flash">Layer Switch Spotlight</string>
+    <string name="settings_layer_flash_sub">Briefly spotlight the new layer\'s content when switching layers</string>
     <string name="settings_layer_height_compact">Compact</string>
     <string name="settings_layer_height_standard">Standard</string>
     <string name="settings_layer_height_spacious">Spacious</string>

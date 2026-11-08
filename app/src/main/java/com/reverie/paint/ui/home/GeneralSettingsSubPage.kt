@@ -21,6 +21,7 @@ import androidx.compose.material.icons.automirrored.rounded.ExitToApp
 import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.AutoFixHigh
 import androidx.compose.material.icons.rounded.DeveloperMode
+import androidx.compose.material.icons.rounded.Highlight
 import androidx.compose.material.icons.rounded.History
 import androidx.compose.material.icons.rounded.Language
 import androidx.compose.material.icons.rounded.NotificationsActive
@@ -295,6 +296,18 @@ internal fun GeneralSettingsSubPage(
                         onSelect = { vm.updateTimelapseMaxFrames(it) },
                     )
                 }
+            }
+
+            // 切层内容闪现提示 (自动化"隐藏-查看-恢复"的确认动作): 独立分组, 不挤既有 settingGroupShape 编号
+            SettingGroup {
+                SettingSwitchGroupItem(
+                    icon = Icons.Rounded.Highlight,
+                    title = stringResource(R.string.settings_layer_flash),
+                    summary = stringResource(R.string.settings_layer_flash_sub),
+                    checked = vm.layerFlashEnabled,
+                    shape = settingGroupShape(0, 1),
+                    onCheckedChange = { vm.updateLayerFlashEnabled(it) },
+                )
             }
 
             // Section 3: 存储与撤销性能
