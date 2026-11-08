@@ -238,34 +238,36 @@ object BrushStoreBootstrap {
 
         val rStore = resourceStore ?: ResourceStore(root, bDir, patDir).also { resourceStore = it }
         bDir.listFiles()?.filter { it.isFile }?.forEach { f ->
-            rStore.register(f.readBytes(), ResourceStore.Kind.TIP, f.name)
+            if (rStore.resolveByName(f.name, ResourceStore.Kind.TIP) == null) {
+                rStore.register(f.readBytes(), ResourceStore.Kind.TIP, f.name)
+            }
         }
         patDir.listFiles()?.filter { it.isFile }?.forEach { f ->
-            rStore.register(f.readBytes(), ResourceStore.Kind.PATTERN, f.name)
+            if (rStore.resolveByName(f.name, ResourceStore.Kind.PATTERN) == null) {
+                rStore.register(f.readBytes(), ResourceStore.Kind.PATTERN, f.name)
+            }
         }
 
         pDir.listFiles()?.filter { it.isFile && it.extension.lowercase() in BrushImportPipeline.PRESET_EXTS }?.forEach { f ->
             val name = f.nameWithoutExtension
             val fext = f.extension.lowercase()
-            val currentBytes = f.readBytes()
-            val currentMd5 = BrushDiagnostics.md5(currentBytes).lowercase()
             val entry = BrushIdentity.entryForName(name)
             if (entry == null || !PresetSnapshotStore.has(entry.id)) {
                 BrushImportPipeline.adoptFile(name, pDir, "reconcile", ext = fext)
             } else if (!entry.ext.equals(fext, ignoreCase = true)) {
                 BrushDiagnostics.log("reconcile_ext_mismatch", "name" to name, "file" to f.name, "entry" to entry.ext)
-            } else {
+            } else if (hasPending && preMd5Map != null) {
+                val currentBytes = f.readBytes()
+                val currentMd5 = BrushDiagnostics.md5(currentBytes).lowercase()
                 val id = entry.id
-                if (hasPending && preMd5Map != null) {
-                    val preMd5 = preMd5Map[f.name]
-                    if (preMd5 == null || preMd5 != currentMd5) {
-                        val expectedBytes = EffectivePresetBuilder.buildFor(id)
-                        if (expectedBytes == null || !expectedBytes.contentEquals(currentBytes)) {
-                            PresetSnapshotStore.replaceForRestore(id, entry.ext, currentBytes)
-                            BrushOverrideStore.replace(id, BrushOverrideStore.Overrides())
-                            BrushThumbStore.delete(id)
-                            BrushDiagnostics.log("reconcile_restored", "id" to id, "name" to name)
-                        }
+                val preMd5 = preMd5Map[f.name]
+                if (preMd5 == null || preMd5 != currentMd5) {
+                    val expectedBytes = EffectivePresetBuilder.buildFor(id)
+                    if (expectedBytes == null || !expectedBytes.contentEquals(currentBytes)) {
+                        PresetSnapshotStore.replaceForRestore(id, entry.ext, currentBytes)
+                        BrushOverrideStore.replace(id, BrushOverrideStore.Overrides())
+                        BrushThumbStore.delete(id)
+                        BrushDiagnostics.log("reconcile_restored", "id" to id, "name" to name)
                     }
                 }
             }

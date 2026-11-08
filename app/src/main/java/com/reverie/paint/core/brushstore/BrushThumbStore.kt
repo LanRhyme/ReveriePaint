@@ -25,7 +25,7 @@ object BrushThumbStore {
 
     private fun thumbsDir(storeRoot: File): File = File(storeRoot, "thumbs")
 
-    private fun thumbFile(id: String): File? {
+    internal fun thumbFile(id: String): File? {
         val r = root ?: return null
         return File(thumbsDir(r), "${BrushIdentity.dirNameFor(id)}.png")
     }

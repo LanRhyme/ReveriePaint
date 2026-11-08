@@ -78,12 +78,7 @@ internal fun PaintViewModel.loadBrushPresets(force: Boolean = false) {
  */
 private fun PaintViewModel.bootstrapBrushStore(presetDir: File) {
     val ctx = appContext
-    val stamp = try {
-        val pi = ctx.packageManager.getPackageInfo(ctx.packageName, 0)
-        "${com.reverie.paint.BuildConfig.VERSION_CODE}:${pi.lastUpdateTime}"
-    } catch (_: Throwable) {
-        "${com.reverie.paint.BuildConfig.VERSION_CODE}"
-    }
+    val stamp = com.reverie.paint.BuildConfig.BUILTIN_BRUSH_ASSETS_HASH
     com.reverie.paint.core.brushstore.BrushStoreBootstrap.run(
         filesDir = ctx.filesDir,
         presetDir = presetDir,
@@ -134,8 +129,10 @@ private fun PaintViewModel.copyBundledBrushAssets(): Pair<File, File> {
     val brushDir = ResourceDirs.tips(appContext.filesDir)
     val patternDir = ResourceDirs.patterns(appContext.filesDir)
     val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+    val lastInstalledHash = prefs.getString("brush_assets_installed_hash", null)
+    val isHashMatched = lastInstalledHash == com.reverie.paint.BuildConfig.BUILTIN_BRUSH_ASSETS_HASH
     val lastInstalledVersion = prefs.getInt("brush_assets_installed_version", -1)
-    val isVersionMatched = lastInstalledVersion == com.reverie.paint.BuildConfig.VERSION_CODE
+    val isVersionMatched = isHashMatched || (lastInstalledVersion == com.reverie.paint.BuildConfig.VERSION_CODE)
 
     val assets = appContext.assets
     val brushAssetNames = assets.list("brushes") ?: emptyArray()
@@ -199,7 +196,10 @@ private fun PaintViewModel.copyBundledBrushAssets(): Pair<File, File> {
     }
 
     try {
-        prefs.edit().putInt("brush_assets_installed_version", com.reverie.paint.BuildConfig.VERSION_CODE).apply()
+        prefs.edit()
+            .putString("brush_assets_installed_hash", com.reverie.paint.BuildConfig.BUILTIN_BRUSH_ASSETS_HASH)
+            .putInt("brush_assets_installed_version", com.reverie.paint.BuildConfig.VERSION_CODE)
+            .apply()
     } catch (_: Exception) {
     }
     return dir to brushDir

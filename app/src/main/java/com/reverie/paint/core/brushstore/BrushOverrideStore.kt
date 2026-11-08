@@ -33,6 +33,8 @@ object BrushOverrideStore {
     private var root: File? = null
     private val map = LinkedHashMap<String, Overrides>()
 
+    fun file(): File? = root?.let { File(it, FILE_NAME) }
+
     fun open(storeRoot: File) {
         synchronized(lock) {
             root = storeRoot

@@ -1,4 +1,5 @@
 import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+import java.security.MessageDigest
 import java.util.Properties
 
 plugins {
@@ -83,8 +84,26 @@ android {
         buildConfigField("String", "AIFADIAN_USER_ID", "\"$aifadianUserId\"")
         buildConfigField("String", "TELEMETRY_ENDPOINT", "\"$telemetryEndpoint\"")
         buildConfigField("String", "TELEMETRY_KEY", "\"$telemetryKey\"")
-        // 前缓冲低延迟组件版本 (写进日志/崩溃状态快照, 用于确认测试包带的是哪个版本)
         buildConfigField("String", "GRAPHICS_CORE_VERSION", "\"$graphicsCoreVersion\"")
+        val builtinBrushAssetsHash: String = run {
+            val md = MessageDigest.getInstance("MD5")
+            listOf("brushes", "patterns", "paintoppresets").forEach { dirName ->
+                val d = file("src/main/assets/$dirName")
+                if (d.exists()) {
+                    d.walkTopDown().filter { it.isFile }.sortedBy { it.relativeTo(d).path }.forEach { f ->
+                        md.update(f.relativeTo(d).path.toByteArray())
+                        md.update(f.length().toString().toByteArray())
+                        val buf = ByteArray(4096)
+                        f.inputStream().use { stream ->
+                            val n = stream.read(buf)
+                            if (n > 0) md.update(buf, 0, n)
+                        }
+                    }
+                }
+            }
+            md.digest().joinToString("") { b -> "%02x".format(b) }
+        }
+        buildConfigField("String", "BUILTIN_BRUSH_ASSETS_HASH", "\"$builtinBrushAssetsHash\"")
 
         // 无 adb 真机 A/B 用的"液化实验档位": ./gradlew assembleDebug -PlqTestProfile=<n>
         //   0(默认) = 不改任何默认行为(一切照旧由 debug property 控制)
