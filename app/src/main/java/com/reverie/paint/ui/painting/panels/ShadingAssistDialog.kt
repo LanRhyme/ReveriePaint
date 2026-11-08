@@ -262,6 +262,43 @@ fun ShadingAssistDialog(
                                 }
                             }
 
+                            // 原理 5: 预览视口模式切换 (最终光影 / 3D 法线 / 立体线框与解构部位)
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .clip(RoundedCornerShape(8.dp))
+                                    .background(Morandi.panelHi)
+                                    .padding(2.5.dp),
+                                horizontalArrangement = Arrangement.spacedBy(4.dp)
+                            ) {
+                                val modes = listOf(
+                                    Pair(ShadingPreviewMode.SHADING, R.string.shading_assist_preview_shading),
+                                    Pair(ShadingPreviewMode.NORMALS, R.string.shading_assist_preview_normals),
+                                    Pair(ShadingPreviewMode.WIREFRAME, R.string.shading_assist_preview_wireframe)
+                                )
+                                modes.forEach { (m, labelRes) ->
+                                    val isSel = config.previewMode == m
+                                    Box(
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clip(RoundedCornerShape(6.dp))
+                                            .background(if (isSel) Morandi.accent else Color.Transparent)
+                                            .clickable {
+                                                vm.updateShadingConfig(vm.shadingAssistConfig.copy(previewMode = m))
+                                            }
+                                            .padding(vertical = 4.dp),
+                                        contentAlignment = Alignment.Center
+                                    ) {
+                                        Text(
+                                            text = stringResource(labelRes),
+                                            fontSize = 11.sp,
+                                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal,
+                                            color = if (isSel) Morandi.onAccent else Morandi.subText
+                                        )
+                                    }
+                                }
+                            }
+
                             // 实时预览视口 (就绪态 / 未下载空状态 / 下载进度态)
                             Box(
                                 modifier = Modifier
@@ -277,7 +314,7 @@ fun ShadingAssistDialog(
                                         val shadowBmp = vm.shadingAssistPreviewBitmap
                                         val lineBmp = vm.shadingAssistLineBitmap
 
-                                        if (baseBmp != null && !baseBmp.isRecycled) {
+                                        if (config.previewMode == ShadingPreviewMode.SHADING && baseBmp != null && !baseBmp.isRecycled) {
                                             Image(
                                                 bitmap = baseBmp.asImageBitmap(),
                                                 contentDescription = null,
@@ -293,7 +330,7 @@ fun ShadingAssistDialog(
                                             )
                                         }
 
-                                        if (lineBmp != null && !lineBmp.isRecycled) {
+                                        if (config.previewMode == ShadingPreviewMode.SHADING && lineBmp != null && !lineBmp.isRecycled) {
                                             Image(
                                                 bitmap = lineBmp.asImageBitmap(),
                                                 contentDescription = null,
@@ -942,6 +979,130 @@ fun ShadingAssistDialog(
                                                     vm.updateShadingConfig(vm.shadingAssistConfig.copy(rollingBallContour = it))
                                                 }
                                             )
+                                        }
+
+                                        // 9. 面部动漫保洁 (原理 2: 弱化五官与脸颊杂乱阴影，保持二次元通透纯净)
+                                        Row(
+                                            modifier = Modifier.fillMaxWidth(),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                            horizontalArrangement = Arrangement.SpaceBetween
+                                        ) {
+                                            Column(modifier = Modifier.weight(1f)) {
+                                                Text(
+                                                    text = stringResource(R.string.shading_assist_anime_face_clean),
+                                                    fontSize = 11.sp,
+                                                    color = Morandi.text
+                                                )
+                                                Text(
+                                                    text = stringResource(R.string.shading_assist_anime_face_clean_desc),
+                                                    fontSize = 9.sp,
+                                                    color = Morandi.subText
+                                                )
+                                            }
+                                            ReSwitch(
+                                                checked = config.animeFaceCleanLighting,
+                                                onChecked = {
+                                                    vm.updateShadingConfig(vm.shadingAssistConfig.copy(animeFaceCleanLighting = it))
+                                                }
+                                            )
+                                        }
+
+                                        // 10. 下颌专属投影 (原理 8: 依据下巴轮廓与光源在颈部投射经典二次元三角阴影)
+                                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = stringResource(R.string.shading_assist_chin_shadow),
+                                                        fontSize = 11.sp,
+                                                        color = Morandi.text
+                                                    )
+                                                    Text(
+                                                        text = stringResource(R.string.shading_assist_chin_shadow_desc),
+                                                        fontSize = 9.sp,
+                                                        color = Morandi.subText
+                                                    )
+                                                }
+                                                ReSwitch(
+                                                    checked = config.chinShadowOnNeck,
+                                                    onChecked = {
+                                                        vm.updateShadingConfig(vm.shadingAssistConfig.copy(chinShadowOnNeck = it))
+                                                    }
+                                                )
+                                            }
+                                            if (config.chinShadowOnNeck) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Text(
+                                                        text = stringResource(R.string.shading_assist_line_cast_dist),
+                                                        fontSize = 10.sp,
+                                                        color = Morandi.subText
+                                                    )
+                                                    Text(
+                                                        text = "${config.chinShadowDistance.toInt()} px",
+                                                        fontSize = 10.sp,
+                                                        color = Morandi.text
+                                                    )
+                                                }
+                                                ReSlider(
+                                                    value = (config.chinShadowDistance / 40.0f).coerceIn(0f, 1f),
+                                                    onValue = { vm.updateShadingConfig(vm.shadingAssistConfig.copy(chinShadowDistance = it * 40.0f)) }
+                                                )
+                                            }
+                                        }
+
+                                        // 11. 衣服褶皱增强 (原理 4: 识别衣物褶皱交界与凹陷深缝，强化动漫布料阴影)
+                                        Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                                            Row(
+                                                modifier = Modifier.fillMaxWidth(),
+                                                verticalAlignment = Alignment.CenterVertically,
+                                                horizontalArrangement = Arrangement.SpaceBetween
+                                            ) {
+                                                Column(modifier = Modifier.weight(1f)) {
+                                                    Text(
+                                                        text = stringResource(R.string.shading_assist_clothing_folds),
+                                                        fontSize = 11.sp,
+                                                        color = Morandi.text
+                                                    )
+                                                    Text(
+                                                        text = stringResource(R.string.shading_assist_clothing_folds_desc),
+                                                        fontSize = 9.sp,
+                                                        color = Morandi.subText
+                                                    )
+                                                }
+                                                ReSwitch(
+                                                    checked = config.clothingFoldEnhancement,
+                                                    onChecked = {
+                                                        vm.updateShadingConfig(vm.shadingAssistConfig.copy(clothingFoldEnhancement = it))
+                                                    }
+                                                )
+                                            }
+                                            if (config.clothingFoldEnhancement) {
+                                                Row(
+                                                    modifier = Modifier.fillMaxWidth(),
+                                                    horizontalArrangement = Arrangement.SpaceBetween
+                                                ) {
+                                                    Text(
+                                                        text = stringResource(R.string.shading_assist_line_cast_intensity),
+                                                        fontSize = 10.sp,
+                                                        color = Morandi.subText
+                                                    )
+                                                    Text(
+                                                        text = "${(config.clothingFoldStrength * 100).toInt()}%",
+                                                        fontSize = 10.sp,
+                                                        color = Morandi.text
+                                                    )
+                                                }
+                                                ReSlider(
+                                                    value = config.clothingFoldStrength,
+                                                    onValue = { vm.updateShadingConfig(vm.shadingAssistConfig.copy(clothingFoldStrength = it)) }
+                                                )
+                                            }
                                         }
                                     }
                                 }

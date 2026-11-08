@@ -3363,6 +3363,15 @@
     <string name="shading_assist_rolling_ball_contour_desc">闭合不闭合线稿与不透明背景边缘，杜绝内部漏光</string>
     <string name="shading_assist_clean_small_islands">连通域清渣与零线磨平</string>
     <string name="shading_assist_clean_small_islands_desc">消除孤立阴影碎渣与针孔，平滑明暗交界线</string>
+    <string name="shading_assist_preview_shading">最终阴影</string>
+    <string name="shading_assist_preview_normals">3D法线</string>
+    <string name="shading_assist_preview_wireframe">立体线框</string>
+    <string name="shading_assist_anime_face_clean">面部动漫保洁</string>
+    <string name="shading_assist_anime_face_clean_desc">弱化五官与脸颊杂乱阴影，保持二次元通透纯净</string>
+    <string name="shading_assist_chin_shadow">下颌专属投影</string>
+    <string name="shading_assist_chin_shadow_desc">依据下巴轮廓与光源在颈部投射经典二次元三角阴影</string>
+    <string name="shading_assist_clothing_folds">衣服褶皱增强</string>
+    <string name="shading_assist_clothing_folds_desc">识别衣物褶皱交界与凹陷深缝，强化动漫布料阴影</string>
 
     <!-- 3D Reference Layer -->
     <string name="layer_new_3d_reference">新建 3D 参考图层</string>

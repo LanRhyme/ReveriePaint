@@ -21,6 +21,19 @@ enum class ShadingMode(val id: String) {
 }
 
 /**
+ * 智能阴影辅助预览模式 (最终光影 / 3D 法线图 / 立体线框与解构部位)
+ */
+enum class ShadingPreviewMode(val id: String) {
+    SHADING("shading"),         // 最终阴影效果
+    NORMALS("normals"),         // 3D 表面法线彩图
+    WIREFRAME("wireframe");     // 立体线框与解构部位
+
+    companion object {
+        fun fromId(id: String): ShadingPreviewMode = entries.firstOrNull { it.id == id } ?: SHADING
+    }
+}
+
+/**
  * 赛璐珞阶梯级数
  */
 enum class CelSteps(val count: Int) {
@@ -62,7 +75,13 @@ data class ShadingAssistConfig(
     val rollingBallRadius: Int = 8,
     val cleanSmallIslands: Boolean = true,
     val islandThreshold: Int = 18,
-    val artistExperienceCurve: Boolean = true
+    val artistExperienceCurve: Boolean = true,
+    val animeFaceCleanLighting: Boolean = true,
+    val chinShadowOnNeck: Boolean = true,
+    val chinShadowDistance: Float = 16.0f,
+    val clothingFoldEnhancement: Boolean = true,
+    val clothingFoldStrength: Float = 0.50f,
+    val previewMode: ShadingPreviewMode = ShadingPreviewMode.SHADING
 ) {
     /**
      * 计算归一化的三维光源方向向量 (Lx, Ly, Lz)

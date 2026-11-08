@@ -81,7 +81,13 @@ class ShadingAssistModelsTest {
             rollingBallRadius = 10,
             cleanSmallIslands = true,
             islandThreshold = 20,
-            artistExperienceCurve = true
+            artistExperienceCurve = true,
+            animeFaceCleanLighting = true,
+            chinShadowOnNeck = true,
+            chinShadowDistance = 18f,
+            clothingFoldEnhancement = true,
+            clothingFoldStrength = 0.6f,
+            previewMode = ShadingPreviewMode.WIREFRAME
         )
         assertTrue(config.colorEdgeSnapping)
         assertEquals(0.6f, config.colorEdgeSnapTolerance, 1e-4f)
@@ -94,18 +100,38 @@ class ShadingAssistModelsTest {
         assertTrue(config.cleanSmallIslands)
         assertEquals(20, config.islandThreshold)
         assertTrue(config.artistExperienceCurve)
+        assertTrue(config.animeFaceCleanLighting)
+        assertTrue(config.chinShadowOnNeck)
+        assertEquals(18f, config.chinShadowDistance, 1e-4f)
+        assertTrue(config.clothingFoldEnhancement)
+        assertEquals(0.6f, config.clothingFoldStrength, 1e-4f)
+        assertEquals(ShadingPreviewMode.WIREFRAME, config.previewMode)
     }
 
     @Test
-    fun `test default phase 1 auto shading features are active`() {
+    fun `test default phase 1 and 2 auto shading features are active`() {
         val defaultConfig = ShadingAssistConfig()
         assertTrue(defaultConfig.materialAdaptiveMetering)
         assertTrue(defaultConfig.rollingBallContour)
         assertTrue(defaultConfig.cleanSmallIslands)
         assertTrue(defaultConfig.artistExperienceCurve)
+        assertTrue(defaultConfig.animeFaceCleanLighting)
+        assertTrue(defaultConfig.chinShadowOnNeck)
+        assertTrue(defaultConfig.clothingFoldEnhancement)
+        assertEquals(ShadingPreviewMode.SHADING, defaultConfig.previewMode)
         assertEquals(0.65f, defaultConfig.materialMeteringStrength, 1e-4f)
         assertEquals(8, defaultConfig.rollingBallRadius)
         assertEquals(18, defaultConfig.islandThreshold)
+        assertEquals(16.0f, defaultConfig.chinShadowDistance, 1e-4f)
+        assertEquals(0.50f, defaultConfig.clothingFoldStrength, 1e-4f)
+    }
+
+    @Test
+    fun `test shading preview mode enum fallbacks`() {
+        assertEquals(ShadingPreviewMode.SHADING, ShadingPreviewMode.fromId("shading"))
+        assertEquals(ShadingPreviewMode.NORMALS, ShadingPreviewMode.fromId("normals"))
+        assertEquals(ShadingPreviewMode.WIREFRAME, ShadingPreviewMode.fromId("wireframe"))
+        assertEquals(ShadingPreviewMode.SHADING, ShadingPreviewMode.fromId("unknown"))
     }
 }
 

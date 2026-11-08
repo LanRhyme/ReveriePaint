@@ -435,12 +435,12 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
             )
         }
 
-        // 3. 全分辨率光照与线稿遮挡计算
+        // 3. 全分辨率光照与线稿遮挡计算 (始终以真实阴影图层模式输出)
         val fullShadow = ShadingAssistEngine.renderShadingBitmap(
             normalField = normalField,
             baseBitmap = fullBase,
             lineBitmap = fullLine,
-            config = shadingAssistConfig,
+            config = shadingAssistConfig.copy(previewMode = com.reverie.paint.model.ShadingPreviewMode.SHADING),
             outWidth = fullW,
             outHeight = fullH
         )

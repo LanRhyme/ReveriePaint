@@ -12,6 +12,7 @@ import android.util.Log
 import com.reverie.paint.model.CelSteps
 import com.reverie.paint.model.ShadingAssistConfig
 import com.reverie.paint.model.ShadingMode
+import com.reverie.paint.model.ShadingPreviewMode
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.async
 import kotlinx.coroutines.awaitAll
@@ -863,6 +864,210 @@ object ShadingAssistEngine {
     }
 
     /**
+     * 动漫面部、颈部与下巴轮廓分析数据容器 (用于面部光照保洁、下颌阴影与立体线框)
+     */
+    data class AnimeFaceInfo(
+        val isSkin: BooleanArray,
+        val isFace: BooleanArray,
+        val isNeck: BooleanArray,
+        val chinPixels: IntArray,
+        val chinCount: Int,
+        val hasFace: Boolean
+    )
+
+    /**
+     * 原理 2 & 8: 动漫脸与下巴/颈部几何探测
+     */
+    private fun detectAnimeFaceAndNeck(
+        basePixels: IntArray,
+        linePixels: IntArray?,
+        w: Int,
+        h: Int
+    ): AnimeFaceInfo {
+        val count = w * h
+        val isSkin = BooleanArray(count)
+        var totalSkin = 0
+
+        // 1. 肤色阈值探测 (动漫肤色色相在 8°~52° 之间且饱和度、明度适中)
+        for (i in 0 until count) {
+            val p = basePixels[i]
+            val a = (p ushr 24) and 0xFF
+            if (a < 30) continue
+            val r = (p shr 16) and 0xFF
+            val g = (p shr 8) and 0xFF
+            val b = p and 0xFF
+
+            if (r > g && g >= b) {
+                val maxC = r
+                val minC = b
+                val delta = maxC - minC
+                if (delta > 8) {
+                    val lum = (maxC + minC) / 510f
+                    if (lum in 0.50f..0.98f) {
+                        val sat = delta.toFloat() / (if (lum <= 0.5f) (maxC + minC).toFloat() else (510f - maxC - minC).toFloat())
+                        if (sat in 0.08f..0.65f) {
+                            val hue = ((g - b).toFloat() / delta) * 60f
+                            if (hue in 8f..52f) {
+                                isSkin[i] = true
+                                totalSkin++
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        if (totalSkin < 40) {
+            return AnimeFaceInfo(isSkin, BooleanArray(count), BooleanArray(count), IntArray(0), 0, false)
+        }
+
+        // 2. 寻找最大的连通肤色区域 (主面部与颈部区域)
+        val visited = BooleanArray(count)
+        val queue = IntArray(count)
+        var maxCompSize = 0
+        val maxCompPixels = IntArray(count)
+
+        for (i in 0 until count) {
+            if (visited[i] || !isSkin[i]) continue
+            var head = 0
+            var tail = 0
+            queue[tail++] = i
+            visited[i] = true
+
+            while (head < tail) {
+                val curr = queue[head++]
+                val cx = curr % w
+                val cy = curr / w
+
+                if (cx > 0) {
+                    val n = curr - 1
+                    if (!visited[n] && isSkin[n]) {
+                        visited[n] = true
+                        queue[tail++] = n
+                    }
+                }
+                if (cx < w - 1) {
+                    val n = curr + 1
+                    if (!visited[n] && isSkin[n]) {
+                        visited[n] = true
+                        queue[tail++] = n
+                    }
+                }
+                if (cy > 0) {
+                    val n = curr - w
+                    if (!visited[n] && isSkin[n]) {
+                        visited[n] = true
+                        queue[tail++] = n
+                    }
+                }
+                if (cy < h - 1) {
+                    val n = curr + w
+                    if (!visited[n] && isSkin[n]) {
+                        visited[n] = true
+                        queue[tail++] = n
+                    }
+                }
+            }
+
+            if (tail > maxCompSize) {
+                maxCompSize = tail
+                System.arraycopy(queue, 0, maxCompPixels, 0, tail)
+            }
+        }
+
+        if (maxCompSize < 80) {
+            return AnimeFaceInfo(isSkin, BooleanArray(count), BooleanArray(count), IntArray(0), 0, false)
+        }
+
+        // 3. 在主肤色区域内分析纵向轮廓宽度分布，定位下巴 V 型拐点
+        var minY = h
+        var maxY = 0
+        for (k in 0 until maxCompSize) {
+            val y = maxCompPixels[k] / w
+            if (y < minY) minY = y
+            if (y > maxY) maxY = y
+        }
+
+        val rowMinX = IntArray(h) { w }
+        val rowMaxX = IntArray(h) { -1 }
+        for (k in 0 until maxCompSize) {
+            val idx = maxCompPixels[k]
+            val x = idx % w
+            val y = idx / w
+            if (x < rowMinX[y]) rowMinX[y] = x
+            if (x > rowMaxX[y]) rowMaxX[y] = x
+        }
+
+        // 寻找面部宽度收窄处 (下巴通常位于面部高度的 45%~85% 处)
+        val faceHeight = maxY - minY + 1
+        val searchStart = minY + (faceHeight * 0.45f).toInt()
+        val searchEnd = minY + (faceHeight * 0.88f).toInt()
+
+        var minWidth = w
+        var chinY = (minY + maxY) / 2
+        for (y in searchStart..searchEnd) {
+            if (rowMaxX[y] >= rowMinX[y]) {
+                val width = rowMaxX[y] - rowMinX[y] + 1
+                if (width < minWidth) {
+                    minWidth = width
+                    chinY = y
+                }
+            }
+        }
+
+        // 若线稿层在 chinY 附近存在深色线 (下颌下巴轮廓线)，精准对齐
+        if (linePixels != null) {
+            var bestLineDarkness = 0
+            var alignedY = chinY
+            for (dy in -6..6) {
+                val checkY = (chinY + dy).coerceIn(0, h - 1)
+                val checkRow = checkY * w
+                var lineCount = 0
+                for (x in rowMinX[checkY]..rowMaxX[checkY]) {
+                    val lp = linePixels[checkRow + x]
+                    if (((lp ushr 24) and 0xFF) > 30) {
+                        lineCount++
+                    }
+                }
+                if (lineCount > bestLineDarkness) {
+                    bestLineDarkness = lineCount
+                    alignedY = checkY
+                }
+            }
+            if (bestLineDarkness > 5) {
+                chinY = alignedY
+            }
+        }
+
+        val isFace = BooleanArray(count)
+        val isNeck = BooleanArray(count)
+        val chinList = IntArray(maxCompSize)
+        var chinCount = 0
+
+        for (k in 0 until maxCompSize) {
+            val idx = maxCompPixels[k]
+            val y = idx / w
+            if (y <= chinY) {
+                isFace[idx] = true
+                if (y >= chinY - 3) {
+                    chinList[chinCount++] = idx
+                }
+            } else {
+                isNeck[idx] = true
+            }
+        }
+
+        return AnimeFaceInfo(
+            isSkin = isSkin,
+            isFace = isFace,
+            isNeck = isNeck,
+            chinPixels = chinList.copyOf(chinCount),
+            chinCount = chinCount,
+            hasFace = true
+        )
+    }
+
+    /**
      * 实时渲染阴影位图 (可在后台并发线程或协程中极速执行)
      * 输出的 Bitmap 可直接交由 Compose 60fps 实时预览或盖印进图层
      */
@@ -938,6 +1143,108 @@ object ShadingAssistEngine {
         }
 
         val outPixels = IntArray(outWidth * outHeight)
+
+        // 动漫面部与颈部解构探测 (用于面部保洁、下颌投影与立体线框)
+        val faceInfo = if (config.animeFaceCleanLighting || config.chinShadowOnNeck || config.clothingFoldEnhancement || config.previewMode == ShadingPreviewMode.WIREFRAME) {
+            detectAnimeFaceAndNeck(basePixels, linePixels, outWidth, outHeight)
+        } else {
+            AnimeFaceInfo(BooleanArray(0), BooleanArray(0), BooleanArray(0), IntArray(0), 0, false)
+        }
+
+        // 原理 5: 预览模式 - 3D 表面法线彩图
+        if (config.previewMode == ShadingPreviewMode.NORMALS) {
+            val normalVec = FloatArray(3)
+            for (y in 0 until outHeight) {
+                val rowOffset = y * outWidth
+                val normY = (y * scaleNormY).toInt().coerceIn(0, normalField.height - 1)
+                for (x in 0 until outWidth) {
+                    val pIdx = rowOffset + x
+                    val baseAlpha = (basePixels[pIdx] ushr 24) and 0xFF
+                    if (baseAlpha < 5) {
+                        outPixels[pIdx] = 0
+                        continue
+                    }
+                    val normX = (x * scaleNormX).toInt().coerceIn(0, normalField.width - 1)
+                    normalField.getNormal(normX, normY, normalVec)
+                    val nr = ((normalVec[0] * 0.5f + 0.5f) * 255f).toInt().coerceIn(0, 255)
+                    val ng = ((normalVec[1] * 0.5f + 0.5f) * 255f).toInt().coerceIn(0, 255)
+                    val nb = ((normalVec[2] * 0.5f + 0.5f) * 255f).toInt().coerceIn(0, 255)
+                    outPixels[pIdx] = (baseAlpha shl 24) or (nr shl 16) or (ng shl 8) or nb
+                }
+            }
+            outBitmap.setPixels(outPixels, 0, outWidth, 0, 0, outWidth, outHeight)
+            return@withContext outBitmap
+        }
+
+        // 原理 5: 预览模式 - 立体线框与解构部位可视化
+        if (config.previewMode == ShadingPreviewMode.WIREFRAME) {
+            for (y in 0 until outHeight) {
+                val rowOffset = y * outWidth
+                for (x in 0 until outWidth) {
+                    val pIdx = rowOffset + x
+                    val basePixel = basePixels[pIdx]
+                    val baseAlpha = (basePixel ushr 24) and 0xFF
+                    if (baseAlpha < 5) {
+                        outPixels[pIdx] = 0
+                        continue
+                    }
+                    val r = (basePixel shr 16) and 0xFF
+                    val g = (basePixel shr 8) and 0xFF
+                    val b = basePixel and 0xFF
+
+                    val isGrid = (x % 14 == 0 || y % 14 == 0)
+                    val wireR: Int
+                    val wireG: Int
+                    val wireB: Int
+
+                    if (faceInfo.isFace.isNotEmpty() && faceInfo.isFace[pIdx]) {
+                        // 面部：浅蜜桃色高亮 + 白色网格
+                        wireR = if (isGrid) 255 else (r * 0.75f + 60f).toInt().coerceIn(0, 255)
+                        wireG = if (isGrid) 240 else (g * 0.75f + 40f).toInt().coerceIn(0, 255)
+                        wireB = if (isGrid) 200 else (b * 0.75f + 20f).toInt().coerceIn(0, 255)
+                    } else if (faceInfo.isNeck.isNotEmpty() && faceInfo.isNeck[pIdx]) {
+                        // 颈部：暖琥珀色高亮 + 金色网格
+                        wireR = if (isGrid) 255 else (r * 0.75f + 70f).toInt().coerceIn(0, 255)
+                        wireG = if (isGrid) 200 else (g * 0.75f + 30f).toInt().coerceIn(0, 255)
+                        wireB = if (isGrid) 100 else (b * 0.75f).toInt().coerceIn(0, 255)
+                    } else {
+                        // 身体/衣物/发丝：3D 立体青蓝网格
+                        wireR = if (isGrid) 90 else (r * 0.60f).toInt().coerceIn(0, 255)
+                        wireG = if (isGrid) 230 else (g * 0.60f + 40f).toInt().coerceIn(0, 255)
+                        wireB = if (isGrid) 255 else (b * 0.60f + 80f).toInt().coerceIn(0, 255)
+                    }
+                    outPixels[pIdx] = (baseAlpha shl 24) or (wireR shl 16) or (wireG shl 8) or wireB
+                }
+            }
+            outBitmap.setPixels(outPixels, 0, outWidth, 0, 0, outWidth, outHeight)
+            return@withContext outBitmap
+        }
+
+        // 原理 8: 下巴向颈部投射阴影评分预计算
+        val chinShadowScores = FloatArray(outWidth * outHeight)
+        if (config.chinShadowOnNeck && faceInfo.hasFace && faceInfo.chinCount > 0) {
+            val chinDistPx = (config.chinShadowDistance * outWidth / 512f).coerceIn(4f, 48f)
+            val chinSteps = chinDistPx.toInt()
+            for (i in 0 until faceInfo.chinCount) {
+                val cIdx = faceInfo.chinPixels[i]
+                val cx = cIdx % outWidth
+                val cy = cIdx / outWidth
+                for (step in 1..chinSteps) {
+                    val sx = (cx + rayDx * step + 0.5f).toInt()
+                    val sy = (cy + rayDy * step + 0.5f).toInt()
+                    if (sx !in 0 until outWidth || sy !in 0 until outHeight) break
+                    val sIdx = sy * outWidth + sx
+                    if (faceInfo.isNeck.isNotEmpty() && faceInfo.isNeck[sIdx]) {
+                        val falloff = (1.0f - step.toFloat() / chinSteps).coerceIn(0f, 1f)
+                        val sScore = falloff * 0.85f
+                        if (sScore > chinShadowScores[sIdx]) {
+                            chinShadowScores[sIdx] = sScore
+                        }
+                    }
+                }
+            }
+        }
+
         val rawScores = FloatArray(outWidth * outHeight)
         val lineAlphas = FloatArray(outWidth * outHeight)
         val cores = Runtime.getRuntime().availableProcessors().coerceIn(1, 8)
@@ -964,7 +1271,7 @@ object ShadingAssistEngine {
             }
         }
 
-        // Pass 1: 计算基础阴影评分 (体积法线三维点积 + 定向投射遮挡 + 线稿深缝接触 AO)
+        // Pass 1: 计算基础阴影评分 (体积法线三维点积 + 定向投射遮挡 + 下颌阴影 + 线稿深缝接触 AO)
         coroutineScope {
             val jobs = (0 until cores).map { coreIdx ->
                 async {
@@ -1007,6 +1314,11 @@ object ShadingAssistEngine {
                                 rawFormDot
                             }
                             var formScore = -formDot
+
+                            // 原理 2: 面部动漫保洁 (弱化面部球状杂乱阴影，保持二次元通透纯净)
+                            if (config.animeFaceCleanLighting && faceInfo.isFace.isNotEmpty() && faceInfo.isFace[pixelIdx]) {
+                                formScore *= 0.35f
+                            }
 
                             // 原理 9: 材质色彩分族相对测光 (同一材质族内相对测光，防止黑衣服泛黑死黑)
                             if (config.materialAdaptiveMetering) {
@@ -1087,7 +1399,18 @@ object ShadingAssistEngine {
                                 }
                             }
 
-                            rawScores[pixelIdx] = max(formScore, lineCast) + creviceAo
+                            // 原理 4: 衣服褶皱起伏 (对非肤色衣物区域增强褶皱阴影)
+                            if (config.clothingFoldEnhancement && (faceInfo.isSkin.isEmpty() || !faceInfo.isSkin[pixelIdx])) {
+                                if (creviceAo > 0.05f) {
+                                    creviceAo += config.clothingFoldStrength * 0.35f
+                                }
+                            }
+
+                            // 原理 8: 下巴向颈部专属阴影投影
+                            val chinScore = if (chinShadowScores.isNotEmpty()) chinShadowScores[pixelIdx] else 0f
+                            val maxOcclusion = max(lineCast, chinScore)
+
+                            rawScores[pixelIdx] = max(formScore, maxOcclusion) + creviceAo
                             lineAlphas[pixelIdx] = currentLineAlpha
                         }
                     }

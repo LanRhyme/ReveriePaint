@@ -3363,6 +3363,15 @@
     <string name="shading_assist_rolling_ball_contour_desc">Bridges loose lineart gaps &amp; opaque borders to prevent shadow leaks</string>
     <string name="shading_assist_clean_small_islands">Island Cleanup &amp; Level-set Smoothing</string>
     <string name="shading_assist_clean_small_islands_desc">Eliminates isolated shadow debris &amp; pinholes, smoothing terminator lines</string>
+    <string name="shading_assist_preview_shading">Shadow</string>
+    <string name="shading_assist_preview_normals">Normals</string>
+    <string name="shading_assist_preview_wireframe">Wireframe</string>
+    <string name="shading_assist_anime_face_clean">Clean Anime Face</string>
+    <string name="shading_assist_anime_face_clean_desc">Suppresses harsh facial shadows for clean anime aesthetics</string>
+    <string name="shading_assist_chin_shadow">Chin Shadow on Neck</string>
+    <string name="shading_assist_chin_shadow_desc">Casts iconic anime triangular chin shadow onto neck</string>
+    <string name="shading_assist_clothing_folds">Clothing Fold Occlusion</string>
+    <string name="shading_assist_clothing_folds_desc">Detects fabric creases to enhance clothing folds</string>
 
     <!-- 3D Reference Layer -->
     <string name="layer_new_3d_reference">New 3D Reference Layer</string>
