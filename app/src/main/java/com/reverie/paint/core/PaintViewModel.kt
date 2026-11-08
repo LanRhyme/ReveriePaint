@@ -3337,9 +3337,9 @@ class PaintViewModel : ViewModel() {
     // 顶层扩展函数无法访问 private 成员, 故与 renderHandler 等跨文件字段一致用 internal
     internal var layerFlashBitmap by mutableStateOf<Bitmap?>(null)
     internal var layerFlashTick by mutableIntStateOf(0)
-    internal var layerFlashRequestId = 0
-    internal var layerFlashBuffers: Array<Bitmap>? = null
-    internal var layerFlashFrontIdx = 0
+    @Volatile internal var layerFlashRequestId = 0
+    @Volatile internal var layerFlashBuffers: Array<Bitmap>? = null
+    @Volatile internal var layerFlashFrontIdx = 0
 
     fun getString(@StringRes resId: Int, vararg formatArgs: Any): String {
         return if (::appContext.isInitialized) {

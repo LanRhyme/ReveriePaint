@@ -4901,11 +4901,11 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     private fun handleTouchEvent(event: MotionEvent): Boolean {
-        // 落笔立刻结束闪现提示, 免得新笔画与闪现叠加 (热路径: 仅一个 null 判断, 零分配)
-        if (event.actionMasked == MotionEvent.ACTION_DOWN && vm?.layerFlashBitmap != null) {
-            vm?.cancelLayerContentFlash()
-        }
         val v = vm ?: return super.onTouchEvent(event)
+        // 落笔立刻结束闪现提示, 免得新笔画与闪现叠加 (热路径: 仅一个 null 判断, 零分配)
+        if (event.actionMasked == MotionEvent.ACTION_DOWN && v.layerFlashBitmap != null) {
+            v.cancelLayerContentFlash()
+        }
         if (v.isQuickShapeEditing) return true
         if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN || event.actionMasked == MotionEvent.ACTION_CANCEL) {
             removeCallbacks(quickShapeHold)

@@ -49,7 +49,7 @@ internal fun PaintViewModel.requestLayerContentFlash(index: Int) {
         val h = (docHeight * scale).toInt().coerceAtLeast(1)
         val pool = layerFlashBuffers
         val back: Bitmap
-        if (pool == null || pool.size != 2 || pool[0].isRecycled || pool[0].width != w || pool[0].height != h) {
+        if (pool == null || pool.size != 2 || pool[0].isRecycled || pool[1].isRecycled || pool[0].width != w || pool[0].height != h) {
             // 尺寸不符 (换文档/改画布尺寸, 频率极低): 整池换新。旧池只丢弃引用、
             // 绝不 recycle —— 旧 front 可能仍被 UI/HWUI DisplayList 持有, recycle
             // 会崩 "trying to use a recycled bitmap", 交给 GC 延迟回收。整池赋值要么
@@ -91,4 +91,11 @@ internal fun PaintViewModel.cancelLayerContentFlash() {
 /** 动画自然结束时由 CanvasOverlay 调用, 只摘显示位图 (主线程) */
 internal fun PaintViewModel.clearLayerFlash() {
     layerFlashBitmap = null
+}
+
+/** 退出绘画页或切换文档时彻底重置闪现状态并释放位图池 (主线程) */
+internal fun PaintViewModel.resetLayerFlashState() {
+    cancelLayerContentFlash()
+    layerFlashBuffers = null
+    layerFlashFrontIdx = 0
 }

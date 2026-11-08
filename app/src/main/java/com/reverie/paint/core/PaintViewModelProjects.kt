@@ -1686,6 +1686,8 @@ internal fun PaintViewModel.goHome() {
     resetAnimationState()
     // 分格镜像同样是文档级缓存: 回主页即清, 下次进入任何画布都不会残留旧格框
     resetPanelSessionState()
+    // 释放切层闪现位图池, 避免回到主页时常驻内存
+    resetLayerFlashState()
     // 释放 native 文档: g_core 是进程级单例, 不释放则旧 KisImage (所有图层
     // tile) 一直驻留内存, 重新打开时新旧文档共存推高峰值内存 (大文档被 LMK
     // 杀进程)。排队到渲染线程, FIFO 保证已排队的引擎操作先完成; 之后残留的
@@ -1718,6 +1720,7 @@ internal fun PaintViewModel.goHome() {
 internal fun PaintViewModel.goCreate() {
     stopPaintingTimer()
     resetAnimationState()
+    resetLayerFlashState()
     currentPage = Page.CREATE
 }
 

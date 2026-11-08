@@ -536,6 +536,7 @@ internal fun PaintViewModel.removeLayer(index: Int) {
         discardTransientTransformSelection()
     }
     clearLayerSelection()
+    cancelLayerContentFlash()
     if (active3DLayers.containsKey(target.id)) {
         active3DLayers = active3DLayers - target.id
     }
@@ -561,11 +562,14 @@ internal fun PaintViewModel.setCurrentLayer(i: Int) {
     // 但软件切后台时的静默保存会顺带存上。同一个图层重复点击不算变化。
     if (changed) selectionDirty = true
 
-    // 切层闪现提示: 短暂闪现新层内容, 帮用户确认当前画在哪一层
-    // ("隐藏-查看-恢复"确认动作的自动化), 重复点当前层不触发
-    if (changed && layerFlashEnabled) requestLayerContentFlash(i)
-
     val newLayer = layers.getOrNull(i)
+
+    // 切层闪现提示: 短暂闪现新层内容, 帮用户确认当前画在哪一层
+    // ("隐藏-查看-恢复"确认动作的自动化), 重复点当前层或隐藏层不触发
+    if (changed && layerFlashEnabled && newLayer?.visible == true) {
+        requestLayerContentFlash(i)
+    }
+
     if (newLayer != null && active3DLayers.containsKey(newLayer.id) && changed) {
         // 进入 3D 参考图层时，清空引擎中可能留存的静止像素，完全交由实时 120Hz Canvas3DDrawer 接管
         ensure3DLayerClearedInCore(newLayer.id)

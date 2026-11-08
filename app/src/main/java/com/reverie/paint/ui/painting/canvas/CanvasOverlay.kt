@@ -190,7 +190,10 @@ internal fun CanvasOverlay(
         androidx.compose.ui.graphics.ColorFilter.tint(layerFlashAccent, BlendMode.SrcIn)
     }
     LaunchedEffect(vm.layerFlashTick) {
-        if (vm.layerFlashTick == 0 || vm.layerFlashBitmap == null) return@LaunchedEffect
+        if (vm.layerFlashTick == 0 || vm.layerFlashBitmap == null) {
+            layerFlashAnim.snapTo(0f)
+            return@LaunchedEffect
+        }
         layerFlashAnim.snapTo(0.9f)
         delay(80)
         layerFlashAnim.animateTo(0f, tween(durationMillis = 120))
@@ -247,7 +250,7 @@ internal fun CanvasOverlay(
                         dstSize = IntSize(bmp.width, bmp.height),
                         alpha = layerFlashAnim.value,
                         colorFilter = layerFlashTint,
-                        filterQuality = FilterQuality.High,
+                        filterQuality = FilterQuality.Low,
                     )
                 }
 
