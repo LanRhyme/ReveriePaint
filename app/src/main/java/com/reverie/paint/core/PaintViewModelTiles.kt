@@ -341,6 +341,14 @@ private fun PaintViewModel.onTileRenderNoWork() {
         snap?.let { liquifyPresentation.publish(liquifyPresentationGesture, it) }
         invalidateCanvasFromRender()
     }
+    // 参考窗口打开且切到画布页时: 若快照尚未生成或落后于当前瓦片版本, 补拼一张完整快照
+    if (referenceWindowOpen && referenceActiveTab == 1) {
+        val p = displayTiles.published
+        val st = displayTiles
+        if (p != null && (displayBitmap == null || displayBitmap?.isRecycled == true || st.lastSnapshotTileRevision != tileRevision)) {
+            publishTileSnapshotIfNeeded(p.grid, p.tiles, force = true)
+        }
+    }
 }
 
 /**
@@ -568,16 +576,21 @@ private fun copyTileInto(src: Bitmap, dst: Bitmap) {
  * 只在那些功能真的开着时才拼; 运笔期间最多每 SNAPSHOT_MIN_MS 拼一次 ——
  * 整图快照是整幅画布的软件拼装, 每帧都做会把瓦片网格省下的带宽原样还回去。
  */
-private fun PaintViewModel.publishTileSnapshotIfNeeded(grid: DisplayTileGrid, tiles: AtomicReferenceArray<Bitmap?>) {
+private fun PaintViewModel.publishTileSnapshotIfNeeded(
+    grid: DisplayTileGrid,
+    tiles: AtomicReferenceArray<Bitmap?>,
+    force: Boolean = false,
+) {
     val liquifyPending = liquifyPresentation.isPending(liquifyPresentationGesture)
     val refCanvasActive = referenceWindowOpen && referenceActiveTab == 1
     if (!refCanvasActive && !liquifyPending) return
     val st = displayTiles
     val now = SystemClock.uptimeMillis()
-    if (!liquifyPending && isStrokeRenderActive() && now - st.lastSnapshotMs < DisplayTileState.SNAPSHOT_MIN_MS) {
+    if (!force && !liquifyPending && isStrokeRenderActive() && now - st.lastSnapshotMs < DisplayTileState.SNAPSHOT_MIN_MS) {
         return
     }
     st.lastSnapshotMs = now
+    st.lastSnapshotTileRevision = tileRevision
     val snap = composeTileSnapshot(grid, tiles) ?: return
     displayBitmap = snap
     if (liquifyPending) liquifyPresentation.publish(liquifyPresentationGesture, snap)

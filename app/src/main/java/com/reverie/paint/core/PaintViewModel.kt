@@ -7063,6 +7063,11 @@ class PaintViewModel : ViewModel() {
                 displayBitmap?.let { liquifyPresentation.publish(liquifyPresentationGesture, it) }
                 com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidateFromRender()
             }
+            if (referenceWindowOpen && referenceActiveTab == 1 && displayBitmap != null) {
+                mainHandler.post {
+                    referenceCanvasRevision++
+                }
+            }
             return
         }
 

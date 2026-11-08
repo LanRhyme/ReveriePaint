@@ -138,6 +138,7 @@ internal class DisplayTileState {
     private val snapshots = arrayOfNulls<Bitmap>(3)
     private var snapshotIndex = 0
     var lastSnapshotMs = 0L
+    var lastSnapshotTileRevision = -1L
 
     /** UI 线程读: 可以画的网格快照; 换文档的清理尚未完成时返回 null。 */
     fun drawable(): PublishedTiles? {
@@ -204,6 +205,7 @@ internal class DisplayTileState {
         spareCoolingStage1.clear()
         spareCoolingStage2.clear()
         snapshots.fill(null)
+        lastSnapshotTileRevision = -1L
         consecutiveRetryFailures = 0
     }
 
