@@ -32,6 +32,7 @@ object ShadingModelManager {
     private const val PREFS_NAME = "shading_model_prefs"
     private const val KEY_SELECTED_PRESET = "selected_preset"
     private const val KEY_USE_CUSTOM = "use_custom"
+    private const val MIN_PRESET_SIZE_BYTES = 30 * 1024 * 1024L // 30MB (正常模型 ~35.6MB, 过滤 27MB 坏模型)
 
     var currentPreset: ShadingModelPreset by mutableStateOf(ShadingModelPreset.DEPTH_ANYTHING)
         private set
@@ -88,8 +89,11 @@ object ShadingModelManager {
         }
 
         val targetFile = File(dir, currentPreset.fileName)
-        val minSize = 5 * 1024 * 1024L
-        if (targetFile.exists() && targetFile.length() > minSize) {
+        // 自动清除过时/损坏的非标准模型 (如早先上传的 27MB ConvInteger 异常模型)
+        if (targetFile.exists() && targetFile.length() < MIN_PRESET_SIZE_BYTES) {
+            targetFile.delete()
+        }
+        if (targetFile.exists() && targetFile.length() >= MIN_PRESET_SIZE_BYTES) {
             val displayName = "Depth Anything V2 (34MB)"
             modelStatus = ModelStatus.Ready(
                 modelPath = targetFile.absolutePath,
@@ -121,8 +125,11 @@ object ShadingModelManager {
     fun isPresetDownloaded(preset: ShadingModelPreset, context: Context): Boolean {
         val dir = getModelDir(context)
         val file = File(dir, preset.fileName)
-        val minSize = 5 * 1024 * 1024L
-        return file.exists() && file.length() > minSize
+        if (file.exists() && file.length() < MIN_PRESET_SIZE_BYTES) {
+            file.delete()
+            return false
+        }
+        return file.exists() && file.length() >= MIN_PRESET_SIZE_BYTES
     }
 
     /** 检查是否存在已导入的自定义模型 */
@@ -148,8 +155,11 @@ object ShadingModelManager {
             if (custom.exists() && custom.length() > 0) return custom
         }
         val targetFile = File(dir, currentPreset.fileName)
-        val minSize = 5 * 1024 * 1024L
-        if (targetFile.exists() && targetFile.length() > minSize) return targetFile
+        if (targetFile.exists() && targetFile.length() < MIN_PRESET_SIZE_BYTES) {
+            targetFile.delete()
+            return null
+        }
+        if (targetFile.exists() && targetFile.length() >= MIN_PRESET_SIZE_BYTES) return targetFile
         return null
     }
 
@@ -177,7 +187,9 @@ object ShadingModelManager {
 
     private fun getMirrorsForPreset(preset: ShadingModelPreset): List<String> = listOf(
         "https://github.com/LanRhyme/ReveriePaint/releases/download/v1.5.0/${preset.fileName}",
-        "https://ghfast.top/https://github.com/LanRhyme/ReveriePaint/releases/download/v1.5.0/${preset.fileName}"
+        "https://github.com/LanRhyme/ReveriePaint/releases/download/v1.5.0/depth_anything_v2_small_clean.onnx",
+        "https://ghfast.top/https://github.com/LanRhyme/ReveriePaint/releases/download/v1.5.0/${preset.fileName}",
+        "https://ghproxy.net/https://github.com/LanRhyme/ReveriePaint/releases/download/v1.5.0/${preset.fileName}"
     )
 
     private val okHttpClient: okhttp3.OkHttpClient by lazy {
@@ -267,8 +279,7 @@ object ShadingModelManager {
                                     }
                                 }
                             }
-                            val minSize = 5 * 1024 * 1024L
-                            if (isActive && tempFile.exists() && tempFile.length() > minSize) {
+                            if (isActive && tempFile.exists() && tempFile.length() >= MIN_PRESET_SIZE_BYTES) {
                                 downloadedOk = true
                                 break
                             }
@@ -292,8 +303,7 @@ object ShadingModelManager {
                     return@launch
                 }
 
-                val minSize = 5 * 1024 * 1024L
-                if (tempFile.exists() && tempFile.length() > minSize) {
+                if (tempFile.exists() && tempFile.length() >= MIN_PRESET_SIZE_BYTES) {
                     if (targetFile.exists()) targetFile.delete()
                     if (tempFile.renameTo(targetFile)) {
                         val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
