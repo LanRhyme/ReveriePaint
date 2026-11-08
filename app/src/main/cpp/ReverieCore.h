@@ -808,6 +808,13 @@ private:
     /** 摘掉基座: 目标图层立刻回到画布合成, 并让旧矩形按真实文档重读一次。 */
     void invalidateLiquifyPreviewBase();
 
+    /**
+     * 缩略图快路径: 逐行连续 readBytes + 最近邻抽样, 直接写成 RGBA 预乘 (Android Bitmap 格式)。
+     * 返回 false 表示不适用 (16bit / 自定义 ICC / 失败), 调用方回退到 Krita 原路径。
+     */
+    bool sampleThumbnailToRgba(const KisPaintDeviceSP &dev, int w, int h, const QRect &rect,
+                               quint8 *dstPixels, int dstStride);
+
 public:
 
     // Brush

@@ -10,6 +10,8 @@
 #include "ReverieCoreInternal.h"
 #include "ReverieCoreLayerExtras.h"
 #include "ReverieCoreUndoStore.h"
+#include "PixelAlpha.h"
+#include <QVector>
 #include <QXmlStreamReader>
 #include <QXmlStreamWriter>
 #include <QBitArray>
@@ -3411,6 +3413,87 @@ int ReverieCore::docHeight() const
     return m_docHeight;
 }
 
+// 缩略图快路径: 逐行**连续**读 + 最近邻抽样 + 直接写 RGBA 显示格式。
+//
+// 为什么: Krita 的 createThumbnailUncached 走 createThumbnailDeviceInternal —— 按**输出**
+// 像素做随机 tile 访问 (每像素一次 moveTo), 之后还要建一张小设备再做一次 color management。
+// 真机实测 (OPD2413/Android16) 端到端:
+//   | 文档        | 抓帧尺寸   | 输出    | 实测      |
+//   | 6400x10240 | 675x1080  | 0.73MP | 90~95 ms  |
+//   | 2048x2048  | 1080x1080 | 1.17MP | 110~117ms |
+// 成本只看输出像素, 与画布大小无关; 而它跑在渲染线程上, 延时摄影默认"每笔抬笔抓一帧 +
+// 200ms 节流" ⇒ 每画一笔画布冻 ~0.1 秒。逐段实测把 90ms 拆成三份:
+//   随机 tile 抽样 ~35ms + 小设备构造/写回 ~3ms + convertToQImage 的转换 ~50ms。
+//
+// 这里做两件事:
+//  1. 每条输出行只 readBytes 一条源行 (tile 内连续, 一次顺序 memcpy), 按列索引抽样;
+//  2. 用画布同一条 PixelAlpha::toDisplay (NEON) 把设备像素 (BGRA, 直通 alpha) 直接转成
+//     **RGBA 预乘** —— Android Bitmap 要的就是这个格式 (画布上屏也是这么转的), 于是完全
+//     不需要 QImage 与颜色管理转换 (后者实测 50ms, 是本条路径的大头)。
+// 只对 8bit 且 profile 与目标 sRGB 一致 (最常见情况) 走快路径; 其余 (16bit / 自定义 ICC)
+// 回退 Krita 原路径, 保持原来那套颜色管理语义。
+bool ReverieCore::sampleThumbnailToRgba(const KisPaintDeviceSP &dev, int w, int h,
+                                        const QRect &rect, quint8 *dstPixels, int dstStride)
+{
+    if (!dev || !dstPixels || w <= 0 || h <= 0 || dstStride < w * 4) {
+        return false;
+    }
+    const KoColorSpace *dstCs = KoColorSpaceRegistry::instance()->rgb8();
+    const KoColorSpace *srcCs = dev->colorSpace();
+    if (!srcCs || !dstCs || srcCs->pixelSize() != 4 || dstCs->pixelSize() != 4) {
+        return false;
+    }
+    // 只处理"8bit + 与目标同一 profile"的情况; 自定义 ICC / 16bit 交给 Krita 原路径
+    if (srcCs->profile() && dstCs->profile() &&
+        srcCs->profile()->name() != dstCs->profile()->name()) {
+        return false;
+    }
+
+    const QRect srcRect = rect.isValid() ? rect : dev->exactBounds();
+    const int srcW = srcRect.width();
+    const int srcH = srcRect.height();
+    if (srcW <= 0 || srcH <= 0) {
+        return false;
+    }
+    // 与 Krita 的 thumbnail 语义一致: 不放大
+    const int outW = qMin(w, srcW);
+    const int outH = qMin(h, srcH);
+    if (outW <= 0 || outH <= 0) {
+        return false;
+    }
+
+    QVector<quint8> rowBuf;
+    QVector<quint8> outRow;
+    QVector<int> colIndex;
+    try {
+        rowBuf.resize(srcW * 4);
+        outRow.resize(outW * 4);
+        colIndex.resize(outW);
+    } catch (...) {
+        return false;
+    }
+    for (int x = 0; x < outW; ++x) {
+        colIndex[x] = qBound(0, int(qint64(x) * srcW / outW), srcW - 1);
+    }
+
+    try {
+        for (int y = 0; y < outH; ++y) {
+            const int sy = srcRect.y() + qBound(0, int(qint64(y) * srcH / outH), srcH - 1);
+            dev->readBytes(rowBuf.data(), srcRect.x(), sy, srcW, 1);
+            const quint8 *srcRow = rowBuf.constData();
+            quint8 *dst = outRow.data();
+            for (int x = 0; x < outW; ++x, dst += 4) {
+                memcpy(dst, srcRow + size_t(colIndex[x]) * 4, 4);
+            }
+            // 设备 BGRA (直通 alpha) -> 显示 RGBA 预乘 (与画布 1:1 路径同一个函数)
+            PixelAlpha::toDisplay(outRow.constData(), dstPixels + size_t(y) * size_t(dstStride), size_t(outW));
+        }
+        return true;
+    } catch (...) {
+        return false;
+    }
+}
+
 bool ReverieCore::renderDocumentThumb(int w, int h, void *dstPixels, int dstStride)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
@@ -3423,6 +3506,17 @@ bool ReverieCore::renderDocumentThumb(int w, int h, void *dstPixels, int dstStri
         return false;
     }
     const QRect docRect(0, 0, image->width(), image->height());
+    // 真的降采样时才走快路径 (见 sampleThumbnailToRgba 的实测成本对比); 同尺寸或快路径
+    // 不适用 (16bit / 自定义 ICC) 时回退 Krita 原路径, 保持原来的颜色管理语义。
+    bool wroteFast = false;
+    if (w < image->width() || h < image->height()) {
+        wroteFast = sampleThumbnailToRgba(dev, w, h, docRect,
+                                          static_cast<quint8 *>(dstPixels), dstStride);
+    }
+    perf.phase("thumb");
+    if (wroteFast) {
+        return true;
+    }
     QImage thumb;
     try {
         thumb = dev->createThumbnailUncached(w, h, docRect);
