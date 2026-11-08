@@ -228,6 +228,23 @@ fun OnboardingSpotlight(
             isCompact = isCompact,
         )
 
+        val syncPanelsForStep: (Int) -> Unit = { step ->
+            when (step) {
+                2 -> {
+                    onSetMoreToolsOpen(true)
+                    if (!vm.isLayerPanelPinned) onSetLayerPanelOpen(false)
+                }
+                4 -> {
+                    onSetMoreToolsOpen(false)
+                    onSetLayerPanelOpen(true)
+                }
+                else -> {
+                    onSetMoreToolsOpen(false)
+                    if (!vm.isLayerPanelPinned) onSetLayerPanelOpen(false)
+                }
+            }
+        }
+
         Box(
             modifier = Modifier
                 .offset { IntOffset(cardX.roundToInt(), cardY.roundToInt()) }
@@ -240,11 +257,17 @@ fun OnboardingSpotlight(
                 totalSteps = TOTAL_STEPS,
                 isCompact = isCompact,
                 onPrev = {
-                    if (vm.onboardingStep > 0) vm.onboardingStep--
+                    if (vm.onboardingStep > 0) {
+                        val prev = vm.onboardingStep - 1
+                        syncPanelsForStep(prev)
+                        vm.onboardingStep = prev
+                    }
                 },
                 onNext = {
                     if (vm.onboardingStep < TOTAL_STEPS - 1) {
-                        vm.onboardingStep++
+                        val next = vm.onboardingStep + 1
+                        syncPanelsForStep(next)
+                        vm.onboardingStep = next
                     } else {
                         closeGuide()
                     }
@@ -305,7 +328,6 @@ private fun computeStepTargetRect(
         2 -> {
             // 第 3 步：快捷面板与辅助视图 (AllToolsPanel 中的视图类型工具)
             val viewBounds = vm.viewToolsMeasuredBounds
-            val panelBounds = vm.allToolsPanelMeasuredBounds
             if (viewBounds != null && viewBounds.width > 20f && viewBounds.height > 20f) {
                 Rect(
                     (viewBounds.left - padPx).coerceAtLeast(0f),
@@ -313,19 +335,17 @@ private fun computeStepTargetRect(
                     (viewBounds.right + padPx).coerceAtMost(screenWidth),
                     (viewBounds.bottom + padPx).coerceAtMost(screenHeight),
                 )
-            } else if (panelBounds != null && panelBounds.width > 20f && panelBounds.height > 20f) {
-                Rect(
-                    (panelBounds.left - padPx).coerceAtLeast(0f),
-                    (panelBounds.top - padPx).coerceAtLeast(0f),
-                    (panelBounds.right + padPx).coerceAtMost(screenWidth),
-                    (panelBounds.bottom + padPx).coerceAtMost(screenHeight),
-                )
             } else {
-                if (vm.leftHandMode) {
-                    Rect(screenWidth - 260f * density, 48f * density, screenWidth - 52f * density, screenHeight * 0.65f)
-                } else {
-                    Rect(52f * density, 48f * density, 260f * density, screenHeight * 0.65f)
-                }
+                val panelW = 236f * density
+                val panelLeft = if (vm.leftHandMode) screenWidth - 52f * density - panelW else 52f * density
+                val viewTop = 48f * density + 34f * density
+                val viewHeight = 150f * density
+                Rect(
+                    (panelLeft + 8f * density - padPx).coerceAtLeast(0f),
+                    (viewTop - padPx).coerceAtLeast(0f),
+                    (panelLeft + panelW - 8f * density + padPx).coerceAtMost(screenWidth),
+                    (viewTop + viewHeight + padPx).coerceAtMost(screenHeight),
+                )
             }
         }
         3 -> {
@@ -358,12 +378,15 @@ private fun computeStepTargetRect(
             } else {
                 val panelW = minOf(300f * density, screenWidth * 0.85f)
                 val panelTop = 44f * density
-                val panelHeight = (screenHeight * 0.50f).coerceAtLeast(280f * density)
-                if (vm.leftHandMode) {
-                    Rect(8f * density, panelTop, 8f * density + panelW, panelTop + panelHeight)
-                } else {
-                    Rect(screenWidth - panelW - 8f * density, panelTop, screenWidth - 8f * density, panelTop + panelHeight)
-                }
+                val estimatedLayersH = (44f + 36f + vm.layers.size.coerceIn(1, 8) * vm.layerRowHeightDp + 16f) * density
+                val panelHeight = estimatedLayersH.coerceIn(200f * density, screenHeight * 0.70f)
+                val panelLeft = if (vm.leftHandMode) 8f * density else screenWidth - panelW - 8f * density
+                Rect(
+                    (panelLeft - padPx).coerceAtLeast(0f),
+                    (panelTop - padPx).coerceAtLeast(0f),
+                    (panelLeft + panelW + padPx).coerceAtMost(screenWidth),
+                    (panelTop + panelHeight + padPx).coerceAtMost(screenHeight),
+                )
             }
         }
         5 -> {

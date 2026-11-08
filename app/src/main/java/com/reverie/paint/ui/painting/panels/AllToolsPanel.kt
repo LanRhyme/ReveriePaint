@@ -190,21 +190,20 @@ fun AllToolsPanel(
                     )
                 }
 
-                val listState = rememberLazyListState()
-                LaunchedEffect(vm.onboardingActive, vm.onboardingStep) {
+                val initialScrollIndex = remember(vm.pinnedTools, vm.onboardingActive, vm.onboardingStep) {
                     if (vm.onboardingActive && vm.onboardingStep == 2) {
                         val viewGroupIndex = groupedTools.indexOfFirst { it.first == ToolGroup.VIEW }
                         if (viewGroupIndex != -1) {
                             var itemIndex = 0
                             for (i in 0 until viewGroupIndex) {
-                                itemIndex += 1 // header
                                 val count = groupedTools[i].second.size
-                                itemIndex += (count + 1) / 2 // chunked rows
+                                itemIndex += 1 + (count + 1) / 2
                             }
-                            listState.animateScrollToItem(itemIndex)
-                        }
-                    }
+                            itemIndex
+                        } else 0
+                    } else 0
                 }
+                val listState = rememberLazyListState(initialFirstVisibleItemIndex = initialScrollIndex)
 
                 LazyColumn(
                     state = listState,

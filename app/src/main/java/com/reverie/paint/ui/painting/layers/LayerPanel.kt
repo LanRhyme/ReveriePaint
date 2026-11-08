@@ -232,6 +232,7 @@ fun LayerPanel(
     }
 
     val context = androidx.compose.ui.platform.LocalContext.current
+    val config = LocalConfiguration.current
     val panelShape = RoundedCornerShape(14.dp)
     val density = LocalDensity.current
     val baseEndOffsetPx = remember(density) { with(density) { (-8).dp.roundToPx() } }
@@ -257,8 +258,16 @@ fun LayerPanel(
                     .heightIn(max = (LocalConfiguration.current.screenHeightDp * 3 / 4).dp)
                     .clip(panelShape)
                     .onGloballyPositioned { coords ->
-                        if (coords.isAttached) {
-                            vm.layerPanelMeasuredBounds = coords.boundsInRoot()
+                        if (coords.isAttached && vm.onboardingActive) {
+                            val w = coords.size.width.toFloat()
+                            val h = coords.size.height.toFloat()
+                            val screenW = with(density) { config.screenWidthDp.dp.toPx() }
+                            val restLeft = if (vm.leftHandMode) with(density) { 8.dp.toPx() } else (screenW - w - with(density) { 8.dp.toPx() })
+                            val restTop = with(density) { 44.dp.toPx() }
+                            val newRect = androidx.compose.ui.geometry.Rect(restLeft, restTop, restLeft + w, restTop + h)
+                            if (vm.layerPanelMeasuredBounds != newRect) {
+                                vm.layerPanelMeasuredBounds = newRect
+                            }
                         }
                     }
                     .evadablePanelSurface(
