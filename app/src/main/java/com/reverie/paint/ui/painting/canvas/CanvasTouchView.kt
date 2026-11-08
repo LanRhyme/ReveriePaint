@@ -170,6 +170,10 @@ class CanvasTouchView(context: Context) : View(context) {
             if (field != value) {
                 field = value
                 clearPredictionState(triggerInvalidate = true)
+                if (strokeStarted) {
+                    vm?.let { cancelActiveStroke(it) }
+                    strokeStarted = false
+                }
                 if (value != Tool.PICKER && !isLongPressPickerActive) {
                     pickerActive?.value = false
                 }
@@ -1052,6 +1056,8 @@ class CanvasTouchView(context: Context) : View(context) {
         if (isLongPressPickerActive || (tool != Tool.PICKER && pickerActive?.value == true)) {
             pickerActive?.value = false
             isLongPressPickerActive = false
+            cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
+            cachedDriver?.feedbackManager?.stopStrokeSound()
         }
     }
 
@@ -1069,6 +1075,8 @@ class CanvasTouchView(context: Context) : View(context) {
                 resetMirrorBranches()
                 clearPredictionState(triggerInvalidate = true)
             }
+            cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
+            cachedDriver?.feedbackManager?.stopStrokeSound()
             isLongPressPickerActive = true
             pickerActive?.value = true
             val refHex = v.brushColor
@@ -5428,6 +5436,7 @@ class CanvasTouchView(context: Context) : View(context) {
 
                     clearPredictionState(triggerInvalidate = true)
                     cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
+                    cachedDriver?.feedbackManager?.stopStrokeSound()
                     removeCallbacks(longPressRunnable)
                     longPressToken++
                     isPendingLongPress = false
@@ -6282,6 +6291,8 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
 
                 if (isLongPressPickerActive) {
+                    cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
+                    cachedDriver?.feedbackManager?.stopStrokeSound()
                     val curCol = pickerCurrentColor?.value
                     if (curCol != null) {
                         val r = (curCol.red * 255).toInt().coerceIn(0, 255)
