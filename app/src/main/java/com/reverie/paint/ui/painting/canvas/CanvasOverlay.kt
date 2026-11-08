@@ -183,8 +183,11 @@ internal fun CanvasOverlay(
     // 同一语义色) 脉冲, 只有本层内容在闪 (线条闪 accent 色再恢复), 其他层像素
     // 不动。滤镜 remember 缓存, 不逐帧分配。
     val layerFlashAnim = remember { Animatable(0f) }
-    val layerFlashTint = remember {
-        androidx.compose.ui.graphics.ColorFilter.tint(Morandi.accent, BlendMode.SrcIn)
+    // 强调色在组合期读取并作 remember key: 换强调色 → Theme.current 变化触发重组 →
+    // 滤镜重建, 闪现色始终跟随设置里的强调色; 未变化时不产生任何分配
+    val layerFlashAccent = Morandi.accent
+    val layerFlashTint = remember(layerFlashAccent) {
+        androidx.compose.ui.graphics.ColorFilter.tint(layerFlashAccent, BlendMode.SrcIn)
     }
     LaunchedEffect(vm.layerFlashTick) {
         if (vm.layerFlashTick == 0 || vm.layerFlashBitmap == null) return@LaunchedEffect
