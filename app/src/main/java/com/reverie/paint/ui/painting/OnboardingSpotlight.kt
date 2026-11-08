@@ -273,6 +273,10 @@ fun OnboardingSpotlight(
                     }
                 },
                 onSkip = closeGuide,
+                onOpenThemeSettings = {
+                    closeGuide()
+                    vm.openMoreSettings("THEME")
+                },
             )
         }
     }
@@ -534,6 +538,7 @@ private fun OnboardingCard(
     onNext: () -> Unit,
     onSkip: () -> Unit,
     modifier: Modifier = Modifier,
+    onOpenThemeSettings: () -> Unit = {},
 ) {
     val titleRes = when (step) {
         0 -> R.string.onboarding_step1_title
@@ -764,6 +769,13 @@ private fun OnboardingCard(
                     FeatureTipRow(R.drawable.ic_sliders, stringResource(R.string.onboarding_ws_tip_layout), isCompact)
                     FeatureTipRow(R.drawable.ic_settings, stringResource(R.string.onboarding_ws_tip_topbar), isCompact)
                 }
+                Spacer(Modifier.height(if (isCompact) 8.dp else 12.dp))
+                ReButton(
+                    text = stringResource(R.string.onboarding_open_theme_settings),
+                    onClick = onOpenThemeSettings,
+                    primary = false,
+                    modifier = Modifier.fillMaxWidth(),
+                )
             }
         }
 

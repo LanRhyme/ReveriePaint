@@ -3751,6 +3751,7 @@
     <string name="onboarding_ws_tip_drag">Settings -&gt; View Display: Enable Panel Pinning &amp; Free Pan</string>
     <string name="onboarding_ws_tip_layout">Settings -&gt; More Settings -&gt; Appearance &amp; Layout: Enable Floating Mode</string>
     <string name="onboarding_ws_tip_topbar">Tool Rail \"···\" -&gt; Customize: Pin or unpin favorite tools</string>
+    <string name="onboarding_open_theme_settings">Open Theme &amp; Appearance</string>
     <string name="settings_replay_onboarding">Beginner’s Guide</string>
     <string name="settings_replay_onboarding_desc">Replay the feature tour and workspace customization guide</string>
 </resources>

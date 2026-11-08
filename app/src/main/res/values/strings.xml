@@ -3750,6 +3750,7 @@
     <string name="onboarding_ws_tip_drag">设置 -> 视图显示：开启「面板固定与自由平移」</string>
     <string name="onboarding_ws_tip_layout">设置 -> 更多设置 -> 外观与布局：开启自由悬浮模式</string>
     <string name="onboarding_ws_tip_topbar">工具栏底部「···」-> 自定义：增减常用绘图工具</string>
+    <string name="onboarding_open_theme_settings">前往外观与主题设置</string>
     <string name="settings_replay_onboarding">新手功能引导</string>
     <string name="settings_replay_onboarding_desc">重新查看核心功能布局与工作区定制指引</string>
 </resources>

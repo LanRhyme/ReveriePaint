@@ -259,14 +259,17 @@ fun LayerPanel(
                     .clip(panelShape)
                     .onGloballyPositioned { coords ->
                         if (coords.isAttached && vm.onboardingActive) {
-                            val w = coords.size.width.toFloat()
-                            val h = coords.size.height.toFloat()
-                            val screenW = with(density) { config.screenWidthDp.dp.toPx() }
-                            val restLeft = if (vm.leftHandMode) with(density) { 8.dp.toPx() } else (screenW - w - with(density) { 8.dp.toPx() })
-                            val restTop = with(density) { 44.dp.toPx() }
-                            val newRect = androidx.compose.ui.geometry.Rect(restLeft, restTop, restLeft + w, restTop + h)
-                            if (vm.layerPanelMeasuredBounds != newRect) {
-                                vm.layerPanelMeasuredBounds = newRect
+                            val bounds = coords.boundsInRoot()
+                            if (bounds.width > 20f && bounds.height > 20f) {
+                                val prev = vm.layerPanelMeasuredBounds
+                                if (prev == null ||
+                                    kotlin.math.abs(prev.left - bounds.left) > 0.5f ||
+                                    kotlin.math.abs(prev.top - bounds.top) > 0.5f ||
+                                    kotlin.math.abs(prev.right - bounds.right) > 0.5f ||
+                                    kotlin.math.abs(prev.bottom - bounds.bottom) > 0.5f
+                                ) {
+                                    vm.layerPanelMeasuredBounds = bounds
+                                }
                             }
                         }
                     }
