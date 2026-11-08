@@ -372,7 +372,7 @@ private fun PaintViewModel.getOrCreateFrameRecorder(): FrameRecorder? {
     }
     return FrameRecorder(
         dir = framesDir,
-        minIntervalMs = effectiveTimelapseIntervalMs(),
+        minIntervalMs = timelapseMinIntervalMs,
         maxFrames = timelapseMaxFrames,
         quality = timelapseQuality,
     ).also {
@@ -423,22 +423,6 @@ fun PaintViewModel.resetTimelapseCaptureState() {
 }
 
 /**
- * 当前文档的抓帧计划 (目标尺寸 + 有效最小间隔), 见 [com.reverie.paint.model.TimelapseCapturePolicy]。
- * 文档尺寸未知或非法时返回 null, 调用方回退到用户设置。
- */
-internal fun PaintViewModel.timelapseCapturePlan(): com.reverie.paint.model.TimelapseCapturePolicy.Plan? =
-    com.reverie.paint.model.TimelapseCapturePolicy.plan(
-        docW = docWidth,
-        docH = docHeight,
-        requestedMaxDim = timelapseResolution.coerceIn(480, 3840),
-        userMinIntervalMs = timelapseMinIntervalMs,
-    )
-
-/** 当前文档的有效抓帧最小间隔 (用户设置只会被拉长, 见 [TimelapseCapturePolicy.minIntervalMs])。 */
-internal fun PaintViewModel.effectiveTimelapseIntervalMs(): Long =
-    timelapseCapturePlan()?.minIntervalMs ?: timelapseMinIntervalMs.coerceIn(50L, 5000L)
-
-/**
  * 触发一次延时摄影抓帧任务 (Procreate 式逐笔自适应捕获)。
  * - 每次抬笔 (touchEnd)、撤销/重做或图层改动后立即响应
  * - 由用户配置的最小抓帧间隔 (timelapseMinIntervalMs, 默认 200ms) 统一节流
@@ -463,8 +447,7 @@ fun PaintViewModel.triggerTimelapseCapture(isChanged: Boolean = true, force: Boo
 
     val nowUptime = SystemClock.uptimeMillis()
     val elapsed = nowUptime - lastCaptureTriggerTimeMs
-    // 大画布上抓帧单帧成本很高 (见 TimelapseCapturePolicy), 有效间隔会按成本被拉长。
-    val minInterval = effectiveTimelapseIntervalMs()
+    val minInterval = timelapseMinIntervalMs.coerceIn(50L, 5000L)
 
     if (elapsed >= minInterval) {
         pendingIdleCaptureRunnable?.let {
@@ -513,12 +496,15 @@ private fun PaintViewModel.executeTimelapseCaptureNow(force: Boolean) {
         return
     }
 
-    // 抓帧尺寸不再直接取用户设置的长边: 引擎侧 createThumbnail 的成本 ∝ **输出像素**
-    // (最近邻随机访问, ~13ns/px), 65MP 画布按 2160 抓一帧实测 95ms, 而且它跑在渲染线程上。
-    // TimelapseCapturePolicy 按"单帧输出 ≤ 1080p 级 + 占空比 ≤ 1/8"给出目标尺寸与有效间隔。
-    val plan = timelapseCapturePlan()
-    val targetW = plan?.width ?: (if (docW >= docH) timelapseResolution.coerceIn(480, 3840) else 2)
-    val targetH = plan?.height ?: (if (docW >= docH) 2 else timelapseResolution.coerceIn(480, 3840))
+    // 根据用户设置的画质分辨率 (如 720, 1080, 1440, 2160) 等比例计算抓帧尺寸
+    val maxDim = timelapseResolution.coerceIn(480, 3840)
+    val (targetW, targetH) = if (docW >= docH) {
+        val h = (docH.toFloat() / docW.toFloat() * maxDim).roundToInt().coerceAtLeast(2)
+        maxDim to h
+    } else {
+        val w = (docW.toFloat() / docH.toFloat() * maxDim).roundToInt().coerceAtLeast(2)
+        w to maxDim
+    }
 
     // 记录抓帧时的工程: 后台压缩期间用户可能切工程/删工程数据, 落盘前要再确认一次
     val projectPathAtSchedule = currentProjectFile
