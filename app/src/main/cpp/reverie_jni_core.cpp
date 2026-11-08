@@ -287,6 +287,63 @@ Java_com_reverie_paint_core_ReverieCoreBridge_renderTileToBuffer(JNIEnv *env, jo
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
+// 视口 LoD: 与 renderTileToBuffer 同契约, 多一个 docScale —— 位图是显示像素, 覆盖
+// bufW*docScale x bufH*docScale 的文档矩形 (盒式平均, 见 renderTileToBufferScaled)。
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_renderTileToBufferScaled(JNIEnv *env, jobject,
+                                                                       jobject bitmap, jint docX, jint docY,
+                                                                       jint docScale,
+                                                                       jintArray dirtyRects, jintArray outWritten)
+{
+    if (bitmap == nullptr || docScale <= 0) {
+        return JNI_FALSE;
+    }
+    if (docScale == 1) {
+        return Java_com_reverie_paint_core_ReverieCoreBridge_renderTileToBuffer(
+            env, nullptr, bitmap, docX, docY, dirtyRects, outWritten);
+    }
+    AndroidBitmapInfo info;
+    if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        return JNI_FALSE;
+    }
+    if (info.width == 0 || info.height == 0 || info.format != ANDROID_BITMAP_FORMAT_RGBA_8888 ||
+        info.stride != info.width * 4) {
+        return JNI_FALSE;
+    }
+
+    QRect rects[kMaxTileDirtyRects];
+    int count = 0;
+    if (dirtyRects != nullptr) {
+        const jsize len = env->GetArrayLength(dirtyRects);
+        const int max = qMin<int>(len / 4, kMaxTileDirtyRects);
+        if (max > 0) {
+            jint vals[kMaxTileDirtyRects * 4];
+            env->GetIntArrayRegion(dirtyRects, 0, max * 4, vals);
+            for (int i = 0; i < max; ++i) {
+                const QRect r(vals[i * 4], vals[i * 4 + 1], vals[i * 4 + 2], vals[i * 4 + 3]);
+                if (!r.isEmpty()) {
+                    rects[count++] = r;
+                }
+            }
+        }
+    }
+
+    void *pixels = nullptr;
+    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        return JNI_FALSE;
+    }
+    QRect written;
+    const bool ok = core()->renderTileToBufferScaled(static_cast<quint8 *>(pixels), int(info.width),
+                                                      int(info.height), docX, docY, int(docScale),
+                                                      rects, count, &written);
+    AndroidBitmap_unlockPixels(env, bitmap);
+    if (outWritten != nullptr && env->GetArrayLength(outWritten) >= 4) {
+        jint vals[4] = {written.x(), written.y(), written.width(), written.height()};
+        env->SetIntArrayRegion(outWritten, 0, 4, vals);
+    }
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_undo(JNIEnv *, jobject)
 {

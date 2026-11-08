@@ -5687,11 +5687,18 @@ class PaintViewModel : ViewModel() {
     internal val animAudioPlayers = mutableListOf<android.media.MediaPlayer>()
 
     /** Report the visible canvas size (device px); keep render buffer at full native resolution */
+    /** 视图尺寸 (主线程写, 渲染线程读): 首帧建瓦片网格前估一个 LoD 档位用。 */
+    @Volatile internal var viewportW = 0
+
+    @Volatile internal var viewportH = 0
+
     fun setRenderViewport(
         viewW: Int,
         viewH: Int,
     ) {
         if (viewW <= 0 || viewH <= 0) return
+        viewportW = viewW
+        viewportH = viewH
         // coreW/coreH 由渲染线程在换文档 (loadProject/startPainting 的 newDocument) 时写入。
         // 在 UI 线程上读会和它竞态, 把 renderW/renderH 写回旧尺寸, 首帧瓦片与文档尺寸错位。
         // 投递到渲染线程, 与文档尺寸变更串行执行。渲染线程还没起来或当前已在渲染线程时
@@ -5742,6 +5749,56 @@ class PaintViewModel : ViewModel() {
      * 只在渲染线程写, 换文档时由 [discardTileGridForDocumentSwitch] 复位。
      */
     @Volatile internal var displayTilesUnavailableForDoc = false
+
+    /**
+     * 视口 LoD 档位: 显示瓦片覆盖的文档像素数 / 瓦片位图像素数 (1 = 1:1)。
+     *
+     * 由视图缩放决定 (见 [com.reverie.paint.model.LodScalePolicy]): 缩到 25% 时按 1/4 合成,
+     * 显存与每帧纹理上传按 16 倍下降。渲染线程在 [ensureDisplayTileGrid] 里读它, 档位一变
+     * 就重建网格并按新档位全量重写一遍。
+     */
+    @Volatile internal var displayDocScale = 1
+
+    /** 最近一次视图缩放 (0 = 未知), 只用于避免重复决策。 */
+    @Volatile internal var lastViewScale = -1f
+
+    private var pendingLodScale = 0
+
+    private val postedApplyLodScale =
+        Runnable {
+            val target = pendingLodScale
+            pendingLodScale = 0
+            if (target <= 0 || target == displayDocScale) return@Runnable
+            displayDocScale = target
+            // 新档位的网格必须整份重写: 旧网格里的像素是另一个分辨率, 不能增量叠。
+            displayBufferInvalid = true
+            scheduleRender(immediate = true)
+            if (PerfTrace.enabled) {
+                PerfTrace.log("lod scale=${displayDocScale} viewScale=$lastViewScale")
+            }
+        }
+
+    /**
+     * 视图缩放变化 (主线程)。缩放到跨过档位阈值后**延迟 250ms** 再切档:
+     * 捏合/滚轮过程中缩放是连续变化的, 立刻切会让网格反复重建 (每切一次都要全量重写一遍)。
+     */
+    internal fun onViewScaleChanged(viewScale: Float) {
+        if (!DisplayTileFlags.lodEnabled) return
+        if (!(viewScale > 0f) || !viewScale.isFinite()) return
+        if (lastViewScale > 0f && kotlin.math.abs(viewScale - lastViewScale) < 0.01f * lastViewScale) return
+        lastViewScale = viewScale
+        val ideal = com.reverie.paint.model.LodScalePolicy.choose(viewScale, DisplayTileFlags.lodMaxScale)
+        if (ideal == displayDocScale) {
+            if (pendingLodScale != 0) {
+                mainHandler.removeCallbacks(postedApplyLodScale)
+                pendingLodScale = 0
+            }
+            return
+        }
+        pendingLodScale = ideal
+        mainHandler.removeCallbacks(postedApplyLodScale)
+        mainHandler.postDelayed(postedApplyLodScale, 250L)
+    }
 
     /**
      * 画布当前有可上屏的像素: 瓦片网格已发布, 或整图路径已有 [displayBitmap]。

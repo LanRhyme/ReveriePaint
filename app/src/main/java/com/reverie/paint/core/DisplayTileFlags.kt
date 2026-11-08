@@ -23,6 +23,20 @@ internal object DisplayTileFlags {
         PerfTrace.debugPropInt("debug.reverie.display_tiles", 1) != 0
     }
 
+    /**
+     * 视口 LoD 总开关 (`debug.reverie.lod 1`)。打开后, 缩放视图下显示瓦片按
+     * 1/2、1/4、1/8 合成 (见 [com.reverie.paint.model.LodScalePolicy]), 显存与每帧纹理上传
+     * 按档位平方下降; 放大回 1:1 时自动重建网格。
+     */
+    val lodEnabled: Boolean by lazy {
+        PerfTrace.debugPropInt("debug.reverie.lod", 1) != 0
+    }
+
+    /** LoD 最大档位 (1 = 关闭; 2/4/8)。 */
+    val lodMaxScale: Int by lazy {
+        PerfTrace.debugPropInt("debug.reverie.lod_max", 8).coerceIn(1, 8)
+    }
+
     /** 瓦片网格总显存预算 (字节)。 */
     val budgetBytes: Long by lazy {
         PerfTrace

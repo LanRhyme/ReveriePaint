@@ -721,6 +721,120 @@ bool ReverieCore::renderTileToBuffer(quint8 *buffer, int bufW, int bufH, int doc
     return !writtenLocal.isNull();
 }
 
+// 视口 LoD 的瓦片写像素: 目标瓦片位图是 bufW x bufH 的**显示像素**, 对应文档矩形
+// [docX, docY, bufW*scale, bufH*scale]。每个输出像素取 scale x scale 的文档像素做盒式平均
+// (最近邻在 1/4、1/8 下会把细线整条丢掉, 盒式平均才能保住线稿)。
+//
+// 与 1:1 版本共用"本帧合成一次 + 每块瓦片各写各的"契约; 脏区仍是文档坐标, 由这里换算成
+// 输出像素后只处理相交部分 —— 落笔时脏区通常很小, 平均的开销与脏区面积同阶。
+bool ReverieCore::renderTileToBufferScaled(quint8 *buffer, int bufW, int bufH,
+                                           int docX, int docY, int scale,
+                                           const QRect *dirtyRects, int dirtyCount, QRect *outWritten)
+{
+    if (scale <= 1) {
+        return renderTileToBuffer(buffer, bufW, bufH, docX, docY, dirtyRects, dirtyCount, outWritten);
+    }
+    if (outWritten) {
+        *outWritten = QRect();
+    }
+    KisImageSP image = m_document;
+    KisPaintDeviceSP proj = m_tileFrameProjection;
+    if (!image || !proj || !buffer || bufW <= 0 || bufH <= 0) {
+        return false;
+    }
+    if (dirtyCount > 0 && !dirtyRects) {
+        return false;
+    }
+    const QRect docRect(0, 0, image->width(), image->height());
+    const QRect tileRect = QRect(docX, docY, bufW * scale, bufH * scale).intersected(docRect);
+    if (tileRect.isEmpty()) {
+        return false;
+    }
+
+    // 一次把整块脏区读进来, 再在内存里做 scale x scale 盒式平均: 逐源行 readBytes 会让每个
+    // 源行都付一次 tile 查找 (512² 瓦片的脏区往往要几百行, 实测 2 张瓦片就吃掉 11ms),
+    // 而整块读只付一次 —— 与 1:1 路径同样的读法, 平均本身是纯内存遍历。
+    static thread_local QVector<quint8> tlLoDSrc;  // 脏区原始像素 (直通 BGRA, 文档像素)
+    static thread_local QByteArray tlLoDOut;      // 一条输出行 (RGBA8888)
+    const int steps = (dirtyCount > 0) ? dirtyCount : 1;
+    QRect writtenLocal;
+    for (int i = 0; i < steps; ++i) {
+        const QRect dr = ((dirtyCount > 0) ? dirtyRects[i] : tileRect).intersected(tileRect);
+        if (dr.isEmpty()) {
+            continue;
+        }
+        // 文档矩形 -> 输出像素矩形 (向外取整, 保证边缘像素也被刷新)
+        const int outL = (dr.left() - docX) / scale;
+        const int outT = (dr.top() - docY) / scale;
+        const int outR = qMin(bufW, (dr.right() - docX + scale - 1) / scale);
+        const int outB = qMin(bufH, (dr.bottom() - docY + scale - 1) / scale);
+        if (outR <= outL || outB <= outT) {
+            continue;
+        }
+        const int outW = outR - outL;
+        const QRect srcRect = dr;  // 已经是本块瓦片的文档矩形
+        const int sw = srcRect.width();
+        const int sh = srcRect.height();
+        const size_t need = size_t(sw) * size_t(sh) * 4;
+        if (size_t(tlLoDSrc.size()) < need) {
+            tlLoDSrc.resize(int(need));
+        }
+        proj->readBytes(tlLoDSrc.data(), srcRect.x(), srcRect.y(), sw, sh);
+        if (tlLoDOut.size() < outW * 4) {
+            tlLoDOut.resize(outW * 4);
+        }
+        const quint8 *src = tlLoDSrc.constData();
+        for (int oy = outT; oy < outB; ++oy) {
+            // 该输出行覆盖的源行 (裁剪到脏区, 源行必须是脏区内的像素 —— 脏区外的投影可能是
+            // 本帧未合成的陈旧数据)
+            const int syDoc0 = qMax(docY + oy * scale, srcRect.top());
+            const int syDoc1 = qMin(docY + (oy + 1) * scale, srcRect.bottom());
+            const int sy0 = syDoc0 - srcRect.top();
+            const int sy1 = qMax(sy0 + 1, syDoc1 - srcRect.top());
+            const int samplesY = sy1 - sy0;
+            quint8 *out = reinterpret_cast<quint8 *>(tlLoDOut.data());
+            for (int ox = 0; ox < outW; ++ox) {
+                const int oxDoc = outL + ox;
+                const int sxDoc0 = qMax(docX + oxDoc * scale, srcRect.left());
+                const int sxDoc1 = qMin(docX + (oxDoc + 1) * scale, srcRect.right());
+                const int sx0 = sxDoc0 - srcRect.left();
+                const int sx1 = qMax(sx0 + 1, sxDoc1 - srcRect.left());
+                const int samplesX = sx1 - sx0;
+                quint32 sB = 0, sG = 0, sR = 0, sA = 0;
+                for (int sy = sy0; sy < sy1; ++sy) {
+                    const quint8 *row = src + size_t(sy) * size_t(sw) * 4;
+                    for (int sx = sx0; sx < sx1; ++sx) {
+                        const quint8 *p = row + size_t(sx) * 4;
+                        sB += p[0];
+                        sG += p[1];
+                        sR += p[2];
+                        sA += p[3];
+                    }
+                }
+                const quint32 n = quint32(samplesX * samplesY);
+                out[size_t(ox) * 4 + 0] = quint8(sB / n);
+                out[size_t(ox) * 4 + 1] = quint8(sG / n);
+                out[size_t(ox) * 4 + 2] = quint8(sR / n);
+                out[size_t(ox) * 4 + 3] = quint8(sA / n);
+            }
+            quint8 *dst = buffer + size_t(oy) * size_t(bufW) * 4 + size_t(outL) * 4;
+            // 复用画布那条 NEON 路径 (BGRA 直通 -> RGBA 预乘)
+            PixelAlpha::toDisplay(out, dst, size_t(outW));
+        }
+        writtenLocal = writtenLocal.isNull()
+            ? QRect(outL, outT, outR - outL, outB - outT)
+            : writtenLocal.united(QRect(outL, outT, outR - outL, outB - outT));
+    }
+    if (outWritten) {
+        *outWritten = writtenLocal;
+    }
+    if (!writtenLocal.isNull()) {
+        // 记录到文档坐标, 供 Kotlin 侧做局部失效
+        m_lastWrittenRect = writtenLocal.translated(docX, docY);
+    }
+    return !writtenLocal.isNull();
+}
+
 void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged, int expand, int feather, int closeGap)
 {
     ensureRgbU8DifferenceHook();

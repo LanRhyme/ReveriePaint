@@ -7,22 +7,37 @@ package com.reverie.paint.model
 /**
  * 512 显示瓦片网格的**纯几何** (无 Android 依赖, 可 JVM 单测)。
  *
- * 整张显示位图 (w x h) 换成覆盖全文档的固定网格, 瓦片边长 [TILE]。边角瓦片按实际
- * 余数分配尺寸, 总像素严格等于 `w * h` —— 换网格不额外膨胀显存, 但每帧只有脏区命中的
- * 那几张瓦片会被 `lockPixels` 重写, 其余瓦片的 `Bitmap` 引用原封不动, HWUI 的纹理缓存
- * 直接命中。
+ * 网格覆盖整份文档, 瓦片边长 [TILE] (显示像素)。每帧只有脏区命中的那几张瓦片会被
+ * `lockPixels` 重写, 其余瓦片的 `Bitmap` 引用原封不动, HWUI 的纹理缓存直接命中。
  *
- * 坐标一律是**文档/显示位图像素** (1:1 渲染路径下两者相同)。矩形用 `[left, top, right,
- * bottom)`, right/bottom 为开区间。
+ * **两级坐标**:
+ *  - 文档坐标 (`docW x docH`, 场景/手势/覆盖层统一用它);
+ *  - 显示坐标 (`width x height` = 文档像素 / [docScale]), 即瓦片位图的像素空间。
+ * [docScale] = 1 时两者相同 (1:1 路径); > 1 时是**视口 LoD**: 缩放视图下按 1/2、
+ * 1/4、1/8 合成, 显示显存与每帧纹理上传都按 `docScale²` 下降, 代价是这一层不含
+ * 文档的全部像素细节 (放大回来会切回 1:1 重建网格)。
+ *
+ * 矩形用 `[left, top, right, bottom)`, right/bottom 为开区间。
  */
 class DisplayTileGrid(
-    val width: Int,
-    val height: Int,
+    /** 文档宽 (文档像素)。 */
+    val docW: Int,
+    /** 文档高 (文档像素)。 */
+    val docH: Int,
     val tileSize: Int = TILE,
+    /** 文档像素 / 显示像素; 1 = 1:1, 2/4/8 = LoD。 */
+    val docScale: Int = 1,
 ) {
     init {
         require(tileSize > 0) { "tileSize must be positive" }
+        require(docScale > 0) { "docScale must be positive" }
     }
+
+    /** 显示像素宽 (瓦片位图空间的宽度)。 */
+    val width: Int = if (docScale <= 1) docW else if (docW <= 0) 0 else (docW + docScale - 1) / docScale
+
+    /** 显示像素高。 */
+    val height: Int = if (docScale <= 1) docH else if (docH <= 0) 0 else (docH + docScale - 1) / docScale
 
     val cols: Int = if (width > 0) (width + tileSize - 1) / tileSize else 0
 
@@ -73,6 +88,57 @@ class DisplayTileGrid(
         val out = IntArray(4)
         tileRectInto(tx, ty, out)
         return out
+    }
+
+    /** 第 [tx] 列瓦片在**文档**坐标下的左边界。 */
+    fun docLeft(tx: Int): Int = tileLeft(tx) * docScale
+
+    /** 第 [ty] 行瓦片在**文档**坐标下的上边界。 */
+    fun docTop(ty: Int): Int = tileTop(ty) * docScale
+
+    /** 第 [tx] 列瓦片在文档坐标下的宽度 (末列裁到 docW)。 */
+    fun docTileWidth(tx: Int): Int {
+        val l = docLeft(tx)
+        return (docW - l).coerceIn(0, tileWidth(tx) * docScale)
+    }
+
+    /** 第 [ty] 行瓦片在文档坐标下的高度 (末行裁到 docH)。 */
+    fun docTileHeight(ty: Int): Int {
+        val t = docTop(ty)
+        return (docH - t).coerceIn(0, tileHeight(ty) * docScale)
+    }
+
+    /** 瓦片 [tx,ty] 的文档矩形写进 [out] = `[l,t,r,b)`。 */
+    fun docTileRectInto(tx: Int, ty: Int, out: IntArray) {
+        if (!contains(tx, ty)) {
+            out[0] = 0; out[1] = 0; out[2] = 0; out[3] = 0
+            return
+        }
+        out[0] = docLeft(tx)
+        out[1] = docTop(ty)
+        out[2] = out[0] + docTileWidth(tx)
+        out[3] = out[1] + docTileHeight(ty)
+    }
+
+    /**
+     * 与**文档**矩形相交的瓦片 (LoD 下 [tilesIntersecting] 要的是显示坐标, 这里直接吃文档
+     * 坐标: 脏区从引擎来就是文档坐标)。
+     */
+    fun tilesIntersectingDoc(
+        left: Int,
+        top: Int,
+        right: Int,
+        bottom: Int,
+        out: IntArray,
+    ): Int {
+        if (docScale == 1) return tilesIntersecting(left, top, right, bottom, out)
+        if (right <= left || bottom <= top || isEmpty) return 0
+        val l = left.coerceAtLeast(0) / docScale
+        val t = top.coerceAtLeast(0) / docScale
+        val r = ((right.coerceAtMost(docW) + docScale - 1) / docScale)
+        val b = ((bottom.coerceAtMost(docH) + docScale - 1) / docScale)
+        if (r <= l || b <= t) return 0
+        return tilesIntersecting(l, t, r, b, out)
     }
 
     /**

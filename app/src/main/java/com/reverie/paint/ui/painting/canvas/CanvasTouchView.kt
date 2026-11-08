@@ -776,8 +776,9 @@ class CanvasTouchView(context: Context) : View(context) {
         val v = vm
         val tiles = v?.displayTiles?.drawable()
         val bmp = if (tiles != null) null else (v?.displayBitmap ?: docBitmap)?.takeIf { !it.isRecycled }
-        val bmpW = (tiles?.grid?.width ?: bmp?.width ?: v?.docWidth?.takeIf { it > 0 } ?: 1).toFloat()
-        val bmpH = (tiles?.grid?.height ?: bmp?.height ?: v?.docHeight?.takeIf { it > 0 } ?: 1).toFloat()
+        // 选区/套索都在文档空间里算 (LoD 下瓦片位图更小, 不能拿网格尺寸当坐标系)
+        val bmpW = (tiles?.grid?.docW ?: bmp?.width ?: v?.docWidth?.takeIf { it > 0 } ?: 1).toFloat()
+        val bmpH = (tiles?.grid?.docH ?: bmp?.height ?: v?.docHeight?.takeIf { it > 0 } ?: 1).toFloat()
         val docW = (if (v != null && v.docWidth > 0) v.docWidth else bmpW.toInt()).toFloat()
         val docH = (if (v != null && v.docHeight > 0) v.docHeight else bmpH.toInt()).toFloat()
         val scX = bmpW / docW
@@ -3051,8 +3052,10 @@ class CanvasTouchView(context: Context) : View(context) {
         if (tileDrawScratch.size < 2 * grid.tileCount) {
             tileDrawScratch = IntArray(2 * grid.tileCount)
         }
+        // 视口裁剪用**文档**坐标 (visibleBitmapBounds 给的是文档矩形); LoD 下瓦片覆盖的
+        // 文档矩形比位图大 docScale 倍, 所以要按 doc 坐标求相交、再拉伸到文档尺寸绘制。
         val n =
-            grid.tilesIntersecting(
+            grid.tilesIntersectingDoc(
                 boundsScratch[0],
                 boundsScratch[1],
                 boundsScratch[2],
@@ -3060,8 +3063,8 @@ class CanvasTouchView(context: Context) : View(context) {
                 tileDrawScratch,
             )
         if (n <= 0) return
-        val halfW = grid.width / 2f
-        val halfH = grid.height / 2f
+        val halfW = grid.docW / 2f
+        val halfH = grid.docH / 2f
         for (k in 0 until n) {
             val tx = tileDrawScratch[k * 2]
             val ty = tileDrawScratch[k * 2 + 1]
@@ -3076,8 +3079,10 @@ class CanvasTouchView(context: Context) : View(context) {
                 idx,
                 grid.tileCount,
                 tile,
-                grid.tileLeft(tx) - halfW,
-                grid.tileTop(ty) - halfH,
+                grid.docLeft(tx) - halfW,
+                grid.docTop(ty) - halfH,
+                grid.docTileWidth(tx).toFloat(),
+                grid.docTileHeight(ty).toFloat(),
                 directBitmapPaint.isFilterBitmap,
             )
         }
@@ -3104,8 +3109,10 @@ class CanvasTouchView(context: Context) : View(context) {
             } else {
                 (v.displayBitmap ?: docBitmap)?.takeIf { !it.isRecycled }
             }
-        val sceneW = tiles?.grid?.width ?: (bmp?.width ?: 0)
-        val sceneH = tiles?.grid?.height ?: (bmp?.height ?: 0)
+        // 场景尺寸一律用**文档**像素: 视口 LoD 下瓦片位图是缩小过的 (grid.width < docW),
+        // 但手势/覆盖层/选区全都在文档空间里。
+        val sceneW = tiles?.grid?.docW ?: (bmp?.width ?: 0)
+        val sceneH = tiles?.grid?.docH ?: (bmp?.height ?: 0)
         if (sceneW > 0 && sceneH > 0) {
             val imgW = sceneW.toFloat()
             val imgH = sceneH.toFloat()
@@ -4169,11 +4176,13 @@ class CanvasTouchView(context: Context) : View(context) {
     /** 刷新缓存的视图变换 (参数未变化时内部直接返回, 几乎零开销) */
     private fun ensureViewTransform(forcePublishPose: Boolean = false) {
         val v = vm
-        // 瓦片网格生效时位图空间就是网格尺寸 (displayBitmap 此时可能是旧整图或参考窗口快照)
+        // 瓦片网格生效时位图空间就是**文档**空间 (LoD 下网格位图更小, 但落点/尺寸按文档算)
         val grid = v?.displayTiles?.drawable()?.grid
         val bmp = if (grid != null) null else (v?.displayBitmap ?: docBitmap)
-        val bmpW = grid?.width ?: bmp?.width ?: v?.docWidth ?: 1
-        val bmpH = grid?.height ?: bmp?.height ?: v?.docHeight ?: 1
+        val bmpW = grid?.docW ?: bmp?.width ?: v?.docWidth ?: 1
+        val bmpH = grid?.docH ?: bmp?.height ?: v?.docHeight ?: 1
+        // 视口 LoD 档位跟着缩放走 (缩到 1/4 就按 1/4 合成)。这里只是通知, 手势不依赖它的返回值。
+        v?.onViewScaleChanged((canvasZoom * canvasFitScale).coerceAtLeast(0.001f))
         val dw = v?.docWidth ?: bmpW
         val dh = v?.docHeight ?: bmpH
         val dirty = viewTransform.update(
@@ -6555,7 +6564,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
                     val tiles = v.displayTiles.drawable()
                     val bmp = if (tiles != null) null else (v.displayBitmap ?: docBitmap)?.takeIf { !it.isRecycled }
-                    val bmpW = (tiles?.grid?.width ?: bmp?.width ?: v.docWidth.takeIf { it > 0 } ?: 1).toFloat()
+                    val bmpW = (tiles?.grid?.docW ?: bmp?.width ?: v.docWidth.takeIf { it > 0 } ?: 1).toFloat()
                     val docW = (if (v.docWidth > 0) v.docWidth else bmpW.toInt()).toFloat()
                     val bmpPerDoc = (bmpW / docW).coerceAtLeast(0.001f)
                     val snapDistThreshold = (24f * density) / (currentScale * bmpPerDoc)
@@ -7862,8 +7871,8 @@ class CanvasTouchView(context: Context) : View(context) {
         // 画布尺寸先看瓦片网格 (1:1 路径下它才是画布真身), 再看整图位图。
         val sceneGrid = v.displayTiles.drawable()?.grid
         val sceneBitmap = if (sceneGrid != null) null else (v.displayBitmap ?: docBitmap)
-        val sceneW = sceneGrid?.width ?: (sceneBitmap?.width ?: 0)
-        val sceneH = sceneGrid?.height ?: (sceneBitmap?.height ?: 0)
+        val sceneW = sceneGrid?.docW ?: (sceneBitmap?.width ?: 0)
+        val sceneH = sceneGrid?.docH ?: (sceneBitmap?.height ?: 0)
         if (sceneW <= 0 || sceneH <= 0) liquifyWholeLayerRect = null
         LiquifyGlesPreview.configureOpaqueScene(
             if (liquifyWholeLayerRect != null) sceneW else 0,
@@ -8346,7 +8355,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 } else {
                     val tiles = v.displayTiles.drawable()
                     val bmp = if (tiles != null) null else (v.displayBitmap ?: docBitmap)?.takeIf { !it.isRecycled }
-                    val bmpW = (tiles?.grid?.width ?: bmp?.width ?: v.docWidth.takeIf { it > 0 } ?: 1).toFloat()
+                    val bmpW = (tiles?.grid?.docW ?: bmp?.width ?: v.docWidth.takeIf { it > 0 } ?: 1).toFloat()
                     val docW = (if (v.docWidth > 0) v.docWidth else bmpW.toInt()).toFloat()
                     val bmpPerDoc = (bmpW / docW).coerceAtLeast(0.001f)
                     val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
@@ -9328,3 +9337,4 @@ class CanvasTouchView(context: Context) : View(context) {
         return super.onKeyUp(keyCode, event)
     }
 }
+

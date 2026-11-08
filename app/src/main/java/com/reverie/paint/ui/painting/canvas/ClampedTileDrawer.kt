@@ -39,6 +39,8 @@ internal class ClampedTileDrawer {
         isDither = false
     }
     private val matrix = Matrix()
+    private val srcRect = android.graphics.Rect()
+    private val dstRectF = android.graphics.RectF()
     private var shaders = arrayOfNulls<BitmapShader>(0)
     private var bound = arrayOfNulls<Bitmap>(0)
     private var genIds = IntArray(0)
@@ -51,14 +53,44 @@ internal class ClampedTileDrawer {
         left: Float,
         top: Float,
         filter: Boolean,
+    ) = draw(canvas, index, tileCount, bitmap, left, top, bitmap.width.toFloat(), bitmap.height.toFloat(), filter)
+
+    /**
+     * 把瓦片画进 [dstW] x [dstH] 的矩形: 视口 LoD 下瓦片位图是缩小过的 (文档像素 /
+     * docScale), 必须拉伸回它在文档空间里的尺寸, 否则整幅画布会缩小成一角。
+     */
+    fun draw(
+        canvas: Canvas,
+        index: Int,
+        tileCount: Int,
+        bitmap: Bitmap,
+        left: Float,
+        top: Float,
+        dstW: Float,
+        dstH: Float,
+        filter: Boolean,
     ) {
         if (index < 0 || index >= tileCount || bitmap.isRecycled) return
+        if (dstW <= 0f || dstH <= 0f) return
+        val sameSize = dstW == bitmap.width.toFloat() && dstH == bitmap.height.toFloat()
         if (!filter) {
-            canvas.drawBitmap(bitmap, left, top, rawPaint)
+            if (sameSize) {
+                canvas.drawBitmap(bitmap, left, top, rawPaint)
+            } else {
+                srcRect.set(0, 0, bitmap.width, bitmap.height)
+                dstRectF.set(left, top, left + dstW, top + dstH)
+                canvas.drawBitmap(bitmap, srcRect, dstRectF, rawPaint)
+            }
             return
         }
         if (!canvas.isHardwareAccelerated) {
-            canvas.drawBitmap(bitmap, left, top, filterPaint)
+            if (sameSize) {
+                canvas.drawBitmap(bitmap, left, top, filterPaint)
+            } else {
+                srcRect.set(0, 0, bitmap.width, bitmap.height)
+                dstRectF.set(left, top, left + dstW, top + dstH)
+                canvas.drawBitmap(bitmap, srcRect, dstRectF, filterPaint)
+            }
             return
         }
         if (shaders.size != tileCount) {
@@ -74,10 +106,16 @@ internal class ClampedTileDrawer {
             bound[index] = bitmap
             genIds[index] = curGen
         }
-        matrix.setTranslate(left, top)
+        if (sameSize) {
+            matrix.setTranslate(left, top)
+        } else {
+            // 着色器坐标是位图像素: 先按目标矩形缩放, 再平移到落点
+            matrix.setScale(dstW / bitmap.width.toFloat(), dstH / bitmap.height.toFloat())
+            matrix.postTranslate(left, top)
+        }
         shader.setLocalMatrix(matrix)
         shaderPaint.shader = shader
-        canvas.drawRect(left, top, left + bitmap.width, top + bitmap.height, shaderPaint)
+        canvas.drawRect(left, top, left + dstW, top + dstH, shaderPaint)
     }
 
     fun clear() {
