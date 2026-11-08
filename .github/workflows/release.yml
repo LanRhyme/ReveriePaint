@@ -121,7 +121,18 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           ANDROID_KEY_ALIAS: ${{ secrets.ANDROID_KEY_ALIAS }}
           ANDROID_KEY_PASSWORD: ${{ secrets.ANDROID_KEY_PASSWORD }}
-        run: ./gradlew assembleRelease -PenableAbiSplits=true
+        # 依赖下载偶发 5xx (实测: Maven Central 重定向到 github.com 后返回 504 Gateway Time-out,
+        # 直接让整个 Release 构建失败)。失败就整体重试, 已下载的依赖命中缓存不会重复拉。
+        run: |
+          for attempt in 1 2 3; do
+            if ./gradlew assembleRelease -PenableAbiSplits=true; then
+              exit 0
+            fi
+            echo "build attempt ${attempt} failed, retrying in 30s..."
+            sleep 30
+          done
+          echo "build failed after 3 attempts" >&2
+          exit 1
 
       - name: Prepare Artifact
         run: |
