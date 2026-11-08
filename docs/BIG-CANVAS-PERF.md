@@ -69,26 +69,70 @@ adb shell setprop debug.reverie.perf 1               # 打开 PerfTrace / TilePe
 adb logcat -s RP-PERF
 ```
 
-## 4. 改后
+## 4. 真机实测（OPD2413 / Android 16 / 16GB）
 
-| 项 | 改前 | 改后 |
+同一份工程（`big6400x10240`，6400x10240 = 65.5 MP，250 MB，PSD 导入保留原始尺寸 —— 应用内
+新建会被 8192 长边上限截到 6400x8192，PSD 导入不会），同一组 6 次滑动，只切换
+`debug.reverie.display_tiles`：
+
+| 指标 | 整图路径（`display_tiles=0`，改前行为） | 512 瓦片（默认，改后） |
 |---|---|---|
-| 显示显存（65.5 MP） | ~813 MB（2 x 250 + 313） | ~250 MB（只此一份，且随脏区逐块分配） |
-| 单次落笔的拷贝量 | 16 MB（整块 2048²）+ 16 MB 纹理上传 | 1 MB（512² 瓦片）+ 1 MB 上传 |
-| 每帧 UI 线程工作 | 从全幅位图 memcpy 进分块 | 无（瓦片由渲染线程直接写） |
+| 描笔时渲染帧率 | **13~14 fps** | **94~114 fps** |
+| 每帧纹理重传 | **250 MB/帧**（3200 MB/s 的分配+拷贝洪水） | **0.7~1.0 MB/帧** |
+| 帧时间 p50 | 150 ms | **17 ms** |
+| 帧时间 p90 | 250 ms | **27 ms** |
+| 帧时间 p99 | 300 ms | 38 ms |
+| Native Heap | 1.66 GB | **1.37 GB** |
 
-首次进入（或换文档后第一帧）仍要写满整网格：65.5 MP = 260 张瓦片 ≈ 250 MB
-`readBytes` + alpha 转换，真机上是一帧内的 0.3~1 s 一次性开销，之后每帧只碰命中瓦片。
+（另一份 6400x8192 = 52 MP 工程上量过总 PSS：2.12 GB → 1.60 GB，同量级的降幅。）
+
+瓦片路径的分段耗时（`TilePerf` 日志，每 60 帧一条）：composite 2.0~2.9 ms +
+tiles 0.5~0.9 ms + present 0.4~1.6 ms，即**每帧 3~4 ms**，命中 1~4 张瓦片。
+
+首帧（新建/打开，260 张瓦片一次性写满 65 MP）：
+
+```
+D ReveriePerf: displayTiles grid=6400x10240 tiles=260 bytes=250MB budget=320MB
+I RP-PERF   : op=tileFrame ms=153 prepMs=0 tilesMs=153 hits=260 mp=65
+```
+
+即 **153 ms** 一次性开销（250 MB `readBytes` + alpha 转换），之后每帧只碰命中瓦片。
+（更早一版估计 0.3~1 s，实测偏乐观了 2~6 倍。）
+
+## 4.1 顺带量到的第二个瓶颈：延时摄影抓帧
+
+描一笔之后画布会冻结 ~90 ms，与画布大小**无关**：
+
+```
+I RP-PERF   : op=renderDocumentThumb total=95ms
+W RP_Timelapse: ReverieCoreBridge.renderDocumentThumb took 92ms
+```
+
+| 文档 | 抓帧尺寸 | 输出像素 | 实测 |
+|---|---|---|---|
+| 6400x10240 (65MP) | 675x1080 | 0.73 MP | 90~95 ms |
+| 6400x8192 (52MP) | 675x1080 | 0.73 MP | 109 ms |
+| 2048x2048 | 1080x1080 | 1.17 MP | 110~117 ms |
+
+成本 ∝ **输出像素**（约 95~120 ns/px，即每输出一个像素一次随机 tile 访问），跑在渲染线程上，
+默认策略是"每笔抬笔抓一帧 + 200 ms 节流" ⇒ 一边画一边抓时引擎有一半时间在做缩略图。
+关掉延时摄影后这些 90~110 ms 停滞完全消失（已实测对照）。
+
+引擎侧能重建的情况下，正确解法是让缩略图走常驻低分辨率投影（LoD 平面）或按行连续读 tile，
+把 120 ns/px 压到 10 ns/px 量级。当前只能在 Kotlin 侧收紧：
+`model/TimelapseCapturePolicy` 把单帧输出压到 1 MP 以内、并让最小抓帧间隔至少是成本估算的
+8 倍（6400x10240 默认设置：200 ms → ~700 ms，实测抓帧频率从 ~5 次/秒降到 ~0.8 次/秒）。
 
 ## 5. 未做（下一步收益排序）
 
 | 优先级 | 项 | 说明 |
 |---|---|---|
-| 1 | **视口内按需分配瓦片（懒瓦片）** | 现在 `ensureDisplayTileGrid` 一次性把整份文档的瓦片全部分配 + 全量写入（250 MB / 首帧 0.3~1 s）。把"当前视口"（`CanvasTouchView.visibleBitmapBounds()`，已有）投给渲染线程后，只分配/只写视口内的瓦片（100% 缩放下 ≈20 张 = 20 MB），视口外的瓦片标脏留待滚动进来再写。需要小心 COW 状态机与 `publishStaging` 的"整网格写完才发布"闸门 |
+| 1 | **视口内按需分配瓦片（懒瓦片）** | 现在 `ensureDisplayTileGrid` 一次性把整份文档的瓦片全部分配 + 全量写入（250 MB / 首帧 153 ms，实测）。把"当前视口"（`CanvasTouchView.visibleBitmapBounds()`，已有）投给渲染线程后，只分配/只写视口内的瓦片（100% 缩放下 ≈20 张 = 20 MB），视口外的瓦片标脏留待滚动进来再写。需要小心 COW 状态机与 `publishStaging` 的"整网格写完才发布"闸门 |
 | 2 | **视口 LoD 合成（缩放到 1/4~1/16）** | 适配"整幅 65 MP 缩到屏幕"这个最常见场景：此时视口覆盖整份文档，懒瓦片也帮不上。桌面 Krita 的"打开大图感觉即时"靠的就是 LoD 平面。引擎侧可以用 Krita 的 `createThumbnailDeviceOversampled` 思路（开销按**输出**像素算，不按源像素）做 1/2^k 采样，但仍需按缩放级别切网格，且要处理笔画在 LoD 层上的增量 |
 | 3 | 选区浮层按文档尺寸分配 | `buildSelectionOverlayLocked()` 用 `renderW/renderH`（= 文档尺寸）向 JNI 要叠加像素：65 MP 画布上是一次 250 MB `IntArray` + 250 MB 位图（`selectionOverlayScaled`）。套索/魔棒/羽化在超大画布上就是这个量级，应改成按屏幕分辨率采样 |
+| 5 | **延时摄影缩略图（引擎侧）** | `renderDocumentThumb` 约 120 ns/输出像素，每笔抬笔抓一帧、跑在渲染线程上；Kotlin 侧只能靠降分辨率 + 拉长间隔缓解（见 §4.1），真正解法是引擎侧用常驻 LoD 平面生成 |
 | 4 | 自动保存 / 变换预览的全幅位图 | `startTransformPreview()` 仍 `createBitmap(docWidth, docHeight)`（250 MB）；`autoSaveProject()` 走引擎线程整份编码。两者都是"一次性长任务"，应改成可见区域/分块，或至少在超大画布上延后 + 提示 |
-| 5 | 参考窗口整图快照 | `composeTileSnapshot()` 在参考窗口/液化需要整图时拼一份全幅位图（三缓冲，超大画布 = 3 x 250 MB）。仅在那些功能打开时才发生 |
+| 6 | 参考窗口整图快照 | `composeTileSnapshot()` 在参考窗口/液化需要整图时拼一份全幅位图（三缓冲，超大画布 = 3 x 250 MB）。仅在那些功能打开时才发生 |
 
 ## 6. 验证
 
