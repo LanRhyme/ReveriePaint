@@ -273,6 +273,7 @@ class PaintViewModel : ViewModel() {
     var autoSaveIntervalMinutes by mutableIntStateOf(5)
     var autoSaveMaxSnapshots by mutableIntStateOf(com.reverie.paint.model.AutoSaveSnapshotPolicy.DEFAULT_MAX_SNAPSHOTS)
     var autoSaveToastEnabled by mutableStateOf(true)
+    var layerFlashEnabled by mutableStateOf(false)
     var strokesSinceLastAutoSave by mutableIntStateOf(0)
     var hasPendingMajorOp by mutableStateOf(false)
 
@@ -3330,6 +3331,16 @@ class PaintViewModel : ViewModel() {
         showActionToast(msg, iconRes)
     }
 
+    // 切层内容闪现 (见 PaintViewModelLayerFlash.kt): layerFlashBitmap 为当前
+    // 闪现内容 (null=不显示), layerFlashTick 驱动 CanvasOverlay 动画重启,
+    // layerFlashRequestId 让过期渲染作废, 双缓冲位图池与索引供引擎线程写入。
+    // 顶层扩展函数无法访问 private 成员, 故与 renderHandler 等跨文件字段一致用 internal
+    internal var layerFlashBitmap by mutableStateOf<Bitmap?>(null)
+    internal var layerFlashTick by mutableIntStateOf(0)
+    internal var layerFlashRequestId = 0
+    internal var layerFlashBuffers: Array<Bitmap>? = null
+    internal var layerFlashFrontIdx = 0
+
     fun getString(@StringRes resId: Int, vararg formatArgs: Any): String {
         return if (::appContext.isInitialized) {
             if (formatArgs.isEmpty()) appContext.getString(resId)
@@ -4637,6 +4648,18 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun updateLayerFlashEnabled(enabled: Boolean) {
+        layerFlashEnabled = enabled
+        if (!enabled) cancelLayerContentFlash()
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("layerFlashEnabled", enabled)
+                .apply()
+        }
+    }
+
     fun updateMaxUndoSteps(steps: Int) {
         maxUndoSteps = steps.coerceIn(10, 200)
         if (::appContext.isInitialized) {
@@ -4938,6 +4961,7 @@ class PaintViewModel : ViewModel() {
                 com.reverie.paint.model.AutoSaveSnapshotPolicy.MAX_MAX_SNAPSHOTS,
             )
             autoSaveToastEnabled = prefs.getBoolean("autoSaveToastEnabled", true)
+            layerFlashEnabled = prefs.getBoolean("layerFlashEnabled", false)
             maxUndoSteps = prefs.getInt("maxUndoSteps", 50).coerceIn(10, 200)
             promptSaveOnExit = prefs.getBoolean("promptSaveOnExit", true)
             renderScheduleMode = com.reverie.paint.model.RenderScheduleMode.fromId(

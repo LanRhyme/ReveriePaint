@@ -479,6 +479,34 @@ internal fun SettingsTabPage(
 
                         SettingsInnerDivider()
 
+                        // 图层切换内容闪现
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 12.dp)) {
+                                Text(
+                                    text = stringResource(R.string.settings_layer_flash),
+                                    color = Morandi.text,
+                                    fontSize = 13.sp,
+                                )
+                                Text(
+                                    text = stringResource(R.string.settings_layer_flash_sub),
+                                    color = Morandi.subText,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                            ReSwitch(
+                                checked = vm.layerFlashEnabled,
+                                onChecked = { vm.updateLayerFlashEnabled(it) },
+                            )
+                        }
+
+                        SettingsInnerDivider()
+
                         // 笔刷上限跟随画布
                         Row(
                             modifier = Modifier

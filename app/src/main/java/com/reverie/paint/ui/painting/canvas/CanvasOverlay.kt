@@ -17,6 +17,7 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
+import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.LinearEasing
 import androidx.compose.animation.core.RepeatMode
 import androidx.compose.animation.core.infiniteRepeatable
@@ -29,6 +30,7 @@ import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.nativeCanvas
@@ -37,6 +39,8 @@ import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.unit.IntOffset
+import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
@@ -54,6 +58,7 @@ import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.min
 import kotlin.math.sin
+import kotlinx.coroutines.delay
 
 
 /**
@@ -174,6 +179,24 @@ internal fun CanvasOverlay(
     val inProgressClosedPath = androidx.compose.runtime.remember { androidx.compose.ui.graphics.Path() }
     val inProgressRectF = androidx.compose.runtime.remember { android.graphics.RectF() }
 
+    // 切层闪现: 合成画面之上叠加"本层内容的纯色形状" (tint+SrcIn, 与图层选中态
+    // 同一语义色) 脉冲, 只有本层内容在闪 (线条闪 accent 色再恢复), 其他层像素
+    // 不动。滤镜 remember 缓存, 不逐帧分配。
+    val layerFlashAnim = remember { Animatable(0f) }
+    // 强调色在组合期读取并作 remember key: 换强调色 → Theme.current 变化触发重组 →
+    // 滤镜重建, 闪现色始终跟随设置里的强调色; 未变化时不产生任何分配
+    val layerFlashAccent = Morandi.accent
+    val layerFlashTint = remember(layerFlashAccent) {
+        androidx.compose.ui.graphics.ColorFilter.tint(layerFlashAccent, BlendMode.SrcIn)
+    }
+    LaunchedEffect(vm.layerFlashTick) {
+        if (vm.layerFlashTick == 0 || vm.layerFlashBitmap == null) return@LaunchedEffect
+        layerFlashAnim.snapTo(0.9f)
+        delay(80)
+        layerFlashAnim.animateTo(0f, tween(durationMillis = 120))
+        vm.clearLayerFlash()
+    }
+
     Canvas(Modifier.fillMaxSize()) {
         val isSelectionTool = tool.group == ToolGroup.SELECTION
         val isSelecting = liveSelectionPath.value != null ||
@@ -215,6 +238,19 @@ internal fun CanvasOverlay(
                     )
                 }
             }) {
+                val flashBmp = vm.layerFlashBitmap?.takeIf { !it.isRecycled }
+                if (flashBmp != null && layerFlashAnim.value > 0f) {
+                    // 本层内容 accent 色形状脉冲叠加, 其他层像素不动
+                    drawImage(
+                        image = flashBmp.asImageBitmap(),
+                        dstOffset = IntOffset(-bmp.width / 2, -bmp.height / 2),
+                        dstSize = IntSize(bmp.width, bmp.height),
+                        alpha = layerFlashAnim.value,
+                        colorFilter = layerFlashTint,
+                        filterQuality = FilterQuality.High,
+                    )
+                }
+
                 drawTransformPreview(
                     vm = vm,
                     tool = tool,

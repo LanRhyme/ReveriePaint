@@ -1048,6 +1048,8 @@
     <string name="settings_quick_slider_height_standard">标准</string>
     <string name="settings_quick_slider_height_long">加长</string>
     <string name="settings_layer_row_height">图层项高度</string>
+    <string name="settings_layer_flash">图层切换内容闪现</string>
+    <string name="settings_layer_flash_sub">切换图层时短暂闪现新层内容，方便确认所在图层</string>
     <string name="settings_layer_height_compact">紧凑</string>
     <string name="settings_layer_height_standard">标准</string>
     <string name="settings_layer_height_spacious">宽松</string>
