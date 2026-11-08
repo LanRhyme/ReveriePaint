@@ -1244,10 +1244,12 @@ fun ReSlider(
         Canvas(Modifier.fillMaxSize()) {
             val w = size.width
             val h = size.height
+            if (w <= 0f || h <= 0f) return@Canvas
             val cy = h / 2f
             val currentFraction = (dragFraction ?: normalizedVal).coerceIn(0f, 1f)
 
-            val trackH = (height * 0.65f).dp.toPx().coerceIn(6.dp.toPx(), h)
+            val minTrackH = minOf(6.dp.toPx(), h)
+            val trackH = (height * 0.65f).dp.toPx().coerceIn(minTrackH, maxOf(minTrackH, h))
             val trackCorner = androidx.compose.ui.geometry.CornerRadius(trackH / 2f, trackH / 2f)
 
             val thumbH = (trackH + 4.dp.toPx()).coerceAtMost(h)

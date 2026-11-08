@@ -21,7 +21,9 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
+import androidx.compose.foundation.lazy.grid.itemsIndexed
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.CircularProgressIndicator
@@ -86,7 +88,7 @@ fun ReferenceAlbumPickerSheet(
     // Includes document-owned references, even when their original gallery files no longer exist.
     val selectedUris = remember {
         mutableStateListOf<Uri>().apply {
-            addAll(vm.referenceAlbumSelectedUris)
+            addAll(vm.referenceAlbumSelectedUris.distinct())
         }
     }
 
@@ -94,12 +96,13 @@ fun ReferenceAlbumPickerSheet(
     var isLoadingPhotos by remember { mutableStateOf(false) }
 
     val displayedAlbumPhotos = remember(albumPhotos, selectedUris.toList()) {
-        if (selectedUris.isEmpty() || albumPhotos.isEmpty()) {
-            albumPhotos
+        val uniquePhotos = albumPhotos.distinctBy { it.id }
+        if (selectedUris.isEmpty() || uniquePhotos.isEmpty()) {
+            uniquePhotos
         } else {
             val selectedSet = selectedUris.toSet()
-            val (selected, unselected) = albumPhotos.partition { it.uri in selectedSet }
-            val sortedSelected = selectedUris.mapNotNull { u -> selected.find { it.uri == u } }
+            val (selected, unselected) = uniquePhotos.partition { it.uri in selectedSet }
+            val sortedSelected = selectedUris.mapNotNull { u -> selected.find { it.uri == u } }.distinctBy { it.id }
             sortedSelected + unselected
         }
     }
@@ -248,7 +251,7 @@ fun ReferenceAlbumPickerSheet(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                             modifier = Modifier.fillMaxWidth()
                         ) {
-                            items(selectedUris.toList(), key = { it.toString() }) { uri ->
+                            itemsIndexed(selectedUris.toList(), key = { index, uri -> "$index:$uri" }) { _, uri ->
                                 Box(
                                     modifier = Modifier
                                         .size(56.dp)
@@ -376,7 +379,7 @@ fun ReferenceAlbumPickerSheet(
                         }
 
                         // Album Media Items (已选照片置顶排序)
-                        items(displayedAlbumPhotos, key = { it.id }) { photo ->
+                        itemsIndexed(displayedAlbumPhotos, key = { index, photo -> "${photo.id}:$index" }) { _, photo ->
                             val isSelected = selectedUris.contains(photo.uri)
                             val selectionIndex = if (isSelected) selectedUris.indexOf(photo.uri) + 1 else 0
 
