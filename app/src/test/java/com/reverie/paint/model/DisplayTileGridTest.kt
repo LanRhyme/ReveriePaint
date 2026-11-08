@@ -170,8 +170,29 @@ class DisplayTileGridTest {
         // 动画播放 / 回放页
         assertFalse(DisplayTileGrid.shouldUse(3840, 2160, 3840, 2160, true, false))
         assertFalse(DisplayTileGrid.shouldUse(3840, 2160, 3840, 2160, false, true))
-        // 超过 100MB 的整图仍走 2048 分块路径
-        assertFalse(DisplayTileGrid.shouldUse(6000, 6000, 6000, 6000, false, false))
         assertFalse(DisplayTileGrid.shouldUse(0, 0, 0, 0, false, false))
+    }
+
+    @Test
+    fun `big canvases also take the tile path while they fit the budget`() {
+        // 用户实测无法操作的那份文档: 6400x10240 = 65.5MP = 250MB, 单张瓦片仍只有 1MB。
+        // 旧规则 (>100MB 整图阈值) 会把它推给"全幅位图 + 2048 分块副本"的整图路径。
+        assertTrue(DisplayTileGrid.shouldUse(6400, 10240, 6400, 10240, false, false))
+        assertEquals(6400L * 10240L * 4L, DisplayTileGrid.displayBytes(6400, 10240))
+        // 6000x6000 = 137MB 也在预算内
+        assertTrue(DisplayTileGrid.shouldUse(6000, 6000, 6000, 6000, false, false))
+    }
+
+    @Test
+    fun `canvas beyond the tile budget falls back to the full image path`() {
+        // 10000x20000 = 764MB: 瓦片网格也要 764MB, 不能赌一把分配。
+        assertEquals(10000L * 20000L * 4L, DisplayTileGrid.displayBytes(10000, 20000))
+        assertFalse(DisplayTileGrid.shouldUse(10000, 20000, 10000, 20000, false, false))
+        // 预算可以按进程参数收紧 (A/B 与低内存设备)
+        assertFalse(DisplayTileGrid.shouldUse(6400, 10240, 6400, 10240, false, false, budgetBytes = 64L shl 20))
+        assertTrue(DisplayTileGrid.shouldUse(6400, 10240, 6400, 10240, false, false, budgetBytes = 1L shl 30))
+        // 预算 0 / 负数 = 关闭
+        assertFalse(DisplayTileGrid.shouldUse(3840, 2160, 3840, 2160, false, false, budgetBytes = 0L))
+        assertEquals(0L, DisplayTileGrid.displayBytes(0, 2160))
     }
 }

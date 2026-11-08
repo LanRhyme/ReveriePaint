@@ -115,9 +115,31 @@ class DisplayTileGrid(
         const val TILE = 512
 
         /**
+         * 瓦片网格默认显存预算 (字节)。超预算的画布回退整图双缓冲路径。
+         *
+         * 320MB ≈ 80MP 文档 (6400x10240 = 65.5MP / 250MB 仍在预算内)。这个数字不是"性能最优",
+         * 而是"比整图路径更省的上限": 同样一份 6400x10240 文档, 整图双缓冲要 front + back 各
+         * 250MB, 再加上 2048 分块的 20 张副本 ~313MB (实测真机直接进 swap); 瓦片网格只有一份
+         * 250MB, 而且每帧只重写脏区命中的那 1MB 瓦片。
+         */
+        const val DEFAULT_TILE_BUDGET_BYTES = 320L * 1024L * 1024L
+
+        /** 整张显示瓦片的字节数 (ARGB_8888)。瓦片严格铺满文档, 故等于 `w * h * 4`。 */
+        fun displayBytes(width: Int, height: Int): Long {
+            if (width <= 0 || height <= 0) return 0L
+            return width.toLong() * height.toLong() * 4L
+        }
+
+        /**
          * 这一帧是否走瓦片路径。只有文档与显示缓冲 1:1 时才走: 缩放回退路径的映射与网格
-         * 不同源; 动画播放按帧缓存整图; 回放页直接画整图; 超过 HWUI 单图阈值的超大画布
-         * 保留现有的 2048 分块整图路径 ([LargeBitmapTilingPolicy])。
+         * 不同源; 动画播放按帧缓存整图; 回放页直接画整图。
+         *
+         * **大画布 (超过 HWUI 100MB 单图阈值) 同样走瓦片路径**: 单张瓦片固定 512x512 = 1MB,
+         * 与 HWUI 的单图上限无关; 而整图路径在超大画布上要为 front/back 各留一份全幅位图,
+         * 再叠一份 2048 分块的「整图副本」(见 `LargeBitmapTilingPolicy`), 且每帧要把脏区
+         * 从全幅位图 memcpy 进 16MB 的分块 —— 用户实测 6400x10240 (256MB) 文档在整图路径下
+         * 基本无法操作。这里改为只按**总显存预算**判定 ([DisplayTileGrid.displayBytes] <=
+         * [budgetBytes]), 超过预算 (例如 10000x20000) 才退回整图路径。
          */
         fun shouldUse(
             renderW: Int,
@@ -126,11 +148,13 @@ class DisplayTileGrid(
             coreH: Int,
             animationPlaying: Boolean,
             replayPage: Boolean,
+            budgetBytes: Long = DEFAULT_TILE_BUDGET_BYTES,
         ): Boolean {
             if (renderW <= 0 || renderH <= 0) return false
             if (renderW != coreW || renderH != coreH) return false
             if (animationPlaying || replayPage) return false
-            return !LargeBitmapTilingPolicy.isLargeBitmap(renderW.toLong() * renderH.toLong() * 4L)
+            if (budgetBytes <= 0L) return false
+            return displayBytes(renderW, renderH) <= budgetBytes
         }
     }
 }
