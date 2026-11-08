@@ -2049,7 +2049,15 @@ internal fun PaintViewModel.startTransformPreview() {
     if (targets.isEmpty()) return
     val copyOnly = transformCopyOnly
     runCore(render = true) {
-        val b = android.graphics.Bitmap.createBitmap(docWidth, docHeight, android.graphics.Bitmap.Config.ARGB_8888)
+        // 预览位图按 TransformPreviewPolicy 封顶 (长边 4096): 按文档尺寸来在 6400x10240 上是
+        // 250 MB, 而 CanvasTransformOverlay 会直接 drawBitmap 它 —— 超过 HWUI 单次绘制上限即
+        // 抛 "Canvas: trying to draw too large"。绘制侧按 preview/doc 比例拉伸即可。
+        val (previewW, previewH) = com.reverie.paint.model.TransformPreviewPolicy.previewSize(docWidth, docHeight)
+        val b = android.graphics.Bitmap.createBitmap(
+            previewW.coerceAtLeast(1),
+            previewH.coerceAtLeast(1),
+            android.graphics.Bitmap.Config.ARGB_8888,
+        )
         b.setPremultiplied(true)
         val success = ReverieCoreBridge.startTransformPreviewLayersEx(targets, b, copyOnly)
         if (!success) {

@@ -60,6 +60,11 @@ internal fun DrawScope.drawTransformPreview(
                 if (tool == Tool.TRANSFORM && tfState.active && previewBmp != null) {
                     val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
                     val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
+                    // 预览位图的分辨率预算 (见 TransformPreviewPolicy): 大画布上它是缩小过的,
+                    // 所以"位图空间"与"画布空间"之间差一个比例。文档/场景坐标一律用 scX/scY,
+                    // 只有索要位图内区域 (createBitmap / srcRect) 时才乘 kx/ky。
+                    val kx = if (bmp.width > 0) previewBmp.width.toFloat() / bmp.width else 1f
+                    val ky = if (bmp.height > 0) previewBmp.height.toFloat() / bmp.height else 1f
                     if (tool == Tool.TRANSFORM && tfState.mode == TransformMode.DISTORT) {
                         // Moving Least Squares (MLS) 2D Rigid Warp continuous GPU mesh
                         val nativeCanvas = drawContext.canvas.nativeCanvas
@@ -69,12 +74,13 @@ internal fun DrawScope.drawTransformPreview(
 
                         if (b.width > 0f && b.height > 0f && aBmp.width > 0 && aBmp.height > 0) {
                             if (cachedDistortSrcBmp !== aBmp || cachedDistortBounds != b || cachedDistortCropBmp == null || cachedDistortCropBmp?.isRecycled == true) {
-                                val cropLeft = b.left.toInt().coerceIn(0, (aBmp.width - 1).coerceAtLeast(0))
-                                val cropTop = b.top.toInt().coerceIn(0, (aBmp.height - 1).coerceAtLeast(0))
+                                // 裁剪框在文档空间, 位图是缩小过的 ⇒ 索引要乘 kx/ky
+                                val cropLeft = (b.left * kx).toInt().coerceIn(0, (aBmp.width - 1).coerceAtLeast(0))
+                                val cropTop = (b.top * ky).toInt().coerceIn(0, (aBmp.height - 1).coerceAtLeast(0))
                                 val maxW = aBmp.width - cropLeft
                                 val maxH = aBmp.height - cropTop
-                                val cropW = kotlin.math.round(b.width).toInt().coerceIn(1, maxW)
-                                val cropH = kotlin.math.round(b.height).toInt().coerceIn(1, maxH)
+                                val cropW = kotlin.math.round(b.width * kx).toInt().coerceIn(1, maxW)
+                                val cropH = kotlin.math.round(b.height * ky).toInt().coerceIn(1, maxH)
                                 cachedDistortCropBmp = android.graphics.Bitmap.createBitmap(aBmp, cropLeft, cropTop, cropW, cropH)
                                 cachedDistortSrcBmp = aBmp
                                 cachedDistortBounds = b
@@ -147,11 +153,13 @@ internal fun DrawScope.drawTransformPreview(
                             nativeCanvas.concat(m)
                             val p = previewBitmapPaint
                             val srcRect = previewSrcRect
+                            // srcRect 是"从位图里取哪块" ⇒ 位图空间 (乘 kx/ky);
+                            // 下面的 dstRect / 四边形顶点都是画布空间, 不乘。
                             srcRect.set(
-                                b.left.toInt().coerceIn(0, aBmp.width),
-                                b.top.toInt().coerceIn(0, aBmp.height),
-                                b.right.toInt().coerceIn(0, aBmp.width),
-                                b.bottom.toInt().coerceIn(0, aBmp.height)
+                                (b.left * kx).toInt().coerceIn(0, aBmp.width),
+                                (b.top * ky).toInt().coerceIn(0, aBmp.height),
+                                (b.right * kx).toInt().coerceIn(0, aBmp.width),
+                                (b.bottom * ky).toInt().coerceIn(0, aBmp.height)
                             )
                             val dstRect = previewDstRectF
                             dstRect.set(
@@ -185,9 +193,10 @@ internal fun DrawScope.drawTransformPreview(
                                 previewBmp.height.coerceAtLeast(1),
                             )
                             val dstOffset = androidx.compose.ui.unit.IntOffset(0, 0)
+                            // 预览位图可能小于画布 (TransformPreviewPolicy) ⇒ 目标尺寸按**画布空间**
                             val dstSize = androidx.compose.ui.unit.IntSize(
-                                (previewBmp.width * scX).toInt().coerceAtLeast(1),
-                                (previewBmp.height * scY).toInt().coerceAtLeast(1),
+                                (bmp.width * scX).toInt().coerceAtLeast(1),
+                                (bmp.height * scY).toInt().coerceAtLeast(1),
                             )
                             drawImage(
                                 image = previewBmp,
