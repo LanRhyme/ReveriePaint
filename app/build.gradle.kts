@@ -277,7 +277,7 @@ dependencies {
     implementation("androidx.core:core-ktx:1.17.0")
     implementation("androidx.lifecycle:lifecycle-runtime-compose:2.9.4")
     implementation("androidx.lifecycle:lifecycle-viewmodel-compose:2.9.4")
-    implementation("dev.chrisbanes.haze:haze:1.5.3")
+    implementation("dev.chrisbanes.haze:haze:1.7.2")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     // 超低延迟前缓冲渲染组件 (API 29+, 用于笔尖前沿单缓冲直出)
     // 1.1.0-beta01 (2026-10-07) 修掉了 1.0.4 会空指针崩溃的拆解竞态:
