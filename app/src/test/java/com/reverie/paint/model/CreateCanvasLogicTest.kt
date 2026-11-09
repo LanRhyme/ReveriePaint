@@ -120,5 +120,26 @@ class CreateCanvasLogicTest {
         val (portW, portH) = computePreviewTarget(availW, availH, 1080, 1920)
         assertEquals(59.62f, portW, 0.1f)
         assertEquals(106f, portH, 0.01f)
+
+        // 8x8 Minimal Pixel Art Canvas
+        val (tinyW, tinyH) = computePreviewTarget(availW, availH, 8, 8)
+        assertEquals(106f, tinyW, 0.01f)
+        assertEquals(106f, tinyH, 0.01f)
+    }
+
+    @Test
+    fun `minimum canvas size 8px is correctly bounded and labeled`() {
+        assertEquals(8, com.reverie.paint.ui.create.MIN_CANVAS_SIZE)
+        assertEquals(8192, com.reverie.paint.ui.create.MAX_CANVAS_SIZE)
+        assertEquals("1:1 正方形", getAspectRatioLabel(8, 8))
+        assertEquals("2:1", getAspectRatioLabel(16, 8))
+        assertEquals("1:2", getAspectRatioLabel(8, 16))
+
+        // Clamping logic
+        assertEquals(8, 0.coerceIn(com.reverie.paint.ui.create.MIN_CANVAS_SIZE, com.reverie.paint.ui.create.MAX_CANVAS_SIZE))
+        assertEquals(8, 5.coerceIn(com.reverie.paint.ui.create.MIN_CANVAS_SIZE, com.reverie.paint.ui.create.MAX_CANVAS_SIZE))
+        assertEquals(8, 8.coerceIn(com.reverie.paint.ui.create.MIN_CANVAS_SIZE, com.reverie.paint.ui.create.MAX_CANVAS_SIZE))
+        assertEquals(8192, 10000.coerceIn(com.reverie.paint.ui.create.MIN_CANVAS_SIZE, com.reverie.paint.ui.create.MAX_CANVAS_SIZE))
     }
 }
+

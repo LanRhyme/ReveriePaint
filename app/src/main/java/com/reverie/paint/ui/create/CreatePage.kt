@@ -112,22 +112,22 @@ fun CreatePage(vm: PaintViewModel) {
     // 动画画布: 勾选后新建的文档自带时间轴 (后端走 startPainting(animation = true))
     var animationCanvas by remember { mutableStateOf(false) }
 
-    val ppiVal = customPpi.toIntOrNull()?.coerceIn(72, 1200) ?: 300
+    val ppiVal = customPpi.toIntOrNull()?.coerceIn(MIN_CANVAS_DPI, MAX_CANVAS_DPI) ?: 300
 
     val widthVal = remember(customW, selectedUnit, ppiVal) {
         if (selectedUnit == CanvasUnit.PX) {
-            customW.toIntOrNull()?.coerceIn(64, 8192) ?: deviceW
+            customW.toIntOrNull()?.coerceIn(MIN_CANVAS_SIZE, MAX_CANVAS_SIZE) ?: deviceW
         } else {
             val num = customW.toDoubleOrNull() ?: 0.0
-            unitToPx(num, selectedUnit, ppiVal).coerceIn(64, 8192)
+            unitToPx(num, selectedUnit, ppiVal).coerceIn(MIN_CANVAS_SIZE, MAX_CANVAS_SIZE)
         }
     }
     val heightVal = remember(customH, selectedUnit, ppiVal) {
         if (selectedUnit == CanvasUnit.PX) {
-            customH.toIntOrNull()?.coerceIn(64, 8192) ?: deviceH
+            customH.toIntOrNull()?.coerceIn(MIN_CANVAS_SIZE, MAX_CANVAS_SIZE) ?: deviceH
         } else {
             val num = customH.toDoubleOrNull() ?: 0.0
-            unitToPx(num, selectedUnit, ppiVal).coerceIn(64, 8192)
+            unitToPx(num, selectedUnit, ppiVal).coerceIn(MIN_CANVAS_SIZE, MAX_CANVAS_SIZE)
         }
     }
 
@@ -304,8 +304,8 @@ fun CreatePage(vm: PaintViewModel) {
     }
 
     val executeStartPainting = {
-        val finalW = widthVal.coerceIn(64, 8192)
-        val finalH = heightVal.coerceIn(64, 8192)
+        val finalW = widthVal.coerceIn(MIN_CANVAS_SIZE, MAX_CANVAS_SIZE)
+        val finalH = heightVal.coerceIn(MIN_CANVAS_SIZE, MAX_CANVAS_SIZE)
         vm.startPainting(
             w = finalW,
             h = finalH,

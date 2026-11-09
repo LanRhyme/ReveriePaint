@@ -15,6 +15,11 @@ import kotlin.math.*
 import org.json.JSONArray
 import org.json.JSONObject
 
+const val MIN_CANVAS_SIZE = 8
+const val MAX_CANVAS_SIZE = 8192
+const val MIN_CANVAS_DPI = 72
+const val MAX_CANVAS_DPI = 1200
+
 enum class CanvasUnit(val symbol: String, val labelRes: Int) {
     PX("PX", R.string.create_unit_px),
     MM("mm", R.string.create_unit_mm),
@@ -23,7 +28,7 @@ enum class CanvasUnit(val symbol: String, val labelRes: Int) {
 }
 
 fun pxToUnit(px: Double, unit: CanvasUnit, dpi: Int): Double {
-    val safeDpi = dpi.coerceIn(72, 1200)
+    val safeDpi = dpi.coerceIn(MIN_CANVAS_DPI, MAX_CANVAS_DPI)
     return when (unit) {
         CanvasUnit.PX -> px
         CanvasUnit.INCH -> px / safeDpi
@@ -33,7 +38,7 @@ fun pxToUnit(px: Double, unit: CanvasUnit, dpi: Int): Double {
 }
 
 fun unitToPx(value: Double, unit: CanvasUnit, dpi: Int): Int {
-    val safeDpi = dpi.coerceIn(72, 1200)
+    val safeDpi = dpi.coerceIn(MIN_CANVAS_DPI, MAX_CANVAS_DPI)
     val px = when (unit) {
         CanvasUnit.PX -> value
         CanvasUnit.INCH -> value * safeDpi
@@ -76,8 +81,8 @@ data class CanvasPresetItem(
  * Uses aggressive memory allocation budget (up to 65% availMem or 30% totalMem) and Krita's sparse tile weighting.
  */
 fun calculateRealMaxLayers(context: Context, width: Int, height: Int): Int {
-    val w = max(64, width)
-    val h = max(64, height)
+    val w = max(MIN_CANVAS_SIZE, width)
+    val h = max(MIN_CANVAS_SIZE, height)
     // 4 bytes per RGBA pixel + 10% tile/mipmap overhead in Krita
     val bytesPerLayer = (w.toLong() * h.toLong() * 4L * 1.10).toLong().coerceAtLeast(1024L)
 
