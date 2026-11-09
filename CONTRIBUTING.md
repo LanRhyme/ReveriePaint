@@ -25,7 +25,7 @@ Kotlin/Compose UI (UI 呈现与交互状态)
 | 语言 | Kotlin 2.4 + C++17 (NDK 25.2.9519653) |
 | 构建系统 | Gradle 9.5 + AGP 9.x |
 | 工具链 | JDK 17, compileSdk 36, targetSdk 33, minSdk 23 |
-| 目标架构 | 仅针对 64 位 ARM (`arm64-v8a`) 进行深度性能调优 |
+| 目标架构 | arm64-v8a (默认主架构深度调优) + armeabi-v7a (Release 独立分包) |
 | 开源许可 | GPL-3.0 (C++ 文件包含 SPDX 头声明) |
 
 ---
@@ -58,8 +58,9 @@ app/src/main/cpp/            # C++ 原生引擎层
 ├── reverie_jni_*.cpp        #   按功能域拆分的 JNI 实现
 └── CMakeLists.txt           #   CMake 构建配置与 Krita/Qt/KF6 依赖链接
 
-third_party/android-native-libs/   # 预编译动态库闭包 (arm64-v8a, 已 strip)
-scripts/                           # 构建与动态库同步辅助脚本
+third_party/android-native-libs{,-armeabi-v7a}/  # 预编译动态库闭包 (按 ABI 独立成套, 已 strip)
+patches/krita/               # Krita 引擎补丁集与维护清单
+scripts/                     # 构建与动态库同步辅助脚本
 ```
 
 ---
@@ -87,20 +88,29 @@ scripts/                           # 构建与动态库同步辅助脚本
 adb install -r app/build/outputs/apk/debug/app-debug.apk
 ```
 
-### 方式二: Native 编译模式 (适用于修改 C++ 引擎代码)
+### 方式二: Native 编译模式 (适用于修改 C++ 引擎与 Krita 源码)
 
-修改 `app/src/main/cpp/` 源码时, 需本地配置交叉编译环境:
+修改 `app/src/main/cpp/` 源码或遇到 Krita 底层机制缺陷时, 需本地配置交叉编译环境:
 
-- Qt for Android 6.6.3 (`android_arm64_v8a`) 以及对应宿主 `QT_HOST_PATH`
-- Krita 交叉编译源码产物与头文件 (源码请使用配套的 [LanRhyme/krita (reverie-android 分支)](https://github.com/LanRhyme/krita/tree/reverie-android)，若基于官方 Krita 需打入项目内置的 `patches/krita/*.patch` 补丁集)
-- KF6 6.6.0 arm64 交叉编译库
+- Qt for Android 6.6.3 (`android_arm64_v8a` / `android_armv7`) 以及对应宿主 `QT_HOST_PATH`
+- Krita 交叉编译源码产物与头文件 (源码请使用配套的 [LanRhyme/krita (reverie-android 分支)](https://github.com/LanRhyme/krita/tree/reverie-android)，已打入项目内置的 `patches/krita/*.patch` 补丁集)
+- KF6 6.6.0 交叉编译库
+
+> **提示：必要时允许且提倡修改 Krita 源码**
+>
+> 当遇到 Krita 内部硬断言闪退（如 `qFatal` 触发 abort 异常）、Swap 槽位耗尽崩溃、Memento 历史身份错位或移动端特定并发瓶颈且上层无法优雅规避时，允许直接修改 Krita 源码
+> 修改后须在 Krita 仓库提交并用 `git format-patch` 导出新补丁至 `patches/krita/`，同步维护 `patches/krita/README.md`，并将编译且 strip 后的动态库同步覆盖至 `third_party/android-native-libs{,-armeabi-v7a}/` 与 `app/src/main/jniLibs/`
 
 ```bash
-# 执行完整 Native 编译与打包脚本
+# 重新编译 64 位 C++ 库
 ./scripts/build_native.sh
 
-# 或通过 Gradle 属性直接传递参数编译
-./gradlew assembleDebug -PbuildNative
+# 重新编译 32 位 C++ 库并自动重收 32 位闭包
+./scripts/build_native.sh --abi armeabi-v7a
+
+# 运行 ABI 与 JNI 符号双重门禁
+./scripts/check_native_symbols.sh
+./scripts/check_jni_symbols.sh
 ```
 
 ---

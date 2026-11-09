@@ -1,6 +1,6 @@
 # AGENTS.md — ReveriePaint 开发规范
 
-> 本文档面向人类开发者与 AI 编码代理，修改代码前请先阅读本文件, 遵守其中的架构约束、编码规范与变更工作流
+> 本文档面向人类开发者与 AI 编码代理, 修改代码前请先阅读本文件, 遵守其中的架构约束、编码规范与变更工作流
 
 ## 1. 项目简介
 
@@ -17,15 +17,17 @@ Kotlin/Compose UI ──JNI── C++ ReverieCore ── Krita libs (KisImage/Ki
 | UI | Jetpack Compose (Material3, BOM 2026.05.00), 无 XML 布局 |
 | 构建 | Gradle 9.5 + AGP 9.x (内置 Kotlin 支持, 无需 kotlin-android 插件) |
 | 工具链 | JDK 17, compileSdk 36, targetSdk 33, minSdk 23 |
-| ABI | arm64-v8a (默认/主) + armeabi-v7a (release 分包) |
+| ABI | arm64-v8a (默认主架构深度调优) + armeabi-v7a (Release 独立分包) |
+| Krita 源码 | `~/Projects/krita-source` (分支 `reverie-android`), 补丁位于 `patches/krita/` |
 | 许可 | GPL-3.0 (C++ 文件必须带 SPDX 头) |
 
 ## 2. 构建与验证命令
 
 ### 构建模式
 
-- **预编译模式 (默认)**: 使用 `third_party/android-native-libs` 内置动态库, 不编译 C++，克隆后先执行 `./scripts/copy_jni_libs.sh`, 然后 `./gradlew assembleDebug` 即可
-- **buildNative 模式 (开发者)**: 重新编译 C++, 需要本地 Qt for Android 6.6.3 + Krita 源码 + KF6，执行 `./scripts/build_native.sh` 或 `./gradlew assembleDebug -PbuildNative`
+- **预编译模式 (默认)**: 使用 `third_party/android-native-libs` 内置动态库, 不编译 C++, 克隆后先执行 `./scripts/copy_jni_libs.sh`, 然后 `./gradlew assembleDebug` 即可
+- **buildNative 模式 (开发者)**: 重新编译 C++, 需要本地 Qt for Android 6.6.3 + Krita 源码 + KF6, 执行 `./scripts/build_native.sh` 或 `./gradlew assembleDebug -PbuildNative`
+- **Krita 源码修改与重新编译**: 遇到底层硬缺陷时允许直接修改 Krita 源码, 重新编译并使用 NDK `llvm-strip` 剥离符号后同步至预编译闭包 (详见 §7)
 
 ### 常用命令
 
@@ -41,7 +43,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ./scripts/build_native.sh --abi armeabi-v7a     # 重编 32 位 C++ 并刷新 32 位预编译闭包 + 自动跑符号门禁
 ```
 
-**改动 Kotlin 代码后至少运行 `compileDebugKotlin`; 改动 `model/` 或纯逻辑代码后运行 `testDebugUnitTest`; 新增/删除 `ReverieCoreBridge.kt` 的 `external fun` 或改 C++ 后必须跑 `check_jni_symbols.sh` 并刷新对应 ABI 的预编译库 (否则装出来的包一调用新方法就 UnsatisfiedLinkError); 刷新/替换任何预编译 `.so` 后还必须跑 `check_native_symbols.sh`——它查的是 .so 之间的 C/C++ 依赖, 1.6.2 的 32 位包就是闭包里缺 `ReveriePigmentMix` 符号导致启动即崩 (见 `docs/INCIDENT-1.6.2-CRASHES.md`)**
+**改动 Kotlin 代码后至少运行 `compileDebugKotlin`; 改动 `model/` 或纯逻辑代码后运行 `testDebugUnitTest`; 新增/删除 `ReverieCoreBridge.kt` 的 `external fun` 或改 C++ 后必须跑 `check_jni_symbols.sh` 并刷新对应 ABI 的预编译库 (否则装出来的包一调用新方法就 UnsatisfiedLinkError); 刷新/替换任何预编译 `.so` 后还必须跑 `check_native_symbols.sh`——它查的是 .so 之间的 C/C++ 依赖, 确保闭包符号完整无缺失 (见 `docs/INCIDENT-1.6.2-CRASHES.md`)**
 
 ## 3. 目录结构
 
@@ -94,6 +96,7 @@ app/src/main/cpp/            # C++ 引擎 (按域拆分, 与 Kotlin 一一对应
 
 其他目录:
 docs/       # 中文开发文档; PROGRESS.md 为推进日志, 完成里程碑时更新
+patches/    # Krita 补丁集 (patches/krita/*.patch 与维护说明 README.md)
 scripts/    # build_native.sh (完整构建) / copy_jni_libs.sh (预编译库拷贝)
 third_party/android-native-libs{,-armeabi-v7a}/  # 预编译动态库闭包 (按 ABI 各一套, 已 strip)
 art/        # 图标素材
@@ -109,10 +112,10 @@ art/        # 图标素材
 
 ## 4. 架构铁律 (违反会导致卡顿/崩溃回归)
 
-1. **文档真身在 C++**: 所有文档操作 (笔画/图层/撤销/渲染) 通过 JNI 进入 ReverieCore，Kotlin 侧只持有 UI 状态镜像 (`PaintViewModel` 的 `mutableStateOf` 字段), 不要在 Kotlin 侧复制像素数据
-2. **引擎调用禁止上 UI 线程**: Krita 投影重组合在真机上耗时 5ms+, 会阻塞触摸分发导致笔画成段，所有文档操作走专用 HandlerThread (见 `PaintViewModel` 头注释)
+1. **文档真身在 C++**: 所有文档操作 (笔画/图层/撤销/渲染) 通过 JNI 进入 ReverieCore, Kotlin 侧只持有 UI 状态镜像 (`PaintViewModel` 的 `mutableStateOf` 字段), 不要在 Kotlin 侧复制像素数据
+2. **引擎调用禁止上 UI 线程**: Krita 投影重组合在真机上耗时 5ms+, 会阻塞触摸分发导致笔画成段, 所有文档操作走专用 HandlerThread (见 `PaintViewModel` 头注释)
 3. **双缓冲渲染**: 写像素的线程与 Compose 读取的 Bitmap 必须是两个对象 (front/back buffer), 新增渲染路径必须维持此模式
-   - **例外条款 (512 显示瓦片路径)**: 瓦片位图采用 COW (写时复制) 与就地写结合的状态机 (`PublishedTiles.drawnByView` + 3 级多帧冷却队列)。仅当瓦片自换入后从未被 `onDraw` 读取 (保持 `TILE_UNDRAWN`, 绝不在任何 DisplayList 里) 时, 允许通过原子 CAS 状态机原地写入; 一旦被 `onDraw` 消费标记为 `TILE_DRAWN`, 必须从后备池取新位图 (COW), 换下的旧位图强制经历 2~3 帧冷却窗口, 确保 HWUI RenderThread 消费完毕后才允许被重写复用。详见 `DisplayTileState.kt`。
+   - **例外条款 (512 显示瓦片路径)**: 瓦片位图采用 COW (写时复制) 与就地写结合的状态机 (`PublishedTiles.drawnByView` + 3 级多帧冷却队列), 仅当瓦片自换入后从未被 `onDraw` 读取 (保持 `TILE_UNDRAWN`, 绝不在任何 DisplayList 里) 时允许通过原子 CAS 状态机原地写入; 一旦被 `onDraw` 消费标记为 `TILE_DRAWN`, 必须从后备池取新位图 (COW), 换下的旧位图强制经历 2~3 帧冷却窗口, 确保 HWUI RenderThread 消费完毕后才允许被重写复用 (详见 `DisplayTileState.kt`)
 4. **热路径零分配**: 笔画事件批处理、`RecordingEvents` 编解码、JNI 笔画提交路径上禁止每帧创建对象/字符串; 触摸采样以 ~8ms 批量 flush
 5. **手势处理不 key 在视口状态上**: `pointerInput` 不能以 zoom/pan/rotation 为 key, 否则手势第一帧后被取消 (见 `CanvasView` 头注释的历史教训)
 6. **单实例引擎**: `g_core` 全局唯一, UI 单窗口假设; JNI 方法不做重入防护, 调用时序由 ViewModel 保证
@@ -139,7 +142,9 @@ art/        # 图标素材
 - import 禁止保留通配符以外的无用导入; 允许 `import com.reverie.paint.core.*` 这类同模块通配 (现状惯例)
 - 协程: UI 侧用 `viewModelScope`; 引擎线程通信走 Handler (与现有 `HandlerThread` 模式一致), 不要混用两套线程模型
 
-## 7. C++ 编码规范
+## 7. C++ 与 Krita 引擎编码规范
+
+### ReverieCore C++ 规范
 
 - 每个新 `.h/.cpp` 文件顶部必须有 `SPDX-License-Identifier: GPL-3.0-or-later` 注释头
 - 编译选项 `-fno-operator-names` 已全局开启 (Krita 头文件把 `and/or/xor` 当标识符), 不要依赖这些关键字
@@ -147,6 +152,19 @@ art/        # 图标素材
 - 命名: 类/函数 Krita 风格 (camelCase 方法, `m_` 成员前缀); JNI 函数命名 `Java_com_reverie_paint_core_ReverieCoreBridge_<name>`
 - JNI 边界统一使用 `reverie_jni_common.h` 的工具函数做字符串/位图/异常转换; JNI 层只做参数搬运, 业务逻辑放 ReverieCore
 - 内存: JNI 返回的 Bitmap 由 Kotlin 侧复用 (双缓冲), C++ 侧不长期持有 Android Bitmap 引用
+
+### Krita 引擎源码修改与补丁管理规范
+
+**必要时允许且提倡修改 Krita 源码**:
+当遇到 Krita 内部硬断言闪退 (如 `qFatal` 导致 abort 崩溃)、Swap 槽位耗尽崩溃、Memento 历史身份错位、移动端并发瓶颈或性能缺陷, 且上层包装无法优雅避让时, 允许直接修改 Krita 源码
+
+修改与更新工作流如下:
+1. **源码定位与修改**: Krita 源码仓库位于 `~/Projects/krita-source` (跟踪 `reverie-android` 分支), 在该仓库内实施代码修改并进行 Git 提交
+2. **导出并同步补丁**: 在 Krita 仓库使用 `git format-patch` 导出新补丁至本项目 `patches/krita/<序号>-<描述>.patch`, 同时更新 `patches/krita/README.md` 中的补丁清单
+3. **双架构重编译**: 针对改动的 Krita 库 (如 `libkritaimage.so` 等), 必须同时在 `build-android` (arm64-v8a) 与 `build-android-armv7` (armeabi-v7a) 两个构建目录下使用 `ninja <目标>` 完成编译
+4. **强制 Strip 剥离符号 (铁律)**: 编译产物未经 strip 时单文件可达 100MB+ (会直接触发 GitHub push 拒收拒绝推送), 必须使用 NDK 的 `llvm-strip` (`~/Android/Sdk/ndk/25.2.9519653/toolchains/llvm/prebuilt/linux-x86_64/bin/llvm-strip`) 对编译产物进行 strip, 将体积压缩至数 MB
+5. **覆盖动态库闭包**: 将 strip 后的 64 位库同步覆盖至 `third_party/android-native-libs/` 与 `app/src/main/jniLibs/arm64-v8a/`, 32 位库同步覆盖至 `third_party/android-native-libs-armeabi-v7a/` 与 `app/src/main/jniLibs/armeabi-v7a/`
+6. **运行闭包符号门禁**: 执行 `./scripts/check_native_symbols.sh` 与 `./scripts/check_jni_symbols.sh`, 确保 64 位与 32 位全部预编译库依赖闭包完整无悬垂符号
 
 ## 8. 测试规范
 
@@ -162,8 +180,8 @@ art/        # 图标素材
 1. **改动前 — 影响评估**: 定位目标域 → 全文搜索调用点 → 按 §5 列出"可能受影响的功能清单"; 同时核对 §4 铁律是否触及 (线程模型/双缓冲/零分配/手势 key)
 2. **改动中 — 最小 diff**: 只改与目标相关的代码, 不顺手重构无关部分; 保持每个中间步骤可编译
 3. **改动后 — 两轮自检**:
-   - **第一轮 (机械验证)**: 按改动范围运行 §2 命令 — 至少 `compileDebugKotlin`; 改 `model/` 或纯逻辑加跑 `testDebugUnitTest`; 大范围改动加跑 `lintDebug` 与 `assembleDebug`; 动过 JNI 边界 (`external fun` / `reverie_jni_*.cpp`) 必须加跑 `check_jni_symbols.sh`, arm64 与 armv7 都要绿
-   - **第二轮 (回归审查)**: 对照第 1 步的影响清单, 逐一重新检查每个调用方行为是否被破坏; 重点确认新代码未违反 §4 铁律，发现问题必须修复后重跑第一轮
+   - **第一轮 (机械验证)**: 按改动范围运行 §2 命令 — 至少 `compileDebugKotlin`; 改 `model/` 或纯逻辑加跑 `testDebugUnitTest`; 大范围改动加跑 `lintDebug` 与 `assembleDebug`; 动过 JNI 边界 (`external fun` / `reverie_jni_*.cpp`) 必须加跑 `check_jni_symbols.sh`, arm64 与 armv7 都要绿; 动过 Krita 源码或更新预编译库必须额外跑 `check_native_symbols.sh`
+   - **第二轮 (回归审查)**: 对照第 1 步的影响清单, 逐一重新检查每个调用方行为是否被破坏; 重点确认新代码未违反 §4 铁律, 发现问题必须修复后重跑第一轮
    - **引擎/C++ 改动**: 额外真机手动回归受影响路径 (笔画/图层/撤销/滤镜等), 结果写入 commit body
 4. **收尾**: 按需更新 §11 文档; commit 信息按 §10 规范注明验证方式
 
@@ -211,13 +229,13 @@ Conventional Commits, **中文描述**, 格式:
 - **更新版本配置**: 修改 `app/build.gradle.kts` 中的 `versionCode` 与 `versionName`
 - **解析 Git 历史与 PR 关联**:
   - 执行 `git log <last_tag>..HEAD --oneline` 提取自上个正式 tag 以来的全量提交
-  - **识别 PR 编号**: 匹配形如 `Merge pull request #<num>` 的合并提交，或 commit 标题末尾的 `(#<num>)`
+  - **识别 PR 编号**: 匹配形如 `Merge pull request #<num>` 的合并提交, 或 commit 标题末尾的 `(#<num>)`
   - **查询 PR 贡献者 Handle**: 对涉及的 PR 编号执行 `gh pr view <num> --json author --jq .author.login` 获取作者 GitHub 用户名
 - **生成结构化日志并写入 CHANGELOG.md**:
   - 在 `CHANGELOG.md` 顶部插入 `## [vX.Y.Z] - YYYY-MM-DD`
   - 严格按 Conventional Commits 分类为两大板块: `### 新增特性 (Features)` 与 `### 缺陷修复 (Bug Fixes)` (如有系统级调整可追加 `### 体验优化与工程调整`)
   - **PR 贡献者行内署名**: 凡是通过 Pull Request 引入的条目 (包含维护者与社区贡献者), 须在条目末尾追加 `(by @<username> in #<num>)` (示例: `- **WebDAV 同步**: 支持通过 WebDAV 协议进行云端备份与还原 (by @ChinsaaWei in #16)`)
-  - 严禁使用句号 (。) 与任何表情符号 (emoji), 保持极简清晰
+  - 严禁使用句号与任何表情符号 (emoji), 保持极简清晰
 - **提交版本变更**: 执行 `git add app/build.gradle.kts CHANGELOG.md && git commit -m "chore(release): 发布 X.Y.Z 版本并更新变更日志"`
 
 ### 5. 标签与远程推送
@@ -228,4 +246,3 @@ Conventional Commits, **中文描述**, 格式:
 - **监控 CI 构建**: 后台监控 GitHub Actions 运行状态 (`release.yml`), 等待编译与打包完成
 - **更新 GitHub Release 正文**: CI 完成创建 release 后, 提取 `CHANGELOG.md` 中对应版本的日志, 执行 `gh release edit vX.Y.Z --notes-file <临时日志路径>` 补充完整更新说明 (自动触发 MirrorChyan 镜像与日志同步)
 - **结果汇总汇报**: 向用户提供新版本号、Release 链接与 APK 产物大小
-
