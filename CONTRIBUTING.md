@@ -90,7 +90,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 ### 方式二: Native 编译模式 (适用于修改 C++ 引擎与 Krita 源码)
 
-修改 `app/src/main/cpp/` 源码或遇到 Krita 底层机制缺陷时, 需本地配置交叉编译环境:
+修改 `app/src/main/cpp/` 源码、扩展引擎功能或修复 Krita 底层机制缺陷时, 需本地配置交叉编译环境:
 
 - Qt for Android 6.6.3 (`android_arm64_v8a` / `android_armv7`) 以及对应宿主 `QT_HOST_PATH`
 - Krita 交叉编译源码产物与头文件 (源码请使用配套的 [LanRhyme/krita (reverie-android 分支)](https://github.com/LanRhyme/krita/tree/reverie-android)，已打入项目内置的 `patches/krita/*.patch` 补丁集)
@@ -98,7 +98,7 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 
 > **提示：必要时允许且提倡修改 Krita 源码**
 >
-> 当遇到 Krita 内部硬断言闪退（如 `qFatal` 触发 abort 异常）、Swap 槽位耗尽崩溃、Memento 历史身份错位或移动端特定并发瓶颈且上层无法优雅规避时，允许直接修改 Krita 源码
+> 无论是实现新功能特性（如剪切蒙版、新笔刷引擎、专用渲染通道与格式支持），还是修复底层硬缺陷（如断言闪退、Swap 槽位耗尽或移动端并发瓶颈），只要上层包装无法优雅达成，均允许且提倡直接修改 Krita 源码
 > 修改后须在 Krita 仓库提交并用 `git format-patch` 导出新补丁至 `patches/krita/`，同步维护 `patches/krita/README.md`，并将编译且 strip 后的动态库同步覆盖至 `third_party/android-native-libs{,-armeabi-v7a}/` 与 `app/src/main/jniLibs/`
 
 ```bash

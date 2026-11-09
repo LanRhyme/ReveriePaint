@@ -27,7 +27,7 @@ Kotlin/Compose UI ──JNI── C++ ReverieCore ── Krita libs (KisImage/Ki
 
 - **预编译模式 (默认)**: 使用 `third_party/android-native-libs` 内置动态库, 不编译 C++, 克隆后先执行 `./scripts/copy_jni_libs.sh`, 然后 `./gradlew assembleDebug` 即可
 - **buildNative 模式 (开发者)**: 重新编译 C++, 需要本地 Qt for Android 6.6.3 + Krita 源码 + KF6, 执行 `./scripts/build_native.sh` 或 `./gradlew assembleDebug -PbuildNative`
-- **Krita 源码修改与重新编译**: 遇到底层硬缺陷时允许直接修改 Krita 源码, 重新编译并使用 NDK `llvm-strip` 剥离符号后同步至预编译闭包 (详见 §7)
+- **Krita 源码修改与重新编译**: 实现新特性、扩展底层能力或修补引擎缺陷/断言闪退时, 均允许直接修改 Krita 源码, 重新编译并使用 NDK `llvm-strip` 剥离符号后同步至预编译闭包 (详见 §7)
 
 ### 常用命令
 
@@ -156,7 +156,7 @@ art/        # 图标素材
 ### Krita 引擎源码修改与补丁管理规范
 
 **必要时允许且提倡修改 Krita 源码**:
-当遇到 Krita 内部硬断言闪退 (如 `qFatal` 导致 abort 崩溃)、Swap 槽位耗尽崩溃、Memento 历史身份错位、移动端并发瓶颈或性能缺陷, 且上层包装无法优雅避让时, 允许直接修改 Krita 源码
+无论是**实现新功能与架构扩展** (如剪切蒙版、新笔刷引擎、移动端静态注册、特定图层混合模式或渲染钩子), 还是**修复底层硬缺陷** (如断言闪退、`qFatal` 触发 abort、Swap 槽位耗尽、Memento 历史身份错位或多线程并发问题), 只要上层包装无法优雅达成, 均允许且提倡直接修改 Krita 源码
 
 修改与更新工作流如下:
 1. **源码定位与修改**: Krita 源码仓库位于 `~/Projects/krita-source` (跟踪 `reverie-android` 分支), 在该仓库内实施代码修改并进行 Git 提交
