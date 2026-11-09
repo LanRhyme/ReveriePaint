@@ -82,9 +82,12 @@ fun StatisticsSettingsSubPage(
         CreationStatsManager.getSummary(context, vm.projects)
     }
 
+    val hasCustomBg = vm.homeCustomBgEnabled && vm.getHomeCustomBgFile() != null
+
     Column(
         modifier = Modifier
             .fillMaxSize()
+            .background(if (compact || hasCustomBg) Color.Transparent else colors.bg)
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

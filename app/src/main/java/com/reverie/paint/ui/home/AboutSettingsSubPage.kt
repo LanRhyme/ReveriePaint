@@ -57,6 +57,7 @@ import androidx.compose.ui.text.style.TextDecoration
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.window.Dialog
+import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.core.UpdateManager
@@ -73,12 +74,15 @@ import kotlin.math.sin
 @Composable
 fun AboutSettingsSubPage(
     onBack: () -> Unit,
+    vm: PaintViewModel? = null,
     compact: Boolean = false,
     showBackButton: Boolean = true,
 ) {
     val colors = Theme.current
     val uriHandler = LocalUriHandler.current
     val context = LocalContext.current
+
+    val hasCustomBg = vm?.homeCustomBgEnabled == true && vm.getHomeCustomBgFile() != null
 
     var showContributorsDialog by remember { mutableStateOf(false) }
     var showSponsorsDialog by remember { mutableStateOf(false) }
@@ -101,7 +105,7 @@ fun AboutSettingsSubPage(
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(if (compact) Color.Transparent else colors.bg)
+            .background(if (compact || hasCustomBg) Color.Transparent else colors.bg)
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

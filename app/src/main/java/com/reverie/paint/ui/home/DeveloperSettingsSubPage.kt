@@ -27,6 +27,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.reverie.paint.R
@@ -44,12 +45,13 @@ internal fun DeveloperSettingsSubPage(
     BackHandler(onBack = onBack)
 
     val colors = Theme.current
+    val hasCustomBg = vm.homeCustomBgEnabled && vm.getHomeCustomBgFile() != null
     var showDiagnosticsDialog by remember { mutableStateOf(false) }
 
     Column(
         modifier = Modifier
             .fillMaxSize()
-            .background(colors.bg)
+            .background(if (compact || hasCustomBg) Color.Transparent else colors.bg)
             .verticalScroll(rememberScrollState()),
         horizontalAlignment = Alignment.CenterHorizontally,
     ) {

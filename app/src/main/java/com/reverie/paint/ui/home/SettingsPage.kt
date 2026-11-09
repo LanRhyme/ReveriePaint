@@ -264,7 +264,7 @@ fun SettingsPageContent(
                         SettingsSubPage.AUTHOR -> AuthorSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
                         SettingsSubPage.STATISTICS -> StatisticsSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
                         SettingsSubPage.SYNC -> SyncSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
-                        SettingsSubPage.ABOUT -> AboutSettingsSubPage(showBackButton = false, onBack = onExit)
+                        SettingsSubPage.ABOUT -> AboutSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
                         SettingsSubPage.MAIN -> GeneralSettingsSubPage(vm = vm, showBackButton = false, onBack = onExit)
                     }
                 }
@@ -346,6 +346,7 @@ fun SettingsPageContent(
 
                 SettingsSubPage.ABOUT -> {
                     AboutSettingsSubPage(
+                        vm = vm,
                         onBack = { subPage = SettingsSubPage.MAIN },
                     )
                 }

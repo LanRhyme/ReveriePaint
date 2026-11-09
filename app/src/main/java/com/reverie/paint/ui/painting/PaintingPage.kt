@@ -17,11 +17,15 @@ import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.ui.draw.blur
+import androidx.compose.ui.layout.ContentScale
+import com.reverie.paint.ui.theme.Theme
 import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
@@ -2613,26 +2617,54 @@ fun PaintingPage(
                     slideOutHorizontally(tween(240, easing = FastOutSlowInEasing)) { it / 4 },
             modifier = Modifier.zIndex(500f),
         ) {
+            val colors = Theme.current
+            val hasCustomBg = vm.homeCustomBgEnabled && vm.getHomeCustomBgFile() != null
+            val homeBgFile = remember(vm.homeCustomBgVersion) { vm.getHomeCustomBgFile() }
+            val homeBgBitmap = remember(vm.homeCustomBgVersion, vm.homeCustomBgEnabled, homeBgFile?.lastModified()) {
+                if (vm.homeCustomBgEnabled) {
+                    homeBgFile?.let { runCatching { BitmapFactory.decodeFile(it.absolutePath)?.asImageBitmap() }.getOrNull() }
+                } else null
+            }
             Box(
                 modifier =
                     Modifier
                         .fillMaxSize()
-                        .background(Morandi.canvasBg),
+                        .background(colors.bg),
             ) {
+                if (homeBgBitmap != null && vm.homeCustomBgEnabled) {
+                    val scale = if (vm.homeCustomBgScaleMode == "FIT") ContentScale.Fit else ContentScale.Crop
+                    val blurModifier = if (vm.homeCustomBgBlurDp > 0f) Modifier.blur(vm.homeCustomBgBlurDp.dp) else Modifier
+                    Image(
+                        bitmap = homeBgBitmap,
+                        contentDescription = null,
+                        contentScale = scale,
+                        alpha = vm.homeCustomBgOpacity,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(blurModifier),
+                    )
+                    if (vm.homeCustomBgMaskAlpha > 0f) {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .background(Color.Black.copy(alpha = vm.homeCustomBgMaskAlpha)),
+                        )
+                    }
+                }
                 Column(modifier = Modifier.fillMaxSize()) {
                     // Top bar with back button (no bottom navigation bar here)
                     Row(
                         modifier =
                             Modifier
                                 .fillMaxWidth()
-                                .background(Morandi.panel)
+                                .background(if (hasCustomBg) colors.panel.copy(alpha = 0.88f) else colors.panel)
                                 .padding(horizontal = 4.dp, vertical = 6.dp),
                         verticalAlignment = Alignment.CenterVertically,
                     ) {
-                        ReIconButton(R.drawable.ic_arrow_left, stringResource(R.string.nav_back_to_canvas), { vm.closeMoreSettings() }, tint = Morandi.text)
+                        ReIconButton(R.drawable.ic_arrow_left, stringResource(R.string.nav_back_to_canvas), { vm.closeMoreSettings() }, tint = colors.text)
                         Text(
                             stringResource(R.string.settings_more_title),
-                            color = Morandi.text,
+                            color = colors.text,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.Bold,
                         )
