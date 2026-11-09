@@ -8774,6 +8774,24 @@ class CanvasTouchView(context: Context) : View(context) {
                 state.dragStarInnerRatio = state.starInnerRatio
                 state.isCreatingNewNode = false
                 shapeCreatedOnCurrentTouch = false
+
+                val isBoxShape = state.type == ShapeType.RECT ||
+                    state.type == ShapeType.ROUNDED_RECT ||
+                    state.type == ShapeType.ELLIPSE
+                if (isBoxShape) {
+                    val p2Init = if (state.keepAspect) {
+                        val pt = ShapeGeometry.constrainAspect(Point2D(state.p1.x, state.p1.y), Point2D(state.p2.x, state.p2.y))
+                        Point2D(pt.x, pt.y)
+                    } else Point2D(state.p2.x, state.p2.y)
+                    val corners = ShapeGeometry.getBoxCornersDoc(Point2D(state.p1.x, state.p1.y), p2Init, state.rotationDegrees)
+                    state.dragAnchorDoc = when (hit) {
+                        ShapeHandleId.CORNER_TL -> Offset(corners[2].x, corners[2].y)
+                        ShapeHandleId.CORNER_TR -> Offset(corners[3].x, corners[3].y)
+                        ShapeHandleId.CORNER_BR -> Offset(corners[0].x, corners[0].y)
+                        ShapeHandleId.CORNER_BL -> Offset(corners[1].x, corners[1].y)
+                        else -> Offset.Zero
+                    }
+                }
             } else {
                 if (state.type == ShapeType.POLYLINE || state.type == ShapeType.POLYGON || state.type == ShapeType.BEZIER) {
                     if (state.nodes.size >= 3) {
@@ -8816,6 +8834,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                     state.activeHandle = if (targetType == ShapeType.LINE) ShapeHandleId.LINE_P2 else ShapeHandleId.CORNER_BR
                     state.dragStartDocPos = targetDoc
+                    state.dragAnchorDoc = targetDoc
                     state.dragP1 = targetDoc
                     state.dragP2 = targetDoc
                     state.isCreatingNewNode = false
@@ -8843,6 +8862,7 @@ class CanvasTouchView(context: Context) : View(context) {
             } else {
                 state.activeHandle = if (targetType == ShapeType.LINE) ShapeHandleId.LINE_P2 else ShapeHandleId.CORNER_BR
                 state.dragStartDocPos = targetDoc
+                state.dragAnchorDoc = targetDoc
                 state.dragP1 = targetDoc
                 state.dragP2 = targetDoc
                 state.isCreatingNewNode = false
@@ -8874,35 +8894,25 @@ class CanvasTouchView(context: Context) : View(context) {
                     state.rotationDegrees = Math.toDegrees(angleRad.toDouble()).toFloat() + 90f
                 }
                 handle == ShapeHandleId.CORNER_BR || handle == ShapeHandleId.CORNER_TL ||
-                handle == ShapeHandleId.CORNER_TR || handle == ShapeHandleId.CORNER_BL ||
+                handle == ShapeHandleId.CORNER_TR || handle == ShapeHandleId.CORNER_BL -> {
+                    val (newP1, newP2) = ShapeGeometry.resizeBox(
+                        anchorDoc = Point2D(state.dragAnchorDoc.x, state.dragAnchorDoc.y),
+                        touchDoc = Point2D(docPos.x, docPos.y),
+                        rotationDeg = state.rotationDegrees,
+                        keepAspect = state.keepAspect,
+                    )
+                    state.p1 = Offset(newP1.x, newP1.y)
+                    state.p2 = Offset(newP2.x, newP2.y)
+                }
                 handle == ShapeHandleId.CORNER_RADIUS -> {
                     val center = (state.dragP1 + state.dragP2) / 2f
                     val localPt = if (abs(state.rotationDegrees) > 0.01f) {
                         ShapeGeometry.rotatePoint(Point2D(docPos.x, docPos.y), Point2D(center.x, center.y), -state.rotationDegrees)
                     } else Point2D(docPos.x, docPos.y)
                     val localDocPos = Offset(localPt.x, localPt.y)
-
-                    when (handle) {
-                        ShapeHandleId.CORNER_BR -> {
-                            state.p2 = localDocPos
-                        }
-                        ShapeHandleId.CORNER_TL -> {
-                            state.p1 = localDocPos
-                        }
-                        ShapeHandleId.CORNER_TR -> {
-                            state.p1 = Offset(state.p1.x, localDocPos.y)
-                            state.p2 = Offset(localDocPos.x, state.p2.y)
-                        }
-                        ShapeHandleId.CORNER_BL -> {
-                            state.p1 = Offset(localDocPos.x, state.p1.y)
-                            state.p2 = Offset(state.p2.x, localDocPos.y)
-                        }
-                        ShapeHandleId.CORNER_RADIUS -> {
-                            val minDim = minOf(abs(state.p2.x - state.p1.x), abs(state.p2.y - state.p1.y))
-                            val dist = hypot(localDocPos.x - state.p1.x, localDocPos.y - state.p1.y)
-                            state.cornerRadius = dist.coerceIn(0f, minDim / 2f)
-                        }
-                    }
+                    val minDim = minOf(abs(state.p2.x - state.p1.x), abs(state.p2.y - state.p1.y))
+                    val dist = hypot(localDocPos.x - state.p1.x, localDocPos.y - state.p1.y)
+                    state.cornerRadius = dist.coerceIn(0f, minDim / 2f)
                 }
                 handle == ShapeHandleId.STAR_OUTER -> {
                     val center = (state.p1 + state.p2) / 2f

@@ -426,8 +426,19 @@ internal fun PaintViewModel.updateShapeKeepAspect(value: Boolean) {
     shapeKeepAspect = value
     shapeState.keepAspect = value
     if (value && shapeState.active) {
-        val pt = ShapeGeometry.constrainAspect(Point2D(shapeState.p1.x, shapeState.p1.y), Point2D(shapeState.p2.x, shapeState.p2.y))
-        shapeState.p2 = androidx.compose.ui.geometry.Offset(pt.x, pt.y)
+        val isBoxShape = shapeState.type == ShapeType.RECT ||
+            shapeState.type == ShapeType.ROUNDED_RECT ||
+            shapeState.type == ShapeType.ELLIPSE
+        if (isBoxShape) {
+            val center = (shapeState.p1 + shapeState.p2) / 2f
+            val maxDim = maxOf(
+                kotlin.math.abs(shapeState.p2.x - shapeState.p1.x),
+                kotlin.math.abs(shapeState.p2.y - shapeState.p1.y)
+            ).coerceAtLeast(2f)
+            val half = maxDim / 2f
+            shapeState.p1 = androidx.compose.ui.geometry.Offset(center.x - half, center.y - half)
+            shapeState.p2 = androidx.compose.ui.geometry.Offset(center.x + half, center.y + half)
+        }
     }
     saveToolOptions()
 }

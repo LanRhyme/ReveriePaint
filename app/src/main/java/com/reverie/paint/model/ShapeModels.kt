@@ -92,6 +92,81 @@ object ShapeGeometry {
     }
 
     /**
+     * 计算盒状图形在文档坐标系下的四个顶点 [TL, TR, BR, BL]
+     */
+    fun getBoxCornersDoc(
+        p1: Point2D,
+        p2: Point2D,
+        rotationDeg: Float = 0f,
+    ): List<Point2D> {
+        val (tl, br) = normalizeRect(p1, p2)
+        val tr = Point2D(br.x, tl.y)
+        val bl = Point2D(tl.x, br.y)
+        val center = Point2D((tl.x + br.x) / 2f, (tl.y + br.y) / 2f)
+        return if (abs(rotationDeg) > 0.001f) {
+            listOf(
+                rotatePoint(tl, center, rotationDeg),
+                rotatePoint(tr, center, rotationDeg),
+                rotatePoint(br, center, rotationDeg),
+                rotatePoint(bl, center, rotationDeg),
+            )
+        } else {
+            listOf(tl, tr, br, bl)
+        }
+    }
+
+    /**
+     * 固定对角锚点 (anchorDoc)，根据触摸点 (touchDoc) 与旋转角计算缩放后的外接框点对 (p1, p2)
+     * 支持等比 (keepAspect) 约束，确保锚点在文档世界坐标系下绝对静止不漂移
+     */
+    fun resizeBox(
+        anchorDoc: Point2D,
+        touchDoc: Point2D,
+        rotationDeg: Float = 0f,
+        keepAspect: Boolean = false,
+    ): Pair<Point2D, Point2D> {
+        val rad = Math.toRadians(rotationDeg.toDouble())
+        val cosA = kotlin.math.cos(rad).toFloat()
+        val sinA = kotlin.math.sin(rad).toFloat()
+
+        // 旋转坐标系在文档空间的基底向量:
+        // u: 局部 X 轴正方向 (宽)
+        // v: 局部 Y 轴正方向 (高)
+        val ux = cosA
+        val uy = sinA
+        val vx = -sinA
+        val vy = cosA
+
+        // 从固定锚点指向触摸点的位移向量
+        val dx = touchDoc.x - anchorDoc.x
+        val dy = touchDoc.y - anchorDoc.y
+
+        // 投影到局部基底
+        val wu = dx * ux + dy * uy
+        val wv = dx * vx + dy * vy
+
+        val (wuFinal, wvFinal) = if (keepAspect) {
+            val dim = maxOf(abs(wu), abs(wv)).coerceAtLeast(2f)
+            val signU = if (wu >= 0f) 1f else -1f
+            val signV = if (wv >= 0f) 1f else -1f
+            (dim * signU) to (dim * signV)
+        } else {
+            val finalU = if (abs(wu) < 2f) (if (wu >= 0f) 2f else -2f) else wu
+            val finalV = if (abs(wv) < 2f) (if (wv >= 0f) 2f else -2f) else wv
+            finalU to finalV
+        }
+
+        // 新中心点 (文档坐标系)
+        val newCenterX = anchorDoc.x + (wuFinal / 2f) * ux + (wvFinal / 2f) * vx
+        val newCenterY = anchorDoc.y + (wuFinal / 2f) * uy + (wvFinal / 2f) * vy
+
+        val halfW = abs(wuFinal) / 2f
+        val halfH = abs(wvFinal) / 2f
+
+        return Point2D(newCenterX - halfW, newCenterY - halfH) to Point2D(newCenterX + halfW, newCenterY + halfH)
+    }
+
+    /**
      * 生成正多边形顶点序列 (从顶部顶点展开)
      */
     fun generateRegularPolygon(

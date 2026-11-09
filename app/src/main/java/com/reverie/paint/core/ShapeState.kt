@@ -63,6 +63,7 @@ class ShapeState {
     // 交互拖拽过程中的瞬态变量 (无需引起重组)
     var activeHandle: Int = ShapeHandleId.NONE
     var dragStartDocPos: Offset = Offset.Zero
+    var dragAnchorDoc: Offset = Offset.Zero
     var dragP1: Offset = Offset.Zero
     var dragP2: Offset = Offset.Zero
     var dragRotation: Float = 0f
@@ -83,6 +84,7 @@ class ShapeState {
         p2 = initialPos
         rotationDegrees = 0f
         activeHandle = ShapeHandleId.NONE
+        dragAnchorDoc = initialPos
         nodes.clear()
         selectedNodeIndex = -1
 
