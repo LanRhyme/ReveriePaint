@@ -336,7 +336,7 @@
     <string name="settings_group_system">系统与关于</string>
     <string name="settings_theme">主题设置</string>
     <string name="settings_theme_sub">莫兰迪低饱和度色彩与莫奈动态取色</string>
-    <string name="settings_nav_theme_sub">主色调、面板透明度与全屏沉浸模式</string>
+    <string name="settings_nav_theme_sub">主色调、面板透明度与视觉效果</string>
     <string name="settings_language">应用语言</string>
     <string name="settings_language_sub">选择应用内语言或跟随系统</string>
     <string name="settings_language_dialog_title">选择应用语言</string>

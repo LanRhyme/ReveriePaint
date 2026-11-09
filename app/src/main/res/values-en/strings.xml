@@ -336,7 +336,7 @@
     <string name="settings_group_system">System &amp; About</string>
     <string name="settings_theme">Theme</string>
     <string name="settings_theme_sub">Morandi muted palette &amp; Monet dynamic accents</string>
-    <string name="settings_nav_theme_sub">Primary color tones, panel opacity, and immersive fullscreen</string>
+    <string name="settings_nav_theme_sub">Primary color tones, panel opacity, and visual effects</string>
     <string name="settings_language">Language</string>
     <string name="settings_language_sub">Choose app language or follow system</string>
     <string name="settings_language_dialog_title">Select Language</string>

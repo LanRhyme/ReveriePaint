@@ -206,7 +206,7 @@ class MainActivity : ComponentActivity() {
         vm.loadBrushPresets()
         val initialColors = if (initialIsDark) com.reverie.paint.ui.theme.MorandiDarkColors else com.reverie.paint.ui.theme.MorandiLightColors
         applySystemBarsTheme(initialColors, initialIsDark)
-        val initialImmerse = (vm.currentPage == Page.PAINTING && vm.immersiveMode)
+        val initialImmerse = (vm.currentPage == Page.PAINTING)
         applyImmersive(initialImmerse, vm.extendToCutout)
         setContent {
             val vm: PaintViewModel = viewModel()
@@ -239,7 +239,7 @@ class MainActivity : ComponentActivity() {
                 handleIncomingIntent(intent)
             }
             val appPage = vm.currentPage
-            val shouldImmerse = (appPage == Page.PAINTING && vm.immersiveMode)
+            val shouldImmerse = (appPage == Page.PAINTING)
             androidx.compose.runtime.LaunchedEffect(shouldImmerse, vm.extendToCutout) {
                 applyImmersive(shouldImmerse, vm.extendToCutout)
             }
@@ -460,7 +460,7 @@ class MainActivity : ComponentActivity() {
         if (vm != null) {
             val driver = vm.stylusDriver ?: vm.getOrCreateStylusDriver(this)
             driver.onActivityResume(this)
-            val shouldImmerse = (vm.currentPage == Page.PAINTING && vm.immersiveMode)
+            val shouldImmerse = (vm.currentPage == Page.PAINTING)
             applyImmersive(shouldImmerse, vm.extendToCutout)
         }
     }
@@ -489,7 +489,7 @@ class MainActivity : ComponentActivity() {
             applyHighRefreshRate(this)
             com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.applyHighRefreshRateAndUnbuffered()
             currentViewModel?.let { vm ->
-                val shouldImmerse = (vm.currentPage == Page.PAINTING && vm.immersiveMode)
+                val shouldImmerse = (vm.currentPage == Page.PAINTING)
                 applyImmersive(shouldImmerse, vm.extendToCutout)
             }
         }
@@ -505,7 +505,7 @@ class MainActivity : ComponentActivity() {
         applyHighRefreshRate(this)
         com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.applyHighRefreshRateAndUnbuffered()
         currentViewModel?.let { vm ->
-            val shouldImmerse = (vm.currentPage == Page.PAINTING && vm.immersiveMode)
+            val shouldImmerse = (vm.currentPage == Page.PAINTING)
             applyImmersive(shouldImmerse, vm.extendToCutout)
         }
     }
@@ -513,7 +513,7 @@ class MainActivity : ComponentActivity() {
     override fun onConfigurationChanged(newConfig: android.content.res.Configuration) {
         super.onConfigurationChanged(newConfig)
         currentViewModel?.let { vm ->
-            val shouldImmerse = (vm.currentPage == Page.PAINTING && vm.immersiveMode)
+            val shouldImmerse = (vm.currentPage == Page.PAINTING)
             applyImmersive(shouldImmerse, vm.extendToCutout)
             val dm = resources.displayMetrics
             val density = dm.density

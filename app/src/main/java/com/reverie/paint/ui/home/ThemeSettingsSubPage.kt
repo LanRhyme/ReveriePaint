@@ -43,7 +43,6 @@ import androidx.compose.material.icons.rounded.AspectRatio
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Brightness4
 import androidx.compose.material.icons.rounded.ColorLens
-import androidx.compose.material.icons.rounded.Fullscreen
 import androidx.compose.material.icons.rounded.GridOn
 import androidx.compose.material.icons.rounded.Height
 import androidx.compose.material.icons.rounded.Layers
@@ -661,7 +660,7 @@ internal fun ThemeSettingsSubPage(
                     summary = if (blurSupported) stringResource(R.string.theme_blur_desc) else stringResource(R.string.theme_blur_unsupported),
                     checked = vm.blurBackground,
                     enabled = blurSupported,
-                    shape = settingGroupShape(0, 3),
+                    shape = settingGroupShape(0, 2),
                     onCheckedChange = { vm.updateBlurBackground(it) },
                 )
 
@@ -673,20 +672,8 @@ internal fun ThemeSettingsSubPage(
                         it to stringResource(it.labelRes())
                     },
                     selected = vm.uiAnimationSpeed,
-                    shape = settingGroupShape(1, 3),
+                    shape = settingGroupShape(1, 2),
                     onSelect = { vm.updateUiAnimationSpeed(it) },
-                )
-
-                SettingSwitchGroupItem(
-                    icon = Icons.Rounded.Fullscreen,
-                    title = stringResource(R.string.theme_immersive_title),
-                    summary = stringResource(R.string.theme_immersive_desc),
-                    checked = vm.immersiveMode,
-                    shape = settingGroupShape(2, 3),
-                    onCheckedChange = {
-                        vm.updateExtendToCutout(true)
-                        vm.updateImmersiveMode(it)
-                    },
                 )
             }
 

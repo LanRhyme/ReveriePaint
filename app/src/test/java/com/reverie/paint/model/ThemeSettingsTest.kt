@@ -188,20 +188,13 @@ class ThemeSettingsTest {
     }
 
     @Test
-    fun `first-launch immersive mode defaults to enabled on tablet and disabled on phone`() {
-        val resolveImmersive = { containsKey: Boolean, savedValue: Boolean, isTablet: Boolean ->
-            if (containsKey) savedValue else isTablet
+    fun `canvas page is always fullscreen regardless of device type`() {
+        val shouldImmerse = { page: com.reverie.paint.core.Page ->
+            page == com.reverie.paint.core.Page.PAINTING
         }
-
-        // First launch (no key saved yet)
-        assertTrue("First launch on tablet must default to enabled", resolveImmersive(false, false, true))
-        assertFalse("First launch on phone must default to disabled", resolveImmersive(false, false, false))
-
-        // Subsequent launch: user explicitly disabled it on tablet
-        assertFalse("Subsequent launch must preserve user setting false on tablet", resolveImmersive(true, false, true))
-
-        // Subsequent launch: user explicitly enabled it on phone
-        assertTrue("Subsequent launch must preserve user setting true on phone", resolveImmersive(true, true, false))
+        assertTrue("Painting page must be fullscreen", shouldImmerse(com.reverie.paint.core.Page.PAINTING))
+        assertFalse("Home page must not be fullscreen", shouldImmerse(com.reverie.paint.core.Page.HOME))
+        assertFalse("Create page must not be fullscreen", shouldImmerse(com.reverie.paint.core.Page.CREATE))
     }
 
     @Test

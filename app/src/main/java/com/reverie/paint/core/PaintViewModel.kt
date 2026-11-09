@@ -4137,9 +4137,8 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    /** Immersive mode (fullscreen + hidden system bars), persisted in prefs.
-     *  The actual window changes are applied by MainActivity.applyImmersive. */
-    var immersiveMode by mutableStateOf(false)
+    /** 画布页面强制全屏沉浸模式 (隐藏系统栏) */
+    var immersiveMode by mutableStateOf(true)
         internal set
 
     fun updateUiOpacity(v: Float) {
@@ -4467,15 +4466,8 @@ class PaintViewModel : ViewModel() {
     }
 
     fun updateImmersiveMode(enable: Boolean) {
-        immersiveMode = enable
-        if (::appContext.isInitialized) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("immersiveMode", enable)
-                .apply()
-        }
-        val shouldImmerse = (currentPage == Page.PAINTING && enable)
+        immersiveMode = true
+        val shouldImmerse = (currentPage == Page.PAINTING)
         com.reverie.paint.MainActivity
             .applyImmersive(shouldImmerse, extendToCutout)
     }
@@ -4489,7 +4481,7 @@ class PaintViewModel : ViewModel() {
                 .putBoolean("extendToCutout", extend)
                 .apply()
         }
-        val shouldImmerse = (currentPage == Page.PAINTING && immersiveMode)
+        val shouldImmerse = (currentPage == Page.PAINTING)
         com.reverie.paint.MainActivity
             .applyImmersive(shouldImmerse, extend)
     }
@@ -4803,13 +4795,7 @@ class PaintViewModel : ViewModel() {
             themeMode = prefs.getString("themeMode", "DARK") ?: "DARK"
             themeContrast = prefs.getString("themeContrast", "STANDARD") ?: "STANDARD"
             themeStyle = prefs.getString("themeStyle", com.reverie.paint.ui.theme.ThemeStyle.MORANDI_TINTED) ?: com.reverie.paint.ui.theme.ThemeStyle.MORANDI_TINTED
-            val defaultImmersive = DeviceUtils.isTablet(appContext)
-            immersiveMode = if (prefs.contains("immersiveMode")) {
-                prefs.getBoolean("immersiveMode", false)
-            } else {
-                prefs.edit().putBoolean("immersiveMode", defaultImmersive).apply()
-                defaultImmersive
-            }
+            immersiveMode = true
             extendToCutout = prefs.getBoolean("extendToCutout", true)
             penOnlyMode = prefs.getBoolean("penOnlyMode", false)
             penModeSingleFingerPanEnabled = prefs.getBoolean("penModeSingleFingerPanEnabled", true)
