@@ -302,79 +302,73 @@ fun QuickOklchWindow(
                 Column(
                     modifier = Modifier
                         .width(256.dp)
-                        .padding(horizontal = 9.dp, vertical = 7.dp),
+                        .padding(start = 9.dp, end = 9.dp, top = 4.dp, bottom = 6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    // 1. 顶部操作栏 (顶部横条拖拽/点击收起 + 标题 + 双色互换/关闭)
+                    // 1. 顶部小横条: 兼具拖动手柄与点击收起折叠 (独立居中，避免与操作项重叠)
+                    val handleSource = remember { MutableInteractionSource() }
                     Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        // 顶部小横条: 兼具拖动手柄与点击收起折叠
-                        val handleSource = remember { MutableInteractionSource() }
-                        Box(
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .size(DragGripSpec.PILL_WIDTH_DP.dp, DragGripSpec.PILL_HEIGHT_DP.dp)
-                                .onGloballyPositioned { coords ->
-                                    val root = windowCoords ?: return@onGloballyPositioned
-                                    val pos = root.localPositionOf(coords, Offset.Zero)
-                                    vm.quickOklchGrip.update(
-                                        pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                        modifier = Modifier
+                            .size(DragGripSpec.PILL_WIDTH_DP.dp, DragGripSpec.PILL_HEIGHT_DP.dp)
+                            .onGloballyPositioned { coords ->
+                                val root = windowCoords ?: return@onGloballyPositioned
+                                val pos = root.localPositionOf(coords, Offset.Zero)
+                                vm.quickOklchGrip.update(
+                                    pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                                )
+                            }
+                            .pointerInput(Unit) {
+                                detectDragGestures(
+                                    onDragStart = {
+                                        val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
+                                        val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
+                                        if (vm.quickOklchWindowX < 0f) {
+                                            vm.quickOklchWindowX = ((screenWidthPx - curW) / 2f).coerceAtLeast(0f)
+                                        }
+                                        if (vm.quickOklchWindowY < 0f) {
+                                            vm.quickOklchWindowY = ((screenHeightPx - curH) / 2f).coerceAtLeast(0f)
+                                        }
+                                    },
+                                    onDragEnd = { vm.persistQuickOklchState() },
+                                    onDragCancel = { vm.persistQuickOklchState() },
+                                ) { change, dragAmount ->
+                                    change.consume()
+                                    vm.quickOklchWindowX += dragAmount.x
+                                    vm.quickOklchWindowY += dragAmount.y
+                                    vm.clampQuickWindowsToSafeArea(
+                                        vm.floatingHostWidthPx,
+                                        vm.floatingHostHeightPx,
+                                        density.density,
+                                        persist = false,
                                     )
                                 }
-                                .pointerInput(Unit) {
-                                    detectDragGestures(
-                                        onDragStart = {
-                                            val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
-                                            val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
-                                            if (vm.quickOklchWindowX < 0f) {
-                                                vm.quickOklchWindowX = ((screenWidthPx - curW) / 2f).coerceAtLeast(0f)
-                                            }
-                                            if (vm.quickOklchWindowY < 0f) {
-                                                vm.quickOklchWindowY = ((screenHeightPx - curH) / 2f).coerceAtLeast(0f)
-                                            }
-                                        },
-                                        onDragEnd = { vm.persistQuickOklchState() },
-                                        onDragCancel = { vm.persistQuickOklchState() },
-                                    ) { change, dragAmount ->
-                                        change.consume()
-                                        vm.quickOklchWindowX += dragAmount.x
-                                        vm.quickOklchWindowY += dragAmount.y
-                                        vm.clampQuickWindowsToSafeArea(
-                                            vm.floatingHostWidthPx,
-                                            vm.floatingHostHeightPx,
-                                            density.density,
-                                            persist = false,
-                                        )
-                                    }
-                                }
-                                .pressScale(handleSource, pressedScale = 0.92f)
-                                .clickable(
-                                    interactionSource = handleSource,
-                                    indication = null,
-                                ) {
-                                    haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
-                                    vm.quickOklchCollapsed = true
-                                    vm.persistQuickOklchState()
-                                },
-                            contentAlignment = Alignment.TopCenter,
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .size(36.dp, 3.5.dp)
-                                    .clip(CircleShape)
-                                    .background(Morandi.subText.copy(alpha = 0.5f))
-                            )
-                        }
-
-                        Row(
+                            }
+                            .pressScale(handleSource, pressedScale = 0.92f)
+                            .clickable(
+                                interactionSource = handleSource,
+                                indication = null,
+                            ) {
+                                haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                vm.quickOklchCollapsed = true
+                                vm.persistQuickOklchState()
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
                             modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 2.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
+                                .size(36.dp, 3.5.dp)
+                                .clip(CircleShape)
+                                .background(Morandi.subText.copy(alpha = 0.5f))
+                        )
+                    }
+
+                    Spacer(Modifier.height(2.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                             // 标题
                             Text(
                                 text = stringResource(R.string.quick_oklch_window_title),
@@ -426,7 +420,6 @@ fun QuickOklchWindow(
                                 PanelCloseButton(onClose = onClose)
                             }
                         }
-                    }
 
                     Spacer(Modifier.height(6.dp))
 

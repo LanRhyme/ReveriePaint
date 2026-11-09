@@ -1737,7 +1737,7 @@ fun DragPillHandle(
                     onDrag(dragAmount)
                 }
             },
-        contentAlignment = Alignment.TopCenter,
+        contentAlignment = Alignment.Center,
     ) {
         Box(
             modifier = Modifier

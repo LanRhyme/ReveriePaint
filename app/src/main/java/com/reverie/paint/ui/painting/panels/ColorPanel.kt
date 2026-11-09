@@ -348,22 +348,20 @@ private fun ColorPanelHeader(
     onColorDropEnd: ((Offset) -> Unit)? = null,
     onColorDropCancel: (() -> Unit)? = null,
 ) {
-    Box(
+    Column(
         modifier = Modifier.fillMaxWidth(),
-        contentAlignment = Alignment.Center
+        horizontalAlignment = Alignment.CenterHorizontally,
     ) {
         if (pinningEnabled) {
             // Drag Handle Pill (supports dragging to move panel freely)
             DragPillHandle(
                 onDrag = onDragHandle,
-                modifier = Modifier.align(Alignment.TopCenter)
             )
+            Spacer(Modifier.height(2.dp))
         }
 
         Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(top = 4.dp),
+            modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.SpaceBetween,
             verticalAlignment = Alignment.CenterVertically
         ) {

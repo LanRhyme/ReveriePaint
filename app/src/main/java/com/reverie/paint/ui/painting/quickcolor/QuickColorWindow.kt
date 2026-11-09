@@ -281,52 +281,46 @@ fun QuickColorWindow(
                 Column(
                     modifier = Modifier
                         .width(212.dp)
-                        .padding(horizontal = 8.dp, vertical = 7.dp),
+                        .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 6.dp),
                     horizontalAlignment = Alignment.CenterHorizontally,
                 ) {
-                    // 1. 顶部操作栏: 拖动手柄 + 标题与模型徽章 + 前背景双色重叠预览 + 关闭按钮
-                    Box(
-                        modifier = Modifier.fillMaxWidth(),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        DragPillHandle(
-                            onDrag = { dragAmount ->
-                                val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
-                                val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
-                                if (vm.quickColorWindowX < 0f) {
-                                    vm.quickColorWindowX = ((screenWidthPx - curW) / 2f).coerceAtLeast(0f)
-                                }
-                                if (vm.quickColorWindowY < 0f) {
-                                    vm.quickColorWindowY = ((screenHeightPx - curH) / 2f).coerceAtLeast(0f)
-                                }
-                                vm.quickColorWindowX += dragAmount.x
-                                vm.quickColorWindowY += dragAmount.y
-                                vm.clampQuickWindowsToSafeArea(
-                                    vm.floatingHostWidthPx,
-                                    vm.floatingHostHeightPx,
-                                    density.density,
-                                    persist = false,
-                                )
-                                vm.persistQuickColorState()
-                            },
-                            modifier = Modifier
-                                .align(Alignment.TopCenter)
-                                .onGloballyPositioned { coords ->
-                                    val root = windowCoords ?: return@onGloballyPositioned
-                                    val pos = root.localPositionOf(coords, Offset.Zero)
-                                    vm.quickColorGrip.update(
-                                        pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
-                                    )
-                                },
-                        )
+                    // 1. 顶部操作栏: 拖动手柄 (独立居中，避免与操作项重叠)
+                    DragPillHandle(
+                        onDrag = { dragAmount ->
+                            val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
+                            val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
+                            if (vm.quickColorWindowX < 0f) {
+                                vm.quickColorWindowX = ((screenWidthPx - curW) / 2f).coerceAtLeast(0f)
+                            }
+                            if (vm.quickColorWindowY < 0f) {
+                                vm.quickColorWindowY = ((screenHeightPx - curH) / 2f).coerceAtLeast(0f)
+                            }
+                            vm.quickColorWindowX += dragAmount.x
+                            vm.quickColorWindowY += dragAmount.y
+                            vm.clampQuickWindowsToSafeArea(
+                                vm.floatingHostWidthPx,
+                                vm.floatingHostHeightPx,
+                                density.density,
+                                persist = false,
+                            )
+                            vm.persistQuickColorState()
+                        },
+                        modifier = Modifier.onGloballyPositioned { coords ->
+                            val root = windowCoords ?: return@onGloballyPositioned
+                            val pos = root.localPositionOf(coords, Offset.Zero)
+                            vm.quickColorGrip.update(
+                                pos.x, pos.y, coords.size.width.toFloat(), coords.size.height.toFloat(),
+                            )
+                        },
+                    )
 
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .padding(top = 2.dp),
-                            horizontalArrangement = Arrangement.SpaceBetween,
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
+                    Spacer(Modifier.height(2.dp))
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
                             // 标题与跟随的主颜色模型徽标
                             Row(
                                 verticalAlignment = Alignment.CenterVertically,
@@ -451,7 +445,6 @@ fun QuickColorWindow(
                                 PanelCloseButton(onClose = onClose)
                             }
                         }
-                    }
 
                     Spacer(Modifier.height(4.dp))
 
