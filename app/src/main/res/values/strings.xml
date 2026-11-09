@@ -3743,7 +3743,7 @@
     <string name="onboarding_step1_title">侧边工具栏与笔刷工坊</string>
     <string name="onboarding_step1_desc">绘图工具核心控制区（笔刷、橡皮擦与涂抹）。技巧：再次轻点当前选中的笔刷图标，可立即呼出笔刷预设库与笔刷工坊；轻点底部「···」可展开全部扩展工具</string>
     <string name="onboarding_step2_title">调节滑块与调色板</string>
-    <string name="onboarding_step2_desc">上下滑动可即时调节笔刷尺寸与不透明度，中间方块支持快速吸色与常用工具切换。轻点最下方的颜色圆环可展开完整调色板（色轮、方块、调和色与色板库）</string>
+    <string name="onboarding_step2_desc">上下滑动双滑块可即时调节笔刷大小与不透明度（或流量）。轻点顶部的颜色圆圈可展开完整调色板（色轮、方块、OKLCH 与色板库），按住颜色圆圈拖拽至画布还支持快速丢色填充</string>
     <string name="onboarding_step2_slider_height_title">实时微调滑块长度</string>
     <string name="onboarding_step2_slider_height_hint">拖动即可调整滑块高度范围，两侧滑块将实时同步生效</string>
     <string name="onboarding_step3_title">快捷面板与辅助视图</string>

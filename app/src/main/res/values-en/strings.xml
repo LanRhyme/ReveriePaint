@@ -3744,7 +3744,7 @@
     <string name="onboarding_step1_title">Tool Rail &amp; Brush Studio</string>
     <string name="onboarding_step1_desc">Primary drawing tools (Brush, Eraser, Smudge). Tip: Tap the selected brush icon again to open Brush Presets &amp; Brush Studio; tap the bottom \"···\" to reveal all tools</string>
     <string name="onboarding_step2_title">Sliders &amp; Color Palette</string>
-    <string name="onboarding_step2_desc">Slide up/down to adjust brush size and opacity. The center square toggles the quick eyedropper. Tap the bottom color ring to open the full palette</string>
+    <string name="onboarding_step2_desc">Slide up/down to quickly adjust brush size and opacity (or flow). Tap the top color circle to open the full color palette (wheel, square, OKLCH, and palettes), or drag it onto the canvas for quick color drop fill</string>
     <string name="onboarding_step2_slider_height_title">Adjust Slider Length</string>
     <string name="onboarding_step2_slider_height_hint">Drag to adjust slider height in real time without entering settings</string>
     <string name="onboarding_step3_title">Quick Panels &amp; View Tools</string>
