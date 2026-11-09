@@ -1,0 +1,32 @@
+From d41e65582ba0d7fd2ef1526cb5491fa838692720 Mon Sep 17 00:00:00 2001
+From: LanRhyme <xiao_ren233@foxmail.com>
+Date: Mon, 9 Nov 2026 13:02:17 +0800
+Subject: [PATCH] =?UTF-8?q?fix(transaction):=20=E4=BA=8B=E5=8A=A1=E7=BB=93?=
+ =?UTF-8?q?=E6=9D=9F=E6=97=B6=E6=97=B6=E9=97=B4=E4=B8=8D=E4=B8=80=E8=87=B4?=
+ =?UTF-8?q?=E6=94=B9=E4=B8=BA=E5=AE=89=E5=85=A8=E8=AD=A6=E5=91=8A,=20?=
+ =?UTF-8?q?=E9=81=BF=E5=85=8D=E6=96=AD=E8=A8=80=E5=AF=BC=E8=87=B4=E8=BF=9B?=
+ =?UTF-8?q?=E7=A8=8B=20abort=20=E9=97=AA=E9=80=80?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ libs/image/kis_transaction_data.cpp | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/libs/image/kis_transaction_data.cpp b/libs/image/kis_transaction_data.cpp
+index b8efcd39..46bae07d 100644
+--- a/libs/image/kis_transaction_data.cpp
++++ b/libs/image/kis_transaction_data.cpp
+@@ -133,7 +133,7 @@ void KisTransactionData::endTransaction()
+ {
+     if(!m_d->transactionFinished) {
+         // make sure the time didn't change during the transaction
+-        KIS_ASSERT_RECOVER_RETURN(
++        KIS_SAFE_ASSERT_RECOVER_NOOP(
+             m_d->transactionTime == m_d->device->defaultBounds()->currentTime());
+ 
+         DEBUG_ACTION("Transaction ended");
+-- 
+2.56.0
+

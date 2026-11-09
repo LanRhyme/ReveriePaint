@@ -22,6 +22,7 @@
 | 0009 | `fix-android-kritaui` | Android 视频编码器改用空实现桩（无 MLT/FFmpeg），修复 `libkritaui.so` 链接失败 |
 | 0010 | `docs-REVERIE-PATCHES.md` | 在 fork 根目录加补丁层说明（提交清单 + 稳定契约） |
 | 0011 | `fix-memento-memento-SIGABRT` | 撤销/重做按 memento 身份校验：`rollforward()`/`rollback()` 身份不符时保持现状，`purgeHistory()` 摘掉 cancelled 里的悬垂条目；修「本地事务 revert 后重做」的瓦片装错帧（笔仙）与 `delete[]` SIGABRT |
+| 0012 | `fix-transaction-abort` | 事务结束时时间不一致改为安全警告（`KIS_SAFE_ASSERT_RECOVER_NOOP`），避免硬断言触发 `qFatal` 导致进程闪退 |
 
 ## 应用与重建
 

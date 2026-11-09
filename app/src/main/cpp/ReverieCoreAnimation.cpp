@@ -190,9 +190,12 @@ void ReverieCore::setAnimationCurrentTime(int time, bool recordUndo)
     KisImageAnimationInterface *anim = image->animationInterface();
     if (!anim || anim->currentTime() == time) return;
 
-    // 长事务 (变换预览 / 落笔还原补丁) 在创建时记下了当时的动画时间, 跨帧结束会撞上
-    // KisTransactionData::endTransaction 的时间一致性断言 (线上 7738948083)。
+    // 事务 (笔画 / 变换预览 / 落笔还原补丁) 在创建时记下了当时的动画时间, 跨帧结束会撞上
+    // KisTransactionData::endTransaction 的时间一致性断言 (线上 7738948083 与 4be2ecaef5)。
     // 时间要变之前先把它们收尾, 保证事务不会跨帧存活。
+    if (m_strokeBatchOpen || m_strokeTxnActive) {
+        touchStrokeEnd();
+    }
     if (!m_previewTransactions.isEmpty() || m_previewTransaction) {
         cancelTransformPreview();
     }

@@ -725,6 +725,10 @@ void ReverieCore::setCurrentLayer(int index)
     if (index < 0 || index >= m_layers.size() || index == m_currentLayer) {
         return;
     }
+    // 切换图层前收尾尚未结束的笔画事务, 避免事务绑定在旧层设备上跨层存活
+    if (m_strokeBatchOpen || m_strokeTxnActive) {
+        touchStrokeEnd();
+    }
     m_currentLayer = index;
     // 切换图层时清理各层可能残留的湿笔高度图，防止常驻内存膨胀与陈旧跨层累积
     for (const auto &e : m_layers) {
