@@ -210,7 +210,7 @@ fun OnboardingSpotlight(
         // 引导气泡卡片自适应定位与尺寸（手机紧凑，平板舒展）
         val cardMarginDp = if (isCompact) 10.dp else 16.dp
         val cardMarginPx = with(density) { cardMarginDp.toPx() }
-        val cardWidthDp = if (isCompact) minOf(330.dp, (config.screenWidthDp - 20).dp) else 390.dp
+        val cardWidthDp = if (isCompact) minOf(330.dp, (maxWidth - cardMarginDp * 2).coerceAtLeast(200.dp)) else 390.dp
         val cardWidthPx = with(density) { cardWidthDp.toPx() }
         val cardHeightPx = with(density) { (if (isCompact) 215.dp else 320.dp).toPx() }
 
@@ -383,7 +383,9 @@ private fun computeStepTargetRect(
                 val panelW = minOf(300f * density, screenWidth * 0.85f)
                 val panelTop = 44f * density
                 val estimatedLayersH = (44f + 36f + vm.layers.size.coerceIn(1, 8) * vm.layerRowHeightDp + 16f) * density
-                val panelHeight = estimatedLayersH.coerceIn(200f * density, screenHeight * 0.70f)
+                val minPanelH = minOf(200f * density, screenHeight * 0.70f)
+                val maxPanelH = maxOf(200f * density, screenHeight * 0.70f)
+                val panelHeight = estimatedLayersH.coerceIn(minPanelH, maxPanelH)
                 val panelLeft = if (vm.leftHandMode) 8f * density else screenWidth - panelW - 8f * density
                 Rect(
                     (panelLeft - padPx).coerceAtLeast(0f),
@@ -428,7 +430,7 @@ private fun computeStepTargetRect(
  * 1. 宽屏平板：当目标左/右侧有充足空间时，卡片横向并排贴合；
  * 2. 窄屏手机：水平并排必然遮挡高亮处，因此一律沿垂直方向（下方或上方）避让，绝不盖住高亮区域。
  */
-private fun computeCardPosition(
+internal fun computeCardPosition(
     step: Int,
     targetTop: Float,
     targetBottom: Float,
@@ -453,11 +455,12 @@ private fun computeCardPosition(
     val fitsHorizontally = !isCompact && (spaceRight >= cardWidthPx + marginPx || spaceLeft >= cardWidthPx + marginPx)
 
     if (fitsHorizontally) {
+        val maxAllowedX = (screenWidth - cardWidthPx - marginPx).coerceAtLeast(marginPx)
         when (step) {
             0, 1 -> {
                 // 侧边栏
                 if (targetRight < screenWidth * 0.5f) {
-                    x = (targetRight + marginPx).coerceAtMost(screenWidth - cardWidthPx - marginPx)
+                    x = (targetRight + marginPx).coerceAtMost(maxAllowedX)
                 } else {
                     x = (targetLeft - cardWidthPx - marginPx).coerceAtLeast(marginPx)
                 }
@@ -466,7 +469,7 @@ private fun computeCardPosition(
             2 -> {
                 // 快捷面板与视图工具
                 if (targetRight < screenWidth * 0.5f) {
-                    x = (targetRight + marginPx).coerceAtMost(screenWidth - cardWidthPx - marginPx)
+                    x = (targetRight + marginPx).coerceAtMost(maxAllowedX)
                 } else {
                     x = (targetLeft - cardWidthPx - marginPx).coerceAtLeast(marginPx)
                 }
@@ -475,7 +478,7 @@ private fun computeCardPosition(
             4 -> {
                 // 图层面板
                 if (targetRight < screenWidth * 0.5f) {
-                    x = (targetRight + marginPx).coerceAtMost(screenWidth - cardWidthPx - marginPx)
+                    x = (targetRight + marginPx).coerceAtMost(maxAllowedX)
                 } else {
                     x = (targetLeft - cardWidthPx - marginPx).coerceAtLeast(marginPx)
                 }
@@ -483,12 +486,14 @@ private fun computeCardPosition(
             }
             else -> {
                 x = (screenWidth - cardWidthPx) / 2f
-                y = if (step == 3 || step == 6) targetBottom + marginPx else (targetBottom + marginPx).coerceAtMost(screenHeight - cardHeightPx - marginPx)
+                val maxAllowedY = (screenHeight - cardHeightPx - marginPx).coerceAtLeast(marginPx)
+                y = if (step == 3 || step == 6) targetBottom + marginPx else (targetBottom + marginPx).coerceAtMost(maxAllowedY)
             }
         }
     } else {
         // 手机/窄屏模式：水平居中卡片，垂直方向根据上下剩余空间智能避让
-        x = ((screenWidth - cardWidthPx) / 2f).coerceIn(marginPx, screenWidth - cardWidthPx - marginPx)
+        val maxAllowedX = (screenWidth - cardWidthPx - marginPx).coerceAtLeast(marginPx)
+        x = ((screenWidth - cardWidthPx) / 2f).coerceIn(marginPx, maxAllowedX)
 
         when (step) {
             3, 6 -> {
@@ -519,8 +524,10 @@ private fun computeCardPosition(
     }
 
     // 屏幕安全边界约束
-    x = x.coerceIn(marginPx, (screenWidth - cardWidthPx - marginPx).coerceAtLeast(marginPx))
-    y = y.coerceIn(marginPx, (screenHeight - cardHeightPx - marginPx).coerceAtLeast(marginPx))
+    val maxBoundX = (screenWidth - cardWidthPx - marginPx).coerceAtLeast(marginPx)
+    val maxBoundY = (screenHeight - cardHeightPx - marginPx).coerceAtLeast(marginPx)
+    x = x.coerceIn(marginPx, maxBoundX)
+    y = y.coerceIn(marginPx, maxBoundY)
 
     return Pair(x, y)
 }
