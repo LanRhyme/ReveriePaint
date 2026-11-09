@@ -185,6 +185,25 @@ fun optimalTextColor(
 }
 
 /**
+ * Calibrates the accent color for light mode so that:
+ * 1. Default Morandi misty blue (#879ED1, lightness 67%) translates to rich Morandi French Blue (#5271AD)
+ * 2. Overly bright custom pastel colors are calibrated to ~50% lightness to maintain WCAG AA contrast against white surfaces
+ */
+fun adjustAccentForLightMode(accent: Color): Color {
+    val hsl = colorToHsl(accent)
+    // Default Morandi blue hue ~221°: map to calibrated light-mode French blue
+    if (hsl[0] in 210f..230f && hsl[2] > 0.60f) {
+        return Color(0xFF5271AD)
+    }
+    // Deepen high-lightness accents so white text and borders have strong contrast
+    return if (hsl[2] > 0.52f) {
+        hslToColor(hsl[0], (hsl[1] * 1.05f).coerceAtMost(1f), 0.50f)
+    } else {
+        accent
+    }
+}
+
+/**
  * Computes the semantic onAccent color for the given accent color.
  */
 fun computeOnAccent(accent: Color): Color = optimalTextColor(accent)
@@ -585,15 +604,21 @@ fun buildThemeColors(
         }
     }
 
-    val accentHi = if (isDark) {
-        blendColors(accent, Color.White, 0.18f)
+    val effectiveAccent = if (!isDark) {
+        adjustAccentForLightMode(accent)
     } else {
-        blendColors(accent, Color.Black, 0.12f)
+        accent
+    }
+
+    val accentHi = if (isDark) {
+        blendColors(effectiveAccent, Color.White, 0.18f)
+    } else {
+        blendColors(effectiveAccent, Color.Black, 0.14f)
     }
     return baseColors.copy(
-        accent = accent,
+        accent = effectiveAccent,
         accentHi = accentHi,
-        onAccent = computeOnAccent(accent),
+        onAccent = computeOnAccent(effectiveAccent),
     )
 }
 
