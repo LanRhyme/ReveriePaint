@@ -245,40 +245,38 @@ internal fun DrawScope.drawPanelsOverlay(
     val previewFill = PANEL_PREVIEW_FILL
     val defaults = vm.panelDefaults
 
-    // 0. 全局动态矢量边框常驻渲染:
-    // 边框彻底脱离位图像素层, 始终高帧率以纯矢量方式渲染在所有画层之上, 物理上绝不受画笔或橡皮擦除影响
-    for (m in mirrors) {
-        val r = panelCornerRadius(m, defaults)
-        val path = panelQuadPath(
-            m.meta.quad.roundedCorners(r),
-            bmpWidth, bmpHeight, scX, scY,
-        )
-        val style = m.meta.style
-        val bw = (style.borderWidth ?: defaults.borderWidth).toFloat()
-        val bc = Color(style.borderColor ?: defaults.borderColor)
-        if (bw > 0f) {
-            val strokePx = (bw * scX).coerceAtLeast(1f)
-            drawPath(path, bc, style = Stroke(width = strokePx, cap = StrokeCap.Round, join = StrokeJoin.Round))
-        }
-    }
-
-    // 0.5. 非分格工具 (画笔/橡皮等): 四角拖动点绝对不画; 保留可绘制区域提醒框
-    if (!toolActive) {
-        val activePids = vm.currentPaintingPanelIds()
-        val hintShadowStroke = panelHintShadowStroke
-        val safeBoundaryStroke = Stroke(width = (1f * scX).coerceAtLeast(1f))
+    // 0. 分格边框与安全边界提示渲染:
+    if (toolActive) {
+        // 分格工具激活时：始终高帧率以纯矢量方式渲染动态边框，以便手柄与形状调整时实时跟随
         for (m in mirrors) {
+            val r = panelCornerRadius(m, defaults)
             val path = panelQuadPath(
-                m.meta.quad.roundedCorners(panelCornerRadius(m, defaults)),
+                m.meta.quad.roundedCorners(r),
                 bmpWidth, bmpHeight, scX, scY,
             )
-            if (m.panelId in activePids) {
-                // 当前正选中的绘制图层所在格/组: 以高对比莫兰迪强调色勾勒安全作画边界
-                drawPath(path, Color(0x33000000), style = hintShadowStroke)
-                drawPath(path, PANEL_PAINT_HINT_COLOR, style = selStroke)
-            } else {
-                // 其余分格: 绘制极为轻微柔和的虚淡安全界线提醒 (0x38808080)
-                drawPath(path, Color(0x38808080), style = safeBoundaryStroke)
+            val style = m.meta.style
+            val bw = (style.borderWidth ?: defaults.borderWidth).toFloat()
+            val bc = Color(style.borderColor ?: defaults.borderColor)
+            if (bw > 0f) {
+                val strokePx = (bw * scX).coerceAtLeast(1f)
+                drawPath(path, bc, style = Stroke(width = strokePx, cap = StrokeCap.Round, join = StrokeJoin.Round))
+            }
+        }
+    } else {
+        // 非分格工具 (画笔/橡皮等): 不画常驻黑框 (由图层树内边框层根据 Z 轴层级自然合成, 允许上方画层正常破格覆盖)
+        val activePids = vm.currentPaintingPanelIds()
+        if (activePids.isNotEmpty()) {
+            val hintShadowStroke = panelHintShadowStroke
+            for (m in mirrors) {
+                if (m.panelId in activePids) {
+                    val path = panelQuadPath(
+                        m.meta.quad.roundedCorners(panelCornerRadius(m, defaults)),
+                        bmpWidth, bmpHeight, scX, scY,
+                    )
+                    // 当前正选中的绘制图层所在格/组: 以高对比莫兰迪强调色勾勒安全作画边界
+                    drawPath(path, Color(0x33000000), style = hintShadowStroke)
+                    drawPath(path, PANEL_PAINT_HINT_COLOR, style = selStroke)
+                }
             }
         }
         return

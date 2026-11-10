@@ -6428,8 +6428,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     safeBeginSymmetryUndoMacro()
                     clearPredictionState(triggerInvalidate = false)
                 }
-                val snappedDocPt = snapPointToPanelBorders(Point2D(docPos.x, docPos.y))
-                val targetDocPos = Offset(snappedDocPt.x, snappedDocPt.y)
+                val targetDocPos = docPos
                 firstDocPos = targetDocPos
                 smoothedPressure = pressure
                 currentStrokeDocPos = targetDocPos
