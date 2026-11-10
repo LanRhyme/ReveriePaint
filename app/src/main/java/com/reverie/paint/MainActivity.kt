@@ -54,7 +54,7 @@ class MainActivity : ComponentActivity() {
         const val ROUTE_OPEN_PROJECT = "open_project"
 
         /** 小组件/外部入口认可的工程后缀 */
-        private val PROJECT_EXTENSIONS = setOf("revp", "kra")
+        private val PROJECT_EXTENSIONS = setOf("revp", "kra", "psd")
 
         /** Apply (or remove) immersive mode on the UI thread. Immersive =
          *  edge-to-edge content (decor fits windows = false) plus hidden

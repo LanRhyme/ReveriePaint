@@ -84,7 +84,7 @@ object RecentProjectWidgetHelper {
         // 只认真正的工程文件。以前把 .png 也算成"最近画作"，于是工程目录里随手放的一张
         // 图片会顶到小组件上；点它 → loadProject 拿 png 当工程读 → 失败,
         // 用户平白收到一条"导入失败: 未能识别的文件格式" (issue: 从桌面小组件打开软件弹导入失败)。
-        val projectExts = listOf("revp", "kra")
+        val projectExts = listOf("revp", "kra", "psd")
 
         if (rootDir.exists()) {
             rootDir.listFiles()?.forEach { file ->
@@ -134,7 +134,7 @@ object RecentProjectWidgetHelper {
         if (!f.isFile) return null
         val ext = f.extension.lowercase()
         // 未知后缀不伪造 Project: 拿它去 loadProject 只会走失败分支弹"导入失败"
-        if (ext != "revp" && ext != "kra" && ext != "png") return null
+        if (ext != "revp" && ext != "kra" && ext != "png" && ext != "psd") return null
         var w = 1080
         var h = 1920
         var strokes = 0
@@ -181,6 +181,22 @@ object RecentProjectWidgetHelper {
                     hasRec = zip.getEntry("recording") != null
                 }
             } catch (_: Exception) {}
+        } else if (ext == "psd") {
+            val psdMeta = com.reverie.paint.core.PsdMetadataReader.readMetadata(f)
+            if (psdMeta != null) {
+                w = psdMeta.width
+                h = psdMeta.height
+                dpi = psdMeta.dpi
+                layerCount = psdMeta.layerCount
+                val cacheThumb = File(context.cacheDir, "${f.nameWithoutExtension}_thumb.png")
+                if (!cacheThumb.exists() || cacheThumb.lastModified() < f.lastModified()) {
+                    if (com.reverie.paint.core.PsdMetadataReader.extractThumbnail(f, cacheThumb)) {
+                        previewPath = cacheThumb.absolutePath
+                    }
+                } else {
+                    previewPath = cacheThumb.absolutePath
+                }
+            }
         } else if (ext == "png") {
             previewPath = f.absolutePath
             try {

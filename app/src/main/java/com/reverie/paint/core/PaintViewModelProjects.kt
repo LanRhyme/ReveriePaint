@@ -84,7 +84,7 @@ internal fun PaintViewModel.saveProject(
                 File(targetDir, "$name.revp")
             }
     val finalFile =
-        if (fileToSave.nameWithoutExtension != name) {
+        if (fileToSave.nameWithoutExtension != name || !fileToSave.extension.equals("revp", ignoreCase = true)) {
             File(fileToSave.parentFile, "$name.revp")
         } else {
             fileToSave
@@ -131,6 +131,9 @@ internal fun PaintViewModel.saveProject(
                 referenceStore.forgetPath(oldPath)
                 val oldFile = File(oldPath)
                 renameTimelapseData(oldFile, targetFile)
+                if (oldFile.exists() && oldFile.extension.equals("psd", ignoreCase = true)) {
+                    try { oldFile.delete() } catch (_: Throwable) {}
+                }
             }
             referenceStore.bind(targetFile.absolutePath, referenceProfile)
             initialStrokeCount = totalStrokes
@@ -667,6 +670,10 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                     val res = ReverieCoreBridge.loadRevp(file.absolutePath)
                     android.util.Log.d("RP_IO", "loadRevp returned $res, nativeDocW=${ReverieCoreBridge.docWidth()}, nativeDocH=${ReverieCoreBridge.docHeight()}, nativeLayers=${ReverieCoreBridge.layerCount()}")
                     res
+                } else if (file.extension.equals("psd", ignoreCase = true)) {
+                    val res = ReverieCoreBridge.loadPsd(file.absolutePath)
+                    android.util.Log.d("RP_IO", "loadPsd returned $res, nativeDocW=${ReverieCoreBridge.docWidth()}, nativeDocH=${ReverieCoreBridge.docHeight()}, nativeLayers=${ReverieCoreBridge.layerCount()}")
+                    res
                 } else {
                     ReverieCoreBridge.loadPng(file.absolutePath)
                 }
@@ -891,7 +898,7 @@ internal fun PaintViewModel.deleteProject(p: com.reverie.paint.model.Project) {
         val dir = File(p.filePath)
         if (dir.exists() && dir.isDirectory) {
             dir.walkTopDown().forEach { subFile ->
-                if (subFile.isFile && subFile.extension.lowercase() in listOf("revp", "kra")) {
+                if (subFile.isFile && subFile.extension.lowercase() in listOf("revp", "kra", "psd")) {
                     val subProj = com.reverie.paint.model.Project(
                         name = subFile.nameWithoutExtension.removeSuffix(".autosave"),
                         filePath = subFile.absolutePath,
@@ -950,7 +957,7 @@ internal fun PaintViewModel.deleteProjects(projects: List<com.reverie.paint.mode
             val dir = File(p.filePath)
             if (dir.exists() && dir.isDirectory) {
                 dir.walkTopDown().forEach { subFile ->
-                    if (subFile.isFile && subFile.extension.lowercase() in listOf("revp", "kra")) {
+                    if (subFile.isFile && subFile.extension.lowercase() in listOf("revp", "kra", "psd")) {
                         val subProj = com.reverie.paint.model.Project(
                             name = subFile.nameWithoutExtension.removeSuffix(".autosave"),
                             filePath = subFile.absolutePath,
@@ -1175,6 +1182,22 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
         } catch (e: Exception) {
             android.util.Log.e("ReveriePaint", "Failed to parse revp metadata: ${f.name}", e)
         }
+    } else if (ext == "psd") {
+        val psdMeta = PsdMetadataReader.readMetadata(f)
+        if (psdMeta != null) {
+            w = psdMeta.width
+            h = psdMeta.height
+            dpi = psdMeta.dpi
+            layerCount = psdMeta.layerCount
+            val cacheThumb = File(appContext.cacheDir, "${f.nameWithoutExtension}_thumb.png")
+            if (!cacheThumb.exists() || cacheThumb.lastModified() < f.lastModified()) {
+                if (PsdMetadataReader.extractThumbnail(f, cacheThumb)) {
+                    previewPath = cacheThumb.absolutePath
+                }
+            } else {
+                previewPath = cacheThumb.absolutePath
+            }
+        }
     } else if (ext == "png") {
         previewPath = f.absolutePath
     }
@@ -1260,7 +1283,7 @@ private fun PaintViewModel.buildProjectList(): List<com.reverie.paint.model.Proj
         if (!dir.exists()) return emptyList()
         val files: Array<File> =
             dir
-                .listFiles { f: File -> f.isFile && f.extension.lowercase() in listOf("revp", "kra", "png") }
+                .listFiles { f: File -> f.isFile && f.extension.lowercase() in listOf("revp", "kra", "psd", "png") }
                 ?.sortedByDescending { it.lastModified() }
                 ?.toTypedArray() ?: emptyArray()
 
@@ -1318,7 +1341,7 @@ private fun PaintViewModel.buildProjectList(): List<com.reverie.paint.model.Proj
             // Folder / Stack (画集)
             val subFiles: Array<File> =
                 entry
-                    .listFiles { f: File -> f.isFile && f.extension.lowercase() in listOf("revp", "kra", "png") }
+                    .listFiles { f: File -> f.isFile && f.extension.lowercase() in listOf("revp", "kra", "psd", "png") }
                     ?.sortedByDescending { it.lastModified() }
                     ?.toTypedArray() ?: emptyArray()
 
@@ -1353,7 +1376,7 @@ private fun PaintViewModel.buildProjectList(): List<com.reverie.paint.model.Proj
                     items = orderedSubProjects,
                 ),
             )
-        } else if (entry.isFile && entry.extension.lowercase() in listOf("revp", "kra", "png")) {
+        } else if (entry.isFile && entry.extension.lowercase() in listOf("revp", "kra", "psd", "png")) {
             list.add(parseProjectFromFile(entry))
         }
     }

@@ -100,6 +100,25 @@ object TemplateManager {
                                 } catch (e: Exception) {
                                     android.util.Log.w("TemplateManager", "Failed to extract thumbnail in loadTemplateData", e)
                                 }
+                            } else if (file.extension.lowercase() == "psd") {
+                                if (PsdMetadataReader.extractThumbnail(file, candidateThumb)) {
+                                    previewPath = candidateThumb.absolutePath
+                                    metaNeedsUpdate = true
+                                }
+                            }
+                        }
+                        var w = obj.optInt("width", 1080)
+                        var h = obj.optInt("height", 1920)
+                        var dpi = obj.optInt("dpi", 300)
+                        var layerCount = obj.optInt("layerCount", 1)
+                        if (file.extension.lowercase() == "psd" && (w == 1080 && h == 1920)) {
+                            val psdMeta = PsdMetadataReader.readMetadata(file)
+                            if (psdMeta != null && (psdMeta.width != 1080 || psdMeta.height != 1920 || psdMeta.layerCount > 1)) {
+                                w = psdMeta.width
+                                h = psdMeta.height
+                                dpi = psdMeta.dpi
+                                layerCount = psdMeta.layerCount
+                                metaNeedsUpdate = true
                             }
                         }
                         templates.add(
@@ -109,10 +128,10 @@ object TemplateManager {
                                 category = obj.optString("category", CATEGORY_UNCATEGORIZED),
                                 filePath = filePath,
                                 previewPath = previewPath,
-                                width = obj.optInt("width", 1080),
-                                height = obj.optInt("height", 1920),
-                                dpi = obj.optInt("dpi", 300),
-                                layerCount = obj.optInt("layerCount", 1),
+                                width = w,
+                                height = h,
+                                dpi = dpi,
+                                layerCount = layerCount,
                                 description = obj.optString("description", ""),
                                 createdAt = obj.optLong("createdAt", System.currentTimeMillis()),
                                 isAnimation = obj.optBoolean("isAnimation", false),
@@ -267,6 +286,7 @@ object TemplateManager {
         uri: Uri,
         targetCategory: String,
         customName: String? = null,
+        vm: PaintViewModel? = null,
     ): CanvasTemplate? = withContext(Dispatchers.IO) {
         try {
             val contentResolver = context.contentResolver
@@ -276,7 +296,7 @@ object TemplateManager {
 
             val dir = getTemplatesDir(context)
             val id = UUID.randomUUID().toString()
-            val templateFile = File(dir, "$id.$ext")
+            var templateFile = File(dir, "$id.$ext")
             val thumbFile = File(dir, "${id}_thumb.png")
 
             // 复制文件到 templates 目录
@@ -320,6 +340,38 @@ object TemplateManager {
                     }
                 } catch (e: Exception) {
                     android.util.Log.w("TemplateManager", "Failed to parse zip template meta", e)
+                }
+            } else if (ext == "psd") {
+                val psdMeta = PsdMetadataReader.readMetadata(templateFile)
+                if (psdMeta != null) {
+                    w = psdMeta.width
+                    h = psdMeta.height
+                    dpi = psdMeta.dpi
+                    layerCount = psdMeta.layerCount
+                }
+                PsdMetadataReader.extractThumbnail(templateFile, thumbFile)
+
+                if (vm != null) {
+                    val revpFile = File(dir, "$id.revp")
+                    val converted = vm.convertViaCore(templateFile, revpFile, templateName, "psd")
+                    if (converted && revpFile.exists() && revpFile.length() > 0L) {
+                        try { templateFile.delete() } catch (_: Exception) {}
+                        templateFile = revpFile
+                        if (!thumbFile.exists() || thumbFile.length() == 0L) {
+                            try {
+                                ZipFile(revpFile).use { zf ->
+                                    val thumbEntry = zf.getEntry("thumbnail.png")
+                                        ?: zf.getEntry("preview.png")
+                                        ?: zf.getEntry("mergedimage.png")
+                                    if (thumbEntry != null) {
+                                        zf.getInputStream(thumbEntry).use { input ->
+                                            FileOutputStream(thumbFile).use { output -> input.copyTo(output) }
+                                        }
+                                    }
+                                }
+                            } catch (_: Exception) {}
+                        }
+                    }
                 }
             }
 
@@ -367,19 +419,32 @@ object TemplateManager {
 
         val timeTag = SimpleDateFormat("MMdd_HHmm", Locale.getDefault()).format(Date())
         var targetName = "${template.name}_$timeTag"
-        var targetFile = File(targetDir, "$targetName.${srcFile.extension}")
+        val isPsd = srcFile.extension.lowercase() == "psd"
+        val targetExt = if (isPsd) "revp" else srcFile.extension
+        var targetFile = File(targetDir, "$targetName.$targetExt")
         var counter = 1
         while (targetFile.exists()) {
             targetName = "${template.name}_${timeTag}_$counter"
-            targetFile = File(targetDir, "$targetName.${srcFile.extension}")
+            targetFile = File(targetDir, "$targetName.$targetExt")
             counter++
         }
 
-        try {
-            srcFile.copyTo(targetFile, overwrite = false)
-        } catch (e: Exception) {
-            android.util.Log.e("TemplateManager", "Failed to copy template to project", e)
-            return@withContext null
+        var projectCreated = false
+        if (isPsd) {
+            val converted = vm.convertViaCore(srcFile, targetFile, targetName, "psd")
+            if (converted && targetFile.exists() && targetFile.length() > 0L) {
+                projectCreated = true
+            }
+        }
+        if (!projectCreated) {
+            targetFile = File(targetDir, "$targetName.${srcFile.extension}")
+            try {
+                srcFile.copyTo(targetFile, overwrite = false)
+                projectCreated = true
+            } catch (e: Exception) {
+                android.util.Log.e("TemplateManager", "Failed to copy template to project", e)
+                return@withContext null
+            }
         }
 
         Project(

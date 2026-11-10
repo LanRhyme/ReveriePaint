@@ -90,6 +90,7 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.PsdMetadataReader
 import com.reverie.paint.core.TemplateManager
 import com.reverie.paint.core.loadProject
 import com.reverie.paint.model.CanvasTemplate
@@ -148,7 +149,7 @@ fun TemplateStudioSection(
         if (uri != null) {
             coroutineScope.launch {
                 val targetCat = if (selectedCategory == TemplateManager.CATEGORY_ALL) TemplateManager.CATEGORY_UNCATEGORIZED else selectedCategory
-                val imported = TemplateManager.importExternalTemplate(context, uri, targetCat)
+                val imported = TemplateManager.importExternalTemplate(context, uri, targetCat, vm = vm)
                 if (imported != null) {
                     Toast.makeText(context, context.resources.getString(R.string.template_import_success, imported.name), Toast.LENGTH_SHORT).show()
                     refreshData()
@@ -764,6 +765,10 @@ private fun rememberTemplateThumbnail(template: CanvasTemplate): Bitmap? {
                                 }
                             }
                         } catch (_: Exception) {}
+                    } else if (file.extension.lowercase() == "psd") {
+                        if (PsdMetadataReader.extractThumbnail(file, cand)) {
+                            path = cand.absolutePath
+                        }
                     }
                 }
             }

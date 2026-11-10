@@ -431,7 +431,7 @@ fun PaintViewModel.importDocuments(
     }
 }
 
-private suspend fun PaintViewModel.convertViaCore(
+internal suspend fun PaintViewModel.convertViaCore(
     srcFile: File,
     destFile: File,
     name: String,
