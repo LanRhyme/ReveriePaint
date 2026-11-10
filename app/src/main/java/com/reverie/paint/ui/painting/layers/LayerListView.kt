@@ -479,7 +479,11 @@ internal fun LayerListView(
                         } else if (!isIndented && fromIsNested && parentGroup != null) {
                             val grpVisualIdx = remaining.indexOfFirst { it.index == parentGroup.index }
                             if (grpVisualIdx >= 0 && insert <= grpVisualIdx) {
-                                vm.moveLayersRelative(batch, parentGroup.index, placeAbove = true)
+                                if (nonDraggedNext.depth < parentGroup.depth) {
+                                    vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
+                                } else {
+                                    vm.moveLayersRelative(batch, parentGroup.index, placeAbove = true)
+                                }
                             } else {
                                 vm.moveLayersRelative(batch, parentGroup.index, placeAbove = false)
                             }

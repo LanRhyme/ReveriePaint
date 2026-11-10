@@ -14,6 +14,7 @@ import androidx.compose.ui.graphics.drawscope.translate
 import androidx.compose.ui.unit.Density
 import androidx.compose.ui.unit.LayoutDirection
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.currentPaintingPanelIds
 import com.reverie.paint.core.panels
 import com.reverie.paint.core.selectedPanelId
 import com.reverie.paint.model.CanvasDecorGeometry
@@ -159,7 +160,7 @@ internal class FrontBufferDecorRecorder(private val view: CanvasTouchView) {
         val imgH = CanvasDecorGeometry.overlayBitmapSize(v.renderH, v.docHeight)
         if (imgW <= 0 || imgH <= 0) return false
         if (CanvasDecorGeometry.guidesVisible(v.drawingGuide)) return true
-        if (v.panels.isNotEmpty()) return true
+        if (v.panels.isNotEmpty() && v.currentPaintingPanelIds().isNotEmpty()) return true
         return v.selectionOutlinePath != null && CanvasDecorGeometry.selectionOutlineVisible(
             hasSelection = v.hasSelection,
             isTransform = isTransform,
@@ -213,7 +214,7 @@ internal class FrontBufferDecorRecorder(private val view: CanvasTouchView) {
         )
         val imgW = CanvasDecorGeometry.overlayBitmapSize(v.renderW, v.docWidth).toFloat()
         val imgH = CanvasDecorGeometry.overlayBitmapSize(v.renderH, v.docHeight).toFloat()
-        val panelsOn = v.panels.isNotEmpty() && imgW > 0f && imgH > 0f
+        val panelsOn = v.panels.isNotEmpty() && v.currentPaintingPanelIds().isNotEmpty() && imgW > 0f && imgH > 0f
         val overlayOn = (guidesOn || antsOn || panelsOn) && imgW > 0f && imgH > 0f
 
         val under = if (gridOn) {
