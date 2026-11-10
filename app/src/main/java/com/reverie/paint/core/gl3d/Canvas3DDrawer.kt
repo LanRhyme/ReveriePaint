@@ -163,6 +163,7 @@ class Canvas3DDrawer {
             RenderMode3D.WIREFRAME -> {
                 val indices = mesh.indices
                 val edgeTris = mesh.wireframeEdgeTriangles
+                val vertexCount = positions.size / 3
 
                 // 标记正面朝向的三角形并收集深度
                 var visibleCount = 0
@@ -170,6 +171,9 @@ class Canvas3DDrawer {
                     val i0 = indices[t * 3]
                     val i1 = indices[t * 3 + 1]
                     val i2 = indices[t * 3 + 2]
+                    if (i0 !in 0 until vertexCount || i1 !in 0 until vertexCount || i2 !in 0 until vertexCount) {
+                        continue
+                    }
 
                     val x0 = screenX[i0]; val y0 = screenY[i0]
                     val x1 = screenX[i1]; val y1 = screenY[i1]
@@ -194,6 +198,9 @@ class Canvas3DDrawer {
                     val i0 = indices[t * 3]
                     val i1 = indices[t * 3 + 1]
                     val i2 = indices[t * 3 + 2]
+                    if (i0 !in 0 until vertexCount || i1 !in 0 until vertexCount || i2 !in 0 until vertexCount) {
+                        continue
+                    }
 
                     triPath.rewind()
                     triPath.moveTo(screenX[i0], screenY[i0])
@@ -212,15 +219,19 @@ class Canvas3DDrawer {
                 for (k in 0 until lineCount) {
                     val t0 = if (k * 2 < edgeTris.size) edgeTris[k * 2] else -1
                     val t1 = if (k * 2 + 1 < edgeTris.size) edgeTris[k * 2 + 1] else -1
-                    val isVisible = (t0 >= 0 && triangleIsFront[t0]) || (t1 >= 0 && triangleIsFront[t1]) || (t0 < 0 && t1 < 0)
+                    val isVisible = (t0 in 0 until triCount && triangleIsFront[t0]) ||
+                                    (t1 in 0 until triCount && triangleIsFront[t1]) ||
+                                    (t0 < 0 && t1 < 0)
 
                     if (isVisible) {
                         val i1 = wireIndices[k * 2]
                         val i2 = wireIndices[k * 2 + 1]
-                        linePts[pIdx++] = screenX[i1]
-                        linePts[pIdx++] = screenY[i1]
-                        linePts[pIdx++] = screenX[i2]
-                        linePts[pIdx++] = screenY[i2]
+                        if (i1 in 0 until vertexCount && i2 in 0 until vertexCount) {
+                            linePts[pIdx++] = screenX[i1]
+                            linePts[pIdx++] = screenY[i1]
+                            linePts[pIdx++] = screenX[i2]
+                            linePts[pIdx++] = screenY[i2]
+                        }
                     }
                 }
                 if (pIdx > 0) {
@@ -233,6 +244,7 @@ class Canvas3DDrawer {
                 val normals = mesh.normals
                 val hasNormals = normals.isNotEmpty()
                 val isSphere = (state.modelType == "sphere" && hasNormals)
+                val vertexCount = positions.size / 3
 
                 // 背面剔除与深度排序收集
                 var visibleCount = 0
@@ -240,6 +252,9 @@ class Canvas3DDrawer {
                     val i0 = indices[t * 3]
                     val i1 = indices[t * 3 + 1]
                     val i2 = indices[t * 3 + 2]
+                    if (i0 !in 0 until vertexCount || i1 !in 0 until vertexCount || i2 !in 0 until vertexCount) {
+                        continue
+                    }
 
                     val x0 = screenX[i0]; val y0 = screenY[i0]
                     val x1 = screenX[i1]; val y1 = screenY[i1]
@@ -263,6 +278,9 @@ class Canvas3DDrawer {
                     val i0 = indices[t * 3]
                     val i1 = indices[t * 3 + 1]
                     val i2 = indices[t * 3 + 2]
+                    if (i0 !in 0 until vertexCount || i1 !in 0 until vertexCount || i2 !in 0 until vertexCount) {
+                        continue
+                    }
 
                     var nx = 0f; var ny = 0f; var nz = 1f
 

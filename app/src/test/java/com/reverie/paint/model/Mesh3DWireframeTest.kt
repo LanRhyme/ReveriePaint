@@ -134,6 +134,31 @@ class Mesh3DWireframeTest {
         assertEquals(1, mesh.triangleCount)
     }
 
+    @Test
+    fun `extractWireframeIndices skips models exceeding MAX_WIREFRAME_TRIANGLES`() {
+        val largeIndices = IntArray((MAX_WIREFRAME_TRIANGLES + 1) * 3) { 0 }
+        val wire = Mesh3D.extractWireframeIndices(largeIndices)
+        assertEquals(0, wire.size)
+    }
+
+    @Test
+    fun `extractWireframeIndices handles indices above 32767 correctly`() {
+        // 验证无符号索引 > 32767 时边去重正常工作且不发生符号溢出错误
+        val indices = intArrayOf(
+            32768, 32769, 32770,
+            32768, 32770, 32771
+        )
+        val wire = Mesh3D.extractWireframeIndices(indices)
+        assertEquals(10, wire.size)
+        val edges = wire.toList().chunked(2).map { it[0] to it[1] }.toSet()
+        assertEquals(5, edges.size)
+        assertTrue((32768 to 32769) in edges)
+        assertTrue((32768 to 32770) in edges)
+        assertTrue((32769 to 32770) in edges)
+        assertTrue((32770 to 32771) in edges)
+        assertTrue((32768 to 32771) in edges)
+    }
+
     private fun buildGrid(nx: Int, ny: Int): Pair<FloatArray, IntArray> {
         val positions = ArrayList<Float>()
         for (y in 0..ny) {

@@ -161,9 +161,9 @@ object GlbParser {
                     result[out + c] = when (componentType) {
                         5121 -> slice.get().toInt() and 0xFF
                         5123 -> slice.short.toInt() and 0xFFFF
-                        5125 -> slice.int
-                        5120 -> slice.get().toInt()
-                        5122 -> slice.short.toInt()
+                        5125 -> slice.int and 0x7FFFFFFF
+                        5120 -> slice.get().toInt() and 0xFF
+                        5122 -> slice.short.toInt() and 0xFFFF
                         else -> return IntArray(0)
                     }
                 }
@@ -206,6 +206,9 @@ object GlbParser {
                     val count = pos.size / 3
                     posChunks.add(pos)
                     vertexCount += count
+                    if (vertexCount > MAX_3D_VERTICES) {
+                        throw MeshTooLargeException("模型顶点数超过上限 ($MAX_3D_VERTICES)")
+                    }
 
                     val norm = if (attrs.has("NORMAL")) getAccessorFloats(attrs.getInt("NORMAL")) else FloatArray(0)
                     if (norm.size == pos.size) {
@@ -222,6 +225,9 @@ object GlbParser {
                     }
                     idxChunks.add(idx)
                     triangleVertexCount += idx.size
+                    if (triangleVertexCount / 3 > MAX_3D_TRIANGLES) {
+                        throw MeshTooLargeException("模型三角面数超过上限 ($MAX_3D_TRIANGLES)")
+                    }
 
                     val j = if (attrs.has("JOINTS_0")) getAccessorInts(attrs.getInt("JOINTS_0")) else IntArray(0)
                     if (j.size >= count * 4) {

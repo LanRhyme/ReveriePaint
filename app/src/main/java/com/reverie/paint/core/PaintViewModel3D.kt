@@ -104,7 +104,7 @@ internal fun PaintViewModel.getSkinnedModelForState(state: Model3DState): Skinne
                             else -> null
                         }
                     }
-                } catch (e: Exception) {
+                } catch (e: Throwable) {
                     Log.e("RP_3D", "Failed to parse imported skinned model from: $key", e)
                     null
                 }
@@ -530,6 +530,12 @@ internal fun PaintViewModel.create3DLayerFromFile(
         } catch (e: com.reverie.paint.model.MeshTooLargeException) {
             // 规模超预算: 明确告知用户, 不要静默失败 (否则用户只看到"没反应")
             Log.w("RP_3D", "3D model too large: $fileName", e)
+            withContext(Dispatchers.Main.immediate) {
+                showActionToast(R.string.toast_3d_model_too_large)
+            }
+            return@launch
+        } catch (e: OutOfMemoryError) {
+            Log.e("RP_3D", "Out of memory while parsing 3D model: $fileName", e)
             withContext(Dispatchers.Main.immediate) {
                 showActionToast(R.string.toast_3d_model_too_large)
             }

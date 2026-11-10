@@ -53,6 +53,15 @@ object PmxParser {
             }
         }
 
+        fun readVertexIndex(size: Int): Int {
+            return when (size) {
+                1 -> buf.get().toInt() and 0xFF
+                2 -> buf.short.toInt() and 0xFFFF
+                4 -> buf.int
+                else -> buf.get().toInt() and 0xFF
+            }
+        }
+
         // 跳过模型名称与注释
         readPmxString() // Name (JP)
         readPmxString() // Name (EN)
@@ -61,6 +70,9 @@ object PmxParser {
 
         // 2. 解析顶点数据 (Vertices)
         val vertexCount = buf.int
+        if (vertexCount > MAX_3D_VERTICES) {
+            throw MeshTooLargeException("模型顶点数超过上限 ($MAX_3D_VERTICES)")
+        }
         val positions = FloatArray(vertexCount * 3)
         val normals = FloatArray(vertexCount * 3)
         val jointIndices = IntArray(vertexCount * 4) { 0 }
@@ -131,15 +143,18 @@ object PmxParser {
 
         // 3. 解析三角面索引 (Surfaces)
         val surfaceCount = buf.int
+        if (surfaceCount / 3 > MAX_3D_TRIANGLES) {
+            throw MeshTooLargeException("模型三角面数超过上限 ($MAX_3D_TRIANGLES)")
+        }
         val indices = IntArray(surfaceCount)
         for (i in 0 until surfaceCount step 3) {
             // MMD 顺时针三角形，转换顶点顺序反转为逆时针
-            val i0 = readIndex(vertexIdxSize)
-            val i1 = readIndex(vertexIdxSize)
-            val i2 = readIndex(vertexIdxSize)
-            indices[i] = i0
-            indices[i + 1] = i2
-            indices[i + 2] = i1
+            val i0 = readVertexIndex(vertexIdxSize)
+            val i1 = readVertexIndex(vertexIdxSize)
+            val i2 = readVertexIndex(vertexIdxSize)
+            indices[i] = if (i0 in 0 until vertexCount) i0 else 0
+            indices[i + 1] = if (i2 in 0 until vertexCount) i2 else 0
+            indices[i + 2] = if (i1 in 0 until vertexCount) i1 else 0
         }
 
         // 4. 跳过材质与纹理

@@ -15,12 +15,16 @@ import kotlin.math.*
 private val OBJ_TOKEN_SEPARATOR = Regex("\\s+")
 
 /**
- * OBJ 规模上限。超过这个量级, 顶点/索引/线框三份数组加起来的峰值内存会顶到 Android
+ * 3D 模型规模上限。超过这个量级, 顶点/索引/线框三份数组加起来的峰值内存会顶到 Android
  * 的 Java 堆上限 (线上 3bde27f5cc 在 2480x3508 画布下解析大模型 OOM)。
  * 宁可给用户一条明确提示, 也不要静默 OOM 或把首帧画到 ANR。
  */
-private const val MAX_OBJ_VERTICES = 200_000
-private const val MAX_OBJ_TRIANGLES = 400_000
+const val MAX_3D_VERTICES = 200_000
+const val MAX_3D_TRIANGLES = 400_000
+const val MAX_WIREFRAME_TRIANGLES = 120_000
+
+private const val MAX_OBJ_VERTICES = MAX_3D_VERTICES
+private const val MAX_OBJ_TRIANGLES = MAX_3D_TRIANGLES
 
 /** 模型规模超出内存/交互预算。调用方应提示用户模型过大, 而不是静默兜底成方块。 */
 class MeshTooLargeException(message: String) : IllegalStateException(message)
@@ -130,6 +134,55 @@ private class LongLongMap(expected: Int = 1024) {
 }
 
 /**
+ * 开放寻址的 long 集合 (无装箱开销), 用 EMPTY (Long.MIN_VALUE) 表示槽位为空。
+ * 专供 extractWireframeIndices 等边去重场景, 相比 LongLongMap 减半内存占用。
+ */
+private class LongSet(expected: Int = 1024) {
+    private var keys: LongArray
+    private var mask: Int
+    private var count = 0
+
+    init {
+        var cap = 16
+        val want = expected.coerceAtLeast(16)
+        while (cap < want * 2) cap = cap shl 1
+        keys = LongArray(cap) { EMPTY }
+        mask = cap - 1
+    }
+
+    /** 插入 key。若之前不存在返回 true, 若已存在返回 false。 */
+    fun add(key: Long): Boolean {
+        var idx = (key xor (key ushr 32)).toInt() and mask
+        while (true) {
+            val k = keys[idx]
+            if (k == EMPTY) {
+                keys[idx] = key
+                count++
+                if (count * 3 > keys.size * 2) grow()
+                return true
+            }
+            if (k == key) return false
+            idx = (idx + 1) and mask
+        }
+    }
+
+    private fun grow() {
+        val oldKeys = keys
+        val cap = oldKeys.size shl 1
+        keys = LongArray(cap) { EMPTY }
+        mask = cap - 1
+        count = 0
+        for (k in oldKeys) {
+            if (k != EMPTY) add(k)
+        }
+    }
+
+    private companion object {
+        const val EMPTY = Long.MIN_VALUE
+    }
+}
+
+/**
  * 3D 几何网格数据 (顶点位置、法线、三角面索引与线框线段索引)
  */
 class Mesh3D(
@@ -197,36 +250,40 @@ class Mesh3D(
         fun computeEdgeTriangles(triangleIndices: IntArray, wireIndices: IntArray): IntArray {
             val lineCount = wireIndices.size / 2
             val result = IntArray(lineCount * 2) { -1 }
-            if (lineCount == 0) return result
+            if (lineCount == 0 || wireIndices.isEmpty()) return result
             val triCount = triangleIndices.size / 3
             if (triCount == 0) return result
 
-            // 旧实现对每条线框边全量扫一遍三角面 (O(边 × 面)): 大模型在 onDraw 里能把
-            // 主线程卡到 ANR (线上 9fc2dbca2e)。这里只遍历一次三角面, 用开放寻址的
-            // long->long 表存 "边 -> (三角面0, 三角面1)", 两个槽位打包进一个 long。
-            val edgeTri = LongLongMap(triCount * 3 / 2)
-            var t = 0
-            while (t < triCount) {
-                val a = triangleIndices[t * 3]
-                val b = triangleIndices[t * 3 + 1]
-                val c = triangleIndices[t * 3 + 2]
-                registerEdgeTriangle(edgeTri, a, b, t)
-                registerEdgeTriangle(edgeTri, b, c, t)
-                registerEdgeTriangle(edgeTri, c, a, t)
-                t++
-            }
-
-            var k = 0
-            while (k < lineCount) {
-                val packed = edgeTri.get(objEdgeKey(wireIndices[k * 2], wireIndices[k * 2 + 1]))
-                if (packed >= 0) {
-                    result[k * 2] = (packed and 0xFFFFFFFFL).toInt() - 1
-                    val second = (packed ushr 32).toInt() - 1
-                    if (second >= 0) result[k * 2 + 1] = second
+            return try {
+                // 旧实现对每条线框边全量扫一遍三角面 (O(边 × 面)): 大模型在 onDraw 里能把
+                // 主线程卡到 ANR (线上 9fc2dbca2e)。这里只遍历一次三角面, 用开放寻址的
+                // long->long 表存 "边 -> (三角面0, 三角面1)", 两个槽位打包进一个 long。
+                val edgeTri = LongLongMap(triCount * 3 / 2)
+                var t = 0
+                while (t < triCount) {
+                    val a = triangleIndices[t * 3]
+                    val b = triangleIndices[t * 3 + 1]
+                    val c = triangleIndices[t * 3 + 2]
+                    registerEdgeTriangle(edgeTri, a, b, t)
+                    registerEdgeTriangle(edgeTri, b, c, t)
+                    registerEdgeTriangle(edgeTri, c, a, t)
+                    t++
                 }
-                k++
+
+                var k = 0
+                while (k < lineCount) {
+                    val packed = edgeTri.get(objEdgeKey(wireIndices[k * 2], wireIndices[k * 2 + 1]))
+                    if (packed >= 0) {
+                        result[k * 2] = (packed and 0xFFFFFFFFL).toInt() - 1
+                        val second = (packed ushr 32).toInt() - 1
+                        if (second >= 0) result[k * 2 + 1] = second
+                    }
+                    k++
+                }
+                result
+            } catch (_: OutOfMemoryError) {
+                result
             }
-            return result
         }
 
         /** 顶点对 -> 无向边键 (低 32 位小索引, 高 32 位大索引) */
@@ -247,32 +304,41 @@ class Mesh3D(
                 edgeTri.put(key, previous or (slot shl 32))
             }
         }
+
         /**
          * 提取三角形网格中不重复的边缘线段，构造线框索引
          */
         fun extractWireframeIndices(triangleIndices: IntArray): IntArray {
-            // 用不装箱的 long 集合去重: 旧实现 HashSet<Long> + ArrayList<Int> 在十几万面的
-            // 模型上会把堆顶爆 (线上 3bde27f5cc 的 OOM 栈就在这条路径)。
             val triCount = triangleIndices.size / 3
-            val seen = LongLongMap(triCount * 3 / 2)
-            val lineIndices = IntGrow(triCount * 3)
-
-            var i = 0
-            while (i + 2 < triangleIndices.size) {
-                addWireEdge(seen, lineIndices, triangleIndices[i], triangleIndices[i + 1])
-                addWireEdge(seen, lineIndices, triangleIndices[i + 1], triangleIndices[i + 2])
-                addWireEdge(seen, lineIndices, triangleIndices[i + 2], triangleIndices[i])
-                i += 3
+            if (triCount == 0) return IntArray(0)
+            // 超过上限的大模型跳过线框提取，避免连续大数组申请导致 JVM 堆 OOM
+            if (triCount > MAX_WIREFRAME_TRIANGLES) {
+                return IntArray(0)
             }
-            return lineIndices.toArray()
+
+            return try {
+                // 使用不装箱的 LongSet 开放寻址集合单遍插入去重，相比 LongLongMap 减半内存
+                val seen = LongSet(triCount * 3 / 2)
+                val lineIndices = IntGrow(triCount * 3)
+
+                var i = 0
+                while (i + 2 < triangleIndices.size) {
+                    addWireEdge(seen, lineIndices, triangleIndices[i], triangleIndices[i + 1])
+                    addWireEdge(seen, lineIndices, triangleIndices[i + 1], triangleIndices[i + 2])
+                    addWireEdge(seen, lineIndices, triangleIndices[i + 2], triangleIndices[i])
+                    i += 3
+                }
+                lineIndices.toArray()
+            } catch (_: OutOfMemoryError) {
+                IntArray(0)
+            }
         }
 
-        private fun addWireEdge(seen: LongLongMap, out: IntGrow, i1: Int, i2: Int) {
+        private fun addWireEdge(seen: LongSet, out: IntGrow, i1: Int, i2: Int) {
             val lo = min(i1, i2)
             val hi = max(i1, i2)
             val key = (lo.toLong() shl 32) or (hi.toLong() and 0xFFFFFFFFL)
-            if (seen.get(key) < 0) {
-                seen.put(key, 1L)
+            if (seen.add(key)) {
                 out.add(lo)
                 out.add(hi)
             }
