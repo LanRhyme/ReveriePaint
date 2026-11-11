@@ -66,4 +66,97 @@ object AnimationLayerOps {
     /** [ids] 里 id 为 [id] 的下标; 找不到(图层已被删除)返回 -1。 */
     fun indexOfLayerId(ids: List<Long>, id: Long): Int =
         if (id == NO_LAYER) -1 else ids.indexOf(id)
+
+    // ==================== 时间轴轨道编排与层级结构 ====================
+
+    /**
+     * 构造动画时间轴上展示的图层轨道列表 (按树形层级排序, 过滤空组, 遵循折叠状态)。
+     *
+     * 规则:
+     * 1. 顶层图层自顶向下排列 (底层在最下, 顶层在最上, 对应画布视觉堆叠顺序)。
+     * 2. 当遇到图层组时:
+     *    - 若为空图层组 (内部无任何普通图层), 则整组过滤, 不占时间轴轨道 (引擎中组本身不可动画化)。
+     *    - 若非空, 则先产出图层组轨道 (作为组头轨道)。
+     *    - 若该组未被折叠, 则递归产出其内部子图层 (子图层紧跟组头下方, 保持树形层级关系)。
+     *    - 若该组已折叠, 则其子图层不占行。
+     *
+     * @param allLayers 完整的图层列表 (自底向上顺序, 即底层 index 0, 顶层 index n-1)
+     * @param depthOf 获取图层深度 (0 起)
+     * @param isGroupOf 判定图层是否为组
+     * @param nameOf 获取图层名
+     * @param collapsedNames 折叠状态的组名集合
+     */
+    fun <T> buildTimelineTracks(
+        allLayers: List<T>,
+        depthOf: (T) -> Int,
+        isGroupOf: (T) -> Boolean,
+        nameOf: (T) -> String,
+        collapsedNames: Set<String>,
+    ): List<T> {
+        if (allLayers.isEmpty()) return emptyList()
+        val n = allLayers.size
+
+        fun hasNonGroupDescendants(lo: Int, hi: Int): Boolean {
+            for (i in lo until hi) {
+                if (!isGroupOf(allLayers[i])) return true
+            }
+            return false
+        }
+
+        val out = ArrayList<T>(n)
+        val minDepth = allLayers.minOfOrNull(depthOf) ?: 0
+
+        fun collectBlock(lo: Int, hi: Int, parentDepth: Int) {
+            val siblings = ArrayList<Int>()
+            for (j in lo until hi) {
+                if (depthOf(allLayers[j]) == parentDepth + 1) {
+                    siblings.add(j)
+                }
+            }
+            for (k in siblings.indices.reversed()) {
+                val j = siblings[k]
+                val item = allLayers[j]
+                if (isGroupOf(item)) {
+                    val e = (j + 1 until hi).firstOrNull { depthOf(allLayers[it]) <= depthOf(item) } ?: hi
+                    if (!hasNonGroupDescendants(j + 1, e)) {
+                        continue
+                    }
+                    out.add(item)
+                    val isCollapsed = nameOf(item) in collapsedNames
+                    if (!isCollapsed && e > j + 1) {
+                        collectBlock(j + 1, e, depthOf(item))
+                    }
+                } else {
+                    out.add(item)
+                }
+            }
+        }
+
+        collectBlock(0, n, minDepth - 1)
+        return out
+    }
+
+    /**
+     * 获取指定图层组包含的全部非组后代图层 (用于组折叠时聚合显示全部子帧关键帧)。
+     */
+    fun <T> findChildLayers(
+        allLayers: List<T>,
+        groupIndex: Int,
+        depthOf: (T) -> Int,
+        isGroupOf: (T) -> Boolean,
+    ): List<T> {
+        if (groupIndex !in allLayers.indices) return emptyList()
+        val groupDepth = depthOf(allLayers[groupIndex])
+        val n = allLayers.size
+        val e = (groupIndex + 1 until n).firstOrNull { depthOf(allLayers[it]) <= groupDepth } ?: n
+        val out = ArrayList<T>()
+        for (i in groupIndex + 1 until e) {
+            val item = allLayers[i]
+            if (!isGroupOf(item)) {
+                out.add(item)
+            }
+        }
+        return out
+    }
 }
+

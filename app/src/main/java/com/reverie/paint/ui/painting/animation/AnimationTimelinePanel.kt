@@ -53,6 +53,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.refreshFrameThumbs
+import com.reverie.paint.model.AnimationLayerOps
 import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.theme.Glass
@@ -110,7 +111,16 @@ internal fun AnimationTimelinePanel(
     val rowDp = with(density) { rowPx.toDp() }
 
     var trackViewportPx by remember { mutableFloatStateOf(0f) }
-    val contentHeightPx = vm.layers.size * rowPx
+    val timelineTracks = remember(vm.layers, vm.anim.timelineCollapsedGroups) {
+        AnimationLayerOps.buildTimelineTracks(
+            allLayers = vm.layers,
+            depthOf = { it.depth },
+            isGroupOf = { it.isGroup },
+            nameOf = { it.name },
+            collapsedNames = vm.anim.timelineCollapsedGroups,
+        )
+    }
+    val contentHeightPx = timelineTracks.size * rowPx
     val maxScrollY = (contentHeightPx - trackViewportPx).coerceAtLeast(0f)
 
     val mediumHeightDp = with(density) {
@@ -224,6 +234,7 @@ internal fun AnimationTimelinePanel(
                     mediumHeightDp = mediumHeightDp,
                     trackHeaderW = trackHeaderW,
                     isFloating = isFloating,
+                    timelineTracks = timelineTracks,
                 )
             }
         }
@@ -259,6 +270,7 @@ private fun TimelinePanelSurface(
     mediumHeightDp: Dp,
     trackHeaderW: Dp = TRACK_HEADER_W,
     isFloating: Boolean = false,
+    timelineTracks: List<PaintViewModel.LayerUiState>,
 ) {
     val shape = if (isFloating) RoundedCornerShape(18.dp) else RoundedCornerShape(0.dp)
 
@@ -333,7 +345,7 @@ private fun TimelinePanelSurface(
             "mini" -> {
                 val selTrack =
                     if (vm.anim.selectedTrack >= 0) vm.anim.selectedTrack else vm.currentLayerIndex
-                val row = vm.layers.reversed().indexOfFirst { it.index == selTrack }
+                val row = timelineTracks.indexOfFirst { it.index == selTrack }
                     .coerceAtLeast(0)
                 val miniScrollY = (row * rowPx).coerceIn(0f, maxScrollY)
                 TimelineTrackArea(
@@ -343,6 +355,7 @@ private fun TimelinePanelSurface(
                     onScrollYChange = {},
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     trackHeaderW = trackHeaderW,
+                    timelineTracks = timelineTracks,
                 )
                 AnimatedContent(
                     targetState = vm.anim.isMultiSelectMode,
@@ -379,6 +392,7 @@ private fun TimelinePanelSurface(
                         .fillMaxWidth()
                         .onSizeChanged { onTrackViewportChange(it.height.toFloat()) },
                     trackHeaderW = trackHeaderW,
+                    timelineTracks = timelineTracks,
                 )
 
                 AnimatedContent(

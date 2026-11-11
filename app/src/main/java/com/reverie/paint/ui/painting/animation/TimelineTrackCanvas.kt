@@ -69,6 +69,7 @@ import com.reverie.paint.core.frameThumbKey
 import com.reverie.paint.core.playbackEndFrame
 import com.reverie.paint.core.setCurrentLayer
 import com.reverie.paint.core.toggleLayerVisible
+import com.reverie.paint.model.AnimationLayerOps
 import com.reverie.paint.model.FramesToLayersOps
 import com.reverie.paint.model.TimelineReorderHelper
 import com.reverie.paint.ui.theme.Morandi
@@ -226,23 +227,38 @@ internal fun TimelineTrackArea(
     maxScrollY: Float = Float.MAX_VALUE,
     modifier: Modifier = Modifier,
     trackHeaderW: Dp = TRACK_HEADER_W,
+    timelineTracks: List<PaintViewModel.LayerUiState>? = null,
 ) {
     val liveScrollY = rememberUpdatedState(scrollY)
     val liveMaxScrollY = rememberUpdatedState(maxScrollY)
-    // 折叠的组: 其子层**不占行**(整组只留组那一行), 所以直接从列表里滤掉。
-    // 下游全部基于 `layers` 计算(行数、命中、滚动范围), 滤在这一层就一致了。
-    // 折叠集合从结构推导, 不依赖任何图层 id —— 见 FramesToLayersOps.hiddenIndices。
-    val hiddenLayerIndices = remember(vm.layers, vm.anim.timelineCollapsedGroups) {
-        FramesToLayersOps.hiddenIndices(
-            indices = vm.layers.map { it.index },
-            depths = vm.layers.map { it.depth },
-            names = vm.layers.map { it.name },
-            isGroup = vm.layers.map { it.isGroup },
+    val layers = timelineTracks ?: remember(vm.layers, vm.anim.timelineCollapsedGroups) {
+        AnimationLayerOps.buildTimelineTracks(
+            allLayers = vm.layers,
+            depthOf = { it.depth },
+            isGroupOf = { it.isGroup },
+            nameOf = { it.name },
             collapsedNames = vm.anim.timelineCollapsedGroups,
         )
     }
-    val layers = remember(vm.layers, hiddenLayerIndices) {
-        vm.layers.filterNot { it.index in hiddenLayerIndices }.reversed()
+
+    // 折叠组在时间轴上的聚合关键帧映射 (组 index -> 该组内全部子层关键帧并集, 已排序去重)
+    val groupAggregatedKeyframes = remember(vm.layers, vm.anim.keyframeCache, vm.anim.timelineCollapsedGroups) {
+        val map = mutableMapOf<Int, List<Int>>()
+        for (l in layers) {
+            if (l.isGroup) {
+                val children = AnimationLayerOps.findChildLayers(
+                    allLayers = vm.layers,
+                    groupIndex = l.index,
+                    depthOf = { it.depth },
+                    isGroupOf = { it.isGroup },
+                )
+                val times = children.flatMap { vm.anim.keyframeCache[it.index].orEmpty() }
+                    .distinct()
+                    .sorted()
+                map[l.index] = times
+            }
+        }
+        map
     }
 
     val density = LocalDensity.current
@@ -257,17 +273,30 @@ internal fun TimelineTrackArea(
     val eyeBgSizePx = with(density) { (if (isCompactHeader) 18.dp else 22.dp).toPx() }
     val textGapPx = with(density) { (if (isCompactHeader) 2.dp else 4.dp).toPx() }
     val textX = headPadPx + eyeZonePx + textGapPx
-    val textMaxW = (headerW - textX - headPadPx).coerceAtLeast(1f)
 
     val textMeasurer = rememberTextMeasurer()
+    val childIndentStepPx = with(density) { 8.dp.toPx() }
+    val childIndentOffsetPx = with(density) { 9.dp.toPx() }
+    val groupIndentPx = with(density) { 15.dp.toPx() }
     val nameLayouts = remember(layers, textMeasurer, density) {
         layers.associate { layer ->
+            val curTextX = if (layer.isGroup) {
+                headPadPx + eyeZonePx + groupIndentPx
+            } else if (layer.depth > 0) {
+                headPadPx + eyeZonePx + (layer.depth.coerceAtMost(3) - 0.5f) * childIndentStepPx + childIndentOffsetPx
+            } else {
+                textX
+            }
+            val availW = (headerW - curTextX - headPadPx).coerceAtLeast(1f)
             layer.index to textMeasurer.measure(
                 text = layer.name,
-                style = TextStyle(fontSize = 11.sp),
+                style = TextStyle(
+                    fontSize = 11.sp,
+                    fontWeight = if (layer.isGroup) FontWeight.SemiBold else FontWeight.Normal,
+                ),
                 overflow = TextOverflow.Ellipsis,
                 maxLines = 1,
-                constraints = Constraints(maxWidth = textMaxW.roundToInt()),
+                constraints = Constraints(maxWidth = availW.roundToInt()),
             )
         }
     }
@@ -362,6 +391,10 @@ internal fun TimelineTrackArea(
                         if (x < hw) return null
                         val layer = ls[row].index
                         val frame = ((vm.anim.scrollPx + x - hw) / vm.anim.frameWidthPx).toInt()
+                        // 图层组不能直接作为单层拖拽/拉伸关键帧
+                        if (ls[row].isGroup) {
+                            return Triple(layer, frame, false)
+                        }
                         val times = vm.anim.keyframeCache[layer].orEmpty()
                         var hit = -1
                         var inBlock = false
@@ -390,6 +423,7 @@ internal fun TimelineTrackArea(
                         val hw = liveHeaderW.value
                         val row = ((y + liveScroll.value) / rpx).toInt()
                         if (row !in ls.indices) return null
+                        if (ls[row].isGroup) return null
                         val layer = ls[row].index
                         // 常驻层不能拉伸 (曝光对整行常驻的层没有意义)
                         if (markerColorOf(vm, layer) != null) return null
@@ -431,6 +465,15 @@ internal fun TimelineTrackArea(
                                 val layer = ls[row]
                                 if (x < headPadPx + eyeZonePx) {
                                     vm.toggleLayerVisible(layer.index)
+                                } else if (layer.isGroup) {
+                                    // 点击组头行: 直接切换该组展开/折叠
+                                    val isCollapsed = layer.name in vm.anim.timelineCollapsedGroups
+                                    vm.anim.timelineCollapsedGroups = if (isCollapsed) {
+                                        vm.anim.timelineCollapsedGroups - layer.name
+                                    } else {
+                                        vm.anim.timelineCollapsedGroups + layer.name
+                                    }
+                                    vm.setCurrentLayer(layer.index)
                                 } else {
                                     vm.setCurrentLayer(layer.index)
                                 }
@@ -441,7 +484,7 @@ internal fun TimelineTrackArea(
                                 val lIdx = ls[row].index
                                 vm.setCurrentLayer(lIdx)
                                 vm.anim.selectedTrack = lIdx
-                                if (vm.anim.isMultiSelectMode) {
+                                if (!ls[row].isGroup && vm.anim.isMultiSelectMode) {
                                     val times = vm.anim.keyframeCache[lIdx].orEmpty()
                                     var hit = -1
                                     for (t in times) {
@@ -865,6 +908,64 @@ internal fun TimelineTrackArea(
                         val layer = layers[i]
                         val top = i * rowPx
                         val times = cache[layer.index]
+
+                        if (layer.isGroup) {
+                            // 组轨道背景横带与发丝分隔线
+                            drawRect(
+                                color = Morandi.panelHi.copy(alpha = 0.35f),
+                                topLeft = Offset(scrollX, top + 1f),
+                                size = Size(trackW, (rowPx - 2f).coerceAtLeast(1f)),
+                            )
+                            drawLine(
+                                color = Morandi.border.copy(alpha = 0.25f),
+                                start = Offset(scrollX, top),
+                                end = Offset(scrollX + trackW, top),
+                                strokeWidth = 1f,
+                            )
+                            drawLine(
+                                color = Morandi.border.copy(alpha = 0.25f),
+                                start = Offset(scrollX, top + rowPx),
+                                end = Offset(scrollX + trackW, top + rowPx),
+                                strokeWidth = 1f,
+                            )
+                            // 折叠组: 绘制子层聚合关键帧 (菱形标记)
+                            val isCollapsed = layer.name in vm.anim.timelineCollapsedGroups
+                            if (isCollapsed) {
+                                val summaryTimes = groupAggregatedKeyframes[layer.index].orEmpty()
+                                for (t in summaryTimes) {
+                                    if (t < firstFrame - 1 || t > lastFrame + 2) continue
+                                    val kx = t * frameW + frameW / 2f
+                                    val ky = top + rowPx / 2f
+                                    val isCur = (currentTime == t)
+                                    val diamondR = if (isCur) 5.5f.dp.toPx() else 4.5f.dp.toPx()
+                                    val diamondColor = if (isCur) Morandi.accent else Morandi.accent.copy(alpha = 0.65f)
+                                    drawPath(
+                                        path = Path().apply {
+                                            moveTo(kx, ky - diamondR)
+                                            lineTo(kx + diamondR, ky)
+                                            lineTo(kx, ky + diamondR)
+                                            lineTo(kx - diamondR, ky)
+                                            close()
+                                        },
+                                        color = diamondColor,
+                                    )
+                                    if (isCur) {
+                                        drawPath(
+                                            path = Path().apply {
+                                                moveTo(kx, ky - diamondR)
+                                                lineTo(kx + diamondR, ky)
+                                                lineTo(kx, ky + diamondR)
+                                                lineTo(kx - diamondR, ky)
+                                                close()
+                                            },
+                                            color = Color.White,
+                                            style = Stroke(width = 1.2f.dp.toPx()),
+                                        )
+                                    }
+                                }
+                            }
+                            continue
+                        }
 
                         // 前景/背景帧: 整行铺一层淡色底, 与普通轨道一眼区分 (在帧格之前绘制)
                         val markerColor = markerColorOf(vm, layer.index)
@@ -1296,32 +1397,71 @@ internal fun TimelineTrackArea(
                         for (i in firstRow..lastRow) {
                             val layer = layers[i]
                             val rowCenterY = i * rowPx + rowPx / 2f
+                            val isCurLayer = (layer.index == vm.currentLayerIndex)
 
-                            // 折叠的组: 行头右缘画个 ▸, 提示"里面还有子层, 双击/菜单可展开"
-                            if (layer.isGroup && layer.name in vm.anim.timelineCollapsedGroups) {
-                                val triCx = headerW - 7.dp.toPx()
-                                val triCy = rowCenterY
-                                val triR = 4.dp.toPx()
-                                drawPath(
-                                    path = Path().apply {
-                                        moveTo(triCx - triR * 0.5f, triCy - triR)
-                                        lineTo(triCx + triR * 0.5f, triCy)
-                                        lineTo(triCx - triR * 0.5f, triCy + triR)
-                                        close()
-                                    },
-                                    color = Morandi.accent,
+                            if (layer.isGroup) {
+                                // 组头底色与上下发丝边框
+                                drawRect(
+                                    color = if (isCurLayer) Morandi.panelHi.copy(alpha = 0.85f) else Morandi.panelHi.copy(alpha = 0.50f),
+                                    topLeft = Offset(0f, i * rowPx),
+                                    size = Size(headerW, rowPx),
                                 )
-                            }
+                                drawLine(
+                                    color = Morandi.border.copy(alpha = 0.35f),
+                                    start = Offset(0f, i * rowPx),
+                                    end = Offset(headerW, i * rowPx),
+                                    strokeWidth = 1f,
+                                )
+                                drawLine(
+                                    color = Morandi.border.copy(alpha = 0.35f),
+                                    start = Offset(0f, i * rowPx + rowPx),
+                                    end = Offset(headerW, i * rowPx + rowPx),
+                                    strokeWidth = 1f,
+                                )
 
-                            // 前景/背景帧: 轨道头右缘竖条, 与轨道区整行底纹连成一体
-                            val headerMarkerColor = markerColorOf(vm, layer.index)
-                            if (headerMarkerColor != null) {
-                                val barW = 3.dp.toPx()
-                                drawRoundRect(
-                                    color = headerMarkerColor,
-                                    topLeft = Offset(headerW - barW, i * rowPx + 3f),
-                                    size = Size(barW, (rowPx - 6f).coerceAtLeast(1f)),
-                                    cornerRadius = CornerRadius(1.5.dp.toPx(), 1.5.dp.toPx()),
+                                // 展开/折叠箭头 (▸ 折叠 / ▾ 展开)
+                                val isCollapsed = layer.name in vm.anim.timelineCollapsedGroups
+                                val triCx = headPadPx + eyeZonePx + 6.dp.toPx()
+                                val triR = 3.5f.dp.toPx()
+                                if (isCollapsed) {
+                                    drawPath(
+                                        path = Path().apply {
+                                            moveTo(triCx - triR * 0.6f, rowCenterY - triR)
+                                            lineTo(triCx + triR * 0.8f, rowCenterY)
+                                            lineTo(triCx - triR * 0.6f, rowCenterY + triR)
+                                            close()
+                                        },
+                                        color = Morandi.accent,
+                                    )
+                                } else {
+                                    drawPath(
+                                        path = Path().apply {
+                                            moveTo(triCx - triR, rowCenterY - triR * 0.6f)
+                                            lineTo(triCx + triR, rowCenterY - triR * 0.6f)
+                                            lineTo(triCx, rowCenterY + triR * 0.8f)
+                                            close()
+                                        },
+                                        color = Morandi.subText,
+                                    )
+                                }
+                            } else if (layer.depth > 0) {
+                                // 子图层树形引导线 (直角拐角连接)
+                                val indentStep = 8.dp.toPx()
+                                val guideX = headPadPx + eyeZonePx + (layer.depth.coerceAtMost(3) - 0.5f) * indentStep
+                                val branchEndX = guideX + 5.dp.toPx()
+                                val guideColor = Morandi.subText.copy(alpha = 0.35f)
+                                val lw = 1.2f.dp.toPx()
+                                drawLine(
+                                    color = guideColor,
+                                    start = Offset(guideX, i * rowPx),
+                                    end = Offset(guideX, rowCenterY),
+                                    strokeWidth = lw,
+                                )
+                                drawLine(
+                                    color = guideColor,
+                                    start = Offset(guideX, rowCenterY),
+                                    end = Offset(branchEndX, rowCenterY),
+                                    strokeWidth = lw,
                                 )
                             }
 
@@ -1350,16 +1490,31 @@ internal fun TimelineTrackArea(
                                 }
                             }
 
-                            if (rowPx > 40f) {
+                            // 前景/背景帧: 轨道头右缘竖条, 与轨道区整行底纹连成一体
+                            val headerMarkerColor = markerColorOf(vm, layer.index)
+                            if (headerMarkerColor != null) {
+                                val barW = 3.dp.toPx()
+                                drawRoundRect(
+                                    color = headerMarkerColor,
+                                    topLeft = Offset(headerW - barW, i * rowPx + 3f),
+                                    size = Size(barW, (rowPx - 6f).coerceAtLeast(1f)),
+                                    cornerRadius = CornerRadius(1.5.dp.toPx(), 1.5.dp.toPx()),
+                                )
+                            }
+
+                            if (rowPx > 36f) {
                                 nameLayouts[layer.index]?.let { layout ->
+                                    val curTextX = if (layer.isGroup) {
+                                        headPadPx + eyeZonePx + 15.dp.toPx()
+                                    } else if (layer.depth > 0) {
+                                        headPadPx + eyeZonePx + (layer.depth.coerceAtMost(3) - 0.5f) * 8.dp.toPx() + 9.dp.toPx()
+                                    } else {
+                                        textX
+                                    }
                                     drawText(
                                         textLayoutResult = layout,
-                                        color = if (layer.index == vm.currentLayerIndex) {
-                                            Morandi.accent
-                                        } else {
-                                            Morandi.text
-                                        },
-                                        topLeft = Offset(textX, rowCenterY - layout.size.height / 2f),
+                                        color = if (isCurLayer) Morandi.accent else if (layer.isGroup) Morandi.text else Morandi.text.copy(alpha = 0.88f),
+                                        topLeft = Offset(curTextX, rowCenterY - layout.size.height / 2f),
                                     )
                                 }
                             }

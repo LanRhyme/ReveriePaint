@@ -111,4 +111,141 @@ class AnimationLayerOpsTest {
         val ids = listOf(100L, 200L)
         assertEquals(-1, AnimationLayerOps.indexOfLayerId(ids, AnimationLayerOps.NO_LAYER))
     }
+
+    // ==================== 时间轴轨道编排测试 ====================
+
+    private data class DummyLayer(
+        val index: Int,
+        val name: String,
+        val depth: Int,
+        val isGroup: Boolean,
+    )
+
+    @Test
+    fun `扁平图层按视觉堆叠从顶到底排列`() {
+        // 自底向上输入: index 0 底层, index 2 顶层
+        val layers = listOf(
+            DummyLayer(0, "背景", 0, false),
+            DummyLayer(1, "图层 1", 0, false),
+            DummyLayer(2, "图层 2", 0, false),
+        )
+        val tracks = AnimationLayerOps.buildTimelineTracks(
+            allLayers = layers,
+            depthOf = { it.depth },
+            isGroupOf = { it.isGroup },
+            nameOf = { it.name },
+            collapsedNames = emptySet(),
+        )
+        assertEquals(listOf("图层 2", "图层 1", "背景"), tracks.map { it.name })
+    }
+
+    @Test
+    fun `图层组作为容器组头优先展示, 子图层紧随其下`() {
+        // 自底向上:
+        // 0: 背景 (d=0)
+        // 1: 组 1 (d=0, isGroup)
+        // 2: 子层 A (d=1)
+        // 3: 子层 B (d=1)
+        // 4: 顶层 (d=0)
+        val layers = listOf(
+            DummyLayer(0, "背景", 0, false),
+            DummyLayer(1, "组 1", 0, true),
+            DummyLayer(2, "子层 A", 1, false),
+            DummyLayer(3, "子层 B", 1, false),
+            DummyLayer(4, "顶层", 0, false),
+        )
+        val tracks = AnimationLayerOps.buildTimelineTracks(
+            allLayers = layers,
+            depthOf = { it.depth },
+            isGroupOf = { it.isGroup },
+            nameOf = { it.name },
+            collapsedNames = emptySet(),
+        )
+        // 预期输出: 顶层 -> 组 1 -> 子层 B -> 子层 A -> 背景
+        assertEquals(listOf("顶层", "组 1", "子层 B", "子层 A", "背景"), tracks.map { it.name })
+    }
+
+    @Test
+    fun `空图层组被自动过滤, 不占时间轴轨道`() {
+        // 组 1 内部没有任何非组图层
+        val layers = listOf(
+            DummyLayer(0, "背景", 0, false),
+            DummyLayer(1, "空组", 0, true),
+            DummyLayer(2, "图层 1", 0, false),
+        )
+        val tracks = AnimationLayerOps.buildTimelineTracks(
+            allLayers = layers,
+            depthOf = { it.depth },
+            isGroupOf = { it.isGroup },
+            nameOf = { it.name },
+            collapsedNames = emptySet(),
+        )
+        assertEquals(listOf("图层 1", "背景"), tracks.map { it.name })
+    }
+
+    @Test
+    fun `仅包含空子组的父组同样被视为整体空组过滤`() {
+        val layers = listOf(
+            DummyLayer(0, "背景", 0, false),
+            DummyLayer(1, "空父组", 0, true),
+            DummyLayer(2, "空子组", 1, true),
+            DummyLayer(3, "图层 1", 0, false),
+        )
+        val tracks = AnimationLayerOps.buildTimelineTracks(
+            allLayers = layers,
+            depthOf = { it.depth },
+            isGroupOf = { it.isGroup },
+            nameOf = { it.name },
+            collapsedNames = emptySet(),
+        )
+        assertEquals(listOf("图层 1", "背景"), tracks.map { it.name })
+    }
+
+    @Test
+    fun `折叠的图层组保留组头, 子图层不占行`() {
+        val layers = listOf(
+            DummyLayer(0, "背景", 0, false),
+            DummyLayer(1, "角色组", 0, true),
+            DummyLayer(2, "线稿", 1, false),
+            DummyLayer(3, "上色", 1, false),
+            DummyLayer(4, "前景", 0, false),
+        )
+        val tracks = AnimationLayerOps.buildTimelineTracks(
+            allLayers = layers,
+            depthOf = { it.depth },
+            isGroupOf = { it.isGroup },
+            nameOf = { it.name },
+            collapsedNames = setOf("角色组"),
+        )
+        assertEquals(listOf("前景", "角色组", "背景"), tracks.map { it.name })
+    }
+
+    @Test
+    fun `findChildLayers 准确提取组内全部非组后代`() {
+        val layers = listOf(
+            DummyLayer(0, "背景", 0, false),
+            DummyLayer(1, "角色组", 0, true),
+            DummyLayer(2, "身体子组", 1, true),
+            DummyLayer(3, "躯干", 2, false),
+            DummyLayer(4, "头部", 2, false),
+            DummyLayer(5, "特效", 1, false),
+            DummyLayer(6, "顶层", 0, false),
+        )
+        val roleChildren = AnimationLayerOps.findChildLayers(
+            allLayers = layers,
+            groupIndex = 1,
+            depthOf = { it.depth },
+            isGroupOf = { it.isGroup },
+        )
+        assertEquals(listOf("躯干", "头部", "特效"), roleChildren.map { it.name })
+
+        val bodyChildren = AnimationLayerOps.findChildLayers(
+            allLayers = layers,
+            groupIndex = 2,
+            depthOf = { it.depth },
+            isGroupOf = { it.isGroup },
+        )
+        assertEquals(listOf("躯干", "头部"), bodyChildren.map { it.name })
+    }
 }
+
