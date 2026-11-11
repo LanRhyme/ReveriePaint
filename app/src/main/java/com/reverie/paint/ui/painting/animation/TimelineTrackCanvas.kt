@@ -957,12 +957,7 @@ internal fun TimelineTrackArea(
                         val times = if (layer.isGroup) groupAggregatedKeyframes[layer.index] else cache[layer.index]
 
                         if (layer.isGroup) {
-                            // 组轨道背景横带与发丝分隔线
-                            drawRect(
-                                color = Morandi.panelHi.copy(alpha = 0.35f),
-                                topLeft = Offset(scrollX, top + 1f),
-                                size = Size(trackW, (rowPx - 2f).coerceAtLeast(1f)),
-                            )
+                            // 组轨道发丝分隔线
                             drawLine(
                                 color = Morandi.border.copy(alpha = 0.25f),
                                 start = Offset(scrollX, top),
@@ -1058,11 +1053,10 @@ internal fun TimelineTrackArea(
                                 val cellY = top + 4f
                                 val cellH = rowPx - 8f
 
-                                // 底色 (组轨道 / 前景/背景帧用各自的标识色, 多选高亮优先级最高)
+                                // 底色 (前景/背景帧用各自的标识色, 多选高亮优先级最高)
                                 val baseColor = when {
                                     isMultiSelected -> Morandi.accent.copy(alpha = 0.38f)
                                     markerColor != null -> markerColor.copy(alpha = if (active) 0.52f else 0.34f)
-                                    layer.isGroup -> if (active) Morandi.panelHi.copy(alpha = 0.95f) else Morandi.panelHi.copy(alpha = 0.68f)
                                     active -> Morandi.subText.copy(alpha = 0.42f)
                                     else -> Morandi.subText.copy(alpha = 0.30f)
                                 }
@@ -1071,15 +1065,6 @@ internal fun TimelineTrackArea(
                                     topLeft = Offset(cellX, cellY),
                                     size = Size(cellW, cellH),
                                 )
-                                if (layer.isGroup && !isMultiSelected && !active) {
-                                    drawRoundRect(
-                                        color = Morandi.border.copy(alpha = 0.45f),
-                                        topLeft = Offset(cellX, cellY),
-                                        size = Size(cellW, cellH),
-                                        cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
-                                        style = Stroke(width = 1f),
-                                    )
-                                }
 
                                 // 缩略图
                                 if (showThumbs) {
