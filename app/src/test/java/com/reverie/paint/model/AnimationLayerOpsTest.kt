@@ -247,5 +247,18 @@ class AnimationLayerOpsTest {
         )
         assertEquals(listOf("躯干", "头部"), bodyChildren.map { it.name })
     }
+
+    @Test
+    fun `查找活动关键帧能够正确命中当前或之前的最近关键帧`() {
+        val times = listOf(0, 5, 10, 20)
+        assertEquals(0, AnimationLayerOps.findActiveKeyframe(times, 0))
+        assertEquals(0, AnimationLayerOps.findActiveKeyframe(times, 3))
+        assertEquals(5, AnimationLayerOps.findActiveKeyframe(times, 5))
+        assertEquals(5, AnimationLayerOps.findActiveKeyframe(times, 9))
+        assertEquals(10, AnimationLayerOps.findActiveKeyframe(times, 10))
+        assertEquals(20, AnimationLayerOps.findActiveKeyframe(times, 35))
+        assertEquals(null, AnimationLayerOps.findActiveKeyframe(times, -1))
+        assertEquals(null, AnimationLayerOps.findActiveKeyframe(emptyList(), 5))
+    }
 }
 

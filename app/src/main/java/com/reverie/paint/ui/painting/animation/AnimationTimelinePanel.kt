@@ -92,7 +92,8 @@ internal fun AnimationTimelinePanel(
     val d = density.density
     val config = LocalConfiguration.current
     val isPortrait = config.screenWidthDp < config.screenHeightDp || config.screenWidthDp < 600
-    val trackHeaderW = if (isPortrait) 64.dp else 104.dp
+    val defaultHeaderW = if (isPortrait) 64.dp else 104.dp
+    val trackHeaderW = if (vm.anim.trackHeaderWidthDp > 0f) vm.anim.trackHeaderWidthDp.dp else defaultHeaderW
     val maxPanelHDp = if (isPortrait) (config.screenHeightDp * 0.52f).coerceAtLeast(260f) else MAX_PANEL_H
     val minPx = MIN_PANEL_H * d
     val maxPx = maxPanelHDp * d
@@ -235,6 +236,7 @@ internal fun AnimationTimelinePanel(
                     trackHeaderW = trackHeaderW,
                     isFloating = isFloating,
                     timelineTracks = timelineTracks,
+                    onTrackHeaderWChange = { vm.anim.trackHeaderWidthDp = it.value },
                 )
             }
         }
@@ -271,6 +273,7 @@ private fun TimelinePanelSurface(
     trackHeaderW: Dp = TRACK_HEADER_W,
     isFloating: Boolean = false,
     timelineTracks: List<PaintViewModel.LayerUiState>,
+    onTrackHeaderWChange: ((Dp) -> Unit)? = null,
 ) {
     val shape = if (isFloating) RoundedCornerShape(18.dp) else RoundedCornerShape(0.dp)
 
@@ -356,6 +359,7 @@ private fun TimelinePanelSurface(
                     modifier = Modifier.weight(1f).fillMaxWidth(),
                     trackHeaderW = trackHeaderW,
                     timelineTracks = timelineTracks,
+                    onTrackHeaderWChange = onTrackHeaderWChange,
                 )
                 AnimatedContent(
                     targetState = vm.anim.isMultiSelectMode,
@@ -393,6 +397,7 @@ private fun TimelinePanelSurface(
                         .onSizeChanged { onTrackViewportChange(it.height.toFloat()) },
                     trackHeaderW = trackHeaderW,
                     timelineTracks = timelineTracks,
+                    onTrackHeaderWChange = onTrackHeaderWChange,
                 )
 
                 AnimatedContent(

@@ -228,6 +228,7 @@ internal fun TimelineTrackArea(
     modifier: Modifier = Modifier,
     trackHeaderW: Dp = TRACK_HEADER_W,
     timelineTracks: List<PaintViewModel.LayerUiState>? = null,
+    onTrackHeaderWChange: ((Dp) -> Unit)? = null,
 ) {
     val liveScrollY = rememberUpdatedState(scrollY)
     val liveMaxScrollY = rememberUpdatedState(maxScrollY)
@@ -241,17 +242,28 @@ internal fun TimelineTrackArea(
         )
     }
 
-    // 折叠组在时间轴上的聚合关键帧映射 (组 index -> 该组内全部子层关键帧并集, 已排序去重)
-    val groupAggregatedKeyframes = remember(vm.layers, vm.anim.keyframeCache, vm.anim.timelineCollapsedGroups) {
-        val map = mutableMapOf<Int, List<Int>>()
+    // 组与其包含的非组子图层列表映射 (组 index -> 子图层列表, 保持自底向上堆叠顺序)
+    val groupChildrenMap = remember(layers, vm.layers) {
+        val map = mutableMapOf<Int, List<PaintViewModel.LayerUiState>>()
         for (l in layers) {
             if (l.isGroup) {
-                val children = AnimationLayerOps.findChildLayers(
+                map[l.index] = AnimationLayerOps.findChildLayers(
                     allLayers = vm.layers,
                     groupIndex = l.index,
                     depthOf = { it.depth },
                     isGroupOf = { it.isGroup },
                 )
+            }
+        }
+        map
+    }
+
+    // 组在时间轴上的聚合关键帧映射 (组 index -> 该组内全部子层关键帧并集, 已排序去重)
+    val groupAggregatedKeyframes = remember(layers, groupChildrenMap, vm.anim.keyframeCache) {
+        val map = mutableMapOf<Int, List<Int>>()
+        for (l in layers) {
+            if (l.isGroup) {
+                val children = groupChildrenMap[l.index].orEmpty()
                 val times = children.flatMap { vm.anim.keyframeCache[it.index].orEmpty() }
                     .distinct()
                     .sorted()
@@ -278,7 +290,7 @@ internal fun TimelineTrackArea(
     val childIndentStepPx = with(density) { 8.dp.toPx() }
     val childIndentOffsetPx = with(density) { 9.dp.toPx() }
     val groupIndentPx = with(density) { 15.dp.toPx() }
-    val nameLayouts = remember(layers, textMeasurer, density) {
+    val nameLayouts = remember(layers, textMeasurer, density, headerW) {
         layers.associate { layer ->
             val curTextX = if (layer.isGroup) {
                 headPadPx + eyeZonePx + groupIndentPx
@@ -322,6 +334,7 @@ internal fun TimelineTrackArea(
     var trackMenu by remember { mutableStateOf<TrackMenuState?>(null) }
     var frameDrag by remember { mutableStateOf<FrameDragState?>(null) }
     var trimDrag by remember { mutableStateOf<TrimDragState?>(null) }
+    var isDraggingSplitter by remember { mutableStateOf(false) }
     var dragDx by remember { mutableFloatStateOf(0f) }
     var canvasWpx by remember { mutableFloatStateOf(0f) }
     var trackAreaTopInWindow by remember { mutableFloatStateOf(0f) }
@@ -515,8 +528,10 @@ internal fun TimelineTrackArea(
 
                             val menuWasOpen = frameMenu != null || trackMenu != null
 
-                            // 优先检测是否直接触摸了边缘拉伸手柄
+                            // 优先检测是否直接触摸了边缘拉伸手柄或轨道头分隔线
                             val potentialTrim = hitTestTrimHandle(downPos.x, downPos.y)
+                            val splitterTouchRadius = with(density) { 14.dp.toPx() }
+                            val isNearSplitter = onTrackHeaderWChange != null && abs(downPos.x - liveHeaderW.value) <= splitterTouchRadius
 
                             val phase: Int? = withTimeoutOrNull(longPressMs) {
                                 var r = 0
@@ -547,6 +562,37 @@ internal fun TimelineTrackArea(
                             if ((phase == 1 || phase == 2) && menuWasOpen) {
                                 frameMenu = null
                                 trackMenu = null
+                            }
+
+                            // 分隔线水平拖拽调整轨道头宽度
+                            if (isNearSplitter && abs(pendingX) > abs(pendingY) * 0.8f) {
+                                if (menuWasOpen) {
+                                    frameMenu = null
+                                    trackMenu = null
+                                }
+                                isDraggingSplitter = true
+                                liveHaptics.value.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                val startW = liveHeaderW.value
+                                var lastW = startW
+                                while (true) {
+                                    val dev = awaitPointerEvent()
+                                    val pressed = dev.changes.filter { it.pressed }
+                                    if (pressed.isEmpty()) {
+                                        isDraggingSplitter = false
+                                        break
+                                    }
+                                    val c = pressed.firstOrNull { it.id == first.id } ?: pressed.first()
+                                    val deltaX = c.position.x - downPos.x
+                                    val minW = with(density) { 54.dp.toPx() }
+                                    val maxW = (canvasWpx * 0.48f).coerceIn(with(density) { 160.dp.toPx() }, with(density) { 260.dp.toPx() })
+                                    val targetPx = (startW + deltaX).coerceIn(minW, maxW)
+                                    if (abs(targetPx - lastW) >= 1f) {
+                                        lastW = targetPx
+                                        onTrackHeaderWChange?.invoke(with(density) { targetPx.toDp() })
+                                    }
+                                    for (cc in dev.changes) cc.consume()
+                                }
+                                continue@gesture
                             }
 
                             // 边缘手柄直接拖动拉伸曝光 (无需等待长按, 支持快速拉伸或停顿后拉伸)
@@ -907,7 +953,8 @@ internal fun TimelineTrackArea(
                     for (i in firstRow..lastRow) {
                         val layer = layers[i]
                         val top = i * rowPx
-                        val times = cache[layer.index]
+                        val groupChildren = if (layer.isGroup) groupChildrenMap[layer.index].orEmpty() else emptyList()
+                        val times = if (layer.isGroup) groupAggregatedKeyframes[layer.index] else cache[layer.index]
 
                         if (layer.isGroup) {
                             // 组轨道背景横带与发丝分隔线
@@ -928,43 +975,6 @@ internal fun TimelineTrackArea(
                                 end = Offset(scrollX + trackW, top + rowPx),
                                 strokeWidth = 1f,
                             )
-                            // 折叠组: 绘制子层聚合关键帧 (菱形标记)
-                            val isCollapsed = layer.name in vm.anim.timelineCollapsedGroups
-                            if (isCollapsed) {
-                                val summaryTimes = groupAggregatedKeyframes[layer.index].orEmpty()
-                                for (t in summaryTimes) {
-                                    if (t < firstFrame - 1 || t > lastFrame + 2) continue
-                                    val kx = t * frameW + frameW / 2f
-                                    val ky = top + rowPx / 2f
-                                    val isCur = (currentTime == t)
-                                    val diamondR = if (isCur) 5.5f.dp.toPx() else 4.5f.dp.toPx()
-                                    val diamondColor = if (isCur) Morandi.accent else Morandi.accent.copy(alpha = 0.65f)
-                                    drawPath(
-                                        path = Path().apply {
-                                            moveTo(kx, ky - diamondR)
-                                            lineTo(kx + diamondR, ky)
-                                            lineTo(kx, ky + diamondR)
-                                            lineTo(kx - diamondR, ky)
-                                            close()
-                                        },
-                                        color = diamondColor,
-                                    )
-                                    if (isCur) {
-                                        drawPath(
-                                            path = Path().apply {
-                                                moveTo(kx, ky - diamondR)
-                                                lineTo(kx + diamondR, ky)
-                                                lineTo(kx, ky + diamondR)
-                                                lineTo(kx - diamondR, ky)
-                                                close()
-                                            },
-                                            color = Color.White,
-                                            style = Stroke(width = 1.2f.dp.toPx()),
-                                        )
-                                    }
-                                }
-                            }
-                            continue
                         }
 
                         // 前景/背景帧: 整行铺一层淡色底, 与普通轨道一眼区分 (在帧格之前绘制)
@@ -985,9 +995,9 @@ internal fun TimelineTrackArea(
                             // 也不会因为该层被弄出多余关键帧而画出第二条
                             if (markerColor != null) start = 0
 
-                            val isDraggingThisLayer = frameDrag?.layer == layer.index
+                            val isDraggingThisLayer = !layer.isGroup && frameDrag?.layer == layer.index
                             val dragFrom = frameDrag?.fromTime ?: -1
-                            val isTrimmingThisLayer = trimDrag?.layer == layer.index
+                            val isTrimmingThisLayer = !layer.isGroup && trimDrag?.layer == layer.index
                             val trimTime = trimDrag?.frameTime ?: -1
                             val effectiveTrimDx = if (isSnappingTrim) trimSnapDx.value else dragDx
 
@@ -997,7 +1007,11 @@ internal fun TimelineTrackArea(
                                 // 常驻条只画一条
                                 if (markerColor != null && idx > 0) break
 
-                                val lastHold = vm.anim.lastFrameHold[layer.index] ?: 1
+                                val lastHold = if (layer.isGroup) {
+                                    groupChildren.maxOfOrNull { vm.anim.lastFrameHold[it.index] ?: 1 } ?: 1
+                                } else {
+                                    vm.anim.lastFrameHold[layer.index] ?: 1
+                                }
                                 val next = if (idx + 1 < times.size) times[idx + 1] else t + lastHold
                                 var span = (next - t).coerceAtLeast(1)
                                 // 前景/背景帧: 强制铺到动画末尾, 画出来就是一条贯穿整行的常驻条。
@@ -1044,10 +1058,11 @@ internal fun TimelineTrackArea(
                                 val cellY = top + 4f
                                 val cellH = rowPx - 8f
 
-                                // 底色 (前景/背景帧用各自的标识色, 多选高亮优先级最高)
+                                // 底色 (组轨道 / 前景/背景帧用各自的标识色, 多选高亮优先级最高)
                                 val baseColor = when {
                                     isMultiSelected -> Morandi.accent.copy(alpha = 0.38f)
                                     markerColor != null -> markerColor.copy(alpha = if (active) 0.52f else 0.34f)
+                                    layer.isGroup -> if (active) Morandi.panelHi.copy(alpha = 0.95f) else Morandi.panelHi.copy(alpha = 0.68f)
                                     active -> Morandi.subText.copy(alpha = 0.42f)
                                     else -> Morandi.subText.copy(alpha = 0.30f)
                                 }
@@ -1056,10 +1071,18 @@ internal fun TimelineTrackArea(
                                     topLeft = Offset(cellX, cellY),
                                     size = Size(cellW, cellH),
                                 )
+                                if (layer.isGroup && !isMultiSelected && !active) {
+                                    drawRoundRect(
+                                        color = Morandi.border.copy(alpha = 0.45f),
+                                        topLeft = Offset(cellX, cellY),
+                                        size = Size(cellW, cellH),
+                                        cornerRadius = CornerRadius(4.dp.toPx(), 4.dp.toPx()),
+                                        style = Stroke(width = 1f),
+                                    )
+                                }
 
                                 // 缩略图
-                                val img = thumbImages[frameThumbKey(layer.index, t)]
-                                if (showThumbs && img != null) {
+                                if (showThumbs) {
                                     val slotW = frameW - 4f
                                     val iw = slotW - thumbInset * 2f
                                     val ih = cellH - thumbInset * 2f
@@ -1079,18 +1102,44 @@ internal fun TimelineTrackArea(
                                     for (f in 0 until numSlots) {
                                         val slotX = cellX + f * frameW
                                         if (slotX + tw * 0.4f <= cellX + cellW) {
-                                            drawImage(
-                                                image = img,
-                                                dstOffset = IntOffset(
-                                                    (slotX + (slotW - tw) / 2f).roundToInt(),
-                                                    (cellY + (cellH - th) / 2f).roundToInt(),
-                                                ),
-                                                dstSize = IntSize(
-                                                    tw.roundToInt().coerceAtLeast(1),
-                                                    th.roundToInt().coerceAtLeast(1),
-                                                ),
-                                                filterQuality = FilterQuality.Medium,
+                                            val dstOff = IntOffset(
+                                                (slotX + (slotW - tw) / 2f).roundToInt(),
+                                                (cellY + (cellH - th) / 2f).roundToInt(),
                                             )
+                                            val dstSz = IntSize(
+                                                tw.roundToInt().coerceAtLeast(1),
+                                                th.roundToInt().coerceAtLeast(1),
+                                            )
+                                            if (layer.isGroup) {
+                                                // 组轨道: 沿图层从底到顶堆叠绘制每个可见子层在当前时刻 t 的活动帧缩略图
+                                                for (child in groupChildren) {
+                                                    if (!child.visible) continue
+                                                    val cTimes = cache[child.index].orEmpty()
+                                                    val activeCt = AnimationLayerOps.findActiveKeyframe(cTimes, t)
+                                                    if (activeCt != null) {
+                                                        val cImg = thumbImages[frameThumbKey(child.index, activeCt)]
+                                                        if (cImg != null) {
+                                                            drawImage(
+                                                                image = cImg,
+                                                                dstOffset = dstOff,
+                                                                dstSize = dstSz,
+                                                                alpha = child.opacity.toFloat().coerceIn(0f, 1f),
+                                                                filterQuality = FilterQuality.Medium,
+                                                            )
+                                                        }
+                                                    }
+                                                }
+                                            } else {
+                                                val img = thumbImages[frameThumbKey(layer.index, t)]
+                                                if (img != null) {
+                                                    drawImage(
+                                                        image = img,
+                                                        dstOffset = dstOff,
+                                                        dstSize = dstSz,
+                                                        filterQuality = FilterQuality.Medium,
+                                                    )
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1129,7 +1178,13 @@ internal fun TimelineTrackArea(
                                 }
 
                                 // 关键帧色标标签 (在选中框顶层绘制, 配合边框内缩, 绝不被遮挡)
-                                val tag = vm.anim.keyframeTags[frameThumbKey(layer.index, t)] ?: 0
+                                val tag = if (layer.isGroup) {
+                                    groupChildren.firstNotNullOfOrNull {
+                                        vm.anim.keyframeTags[frameThumbKey(it.index, t)]?.takeIf { tg -> tg > 0 }
+                                    } ?: 0
+                                } else {
+                                    vm.anim.keyframeTags[frameThumbKey(layer.index, t)] ?: 0
+                                }
                                 if (tag > 0) {
                                     val tagColor = when (tag) {
                                         1 -> Color(0xFFE55D42) // 原画 Key (橙红)
@@ -1194,8 +1249,8 @@ internal fun TimelineTrackArea(
                                     }
                                 }
 
-                                // 右边缘拉伸手柄 (单选及多选均展示; 前景/背景帧常驻整行, 没有可拉伸的边缘)
-                                val showTrimHandle = !vm.anim.isPlaying && markerColor == null && (
+                                // 右边缘拉伸手柄 (单选及多选均展示; 组轨道与前景/背景帧无单帧拉伸边缘)
+                                val showTrimHandle = !layer.isGroup && !vm.anim.isPlaying && markerColor == null && (
                                     (!vm.anim.isMultiSelectMode && active) ||
                                         (vm.anim.isMultiSelectMode && isMultiSelected)
                                 )
@@ -1520,6 +1575,38 @@ internal fun TimelineTrackArea(
                             }
                         }
                     }
+                }
+            }
+
+            // —— 轨道头与轨道区分界线及宽度调整拖拽手柄 ——
+            val isSplitterActive = isDraggingSplitter
+            val splitLineColor = if (isSplitterActive) Morandi.accent else Morandi.border.copy(alpha = 0.50f)
+            val splitLineWidth = if (isSplitterActive) 2.dp.toPx() else 1.dp.toPx()
+            drawLine(
+                color = splitLineColor,
+                start = Offset(headerW, 0f),
+                end = Offset(headerW, size.height),
+                strokeWidth = splitLineWidth,
+            )
+            if (onTrackHeaderWChange != null) {
+                val handleH = with(density) { 32.dp.toPx() }
+                val handleW = with(density) { (if (isSplitterActive) 4.5f else 3.5f).dp.toPx() }
+                val handleY = (size.height - handleH) / 2f
+                val handleColor = if (isSplitterActive) Morandi.accent else Morandi.subText.copy(alpha = 0.45f)
+                drawRoundRect(
+                    color = handleColor,
+                    topLeft = Offset(headerW - handleW / 2f, handleY),
+                    size = Size(handleW, handleH),
+                    cornerRadius = CornerRadius(handleW / 2f, handleW / 2f),
+                )
+                if (isSplitterActive) {
+                    drawRoundRect(
+                        color = Color.White.copy(alpha = 0.90f),
+                        topLeft = Offset(headerW - handleW / 2f + 0.5f, handleY + 0.5f),
+                        size = Size(handleW - 1f, handleH - 1f),
+                        cornerRadius = CornerRadius(handleW / 2f, handleW / 2f),
+                        style = Stroke(width = 1f),
+                    )
                 }
             }
 

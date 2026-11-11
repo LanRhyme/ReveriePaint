@@ -180,6 +180,9 @@ internal class AnimationState {
     /** 用户作画偏好，默认沿用落笔自动建帧；切换文档时不重置。 */
     var manualKeyframes by mutableStateOf(false)
 
+    /** 时间轴左侧轨道头/图层列表宽度 (dp), 允许水平拖拽调整. 0f 表示跟随默认值 (横屏 104dp / 竖屏 64dp) */
+    var trackHeaderWidthDp by mutableFloatStateOf(0f)
+
     /** 洋葱皮开关与前后帧数 */
     var onionSkin by mutableStateOf(false)
 
@@ -1577,6 +1580,10 @@ internal fun PaintViewModel.refreshFrameThumbs() {
     // 收集可见范围内的所有 (图层, 帧); 是否需要真正渲染留到渲染线程按代际判断
     val visible = ArrayList<Pair<Int, Int>>()
     for ((layerIndex, times) in cache) {
+        val prior = times.lastOrNull { it <= firstFrame }
+        if (prior != null && prior !in firstFrame..lastFrame) {
+            visible.add(layerIndex to prior)
+        }
         for (t in times) {
             if (t < firstFrame || t > lastFrame) continue
             visible.add(layerIndex to t)

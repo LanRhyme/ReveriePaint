@@ -158,5 +158,18 @@ object AnimationLayerOps {
         }
         return out
     }
+
+    /**
+     * 查找在指定时间戳 [time] 上处于活动状态的关键帧 (即 <= time 的最近关键帧)。
+     * 若在 [time] 之前没有任何关键帧, 则返回 null。
+     */
+    fun findActiveKeyframe(times: List<Int>, time: Int): Int? {
+        if (times.isEmpty()) return null
+        var hit = -1
+        for (t in times) {
+            if (t <= time) hit = t else break
+        }
+        return if (hit >= 0) hit else null
+    }
 }
 
