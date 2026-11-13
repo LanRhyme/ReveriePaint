@@ -119,6 +119,7 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.model.layersHiddenByHiddenGroup
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
@@ -229,6 +230,16 @@ internal fun LayerListView(
             // siblings match parentDepth -1
             val res = buildList { collectBlock(0, n, -1, this) }
             if (res.isEmpty() && n > 0) vm.layers.reversed() else res
+        }
+
+    // 祖先组隐藏的行: 自身眼睛是亮的, 但画布上不参与合成 (Mangar 图层面板把这类行
+    // 的眼睛画灰)。按引擎层序一次性算好, 只随图层镜像变化重算。
+    val hiddenByHiddenGroup =
+        remember(vm.layers) {
+            layersHiddenByHiddenGroup(
+                depths = vm.layers.map { it.depth },
+                visible = vm.layers.map { it.visible },
+            )
         }
 
     // Auto-scroll to newly added layer ONLY when it is outside the visible viewport
@@ -1013,6 +1024,7 @@ internal fun LayerListView(
                             openDepths = openDepths,
                             panelCrop = vm.panelCropStateFor(layer.index),
                             scrollGuardUntil = layerScrollGuard,
+                            effectiveVisible = !(hiddenByHiddenGroup.getOrNull(layer.index) ?: false),
                             onToggleCollapse = {
                                 revealedIndex = null
                                 val pid = vm.panelIdForGroupRow(layer.index)

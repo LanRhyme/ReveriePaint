@@ -2618,6 +2618,7 @@
     <string name="layer_expand">Expand</string>
     <string name="layer_collapse">Collapse</string>
     <string name="layer_visibility">Visibility</string>
+    <string name="layer_hidden_by_group">Hidden by parent group</string>
     <string name="layer_filter_layer">Filter Layer</string>
     <string name="layer_fill_layer">Fill Layer</string>
     <string name="layer_thumbnail">Layer Thumbnail</string>

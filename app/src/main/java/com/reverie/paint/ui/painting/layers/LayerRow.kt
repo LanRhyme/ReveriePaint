@@ -170,6 +170,8 @@ internal fun LayerRow(
     openDepths: Set<Int> = emptySet(),
     panelCrop: Pair<Long, Boolean>? = null,
     scrollGuardUntil: State<Long> = NoScrollGuard,
+    /** 自身可见但祖先组隐藏时为 false: 眼睛画暗, 提示"亮了也看不见" (见 LayerListView) */
+    effectiveVisible: Boolean = true,
 ) {
     val rowHeight = vm.layerRowHeightDp.dp
     val index = layer.index
@@ -188,6 +190,44 @@ internal fun LayerRow(
     var rowBottom by remember { mutableFloatStateOf(0f) }
     var rowLeft by remember { mutableFloatStateOf(0f) }
     val rowInteraction = remember { MutableInteractionSource() }
+
+    // 行内控件 (不透明度药丸 / 拖拽手柄) 的按下标记: 置位期间本行的"长按拖动"
+    // 不启动, 否则在药丸上按住再拖动会被当成拖动排序 (见 LayerRowControls 头注释)
+    val controlPressGate = remember { LayerRowPressGate() }
+    // 行内不透明度药丸: 拖动中每 ~40ms 推一次预览 (引擎侧另有 16ms 渲染节流),
+    // 松手用非 preview 版本提交, 一次拖动 = 一步撤销。
+    // 滤镜/调整层的 setLayerOpacity 在引擎里走整棵投影重合成
+    // (ReverieCore::recompositeProjection, 见 issue #139), 逐帧预览会顶住引擎线程:
+    // 这类层拖动中只更新本地数值, 松手提交一次 (详情页滑杆行为不变)。
+    val opacityScrub = remember(index) {
+        var lastPreviewMs = 0L
+        LayerOpacityScrub(
+            onChange = { percent ->
+                val now = android.os.SystemClock.uptimeMillis()
+                if (now - lastPreviewMs >= 40L) {
+                    lastPreviewMs = now
+                    if (vm.layers.getOrNull(index)?.nodeType != 3) {
+                        vm.setLayerOpacity(index, percent / 100.0, preview = true)
+                    }
+                }
+            },
+            onEnd = { startPercent, percent ->
+                lastPreviewMs = 0L
+                if (startPercent == percent) {
+                    // 拖回起手值: 只把引擎上的预览值退回, 不产生空的撤销步
+                    vm.setLayerOpacity(index, percent / 100.0, preview = true)
+                } else {
+                    // 起手值一并交回: 提交前先把引擎退回起手值, 撤销一次才回到拖动前
+                    // (直接提交只会退到最后一个预览值)
+                    vm.commitLayerOpacityScrub(
+                        i = index,
+                        from = startPercent / 100.0,
+                        to = percent / 100.0,
+                    )
+                }
+            },
+        )
+    }
 
     // Coroutine scope used to drive revealAnim directly from gesture callbacks —
     // no LaunchedEffect follow-loop, zero scheduling delay, 1:1 finger tracking
@@ -271,6 +311,10 @@ internal fun LayerRow(
                                     isTap = true
                                     return@withTimeoutOrNull 0
                                 }
+                                // 行内控件 (不透明度药丸 / 拖拽手柄) 只消费位移、把松手
+                                // 留给本行判定: 一旦看到已被消费的位移, 说明这次手势
+                                // 归子控件, 本行不再做点击/长按/滑动判定
+                                if (change.isConsumed) return@withTimeoutOrNull 3
                                 val dx = change.position.x - startX
                                 val dy = change.position.y - startY
                                 if (abs(dx) > touchSlop && abs(dx) > abs(dy) * 1.25f) {
@@ -287,7 +331,10 @@ internal fun LayerRow(
 
                         val isMask = com.reverie.paint.model.LayerNodeType.isMask(layer.nodeType)
                         val scrollGuarded = android.os.SystemClock.uptimeMillis() < scrollGuardUntil.value
-                        if (earlyExit == null && !isDrawerOpen && !isMask && !scrollGuarded) {
+                        // 行内控件上的按住 (药丸 / 手柄) 不长按拖动: 药丸要留给横向调值,
+                        // 手柄自己会在位移后立即开始拖动
+                        val controlHold = controlPressGate.pressedInside
+                        if (earlyExit == null && !isDrawerOpen && !isMask && !scrollGuarded && !controlHold) {
                             // Phase 2: EXACTLY 300ms elapsed without movement exceeding slop -> TRIGGER DRAG!
                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                             scope.launch { rowInteraction.emit(androidx.compose.foundation.interaction.PressInteraction.Cancel(press)) }
@@ -391,6 +438,9 @@ internal fun LayerRow(
                                 scope.launch { rowInteraction.emit(androidx.compose.foundation.interaction.PressInteraction.Cancel(press)) }
                             }
                         }
+                        // 本次手势结束: 行内控件的按下标记一并清掉, 避免子控件手势
+                        // 异常收尾时留下"永远置位"的标记 (那会让本行长按拖动再也起不来)
+                        controlPressGate.pressedInside = false
                     }
                 },
     ) {
@@ -474,6 +524,29 @@ internal fun LayerRow(
                     hasNextSibling = hasNextSibling,
                     openDepths = openDepths,
                     panelCrop = panelCrop,
+                    effectiveVisible = effectiveVisible,
+                    // 背景层不透明度由引擎固定为 100% (ReverieCore::setLayerOpacity 直接
+                    // 忽略 index 0), 分格裁剪蒙版也没有独立不透明度: 这两种行只显示数值
+                    opacityScrub = if (panelCrop != null || isBg) null else opacityScrub,
+                    pressGate = controlPressGate,
+                    dragHandle = if (isBg) {
+                        null
+                    } else {
+                        {
+                            // 行尾手柄: 位移超过 touch slop 立即拖动 (不用等行长按的 300ms)
+                            LayerDragHandle(
+                                onDragStart = { local ->
+                                    onRevealClose()
+                                    onDragStart(rowLeft + local.x, rowTop + local.y)
+                                },
+                                onDragMove = { local ->
+                                    onDragPosition(rowLeft + local.x, rowTop + local.y)
+                                },
+                                onDragEnd = onDragEnd,
+                                pressGate = controlPressGate,
+                            )
+                        }
+                    },
                 )
             Row(
                 modifier =
@@ -547,6 +620,13 @@ internal fun LayerRowContent(
     openDepths: Set<Int> = emptySet(),
     // 分格裁剪蒙版行 (panelCropStateFor): 非 null 时眼睛走裁剪开关、副标题改裁剪口径
     panelCrop: Pair<Long, Boolean>? = null,
+    // 自身可见但祖先组隐藏: 眼睛画暗 (画布上看不见这一层)
+    effectiveVisible: Boolean = true,
+    // 行内不透明度药丸的手势宿主; null = 只显示数值 (拖拽跟随卡片用它)
+    opacityScrub: LayerOpacityScrub? = null,
+    pressGate: LayerRowPressGate? = null,
+    // 行尾拖拽手柄 (由 LayerRow 注入带手势的版本; 卡片注入静态版本)
+    dragHandle: (@Composable () -> Unit)? = null,
 ) {
     val isBg = layer.isBackground
     val visible = layer.visible
@@ -576,8 +656,18 @@ internal fun LayerRowContent(
         ) {
             Icon(
                 painterResource(if (visible) R.drawable.ic_eye else R.drawable.ic_eye_off),
-                contentDescription = stringResource(R.string.layer_visibility),
-                tint = if (visible) Morandi.icon else Morandi.subText.copy(alpha = 0.35f),
+                contentDescription = if (visible && !effectiveVisible) {
+                    stringResource(R.string.layer_hidden_by_group)
+                } else {
+                    stringResource(R.string.layer_visibility)
+                },
+                // 自身可见但祖先组隐藏: 眼睛画暗 (Mangar 的图层面板同样处理) ——
+                // 否则用户会盯着一个"亮着的眼睛"找不到画面
+                tint = when {
+                    !effectiveVisible -> Morandi.subText.copy(alpha = 0.30f)
+                    visible -> Morandi.icon
+                    else -> Morandi.subText.copy(alpha = 0.35f)
+                },
                 modifier = Modifier.size(17.dp),
             )
         }
@@ -886,34 +976,59 @@ internal fun LayerRowContent(
             val blendName = stringResource(blendModeResId(layer.blendMode))
             val isStroke = layer.isStrokeLayer || layer.nodeType == 6
             val isMask = com.reverie.paint.model.LayerNodeType.isMask(layer.nodeType)
-            val isSpecial = layer.nodeType == 2 || layer.nodeType == 3 || isStroke || isMask
-            val modified = layer.opacity < 0.999f || layer.blendMode != "normal" || isSpecial
-            if (modified) {
-                val tag = when {
-                    layer.nodeType == 2 -> stringResource(R.string.layer_tag_fill_prefix)
-                    layer.nodeType == 3 -> stringResource(R.string.layer_tag_filter_prefix)
-                    isStroke -> stringResource(R.string.layer_tag_stroke_prefix)
-                    layer.nodeType == com.reverie.paint.model.LayerNodeType.SELECTION_MASK -> stringResource(R.string.layer_tag_selection_mask_prefix)
-                    layer.nodeType == com.reverie.paint.model.LayerNodeType.FILTER_MASK -> stringResource(R.string.layer_tag_filter_mask_prefix)
-                    layer.nodeType == com.reverie.paint.model.LayerNodeType.TRANSFORM_MASK -> stringResource(R.string.layer_tag_transform_mask_prefix)
-                    isMask -> stringResource(R.string.layer_tag_mask_prefix)
-                    else -> ""
-                }
-                val desc = when {
-                    // 分格裁剪蒙版行: 副标题改「裁剪 · 开/关」口径 (不显示不透明度百分比)
-                    panelCrop != null -> stringResource(
-                        if (panelCrop.second) R.string.panel_crop_state_on else R.string.panel_crop_state_off,
+            // 第二行: [类型标签] [不透明度药丸] [混合模式]。药丸始终在, 横向拖动
+            // 直接调本层不透明度 (见 LayerRowControls), 详情页滑杆仍是精确入口。
+            // 分格裁剪蒙版行没有独立不透明度, 副标题改「裁剪 · 开/关」口径。
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                if (panelCrop != null) {
+                    Text(
+                        text = stringResource(
+                            if (panelCrop.second) R.string.panel_crop_state_on else R.string.panel_crop_state_off,
+                        ),
+                        color = Morandi.subText,
+                        fontSize = 10.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
-                    isMask -> "$tag${(layer.opacity * 100).roundToInt()}%"
-                    else -> "$tag${(layer.opacity * 100).roundToInt()}% · $blendName"
+                } else {
+                    val tag = when {
+                        layer.nodeType == 2 -> stringResource(R.string.layer_tag_fill_prefix)
+                        layer.nodeType == 3 -> stringResource(R.string.layer_tag_filter_prefix)
+                        isStroke -> stringResource(R.string.layer_tag_stroke_prefix)
+                        layer.nodeType == com.reverie.paint.model.LayerNodeType.SELECTION_MASK -> stringResource(R.string.layer_tag_selection_mask_prefix)
+                        layer.nodeType == com.reverie.paint.model.LayerNodeType.FILTER_MASK -> stringResource(R.string.layer_tag_filter_mask_prefix)
+                        layer.nodeType == com.reverie.paint.model.LayerNodeType.TRANSFORM_MASK -> stringResource(R.string.layer_tag_transform_mask_prefix)
+                        isMask -> stringResource(R.string.layer_tag_mask_prefix)
+                        else -> ""
+                    }
+                    if (tag.isNotEmpty()) {
+                        Text(
+                            text = tag,
+                            color = Morandi.subText,
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                        )
+                    }
+                    LayerOpacityChip(
+                        percent = (layer.opacity * 100).roundToInt().coerceIn(0, 100),
+                        contentDescription = stringResource(R.string.layer_opacity),
+                        scrub = opacityScrub,
+                        pressGate = pressGate,
+                    )
+                    if (!isMask && layer.blendMode != "normal") {
+                        Text(
+                            text = blendName,
+                            color = Morandi.subText,
+                            fontSize = 10.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
                 }
-                Text(
-                    text = desc,
-                    color = Morandi.subText,
-                    fontSize = 10.sp,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
             }
         }
 
@@ -962,6 +1077,9 @@ internal fun LayerRowContent(
                 )
             }
         }
+
+        // 8. Drag handle (行尾): 按下即拖, 不用等 300ms 长按
+        dragHandle?.invoke()
     }
 }
 

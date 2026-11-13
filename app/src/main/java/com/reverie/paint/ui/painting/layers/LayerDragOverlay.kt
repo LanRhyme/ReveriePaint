@@ -208,6 +208,8 @@ fun LayerDragOverlay(
                     .background(Morandi.panelHi)
                     .border(1.dp, Morandi.accent.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
                     .padding(horizontal = 8.dp),
+                // 行尾手柄只画形状: 卡片就在手指下方, 不能再接手势
+                dragHandle = { LayerDragHandleVisual() },
             )
 
             // Multi-selection count badge

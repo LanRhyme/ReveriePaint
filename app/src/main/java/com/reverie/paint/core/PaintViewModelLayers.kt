@@ -749,6 +749,28 @@ internal fun PaintViewModel.setLayerOpacity(
     }
 }
 
+/**
+ * 不透明度拖动 (行内药丸) 的提交: 先把引擎退回**起手值** (不产生撤销步), 再提交终值。
+ *
+ * `KisNodeOpacityCommand` 的撤销旧值是在 redo 时读节点当前值, 而拖动中
+ * [setLayerOpacity] 的 preview 分支已经把节点改成了最后一个预览值 —— 直接提交
+ * 会让"撤销一次"只回到最后一个预览值, 而不是拖动前的值。这里在同一个引擎任务里
+ * 先 direct 回起手值再提交, 命令记录的旧值就是拖动前的值, 撤销一次即回到拖动前。
+ * 两次调用同在 renderHandler 上执行, 中间不会出帧。
+ *
+ * 新函数而不是改 [setLayerOpacity] 的签名: 详情页滑杆沿用原有语义, 不受影响。
+ */
+internal fun PaintViewModel.commitLayerOpacityScrub(
+    i: Int,
+    from: Double,
+    to: Double,
+) {
+    runCore(after = { notifyLayerChanged(forceThumbs = false) }) {
+        ReverieCoreBridge.setLayerOpacityDirect(i, from)
+        ReverieCoreBridge.setLayerOpacity(i, to)
+    }
+}
+
 internal fun PaintViewModel.layerLocked(i: Int) = ReverieCoreBridge.layerLocked(i)
 
 internal fun PaintViewModel.setLayerLocked(

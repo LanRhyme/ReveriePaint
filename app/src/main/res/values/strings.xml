@@ -2618,6 +2618,7 @@
     <string name="layer_expand">展开</string>
     <string name="layer_collapse">折叠</string>
     <string name="layer_visibility">可见性</string>
+    <string name="layer_hidden_by_group">所在图层组已隐藏</string>
     <string name="layer_filter_layer">滤镜图层</string>
     <string name="layer_fill_layer">填充图层</string>
     <string name="layer_thumbnail">图层缩略图</string>
