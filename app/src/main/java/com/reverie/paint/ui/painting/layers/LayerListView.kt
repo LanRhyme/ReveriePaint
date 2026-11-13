@@ -140,6 +140,8 @@ internal fun LayerListView(
     onOpenFilters: (Int) -> Unit,
     onOpenCreateFilter: () -> Unit = {},
     onRenameLayer: ((Int, String) -> Unit)? = null,
+    /** 行内混合模式标签直达混合模式选择页; null = 不挂入口 */
+    onOpenBlendModes: ((Int) -> Unit)? = null,
 ) {
     val rowHeight = vm.layerRowHeightDp.dp
     // Local selection (synchronous, not the async JNI currentLayerIndex):
@@ -1087,6 +1089,7 @@ internal fun LayerListView(
                                 (draggingFrom in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1 && layer.index in vm.selectedLayerIndices),
                             multiSelected = layer.index in vm.selectedLayerIndices,
                             onRename = onRenameLayer,
+                            onOpenBlendModes = onOpenBlendModes,
                             onSelect = {
                                 revealedIndex = null
                                 vm.toggleLayerSelection(layer.index)

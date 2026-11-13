@@ -172,6 +172,8 @@ internal fun LayerRow(
     scrollGuardUntil: State<Long> = NoScrollGuard,
     /** 自身可见但祖先组隐藏时为 false: 眼睛画暗, 提示"亮了也看不见" (见 LayerListView) */
     effectiveVisible: Boolean = true,
+    /** 点行内混合模式标签直达混合模式选择页; null 时该行只显示纯文本 */
+    onOpenBlendModes: ((Int) -> Unit)? = null,
 ) {
     val rowHeight = vm.layerRowHeightDp.dp
     val index = layer.index
@@ -528,6 +530,17 @@ internal fun LayerRow(
                     // 背景层不透明度由引擎固定为 100% (ReverieCore::setLayerOpacity 直接
                     // 忽略 index 0), 分格裁剪蒙版也没有独立不透明度: 这两种行只显示数值
                     opacityScrub = if (panelCrop != null || isBg) null else opacityScrub,
+                    // 混合模式直达: 背景层恒为"正常", 蒙版没有混合模式, 分格组行走
+                    // 自己的面板工具 —— 这三种行不挂入口, 标签退化成纯文本
+                    onOpenBlendModes =
+                        if (isBg || isPanelMask ||
+                            com.reverie.paint.model.LayerNodeType.isMask(layer.nodeType) ||
+                            vm.panelIdForGroupRow(index) != null
+                        ) {
+                            null
+                        } else {
+                            onOpenBlendModes
+                        },
                     pressGate = controlPressGate,
                     dragHandle = if (isBg) {
                         null
@@ -627,6 +640,8 @@ internal fun LayerRowContent(
     pressGate: LayerRowPressGate? = null,
     // 行尾拖拽手柄 (由 LayerRow 注入带手势的版本; 卡片注入静态版本)
     dragHandle: (@Composable () -> Unit)? = null,
+    // 行内混合模式标签的直达入口; null = 纯文本 (拖拽卡片与背景/蒙版行)
+    onOpenBlendModes: ((Int) -> Unit)? = null,
 ) {
     val isBg = layer.isBackground
     val visible = layer.visible
@@ -1018,7 +1033,17 @@ internal fun LayerRowContent(
                         scrub = opacityScrub,
                         pressGate = pressGate,
                     )
-                    if (!isMask && layer.blendMode != "normal") {
+                    // 混合模式: 有直达入口时始终显示 (点一下进选择页), 没有入口的行
+                    // 仍按旧逻辑只在非"正常"时显示, 不新增不可点的视觉噪声
+                    if (onOpenBlendModes != null) {
+                        LayerBlendModeChip(
+                            text = blendName,
+                            contentDescription = stringResource(R.string.layer_blend_mode),
+                            modified = layer.blendMode != "normal",
+                            onClick = { onOpenBlendModes(index) },
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    } else if (!isMask && layer.blendMode != "normal") {
                         Text(
                             text = blendName,
                             color = Morandi.subText,

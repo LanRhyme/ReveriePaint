@@ -162,6 +162,8 @@ private sealed interface LayerView {
 
     data class BlendModes(
         val index: Int,
+        /** true = 从图层列表行内标签直接进来, 返回时回列表而不是图层详情页 */
+        val fromList: Boolean = false,
     ) : LayerView
 
     data class Filters(
@@ -359,6 +361,7 @@ fun LayerPanel(
                             onOpenFilters = { view = LayerView.Filters(it) },
                             onOpenCreateFilter = { view = LayerView.FiltersCreate },
                             onRenameLayer = { idx, name -> renameTarget = LayerRenameTarget(idx, name) },
+                            onOpenBlendModes = { view = LayerView.BlendModes(it, fromList = true) },
                         )
                     }
 
@@ -385,7 +388,10 @@ fun LayerPanel(
                         BlendModesPage(
                             vm = vm,
                             index = v.index,
-                            onBack = { view = LayerView.Detail(v.index) },
+                            // 从列表行内标签进来时回列表; 从详情页进来时回详情页
+                            onBack = {
+                                view = if (v.fromList) LayerView.List else LayerView.Detail(v.index)
+                            },
                         )
                     }
 

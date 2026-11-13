@@ -26,7 +26,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.drawBehind
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -39,9 +41,11 @@ import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.model.layerOpacityScrubPercent
+import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.abs
 
@@ -49,9 +53,10 @@ import kotlin.math.abs
  * 图层行内的小控件 (参考 Mangar 图层面板的行内交互):
  *
  * - [LayerOpacityChip]: 行内"不透明度"药丸, 横向拖动直接调值, 不必进详情页;
+ * - [LayerBlendModeChip]: 行内"混合模式"标签, 点一下直达混合模式选择页;
  * - [LayerDragHandle]: 行尾拖拽手柄, 按下即可拖动排序 (免去长按 300ms 的等待)。
  *
- * 两个控件都要和行本身的手势 (轻点选中 / 长按拖动 / 左右滑) 共存, 共存约定:
+ * 两个药丸都要和行本身的手势 (轻点选中 / 长按拖动 / 左右滑) 共存, 共存约定:
  * 1. 子控件在触摸链里先于行收到事件 (Compose Main pass 由内向外), 认领手势时
  *    消费位移事件, 行看到 `isConsumed` 就放弃本次判定 (见 LayerRow.Phase 1);
  * 2. 纵向位移一律让渡给列表滚动 —— 行内只认领"横向占优"的拖动;
@@ -118,12 +123,39 @@ internal fun LayerOpacityChip(
         display < 100 -> Morandi.accent
         else -> Morandi.subText
     }
+    // 水位填充 (Mangar 的 ControlValueLevel): 药丸底部按数值高度填充 + 一条水线,
+    // 不用读数字就能看出"这层被调淡了"。两端不画水线, 免得看起来像描边。
+    val levelColor = when {
+        scrubbing -> Morandi.accent.copy(alpha = 0.26f)
+        display < 100 -> Morandi.accent.copy(alpha = 0.14f)
+        else -> Morandi.subText.copy(alpha = 0.12f)
+    }
+    val waterlineColor = if (scrubbing) Morandi.accent.copy(alpha = 0.75f) else Morandi.subText.copy(alpha = 0.35f)
 
     Box(
         modifier =
             modifier
                 .clip(shape)
                 .background(background)
+                .drawBehind {
+                    val fraction = (display / 100f).coerceIn(0f, 1f)
+                    if (fraction <= 0f) return@drawBehind
+                    val levelHeight = size.height * fraction
+                    drawRect(
+                        color = levelColor,
+                        topLeft = Offset(0f, size.height - levelHeight),
+                        size = Size(size.width, levelHeight),
+                    )
+                    if (fraction < 1f) {
+                        val y = (size.height - levelHeight).coerceIn(0f, size.height)
+                        drawLine(
+                            color = waterlineColor,
+                            start = Offset(0f, y),
+                            end = Offset(size.width, y),
+                            strokeWidth = 1.dp.toPx(),
+                        )
+                    }
+                }
                 .semantics { this.contentDescription = "$contentDescription $display%" }
                 .then(
                     if (scrub == null) {
@@ -185,6 +217,43 @@ internal fun LayerOpacityChip(
             fontWeight = if (display < 100) FontWeight.Medium else FontWeight.Normal,
             maxLines = 1,
             textAlign = TextAlign.Center,
+        )
+    }
+}
+
+/**
+ * 行内"混合模式"标签: 点一下直接进混合模式选择页 (原来要点两次再进子页)。
+ *
+ * 不做拖动切换: 换混合模式没有预览接口, 逐帧 setLayerBlendMode 会走节点级重合成;
+ * 想快速试模式请进选择页点选。只有带直达入口的行 (非背景/蒙版/分格组) 会用它。
+ */
+@Composable
+internal fun LayerBlendModeChip(
+    text: String,
+    contentDescription: String,
+    modified: Boolean,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier =
+            modifier
+                .clip(RoundedCornerShape(4.dp))
+                .background(Morandi.panelHi.copy(alpha = 0.45f))
+                .semantics { this.contentDescription = "$contentDescription $text" }
+                .noRippleClickable(onClick)
+                .defaultMinSize(minHeight = 18.dp)
+                .padding(horizontal = 5.dp, vertical = 1.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            color = if (modified) Morandi.accent else Morandi.subText,
+            fontSize = 10.sp,
+            fontWeight = if (modified) FontWeight.Medium else FontWeight.Normal,
+            maxLines = 1,
+            softWrap = false,
+            overflow = TextOverflow.Ellipsis,
         )
     }
 }
