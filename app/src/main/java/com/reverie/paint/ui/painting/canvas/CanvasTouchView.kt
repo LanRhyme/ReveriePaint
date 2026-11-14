@@ -8457,8 +8457,8 @@ class CanvasTouchView(context: Context) : View(context) {
                             }
                         }
                         PANEL_DRAG_BODY -> {
-                            if (!isTap) {
-                                val shown = panelShownMoveDelta()
+                            val shown = panelShownMoveDelta()
+                            if (shown != null || !isTap) {
                                 val snappedDelta = shown ?: run {
                                     val rawDelta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
                                     computeBodySnap(rawDelta, currentScale).first
@@ -8479,23 +8479,23 @@ class CanvasTouchView(context: Context) : View(context) {
                             // 多选态轻点: 保持多选不变
                         }
                         PANEL_DRAG_BODY_PENDING -> {
-                            if (isTap) {
-                                v.panelMultiSelectedIds = emptySet()
-                                v.selectedPanelId = panelPendingPanelId
-                                if (panelPendingPanelId != null) {
-                                    val targetLayer = v.panelContentLayerIndex(panelPendingPanelId)
-                                    if (targetLayer >= 0) {
-                                        v.setCurrentLayer(targetLayer)
-                                    }
-                                }
-                            } else {
+                            val shown = panelShownMoveDelta()
+                            if (shown != null || !isTap) {
                                 // 兜底 (正常已在 MOVE 转为 BODY 拖移): 同样提交最后一帧预览
-                                val shown = panelShownMoveDelta()
                                 val snappedDelta = shown ?: run {
                                     val rawDelta = Point2D(docPos.x - panelDragStartDoc.x, docPos.y - panelDragStartDoc.y)
                                     computeBodySnap(rawDelta, currentScale).first
                                 }
                                 v.movePanelsBy(panelDragIds.toList(), snappedDelta.x, snappedDelta.y)
+                            } else {
+                                v.panelMultiSelectedIds = emptySet()
+                                v.selectedPanelId = panelPendingPanelId
+                                if (panelPendingPanelId >= 0) {
+                                    val targetLayer = v.panelContentLayerIndex(panelPendingPanelId)
+                                    if (targetLayer >= 0) {
+                                        v.setCurrentLayer(targetLayer)
+                                    }
+                                }
                             }
                         }
                         PANEL_DRAG_CREATE -> {

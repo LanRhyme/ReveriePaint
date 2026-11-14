@@ -1289,4 +1289,44 @@ class PanelModelsTest {
         assertTrue(parsePanelMetas("{\"invalid\":123}").isEmpty())
         assertTrue(parsePanelMetas("{\"panels\":[]}").isEmpty())
     }
+
+    @Test
+    fun `body snap alignment aligns quad centroid to page center when within tolerance`() {
+        // Page 1000x1000, Center is (500, 500)
+        // Quad 100x100 initially at [440, 440, 540, 540], centroid at (490, 490)
+        val initial = square(440f, 440f, 540f, 540f)
+        val rawDelta = Point2D(8f, 7f) // moved to centroid (498, 497)
+        val moved = initial.movedBy(rawDelta)
+        val candidates = pageCenterSnapCandidates(moved, 1000f, 1000f, tolerance = 10f)
+
+        assertEquals(2, candidates.size)
+        val candX = candidates.first { it.guideAxis == 0 }
+        val candY = candidates.first { it.guideAxis == 1 }
+
+        assertEquals(2f, candX.delta.x, 0.001f) // 500 - 498 = 2
+        assertEquals(3f, candY.delta.y, 0.001f) // 500 - 497 = 3
+
+        val snappedDelta = Point2D(rawDelta.x + candX.delta.x, rawDelta.y + candY.delta.y)
+        val finalQuad = initial.movedBy(snappedDelta)
+        assertEquals(Point2D(500f, 500f), finalQuad.centroid())
+    }
+
+    @Test
+    fun `body snap alignment aligns quad edge to neighbor gutter when within tolerance`() {
+        // Neighbor at [0, 0, 200, 200], moving quad at [220, 0, 420, 200]
+        // Default hGap = 20, so target left edge is 200 + 20 = 220
+        val neighbor = square(0f, 0f, 200f, 200f)
+        val initial = square(215f, 0f, 415f, 200f) // 5px off alignment
+        val rawDelta = Point2D(2f, 0f) // moved to left = 217
+        val moved = initial.movedBy(rawDelta)
+        val candidates = axisSnapCandidates(moved, listOf(neighbor), hGap = 20f, vGap = 20f, tolerance = 10f)
+
+        val snapCandidate = candidates.firstOrNull { it.guideAxis == 0 }
+        assertNotNull(snapCandidate)
+        assertEquals(3f, snapCandidate!!.delta.x, 0.001f) // 220 - 217 = 3
+
+        val snappedDelta = Point2D(rawDelta.x + snapCandidate.delta.x, rawDelta.y + snapCandidate.delta.y)
+        val finalQuad = initial.movedBy(snappedDelta)
+        assertEquals(220f, finalQuad.corners[0].x, 0.001f)
+    }
 }
