@@ -23,6 +23,7 @@ import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -276,6 +277,9 @@ internal fun LayerDragHandle(
 ) {
     val haptic = LocalHapticFeedback.current
     val viewConfiguration = LocalViewConfiguration.current
+    val currentOnDragStart by rememberUpdatedState(onDragStart)
+    val currentOnDragMove by rememberUpdatedState(onDragMove)
+    val currentOnDragEnd by rememberUpdatedState(onDragEnd)
     var active by remember { mutableStateOf(false) }
     var handleRootLeft by remember { mutableFloatStateOf(0f) }
     var handleRootTop by remember { mutableFloatStateOf(0f) }
@@ -312,16 +316,16 @@ internal fun LayerDragHandle(
                                     active = true
                                     change.consume()
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onDragStart(Offset(handleRootLeft + down.position.x, handleRootTop + down.position.y))
+                                    currentOnDragStart(Offset(handleRootLeft + down.position.x, handleRootTop + down.position.y))
                                 }
                                 change.consume()
-                                onDragMove(Offset(handleRootLeft + change.position.x, handleRootTop + change.position.y))
+                                currentOnDragMove(Offset(handleRootLeft + change.position.x, handleRootTop + change.position.y))
                             }
                         } finally {
                             pressGate?.pressedInside = false
                             if (dragging) {
                                 active = false
-                                onDragEnd()
+                                currentOnDragEnd()
                             }
                         }
                     }
