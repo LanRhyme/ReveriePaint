@@ -25,6 +25,7 @@
 | 0012 | `fix-transaction-abort` | 事务结束时时间不一致改为安全警告（`KIS_SAFE_ASSERT_RECOVER_NOOP`），避免硬断言触发 `qFatal` 导致进程闪退 |
 | 0013 | `perf-experimentbrush-painter-fillPainterPath-60fps` | `fillPainterPath` 新增 `QRegion` 分块合并光栅化，纯色填充改用 `nConseqPixels()` 批量 `applyAlphaU8Mask` 替代逐像素虚调用与 `fillRect` |
 | 0014 | `perf-experimentbrush-krita_utils-25fps-splitTriangle` | 解除 `KisExperimentPaintOp` 2010 年遗留的 25fps (`timeThreshold = 40`) 与长笔画距离门控硬节流，重构为 12ms / ~80fps 连续刷新，并为 `splitTriangles` 引入 AABB 预筛选消除昂贵多边形求交 |
+| 0015 | `perf-sketch-2D-O-N-2-O-1` | 为 `KisSketchPaintOp` 引入 2D 空间网格桶与局部候选点排序检索，消除长笔画时逐事件遍历整笔历史点的 $O(N^2)$ 计算死锁 |
 
 ## 应用与重建
 

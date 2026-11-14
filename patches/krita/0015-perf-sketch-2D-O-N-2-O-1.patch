@@ -1,0 +1,124 @@
+From 8dbf2c62e4c138aea44beb4b187c7c994dd20790 Mon Sep 17 00:00:00 2001
+From: LanRhyme <xiao_ren233@foxmail.com>
+Date: Sun, 15 Nov 2026 00:34:37 +0800
+Subject: [PATCH] =?UTF-8?q?perf(sketch):=20=E5=BC=95=E5=85=A5=202D=20?=
+ =?UTF-8?q?=E7=A9=BA=E9=97=B4=E7=BD=91=E6=A0=BC=E6=A1=B6=E5=B0=86=E7=AC=94?=
+ =?UTF-8?q?=E8=BF=B9=E5=8E=86=E5=8F=B2=E6=A3=80=E7=B4=A2=E4=BB=8E=20O(N^2)?=
+ =?UTF-8?q?=20=E9=99=8D=E8=87=B3=20O(1)?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../paintops/sketch/kis_sketch_paintop.cpp    | 43 ++++++++++++++++---
+ plugins/paintops/sketch/kis_sketch_paintop.h  |  5 +++
+ 2 files changed, 43 insertions(+), 5 deletions(-)
+
+diff --git a/plugins/paintops/sketch/kis_sketch_paintop.cpp b/plugins/paintops/sketch/kis_sketch_paintop.cpp
+index 2b50f4d1..41406f59 100644
+--- a/plugins/paintops/sketch/kis_sketch_paintop.cpp
++++ b/plugins/paintops/sketch/kis_sketch_paintop.cpp
+@@ -9,6 +9,8 @@
+ #include "kis_sketch_paintop_settings.h"
+ 
+ #include <cmath>
++#include <algorithm>
++#include <numeric>
+ #include <QRect>
+ 
+ #include <KoColor.h>
+@@ -150,8 +152,11 @@ void KisSketchPaintOp::doPaintLine(const KisPaintInformation &pi1, const KisPain
+ 
+     QPointF prevMouse = pi1.pos();
+     QPointF mousePosition = pi2.pos();
++    const int newPointIndex = m_points.size();
+     m_points.append(mousePosition);
+-
++    const int cellX = static_cast<int>(std::floor(mousePosition.x() / GRID_CELL_SIZE));
++    const int cellY = static_cast<int>(std::floor(mousePosition.y() / GRID_CELL_SIZE));
++    m_spatialGrid[spatialCellKey(cellX, cellY)].append(newPointIndex);
+ 
+     const qreal lodAdditionalScale = KisLodTransform::lodToScale(painter()->device());
+     const qreal scale = lodAdditionalScale * m_sizeOption.apply(pi2);
+@@ -168,8 +173,8 @@ void KisSketchPaintOp::doPaintLine(const KisPaintInformation &pi1, const KisPain
+         drawConnection(prevMouse, mousePosition, currentLineWidth);
+     }
+ 
+-
+     qreal thresholdDistance = 0.0;
++    qreal searchRadius = 0.0;
+ 
+     // update the mask for simple mode only once
+     // determine the radius
+@@ -183,11 +188,13 @@ void KisSketchPaintOp::doPaintLine(const KisPaintInformation &pi1, const KisPain
+         updateBrushMask(pi2, scale, rotation);
+         m_radius = qMax(m_maskDab->bounds().width(), m_maskDab->bounds().height()) * 0.5;
+         thresholdDistance = pow(m_radius, 2);
++        searchRadius = m_radius;
+     }
+ 
+     if (m_sketchProperties.simpleMode) {
+         // update the radius according scale in simple mode
+-        thresholdDistance = pow(m_radius * scale, 2);
++        searchRadius = m_radius * scale;
++        thresholdDistance = pow(searchRadius, 2);
+     }
+ 
+     // determine density
+@@ -207,9 +214,35 @@ void KisSketchPaintOp::doPaintLine(const KisPaintInformation &pi1, const KisPain
+     QPoint  positionInMask;
+     QPointF diff;
+ 
+-    int size = m_points.size();
++    const QRectF queryRect = m_sketchProperties.simpleMode ?
++        QRectF(mousePosition.x() - searchRadius, mousePosition.y() - searchRadius,
++               2 * searchRadius, 2 * searchRadius) :
++        m_brushBoundingBox;
++
++    const int minCx = static_cast<int>(std::floor(queryRect.left() / GRID_CELL_SIZE));
++    const int maxCx = static_cast<int>(std::floor(queryRect.right() / GRID_CELL_SIZE));
++    const int minCy = static_cast<int>(std::floor(queryRect.top() / GRID_CELL_SIZE));
++    const int maxCy = static_cast<int>(std::floor(queryRect.bottom() / GRID_CELL_SIZE));
++
++    QVector<int> candidates;
++    const qint64 numCells = qint64(maxCx - minCx + 1) * qint64(maxCy - minCy + 1);
++    if (numCells > 0 && numCells <= 1024) {
++        for (int cy = minCy; cy <= maxCy; ++cy) {
++            for (int cx = minCx; cx <= maxCx; ++cx) {
++                auto it = m_spatialGrid.constFind(spatialCellKey(cx, cy));
++                if (it != m_spatialGrid.constEnd()) {
++                    candidates.append(*it);
++                }
++            }
++        }
++        std::sort(candidates.begin(), candidates.end());
++    } else {
++        candidates.resize(m_points.size());
++        std::iota(candidates.begin(), candidates.end(), 0);
++    }
++
+     // MAIN LOOP
+-    for (int i = 0; i < size; i++) {
++    for (int i : candidates) {
+         diff = m_points.at(i) - mousePosition;
+         distance = diff.x() * diff.x() + diff.y() * diff.y();
+ 
+diff --git a/plugins/paintops/sketch/kis_sketch_paintop.h b/plugins/paintops/sketch/kis_sketch_paintop.h
+index 97b169f6..5365af40 100644
+--- a/plugins/paintops/sketch/kis_sketch_paintop.h
++++ b/plugins/paintops/sketch/kis_sketch_paintop.h
+@@ -68,6 +68,11 @@ private:
+     KisSketchOpOptionData m_sketchProperties;
+ 
+     QVector<QPointF> m_points;
++    static constexpr int GRID_CELL_SIZE = 64;
++    static inline quint64 spatialCellKey(int cx, int cy) {
++        return (quint64(static_cast<quint32>(cx)) << 32) | quint64(static_cast<quint32>(cy));
++    }
++    QHash<quint64, QVector<int>> m_spatialGrid;
+     int m_count {0};
+     KisPainter * m_painter {nullptr};
+     KisBrushSP m_brush;
+-- 
+2.56.0
+
