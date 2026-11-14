@@ -496,7 +496,11 @@ internal fun LayerRow(
                     .background(selectionBg, shape = RoundedCornerShape(8.dp))
                     .offset { IntOffset(revealAnim.value.roundToInt(), 0) }
                     .graphicsLayer {
-                        alpha = if (isDragging) 0.35f else 1f
+                        alpha = when {
+                            isDragging && vm.isLayerDragSettling -> 0f
+                            isDragging -> 0.35f
+                            else -> 1f
+                        }
                         scaleX = groupScale
                         scaleY = groupScale
                     },
@@ -1039,25 +1043,26 @@ internal fun LayerRowContent(
                         scrub = opacityScrub,
                         pressGate = pressGate,
                     )
-                    // 混合模式: 有直达入口时始终显示 (点一下进选择页), 没有入口的行
-                    // 仍按旧逻辑只在非"正常"时显示, 不新增不可点的视觉噪声
-                    if (onOpenBlendModes != null) {
-                        LayerBlendModeChip(
-                            text = blendName,
-                            contentDescription = stringResource(R.string.layer_blend_mode),
-                            modified = layer.blendMode != "normal",
-                            onClick = { onOpenBlendModes(index) },
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
-                    } else if (!isMask && layer.blendMode != "normal") {
-                        Text(
-                            text = blendName,
-                            color = Morandi.subText,
-                            fontSize = 10.sp,
-                            maxLines = 1,
-                            overflow = TextOverflow.Ellipsis,
-                            modifier = Modifier.weight(1f, fill = false),
-                        )
+                    // 混合模式: 仅当非"正常"模式时显示
+                    if (layer.blendMode != "normal") {
+                        if (onOpenBlendModes != null) {
+                            LayerBlendModeChip(
+                                text = blendName,
+                                contentDescription = stringResource(R.string.layer_blend_mode),
+                                modified = true,
+                                onClick = { onOpenBlendModes(index) },
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                        } else if (!isMask) {
+                            Text(
+                                text = blendName,
+                                color = Morandi.subText,
+                                fontSize = 10.sp,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f, fill = false),
+                            )
+                        }
                     }
                 }
             }

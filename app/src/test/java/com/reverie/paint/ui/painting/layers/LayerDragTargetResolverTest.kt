@@ -258,5 +258,81 @@ class LayerDragTargetResolverTest {
         assertEquals(0, target?.anchorIndex)
         assertEquals(LayerDropPlacement.ABOVE, target?.placement)
     }
+
+    @Test
+    fun `resolveDisplayDropSlot lands between bottom regular layer and background when dragging upper layer`() {
+        val l2 = mockLayer(2, depth = 0)
+        val l1 = mockLayer(1, depth = 0)
+        val bg = mockLayer(0, depth = 0, isBackground = true)
+        val displayRows = listOf(l2, l1, bg)
+        val remaining = listOf(l1, bg)
+        val bounds = mapOf(
+            2 to (0f to 50f),
+            1 to (50f to 100f),
+            0 to (100f to 150f),
+        )
+
+        // Hover bottom half of l1 (y = 85f) -> BELOW l1, slot in displayRows must be 2 (above bg)
+        val belowL1 = resolveLayerDropTarget(
+            fingerX = 100f,
+            fingerY = 85f,
+            dragStartX = 100f,
+            listLeft = 0f,
+            listTop = 0f,
+            listWidth = 300f,
+            rowHeightPx = 50f,
+            remainingRows = remaining,
+            rowBounds = bounds,
+            allLayers = listOf(bg, l1, l2),
+        )
+        assertNotNull(belowL1)
+        assertEquals(2, resolveDisplayDropSlot(belowL1!!, displayRows))
+
+        // Hover on background layer (y = 135f) -> ABOVE bg, slot in displayRows must also be 2
+        val aboveBg = resolveLayerDropTarget(
+            fingerX = 100f,
+            fingerY = 135f,
+            dragStartX = 100f,
+            listLeft = 0f,
+            listTop = 0f,
+            listWidth = 300f,
+            rowHeightPx = 50f,
+            remainingRows = remaining,
+            rowBounds = bounds,
+            allLayers = listOf(bg, l1, l2),
+        )
+        assertNotNull(aboveBg)
+        assertEquals(2, resolveDisplayDropSlot(aboveBg!!, displayRows))
+    }
+
+    @Test
+    fun `resolveDisplayDropSlot skips dragged group subtree and maps group exit seam accurately`() {
+        val draggedGroup = mockLayer(10, depth = 0, isGroup = true)
+        val draggedChild = mockLayer(9, depth = 1)
+        val group2 = mockLayer(4, depth = 0, isGroup = true)
+        val group2Child = mockLayer(3, depth = 1)
+        val bg = mockLayer(0, depth = 0, isBackground = true)
+        val displayRows = listOf(draggedGroup, draggedChild, group2, group2Child, bg)
+
+        // Placing BELOW group2 (display index 2, with child at 3) must land at slot 4 (right above bg)
+        val belowGroup2 = LayerDragTarget(
+            anchorIndex = 4,
+            placement = LayerDropPlacement.BELOW,
+            parentGroupIndex = null,
+            visualDepth = 0,
+            visualSlot = 2,
+        )
+        assertEquals(4, resolveDisplayDropSlot(belowGroup2, displayRows))
+
+        // Placing ABOVE bg (display index 4) must also land at slot 4
+        val aboveBg = LayerDragTarget(
+            anchorIndex = 0,
+            placement = LayerDropPlacement.ABOVE,
+            parentGroupIndex = null,
+            visualDepth = 0,
+            visualSlot = 2,
+        )
+        assertEquals(4, resolveDisplayDropSlot(aboveBg, displayRows))
+    }
 }
 

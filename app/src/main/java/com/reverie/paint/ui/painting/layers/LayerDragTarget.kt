@@ -329,3 +329,29 @@ private fun dropTargetAtBoundary(
         }
     }
 }
+
+/**
+ * 将基于 remainingRows 的落点目标转换为实际展示列表 [displayRows] 中的缝隙索引 (`0..displayRows.size`)。
+ *
+ * [displayRows] 在拖拽过程中仍保留被拖拽图层行，直接用 `target.visualSlot` (remainingRows 下标)
+ * 查询 `LazyColumn.visibleItemsInfo` 会在被拖拽行下方产生 1 个或多个条目的向上偏移，
+ * 导致拖到组下方或最底部时指示线错位到上一行顶部 (例如只落到底部常规图层上方而非与背景层之间)。
+ */
+internal fun resolveDisplayDropSlot(
+    target: LayerDragTarget,
+    displayRows: List<PaintViewModel.LayerUiState>,
+): Int {
+    if (displayRows.isEmpty()) return 0
+    val anchorDisplayIdx = displayRows.indexOfFirst { it.index == target.anchorIndex }
+    if (anchorDisplayIdx < 0) return target.visualSlot.coerceIn(0, displayRows.size)
+    return when (target.placement) {
+        LayerDropPlacement.ABOVE, LayerDropPlacement.INSIDE -> anchorDisplayIdx
+        LayerDropPlacement.BELOW -> {
+            val anchor = displayRows[anchorDisplayIdx]
+            val lastDescIdx = (anchorDisplayIdx + 1 until displayRows.size)
+                .takeWhile { displayRows[it].depth > anchor.depth }
+                .lastOrNull() ?: anchorDisplayIdx
+            lastDescIdx + 1
+        }
+    }
+}

@@ -57,6 +57,7 @@ import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.gestures.scrollBy
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
+import kotlinx.coroutines.launch
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -354,14 +355,15 @@ internal fun LayerListView(
             return
         }
 
+        val displaySlot = resolveDisplayDropSlot(target, displayRows)
         if (target.placement == LayerDropPlacement.INSIDE) {
             dragOver = target.anchorIndex to DropMode.OnGroup
-            dragTargetIdx = target.visualSlot
+            dragTargetIdx = displaySlot
             previewDropIdx = -1
         } else {
             dragOver = null
-            dragTargetIdx = target.visualSlot
-            previewDropIdx = target.visualSlot
+            dragTargetIdx = displaySlot
+            previewDropIdx = displaySlot
         }
     }
 
@@ -391,11 +393,12 @@ internal fun LayerListView(
 
         var groupDrop = false
         if (from > 0 && target != null) {
+            val displaySlot = resolveDisplayDropSlot(target, displayRows)
             val fromPid = vm.panelIdForGroupRow(from)
             if (fromPid != null) {
                 // 拖动的是分格组整行：走 movePanelZBy，在分格根组内安全重排，严禁脱离根组
                 val curVisualIdx = displayRows.indexOfFirst { it.index == from }
-                val isUp = target.visualSlot < curVisualIdx
+                val isUp = displaySlot < curVisualIdx
                 vm.movePanelZBy(fromPid, up = isUp)
                 draggingFrom = -1
                 dragTargetIdx = -1
@@ -434,21 +437,23 @@ internal fun LayerListView(
                 }
             }
 
-            // Settle animation into drop slot or group folder
-            val targetInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == target.visualSlot }
+            // Settle animation into drop slot or group folder (uses target.visualSlot which
+            // equals the post-reorder index of the dropped layer in displayRows).
+            val settleSlot = target.visualSlot
+            val targetInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == settleSlot }
             val targetY = if (targetInfo != null) {
                 listTop + targetInfo.offset
             } else if (groupDrop) {
                 rowBounds[target.anchorIndex]?.first ?: listTop
             } else {
-                listTop + target.visualSlot * rowPx
+                listTop + settleSlot * rowPx
             }
             val settleTargetX = if (listLeft > 0f) listLeft else (vm.activeLayerDrag?.startX ?: 0f)
             vm.layerDragSettleFrom = settleFromOffset
             vm.layerDragSettleTo = Offset(settleTargetX, targetY.toFloat())
             vm.isLayerDragGroupSettle = groupDrop
             vm.isLayerDragSettling = true
-            previewDropIdx = if (groupDrop) -1 else target.visualSlot
+            previewDropIdx = if (groupDrop) -1 else displaySlot
         } else {
             // Cancelled or dropped outside panel: spring back to origin
             val b = rowBounds[from]
@@ -1075,10 +1080,38 @@ internal fun LayerListView(
 
             val targetDepth = currentDropTarget?.visualDepth ?: 0
 
-            var lastValidLineY by remember { mutableFloatStateOf(0f) }
-            LaunchedEffect(rawLineY) {
-                if (rawLineY != null) {
-                    lastValidLineY = rawLineY
+            val animatedLineY = remember { Animatable(0f) }
+            val animatedDepth = remember { Animatable(0f) }
+            var indicatorWasActive by remember { mutableStateOf(false) }
+
+            LaunchedEffect(showIndicator, rawLineY, targetDepth) {
+                if (showIndicator && rawLineY != null) {
+                    if (!indicatorWasActive) {
+                        indicatorWasActive = true
+                        animatedLineY.snapTo(rawLineY)
+                        animatedDepth.snapTo(targetDepth.toFloat())
+                    } else {
+                        launch {
+                            animatedLineY.animateTo(
+                                rawLineY,
+                                animationSpec = spring(
+                                    dampingRatio = 0.85f,
+                                    stiffness = 650f,
+                                ),
+                            )
+                        }
+                        launch {
+                            animatedDepth.animateTo(
+                                targetDepth.toFloat(),
+                                animationSpec = spring(
+                                    dampingRatio = 0.85f,
+                                    stiffness = 550f,
+                                ),
+                            )
+                        }
+                    }
+                } else {
+                    indicatorWasActive = false
                 }
             }
 
@@ -1096,24 +1129,6 @@ internal fun LayerListView(
                 }
             }
 
-            val animatedLineY by animateFloatAsState(
-                targetValue = rawLineY ?: lastValidLineY,
-                animationSpec = spring(
-                    dampingRatio = 0.85f,
-                    stiffness = 650f,
-                ),
-                label = "animatedLineY",
-            )
-
-            val animatedDepth by animateFloatAsState(
-                targetValue = targetDepth.toFloat(),
-                animationSpec = spring(
-                    dampingRatio = 0.85f,
-                    stiffness = 550f,
-                ),
-                label = "animatedDepth",
-            )
-
             val lineAlpha by animateFloatAsState(
                 targetValue = if (showIndicator && rawLineY != null) 1f else 0f,
                 animationSpec = tween(120),
@@ -1126,11 +1141,11 @@ internal fun LayerListView(
                         .fillMaxSize()
                         .zIndex(5f)
                 ) {
-                    val y = animatedLineY.coerceIn(0f, size.height)
+                    val y = animatedLineY.value.coerceIn(0f, size.height)
                     val dotRadius = 4.5.dp.toPx()
                     val haloRadius = 7.5.dp.toPx()
                     val lineStroke = 2.5.dp.toPx()
-                    val startX = (16 + animatedDepth * LAYER_INDENT_STEP_DP).dp.toPx()
+                    val startX = (16 + animatedDepth.value * LAYER_INDENT_STEP_DP).dp.toPx()
                     val endX = size.width - 16.dp.toPx()
 
                     // 1. Soft glowing outer beam
