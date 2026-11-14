@@ -1114,28 +1114,78 @@ bool ReverieCore::isLayerStroke(int index) const
 namespace {
 class SetStrokeParamsCommand : public KUndo2Command {
 public:
-    SetStrokeParamsCommand(ReverieCore *core, int index,
+    SetStrokeParamsCommand(ReverieCore *core, KisNodeSP node,
                            int oldSize, quint32 oldColor, int oldPos, int oldOp,
                            int newSize, quint32 newColor, int newPos, int newOp)
         : KUndo2Command(kundo2_i18n("Change Stroke Style"))
-        , m_core(core), m_index(index)
+        , m_core(core), m_node(node)
         , m_oldSize(oldSize), m_oldColor(oldColor), m_oldPos(oldPos), m_oldOp(oldOp)
         , m_newSize(newSize), m_newColor(newColor), m_newPos(newPos), m_newOp(newOp)
     {}
 
     void undo() override {
-        m_core->applyStrokeParamsInternal(m_index, m_oldSize, m_oldColor, m_oldPos, m_oldOp);
+        if (!m_core || !m_node) return;
+        int idx = m_core->indexOfNode(m_node.data());
+        if (idx >= 0) {
+            m_core->applyStrokeParamsInternal(idx, m_oldSize, m_oldColor, m_oldPos, m_oldOp);
+        }
     }
     void redo() override {
-        m_core->applyStrokeParamsInternal(m_index, m_newSize, m_newColor, m_newPos, m_newOp);
+        if (!m_core || !m_node) return;
+        int idx = m_core->indexOfNode(m_node.data());
+        if (idx >= 0) {
+            m_core->applyStrokeParamsInternal(idx, m_newSize, m_newColor, m_newPos, m_newOp);
+        }
     }
 
 private:
     ReverieCore *m_core;
-    int m_index;
+    KisNodeSP m_node;
     int m_oldSize; quint32 m_oldColor; int m_oldPos; int m_oldOp;
     int m_newSize; quint32 m_newColor; int m_newPos; int m_newOp;
 };
+
+class RasterizeStrokeCommand : public KUndo2Command {
+public:
+    RasterizeStrokeCommand(ReverieCore *core, KisNodeSP node,
+                           int size, quint32 color, int position, int opacity)
+        : KUndo2Command(kundo2_i18n("Rasterize Stroke"))
+        , m_core(core), m_node(node)
+        , m_size(size), m_color(color), m_position(position), m_opacity(opacity)
+    {}
+
+    void undo() override {
+        if (!m_core || !m_node) return;
+        int idx = m_core->indexOfNode(m_node.data());
+        if (idx >= 0) {
+            m_core->applyStrokeParamsInternal(idx, m_size, m_color, m_position, m_opacity);
+        }
+    }
+    void redo() override {
+        if (!m_core || !m_node) return;
+        int idx = m_core->indexOfNode(m_node.data());
+        if (idx >= 0) {
+            m_core->disableStrokeLayerInternal(idx);
+        }
+    }
+
+private:
+    ReverieCore *m_core;
+    KisNodeSP m_node;
+    int m_size; quint32 m_color; int m_position; int m_opacity;
+};
+}
+
+void ReverieCore::disableStrokeLayerInternal(int index)
+{
+    if (index < 0 || index >= m_layers.size()) return;
+    LayerEntry &e = m_layers[index];
+    e.isStrokeLayer = false;
+    e.nodeType = NodeTypePaint;
+    if (e.node) {
+        reverie::setLayerProperty(&*e.node, "reverie_is_stroke", false);
+    }
+    markDirty();
 }
 
 void ReverieCore::applyStrokeParamsInternal(int index, int size, quint32 color, int position, int opacity)
@@ -1179,18 +1229,32 @@ bool ReverieCore::setLayerStrokeParams(int index, int size, quint32 color, int p
     if (index < 0 || index >= m_layers.size()) return false;
     const LayerEntry &e = m_layers[index];
     if (!e.isStrokeLayer && e.nodeType != NodeTypeStroke) return false;
+    KisNode *node = e.node;
 
-    const int oldSize = e.strokeSize;
-    const quint32 oldColor = e.strokeColor;
-    const int oldPos = e.strokePosition;
-    const int oldOp = e.strokeOpacity;
+    int oldSize = e.strokeSize;
+    quint32 oldColor = e.strokeColor;
+    int oldPos = e.strokePosition;
+    int oldOp = e.strokeOpacity;
+
+    if (node && m_strokeParamsDragStarts.contains(node)) {
+        const auto snap = m_strokeParamsDragStarts.take(node);
+        oldSize = snap.size;
+        oldColor = snap.color;
+        oldPos = snap.position;
+        oldOp = snap.opacity;
+    }
 
     const int newSize = qBound(1, size, 100);
     const int newPos = qBound(0, position, 2);
     const int newOp = qBound(0, opacity, 100);
 
+    if (oldSize == newSize && oldColor == color && oldPos == newPos && oldOp == newOp) {
+        applyStrokeParamsInternal(index, newSize, color, newPos, newOp);
+        return true;
+    }
+
     pushUndoCommand(new SetStrokeParamsCommand(
-        this, index,
+        this, KisNodeSP(node),
         oldSize, oldColor, oldPos, oldOp,
         newSize, color, newPos, newOp));
 
@@ -1203,6 +1267,10 @@ bool ReverieCore::setLayerStrokeParamsDirect(int index, int size, quint32 color,
     if (index < 0 || index >= m_layers.size()) return false;
     const LayerEntry &e = m_layers[index];
     if (!e.isStrokeLayer && e.nodeType != NodeTypeStroke) return false;
+
+    if (e.node && !m_strokeParamsDragStarts.contains(e.node)) {
+        m_strokeParamsDragStarts.insert(e.node, {e.strokeSize, e.strokeColor, e.strokePosition, e.strokeOpacity});
+    }
 
     applyStrokeParamsInternal(index, size, color, position, opacity);
     return true;
@@ -1245,22 +1313,25 @@ bool ReverieCore::rasterizeLayerStroke(int index)
         styledDev->clear();
         compositeStrokeLayer(styledDev, e, dirty);
 
+        const int oldSize = e.strokeSize;
+        const quint32 oldColor = e.strokeColor;
+        const int oldPos = e.strokePosition;
+        const int oldOp = e.strokeOpacity;
+
         beginUndoMacro(QStringLiteral("栅格化描边"));
         KisTransaction txn(kundo2_i18n("Rasterize Stroke"), dev);
         dev->clear();
         KisPainter::copyAreaOptimized(dirty.topLeft(), styledDev, dev, dirty);
         dev->setDirty(dirty);
         txn.commit(image->undoAdapter());
+        pushUndoCommand(new RasterizeStrokeCommand(this, KisNodeSP(e.node), oldSize, oldColor, oldPos, oldOp));
         endUndoMacro();
 
         markRegionDirty(dirty);
+    } else {
+        disableStrokeLayerInternal(index);
     }
 
-    e.isStrokeLayer = false;
-    e.nodeType = NodeTypePaint;
-    if (e.node) {
-        reverie::setLayerProperty(&*e.node, "reverie_is_stroke", false);
-    }
     markDirty();
     return true;
 }

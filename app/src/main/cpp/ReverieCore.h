@@ -196,6 +196,9 @@ public:
     KisPaintDeviceSP borrowScratchDevice(const QRect &r);
     void returnScratchDevice();
     void applyStrokeParamsInternal(int index, int size, quint32 color, int position, int opacity);
+    void disableStrokeLayerInternal(int index);
+    void applyBackgroundColorInternal(const QColor &color);
+    int indexOfNode(KisNode *node) const;
     // Multi-layer type creation
     enum LayerType {
         LayerTypePaint = 0,
@@ -1140,7 +1143,6 @@ private:
     KisPaintDeviceSP currentPaintDevice();
     KisPaintDeviceSP layerPaintDeviceFor(const LayerEntry &e) const;
     bool isLayerEditable(int index) const;   // background/locked check
-    int indexOfNode(KisNode *node) const;
     // Force a full synchronous recomposite of the root projection. Krita's
     // projection updates are driven by dirty-region propagation, which does
     // not cover node-structure changes (add/remove layer, visibility, blend
@@ -1480,6 +1482,17 @@ public:
 
 private:
     QColor m_backgroundColor = Qt::white;
+    QColor m_backgroundColorDragStart = Qt::white;
+    bool m_backgroundColorDragging = false;
+
+    struct StrokeParamsSnapshot {
+        int size = 0;
+        quint32 color = 0;
+        int position = 0;
+        int opacity = 0;
+    };
+    QHash<KisNode *, StrokeParamsSnapshot> m_strokeParamsDragStarts;
+
     QColor m_strokeColor;
     qreal m_strokeOpacity = 1.0;
     // 间接绘制 (Wash 模式) 时挂到图层上的临时合成算子。KisPaintLayer::temporaryCompositeOp()

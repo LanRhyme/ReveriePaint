@@ -139,6 +139,8 @@ bool ReverieCore::newDocument(int width, int height, bool infiniteCanvas)
     // document's stroke buffer / painter / undo snapshots - that left stale
     // devices bound and made painting fail on the second open.
     reverie::clearLayerProperties();  // 换文档: 附加属性按节点指针索引, 不能跨文档残留
+    m_strokeParamsDragStarts.clear();
+    m_backgroundColorDragging = false;
     endStrokeBatch();               // delete m_strokePainter
     m_strokeDevice = nullptr;
     m_strokeSamples.clear();
@@ -320,6 +322,44 @@ void ReverieCore::closeDocument()
     m_infiniteCanvas = false;
 }
 
+namespace {
+class SetBackgroundColorCommand : public KUndo2Command {
+public:
+    SetBackgroundColorCommand(ReverieCore *core, const QColor &oldColor, const QColor &newColor)
+        : KUndo2Command(kundo2_i18n("Change Background Color"))
+        , m_core(core), m_oldColor(oldColor), m_newColor(newColor)
+    {}
+
+    void undo() override {
+        if (m_core) {
+            m_core->applyBackgroundColorInternal(m_oldColor);
+        }
+    }
+    void redo() override {
+        if (m_core) {
+            m_core->applyBackgroundColorInternal(m_newColor);
+        }
+    }
+private:
+    ReverieCore *m_core;
+    QColor m_oldColor;
+    QColor m_newColor;
+};
+}
+
+void ReverieCore::applyBackgroundColorInternal(const QColor &color)
+{
+    m_backgroundColor = color;
+    if (m_document && !m_layers.isEmpty()) {
+        const KoColorSpace *cs = m_document->colorSpace();
+        if (m_layers[0].visible) {
+            m_document->setDefaultProjectionColor(KoColor(color, cs));
+        } else {
+            m_document->setDefaultProjectionColor(KoColor(Qt::transparent, cs));
+        }
+    }
+}
+
 void ReverieCore::setBackgroundColor(quint32 color, bool commit)
 {
     KisImageSP image = m_document;
@@ -329,21 +369,35 @@ void ReverieCore::setBackgroundColor(quint32 color, bool commit)
     const KoColorSpace *cs = image->colorSpace();
     QColor qc = QColor::fromRgba(color);
     if (!qc.isValid()) qc = Qt::white;
-    m_backgroundColor = qc;
-    KoColor koColor(qc, cs);
 
-    if (m_layers[0].visible) {
-        image->setDefaultProjectionColor(koColor);
-    }
-
-    if (commit) {
-        KisTransaction txn(kundo2_i18n("Change Background Color"), dev);
-        dev->fill(QRect(0, 0, image->width(), image->height()), koColor);
+    if (!commit) {
+        if (!m_backgroundColorDragging) {
+            m_backgroundColorDragging = true;
+            m_backgroundColorDragStart = m_backgroundColor;
+        }
+        applyBackgroundColorInternal(qc);
+        dev->fill(QRect(0, 0, image->width(), image->height()), KoColor(qc, cs));
         dev->setDirty();
-        txn.commit(image->undoAdapter());
     } else {
-        dev->fill(QRect(0, 0, image->width(), image->height()), koColor);
-        dev->setDirty();
+        QColor oldColor = m_backgroundColor;
+        if (m_backgroundColorDragging) {
+            m_backgroundColorDragging = false;
+            oldColor = m_backgroundColorDragStart;
+            dev->fill(QRect(0, 0, image->width(), image->height()), KoColor(oldColor, cs));
+        }
+        if (oldColor != qc) {
+            beginUndoMacro(QStringLiteral("修改背景颜色"));
+            KisTransaction txn(kundo2_i18n("Change Background Color"), dev);
+            dev->fill(QRect(0, 0, image->width(), image->height()), KoColor(qc, cs));
+            dev->setDirty();
+            txn.commit(image->undoAdapter());
+            pushUndoCommand(new SetBackgroundColorCommand(this, oldColor, qc));
+            endUndoMacro();
+        } else {
+            dev->fill(QRect(0, 0, image->width(), image->height()), KoColor(qc, cs));
+            dev->setDirty();
+        }
+        applyBackgroundColorInternal(qc);
     }
     recompositeProjection();
     markDirty();
