@@ -1037,6 +1037,54 @@ private fun computeOptimalLayout(
     return finalPlaced to Size(maxRowWidth, totalHeight)
 }
 
+private const val MAX_HWUI_REFERENCE_BYTES = 48L * 1024L * 1024L
+private const val MAX_HWUI_REFERENCE_EDGE = 4096
+
+private fun isBitmapHwuiSafe(bmp: Bitmap): Boolean {
+    if (bmp.isRecycled) return false
+    val w = bmp.width
+    val h = bmp.height
+    if (w <= 0 || h <= 0) return false
+    if (w > MAX_HWUI_REFERENCE_EDGE || h > MAX_HWUI_REFERENCE_EDGE) return false
+    return bmp.allocationByteCount.toLong() <= MAX_HWUI_REFERENCE_BYTES
+}
+
+private fun computeSafeTargetDimensions(srcW: Int, srcH: Int): Pair<Int, Int> {
+    if (srcW <= 0 || srcH <= 0) return 1 to 1
+    var scale = 1.0
+    val maxEdge = maxOf(srcW, srcH).toDouble()
+    if (maxEdge > MAX_HWUI_REFERENCE_EDGE) {
+        scale = minOf(scale, MAX_HWUI_REFERENCE_EDGE / maxEdge)
+    }
+    val estBytes = srcW.toDouble() * srcH.toDouble() * 4.0
+    if (estBytes * scale * scale > MAX_HWUI_REFERENCE_BYTES) {
+        scale = minOf(scale, kotlin.math.sqrt(MAX_HWUI_REFERENCE_BYTES / estBytes))
+    }
+    val dstW = (srcW * scale).toInt().coerceAtLeast(1)
+    val dstH = (srcH * scale).toInt().coerceAtLeast(1)
+    return dstW to dstH
+}
+
+private fun downsampleToBitmap(src: Bitmap, reuse: Bitmap?): Bitmap? {
+    if (src.isRecycled) return reuse
+    val srcW = src.width
+    val srcH = src.height
+    if (srcW <= 0 || srcH <= 0) return reuse
+    val (dstW, dstH) = computeSafeTargetDimensions(srcW, srcH)
+    val dst = if (reuse != null && !reuse.isRecycled && reuse.width == dstW && reuse.height == dstH) {
+        reuse
+    } else {
+        Bitmap.createBitmap(dstW, dstH, Bitmap.Config.ARGB_8888)
+    }
+    dst.eraseColor(android.graphics.Color.TRANSPARENT)
+    val canvas = android.graphics.Canvas(dst)
+    val paint = android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
+    val srcRect = android.graphics.Rect(0, 0, srcW, srcH)
+    val dstRect = android.graphics.Rect(0, 0, dstW, dstH)
+    canvas.drawBitmap(src, srcRect, dstRect, paint)
+    return dst
+}
+
 @Composable
 private fun ReferenceImagesView(
     images: List<Bitmap>,
@@ -1050,8 +1098,30 @@ private fun ReferenceImagesView(
     isFlipped: Boolean,
     modifier: Modifier = Modifier
 ) {
-    val imageBitmaps = remember(images) {
-        images.map { it to it.asImageBitmap() }.toMap()
+    val safeImages by produceState<Map<Bitmap, Bitmap>>(
+        initialValue = remember(images) {
+            images.filter { isBitmapHwuiSafe(it) }.associateWith { it }
+        },
+        key1 = images
+    ) {
+        val immediate = images.filter { isBitmapHwuiSafe(it) }.associateWith { it }.toMutableMap()
+        val oversized = images.filter { !it.isRecycled && !isBitmapHwuiSafe(it) }
+        if (oversized.isEmpty()) {
+            value = immediate
+            return@produceState
+        }
+        value = immediate
+        val scaled = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+            oversized.mapNotNull { src ->
+                downsampleToBitmap(src, null)?.let { src to it }
+            }
+        }
+        scaled.forEach { (k, v) -> immediate[k] = v }
+        value = immediate
+    }
+
+    val imageBitmaps = remember(safeImages) {
+        safeImages.mapValues { (_, safeBmp) -> safeBmp.asImageBitmap() }
     }
 
     val colorFilter = remember(isGrayscale) {
@@ -1084,13 +1154,15 @@ private fun ReferenceImagesView(
             )
         }) {
             for (placed in placedImages) {
+                val safeBmp = safeImages[placed.bitmap] ?: continue
+                if (safeBmp.isRecycled) continue
                 val imgBitmap = imageBitmaps[placed.bitmap] ?: continue
                 val b = placed.bounds
                 withTransform({
                     translate(b.left, b.top)
                     scale(
-                        scaleX = b.width / placed.bitmap.width.toFloat(),
-                        scaleY = b.height / placed.bitmap.height.toFloat(),
+                        scaleX = b.width / safeBmp.width.toFloat(),
+                        scaleY = b.height / safeBmp.height.toFloat(),
                         pivot = Offset.Zero
                     )
                 }) {
@@ -1127,15 +1199,39 @@ private fun ReferenceSingleBitmapView(
         android.graphics.Paint(android.graphics.Paint.FILTER_BITMAP_FLAG)
     }
 
+    // Ping-pong backing buffers used only when source bitmap exceeds HWUI's ~100MB draw limit.
+    val safeRing = remember { arrayOfNulls<Bitmap>(2) }
+    var ringIdx by remember { mutableIntStateOf(0) }
+    var scaledSnapshot by remember { mutableStateOf<Bitmap?>(null) }
+
+    val directSafe = isBitmapHwuiSafe(bitmap)
+    if (!directSafe && !bitmap.isRecycled) {
+        LaunchedEffect(bitmap, revision) {
+            val nextIdx = (ringIdx + 1) and 1
+            val reuse = safeRing[nextIdx]
+            val downsampled = kotlinx.coroutines.withContext(kotlinx.coroutines.Dispatchers.Default) {
+                downsampleToBitmap(bitmap, reuse)
+            }
+            if (downsampled != null && !downsampled.isRecycled) {
+                safeRing[nextIdx] = downsampled
+                ringIdx = nextIdx
+                scaledSnapshot = downsampled
+            }
+        }
+    }
+
+    val drawBmp = if (directSafe) bitmap else scaledSnapshot
+
     Canvas(
         modifier = modifier.fillMaxSize()
     ) {
         // Read revision to subscribe to canvas frame updates
         @Suppress("UNUSED_VARIABLE")
         val rev = revision
-        if (bitmap.isRecycled) return@Canvas
-        val bw = bitmap.width.toFloat()
-        val bh = bitmap.height.toFloat()
+        val targetBmp = drawBmp
+        if (targetBmp == null || targetBmp.isRecycled || !isBitmapHwuiSafe(targetBmp)) return@Canvas
+        val bw = targetBmp.width.toFloat()
+        val bh = targetBmp.height.toFloat()
         if (bw <= 0f || bh <= 0f) return@Canvas
 
         val fitScale = min(size.width / bw, size.height / bh) * 0.95f
@@ -1151,7 +1247,7 @@ private fun ReferenceSingleBitmapView(
             nativeCanvas.scale(if (isFlipped) -finalScale else finalScale, finalScale)
             nativeCanvas.translate(-bw / 2f, -bh / 2f)
             val paint = if (isGrayscale) grayPaint else defaultPaint
-            nativeCanvas.drawBitmap(bitmap, 0f, 0f, paint)
+            nativeCanvas.drawBitmap(targetBmp, 0f, 0f, paint)
             nativeCanvas.restore()
         }
     }

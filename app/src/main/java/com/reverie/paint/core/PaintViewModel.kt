@@ -4503,31 +4503,87 @@ class PaintViewModel : ViewModel() {
         return if (file.exists() && file.length() > 0) file else null
     }
 
-    fun importHomeBackground(uri: android.net.Uri, context: android.content.Context): Boolean {
-        return try {
-            val dir = File(context.filesDir, "custom_bg")
-            if (!dir.exists()) dir.mkdirs()
-            val targetFile = File(dir, "home_wallpaper.png")
-            context.contentResolver.openInputStream(uri)?.use { input ->
-                val bmp = android.graphics.BitmapFactory.decodeStream(input) ?: return false
-                java.io.FileOutputStream(targetFile).use { out ->
-                    bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+    suspend fun importHomeBackground(uri: android.net.Uri, context: android.content.Context): Boolean {
+        val dir = File(context.filesDir, "custom_bg")
+        val targetFile = File(dir, "home_wallpaper.png")
+        val saved = withContext(Dispatchers.IO) {
+            try {
+                if (!dir.exists()) dir.mkdirs()
+                val tmpDownload = File(dir, "home_wallpaper_src.tmp")
+                val tmpPng = File(dir, "home_wallpaper.png.tmp")
+                val copied = context.contentResolver.openInputStream(uri)?.use { input ->
+                    tmpDownload.outputStream().use { out -> input.copyTo(out) }
+                    true
+                } ?: false
+                if (!copied || !tmpDownload.exists() || tmpDownload.length() <= 0L) {
+                    tmpDownload.delete()
+                    return@withContext false
                 }
-                bmp.recycle()
-            }
-            if (targetFile.exists() && targetFile.length() > 0) {
-                homeCustomBgEnabled = true
-                homeCustomBgVersion = System.currentTimeMillis()
-                context.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                    .edit()
-                    .putBoolean("home_custom_bg_enabled", true)
-                    .apply()
-                true
-            } else {
+                val boundsOpts = android.graphics.BitmapFactory.Options().apply {
+                    inJustDecodeBounds = true
+                }
+                android.graphics.BitmapFactory.decodeFile(tmpDownload.absolutePath, boundsOpts)
+                val maxEdge = 2560
+                var sampleSize = 1
+                val srcW = boundsOpts.outWidth
+                val srcH = boundsOpts.outHeight
+                if (srcW > maxEdge || srcH > maxEdge) {
+                    while ((srcW / (sampleSize * 2)) >= maxEdge || (srcH / (sampleSize * 2)) >= maxEdge) {
+                        sampleSize *= 2
+                    }
+                }
+                val decodeOpts = android.graphics.BitmapFactory.Options().apply {
+                    inSampleSize = sampleSize
+                }
+                val decoded = android.graphics.BitmapFactory.decodeFile(tmpDownload.absolutePath, decodeOpts)
+                tmpDownload.delete()
+                if (decoded == null) return@withContext false
+                val finalBmp = try {
+                    val maxDim = maxOf(decoded.width, decoded.height)
+                    if (maxDim > maxEdge && maxDim > 0) {
+                        val scale = maxEdge.toFloat() / maxDim.toFloat()
+                        val sw = (decoded.width * scale).roundToInt().coerceAtLeast(1)
+                        val sh = (decoded.height * scale).roundToInt().coerceAtLeast(1)
+                        Bitmap.createScaledBitmap(decoded, sw, sh, true).also {
+                            if (it !== decoded) decoded.recycle()
+                        }
+                    } else {
+                        decoded
+                    }
+                } catch (t: Throwable) {
+                    decoded.recycle()
+                    throw t
+                }
+                val ok = try {
+                    java.io.FileOutputStream(tmpPng).use { out ->
+                        finalBmp.compress(Bitmap.CompressFormat.PNG, 100, out)
+                    }
+                } finally {
+                    finalBmp.recycle()
+                }
+                if (!ok || !tmpPng.exists() || tmpPng.length() <= 0L) {
+                    tmpPng.delete()
+                    return@withContext false
+                }
+                if (targetFile.exists()) targetFile.delete()
+                tmpPng.renameTo(targetFile) || (tmpPng.copyTo(targetFile, overwrite = true).let {
+                    tmpPng.delete()
+                    true
+                })
+            } catch (e: Exception) {
+                android.util.Log.e("PaintViewModel", "Failed to import home background", e)
                 false
             }
-        } catch (e: Exception) {
-            android.util.Log.e("PaintViewModel", "Failed to import home background", e)
+        }
+        return if (saved && targetFile.exists() && targetFile.length() > 0L) {
+            homeCustomBgEnabled = true
+            homeCustomBgVersion = System.currentTimeMillis()
+            context.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("home_custom_bg_enabled", true)
+                .apply()
+            true
+        } else {
             false
         }
     }

@@ -157,7 +157,9 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
         private const val HOLE_SHADER_CACHE = 4
     }
 
+    @Volatile
     private var frontRenderer: Any? = null // 保持引用以兼容 API < 29
+    @Volatile
     private var isRendererInitialized = false
 
     /** [release] 是否已执行; detach 与 Compose onRelease 都会调, 必须可重入。 */
@@ -178,7 +180,7 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
      * 否则开启开关后反而完全没有预览。
      */
     val canRenderPreview: Boolean
-        get() = isRendererInitialized
+        get() = isRendererInitialized && !released && surfaceValid
 
     /** 真墨控制器 (画布视图设置), 用来判断"按住期间不清屏"与读取预测笔尖。 */
     @Volatile
@@ -345,6 +347,9 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
         }
     }
 
+    private fun canDrawToSurface(): Boolean =
+        !released && isRendererInitialized && surfaceValid && holder.surface?.isValid == true
+
     private fun onSurfaceGeometry(valid: Boolean, w: Int, h: Int) {
         val ctl = realInk
         val release = FrontBufferSurfaceGate.surfaceEventReleases(ctl?.held == true, surfaceW, surfaceH, valid, w, h)
@@ -352,6 +357,7 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
         surfaceH = h
         surfaceValid = valid
         if (!valid) {
+            synchronized(submitLock) { releaseQueuedLocked() }
             // 缓冲连同上面的墨已被 androidx 销毁, 账本作废 (没有可清的东西了)。
             hasContent = false
             hasInkContent = false
@@ -449,6 +455,7 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
                     param: FrontBufferPathPacket,
                 ) {
                     try {
+                        if (released || !surfaceValid) return
                         when {
                             param.isClear -> {
                                 canvas.drawColor(Color.TRANSPARENT, PorterDuff.Mode.CLEAR)
@@ -794,11 +801,19 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
         hasInkContent = true
         if (!submitNow) return true
         @Suppress("UNCHECKED_CAST")
-        val renderer = frontRenderer as? CanvasFrontBufferedRenderer<FrontBufferPathPacket>
+        val renderer = if (canDrawToSurface()) {
+            frontRenderer as? CanvasFrontBufferedRenderer<FrontBufferPathPacket>
+        } else {
+            null
+        }
         val ok =
             try {
-                renderer?.renderFrontBufferedLayer(packet)
-                renderer != null
+                if (renderer != null && canDrawToSurface()) {
+                    renderer.renderFrontBufferedLayer(packet)
+                    true
+                } else {
+                    false
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "ink submit error: ${t.message}")
                 false
@@ -819,19 +834,35 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
             activeRender = null
             val q = queuedPacket
             queuedPacket = null
-            activeRender = q
-            q
+            if (canDrawToSurface()) {
+                activeRender = q
+                q
+            } else {
+                if (q != null) {
+                    releaseInkRef(q)
+                    q.inFlight.set(false)
+                }
+                null
+            }
         }
         if (next == null) {
             notifyInkFrameDone()
             return
         }
         @Suppress("UNCHECKED_CAST")
-        val renderer = frontRenderer as? CanvasFrontBufferedRenderer<FrontBufferPathPacket>
+        val renderer = if (canDrawToSurface()) {
+            frontRenderer as? CanvasFrontBufferedRenderer<FrontBufferPathPacket>
+        } else {
+            null
+        }
         val ok =
             try {
-                renderer?.renderFrontBufferedLayer(next)
-                renderer != null
+                if (renderer != null && canDrawToSurface()) {
+                    renderer.renderFrontBufferedLayer(next)
+                    true
+                } else {
+                    false
+                }
             } catch (t: Throwable) {
                 Log.w(TAG, "ink drain error: ${t.message}")
                 false
@@ -1526,7 +1557,7 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
 
     private fun clearInternal(inkOnly: Boolean) {
         if (realInk?.held == true) return
-        if (!isRendererInitialized) return
+        if (!canDrawToSurface()) return
         if (inkOnly && !hasInkContent) return
         if (realInk?.catchUpPending == true) {
             // 追赶尚未完成, 保护真墨不被提前清空 (只清预览类内容)
@@ -1541,6 +1572,7 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
         frontGeneration++
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
+                if (!canDrawToSurface()) return
                 @Suppress("UNCHECKED_CAST")
                 val r = frontRenderer as? CanvasFrontBufferedRenderer<FrontBufferPathPacket>
                 if (!ink) r?.renderFrontBufferedLayer(clearPacket)
@@ -1560,26 +1592,28 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
     fun release() {
         if (released) return
         released = true
+        surfaceValid = false
         // 松开可能还按住的真墨: 渲染器即将销毁, 留着 held=true 会让下一笔误以为前缓冲还在
         realInk?.cancelCatchUp()
         realInk?.release()
         holder.removeCallback(surfaceGeometryCallback)
-        surfaceValid = false
         surfaceW = 0
         surfaceH = 0
         hasContent = false
         hasInkContent = false
+        synchronized(submitLock) { releaseQueuedLocked() }
+        val rendererToRelease = frontRenderer
+        frontRenderer = null
+        isRendererInitialized = false
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
             try {
                 @Suppress("UNCHECKED_CAST")
-                (frontRenderer as? CanvasFrontBufferedRenderer<FrontBufferPathPacket>)
+                (rendererToRelease as? CanvasFrontBufferedRenderer<FrontBufferPathPacket>)
                     ?.release(true)
             } catch (t: Throwable) {
                 Log.w(TAG, "release error: ${t.message}")
             }
         }
-        frontRenderer = null
-        isRendererInitialized = false
         noteGuideOnScreen(false)
         resetInkQueue()
     }

@@ -59,7 +59,9 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -95,15 +97,18 @@ internal fun ThemeSettingsSubPage(
 ) {
     val colors = Theme.current
     val context = LocalContext.current
+    val scope = rememberCoroutineScope()
     val imagePickerLauncher = rememberLauncherForActivityResult(
         contract = ActivityResultContracts.GetContent(),
     ) { uri ->
         if (uri != null) {
-            val ok = vm.importHomeBackground(uri, context)
-            if (ok) {
-                Toast.makeText(context, R.string.theme_home_bg_import_success, Toast.LENGTH_SHORT).show()
-            } else {
-                Toast.makeText(context, R.string.theme_home_bg_import_failed, Toast.LENGTH_SHORT).show()
+            scope.launch {
+                val ok = vm.importHomeBackground(uri, context)
+                if (ok) {
+                    Toast.makeText(context, R.string.theme_home_bg_import_success, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, R.string.theme_home_bg_import_failed, Toast.LENGTH_SHORT).show()
+                }
             }
         }
     }

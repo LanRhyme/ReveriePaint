@@ -611,6 +611,13 @@ void ReverieCore::resetLiquifyWorker()
     s_liquifyDeltaBudgetPx.store(LIQUIFY_DELTA_BUDGET_DEFAULT_PX);
 }
 
+static void liquifyWaitForIdle(KisImageSP image)
+{
+    if (image && !image->isIdle() && reverie::mayWaitForImage(image->locked())) {
+        image->waitForDone();
+    }
+}
+
 void ReverieCore::liquifyRecomposeProjection(const QRect &area)
 {
     if (!m_document || m_soloedNode || area.isEmpty()) return;
@@ -622,6 +629,7 @@ void ReverieCore::liquifyRecomposeProjection(const QRect &area)
         markDirty(); // Transform/filter masks may affect pixels outside the dab.
         return;
     }
+    liquifyWaitForIdle(m_document);
     KisPaintDeviceSP projection = m_document->projection();
     const QRect clipped = area & QRect(0, 0, m_document->width(), m_document->height());
     if (projection && !clipped.isEmpty()) {
@@ -678,6 +686,7 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect, bool compositeProje
     tWarpMs = QDateTime::currentMSecsSinceEpoch() - tw0;
 
     // 阶段 2: 串行写回 (选区/透明像素锁/脏区标记语义与改动前完全一致)
+    liquifyWaitForIdle(m_document);
     for (LiquifyTarget &t : m_liquifyTargets) {
         if (!t.worker) continue;
         const QRect area = deltaRect.intersected(clipRect);
@@ -708,7 +717,11 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect, bool compositeProje
             p.bitBlt(area.topLeft(), result, area);
             p.end();
             t.written = true;
-            t.device->setDirty(area);
+            // Only notify Krita's async scheduler when graph projection is active;
+            // synchronous projection paths update m_document->projection() directly.
+            if (m_liquifyGraphProjection) {
+                t.device->setDirty(area);
+            }
             tBlitMs += QDateTime::currentMSecsSinceEpoch() - tb0;
             dirtyUnion = dirtyUnion.isNull() ? area : dirtyUnion.united(area);
         }
@@ -782,6 +795,11 @@ void ReverieCore::liquifyEnqueueMaterialize(const QRect &rect)
 bool ReverieCore::liquifyDrainMaterialize(bool force)
 {
     if (m_liquifyMatQueue.isEmpty()) return true;
+    if (!m_document) {
+        m_liquifyMatQueue.clear();
+        m_liquifyMatKeys.clear();
+        return true;
+    }
     const qint64 budget = liquifyMatBudgetMs();
     // 预算 0 = 关闭分帧物化: 队列只在抬笔/超限的 force 调用里被清空(旧行为)
     if (!force && budget <= 0) return false;
@@ -830,6 +848,7 @@ void ReverieCore::liquifyBegin(const QVector<int> &layers)
     if (!m_document || m_liquifyTxnActive) {
         return;
     }
+    liquifyWaitForIdle(m_document);
     resetLiquifyWorker();
     m_liquifyTargets.clear();
     m_liquifyGraphProjection = false;
@@ -1126,6 +1145,9 @@ bool ReverieCore::liquifyFieldCommitPtr(int x, int y, int w, int h, const quint8
     thread_local QVector<quint8> rowBuf;
     const qint64 areaPx = qint64(area.width()) * qint64(area.height());
 
+    // 先排空可能尚未完成的 Krita 异步投影任务, 避免与接下来的直写/同步投影重组合并发踩踏瓦片
+    liquifyWaitForIdle(m_document);
+
     for (LiquifyTarget &t : m_liquifyTargets) {
         if (!t.device) continue;
         const QRect a = area.intersected(clipRect);
@@ -1157,7 +1179,9 @@ bool ReverieCore::liquifyFieldCommitPtr(int x, int y, int w, int h, const quint8
         p.bitBlt(a.topLeft(), t.dst, a);
         p.end();
         t.written = true;
-        t.device->setDirty(a);
+        if (m_liquifyGraphProjection) {
+            t.device->setDirty(a);
+        }
         tBlitMs += QDateTime::currentMSecsSinceEpoch() - tb0;
         dirtyUnion = dirtyUnion.isNull() ? a : dirtyUnion.united(a);
     }
