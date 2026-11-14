@@ -26,6 +26,7 @@
 | 0013 | `perf-experimentbrush-painter-fillPainterPath-60fps` | `fillPainterPath` 新增 `QRegion` 分块合并光栅化，纯色填充改用 `nConseqPixels()` 批量 `applyAlphaU8Mask` 替代逐像素虚调用与 `fillRect` |
 | 0014 | `perf-experimentbrush-krita_utils-25fps-splitTriangle` | 解除 `KisExperimentPaintOp` 2010 年遗留的 25fps (`timeThreshold = 40`) 与长笔画距离门控硬节流，重构为 12ms / ~80fps 连续刷新，并为 `splitTriangles` 引入 AABB 预筛选消除昂贵多边形求交 |
 | 0015 | `perf-sketch-2D-O-N-2-O-1` | 为 `KisSketchPaintOp` 引入 2D 空间网格桶与局部候选点排序检索，消除长笔画时逐事件遍历整笔历史点的 $O(N^2)$ 计算死锁 |
+| 0016 | `perf-marker` | 优化 `KisMarkerPainter` 圆头笔混合：引入透明度缓存跳过 90%+ 内部实心像素的虚函数重设，并简化半平面叉乘与距离判定 |
 
 ## 应用与重建
 

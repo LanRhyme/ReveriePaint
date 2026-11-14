@@ -1,0 +1,129 @@
+From 3fd92338cc33853f1d517fc8c28d69ec59d5883a Mon Sep 17 00:00:00 2001
+From: LanRhyme <xiao_ren233@foxmail.com>
+Date: Sun, 15 Nov 2026 01:10:15 +0800
+Subject: [PATCH] =?UTF-8?q?perf(marker):=20=E7=BC=93=E5=AD=98=E5=9C=86?=
+ =?UTF-8?q?=E5=A4=B4=E7=AC=94=E6=B7=B7=E5=90=88=E9=80=8F=E6=98=8E=E5=BA=A6?=
+ =?UTF-8?q?=E5=B9=B6=E6=B6=88=E9=99=A4=E5=8D=8A=E5=B9=B3=E9=9D=A2=E5=86=85?=
+ =?UTF-8?q?=E7=A7=AF=E4=B8=8E=E5=A4=9A=E4=BD=99=E6=B7=A1=E5=87=BA=E8=AE=A1?=
+ =?UTF-8?q?=E7=AE=97?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ libs/image/kis_marker_painter.cpp | 67 +++++++++++++++++++++----------
+ 1 file changed, 46 insertions(+), 21 deletions(-)
+
+diff --git a/libs/image/kis_marker_painter.cpp b/libs/image/kis_marker_painter.cpp
+index 1a6362f7..229f628b 100644
+--- a/libs/image/kis_marker_painter.cpp
++++ b/libs/image/kis_marker_painter.cpp
+@@ -64,7 +64,6 @@ void KisMarkerPainter::fillHalfBrushDiff(const QPointF &p1, const QPointF &p2, c
+ 
+     KisAlgebra2D::RightHalfPlane plane1(p1, p2);
+     KisAlgebra2D::RightHalfPlane plane2(p2, p3);
+-    KisAlgebra2D::OuterCircle outer(center, radius);
+ 
+     boundRect = KisAlgebra2D::cutOffRect(boundRect, plane1);
+     boundRect = KisAlgebra2D::cutOffRect(boundRect, plane2);
+@@ -75,28 +74,41 @@ void KisMarkerPainter::fillHalfBrushDiff(const QPointF &p1, const QPointF &p2, c
+ 
+     const KoCompositeOp *op = cs->compositeOp(COMPOSITE_OVER);
+ 
++    const qreal radiusSq = radius * radius;
++    const qreal fadedRadiusSq = fadedRadius * fadedRadius;
++    const qreal fadeCoeff = 1.0 / (fadedRadiusSq - radiusSq);
++
++    const QPointF p12 = p2 - p1;
++    const QPointF p23 = p3 - p2;
++
++    quint8 lastAlpha = 0;
++    bool hasLastAlpha = false;
++
+     KisSequentialIterator it(m_d->device, alignedRect);
+ 
+     while (it.nextPixel()) {
+-        QPoint pt(it.x(), it.y());
++        const QPoint pt(it.x(), it.y());
+ 
+-        qreal value1 = plane1.value(pt);
+-        if (value1 < 0) continue;
++        const qreal cross1 = p12.x() * (pt.y() - p1.y()) - p12.y() * (pt.x() - p1.x());
++        if (cross1 < 0) continue;
+ 
+-        qreal value2 = plane2.value(pt);
+-        if (value2 < 0) continue;
++        const qreal cross2 = p23.x() * (pt.y() - p2.y()) - p23.y() * (pt.x() - p2.x());
++        if (cross2 < 0) continue;
+ 
+-        qreal value3 = outer.fadeSq(pt);
+-        if (value3 > 1.0) continue;
++        const qreal dx = pt.x() - center.x();
++        const qreal dy = pt.y() - center.y();
++        const qreal valSq = dx * dx + dy * dy;
++        if (valSq > fadedRadiusSq) continue;
+ 
+-        // qreal fadePos =
+-        //     value1 < 0 || value2 < 0 ?
+-        //     qMax(-value1, -value2) : value3;
+-        qreal fadePos = value3;
++        const quint8 srcAlpha = (valSq > radiusSq) ?
++            static_cast<quint8>((1.0 - (valSq - radiusSq) * fadeCoeff) * 255.0) : 255;
+ 
+-        const quint8 srcAlpha = fadePos > 0 ? quint8((1.0 - fadePos) * 255.0) : 255;
++        if (!hasLastAlpha || srcAlpha != lastAlpha) {
++            currentColor.setOpacity(srcAlpha);
++            lastAlpha = srcAlpha;
++            hasLastAlpha = true;
++        }
+ 
+-        currentColor.setOpacity(srcAlpha);
+         if (op) {
+             op->composite(it.rawData(), pixelSize, currentColor.data(), pixelSize, nullptr, 0, 1, 1, OPACITY_OPAQUE_F);
+         } else {
+@@ -117,22 +129,35 @@ void KisMarkerPainter::fillFullCircle(const QPointF &center, qreal radius)
+     QRectF boundRect(center.x() - fadedRadius, center.y() - fadedRadius,
+                      2 * fadedRadius, 2 * fadedRadius);
+ 
+-    KisAlgebra2D::OuterCircle outer(center, radius);
+-
+     QRect alignedRect = boundRect.toAlignedRect();
+ 
+     KIS_SAFE_ASSERT_RECOVER_RETURN(isRectInValidRange(alignedRect));
+ 
++    const qreal radiusSq = radius * radius;
++    const qreal fadedRadiusSq = fadedRadius * fadedRadius;
++    const qreal fadeCoeff = 1.0 / (fadedRadiusSq - radiusSq);
++
++    quint8 lastAlpha = 0;
++    bool hasLastAlpha = false;
++
+     KisSequentialIterator it(m_d->device, alignedRect);
+     while (it.nextPixel()) {
+-        QPoint pt(it.x(), it.y());
++        const QPoint pt(it.x(), it.y());
+ 
+-        qreal value3 = outer.fadeSq(pt);
+-        if (value3 > 1.0) continue;
++        const qreal dx = pt.x() - center.x();
++        const qreal dy = pt.y() - center.y();
++        const qreal valSq = dx * dx + dy * dy;
++        if (valSq > fadedRadiusSq) continue;
+ 
+-        const quint8 srcAlpha = value3 > 0 ? quint8((1.0 - value3) * 255.0) : 255;
++        const quint8 srcAlpha = (valSq > radiusSq) ?
++            static_cast<quint8>((1.0 - (valSq - radiusSq) * fadeCoeff) * 255.0) : 255;
++
++        if (!hasLastAlpha || srcAlpha != lastAlpha) {
++            currentColor.setOpacity(srcAlpha);
++            lastAlpha = srcAlpha;
++            hasLastAlpha = true;
++        }
+ 
+-        currentColor.setOpacity(srcAlpha);
+         if (op) {
+             op->composite(it.rawData(), pixelSize, currentColor.data(), pixelSize, nullptr, 0, 1, 1, OPACITY_OPAQUE_F);
+         } else {
+-- 
+2.56.0
+
