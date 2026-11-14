@@ -1,0 +1,40 @@
+From 88b54ce5483ae888faf5c0cae044751276b96782 Mon Sep 17 00:00:00 2001
+From: LanRhyme <xiao_ren233@foxmail.com>
+Date: Sun, 15 Nov 2026 01:24:40 +0800
+Subject: [PATCH] =?UTF-8?q?fix(gridbrush):=20=E4=BF=AE=E5=A4=8D=20HSV=20?=
+ =?UTF-8?q?=E9=9A=8F=E6=9C=BA=E8=B0=83=E6=95=B4=E6=97=B6=E6=B3=84=E6=BC=8F?=
+ =?UTF-8?q?=20KoColorTransformation=20=E7=9A=84=E9=97=AE=E9=A2=98?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ plugins/paintops/gridbrush/kis_grid_paintop.cpp | 12 +++++++-----
+ 1 file changed, 7 insertions(+), 5 deletions(-)
+
+diff --git a/plugins/paintops/gridbrush/kis_grid_paintop.cpp b/plugins/paintops/gridbrush/kis_grid_paintop.cpp
+index f98dac32..0ef76685 100644
+--- a/plugins/paintops/gridbrush/kis_grid_paintop.cpp
++++ b/plugins/paintops/gridbrush/kis_grid_paintop.cpp
+@@ -168,11 +168,13 @@ KisSpacingInformation KisGridPaintOp::paintAt(const KisPaintInformation& info)
+                     params["h"] = (m_colorProperties.hue / 180.0) * randomSource->generateNormalized();
+                     params["s"] = (m_colorProperties.saturation / 100.0) * randomSource->generateNormalized();
+                     params["v"] = (m_colorProperties.value / 100.0) * randomSource->generateNormalized();
+-                    KoColorTransformation* transfo;
+-                    transfo = m_dab->colorSpace()->createColorTransformation("hsv_adjustment", params);
+-                    transfo->setParameter(3, 1);//sets the type to HSV. For some reason 0 is not an option.
+-                    transfo->setParameter(4, false);//sets the colorize to false.
+-                    transfo->transform(color.data(), color.data() , 1);
++                    QScopedPointer<KoColorTransformation> transfo(
++                        m_dab->colorSpace()->createColorTransformation("hsv_adjustment", params));
++                    if (transfo) {
++                        transfo->setParameter(3, 1);//sets the type to HSV. For some reason 0 is not an option.
++                        transfo->setParameter(4, false);//sets the colorize to false.
++                        transfo->transform(color.data(), color.data() , 1);
++                    }
+                 }
+ 
+                 if (m_colorProperties.useRandomOpacity) {
+-- 
+2.56.0
+
