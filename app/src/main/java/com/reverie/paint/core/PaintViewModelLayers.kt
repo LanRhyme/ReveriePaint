@@ -449,6 +449,7 @@ internal fun PaintViewModel.addLayer() {
     }) {
         executeAddLayerSafely(wasInside) {
             ReverieCoreBridge.addLayer(defaultName)
+            initializeNewAnimationCel()
         }
     }
 }
@@ -476,6 +477,7 @@ internal fun PaintViewModel.importImageToNewLayer(
         try {
             executeAddLayerSafely(wasInside) {
                 ReverieCoreBridge.addLayer(finalName)
+                initializeNewAnimationCel()
             }
             val placement = ImageImportHelper.calculateFitPlacement(
                 docW = coreW,
@@ -530,6 +532,15 @@ internal fun PaintViewModel.removeLayer(index: Int) {
     }
     if (target.locked) {
         showActionToast(R.string.toast_layer_delete_locked, R.drawable.ic_lock)
+        return
+    }
+    if (anim.enabled) {
+        // Ordinary delete never removes an entire animation track.
+        if (target.nodeType == 0 && index != anim.backgroundLayerIndex && index != anim.foregroundLayerIndex) {
+            animationRemoveKeyframe(index)
+        } else {
+            animationRequestDeleteTrack(index)
+        }
         return
     }
     if (transientTransformSelectionPending || canUndoTransformSelection || canRedoTransformSelection) {
@@ -1203,6 +1214,7 @@ internal fun PaintViewModel.addLayerWithType(
     }) {
         executeAddLayerSafely(wasInside) {
             ReverieCoreBridge.addLayerWithType(name, type, fillColor)
+            if (type == 0) initializeNewAnimationCel()
         }
     }
 }

@@ -3773,5 +3773,12 @@
     <string name="onboarding_open_theme_settings">前往外观与主题设置</string>
     <string name="settings_replay_onboarding">新手功能引导</string>
     <string name="settings_replay_onboarding_desc">重新查看核心功能布局与工作区定制指引</string>
+    <string name="anim_delete_cel">删除当前格图层</string>
+    <string name="anim_create_cel">创建独立帧格</string>
+    <string name="anim_cel_failed">帧格操作失败，已保留原有内容</string>
+    <string name="anim_delete_track_title">是否要删除整条轴图层？</string>
+    <string name="anim_delete_track_message">将删除“%1$s”在所有帧格中的内容，可撤销\n只删除当前格请使用帧格或图层面板的删除按钮</string>
+    <string name="anim_delete_track_confirm">删除整条轴图层</string>
+    <string name="anim_scroll_timeline">拖动浏览整个动画时间轴</string>
 </resources>
 

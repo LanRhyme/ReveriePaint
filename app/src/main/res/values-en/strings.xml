@@ -3774,5 +3774,12 @@
     <string name="onboarding_open_theme_settings">Open Theme &amp; Appearance</string>
     <string name="settings_replay_onboarding">Beginner’s Guide</string>
     <string name="settings_replay_onboarding_desc">Replay the feature tour and workspace customization guide</string>
+    <string name="anim_delete_cel">Delete current cel</string>
+    <string name="anim_create_cel">Create independent cel</string>
+    <string name="anim_cel_failed">Could not edit the cel; existing content was preserved</string>
+    <string name="anim_delete_track_title">Delete the entire layer track?</string>
+    <string name="anim_delete_track_message">This removes “%1$s” at every frame and can be undone.\nTo delete only the current cel, use the cel or layer panel delete button.</string>
+    <string name="anim_delete_track_confirm">Delete entire track</string>
+    <string name="anim_scroll_timeline">Drag to scroll the animation timeline</string>
 </resources>
 

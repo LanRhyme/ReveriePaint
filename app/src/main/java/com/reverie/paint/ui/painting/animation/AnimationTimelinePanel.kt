@@ -155,7 +155,7 @@ internal fun AnimationTimelinePanel(
 
     val targetHeightDp = when (mode) {
         "bar" -> if (isFloating) 28.dp else HANDLE_H
-        "mini" -> (if (isFloating) 24.dp else HANDLE_H) + rowDp + CONTROL_H
+        "mini" -> (if (isFloating) 24.dp else HANDLE_H) + rowDp + CONTROL_H + 32.dp
         else -> (panelHeightPx / d).dp
     }
     val panelHeight by animateDpAsState(
@@ -313,7 +313,7 @@ private fun TimelinePanelSurface(
                 onDraggingChange(true)
                 val basePx = if (mode != "custom") {
                     val oldPx = when (mode) {
-                        "mini" -> (HANDLE_H.value + rowDp.value + CONTROL_H.value) * d
+                        "mini" -> (HANDLE_H.value + rowDp.value + CONTROL_H.value + 32f) * d
                         else -> HANDLE_H.value * d
                     }
                     val clamped = oldPx.coerceIn(minPx, maxPx).roundToInt().toFloat()
@@ -361,6 +361,7 @@ private fun TimelinePanelSurface(
                     timelineTracks = timelineTracks,
                     onTrackHeaderWChange = onTrackHeaderWChange,
                 )
+                TimelineScrollBar(vm, trackHeaderW)
                 AnimatedContent(
                     targetState = vm.anim.isMultiSelectMode,
                     transitionSpec = {
@@ -400,6 +401,7 @@ private fun TimelinePanelSurface(
                     onTrackHeaderWChange = onTrackHeaderWChange,
                 )
 
+                TimelineScrollBar(vm, trackHeaderW)
                 AnimatedContent(
                     targetState = vm.anim.isMultiSelectMode,
                     transitionSpec = {

@@ -63,6 +63,8 @@ import com.reverie.paint.core.PerfTrace
 import com.reverie.paint.core.animationBatchAdjustExposure
 import com.reverie.paint.core.animationRippleMoveFrame
 import com.reverie.paint.core.animationRippleResizeFrame
+import com.reverie.paint.core.animationOpenCel
+import com.reverie.paint.core.animationRequestDeleteTrack
 import com.reverie.paint.core.animationSeek
 import com.reverie.paint.core.animationToggleFrameSelection
 import com.reverie.paint.core.frameThumbKey
@@ -425,6 +427,9 @@ internal fun TimelineTrackArea(
                         // 前景/背景帧是常驻层, 整行视为一条带: 不做帧块命中 (不弹帧菜单、不启动拖拽),
                         // 但仍返回所在帧号, 保证点击能正常定位播放头。
                         if (markerColorOf(vm, layer) != null) return Triple(layer, frame, false)
+                        if (layer != vm.anim.storyboard.trackIndex &&
+                            frameThumbKey(layer, hit) in vm.anim.emptyFrameThumbs
+                        ) return Triple(layer, frame, false)
                         return if (inBlock) Triple(layer, hit, true) else Triple(layer, frame, false)
                     }
 
@@ -449,6 +454,9 @@ internal fun TimelineTrackArea(
                         val activeTime = vm.anim.currentTime
                         for (i in times.indices) {
                             val t = times[i]
+                            if (layer != vm.anim.storyboard.trackIndex &&
+                                frameThumbKey(layer, t) in vm.anim.emptyFrameThumbs
+                            ) continue
                             val nxt = if (i + 1 < times.size) times[i + 1] else (t + (vm.anim.lastFrameHold[layer] ?: 1))
                             val isTarget = if (vm.anim.isMultiSelectMode) {
                                 vm.anim.selectedFrames.contains(t)
@@ -509,7 +517,13 @@ internal fun TimelineTrackArea(
                                     return
                                 }
                             }
-                            vm.animationSeek(frame)
+                            if (row in ls.indices && !ls[row].isGroup && !vm.anim.isPlaying &&
+                                markerColorOf(vm, ls[row].index) == null
+                            ) {
+                                vm.animationOpenCel(ls[row].index, frame)
+                            } else {
+                                vm.animationSeek(frame)
+                            }
                         }
                     }
 
@@ -683,8 +697,13 @@ internal fun TimelineTrackArea(
                                 if (!vm.anim.isPlaying && downPos.x < hw && row in ls.indices) {
                                     val layer = ls[row]
                                     liveHaptics.value.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    val rowTop = row * rpx - liveScroll.value
-                                    trackMenu = TrackMenuState(layer.index, layer.name, hw / 2f, rowTop)
+                                    if (downPos.x >= headPadPx + eyeZonePx) {
+                                        vm.animationRequestDeleteTrack(layer.index)
+                                    } else {
+                                        // Keep track-management commands accessible beside the title.
+                                        val rowTop = row * rpx - liveScroll.value
+                                        trackMenu = TrackMenuState(layer.index, layer.name, hw / 2f, rowTop)
+                                    }
                                     while (true) {
                                         val ev = awaitPointerEvent()
                                         val pressed = ev.changes.filter { it.pressed }
@@ -1009,6 +1028,13 @@ internal fun TimelineTrackArea(
                                 }
                                 val next = if (idx + 1 < times.size) times[idx + 1] else t + lastHold
                                 var span = (next - t).coerceAtLeast(1)
+                                val emptySlot = !layer.isGroup && markerColor == null &&
+                                    layer.index != vm.anim.storyboard.trackIndex &&
+                                    frameThumbKey(layer.index, t) in vm.anim.emptyFrameThumbs
+                                if (emptySlot) {
+                                    if (t != currentTime || layer.index != vm.currentLayerIndex) continue
+                                    span = 1
+                                }
                                 // 前景/背景帧: 强制铺到动画末尾, 画出来就是一条贯穿整行的常驻条。
                                 // 但**不必超过可视范围**: 画布已经 clip 过, 画到视口外只是白白让 Skia
                                 // 每次重绘都去构造一个几百万像素宽的圆角矩形路径 —— 那是纯浪费。

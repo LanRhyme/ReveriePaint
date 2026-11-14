@@ -49,6 +49,7 @@ import androidx.compose.ui.window.Popup
 import androidx.compose.ui.window.PopupProperties
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.animationRequestDeleteTrack
 import com.reverie.paint.core.animationAddBlankKeyframeAt
 import com.reverie.paint.core.animationClearLayerMarker
 import com.reverie.paint.core.animationCopyCurrentFrameTo
@@ -454,7 +455,7 @@ internal fun TrackMenuPopup(
         strClearLayer to { vm.clearLayer(menu.layerIndex) },
         strDeleteLayer to {
             if (canDelete) {
-                vm.removeLayer(menu.layerIndex)
+                vm.animationRequestDeleteTrack(menu.layerIndex)
             } else {
                 vm.showActionToast(strCannotDelete, R.drawable.ic_x)
             }

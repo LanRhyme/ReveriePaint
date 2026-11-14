@@ -168,6 +168,11 @@ internal class AnimationState {
     @Volatile
     var pendingAddedFrame: Int = -1
 
+    var deleteTrackRequest by mutableStateOf<TimelineDeleteRequest?>(null)
+
+    /** Derived from rendered thumbnails, never document metadata. */
+    var emptyFrameThumbs by mutableStateOf<Set<Long>>(emptySet())
+
     /**
      * 缩略图刷新触发器。笔画落笔 / 图层内容变化时自增 (而 revision 只在
      * 关键帧结构变化时自增), 让时间轴知道该重画帧块里的画面。
@@ -348,6 +353,8 @@ internal class AnimationState {
         frameThumbBitmapsForImages = emptyMap()
         thumbGen = 0L
         pendingAddedFrame = -1
+        deleteTrackRequest = null
+        emptyFrameThumbs = emptySet()
         thumbRevision = 0
         draggingKeyframe = null
         onionSkin = false
@@ -629,12 +636,14 @@ internal fun PaintViewModel.animationAddKeyframe(
     layerIndex: Int = -1,
     duplicate: Boolean = false,
 ) {
+    animationPause()
+    var changed = false
     runCore(
         after = {
             // 落点变化时把播放头跟过去, 让用户立刻看到新帧
             val placed = anim.pendingAddedFrame
             if (placed >= 0) anim.currentTime = placed
-            syncAnimationFromNativeAfter()
+            if (changed) notifyLayerChanged() else syncAnimationFromNativeAfter()
         },
     ) {
         // 图层解析放在渲染线程: 见 selectedTrackIndex 的线程约束说明。
@@ -649,18 +658,26 @@ internal fun PaintViewModel.animationAddKeyframe(
         }
         // 从当前时间起找第一个没有关键帧的位置, 上限 512 帧防止病态循环
         var time = ReverieCoreBridge.animationCurrentTime().coerceAtLeast(0)
+        val copySource = ReverieCoreBridge.keyframeTimes(layer).lastOrNull { it <= time }
         var guard = 0
         while (ReverieCoreBridge.hasKeyframe(layer, time) && guard < 512) {
             time++
             guard++
         }
+        val storyboard = anim.storyboard.cues.isNotEmpty()
+        if (storyboard && !isStoryboardTrackOnRenderThread(layer)) {
+            prepareAnimationCel(layer, time)
+        }
         val ok =
-            if (duplicate) {
+            if (duplicate && storyboard && copySource != null) {
+                ReverieCoreBridge.copyKeyframe(layer, copySource, time)
+            } else if (duplicate) {
                 ReverieCoreBridge.addDuplicateKeyframe(layer, time)
             } else {
                 ReverieCoreBridge.addKeyframe(layer, time)
             }
         if (ok) {
+            changed = true
             // 引擎播放头立刻跟到新帧 (不等 after/sync): 新帧可能落在
             // currentTime 之后 ("当前帧已有帧时自动落到下一个空位"), 引擎
             // 时间不动的话 UI 当前帧与引擎 currentTime 分叉 —— 设备的写入
@@ -695,8 +712,15 @@ internal fun PaintViewModel.animationAddKeyframe(
  * @return true 表示本次真的新建了关键帧
  */
 internal fun PaintViewModel.ensureKeyframeForPaintOnRenderThread(): Boolean {
-    if (anim.isPlaying || anim.manualKeyframes) return false
-    val layer = selectedTrackIndex()
+    if (anim.isPlaying) return false
+    // The engine's current layer is the paint target; a stale timeline selection must not edit another layer.
+    val layer = ReverieCoreBridge.currentLayerIndex()
+    if (anim.storyboard.cues.isNotEmpty() && !isStoryboardTrackOnRenderThread(layer)) {
+        val changed = prepareAnimationCel(layer, ReverieCoreBridge.animationCurrentTime(), preserveDrawing = true)
+        if (changed) syncAnimationFromNative()
+        return changed
+    }
+    if (anim.manualKeyframes) return false
     if (layer < 0) return false
     if (isStoryboardTrackOnRenderThread(layer)) return false
     // 轨道没开动画 = 用户没把这一层当动画层用, 不擅自开启
@@ -740,6 +764,9 @@ internal fun PaintViewModel.animationAddBlankKeyframeAt(layerIndex: Int, fromTim
             time++
             guard++
         }
+        if (anim.storyboard.cues.isNotEmpty() && !isStoryboardTrackOnRenderThread(layerIndex)) {
+            prepareAnimationCel(layerIndex, time)
+        }
         if (ReverieCoreBridge.addKeyframe(layerIndex, time)) {
             ReverieCoreBridge.setAnimationCurrentTime(time, false)
             anim.pendingAddedFrame = time
@@ -748,17 +775,33 @@ internal fun PaintViewModel.animationAddBlankKeyframeAt(layerIndex: Int, fromTim
 }
 
 /**
- * 删除关键帧 (轨道至少保留一帧)。
+ * 清除当前帧格的内容，保留空白关键帧阻断前一格的曝光；不删除图层或字幕时间点。
  *
  * 默认删引擎当前帧 (底部工具栏的删除按钮); 时间轴长按菜单会显式传 [time],
  * 直接删被按住的那一帧 —— 不动播放头, 避免"删个帧画面却跳走了"的惊吓。
  */
 internal fun PaintViewModel.animationRemoveKeyframe(layerIndex: Int = -1, time: Int = -1) {
-    runCore(after = { syncAnimationFromNativeAfter() }) {
-        val layer = if (layerIndex >= 0) layerIndex else selectedTrackIndex()
-        if (layer < 0) return@runCore
+    animationPause()
+    val index = if (layerIndex >= 0) layerIndex else currentLayerIndex
+    val id = layers.getOrNull(index)?.id ?: return
+    val generation = anim.storyboard.generation
+    if (transientTransformSelectionPending || canUndoTransformSelection || canRedoTransformSelection) {
+        discardTransientTransformSelection()
+    }
+    var changed = false
+    runCore(after = {
+        if (generation == anim.storyboard.generation) {
+            notifyLayerChanged(pixelChanged = changed, contentChanged = changed)
+        }
+    }) {
+        if (generation != anim.storyboard.generation) return@runCore
+        val layer = (1 until ReverieCoreBridge.layerCount()).firstOrNull {
+            ReverieCoreBridge.layerId(it) == id
+        } ?: return@runCore
+        // Resolve default time after earlier queued seeks, so tap-then-delete targets the tapped cel.
         val t = if (time >= 0) time else ReverieCoreBridge.animationCurrentTime()
-        ReverieCoreBridge.removeKeyframe(layer, t)
+        changed = prepareAnimationCel(layer, t, erase = true)
+        syncAnimationFromNative()
     }
 }
 
@@ -777,7 +820,11 @@ internal fun PaintViewModel.animationCopyCurrentFrameTo(
         val layer = if (layerIndex >= 0) layerIndex else selectedTrackIndex()
         if (layer < 0) return@runCore
         val from = if (fromTime >= 0) fromTime else ReverieCoreBridge.animationCurrentTime()
-        if (share) {
+        if (from == toTime || toTime < 0 || !ReverieCoreBridge.hasKeyframe(layer, from)) return@runCore
+        if (anim.storyboard.cues.isNotEmpty() && !isStoryboardTrackOnRenderThread(layer)) {
+            prepareAnimationCel(layer, toTime)
+        }
+        if (share && anim.storyboard.cues.isEmpty()) {
             ReverieCoreBridge.cloneKeyframe(layer, from, toTime)
         } else {
             ReverieCoreBridge.copyKeyframe(layer, from, toTime)
@@ -1079,14 +1126,11 @@ internal fun PaintViewModel.animationBatchDeleteSelected(
         anim.selectedFrames = emptySet()
         syncAnimationFromNativeAfter()
     }) {
-        ReverieCoreBridge.beginUndoMacro("批量删除关键帧")
-        try {
-            for (t in selected.sortedDescending()) {
-                ReverieCoreBridge.removeKeyframe(layerIndex, t)
-            }
-        } finally {
-            ReverieCoreBridge.endUndoMacro()
+        var changed = false
+        for (t in selected.sortedDescending()) {
+            changed = prepareAnimationCel(layerIndex, t, erase = true) || changed
         }
+        if (changed) mainHandler.post { notifyLayerChanged(pixelChanged = true) }
     }
 }
 
@@ -1547,7 +1591,7 @@ internal fun frameThumbKey(
  * 屏幕外的旧位图保留, 这样就地平移不会反复重渲染。
  */
 internal fun PaintViewModel.refreshFrameThumbs() {
-    if (!anim.enabled || !anim.showThumbnails) return
+    if (!anim.enabled || (!anim.showThumbnails && anim.storyboard.cues.isEmpty())) return
     // 调用频率是重点排查对象: 手势期间如果这个函数每秒被调上百次, 说明
     // 视口参数又漏进了某个 effect 的 key (2026-09-15 踩过这个坑)
     PerfTrace.tick("thumbs.refreshCalls", 1000L)
@@ -1605,6 +1649,9 @@ internal fun PaintViewModel.refreshFrameThumbs() {
             di += 2
         }
         val merged = HashMap<Long, Bitmap>(existing)
+        val emptyThumbs = if (sameGen) anim.emptyFrameThumbs.toMutableSet() else mutableSetOf()
+        emptyThumbs.removeAll(dirty)
+        val alphaPixels = IntArray(FRAME_THUMB_W * FRAME_THUMB_H)
         var rendered = 0
         var failed = 0
         // 脏帧内容已变: 先把 UI 侧旧位图剔掉。在可见范围内的脏帧由下面的
@@ -1619,6 +1666,8 @@ internal fun PaintViewModel.refreshFrameThumbs() {
             val bmp = Bitmap.createBitmap(FRAME_THUMB_W, FRAME_THUMB_H, Bitmap.Config.ARGB_8888)
             if (ReverieCoreBridge.renderKeyframeThumb(layerIndex, time, bmp)) {
                 merged[key] = bmp
+                bmp.getPixels(alphaPixels, 0, FRAME_THUMB_W, 0, 0, FRAME_THUMB_W, FRAME_THUMB_H)
+                if (alphaPixels.all { (it ushr 24) == 0 }) emptyThumbs.add(key) else emptyThumbs.remove(key)
                 rendered++
             } else {
                 failed++
@@ -1672,6 +1721,7 @@ internal fun PaintViewModel.refreshFrameThumbs() {
         }
         mainHandler.post {
             anim.thumbGen = gen
+            anim.emptyFrameThumbs = emptyThumbs.intersect(snapshot.keys)
             anim.frameThumbs = snapshot
             anim.frameThumbImages = images
             anim.frameThumbBitmapsForImages = bitmapsForImages

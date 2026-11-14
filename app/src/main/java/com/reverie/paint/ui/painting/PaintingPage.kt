@@ -2296,6 +2296,7 @@ fun PaintingPage(
         ) {
             AnimationTimelinePanel(vm = vm, hazeState = hazeState)
         }
+        com.reverie.paint.ui.painting.animation.TimelineDeleteDialog(vm)
         // ---- Action Toast (Undo/Redo, top-center, animated pill) ----
         androidx.compose.animation.AnimatedVisibility(
             visible = vm.undoToastEnabled && vm.actionToastMessage != null,
