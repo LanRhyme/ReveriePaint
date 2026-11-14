@@ -25,18 +25,23 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.widthIn
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -51,11 +56,13 @@ import androidx.compose.ui.graphics.CompositingStrategy
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -207,26 +214,8 @@ fun OnboardingSpotlight(
                 },
         )
 
-        // 引导气泡卡片自适应定位与尺寸（手机紧凑，平板舒展）
-        val cardMarginDp = if (isCompact) 10.dp else 16.dp
-        val cardMarginPx = with(density) { cardMarginDp.toPx() }
-        val cardWidthDp = if (isCompact) minOf(330.dp, (maxWidth - cardMarginDp * 2).coerceAtLeast(200.dp)) else 390.dp
-        val cardWidthPx = with(density) { cardWidthDp.toPx() }
-        val cardHeightPx = with(density) { (if (isCompact) 215.dp else 320.dp).toPx() }
-
-        val (cardX, cardY) = computeCardPosition(
-            step = currentStep,
-            targetTop = animTop,
-            targetBottom = animBottom,
-            targetLeft = animLeft,
-            targetRight = animRight,
-            screenWidth = screenWidthPx,
-            screenHeight = screenHeightPx,
-            cardWidthPx = cardWidthPx,
-            cardHeightPx = cardHeightPx,
-            marginPx = cardMarginPx,
-            isCompact = isCompact,
-        )
+        val isSmallScreen = config.smallestScreenWidthDp < 600 || config.screenWidthDp < 600 || config.screenHeightDp < 520
+        val isLandscape = config.screenWidthDp > config.screenHeightDp
 
         val syncPanelsForStep: (Int) -> Unit = { step ->
             when (step) {
@@ -245,39 +234,119 @@ fun OnboardingSpotlight(
             }
         }
 
-        Box(
-            modifier = Modifier
-                .offset { IntOffset(cardX.roundToInt(), cardY.roundToInt()) }
-                .widthIn(max = cardWidthDp)
-                .padding(horizontal = cardMarginDp),
-        ) {
-            OnboardingCard(
-                vm = vm,
+        if (isSmallScreen) {
+            // 小屏/手机模式：使用超精简卡片，智能避让高亮目标且绝不溢出屏幕边界
+            val cardMarginDp = 10.dp
+            val cardMarginPx = with(density) { cardMarginDp.toPx() }
+            val cardWidthDp = if (isLandscape) {
+                minOf(380.dp, (maxWidth - cardMarginDp * 2).coerceAtLeast(240.dp))
+            } else {
+                minOf(360.dp, (maxWidth - cardMarginDp * 2).coerceAtLeast(200.dp))
+            }
+            val cardWidthPx = with(density) { cardWidthDp.toPx() }
+            var measuredCompactHeightPx by remember { mutableFloatStateOf(0f) }
+            val cardHeightPx = if (measuredCompactHeightPx > 0f) measuredCompactHeightPx else with(density) { 135.dp.toPx() }
+
+            val (cardX, cardY) = computeCompactCardPosition(
                 step = currentStep,
-                totalSteps = TOTAL_STEPS,
-                isCompact = isCompact,
-                onPrev = {
-                    if (vm.onboardingStep > 0) {
-                        val prev = vm.onboardingStep - 1
-                        syncPanelsForStep(prev)
-                        vm.onboardingStep = prev
-                    }
-                },
-                onNext = {
-                    if (vm.onboardingStep < TOTAL_STEPS - 1) {
-                        val next = vm.onboardingStep + 1
-                        syncPanelsForStep(next)
-                        vm.onboardingStep = next
-                    } else {
-                        closeGuide()
-                    }
-                },
-                onSkip = closeGuide,
-                onOpenThemeSettings = {
-                    closeGuide()
-                    vm.openMoreSettings("THEME")
-                },
+                targetTop = animTop,
+                targetBottom = animBottom,
+                targetLeft = animLeft,
+                targetRight = animRight,
+                screenWidth = screenWidthPx,
+                screenHeight = screenHeightPx,
+                cardWidthPx = cardWidthPx,
+                cardHeightPx = cardHeightPx,
+                marginPx = cardMarginPx,
+                isLandscape = isLandscape,
             )
+
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(cardX.roundToInt(), cardY.roundToInt()) }
+                    .widthIn(max = cardWidthDp)
+                    .onSizeChanged { measuredCompactHeightPx = it.height.toFloat() },
+            ) {
+                CompactOnboardingCard(
+                    step = currentStep,
+                    totalSteps = TOTAL_STEPS,
+                    onPrev = {
+                        if (vm.onboardingStep > 0) {
+                            val prev = vm.onboardingStep - 1
+                            syncPanelsForStep(prev)
+                            vm.onboardingStep = prev
+                        }
+                    },
+                    onNext = {
+                        if (vm.onboardingStep < TOTAL_STEPS - 1) {
+                            val next = vm.onboardingStep + 1
+                            syncPanelsForStep(next)
+                            vm.onboardingStep = next
+                        } else {
+                            closeGuide()
+                        }
+                    },
+                    onSkip = closeGuide,
+                )
+            }
+        } else {
+            // 平板/大屏模式：舒展型引导卡片，带交互控件与丰富特性列表
+            val cardMarginDp = 16.dp
+            val cardMarginPx = with(density) { cardMarginDp.toPx() }
+            val cardWidthDp = 390.dp
+            val cardWidthPx = with(density) { cardWidthDp.toPx() }
+            var measuredTabletHeightPx by remember { mutableFloatStateOf(0f) }
+            val cardHeightPx = if (measuredTabletHeightPx > 0f) measuredTabletHeightPx else with(density) { 320.dp.toPx() }
+
+            val (cardX, cardY) = computeCardPosition(
+                step = currentStep,
+                targetTop = animTop,
+                targetBottom = animBottom,
+                targetLeft = animLeft,
+                targetRight = animRight,
+                screenWidth = screenWidthPx,
+                screenHeight = screenHeightPx,
+                cardWidthPx = cardWidthPx,
+                cardHeightPx = cardHeightPx,
+                marginPx = cardMarginPx,
+                isCompact = false,
+            )
+
+            Box(
+                modifier = Modifier
+                    .offset { IntOffset(cardX.roundToInt(), cardY.roundToInt()) }
+                    .widthIn(max = cardWidthDp)
+                    .onSizeChanged { measuredTabletHeightPx = it.height.toFloat() },
+            ) {
+                OnboardingCard(
+                    vm = vm,
+                    step = currentStep,
+                    totalSteps = TOTAL_STEPS,
+                    isCompact = false,
+                    maxAvailableHeightPx = screenHeightPx - cardMarginPx * 2,
+                    onPrev = {
+                        if (vm.onboardingStep > 0) {
+                            val prev = vm.onboardingStep - 1
+                            syncPanelsForStep(prev)
+                            vm.onboardingStep = prev
+                        }
+                    },
+                    onNext = {
+                        if (vm.onboardingStep < TOTAL_STEPS - 1) {
+                            val next = vm.onboardingStep + 1
+                            syncPanelsForStep(next)
+                            vm.onboardingStep = next
+                        } else {
+                            closeGuide()
+                        }
+                    },
+                    onSkip = closeGuide,
+                    onOpenThemeSettings = {
+                        closeGuide()
+                        vm.openMoreSettings("THEME")
+                    },
+                )
+            }
         }
     }
 }
@@ -424,6 +493,78 @@ private fun computeStepTargetRect(
 }
 
 /**
+ * 计算小屏模式下精炼卡片的智能吸附与防遮挡坐标
+ *
+ * 策略：
+ * 1. 竖屏：水平居中，根据高亮目标重心智能置底或置顶，留出充足余量；
+ * 2. 横屏：纵向居中，高亮在左侧则置于右侧，高亮在右侧则置于左侧，中间/顶栏高亮则置底；
+ * 3. 严格受限于屏幕 [marginPx, screenWidth - cardWidth - marginPx] 与 [marginPx, screenHeight - cardHeight - marginPx] 安全区间。
+ */
+internal fun computeCompactCardPosition(
+    step: Int,
+    targetTop: Float,
+    targetBottom: Float,
+    targetLeft: Float,
+    targetRight: Float,
+    screenWidth: Float,
+    screenHeight: Float,
+    cardWidthPx: Float,
+    cardHeightPx: Float,
+    marginPx: Float,
+    isLandscape: Boolean,
+): Pair<Float, Float> {
+    var x: Float
+    var y: Float
+
+    val maxBoundX = (screenWidth - cardWidthPx - marginPx).coerceAtLeast(marginPx)
+    val maxBoundY = (screenHeight - cardHeightPx - marginPx).coerceAtLeast(marginPx)
+
+    if (isLandscape) {
+        if (targetRight <= screenWidth * 0.45f) {
+            // 高亮在左侧 (侧边工具栏、滑块、扩展工具) -> 卡片置于右侧垂直居中
+            x = maxBoundX
+            y = ((screenHeight - cardHeightPx) / 2f).coerceIn(marginPx, maxBoundY)
+        } else if (targetLeft >= screenWidth * 0.55f) {
+            // 高亮在右侧 (图层面板) -> 卡片置于左侧垂直居中
+            x = marginPx
+            y = ((screenHeight - cardHeightPx) / 2f).coerceIn(marginPx, maxBoundY)
+        } else {
+            // 高亮在中间或顶部 -> 水平居中，空间充足则置底，否则置顶
+            x = ((screenWidth - cardWidthPx) / 2f).coerceIn(marginPx, maxBoundX)
+            val spaceBottom = screenHeight - targetBottom - marginPx
+            val spaceTop = targetTop - marginPx
+            y = if (spaceBottom >= cardHeightPx || spaceBottom >= spaceTop) {
+                maxBoundY
+            } else {
+                marginPx
+            }
+        }
+    } else {
+        // 竖屏：水平居中
+        x = ((screenWidth - cardWidthPx) / 2f).coerceIn(marginPx, maxBoundX)
+
+        val spaceBottom = screenHeight - targetBottom - marginPx
+        val spaceTop = targetTop - marginPx
+
+        // 若高亮区域主要在屏幕下半部 (如步骤 1 调节滑块)，置于顶部；否则默认置底
+        y = if (targetTop >= screenHeight * 0.40f && spaceTop >= cardHeightPx) {
+            marginPx + 6f
+        } else if (spaceBottom >= cardHeightPx) {
+            maxBoundY
+        } else if (spaceTop >= cardHeightPx) {
+            marginPx + 6f
+        } else {
+            if (spaceBottom >= spaceTop) maxBoundY else marginPx + 6f
+        }
+    }
+
+    x = x.coerceIn(marginPx, maxBoundX)
+    y = y.coerceIn(marginPx, maxBoundY)
+
+    return Pair(x, y)
+}
+
+/**
  * 计算气泡卡片自适应呈现坐标
  *
  * 智能防遮挡策略：
@@ -545,6 +686,7 @@ private fun OnboardingCard(
     onNext: () -> Unit,
     onSkip: () -> Unit,
     modifier: Modifier = Modifier,
+    maxAvailableHeightPx: Float = 0f,
     onOpenThemeSettings: () -> Unit = {},
 ) {
     val titleRes = when (step) {
@@ -581,12 +723,20 @@ private fun OnboardingCard(
     val contentHorizontalPadding = if (isCompact) 14.dp else 20.dp
     val contentVerticalPadding = if (isCompact) 12.dp else 18.dp
 
+    val maxHeightModifier = if (maxAvailableHeightPx > 0f) {
+        Modifier.heightIn(max = with(LocalDensity.current) { maxAvailableHeightPx.toDp() })
+    } else {
+        Modifier
+    }
+
     Column(
         modifier = modifier
             .clip(RoundedCornerShape(cardCornerRadius))
             .background(Morandi.panelHi.copy(alpha = 0.98f))
             .glassBorder(RoundedCornerShape(cardCornerRadius))
-            .padding(horizontal = contentHorizontalPadding, vertical = contentVerticalPadding),
+            .then(maxHeightModifier)
+            .padding(horizontal = contentHorizontalPadding, vertical = contentVerticalPadding)
+            .verticalScroll(rememberScrollState()),
     ) {
         // 头部：步骤序号指示与特性小图标
         Row(
@@ -851,6 +1001,202 @@ private fun FeatureTipRow(iconRes: Int, text: String, isCompact: Boolean = false
             fontSize = if (isCompact) 11.sp else 12.sp,
             lineHeight = if (isCompact) 15.sp else 17.sp,
             fontWeight = FontWeight.Medium,
+        )
+    }
+}
+
+/**
+ * 手机/小屏专属精简样式引导面板
+ *
+ * 紧凑精炼的单句说明 + 序号指示 + 精简导航按钮，保证在小屏与横屏下高度控制在 140dp 以内，
+ * 绝不侵占视野、绝不遮挡聚光灯目标、绝不溢出屏幕边界。
+ */
+@Composable
+private fun CompactOnboardingCard(
+    step: Int,
+    totalSteps: Int,
+    onPrev: () -> Unit,
+    onNext: () -> Unit,
+    onSkip: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val titleRes = when (step) {
+        0 -> R.string.onboarding_step1_title
+        1 -> R.string.onboarding_step2_title
+        2 -> R.string.onboarding_step3_title
+        3 -> R.string.onboarding_step4_title
+        4 -> R.string.onboarding_step5_title
+        5 -> R.string.onboarding_step6_title
+        else -> R.string.onboarding_step7_title
+    }
+
+    val descRes = when (step) {
+        0 -> R.string.onboarding_step1_desc_compact
+        1 -> R.string.onboarding_step2_desc_compact
+        2 -> R.string.onboarding_step3_desc_compact
+        3 -> R.string.onboarding_step4_desc_compact
+        4 -> R.string.onboarding_step5_desc_compact
+        5 -> R.string.onboarding_step6_desc_compact
+        else -> R.string.onboarding_step7_desc_compact
+    }
+
+    val cardCornerRadius = 16.dp
+
+    Column(
+        modifier = modifier
+            .clip(RoundedCornerShape(cardCornerRadius))
+            .background(Morandi.panelHi.copy(alpha = 0.98f))
+            .glassBorder(RoundedCornerShape(cardCornerRadius))
+            .padding(horizontal = 14.dp, vertical = 11.dp)
+            .verticalScroll(rememberScrollState()),
+    ) {
+        // 头部：步骤序号 + 标题 + 跳过
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                modifier = Modifier.weight(1f, fill = false),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Morandi.accent.copy(alpha = 0.16f))
+                        .padding(horizontal = 7.dp, vertical = 2.5.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.onboarding_step_format, step + 1, totalSteps),
+                        color = Morandi.accent,
+                        fontSize = 10.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                }
+
+                Text(
+                    text = stringResource(titleRes),
+                    color = Morandi.text,
+                    fontSize = 13.5.sp,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+
+            Text(
+                text = stringResource(R.string.onboarding_skip),
+                color = Morandi.subText.copy(alpha = 0.85f),
+                fontSize = 11.5.sp,
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable(
+                        interactionSource = remember { MutableInteractionSource() },
+                        indication = null,
+                        onClick = onSkip,
+                    )
+                    .padding(horizontal = 6.dp, vertical = 4.dp),
+            )
+        }
+
+        Spacer(Modifier.height(5.dp))
+
+        // 精炼摘要文案
+        Text(
+            text = stringResource(descRes),
+            color = Morandi.subText,
+            fontSize = 11.5.sp,
+            lineHeight = 15.5.sp,
+            maxLines = 3,
+            overflow = TextOverflow.Ellipsis,
+        )
+
+        Spacer(Modifier.height(8.dp))
+
+        // 底部：步骤指示点 + 操作按钮
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            // 步骤指示条/点
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                for (i in 0 until totalSteps) {
+                    if (i == step) {
+                        Box(
+                            modifier = Modifier
+                                .size(width = 14.dp, height = 4.5.dp)
+                                .clip(RoundedCornerShape(2.5.dp))
+                                .background(Morandi.accent),
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .size(4.5.dp)
+                                .clip(CircleShape)
+                                .background(Morandi.subText.copy(alpha = 0.28f)),
+                        )
+                    }
+                }
+            }
+
+            // 按钮组 (上一步 + 下一步/开始创作)
+            Row(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                if (step > 0) {
+                    CompactNavButton(
+                        text = stringResource(R.string.onboarding_prev),
+                        onClick = onPrev,
+                        primary = false,
+                    )
+                }
+
+                CompactNavButton(
+                    text = stringResource(if (step < totalSteps - 1) R.string.onboarding_next else R.string.onboarding_finish),
+                    onClick = onNext,
+                    primary = true,
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 紧凑导航操作按钮 (莫兰迪风格，低高度高触控效率)
+ */
+@Composable
+private fun CompactNavButton(
+    text: String,
+    onClick: () -> Unit,
+    primary: Boolean = true,
+    modifier: Modifier = Modifier,
+) {
+    val colors = Morandi
+    val interaction = remember { MutableInteractionSource() }
+    val shape = RoundedCornerShape(8.dp)
+    val bg = if (primary) colors.accent else colors.panel
+    val fg = if (primary) colors.onAccent else colors.text
+
+    Box(
+        modifier = modifier
+            .clip(shape)
+            .background(bg)
+            .then(if (!primary) Modifier.glassBorder(shape) else Modifier)
+            .clickable(interactionSource = interaction, indication = null) { onClick() }
+            .padding(horizontal = 12.dp, vertical = 6.dp),
+        contentAlignment = Alignment.Center,
+    ) {
+        Text(
+            text = text,
+            color = fg,
+            fontSize = 11.5.sp,
+            fontWeight = FontWeight.SemiBold,
         )
     }
 }

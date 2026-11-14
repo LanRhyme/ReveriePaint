@@ -67,4 +67,110 @@ class OnboardingSpotlightTest {
         assertTrue(x >= marginPx)
         assertTrue(y >= marginPx)
     }
+
+    @Test
+    fun `computeCompactCardPosition strictly stays within screen bounds in phone portrait`() {
+        val screenWidth = 390f
+        val screenHeight = 844f
+        val marginPx = 16f
+        val cardWidthPx = 350f
+        val cardHeightPx = 140f
+
+        val stepTargets = listOf(
+            // Step 0: ToolRail (top-left)
+            listOf(100f, 400f, 0f, 60f),
+            // Step 1: SliderRail (bottom-left)
+            listOf(450f, 750f, 0f, 60f),
+            // Step 2: View tools (top-left)
+            listOf(120f, 320f, 50f, 250f),
+            // Step 3: TopBar (top)
+            listOf(0f, 60f, 0f, 390f),
+            // Step 4: LayerPanel (top-right)
+            listOf(60f, 400f, 150f, 390f),
+            // Step 5: Gestures (center)
+            listOf(350f, 500f, 120f, 270f),
+            // Step 6: Workspace setup (top)
+            listOf(0f, 60f, 0f, 390f),
+        )
+
+        for (step in 0..6) {
+            val t = stepTargets[step]
+            val (x, y) = computeCompactCardPosition(
+                step = step,
+                targetTop = t[0],
+                targetBottom = t[1],
+                targetLeft = t[2],
+                targetRight = t[3],
+                screenWidth = screenWidth,
+                screenHeight = screenHeight,
+                cardWidthPx = cardWidthPx,
+                cardHeightPx = cardHeightPx,
+                marginPx = marginPx,
+                isLandscape = false,
+            )
+
+            assertTrue("Step $step: x ($x) must be >= marginPx ($marginPx)", x >= marginPx - 0.01f)
+            assertTrue("Step $step: x+w (${x + cardWidthPx}) must be <= screenWidth - margin (${screenWidth - marginPx})", x + cardWidthPx <= screenWidth - marginPx + 0.01f)
+            assertTrue("Step $step: y ($y) must be >= marginPx ($marginPx)", y >= marginPx - 0.01f)
+            assertTrue("Step $step: y+h (${y + cardHeightPx}) must be <= screenHeight - margin (${screenHeight - marginPx})", y + cardHeightPx <= screenHeight - marginPx + 0.01f)
+
+            // Step 1 target is at bottom, so card should dock at top
+            if (step == 1) {
+                assertTrue("Step 1 card should be in upper half of screen", y < t[0])
+            }
+            // Step 3 target is at top, so card should dock at bottom
+            if (step == 3) {
+                assertTrue("Step 3 card should be in lower half of screen", y > t[1])
+            }
+        }
+    }
+
+    @Test
+    fun `computeCompactCardPosition strictly stays within screen bounds in phone landscape`() {
+        val screenWidth = 844f
+        val screenHeight = 390f
+        val marginPx = 16f
+        val cardWidthPx = 360f
+        val cardHeightPx = 125f
+
+        // Left target (ToolRail)
+        val (xLeft, yLeft) = computeCompactCardPosition(
+            step = 0,
+            targetTop = 50f,
+            targetBottom = 300f,
+            targetLeft = 0f,
+            targetRight = 60f,
+            screenWidth = screenWidth,
+            screenHeight = screenHeight,
+            cardWidthPx = cardWidthPx,
+            cardHeightPx = cardHeightPx,
+            marginPx = marginPx,
+            isLandscape = true,
+        )
+        assertTrue(xLeft >= marginPx)
+        assertTrue(xLeft + cardWidthPx <= screenWidth - marginPx + 0.01f)
+        assertTrue(yLeft >= marginPx)
+        assertTrue(yLeft + cardHeightPx <= screenHeight - marginPx + 0.01f)
+        assertTrue("Card should be on the right side when target is on the left", xLeft > 400f)
+
+        // Right target (LayerPanel)
+        val (xRight, yRight) = computeCompactCardPosition(
+            step = 4,
+            targetTop = 40f,
+            targetBottom = 340f,
+            targetLeft = 600f,
+            targetRight = 844f,
+            screenWidth = screenWidth,
+            screenHeight = screenHeight,
+            cardWidthPx = cardWidthPx,
+            cardHeightPx = cardHeightPx,
+            marginPx = marginPx,
+            isLandscape = true,
+        )
+        assertTrue(xRight >= marginPx)
+        assertTrue(xRight + cardWidthPx <= screenWidth - marginPx + 0.01f)
+        assertTrue(yRight >= marginPx)
+        assertTrue(yRight + cardHeightPx <= screenHeight - marginPx + 0.01f)
+        assertTrue("Card should be on the left side when target is on the right", xRight < 200f)
+    }
 }

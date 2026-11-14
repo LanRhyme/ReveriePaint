@@ -3761,6 +3761,13 @@
     <string name="onboarding_step6_desc">2-finger tap to Undo, 3-finger tap to Redo. Pinch with 2 fingers to pan, zoom, and rotate. Quick pinch inward to fit canvas</string>
     <string name="onboarding_step7_title">Workspace Customization</string>
     <string name="onboarding_step7_desc">1. Free drag &amp; pin: Go to Settings -&gt; View Display -&gt; Panel Pinning &amp; Free Pan; 2. Floating layout: Go to Settings -&gt; More Settings -&gt; Appearance &amp; Layout -&gt; Floating Mode; 3. Customize tools: Tap \"···\" -&gt; Customize in the toolbar</string>
+    <string name="onboarding_step1_desc_compact">Core drawing tools. Tap brush icon again for Brush Studio, and tap \"···\" for all tools</string>
+    <string name="onboarding_step2_desc_compact">Slide to adjust brush size and opacity. Tap color circle for palette or drag to drop-fill</string>
+    <string name="onboarding_step3_desc_compact">Tap \"···\" for floating tool windows: Reference, Quick Brush, Color, Layer, and Actions</string>
+    <string name="onboarding_step4_desc_compact">Undo/Redo on the left; Layer panel, gestures, stabilization, and settings on the right</string>
+    <string name="onboarding_step5_desc_compact">Manage layer stack and blend modes. Swipe left on a row for actions, or pinch two layers to merge</string>
+    <string name="onboarding_step6_desc_compact">2-finger tap to Undo, 3-finger tap to Redo; pinch to pan/zoom/rotate, quick pinch in to fit</string>
+    <string name="onboarding_step7_desc_compact">Enable Panel Pinning &amp; Free Pan in Settings -&gt; View Display to customize your layout</string>
     <string name="onboarding_layer_tip_more">Special Layer Types: Tap the layer-stack icon next to New Layer to create 3D reference, filter, stroke/fill layers, and masks</string>
     <string name="onboarding_layer_tip_ops">Top Actions: Merge Down, Alpha Lock (paint existing pixels only), and Clipping Mask</string>
     <string name="onboarding_layer_tip_details">Blending &amp; Properties: Tap a layer row to open details for opacity, blend modes, and filters</string>

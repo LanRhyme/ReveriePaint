@@ -3760,6 +3760,13 @@
     <string name="onboarding_step6_desc">双指轻点撤销、三指轻点重做；双指捏合自由平移、缩放与旋转画布；双指快速向内一捏自适应全屏居中</string>
     <string name="onboarding_step7_title">如何自定义专属工作区</string>
     <string name="onboarding_step7_desc">① 自由平移与固定：进入顶栏「设置 -> 视图显示」，开启「面板固定与自由平移」，即可解锁把手任意拖动浮窗并在任意位置钉住常驻；② 自由悬浮排布：进入「设置 -> 更多设置 -> 外观与布局」，开启「自由悬浮模式」可将顶栏、工具栏与滑块分别摆放到屏幕任意边缘；③ 自定义工具：在侧边栏底部点击「···更多」->「自定义」增减常用工具</string>
+    <string name="onboarding_step1_desc_compact">绘图工具核心控制区。再次轻点笔刷图标可展开工坊，底部「···」可展开全部工具</string>
+    <string name="onboarding_step2_desc_compact">上下滑动调节笔刷大小与不透明度，轻点颜色圆圈展开调色板，按住拖拽至画布快速丢色填充</string>
+    <string name="onboarding_step3_desc_compact">侧边栏「···」汇聚常用的独立悬浮小窗：参考图、快捷笔刷、颜色、图层与快捷操作等</string>
+    <string name="onboarding_step4_desc_compact">左侧提供撤销与重做；右侧包含图层面板入口、手势与防抖等工程设置及安全退出</string>
+    <string name="onboarding_step5_desc_compact">管理图层层叠与混合模式，向左滑动图层行可展开操作抽屉，双指捏合两图层可快速合并</string>
+    <string name="onboarding_step6_desc_compact">双指轻点撤销，三指轻点重做；双指捏合缩放旋转画布，向内快捏自适应居中全屏</string>
+    <string name="onboarding_step7_desc_compact">在顶栏「设置 -> 视图显示」中可开启面板自由平移拖动，打造个性化专属工作区</string>
     <string name="onboarding_layer_tip_more">特殊图层类型：点击新建旁「图层叠加图标」，可创建 3D 参考图层、滤镜图层、描边/填充图层及蒙版</string>
     <string name="onboarding_layer_tip_ops">顶部快捷操作：支持向下合并、Alpha 锁定（仅绘制已有像素）、剪贴蒙版（限制在下方形状内）</string>
     <string name="onboarding_layer_tip_details">混合模式与属性：轻点图层行可进入详情页微调不透明度、混合模式（正片叠底/滤色/叠加）与滤镜</string>
