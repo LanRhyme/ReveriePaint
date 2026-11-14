@@ -19,6 +19,7 @@ import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -34,6 +35,8 @@ import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.platform.LocalViewConfiguration
@@ -274,6 +277,8 @@ internal fun LayerDragHandle(
     val haptic = LocalHapticFeedback.current
     val viewConfiguration = LocalViewConfiguration.current
     var active by remember { mutableStateOf(false) }
+    var handleRootLeft by remember { mutableFloatStateOf(0f) }
+    var handleRootTop by remember { mutableFloatStateOf(0f) }
     val gripColor = when {
         active -> Morandi.accent
         enabled -> Morandi.subText.copy(alpha = 0.55f)
@@ -284,6 +289,11 @@ internal fun LayerDragHandle(
             modifier
                 .width(LAYER_DRAG_HANDLE_WIDTH_DP.dp)
                 .fillMaxHeight()
+                .onGloballyPositioned { coords ->
+                    val b = coords.boundsInRoot()
+                    handleRootLeft = b.left
+                    handleRootTop = b.top
+                }
                 .pointerInput(enabled) {
                     if (!enabled) return@pointerInput
                     val touchSlop = viewConfiguration.touchSlop
@@ -302,10 +312,10 @@ internal fun LayerDragHandle(
                                     active = true
                                     change.consume()
                                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    onDragStart(down.position)
+                                    onDragStart(Offset(handleRootLeft + down.position.x, handleRootTop + down.position.y))
                                 }
                                 change.consume()
-                                onDragMove(change.position)
+                                onDragMove(Offset(handleRootLeft + change.position.x, handleRootTop + change.position.y))
                             }
                         } finally {
                             pressGate?.pressedInside = false

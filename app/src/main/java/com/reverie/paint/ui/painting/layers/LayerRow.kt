@@ -172,6 +172,8 @@ internal fun LayerRow(
     scrollGuardUntil: State<Long> = NoScrollGuard,
     /** 自身可见但祖先组隐藏时为 false: 眼睛画暗, 提示"亮了也看不见" (见 LayerListView) */
     effectiveVisible: Boolean = true,
+    /** 当前拖拽落点是否以本组为父图层 (用于组高亮与引导线变色, 参考 Mangar) */
+    isDropTargetParent: Boolean = false,
     /** 点行内混合模式标签直达混合模式选择页; null 时该行只显示纯文本 */
     onOpenBlendModes: ((Int) -> Unit)? = null,
 ) {
@@ -465,6 +467,7 @@ internal fun LayerRow(
                         }
                     else ->
                         when {
+                            isDropTargetParent -> Morandi.accent.copy(alpha = 0.16f)
                             dragOnGroup || selected -> Morandi.accent.copy(alpha = 0.22f)
                             multiSelected -> Morandi.accent.copy(alpha = 0.14f)
                             else -> Color.Transparent
@@ -541,6 +544,7 @@ internal fun LayerRow(
                         } else {
                             onOpenBlendModes
                         },
+                    isDropTargetParent = isDropTargetParent,
                     pressGate = controlPressGate,
                     dragHandle = if (isBg) {
                         null
@@ -548,12 +552,12 @@ internal fun LayerRow(
                         {
                             // 行尾手柄: 位移超过 touch slop 立即拖动 (不用等行长按的 300ms)
                             LayerDragHandle(
-                                onDragStart = { local ->
+                                onDragStart = { rootPos ->
                                     onRevealClose()
-                                    onDragStart(rowLeft + local.x, rowTop + local.y)
+                                    onDragStart(rootPos.x, rootPos.y)
                                 },
-                                onDragMove = { local ->
-                                    onDragPosition(rowLeft + local.x, rowTop + local.y)
+                                onDragMove = { rootPos ->
+                                    onDragPosition(rootPos.x, rootPos.y)
                                 },
                                 onDragEnd = onDragEnd,
                                 pressGate = controlPressGate,
@@ -640,6 +644,8 @@ internal fun LayerRowContent(
     pressGate: LayerRowPressGate? = null,
     // 行尾拖拽手柄 (由 LayerRow 注入带手势的版本; 卡片注入静态版本)
     dragHandle: (@Composable () -> Unit)? = null,
+    // 当前拖拽落点是否以本组为父图层 (用于组高亮与引导线变色, 参考 Mangar)
+    isDropTargetParent: Boolean = false,
     // 行内混合模式标签的直达入口; null = 纯文本 (拖拽卡片与背景/蒙版行)
     onOpenBlendModes: ((Int) -> Unit)? = null,
 ) {
@@ -697,10 +703,10 @@ internal fun LayerRowContent(
                     .fillMaxHeight(),
             ) {
                 val step = stepDp.toPx()
-                val lw = 1.2f.dp.toPx()
+                val lw = if (isDropTargetParent) 1.6f.dp.toPx() else 1.2f.dp.toPx()
                 val midY = size.height / 2f
                 val r = 4.dp.toPx()
-                val guideColor = Morandi.subText.copy(alpha = 0.35f)
+                val guideColor = if (isDropTargetParent) Morandi.accent.copy(alpha = 0.75f) else Morandi.subText.copy(alpha = 0.35f)
 
                 for (d in 1..layer.depth) {
                     val x = step * (d - 0.5f)
@@ -846,7 +852,7 @@ internal fun LayerRowContent(
                 Icon(
                     painterResource(R.drawable.ic_chevron),
                     contentDescription = if (collapsed) stringResource(R.string.layer_expand) else stringResource(R.string.layer_collapse),
-                    tint = Morandi.subText,
+                    tint = if (isDropTargetParent) Morandi.accent else Morandi.subText,
                     modifier = Modifier
                         .size(13.dp)
                         .rotate(chevronRot),

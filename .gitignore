@@ -34,3 +34,6 @@ telemetry/worker/node_modules/
 
 # 回放保真度验证产物 (scripts/replay-verify.py)
 .replay-verify/
+
+# 软件著作权申报材料与生成脚本
+copyright/

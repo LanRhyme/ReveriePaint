@@ -181,6 +181,7 @@ internal fun LayerListView(
     }
     var draggingFrom by remember { mutableIntStateOf(-1) }
     var dragOver by remember { mutableStateOf<Pair<Int, DropMode>?>(null) }
+    var currentDropTarget by remember { mutableStateOf<LayerDragTarget?>(null) }
     var dragFingerX by remember { mutableFloatStateOf(0f) }
     var dragFingerY by remember { mutableFloatStateOf(0f) }
     var dragStartX by remember { mutableFloatStateOf(0f) }
@@ -319,83 +320,57 @@ internal fun LayerListView(
         if (isOutsidePanel) {
             dragOver = null
             dragTargetIdx = -1
+            currentDropTarget = null
+            previewDropIdx = -1
             return
         }
-
-        val scrollOffset = listState.firstVisibleItemIndex * rowPx + listState.firstVisibleItemScrollOffset
-        val contentY = (fingerY - listTop) + scrollOffset
 
         val isMulti = draggingFrom in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
-        val draggedSet = if (isMulti) vm.selectedLayerIndices else setOf(draggingFrom)
+        val batch = if (isMulti) vm.selectedLayerIndices.filter { it > 0 }.sorted() else listOf(draggingFrom)
+        val draggedDescendants = getAllDescendantIndices(batch, vm.layers)
+        val draggedSet = (batch + draggedDescendants).toSet()
+        val remaining = displayRows.filter { it.index !in draggedSet }
 
-        // 1. Group hover detection
-        var over: Pair<Int, DropMode>? = null
-        for (layer in vm.layers) {
-            if (!layer.isGroup || layer.index in draggedSet) continue
-            val fromLayer = vm.layers.firstOrNull { it.index == draggingFrom }
-            if (fromLayer?.isGroup == true && layer.depth > fromLayer.depth) continue
+        val target = resolveLayerDropTarget(
+            fingerX = fingerX,
+            fingerY = fingerY,
+            dragStartX = if (dragStartX != 0f) dragStartX else (vm.activeLayerDrag?.startX ?: listLeft),
+            listLeft = listLeft,
+            listTop = listTop,
+            listWidth = listWidth,
+            rowHeightPx = rowPx.toFloat(),
+            remainingRows = remaining,
+            rowBounds = rowBounds,
+            allLayers = vm.layers,
+            panelRootGroupIdx = vm.panelRootGroupIdx,
+            horizontalThresholdPx = with(density) { 14.dp.toPx() },
+        )
+        currentDropTarget = target
 
-            // If the layer being dragged already belongs to this group, do not hover-drop into it
-            val isAlreadyInsideThisGroup = fromLayer != null && fromLayer.depth > layer.depth &&
-                run {
-                    val pg = vm.layers.take(fromLayer.index).lastOrNull { it.depth == layer.depth && it.isGroup }
-                    pg?.index == layer.index
-                }
-            if (isAlreadyInsideThisGroup) continue
-
-            // Priority A: direct screen bounding box from onGloballyPositioned
-            val b = rowBounds[layer.index]
-            if (b != null && fingerY >= b.first && fingerY <= b.second) {
-                val h = (b.second - b.first).coerceAtLeast(1f)
-                val relY = (fingerY - b.first) / h
-                if (relY in 0.18f..0.82f) {
-                    over = layer.index to DropMode.OnGroup
-                    break
-                }
-            } else {
-                // Priority B: mathematical contentY range in displayRows
-                val groupVisualIdx = displayRows.indexOfFirst { it.index == layer.index }
-                if (groupVisualIdx >= 0) {
-                    val gTop = groupVisualIdx * rowPx
-                    val gBottom = gTop + rowPx
-                    if (contentY >= gTop && contentY <= gBottom) {
-                        val relY = (contentY - gTop) / rowPx.toFloat()
-                        if (relY in 0.18f..0.82f) {
-                            over = layer.index to DropMode.OnGroup
-                            break
-                        }
-                    }
-                }
-            }
-        }
-        dragOver = over
-
-        if (over != null) {
-            val groupVisualIdx = displayRows.indexOfFirst { it.index == over.first }
-            if (groupVisualIdx >= 0) {
-                dragTargetIdx = groupVisualIdx
-            }
+        if (target == null) {
+            dragOver = null
+            dragTargetIdx = -1
+            previewDropIdx = -1
             return
         }
 
-        // 2. Math slot calculation (divider seam between rows of remaining)
-        val remaining = displayRows.filter { it.index !in draggedSet }
-        val bgVisual = remaining.indexOfFirst { it.isBackground || it.index == 0 }
-        val maxSlot = if (bgVisual >= 0) bgVisual else remaining.size
-        val rawSlot = ((contentY + rowPx * 0.4f) / rowPx).toInt().coerceIn(0, maxSlot)
-        dragTargetIdx = rawSlot
-        previewDropIdx = rawSlot
+        if (target.placement == LayerDropPlacement.INSIDE) {
+            dragOver = target.anchorIndex to DropMode.OnGroup
+            dragTargetIdx = target.visualSlot
+            previewDropIdx = -1
+        } else {
+            dragOver = null
+            dragTargetIdx = target.visualSlot
+            previewDropIdx = target.visualSlot
+        }
     }
 
     fun endDrag() {
         if (draggingFrom < 0) return
         val from = draggingFrom
-        val insert = dragTargetIdx
-        val over = dragOver
+        val target = currentDropTarget
         val isMulti = from in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
         val batch = if (isMulti) vm.selectedLayerIndices.filter { it > 0 }.sorted() else listOf(from)
-        val draggedSet = batch.toSet()
-        val remaining = displayRows.filter { it.index !in draggedSet }
 
         val grabOffsetX = vm.activeLayerDrag?.grabOffsetX ?: 0f
         val grabOffsetY = vm.activeLayerDrag?.grabOffsetY ?: 0f
@@ -415,125 +390,65 @@ internal fun LayerListView(
         )
 
         var groupDrop = false
-        if (from > 0 && (insert >= 0 || over != null)) {
+        if (from > 0 && target != null) {
             val fromPid = vm.panelIdForGroupRow(from)
             if (fromPid != null) {
                 // 拖动的是分格组整行：走 movePanelZBy，在分格根组内安全重排，严禁脱离根组
                 val curVisualIdx = displayRows.indexOfFirst { it.index == from }
-                val isUp = if (insert >= 0) insert < curVisualIdx else false
+                val isUp = target.visualSlot < curVisualIdx
                 vm.movePanelZBy(fromPid, up = isUp)
                 draggingFrom = -1
                 dragTargetIdx = -1
                 dragOver = null
+                currentDropTarget = null
                 previewDropIdx = -1
                 vm.activeLayerDrag = null
                 return
             }
 
-            groupDrop = over != null && over.second == DropMode.OnGroup
-            if (groupDrop) {
-                val groupIdx = over!!.first
-                if (groupIdx == vm.panelRootGroupIdx) {
-                    // 严禁将图层直接 drop 进分格根组
-                    draggingFrom = -1
-                    dragTargetIdx = -1
-                    dragOver = null
-                    previewDropIdx = -1
-                    vm.activeLayerDrag = null
-                    return
-                }
-                if (batch.size > 1) {
-                    vm.moveLayersToGroup(batch, groupIdx)
-                } else {
-                    vm.moveLayerToGroup(from, groupIdx)
-                }
-                val groupLayer = vm.layers.firstOrNull { it.index == groupIdx }
-                if (groupLayer != null) {
-                    val pid = vm.panelIdForGroupRow(groupIdx)
-                    if (pid != null) {
-                        if (pid in vm.collapsedPanelIds) {
-                            vm.collapsedPanelIds = vm.collapsedPanelIds - pid
-                        }
+            groupDrop = target.placement == LayerDropPlacement.INSIDE
+            when (target.placement) {
+                LayerDropPlacement.INSIDE -> {
+                    if (batch.size > 1) {
+                        vm.moveLayersToGroup(batch, target.anchorIndex)
                     } else {
-                        vm.setGroupCollapsed(groupLayer.id, collapsed = false)
+                        vm.moveLayerToGroup(from, target.anchorIndex)
                     }
-                }
-            } else if (insert >= 0) {
-                val nonDraggedPrev = remaining.take(insert).lastOrNull()
-                val nonDraggedNext = remaining.drop(insert).firstOrNull()
-                val isIndented = isLayerDragIndented(dragStartX, dragFingerX, density)
-
-                val fromLayer = vm.layers.firstOrNull { it.index == from }
-                val fromIsNested = (fromLayer?.depth ?: 0) > 0
-                val parentGroup = if (fromIsNested && fromLayer != null) {
-                    vm.layers.take(fromLayer.index).lastOrNull { it.depth == fromLayer.depth - 1 && it.isGroup }
-                } else null
-
-                when {
-                    nonDraggedPrev == null && nonDraggedNext != null -> {
-                        vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
-                    }
-                    nonDraggedNext == null && nonDraggedPrev != null -> {
-                        vm.moveLayersRelative(batch, nonDraggedPrev.index, placeAbove = false)
-                    }
-                    nonDraggedPrev != null && nonDraggedNext != null -> {
-                        if (nonDraggedPrev.depth > nonDraggedNext.depth) {
-                            if (isIndented) {
-                                vm.moveLayersRelative(batch, nonDraggedPrev.index, placeAbove = false)
-                            } else {
-                                vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
-                            }
-                        } else if (nonDraggedPrev.isGroup && !groupRowCollapsed(nonDraggedPrev) && nonDraggedPrev.depth < nonDraggedNext.depth) {
-                            if (isIndented) {
-                                vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
-                            } else {
-                                vm.moveLayersRelative(batch, nonDraggedPrev.index, placeAbove = true)
-                            }
-                        } else if (!isIndented && fromIsNested && parentGroup != null) {
-                            val grpVisualIdx = remaining.indexOfFirst { it.index == parentGroup.index }
-                            if (grpVisualIdx >= 0 && insert <= grpVisualIdx) {
-                                if (nonDraggedNext.depth < parentGroup.depth) {
-                                    vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
-                                } else {
-                                    vm.moveLayersRelative(batch, parentGroup.index, placeAbove = true)
-                                }
-                            } else {
-                                vm.moveLayersRelative(batch, parentGroup.index, placeAbove = false)
-                            }
-                        } else if (nonDraggedPrev.isGroup && nonDraggedPrev.depth == nonDraggedNext.depth && parentGroup?.index == nonDraggedPrev.index) {
-                            val grpVisualIdx = remaining.indexOfFirst { it.index == nonDraggedPrev.index }
-                            if (grpVisualIdx >= 0 && insert <= grpVisualIdx) {
-                                vm.moveLayersRelative(batch, nonDraggedPrev.index, placeAbove = true)
-                            } else {
-                                vm.moveLayersRelative(batch, nonDraggedPrev.index, placeAbove = false)
+                    val groupLayer = vm.layers.firstOrNull { it.index == target.anchorIndex }
+                    if (groupLayer != null) {
+                        val pid = vm.panelIdForGroupRow(target.anchorIndex)
+                        if (pid != null) {
+                            if (pid in vm.collapsedPanelIds) {
+                                vm.collapsedPanelIds = vm.collapsedPanelIds - pid
                             }
                         } else {
-                            vm.moveLayersRelative(batch, nonDraggedNext.index, placeAbove = true)
+                            vm.setGroupCollapsed(groupLayer.id, collapsed = false)
                         }
                     }
+                }
+                LayerDropPlacement.ABOVE -> {
+                    vm.moveLayersRelative(batch, target.anchorIndex, placeAbove = true)
+                }
+                LayerDropPlacement.BELOW -> {
+                    vm.moveLayersRelative(batch, target.anchorIndex, placeAbove = false)
                 }
             }
 
             // Settle animation into drop slot or group folder
-            val targetInfo = if (groupDrop) {
-                val grpVisualIdx = displayRows.indexOfFirst { r -> r.index == over!!.first }
-                listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == grpVisualIdx }
-            } else {
-                listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == insert }
-            }
+            val targetInfo = listState.layoutInfo.visibleItemsInfo.firstOrNull { it.index == target.visualSlot }
             val targetY = if (targetInfo != null) {
                 listTop + targetInfo.offset
             } else if (groupDrop) {
-                rowBounds[over!!.first]?.first ?: listTop
+                rowBounds[target.anchorIndex]?.first ?: listTop
             } else {
-                listTop + insert * rowPx
+                listTop + target.visualSlot * rowPx
             }
             val settleTargetX = if (listLeft > 0f) listLeft else (vm.activeLayerDrag?.startX ?: 0f)
             vm.layerDragSettleFrom = settleFromOffset
             vm.layerDragSettleTo = Offset(settleTargetX, targetY.toFloat())
             vm.isLayerDragGroupSettle = groupDrop
             vm.isLayerDragSettling = true
-            previewDropIdx = if (groupDrop) -1 else insert
+            previewDropIdx = if (groupDrop) -1 else target.visualSlot
         } else {
             // Cancelled or dropped outside panel: spring back to origin
             val b = rowBounds[from]
@@ -545,6 +460,7 @@ internal fun LayerListView(
             vm.isLayerDragSettling = true
             previewDropIdx = -1
         }
+        currentDropTarget = null
         draggingFrom = -1
         dragTargetIdx = -1
         dragStartX = 0f
@@ -1083,7 +999,10 @@ internal fun LayerListView(
                             },
                             onDragPosition = { x, y -> updateDragPos(x, y) },
                             onDragEnd = { endDrag() },
-                            dragOnGroup = dragOver?.first == layer.index && dragOver?.second == DropMode.OnGroup,
+                            dragOnGroup = (dragOver?.first == layer.index && dragOver?.second == DropMode.OnGroup) ||
+                                (currentDropTarget?.anchorIndex == layer.index && currentDropTarget?.placement == LayerDropPlacement.INSIDE),
+                            isDropTargetParent = currentDropTarget?.parentGroupIndex == layer.index &&
+                                currentDropTarget?.placement != LayerDropPlacement.INSIDE,
                             isDragging = layer.id in (vm.activeLayerDrag?.draggedIds ?: emptySet()) ||
                                 draggingFrom == layer.index ||
                                 (draggingFrom in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1 && layer.index in vm.selectedLayerIndices),
@@ -1154,34 +1073,7 @@ internal fun LayerListView(
                 else -> null
             }
 
-            val isMultiDrag = (draggingFrom in vm.selectedLayerIndices) && vm.selectedLayerIndices.size > 1
-            val batch = if (isMultiDrag) vm.selectedLayerIndices.filter { it > 0 }.sorted() else listOf(draggingFrom)
-            val draggedSet = batch.toSet()
-            val remaining = displayRows.filter { it.index !in draggedSet }
-
-            val nonDraggedPrev = if (showIndicator) remaining.take(dragTargetIdx).lastOrNull() else null
-            val nonDraggedNext = if (showIndicator) remaining.drop(dragTargetIdx).firstOrNull() else null
-            val isIndented = isLayerDragIndented(dragStartX, dragFingerX, density)
-
-            val fromLayer = vm.layers.firstOrNull { it.index == draggingFrom }
-            val fromIsNested = (fromLayer?.depth ?: 0) > 0
-            val parentGroup = if (fromIsNested && fromLayer != null) {
-                vm.layers.take(fromLayer.index).lastOrNull { it.depth == fromLayer.depth - 1 && it.isGroup }
-            } else null
-
-            val targetDepth = when {
-                nonDraggedPrev == null -> nonDraggedNext?.depth ?: 0
-                nonDraggedNext == null -> nonDraggedPrev.depth
-                nonDraggedPrev.depth > nonDraggedNext.depth -> {
-                    if (isIndented) nonDraggedPrev.depth else nonDraggedNext.depth
-                }
-                nonDraggedPrev.isGroup && !groupRowCollapsed(nonDraggedPrev) && nonDraggedPrev.depth < nonDraggedNext.depth -> {
-                    if (isIndented) nonDraggedNext.depth else nonDraggedPrev.depth
-                }
-                !isIndented && fromIsNested -> 0
-                nonDraggedPrev.isGroup && nonDraggedPrev.depth == nonDraggedNext.depth && parentGroup?.index == nonDraggedPrev.index -> 0
-                else -> nonDraggedNext?.depth ?: 0
-            }
+            val targetDepth = currentDropTarget?.visualDepth ?: 0
 
             var lastValidLineY by remember { mutableFloatStateOf(0f) }
             LaunchedEffect(rawLineY) {
@@ -1190,13 +1082,16 @@ internal fun LayerListView(
                 }
             }
 
-            var lastHapticSlot by remember { mutableIntStateOf(-1) }
-            LaunchedEffect(dragTargetIdx, dragOver) {
-                if (draggingFrom >= 0 && dragOver == null && dragTargetIdx >= 0 && dragTargetIdx != lastHapticSlot) {
-                    lastHapticSlot = dragTargetIdx
-                    haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
-                } else if (dragOver != null && lastHapticSlot != -999) {
-                    lastHapticSlot = -999
+            var lastHapticKey by remember { mutableIntStateOf(-1) }
+            LaunchedEffect(dragTargetIdx, currentDropTarget?.visualDepth, dragOver) {
+                if (draggingFrom >= 0 && dragOver == null && dragTargetIdx >= 0) {
+                    val key = dragTargetIdx * 100 + (currentDropTarget?.visualDepth ?: 0)
+                    if (key != lastHapticKey) {
+                        lastHapticKey = key
+                        haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
+                    }
+                } else if (dragOver != null && lastHapticKey != -999) {
+                    lastHapticKey = -999
                     haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                 }
             }
@@ -1235,7 +1130,7 @@ internal fun LayerListView(
                     val dotRadius = 4.5.dp.toPx()
                     val haloRadius = 7.5.dp.toPx()
                     val lineStroke = 2.5.dp.toPx()
-                    val startX = (16 + animatedDepth * 20).dp.toPx()
+                    val startX = (16 + animatedDepth * LAYER_INDENT_STEP_DP).dp.toPx()
                     val endX = size.width - 16.dp.toPx()
 
                     // 1. Soft glowing outer beam
