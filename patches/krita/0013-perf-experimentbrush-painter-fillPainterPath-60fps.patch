@@ -1,0 +1,336 @@
+From 996c96c8765abd6fd343c6553455926dee6f08c9 Mon Sep 17 00:00:00 2001
+From: LanRhyme <xiao_ren233@foxmail.com>
+Date: Sat, 14 Nov 2026 22:49:31 +0800
+Subject: [PATCH] =?UTF-8?q?perf(experimentbrush,painter):=20=E4=BC=98?=
+ =?UTF-8?q?=E5=8C=96=20fillPainterPath=20=E5=9D=97=E5=90=88=E5=B9=B6?=
+ =?UTF-8?q?=E4=B8=8E=E8=BF=9E=E7=BB=AD=E5=83=8F=E7=B4=A0=E5=86=99=E5=85=A5?=
+ =?UTF-8?q?=E5=B9=B6=E6=94=B6=E6=95=9B=E5=AE=9E=E9=AA=8C=E7=AC=94=E5=88=B7?=
+ =?UTF-8?q?=2060fps=20=E5=88=B7=E6=96=B0?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ libs/image/kis_painter.cc                     | 200 ++++++++++++++----
+ libs/image/kis_painter.h                      |   6 +
+ libs/image/kis_painter_p.h                    |   1 +
+ .../experiment/kis_experiment_paintop.cpp     |   8 +-
+ 4 files changed, 164 insertions(+), 51 deletions(-)
+
+diff --git a/libs/image/kis_painter.cc b/libs/image/kis_painter.cc
+index cdf67cc7..16ff46fc 100644
+--- a/libs/image/kis_painter.cc
++++ b/libs/image/kis_painter.cc
+@@ -1467,23 +1467,62 @@ void KisPainter::fillPainterPath(const QPainterPath& path, const QRect &requeste
+     d->fillPainterPathImpl(path, requestedRect);
+ }
+ 
+-void KisPainter::Private::fillPainterPathImpl(const QPainterPath& path, const QRect &requestedRect)
++void KisPainter::fillPainterPath(const QPainterPath& path, const QRegion &requestedRegion)
+ {
+-    if (fillStyle == FillStyleNone) {
++    if (requestedRegion.isEmpty()) {
+         return;
+     }
+ 
+-    // Fill the polygon bounding rectangle with the required contents then we'll
+-    // create a mask for the actual polygon coverage.
++    if (d->mirrorHorizontally || d->mirrorVertically) {
++        KisLodTransform lod(d->device);
++        QPointF effectiveAxesCenter = lod.map(d->axesCenter);
+ 
+-    if (!fillPainter) {
+-        polygon = device->createCompositionSourceDevice();
+-        fillPainter = new KisFillPainter(polygon);
++        QTransform C1 = QTransform::fromTranslate(-effectiveAxesCenter.x(), -effectiveAxesCenter.y());
++        QTransform C2 = QTransform::fromTranslate(effectiveAxesCenter.x(), effectiveAxesCenter.y());
++
++        QTransform t;
++
++        if (d->mirrorHorizontally) {
++            t = C1 * QTransform::fromScale(-1,1) * C2;
++            const QRegion newRegion = t.map(requestedRegion);
++            d->fillPainterPathImpl(t.map(path), &newRegion);
++        }
++
++        if (d->mirrorVertically) {
++            t = C1 * QTransform::fromScale(1,-1) * C2;
++            const QRegion newRegion = t.map(requestedRegion);
++            d->fillPainterPathImpl(t.map(path), &newRegion);
++        }
++
++        if (d->mirrorHorizontally && d->mirrorVertically) {
++            t = C1 * QTransform::fromScale(-1,-1) * C2;
++            const QRegion newRegion = t.map(requestedRegion);
++            d->fillPainterPathImpl(t.map(path), &newRegion);
++        }
++    }
++
++    d->fillPainterPathImpl(path, &requestedRegion);
++}
++
++void KisPainter::Private::fillPainterPathImpl(const QPainterPath& path, const QRect &requestedRect)
++{
++    if (requestedRect.isValid()) {
++        const QRegion region(requestedRect);
++        fillPainterPathImpl(path, &region);
+     } else {
+-        polygon->clear();
++        fillPainterPathImpl(path, nullptr);
+     }
++}
+ 
+-    Q_CHECK_PTR(polygon);
++void KisPainter::Private::fillPainterPathImpl(const QPainterPath& path, const QRegion *requestedRegion)
++{
++    if (fillStyle == FillStyleNone) {
++        return;
++    }
++
++    if (requestedRegion && requestedRegion->isEmpty()) {
++        return;
++    }
+ 
+     QRectF boundingRect = path.boundingRect();
+     QRect fillRect = boundingRect.toAlignedRect();
+@@ -1491,68 +1530,135 @@ void KisPainter::Private::fillPainterPathImpl(const QPainterPath& path, const QR
+     // Expand the rectangle to allow for anti-aliasing.
+     fillRect.adjust(-1, -1, 1, 1);
+ 
+-    if (requestedRect.isValid()) {
+-        fillRect &= requestedRect;
++    if (requestedRegion) {
++        fillRect &= requestedRegion->boundingRect();
++    }
++
++    if (fillRect.isEmpty()) {
++        return;
++    }
++
++    const bool isSolidColorFill =
++        (fillStyle == FillStyleForegroundColor || fillStyle == FillStyleBackgroundColor);
++
++    if (!fillPainter) {
++        polygon = device->createCompositionSourceDevice();
++        fillPainter = new KisFillPainter(polygon);
++    } else if (!isSolidColorFill) {
++        polygon->clear();
+     }
+ 
+-    switch (fillStyle) {
+-    default:
+-        Q_FALLTHROUGH();
+-    case FillStyleForegroundColor:
+-        fillPainter->fillRect(fillRect, q->paintColor(), OPACITY_OPAQUE_U8);
+-        break;
+-    case FillStyleBackgroundColor:
+-        fillPainter->fillRect(fillRect, q->backgroundColor(), OPACITY_OPAQUE_U8);
+-        break;
+-    case FillStylePattern:
+-        if (pattern) { // if the user hasn't got any patterns installed, we shouldn't crash...
+-            fillPainter->fillRectNoCompose(fillRect, pattern, patternTransform);
++    Q_CHECK_PTR(polygon);
++
++    const KoColorSpace *cs = polygon->colorSpace();
++    const quint32 pixelSize = cs->pixelSize();
++    KoColor solidColor;
++    quint32 solidColorU32 = 0;
++
++    if (isSolidColorFill) {
++        solidColor = (fillStyle == FillStyleForegroundColor) ? q->paintColor() : q->backgroundColor();
++        solidColor.convertTo(cs);
++        if (pixelSize == 4) {
++            memcpy(&solidColorU32, solidColor.data(), 4);
+         }
+-        break;
+-    case FillStyleGenerator:
+-        if (generator) { // if the user hasn't got any generators, we shouldn't crash...
+-            fillPainter->fillRect(fillRect.x(), fillRect.y(), fillRect.width(), fillRect.height(), q->generator());
++    } else {
++        switch (fillStyle) {
++        case FillStylePattern:
++            if (pattern) { // if the user hasn't got any patterns installed, we shouldn't crash...
++                fillPainter->fillRectNoCompose(fillRect, pattern, patternTransform);
++            }
++            break;
++        case FillStyleGenerator:
++            if (generator) { // if the user hasn't got any generators, we shouldn't crash...
++                fillPainter->fillRect(fillRect.x(), fillRect.y(), fillRect.width(), fillRect.height(), q->generator());
++            }
++            break;
++        default:
++            break;
+         }
+-        break;
+     }
+ 
+     if (polygonMaskImage.isNull() || (maskPainter == 0)) {
+         polygonMaskImage = QImage(maskImageWidth, maskImageHeight, QImage::Format_ARGB32_Premultiplied);
+         maskPainter = new QPainter(&polygonMaskImage);
+-        maskPainter->setRenderHint(QPainter::Antialiasing, q->antiAliasPolygonFill());
+     }
++    maskPainter->setRenderHint(QPainter::Antialiasing, q->antiAliasPolygonFill());
+ 
+-    // Break the mask up into chunks so we don't have to allocate a potentially very large QImage.
+-    const QColor black(Qt::black);
+     const QBrush brush(Qt::white);
++    quint8 maskRow[256];
++
++    // Break the mask up into chunks so we don't have to allocate a potentially very large QImage.
+     for (qint32 x = fillRect.x(); x < fillRect.x() + fillRect.width(); x += maskImageWidth) {
+         for (qint32 y = fillRect.y(); y < fillRect.y() + fillRect.height(); y += maskImageHeight) {
++            const qint32 chunkWidth = qMin(fillRect.x() + fillRect.width() - x, maskImageWidth);
++            const qint32 chunkHeight = qMin(fillRect.y() + fillRect.height() - y, maskImageHeight);
++            const QRect chunkRect(x, y, chunkWidth, chunkHeight);
+ 
+-            polygonMaskImage.fill(black.rgb());
++            if (requestedRegion && !requestedRegion->intersects(chunkRect)) {
++                continue;
++            }
++
++            if (chunkWidth == maskImageWidth && chunkHeight == maskImageHeight) {
++                polygonMaskImage.fill(0);
++            } else {
++                const size_t rowBytes = size_t(chunkWidth) * sizeof(QRgb);
++                for (int r = 0; r < chunkHeight; ++r) {
++                    memset(polygonMaskImage.scanLine(r), 0, rowBytes);
++                }
++            }
++
++            maskPainter->setClipRect(0, 0, chunkWidth, chunkHeight);
+             maskPainter->translate(-x, -y);
+             maskPainter->fillPath(path, brush);
+             maskPainter->translate(x, y);
++            maskPainter->setClipping(false);
+ 
+-            qint32 rectWidth = qMin(fillRect.x() + fillRect.width() - x, maskImageWidth);
+-            qint32 rectHeight = qMin(fillRect.y() + fillRect.height() - y, maskImageHeight);
++            const QRegion chunkActiveRegion = requestedRegion ? (*requestedRegion & chunkRect) : QRegion(chunkRect);
++            for (const QRect &subRect : chunkActiveRegion) {
++                if (subRect.isEmpty()) {
++                    continue;
++                }
+ 
+-            KisHLineIteratorSP lineIt = polygon->createHLineIteratorNG(x, y, rectWidth);
++                KisHLineIteratorSP lineIt = polygon->createHLineIteratorNG(subRect.x(), subRect.y(), subRect.width());
++                const int localX = subRect.x() - x;
++                const int localY = subRect.y() - y;
+ 
+-            quint8 tmp;
+-            for (int row = y; row < y + rectHeight; row++) {
+-                QRgb* line = reinterpret_cast<QRgb*>(polygonMaskImage.scanLine(row - y));
+-                do {
+-                    tmp = qRed(line[lineIt->x() - x]);
+-                    polygon->colorSpace()->applyAlphaU8Mask(lineIt->rawData(), &tmp, 1);
+-                } while (lineIt->nextPixel());
+-                lineIt->nextRow();
+-            }
++                for (int row = 0; row < subRect.height(); ++row) {
++                    const QRgb *line = reinterpret_cast<const QRgb *>(polygonMaskImage.constScanLine(localY + row)) + localX;
++                    for (int col = 0; col < subRect.width(); ++col) {
++                        maskRow[col] = static_cast<quint8>(qRed(line[col]));
++                    }
+ 
++                    int col = 0;
++                    while (col < subRect.width()) {
++                        const qint32 n = qMin<qint32>(lineIt->nConseqPixels(), subRect.width() - col);
++                        quint8 *dst = lineIt->rawData();
++                        if (isSolidColorFill) {
++                            if (pixelSize == 4) {
++                                quint32 *dst32 = reinterpret_cast<quint32 *>(dst);
++                                for (qint32 i = 0; i < n; ++i) {
++                                    dst32[i] = solidColorU32;
++                                }
++                            } else {
++                                const quint8 *srcData = solidColor.data();
++                                for (qint32 i = 0; i < n; ++i) {
++                                    memcpy(dst + size_t(i) * pixelSize, srcData, pixelSize);
++                                }
++                            }
++                        }
++                        cs->applyAlphaU8Mask(dst, maskRow + col, n);
++                        col += n;
++                        if (col < subRect.width()) {
++                            lineIt->nextPixels(n);
++                        }
++                    }
++                    lineIt->nextRow();
++                }
++
++                q->bitBlt(subRect.x(), subRect.y(), polygon, subRect.x(), subRect.y(), subRect.width(), subRect.height());
++            }
+         }
+     }
+-
+-    QRect bltRect = !requestedRect.isEmpty() ? requestedRect : fillRect;
+-    q->bitBlt(bltRect.x(), bltRect.y(), polygon, bltRect.x(), bltRect.y(), bltRect.width(), bltRect.height());
+ }
+ 
+ void KisPainter::drawPainterPath(const QPainterPath& path, const QPen& pen)
+diff --git a/libs/image/kis_painter.h b/libs/image/kis_painter.h
+index f9a90a4f..484de676 100644
+--- a/libs/image/kis_painter.h
++++ b/libs/image/kis_painter.h
+@@ -547,6 +547,12 @@ public:
+      */
+     void fillPainterPath(const QPainterPath& path, const QRect &requestedRect);
+ 
++    /**
++     * Fills the portions of an area enclosed by the given QPainterPath
++     * that intersect \p requestedRegion, rasterizing each 255x255 chunk once.
++     */
++    void fillPainterPath(const QPainterPath& path, const QRegion &requestedRegion);
++
+     /**
+      * Draw the path using the Pen
+      *
+diff --git a/libs/image/kis_painter_p.h b/libs/image/kis_painter_p.h
+index f60d8eac..5fe62fce 100644
+--- a/libs/image/kis_painter_p.h
++++ b/libs/image/kis_painter_p.h
+@@ -79,6 +79,7 @@ struct Q_DECL_HIDDEN KisPainter::Private {
+                              qint32 *dstY);
+ 
+     void fillPainterPathImpl(const QPainterPath& path, const QRect &requestedRect);
++    void fillPainterPathImpl(const QPainterPath& path, const QRegion *requestedRegion);
+ 
+     void applyDevice(const QRect &applyRect,
+                      const KisRenderedDab &dab,
+diff --git a/plugins/paintops/experiment/kis_experiment_paintop.cpp b/plugins/paintops/experiment/kis_experiment_paintop.cpp
+index 00677c85..cc6e7036 100644
+--- a/plugins/paintops/experiment/kis_experiment_paintop.cpp
++++ b/plugins/paintops/experiment/kis_experiment_paintop.cpp
+@@ -95,9 +95,7 @@ void KisExperimentPaintOp::paintRegion(const KisRegion &changedRegion)
+         painter()->setCompositeOpId(COMPOSITE_COPY);
+         painter()->setAntiAliasPolygonFill(!m_hardEdge);
+ 
+-        Q_FOREACH (const QRect & rect, changedRegion.rects()) {
+-            painter()->fillPainterPath(m_path, rect);
+-        }
++        painter()->fillPainterPath(m_path, changedRegion.toQRegion());
+     }
+ }
+ 
+@@ -193,9 +191,10 @@ void KisExperimentPaintOp::paintLine(const KisPaintInformation &pi1, const KisPa
+         }
+ 
+         /**
+-         * Refresh rate at least 25fps
++         * Refresh rate at least 25fps, capped at ~60fps for fast movement
+          */
+         const int timeThreshold = 40;
++        const int minFrameInterval = 16;
+         const int elapsedTime = pi2.currentTime() - m_lastPaintTime;
+ 
+         QRect pathBounds = m_path.boundingRect().toRect();
+@@ -203,6 +202,7 @@ void KisExperimentPaintOp::paintLine(const KisPaintInformation &pi1, const KisPa
+ 
+         if (elapsedTime > timeThreshold ||
+                 (!m_displaceEnabled &&
++                 elapsedTime >= minFrameInterval &&
+                  m_savedUpdateDistance > distanceMetric / 8)) {
+ 
+             if (m_displaceEnabled) {
+-- 
+2.56.0
+

@@ -23,6 +23,8 @@
 | 0010 | `docs-REVERIE-PATCHES.md` | 在 fork 根目录加补丁层说明（提交清单 + 稳定契约） |
 | 0011 | `fix-memento-memento-SIGABRT` | 撤销/重做按 memento 身份校验：`rollforward()`/`rollback()` 身份不符时保持现状，`purgeHistory()` 摘掉 cancelled 里的悬垂条目；修「本地事务 revert 后重做」的瓦片装错帧（笔仙）与 `delete[]` SIGABRT |
 | 0012 | `fix-transaction-abort` | 事务结束时时间不一致改为安全警告（`KIS_SAFE_ASSERT_RECOVER_NOOP`），避免硬断言触发 `qFatal` 导致进程闪退 |
+| 0013 | `perf-experimentbrush-painter-fillPainterPath-60fps` | `fillPainterPath` 新增 `QRegion` 分块合并光栅化，纯色填充改用 `nConseqPixels()` 批量 `applyAlphaU8Mask` 替代逐像素虚调用与 `fillRect` |
+| 0014 | `perf-experimentbrush-krita_utils-25fps-splitTriangle` | 解除 `KisExperimentPaintOp` 2010 年遗留的 25fps (`timeThreshold = 40`) 与长笔画距离门控硬节流，重构为 12ms / ~80fps 连续刷新，并为 `splitTriangles` 引入 AABB 预筛选消除昂贵多边形求交 |
 
 ## 应用与重建
 

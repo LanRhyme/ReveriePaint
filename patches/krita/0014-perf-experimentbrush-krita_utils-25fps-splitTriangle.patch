@@ -1,0 +1,103 @@
+From 4d7dd9d386900de10d24a1f01167940385f38110 Mon Sep 17 00:00:00 2001
+From: LanRhyme <xiao_ren233@foxmail.com>
+Date: Sat, 14 Nov 2026 23:40:19 +0800
+Subject: [PATCH] =?UTF-8?q?perf(experimentbrush,krita=5Futils):=20?=
+ =?UTF-8?q?=E8=A7=A3=E9=99=A4=2025fps=20=E7=A1=AC=E8=8A=82=E6=B5=81?=
+ =?UTF-8?q?=E5=B9=B6=E4=B8=BA=20splitTriangles=20=E5=BC=95=E5=85=A5=20AABB?=
+ =?UTF-8?q?=20=E9=A2=84=E7=AD=9B=E9=80=89?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ libs/image/krita_utils.cpp                       | 14 ++++++++++----
+ .../experiment/kis_experiment_paintop.cpp        | 16 ++++++----------
+ 2 files changed, 16 insertions(+), 14 deletions(-)
+
+diff --git a/libs/image/krita_utils.cpp b/libs/image/krita_utils.cpp
+index 53b4f20a..4ba79077 100644
+--- a/libs/image/krita_utils.cpp
++++ b/libs/image/krita_utils.cpp
+@@ -102,23 +102,29 @@ namespace KritaUtils
+ 
+ 
+     KisRegion splitTriangles(const QPointF &center,
+-                                               const QVector<QPointF> &points)
++                                           const QVector<QPointF> &points)
+     {
+ 
+         Q_ASSERT(points.size());
+         Q_ASSERT(!(points.size() & 1));
+ 
+         QVector<QPolygonF> triangles;
++        QVector<QRectF> triangleBounds;
+         QRect totalRect;
+ 
++        triangles.reserve(points.size() / 2);
++        triangleBounds.reserve(points.size() / 2);
++
+         for (int i = 0; i < points.size(); i += 2) {
+             QPolygonF triangle;
+             triangle << center;
+             triangle << points[i];
+             triangle << points[i+1];
+ 
+-            totalRect |= triangle.boundingRect().toAlignedRect();
++            const QRectF b = triangle.boundingRect();
++            totalRect |= b.toAlignedRect();
+             triangles << triangle;
++            triangleBounds << b;
+         }
+ 
+ 
+@@ -136,8 +142,8 @@ namespace KritaUtils
+ 
+                 QRect rect(x, y, nextX - x, nextY - y);
+ 
+-                Q_FOREACH (const QPolygonF &triangle, triangles) {
+-                    if(checkInTriangle(rect, triangle)) {
++                for (int t = 0; t < triangles.size(); ++t) {
++                    if (triangleBounds[t].intersects(rect) && checkInTriangle(rect, triangles[t])) {
+                         dirtyRects << rect;
+                         break;
+                     }
+diff --git a/plugins/paintops/experiment/kis_experiment_paintop.cpp b/plugins/paintops/experiment/kis_experiment_paintop.cpp
+index cc6e7036..52ecbe71 100644
+--- a/plugins/paintops/experiment/kis_experiment_paintop.cpp
++++ b/plugins/paintops/experiment/kis_experiment_paintop.cpp
+@@ -191,19 +191,13 @@ void KisExperimentPaintOp::paintLine(const KisPaintInformation &pi1, const KisPa
+         }
+ 
+         /**
+-         * Refresh rate at least 25fps, capped at ~60fps for fast movement
++         * Refresh cadence: ~60-80fps responsive interactive updates.
++         * Refresh whenever ~12ms elapsed or accumulated movement > 16px.
+          */
+-        const int timeThreshold = 40;
+-        const int minFrameInterval = 16;
++        const int timeThreshold = 12;
+         const int elapsedTime = pi2.currentTime() - m_lastPaintTime;
+ 
+-        QRect pathBounds = m_path.boundingRect().toRect();
+-        int distanceMetric = qMax(pathBounds.width(), pathBounds.height());
+-
+-        if (elapsedTime > timeThreshold ||
+-                (!m_displaceEnabled &&
+-                 elapsedTime >= minFrameInterval &&
+-                 m_savedUpdateDistance > distanceMetric / 8)) {
++        if (elapsedTime >= timeThreshold || (!m_displaceEnabled && m_savedUpdateDistance > 16)) {
+ 
+             if (m_displaceEnabled) {
+                 /**
+@@ -215,6 +209,8 @@ void KisExperimentPaintOp::paintLine(const KisPaintInformation &pi1, const KisPa
+                  * shape.
+                  */
+                 const int pathSizeThreshold = 128;
++                QRect pathBounds = m_path.boundingRect().toRect();
++                int distanceMetric = qMax(pathBounds.width(), pathBounds.height());
+ 
+                 KisRegion changedRegion;
+                 if (distanceMetric < pathSizeThreshold) {
+-- 
+2.56.0
+
