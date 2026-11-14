@@ -962,6 +962,7 @@ internal fun LayerListView(
                             onRevealClose = { revealedIndex = null },
                             onBounds = { top, bottom -> rowBounds[layer.index] = top to bottom },
                             onDragStart = { startX, startY ->
+                                if (vm.isLayerBackendBusy()) return@LayerRow
                                 revealedIndex = null
                                 if (layer.index !in vm.selectedLayerIndices) {
                                     vm.clearLayerSelection()
@@ -1046,12 +1047,12 @@ internal fun LayerListView(
                             },
                             modifier =
                                 Modifier.animateItem(
-                                    placementSpec = spring(
-                                        dampingRatio = 0.85f,
-                                        stiffness = 500f,
+                                    placementSpec = tween(
+                                        durationMillis = 120,
+                                        easing = androidx.compose.animation.core.FastOutSlowInEasing,
                                     ),
-                                    fadeInSpec = tween(150),
-                                    fadeOutSpec = tween(150),
+                                    fadeInSpec = tween(120),
+                                    fadeOutSpec = tween(120),
                                 ),
                         )
                     }

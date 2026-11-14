@@ -83,7 +83,7 @@ fun LayerDragOverlay(
             isSettleRunning = true
             settleAnim.animateTo(
                 to,
-                spring(dampingRatio = 0.82f, stiffness = 480f),
+                tween(durationMillis = 120, easing = androidx.compose.animation.core.FastOutSlowInEasing),
             )
             vm.activeLayerDrag = null
             vm.isLayerDragSettling = false
@@ -110,7 +110,7 @@ fun LayerDragOverlay(
 
     val cardTilt by animateFloatAsState(
         targetValue = if (settling) 0f else tiltTarget,
-        animationSpec = spring(dampingRatio = 0.72f, stiffness = 380f),
+        animationSpec = if (settling) tween(durationMillis = 100) else spring(dampingRatio = 1.0f, stiffness = 900f),
         label = "cardTilt",
     )
 
@@ -120,13 +120,13 @@ fun LayerDragOverlay(
             settling -> 1.0f
             else -> 1.05f
         },
-        animationSpec = spring(dampingRatio = 0.75f, stiffness = 420f),
+        animationSpec = tween(durationMillis = 110, easing = androidx.compose.animation.core.FastOutSlowInEasing),
         label = "cardScale",
     )
 
     val cardAlpha by animateFloatAsState(
         targetValue = if (settling && groupSettle) 0f else 1f,
-        animationSpec = if (settling && groupSettle) tween(durationMillis = 180, delayMillis = 40) else tween(100),
+        animationSpec = if (settling && groupSettle) tween(durationMillis = 120) else tween(80),
         label = "cardAlpha",
     )
 

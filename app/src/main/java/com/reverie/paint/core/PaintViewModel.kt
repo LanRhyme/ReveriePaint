@@ -6144,6 +6144,45 @@ class PaintViewModel : ViewModel() {
     internal val pendingHistoryOps = java.util.concurrent.atomic.AtomicInteger(0)
 
     /**
+     * 正在排队或执行中的后端图层结构/属性操作计数。
+     * 与 [pendingCoreOps] 不同，此计数直到 `renderHandler` 执行完 C++ 操作且
+     * 主线程完成状态对账回调 (`after`) 后才递减，用于阻止后端尚未完成时用户抢先下笔或重复拖拽。
+     */
+    internal val pendingLayerStructureOps = java.util.concurrent.atomic.AtomicInteger(0)
+
+    internal fun isLayerBackendBusy(): Boolean = pendingLayerStructureOps.get() > 0
+
+    internal fun runLayerCore(
+        render: Boolean = true,
+        after: (() -> Unit)? = null,
+        op: () -> Unit,
+    ) {
+        val h = renderHandler ?: run {
+            if (after != null) mainHandler.post { after() }
+            return
+        }
+        pendingLayerStructureOps.incrementAndGet()
+        pendingCoreOps.incrementAndGet()
+        h.post {
+            pendingCoreOps.decrementPositive()
+            try {
+                op()
+            } catch (t: Throwable) {
+                android.util.Log.e("ReverieCore", "runLayerCore op() threw, still dispatching after()", t)
+            } finally {
+                if (render) scheduleRender()
+                mainHandler.post {
+                    try {
+                        after?.invoke()
+                    } finally {
+                        pendingLayerStructureOps.decrementPositive()
+                    }
+                }
+            }
+        }
+    }
+
+    /**
      * 「帧转图层」整条链复用的中转位图(一张 ARGB_8888, 2800×1840 约 20MB)。
      *
      * 只分配一张、逐帧覆写: 拆 N 帧就只占一张的内存, 拆完由

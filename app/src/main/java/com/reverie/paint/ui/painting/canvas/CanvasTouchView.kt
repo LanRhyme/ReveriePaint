@@ -6389,6 +6389,9 @@ class CanvasTouchView(context: Context) : View(context) {
         v.quickShapeCapture = null
         val t = effTool()
         val isDrawingTool = t.group == ToolGroup.BRUSH || t.group == ToolGroup.FILL || t.group == ToolGroup.SHAPES
+        if (v.isLayerBackendBusy() && (isDrawingTool || tool == Tool.LIQUIFY)) {
+            return
+        }
         // 拆分等结构操作可能把当前层留在隐藏的分格蒙版/边框上，先改回内容层再落笔
         if (isDrawingTool || tool == Tool.LIQUIFY) {
             v.retargetOffPanelAuxLayer()
@@ -6971,7 +6974,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
                 val hasSymmetry = (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing)
                 val startedNow = !strokeStarted
-                if (!strokeStarted) {
+                if (!strokeStarted && !v.isLayerBackendBusy()) {
                     val startDoc = if (firstDocPos != Offset.Zero) firstDocPos else docPos
                     firstDocPos = startDoc
                     updateStylusSensors(event, pointerIndex, isStylus, historyPos = -1)

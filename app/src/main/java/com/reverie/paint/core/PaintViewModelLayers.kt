@@ -6,7 +6,11 @@ package com.reverie.paint.core
 
 import android.graphics.Bitmap
 import com.reverie.paint.R
+import com.reverie.paint.model.LayerOrderNode
+import com.reverie.paint.model.OptimisticLayerPlacement
 import com.reverie.paint.model.SettledTilePolicy
+import com.reverie.paint.model.computeOptimisticMoveRelative
+import com.reverie.paint.model.computeOptimisticMoveToGroup
 import android.os.Handler
 import android.os.HandlerThread
 import android.os.Looper
@@ -541,7 +545,7 @@ internal fun PaintViewModel.removeLayer(index: Int) {
         active3DLayers = active3DLayers - target.id
     }
     Breadcrumbs.record("Layer", "Remove layer: $index")
-    runCore(after = {
+    runLayerCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
     }) {
@@ -575,7 +579,7 @@ internal fun PaintViewModel.setCurrentLayer(i: Int) {
         ensure3DLayerClearedInCore(newLayer.id)
     }
     // 纯选中: 不改内容, 不标脏、不拉自动保存引信 (见 notifyLayerChanged 注释)
-    runCore(after = { notifyLayerChanged(forceThumbs = false, contentChanged = false) }) {
+    runLayerCore(after = { notifyLayerChanged(forceThumbs = false, contentChanged = false) }) {
         ReverieCoreBridge.setCurrentLayer(i)
     }
 }
@@ -586,7 +590,13 @@ internal fun PaintViewModel.setLayerBlendMode(
     i: Int,
     opId: String,
 ) {
-    runCore(after = { notifyLayerChanged(forceThumbs = false) }) {
+    if (i in layers.indices) {
+        layers = layers.mapIndexed { idx, item ->
+            if (idx == i) item.copy(blendMode = opId) else item
+        }
+        layerRevision++
+    }
+    runLayerCore(after = { notifyLayerChanged(forceThumbs = false) }) {
         ReverieCoreBridge.setLayerBlendMode(i, opId)
     }
 }
@@ -601,13 +611,14 @@ internal fun PaintViewModel.toggleLayerVisible(i: Int) {
     layers = layers.mapIndexed { idx, item ->
         if (idx == i) item.copy(visible = target) else item
     }
+    layerRevision++
 
     // Record the TARGET visibility so replay sets it directly
 
-    // 2. 异步在渲染线程调用 C++ 引擎切换显隐并重组投影 (runCore 完成后自动触发 scheduleRender)
+    // 2. 异步在渲染线程调用 C++ 引擎切换显隐并重组投影 (runLayerCore 完成后自动触发 scheduleRender)
     val isSolo = ReverieCoreBridge.soloActive()
     val perfIdx = i
-    runCore(render = true, after = {
+    runLayerCore(render = true, after = {
         PerfTrace.event(
             "toggleVisible",
             "roundTripMs" to (android.os.SystemClock.elapsedRealtimeNanos() - perfT0) / 1_000_000L,
@@ -722,8 +733,15 @@ internal fun PaintViewModel.renameLayer(
     name: String,
 ) {
     if (name.isBlank()) return
-    runCore(after = { notifyLayerChanged(forceThumbs = false, immediateRender = false) }) {
-        ReverieCoreBridge.setLayerName(i, name.trim())
+    val trimmed = name.trim()
+    if (i in layers.indices) {
+        layers = layers.mapIndexed { idx, item ->
+            if (idx == i) item.copy(name = trimmed) else item
+        }
+        layerRevision++
+    }
+    runLayerCore(after = { notifyLayerChanged(forceThumbs = false, immediateRender = false) }) {
+        ReverieCoreBridge.setLayerName(i, trimmed)
     }
 }
 
@@ -742,8 +760,14 @@ internal fun PaintViewModel.setLayerOpacity(
             ReverieCoreBridge.setLayerOpacityDirect(i, v)
         }
     } else {
+        if (i in layers.indices) {
+            layers = layers.mapIndexed { idx, item ->
+                if (idx == i) item.copy(opacity = v) else item
+            }
+            layerRevision++
+        }
         // Slider release commit: single undo step + full refresh
-        runCore(after = { notifyLayerChanged(forceThumbs = false) }) {
+        runLayerCore(after = { notifyLayerChanged(forceThumbs = false) }) {
             ReverieCoreBridge.setLayerOpacity(i, v)
         }
     }
@@ -765,7 +789,13 @@ internal fun PaintViewModel.commitLayerOpacityScrub(
     from: Double,
     to: Double,
 ) {
-    runCore(after = { notifyLayerChanged(forceThumbs = false) }) {
+    if (i in layers.indices) {
+        layers = layers.mapIndexed { idx, item ->
+            if (idx == i) item.copy(opacity = to) else item
+        }
+        layerRevision++
+    }
+    runLayerCore(after = { notifyLayerChanged(forceThumbs = false) }) {
         ReverieCoreBridge.setLayerOpacityDirect(i, from)
         ReverieCoreBridge.setLayerOpacity(i, to)
     }
@@ -777,7 +807,13 @@ internal fun PaintViewModel.setLayerLocked(
     i: Int,
     locked: Boolean,
 ) {
-    runCore(after = { notifyLayerChanged(forceThumbs = false, immediateRender = false) }) {
+    if (i in layers.indices) {
+        layers = layers.mapIndexed { idx, item ->
+            if (idx == i) item.copy(locked = locked) else item
+        }
+        layerRevision++
+    }
+    runLayerCore(after = { notifyLayerChanged(forceThumbs = false, immediateRender = false) }) {
         ReverieCoreBridge.setLayerLocked(i, locked)
     }
 }
@@ -788,7 +824,13 @@ internal fun PaintViewModel.setLayerAlphaLocked(
     i: Int,
     locked: Boolean,
 ) {
-    runCore(after = { notifyLayerChanged(forceThumbs = false, immediateRender = false) }) {
+    if (i in layers.indices) {
+        layers = layers.mapIndexed { idx, item ->
+            if (idx == i) item.copy(alphaLocked = locked) else item
+        }
+        layerRevision++
+    }
+    runLayerCore(after = { notifyLayerChanged(forceThumbs = false, immediateRender = false) }) {
         ReverieCoreBridge.setLayerAlphaLocked(i, locked)
     }
 }
@@ -799,7 +841,13 @@ internal fun PaintViewModel.setLayerColorLabel(
     i: Int,
     label: Int,
 ) {
-    runCore(after = { notifyLayerChanged(forceThumbs = false, immediateRender = false) }) {
+    if (i in layers.indices) {
+        layers = layers.mapIndexed { idx, item ->
+            if (idx == i) item.copy(colorLabel = label) else item
+        }
+        layerRevision++
+    }
+    runLayerCore(after = { notifyLayerChanged(forceThumbs = false, immediateRender = false) }) {
         ReverieCoreBridge.setLayerColorLabel(i, label)
     }
 }
@@ -816,7 +864,13 @@ internal fun PaintViewModel.setLayerClipped(
     i: Int,
     clipped: Boolean,
 ) {
-    runCore(after = { notifyLayerChanged(forceThumbs = false) }) {
+    if (i in layers.indices) {
+        layers = layers.mapIndexed { idx, item ->
+            if (idx == i) item.copy(clipped = clipped) else item
+        }
+        layerRevision++
+    }
+    runLayerCore(after = { notifyLayerChanged(forceThumbs = false) }) {
         ReverieCoreBridge.setLayerClipped(i, clipped)
     }
 }
@@ -827,7 +881,13 @@ internal fun PaintViewModel.setLayerAlphaInherited(
     i: Int,
     enable: Boolean,
 ) {
-    runCore(after = { notifyLayerChanged(forceThumbs = false) }) {
+    if (i in layers.indices) {
+        layers = layers.mapIndexed { idx, item ->
+            if (idx == i) item.copy(alphaInherited = enable) else item
+        }
+        layerRevision++
+    }
+    runLayerCore(after = { notifyLayerChanged(forceThumbs = false) }) {
         ReverieCoreBridge.setLayerAlphaInherited(i, enable)
     }
 }
@@ -951,11 +1011,38 @@ internal fun PaintViewModel.setBackgroundColor(
     }
 }
 
+private fun PaintViewModel.applyOptimisticLayerReorder(
+    placements: List<OptimisticLayerPlacement>?,
+    selectedIds: Set<Long> = emptySet(),
+    selectedNames: Set<String> = emptySet(),
+) {
+    if (placements == null || placements.size != layers.size) return
+    val activeId = layers.getOrNull(currentLayerIndex)?.id
+    val reordered = placements.mapIndexed { newIdx, p ->
+        layers[p.originalIndex].copy(index = newIdx, depth = p.newDepth)
+    }
+    layers = reordered
+    if (activeId != null) {
+        val newActiveIdx = reordered.indexOfFirst { it.id == activeId }
+        if (newActiveIdx >= 0) currentLayerIndex = newActiveIdx
+    }
+    if (selectedIds.isNotEmpty() || selectedNames.isNotEmpty()) {
+        selectedLayerIndices = reordered
+            .filter { it.id in selectedIds || it.name in selectedNames }
+            .map { it.index }
+            .toSet()
+    }
+    layerRevision++
+}
+
+private fun PaintViewModel.layerOrderNodes(): List<LayerOrderNode> =
+    layers.map { LayerOrderNode(id = it.id, depth = it.depth, isGroup = it.isGroup) }
+
 internal fun PaintViewModel.moveLayer(
     from: Int,
     to: Int,
 ) {
-    runCore(after = ::notifyLayerChanged) {
+    runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.moveLayer(from, to)
     }
 }
@@ -964,7 +1051,10 @@ internal fun PaintViewModel.moveLayerAbove(
     from: Int,
     above: Int,
 ) {
-    runCore(after = ::notifyLayerChanged) {
+    applyOptimisticLayerReorder(
+        computeOptimisticMoveRelative(layerOrderNodes(), listOf(from), above, placeAbove = true),
+    )
+    runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.moveLayerAbove(from, above)
     }
 }
@@ -973,7 +1063,10 @@ internal fun PaintViewModel.moveLayerToGroup(
     from: Int,
     group: Int,
 ) {
-    runCore(after = ::notifyLayerChanged) {
+    applyOptimisticLayerReorder(
+        computeOptimisticMoveToGroup(layerOrderNodes(), listOf(from), group),
+    )
+    runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.moveLayerToGroup(from, group)
         ensurePanelBordersOnTop(scanEnginePanels())
     }
@@ -998,7 +1091,12 @@ internal fun PaintViewModel.moveLayersToGroup(
     }
     val selectedIds = layers.filter { it.index in effectiveIndices }.map { it.id }.toSet()
     val selectedNames = layers.filter { it.index in effectiveIndices }.map { it.name }.toSet()
-    runCore(after = {
+    applyOptimisticLayerReorder(
+        computeOptimisticMoveToGroup(layerOrderNodes(), effectiveIndices, group),
+        selectedIds = selectedIds,
+        selectedNames = selectedNames,
+    )
+    runLayerCore(after = {
         notifyLayerChanged()
         selectedLayerIndices = layers.filter { it.id in selectedIds || it.name in selectedNames }.map { it.index }.toSet()
     }) {
@@ -1028,7 +1126,12 @@ internal fun PaintViewModel.moveLayersRelative(
     }
     val selectedIds = layers.filter { it.index in effectiveIndices }.map { it.id }.toSet()
     val selectedNames = layers.filter { it.index in effectiveIndices }.map { it.name }.toSet()
-    runCore(after = {
+    applyOptimisticLayerReorder(
+        computeOptimisticMoveRelative(layerOrderNodes(), effectiveIndices, target, placeAbove),
+        selectedIds = selectedIds,
+        selectedNames = selectedNames,
+    )
+    runLayerCore(after = {
         notifyLayerChanged()
         selectedLayerIndices = layers.filter { it.id in selectedIds || it.name in selectedNames }.map { it.index }.toSet()
     }) {
@@ -1045,46 +1148,46 @@ internal fun PaintViewModel.moveLayerRelative(
 }
 
 internal fun PaintViewModel.moveLayerUp(i: Int) {
-    runCore(after = ::notifyLayerChanged) {
+    runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.moveLayerUp(i)
     }
 }
 
 internal fun PaintViewModel.moveLayerDown(i: Int) {
-    runCore(after = ::notifyLayerChanged) {
+    runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.moveLayerDown(i)
     }
 }
 
 internal fun PaintViewModel.moveLayerOut(i: Int) {
-    runCore(after = ::notifyLayerChanged) {
+    runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.moveLayerOut(i)
     }
 }
 
 internal fun PaintViewModel.addMaskToLayer(
     layerIndex: Int,
-    maskType: Int,
+    maskType: Int = 4,
 ) {
-    runCore(after = ::notifyLayerChanged) {
+    runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.addMaskToLayer(layerIndex, maskType)
     }
 }
 
 internal fun PaintViewModel.removeMask(layerIndex: Int) {
-    runCore(after = ::notifyLayerChanged) {
+    runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.removeMask(layerIndex)
     }
 }
 
 internal fun PaintViewModel.invertMask(layerIndex: Int) {
-    runCore(after = ::notifyLayerChanged) {
+    runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.invertMask(layerIndex)
     }
 }
 
 internal fun PaintViewModel.applyMask(layerIndex: Int) {
-    runCore(after = ::notifyLayerChanged) {
+    runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.applyMask(layerIndex)
     }
 }
@@ -1095,7 +1198,7 @@ internal fun PaintViewModel.rasterizeLayer(i: Int) {
         rasterize3DLayer(layer.id)
         return
     }
-    runCore(after = ::notifyLayerChanged) {
+    runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.rasterizeLayer(i)
     }
 }
@@ -1105,7 +1208,7 @@ internal fun PaintViewModel.flattenGroup(i: Int) {
     if (groupLayer != null && groupLayer.isGroup) {
         setGroupCollapsed(groupLayer.id, collapsed = false)
     }
-    runCore(after = ::notifyLayerChanged) {
+    runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.flattenGroup(i)
     }
 }
@@ -1114,7 +1217,13 @@ internal fun PaintViewModel.setGroupPassThrough(
     i: Int,
     passThrough: Boolean,
 ) {
-    runCore(after = ::notifyLayerChanged) {
+    if (i in layers.indices) {
+        layers = layers.mapIndexed { idx, item ->
+            if (idx == i) item.copy(passThrough = passThrough) else item
+        }
+        layerRevision++
+    }
+    runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.setGroupPassThrough(i, passThrough)
     }
 }
@@ -1123,13 +1232,13 @@ internal fun PaintViewModel.mergeDown(i: Int) {
     if (transientTransformSelectionPending || canUndoTransformSelection || canRedoTransformSelection) {
         discardTransientTransformSelection()
     }
-    runCore(after = ::notifyLayerChanged) {
+    runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.mergeDown(i)
     }
 }
 
 internal fun PaintViewModel.soloLayer(i: Int) {
-    runCore(after = ::notifyLayerChanged) {
+    runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.soloLayer(i)
     }
 }
