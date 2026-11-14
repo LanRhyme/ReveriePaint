@@ -196,80 +196,115 @@ void ReverieCore::lassoSelect(const QVector<QPoint> &points)
 
 void ReverieCore::lassoFill(const QVector<QPoint> &points)
 {
-    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (points.size() < 3) {
+        return;
+    }
+    KisImageSP image = m_document;
     if (!image) {
+        return;
+    }
+    if (!isLayerEditable(m_currentLayer)) {
         return;
     }
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) {
         return;
     }
+
+    vQPointF pts;
+    pts.reserve(points.size());
+    int minX = points[0].x();
+    int maxX = minX;
+    int minY = points[0].y();
+    int maxY = minY;
+    for (const QPoint &p : points) {
+        pts.append(QPointF(p));
+        minX = qMin(minX, p.x());
+        maxX = qMax(maxX, p.x());
+        minY = qMin(minY, p.y());
+        maxY = qMax(maxY, p.y());
+    }
+
+    KisTransaction txn(kundo2_i18n("Lasso Fill"), device);
+    KisPainter painter(device, m_selection);
+    KoColor paintColor(m_brushColor.isValid() ? m_brushColor : Qt::black, device->colorSpace());
+    painter.setPaintColor(paintColor);
+    painter.setFillStyle(KisPainter::FillStyleForegroundColor);
+    painter.setStrokeStyle(KisPainter::StrokeStyleNone);
+    painter.setOpacityF(qBound<qreal>(0.0, m_brushOpacity, 1.0));
+    painter.setAntiAliasPolygonFill(true);
+    painter.paintPolygon(pts);
+
     const int iw = image->width();
     const int ih = image->height();
-    QVector<bool> mask;
-    scanlineFillPolygon(points, iw, ih, mask);
-
-    QImage layerImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
-    {
-        QVector<quint8> bytes(size_t(iw) * ih * 4);
-        device->readBytes(bytes.data(), 0, 0, iw, ih);
-        memcpy(layerImg.bits(), bytes.constData(), size_t(iw) * ih * 4);
+    QRect bbox(minX - 2, minY - 2, (maxX - minX) + 5, (maxY - minY) + 5);
+    bbox = bbox.intersected(QRect(0, 0, iw, ih));
+    if (!bbox.isEmpty()) {
+        device->setDirty(bbox);
+        markDirty(bbox);
     }
-    QColor qColor(m_brushColor);
-    if (!qColor.isValid()) {
-        qColor = Qt::black;
+    if (m_currentLayer >= 0 && m_currentLayer < m_layers.size()) {
+        bumpLayerThumbGen(m_layers[m_currentLayer].node);
     }
-    const QRgb fill = qRgba(qColor.red(), qColor.green(), qColor.blue(), 255);
-    bool touched = false;
-    for (int y = 0; y < ih; ++y) {
-        for (int x = 0; x < iw; ++x) {
-            if (mask[size_t(y) * iw + x]) {
-                layerImg.setPixel(x, y, fill);
-                touched = true;
-            }
-        }
-    }
-    if (touched) {
-        device->writeBytes(layerImg.constBits(), 0, 0, iw, ih);
-        device->setDirty();
-        markDirty();
-    }
+    txn.commit(image->undoAdapter());
+    m_redoCount = 0;
 }
 
 void ReverieCore::lassoClear(const QVector<QPoint> &points)
 {
-    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (points.size() < 3) {
+        return;
+    }
+    KisImageSP image = m_document;
     if (!image) {
+        return;
+    }
+    if (!isLayerEditable(m_currentLayer)) {
         return;
     }
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) {
         return;
     }
+
+    vQPointF pts;
+    pts.reserve(points.size());
+    int minX = points[0].x();
+    int maxX = minX;
+    int minY = points[0].y();
+    int maxY = minY;
+    for (const QPoint &p : points) {
+        pts.append(QPointF(p));
+        minX = qMin(minX, p.x());
+        maxX = qMax(maxX, p.x());
+        minY = qMin(minY, p.y());
+        maxY = qMax(maxY, p.y());
+    }
+
+    KisTransaction txn(kundo2_i18n("Lasso Clear"), device);
+    KisPainter painter(device, m_selection);
+    KoColor clearColor(Qt::white, device->colorSpace());
+    clearColor.setOpacity(OPACITY_OPAQUE_U8);
+    painter.setPaintColor(clearColor);
+    painter.setFillStyle(KisPainter::FillStyleForegroundColor);
+    painter.setStrokeStyle(KisPainter::StrokeStyleNone);
+    painter.setOpacityF(1.0);
+    painter.setCompositeOpId(COMPOSITE_ERASE);
+    painter.setAntiAliasPolygonFill(true);
+    painter.paintPolygon(pts);
+
     const int iw = image->width();
     const int ih = image->height();
-    QVector<bool> mask;
-    scanlineFillPolygon(points, iw, ih, mask);
-
-    QImage layerImg(iw, ih, QImage::Format_ARGB32_Premultiplied);
-    {
-        QVector<quint8> bytes(size_t(iw) * ih * 4);
-        device->readBytes(bytes.data(), 0, 0, iw, ih);
-        memcpy(layerImg.bits(), bytes.constData(), size_t(iw) * ih * 4);
+    QRect bbox(minX - 2, minY - 2, (maxX - minX) + 5, (maxY - minY) + 5);
+    bbox = bbox.intersected(QRect(0, 0, iw, ih));
+    if (!bbox.isEmpty()) {
+        device->setDirty(bbox);
+        markDirty(bbox);
     }
-    bool touched = false;
-    for (int y = 0; y < ih; ++y) {
-        for (int x = 0; x < iw; ++x) {
-            if (mask[size_t(y) * iw + x]) {
-                layerImg.setPixel(x, y, 0x00000000); // transparent
-                touched = true;
-            }
-        }
+    if (m_currentLayer >= 0 && m_currentLayer < m_layers.size()) {
+        bumpLayerThumbGen(m_layers[m_currentLayer].node);
     }
-    if (touched) {
-        device->writeBytes(layerImg.constBits(), 0, 0, iw, ih);
-        device->setDirty();
-        markDirty();
-    }
+    txn.commit(image->undoAdapter());
+    m_redoCount = 0;
 }
 
