@@ -882,9 +882,14 @@ internal fun LayerDetailPage(
 
         // Opacity slider
         var localOpacity by remember(index) { mutableFloatStateOf((layer?.opacity ?: 1.0).toFloat()) }
+        var startOpacity by remember(index) { mutableFloatStateOf((layer?.opacity ?: 1.0).toFloat()) }
+        var isDraggingOpacity by remember(index) { mutableStateOf(false) }
         var lastOpacityNs by remember(index) { mutableLongStateOf(0L) }
         LaunchedEffect(layer?.opacity) {
-            localOpacity = (layer?.opacity ?: 1.0).toFloat()
+            if (!isDraggingOpacity) {
+                localOpacity = (layer?.opacity ?: 1.0).toFloat()
+                startOpacity = localOpacity
+            }
         }
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
@@ -898,6 +903,10 @@ internal fun LayerDetailPage(
         ReSlider(
             value = localOpacity,
             onValue = {
+                if (!isDraggingOpacity) {
+                    isDraggingOpacity = true
+                    startOpacity = localOpacity
+                }
                 localOpacity = it
                 val now = System.nanoTime()
                 if (now - lastOpacityNs > 50_000_000L) {
@@ -908,10 +917,8 @@ internal fun LayerDetailPage(
                 }
             },
             onRelease = {
-                // Drag finished: commit once through the undo stack and do the
-                // full refresh (thumbnails + immediate render). One drag = one
-                // undo step instead of dozens of per-tick commands
-                vm.setLayerOpacity(index, localOpacity.toDouble())
+                isDraggingOpacity = false
+                vm.commitLayerOpacityScrub(index, from = startOpacity.toDouble(), to = localOpacity.toDouble())
             },
             modifier = Modifier.padding(horizontal = 14.dp),
         )
@@ -1771,9 +1778,14 @@ private fun Layer3DDetailPage(
 
         // 3. 不透明度调节
         var localOpacity by remember(index) { mutableFloatStateOf(layer.opacity.toFloat()) }
+        var startOpacity by remember(index) { mutableFloatStateOf(layer.opacity.toFloat()) }
+        var isDraggingOpacity by remember(index) { mutableStateOf(false) }
         var lastOpacityNs by remember(index) { mutableLongStateOf(0L) }
         LaunchedEffect(layer.opacity) {
-            localOpacity = layer.opacity.toFloat()
+            if (!isDraggingOpacity) {
+                localOpacity = layer.opacity.toFloat()
+                startOpacity = localOpacity
+            }
         }
         Row(
             modifier = Modifier.fillMaxWidth().padding(horizontal = 14.dp, vertical = 8.dp),
@@ -1786,6 +1798,10 @@ private fun Layer3DDetailPage(
         ReSlider(
             value = localOpacity,
             onValue = {
+                if (!isDraggingOpacity) {
+                    isDraggingOpacity = true
+                    startOpacity = localOpacity
+                }
                 localOpacity = it
                 val now = System.nanoTime()
                 if (now - lastOpacityNs > 50_000_000L) {
@@ -1794,7 +1810,8 @@ private fun Layer3DDetailPage(
                 }
             },
             onRelease = {
-                vm.setLayerOpacity(index, localOpacity.toDouble())
+                isDraggingOpacity = false
+                vm.commitLayerOpacityScrub(index, from = startOpacity.toDouble(), to = localOpacity.toDouble())
             },
             modifier = Modifier.padding(horizontal = 14.dp),
         )

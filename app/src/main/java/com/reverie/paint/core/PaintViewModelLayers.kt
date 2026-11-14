@@ -753,6 +753,10 @@ internal fun PaintViewModel.setLayerOpacity(
     preview: Boolean = false,
 ) {
     if (preview) {
+        if (!layerOpacityDragStarts.containsKey(i)) {
+            val cur = layers.getOrNull(i)?.opacity ?: 1.0
+            layerOpacityDragStarts[i] = cur
+        }
         // Slider drag preview: apply without an undo step and render through
         // the 16ms throttle - no layer sync / thumbnail refresh / immediate
         // frame per tick, so dragging the slider stays smooth
@@ -760,35 +764,52 @@ internal fun PaintViewModel.setLayerOpacity(
             ReverieCoreBridge.setLayerOpacityDirect(i, v)
         }
     } else {
+        val startVal = layerOpacityDragStarts.remove(i)
+        if (startVal != null && kotlin.math.abs(startVal - v) < 1e-4) {
+            runCore(after = { scheduleRender(immediate = false) }) {
+                ReverieCoreBridge.setLayerOpacityDirect(i, startVal)
+            }
+            return
+        }
         if (i in layers.indices) {
             layers = layers.mapIndexed { idx, item ->
                 if (idx == i) item.copy(opacity = v) else item
             }
             layerRevision++
         }
-        // Slider release commit: single undo step + full refresh
+        // Slider release commit: single undo step + full refresh.
+        // If a drag preview was active, reset to startVal first so KisNodeOpacityCommand
+        // captures startVal as oldOpacity instead of the preview opacity.
         runLayerCore(after = { notifyLayerChanged(forceThumbs = false) }) {
+            if (startVal != null) {
+                ReverieCoreBridge.setLayerOpacityDirect(i, startVal)
+            }
             ReverieCoreBridge.setLayerOpacity(i, v)
         }
     }
 }
 
 /**
- * 不透明度拖动 (行内药丸) 的提交: 先把引擎退回**起手值** (不产生撤销步), 再提交终值。
+ * 不透明度拖动 (行内药丸 / 详情页滑杆) 的提交: 先把引擎退回**起手值** (不产生撤销步), 再提交终值。
  *
  * `KisNodeOpacityCommand` 的撤销旧值是在 redo 时读节点当前值, 而拖动中
  * [setLayerOpacity] 的 preview 分支已经把节点改成了最后一个预览值 —— 直接提交
  * 会让"撤销一次"只回到最后一个预览值, 而不是拖动前的值。这里在同一个引擎任务里
  * 先 direct 回起手值再提交, 命令记录的旧值就是拖动前的值, 撤销一次即回到拖动前。
  * 两次调用同在 renderHandler 上执行, 中间不会出帧。
- *
- * 新函数而不是改 [setLayerOpacity] 的签名: 详情页滑杆沿用原有语义, 不受影响。
  */
 internal fun PaintViewModel.commitLayerOpacityScrub(
     i: Int,
     from: Double,
     to: Double,
 ) {
+    layerOpacityDragStarts.remove(i)
+    if (kotlin.math.abs(from - to) < 1e-4) {
+        runCore(after = { scheduleRender(immediate = false) }) {
+            ReverieCoreBridge.setLayerOpacityDirect(i, from)
+        }
+        return
+    }
     if (i in layers.indices) {
         layers = layers.mapIndexed { idx, item ->
             if (idx == i) item.copy(opacity = to) else item

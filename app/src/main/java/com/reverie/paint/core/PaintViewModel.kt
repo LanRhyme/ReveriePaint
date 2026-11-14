@@ -7293,6 +7293,8 @@ class PaintViewModel : ViewModel() {
     var layers by mutableStateOf(listOf<LayerUiState>())
         internal set
 
+    internal val layerOpacityDragStarts = mutableMapOf<Int, Double>()
+
     var currentLayerIndex by mutableIntStateOf(-1)
         internal set
 
