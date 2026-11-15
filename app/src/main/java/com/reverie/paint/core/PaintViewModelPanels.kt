@@ -1486,6 +1486,14 @@ private fun directChildrenOf(ls: List<SnapshotLayer>, g: Int): List<Int> {
 internal fun PaintViewModel.updatePanelShape(id: Long, newQuad: PanelQuad) {
     if (newQuad.isDegenerate(MIN_PANEL_AREA)) return
     Breadcrumbs.record("Panel", "updatePanelShape id=$id")
+    // 乐观同步: 主线程先更新内存镜像, 避免 runCore 异步完成前清 preview 出现视觉回弹/闪跳
+    panels = panels.map { m ->
+        if (m.panelId == id) {
+            m.copy(meta = m.meta.copy(quad = newQuad))
+        } else {
+            m
+        }
+    }
     runCore(after = {
         refreshPanels()
         notifyLayerChanged(pixelChanged = true)
@@ -1556,6 +1564,14 @@ internal fun PaintViewModel.movePanelsBy(
     val dyi = dy.roundToInt()
     if (dxi == 0 && dyi == 0) return true
     val delta = Point2D(dx, dy)
+    // 乐观同步: 主线程先更新内存镜像, 避免 runCore 异步完成前清 preview 出现视觉回弹/闪跳
+    panels = panels.map { m ->
+        if (m.panelId in ids) {
+            m.copy(meta = m.meta.copy(quad = m.meta.quad.movedBy(delta)))
+        } else {
+            m
+        }
+    }
     Breadcrumbs.record("Panel", "movePanelsBy n=${ids.size} d=($dxi,$dyi)")
     runCore(after = {
         refreshPanels()

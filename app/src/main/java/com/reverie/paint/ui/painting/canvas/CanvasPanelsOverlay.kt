@@ -249,9 +249,10 @@ internal fun DrawScope.drawPanelsOverlay(
     if (toolActive) {
         // 分格工具激活时：始终高帧率以纯矢量方式渲染动态边框，以便手柄与形状调整时实时跟随
         for (m in mirrors) {
+            val quad = previews[m.panelId]?.quad ?: m.meta.quad
             val r = panelCornerRadius(m, defaults)
             val path = panelQuadPath(
-                m.meta.quad.roundedCorners(r),
+                quad.roundedCorners(r),
                 bmpWidth, bmpHeight, scX, scY,
             )
             val style = m.meta.style
@@ -325,8 +326,9 @@ internal fun DrawScope.drawPanelsOverlay(
     val curSelId = vm.selectedPanelId
     val curSelGroupId = mirrors.firstOrNull { it.panelId == curSelId }?.groupId
     for (m in mirrors) {
+        val quad = previews[m.panelId]?.quad ?: m.meta.quad
         val path = panelQuadPath(
-            m.meta.quad.roundedCorners(panelCornerRadius(m, defaults)),
+            quad.roundedCorners(panelCornerRadius(m, defaults)),
             bmpWidth, bmpHeight, scX, scY,
         )
         when {
