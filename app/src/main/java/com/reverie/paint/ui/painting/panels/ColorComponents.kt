@@ -226,6 +226,10 @@ fun CompactHsvSlider(
 ) {
     var showDirectInputDialog by remember { mutableStateOf(false) }
 
+    val currentOnValueChange by rememberUpdatedState(onValueChange)
+    val currentOnInteractionStart by rememberUpdatedState(onInteractionStart)
+    val currentOnInteractionEnd by rememberUpdatedState(onInteractionEnd)
+
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
     val baseTextStyle = LocalTextStyle.current
@@ -264,10 +268,10 @@ fun CompactHsvSlider(
                 .pointerInput(max) {
                     awaitEachGesture {
                         val down = awaitFirstDown().also { it.consume() }
-                        onInteractionStart()
+                        currentOnInteractionStart()
                         val updateVal = { pos: Offset ->
                             val frac = (pos.x / size.width).coerceIn(0f, 1f)
-                            onValueChange(frac * max)
+                            currentOnValueChange(frac * max)
                         }
                         updateVal(down.position)
 
@@ -278,7 +282,7 @@ fun CompactHsvSlider(
                             updateVal(change.position)
                             change.consume()
                         }
-                        onInteractionEnd()
+                        currentOnInteractionEnd()
                     }
                 }
         ) {
@@ -320,7 +324,7 @@ fun CompactHsvSlider(
             min = 0f,
             max = max,
             unitSuffix = unitSuffix,
-            onValueConfirmed = { onValueChange(it) },
+            onValueConfirmed = { currentOnValueChange(it) },
             onDismiss = { showDirectInputDialog = false }
         )
     }

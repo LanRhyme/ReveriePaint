@@ -129,9 +129,17 @@ fun QuickColorWindow(
     val defaultH = with(density) { if (isCollapsed) 48.dp.toPx() else 272.dp.toPx() }
 
     // HSV 颜色状态 (严格跟随 vm.colorModel 进行非线性映射)
-    var hue by remember { mutableFloatStateOf(0f) }
-    var sat by remember { mutableFloatStateOf(1f) }
-    var valB by remember { mutableFloatStateOf(1f) }
+    val initialHsv = remember(vm.colorModel) {
+        try {
+            val c = android.graphics.Color.parseColor(vm.brushColor)
+            rgbToHsvModel(c, vm.colorModel)
+        } catch (_: Exception) {
+            floatArrayOf(0f, 1f, 1f)
+        }
+    }
+    var hue by remember(vm.colorModel) { mutableFloatStateOf(initialHsv[0]) }
+    var sat by remember(vm.colorModel) { mutableFloatStateOf(initialHsv[1]) }
+    var valB by remember(vm.colorModel) { mutableFloatStateOf(initialHsv[2]) }
     var isInteracting by remember { mutableStateOf(false) }
     var lastSelfUpdatedHex by remember { mutableStateOf("") }
 
@@ -150,6 +158,9 @@ fun QuickColorWindow(
     }
 
     val updateColorHsv = { h: Float, s: Float, v: Float ->
+        hue = h
+        sat = s
+        valB = v
         val rgb = hsvModelToRgb(h, s, v, vm.colorModel)
         val hex = "#%06X".format(rgb and 0xFFFFFF)
         lastSelfUpdatedHex = hex
@@ -702,18 +713,22 @@ private fun QuickColorSquareTab(
                 .height(142.dp)
                 .clip(RoundedCornerShape(8.dp)),
         ) {
+            val currentOnSatVal by rememberUpdatedState(onSatVal)
+            val currentOnInteractionStart by rememberUpdatedState(onInteractionStart)
+            val currentOnInteractionEnd by rememberUpdatedState(onInteractionEnd)
+
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(hue, vm.colorModel) {
+                    .pointerInput(vm.colorModel) {
                         awaitEachGesture {
                             val down = awaitFirstDown().also { it.consume() }
-                            onInteractionStart()
+                            currentOnInteractionStart()
                             val w = size.width.toFloat()
                             val h = size.height.toFloat()
                             val s = (down.position.x / w).coerceIn(0f, 1f)
                             val v = (1f - down.position.y / h).coerceIn(0f, 1f)
-                            onSatVal(s, v)
+                            currentOnSatVal(s, v)
 
                             while (true) {
                                 val event = awaitPointerEvent()
@@ -721,10 +736,10 @@ private fun QuickColorSquareTab(
                                 if (!change.pressed) break
                                 val curS = (change.position.x / w).coerceIn(0f, 1f)
                                 val curV = (1f - change.position.y / h).coerceIn(0f, 1f)
-                                onSatVal(curS, curV)
+                                currentOnSatVal(curS, curV)
                                 change.consume()
                             }
-                            onInteractionEnd()
+                            currentOnInteractionEnd()
                         }
                     },
             ) {

@@ -362,13 +362,18 @@ internal fun WheelPickerCanvas(
     var lastTapTime by remember { mutableLongStateOf(0L) }
     var lastTapOffset by remember { mutableStateOf(Offset.Zero) }
 
+    val currentOnHue by rememberUpdatedState(onHue)
+    val currentOnSatVal by rememberUpdatedState(onSatVal)
+    val currentOnInteractionStart by rememberUpdatedState(onInteractionStart)
+    val currentOnInteractionEnd by rememberUpdatedState(onInteractionEnd)
+
     Canvas(
         modifier = Modifier
             .fillMaxSize()
             .pointerInput(shape, colorModel) {
                 awaitEachGesture {
                     val down = awaitFirstDown().also { it.consume() }
-                    onInteractionStart()
+                    currentOnInteractionStart()
 
                     val cx = size.width / 2f
                     val cy = size.height / 2f
@@ -397,9 +402,9 @@ internal fun WheelPickerCanvas(
                             if (snapIfDoubleTap) {
                                 // Snap to nearest 60° primary hue (0, 60, 120, 180, 240, 300)
                                 val snapped = ((round(h / 60f) * 60f) % 360f + 360f) % 360f
-                                onHue(snapped)
+                                currentOnHue(snapped)
                             } else {
-                                onHue(h)
+                                currentOnHue(h)
                             }
                         } else {
                             when (shape) {
@@ -416,13 +421,13 @@ internal fun WheelPickerCanvas(
                                     if (snapIfDoubleTap) {
                                         val (cwC, cwA, cwB) = triangleSvToBarycentric(s, v)
                                         when {
-                                            cwA >= 0.65f -> onSatVal(0f, 1f)
-                                            cwC >= 0.65f -> onSatVal(1f, 1f)
-                                            cwB >= 0.65f -> onSatVal(0f, 0f)
-                                            else -> onSatVal(s, v)
+                                            cwA >= 0.65f -> currentOnSatVal(0f, 1f)
+                                            cwC >= 0.65f -> currentOnSatVal(1f, 1f)
+                                            cwB >= 0.65f -> currentOnSatVal(0f, 0f)
+                                            else -> currentOnSatVal(s, v)
                                         }
                                     } else {
-                                        onSatVal(s, v)
+                                        currentOnSatVal(s, v)
                                     }
                                 }
                                 "CIRCLE" -> {
@@ -431,13 +436,13 @@ internal fun WheelPickerCanvas(
                                     val (s, v) = squircularInverse(cdx / innerR, cdy / innerR)
                                     if (snapIfDoubleTap) {
                                         when {
-                                            s <= 0.28f && v >= 0.72f -> onSatVal(0f, 1f)
-                                            s >= 0.72f && v >= 0.72f -> onSatVal(1f, 1f)
-                                            v <= 0.22f -> onSatVal(s, 0f)
-                                            else -> onSatVal(s, v)
+                                            s <= 0.28f && v >= 0.72f -> currentOnSatVal(0f, 1f)
+                                            s >= 0.72f && v >= 0.72f -> currentOnSatVal(1f, 1f)
+                                            v <= 0.22f -> currentOnSatVal(s, 0f)
+                                            else -> currentOnSatVal(s, v)
                                         }
                                     } else {
-                                        onSatVal(s, v)
+                                        currentOnSatVal(s, v)
                                     }
                                 }
                                 else -> { // "SQUARE"
@@ -449,13 +454,13 @@ internal fun WheelPickerCanvas(
 
                                     if (snapIfDoubleTap) {
                                         when {
-                                            s <= 0.28f && v >= 0.72f -> onSatVal(0f, 1f)
-                                            s >= 0.72f && v >= 0.72f -> onSatVal(1f, 1f)
-                                            v <= 0.22f -> onSatVal(s, 0f)
-                                            else -> onSatVal(s, v)
+                                            s <= 0.28f && v >= 0.72f -> currentOnSatVal(0f, 1f)
+                                            s >= 0.72f && v >= 0.72f -> currentOnSatVal(1f, 1f)
+                                            v <= 0.22f -> currentOnSatVal(s, 0f)
+                                            else -> currentOnSatVal(s, v)
                                         }
                                     } else {
-                                        onSatVal(s, v)
+                                        currentOnSatVal(s, v)
                                     }
                                 }
                             }
@@ -478,7 +483,7 @@ internal fun WheelPickerCanvas(
                         updatePos(change.position, snapIfDoubleTap = false)
                         change.consume()
                     }
-                    onInteractionEnd()
+                    currentOnInteractionEnd()
                 }
             }
     ) {

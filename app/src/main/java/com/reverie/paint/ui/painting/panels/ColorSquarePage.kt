@@ -67,13 +67,17 @@ fun SquareHsbColorPage(
                 .height(175.dp)
                 .clip(RoundedCornerShape(10.dp))
         ) {
+            val currentOnSatVal by rememberUpdatedState(onSatVal)
+            val currentOnInteractionStart by rememberUpdatedState(onInteractionStart)
+            val currentOnInteractionEnd by rememberUpdatedState(onInteractionEnd)
+
             Canvas(
                 modifier = Modifier
                     .fillMaxSize()
-                    .pointerInput(hue, vm.colorModel) {
+                    .pointerInput(vm.colorModel) {
                         awaitEachGesture {
                             val down = awaitFirstDown().also { it.consume() }
-                            onInteractionStart()
+                            currentOnInteractionStart()
 
                             val now = System.currentTimeMillis()
                             val dist = (down.position - lastTapOffset).getDistance()
@@ -89,19 +93,19 @@ fun SquareHsbColorPage(
                                 when {
                                     // Top-left double tap: Snap to pure White (S=0, V=1)
                                     sNorm <= 0.28f && vNorm >= 0.72f -> {
-                                        onSatVal(0f, 1f)
+                                        currentOnSatVal(0f, 1f)
                                     }
                                     // Top-right double tap: Snap to pure Vivid color (S=1, V=1)
                                     sNorm >= 0.72f && vNorm >= 0.72f -> {
-                                        onSatVal(1f, 1f)
+                                        currentOnSatVal(1f, 1f)
                                     }
                                     // Bottom double tap: Snap to pure Black (V=0)
                                     vNorm <= 0.22f -> {
-                                        onSatVal(sNorm, 0f)
+                                        currentOnSatVal(sNorm, 0f)
                                     }
                                     // Default fallback to tap position
                                     else -> {
-                                        onSatVal(sNorm, vNorm)
+                                        currentOnSatVal(sNorm, vNorm)
                                     }
                                 }
                                 lastTapTime = 0L
@@ -110,7 +114,7 @@ fun SquareHsbColorPage(
                                 lastTapOffset = down.position
                                 val s = (down.position.x / w).coerceIn(0f, 1f)
                                 val v = (1f - down.position.y / h).coerceIn(0f, 1f)
-                                onSatVal(s, v)
+                                currentOnSatVal(s, v)
                             }
 
                             while (true) {
@@ -119,10 +123,10 @@ fun SquareHsbColorPage(
                                 if (!change.pressed) break
                                 val s = (change.position.x / w).coerceIn(0f, 1f)
                                 val v = (1f - change.position.y / h).coerceIn(0f, 1f)
-                                onSatVal(s, v)
+                                currentOnSatVal(s, v)
                                 change.consume()
                             }
-                            onInteractionEnd()
+                            currentOnInteractionEnd()
                         }
                     }
             ) {

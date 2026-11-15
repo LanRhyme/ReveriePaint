@@ -77,9 +77,17 @@ fun ColorPanel(
     onColorDropEnd: ((Offset) -> Unit)? = null,
     onColorDropCancel: (() -> Unit)? = null,
 ) {
-    var hue by remember { mutableFloatStateOf(0f) }
-    var sat by remember { mutableFloatStateOf(1f) }
-    var valB by remember { mutableFloatStateOf(1f) }
+    val initialHsv = remember(vm.colorModel) {
+        try {
+            val c = android.graphics.Color.parseColor(vm.brushColor)
+            rgbToHsvModel(c, vm.colorModel)
+        } catch (_: Exception) {
+            floatArrayOf(0f, 1f, 1f)
+        }
+    }
+    var hue by remember(vm.colorModel) { mutableFloatStateOf(initialHsv[0]) }
+    var sat by remember(vm.colorModel) { mutableFloatStateOf(initialHsv[1]) }
+    var valB by remember(vm.colorModel) { mutableFloatStateOf(initialHsv[2]) }
     var isInteracting by remember { mutableStateOf(false) }
 
     val context = LocalContext.current
@@ -101,6 +109,9 @@ fun ColorPanel(
     }
 
     val updateColorHsv = { h: Float, s: Float, v: Float ->
+        hue = h
+        sat = s
+        valB = v
         val rgb = hsvModelToRgb(h, s, v, vm.colorModel)
         val hex = "#%06X".format(rgb and 0xFFFFFF)
         lastSelfUpdatedHex = hex
