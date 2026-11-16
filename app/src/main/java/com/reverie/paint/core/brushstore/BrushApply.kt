@@ -12,7 +12,6 @@ import com.reverie.paint.core.ReverieCoreBridge
 import com.reverie.paint.core.applySensorXmlToDynamicOptions
 import com.reverie.paint.core.fetchBrushOutlinePolygons
 import java.io.File
-import kotlin.math.abs
 
 /**
  * select 的尺寸决策（纯函数，输入均为基础类型，供 JVM 单测；只服务 select 完整分支，轻量 reload 不用）：
@@ -35,7 +34,7 @@ internal fun resolveSelectSize(
  *
  * 有效 kpp 已经包含了完整的 XML 参数。在 loadBrushPreset 之后，这里只施加
  * "非 preset 状态"：颜色、副色、橡皮标志、橡皮 compositeOp 覆盖、工具级尺寸记忆 paramMemory overlay，
- * 以及附加旋转 liveAngle。严禁调用任何 REBUILD 类 setter。
+ * 以及附加旋转偏角。严禁调用任何 REBUILD 类 setter。
  */
 object BrushApply {
 
@@ -49,6 +48,11 @@ object BrushApply {
         fun setBrushOpacity(v: Double)
         fun setBrushFlow(v: Double)
         fun setBrushAngle(deg: Double)
+        /**
+         * 附加旋转偏角: 引擎内部按 (基础角度 + 偏角) 合成静态笔尖角度, 与 setBrushAngle 同属 LIVE。
+         * 默认空实现只为测试替身省样板 (生产实现只有 [NativeEngine] 一处)。
+         */
+        fun setBrushRotation(deg: Double) {}
         fun loadBrushPresetFile(path: String): Boolean = true
         fun currentTipResolved(): Boolean = true
         fun loadPatternResources(path: String): Int = 0
@@ -73,6 +77,7 @@ object BrushApply {
         override fun setBrushOpacity(v: Double) = ReverieCoreBridge.setBrushOpacity(v)
         override fun setBrushFlow(v: Double) = ReverieCoreBridge.setBrushFlow(v)
         override fun setBrushAngle(deg: Double) = ReverieCoreBridge.setBrushAngle(deg)
+        override fun setBrushRotation(deg: Double) = ReverieCoreBridge.setBrushRotation(deg)
         override fun setToolMode(mode: Int) = ReverieCoreBridge.setToolMode(mode)
         override fun beginPresetOverrideSnapshot(): Boolean = ReverieCoreBridge.beginPresetOverrideSnapshot()
         override fun endPresetOverrideSnapshot(): Boolean = ReverieCoreBridge.endPresetOverrideSnapshot()
@@ -160,7 +165,10 @@ object BrushApply {
         val size: Double? = null,
         val opacity: Double? = null,
         val flow: Double? = null,
+        /** 基础角度 (brush_definition angle 的度数); 与 [rotationDeg] 分开下发, 引擎内部合成 */
         val angleDeg: Double? = null,
+        /** 附加旋转偏角 (ReverieRotation); 由引擎 setBrushRotation 与基础角度相加, 不能预先合并再走 setBrushAngle */
+        val rotationDeg: Double? = null,
     )
 
     fun applyAfterLoad(engine: EngineFacade, st: NonPresetState) {
@@ -172,12 +180,7 @@ object BrushApply {
         st.opacity?.takeIf { it.isFinite() }?.let { engine.setBrushOpacity(it.coerceIn(0.0, 1.0)) }
         st.flow?.takeIf { it.isFinite() }?.let { engine.setBrushFlow(it.coerceIn(0.0, 1.0)) }
         st.angleDeg?.takeIf { it.isFinite() }?.let { engine.setBrushAngle(it) }
-    }
-
-    fun liveAngle(eff: BrushParams): Double? {
-        if (abs(eff.rotation) < 1e-9) return null
-        val a = (eff.angle + eff.rotation) % 360.0
-        return if (a < 0.0) a + 360.0 else a
+        st.rotationDeg?.takeIf { it.isFinite() }?.let { engine.setBrushRotation(it) }
     }
 
     inline fun <T> override(block: () -> T): T {
@@ -234,7 +237,7 @@ object BrushApply {
             ControlId.OPACITY -> (v as? Number)?.toDouble()?.let { engine.setBrushOpacity(it.coerceIn(0.0, 1.0)) }
             ControlId.FLOW -> (v as? Number)?.toDouble()?.let { engine.setBrushFlow(it.coerceIn(0.0, 1.0)) }
             ControlId.ANGLE -> (v as? Number)?.toDouble()?.let { engine.setBrushAngle(it) }
-            ControlId.ROTATION -> (v as? Number)?.toDouble()?.let { engine.setBrushAngle(it) }
+            ControlId.ROTATION -> (v as? Number)?.toDouble()?.let { engine.setBrushRotation(it) }
             else -> {}
         }
     }
@@ -338,7 +341,8 @@ object BrushApply {
                             size = vm.brushSize,
                             opacity = vm.brushOpacity,
                             flow = vm.brushFlow,
-                            angleDeg = liveAngle(vm.brushParams),
+                            angleDeg = vm.brushAngle,
+                            rotationDeg = vm.brushRotation,
                         ),
                     )
                 }
@@ -404,7 +408,8 @@ object BrushApply {
                 size = finalSize,
                 opacity = finalOpacity,
                 flow = finalFlow,
-                angleDeg = liveAngle(eff),
+                angleDeg = eff.angle,
+                rotationDeg = eff.rotation,
             )
             applyAfterLoad(engine, nonPreset)
         }
@@ -448,7 +453,8 @@ object BrushApply {
                     size = origSize,
                     opacity = origOpacity,
                     flow = origFlow,
-                    angleDeg = liveAngle(eff),
+                    angleDeg = eff.angle,
+                    rotationDeg = eff.rotation,
                 )
                 applyAfterLoad(engine, nonPreset)
             }

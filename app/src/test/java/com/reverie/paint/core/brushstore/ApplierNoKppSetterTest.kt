@@ -23,18 +23,23 @@ class ApplierNoKppSetterTest {
         override fun setBrushOpacity(v: Double) { calls += "setBrushOpacity" }
         override fun setBrushFlow(v: Double) { calls += "setBrushFlow" }
         override fun setBrushAngle(deg: Double) { calls += "setBrushAngle" }
+        override fun setBrushRotation(deg: Double) { calls += "setBrushRotation" }
         override fun setToolMode(mode: Int) { calls += "setToolMode:$mode" }
         override fun beginPresetOverrideSnapshot(): Boolean { calls += "beginPresetOverrideSnapshot"; return true }
         override fun endPresetOverrideSnapshot(): Boolean { calls += "endPresetOverrideSnapshot"; return true }
     }
 
-    /** ReverieCoreBridge 中 kpp 语义（REBUILD 类）的 setter，applier 永远不应暴露/调用 */
+    /**
+     * ReverieCoreBridge 中 kpp 语义（REBUILD 类）的 setter，applier 永远不应暴露/调用。
+     * setBrushRotation 不在其列：它只按 (基础角度 + 附加偏角) 重算静态笔尖角度，不重建预设，
+     * 与 setBrushAngle 同属 LIVE（曾被误分类，导致「附加旋转偏角」用 setBrushAngle 下发时
+     * 把基础角度覆盖成偏角值）。
+     */
     private val rebuildSetters = setOf(
         "setBrushTexture", "setBrushOptionDynamics", "setBrushPressureDynamics", "setBrushJitter",
         "setBrushSmudgeRate", "setBrushSmudgeLength", "setBrushAirbrush", "setBrushMirror",
         "setBrushAntiAliasing", "setBrushFollowDirection", "setBrushTipAsset", "setBrushSpacing",
         "setBrushScatter", "setBrushFade", "setBrushSoftness", "setBrushRatio", "setBrushSharpness",
-        "setBrushRotation",
     )
 
     @Test
@@ -75,10 +80,24 @@ class ApplierNoKppSetterTest {
     }
 
     @Test
-    fun `附加旋转为 0 时不动 kpp 角度`() {
-        val p = com.reverie.paint.core.BrushParams(angle = 10.0, rotation = 0.0)
-        assertEquals(null, BrushApply.liveAngle(p))
-        assertEquals(350.0, BrushApply.liveAngle(p.copy(rotation = -20.0))!!, 1e-9)
+    fun `基础角度与附加旋转偏角分开下发 由引擎内部合成`() {
+        val r = Recorder()
+        BrushApply.applyAfterLoad(
+            r,
+            BrushApply.NonPresetState(
+                isEraser = false, color = "#000000", secondaryColor = "#ffffff",
+                angleDeg = 10.0, rotationDeg = -20.0,
+            ),
+        )
+        // 必须是两次独立 setter: 预先把 (基础角度+偏角) 合并后只调 setBrushAngle, 会让引擎的
+        // m_brushRotation 与 m_brushAngle 失去一致性 —— 之后拖动任一滑块角度都会跳错
+        assertEquals(
+            listOf(
+                "setPresetIsEraser", "setBrushColor", "setBrushSecondaryColor",
+                "setBrushAngle", "setBrushRotation",
+            ),
+            r.calls,
+        )
     }
 
     @Test

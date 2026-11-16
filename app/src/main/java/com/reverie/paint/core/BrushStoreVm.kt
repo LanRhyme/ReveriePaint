@@ -195,6 +195,10 @@ internal object BrushStoreVm {
                 synchronized(lock) {
                     mergeControl(e.id, controlId, v)
                 }
+                // 覆盖必须尽快落到有效 kpp: readback 只把 APP_ONLY 覆盖叠回基线 (PresetReadback
+                // .withAppControls), LIVE 覆盖若停在 overrides.json, 换笔再换回就会读回旧值
+                // (基础角度/附加旋转偏角此前就是这么丢的)。防抖 + 运笔期间延后, 与 REBUILD 同一条闸。
+                scheduleFlush(e.id, host)
                 host?.notifyBrushModified()
             }
             ControlClass.APP_ONLY -> {
