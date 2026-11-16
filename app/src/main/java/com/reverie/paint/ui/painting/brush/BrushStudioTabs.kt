@@ -716,15 +716,17 @@ internal fun TextureTabContent(
         }
 
         StudioGroupCard(stringResource(R.string.brush_studio_masking_mode)) {
+            // 只列 KisMaskingBrushCompositeOpFactory 支持的 id: screen/lighten/add 等会被引擎
+            // KIS_SAFE_ASSERT_RECOVER 静默回落到 multiply (选了没反应)
             val maskingModes = listOf(
                 "multiply" to R.string.brush_studio_blend_multiply,
-                "screen" to R.string.brush_studio_blend_screen,
-                "overlay" to R.string.brush_studio_blend_overlay,
                 "darken" to R.string.brush_studio_blend_darken,
-                "lighten" to R.string.brush_studio_blend_lighten,
+                "overlay" to R.string.brush_studio_blend_overlay,
                 "dodge" to R.string.brush_studio_blend_dodge,
                 "burn" to R.string.brush_studio_blend_burn,
-                "addition" to R.string.brush_studio_blend_hard_light,
+                "linear_dodge" to R.string.brush_studio_blend_linear_dodge,
+                "linear_burn" to R.string.brush_studio_blend_linear_burn,
+                "subtract" to R.string.brush_studio_blend_subtract,
             )
             maskingModes.chunked(4).forEach { row ->
                 Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
@@ -849,9 +851,9 @@ internal fun PresetTabContent(
         val engines = listOf(
             "paintbrush" to R.string.brush_studio_engine_pixel,
             "colorsmudge" to R.string.brush_studio_engine_smudge,
-            "spray" to R.string.brush_studio_engine_spray,
-            "sketch" to R.string.brush_studio_engine_sketch,
-            "hairy" to R.string.brush_studio_engine_hairy,
+            com.reverie.paint.core.brushstore.PaintOpIds.SPRAY to R.string.brush_studio_engine_spray,
+            com.reverie.paint.core.brushstore.PaintOpIds.SKETCH to R.string.brush_studio_engine_sketch,
+            com.reverie.paint.core.brushstore.PaintOpIds.HAIRY to R.string.brush_studio_engine_hairy,
             "roundmarker" to R.string.brush_studio_engine_marker,
         )
         engines.forEach { (id, nameRes) ->

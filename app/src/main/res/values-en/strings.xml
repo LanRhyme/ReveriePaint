@@ -1733,6 +1733,9 @@
     <string name="brush_studio_blend_lighten">Lighten</string>
     <string name="brush_studio_blend_dodge">Dodge</string>
     <string name="brush_studio_blend_burn">Burn</string>
+    <string name="brush_studio_blend_linear_dodge">Linear Dodge</string>
+    <string name="brush_studio_blend_linear_burn">Linear Burn</string>
+    <string name="brush_studio_blend_subtract">Subtract</string>
     <string name="brush_studio_blend_hard_light">Hard Light</string>
     <string name="brush_studio_blend_soft_light">Soft Light</string>
     <string name="brush_studio_blend_difference">Difference</string>

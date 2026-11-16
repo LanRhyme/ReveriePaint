@@ -1733,6 +1733,9 @@
     <string name="brush_studio_blend_lighten">变亮</string>
     <string name="brush_studio_blend_dodge">减淡</string>
     <string name="brush_studio_blend_burn">加深</string>
+    <string name="brush_studio_blend_linear_dodge">线性减淡</string>
+    <string name="brush_studio_blend_linear_burn">线性加深</string>
+    <string name="brush_studio_blend_subtract">减去</string>
     <string name="brush_studio_blend_hard_light">强光</string>
     <string name="brush_studio_blend_soft_light">柔光</string>
     <string name="brush_studio_blend_difference">差值</string>

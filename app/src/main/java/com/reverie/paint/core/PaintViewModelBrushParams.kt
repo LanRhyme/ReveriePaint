@@ -221,7 +221,8 @@ import kotlinx.coroutines.Job
     }
 
     internal fun PaintViewModel.updateBrushPaintOpId(id: String) {
-        val resolved = if (id == "defaultpaintop") "paintbrush" else id
+        // 必须归一到 Krita 真实注册 id: 未注册的 paintopid 会让 KisPaintOpPreset::load 直接 setValid(false)
+        val resolved = com.reverie.paint.core.brushstore.PaintOpIds.canonical(id)
         brushParams = brushParams.copy(paintOpId = resolved)
         BrushStoreVm.stage(this, ControlId.PAINTOP_ID, resolved)
     }

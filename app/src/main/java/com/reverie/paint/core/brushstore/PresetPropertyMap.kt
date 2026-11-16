@@ -566,6 +566,12 @@ object PresetPropertyMap {
 
     private fun maskDefAttr(xml: String, tag: String, attr: String): String? = maskDef(xml)?.let { KppXml.tagAttr(it, tag, attr) }
 
+    /**
+     * MaskGenerator 的矩形形状: Krita 两处写法不同 ——
+     * KisAutoBrushFactory::toXML 写 "rct"，KisMaskGenerator::toXML 写 "rect"，读侧一律按非 circle 即矩形。
+     */
+    private fun isRectShape(type: String): Boolean = type == "rect" || type == "rct"
+
     private fun isAutoBrush(xml: String): Boolean = KppXml.brushAttr(xml, "type") == "auto_brush"
 
     /** 副笔刷 brush_definition 是参数化（auto）笔尖时柔度即 MaskGenerator 的 hfade/vfade；否则走 Softness 选项键 */
@@ -647,9 +653,14 @@ object PresetPropertyMap {
         return dia * scale
     }
 
+    /**
+     * 笔尖文件 → brush_definition 的 type。Krita 只注册 auto/gbr/abr/png/svg/text 六种工厂
+     * (libs/brush/kis_brush_registry.cpp)，`.gih` 是 KisImagePipeBrush（继承 KisGbrBrush），
+     * 官方序列化同样写 "gbr_brush"（kis_predefined_brush_factory.cpp）；写成未注册的
+     * "image_pipe_brush" 会让 createBrush 失败并回退默认 1px 圆笔尖。
+     */
     private fun tipType(file: String): String = when (file.substringAfterLast('.').lowercase()) {
-        "gbr" -> "gbr_brush"
-        "gih" -> "image_pipe_brush"
+        "gbr", "gih" -> "gbr_brush"
         "svg" -> "svg_brush"
         else -> "png_brush"
     }
@@ -855,10 +866,11 @@ object PresetPropertyMap {
         // REBUILD
         add(
             ControlSpec(
-                ControlId.PAINTOP_ID, { it.paintOpId }, { p, v -> p.copy(paintOpId = s(v)) },
-                read = { KppXml.paintOpId(it) },
+                ControlId.PAINTOP_ID, { it.paintOpId }, { p, v -> p.copy(paintOpId = PaintOpIds.canonical(s(v))) },
+                // 读侧同样归一: 历史上被写坏成 "spray"/"sketch"/"hairy" 的预设要能显示成真实引擎并自愈
+                read = { KppXml.paintOpId(it)?.let { id -> PaintOpIds.canonical(id) } },
                 write = { x, v, _ ->
-                    val id = s(v).let { if (it.isBlank() || it == "defaultpaintop") "paintbrush" else it }
+                    val id = PaintOpIds.canonical(s(v))
                     KppXml.set(x.replace(Regex("""(<Preset\b[^>]*\bpaintopid=")[^"]*(")""")) { it.groupValues[1] + id + it.groupValues[2] }, "paintop", id)
                 },
             ),
@@ -961,7 +973,7 @@ object PresetPropertyMap {
         add(
             ControlSpec(
                 ControlId.TIP_SHAPE, { it.tipShape }, { p, v -> p.copy(tipShape = i(v)) },
-                read = { x -> KppXml.maskGenAttr(x, "type")?.let { if (it == "rect") 1 else 0 } },
+                read = { x -> KppXml.maskGenAttr(x, "type")?.let { if (isRectShape(it)) 1 else 0 } },
                 write = { x, v, _ -> KppXml.setMaskGenAttr(x, "type", if (i(v) == 1) "rect" else "circle") },
                 applicable = hasGen,
                 normalize = { v -> if (i(v) == 1) 1 else 0 },
@@ -1183,6 +1195,10 @@ object PresetPropertyMap {
         add(
             ControlSpec(
                 ControlId.MASKING_COMPOSITE_OP, { it.maskingCompositeOp }, { p, v -> p.copy(maskingCompositeOp = s(v)) },
+                // 蒙版引擎只支持 KisMaskingBrushCompositeOpFactory::createTypedOp 里的 10 个 id
+                // (multiply/darken/overlay/dodge/burn/linear_burn/linear_dodge/
+                //  hard_mix_photoshop/hard_mix_softer_photoshop/subtract), 其余会被
+                // KIS_SAFE_ASSERT_RECOVER 静默回落到 multiply
                 read = { KppXml.get(it, "MaskingBrush/MaskingCompositeOp")?.trim()?.ifBlank { null } },
             ),
         )
@@ -1214,7 +1230,7 @@ object PresetPropertyMap {
         add(
             ControlSpec(
                 ControlId.MASKING_TIP_SHAPE, { it.maskingTipShape }, { p, v -> p.copy(maskingTipShape = i(v)) },
-                read = { x -> maskDefAttr(x, "MaskGenerator", "type")?.let { if (it == "rect") 1 else 0 } },
+                read = { x -> maskDefAttr(x, "MaskGenerator", "type")?.let { if (isRectShape(it)) 1 else 0 } },
                 normalize = { v -> if (i(v) == 1) 1 else 0 },
             ),
         )
