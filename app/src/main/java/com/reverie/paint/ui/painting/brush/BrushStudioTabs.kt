@@ -70,9 +70,11 @@ internal fun TipTabContent(
 
     val rotationSensors = listOf(
         "drawingangle" to R.string.brush_studio_sensor_drawingangle,
+        "rotation" to R.string.brush_sensor_rotation,
         "fuzzy" to R.string.brush_studio_sensor_fuzzy,
         "pressure" to R.string.brush_studio_sensor_pressure,
         "speed" to R.string.brush_studio_sensor_speed,
+        "declination" to R.string.brush_sensor_tilt_elevation,
     )
 
     // 笔尖类型切换：生成式矢量笔尖 vs 素材贴图笔尖
@@ -277,8 +279,10 @@ internal fun DynamicsTabContent(
         "pressure" to R.string.brush_studio_sensor_pressure,
         "speed" to R.string.brush_studio_sensor_speed,
         "drawingangle" to R.string.brush_studio_sensor_drawingangle,
+        "rotation" to R.string.brush_sensor_rotation,
         "fuzzy" to R.string.brush_studio_sensor_fuzzy,
         "fade" to R.string.brush_studio_sensor_fade,
+        "declination" to R.string.brush_sensor_tilt_elevation,
     )
 
     val scatterSensors = listOf(

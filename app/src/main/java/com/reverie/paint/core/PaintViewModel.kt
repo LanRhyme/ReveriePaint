@@ -6699,7 +6699,10 @@ class PaintViewModel : ViewModel() {
         val safeP = if (p.isNaN() || p < 0.0) 1f else p.toFloat().coerceIn(0f, 1f)
         val safeTiltX = if (tiltX.isNaN()) 0f else tiltX.toFloat().coerceIn(-60f, 60f)
         val safeTiltY = if (tiltY.isNaN()) 0f else tiltY.toFloat().coerceIn(-60f, 60f)
-        val safeRotation = 0f
+        // 笔身旋转 (AXIS_RZ 换算结果) 必须原样进批: 这里曾硬编码 0f, 把上层已解析好的旋转值
+        // 整条链路吞掉, Krita 的 Rotation 传感器因此恒为 0
+        val safeRotation =
+            com.reverie.paint.model.BarrelRotationPolicy.strokeComponent(rotation).toFloat()
 
         pendingSampleX = x.toDouble()
         pendingSampleY = y.toDouble()

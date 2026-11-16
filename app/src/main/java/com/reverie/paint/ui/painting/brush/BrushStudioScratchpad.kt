@@ -39,6 +39,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.model.BarrelRotationPolicy
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.theme.Morandi
@@ -149,12 +150,17 @@ private class ScratchpadPointerState {
 
     var effTiltX: Float = 0f
     var effTiltY: Float = 0f
+    /** 笔身旋转 (度, (-180,180]); 设备不上报 AXIS_RZ 时恒 0 */
+    var effRotation: Float = 0f
+    /** AXIS_RZ 能力缓存: null = 本次起笔还没探测 */
+    var barrelRotationSupported: Boolean? = null
 
     fun reset() {
         pointerId = -1
         initPressure = 1f
         lastX = Float.NaN
         lastY = Float.NaN
+        barrelRotationSupported = null
     }
 }
 
@@ -166,17 +172,35 @@ private fun clampScratchpadTilt(v: Float): Float =
     if (v.isFinite()) v.coerceIn(-60f, 60f) else 0f
 
 /** 每个采样点的有效倾角 (度): 硬件倾角直通; 手指/零倾角笔为 0 (与 Krita 一致)。热路径零分配。 */
-@Suppress("UNUSED_PARAMETER")
 private fun resolveScratchpadTilt(
     state: ScratchpadPointerState,
-    x: Float,
-    y: Float,
     tiltRad: Float,
     orientationRad: Float,
 ) {
     val hw = scratchpadTilt(tiltRad, orientationRad)
     state.effTiltX = clampScratchpadTilt(hw.first)
     state.effTiltY = clampScratchpadTilt(hw.second)
+}
+
+/**
+ * 每个采样点的笔身旋转 (度): 取 AXIS_RZ 并按 Krita/Qt 口径换算 (见 [BarrelRotationPolicy])。
+ * 设备不上报该轴时保持 0 —— AXIS_RZ 的缺省读数 0 弧度换算后是 180°, 会误驱动 Rotation 动态。
+ */
+private fun resolveScratchpadRotation(
+    state: ScratchpadPointerState,
+    event: MotionEvent,
+    rzRad: Float,
+) {
+    val supported = state.barrelRotationSupported ?: run {
+        val v = try {
+            event.device?.getMotionRange(MotionEvent.AXIS_RZ) != null
+        } catch (_: Exception) {
+            false
+        }
+        state.barrelRotationSupported = v
+        v
+    }
+    state.effRotation = if (supported) BarrelRotationPolicy.fromRadians(rzRad).toFloat() else 0f
 }
 
 /** 压力取值：设备不报压力（<=0）时回退 fallback，口径与主画布一致 */
@@ -204,10 +228,11 @@ private fun scratchpadPoint(
     rawPressure: Float,
     tiltX: Float,
     tiltY: Float,
+    rotation: Float,
     timeMs: Long = 0L,
 ): ScratchPoint {
     val eff = vm.computeEffectivePressure(rawPressure.toDouble()).toFloat().coerceIn(0.01f, 1f)
-    return ScratchPoint(x, y, eff, tiltX, tiltY, 0f, timeMs)
+    return ScratchPoint(x, y, eff, tiltX, tiltY, rotation, timeMs)
 }
 
 /** 当前点: 先解析有效倾角 (硬件透传/合成) 再构造 */
@@ -220,12 +245,14 @@ private fun scratchpadPoint(
 ): ScratchPoint {
     resolveScratchpadTilt(
         state,
-        event.getX(idx),
-        event.getY(idx),
         event.getAxisValue(MotionEvent.AXIS_TILT, idx),
         event.getAxisValue(MotionEvent.AXIS_ORIENTATION, idx),
     )
-    return scratchpadPoint(vm, event.getX(idx), event.getY(idx), rawPressure, state.effTiltX, state.effTiltY, event.eventTime)
+    resolveScratchpadRotation(state, event, event.getAxisValue(MotionEvent.AXIS_RZ, idx))
+    return scratchpadPoint(
+        vm, event.getX(idx), event.getY(idx), rawPressure,
+        state.effTiltX, state.effTiltY, state.effRotation, event.eventTime,
+    )
 }
 
 /** 历史点: 用历史坐标/历史倾角轴解析后构造 */
@@ -241,12 +268,14 @@ private fun scratchpadHistoricalPoint(
     val hy = event.getHistoricalY(idx, h)
     resolveScratchpadTilt(
         state,
-        hx,
-        hy,
         event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, idx, h),
         event.getHistoricalAxisValue(MotionEvent.AXIS_ORIENTATION, idx, h),
     )
-    return scratchpadPoint(vm, hx, hy, rawPressure, state.effTiltX, state.effTiltY, event.getHistoricalEventTime(h))
+    resolveScratchpadRotation(state, event, event.getHistoricalAxisValue(MotionEvent.AXIS_RZ, idx, h))
+    return scratchpadPoint(
+        vm, hx, hy, rawPressure,
+        state.effTiltX, state.effTiltY, state.effRotation, event.getHistoricalEventTime(h),
+    )
 }
 
 /**

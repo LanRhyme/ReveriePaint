@@ -60,7 +60,8 @@ internal fun PaintViewModel.touchStart(
     val safePressure = if (pressure.isNaN() || pressure < 0.0) 1.0 else pressure.coerceIn(0.0, 1.0)
     val safeTiltX = if (tiltX.isNaN()) 0.0 else tiltX.coerceIn(-60.0, 60.0)
     val safeTiltY = if (tiltY.isNaN()) 0.0 else tiltY.coerceIn(-60.0, 60.0)
-    val safeRotation = 0.0
+    // 笔身旋转直通 (Android AXIS_RZ 换算结果, 见 BarrelRotationPolicy); 无自转硬件的设备恒 0
+    val safeRotation = com.reverie.paint.model.BarrelRotationPolicy.strokeComponent(rotation)
 
     // s12-F1: 每次落笔分配新笔画号, 并先把镜像门关成 OFF。落笔被下面的图层检查拒绝时
     // 镜像点不会入队 (CanvasTouchView 即使 strokeStarted=false 也会追加镜像点)。
@@ -277,7 +278,8 @@ internal fun PaintViewModel.touchMove(
     val safePressure = if (pressure.isNaN() || pressure < 0.0) 1.0 else pressure.coerceIn(0.0, 1.0)
     val safeTiltX = if (tiltX.isNaN()) 0.0 else tiltX.coerceIn(-60.0, 60.0)
     val safeTiltY = if (tiltY.isNaN()) 0.0 else tiltY.coerceIn(-60.0, 60.0)
-    val safeRotation = 0.0
+    // 笔身旋转直通 (Android AXIS_RZ 换算结果, 见 BarrelRotationPolicy); 无自转硬件的设备恒 0
+    val safeRotation = com.reverie.paint.model.BarrelRotationPolicy.strokeComponent(rotation)
 
     onPaintingActivity()
     val now = android.os.SystemClock.uptimeMillis()

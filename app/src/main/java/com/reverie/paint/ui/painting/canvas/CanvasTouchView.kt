@@ -687,6 +687,9 @@ class CanvasTouchView(context: Context) : View(context) {
     private var touchTiltX: Double = 0.0
     private var touchTiltY: Double = 0.0
     private var touchRotation: Double = 0.0
+    /** AXIS_RZ (笔身自转) 能力缓存: 设备 id + 是否上报; null = 未探测 */
+    private var barrelRotationSupported: Boolean? = null
+    private var barrelRotationDeviceId: Int = -1
 
     private fun updateStylusSensors(
         event: MotionEvent,
@@ -700,6 +703,9 @@ class CanvasTouchView(context: Context) : View(context) {
             touchRotation = 0.0
             return
         }
+        // 笔身旋转先于倾角解析: 它与倾角无关, 不能因为倾角缺失就一起清零 (见 resolveTouchRotation)
+        touchRotation = resolveTouchRotation(event, pointerIndex, historyPos)
+
         val tiltRad = if (historyPos >= 0) {
             event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, pointerIndex, historyPos)
         } else {
@@ -708,7 +714,6 @@ class CanvasTouchView(context: Context) : View(context) {
         if (!tiltRad.isFinite() || tiltRad < 0f) {
             touchTiltX = 0.0
             touchTiltY = 0.0
-            touchRotation = 0.0
             return
         }
         val orientationRad = if (historyPos >= 0) {
@@ -719,7 +724,6 @@ class CanvasTouchView(context: Context) : View(context) {
         if (orientationRad.isNaN()) {
             touchTiltX = 0.0
             touchTiltY = 0.0
-            touchRotation = 0.0
             return
         }
         val canvasRotRad = Math.toRadians(canvasRotation.toDouble())
@@ -727,10 +731,73 @@ class CanvasTouchView(context: Context) : View(context) {
         val tiltDeg = (tiltRad.toDouble() * (180.0 / Math.PI)).coerceIn(0.0, 60.0)
         touchTiltX = (Math.sin(docOrientationRad) * tiltDeg).coerceIn(-60.0, 60.0)
         touchTiltY = (-Math.cos(docOrientationRad) * tiltDeg).coerceIn(-60.0, 60.0)
-        // Android 手写笔（OnePlus Stylo、Apple Pencil、S-Pen 等）均无笔轴自转（Barrel Rotation）传感器；
-        // AXIS_ORIENTATION 代表的是笔身在屏幕上的方位角（指向方向），绝不能作为 Krita 笔轴自转注入，
-        // 否则将导致带自转或动态朝向计算的笔刷在画弧线、折线时 dab 剧烈扭曲撕裂。此处固定为 0.0。
-        touchRotation = 0.0
+    }
+
+    /**
+     * 笔身旋转 (Barrel Rotation) 解析 —— Krita 的 Rotation 传感器输入。
+     *
+     * 来源是通用旋转轴 AXIS_RZ(弧度), 与倾角方位角 AXIS_ORIENTATION 无关: 后者是笔尖指向的
+     * 方位角, 拿它当自转会让带朝向动态的笔刷在画弧线/折线时 dab 剧烈扭曲撕裂 (历史结论, 勿改回)。
+     * 换算口径与 Krita/Qt 官方修复一致, 见 [BarrelRotationPolicy]。
+     *
+     * 设备未上报 AXIS_RZ 时必须保持 0: 该轴缺省读数是 0 弧度, 换算后是 180°,
+     * 会把 Rotation 动态顶到曲线末端 —— 无自转硬件的用户会突然看到笔刷变形。
+     */
+    private fun resolveTouchRotation(event: MotionEvent, pointerIndex: Int, historyPos: Int): Double {
+        if (!deviceReportsBarrelRotation(event)) return 0.0
+        val rz = if (historyPos >= 0) {
+            event.getHistoricalAxisValue(MotionEvent.AXIS_RZ, pointerIndex, historyPos)
+        } else {
+            event.getAxisValue(MotionEvent.AXIS_RZ, pointerIndex)
+        }
+        return BarrelRotationPolicy.fromRadians(rz)
+    }
+
+    /** 已打印过能力清单的设备 id (每台设备一次, 避免热路径刷屏) */
+    private var loggedStylusDeviceId: Int = Int.MIN_VALUE
+
+    /**
+     * 手写笔输入能力清单 —— 每台设备只打一条, 进 logcat 后会被「全景系统运行诊断」抓取。
+     * 用来回答「为什么有些用户的倾斜/笔身旋转用不了」: 直接看该设备的 AXIS_TILT /
+     * AXIS_ORIENTATION / AXIS_RZ 有没有实际量程, 而不是靠猜笔的型号。
+     */
+    private fun logStylusAxesOnce(event: MotionEvent, pointerIndex: Int) {
+        if (loggedStylusDeviceId == event.deviceId) return
+        val device = event.device ?: return
+        loggedStylusDeviceId = event.deviceId
+        fun range(axis: Int): String = try {
+            val r = device.getMotionRange(axis)
+            if (r == null) "none" else "${r.min}..${r.max}"
+        } catch (_: Exception) {
+            "err"
+        }
+        val toolType = when (event.getToolType(pointerIndex)) {
+            MotionEvent.TOOL_TYPE_STYLUS -> "stylus"
+            MotionEvent.TOOL_TYPE_ERASER -> "eraser"
+            MotionEvent.TOOL_TYPE_MOUSE -> "mouse"
+            else -> "other(${event.getToolType(pointerIndex)})"
+        }
+        android.util.Log.i(
+            "ReverieStylus",
+            "stylus-axes device=${device.name} id=${event.deviceId} tool=$toolType " +
+                "tilt=${range(MotionEvent.AXIS_TILT)} orientation=${range(MotionEvent.AXIS_ORIENTATION)} " +
+                "rz=${range(MotionEvent.AXIS_RZ)} pressure=${range(MotionEvent.AXIS_PRESSURE)}",
+        )
+    }
+
+    /** AXIS_RZ 是否有实际量程 (按设备缓存一次; getDevice() 为空时按不支持处理) */
+    private fun deviceReportsBarrelRotation(event: MotionEvent): Boolean {
+        val deviceId = event.deviceId
+        val cached = barrelRotationSupported
+        if (cached != null && barrelRotationDeviceId == deviceId) return cached
+        val supported = try {
+            event.device?.getMotionRange(MotionEvent.AXIS_RZ) != null
+        } catch (_: Exception) {
+            false
+        }
+        barrelRotationSupported = supported
+        barrelRotationDeviceId = deviceId
+        return supported
     }
 
     // ---- 笔画有效倾角: 硬件倾角直通 (手指/零倾角笔为 0, 与 Krita 无倾角输入一致) ----
@@ -5340,6 +5407,7 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
 
                     // 笔尖接触瞬间立即启动绘图，彻底消除长按判定位移容差带来的起笔延迟
+                    logStylusAxesOnce(event, stylusPointerIndex)
                     updateStylusSensors(event, stylusPointerIndex, isStylus = true)
                     handleToolDown(screenPos, docPos, pressure, isStylus = true, touchTiltX, touchTiltY, touchRotation, eventTimeMs = event.eventTime)
                     // 真墨按住时这一笔由前缓冲呈现, 不再整屏失效主画布。
