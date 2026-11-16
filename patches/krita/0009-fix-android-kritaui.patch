@@ -1,7 +1,7 @@
-From 05a06f0ebf9485a574fe29ae662a2465c85507b2 Mon Sep 17 00:00:00 2001
+From 0f7fa47f4866200e0eb76a9b9768d8fe6271a560 Mon Sep 17 00:00:00 2001
 From: LanRhyme <xiao_ren233@foxmail.com>
 Date: Wed, 28 Oct 2026 01:11:41 +0800
-Subject: [PATCH 09/11] =?UTF-8?q?fix(android):=20=E8=A7=86=E9=A2=91?=
+Subject: [PATCH 09/17] =?UTF-8?q?fix(android):=20=E8=A7=86=E9=A2=91?=
  =?UTF-8?q?=E7=BC=96=E7=A0=81=E5=99=A8=E6=94=B9=E7=94=A8=E7=A9=BA=E5=AE=9E?=
  =?UTF-8?q?=E7=8E=B0=E6=A1=A9,=20=E4=BF=AE=E5=A4=8D=20kritaui=20=E9=93=BE?=
  =?UTF-8?q?=E6=8E=A5=E5=A4=B1=E8=B4=A5?=
@@ -28,10 +28,10 @@ libav 头库, Android 构建里没有这些依赖 (MP4 导出由应用侧 Kotlin
  create mode 100644 libs/ui/animation/KisMediaEncoderRunnables_stub.cpp
 
 diff --git a/libs/ui/CMakeLists.txt b/libs/ui/CMakeLists.txt
-index f9d332a0..fd97e3ef 100644
+index 2c62ce5a..db6dcd73 100644
 --- a/libs/ui/CMakeLists.txt
 +++ b/libs/ui/CMakeLists.txt
-@@ -578,6 +578,8 @@ if(ANDROID)
+@@ -581,6 +581,8 @@ if(ANDROID)
      list(APPEND kritaui_LIB_SRCS
          KisAndroidDonations.cpp
          animation/KisMediaEncoderFormatPreferencesDialog.cpp

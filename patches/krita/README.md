@@ -4,8 +4,8 @@
 
 - 仓库：<https://github.com/LanRhyme/krita>
 - 分支：`reverie-android`
-- 基线：KDE Krita `master` @ `72d3b1e3`（2026-10-27，6.1.0-prealpha）
-- 生成方式：`git format-patch 72d3b1e3..reverie-android`
+- 基线：KDE Krita `master` @ `876c4cc0`（2026-11-16，6.1.0-prealpha）
+- 生成方式：`git format-patch 876c4cc0..reverie-android`
 
 ## 补丁清单
 
@@ -34,7 +34,7 @@
 ```bash
 git clone https://invent.kde.org/graphics/krita.git
 cd krita
-git checkout 72d3b1e3          # 或直接用 fork 的 reverie-android 分支
+git checkout 876c4cc0          # 或直接用 fork 的 reverie-android 分支
 git am /path/to/ReveriePaint-native/patches/krita/*.patch
 ```
 

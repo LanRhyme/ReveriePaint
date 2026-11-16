@@ -1,7 +1,7 @@
-From 4d7dd9d386900de10d24a1f01167940385f38110 Mon Sep 17 00:00:00 2001
+From e4d38890dd9f340406da45c97e0b733facb382a6 Mon Sep 17 00:00:00 2001
 From: LanRhyme <xiao_ren233@foxmail.com>
 Date: Sat, 14 Nov 2026 23:40:19 +0800
-Subject: [PATCH] =?UTF-8?q?perf(experimentbrush,krita=5Futils):=20?=
+Subject: [PATCH 14/17] =?UTF-8?q?perf(experimentbrush,krita=5Futils):=20?=
  =?UTF-8?q?=E8=A7=A3=E9=99=A4=2025fps=20=E7=A1=AC=E8=8A=82=E6=B5=81?=
  =?UTF-8?q?=E5=B9=B6=E4=B8=BA=20splitTriangles=20=E5=BC=95=E5=85=A5=20AABB?=
  =?UTF-8?q?=20=E9=A2=84=E7=AD=9B=E9=80=89?=

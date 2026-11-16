@@ -1,7 +1,7 @@
-From e087afa02516b160976e263f90530039bd828ce5 Mon Sep 17 00:00:00 2001
+From e60f46e51d4376926f1d6c53c9c2faa9875ed66c Mon Sep 17 00:00:00 2001
 From: LanRhyme <xiao_ren233@foxmail.com>
 Date: Tue, 27 Oct 2026 23:59:51 +0800
-Subject: [PATCH 01/11] =?UTF-8?q?feat(android):=2014=20=E4=B8=AA=E7=AC=94?=
+Subject: [PATCH 01/17] =?UTF-8?q?feat(android):=2014=20=E4=B8=AA=E7=AC=94?=
  =?UTF-8?q?=E5=88=B7=E5=BC=95=E6=93=8E=E6=94=B9=E4=B8=BA=E9=9D=99=E6=80=81?=
  =?UTF-8?q?=E6=B3=A8=E5=86=8C,=20=E8=A1=A5=E9=BD=90=20Android=20=E6=9E=84?=
  =?UTF-8?q?=E5=BB=BA=E5=85=BC=E5=AE=B9?=
@@ -91,10 +91,10 @@ Content-Transfer-Encoding: 8bit
  create mode 100644 plugins/paintops/tangentnormal/register_static.cpp
 
 diff --git a/CMakeLists.txt b/CMakeLists.txt
-index 87013581..1d69d999 100644
+index f7f15f08..09e7ee20 100644
 --- a/CMakeLists.txt
 +++ b/CMakeLists.txt
-@@ -1530,16 +1530,8 @@ if(ANDROID)
+@@ -1542,16 +1542,8 @@ if(ANDROID)
          PURPOSE "Needed to find ffmpeg libraries on Android."
      )
  
@@ -113,7 +113,7 @@ index 87013581..1d69d999 100644
  
      # The PkgConfig and FeatureSummary modules don't play nice with each other
      # on their own, so this has to be set manually for the summary to show up.
-@@ -1552,7 +1544,7 @@ if(ANDROID)
+@@ -1564,7 +1556,7 @@ if(ANDROID)
      set_package_properties(LibAV PROPERTIES
          DESCRIPTION "FFmpeg libraries"
          URL "https://ffmpeg.org/"
@@ -525,10 +525,10 @@ index c69848ed..c7f0fd13 100644
          debug.nospace() << ", luminance: " << "<none>";
      }
 diff --git a/libs/ui/CMakeLists.txt b/libs/ui/CMakeLists.txt
-index 621c09f7..f9d332a0 100644
+index fc4419e6..2c62ce5a 100644
 --- a/libs/ui/CMakeLists.txt
 +++ b/libs/ui/CMakeLists.txt
-@@ -577,10 +577,7 @@ endif()
+@@ -580,10 +580,7 @@ endif()
  if(ANDROID)
      list(APPEND kritaui_LIB_SRCS
          KisAndroidDonations.cpp
@@ -539,7 +539,7 @@ index 621c09f7..f9d332a0 100644
      )
  endif()
  
-@@ -807,7 +804,7 @@ endif()
+@@ -810,7 +807,7 @@ endif()
  if (ANDROID)
      target_link_libraries(kritaui PRIVATE GLESv3)
      target_link_libraries(kritaui PUBLIC Qt${QT_MAJOR_VERSION}::Gui)
@@ -749,7 +749,7 @@ index 5e8d0fcd..19535af4 100644
  }
  
 diff --git a/libs/ui/KisMainWindow.cpp b/libs/ui/KisMainWindow.cpp
-index 37a2b2fa..6781db64 100644
+index e8beaf21..00a27ddc 100644
 --- a/libs/ui/KisMainWindow.cpp
 +++ b/libs/ui/KisMainWindow.cpp
 @@ -13,6 +13,9 @@
@@ -857,7 +857,7 @@ index 28aae9c0..84ac1213 100644
  
  #include <klocalizedstring.h>
 diff --git a/libs/ui/canvas/kis_display_color_converter.cpp b/libs/ui/canvas/kis_display_color_converter.cpp
-index bbcfabc6..c1f138d7 100644
+index 9c2046eb..33cb4044 100644
 --- a/libs/ui/canvas/kis_display_color_converter.cpp
 +++ b/libs/ui/canvas/kis_display_color_converter.cpp
 @@ -9,6 +9,7 @@
@@ -865,14 +865,14 @@ index bbcfabc6..c1f138d7 100644
  #include <QPointer>
  #include <QPalette>
 +#include <QApplication>
+ #include <QProgressDialog>
  
  #include <KoColor.h>
- #include <KoColorDisplayRendererInterface.h>
 diff --git a/libs/ui/kis_painting_assistant.cc b/libs/ui/kis_painting_assistant.cc
-index c5a63d13..c9b244f9 100644
+index 111837fc..a7f17b83 100644
 --- a/libs/ui/kis_painting_assistant.cc
 +++ b/libs/ui/kis_painting_assistant.cc
-@@ -641,10 +641,10 @@ void KisPaintingAssistant::loadXml(KoStore* store, QMap<int, KisPaintingAssistan
+@@ -655,10 +655,10 @@ void KisPaintingAssistant::loadXml(KoStore* store, QMap<int, KisPaintingAssistan
      while (!xml.atEnd()) {
          switch (xml.readNext()) {
          case QXmlStreamReader::StartElement:
@@ -883,9 +883,9 @@ index c5a63d13..c9b244f9 100644
 -                setSnappingActive( (active != "0")  );
 +                setSnappingActive( (active != QStringLiteral("0"))  );
  
-                 // load custom shared assistant properties
-                 if ( xml.attributes().hasAttribute("useCustomColor")) {
-@@ -671,14 +671,14 @@ void KisPaintingAssistant::loadXml(KoStore* store, QMap<int, KisPaintingAssistan
+                 if (xml.attributes().hasAttribute("brushPriority")) {
+                     setBrushPriority(xml.attributes().value("brushPriority").toInt());
+@@ -689,14 +689,14 @@ void KisPaintingAssistant::loadXml(KoStore* store, QMap<int, KisPaintingAssistan
  
                  if ( xml.attributes().hasAttribute("locked")) {
                      auto locked = xml.attributes().value("locked");
@@ -902,7 +902,7 @@ index c5a63d13..c9b244f9 100644
                  QString strId = xml.attributes().value("id").toString(),
                          strX = xml.attributes().value("x").toString(),
                          strY = xml.attributes().value("y").toString();
-@@ -691,7 +691,7 @@ void KisPaintingAssistant::loadXml(KoStore* store, QMap<int, KisPaintingAssistan
+@@ -709,7 +709,7 @@ void KisPaintingAssistant::loadXml(KoStore* store, QMap<int, KisPaintingAssistan
                      }
                  }
                  addHandle(handleMap.value(id), HandleType::NORMAL);

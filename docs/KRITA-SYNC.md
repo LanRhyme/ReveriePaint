@@ -11,10 +11,10 @@
 | 上游 | `origin` = <https://invent.kde.org/graphics/krita.git>（分支 `master`） |
 | fork | `github` = <https://github.com/LanRhyme/krita.git>（HEAD 指向 `reverie-android`） |
 | 长期分支 | **`reverie-android`**（唯一），历史上还有 `feat/clipping-mask`，2026-10-27 已统一并删除 |
-| 当前基线 | Krita `master` @ `72d3b1e3`（2026-10-27，6.1.0-prealpha） |
+| 当前基线 | Krita `master` @ `876c4cc0`（2026-11-16，6.1.0-prealpha） |
 | 安全锚点 | tag `pre-sync-20261027`（同步前状态）、fork 上的同名 tag |
 
-分支上是 **11 个线性提交**（不再保留 merge 提交），与 `patches/krita/0001-0011` 一一对应：
+分支上是 **17 个线性提交**（不再保留 merge 提交），与 `patches/krita/0001-0017` 一一对应：
 
 1. `feat(android)` 14 个笔刷引擎静态注册 + Android 构建兼容
 2. `fix(roundmarker)` KisMarkerPainter 改标准覆盖混合
@@ -218,6 +218,11 @@ Kotlin 侧 10-28 新增的 `nativeSnapshotMode` 在旧库里不存在，32 位�
 - 2026-07-26 之前：基线 `a4d196ef`（6.1.0-prealpha）
 - 2026-10-27：同步到 `72d3b1e3`（6.1.0-prealpha，+529 提交），合并 13 个双方都改过的文件、
   2 处手工解冲突，历史整理为线性提交并删除 `feat/clipping-mask`
+- 2026-11-16：同步到 `876c4cc0`（6.1.0-prealpha，+114 提交；上游这一轮主要是笔刷预览/时间线录制/
+  OCIO LUT 烘焙/选区移动 v2 与 3 点椭圆），17 个本地提交 rebase 到新基线，唯一冲突为
+  `libs/ui/canvas/kis_display_color_converter.cpp` 的 include 段：上游新加 `<QProgressDialog>`
+  （LUT 烘焙进度条），本地 0001 曾加 `<QApplication>`（`qApp->palette()`），两者都保留；
+  `check_krita_sync.sh` 的 30 项补丁契约全绿，双 ABI 重编 + 预编译闭包刷新后符号门禁全绿
 - 2026-11-02：新增第 10 个功能补丁 `fix(memento)`（撤销/重做历史错位加固），
   双 ABI 重编 `libkritaimage.so` 并刷新预编译闭包（导出符号与旧库完全一致，只 +1.8KB 代码）
 - 2026-10-27 晚：补丁层收敛 —— fork 内新增 `REVERIE-PATCHES.md`（10 个提交，含该文档本身），

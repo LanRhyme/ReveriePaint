@@ -1,9 +1,9 @@
-From 88b54ce5483ae888faf5c0cae044751276b96782 Mon Sep 17 00:00:00 2001
+From 637e094da015cc5b8cf3cd74d9e2f19adba7f94f Mon Sep 17 00:00:00 2001
 From: LanRhyme <xiao_ren233@foxmail.com>
 Date: Sun, 15 Nov 2026 01:24:40 +0800
-Subject: [PATCH] =?UTF-8?q?fix(gridbrush):=20=E4=BF=AE=E5=A4=8D=20HSV=20?=
- =?UTF-8?q?=E9=9A=8F=E6=9C=BA=E8=B0=83=E6=95=B4=E6=97=B6=E6=B3=84=E6=BC=8F?=
- =?UTF-8?q?=20KoColorTransformation=20=E7=9A=84=E9=97=AE=E9=A2=98?=
+Subject: [PATCH 17/17] =?UTF-8?q?fix(gridbrush):=20=E4=BF=AE=E5=A4=8D=20HS?=
+ =?UTF-8?q?V=20=E9=9A=8F=E6=9C=BA=E8=B0=83=E6=95=B4=E6=97=B6=E6=B3=84?=
+ =?UTF-8?q?=E6=BC=8F=20KoColorTransformation=20=E7=9A=84=E9=97=AE=E9=A2=98?=
 MIME-Version: 1.0
 Content-Type: text/plain; charset=UTF-8
 Content-Transfer-Encoding: 8bit
