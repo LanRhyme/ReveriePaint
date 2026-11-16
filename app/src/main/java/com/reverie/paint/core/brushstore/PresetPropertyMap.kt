@@ -526,7 +526,8 @@ object PresetPropertyMap {
     fun writeSpeedSize(xml: String, v: Double): String {
         val s0 = KppSensors.sensorXml(xml, "Size")
         if (v <= 0.001) {
-            // 只移除本控件写入的 speed 曲线（签名匹配，不看激活 gate）：原生 speed 动力学不认领也不破坏
+            // 只移除本控件写入的 speed 曲线（签名匹配）：原生 speed 动力学形状各异，恒等写
+            // （把回读到的 0 再写回去）不能破坏它们；用户要关掉原生曲线只能改用预设原值
             if (!ownsSpeedCurve(xml)) return xml
             // removeSensor 返回 null = speed 是唯一子传感器，整个 SizeSensor 一并移除
             val rest = KppSensors.removeSensor(s0!!, "speed") ?: return KppXml.remove(xml, "SizeSensor")
@@ -641,16 +642,22 @@ object PresetPropertyMap {
      * 参数化笔尖 MaskGenerator diameter×scale。
      */
     fun readSize(xml: String): Double? {
-        KppXml.get(xml, "paintopSize")?.toDoubleOrNull()?.let { return it }
+        // 笔尖自身尺寸优先: Krita 落盘时不写 paintopSize (804 个内置资产零命中), 真值是
+        // 文件笔尖 width×height×scale / auto 笔尖 MaskGenerator diameter×scale;
+        // paintopSize 仅作历史兼容的兜底 (引擎运行时属性, 旧文件可能残留)
         if (!isAutoBrush(xml)) {
             val w = KppXml.brushAttr(xml, "width")?.toDoubleOrNull()
             val h = KppXml.brushAttr(xml, "height")?.toDoubleOrNull()
             val scale = KppXml.brushAttr(xml, "scale")?.toDoubleOrNull()
-            return if (w != null && h != null && scale != null) maxOf(w, h) * scale else null
+            if (w != null && h != null && scale != null) return maxOf(w, h) * scale
+            return KppXml.get(xml, "paintopSize")?.toDoubleOrNull()
         }
-        val dia = KppXml.maskGenAttr(xml, "diameter")?.toDoubleOrNull() ?: return null
-        val scale = KppXml.brushAttr(xml, "scale")?.toDoubleOrNull() ?: 1.0
-        return dia * scale
+        val dia = KppXml.maskGenAttr(xml, "diameter")?.toDoubleOrNull()
+        if (dia != null) {
+            val scale = KppXml.brushAttr(xml, "scale")?.toDoubleOrNull() ?: 1.0
+            return dia * scale
+        }
+        return KppXml.get(xml, "paintopSize")?.toDoubleOrNull()
     }
 
     /**
@@ -730,8 +737,8 @@ object PresetPropertyMap {
         x = KppXml.set(x, "MaskingBrush/MaskingCompositeOp", p.maskingCompositeOp)
         x = KppXml.set(x, "MaskingBrush/UseMasterSize", "true")
         x = KppXml.set(x, "MaskingBrush/MasterSizeCoeff", f(p.maskingSizeRatio))
-        x = KppXml.set(x, "MaskingBrush/Preset/Spacing", f(p.maskingSpacing))
-        x = KppXml.set(x, "MaskingBrush/Preset/paintopSize", f(p.size * p.maskingSizeRatio))
+        // 副笔刷间距/尺寸只走 brush_definition@spacing 与 MaskingBrush/MasterSizeCoeff:
+        // Krita 侧 `MaskingBrush/Preset/Spacing` / `paintopSize` 零读者 (真键是 SpacingValue 与 master size 系数)
 
         // 仅在首次创建副笔刷（原 XML 无此项）时才写入默认 false，已有副笔刷时严禁抹杀既有 Opacity/Flow 动态曲线！
         if (!KppXml.has(x, "MaskingBrush/Preset/OpacityUseCurve")) {
@@ -1013,7 +1020,9 @@ object PresetPropertyMap {
                     KppSensors.isChecked(x, "Rotation") && KppSensors.useCurve(x, "Rotation") &&
                         "drawingangle" in KppSensors.sensorIds(KppSensors.sensorXml(x, "Rotation"))
                 },
-                write = { x, v, _ -> writeFollowDirection(x, b(v)) },
+                // 只读: 界面上的"自动旋转"开关走 CURVE_ROTATION (写 Rotation 传感器), 本控件没有 stage 入口。
+                // 保留 read 让旧预设能把开关状态回读正确, write 置空避免两条通道互相覆盖
+                write = null,
             ),
         )
         add(mergedJitterSpec(ControlId.JITTER_ANGLE, "Rotation", { it.jitterAngle }) { p, v -> p.copy(jitterAngle = v) })
@@ -1153,7 +1162,10 @@ object PresetPropertyMap {
             ),
         )
         add(strengthSpec(ControlId.COLOR_RATE, "ColorRate", 0.0, { it.colorRate }, { p, v -> p.copy(colorRate = v, smudgeRate = v) }, { it > TOL }, smudgeOnly))
-        add(strengthSpec(ControlId.SMUDGE_LENGTH, "SmudgeRate", 0.0, { it.smudgeLength }, { p, v -> p.copy(smudgeLength = v) }, { it > TOL }, smudgeOnly))
+        // 涂抹长度: 勾选语义与其它强度项相反 —— KisColorSmudgeOp::paintLine 里
+        // `smudgeRate = isChecked() ? computeSizeLikeValue(info) : 1.0`，未勾选等于满拖动。
+        // 因此恒保持勾选，0 才能表达"不涂抹"（UseCurve=false 时常量强度即生效值）
+        add(strengthSpec(ControlId.SMUDGE_LENGTH, "SmudgeRate", 0.0, { it.smudgeLength }, { p, v -> p.copy(smudgeLength = v) }, { true }, smudgeOnly))
         add(
             ControlSpec(
                 ControlId.SMUDGE_MODE, { it.smudgeMode }, { p, v -> p.copy(smudgeMode = i(v)) },
@@ -1172,11 +1184,9 @@ object PresetPropertyMap {
                         else -> KppXml.getBool(x, "AirbrushOption/isAirbrushing", false)
                     }
                 },
-                write = { x, v, _ ->
-                    val on = b(v)
-                    // KisPaintingModeOptionData：value==1 → BUILDUP（airbrush），否则 WASH
-                    KppXml.set(writeAirbrushKey(x, "isAirbrushing", on.toString()), "PaintOpAction", if (on) "1" else "2")
-                },
+                // 只写气笔自己的键: PaintOpAction 属于"笔内叠加模式"(KisPaintingModeOptionData 的 BUILDUP/WASH),
+                // 顺带写会把预设原有的 wash 语义改成 buildup, 与勾选气笔无关
+                write = { x, v, _ -> writeAirbrushKey(x, "isAirbrushing", b(v).toString()) },
             ),
         )
         add(
@@ -1211,7 +1221,7 @@ object PresetPropertyMap {
         add(
             ControlSpec(
                 ControlId.MASKING_SPACING, { it.maskingSpacing }, { p, v -> p.copy(maskingSpacing = d(v)) },
-                read = { x -> maskDefAttr(x, "Brush", "spacing")?.toDoubleOrNull() ?: KppXml.getDouble(x, "MaskingBrush/Preset/Spacing") },
+                read = { x -> maskDefAttr(x, "Brush", "spacing")?.toDoubleOrNull() },
             ),
         )
         add(

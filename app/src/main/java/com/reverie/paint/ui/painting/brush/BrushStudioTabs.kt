@@ -157,7 +157,7 @@ internal fun TipTabContent(
             }
 
             StudioSliderItem(stringResource(R.string.brush_studio_tip_spikes), vm.brushSpikes.toDouble(), 2.0, 16.0, textMain = textMain, textSub = textSub) { vm.updateBrushSpikes(it.toInt()) }
-            StudioSliderItem(stringResource(R.string.brush_studio_masking_softness), vm.brushSoftness, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSoftness(it) }
+            StudioSliderItem(stringResource(R.string.brush_studio_masking_softness), vm.brushSoftness, 0.1, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSoftness(it) }
             StudioSliderItem(stringResource(R.string.brush_studio_dynamics_fade), vm.brushFade, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushFade(it) }
 
             StudioInnerDivider()
@@ -310,6 +310,8 @@ internal fun DynamicsTabContent(
         StudioInnerDivider()
         StudioSliderItem(stringResource(R.string.brush_studio_dynamics_scatter), vm.brushScatter, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushScatter(it) }
         StudioSensorChips(stringResource(R.string.brush_studio_scatter_sensor), vm.brushScatterSensor, scatterSensors, { vm.updateBrushScatterSensor(it) }, cardBg, textMain, textSub)
+        // 速度压低尺寸: 与压力无关, 归在"间距/散布"这一组 (原先放在压感动态里容易误读)
+        StudioSliderItem(stringResource(R.string.brush_studio_press_speed), vm.brushSpeedSize, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSpeedSize(it) }
         BrushDynamicCurveEditor(
             config = vm.getBrushDynamicOption("Scatter"),
             onConfigChange = { vm.updateBrushDynamicOption(it) },
@@ -382,7 +384,6 @@ internal fun DynamicsTabContent(
             StudioInnerDivider()
 
             // 速度驱动
-            StudioSliderItem(stringResource(R.string.brush_studio_press_speed), vm.brushSpeedSize, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSpeedSize(it) }
         }
 
         // 快捷压感曲线预设 (采用扁平胶囊预设选择，消除冗余大边框)
@@ -865,7 +866,20 @@ internal fun PresetTabContent(
     // 尺寸极限与锐度
     StudioGroupCard(stringResource(R.string.brush_studio_engine_limits)) {
         StudioSliderItem(stringResource(R.string.brush_studio_engine_min_size), vm.brushMinSizeLimit, 1.0, 50.0, unit = "px", textMain = textMain, textSub = textSub) { vm.updateBrushMinSizeLimit(it) }
-        StudioSliderItem(stringResource(R.string.brush_studio_engine_max_size), vm.brushMaxSizeLimit, 50.0, 1000.0, unit = "px", textMain = textMain, textSub = textSub) { vm.updateBrushMaxSizeLimit(it) }
+        // 尺寸上限默认由画布尺寸决定 (brushSizeScalesWithCanvas), 此时本滑条不参与 clamp, 直接置灰免得误调
+        StudioSliderItem(
+            stringResource(R.string.brush_studio_engine_max_size),
+            vm.brushMaxSizeLimit, 50.0, 1000.0, unit = "px",
+            textMain = textMain, textSub = textSub,
+            enabled = !vm.brushSizeScalesWithCanvas,
+        ) { vm.updateBrushMaxSizeLimit(it) }
+        if (vm.brushSizeScalesWithCanvas) {
+            Text(
+                stringResource(R.string.brush_studio_engine_max_size_by_canvas),
+                color = textSub.copy(alpha = 0.7f),
+                fontSize = 10.sp,
+            )
+        }
         StudioInnerDivider()
         StudioSliderItem(stringResource(R.string.brush_studio_engine_sharpness), vm.brushSharpness, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSharpness(it) }
     }

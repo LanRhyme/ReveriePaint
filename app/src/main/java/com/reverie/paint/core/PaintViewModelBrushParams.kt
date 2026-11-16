@@ -53,8 +53,10 @@ import kotlinx.coroutines.Job
     }
 
     internal fun PaintViewModel.updateBrushRatio(v: Double) {
-        brushParams = brushParams.copy(ratio = v)
-        BrushStoreVm.stage(this, ControlId.RATIO, v)
+        // 0 圆度会让 MaskGenerator::effectiveSrcHeight 归零 (Krita fromXML 不夹取), UI 下限 0.05
+        val ratio = if (v.isFinite()) v.coerceIn(0.05, 1.0) else 1.0
+        brushParams = brushParams.copy(ratio = ratio)
+        BrushStoreVm.stage(this, ControlId.RATIO, ratio)
     }
 
     internal fun PaintViewModel.updateBrushSharpness(v: Double) {

@@ -1721,6 +1721,7 @@
     <string name="brush_studio_engine_limits">Size Limits</string>
     <string name="brush_studio_engine_min_size">Min Size Limit</string>
     <string name="brush_studio_engine_max_size">Max Size Limit</string>
+    <string name="brush_studio_engine_max_size_by_canvas">Limit follows the canvas size; turn off "Scale with canvas" to set it manually</string>
     <string name="brush_studio_engine_blend_modes">Composite Mode</string>
     <string name="brush_studio_engine_opacity">Opacity</string>
     <string name="brush_studio_engine_flow">Flow</string>

@@ -343,18 +343,20 @@ fun BrushPropertyPage(
 
             // Card 2: 笔尖几何
             BrushSectionCard(title = stringResource(R.string.brush_group_geometry)) {
+                // 量程与引擎/Krita 对齐: 间距有 2% 下限且可 >100% (Krita setSpacing/autoSpacingCoeff),
+                // 圆度 0 会让 MaskGenerator 的 effectiveSrcHeight 归零, 柔和度有效区间是 0.1..1.0
                 ModernParamSlider(
                     label = stringResource(R.string.brush_param_spacing),
                     value = vm.brushSpacing,
-                    min = 0.0,
-                    max = 1.0,
+                    min = 0.02,
+                    max = 2.5,
                     unit = ParamUnit.PERCENT,
                 ) { vm.updateBrushSpacing(it) }
 
                 ModernParamSlider(
                     label = stringResource(R.string.brush_param_ratio),
                     value = vm.brushRatio,
-                    min = 0.0,
+                    min = 0.05,
                     max = 1.0,
                     unit = ParamUnit.PERCENT,
                 ) { vm.updateBrushRatio(it) }
@@ -362,7 +364,7 @@ fun BrushPropertyPage(
                 ModernParamSlider(
                     label = stringResource(R.string.brush_param_softness),
                     value = vm.brushSoftness,
-                    min = 0.0,
+                    min = 0.1,
                     max = 1.0,
                     unit = ParamUnit.PERCENT,
                 ) { vm.updateBrushSoftness(it) }

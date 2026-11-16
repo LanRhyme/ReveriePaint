@@ -244,6 +244,7 @@ internal fun StudioSliderItem(
     unit: String = "",
     textMain: Color,
     textSub: Color,
+    enabled: Boolean = true,
     onChange: (Double) -> Unit,
 ) {
     val paramUnit = when {
@@ -258,6 +259,7 @@ internal fun StudioSliderItem(
         min = min,
         max = max,
         unit = paramUnit,
+        enabled = enabled,
         onChange = onChange,
     )
 }

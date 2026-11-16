@@ -1721,6 +1721,7 @@
     <string name="brush_studio_engine_limits">尺寸上下限限制</string>
     <string name="brush_studio_engine_min_size">最小尺寸限制</string>
     <string name="brush_studio_engine_max_size">最大尺寸限制</string>
+    <string name="brush_studio_engine_max_size_by_canvas">尺寸上限由画布尺寸决定, 关闭"跟随画布缩放"后可手动设置</string>
     <string name="brush_studio_engine_blend_modes">混合模式 (Composite Mode)</string>
     <string name="brush_studio_engine_opacity">不透明度 (Opacity)</string>
     <string name="brush_studio_engine_flow">流量 (Flow)</string>

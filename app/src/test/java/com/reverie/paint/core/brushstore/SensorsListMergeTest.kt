@@ -37,10 +37,10 @@ class SensorsListMergeTest {
         // 资产里 drawingangle 在列表中的 Rotation 选项都未勾选：先验证未生效时写 false 是空操作，再勾选后验证合并
         val raw = KppFixtures.all.filter { (_, x) -> ids(x, "Rotation").size >= 2 && "drawingangle" in ids(x, "Rotation") }
         assertTrue(raw.isNotEmpty())
-        val followSpec = PresetPropertyMap.spec(ControlId.FOLLOW_DIRECTION)
+        // FOLLOW_DIRECTION 是只读控件 (界面上的"自动旋转"走 CURVE_ROTATION), 合并语义由 helper 保证, 这里直接测 helper
         for ((name, x) in raw) {
             if (!(KppSensors.isChecked(x, "Rotation") && KppSensors.useCurve(x, "Rotation"))) {
-                assertEquals(name, x, followSpec.write!!(x, false, BrushParams()))
+                assertEquals(name, x, PresetPropertyMap.writeFollowDirection(x, false))
             }
         }
         val withList = raw.map { (n, x) -> n to KppXml.set(KppXml.set(x, "PressureRotation", "true"), "RotationUseCurve", "true") }
@@ -52,12 +52,12 @@ class SensorsListMergeTest {
             assertTrue(name, ids(j, "Rotation").containsAll(before + "fuzzy"))
             assertEquals(name, 0.3, jitter.read!!(j) as Double, 1e-9)
 
-            val off = follow.write!!(xml, false, BrushParams())
+            val off = PresetPropertyMap.writeFollowDirection(xml, false)
             assertEquals(name, before - "drawingangle", ids(off, "Rotation"))
             assertFalse(name, follow.read!!(off) as Boolean)
             assertTrue(name, KppSensors.isChecked(off, "Rotation"))
 
-            val on = follow.write!!(off, true, BrushParams())
+            val on = PresetPropertyMap.writeFollowDirection(off, true)
             assertTrue(name, ids(on, "Rotation").containsAll(before))
             assertTrue(name, follow.read!!(on) as Boolean)
         }

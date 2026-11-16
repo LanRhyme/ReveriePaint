@@ -314,6 +314,8 @@ fun ModernParamSlider(
     max: Double,
     unit: ParamUnit = ParamUnit.PERCENT,
     modifier: Modifier = Modifier,
+    /** false = 置灰并禁用交互 (参数当前不参与生效, 例如尺寸随画布缩放时的上限) */
+    enabled: Boolean = true,
     onChange: (Double) -> Unit,
 ) {
     var showDialog by remember { mutableStateOf(false) }
@@ -342,7 +344,7 @@ fun ModernParamSlider(
         ) {
             Text(
                 text = label,
-                color = Morandi.text,
+                color = if (enabled) Morandi.text else Morandi.text.copy(alpha = 0.45f),
                 fontSize = 12.sp,
                 fontWeight = FontWeight.Normal,
             )
@@ -352,14 +354,14 @@ fun ModernParamSlider(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
                     .background(Morandi.panel)
-                    .noRippleClickable { showDialog = true }
+                    .then(if (enabled) Modifier.noRippleClickable { showDialog = true } else Modifier)
                     .padding(horizontal = 8.dp, vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
             ) {
                 Text(
                     text = formattedValue,
-                    color = Morandi.accent,
+                    color = if (enabled) Morandi.accent else Morandi.accent.copy(alpha = 0.45f),
                     fontSize = 11.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -369,15 +371,18 @@ fun ModernParamSlider(
         ReSlider(
             value = fraction,
             onValue = { f ->
-                val next = f.toDouble() * (max - min) + min
-                onChange(next)
+                if (enabled) {
+                    val next = f.toDouble() * (max - min) + min
+                    onChange(next)
+                }
             },
+            enabled = enabled,
             height = 14,
             modifier = Modifier.fillMaxWidth(),
         )
     }
 
-    if (showDialog) {
+    if (showDialog && enabled) {
         BrushParamInputDialog(
             title = label,
             currentValue = value,
