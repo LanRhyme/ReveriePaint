@@ -3516,10 +3516,15 @@
     <string name="gesture_action_fit_canvas_desc">Center and scale canvas view to fit screen</string>
     <string name="gesture_action_clear_layer">Clear Layer</string>
     <string name="gesture_action_clear_layer_desc">Quickly clear current layer content</string>
+    <string name="gesture_action_select_layer_at_point">Select Layer at Point</string>
+    <string name="gesture_action_select_layer_at_point_desc">Double-tap to find and switch between layers with content at that point</string>
     <string name="gesture_action_none">Disabled</string>
 
     <string name="gesture_trigger_single_finger_touch_slide">Touch &amp; Slide</string>
     <string name="gesture_trigger_single_finger_touch_slide_desc">Touch to summon menu, slide in direction to trigger instantly; tap stays open (disables single-finger canvas pan)</string>
+    <string name="gesture_trigger_single_finger_double_tap">Single-Finger Double Tap</string>
+    <string name="canvas_toast_no_layer_content">No layer content detected</string>
+    <string name="layer_select_popup_title">Layers at Point</string>
     <string name="gesture_trigger_two_finger_tap">Two-Finger Tap</string>
     <string name="gesture_trigger_two_finger_double_tap">Two-Finger Double Tap</string>
     <string name="gesture_trigger_two_finger_long_press">Two-Finger Long Press</string>

@@ -622,6 +622,15 @@ internal fun SettingsTabPage(
 
                         SettingsInnerDivider()
 
+                        // 点选触点图层
+                        GestureActionRow(
+                            action = GestureAction.SELECT_LAYER_AT_POINT,
+                            trigger = vm.gestureConfig.getTrigger(GestureAction.SELECT_LAYER_AT_POINT),
+                            onClick = { selectingActionForTrigger = GestureAction.SELECT_LAYER_AT_POINT },
+                        )
+
+                        SettingsInnerDivider()
+
                         Row(
                             modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
                             horizontalArrangement = Arrangement.Center,

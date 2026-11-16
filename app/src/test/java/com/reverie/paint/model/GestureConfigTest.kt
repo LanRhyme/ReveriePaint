@@ -17,6 +17,7 @@ class GestureConfigTest {
         assertEquals(GestureTrigger.SINGLE_FINGER_LONG_PRESS, config.getTrigger(GestureAction.EYEDROPPER))
         assertEquals(GestureTrigger.QUICK_PINCH, config.getTrigger(GestureAction.FIT_CANVAS))
         assertEquals(GestureTrigger.NONE, config.getTrigger(GestureAction.CLEAR_LAYER))
+        assertEquals(GestureTrigger.SINGLE_FINGER_DOUBLE_TAP, config.getTrigger(GestureAction.SELECT_LAYER_AT_POINT))
     }
 
     @Test
@@ -130,4 +131,39 @@ class GestureConfigTest {
         assertFalse(shouldTriggerContinuousUndo(false, 2, false, false, true, false))
         assertFalse(shouldTriggerContinuousRedo(false, 3, false, true, false))
     }
+
+    @Test
+    fun `select layer at point supported triggers and remapping work as expected`() {
+        val config = GestureConfig()
+        // Supported triggers match verified touch capabilities
+        val supported = GestureConfig.SUPPORTED_TRIGGERS[GestureAction.SELECT_LAYER_AT_POINT]
+        assertNotNull(supported)
+        assertEquals(
+            listOf(
+                GestureTrigger.SINGLE_FINGER_DOUBLE_TAP,
+                GestureTrigger.TWO_FINGER_DOUBLE_TAP,
+                GestureTrigger.THREE_FINGER_DOUBLE_TAP,
+                GestureTrigger.NONE,
+            ),
+            supported,
+        )
+
+        // Disable select layer at point
+        val (disabledConfig, conflict1) = config.withMapping(GestureAction.SELECT_LAYER_AT_POINT, GestureTrigger.NONE)
+        assertNull(conflict1)
+        assertEquals(GestureTrigger.NONE, disabledConfig.getTrigger(GestureAction.SELECT_LAYER_AT_POINT))
+        assertNull(disabledConfig.getActionForTrigger(GestureTrigger.SINGLE_FINGER_DOUBLE_TAP))
+
+        // Reassign SINGLE_FINGER_DOUBLE_TAP to FIT_CANVAS
+        val (reassignedConfig, conflict2) = config.withMapping(GestureAction.FIT_CANVAS, GestureTrigger.SINGLE_FINGER_DOUBLE_TAP)
+        assertEquals(GestureAction.SELECT_LAYER_AT_POINT, conflict2)
+        assertEquals(GestureTrigger.SINGLE_FINGER_DOUBLE_TAP, reassignedConfig.getTrigger(GestureAction.FIT_CANVAS))
+        assertEquals(GestureTrigger.NONE, reassignedConfig.getTrigger(GestureAction.SELECT_LAYER_AT_POINT))
+
+        // Serialize and deserialize roundtrip with custom mapping
+        val serialized = disabledConfig.serialize()
+        val deserialized = GestureConfig.deserialize(serialized)
+        assertEquals(GestureTrigger.NONE, deserialized.getTrigger(GestureAction.SELECT_LAYER_AT_POINT))
+    }
 }
+

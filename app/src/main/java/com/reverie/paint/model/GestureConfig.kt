@@ -15,6 +15,7 @@ enum class GestureAction(val id: String) {
     EYEDROPPER("eyedropper"),
     FIT_CANVAS("fit_canvas"),
     CLEAR_LAYER("clear_layer"),
+    SELECT_LAYER_AT_POINT("select_layer_at_point"),
     NONE("none");
 
     companion object {
@@ -27,6 +28,7 @@ enum class GestureAction(val id: String) {
  */
 enum class GestureTrigger(val id: String) {
     SINGLE_FINGER_TOUCH_SLIDE("single_finger_touch_slide"),
+    SINGLE_FINGER_DOUBLE_TAP("single_finger_double_tap"),
     TWO_FINGER_TAP("two_finger_tap"),
     TWO_FINGER_DOUBLE_TAP("two_finger_double_tap"),
     TWO_FINGER_LONG_PRESS("two_finger_long_press"),
@@ -93,6 +95,7 @@ data class GestureConfig(
             GestureAction.EYEDROPPER to GestureTrigger.SINGLE_FINGER_LONG_PRESS,
             GestureAction.FIT_CANVAS to GestureTrigger.QUICK_PINCH,
             GestureAction.CLEAR_LAYER to GestureTrigger.NONE,
+            GestureAction.SELECT_LAYER_AT_POINT to GestureTrigger.SINGLE_FINGER_DOUBLE_TAP,
         )
 
         /**
@@ -137,12 +140,19 @@ data class GestureConfig(
                 GestureTrigger.QUICK_PINCH,
                 GestureTrigger.TWO_FINGER_DOUBLE_TAP,
                 GestureTrigger.FOUR_FINGER_TAP,
+                GestureTrigger.SINGLE_FINGER_DOUBLE_TAP,
                 GestureTrigger.NONE,
             ),
             GestureAction.CLEAR_LAYER to listOf(
                 GestureTrigger.THREE_FINGER_SWIPE_LEFT,
                 GestureTrigger.THREE_FINGER_SWIPE_RIGHT,
                 GestureTrigger.THREE_FINGER_LONG_PRESS,
+                GestureTrigger.NONE,
+            ),
+            GestureAction.SELECT_LAYER_AT_POINT to listOf(
+                GestureTrigger.SINGLE_FINGER_DOUBLE_TAP,
+                GestureTrigger.TWO_FINGER_DOUBLE_TAP,
+                GestureTrigger.THREE_FINGER_DOUBLE_TAP,
                 GestureTrigger.NONE,
             ),
         )
@@ -173,6 +183,7 @@ fun GestureAction.labelRes(): Int = when (this) {
     GestureAction.EYEDROPPER -> com.reverie.paint.R.string.gesture_action_eyedropper
     GestureAction.FIT_CANVAS -> com.reverie.paint.R.string.gesture_action_fit_canvas
     GestureAction.CLEAR_LAYER -> com.reverie.paint.R.string.gesture_action_clear_layer
+    GestureAction.SELECT_LAYER_AT_POINT -> com.reverie.paint.R.string.gesture_action_select_layer_at_point
     GestureAction.NONE -> com.reverie.paint.R.string.gesture_action_none
 }
 
@@ -184,11 +195,13 @@ fun GestureAction.descRes(): Int = when (this) {
     GestureAction.EYEDROPPER -> com.reverie.paint.R.string.gesture_action_eyedropper_desc
     GestureAction.FIT_CANVAS -> com.reverie.paint.R.string.gesture_action_fit_canvas_desc
     GestureAction.CLEAR_LAYER -> com.reverie.paint.R.string.gesture_action_clear_layer_desc
+    GestureAction.SELECT_LAYER_AT_POINT -> com.reverie.paint.R.string.gesture_action_select_layer_at_point_desc
     GestureAction.NONE -> com.reverie.paint.R.string.gesture_action_none
 }
 
 fun GestureTrigger.labelRes(): Int = when (this) {
     GestureTrigger.SINGLE_FINGER_TOUCH_SLIDE -> com.reverie.paint.R.string.gesture_trigger_single_finger_touch_slide
+    GestureTrigger.SINGLE_FINGER_DOUBLE_TAP -> com.reverie.paint.R.string.gesture_trigger_single_finger_double_tap
     GestureTrigger.TWO_FINGER_TAP -> com.reverie.paint.R.string.gesture_trigger_two_finger_tap
     GestureTrigger.TWO_FINGER_DOUBLE_TAP -> com.reverie.paint.R.string.gesture_trigger_two_finger_double_tap
     GestureTrigger.TWO_FINGER_LONG_PRESS -> com.reverie.paint.R.string.gesture_trigger_two_finger_long_press

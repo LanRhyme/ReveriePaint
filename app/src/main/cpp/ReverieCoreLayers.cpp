@@ -1335,3 +1335,81 @@ bool ReverieCore::rasterizeLayerStroke(int index)
     markDirty();
     return true;
 }
+
+QVector<int> ReverieCore::findLayersAtPoint(int x, int y, int radius)
+{
+    QVector<int> result;
+    KisImageSP image = m_document;
+    if (!image) return result;
+
+    const QRect docRect(0, 0, image->width(), image->height());
+    const int r = qMax(0, radius);
+    const QRect sampleRect = QRect(x - r, y - r, 2 * r + 1, 2 * r + 1).intersected(docRect);
+    if (sampleRect.isEmpty()) return result;
+
+    std::lock_guard<std::mutex> mirrorLock(m_layerMirrorMutex);
+    // 自顶向下遍历图层 (m_layers 从底到顶排列，故逆序遍历)
+    for (int i = m_layers.size() - 1; i >= 0; --i) {
+        const LayerEntry &e = m_layers[i];
+        if (!e.node) continue;
+        // 过滤背景层
+        if (e.background) continue;
+        // 过滤组图层与各类蒙版 (仅命中实际图层)
+        if (e.isGroup || e.nodeType == NodeTypeGroup || e.nodeType >= NodeTypeTransparencyMask) continue;
+        // 过滤不可见与完全透明图层
+        if (!e.visible || e.node->opacity() == 0) continue;
+
+        // 若祖先组不可见，该图层在画布上实际不参与显示，跳过
+        bool ancestorVisible = true;
+        KisNode *parent = e.node->parent().data();
+        while (parent && parent != image->rootLayer().data()) {
+            if (!parent->visible()) {
+                ancestorVisible = false;
+                break;
+            }
+            parent = parent->parent().data();
+        }
+        if (!ancestorVisible) continue;
+
+        KisPaintDeviceSP dev = layerPaintDeviceFor(e);
+        if (!dev) continue;
+
+        const QRect exact = dev->exactBounds();
+        KisPaintDeviceSP targetDev = dev;
+        if (exact.isEmpty() || !sampleRect.intersects(exact)) {
+            // 考虑运笔临时目标
+            KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(e.node);
+            if (pl && pl->hasTemporaryTarget() && pl->temporaryTarget()) {
+                const QRect tempExact = pl->temporaryTarget()->exactBounds();
+                if (tempExact.isEmpty() || !sampleRect.intersects(tempExact)) {
+                    continue;
+                }
+                targetDev = pl->temporaryTarget();
+            } else {
+                continue;
+            }
+        }
+
+        const QRect checkRect = sampleRect.intersected(targetDev->exactBounds());
+        if (checkRect.isEmpty()) continue;
+
+        const int w = checkRect.width();
+        const int h = checkRect.height();
+        QByteArray buf(w * h * 4, 0);
+        targetDev->readBytes(reinterpret_cast<quint8 *>(buf.data()), checkRect.x(), checkRect.y(), w, h);
+        const quint8 *ptr = reinterpret_cast<const quint8 *>(buf.constData());
+        const int totalPixels = w * h;
+        bool hasAlpha = false;
+        for (int p = 0; p < totalPixels; ++p) {
+            if (ptr[p * 4 + 3] > 0) { // Alpha > 0
+                hasAlpha = true;
+                break;
+            }
+        }
+        if (hasAlpha) {
+            result.append(i);
+        }
+    }
+    return result;
+}
+

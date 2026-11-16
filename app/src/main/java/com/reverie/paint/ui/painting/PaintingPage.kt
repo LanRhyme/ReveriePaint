@@ -2100,6 +2100,19 @@ fun PaintingPage(
             CanvasEditMenuCustomizeDialog(vm, onDismiss = { canvasEditMenuCustomizeOpen = false })
         }
 
+        if (vm.layerSelectPopupVisible && vm.layerSelectHitIndices.isNotEmpty()) {
+            com.reverie.paint.ui.painting.layers.LayerHitPopup(
+                vm = vm,
+                hitIndices = vm.layerSelectHitIndices,
+                anchor = vm.layerSelectAnchor,
+                onDismiss = { vm.layerSelectPopupVisible = false },
+                onSelectLayer = { index ->
+                    vm.selectLayer(index)
+                    vm.layerSelectPopupVisible = false
+                },
+            )
+        }
+
         // ---- Floating selection panel (Krita tool-options style) ----
         // Context-sensitive: shown while a selection tool is active, sliding
         // in from the canvas edge; draggable so it never blocks the work

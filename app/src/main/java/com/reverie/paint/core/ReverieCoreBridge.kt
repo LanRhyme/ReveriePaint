@@ -120,6 +120,8 @@ object ReverieCoreBridge {
 
     external fun layerCount(): Int
 
+    external fun findLayersAtPoint(x: Int, y: Int, radius: Int = 4): IntArray
+
     // ---- 图层只读快照 (P0, 见 docs/plans/CORE-SPLIT.md) ----
 
     /** 快照字节数 (header + n*152), 失败返回 -1 */

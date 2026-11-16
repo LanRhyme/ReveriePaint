@@ -3516,10 +3516,15 @@
     <string name="gesture_action_fit_canvas_desc">将画布视图居中并缩放至适合屏幕</string>
     <string name="gesture_action_clear_layer">清除当前图层</string>
     <string name="gesture_action_clear_layer_desc">快速清空当前选中图层内容</string>
+    <string name="gesture_action_select_layer_at_point">点选图层</string>
+    <string name="gesture_action_select_layer_at_point_desc">双击触点位置检索并切换该位置包含内容的图层</string>
     <string name="gesture_action_none">禁用</string>
 
     <string name="gesture_trigger_single_finger_touch_slide">单指点击与滑动</string>
     <string name="gesture_trigger_single_finger_touch_slide_desc">手指触屏展开菜单，划向目标方向直接盲操触发；单击仍可常驻展示（将禁用单指平移画布）</string>
+    <string name="gesture_trigger_single_finger_double_tap">单指双击</string>
+    <string name="canvas_toast_no_layer_content">未检测到图层内容</string>
+    <string name="layer_select_popup_title">触点图层</string>
     <string name="gesture_trigger_two_finger_tap">双指轻点</string>
     <string name="gesture_trigger_two_finger_double_tap">双指双击</string>
     <string name="gesture_trigger_two_finger_long_press">双指长按</string>

@@ -3098,6 +3098,44 @@ class PaintViewModel : ViewModel() {
     var quickMenuAnchor by mutableStateOf<androidx.compose.ui.geometry.Offset?>(null)
     var quickMenuHoverIndex by mutableIntStateOf(-1)
 
+    var layerSelectPopupVisible by mutableStateOf(false)
+    var layerSelectAnchor by mutableStateOf<androidx.compose.ui.geometry.Offset?>(null)
+    var layerSelectHitIndices by mutableStateOf<List<Int>>(emptyList())
+
+    fun triggerSelectLayerAtPoint(
+        anchor: androidx.compose.ui.geometry.Offset?,
+        docPos: androidx.compose.ui.geometry.Offset?,
+    ) {
+        val targetDocPos = docPos ?: anchor ?: return
+        val x = targetDocPos.x.toInt()
+        val y = targetDocPos.y.toInt()
+        val applyResult: (IntArray) -> Unit = { hitIndices ->
+            if (hitIndices.isEmpty()) {
+                showActionToast(R.string.canvas_toast_no_layer_content, R.drawable.ic_layers)
+                layerSelectPopupVisible = false
+            } else {
+                layerSelectAnchor = anchor ?: targetDocPos
+                layerSelectHitIndices = hitIndices.toList()
+                layerSelectPopupVisible = true
+                refreshLayerThumbs(force = true)
+            }
+        }
+        val h = renderHandler
+        if (h != null) {
+            h.post {
+                val hitIndices = ReverieCoreBridge.findLayersAtPoint(x, y, radius = 4)
+                mainHandler.post { applyResult(hitIndices) }
+            }
+        } else {
+            val hitIndices = ReverieCoreBridge.findLayersAtPoint(x, y, radius = 4)
+            applyResult(hitIndices)
+        }
+    }
+
+    fun selectLayer(index: Int) {
+        setCurrentLayer(index)
+    }
+
     fun updateGestureTrigger(
         action: com.reverie.paint.model.GestureAction,
         trigger: com.reverie.paint.model.GestureTrigger,
@@ -3158,8 +3196,15 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    fun dispatchGestureAction(action: com.reverie.paint.model.GestureAction, anchor: androidx.compose.ui.geometry.Offset? = null) {
+    fun dispatchGestureAction(
+        action: com.reverie.paint.model.GestureAction,
+        anchor: androidx.compose.ui.geometry.Offset? = null,
+        docPos: androidx.compose.ui.geometry.Offset? = null,
+    ) {
         when (action) {
+            com.reverie.paint.model.GestureAction.SELECT_LAYER_AT_POINT -> {
+                triggerSelectLayerAtPoint(anchor, docPos)
+            }
             com.reverie.paint.model.GestureAction.QUICK_MENU -> {
                 quickMenuAnchor = anchor
                 refreshCanvasEditCapabilities()

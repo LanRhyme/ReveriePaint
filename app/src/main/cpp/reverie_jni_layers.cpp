@@ -635,3 +635,17 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setFillLayerPattern(JNIEnv *env, j
     if (env->ExceptionCheck()) return JNI_FALSE;
     return core()->setFillLayerPattern(index, png) ? JNI_TRUE : JNI_FALSE;
 }
+
+extern "C" JNIEXPORT jintArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_findLayersAtPoint(
+    JNIEnv *env, jobject, jint x, jint y, jint radius)
+{
+    const QVector<int> layers = core()->findLayersAtPoint(x, y, radius);
+    jintArray arr = env->NewIntArray(layers.size());
+    if (!arr) return nullptr;
+    if (!layers.isEmpty()) {
+        env->SetIntArrayRegion(arr, 0, layers.size(), reinterpret_cast<const jint *>(layers.constData()));
+    }
+    return arr;
+}
+

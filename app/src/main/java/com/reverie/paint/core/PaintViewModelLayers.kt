@@ -57,7 +57,7 @@ internal fun PaintViewModel.thumbFor(
 /** 图层缩略图现在是否真的看得见: 完整图层面板, 或常驻的快捷图层小窗。
  *  刷新门控用它而不是只用 layerPanelOpen —— 小窗开着时同样需要缩略图。 */
 internal val PaintViewModel.layerThumbsVisible: Boolean
-    get() = layerPanelOpen || quickLayerWindowOpen
+    get() = layerPanelOpen || quickLayerWindowOpen || layerSelectPopupVisible
 
 internal fun PaintViewModel.clearLayerThumbs() {
     layerThumbStates.clear()

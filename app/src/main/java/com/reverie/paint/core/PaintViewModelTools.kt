@@ -1559,7 +1559,11 @@ private fun PaintViewModel.blockHistoryDuringTransform(settled: (() -> Unit)?): 
     return true
 }
 
-internal fun PaintViewModel.undo(fromPanel: Boolean = false, settled: (() -> Unit)? = null) {
+internal fun PaintViewModel.undo(
+    fromPanel: Boolean = false,
+    showToast: Boolean = true,
+    settled: (() -> Unit)? = null,
+) {
     // 变换预览是引擎里的长事务, 预览期间回滚历史会把它依赖的像素抽走 (见 isHistoryBlockedByTransform)
     if (blockHistoryDuringTransform(settled)) return
     onHistoryActionTriggered(fromPanel)
@@ -1574,7 +1578,7 @@ internal fun PaintViewModel.undo(fromPanel: Boolean = false, settled: (() -> Uni
     }
     if (currentToolId == "lasso" && lassoMultiPoints.isNotEmpty()) {
         undoLassoPoint()
-        if (undoToastEnabled) {
+        if (showToast && undoToastEnabled) {
             showActionToast(R.string.toast_undo_lasso_point, R.drawable.ic_undo)
         }
         return
@@ -1588,7 +1592,7 @@ internal fun PaintViewModel.undo(fromPanel: Boolean = false, settled: (() -> Uni
     stopAirbrush()
     disarmStrokeStartKick()
     clearPendingStrokeSamples()
-    if (undoToastEnabled) {
+    if (showToast && undoToastEnabled) {
         showActionToast(R.string.toast_undo, R.drawable.ic_undo)
     }
     canUndoTransformSelection = false

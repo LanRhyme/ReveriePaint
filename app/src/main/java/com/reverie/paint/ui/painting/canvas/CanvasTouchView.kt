@@ -912,6 +912,14 @@ class CanvasTouchView(context: Context) : View(context) {
     private var touchAndSlideStartPos = Offset.Zero
     private var lastTwoFingerTapTimeMs = 0L
     private var lastThreeFingerTapTimeMs = 0L
+    private var singleFingerDownScreenPos = Offset.Zero
+    private var singleFingerDownDocPos = Offset.Zero
+    private var singleFingerDownTimeMs = 0L
+    private var lastSingleFingerTapTimeMs = 0L
+    private var lastSingleFingerTapScreenPos = Offset.Zero
+    private var lastSingleFingerTapDocPos = Offset.Zero
+    private var lastSingleFingerTapDrewStroke = false
+    private var isSingleFingerDoubleTapActive = false
     private var continuousStepCount = 0
 
     private val continuousUndoRunnable = object : Runnable {
@@ -5107,6 +5115,8 @@ class CanvasTouchView(context: Context) : View(context) {
         if (isStylusTouch) {
             tempEraseActive = getOrCreateStylusDriver()?.isSideButtonEraseActive(event) == true
             physicalEraserActive = (event.getToolType(stylusPointerIndex) == MotionEvent.TOOL_TYPE_ERASER)
+            lastSingleFingerTapTimeMs = 0L
+            lastSingleFingerTapDrewStroke = false
         } else if (fingerCount > 0) {
             tempEraseActive = false
             physicalEraserActive = false
@@ -5668,6 +5678,8 @@ class CanvasTouchView(context: Context) : View(context) {
 
         // 1. 多指手势 (双指捏合缩放/旋转/平移 + 碎片期融合)
         if (numFingers >= 2 || (isTransformActive && (nowMs - lastTransformTimestamp) < 150)) {
+            lastSingleFingerTapTimeMs = 0L
+            lastSingleFingerTapDrewStroke = false
             if (touchAndSlideActive) {
                 touchAndSlideActive = false
                 v.quickMenuHoverIndex = -1
@@ -6018,12 +6030,12 @@ class CanvasTouchView(context: Context) : View(context) {
                         val isDoubleTap = doubleTapAction != null && (nowMs - lastTwoFingerTapTimeMs < 350L)
                         if (isDoubleTap) {
                             lastTwoFingerTapTimeMs = 0L
-                            v.dispatchGestureAction(doubleTapAction)
+                            v.dispatchGestureAction(doubleTapAction, anchor = initialCentroid, docPos = screenToDoc(initialCentroid))
                         } else {
                             lastTwoFingerTapTimeMs = nowMs
                             val tapAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.TWO_FINGER_TAP)
                             if (tapAction != null) {
-                                v.dispatchGestureAction(tapAction)
+                                v.dispatchGestureAction(tapAction, anchor = initialCentroid, docPos = screenToDoc(initialCentroid))
                             } else if (v.gestureTwoFingerUndo) {
                                 v.undo()
                             }
@@ -6033,12 +6045,12 @@ class CanvasTouchView(context: Context) : View(context) {
                         val isDoubleTap = doubleTapAction != null && (nowMs - lastThreeFingerTapTimeMs < 350L)
                         if (isDoubleTap) {
                             lastThreeFingerTapTimeMs = 0L
-                            v.dispatchGestureAction(doubleTapAction)
+                            v.dispatchGestureAction(doubleTapAction, anchor = initialCentroid, docPos = screenToDoc(initialCentroid))
                         } else {
                             lastThreeFingerTapTimeMs = nowMs
                             val tapAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_TAP)
                             if (tapAction != null) {
-                                v.dispatchGestureAction(tapAction)
+                                v.dispatchGestureAction(tapAction, anchor = initialCentroid, docPos = screenToDoc(initialCentroid))
                             } else if (v.gestureThreeFingerRedo) {
                                 v.redo()
                             }
@@ -6123,6 +6135,33 @@ class CanvasTouchView(context: Context) : View(context) {
                 priorStrokeScreenPos = screenPos
                 clearPredictionState(triggerInvalidate = false)
 
+                singleFingerDownScreenPos = screenPos
+                singleFingerDownDocPos = docPos
+                singleFingerDownTimeMs = nowMs
+
+                val singleDoubleTapAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.SINGLE_FINGER_DOUBLE_TAP)
+                val doubleTapDist = hypot(screenPos.x - lastSingleFingerTapScreenPos.x, screenPos.y - lastSingleFingerTapScreenPos.y)
+                if (singleDoubleTapAction != null && (nowMs - lastSingleFingerTapTimeMs in 40L..350L) && doubleTapDist < 36f * density) {
+                    lastSingleFingerTapTimeMs = 0L
+                    isSingleFingerDoubleTapActive = true
+                    removeCallbacks(longPressRunnable)
+                    longPressToken++
+                    isPendingLongPress = false
+                    if (isPendingEdgeFinger) {
+                        removeCallbacks(flushEdgeFingerRunnable)
+                        isPendingEdgeFinger = false
+                    }
+                    if (lastSingleFingerTapDrewStroke) {
+                        lastSingleFingerTapDrewStroke = false
+                        v.undo(showToast = false)
+                    }
+                    v.dispatchGestureAction(singleDoubleTapAction, anchor = screenPos, docPos = docPos)
+                    return true
+                } else if (nowMs - lastSingleFingerTapTimeMs > 350L) {
+                    lastSingleFingerTapTimeMs = 0L
+                    lastSingleFingerTapDrewStroke = false
+                }
+
                 if (isTouchSlideQuickMenu) {
                     touchAndSlideActive = true
                     touchAndSlideStartPos = screenPos
@@ -6206,6 +6245,7 @@ class CanvasTouchView(context: Context) : View(context) {
             }
 
             MotionEvent.ACTION_MOVE -> {
+                if (isSingleFingerDoubleTapActive) return true
                 val deltaX = screenPos.x - previousSinglePos.x
                 val deltaY = screenPos.y - previousSinglePos.y
                 priorStrokeScreenPos = previousSinglePos
@@ -6335,11 +6375,22 @@ class CanvasTouchView(context: Context) : View(context) {
                 longPressToken++
                 removeCallbacks(flushEdgeFingerRunnable)
                 isInteracting = false
+                if (isSingleFingerDoubleTapActive) {
+                    isSingleFingerDoubleTapActive = false
+                    lastSingleFingerTapTimeMs = 0L
+                    lastSingleFingerTapDrewStroke = false
+                    localIsTouching = false
+                    clearLocalCursorPos()
+                    invalidate()
+                    return true
+                }
                 // 12 条强制复位路径之一：手势取消（含边缘侧滑/长按待定等提前返回路径）。
                 if (event.actionMasked == MotionEvent.ACTION_CANCEL) clearAllEvasionState(v)
 
                 if (touchAndSlideActive) {
                     touchAndSlideActive = false
+                    lastSingleFingerTapTimeMs = 0L
+                    lastSingleFingerTapDrewStroke = false
                     val hovered = v.quickMenuHoverIndex
                     v.quickMenuHoverIndex = -1
                     val slideDist = hypot(screenPos.x - touchAndSlideStartPos.x, screenPos.y - touchAndSlideStartPos.y)
@@ -6354,6 +6405,8 @@ class CanvasTouchView(context: Context) : View(context) {
 
                 if (draggingGuideHandleIndex != -1) {
                     draggingGuideHandleIndex = -1
+                    lastSingleFingerTapTimeMs = 0L
+                    lastSingleFingerTapDrewStroke = false
                     if (strokeStarted) cancelActiveStroke(v)
                     return true
                 }
@@ -6361,6 +6414,8 @@ class CanvasTouchView(context: Context) : View(context) {
                 if (isLongPressPickerActive) {
                     cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
                     cachedDriver?.feedbackManager?.stopStrokeSound()
+                    lastSingleFingerTapTimeMs = 0L
+                    lastSingleFingerTapDrewStroke = false
                     val curCol = pickerCurrentColor?.value
                     if (curCol != null) {
                         val r = (curCol.red * 255).toInt().coerceIn(0, 255)
@@ -6382,44 +6437,84 @@ class CanvasTouchView(context: Context) : View(context) {
                     val downScreen = pendingEdgeScreenPos
                     val downDoc = pendingEdgeDocPos
                     isPendingEdgeFinger = false
-                    if (event.actionMasked != MotionEvent.ACTION_CANCEL && !v.penOnlyMode) {
+                    val wasDrawing = event.actionMasked != MotionEvent.ACTION_CANCEL && !v.penOnlyMode
+                    var drewStroke = false
+                    if (wasDrawing) {
                         handleToolDown(downScreen, downDoc, 1f, isStylus = false)
+                        drewStroke = strokeStarted
                         handleToolUp(event, downDoc, isCancel = false)
                     }
                     localIsTouching = false
                     clearLocalCursorPos()
+                    val tapDuration = nowMs - singleFingerDownTimeMs
+                    val moveDist = hypot(screenPos.x - singleFingerDownScreenPos.x, screenPos.y - singleFingerDownScreenPos.y)
+                    if (event.actionMasked == MotionEvent.ACTION_UP && tapDuration < 320L && moveDist < 16f * density) {
+                        lastSingleFingerTapTimeMs = nowMs
+                        lastSingleFingerTapScreenPos = singleFingerDownScreenPos
+                        lastSingleFingerTapDocPos = singleFingerDownDocPos
+                        lastSingleFingerTapDrewStroke = drewStroke
+                    } else {
+                        lastSingleFingerTapTimeMs = 0L
+                        lastSingleFingerTapDrewStroke = false
+                    }
                     invalidate()
                     return true
                 }
 
                 if (isPendingLongPress) {
                     isPendingLongPress = false
-                    if (!v.penOnlyMode && event.actionMasked != MotionEvent.ACTION_CANCEL) {
+                    val wasDrawing = !v.penOnlyMode && event.actionMasked != MotionEvent.ACTION_CANCEL
+                    var drewStroke = false
+                    if (wasDrawing) {
                         handleToolDown(pendingDownScreenPos, pendingDownDocPos, pendingDownPressure, isStylus = false)
+                        drewStroke = strokeStarted
                         handleToolUp(event, pendingDownDocPos, isCancel = false)
                     }
                     localIsTouching = false
                     clearLocalCursorPos()
+                    val tapDuration = nowMs - singleFingerDownTimeMs
+                    val moveDist = hypot(screenPos.x - singleFingerDownScreenPos.x, screenPos.y - singleFingerDownScreenPos.y)
+                    if (event.actionMasked == MotionEvent.ACTION_UP && tapDuration < 320L && moveDist < 16f * density) {
+                        lastSingleFingerTapTimeMs = nowMs
+                        lastSingleFingerTapScreenPos = singleFingerDownScreenPos
+                        lastSingleFingerTapDocPos = singleFingerDownDocPos
+                        lastSingleFingerTapDrewStroke = drewStroke
+                    } else {
+                        lastSingleFingerTapTimeMs = 0L
+                        lastSingleFingerTapDrewStroke = false
+                    }
                     invalidate()
                     return true
                 }
 
+                val wasStroke = strokeStarted
                 if (!isSinglePointerPan) {
                     if (v.penOnlyMode) {
                         localIsTouching = false
                         clearLocalCursorPos()
                         invalidate()
-                        return true
+                    } else {
+                        handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
+                        localIsTouching = false
+                        clearLocalCursorPos()
+                        invalidate()
                     }
-                    handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
-                    localIsTouching = false
-                    clearLocalCursorPos()
-                    invalidate()
                 } else if (isPanTool) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && systemHandPointer != null) {
                         pointerIcon = systemHandPointer
                     }
                     invalidate()
+                }
+                val tapDuration = nowMs - singleFingerDownTimeMs
+                val moveDist = hypot(screenPos.x - singleFingerDownScreenPos.x, screenPos.y - singleFingerDownScreenPos.y)
+                if (event.actionMasked == MotionEvent.ACTION_UP && tapDuration < 320L && moveDist < 16f * density) {
+                    lastSingleFingerTapTimeMs = nowMs
+                    lastSingleFingerTapScreenPos = singleFingerDownScreenPos
+                    lastSingleFingerTapDocPos = singleFingerDownDocPos
+                    lastSingleFingerTapDrewStroke = wasStroke
+                } else {
+                    lastSingleFingerTapTimeMs = 0L
+                    lastSingleFingerTapDrewStroke = false
                 }
                 return true
             }
