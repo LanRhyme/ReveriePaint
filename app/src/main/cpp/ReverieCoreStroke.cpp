@@ -689,7 +689,7 @@ void ReverieCore::touchStrokeEnd()
             if (gc.compositeOpId().isEmpty()) {
                 gc.setCompositeOpId(QStringLiteral("normal"));
             }
-            if (m_toolMode == ToolEraser) {
+            if (m_toolMode == ToolEraser || m_indirectTempCompositeOp == QLatin1String("erase")) {
                 gc.setCompositeOpId(QStringLiteral("erase"));
             }
             // F-03 之后，间接绘制的笔画 painter 不带选区。这里是合并时的唯一一次裁剪。

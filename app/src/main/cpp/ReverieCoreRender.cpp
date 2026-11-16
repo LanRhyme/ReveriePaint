@@ -1490,7 +1490,7 @@ KisPaintDeviceSP ReverieCore::groupMaskDeviceFor(int mIdx, const QRect &r)
             KisPainter tp(mScratch);
             mpl->setupTemporaryPainter(&tp);
             if (tp.compositeOpId().isEmpty()) tp.setCompositeOpId(QStringLiteral("normal"));
-            if (m_toolMode == ToolEraser && mIdx == m_currentLayer) tp.setCompositeOpId(QStringLiteral("erase"));
+            if ((m_toolMode == ToolEraser || m_indirectTempCompositeOp == QLatin1String("erase")) && mIdx == m_currentLayer) tp.setCompositeOpId(QStringLiteral("erase"));
             tp.bitBlt(r.topLeft(), mTemp, r);
             tp.end();
             return mScratch;
@@ -1785,7 +1785,7 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
                     if (tempPainter.compositeOpId().isEmpty()) {
                         tempPainter.setCompositeOpId(QStringLiteral("normal"));
                     }
-                    if (m_toolMode == ToolEraser) {
+                    if (m_toolMode == ToolEraser || m_indirectTempCompositeOp == QLatin1String("erase")) {
                         tempPainter.setCompositeOpId(QStringLiteral("erase"));
                     }
                     if (m_selection) {
@@ -2212,7 +2212,7 @@ void ReverieCore::compositeStrokeLayer(KisPaintDeviceSP out, const LayerEntry &e
             if (tempPainter.compositeOpId().isEmpty()) {
                 tempPainter.setCompositeOpId(QStringLiteral("normal"));
             }
-            if (m_toolMode == ToolEraser) {
+            if (m_toolMode == ToolEraser || m_indirectTempCompositeOp == QLatin1String("erase")) {
                 tempPainter.setCompositeOpId(QStringLiteral("erase"));
             }
             if (m_selection) {

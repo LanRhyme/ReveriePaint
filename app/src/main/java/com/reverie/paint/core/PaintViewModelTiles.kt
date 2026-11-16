@@ -7,7 +7,6 @@ package com.reverie.paint.core
 import android.graphics.Bitmap
 import android.os.SystemClock
 import com.reverie.paint.model.DisplayTileGrid
-import com.reverie.paint.model.TileDeltaLedger
 import com.reverie.paint.perf.TilePerfLog
 import java.util.concurrent.atomic.AtomicReferenceArray
 
@@ -121,7 +120,6 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
     val written = st.written
     val cols = grid.cols
     val drawn = target.drawnByView
-    val ledger = st.deltaLedger
     for (k in 0 until hits) {
         val idx = hitList[k]
         val tx = idx % cols
@@ -139,9 +137,7 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
         val inPlace =
             validOld && drawn.compareAndSet(idx, PublishedTiles.TILE_UNDRAWN, PublishedTiles.TILE_WRITING)
         if (inPlace) inPlaceCount++
-        val dst = if (inPlace) old!! else st.obtainSpare(tw, th, idx)
-        val spareVersion = if (inPlace) -1L else st.obtainedSpareVersion
-        val prevVersion = ledger.version(idx)
+        val dst = if (inPlace) old!! else st.obtainSpare(tw, th)
         if (dst == null) {
             // OOM 获取后备位图失败: 标记整块重写并触发低优先级重试
             needsFull[idx] = true
@@ -156,14 +152,7 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
                     // 就地写时 dst 里就是最新的完整像素; 换片时若本帧有某块脏区已完全盖住
                     // 整张瓦片, 也不必先整块拷贝旧像素。
                     if (!inPlace && !isTileCoveredByDirty(dirtyRects, dirtyCount, left, top, tw, th)) {
-                        // 后备位图若是本瓦片几帧前的旧版本, 只补拷之后写过的区域 (逐像素同整块拷贝)。
-                        val mode =
-                            if (spareVersion >= 0) ledger.deltaSince(idx, spareVersion, deltaBox) else TileDeltaLedger.DELTA_FULL
-                        when (mode) {
-                            TileDeltaLedger.DELTA_NONE -> {}
-                            TileDeltaLedger.DELTA_RECT -> copyTileRectInto(old!!, dst, deltaBox)
-                            else -> copyTileInto(old!!, dst)
-                        }
+                        copyTileInto(old!!, dst)
                     }
                     ReverieCoreBridge.renderTileToBuffer(dst, left, top, dirtyRects, written)
                 }
@@ -180,8 +169,6 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
         if (!ok) {
             // 本帧写失败 (JNI 失败/格式不符): 后备位图还回冷却区, 标记整块重写以防脏区丢失。
             if (!inPlace) st.retireToCooling(dst)
-            // 就地写失败可能改过任意像素: 账本记成整块改写, 之后的 COW 一律整块拷贝。
-            ledger.recordWrite(idx, 0, 0, tw, th)
             needsFull[idx] = true
             retryNeeded = true
             continue
@@ -191,10 +178,9 @@ internal fun PaintViewModel.doRenderTiles(w: Int, h: Int) {
             drawn.set(idx, PublishedTiles.TILE_UNDRAWN)
             tiles.set(idx, dst)
             if (old != null) {
-                if (validOld) st.retireTileToCooling(old, idx, prevVersion) else st.retireToCooling(old)
+                st.retireToCooling(old)
             }
         }
-        recordTileWrite(ledger, idx, full, left, top, tw, th, written, dirtyRects, dirtyCount)
         if (needsFull[idx]) anyFull = true
         needsFull[idx] = false
         val wl = left + written[0]
@@ -497,72 +483,6 @@ private val tileSnapshotPaint = android.graphics.Paint().apply {
     xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC)
 }
 
-private val deltaBox = IntArray(4)
-private val deltaRect = android.graphics.Rect()
-
-/** 只把 [src] 的 [box] (l,t,r,b, 瓦片局部) 区域 SRC 拷进 [dst] (同尺寸)。只在渲染线程调用。 */
-private fun copyTileRectInto(src: Bitmap, dst: Bitmap, box: IntArray) {
-    deltaRect.set(
-        box[0].coerceIn(0, src.width),
-        box[1].coerceIn(0, src.height),
-        box[2].coerceIn(0, src.width),
-        box[3].coerceIn(0, src.height),
-    )
-    if (deltaRect.isEmpty) return
-    tileCopyCanvas.setBitmap(dst)
-    tileCopyCanvas.drawBitmap(src, deltaRect, deltaRect, tileCopyPaint)
-    tileCopyCanvas.setBitmap(null)
-}
-
-/**
- * 账本记下这次写入改过的区域 (瓦片局部): 整块写记整块; 增量写取 JNI 回报的写入框与
- * 本帧脏区∩瓦片的并集 (保守取大, 宁多拷不少拷)。
- */
-private fun recordTileWrite(
-    ledger: TileDeltaLedger,
-    idx: Int,
-    full: Boolean,
-    left: Int,
-    top: Int,
-    tw: Int,
-    th: Int,
-    written: IntArray,
-    rects: IntArray,
-    count: Int,
-) {
-    if (full) {
-        ledger.recordWrite(idx, 0, 0, tw, th)
-        return
-    }
-    var l = written[0]
-    var t = written[1]
-    var r = written[0] + written[2]
-    var b = written[1] + written[3]
-    if (written[2] <= 0 || written[3] <= 0) {
-        l = Int.MAX_VALUE
-        t = Int.MAX_VALUE
-        r = Int.MIN_VALUE
-        b = Int.MIN_VALUE
-    }
-    for (d in 0 until count) {
-        val o = d * 4
-        val dl = maxOf(rects[o] - left, 0)
-        val dt = maxOf(rects[o + 1] - top, 0)
-        val dr = minOf(rects[o] + rects[o + 2] - left, tw)
-        val db = minOf(rects[o + 1] + rects[o + 3] - top, th)
-        if (dl >= dr || dt >= db) continue
-        if (dl < l) l = dl
-        if (dt < t) t = dt
-        if (dr > r) r = dr
-        if (db > b) b = db
-    }
-    if (l >= r || t >= b) {
-        // 说不清改了哪里: 保守记整块。
-        ledger.recordWrite(idx, 0, 0, tw, th)
-    } else {
-        ledger.recordWrite(idx, maxOf(l, 0), maxOf(t, 0), minOf(r, tw), minOf(b, th))
-    }
-}
 
 /** 把 [src] 的像素整块 SRC 拷进 [dst] (同尺寸)。只在渲染线程调用。 */
 private fun copyTileInto(src: Bitmap, dst: Bitmap) {
