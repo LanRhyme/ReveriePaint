@@ -987,7 +987,6 @@ public:
     void setBrushRotation(qreal v);
     void setBrushCompositeOp(const QString &op);
     void setBrushMirror(bool flipX, bool flipY);
-    void setBrushAntiAliasing(int level);
     void setPresetIsEraser(bool eraser);
     bool scratchpadStart(int w, int h);
     bool scratchpadStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0);

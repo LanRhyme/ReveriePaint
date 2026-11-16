@@ -2029,22 +2029,19 @@ void ReverieCore::setBrushFlow(qreal v)
 
 // Smudge engine parameters. Key names verified against bundled presets:
 // k)_Blender_Basic.kpp exposes SmudgeRateValue (length) and ColorRateValue
-// (color mixing rate), paintop="colorsmudge". The rate is written to both
-// ColorRateValue and legacy MixValue so new-generation presets (reading
-// ColorRateValue) and old-generation ones (reading MixValue) both pick it up.
+// (color mixing rate), paintop="colorsmudge".
+// 关键: KisStandardOption::apply / KisColorSmudgeOp::paintLine 在 isChecked()==false 时
+// 完全不看 <Id>Value —— ColorRate 取 0、SmudgeRate 直接取 1.0 (满拖动)。
+// 而 isChecked 的真键是 "Pressure" + 选项 id (KisKritaSensorPack::read)，
+// 所以回放这两个参数时必须同时置位 PressureColorRate / PressureSmudgeRate，
+// 否则对"预设里未勾选"的笔刷毫无作用（历史实现写的是零读者的 MixValue / strengthValue / isChecked）。
 void ReverieCore::setBrushSmudgeRate(qreal v)
 {
     m_smudgeRate = v;
     if (!m_brushPreset || !m_brushPreset->settings()) return;
     KisPaintOpSettingsSP s = m_brushPreset->settings();
     s->setProperty("ColorRateValue", v);
-    s->setProperty("MixValue", v); // legacy key for older-generation presets
-    s->setProperty("ColorRate/strengthValue", v);
-    if (v <= 0.0001) {
-        s->setProperty("ColorRate/isChecked", false);
-    } else {
-        s->setProperty("ColorRate/isChecked", true);
-    }
+    s->setProperty("PressureColorRate", true);
 }
 
 void ReverieCore::setBrushSmudgeLength(qreal v)
@@ -2053,12 +2050,7 @@ void ReverieCore::setBrushSmudgeLength(qreal v)
     if (m_brushPreset && m_brushPreset->settings()) {
         KisPaintOpSettingsSP s = m_brushPreset->settings();
         s->setProperty("SmudgeRateValue", v);
-        s->setProperty("SmudgeRate/strengthValue", v);
-        if (v <= 0.0001) {
-            s->setProperty("SmudgeRate/isChecked", false);
-        } else {
-            s->setProperty("SmudgeRate/isChecked", true);
-        }
+        s->setProperty("PressureSmudgeRate", true);
     }
 }
 
@@ -2072,10 +2064,7 @@ void ReverieCore::setBrushAirbrush(bool enabled, qreal rate)
     if (m_brushPreset && m_brushPreset->settings()) {
         KisPaintOpSettingsSP s = m_brushPreset->settings();
         s->setProperty("PaintOpSettings/isAirbrushing", enabled);
-        s->setProperty("AirbrushOption/isAirbrushing", enabled);
-        s->setProperty("Airbrush/isChecked", enabled);
         s->setProperty("PaintOpSettings/rate", m_airbrushRate);
-        s->setProperty("AirbrushOption/rate", m_airbrushRate);
     }
 }
 
@@ -2117,9 +2106,8 @@ void ReverieCore::setBrushScatter(qreal v)
         // Directly write both Krita 4 and 5 scattering keys to ensure scatter works on any preset.
         const bool active = (v > 0.001);
         s->setProperty("PressureScatter", active);
-        s->setProperty("Scatter/isChecked", active);
-        s->setProperty("Scatter/strengthValue", v);
-        s->setProperty("Scattering/Amount", v);
+        // 只写有读者的键: Scattering/Amount 仅在缺 ScatterValue 时才被当遗留回退读,
+        // Scatter/isChecked、Scatter/strengthValue 在 Krita 侧零读者
         s->setProperty("ScatterValue", v);
         // Scattering/AxisX|AxisY belong to the preset (PresetPropertyMap SCATTER_BOTH_AXES);
         // KisScatterOptionData::read defaults both to true when the keys are absent.
@@ -2136,21 +2124,30 @@ void ReverieCore::setBrushFade(qreal v)
 void ReverieCore::setBrushSoftness(qreal v)
 {
     if (m_brushPreset && m_brushPreset->settings()) {
-        m_brushPreset->settings()->setProperty("SoftnessValue", v);
+        KisPaintOpSettingsSP s = m_brushPreset->settings();
+        s->setProperty("SoftnessValue", v);
+        // KisStandardOptions.h: 未勾选直接 return 1.0, 只写 Value 对未勾选预设无效
+        s->setProperty("PressureSoftness", true);
     }
 }
 
 void ReverieCore::setBrushRatio(qreal v)
 {
     if (m_brushPreset && m_brushPreset->settings()) {
-        m_brushPreset->settings()->setProperty("RatioValue", v);
+        KisPaintOpSettingsSP s = m_brushPreset->settings();
+        s->setProperty("RatioValue", v);
+        s->setProperty("PressureRatio", true);
     }
 }
 
 void ReverieCore::setBrushSharpness(qreal v)
 {
     if (m_brushPreset && m_brushPreset->settings()) {
-        m_brushPreset->settings()->setProperty("SharpnessValue", v);
+        KisPaintOpSettingsSP s = m_brushPreset->settings();
+        s->setProperty("SharpnessValue", v);
+        s->setProperty("PressureSharpness", true);
+        // KisSharpnessOption::apply 还要求 alignOutlinePixels, 否则强度被整体忽略
+        s->setProperty("Sharpness/alignoutline", true);
     }
 }
 
@@ -2189,15 +2186,6 @@ void ReverieCore::setBrushMirror(bool flipX, bool flipY)
     KisPaintOpSettingsSP s = m_brushPreset->settings();
     s->setProperty("HorizontalMirrorEnabled", flipX);
     s->setProperty("VerticalMirrorEnabled", flipY);
-}
-
-void ReverieCore::setBrushAntiAliasing(int level)
-{
-    if (!m_brushPreset || !m_brushPreset->settings()) return;
-    KisPaintOpSettingsSP s = m_brushPreset->settings();
-    const bool aa = (level > 0);
-    s->setProperty("Antialiasing", aa);
-    s->setProperty("antialiasEdges", aa);
 }
 
 // 试画板异步 dab 管线的同步驱动: 逐批跑完 paintop 的渲染 job, 直到不再产出新 job。

@@ -283,12 +283,6 @@ Java_com_reverie_paint_core_ReverieCoreBridge_setBrushMirror(JNIEnv *, jobject, 
 }
 
 JNIEXPORT void JNICALL
-Java_com_reverie_paint_core_ReverieCoreBridge_setBrushAntiAliasing(JNIEnv *, jobject, jint level)
-{
-    core()->setBrushAntiAliasing(level);
-}
-
-JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_setBrushColor(JNIEnv *env, jobject, jstring color)
 {
     const char *c = env->GetStringUTFChars(color, nullptr);

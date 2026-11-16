@@ -611,7 +611,6 @@ object ReverieCoreBridge {
     fun setBrushJitter(jitterAngle: Double, jitterSize: Double) {}
 
     external fun setBrushMirror(flipX: Boolean, flipY: Boolean)
-    external fun setBrushAntiAliasing(level: Int)
 
     external fun touchStrokeStart(
         x: Double,
