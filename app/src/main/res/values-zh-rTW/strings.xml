@@ -1851,7 +1851,7 @@
     <string name="stylus_category_cursor">游標與準星指示</string>
     <string name="stylus_pen_mode_desc">開啟後禁止手指繪製，單指可平移畫布，雙指可縮放與旋轉畫布</string>
     <string name="stylus_prediction_title">超低延遲筆跡預測</string>
-    <string name="stylus_prediction_desc">降低運筆跟手延遲，支援選擇硬體廠商 SDK 或軟體自研演算法</string>
+    <string name="stylus_prediction_desc">降低運筆跟手延遲，採用軟體自研預測演算法讓墨跡更貼近筆尖</string>
     <string name="stylus_prediction_algo_hardware">硬體SDK演算法</string>
     <string name="stylus_prediction_algo_hardware_desc">呼叫系統及廠商原生 SDK 預測（支援 OPPO、vivo、華為、小米等）</string>
     <string name="stylus_prediction_algo_software">APP軟體演算法</string>

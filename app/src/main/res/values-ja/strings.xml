@@ -1851,7 +1851,7 @@
     <string name="stylus_category_cursor">カーソルと照準表示</string>
     <string name="stylus_pen_mode_desc">有効にすると指での描画を無効化し、一本指でキャンバス移動、二本指で拡大・縮小と回転を行えます</string>
     <string name="stylus_prediction_title">超低遅延ストローク予測</string>
-    <string name="stylus_prediction_desc">ペンの追従遅延を低減します。ハードウェアメーカー SDK またはアプリ内アルゴリズムを選択可能</string>
+    <string name="stylus_prediction_desc">ペンの追従遅延を低減します。アプリ独自のストローク予測アルゴリズムにより描線がペン先により正確に追従します</string>
     <string name="stylus_prediction_algo_hardware">ハードウェア SDK アルゴリズム</string>
     <string name="stylus_prediction_algo_hardware_desc">システムおよびメーカー純正 SDK による予測を使用（OPPO、vivo、HUAWEI、Xiaomi 等に対応）</string>
     <string name="stylus_prediction_algo_software">アプリ内アルゴリズム</string>

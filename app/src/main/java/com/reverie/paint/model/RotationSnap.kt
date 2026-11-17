@@ -34,8 +34,8 @@ object RotationSnap {
     /** 吸附步长 (度): 90 的倍数即 0/90/180/270/360 */
     const val STEP_DEGREES = 90f
 
-    /** 默认吸附阈值 (度): ±5° */
-    const val DEFAULT_THRESHOLD_DEGREES = 5f
+    /** 默认吸附阈值 (度): ±1° */
+    const val DEFAULT_THRESHOLD_DEGREES = 1f
 
     /** 阈值上限 (度): 超过 30° 会吞掉大半旋转行程, 因此夹住 */
     const val MAX_THRESHOLD_DEGREES = 30f

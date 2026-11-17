@@ -2101,7 +2101,7 @@
     <string name="stylus_category_cursor">Cursor &amp; Crosshair</string>
     <string name="stylus_pen_mode_desc">Disable finger drawing. One finger pans, two fingers zoom and rotate</string>
     <string name="stylus_prediction_title">Ultra-low Latency Prediction</string>
-    <string name="stylus_prediction_desc">Reduce stroke latency with OEM hardware SDK or in-app software prediction</string>
+    <string name="stylus_prediction_desc">Reduce stroke latency with built-in software prediction to keep ink closer to the pen tip</string>
     <string name="stylus_prediction_algo_hardware">Hardware SDK Algorithm</string>
     <string name="stylus_prediction_algo_hardware_desc">Leverages system and OEM SDK prediction (supports OPPO, vivo, HUAWEI, Xiaomi, etc.)</string>
     <string name="stylus_prediction_algo_software">App Software Algorithm</string>

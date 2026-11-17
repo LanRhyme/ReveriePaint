@@ -1902,7 +1902,7 @@
     <string name="stylus_category_cursor">光标与准星指示</string>
     <string name="stylus_pen_mode_desc">开启后手指不能画，单指平移画布，双指缩放和旋转画布</string>
     <string name="stylus_prediction_title">超低延迟笔迹预测</string>
-    <string name="stylus_prediction_desc">让笔迹更跟手，可以选厂商 SDK 或软件自研算法</string>
+    <string name="stylus_prediction_desc">让笔迹更跟手，用软件自研预测算法让墨迹更贴近笔尖喵</string>
     <string name="stylus_prediction_algo_hardware">硬件SDK算法</string>
     <string name="stylus_prediction_algo_hardware_desc">调用系统及厂商原生 SDK 预测（支持 OPPO、vivo、华为、小米等）</string>
     <string name="stylus_prediction_algo_software">APP软件算法</string>
