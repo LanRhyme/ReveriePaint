@@ -236,45 +236,15 @@ fun DrawingGuidePanel(
                                 modifier = Modifier.weight(1f),
                             )
                         }
-                        Row(
+                        CompactSliderItem(
+                            label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_ray_count),
+                            valueText = "${guide.fisheyeRayCount.coerceIn(4, 48)}",
+                            range = 4f..48f,
+                            value = guide.fisheyeRayCount.toFloat(),
+                            onValue = {
+                                vm.drawingGuide = guide.copy(fisheyeRayCount = it.roundToInt().coerceIn(4, 48))
+                            },
                             modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            CompactToggleChip(
-                                label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_center_rays),
-                                selected = guide.fisheyeShowCenterRays,
-                                onClick = {
-                                    vm.drawingGuide = guide.copy(
-                                        fisheyeShowCenterRays = !guide.fisheyeShowCenterRays,
-                                    )
-                                },
-                                modifier = Modifier.weight(1f),
-                            )
-                            CompactSliderItem(
-                                label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_ray_count),
-                                valueText = "${guide.fisheyeRayCount.coerceIn(4, 48)}",
-                                range = 4f..48f,
-                                value = guide.fisheyeRayCount.toFloat(),
-                                onValue = {
-                                    vm.drawingGuide = guide.copy(fisheyeRayCount = it.roundToInt().coerceIn(4, 48))
-                                },
-                                modifier = Modifier.weight(1f),
-                            )
-                        }
-                        Text(
-                            androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_target),
-                            color = Morandi.subText,
-                            fontSize = 11.sp,
-                        )
-                        SegmentedOptionSelector(
-                            options = listOf(
-                                0 to androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_auto),
-                                1 to androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_horizontal),
-                                2 to androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_vertical),
-                                3 to androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_ray),
-                            ),
-                            selectedKey = guide.fisheyeSnapTarget,
-                            onSelect = { vm.drawingGuide = guide.copy(fisheyeSnapTarget = it) },
                         )
                         Text(
                             text = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_reset),

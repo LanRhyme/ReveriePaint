@@ -2382,7 +2382,7 @@ class CanvasTouchView(context: Context) : View(context) {
         }
 
         if (!assistFisheyeLocked) {
-            // 阈值按屏幕像素, 缩放不改变手感 (6dp)。
+            // 始终自动: 等运笔超过 6dp 才能判断方向 (屏幕像素, 不随缩放变化)。
             if (screenDistance(firstPt, currentPt) < 6f * density) return currentPt
             val dStart = dir(firstPt)
             val dNow = dir(currentPt)
@@ -2415,26 +2415,23 @@ class CanvasTouchView(context: Context) : View(context) {
                 return abs((tx / len) * (sx / slen) + (ty / len) * (sy / slen))
             }
 
-            val allowH = guide.fisheyeSnapTarget == 0 || guide.fisheyeSnapTarget == 1
-            val allowV = guide.fisheyeSnapTarget == 0 || guide.fisheyeSnapTarget == 2
-            val allowRay = guide.fisheyeSnapTarget == 0 || guide.fisheyeSnapTarget == 3
             var bestFamily = -1
             var bestScore = -1f
-            if (allowH) {
+            run {
                 val score = tangentScore(
                     { t -> FisheyeGuideGeometry.horizontalDirection(nearestH, t) },
                     kotlin.math.asin(startX.coerceIn(-1.0, 1.0)),
                 )
                 if (score > bestScore) { bestScore = score; bestFamily = 0 }
             }
-            if (allowV) {
+            run {
                 val score = tangentScore(
                     { t -> FisheyeGuideGeometry.verticalDirection(nearestV, t) },
                     kotlin.math.asin(startY.coerceIn(-1.0, 1.0)),
                 )
                 if (score > bestScore) { bestScore = score; bestFamily = 1 }
             }
-            if (allowRay) {
+            run {
                 val theta0 = atan2(hypot(startX, startY), startZ)
                 val score = tangentScore(
                     { t -> Triple(
@@ -2444,11 +2441,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     ) },
                     theta0,
                 )
-                // 显式选择中心射线时给一点优先权, 避免交点处被曲线抢走
-                val weighted = if (guide.fisheyeSnapTarget == 3) score + 0.05f else score
-                if (weighted > bestScore) { bestScore = weighted; bestFamily = 2 }
+                if (score > bestScore) { bestScore = score; bestFamily = 2 }
             }
-
             assistFisheyeFamily = bestFamily
             assistFisheyeA = when (bestFamily) {
                 0 -> nearestH

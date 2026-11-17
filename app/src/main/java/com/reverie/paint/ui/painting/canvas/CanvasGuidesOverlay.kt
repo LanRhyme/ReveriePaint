@@ -125,7 +125,7 @@ internal fun DrawScope.drawDrawingGuides(
                                             mesh.vertical,
                                             centerX, centerY, radius, guideCol, gStroke.width,
                                         )
-                                        if (guide.fisheyeShowCenterRays) {
+                                        run {
                                             val rayCount = guide.fisheyeRayCount.coerceIn(4, 48)
                                             val rayColor = guideCol.copy(alpha = guideCol.alpha * 0.48f)
                                             // 直径曲线已从显示中移除, 水平/垂直方向的直线只由射线提供,

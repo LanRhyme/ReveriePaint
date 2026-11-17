@@ -1953,13 +1953,7 @@
     <string name="guide_fisheye_hint">拖动球心的圆点移动位置，拖动边界上的圆点调整大小</string>
     <string name="guide_fisheye_horizontal_count">横向曲线（含中线）</string>
     <string name="guide_fisheye_vertical_count">纵向曲线（含中线）</string>
-    <string name="guide_fisheye_center_rays">显示中心放射线</string>
     <string name="guide_fisheye_ray_count">放射线数量</string>
-    <string name="guide_fisheye_snap_target">吸附方向</string>
-    <string name="guide_fisheye_snap_auto">自动</string>
-    <string name="guide_fisheye_snap_horizontal">横曲线</string>
-    <string name="guide_fisheye_snap_vertical">纵曲线</string>
-    <string name="guide_fisheye_snap_ray">中心射线</string>
     <string name="guide_fisheye_reset">重置球心与半径</string>
     <string name="guide_symmetry_type">对称类型</string>
     <string name="guide_symmetry_vertical">垂直</string>
