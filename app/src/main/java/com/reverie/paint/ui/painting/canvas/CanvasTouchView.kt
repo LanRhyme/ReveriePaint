@@ -2460,6 +2460,26 @@ class CanvasTouchView(context: Context) : View(context) {
         }
         val guide = v.drawingGuide
         if (guide.mode == GuideMode.PERSPECTIVE) {
+            if (guide.perspectiveFisheye) {
+                val minDim = minOf(v.docWidth, v.docHeight).toFloat()
+                val cDoc = Offset(v.docWidth * guide.fisheyeCenterX, v.docHeight * guide.fisheyeCenterY)
+                val cScreen = docToScreen(cDoc)
+                if (hypot(screenPos.x - cScreen.x, screenPos.y - cScreen.y) < 36f * density) {
+                    draggingGuideHandleIndex = 102
+                    isPendingLongPress = false
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    return true
+                }
+                val rimDoc = Offset(cDoc.x + guide.fisheyeRadius * minDim, cDoc.y)
+                val rimScreen = docToScreen(rimDoc)
+                if (hypot(screenPos.x - rimScreen.x, screenPos.y - rimScreen.y) < 36f * density) {
+                    draggingGuideHandleIndex = 103
+                    isPendingLongPress = false
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    return true
+                }
+                return false
+            }
             if (guide.perspective3d) {
                 draggingGuideHandleIndex = 200
                 lastOrbitDocPos = screenToDoc(screenPos)
@@ -2513,6 +2533,22 @@ class CanvasTouchView(context: Context) : View(context) {
         val v = vm ?: return false
         val g = v.drawingGuide
         return when (draggingGuideHandleIndex) {
+            102 -> {
+                val newX = (docPos.x / maxOf(1, v.docWidth)).coerceIn(0.02f, 0.98f)
+                val newY = (docPos.y / maxOf(1, v.docHeight)).coerceIn(0.02f, 0.98f)
+                v.drawingGuide = g.copy(fisheyeCenterX = newX, fisheyeCenterY = newY)
+                invalidate()
+                true
+            }
+            103 -> {
+                val cx = v.docWidth * g.fisheyeCenterX
+                val cy = v.docHeight * g.fisheyeCenterY
+                val minDim = minOf(v.docWidth, v.docHeight).toFloat().coerceAtLeast(1f)
+                val radius = (hypot(docPos.x - cx, docPos.y - cy) / minDim).coerceIn(0.05f, 1.5f)
+                v.drawingGuide = g.copy(fisheyeRadius = radius)
+                invalidate()
+                true
+            }
             200 -> {
                 val dx = docPos.x - lastOrbitDocPos.x
                 val dy = docPos.y - lastOrbitDocPos.y

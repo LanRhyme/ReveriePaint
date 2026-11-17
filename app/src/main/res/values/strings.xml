@@ -1949,6 +1949,11 @@
     <string name="guide_perspective_1pt">1点透视</string>
     <string name="guide_perspective_2pt">2点透视</string>
     <string name="guide_perspective_3pt">3点透视</string>
+    <string name="guide_perspective_fisheye">鱼眼透视</string>
+    <string name="guide_fisheye_hint">拖动球心的圆点移动位置，拖动边界上的圆点调整大小</string>
+    <string name="guide_fisheye_rings">同心圈</string>
+    <string name="guide_fisheye_spokes">放射线</string>
+    <string name="guide_fisheye_reset">重置球心与半径</string>
     <string name="guide_symmetry_type">对称类型</string>
     <string name="guide_symmetry_vertical">垂直</string>
     <string name="guide_symmetry_horizontal">水平</string>

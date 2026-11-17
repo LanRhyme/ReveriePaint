@@ -115,6 +115,12 @@ data class DrawingGuideConfig(
     val perspectiveShowGround: Boolean = true, // 是否显示地面网格 (XZ 面)
     val perspectiveShowCube: Boolean = true, // 是否显示原点参考立方体 (提供 Z/Y 轴立体深度)
     val perspectiveGridDensity: Int = 12, // 地面网格分度 (4..24)
+    val perspectiveFisheye: Boolean = false, // 鱼眼透视: 球心 + 半径 + 放射线/同心圈
+    val fisheyeCenterX: Float = 0.5f, // 球心归一化坐标
+    val fisheyeCenterY: Float = 0.5f,
+    val fisheyeRadius: Float = 0.42f, // 半径占画布短边的比例
+    val fisheyeRings: Int = 5, // 同心圈数量 (1..12)
+    val fisheyeSpokes: Int = 24, // 放射线数量 (6..48)
 ) {
     /**
      * 计算输入点对应的对称镜像分支点列表 (支持对称轴任意角度旋转)

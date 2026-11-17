@@ -79,7 +79,57 @@ internal fun DrawScope.drawDrawingGuides(
                             }
                         }
                         GuideMode.PERSPECTIVE -> {
-                            if (guide.perspective3d) {
+                            if (guide.perspectiveFisheye) {
+                                // 鱼眼透视: 球心放射线 + 同心圈, 球心与边界点可拖动
+                                clipRect(left = -halfW, top = -halfH, right = halfW, bottom = halfH) {
+                                    val scX = bmp.width.toFloat() / maxOf(1, vm.docWidth)
+                                    val scY = bmp.height.toFloat() / maxOf(1, vm.docHeight)
+                                    val cx = guide.fisheyeCenterX * docW - halfW
+                                    val cy = guide.fisheyeCenterY * docH - halfH
+                                    val radius = guide.fisheyeRadius * minOf(docW, docH)
+                                    if (radius > 2f) {
+                                        val rings = guide.fisheyeRings.coerceIn(1, 12)
+                                        val spokes = guide.fisheyeSpokes.coerceIn(6, 48)
+                                        for (i in 1..rings) {
+                                            drawCircle(
+                                                color = guideCol,
+                                                radius = radius * i / rings,
+                                                center = Offset(cx, cy),
+                                                style = gStroke,
+                                            )
+                                        }
+                                        for (i in 0 until spokes) {
+                                            val angle = (2.0 * PI * i / spokes).toFloat()
+                                            drawLine(
+                                                color = guideCol,
+                                                start = Offset(cx, cy),
+                                                end = Offset(cx + cos(angle) * radius, cy + sin(angle) * radius),
+                                                strokeWidth = gStroke.width,
+                                            )
+                                        }
+                                        // 球边界加粗一点, 与内部网格区分
+                                        drawCircle(
+                                            color = guideCol.copy(alpha = (guideCol.alpha * 1.5f).coerceAtMost(1f)),
+                                            radius = radius,
+                                            center = Offset(cx, cy),
+                                            style = Stroke(width = gStroke.width * 1.6f),
+                                        )
+                                        // 手柄: 球心圆点 / 边界控制点
+                                        drawCircle(Morandi.accent, radius = 4.dp.toPx(), center = Offset(cx, cy))
+                                        drawCircle(
+                                            Morandi.accent,
+                                            radius = 4.dp.toPx(),
+                                            center = Offset(cx + radius, cy),
+                                        )
+                                        drawCircle(
+                                            Morandi.accent.copy(alpha = 0.35f),
+                                            radius = 8.dp.toPx(),
+                                            center = Offset(cx + radius, cy),
+                                            style = Stroke(width = 1.dp.toPx()),
+                                        )
+                                    }
+                                }
+                            } else if (guide.perspective3d) {
                                 // 限制在画布范围内渲染 (画布矩形之外不渲染)
                                 clipRect(left = -halfW, top = -halfH, right = halfW, bottom = halfH) {
                                     // ---- 3D 空间透视参考模式 (自由旋转视角，地面网格 + 参考立方体) ----

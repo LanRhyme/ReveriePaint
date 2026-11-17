@@ -180,6 +180,70 @@ fun DrawingGuidePanel(
 
                 // 1. PERSPECTIVE 模式
                 if (guide.mode == GuideMode.PERSPECTIVE) {
+                    // 鱼眼透视开关: 球心 + 半径, 直接拖动画面上的两个手柄
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        CompactToggleChip(
+                            label = androidx.compose.ui.res.stringResource(R.string.guide_perspective_fisheye),
+                            selected = guide.perspectiveFisheye,
+                            onClick = {
+                                val on = !guide.perspectiveFisheye
+                                vm.drawingGuide = guide.copy(
+                                    perspectiveFisheye = on,
+                                    assistedDrawing = if (on) false else guide.assistedDrawing,
+                                    perspective3d = if (on) false else guide.perspective3d,
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+
+                    if (guide.perspectiveFisheye) {
+                        Text(
+                            androidx.compose.ui.res.stringResource(R.string.guide_fisheye_hint),
+                            color = Morandi.subText,
+                            fontSize = 11.sp,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CompactSliderItem(
+                                label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_rings),
+                                valueText = "${guide.fisheyeRings}",
+                                range = 1f..12f,
+                                value = guide.fisheyeRings.toFloat(),
+                                onValue = { vm.drawingGuide = guide.copy(fisheyeRings = it.roundToInt()) },
+                                modifier = Modifier.weight(1f),
+                            )
+                            CompactSliderItem(
+                                label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_spokes),
+                                valueText = "${guide.fisheyeSpokes}",
+                                range = 6f..48f,
+                                value = guide.fisheyeSpokes.toFloat(),
+                                onValue = { vm.drawingGuide = guide.copy(fisheyeSpokes = it.roundToInt()) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        Text(
+                            text = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_reset),
+                            color = Morandi.accent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable {
+                                    vm.drawingGuide = guide.copy(
+                                        fisheyeCenterX = 0.5f,
+                                        fisheyeCenterY = 0.5f,
+                                        fisheyeRadius = 0.42f,
+                                    )
+                                }
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    } else {
                     // 3D 空间网格 vs 传统灭点射线 子分段器
                     PerspectiveSubModeSelector(
                         is3d = guide.perspective3d,
@@ -319,6 +383,7 @@ fun DrawingGuidePanel(
                                 modifier = Modifier.weight(1f),
                             )
                         }
+                    }
                     }
                 }
 
