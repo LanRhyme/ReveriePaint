@@ -1954,6 +1954,9 @@
     <string name="guide_fisheye_horizontal_count">横向曲线（含中线）</string>
     <string name="guide_fisheye_vertical_count">纵向曲线（含中线）</string>
     <string name="guide_fisheye_ray_count">放射线数量</string>
+    <string name="guide_fisheye_snap_target">吸附方式</string>
+    <string name="guide_fisheye_snap_auto">自动</string>
+    <string name="guide_fisheye_snap_ray">中心射线</string>
     <string name="guide_fisheye_reset">重置球心与半径</string>
     <string name="guide_symmetry_type">对称类型</string>
     <string name="guide_symmetry_vertical">垂直</string>

@@ -2381,8 +2381,17 @@ class CanvasTouchView(context: Context) : View(context) {
             return hypot(sa.x - sb.x, sa.y - sb.y)
         }
 
+        val explicitRay = guide.fisheyeSnapTarget == 3
         if (!assistFisheyeLocked) {
             val dStart = dir(firstPt)
+            if (explicitRay) {
+                // 中心射线显式模式: 射线经过起笔点, 从第一个采样点就锁定并跟随,
+                // 不需要方向判断, 也不会产生跳变。
+                assistFisheyeFamily = 2
+                assistFisheyeA = FisheyeGuideGeometry.azimuthOf(dStart.first, dStart.second)
+                assistFisheyeLocked = true
+                return snapFisheyePoint(dStart, centerX, centerY, radius)
+            }
             val dNow = dir(currentPt)
             val startX = dStart.first
             val startY = dStart.second

@@ -236,6 +236,19 @@ fun DrawingGuidePanel(
                                 modifier = Modifier.weight(1f),
                             )
                         }
+                        Text(
+                            androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_target),
+                            color = Morandi.subText,
+                            fontSize = 11.sp,
+                        )
+                        SegmentedOptionSelector(
+                            options = listOf(
+                                0 to androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_auto),
+                                3 to androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_ray),
+                            ),
+                            selectedKey = guide.fisheyeSnapTarget,
+                            onSelect = { vm.drawingGuide = guide.copy(fisheyeSnapTarget = it) },
+                        )
                         CompactSliderItem(
                             label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_ray_count),
                             valueText = "${guide.fisheyeRayCount.coerceIn(4, 48)}",

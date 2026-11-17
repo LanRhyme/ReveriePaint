@@ -122,6 +122,7 @@ data class DrawingGuideConfig(
     val fisheyeHorizontalCount: Int = 11, // 横向曲线数, 包含中间直径, 不含边界圆
     val fisheyeVerticalCount: Int = 11, // 纵向曲线数, 包含中间直径, 不含边界圆
     val fisheyeRayCount: Int = 24, // 中心放射线数量 (始终显示)
+    val fisheyeSnapTarget: Int = 0, // 吸附: 0 自动(横/纵曲线+射线), 3 仅中心射线
 ) {
     /**
      * 计算输入点对应的对称镜像分支点列表 (支持对称轴任意角度旋转)
