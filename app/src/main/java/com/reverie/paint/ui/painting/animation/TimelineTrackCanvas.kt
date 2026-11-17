@@ -903,7 +903,7 @@ internal fun TimelineTrackArea(
                                     if (lastDistance > 0f) {
                                         val factor = (dist / lastDistance).coerceIn(0.85f, 1.15f)
                                         val oldW = vm.anim.frameWidthPx
-                                        val newW = (oldW * factor).coerceIn(160f, 400f)
+                                        val newW = (oldW * factor).coerceIn(96f, 480f)
                                         val trackPivotX = centroid.x - liveHeaderW.value
                                         if (trackPivotX > 0f) {
                                             val frameAtPivot = (vm.anim.scrollPx + trackPivotX) / oldW

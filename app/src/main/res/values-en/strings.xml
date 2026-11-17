@@ -3784,6 +3784,5 @@
     <string name="anim_delete_track_title">Delete the entire layer track?</string>
     <string name="anim_delete_track_message">This removes “%1$s” at every frame and can be undone.\nTo delete only the current cel, use the cel or layer panel delete button.</string>
     <string name="anim_delete_track_confirm">Delete entire track</string>
-    <string name="anim_scroll_timeline">Drag to scroll the animation timeline</string>
 </resources>
 

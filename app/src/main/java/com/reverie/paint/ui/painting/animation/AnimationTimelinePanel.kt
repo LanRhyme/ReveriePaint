@@ -361,7 +361,6 @@ private fun TimelinePanelSurface(
                     timelineTracks = timelineTracks,
                     onTrackHeaderWChange = onTrackHeaderWChange,
                 )
-                TimelineScrollBar(vm, trackHeaderW)
                 AnimatedContent(
                     targetState = vm.anim.isMultiSelectMode,
                     transitionSpec = {
@@ -401,7 +400,6 @@ private fun TimelinePanelSurface(
                     onTrackHeaderWChange = onTrackHeaderWChange,
                 )
 
-                TimelineScrollBar(vm, trackHeaderW)
                 AnimatedContent(
                     targetState = vm.anim.isMultiSelectMode,
                     transitionSpec = {

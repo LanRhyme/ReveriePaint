@@ -3783,6 +3783,5 @@
     <string name="anim_delete_track_title">是否要删除整条轴图层？</string>
     <string name="anim_delete_track_message">将删除“%1$s”在所有帧格中的内容，可撤销\n只删除当前格请使用帧格或图层面板的删除按钮</string>
     <string name="anim_delete_track_confirm">删除整条轴图层</string>
-    <string name="anim_scroll_timeline">拖动浏览整个动画时间轴</string>
 </resources>
 
