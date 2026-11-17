@@ -3161,6 +3161,9 @@ class PaintViewModel : ViewModel() {
         gestureThreeFingerRedo = newConfig.getTrigger(com.reverie.paint.model.GestureAction.REDO) != com.reverie.paint.model.GestureTrigger.NONE
         gestureThreeFingerEditMenu = newConfig.getTrigger(com.reverie.paint.model.GestureAction.QUICK_MENU) != com.reverie.paint.model.GestureTrigger.NONE
         gestureQuickPinchFit = newConfig.getTrigger(com.reverie.paint.model.GestureAction.FIT_CANVAS) != com.reverie.paint.model.GestureTrigger.NONE
+        if (action == com.reverie.paint.model.GestureAction.EYEDROPPER) {
+            longPressEyedropperEnabled = trigger == com.reverie.paint.model.GestureTrigger.SINGLE_FINGER_LONG_PRESS
+        }
 
         if (conflictAction != null && ::appContext.isInitialized) {
             val triggerName = appContext.getString(trigger.labelRes())
@@ -3402,6 +3405,10 @@ class PaintViewModel : ViewModel() {
 
     fun updateLongPressEyedropperEnabled(enable: Boolean) {
         longPressEyedropperEnabled = enable
+        val targetTrigger = if (enable) com.reverie.paint.model.GestureTrigger.SINGLE_FINGER_LONG_PRESS else com.reverie.paint.model.GestureTrigger.NONE
+        if (gestureConfig.getTrigger(com.reverie.paint.model.GestureAction.EYEDROPPER) != targetTrigger) {
+            updateGestureTrigger(com.reverie.paint.model.GestureAction.EYEDROPPER, targetTrigger)
+        }
         if (::appContext.isInitialized) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
@@ -3434,7 +3441,7 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    var penModeStylusEyedropperEnabled by mutableStateOf(true)
+    var penModeStylusEyedropperEnabled by mutableStateOf(false)
 
     fun updatePenModeStylusEyedropperEnabled(enable: Boolean) {
         penModeStylusEyedropperEnabled = enable
@@ -4994,7 +5001,7 @@ class PaintViewModel : ViewModel() {
             longPressEyedropperEnabled = prefs.getBoolean("longPressEyedropperEnabled", true)
             eyedropperSensitivity = prefs.getInt("eyedropperSensitivity", 3).coerceIn(1, 5)
             eyedropperOffsetEnabled = prefs.getBoolean("eyedropperOffsetEnabled", true)
-            penModeStylusEyedropperEnabled = prefs.getBoolean("penModeStylusEyedropperEnabled", true)
+            penModeStylusEyedropperEnabled = prefs.getBoolean("penModeStylusEyedropperEnabled", false)
             brushCursorMode = prefs.getInt("brushCursorMode", 3)
             eraserCursorMode = prefs.getInt("eraserCursorMode", 3)
             cursorStyleMode = prefs.getInt("cursorStyleMode", 5)

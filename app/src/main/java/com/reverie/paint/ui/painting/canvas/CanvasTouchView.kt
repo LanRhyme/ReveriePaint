@@ -1124,6 +1124,8 @@ class CanvasTouchView(context: Context) : View(context) {
     private var pendingDownScreenPos = Offset.Zero
     private var pendingDownPressure = 1f
     private var isLongPressPickerActive = false
+    private var pendingLongPressPointerId = -1
+    private var longPressPointerId = -1
     private var longPressToken = 0L
     private var activeLongPressToken = 0L
 
@@ -1131,15 +1133,42 @@ class CanvasTouchView(context: Context) : View(context) {
         if (isLongPressPickerActive || (tool != Tool.PICKER && pickerActive?.value == true)) {
             pickerActive?.value = false
             isLongPressPickerActive = false
+            longPressPointerId = -1
+            pendingLongPressPointerId = -1
             cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
             cachedDriver?.feedbackManager?.stopStrokeSound()
         }
+    }
+
+    private fun finishLongPressPicker(v: PaintViewModel) {
+        if (!isLongPressPickerActive) return
+        cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
+        cachedDriver?.feedbackManager?.stopStrokeSound()
+        lastSingleFingerTapTimeMs = 0L
+        lastSingleFingerTapDrewStroke = false
+        longPressPointerId = -1
+        pendingLongPressPointerId = -1
+        val curCol = pickerCurrentColor?.value
+        if (curCol != null && curCol.alpha > 0.05f) {
+            val r = (curCol.red * 255).toInt().coerceIn(0, 255)
+            val g = (curCol.green * 255).toInt().coerceIn(0, 255)
+            val b = (curCol.blue * 255).toInt().coerceIn(0, 255)
+            val hex = String.format("#%02X%02X%02X", r, g, b)
+            v.updateBrushColor(hex)
+            v.showActionToast(context.getString(R.string.canvas_toast_color_picked), R.drawable.ic_picker)
+        }
+        pickerActive?.value = false
+        isLongPressPickerActive = false
+        localIsTouching = false
+        clearLocalCursorPos()
+        invalidate()
     }
 
     private val longPressRunnable = Runnable {
         val v = vm ?: return@Runnable
         if (activeLongPressToken == longPressToken && isPendingLongPress && !isTransformActive && maxTouchPointers <= 1) {
             isPendingLongPress = false
+            longPressPointerId = pendingLongPressPointerId
             // 12 条强制复位路径之一：长按吸色打断笔画。
             clearAllEvasionState(v)
             if (strokeStarted) {
@@ -1616,9 +1645,11 @@ class CanvasTouchView(context: Context) : View(context) {
         isPendingEdgeFinger = false
         val v = vm ?: return
         val canEyedrop = v.longPressEyedropperEnabled &&
+            (v.gestureConfig.getTrigger(com.reverie.paint.model.GestureAction.EYEDROPPER) == com.reverie.paint.model.GestureTrigger.SINGLE_FINGER_LONG_PRESS) &&
             (effTool() == Tool.BRUSH || effTool() == Tool.ERASER || effTool() == Tool.SMUDGE || effTool() == Tool.LIQUIFY)
         if (canEyedrop) {
             isPendingLongPress = true
+            pendingLongPressPointerId = 0
             activeLongPressToken = longPressToken
             pendingDownDocPos = pendingEdgeDocPos
             pendingDownScreenPos = pendingEdgeScreenPos
@@ -3769,6 +3800,30 @@ class CanvasTouchView(context: Context) : View(context) {
         }
         pickerScreenPos?.value = samplePos
         val docPos = screenToDoc(samplePos)
+
+        // 当前图层模式：直接从底层当前图层的 PaintDevice 采样
+        if (v.pickerSampleLayers == 0 || v.pickerCurrentLayerOnly) {
+            val ix = docPos.x.toInt()
+            val iy = docPos.y.toInt()
+            val docW = if (v.docWidth > 0) v.docWidth else (v.displayBitmap?.width ?: 0)
+            val docH = if (v.docHeight > 0) v.docHeight else (v.displayBitmap?.height ?: 0)
+            if (ix in 0 until docW && iy in 0 until docH) {
+                val hex = ReverieCoreBridge.pickColorAt(ix, iy, true)
+                if (!hex.isNullOrEmpty()) {
+                    try {
+                        pickerCurrentColor?.value = Color(android.graphics.Color.parseColor(hex))
+                    } catch (_: Throwable) {
+                        pickerCurrentColor?.value = Color.Transparent
+                    }
+                } else {
+                    pickerCurrentColor?.value = Color.Transparent
+                }
+            } else {
+                pickerCurrentColor?.value = Color.Transparent
+            }
+            return
+        }
+
         val tiles = v.displayTiles.drawable()
         if (tiles != null) {
             // 瓦片路径下没有整图: 直接从覆盖该像素的瓦片取色 (瓦片坐标 = 文档坐标)
@@ -5367,7 +5422,7 @@ class CanvasTouchView(context: Context) : View(context) {
             }
 
             val canEyedrop = v.longPressEyedropperEnabled &&
-                (!v.penOnlyMode || v.penModeStylusEyedropperEnabled) &&
+                v.penModeStylusEyedropperEnabled &&
                 (effTool() == Tool.BRUSH || effTool() == Tool.ERASER || effTool() == Tool.SMUDGE || effTool() == Tool.LIQUIFY)
 
             when (event.actionMasked) {
@@ -5425,6 +5480,7 @@ class CanvasTouchView(context: Context) : View(context) {
 
                     if (canEyedrop) {
                         isPendingLongPress = true
+                        pendingLongPressPointerId = event.getPointerId(stylusPointerIndex)
                         activeLongPressToken = longPressToken
                         pendingDownDocPos = docPos
                         pendingDownScreenPos = screenPos
@@ -5519,21 +5575,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     longPressToken++
                     isPendingLongPress = false
                     if (isLongPressPickerActive) {
-                        val curCol = pickerCurrentColor?.value
-                        if (curCol != null) {
-                            val r = (curCol.red * 255).toInt().coerceIn(0, 255)
-                            val g = (curCol.green * 255).toInt().coerceIn(0, 255)
-                            val b = (curCol.blue * 255).toInt().coerceIn(0, 255)
-                            val hex = String.format("#%02X%02X%02X", r, g, b)
-                            v.updateBrushColor(hex)
-                            v.showActionToast(context.getString(R.string.canvas_toast_color_picked), R.drawable.ic_picker)
-                        }
-                        pickerActive?.value = false
-                        isLongPressPickerActive = false
-                        localIsTouching = false
+                        finishLongPressPicker(v)
                         localIsHovering = true
-                        isInteracting = false
-                        invalidate()
                         return true
                     }
 
@@ -5557,6 +5600,57 @@ class CanvasTouchView(context: Context) : View(context) {
         val numFingers = fingerCount
         maxTouchPointers = maxOf(maxTouchPointers, numFingers)
         isInteracting = true
+
+        // ---- 长按吸色状态下的副手指点按交互 ----
+        // 单指长按激活吸色后，若另一只手指点击画布，切换吸取模式 (当前图层 <-> 全部图层)，不打断吸色与变换
+        if (isLongPressPickerActive) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_POINTER_DOWN -> {
+                    val newMode = if (v.pickerSampleLayers == 1) 0 else 1
+                    v.updatePickerSampleLayers(newMode)
+                    val primaryIdx = if (longPressPointerId >= 0) event.findPointerIndex(longPressPointerId) else -1
+                    val primaryPos = if (primaryIdx >= 0) {
+                        Offset(event.getX(primaryIdx), event.getY(primaryIdx))
+                    } else {
+                        pendingDownScreenPos
+                    }
+                    sampleColorAtScreenPos(primaryPos)
+                    try {
+                        performHapticFeedback(android.view.HapticFeedbackConstants.KEYBOARD_TAP)
+                    } catch (_: Throwable) {}
+                    val modeName = if (newMode == 0) R.string.selection_current_layer else R.string.selection_all_layers
+                    val modeIcon = if (newMode == 0) R.drawable.ic_layers else R.drawable.ic_layerstack
+                    v.showActionToast(modeName, modeIcon)
+                    return true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    val primaryIdx = if (longPressPointerId >= 0) event.findPointerIndex(longPressPointerId) else 0
+                    if (primaryIdx in 0 until event.pointerCount) {
+                        sampleColorAtScreenPos(Offset(event.getX(primaryIdx), event.getY(primaryIdx)))
+                    }
+                    return true
+                }
+                MotionEvent.ACTION_POINTER_UP -> {
+                    val upPointerId = event.getPointerId(event.actionIndex)
+                    if (upPointerId != longPressPointerId) {
+                        return true
+                    }
+                    finishLongPressPicker(v)
+                    return true
+                }
+                MotionEvent.ACTION_UP -> {
+                    finishLongPressPicker(v)
+                    return true
+                }
+                MotionEvent.ACTION_CANCEL -> {
+                    dismissPickerOverlay()
+                    localIsTouching = false
+                    clearLocalCursorPos()
+                    invalidate()
+                    return true
+                }
+            }
+        }
 
         // Reserve a fresh three-finger gesture before viewport navigation sees it.
         // Keep ownership through staggered pointer-up events: neither redo nor a stray stroke
@@ -6109,7 +6203,9 @@ class CanvasTouchView(context: Context) : View(context) {
         val isTouchSlideQuickMenu = v.gestureConfig.getTrigger(com.reverie.paint.model.GestureAction.QUICK_MENU) ==
             com.reverie.paint.model.GestureTrigger.SINGLE_FINGER_TOUCH_SLIDE
         val isDrawingTool = effTool() == Tool.BRUSH || effTool() == Tool.ERASER || effTool() == Tool.SMUDGE || effTool() == Tool.LIQUIFY
-        val canEyedrop = v.longPressEyedropperEnabled && isDrawingTool
+        val canEyedrop = v.longPressEyedropperEnabled &&
+            (v.gestureConfig.getTrigger(com.reverie.paint.model.GestureAction.EYEDROPPER) == com.reverie.paint.model.GestureTrigger.SINGLE_FINGER_LONG_PRESS) &&
+            isDrawingTool
         val isPanTool = effTool() == Tool.PAN
         val isSinglePointerPan = isPanTool || (!isTouchSlideQuickMenu && v.penOnlyMode && v.penModeSingleFingerPanEnabled && (
             tool.group == ToolGroup.BRUSH ||
@@ -6205,6 +6301,7 @@ class CanvasTouchView(context: Context) : View(context) {
 
                 if (canEyedrop) {
                     isPendingLongPress = true
+                    pendingLongPressPointerId = event.getPointerId(singleFingerIdx)
                     activeLongPressToken = longPressToken
                     pendingDownDocPos = docPos
                     pendingDownScreenPos = screenPos
@@ -6412,24 +6509,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
 
                 if (isLongPressPickerActive) {
-                    cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
-                    cachedDriver?.feedbackManager?.stopStrokeSound()
-                    lastSingleFingerTapTimeMs = 0L
-                    lastSingleFingerTapDrewStroke = false
-                    val curCol = pickerCurrentColor?.value
-                    if (curCol != null) {
-                        val r = (curCol.red * 255).toInt().coerceIn(0, 255)
-                        val g = (curCol.green * 255).toInt().coerceIn(0, 255)
-                        val b = (curCol.blue * 255).toInt().coerceIn(0, 255)
-                        val hex = String.format("#%02X%02X%02X", r, g, b)
-                        v.updateBrushColor(hex)
-                        v.showActionToast(context.getString(R.string.canvas_toast_color_picked), R.drawable.ic_picker)
-                    }
-                    pickerActive?.value = false
-                    isLongPressPickerActive = false
-                    localIsTouching = false
-                    clearLocalCursorPos()
-                    invalidate()
+                    finishLongPressPicker(v)
                     return true
                 }
 

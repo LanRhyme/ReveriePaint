@@ -11,6 +11,7 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
+import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.dp
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.GuideMode
@@ -350,100 +351,134 @@ internal fun DrawScope.drawColorLoupe(
     pickerScreenPos: Offset,
     pickerInitialColor: Color,
     pickerCurrentColor: Color,
+    animProgress: Float = 1f,
 ) {
-            // Draw PaintWorld-style Color Loupe when picker is active
-            if (pickerActive) {
-                val loupeCenter = pickerScreenPos + Offset(0f, -80.dp.toPx())
-                val outerRadius = 45.dp.toPx()
-                val innerRadius = 28.dp.toPx()
-                val ringThickness = outerRadius - innerRadius
-                val ringRadius = (outerRadius + innerRadius) / 2f
+    if (animProgress <= 0.001f) return
 
-                // Outer drop shadow
-                drawCircle(
-                    color = Color.Black.copy(alpha = 0.35f),
-                    radius = outerRadius + 4.dp.toPx(),
-                    center = loupeCenter
-                )
+    val alpha = animProgress.coerceIn(0f, 1f)
+    val loupeScale = (0.55f + 0.45f * animProgress).coerceAtLeast(0f)
+    val crosshairScale = animProgress.coerceIn(0f, 1f)
 
-                // Top half ring: Reference / Previous color
-                drawArc(
-                    color = pickerInitialColor,
-                    startAngle = 180f,
-                    sweepAngle = 180f,
-                    useCenter = false,
-                    topLeft = Offset(loupeCenter.x - ringRadius, loupeCenter.y - ringRadius),
-                    size = Size(ringRadius * 2, ringRadius * 2),
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = ringThickness)
-                )
+    val outerRadius = 45.dp.toPx()
+    val innerRadius = 28.dp.toPx()
+    val ringThickness = outerRadius - innerRadius
+    val ringRadius = (outerRadius + innerRadius) / 2f
+    val margin = outerRadius + 8.dp.toPx()
 
-                // Bottom half ring: Current sampled color
-                drawArc(
-                    color = pickerCurrentColor,
-                    startAngle = 0f,
-                    sweepAngle = 180f,
-                    useCenter = false,
-                    topLeft = Offset(loupeCenter.x - ringRadius, loupeCenter.y - ringRadius),
-                    size = Size(ringRadius * 2, ringRadius * 2),
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = ringThickness)
-                )
+    val offsetY = if (pickerScreenPos.y - 80.dp.toPx() - outerRadius < 12.dp.toPx()) {
+        80.dp.toPx()
+    } else {
+        -80.dp.toPx()
+    }
+    val rawLoupeCenter = pickerScreenPos + Offset(0f, offsetY)
+    val clampedX = rawLoupeCenter.x.coerceIn(margin, size.width - margin)
+    val clampedY = rawLoupeCenter.y.coerceIn(margin, size.height - margin)
+    val loupeCenter = Offset(clampedX, clampedY)
 
-                // Outer border line
-                drawCircle(
-                    color = Color.Black.copy(alpha = 0.5f),
-                    radius = outerRadius,
-                    center = loupeCenter,
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
-                )
-                // Inner border line
-                drawCircle(
-                    color = Color.Black.copy(alpha = 0.5f),
-                    radius = innerRadius,
-                    center = loupeCenter,
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx())
-                )
+    withTransform({
+        scale(scaleX = loupeScale, scaleY = loupeScale, pivot = loupeCenter)
+    }) {
+        // Outer drop shadow
+        drawCircle(
+            color = Color.Black.copy(alpha = 0.35f * alpha),
+            radius = outerRadius + 4.dp.toPx(),
+            center = loupeCenter
+        )
 
-                // Center crosshair inside the loupe
-                val crosshairInner = 6.dp.toPx()
-                drawLine(
-                    color = Color.Black.copy(alpha = 0.7f),
-                    start = Offset(loupeCenter.x - crosshairInner, loupeCenter.y),
-                    end = Offset(loupeCenter.x + crosshairInner, loupeCenter.y),
-                    strokeWidth = 1.5.dp.toPx()
-                )
-                drawLine(
-                    color = Color.Black.copy(alpha = 0.7f),
-                    start = Offset(loupeCenter.x, loupeCenter.y - crosshairInner),
-                    end = Offset(loupeCenter.x, loupeCenter.y + crosshairInner),
-                    strokeWidth = 1.5.dp.toPx()
-                )
+        // Top half ring: Reference / Previous color
+        drawArc(
+            color = pickerInitialColor.copy(alpha = pickerInitialColor.alpha * alpha),
+            startAngle = 180f,
+            sweepAngle = 180f,
+            useCenter = false,
+            topLeft = Offset(loupeCenter.x - ringRadius, loupeCenter.y - ringRadius),
+            size = Size(ringRadius * 2, ringRadius * 2),
+            style = Stroke(width = ringThickness)
+        )
 
-                // Crosshair at the target touch point on the canvas
-                val crossLen = 14.dp.toPx()
-                drawLine(
-                    color = Color.Black.copy(alpha = 0.5f),
-                    start = Offset(pickerScreenPos.x - crossLen, pickerScreenPos.y),
-                    end = Offset(pickerScreenPos.x + crossLen, pickerScreenPos.y),
-                    strokeWidth = 3.dp.toPx()
-                )
-                drawLine(
-                    color = Color.White,
-                    start = Offset(pickerScreenPos.x - crossLen, pickerScreenPos.y),
-                    end = Offset(pickerScreenPos.x + crossLen, pickerScreenPos.y),
-                    strokeWidth = 1.5.dp.toPx()
-                )
-                drawLine(
-                    color = Color.Black.copy(alpha = 0.5f),
-                    start = Offset(pickerScreenPos.x, pickerScreenPos.y - crossLen),
-                    end = Offset(pickerScreenPos.x, pickerScreenPos.y + crossLen),
-                    strokeWidth = 3.dp.toPx()
-                )
-                drawLine(
-                    color = Color.White,
-                    start = Offset(pickerScreenPos.x, pickerScreenPos.y - crossLen),
-                    end = Offset(pickerScreenPos.x, pickerScreenPos.y + crossLen),
-                    strokeWidth = 1.5.dp.toPx()
-                )
-            }
+        // Bottom half ring: Current sampled color
+        if (pickerCurrentColor.alpha > 0.02f) {
+            drawArc(
+                color = pickerCurrentColor.copy(alpha = pickerCurrentColor.alpha * alpha),
+                startAngle = 0f,
+                sweepAngle = 180f,
+                useCenter = false,
+                topLeft = Offset(loupeCenter.x - ringRadius, loupeCenter.y - ringRadius),
+                size = Size(ringRadius * 2, ringRadius * 2),
+                style = Stroke(width = ringThickness)
+            )
+        } else {
+            // Transparent indication (e.g. current layer has no pixels here)
+            drawArc(
+                color = Color.Gray.copy(alpha = 0.35f * alpha),
+                startAngle = 0f,
+                sweepAngle = 180f,
+                useCenter = false,
+                topLeft = Offset(loupeCenter.x - ringRadius, loupeCenter.y - ringRadius),
+                size = Size(ringRadius * 2, ringRadius * 2),
+                style = Stroke(width = ringThickness)
+            )
+        }
 
+        // Outer border line
+        drawCircle(
+            color = Color.Black.copy(alpha = 0.5f * alpha),
+            radius = outerRadius,
+            center = loupeCenter,
+            style = Stroke(width = 1.5.dp.toPx())
+        )
+        // Inner border line
+        drawCircle(
+            color = Color.Black.copy(alpha = 0.5f * alpha),
+            radius = innerRadius,
+            center = loupeCenter,
+            style = Stroke(width = 1.5.dp.toPx())
+        )
+
+        // Center crosshair inside the loupe
+        val crosshairInner = 6.dp.toPx()
+        drawLine(
+            color = Color.Black.copy(alpha = 0.7f * alpha),
+            start = Offset(loupeCenter.x - crosshairInner, loupeCenter.y),
+            end = Offset(loupeCenter.x + crosshairInner, loupeCenter.y),
+            strokeWidth = 1.5.dp.toPx()
+        )
+        drawLine(
+            color = Color.Black.copy(alpha = 0.7f * alpha),
+            start = Offset(loupeCenter.x, loupeCenter.y - crosshairInner),
+            end = Offset(loupeCenter.x, loupeCenter.y + crosshairInner),
+            strokeWidth = 1.5.dp.toPx()
+        )
+    }
+
+    // Crosshair at the target touch point on the canvas
+    withTransform({
+        scale(scaleX = crosshairScale, scaleY = crosshairScale, pivot = pickerScreenPos)
+    }) {
+        val crossLen = 14.dp.toPx()
+        drawLine(
+            color = Color.Black.copy(alpha = 0.5f * alpha),
+            start = Offset(pickerScreenPos.x - crossLen, pickerScreenPos.y),
+            end = Offset(pickerScreenPos.x + crossLen, pickerScreenPos.y),
+            strokeWidth = 3.dp.toPx()
+        )
+        drawLine(
+            color = Color.White.copy(alpha = alpha),
+            start = Offset(pickerScreenPos.x - crossLen, pickerScreenPos.y),
+            end = Offset(pickerScreenPos.x + crossLen, pickerScreenPos.y),
+            strokeWidth = 1.5.dp.toPx()
+        )
+        drawLine(
+            color = Color.Black.copy(alpha = 0.5f * alpha),
+            start = Offset(pickerScreenPos.x, pickerScreenPos.y - crossLen),
+            end = Offset(pickerScreenPos.x, pickerScreenPos.y + crossLen),
+            strokeWidth = 3.dp.toPx()
+        )
+        drawLine(
+            color = Color.White.copy(alpha = alpha),
+            start = Offset(pickerScreenPos.x, pickerScreenPos.y - crossLen),
+            end = Offset(pickerScreenPos.x, pickerScreenPos.y + crossLen),
+            strokeWidth = 1.5.dp.toPx()
+        )
+    }
 }

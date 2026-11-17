@@ -610,6 +610,14 @@ internal fun SettingsTabPage(
                             onClick = { selectingActionForTrigger = GestureAction.FIT_CANVAS },
                         )
 
+                        SettingsInnerDivider()
+
+                        // 吸管取色
+                        GestureActionRow(
+                            action = GestureAction.EYEDROPPER,
+                            trigger = vm.gestureConfig.getTrigger(GestureAction.EYEDROPPER),
+                            onClick = { selectingActionForTrigger = GestureAction.EYEDROPPER },
+                        )
 
                         SettingsInnerDivider()
 

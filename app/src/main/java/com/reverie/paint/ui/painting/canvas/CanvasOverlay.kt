@@ -133,6 +133,20 @@ internal fun CanvasOverlay(
         label = "selectionFraction"
     )
 
+    // 吸色放大镜平滑微弹出现与渐隐动画
+    val pickerAnimProgress by androidx.compose.animation.core.animateFloatAsState(
+        targetValue = if (pickerActive.value) 1f else 0f,
+        animationSpec = if (pickerActive.value) {
+            androidx.compose.animation.core.spring(
+                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+            )
+        } else {
+            androidx.compose.animation.core.tween(durationMillis = 140, easing = androidx.compose.animation.core.FastOutLinearInEasing)
+        },
+        label = "pickerAnimProgress",
+    )
+
     // 45 度斜向条纹纹理：周期 24px，暗条纹与微透亮条纹交错，完全无缝平铺
     // 柔和低对比度中性灰阶斑马纹（Procreate 原生质感）：
     // 暗阶 ~18% 透明度 (0x2E141416)，明阶 ~8% 透明度 (0x14141416)
@@ -1628,11 +1642,14 @@ internal fun CanvasOverlay(
 
             }
 
-            drawColorLoupe(
-                pickerActive = pickerActive.value,
-                pickerScreenPos = pickerScreenPos.value,
-                pickerInitialColor = pickerInitialColor.value,
-                pickerCurrentColor = pickerCurrentColor.value,
-            )
+            if (pickerAnimProgress > 0.001f) {
+                drawColorLoupe(
+                    pickerActive = true,
+                    pickerScreenPos = pickerScreenPos.value,
+                    pickerInitialColor = pickerInitialColor.value,
+                    pickerCurrentColor = pickerCurrentColor.value,
+                    animProgress = pickerAnimProgress,
+                )
+            }
         }
 }
