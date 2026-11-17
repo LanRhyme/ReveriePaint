@@ -4,7 +4,9 @@
 
 package com.reverie.paint.ui.painting
 
+import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.Animatable
 import androidx.compose.animation.core.AnimationVector1D
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -13,10 +15,13 @@ import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
+import androidx.compose.animation.scaleIn
+import androidx.compose.animation.scaleOut
 import androidx.compose.animation.slideInHorizontally
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.slideOutHorizontally
 import androidx.compose.animation.slideOutVertically
+import androidx.compose.animation.togetherWith
 import android.graphics.BitmapFactory
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
@@ -2347,27 +2352,44 @@ fun PaintingPage(
                         .clip(RoundedCornerShape(10.dp))
                         .background(Morandi.panelHi.copy(alpha = 0.94f))
                         .glassBorder(RoundedCornerShape(10.dp))
+                        .animateContentSize(
+                            animationSpec = spring(
+                                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                                stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+                            ),
+                        )
                         .padding(horizontal = 12.dp, vertical = 6.dp),
                 contentAlignment = Alignment.Center,
             ) {
-                Row(
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                ) {
-                    if (iconRes != null) {
-                        Icon(
-                            painter = painterResource(iconRes),
-                            contentDescription = msg,
-                            tint = Morandi.text,
-                            modifier = Modifier.size(15.dp),
+                AnimatedContent(
+                    targetState = Pair(msg, iconRes),
+                    transitionSpec = {
+                        (fadeIn(tween(140)) + scaleIn(initialScale = 0.92f, animationSpec = tween(140)))
+                            .togetherWith(
+                                fadeOut(tween(110)) + scaleOut(targetScale = 1.06f, animationSpec = tween(110))
+                            )
+                    },
+                    label = "actionToastContent",
+                ) { (currentMsg, currentIcon) ->
+                    Row(
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        if (currentIcon != null) {
+                            Icon(
+                                painter = painterResource(currentIcon),
+                                contentDescription = currentMsg,
+                                tint = Morandi.text,
+                                modifier = Modifier.size(15.dp),
+                            )
+                        }
+                        Text(
+                            currentMsg,
+                            color = Morandi.text,
+                            fontSize = 11.5.sp,
+                            fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
                         )
                     }
-                    Text(
-                        msg,
-                        color = Morandi.text,
-                        fontSize = 11.5.sp,
-                        fontWeight = androidx.compose.ui.text.font.FontWeight.Medium,
-                    )
                 }
             }
         }

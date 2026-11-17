@@ -42,6 +42,8 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.input.pointer.PointerEventType
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.PointerType
@@ -146,6 +148,37 @@ internal fun CanvasOverlay(
         },
         label = "pickerAnimProgress",
     )
+
+    // 长按吸色状态下副手指点按切换采样模式 (当前图层 <-> 全部图层) 时的弹性微动效与光环扩散
+    val pickerModePulseAnim = androidx.compose.runtime.remember { androidx.compose.animation.core.Animatable(0f) }
+    var lastPickerSampleMode by androidx.compose.runtime.remember { androidx.compose.runtime.mutableIntStateOf(vm.pickerSampleLayers) }
+    androidx.compose.runtime.LaunchedEffect(vm.pickerSampleLayers) {
+        if (pickerActive.value && vm.pickerSampleLayers != lastPickerSampleMode) {
+            pickerModePulseAnim.snapTo(1f)
+            pickerModePulseAnim.animateTo(
+                targetValue = 0f,
+                animationSpec = androidx.compose.animation.core.spring(
+                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+                ),
+            )
+        }
+        lastPickerSampleMode = vm.pickerSampleLayers
+    }
+
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val loupeTextPaint = androidx.compose.runtime.remember(density) {
+        android.graphics.Paint().apply {
+            isAntiAlias = true
+            textSize = with(density) { 10.5.sp.toPx() }
+            color = android.graphics.Color.WHITE
+            textAlign = android.graphics.Paint.Align.CENTER
+            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+        }
+    }
+    val currentLayerStr = stringResource(com.reverie.paint.R.string.selection_current_layer)
+    val allLayersStr = stringResource(com.reverie.paint.R.string.selection_all_layers)
+    val pickerModeLabel = if (vm.pickerSampleLayers == 0) currentLayerStr else allLayersStr
 
     // 45 度斜向条纹纹理：周期 24px，暗条纹与微透亮条纹交错，完全无缝平铺
     // 柔和低对比度中性灰阶斑马纹（Procreate 原生质感）：
@@ -1649,6 +1682,10 @@ internal fun CanvasOverlay(
                     pickerInitialColor = pickerInitialColor.value,
                     pickerCurrentColor = pickerCurrentColor.value,
                     animProgress = pickerAnimProgress,
+                    modePulseProgress = pickerModePulseAnim.value,
+                    sampleLayersMode = vm.pickerSampleLayers,
+                    modeLabel = pickerModeLabel,
+                    loupeTextPaint = loupeTextPaint,
                 )
             }
         }

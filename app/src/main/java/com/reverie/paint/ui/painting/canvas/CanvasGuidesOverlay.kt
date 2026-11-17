@@ -8,6 +8,7 @@ import com.reverie.paint.model.CanvasDecorGeometry
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
@@ -352,11 +353,17 @@ internal fun DrawScope.drawColorLoupe(
     pickerInitialColor: Color,
     pickerCurrentColor: Color,
     animProgress: Float = 1f,
+    modePulseProgress: Float = 0f,
+    sampleLayersMode: Int = 1,
+    modeLabel: String = "",
+    loupeTextPaint: android.graphics.Paint? = null,
 ) {
     if (animProgress <= 0.001f) return
 
     val alpha = animProgress.coerceIn(0f, 1f)
-    val loupeScale = (0.55f + 0.45f * animProgress).coerceAtLeast(0f)
+    val baseScale = (0.55f + 0.45f * animProgress).coerceAtLeast(0f)
+    val modePulseScale = 1f + 0.09f * modePulseProgress.coerceIn(0f, 1f)
+    val loupeScale = baseScale * modePulseScale
     val crosshairScale = animProgress.coerceIn(0f, 1f)
 
     val outerRadius = 45.dp.toPx()
@@ -365,7 +372,8 @@ internal fun DrawScope.drawColorLoupe(
     val ringRadius = (outerRadius + innerRadius) / 2f
     val margin = outerRadius + 8.dp.toPx()
 
-    val offsetY = if (pickerScreenPos.y - 80.dp.toPx() - outerRadius < 12.dp.toPx()) {
+    val isLoupeBelow = pickerScreenPos.y - 80.dp.toPx() - outerRadius < 12.dp.toPx()
+    val offsetY = if (isLoupeBelow) {
         80.dp.toPx()
     } else {
         -80.dp.toPx()
@@ -374,6 +382,18 @@ internal fun DrawScope.drawColorLoupe(
     val clampedX = rawLoupeCenter.x.coerceIn(margin, size.width - margin)
     val clampedY = rawLoupeCenter.y.coerceIn(margin, size.height - margin)
     val loupeCenter = Offset(clampedX, clampedY)
+
+    // 1. 模式切换脉冲光圈波纹 (向外扩散淡出)
+    if (modePulseProgress > 0.001f) {
+        val rippleDist = 18.dp.toPx() * (1f - modePulseProgress)
+        val rippleAlpha = modePulseProgress * 0.45f * alpha
+        drawCircle(
+            color = Color.White.copy(alpha = rippleAlpha),
+            radius = outerRadius + rippleDist,
+            center = loupeCenter,
+            style = Stroke(width = 2.dp.toPx()),
+        )
+    }
 
     withTransform({
         scale(scaleX = loupeScale, scaleY = loupeScale, pivot = loupeCenter)
@@ -449,6 +469,91 @@ internal fun DrawScope.drawColorLoupe(
             end = Offset(loupeCenter.x, loupeCenter.y + crosshairInner),
             strokeWidth = 1.5.dp.toPx()
         )
+    }
+
+    // 2. 悬浮吸色模式胶囊标签 (紧随放大镜外侧，带微弹动效)
+    if (modeLabel.isNotEmpty() && loupeTextPaint != null) {
+        val textWidth = loupeTextPaint.measureText(modeLabel)
+        val badgeW = (textWidth + 34.dp.toPx()).coerceAtLeast(76.dp.toPx())
+        val badgeH = 22.dp.toPx()
+        val badgeCenterY = if (isLoupeBelow) {
+            loupeCenter.y + outerRadius + 16.dp.toPx()
+        } else {
+            loupeCenter.y - outerRadius - 16.dp.toPx()
+        }
+        val clampedBadgeX = loupeCenter.x.coerceIn(badgeW / 2 + 8.dp.toPx(), size.width - badgeW / 2 - 8.dp.toPx())
+        val clampedBadgeY = badgeCenterY.coerceIn(badgeH / 2 + 8.dp.toPx(), size.height - badgeH / 2 - 8.dp.toPx())
+        val badgeCenter = Offset(clampedBadgeX, clampedBadgeY)
+        val badgeScale = baseScale * (1f + 0.12f * modePulseProgress.coerceIn(0f, 1f))
+
+        withTransform({
+            scale(scaleX = badgeScale, scaleY = badgeScale, pivot = badgeCenter)
+        }) {
+            // 胶囊背景阴影与毛玻璃底色
+            drawRoundRect(
+                color = Color.Black.copy(alpha = 0.35f * alpha),
+                topLeft = Offset(badgeCenter.x - badgeW / 2 - 1.dp.toPx(), badgeCenter.y - badgeH / 2 - 1.dp.toPx()),
+                size = Size(badgeW + 2.dp.toPx(), badgeH + 2.dp.toPx()),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(badgeH / 2 + 1.dp.toPx()),
+            )
+            drawRoundRect(
+                color = Color(0xEE222224).copy(alpha = 0.92f * alpha),
+                topLeft = Offset(badgeCenter.x - badgeW / 2, badgeCenter.y - badgeH / 2),
+                size = Size(badgeW, badgeH),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(badgeH / 2),
+            )
+            drawRoundRect(
+                color = Color.White.copy(alpha = 0.18f * alpha),
+                topLeft = Offset(badgeCenter.x - badgeW / 2, badgeCenter.y - badgeH / 2),
+                size = Size(badgeW, badgeH),
+                cornerRadius = androidx.compose.ui.geometry.CornerRadius(badgeH / 2),
+                style = Stroke(width = 1.dp.toPx()),
+            )
+
+            // 图层模式微型指示图标: 当前图层为单层圆角矩形，全部图层为双层叠放矩形
+            val iconX = badgeCenter.x - badgeW / 2 + 12.dp.toPx()
+            val iconY = badgeCenter.y
+            val iconW = 9.dp.toPx()
+            val iconH = 6.dp.toPx()
+            if (sampleLayersMode == 0) {
+                // 单图层 (当前图层)
+                drawRoundRect(
+                    color = Color.White.copy(alpha = 0.9f * alpha),
+                    topLeft = Offset(iconX - iconW / 2, iconY - iconH / 2),
+                    size = Size(iconW, iconH),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.5.dp.toPx()),
+                    style = Stroke(width = 1.2.dp.toPx()),
+                )
+            } else {
+                // 多图层 (全部图层)
+                drawRoundRect(
+                    color = Color.White.copy(alpha = 0.55f * alpha),
+                    topLeft = Offset(iconX - iconW / 2 - 1.5.dp.toPx(), iconY - iconH / 2 - 1.5.dp.toPx()),
+                    size = Size(iconW, iconH),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.5.dp.toPx()),
+                    style = Stroke(width = 1f.dp.toPx()),
+                )
+                drawRoundRect(
+                    color = Color.White.copy(alpha = 0.95f * alpha),
+                    topLeft = Offset(iconX - iconW / 2 + 1.5.dp.toPx(), iconY - iconH / 2 + 1.5.dp.toPx()),
+                    size = Size(iconW, iconH),
+                    cornerRadius = androidx.compose.ui.geometry.CornerRadius(1.5.dp.toPx()),
+                    style = Stroke(width = 1.2.dp.toPx()),
+                )
+            }
+
+            // 模式文本文字 (居中偏右，避让图标)
+            loupeTextPaint.alpha = (255 * alpha).toInt().coerceIn(0, 255)
+            val fontMetrics = loupeTextPaint.fontMetrics
+            val textBaselineY = badgeCenter.y - (fontMetrics.ascent + fontMetrics.descent) / 2f
+            val textCenterX = badgeCenter.x - badgeW / 2 + 20.dp.toPx() + textWidth / 2f
+            drawContext.canvas.nativeCanvas.drawText(
+                modeLabel,
+                textCenterX,
+                textBaselineY,
+                loupeTextPaint,
+            )
+        }
     }
 
     // Crosshair at the target touch point on the canvas
