@@ -6,6 +6,8 @@ package com.reverie.paint.core
 
 import android.graphics.Bitmap
 import com.reverie.paint.R
+import com.reverie.paint.model.AudioClip
+import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -105,23 +107,73 @@ internal fun PaintViewModel.resetAnimationState() {
 // 动画音频: 导入的资源在播放时同步播放 (循环), 暂停/停止即停
 // ============================================================
 
-/** 播放所有导入的音频资源。字节从引擎取出写临时文件, MediaPlayer 循环播放。 */
+/** 按各音频条的时间位置播放。引擎资源只在渲染线程读取, 文件写入放 IO 线程。 */
 private fun PaintViewModel.startAnimAudio() {
     stopAnimAudio()
-    val names = anim.audioAssets
-    if (names.isEmpty()) return
-    val dir = java.io.File(appContext.cacheDir, "anim_audio").apply { mkdirs() }
-    for (name in names) {
-        val bytes = runCatching { ReverieCoreBridge.revAssetBytes(name) }.getOrNull() ?: continue
-        val f = java.io.File(dir, name.replace('/', '_'))
-        runCatching {
-            f.writeBytes(bytes)
-            val mp = android.media.MediaPlayer()
-            mp.setDataSource(f.absolutePath)
-            mp.isLooping = anim.loopPlayback
-            mp.prepare()
-            mp.start()
-            animAudioPlayers.add(mp)
+    val clips = anim.audioClips
+    if (clips.isEmpty()) return
+    val generation = anim.playGen
+    val fps = anim.framerate.coerceIn(1, 240)
+    val payloads = mutableListOf<Pair<AudioClip, ByteArray>>()
+
+    // ReverieCoreBridge 只在引擎渲染线程调用, 不能从播放按钮的 UI 线程读取资源。
+    renderHandler?.post {
+        for (clip in clips) {
+            val bytes = runCatching { ReverieCoreBridge.revAssetBytes(clip.name) }
+                .getOrNull()?.takeIf { it.isNotEmpty() } ?: continue
+            payloads += clip to bytes
+        }
+        CoroutineScope(Dispatchers.IO).launch {
+            val dir = java.io.File(appContext.cacheDir, "anim_audio").apply { mkdirs() }
+            val files = payloads.mapNotNull { (clip, bytes) ->
+                runCatching {
+                    clip to java.io.File(dir, clip.name.replace('/', '_')).apply { writeBytes(bytes) }
+                }.getOrNull()
+            }
+            mainHandler.post {
+                if (!anim.isPlaying || generation != anim.playGen) return@post
+                for ((clip, file) in files) {
+                    runCatching {
+                        val player = android.media.MediaPlayer()
+                        player.setDataSource(file.absolutePath)
+                        player.isLooping = anim.loopPlayback
+                        animAudioPlayers.add(player)
+                        player.setOnPreparedListener { prepared ->
+                            if (!anim.isPlaying || generation != anim.playGen) {
+                                animAudioPlayers.remove(prepared)
+                                runCatching { prepared.release() }
+                                return@setOnPreparedListener
+                            }
+                            val currentFrame = anim.currentTime
+                            if (currentFrame >= clip.startFrame + clip.durationFrames) {
+                                animAudioPlayers.remove(prepared)
+                                runCatching { prepared.release() }
+                                return@setOnPreparedListener
+                            }
+                            if (currentFrame > clip.startFrame) {
+                                val offsetMs = (currentFrame - clip.startFrame) * 1000L / fps
+                                prepared.seekTo(offsetMs.coerceAtMost(Int.MAX_VALUE.toLong()).toInt())
+                                prepared.start()
+                            } else {
+                                val delayMs = (clip.startFrame - currentFrame) * 1000L / fps
+                                mainHandler.postDelayed({
+                                    if (anim.isPlaying && generation == anim.playGen &&
+                                        animAudioPlayers.contains(prepared)
+                                    ) {
+                                        runCatching { prepared.start() }
+                                    }
+                                }, delayMs)
+                            }
+                        }
+                        player.setOnErrorListener { failed, _, _ ->
+                            animAudioPlayers.remove(failed)
+                            runCatching { failed.release() }
+                            true
+                        }
+                        player.prepareAsync()
+                    }
+                }
+            }
         }
     }
 }

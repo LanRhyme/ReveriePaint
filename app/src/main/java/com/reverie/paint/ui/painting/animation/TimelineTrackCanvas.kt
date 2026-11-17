@@ -140,10 +140,42 @@ internal fun TimelineRuler(
                             vm.animationSeek(f)
                         }
                         seek(down.position.x)
+                        var lastDistance = 0f
+                        var lastCentroid = down.position
+                        var wasMultiTouch = false
                         while (true) {
                             val event = awaitPointerEvent()
                             val pressed = event.changes.filter { it.pressed }
                             if (pressed.isEmpty()) break
+                            if (pressed.size >= 2) {
+                                wasMultiTouch = true
+                                val p0 = pressed[0].position
+                                val p1 = pressed[1].position
+                                val centroid = Offset((p0.x + p1.x) / 2f, (p0.y + p1.y) / 2f)
+                                val dx = p0.x - p1.x
+                                val dy = p0.y - p1.y
+                                val distance = kotlin.math.sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
+                                if (lastDistance > 0f) {
+                                    val oldWidth = vm.anim.frameWidthPx
+                                    val newWidth = (oldWidth * (distance / lastDistance).coerceIn(0.85f, 1.15f))
+                                        .coerceIn(96f, 480f)
+                                    val frameAtPivot = (vm.anim.scrollPx + centroid.x) / oldWidth
+                                    vm.anim.scrollPx = (frameAtPivot * newWidth - centroid.x).coerceAtLeast(0f)
+                                    vm.anim.frameWidthPx = newWidth
+                                    vm.anim.scrollPx = (vm.anim.scrollPx - (centroid.x - lastCentroid.x))
+                                        .coerceAtLeast(0f)
+                                }
+                                lastDistance = distance
+                                lastCentroid = centroid
+                                event.changes.forEach { it.consume() }
+                                continue
+                            }
+                            if (wasMultiTouch) {
+                                // 第二根手指抬起后, 不把剩下的手指误识别成一次跳帧点击。
+                                lastDistance = 0f
+                                event.changes.forEach { it.consume() }
+                                continue
+                            }
                             val c = pressed.firstOrNull { it.id == down.id } ?: pressed.first()
                             seek(c.position.x)
                             c.consume()
@@ -156,15 +188,17 @@ internal fun TimelineRuler(
         val last = ((scroll + size.width) / frameW).toInt() + 2
 
         val waveform = vm.anim.audioWaveform
-        if (waveform.isNotEmpty()) {
-            val totalFrames = maxOf(1, vm.anim.length)
-            val samplesPerFrame = waveform.size.toFloat() / totalFrames
+        val waveformClip = vm.anim.audioClips.firstOrNull()
+        if (waveform.isNotEmpty() && waveformClip != null) {
             val rulerMidY = size.height * 0.58f
             val maxAmpH = size.height * 0.35f
             for (f in first..last) {
-                if (f < 0 || f >= totalFrames) continue
+                val clipFrame = f - waveformClip.startFrame
+                if (clipFrame !in 0 until waveformClip.durationFrames) continue
                 val screenX = f * frameW - scroll
-                val sIdx = (f * samplesPerFrame).toInt().coerceIn(0, waveform.size - 1)
+                val sIdx = (
+                    clipFrame.toFloat() / waveformClip.durationFrames * waveform.size
+                ).toInt().coerceIn(0, waveform.size - 1)
                 val amp = waveform[sIdx]
                 val barH = amp * maxAmpH
                 if (barH > 0.8f) {
@@ -502,10 +536,9 @@ internal fun TimelineTrackArea(
                         } else {
                             val frame = ((vm.anim.scrollPx + x - hw) / vm.anim.frameWidthPx).toInt()
                             if (row in ls.indices) {
-                                val lIdx = ls[row].index
-                                vm.setCurrentLayer(lIdx)
-                                vm.anim.selectedTrack = lIdx
-                                if (!ls[row].isGroup && vm.anim.isMultiSelectMode) {
+                                val track = ls[row]
+                                val lIdx = track.index
+                                if (!track.isGroup && vm.anim.isMultiSelectMode) {
                                     val times = vm.anim.keyframeCache[lIdx].orEmpty()
                                     var hit = -1
                                     for (t in times) {
@@ -516,14 +549,32 @@ internal fun TimelineTrackArea(
                                     vm.animationSeek(targetT)
                                     return
                                 }
+                                val targetLayer = if (track.isGroup) {
+                                    val children = groupChildrenMap[lIdx].orEmpty()
+                                        .filter { !it.isGroup && !it.locked && !it.isBackground }
+                                    children.firstOrNull { it.index == vm.currentLayerIndex }
+                                        ?: children.firstOrNull {
+                                            AnimationLayerOps.findActiveKeyframe(
+                                                vm.anim.keyframeCache[it.index].orEmpty(),
+                                                frame,
+                                            ) != null
+                                        }
+                                        ?: children.firstOrNull()
+                                } else {
+                                    track
+                                }
+                                if (targetLayer != null) {
+                                    vm.setCurrentLayer(targetLayer.index)
+                                    vm.anim.selectedTrack = targetLayer.index
+                                }
+                                if (targetLayer != null && !targetLayer.isGroup && !vm.anim.isPlaying &&
+                                    markerColorOf(vm, targetLayer.index) == null
+                                ) {
+                                    vm.animationOpenCel(targetLayer.index, frame)
+                                    return
+                                }
                             }
-                            if (row in ls.indices && !ls[row].isGroup && !vm.anim.isPlaying &&
-                                markerColorOf(vm, ls[row].index) == null
-                            ) {
-                                vm.animationOpenCel(ls[row].index, frame)
-                            } else {
-                                vm.animationSeek(frame)
-                            }
+                            vm.animationSeek(frame)
                         }
                     }
 
@@ -737,6 +788,18 @@ internal fun TimelineTrackArea(
                                     }
                                     if (b == 0) {
                                         val rowTop = row * rpx - liveScroll.value
+                                        // 轨道组行本身没有单层关键帧通道, 长按给轨道菜单;
+                                        // 帧菜单只对组内某个子层有意义, 组行上会显示成空菜单
+                                        if (ls.firstOrNull { it.index == hitLayer }?.isGroup == true) {
+                                            frameMenu = null
+                                            trackMenu = TrackMenuState(
+                                                hitLayer,
+                                                ls.firstOrNull { it.index == hitLayer }?.name.orEmpty(),
+                                                hw / 2f,
+                                                rowTop,
+                                            )
+                                            continue@gesture
+                                        }
                                         // 前景/背景帧整行是一条常驻带: 长按给轨道菜单 (含取消标记入口),
                                         // 不弹帧菜单 —— 新建帧/粘贴对常驻层是破坏性的
                                         if (markerColorOf(vm, hitLayer) != null) {

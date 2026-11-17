@@ -7,6 +7,8 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
 import androidx.lifecycle.viewModelScope
 import com.reverie.paint.R
+import com.reverie.paint.model.AnimationAudioClips
+import com.reverie.paint.model.AnimationLayerOps
 import com.reverie.paint.model.StoryboardFrame
 import com.reverie.paint.model.SrtCue
 import com.reverie.paint.model.SrtImportException
@@ -127,12 +129,23 @@ internal fun PaintViewModel.syncStoryboardTrackFromNative() {
  */
 internal fun PaintViewModel.clearInheritedRevAssets() {
     val names = ReverieCoreBridge.revAssetNames().toList()
-    for (name in names) {
+    val audioNames = AnimationLayerOps.audioAssetsOf(names)
+    val keysToClear = audioNames + listOf(
+        SrtStoryboard.ASSET,
+        SrtStoryboard.ASSET + ".layout",
+        SrtStoryboard.ASSET + ".fps",
+        SrtStoryboard.ASSET + ".track",
+        AnimationAudioClips.ASSET,
+        AnimationLayerOps.ASSET_BACKGROUND,
+        AnimationLayerOps.ASSET_FOREGROUND,
+    )
+    for (name in keysToClear) {
         ReverieCoreBridge.storeRevAsset(name, ByteArray(0))
     }
-    anim.hiddenAssets = anim.hiddenAssets + names
+    anim.hiddenAssets = anim.hiddenAssets + audioNames
     anim.storyboard.reset()
     anim.audioAssets = emptyList()
+    anim.audioClips = emptyList()
     anim.audioWaveform = emptyList()
     anim.cachedAudioFile = null
 }

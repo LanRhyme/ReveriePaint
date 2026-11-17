@@ -749,13 +749,20 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 // 渲染线程上补同步一次动画状态, 并让时间轴自动展开 —— 否则用户
                 // 重新打开逐帧工程时会看不到任何帧的证据, 以为帧全丢了。
                 val animated = ReverieCoreBridge.animationEnabled()
+                var migratedTrack: String? = null
                 if (animated) {
+                    // 旧工程没有轨道组: 把顶层散层收进同一条轨道, 时间轴只显示一条
+                    migratedTrack = ensureSingleAnimationTrackOnRenderThread()
                     syncAnimationFromNative()
                 }
                 mainHandler.post {
                     if (animated) {
                         anim.enabled = true
                         anim.panelOpen = true
+                        migratedTrack?.let {
+                            anim.timelineCollapsedGroups = anim.timelineCollapsedGroups + it
+                            anim.timelineGroupsInitialized = true
+                        }
                     } else {
                         resetAnimationState()
                     }

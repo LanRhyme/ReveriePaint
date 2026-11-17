@@ -19,7 +19,9 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlin.math.roundToInt
 import com.reverie.paint.R
+import com.reverie.paint.model.AnimationAudioClips
 import com.reverie.paint.model.AnimationLayerOps
+import com.reverie.paint.model.AudioClip
 
 /** 新建动画画布的默认帧率。 */
 internal const val DEFAULT_ANIMATION_FPS = 12
@@ -242,6 +244,9 @@ internal class AnimationState {
     /** 导入的音频资源名列表 (随 .revp assets 持久化, 播放动画时同步播放) */
     var audioAssets by mutableStateOf<List<String>>(emptyList())
 
+    /** 音频片段位置 (起始帧/时长), 与 [audioAssets] 按名字对齐 */
+    var audioClips by mutableStateOf<List<AudioClip>>(emptyList())
+
     /**
      * 本次会话里已被 [clearInheritedRevAssets] 清空、但键名仍留在引擎资源表中的资源。
      *
@@ -335,6 +340,8 @@ internal class AnimationState {
      * 因为图层 id 在越界时会回退成 index+1, 拿不到互不相同的值。
      */
     var timelineCollapsedGroups by mutableStateOf<Set<String>>(emptySet())
+    /** 新动画文档首次同步时默认折叠图层组; 后续尊重用户展开/折叠选择 */
+    var timelineGroupsInitialized by mutableStateOf(false)
 
     /** 重置动画状态为初始默认值 (新建静态画布或关闭工程时调用) */
     fun reset() {
@@ -355,6 +362,7 @@ internal class AnimationState {
         framesToLayersDone = 0
         framesToLayersTotal = 0
         timelineCollapsedGroups = emptySet()
+        timelineGroupsInitialized = false
         scrollPx = 0f
         frameThumbs = emptyMap()
         frameThumbImages = emptyMap()
@@ -370,6 +378,7 @@ internal class AnimationState {
         shiftTracePrevBitmap = null
         shiftTraceNextBitmap = null
         audioAssets = emptyList()
+        audioClips = emptyList()
         hiddenAssets = emptySet()
         keyframeCache = emptyMap()
         lastFrameHold = emptyMap()
@@ -413,6 +422,14 @@ internal fun PaintViewModel.syncAnimationFromNative() {
     }
 
     anim.keyframeCache = readKeyframeCache()
+    if (!anim.timelineGroupsInitialized) {
+        val groups = (1 until ReverieCoreBridge.layerCount())
+            .filter(ReverieCoreBridge::layerIsGroup)
+            .map(ReverieCoreBridge::layerName)
+            .toSet()
+        anim.timelineCollapsedGroups = groups
+        anim.timelineGroupsInitialized = true
+    }
 
     // 读回关键帧色标与末帧持续帧数
     val tagsArr = ReverieCoreBridge.animationAllKeyframeTags()
@@ -464,6 +481,7 @@ internal fun PaintViewModel.syncAnimationFromNative() {
     val assets = AnimationLayerOps.audioAssetsOf(ReverieCoreBridge.revAssetNames().toList())
         .filterNot { it in anim.hiddenAssets }
     anim.audioAssets = assets
+    anim.audioClips = AnimationAudioClips.reconcile(loadAudioClipsOnRenderThread(), assets, anim.framerate)
     if (assets.isNotEmpty() && anim.audioWaveform.isEmpty()) {
         val firstName = assets.first()
         val dir = java.io.File(appContext.cacheDir, "anim_audio").apply { mkdirs() }
@@ -481,6 +499,19 @@ internal fun PaintViewModel.syncAnimationFromNative() {
             }
         }
     }
+}
+
+/** Must be called on the render thread. */
+internal fun PaintViewModel.loadAudioClipsOnRenderThread(): List<AudioClip> =
+    ReverieCoreBridge.revAssetBytes(AnimationAudioClips.ASSET)
+        ?.decodeToString()
+        ?.let(AnimationAudioClips::decode)
+        .orEmpty()
+
+/** Must be called on the render thread. */
+internal fun PaintViewModel.saveAudioClipsOnRenderThread(clips: List<AudioClip>) {
+    anim.audioClips = clips
+    ReverieCoreBridge.storeRevAsset(AnimationAudioClips.ASSET, AnimationAudioClips.encode(clips))
 }
 
 /** 逐轨道读取关键帧位置, 组成绘制缓存。必须在 reverie-render 线程调用。 */
@@ -662,6 +693,33 @@ internal fun PaintViewModel.animationAddKeyframe(
         val layer = if (layerIndex >= 0) layerIndex else selectedTrackIndex()
         if (layer < 0) return@runCore
         anim.pendingAddedFrame = -1
+        val trackGroup = animationTrackGroupForLayer(layer)
+        if (trackGroup >= 0) {
+            val children = animationTrackLayerIndices(trackGroup)
+            if (children.isEmpty()) return@runCore
+            val targetLayer = if (ReverieCoreBridge.layerAnimatable(layer)) layer else children.first()
+            ReverieCoreBridge.setCurrentLayer(targetLayer)
+            val occupied = children.flatMap { ReverieCoreBridge.keyframeTimes(it).toList() }.toSet()
+            var time = ReverieCoreBridge.animationCurrentTime().coerceAtLeast(0)
+            var guard = 0
+            while (time in occupied && guard < 512) {
+                time++
+                guard++
+            }
+            if (guard >= 512) return@runCore
+            changed = prepareAnimationTrackCel(
+                group = trackGroup,
+                time = time,
+                preserveDrawing = duplicate,
+            )
+            if (changed) {
+                ReverieCoreBridge.setAnimationCurrentTime(time, false)
+                anim.pendingAddedFrame = time
+                syncLayersFromNative()
+                syncAnimationFromNative()
+            }
+            return@runCore
+        }
         if (!ReverieCoreBridge.layerAnimatable(layer)) return@runCore
         if (!ReverieCoreBridge.layerAnimated(layer)) {
             ReverieCoreBridge.enableLayerAnimation(layer)
@@ -725,6 +783,16 @@ internal fun PaintViewModel.ensureKeyframeForPaintOnRenderThread(): Boolean {
     if (anim.isPlaying) return false
     // The engine's current layer is the paint target; a stale timeline selection must not edit another layer.
     val layer = ReverieCoreBridge.currentLayerIndex()
+    val trackGroup = animationTrackGroupForLayer(layer)
+    if (trackGroup >= 0 && (!anim.manualKeyframes || anim.storyboard.cues.isNotEmpty())) {
+        val changed = prepareAnimationTrackCel(
+            group = trackGroup,
+            time = ReverieCoreBridge.animationCurrentTime(),
+            preserveDrawing = true,
+        )
+        if (changed) syncAnimationFromNative()
+        return changed
+    }
     if (anim.storyboard.cues.isNotEmpty() && !isStoryboardTrackOnRenderThread(layer)) {
         val changed = prepareAnimationCel(layer, ReverieCoreBridge.animationCurrentTime(), preserveDrawing = true)
         if (changed) syncAnimationFromNative()
@@ -764,7 +832,24 @@ internal fun PaintViewModel.ensureKeyframeForPaintOnRenderThread(): Boolean {
 internal fun PaintViewModel.animationAddBlankKeyframeAt(layerIndex: Int, fromTime: Int) {
     if (layerIndex < 0) return
     runCore(after = { syncAnimationFromNativeAfter() }) {
-        if (!ReverieCoreBridge.layerAnimatable(layerIndex)) return@runCore
+        // 轨道组本身不可动画 (引擎侧 layerAnimatable 返回 false), 必须先处理组画格
+        val trackGroup = animationTrackGroupForLayer(layerIndex)
+        if (trackGroup >= 0) {
+            val children = animationTrackLayerIndices(trackGroup)
+            val occupied = children.flatMap { ReverieCoreBridge.keyframeTimes(it).toList() }.toSet()
+            var time = fromTime.coerceAtLeast(0)
+            var guard = 0
+            while (time in occupied && guard < 512) {
+                time++
+                guard++
+            }
+            if (guard >= 512) return@runCore
+            if (prepareAnimationTrackCel(trackGroup, time)) {
+                ReverieCoreBridge.setAnimationCurrentTime(time, false)
+                anim.pendingAddedFrame = time
+            }
+            return@runCore
+        }
         if (!ReverieCoreBridge.layerAnimated(layerIndex)) {
             ReverieCoreBridge.enableLayerAnimation(layerIndex)
         }
@@ -810,7 +895,12 @@ internal fun PaintViewModel.animationRemoveKeyframe(layerIndex: Int = -1, time: 
         } ?: return@runCore
         // Resolve default time after earlier queued seeks, so tap-then-delete targets the tapped cel.
         val t = if (time >= 0) time else ReverieCoreBridge.animationCurrentTime()
-        changed = prepareAnimationCel(layer, t, erase = true)
+        val trackGroup = animationTrackGroupForLayer(layer)
+        changed = if (trackGroup >= 0) {
+            prepareAnimationTrackCel(trackGroup, t, erase = true)
+        } else {
+            prepareAnimationCel(layer, t, erase = true)
+        }
         syncAnimationFromNative()
     }
 }
@@ -830,6 +920,18 @@ internal fun PaintViewModel.animationCopyCurrentFrameTo(
         val layer = if (layerIndex >= 0) layerIndex else selectedTrackIndex()
         if (layer < 0) return@runCore
         val from = if (fromTime >= 0) fromTime else ReverieCoreBridge.animationCurrentTime()
+        // 轨道组: 整格复制 —— 每个子层的同一帧一起带过去, 保持"每格是独立画布"
+        val trackGroup = animationTrackGroupForLayer(layer)
+        if (trackGroup >= 0) {
+            val children = animationTrackLayerIndices(trackGroup)
+            if (children.isEmpty() || from == toTime || toTime < 0) return@runCore
+            prepareAnimationTrackCel(trackGroup, toTime, preserveDrawing = true)
+            for (child in children) {
+                val source = ReverieCoreBridge.keyframeTimes(child).lastOrNull { it <= from } ?: continue
+                ReverieCoreBridge.copyKeyframe(child, source, toTime)
+            }
+            return@runCore
+        }
         if (from == toTime || toTime < 0 || !ReverieCoreBridge.hasKeyframe(layer, from)) return@runCore
         if (anim.storyboard.cues.isNotEmpty() && !isStoryboardTrackOnRenderThread(layer)) {
             prepareAnimationCel(layer, toTime)

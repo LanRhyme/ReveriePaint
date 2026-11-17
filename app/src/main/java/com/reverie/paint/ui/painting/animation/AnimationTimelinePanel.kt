@@ -208,7 +208,10 @@ internal fun AnimationTimelinePanel(
                     .reportUiSlot(vm, UiPanelSlot.ANIMATION_TIMELINE),
                 horizontalAlignment = Alignment.CenterHorizontally,
             ) {
-                if (mode != "bar") StoryboardReferenceBar(vm)
+                if (mode != "bar") {
+                    StoryboardReferenceBar(vm)
+                    AudioReferenceBars(vm, trackHeaderW)
+                }
 
                 TimelinePanelSurface(
                     vm = vm,

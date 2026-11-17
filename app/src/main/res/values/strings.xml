@@ -904,6 +904,16 @@
     <string name="anim_settings_thumbnails">帧缩略图</string>
     <string name="anim_settings_audio">音频</string>
     <string name="anim_audio_with_playback">%d 条 · 随播放</string>
+    <string name="anim_audio_bar_label">音频 · %1$s</string>
+    <string name="anim_audio_remove_title">移除这段音频？</string>
+    <string name="anim_audio_remove_message">将从动画中移除“%1$s”，并停止当前播放。此操作不能撤销</string>
+    <string name="anim_audio_remove_confirm">移除音频</string>
+    <string name="anim_audio_imported">音频已添加到时间轴</string>
+    <string name="anim_audio_removed">音频已移除</string>
+    <string name="anim_audio_import_failed">音频导入失败</string>
+    <string name="anim_add_track">添加轨道</string>
+    <string name="anim_track_added">已添加空白轨道</string>
+    <string name="anim_track_add_failed">添加轨道失败</string>
     <string name="anim_settings_import">导入</string>
     <string name="anim_export_chip">导出动画 (GIF / 视频 / 序列帧)</string>
     <string name="anim_import_images">图像帧</string>
@@ -3784,4 +3794,3 @@
     <string name="anim_delete_track_message">将删除“%1$s”在所有帧格中的内容，可撤销\n只删除当前格请使用帧格或图层面板的删除按钮</string>
     <string name="anim_delete_track_confirm">删除整条轴图层</string>
 </resources>
-

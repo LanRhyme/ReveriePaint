@@ -904,6 +904,16 @@
     <string name="anim_settings_thumbnails">Frame Thumbnails</string>
     <string name="anim_settings_audio">Audio</string>
     <string name="anim_audio_with_playback">%d tracks · With playback</string>
+    <string name="anim_audio_bar_label">Audio · %1$s</string>
+    <string name="anim_audio_remove_title">Remove this audio clip?</string>
+    <string name="anim_audio_remove_message">“%1$s” will be removed from the animation and current playback will stop. This cannot be undone</string>
+    <string name="anim_audio_remove_confirm">Remove audio</string>
+    <string name="anim_audio_imported">Audio added to the timeline</string>
+    <string name="anim_audio_removed">Audio removed</string>
+    <string name="anim_audio_import_failed">Could not import audio</string>
+    <string name="anim_add_track">Add track</string>
+    <string name="anim_track_added">Blank track added</string>
+    <string name="anim_track_add_failed">Could not add track</string>
     <string name="anim_settings_import">Import</string>
     <string name="anim_export_chip">Export Animation (GIF / Video / Sequence)</string>
     <string name="anim_import_images">Images</string>
@@ -3785,4 +3795,3 @@
     <string name="anim_delete_track_message">This removes “%1$s” at every frame and can be undone.\nTo delete only the current cel, use the cel or layer panel delete button.</string>
     <string name="anim_delete_track_confirm">Delete entire track</string>
 </resources>
-
