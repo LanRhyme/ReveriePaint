@@ -371,6 +371,8 @@ internal fun SelectionFloatPanel(
                         ToolDropdownItemData(1, R.drawable.ic_copy, stringResource(R.string.selection_copy_cur)),
                         ToolDropdownItemData(2, R.drawable.ic_cut, stringResource(R.string.selection_cut_new)),
                         ToolDropdownItemData(3, R.drawable.ic_cut, stringResource(R.string.selection_cut_cur)),
+                        ToolDropdownItemData(4, R.drawable.ic_copy, stringResource(R.string.selection_copy_plain)),
+                        ToolDropdownItemData(5, R.drawable.ic_bookmark_plus, stringResource(R.string.selection_paste)),
                     ),
                     selected = null,
                     labelOverride = stringResource(R.string.selection_copy_cut),
@@ -381,6 +383,8 @@ internal fun SelectionFloatPanel(
                             1 -> vm.copyOrCutSelection(cut = false, toNewLayer = false)
                             2 -> vm.copyOrCutSelection(cut = true, toNewLayer = true)
                             3 -> vm.copyOrCutSelection(cut = true, toNewLayer = false)
+                            4 -> vm.copySelectionToClipboard()
+                            5 -> vm.pasteSelectionClipboard()
                         }
                     },
                 )

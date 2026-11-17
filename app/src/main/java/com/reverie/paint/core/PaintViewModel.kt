@@ -7337,6 +7337,11 @@ class PaintViewModel : ViewModel() {
     var selectionMask: ByteArray? by mutableStateOf(null)
     var hasSelection by mutableStateOf(false)
 
+    /** 选区剪贴板: 复制后的像素与文档内左上角位置, 供跨图层/跨帧粘贴 */
+    internal var selectionClipboard: android.graphics.Bitmap? = null
+    internal var selectionClipboardX = 0
+    internal var selectionClipboardY = 0
+
     // Semi-transparent blue overlay bitmap built from the mask, drawn on top
     // of the canvas so the user can see the active selection (Krita-style)
     var selectionOverlayBitmap: android.graphics.Bitmap? by mutableStateOf(null)

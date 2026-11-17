@@ -2088,6 +2088,95 @@ internal fun PaintViewModel.cancelTransformPreview(resetCopyOnly: Boolean = true
     }
 }
 
+/**
+ * 只复制选区像素到内存剪贴板, 不新建图层、不改动当前图层。
+ *
+ * 必须在渲染线程读引擎, 因此整段走 runCore; 位图按选区包围盒裁剪后只保留
+ * 文档大小的一块临时画布, 复制完成后回收。
+ */
+internal fun PaintViewModel.copySelectionToClipboard() {
+    var copied: android.graphics.Bitmap? = null
+    var offsetX = 0
+    var offsetY = 0
+    runCore(after = {
+        val bmp = copied
+        if (bmp == null) {
+            showActionToast(R.string.toast_selection_empty_pixels, R.drawable.ic_lasso)
+        } else {
+            selectionClipboard?.recycle()
+            selectionClipboard = bmp
+            selectionClipboardX = offsetX
+            selectionClipboardY = offsetY
+            showActionToast(R.string.selection_copied)
+        }
+    }) {
+        val mask = ReverieCoreBridge.selectionMask()
+        if (mask == null || mask.isEmpty()) return@runCore
+        val w = ReverieCoreBridge.docWidth()
+        val h = ReverieCoreBridge.docHeight()
+        if (w <= 0 || h <= 0 || mask.size < w * h) return@runCore
+
+        var minX = w
+        var minY = h
+        var maxX = -1
+        var maxY = -1
+        for (y in 0 until h) {
+            val row = y * w
+            for (x in 0 until w) {
+                if (mask[row + x].toInt() and 0xFF == 0) continue
+                if (x < minX) minX = x
+                if (x > maxX) maxX = x
+                if (y < minY) minY = y
+                if (y > maxY) maxY = y
+            }
+        }
+        if (maxX < minX || maxY < minY) return@runCore
+
+        val full = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
+        if (!ReverieCoreBridge.renderLayerCanvas(ReverieCoreBridge.currentLayerIndex(), full)) {
+            full.recycle()
+            return@runCore
+        }
+        val pixels = IntArray(w * h)
+        full.getPixels(pixels, 0, w, 0, 0, w, h)
+        full.recycle()
+        for (y in minY..maxY) {
+            val row = y * w
+            for (x in minX..maxX) {
+                val index = row + x
+                val alpha = (mask[index].toInt() and 0xFF)
+                pixels[index] = if (alpha == 0) 0 else {
+                    val color = pixels[index]
+                    val a = ((color ushr 24) * alpha / 255)
+                    (a shl 24) or (color and 0x00FFFFFF)
+                }
+            }
+        }
+        val bw = maxX - minX + 1
+        val bh = maxY - minY + 1
+        copied = android.graphics.Bitmap.createBitmap(pixels, minY * w + minX, w, bw, bh, android.graphics.Bitmap.Config.ARGB_8888)
+        offsetX = minX
+        offsetY = minY
+    }
+}
+
+/** 把剪贴板内容贴到当前图层/当前帧的原位置; 引擎写入在渲染线程完成。 */
+internal fun PaintViewModel.pasteSelectionClipboard() {
+    val bmp = selectionClipboard
+    if (bmp == null || bmp.isRecycled) {
+        showActionToast(R.string.selection_clipboard_empty)
+        return
+    }
+    val x = selectionClipboardX
+    val y = selectionClipboardY
+    runCore(after = {
+        notifyLayerChanged(contentChanged = true)
+        showActionToast(R.string.selection_pasted)
+    }) {
+        ReverieCoreBridge.stampBitmap(x, y, bmp)
+    }
+}
+
 internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean) {
     if (!hasSelection) {
         showActionToast(R.string.toast_selection_required, R.drawable.ic_lasso)

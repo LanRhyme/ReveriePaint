@@ -1449,6 +1449,11 @@
     <string name="selection_cut_new">剪切到新图层</string>
     <string name="selection_cut_cur">剪切到当前图层</string>
     <string name="selection_copy_cut">复制/剪切</string>
+    <string name="selection_copy_plain">只复制</string>
+    <string name="selection_paste">粘贴</string>
+    <string name="selection_copied">已复制选区</string>
+    <string name="selection_pasted">已粘贴到当前图层</string>
+    <string name="selection_clipboard_empty">剪贴板是空的</string>
     <string name="selection_complete_close">完成闭合</string>
     <string name="selection_complete_sel">完成选区</string>
     <string name="selection_undo_point">撤销点</string>
