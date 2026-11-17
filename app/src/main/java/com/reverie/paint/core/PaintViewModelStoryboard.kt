@@ -56,14 +56,23 @@ internal fun PaintViewModel.syncStoryboardFromNative() {
         val savedIndex = ReverieCoreBridge.revAssetBytes(SrtStoryboard.ASSET + ".track")
             ?.decodeToString()?.toIntOrNull()
         // Compatibility: earlier builds did not store the generated track binding.
-        val track = savedIndex ?: if (state.cues.isNotEmpty()) {
-            (1 until ReverieCoreBridge.layerCount()).lastOrNull {
+        val layerCount = ReverieCoreBridge.layerCount()
+        val track = if (state.cues.isEmpty()) {
+            -1
+        } else {
+            savedIndex ?: (1 until layerCount).lastOrNull {
                 val name = ReverieCoreBridge.layerName(it)
                 name == "SRT 分镜" || name.startsWith("SRT 分镜 ") ||
                     name == "SRT storyboard" || name.startsWith("SRT storyboard ")
             } ?: -1
-        } else -1
-        if (track in 1 until ReverieCoreBridge.layerCount()) state.trackId = ReverieCoreBridge.layerId(track)
+        }
+        // 存盘的是索引而不是稳定 ID, 换文档后可能落到别的图层上。只有同时满足范围、
+        // 存在动画通道时才认这个绑定, 否则一律解绑, 避免旧字幕把新工程的普通图层
+        // 当成字幕主轨 (表现为该图层不出帧块、洋葱皮不参与、内容跨帧合并)
+        val validTrack = track in 1 until layerCount &&
+            ReverieCoreBridge.layerAnimatable(track) && ReverieCoreBridge.layerAnimated(track)
+        state.trackId = if (validTrack) ReverieCoreBridge.layerId(track) else 0L
+        if (!validTrack) state.trackIndex = -1
         state.probed = true
     }
     syncStoryboardTrackFromNative()
@@ -80,18 +89,57 @@ internal fun PaintViewModel.syncStoryboardFromNative() {
 internal fun PaintViewModel.syncStoryboardTrackFromNative() {
     val state = anim.storyboard
     if (!state.probed || state.trackId == 0L) return
+    // 字幕被移除 (或本工程根本没有字幕) 时不留任何绑定, 避免影响正常图层的分帧
+    if (state.cues.isEmpty()) {
+        state.trackId = 0L
+        state.trackIndex = -1
+        return
+    }
     val index = (0 until ReverieCoreBridge.layerCount()).firstOrNull {
         ReverieCoreBridge.layerId(it) == state.trackId
     } ?: -1
+    // 临时找不到 (撤销/重做中途) 只清索引, 保留 ID 以便图层回来后自动重绑;
+    // 但若该图层已不再是可动画层, 绑定失效, 直接解绑
+    if (index <= 0) {
+        state.trackIndex = -1
+        return
+    }
+    if (!ReverieCoreBridge.layerAnimatable(index) || !ReverieCoreBridge.layerAnimated(index)) {
+        state.trackId = 0L
+        state.trackIndex = -1
+        return
+    }
     if (index != state.trackIndex) {
         state.trackIndex = index
         ReverieCoreBridge.storeRevAsset(SrtStoryboard.ASSET + ".track", index.toString().toByteArray())
     }
 }
 
+/**
+ * 换文档时清掉上一份工程残留在引擎资源表里的字幕与音频。
+ *
+ * 引擎的 `m_revAssets` 是进程级单例: `newDocument()` / `closeDocument()` 都不会清,
+ * 只有 `loadRevp()` 会重建。不清理会让新建工程继承上一个工程的 SRT/音频, 并且保存时
+ * 把旧资源真正写进新 `.revp`。
+ *
+ * 必须在渲染线程调用。置空字节后键名仍在, 因此同步记入 [AnimationState.hiddenAssets]
+ * 让界面的音频列表滤掉它们; 保存重开时空条目会被 `loadRevp` 跳过, 资源真正消失。
+ */
+internal fun PaintViewModel.clearInheritedRevAssets() {
+    val names = ReverieCoreBridge.revAssetNames().toList()
+    for (name in names) {
+        ReverieCoreBridge.storeRevAsset(name, ByteArray(0))
+    }
+    anim.hiddenAssets = anim.hiddenAssets + names
+    anim.storyboard.reset()
+    anim.audioAssets = emptyList()
+    anim.audioWaveform = emptyList()
+    anim.cachedAudioFile = null
+}
+
 /** SRT tracks edit their held drawing; never auto-split it on pen down. Other tracks retain their workflow. */
 internal fun PaintViewModel.isStoryboardTrackOnRenderThread(layer: Int): Boolean =
-    anim.storyboard.cues.isNotEmpty() && anim.storyboard.trackId != 0L &&
+    layer > 0 && anim.storyboard.cues.isNotEmpty() && anim.storyboard.trackId != 0L &&
         ReverieCoreBridge.layerId(layer) == anim.storyboard.trackId
 
 internal fun PaintViewModel.animationImportSrt(uri: Uri) {
@@ -243,4 +291,29 @@ private fun srtErrorResource(error: Exception): Int = when ((error as? SrtImport
     SrtImportException.Reason.OVERLAP -> R.string.srt_error_overlap
     SrtImportException.Reason.FRAME_COLLISION -> R.string.srt_error_frames
     null -> R.string.srt_error_import
+}
+
+/** 只移除字幕参考 (保留 SRT 轨道与已画好的帧)。必须在渲染线程调用。 */
+internal fun PaintViewModel.removeStoryboardReference() {
+    val keys = listOf(
+        SrtStoryboard.ASSET,
+        SrtStoryboard.ASSET + ".layout",
+        SrtStoryboard.ASSET + ".fps",
+        SrtStoryboard.ASSET + ".track",
+    )
+    for (key in keys) ReverieCoreBridge.storeRevAsset(key, ByteArray(0))
+    anim.storyboard.reset()
+}
+
+/** 长按字幕条调用: 停播后清掉字幕参考, 轨道与画面保持原样。 */
+internal fun PaintViewModel.animationRemoveStoryboardReference() {
+    if (anim.storyboard.cues.isEmpty()) return
+    animationPause()
+    runCore(after = {
+        isModified = true
+        layerRevision++
+        showActionToast(R.string.srt_remove_done)
+    }) {
+        removeStoryboardReference()
+    }
 }

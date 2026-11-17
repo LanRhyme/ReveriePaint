@@ -3283,6 +3283,10 @@
     <string name="srt_import_description">每条字幕按顺序生成一个关键帧，默认长度为 1 帧，可拖动帧格右边缘调整时长；SRT 轨道绘画不会自动切分关键帧；原始时间码只作参考，不决定帧的位置或长度；重新导入会新增轨道并替换字幕参考，不压缩或删除已有画面；请保存为 REVP 工程</string>
     <string name="srt_choose_file">选择 SRT 文件</string>
     <string name="srt_close">关闭</string>
+    <string name="srt_remove_title">移除字幕参考？</string>
+    <string name="srt_remove_message">只移除字幕参考，SRT 轨道和已经画好的画面会保留。此操作不能撤销</string>
+    <string name="srt_remove_confirm">移除字幕</string>
+    <string name="srt_remove_done">已移除字幕参考</string>
     <string name="srt_layer_name">SRT 分镜</string>
     <string name="srt_import_success">SRT 分镜已导入，点击字幕栏可跳转分镜</string>
     <string name="srt_error_invalid">SRT 格式无效：请检查编码、字幕正文及 24 小时内的起止时间</string>

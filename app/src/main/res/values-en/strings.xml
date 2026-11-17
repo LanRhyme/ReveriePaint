@@ -3283,6 +3283,10 @@
     <string name="srt_import_description">Create one keyframe per subtitle in script order, initially one frame long. Drag its right edge to change the duration. Drawing on the SRT track never auto-splits a keyframe. Original timestamps are reference-only. Reimport creates a new track and replaces the reference list; existing drawings are not shortened or deleted. Save as REVP.</string>
     <string name="srt_choose_file">Choose SRT file</string>
     <string name="srt_close">Close</string>
+    <string name="srt_remove_title">Remove subtitle reference?</string>
+    <string name="srt_remove_message">Only the subtitle reference is removed. The SRT track and painted frames stay. This cannot be undone</string>
+    <string name="srt_remove_confirm">Remove subtitles</string>
+    <string name="srt_remove_done">Subtitle reference removed</string>
     <string name="srt_layer_name">SRT storyboard</string>
     <string name="srt_import_success">Storyboard imported. Tap the caption bar to navigate</string>
     <string name="srt_error_invalid">Invalid SRT: check encoding, caption text and timestamps within 24 hours</string>

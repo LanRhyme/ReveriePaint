@@ -5,6 +5,7 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -24,6 +25,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
@@ -32,6 +34,7 @@ import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.animationImportSrt
 import com.reverie.paint.core.animationPause
+import com.reverie.paint.core.animationRemoveStoryboardReference
 import com.reverie.paint.core.animationSeek
 import com.reverie.paint.model.SrtStoryboard
 import com.reverie.paint.ui.components.ReChip
@@ -51,6 +54,7 @@ internal fun StoryboardImportButton(vm: PaintViewModel) {
     if (confirm) {
         AlertDialog(
             onDismissRequest = { confirm = false },
+            containerColor = Morandi.panel,
             title = { Text(stringResource(R.string.srt_import_title)) },
             text = { Text(stringResource(R.string.srt_import_description)) },
             confirmButton = {
@@ -76,6 +80,7 @@ internal fun StoryboardReferenceBar(
     val cues = state.cues
     if (cues.isEmpty()) return
     var showList by remember { mutableStateOf(false) }
+    var showRemove by remember { mutableStateOf(false) }
     val frames = state.frames
     val mappingMissing = state.singleFrameMode && frames.size != cues.size
     val active = SrtStoryboard.findActiveFrameIndex(frames, vm.anim.currentTime)
@@ -94,7 +99,12 @@ internal fun StoryboardReferenceBar(
                 },
             )
             .background(Morandi.panel)
-            .clickable { showList = true }
+            .pointerInput(Unit) {
+                detectTapGestures(
+                    onTap = { showList = true },
+                    onLongPress = { showRemove = true },
+                )
+            }
             .padding(horizontal = 12.dp, vertical = 6.dp),
     ) {
         Column(modifier = Modifier.weight(1f)) {
@@ -115,6 +125,7 @@ internal fun StoryboardReferenceBar(
     if (showList) {
         AlertDialog(
             onDismissRequest = { showList = false },
+            containerColor = Morandi.panel,
             title = {
                 Text(if (state.singleFrameMode) stringResource(R.string.srt_single_frame_title)
                     else stringResource(R.string.srt_list_title, state.fps))
@@ -143,6 +154,23 @@ internal fun StoryboardReferenceBar(
             },
             confirmButton = {
                 TextButton(onClick = { showList = false }) { Text(stringResource(R.string.srt_close)) }
+            },
+        )
+    }
+    if (showRemove) {
+        AlertDialog(
+            onDismissRequest = { showRemove = false },
+            containerColor = Morandi.panel,
+            title = { Text(stringResource(R.string.srt_remove_title)) },
+            text = { Text(stringResource(R.string.srt_remove_message)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    showRemove = false
+                    vm.animationRemoveStoryboardReference()
+                }) { Text(stringResource(R.string.srt_remove_confirm)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { showRemove = false }) { Text(stringResource(R.string.srt_close)) }
             },
         )
     }

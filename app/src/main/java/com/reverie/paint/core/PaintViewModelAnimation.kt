@@ -242,6 +242,14 @@ internal class AnimationState {
     /** 导入的音频资源名列表 (随 .revp assets 持久化, 播放动画时同步播放) */
     var audioAssets by mutableStateOf<List<String>>(emptyList())
 
+    /**
+     * 本次会话里已被 [clearInheritedRevAssets] 清空、但键名仍留在引擎资源表中的资源。
+     *
+     * 引擎的 `m_revAssets` 是进程级单例, 置空字节后键名不会消失; 这些名字必须从音频
+     * 列表里滤掉, 否则换文档后会显示上一份工程的音频。保存重开后空条目会被跳过。
+     */
+    var hiddenAssets by mutableStateOf<Set<String>>(emptySet())
+
     /** 轨道关键帧缓存: 图层索引 -> 升序帧号列表。
      * 仅用于时间轴绘制加速 (避免每帧逐轨道跨 JNI 查询), 引擎始终是真身。
      */
@@ -362,6 +370,7 @@ internal class AnimationState {
         shiftTracePrevBitmap = null
         shiftTraceNextBitmap = null
         audioAssets = emptyList()
+        hiddenAssets = emptySet()
         keyframeCache = emptyMap()
         lastFrameHold = emptyMap()
         keyframeTags = emptyMap()
@@ -453,6 +462,7 @@ internal fun PaintViewModel.syncAnimationFromNative() {
      * 取走, 把真正的音频顶掉。
      */
     val assets = AnimationLayerOps.audioAssetsOf(ReverieCoreBridge.revAssetNames().toList())
+        .filterNot { it in anim.hiddenAssets }
     anim.audioAssets = assets
     if (assets.isNotEmpty() && anim.audioWaveform.isEmpty()) {
         val firstName = assets.first()

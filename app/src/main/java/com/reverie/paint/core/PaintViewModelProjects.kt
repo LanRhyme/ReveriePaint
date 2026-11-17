@@ -679,6 +679,9 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 }
             if (ok) {
                 documentLoaded = true
+                // 非 .revp 加载不会重建资源表; 清掉上一个工程的 SRT/音频, 避免串进新文档。
+                // .revp 由 loadRevp 自己覆盖, 不能清, 否则会把刚载入的字幕抹掉。
+                if (!file.extension.equals("revp", ignoreCase = true)) clearInheritedRevAssets()
                 isHealed = ReverieCoreBridge.isLastLoadHealed()
                 coreW = ReverieCoreBridge.docWidth()
                 coreH = ReverieCoreBridge.docHeight()
@@ -1715,7 +1718,11 @@ internal fun PaintViewModel.goHome() {
     // tile) 一直驻留内存, 重新打开时新旧文档共存推高峰值内存 (大文档被 LMK
     // 杀进程)。排队到渲染线程, FIFO 保证已排队的引擎操作先完成; 之后残留的
     // 渲染/保存调用在 C++ 侧空文档防护中安全返回。
-    runCore(render = false) { ReverieCoreBridge.closeDocument() }
+    runCore(render = false) {
+        ReverieCoreBridge.closeDocument()
+        // 文档已关闭, 资源表仍是进程级单例: 清掉字幕/音频, 防止下次新建时继承
+        clearInheritedRevAssets()
+    }
     currentProjectFile = null
     resetTimelapseCaptureState()
     // 退出即清待恢复方向；丢弃退出不写盘，方向回落到上次保存值。
@@ -1900,6 +1907,9 @@ internal fun PaintViewModel.startPainting(
                     }
                     ReverieCoreBridge.clearUndoHistory()
                 }
+                // 引擎资源表是进程级单例, newDocument 不会清: 不清理会让新工程继承
+                // 上一个工程的 SRT/音频, 保存时还会把它们写进新 .revp
+                clearInheritedRevAssets()
                 syncLayersFromNative()
                 ReverieCoreBridge.setUndoLimit(maxUndoSteps)
                 ReverieCoreBridge.setBrushColor(brushColor)
