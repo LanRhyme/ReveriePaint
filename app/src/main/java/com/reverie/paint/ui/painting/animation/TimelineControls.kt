@@ -32,7 +32,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
-import com.reverie.paint.core.animationAddTrack
 import com.reverie.paint.core.animationAddKeyframe
 import com.reverie.paint.core.animationApplyOnionSkin
 import com.reverie.paint.core.animationSetPreviousFrameReference
@@ -85,11 +84,6 @@ internal fun TimelineControls(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(5.dp),
         ) {
-            GlyphTextButton(
-                text = stringResource(R.string.anim_add_track),
-                onClick = { vm.animationAddTrack() },
-            ) { drawGlyphPlus() }
-
             if (vm.anim.manualKeyframes) {
                 GlyphTextButton(
                     text = stringResource(R.string.anim_new_blank_keyframe),

@@ -749,20 +749,13 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                 // 渲染线程上补同步一次动画状态, 并让时间轴自动展开 —— 否则用户
                 // 重新打开逐帧工程时会看不到任何帧的证据, 以为帧全丢了。
                 val animated = ReverieCoreBridge.animationEnabled()
-                var migratedTrack: String? = null
                 if (animated) {
-                    // 旧工程没有轨道组: 把顶层散层收进同一条轨道, 时间轴只显示一条
-                    migratedTrack = ensureSingleAnimationTrackOnRenderThread()
                     syncAnimationFromNative()
                 }
                 mainHandler.post {
                     if (animated) {
                         anim.enabled = true
                         anim.panelOpen = true
-                        migratedTrack?.let {
-                            anim.timelineCollapsedGroups = anim.timelineCollapsedGroups + it
-                            anim.timelineGroupsInitialized = true
-                        }
                     } else {
                         resetAnimationState()
                     }
@@ -1926,19 +1919,10 @@ internal fun PaintViewModel.startPainting(
                     // 建工程阶段不计入撤销历史 (帧率现在是可撤销的文档设置,
                     // 否则新文档一打开就自带一步"改帧率")
                     ReverieCoreBridge.setUndoCaptureEnabled(false)
-                    var trackName: String? = null
                     try {
                         nativeInitAnimation(animationFps)
-                        // 新动画默认只有一条轨道: 把初始图层收进 轨道 1.
-                        // 之后在轨道里加图层只会多一格内容, 不会再冒出新的轨道行
-                        trackName = ensureSingleAnimationTrackOnRenderThread()
                     } finally {
                         ReverieCoreBridge.setUndoCaptureEnabled(true)
-                    }
-                    trackName?.let {
-                        syncLayersFromNative()
-                        anim.timelineCollapsedGroups = anim.timelineCollapsedGroups + it
-                        anim.timelineGroupsInitialized = true
                     }
                 }
             }

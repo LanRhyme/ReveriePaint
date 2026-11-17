@@ -911,9 +911,6 @@
     <string name="anim_audio_imported">音频已添加到时间轴</string>
     <string name="anim_audio_removed">音频已移除</string>
     <string name="anim_audio_import_failed">音频导入失败</string>
-    <string name="anim_add_track">添加轨道</string>
-    <string name="anim_track_added">已添加空白轨道</string>
-    <string name="anim_track_add_failed">添加轨道失败</string>
     <string name="anim_settings_import">导入</string>
     <string name="anim_export_chip">导出动画 (GIF / 视频 / 序列帧)</string>
     <string name="anim_import_images">图像帧</string>

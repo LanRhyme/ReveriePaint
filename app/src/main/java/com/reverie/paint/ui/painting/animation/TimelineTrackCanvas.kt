@@ -536,9 +536,10 @@ internal fun TimelineTrackArea(
                         } else {
                             val frame = ((vm.anim.scrollPx + x - hw) / vm.anim.frameWidthPx).toInt()
                             if (row in ls.indices) {
-                                val track = ls[row]
-                                val lIdx = track.index
-                                if (!track.isGroup && vm.anim.isMultiSelectMode) {
+                                val lIdx = ls[row].index
+                                vm.setCurrentLayer(lIdx)
+                                vm.anim.selectedTrack = lIdx
+                                if (!ls[row].isGroup && vm.anim.isMultiSelectMode) {
                                     val times = vm.anim.keyframeCache[lIdx].orEmpty()
                                     var hit = -1
                                     for (t in times) {
@@ -549,32 +550,14 @@ internal fun TimelineTrackArea(
                                     vm.animationSeek(targetT)
                                     return
                                 }
-                                val targetLayer = if (track.isGroup) {
-                                    val children = groupChildrenMap[lIdx].orEmpty()
-                                        .filter { !it.isGroup && !it.locked && !it.isBackground }
-                                    children.firstOrNull { it.index == vm.currentLayerIndex }
-                                        ?: children.firstOrNull {
-                                            AnimationLayerOps.findActiveKeyframe(
-                                                vm.anim.keyframeCache[it.index].orEmpty(),
-                                                frame,
-                                            ) != null
-                                        }
-                                        ?: children.firstOrNull()
-                                } else {
-                                    track
-                                }
-                                if (targetLayer != null) {
-                                    vm.setCurrentLayer(targetLayer.index)
-                                    vm.anim.selectedTrack = targetLayer.index
-                                }
-                                if (targetLayer != null && !targetLayer.isGroup && !vm.anim.isPlaying &&
-                                    markerColorOf(vm, targetLayer.index) == null
-                                ) {
-                                    vm.animationOpenCel(targetLayer.index, frame)
-                                    return
-                                }
                             }
-                            vm.animationSeek(frame)
+                            if (row in ls.indices && !ls[row].isGroup && !vm.anim.isPlaying &&
+                                markerColorOf(vm, ls[row].index) == null
+                            ) {
+                                vm.animationOpenCel(ls[row].index, frame)
+                            } else {
+                                vm.animationSeek(frame)
+                            }
                         }
                     }
 
@@ -788,18 +771,6 @@ internal fun TimelineTrackArea(
                                     }
                                     if (b == 0) {
                                         val rowTop = row * rpx - liveScroll.value
-                                        // 轨道组行本身没有单层关键帧通道, 长按给轨道菜单;
-                                        // 帧菜单只对组内某个子层有意义, 组行上会显示成空菜单
-                                        if (ls.firstOrNull { it.index == hitLayer }?.isGroup == true) {
-                                            frameMenu = null
-                                            trackMenu = TrackMenuState(
-                                                hitLayer,
-                                                ls.firstOrNull { it.index == hitLayer }?.name.orEmpty(),
-                                                hw / 2f,
-                                                rowTop,
-                                            )
-                                            continue@gesture
-                                        }
                                         // 前景/背景帧整行是一条常驻带: 长按给轨道菜单 (含取消标记入口),
                                         // 不弹帧菜单 —— 新建帧/粘贴对常驻层是破坏性的
                                         if (markerColorOf(vm, hitLayer) != null) {

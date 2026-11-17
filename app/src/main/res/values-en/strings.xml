@@ -911,9 +911,6 @@
     <string name="anim_audio_imported">Audio added to the timeline</string>
     <string name="anim_audio_removed">Audio removed</string>
     <string name="anim_audio_import_failed">Could not import audio</string>
-    <string name="anim_add_track">Add track</string>
-    <string name="anim_track_added">Blank track added</string>
-    <string name="anim_track_add_failed">Could not add track</string>
     <string name="anim_settings_import">Import</string>
     <string name="anim_export_chip">Export Animation (GIF / Video / Sequence)</string>
     <string name="anim_import_images">Images</string>
