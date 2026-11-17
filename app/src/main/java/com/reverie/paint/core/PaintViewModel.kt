@@ -679,6 +679,9 @@ class PaintViewModel : ViewModel() {
     var brushPresetsLoaded = false
         internal set
     var brushPresetIndex by mutableIntStateOf(-1)
+    internal var presetSelectDebounceJob: kotlinx.coroutines.Job? = null
+    internal var isPresetLoading: Boolean = false
+    internal var queuedPresetIndex: Int? = null
 
     // User-defined brush groups: preset ID -> group name (按 id 存, 见 BrushIdPrefs); and the list of
     // custom group names the user created (persisted in SharedPreferences)
@@ -6065,6 +6068,11 @@ class PaintViewModel : ViewModel() {
         mainHandler.removeCallbacks(persistToolStatesRunnable)
         persistToolBrushStates()
         BrushStoreVm.flushAllPending()
+        presetSelectDebounceJob?.cancel()
+        presetSelectDebounceJob = null
+        isPresetLoading = false
+        queuedPresetIndex = null
+        com.reverie.paint.core.brushstore.AtomicFiles.flushPending()
         closePerformanceHintSession()
         renderThread?.quitSafely()
         unregisterMemoryPressureCallbacks()
@@ -6072,6 +6080,18 @@ class PaintViewModel : ViewModel() {
         renderHandler = null
         brushPresetsLoaded = false
         super.onCleared()
+    }
+
+    internal fun flushPendingPresetSelect() {
+        val job = presetSelectDebounceJob
+        if (job != null && job.isActive) {
+            job.cancel()
+            presetSelectDebounceJob = null
+            val pendingIndex = brushPresetIndex
+            if (pendingIndex >= 0 && !isPresetLoading) {
+                dispatchPresetLoad(pendingIndex)
+            }
+        }
     }
 
     private var performanceHintSession: Any? = null

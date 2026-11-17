@@ -302,11 +302,15 @@ public:
     ~ReverieCompositeCommand() override { qDeleteAll(m_children); }
     void redo() override
     {
-        for (KUndo2Command *c : m_children) c->redo();
+        for (KUndo2Command *c : m_children) {
+            if (c) c->redo();
+        }
     }
     void undo() override
     {
-        for (int i = m_children.size() - 1; i >= 0; --i) m_children[i]->undo();
+        for (int i = m_children.size() - 1; i >= 0; --i) {
+            if (m_children[i]) m_children[i]->undo();
+        }
     }
 
 private:

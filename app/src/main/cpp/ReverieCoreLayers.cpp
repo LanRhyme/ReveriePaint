@@ -594,6 +594,9 @@ void ReverieCore::removeLayer(int index)
     if (index <= 0 || index >= m_layers.size()) {
         return;  // background (0) is protected
     }
+    if (m_liquifyTxnActive) {
+        liquifyCancel();
+    }
     // Groups CAN be deleted (removeNode removes the whole subtree), but
     // locked layers cannot. isLayerEditable() also excludes groups, so it
     // must not gate deletion.
@@ -603,6 +606,10 @@ void ReverieCore::removeLayer(int index)
     }
     KisImageSP image = m_document;
     if (!image || !m_layers[index].node) {
+        return;
+    }
+    KisNode *targetNode = m_layers[index].node;
+    if (!targetNode->parent()) {
         return;
     }
 
@@ -639,14 +646,21 @@ void ReverieCore::removeLayer(int index)
         if (n) {
             KisNodeSP sib = n->nextSibling();
             while (sib && (reverie::layerProperty(&*sib, "reverie_is_transparency_mask").toBool() || dynamic_cast<KisMask *>(sib.data()))) {
-                undoCmds.append(new KisImageLayerRemoveCommand(image, sib));
+                if (sib->parent()) {
+                    undoCmds.append(new KisImageLayerRemoveCommand(image, sib));
+                }
                 sib = sib->nextSibling();
             }
         }
     }
 
     // Krita-native undo: a layer-remove command (undo re-inserts the node)
-    undoCmds.append(new KisImageLayerRemoveCommand(image, KisNodeSP(m_layers[index].node)));
+    if (targetNode->parent()) {
+        undoCmds.append(new KisImageLayerRemoveCommand(image, KisNodeSP(targetNode)));
+    }
+    if (undoCmds.isEmpty()) {
+        return;
+    }
     if (undoCmds.size() == 1) {
         pushUndoCommand(undoCmds.first());
     } else {

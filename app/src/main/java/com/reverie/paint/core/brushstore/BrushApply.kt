@@ -321,14 +321,21 @@ object BrushApply {
      * 跳过"回读灌 UI"三件套（readback / vm.brushParams 整替 / applySensorXmlToDynamicOptions），
      * 输入全部取 VM 现态——落盘往返幂等由 K1 保证，重载期间不打断用户的编辑手势。
      */
-    fun select(vm: PaintViewModel, index: Int, preset: BrushPresetInfo?, notifyUi: Boolean = true) {
+    fun select(
+        vm: PaintViewModel,
+        index: Int,
+        preset: BrushPresetInfo?,
+        notifyUi: Boolean = true,
+        onComplete: (() -> Unit)? = null,
+    ) {
         if (preset == null) {
             BrushDiagnostics.log("select_preset_missing", "index" to index)
+            onComplete?.invoke()
             return
         }
         val isEraserPreset = BrushStoreVm.isEraserPreset(preset)
         if (!notifyUi) {
-            vm.runCore {
+            vm.runCore(after = { onComplete?.invoke() }) {
                 if (engine.loadBrushPreset(index)) {
                     com.reverie.paint.core.Breadcrumbs.record("Brush", "Reload preset [$index]: ${preset.name}")
                     applyAfterLoad(
@@ -371,27 +378,32 @@ object BrushApply {
         val finalOpacity = mem?.getOrNull(1) ?: eff.opacity
         val finalFlow = mem?.getOrNull(2) ?: eff.flow
 
-        vm.runCore(after = {
-            // 唯一所有者 brushParams 一次整体换成有效值；大小/不透明度/流量取按工具记忆，合成模式取有效模式，
-            // 绘制算子缺省时取原生预设的，内置笔固定署名 Krita。
-            vm.brushParams = eff.copy(
-                size = finalSize,
-                opacity = finalOpacity,
-                flow = finalFlow,
-                compositeOp = effectiveCompOp,
-                paintOpId = if (eff.paintOpId.isBlank() || eff.paintOpId == "defaultpaintop") {
-                    if (index >= 0) ReverieCoreBridge.brushPresetPaintOpId(index) else "paintbrush"
-                } else {
-                    eff.paintOpId
-                },
-                author = if (preset?.isBuiltIn == true) "Krita" else eff.author,
-                isAuthorLocked = if (preset?.isBuiltIn == true) true else eff.isAuthorLocked,
-            )
-            // 曲线 UI 只从有效 kpp 回读值灌入：不清掉就会沿用上一支笔的曲线
-            vm.applySensorXmlToDynamicOptions(eff.dynamicOptions)
-            vm.checkBrushSizeLimit()
-            vm.fetchBrushOutlinePolygons()
-        }) {
+        try {
+            vm.runCore(after = {
+                try {
+                    // 唯一所有者 brushParams 一次整体换成有效值；大小/不透明度/流量取按工具记忆，合成模式取有效模式，
+                    // 绘制算子缺省时取原生预设的，内置笔固定署名 Krita。
+                    vm.brushParams = eff.copy(
+                        size = finalSize,
+                        opacity = finalOpacity,
+                        flow = finalFlow,
+                        compositeOp = effectiveCompOp,
+                        paintOpId = if (eff.paintOpId.isBlank() || eff.paintOpId == "defaultpaintop") {
+                            if (index >= 0) ReverieCoreBridge.brushPresetPaintOpId(index) else "paintbrush"
+                        } else {
+                            eff.paintOpId
+                        },
+                        author = if (preset?.isBuiltIn == true) "Krita" else eff.author,
+                        isAuthorLocked = if (preset?.isBuiltIn == true) true else eff.isAuthorLocked,
+                    )
+                    // 曲线 UI 只从有效 kpp 回读值灌入：不清掉就会沿用上一支笔的曲线
+                    vm.applySensorXmlToDynamicOptions(eff.dynamicOptions)
+                    vm.checkBrushSizeLimit()
+                    vm.fetchBrushOutlinePolygons()
+                } finally {
+                    onComplete?.invoke()
+                }
+            }) {
             val loaded = engine.loadBrushPreset(index)
             if (loaded) {
                 com.reverie.paint.core.Breadcrumbs.record("Brush", "Load preset [$index]: ${preset?.name}")
@@ -413,7 +425,11 @@ object BrushApply {
             )
             applyAfterLoad(engine, nonPreset)
         }
+    } catch (t: Throwable) {
+        onComplete?.invoke()
+        throw t
     }
+}
 
     fun restore(vm: PaintViewModel, reloadPreset: Boolean = false) {
         val saved = vm.strokeSaved

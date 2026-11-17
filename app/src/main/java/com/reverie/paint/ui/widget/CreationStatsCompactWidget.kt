@@ -64,11 +64,13 @@ class CreationStatsCompactWidget : GlanceAppWidget() {
     ) {
         val createIntent = Intent(context, MainActivity::class.java).apply {
             action = Intent.ACTION_VIEW
+            `package` = context.packageName
             putExtra(MainActivity.EXTRA_ROUTE, MainActivity.ROUTE_CREATE)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }
         val statsIntent = Intent(context, MainActivity::class.java).apply {
             action = Intent.ACTION_VIEW
+            `package` = context.packageName
             putExtra(MainActivity.EXTRA_ROUTE, MainActivity.ROUTE_STATS)
             flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
         }

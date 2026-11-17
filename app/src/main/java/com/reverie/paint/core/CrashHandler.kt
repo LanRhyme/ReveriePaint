@@ -184,9 +184,34 @@ object CrashHandler : Thread.UncaughtExceptionHandler {
     }
 
     override fun uncaughtException(thread: Thread, throwable: Throwable) {
+        // 桌面小组件点击跳板崩溃兜底 (a8e7f4659a)
+        if (throwable is IllegalArgumentException &&
+            throwable.message?.contains("List adapter activity trampoline invoked") == true
+        ) {
+            Log.w(TAG, "Intercepted Glance trampoline crash: ${throwable.message}")
+            try {
+                val ctx = appContext
+                if (ctx != null) {
+                    val fallbackIntent = Intent(ctx, MainActivity::class.java).apply {
+                        action = Intent.ACTION_VIEW
+                        `package` = ctx.packageName
+                        flags = Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP
+                    }
+                    ctx.startActivity(fallbackIntent)
+                }
+            } catch (_: Throwable) {}
+            // 杀死当前跳板已损坏的进程, 避免主线程死亡后停留在僵尸卡死状态
+            android.os.Process.killProcess(android.os.Process.myPid())
+            System.exit(10)
+            return
+        }
+
         try {
-            // 崩溃抢救：在进程死亡前同步保存当前作画草稿
+            // 崩溃抢救：在进程死亡前同步保存当前作画草稿与待落盘文件
             PaintViewModel.currentInstance?.emergencySaveOnCrash()
+            try {
+                com.reverie.paint.core.brushstore.AtomicFiles.flushPending()
+            } catch (_: Throwable) {}
 
             appContext?.let { ctx ->
                 try {

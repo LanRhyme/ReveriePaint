@@ -126,6 +126,7 @@ internal fun PaintViewModel.touchStart(
     }
 
     if (currentToolId == "brush" || currentToolId == "eraser" || currentToolId == "smudge") {
+        flushPendingPresetSelect()
         if (brushPresets.isEmpty()) {
             return false
         }

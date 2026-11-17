@@ -1912,6 +1912,9 @@ void ReverieCore::prepareHistoryReplay()
     if (m_strokeBatchOpen) {
         touchStrokeCancel();
     }
+    if (m_liquifyTxnActive) {
+        liquifyCancel();
+    }
     // touchStrokeCancel only closes the macro when a stroke batch is open.
     // A macro left open otherwise makes KUndo2QStack refuse the replay and
     // keeps the image lock held.

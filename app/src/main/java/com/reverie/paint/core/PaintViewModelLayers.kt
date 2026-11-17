@@ -515,6 +515,7 @@ internal fun PaintViewModel.removeLayer() {
 }
 
 internal fun PaintViewModel.removeLayer(index: Int) {
+    if (isLayerBackendBusy()) return
     // 引擎侧 `ReverieCore::removeLayer` 对「背景层 / 锁定图层 / 越界索引」是**静默 return**
     // (JNI 不返回值), 表现就是「点了删除、面板关了、图层还在」, 日志里连一行都没有 ——
     // 真机反馈里「删不掉图层」就是这么来的。这里先在镜像上挡一层并给出明确反馈,
@@ -1196,6 +1197,7 @@ internal fun PaintViewModel.addMaskToLayer(
 }
 
 internal fun PaintViewModel.removeMask(layerIndex: Int) {
+    if (isLayerBackendBusy()) return
     runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.removeMask(layerIndex)
     }

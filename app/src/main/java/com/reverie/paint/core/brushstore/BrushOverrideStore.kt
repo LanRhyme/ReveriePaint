@@ -36,6 +36,7 @@ object BrushOverrideStore {
     fun file(): File? = root?.let { File(it, FILE_NAME) }
 
     fun open(storeRoot: File) {
+        AtomicFiles.flushPending()
         synchronized(lock) {
             root = storeRoot
             map.clear()
@@ -110,6 +111,7 @@ object BrushOverrideStore {
         val r = root ?: return
         val presets = JSONObject()
         for ((id, o) in map) presets.put(id, toJson(o))
-        AtomicFiles.writeText(File(r, FILE_NAME), JSONObject().put("schema", SCHEMA).put("presets", presets).toString(1))
+        val text = JSONObject().put("schema", SCHEMA).put("presets", presets).toString(1)
+        AtomicFiles.writeTextAsync(File(r, FILE_NAME), text)
     }
 }

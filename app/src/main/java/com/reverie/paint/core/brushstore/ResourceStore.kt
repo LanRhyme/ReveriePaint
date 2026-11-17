@@ -152,6 +152,7 @@ class ResourceStore(
     }
 
     private fun loadLocked() {
+        AtomicFiles.flushPending()
         byKindAndMd5.clear()
         byKindAndFileName.clear()
         if (!indexFile.exists()) return
@@ -201,7 +202,7 @@ class ResourceStore(
         val rootObj = JSONObject()
             .put("schema", RESOURCES_SCHEMA)
             .put("resources", entries)
-        AtomicFiles.writeText(indexFile, rootObj.toString(1))
+        AtomicFiles.writeTextAsync(indexFile, rootObj.toString(1))
     }
 }
 

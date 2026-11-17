@@ -521,7 +521,11 @@ import kotlinx.coroutines.withContext
         return if (engineSize.isFinite()) engineSize else 20.0
     }
 
-    internal fun PaintViewModel.selectBrushPreset(index: Int, recordToToolState: Boolean = true) {
+    internal fun PaintViewModel.selectBrushPreset(
+        index: Int,
+        recordToToolState: Boolean = true,
+        immediate: Boolean = false,
+    ) {
         if (isEraserMode) {
             setEraserModeInternal(false, showToast = false)
         }
@@ -534,18 +538,58 @@ import kotlinx.coroutines.withContext
             recordRecentBrush(preset.id)
             recordBrushUsageStats(preset.name)
         }
-        val isBuiltIn = preset?.isBuiltIn == true
-        val isEraserPreset = preset?.group == "橡皮擦" || preset?.name?.startsWith("a)_Eraser", ignoreCase = true) == true || preset?.name?.contains("Eraser", ignoreCase = true) == true
 
         pendingKppReloadJob?.cancel()
         pendingKppReloadJob = null
 
+        // 立即更新 UI 状态镜像, 让列表和滑块即时高亮响应
         brushPresetIndex = index
         // #136 A：重载预设表后的内部重选不是用户选笔，不能写工具槽，否则会把表里第 0 支笔
-        // （或任何回退项）记进「橡皮」槽，下次切橡皮就变成那支笔。
+        // （或任何回退项）记进「橡皮」槽，下次切橡皮就变成那支笔
         if (recordToToolState) updateCurrentToolBrushState { it.copy(presetIndex = index) }
 
-        com.reverie.paint.core.brushstore.BrushApply.select(this, index, preset)
+        if (preset == null) return
+
+        // 防抖与互斥队列: 用户快速连续切笔时, 防抖拦截中间高频点击;
+        // 若底层已在加载预设, 则将最新的预设索引排入互斥队列, 避免并发重叠调用 native loadBrushPreset 导致 Qt/Krita 崩溃
+        presetSelectDebounceJob?.cancel()
+        presetSelectDebounceJob = null
+
+        if (isPresetLoading) {
+            queuedPresetIndex = index
+            return
+        }
+
+        if (immediate) {
+            dispatchPresetLoad(index)
+        } else {
+            presetSelectDebounceJob = viewModelScope.launch {
+                delay(65)
+                dispatchPresetLoad(index)
+            }
+        }
+    }
+
+    internal fun PaintViewModel.dispatchPresetLoad(index: Int) {
+        val targetPreset = brushPresets.firstOrNull { it.index == index }
+        if (targetPreset == null) {
+            isPresetLoading = false
+            val queued = queuedPresetIndex
+            if (queued != null) {
+                queuedPresetIndex = null
+                dispatchPresetLoad(queued)
+            }
+            return
+        }
+        isPresetLoading = true
+        com.reverie.paint.core.brushstore.BrushApply.select(this, index, targetPreset) {
+            isPresetLoading = false
+            val queued = queuedPresetIndex
+            if (queued != null) {
+                queuedPresetIndex = null
+                dispatchPresetLoad(queued)
+            }
+        }
     }
 
     /**

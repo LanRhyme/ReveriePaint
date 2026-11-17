@@ -969,21 +969,18 @@ void ReverieCore::liquifyEnd()
     QVector<KUndo2Command *> children;
     for (LiquifyTarget &t : m_liquifyTargets) {
         if (t.txn) {
-            if (t.written) children << t.txn->endAndTake();
-            else t.txn->end();
+            if (t.written) {
+                KUndo2Command *c = t.txn->endAndTake();
+                if (c) children << c;
+            } else {
+                t.txn->end();
+            }
             delete t.txn;
             t.txn = nullptr;
         }
     }
     if (!children.isEmpty()) {
-        if (m_undoCaptureEnabled && m_document) {
-            m_document->undoAdapter()->addCommand(
-                new ReverieCompositeCommand(kundo2_i18n("Liquify"), children));
-            m_redoCount = 0;
-        } else {
-            // Replay mode: keep the pixels, drop the undo command
-            qDeleteAll(children);
-        }
+        pushUndoCommand(new ReverieCompositeCommand(kundo2_i18n("Liquify"), children));
     }
     resetLiquifyWorker();
     m_liquifyTargets.clear();

@@ -209,6 +209,12 @@ bool ReverieCore::mergeDown(int index)
     if (ti < 0 || m_layers[ti].isGroup || m_layers[ti].locked) {
         return false;
     }
+    if (m_liquifyTxnActive) {
+        liquifyCancel();
+    }
+    if (!e.node || !e.node->parent() || !m_layers[ti].node || !m_layers[ti].node->parent()) {
+        return false;
+    }
     KisImageSP image = m_document;
     if (!image) {
         return false;
@@ -676,10 +682,13 @@ bool ReverieCore::addMaskToLayer(int layerIndex, int maskType)
 bool ReverieCore::removeMask(int layerIndex)
 {
     if (layerIndex <= 0 || layerIndex >= m_layers.size()) return false;
+    if (m_liquifyTxnActive) {
+        liquifyCancel();
+    }
     KisImageSP image = m_document;
     if (!image) return false;
     KisNode *target = m_layers[layerIndex].node;
-    if (!target) return false;
+    if (!target || !target->parent()) return false;
 
     // Case 1: The selected entry is directly the mask node (KisMask 或 KisPaintLayer 蒙版)
     const bool isPaintMask = reverie::layerProperty(&*target, "reverie_is_transparency_mask").toBool();
@@ -703,6 +712,7 @@ bool ReverieCore::removeMask(int layerIndex)
         m_layers[layerIndex + 1].nodeType == NodeTypeTransparencyMask &&
         m_layers[layerIndex + 1].node) {
         KisNodeSP maskNode(m_layers[layerIndex + 1].node);
+        if (!maskNode->parent()) return false;
         pushUndoCommand(new KisImageLayerRemoveCommand(image, maskNode));
         recompositeProjection();
         syncLayersFromImage();
@@ -717,6 +727,7 @@ bool ReverieCore::removeMask(int layerIndex)
     KisNodeSP child = target->firstChild();
     while (child) {
         if (dynamic_cast<KisMask *>(child.data()) || reverie::layerProperty(&*child, "reverie_is_transparency_mask").toBool()) {
+            if (!child->parent()) return false;
             pushUndoCommand(new KisImageLayerRemoveCommand(image, child));
             recompositeProjection();
             syncLayersFromImage();
@@ -808,6 +819,9 @@ bool ReverieCore::invertMask(int layerIndex)
 bool ReverieCore::applyMask(int layerIndex)
 {
     if (layerIndex <= 0 || layerIndex >= m_layers.size()) return false;
+    if (m_liquifyTxnActive) {
+        liquifyCancel();
+    }
     KisImageSP image = m_document;
     if (!image) return false;
     KisNode *target = m_layers[layerIndex].node;
@@ -843,7 +857,7 @@ bool ReverieCore::applyMask(int layerIndex)
         }
     }
 
-    if (!maskNode || !parentLayer) return false;
+    if (!maskNode || !parentLayer || !maskNode->parent()) return false;
     KisPaintLayer *paintLayer = dynamic_cast<KisPaintLayer *>(parentLayer.data());
     if (!paintLayer) return false;
 

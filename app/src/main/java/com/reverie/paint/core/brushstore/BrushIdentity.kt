@@ -62,6 +62,7 @@ object BrushIdentity {
     }
 
     fun open(storeRoot: File) {
+        AtomicFiles.flushPending()
         synchronized(lock) {
             root = storeRoot
             byId.clear()
@@ -154,6 +155,7 @@ object BrushIdentity {
                 JSONObject().put("name", e.name).put("ext", e.ext).apply { if (e.pack.isNotEmpty()) put("pack", e.pack) },
             )
         }
-        AtomicFiles.writeText(File(r, FILE_NAME), JSONObject().put("schema", 2).put("presets", presets).toString(1))
+        val text = JSONObject().put("schema", 2).put("presets", presets).toString(1)
+        AtomicFiles.writeTextAsync(File(r, FILE_NAME), text)
     }
 }
