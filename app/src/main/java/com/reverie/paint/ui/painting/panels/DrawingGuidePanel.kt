@@ -262,6 +262,21 @@ fun DrawingGuidePanel(
                             )
                         }
                         Text(
+                            androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_target),
+                            color = Morandi.subText,
+                            fontSize = 11.sp,
+                        )
+                        SegmentedOptionSelector(
+                            options = listOf(
+                                0 to androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_auto),
+                                1 to androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_horizontal),
+                                2 to androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_vertical),
+                                3 to androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_ray),
+                            ),
+                            selectedKey = guide.fisheyeSnapTarget,
+                            onSelect = { vm.drawingGuide = guide.copy(fisheyeSnapTarget = it) },
+                        )
+                        Text(
                             text = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_reset),
                             color = Morandi.accent,
                             fontSize = 11.sp,

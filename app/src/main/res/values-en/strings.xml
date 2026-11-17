@@ -1955,6 +1955,11 @@
     <string name="guide_fisheye_vertical_count">Vertical curves (incl. center)</string>
     <string name="guide_fisheye_center_rays">Show center rays</string>
     <string name="guide_fisheye_ray_count">Ray count</string>
+    <string name="guide_fisheye_snap_target">Snap direction</string>
+    <string name="guide_fisheye_snap_auto">Auto</string>
+    <string name="guide_fisheye_snap_horizontal">Horizontal curves</string>
+    <string name="guide_fisheye_snap_vertical">Vertical curves</string>
+    <string name="guide_fisheye_snap_ray">Center ray</string>
     <string name="guide_fisheye_reset">Reset center and radius</string>
     <string name="guide_symmetry_type">Symmetry Type</string>
     <string name="guide_symmetry_vertical">Vertical</string>

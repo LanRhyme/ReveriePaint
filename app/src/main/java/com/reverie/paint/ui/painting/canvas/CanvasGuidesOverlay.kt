@@ -31,18 +31,13 @@ import kotlin.math.sin
 
 private fun DrawScope.drawFisheyeCurves(
     curves: List<FloatArray>,
-    angles: DoubleArray,
     centerX: Float,
     centerY: Float,
     radius: Float,
     color: Color,
     strokeWidth: Float,
 ) {
-    for (index in curves.indices) {
-        // a=0 是穿过中心的水平/垂直直径, 属于"经纬十字"; 鱼眼里只允许中心射线是直线,
-        // 所以两条直径既不参与吸附也不显示。
-        if (kotlin.math.abs(angles[index]) < 1e-9) continue
-        val curve = curves[index]
+    for (curve in curves) {
         var i = 0
         while (i + 3 < curve.size) {
             drawLine(
@@ -123,11 +118,11 @@ internal fun DrawScope.drawDrawingGuides(
                                             screenRadius,
                                         )
                                         drawFisheyeCurves(
-                                            mesh.horizontal, mesh.horizontalAngles,
+                                            mesh.horizontal,
                                             centerX, centerY, radius, guideCol, gStroke.width,
                                         )
                                         drawFisheyeCurves(
-                                            mesh.vertical, mesh.verticalAngles,
+                                            mesh.vertical,
                                             centerX, centerY, radius, guideCol, gStroke.width,
                                         )
                                         if (guide.fisheyeShowCenterRays) {

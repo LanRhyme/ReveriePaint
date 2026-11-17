@@ -2366,37 +2366,128 @@ class CanvasTouchView(context: Context) : View(context) {
         val centerX = (guide.fisheyeCenterX * v.docWidth).toDouble()
         val centerY = (guide.fisheyeCenterY * v.docHeight).toDouble()
         val radius = (guide.fisheyeRadius * minDim).toDouble().coerceAtLeast(1.0)
-
-        if (!assistFisheyeLocked) {
-            if (dist < 8f) return currentPt
-            val d = FisheyeGuideGeometry.directionFromDocument(
-                firstPt.x.toDouble(), firstPt.y.toDouble(), centerX, centerY, radius,
+        fun dir(px: Offset) = FisheyeGuideGeometry.directionFromDocument(
+            px.x.toDouble(), px.y.toDouble(), centerX, centerY, radius,
+        )
+        fun toDoc(d: Triple<Double, Double, Double>): Offset {
+            val p = FisheyeGuideGeometry.documentFromDirection(
+                d.first, d.second, d.third, centerX, centerY, radius,
             )
-            val aH = atan2(d.second, d.third)
-            val aV = atan2(d.first, d.third)
-            // 吸附候选去掉 a=0 的两条直径: 不允许把笔画锁成穿过中心的水平/垂直直线
-            val hAngles = FisheyeGuideGeometry.snappingCurveAngles(guide.fisheyeHorizontalCount)
-            val vAngles = FisheyeGuideGeometry.snappingCurveAngles(guide.fisheyeVerticalCount)
-            if (hAngles.isEmpty() && vAngles.isEmpty()) return currentPt
-            val nearestH = FisheyeGuideGeometry.nearestCurveAngle(aH, hAngles)
-            val nearestV = FisheyeGuideGeometry.nearestCurveAngle(aV, vAngles)
-            if (abs(aH - nearestH) <= abs(aV - nearestV)) {
-                assistFisheyeFamily = 0
-                assistFisheyeA = nearestH
-            } else {
-                assistFisheyeFamily = 1
-                assistFisheyeA = nearestV
-            }
-            assistFisheyeLocked = true
+            return Offset(p.x, p.y)
+        }
+        fun screenDistance(a: Offset, b: Offset): Float {
+            val sa = docToScreen(a)
+            val sb = docToScreen(b)
+            return hypot(sa.x - sb.x, sa.y - sb.y)
         }
 
-        val d = FisheyeGuideGeometry.directionFromDocument(
-            currentPt.x.toDouble(), currentPt.y.toDouble(), centerX, centerY, radius,
-        )
-        val snapped = if (assistFisheyeFamily == 0) {
-            FisheyeGuideGeometry.snapToHorizontalCurve(assistFisheyeA, d.first, d.second, d.third)
-        } else {
-            FisheyeGuideGeometry.snapToVerticalCurve(assistFisheyeA, d.first, d.second, d.third)
+        if (!assistFisheyeLocked) {
+            // 阈值按屏幕像素, 缩放不改变手感 (6dp)。
+            if (screenDistance(firstPt, currentPt) < 6f * density) return currentPt
+            val dStart = dir(firstPt)
+            val dNow = dir(currentPt)
+            val startX = dStart.first
+            val startY = dStart.second
+            val startZ = dStart.third
+
+            // 候选关键参数
+            val hAngles = FisheyeGuideGeometry.snappingCurveAngles(guide.fisheyeHorizontalCount)
+            val vAngles = FisheyeGuideGeometry.snappingCurveAngles(guide.fisheyeVerticalCount)
+            val nearestH = FisheyeGuideGeometry.nearestCurveAngle(atan2(startY, startZ), hAngles)
+            val nearestV = FisheyeGuideGeometry.nearestCurveAngle(atan2(startX, startZ), vAngles)
+            val phi = FisheyeGuideGeometry.azimuthOf(startX, startY)
+
+            // 每个候选在起笔点的切线 (极小参数增量求数值切线), 与初始运笔方向比较。
+            fun tangentScore(
+                sample: (Double) -> Triple<Double, Double, Double>,
+                base: Double,
+            ): Float {
+                val eps = 0.01
+                val a = toDoc(sample(base - eps))
+                val b = toDoc(sample(base + eps))
+                val tx = b.x - a.x
+                val ty = b.y - a.y
+                val len = hypot(tx, ty)
+                if (len < 1e-6f) return 0f
+                val sx = currentPt.x - firstPt.x
+                val sy = currentPt.y - firstPt.y
+                val slen = hypot(sx, sy).coerceAtLeast(1e-6f)
+                return abs((tx / len) * (sx / slen) + (ty / len) * (sy / slen))
+            }
+
+            val allowH = guide.fisheyeSnapTarget == 0 || guide.fisheyeSnapTarget == 1
+            val allowV = guide.fisheyeSnapTarget == 0 || guide.fisheyeSnapTarget == 2
+            val allowRay = guide.fisheyeSnapTarget == 0 || guide.fisheyeSnapTarget == 3
+            var bestFamily = -1
+            var bestScore = -1f
+            if (allowH) {
+                val score = tangentScore(
+                    { t -> FisheyeGuideGeometry.horizontalDirection(nearestH, t) },
+                    kotlin.math.asin(startX.coerceIn(-1.0, 1.0)),
+                )
+                if (score > bestScore) { bestScore = score; bestFamily = 0 }
+            }
+            if (allowV) {
+                val score = tangentScore(
+                    { t -> FisheyeGuideGeometry.verticalDirection(nearestV, t) },
+                    kotlin.math.asin(startY.coerceIn(-1.0, 1.0)),
+                )
+                if (score > bestScore) { bestScore = score; bestFamily = 1 }
+            }
+            if (allowRay) {
+                val theta0 = atan2(hypot(startX, startY), startZ)
+                val score = tangentScore(
+                    { t -> Triple(
+                        kotlin.math.sin(t) * kotlin.math.cos(phi),
+                        kotlin.math.sin(t) * kotlin.math.sin(phi),
+                        kotlin.math.cos(t),
+                    ) },
+                    theta0,
+                )
+                // 显式选择中心射线时给一点优先权, 避免交点处被曲线抢走
+                val weighted = if (guide.fisheyeSnapTarget == 3) score + 0.05f else score
+                if (weighted > bestScore) { bestScore = weighted; bestFamily = 2 }
+            }
+
+            assistFisheyeFamily = bestFamily
+            assistFisheyeA = when (bestFamily) {
+                0 -> nearestH
+                1 -> nearestV
+                else -> phi
+            }
+            assistFisheyeLocked = true
+
+            if (bestFamily >= 0) {
+                val snappedNow = snapFisheyePoint(dNow, centerX, centerY, radius)
+                // 锁定瞬间离自由笔迹太远就放弃吸附, 避免连接斜线。
+                if (screenDistance(currentPt, snappedNow) > 12f * density) {
+                    assistFisheyeFamily = -1
+                }
+            }
+        }
+
+        if (assistFisheyeFamily < 0) return currentPt
+        val d = dir(currentPt)
+        val snapped = snapFisheyePoint(d, centerX, centerY, radius)
+        return snapped
+    }
+
+    private fun snapFisheyePoint(
+        direction: Triple<Double, Double, Double>,
+        centerX: Double,
+        centerY: Double,
+        radius: Double,
+    ): Offset {
+        val snapped = when (assistFisheyeFamily) {
+            0 -> FisheyeGuideGeometry.snapToHorizontalCurve(
+                assistFisheyeA, direction.first, direction.second, direction.third,
+            )
+            1 -> FisheyeGuideGeometry.snapToVerticalCurve(
+                assistFisheyeA, direction.first, direction.second, direction.third,
+            )
+            else -> FisheyeGuideGeometry.snapToCenterRay(
+                assistFisheyeA, direction.first, direction.second, direction.third,
+            )
         }
         val p = FisheyeGuideGeometry.documentFromDirection(
             snapped.first, snapped.second, snapped.third, centerX, centerY, radius,
@@ -4052,6 +4143,8 @@ class CanvasTouchView(context: Context) : View(context) {
     /** 这一笔可能出现动态吸附导引线 (2D 透视 / 等轴测 / 2D 网格 且开了辅助绘图)。 */
     private fun snapGuidePossible(v: PaintViewModel): Boolean {
         val g = v.drawingGuide
+        // 鱼眼当前不显示动态提示线, 前缓冲也不要为它预留孔洞/绘制。
+        if (g.mode == GuideMode.PERSPECTIVE && g.perspectiveFisheye) return false
         return FrontBufferHolePolicy.snapLinesPossible(
             g.assistedDrawing,
             g.mode == GuideMode.PERSPECTIVE && !g.perspective3d,
@@ -4399,6 +4492,10 @@ class CanvasTouchView(context: Context) : View(context) {
             val maxExt = maxOf(v.docWidth, v.docHeight).toFloat() * 50f + 500_000f
             when (guide.mode) {
                 GuideMode.PERSPECTIVE -> {
+                    // 鱼眼不参与旧透视的动态提示线: 旧逻辑会用 perspectiveVanishingPoints
+                    // 或默认 (0.5w, 0.35h) 画斜虚线, 与鱼眼圆心无关。
+                    // 暂不画曲线高亮, 直接返回"没有提示线", 不是中止整帧。
+                    if (guide.perspectiveFisheye) return DynamicGuidePainter.KIND_NONE
                     if (guide.perspective3d) return DYNAMIC_GUIDE_ABORT_FRAME
                     val locked = assistLockedRay
                     val dx = currentStrokeDocPos.x - firstDocPos.x

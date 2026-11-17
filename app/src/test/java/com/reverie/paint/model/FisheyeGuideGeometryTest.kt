@@ -87,6 +87,64 @@ class FisheyeGuideGeometryTest {
         assertTrue(highPoints > lowPoints)
     }
 
+    @Test
+    fun `document to direction round trip keeps the point inside the disk`() {
+        val cx = 500.0
+        val cy = 400.0
+        val radius = 300.0
+        val direction = FisheyeGuideGeometry.directionFromDocument(650.0, 550.0, cx, cy, radius)
+        val restored = FisheyeGuideGeometry.documentFromDirection(
+            direction.first, direction.second, direction.third, cx, cy, radius,
+        )
+        assertEquals(650f, restored.x, 1e-3f)
+        assertEquals(550f, restored.y, 1e-3f)
+    }
+
+    @Test
+    fun `snapped direction stays on the chosen horizontal or vertical curve`() {
+        val a = 0.3
+        val horizontal = FisheyeGuideGeometry.snapToHorizontalCurve(a, 0.4, 0.55, 0.3)
+        assertEquals(kotlin.math.tan(a), horizontal.second / horizontal.third, 1e-6)
+        val vertical = FisheyeGuideGeometry.snapToVerticalCurve(-0.2, 0.5, 0.45, 0.4)
+        assertEquals(kotlin.math.tan(-0.2), vertical.first / vertical.third, 1e-6)
+    }
+
+    @Test
+    fun `center ray snap keeps the start azimuth and passes through the true center`() {
+        val x = 0.42
+        val y = -0.31
+        val z = 0.85
+        val phi = FisheyeGuideGeometry.azimuthOf(x, y)
+        val snapped = FisheyeGuideGeometry.snapToCenterRay(phi, x, y, z)
+        // 任意采样点方位角都与起笔一致, 因此延长线穿过圆心
+        assertEquals(phi, FisheyeGuideGeometry.azimuthOf(snapped.first, snapped.second), 1e-9)
+        val projected = FisheyeGuideGeometry.projectDirection(snapped.first, snapped.second, snapped.third)
+        val expected = FisheyeGuideGeometry.projectDirection(
+            x / kotlin.math.sqrt(x * x + y * y + z * z),
+            y / kotlin.math.sqrt(x * x + y * y + z * z),
+            z / kotlin.math.sqrt(x * x + y * y + z * z),
+        )
+        // 方向不变时投影不变 (径向吸附只在半径方向压缩/拉伸)
+        assertEquals(expected.x, projected.x, 1e-5f)
+        assertEquals(expected.y, projected.y, 1e-5f)
+    }
+
+    @Test
+    fun `snapping candidates match displayed curves including the diameters`() {
+        val visible = FisheyeGuideGeometry.curveAngles(7)
+        val snapping = FisheyeGuideGeometry.snappingCurveAngles(7)
+        assertEquals(visible.size, snapping.size)
+        assertTrue(snapping.any { kotlin.math.abs(it) < 1e-9 })
+        for (i in snapping.indices) assertEquals(visible[i], snapping[i], 0.0)
+    }
+
+    @Test
+    fun `nearest curve angle chooses the closest allowed line`() {
+        val angles = FisheyeGuideGeometry.curveAngles(7)
+        val target = angles[3] + 0.01
+        assertEquals(angles[3], FisheyeGuideGeometry.nearestCurveAngle(target, angles), 0.0)
+    }
+
     private fun assertPoint(curve: FloatArray, pointOffset: Int, x: Float, y: Float) {
         assertEquals(x, curve[pointOffset], 1e-5f)
         assertEquals(y, curve[pointOffset + 1], 1e-5f)

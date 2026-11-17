@@ -45,12 +45,8 @@ object FisheyeGuideGeometry {
         }
     }
 
-    /**
-     * 吸附候选: 去掉 a=0 的两条直径。
-     * 直径仍然是可见辅助线, 但不允许把笔画锁成水平/垂直直线, 避免出现"经纬十字"效果。
-     */
-    fun snappingCurveAngles(count: Int): DoubleArray =
-        curveAngles(count).filter { kotlin.math.abs(it) > 1e-9 }.toDoubleArray()
+    /** 吸附候选与显示一致: a=0 的两条直径同样是合法曲线。 */
+    fun snappingCurveAngles(count: Int): DoubleArray = curveAngles(count)
 
     /** Orthographic equal-angle projection of one front-facing unit direction onto a unit disk. */
     fun projectDirection(x: Double, y: Double, z: Double): Point2D {
@@ -105,6 +101,19 @@ object FisheyeGuideGeometry {
     fun snapToVerticalCurve(a: Double, x: Double, y: Double, z: Double): Triple<Double, Double, Double> {
         val t = kotlin.math.asin(y.coerceIn(-1.0, 1.0))
         return verticalDirection(a, t)
+    }
+
+    /** Azimuth of a direction around the optical axis; used by the radial snap. */
+    fun azimuthOf(x: Double, y: Double): Double = atan2(y, x)
+
+    /**
+     * 中心射线吸附: 固定方位角 phi, 只保留极角 theta。
+     * 得到的直线一定穿过真实球心, 同时允许朝圆心或背离圆心绘制。
+     */
+    fun snapToCenterRay(phi: Double, x: Double, y: Double, z: Double): Triple<Double, Double, Double> {
+        val theta = atan2(hypot(x, y), z.coerceAtLeast(0.0)).coerceIn(0.0, HALF_PI)
+        val st = sin(theta)
+        return Triple(st * cos(phi), st * sin(phi), cos(theta))
     }
 
     /** Equal-angle projection back to document coordinates. */
