@@ -2382,8 +2382,6 @@ class CanvasTouchView(context: Context) : View(context) {
         }
 
         if (!assistFisheyeLocked) {
-            // 始终自动: 等运笔超过 6dp 才能判断方向 (屏幕像素, 不随缩放变化)。
-            if (screenDistance(firstPt, currentPt) < 6f * density) return currentPt
             val dStart = dir(firstPt)
             val dNow = dir(currentPt)
             val startX = dStart.first
@@ -2452,9 +2450,8 @@ class CanvasTouchView(context: Context) : View(context) {
             assistFisheyeLocked = true
 
             if (bestFamily >= 0) {
-                val snappedNow = snapFisheyePoint(dNow, centerX, centerY, radius)
-                // 锁定瞬间离自由笔迹太远就放弃吸附, 避免连接斜线。
-                if (screenDistance(currentPt, snappedNow) > 12f * density) {
+                val snappedStart = snapFisheyePoint(dStart, centerX, centerY, radius)
+                if (screenDistance(firstPt, snappedStart) > 16f * density) {
                     assistFisheyeFamily = -1
                 }
             }
