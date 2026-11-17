@@ -1951,12 +1951,10 @@
     <string name="guide_perspective_3pt">3-Point</string>
     <string name="guide_perspective_fisheye">Fisheye</string>
     <string name="guide_fisheye_hint">Drag the center dot to move, drag the rim dot to resize</string>
-    <string name="guide_fisheye_style_sphere">Sphere</string>
-    <string name="guide_fisheye_style_rays">Center rays</string>
-    <string name="guide_fisheye_lateral">Lateral divisions</string>
-    <string name="guide_fisheye_depth">Depth divisions</string>
-    <string name="guide_fisheye_rings">Rings</string>
-    <string name="guide_fisheye_spokes">Spokes</string>
+    <string name="guide_fisheye_horizontal_count">Horizontal curves (incl. center)</string>
+    <string name="guide_fisheye_vertical_count">Vertical curves (incl. center)</string>
+    <string name="guide_fisheye_center_rays">Show center rays</string>
+    <string name="guide_fisheye_ray_count">Ray count</string>
     <string name="guide_fisheye_reset">Reset center and radius</string>
     <string name="guide_symmetry_type">Symmetry Type</string>
     <string name="guide_symmetry_vertical">Vertical</string>

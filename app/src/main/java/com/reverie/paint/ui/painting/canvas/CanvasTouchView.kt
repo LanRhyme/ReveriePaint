@@ -532,6 +532,7 @@ class CanvasTouchView(context: Context) : View(context) {
         safeEndSymmetryUndoMacro()
         resetMirrorBranches()
         assistLockedRay = null
+        resetFisheyeAssist()
         clearPredictionState(triggerInvalidate = true)
         currentStrokeDocPos = Offset.Zero
         firstDocPos = Offset.Zero
@@ -2337,6 +2338,72 @@ class CanvasTouchView(context: Context) : View(context) {
     }
     private var assistLockedRay: AssistRay? = null
 
+    // 鱼眼吸附: 笔画开始时锁定一条横/纵曲线, 后续采样点都投影回这条曲线
+    private var assistFisheyeLocked = false
+    private var assistFisheyeFamily = 0 // 0 = 横向曲线, 1 = 纵向曲线
+    private var assistFisheyeA = 0.0
+
+    private fun resetFisheyeAssist() {
+        assistFisheyeLocked = false
+        assistFisheyeFamily = 0
+        assistFisheyeA = 0.0
+    }
+
+    /**
+     * 把当前笔尖投影回锁定的一条鱼眼曲线。
+     *
+     * 方向向量 -> 反投影到球面 -> 固定 a 的曲线只保留一个自由度 (t) -> 再投影回画布。
+     * 锁定发生在运笔超过 8px 时, 选离起点最近的一条横/纵曲线, 之后整笔都贴在这条曲线上。
+     */
+    private fun applyFisheyeAssist(
+        v: PaintViewModel,
+        guide: com.reverie.paint.model.DrawingGuideConfig,
+        firstPt: Offset,
+        currentPt: Offset,
+        dist: Float,
+    ): Offset {
+        val minDim = minOf(v.docWidth, v.docHeight).toFloat().coerceAtLeast(1f)
+        val centerX = (guide.fisheyeCenterX * v.docWidth).toDouble()
+        val centerY = (guide.fisheyeCenterY * v.docHeight).toDouble()
+        val radius = (guide.fisheyeRadius * minDim).toDouble().coerceAtLeast(1.0)
+
+        if (!assistFisheyeLocked) {
+            if (dist < 8f) return currentPt
+            val d = FisheyeGuideGeometry.directionFromDocument(
+                firstPt.x.toDouble(), firstPt.y.toDouble(), centerX, centerY, radius,
+            )
+            val aH = atan2(d.second, d.third)
+            val aV = atan2(d.first, d.third)
+            // 吸附候选去掉 a=0 的两条直径: 不允许把笔画锁成穿过中心的水平/垂直直线
+            val hAngles = FisheyeGuideGeometry.snappingCurveAngles(guide.fisheyeHorizontalCount)
+            val vAngles = FisheyeGuideGeometry.snappingCurveAngles(guide.fisheyeVerticalCount)
+            if (hAngles.isEmpty() && vAngles.isEmpty()) return currentPt
+            val nearestH = FisheyeGuideGeometry.nearestCurveAngle(aH, hAngles)
+            val nearestV = FisheyeGuideGeometry.nearestCurveAngle(aV, vAngles)
+            if (abs(aH - nearestH) <= abs(aV - nearestV)) {
+                assistFisheyeFamily = 0
+                assistFisheyeA = nearestH
+            } else {
+                assistFisheyeFamily = 1
+                assistFisheyeA = nearestV
+            }
+            assistFisheyeLocked = true
+        }
+
+        val d = FisheyeGuideGeometry.directionFromDocument(
+            currentPt.x.toDouble(), currentPt.y.toDouble(), centerX, centerY, radius,
+        )
+        val snapped = if (assistFisheyeFamily == 0) {
+            FisheyeGuideGeometry.snapToHorizontalCurve(assistFisheyeA, d.first, d.second, d.third)
+        } else {
+            FisheyeGuideGeometry.snapToVerticalCurve(assistFisheyeA, d.first, d.second, d.third)
+        }
+        val p = FisheyeGuideGeometry.documentFromDirection(
+            snapped.first, snapped.second, snapped.third, centerX, centerY, radius,
+        )
+        return Offset(p.x, p.y)
+    }
+
     private fun applyAssistedDrawing(firstPt: Offset, currentPt: Offset): Offset {
         val v = vm ?: return currentPt
         val guide = v.drawingGuide
@@ -2384,6 +2451,9 @@ class CanvasTouchView(context: Context) : View(context) {
                 Offset(firstPt.x + bestDir.x * dot, firstPt.y + bestDir.y * dot)
             }
             GuideMode.PERSPECTIVE -> {
+                if (guide.perspectiveFisheye) {
+                    return applyFisheyeAssist(v, guide, firstPt, currentPt, dist)
+                }
                 if (guide.perspective3d) return currentPt
                 val vps = if (guide.perspectiveVanishingPoints.isEmpty()) {
                     listOf(Point2D(v.docWidth * 0.5f, vm?.docHeight?.toFloat()?.times(0.35f) ?: 350f))
@@ -6459,6 +6529,7 @@ class CanvasTouchView(context: Context) : View(context) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 val hasSymmetry = v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing
                 assistLockedRay = null
+                resetFisheyeAssist()
                 strokeAbortedUntilUp = false
                 if (hasSymmetry) {
                     safeBeginSymmetryUndoMacro()
@@ -8300,6 +8371,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
                 strokeAbortedUntilUp = false
                 assistLockedRay = null
+                resetFisheyeAssist()
                 clearPredictionState(triggerInvalidate = true)
                 currentStrokeDocPos = Offset.Zero
                 firstDocPos = Offset.Zero

@@ -36,6 +36,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.model.FisheyeGuideGeometry
 import com.reverie.paint.model.GuideMode
 import com.reverie.paint.model.Point2D
 import com.reverie.paint.model.SymmetryType
@@ -192,7 +193,7 @@ fun DrawingGuidePanel(
                                 val on = !guide.perspectiveFisheye
                                 vm.drawingGuide = guide.copy(
                                     perspectiveFisheye = on,
-                                    assistedDrawing = if (on) false else guide.assistedDrawing,
+                                    assistedDrawing = if (on) true else guide.assistedDrawing,
                                     perspective3d = if (on) false else guide.perspective3d,
                                 )
                             },
@@ -201,14 +202,6 @@ fun DrawingGuidePanel(
                     }
 
                     if (guide.perspectiveFisheye) {
-                        SegmentedOptionSelector(
-                            options = listOf(
-                                0 to androidx.compose.ui.res.stringResource(R.string.guide_fisheye_style_sphere),
-                                1 to androidx.compose.ui.res.stringResource(R.string.guide_fisheye_style_rays),
-                            ),
-                            selectedKey = guide.fisheyeStyle,
-                            onSelect = { vm.drawingGuide = guide.copy(fisheyeStyle = it) },
-                        )
                         Text(
                             androidx.compose.ui.res.stringResource(R.string.guide_fisheye_hint),
                             color = Morandi.subText,
@@ -219,19 +212,52 @@ fun DrawingGuidePanel(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             CompactSliderItem(
-                                label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_depth),
-                                valueText = "${guide.fisheyeRings}",
-                                range = 1f..12f,
-                                value = guide.fisheyeRings.toFloat(),
-                                onValue = { vm.drawingGuide = guide.copy(fisheyeRings = it.roundToInt()) },
+                                label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_horizontal_count),
+                                valueText = "${guide.fisheyeHorizontalCount.coerceIn(5, 25) or 1}",
+                                range = 5f..25f,
+                                value = guide.fisheyeHorizontalCount.toFloat(),
+                                onValue = {
+                                    vm.drawingGuide = guide.copy(
+                                        fisheyeHorizontalCount = FisheyeGuideGeometry.normalizeCurveCount(it.roundToInt()),
+                                    )
+                                },
                                 modifier = Modifier.weight(1f),
                             )
                             CompactSliderItem(
-                                label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_lateral),
-                                valueText = "${guide.fisheyeSpokes}",
-                                range = 6f..48f,
-                                value = guide.fisheyeSpokes.toFloat(),
-                                onValue = { vm.drawingGuide = guide.copy(fisheyeSpokes = it.roundToInt()) },
+                                label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_vertical_count),
+                                valueText = "${guide.fisheyeVerticalCount.coerceIn(5, 25) or 1}",
+                                range = 5f..25f,
+                                value = guide.fisheyeVerticalCount.toFloat(),
+                                onValue = {
+                                    vm.drawingGuide = guide.copy(
+                                        fisheyeVerticalCount = FisheyeGuideGeometry.normalizeCurveCount(it.roundToInt()),
+                                    )
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CompactToggleChip(
+                                label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_center_rays),
+                                selected = guide.fisheyeShowCenterRays,
+                                onClick = {
+                                    vm.drawingGuide = guide.copy(
+                                        fisheyeShowCenterRays = !guide.fisheyeShowCenterRays,
+                                    )
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                            CompactSliderItem(
+                                label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_ray_count),
+                                valueText = "${guide.fisheyeRayCount.coerceIn(4, 48)}",
+                                range = 4f..48f,
+                                value = guide.fisheyeRayCount.toFloat(),
+                                onValue = {
+                                    vm.drawingGuide = guide.copy(fisheyeRayCount = it.roundToInt().coerceIn(4, 48))
+                                },
                                 modifier = Modifier.weight(1f),
                             )
                         }

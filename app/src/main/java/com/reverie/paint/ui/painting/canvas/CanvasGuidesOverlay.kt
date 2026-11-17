@@ -13,6 +13,7 @@ import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.unit.dp
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.model.FisheyeGuideGeometryCache
 import com.reverie.paint.model.GuideMode
 import com.reverie.paint.model.PERSPECTIVE_RAY_COUNT_MAX
 import com.reverie.paint.model.PERSPECTIVE_RAY_COUNT_MIN
@@ -27,6 +28,33 @@ import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
+
+private fun DrawScope.drawFisheyeCurves(
+    curves: List<FloatArray>,
+    angles: DoubleArray,
+    centerX: Float,
+    centerY: Float,
+    radius: Float,
+    color: Color,
+    strokeWidth: Float,
+) {
+    for (index in curves.indices) {
+        // a=0 是穿过中心的水平/垂直直径, 属于"经纬十字"; 鱼眼里只允许中心射线是直线,
+        // 所以两条直径既不参与吸附也不显示。
+        if (kotlin.math.abs(angles[index]) < 1e-9) continue
+        val curve = curves[index]
+        var i = 0
+        while (i + 3 < curve.size) {
+            drawLine(
+                color = color,
+                start = Offset(centerX + curve[i] * radius, centerY + curve[i + 1] * radius),
+                end = Offset(centerX + curve[i + 2] * radius, centerY + curve[i + 3] * radius),
+                strokeWidth = strokeWidth,
+            )
+            i += 2
+        }
+    }
+}
 
 internal fun DrawScope.drawDrawingGuides(
     vm: PaintViewModel,
@@ -81,99 +109,60 @@ internal fun DrawScope.drawDrawingGuides(
                         }
                         GuideMode.PERSPECTIVE -> {
                             if (guide.perspectiveFisheye) {
-                                // 鱼眼透视: 球面透视网格 或 球心射线; 球心与边界点可拖动
+                                // 180° 鱼眼网格: 两组从四个主消失点出发的球面方向曲线,
+                                // 不构造有限房间、不设 near/far, 边界 z=0 由数学模型直接投影。
                                 clipRect(left = -halfW, top = -halfH, right = halfW, bottom = halfH) {
-                                    val cx = guide.fisheyeCenterX * docW - halfW
-                                    val cy = guide.fisheyeCenterY * docH - halfH
-                                    val radius = guide.fisheyeRadius * minOf(docW, docH)
+                                    val centerX = guide.fisheyeCenterX * docW - halfW
+                                    val centerY = guide.fisheyeCenterY * docH - halfH
+                                    val radius = guide.fisheyeRadius.coerceIn(0.02f, 1.5f) * minOf(docW, docH)
                                     if (radius > 2f) {
-                                        if (guide.fisheyeStyle == 1) {
-                                            // 球心射线: 从球心向边界发散的直线, 表示视线方向
-                                            val spokes = guide.fisheyeSpokes.coerceIn(6, 48)
-                                            for (i in 0 until spokes) {
-                                                val angle = (2.0 * PI * i / spokes).toFloat()
+                                        val screenRadius = radius * zoom * fitScale
+                                        val mesh = FisheyeGuideGeometryCache.get(
+                                            guide.fisheyeHorizontalCount,
+                                            guide.fisheyeVerticalCount,
+                                            screenRadius,
+                                        )
+                                        drawFisheyeCurves(
+                                            mesh.horizontal, mesh.horizontalAngles,
+                                            centerX, centerY, radius, guideCol, gStroke.width,
+                                        )
+                                        drawFisheyeCurves(
+                                            mesh.vertical, mesh.verticalAngles,
+                                            centerX, centerY, radius, guideCol, gStroke.width,
+                                        )
+                                        if (guide.fisheyeShowCenterRays) {
+                                            val rayCount = guide.fisheyeRayCount.coerceIn(4, 48)
+                                            val rayColor = guideCol.copy(alpha = guideCol.alpha * 0.48f)
+                                            // 直径曲线已从显示中移除, 水平/垂直方向的直线只由射线提供,
+                                            // 因此这里不再跳过 0/90/180/270 度的射线。
+                                            for (i in 0 until rayCount) {
+                                                val angle = (2.0 * PI * i / rayCount).toFloat()
                                                 drawLine(
-                                                    color = guideCol,
-                                                    start = Offset(cx, cy),
-                                                    end = Offset(cx + cos(angle) * radius, cy + sin(angle) * radius),
+                                                    color = rayColor,
+                                                    start = Offset(centerX, centerY),
+                                                    end = Offset(centerX + cos(angle) * radius, centerY + sin(angle) * radius),
                                                     strokeWidth = gStroke.width,
                                                 )
                                             }
-                                        } else {
-                                            // 球面透视: 把 3D 房间网格按等距鱼眼投影到圆盘。
-                                            // 直线在球面上变成大圆弧, 靠近边缘被压缩 —— 与参考图一致。
-                                            val roomHalfW = 1.6f
-                                            val roomHalfH = 1.0f
-                                            val zNear = 0.55f
-                                            val zFar = 7.0f
-                                            val latDiv = guide.fisheyeSpokes.coerceIn(6, 48)
-                                            val depthDiv = (guide.fisheyeRings * 2).coerceIn(4, 24)
-                                            val fovHalf = (PI / 2).toFloat()
-                                            fun project(x: Float, y: Float, z: Float): Offset? {
-                                                if (z <= 0.05f) return null
-                                                val theta = atan2(hypot(x, y), z)
-                                                if (theta > fovHalf) return null
-                                                val phi = atan2(y, x)
-                                                val r = radius * theta / fovHalf
-                                                return Offset(cx + cos(phi) * r, cy + sin(phi) * r)
-                                            }
-                                            fun polyline(points: List<Offset?>) {
-                                                for (k in 0 until points.size - 1) {
-                                                    val a = points[k] ?: continue
-                                                    val b = points[k + 1] ?: continue
-                                                    drawLine(guideCol, a, b, strokeWidth = gStroke.width)
-                                                }
-                                            }
-                                            // 地面 / 天花板: 沿 X 和沿 Z 两个方向的格线
-                                            for (i in 0..latDiv) {
-                                                val x = -roomHalfW + 2f * roomHalfW * i / latDiv
-                                                for (sign in intArrayOf(-1, 1)) {
-                                                    val y = sign * roomHalfH
-                                                    polyline((0..48).map { k ->
-                                                        val z = zNear + (zFar - zNear) * k / 48f
-                                                        project(x, y, z)
-                                                    })
-                                                }
-                                            }
-                                            for (j in 0..depthDiv) {
-                                                val z = zNear + (zFar - zNear) * j / depthDiv
-                                                for (sign in intArrayOf(-1, 1)) {
-                                                    val y = sign * roomHalfH
-                                                    polyline((0..latDiv).map { k ->
-                                                        val x = -roomHalfW + 2f * roomHalfW * k / latDiv
-                                                        project(x, y, z)
-                                                    })
-                                                }
-                                            }
-                                            // 垂直立柱: 必须逐段采样, 只连两个端点会变成直线
-                                            for (i in 0..latDiv) {
-                                                val x = -roomHalfW + 2f * roomHalfW * i / latDiv
-                                                for (j in 0..depthDiv) {
-                                                    val z = zNear + (zFar - zNear) * j / depthDiv
-                                                    polyline((0..16).map { k ->
-                                                        val y = -roomHalfH + 2f * roomHalfH * k / 16f
-                                                        project(x, y, z)
-                                                    })
-                                                }
-                                            }
                                         }
-                                        // 球边界 + 手柄
+                                        // 边界圆只画一次; 它不是横/纵曲线数量的一部分。
                                         drawCircle(
                                             color = guideCol.copy(alpha = (guideCol.alpha * 1.5f).coerceAtMost(1f)),
                                             radius = radius,
-                                            center = Offset(cx, cy),
+                                            center = Offset(centerX, centerY),
                                             style = Stroke(width = gStroke.width * 1.6f),
                                         )
-                                        drawCircle(Morandi.accent, radius = 4.dp.toPx(), center = Offset(cx, cy))
+                                        // 手柄: 球心圆点 / 边界控制点
+                                        drawCircle(Morandi.accent, radius = 4.dp.toPx(), center = Offset(centerX, centerY))
                                         drawCircle(
                                             Morandi.accent,
                                             radius = 4.dp.toPx(),
-                                            center = Offset(cx + radius, cy),
+                                            center = Offset(centerX + radius, centerY),
                                         )
                                         drawCircle(
                                             Morandi.accent.copy(alpha = 0.35f),
                                             radius = 8.dp.toPx(),
-                                            center = Offset(cx + radius, cy),
+                                            center = Offset(centerX + radius, centerY),
                                             style = Stroke(width = 1.dp.toPx()),
                                         )
                                     }
