@@ -1951,6 +1951,10 @@
     <string name="guide_perspective_3pt">3-Point</string>
     <string name="guide_perspective_fisheye">Fisheye</string>
     <string name="guide_fisheye_hint">Drag the center dot to move, drag the rim dot to resize</string>
+    <string name="guide_fisheye_style_sphere">Sphere</string>
+    <string name="guide_fisheye_style_rays">Center rays</string>
+    <string name="guide_fisheye_lateral">Lateral divisions</string>
+    <string name="guide_fisheye_depth">Depth divisions</string>
     <string name="guide_fisheye_rings">Rings</string>
     <string name="guide_fisheye_spokes">Spokes</string>
     <string name="guide_fisheye_reset">Reset center and radius</string>

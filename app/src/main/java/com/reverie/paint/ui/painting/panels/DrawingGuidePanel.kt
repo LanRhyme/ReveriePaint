@@ -201,6 +201,14 @@ fun DrawingGuidePanel(
                     }
 
                     if (guide.perspectiveFisheye) {
+                        SegmentedOptionSelector(
+                            options = listOf(
+                                0 to androidx.compose.ui.res.stringResource(R.string.guide_fisheye_style_sphere),
+                                1 to androidx.compose.ui.res.stringResource(R.string.guide_fisheye_style_rays),
+                            ),
+                            selectedKey = guide.fisheyeStyle,
+                            onSelect = { vm.drawingGuide = guide.copy(fisheyeStyle = it) },
+                        )
                         Text(
                             androidx.compose.ui.res.stringResource(R.string.guide_fisheye_hint),
                             color = Morandi.subText,
@@ -211,7 +219,7 @@ fun DrawingGuidePanel(
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
                         ) {
                             CompactSliderItem(
-                                label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_rings),
+                                label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_depth),
                                 valueText = "${guide.fisheyeRings}",
                                 range = 1f..12f,
                                 value = guide.fisheyeRings.toFloat(),
@@ -219,7 +227,7 @@ fun DrawingGuidePanel(
                                 modifier = Modifier.weight(1f),
                             )
                             CompactSliderItem(
-                                label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_spokes),
+                                label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_lateral),
                                 valueText = "${guide.fisheyeSpokes}",
                                 range = 6f..48f,
                                 value = guide.fisheyeSpokes.toFloat(),

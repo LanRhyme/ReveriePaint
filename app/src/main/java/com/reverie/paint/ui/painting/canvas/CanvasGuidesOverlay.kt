@@ -23,6 +23,7 @@ import com.reverie.paint.model.SymmetryType
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.parseColor
 import kotlin.math.PI
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
@@ -80,41 +81,89 @@ internal fun DrawScope.drawDrawingGuides(
                         }
                         GuideMode.PERSPECTIVE -> {
                             if (guide.perspectiveFisheye) {
-                                // 鱼眼透视: 球心放射线 + 同心圈, 球心与边界点可拖动
+                                // 鱼眼透视: 球面透视网格 或 球心射线; 球心与边界点可拖动
                                 clipRect(left = -halfW, top = -halfH, right = halfW, bottom = halfH) {
-                                    val scX = bmp.width.toFloat() / maxOf(1, vm.docWidth)
-                                    val scY = bmp.height.toFloat() / maxOf(1, vm.docHeight)
                                     val cx = guide.fisheyeCenterX * docW - halfW
                                     val cy = guide.fisheyeCenterY * docH - halfH
                                     val radius = guide.fisheyeRadius * minOf(docW, docH)
                                     if (radius > 2f) {
-                                        val rings = guide.fisheyeRings.coerceIn(1, 12)
-                                        val spokes = guide.fisheyeSpokes.coerceIn(6, 48)
-                                        for (i in 1..rings) {
-                                            drawCircle(
-                                                color = guideCol,
-                                                radius = radius * i / rings,
-                                                center = Offset(cx, cy),
-                                                style = gStroke,
-                                            )
+                                        if (guide.fisheyeStyle == 1) {
+                                            // 球心射线: 从球心向边界发散的直线, 表示视线方向
+                                            val spokes = guide.fisheyeSpokes.coerceIn(6, 48)
+                                            for (i in 0 until spokes) {
+                                                val angle = (2.0 * PI * i / spokes).toFloat()
+                                                drawLine(
+                                                    color = guideCol,
+                                                    start = Offset(cx, cy),
+                                                    end = Offset(cx + cos(angle) * radius, cy + sin(angle) * radius),
+                                                    strokeWidth = gStroke.width,
+                                                )
+                                            }
+                                        } else {
+                                            // 球面透视: 把 3D 房间网格按等距鱼眼投影到圆盘。
+                                            // 直线在球面上变成大圆弧, 靠近边缘被压缩 —— 与参考图一致。
+                                            val roomHalfW = 1.6f
+                                            val roomHalfH = 1.0f
+                                            val zNear = 0.55f
+                                            val zFar = 7.0f
+                                            val latDiv = guide.fisheyeSpokes.coerceIn(6, 48)
+                                            val depthDiv = (guide.fisheyeRings * 2).coerceIn(4, 24)
+                                            val fovHalf = (PI / 2).toFloat()
+                                            fun project(x: Float, y: Float, z: Float): Offset? {
+                                                if (z <= 0.05f) return null
+                                                val theta = atan2(hypot(x, y), z)
+                                                if (theta > fovHalf) return null
+                                                val phi = atan2(y, x)
+                                                val r = radius * theta / fovHalf
+                                                return Offset(cx + cos(phi) * r, cy + sin(phi) * r)
+                                            }
+                                            fun polyline(points: List<Offset?>) {
+                                                for (k in 0 until points.size - 1) {
+                                                    val a = points[k] ?: continue
+                                                    val b = points[k + 1] ?: continue
+                                                    drawLine(guideCol, a, b, strokeWidth = gStroke.width)
+                                                }
+                                            }
+                                            // 地面 / 天花板: 沿 X 和沿 Z 两个方向的格线
+                                            for (i in 0..latDiv) {
+                                                val x = -roomHalfW + 2f * roomHalfW * i / latDiv
+                                                for (sign in intArrayOf(-1, 1)) {
+                                                    val y = sign * roomHalfH
+                                                    polyline((0..48).map { k ->
+                                                        val z = zNear + (zFar - zNear) * k / 48f
+                                                        project(x, y, z)
+                                                    })
+                                                }
+                                            }
+                                            for (j in 0..depthDiv) {
+                                                val z = zNear + (zFar - zNear) * j / depthDiv
+                                                for (sign in intArrayOf(-1, 1)) {
+                                                    val y = sign * roomHalfH
+                                                    polyline((0..latDiv).map { k ->
+                                                        val x = -roomHalfW + 2f * roomHalfW * k / latDiv
+                                                        project(x, y, z)
+                                                    })
+                                                }
+                                            }
+                                            // 垂直立柱: 必须逐段采样, 只连两个端点会变成直线
+                                            for (i in 0..latDiv) {
+                                                val x = -roomHalfW + 2f * roomHalfW * i / latDiv
+                                                for (j in 0..depthDiv) {
+                                                    val z = zNear + (zFar - zNear) * j / depthDiv
+                                                    polyline((0..16).map { k ->
+                                                        val y = -roomHalfH + 2f * roomHalfH * k / 16f
+                                                        project(x, y, z)
+                                                    })
+                                                }
+                                            }
                                         }
-                                        for (i in 0 until spokes) {
-                                            val angle = (2.0 * PI * i / spokes).toFloat()
-                                            drawLine(
-                                                color = guideCol,
-                                                start = Offset(cx, cy),
-                                                end = Offset(cx + cos(angle) * radius, cy + sin(angle) * radius),
-                                                strokeWidth = gStroke.width,
-                                            )
-                                        }
-                                        // 球边界加粗一点, 与内部网格区分
+                                        // 球边界 + 手柄
                                         drawCircle(
                                             color = guideCol.copy(alpha = (guideCol.alpha * 1.5f).coerceAtMost(1f)),
                                             radius = radius,
                                             center = Offset(cx, cy),
                                             style = Stroke(width = gStroke.width * 1.6f),
                                         )
-                                        // 手柄: 球心圆点 / 边界控制点
                                         drawCircle(Morandi.accent, radius = 4.dp.toPx(), center = Offset(cx, cy))
                                         drawCircle(
                                             Morandi.accent,

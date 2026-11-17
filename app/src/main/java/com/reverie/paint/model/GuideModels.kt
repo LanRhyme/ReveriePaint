@@ -119,8 +119,9 @@ data class DrawingGuideConfig(
     val fisheyeCenterX: Float = 0.5f, // 球心归一化坐标
     val fisheyeCenterY: Float = 0.5f,
     val fisheyeRadius: Float = 0.42f, // 半径占画布短边的比例
-    val fisheyeRings: Int = 5, // 同心圈数量 (1..12)
-    val fisheyeSpokes: Int = 24, // 放射线数量 (6..48)
+    val fisheyeRings: Int = 5, // 深度分度 (球面模式) / 保留给旧配置
+    val fisheyeSpokes: Int = 24, // 横向分度或射线数量 (6..48)
+    val fisheyeStyle: Int = 0, // 0 = 球面透视网格, 1 = 球心射线
 ) {
     /**
      * 计算输入点对应的对称镜像分支点列表 (支持对称轴任意角度旋转)
