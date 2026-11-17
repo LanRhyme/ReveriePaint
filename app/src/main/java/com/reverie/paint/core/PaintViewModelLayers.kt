@@ -535,13 +535,15 @@ internal fun PaintViewModel.removeLayer(index: Int) {
         return
     }
     if (anim.enabled) {
-        // Ordinary delete never removes an entire animation track.
-        if (target.nodeType == 0 && index != anim.backgroundLayerIndex && index != anim.foregroundLayerIndex) {
+        // 字幕主轨删除会破坏字幕时间轴, 仍然只清当前格; 其余普通图层按用户预期
+        // 真正删除这一层 (轨道里删除子层 = 这一格少一层, 不是清空整条轨道)。
+        val storyboardTrack = anim.storyboard.trackIndex >= 0 && index == anim.storyboard.trackIndex
+        if (storyboardTrack) {
             animationRemoveKeyframe(index)
-        } else {
+        } else if (target.nodeType != 0) {
             animationRequestDeleteTrack(index)
         }
-        return
+        // 普通颜料层: 落到下面的通用删除流程, 保留撤销
     }
     if (transientTransformSelectionPending || canUndoTransformSelection || canRedoTransformSelection) {
         discardTransientTransformSelection()

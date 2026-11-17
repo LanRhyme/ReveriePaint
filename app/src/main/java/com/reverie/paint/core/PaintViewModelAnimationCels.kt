@@ -29,7 +29,10 @@ internal fun PaintViewModel.prepareAnimationCel(
     val times = ReverieCoreBridge.keyframeTimes(layer).toList()
     // The primary track's keys define subtitle timing. Never leave an extra end key on that track.
     val temporaryEnd = primary && range.endExclusive !in times
-    val edits = AnimationCelPlan.edits(times, range, erase, preserveDrawing)
+    // 字幕分镜有固定时长, 必须补尾部边界; 普通轨道只有后面确实还有帧时才需要,
+    // 否则在末尾新建一帧会多出一格空白, 看起来像一次加了两帧。
+    val protectTail = anim.storyboard.frames.isNotEmpty() || times.any { it >= range.endExclusive }
+    val edits = AnimationCelPlan.edits(times, range, erase, preserveDrawing, protectTail)
     if (edits.isEmpty()) return false
     var completed = 0
     var success = false
@@ -126,6 +129,8 @@ internal fun PaintViewModel.prepareAnimationTrackCel(
                 range = range,
                 erase = erase,
                 preserveDrawing = preserveDrawing,
+                protectTail = anim.storyboard.frames.isNotEmpty() ||
+                    ReverieCoreBridge.keyframeTimes(layer).any { it >= range.endExclusive },
             ).isNotEmpty()
         ) {
             updates += layer

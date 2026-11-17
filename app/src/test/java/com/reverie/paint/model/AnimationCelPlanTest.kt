@@ -94,6 +94,30 @@ class AnimationCelPlanTest {
         ))
     }
 
+    @Test fun `末尾新建帧不再补多余边界键`() {
+        assertEquals(
+            listOf(AnimationCelPlan.Edit.Blank(1)),
+            AnimationCelPlan.edits(
+                times = listOf(0),
+                range = AnimationCelPlan.Range(1, 2),
+                erase = false,
+                preserveDrawing = false,
+                protectTail = false,
+            ),
+        )
+        // 中间插入仍保留边界, 后续已有帧不会被覆盖
+        assertEquals(
+            listOf(AnimationCelPlan.Edit.Blank(2)),
+            AnimationCelPlan.edits(
+                times = listOf(0, 5),
+                range = AnimationCelPlan.Range(2, 3),
+                erase = false,
+                preserveDrawing = false,
+                protectTail = false,
+            ),
+        )
+    }
+
     @Test fun `shot lookup includes start excludes end and supports subtitle gaps`() {
         val shot = StoryboardFrame(SrtCue(0, 1000, "caption"), 11, 16)
         assertEquals(AnimationCelPlan.Range(11, 16), AnimationCelPlan.range(11, listOf(shot)))

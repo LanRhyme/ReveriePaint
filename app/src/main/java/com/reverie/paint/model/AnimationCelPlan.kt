@@ -17,12 +17,23 @@ internal object AnimationCelPlan {
         data class Remove(val time: Int) : Edit
     }
 
-    /** Preserve the exposure after the edited cell BEFORE replacing its source key. */
-    fun edits(times: List<Int>, range: Range, erase: Boolean, preserveDrawing: Boolean): List<Edit> {
+    /**
+     * @param protectTail 是否为"被替换的尾部曝光"补边界键。
+     *   普通动画轨道在末尾新建帧时没有后续内容需要保护, 补边界会在时间轴上
+     *   多出一格, 看起来像一次加了两帧; 这类情况传 false。
+     *   字幕分镜 (固定时长) 和中间插入必须保持 true。
+     */
+    fun edits(
+        times: List<Int>,
+        range: Range,
+        erase: Boolean,
+        preserveDrawing: Boolean,
+        protectTail: Boolean = true,
+    ): List<Edit> {
         require(range.start >= 0 && range.endExclusive > range.start)
         val keys = times.sorted()
         val result = mutableListOf<Edit>()
-        if (range.endExclusive !in keys) {
+        if (protectTail && range.endExclusive !in keys) {
             val afterSource = keys.lastOrNull { it < range.endExclusive }
             result += if (afterSource != null) Edit.Copy(afterSource, range.endExclusive)
                 else Edit.Blank(range.endExclusive)
