@@ -1495,6 +1495,7 @@
     <string name="brush_studio_engine_limits">尺寸上下限限制</string>
     <string name="brush_studio_engine_min_size">最小尺寸限制</string>
     <string name="brush_studio_engine_max_size">最大尺寸限制</string>
+    <string name="brush_studio_engine_max_size_by_canvas">尺寸上限由畫布尺寸決定, 關閉"跟隨畫布縮放"後可手動設定</string>
     <string name="brush_studio_engine_blend_modes">混合模式 (Composite Mode)</string>
     <string name="brush_studio_engine_opacity">不透明度 (Opacity)</string>
     <string name="brush_studio_engine_flow">流量 (Flow)</string>
@@ -1507,6 +1508,9 @@
     <string name="brush_studio_blend_lighten">變亮</string>
     <string name="brush_studio_blend_dodge">減淡</string>
     <string name="brush_studio_blend_burn">加深</string>
+    <string name="brush_studio_blend_linear_dodge">線性減淡</string>
+    <string name="brush_studio_blend_linear_burn">線性加深</string>
+    <string name="brush_studio_blend_subtract">減去</string>
     <string name="brush_studio_blend_hard_light">強光</string>
     <string name="brush_studio_blend_soft_light">柔光</string>
     <string name="brush_studio_blend_difference">差值</string>
@@ -3095,10 +3099,15 @@
     <string name="gesture_action_fit_canvas_desc">將畫布檢視居中並縮放至適合螢幕</string>
     <string name="gesture_action_clear_layer">清除當前圖層</string>
     <string name="gesture_action_clear_layer_desc">快速清空當前選中圖層內容</string>
+    <string name="gesture_action_select_layer_at_point">點選圖層</string>
+    <string name="gesture_action_select_layer_at_point_desc">按兩下觸點位置檢索並切換該位置包含內容的圖層</string>
     <string name="gesture_action_none">停用</string>
 
     <string name="gesture_trigger_single_finger_touch_slide">單指點選與滑動</string>
     <string name="gesture_trigger_single_finger_touch_slide_desc">手指觸屏展開選單，划向目標方向直接盲操觸發；單擊仍可常駐展示（將停用單指平移畫布）</string>
+    <string name="gesture_trigger_single_finger_double_tap">單指按兩下</string>
+    <string name="canvas_toast_no_layer_content">未偵測到圖層內容</string>
+    <string name="layer_select_popup_title">觸點圖層</string>
     <string name="gesture_trigger_two_finger_tap">雙指輕點</string>
     <string name="gesture_trigger_two_finger_double_tap">雙指雙擊</string>
     <string name="gesture_trigger_two_finger_long_press">雙指長按</string>

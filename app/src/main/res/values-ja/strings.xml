@@ -1495,6 +1495,7 @@
     <string name="brush_studio_engine_limits">サイズの上下限制限</string>
     <string name="brush_studio_engine_min_size">最小サイズ制限</string>
     <string name="brush_studio_engine_max_size">最大サイズ制限</string>
+    <string name="brush_studio_engine_max_size_by_canvas">サイズ上限はキャンバスサイズにより制限されます。「キャンバス連動拡大縮小」を無効にすると手動設定できます</string>
     <string name="brush_studio_engine_blend_modes">合成モード (Composite Mode)</string>
     <string name="brush_studio_engine_opacity">不透明度</string>
     <string name="brush_studio_engine_flow">流量</string>
@@ -1507,6 +1508,9 @@
     <string name="brush_studio_blend_lighten">比較 (明)</string>
     <string name="brush_studio_blend_dodge">覆い焼き</string>
     <string name="brush_studio_blend_burn">焼き込み</string>
+    <string name="brush_studio_blend_linear_dodge">覆い焼き（リニア）</string>
+    <string name="brush_studio_blend_linear_burn">焼き込み（リニア）</string>
+    <string name="brush_studio_blend_subtract">減算</string>
     <string name="brush_studio_blend_hard_light">ハードライト</string>
     <string name="brush_studio_blend_soft_light">ソフトライト</string>
     <string name="brush_studio_blend_difference">差分</string>
@@ -3100,10 +3104,15 @@
     <string name="gesture_action_fit_canvas_desc">キャンバスを画面中央に配置し全体が表示されるサイズに合わせる</string>
     <string name="gesture_action_clear_layer">レイヤーを消去</string>
     <string name="gesture_action_clear_layer_desc">選択中のレイヤーの内容を消去</string>
+    <string name="gesture_action_select_layer_at_point">タップ位置のレイヤー選択</string>
+    <string name="gesture_action_select_layer_at_point_desc">ダブルタップした位置に描画内容があるレイヤーを検索して切り替えます</string>
     <string name="gesture_action_none">無効</string>
 
     <string name="gesture_trigger_single_finger_touch_slide">1本指タッチ＆スライド</string>
     <string name="gesture_trigger_single_finger_touch_slide_desc">画面にタッチしてメニューを開き、目的の方向にスライドして素早く操作を実行。タップで常時表示（1本指でのキャンバス移動は無効になります）</string>
+    <string name="gesture_trigger_single_finger_double_tap">1本指ダブルタップ</string>
+    <string name="canvas_toast_no_layer_content">レイヤーの描画内容が検出されませんでした</string>
+    <string name="layer_select_popup_title">タップ位置のレイヤー</string>
     <string name="gesture_trigger_two_finger_tap">2本指タップ</string>
     <string name="gesture_trigger_two_finger_double_tap">2本指ダブルタップ</string>
     <string name="gesture_trigger_two_finger_long_press">2本指長押し</string>
