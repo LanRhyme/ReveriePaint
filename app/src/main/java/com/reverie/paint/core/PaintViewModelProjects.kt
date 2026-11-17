@@ -1926,10 +1926,19 @@ internal fun PaintViewModel.startPainting(
                     // 建工程阶段不计入撤销历史 (帧率现在是可撤销的文档设置,
                     // 否则新文档一打开就自带一步"改帧率")
                     ReverieCoreBridge.setUndoCaptureEnabled(false)
+                    var trackName: String? = null
                     try {
                         nativeInitAnimation(animationFps)
+                        // 新动画默认只有一条轨道: 把初始图层收进 轨道 1.
+                        // 之后在轨道里加图层只会多一格内容, 不会再冒出新的轨道行
+                        trackName = ensureSingleAnimationTrackOnRenderThread()
                     } finally {
                         ReverieCoreBridge.setUndoCaptureEnabled(true)
+                    }
+                    trackName?.let {
+                        syncLayersFromNative()
+                        anim.timelineCollapsedGroups = anim.timelineCollapsedGroups + it
+                        anim.timelineGroupsInitialized = true
                     }
                 }
             }

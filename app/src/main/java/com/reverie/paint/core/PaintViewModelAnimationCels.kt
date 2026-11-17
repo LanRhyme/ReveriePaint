@@ -204,7 +204,8 @@ internal fun PaintViewModel.initializeNewAnimationCel() {
  */
 internal fun PaintViewModel.ensureSingleAnimationTrackOnRenderThread(): String? {
     val count = ReverieCoreBridge.layerCount()
-    if (count <= 2) return null
+    // 只有背景层时不动; 背景 + 1 个颜料层 (新工程) 正好需要建第一条轨道
+    if (count < 2) return null
     val isRoot = { i: Int -> ReverieCoreBridge.layerDepth(i) == 0 }
     val rootGroups = (1 until count).filter { isRoot(it) && ReverieCoreBridge.layerIsGroup(it) }
     val loose = (1 until count).filter { isRoot(it) && !ReverieCoreBridge.layerIsGroup(it) }
@@ -253,8 +254,9 @@ private fun PaintViewModel.generateDefaultTrackName(): String {
     val prefix = if (LanguageManager.isChinese()) "轨道" else "Track"
     val regex = Regex("""^(?:轨道|Track)\s*(\d+)?$""", RegexOption.IGNORE_CASE)
     var max = 0
-    for (layer in layers) {
-        val match = regex.find(layer.name.trim()) ?: continue
+    // 必须在渲染线程按引擎图层表取名; UI 镜像在新建文档时还是上一份文档的内容
+    for (index in 0 until ReverieCoreBridge.layerCount()) {
+        val match = regex.find(ReverieCoreBridge.layerName(index).trim()) ?: continue
         val number = match.groupValues[1].toIntOrNull() ?: 0
         if (number > max) max = number
     }
