@@ -676,9 +676,13 @@ internal fun PaintViewModel.addGroupLayer() {
         clearLayerSelection()
         notifyLayerChanged()
     }) {
+        val allSelectedClipped = selected.isNotEmpty() && selected.all { ReverieCoreBridge.layerClipped(it) }
         val newGroupIndex = ReverieCoreBridge.addGroupLayer(groupName)
         if (selected.isNotEmpty() && newGroupIndex >= 0) {
             val groupIdx = ReverieCoreBridge.currentLayerIndex()
+            if (!allSelectedClipped && ReverieCoreBridge.layerClipped(groupIdx)) {
+                ReverieCoreBridge.setLayerClipped(groupIdx, false)
+            }
             for (idx in selected) {
                 val actualIdx = if (idx >= newGroupIndex) idx + 1 else idx
                 if (actualIdx != groupIdx && actualIdx > 0) {

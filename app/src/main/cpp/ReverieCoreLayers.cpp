@@ -102,6 +102,30 @@ void currentInsertPosition(const QVector<ReverieCore::LayerEntry> &layers, int c
     above = KisNodeSP();
     parent = image ? KisNodeSP(image->rootLayer()) : KisNodeSP();
 }
+
+void applyAutoClipIfBetweenClipped(KisNodeSP newNode, const KisNodeSP &above)
+{
+    if (!newNode || !above) {
+        return;
+    }
+    KisNodeSP nextSib = above->nextSibling();
+    // 跳过附着在 above 上的蒙版节点, 检查其上方真正的同级图层是否处于剪切蒙版状态
+    while (nextSib && (reverie::layerProperty(&*nextSib, "reverie_is_transparency_mask").toBool()
+                       || dynamic_cast<KisMask *>(nextSib.data()))) {
+        nextSib = nextSib->nextSibling();
+    }
+    if (!nextSib) {
+        return;
+    }
+    const KisLayer *nextLayer = dynamic_cast<const KisLayer *>(nextSib.data());
+    if (!nextLayer || !nextLayer->clippingEnabled()) {
+        return;
+    }
+    if (KisLayer *newLayer = dynamic_cast<KisLayer *>(newNode.data())) {
+        newLayer->enableClippingLayer(true);
+    }
+}
+
 int ReverieCore::addLayer(const QString &name)
 {
     KisImageSP image = m_document;
@@ -142,6 +166,8 @@ int ReverieCore::addLayer(const QString &name)
     if (!parent) {
         return -1;
     }
+
+    applyAutoClipIfBetweenClipped(newLayer, above);
 
     // Krita-native undo: push a layer-add command through the undo adapter.
     // KUndo2Stack::push executes redo() (which performs the addNode).
@@ -188,6 +214,7 @@ int ReverieCore::addGroupLayer(const QString &name)
     if (!parent) {
         return -1;
     }
+    applyAutoClipIfBetweenClipped(group, above);
     pushUndoCommand(new KisImageLayerAddCommand(image, group, parent, above));
     recompositeProjection();
     syncLayersFromImage();
@@ -285,6 +312,7 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
         }
     }
 
+    applyAutoClipIfBetweenClipped(newNode, above);
     pushUndoCommand(new KisImageLayerAddCommand(image, newNode, parent, above));
     recompositeProjection();
     syncLayersFromImage();
@@ -461,6 +489,7 @@ int ReverieCore::copySelectionToNewLayer(bool cut)
     KisNodeSP above;
     KisNodeSP parent;
     currentInsertPosition(m_layers, m_currentLayer, above, parent, image);
+    applyAutoClipIfBetweenClipped(newLayer, above);
     pushUndoCommand(new KisImageLayerAddCommand(image, newLayer, parent, above));
 
     // 图像被撤销宏锁住 (对称笔画进行中) 时不等: 锁住的调度器排不空, waitForDone 会卡死;
@@ -577,6 +606,7 @@ int ReverieCore::stampVisibleLayers()
     KisNodeSP above;
     KisNodeSP parent;
     currentInsertPosition(m_layers, m_currentLayer, above, parent, image);
+    applyAutoClipIfBetweenClipped(nl, above);
     pushUndoCommand(new KisImageLayerAddCommand(image, nl, parent, above));
     recompositeProjection();
     syncLayersFromImage();

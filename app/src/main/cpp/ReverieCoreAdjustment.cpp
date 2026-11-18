@@ -66,6 +66,7 @@ bool ReverieCore::createAdjustmentLayer(const QString &name, int filterType,
     currentInsertPosition(m_layers, m_currentLayer, above, parent, image);
 
     KisAdjustmentLayerSP node = new KisAdjustmentLayer(image, finalName, config, nullptr);
+    applyAutoClipIfBetweenClipped(node, above);
     pushUndoCommand(new KisImageLayerAddCommand(image, node, parent, above));
     recompositeProjection();
     syncLayersFromImage();

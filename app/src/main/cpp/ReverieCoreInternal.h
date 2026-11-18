@@ -1601,6 +1601,10 @@ void registerReverieGenerators();
 void currentInsertPosition(const QVector<ReverieCore::LayerEntry> &layers, int current,
                            KisNodeSP &above, KisNodeSP &parent, KisImageSP image);
 
+/** 若新图层插入在"基底/剪切层"与"上方紧邻的剪切蒙版层"之间, 自动为其开启剪切蒙版,
+ *  防止新层打断既有剪切蒙版链（定义于 ReverieCoreLayers.cpp，调整层等域复用） */
+void applyAutoClipIfBetweenClipped(KisNodeSP newNode, const KisNodeSP &above);
+
 class KisMaskingBrushRenderer;
 
 // ---- 蒙版笔/试画板共享的笔画 job 执行与蒙版投影（定义见 ReverieCoreStroke.cpp）----

@@ -189,6 +189,9 @@ internal fun PaintViewModel.animationImportSrt(uri: Uri) {
                 layer = (0 until ReverieCoreBridge.layerCount()).first {
                     ReverieCoreBridge.layerId(it) == layerId
                 }
+                if (ReverieCoreBridge.layerClipped(layer)) {
+                    ReverieCoreBridge.setLayerClipped(layer, false)
+                }
                 ReverieCoreBridge.setCurrentLayer(layer)
                 check(ReverieCoreBridge.enableLayerAnimation(layer))
                 // No end-boundary keys: each subtitle is exactly one editable keyframe.
