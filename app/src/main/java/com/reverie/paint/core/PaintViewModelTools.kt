@@ -2088,83 +2088,19 @@ internal fun PaintViewModel.cancelTransformPreview(resetCopyOnly: Boolean = true
     }
 }
 
-/**
- * 只复制选区像素到内存剪贴板, 不新建图层、不改动当前图层。
- *
- * 必须在渲染线程读引擎, 因此整段走 runCore; 位图按选区包围盒裁剪后只保留
- * 文档大小的一块临时画布, 复制完成后回收。
- */
 internal fun PaintViewModel.copySelectionToClipboard() {
-    var copied: android.graphics.Bitmap? = null
-    var offsetX = 0
-    var offsetY = 0
-    runCore(after = {
-        val bmp = copied
-        if (bmp == null) {
-            showActionToast(R.string.toast_selection_empty_pixels, R.drawable.ic_lasso)
-        } else {
-            selectionClipboard?.recycle()
-            selectionClipboard = bmp
-            selectionClipboardX = offsetX
-            selectionClipboardY = offsetY
-            showActionToast(R.string.selection_copied)
-        }
-    }) {
-        val mask = ReverieCoreBridge.selectionMask()
-        if (mask == null || mask.isEmpty()) return@runCore
-        val w = ReverieCoreBridge.docWidth()
-        val h = ReverieCoreBridge.docHeight()
-        if (w <= 0 || h <= 0 || mask.size < w * h) return@runCore
-
-        var minX = w
-        var minY = h
-        var maxX = -1
-        var maxY = -1
-        for (y in 0 until h) {
-            val row = y * w
-            for (x in 0 until w) {
-                if (mask[row + x].toInt() and 0xFF == 0) continue
-                if (x < minX) minX = x
-                if (x > maxX) maxX = x
-                if (y < minY) minY = y
-                if (y > maxY) maxY = y
-            }
-        }
-        if (maxX < minX || maxY < minY) return@runCore
-
-        val full = android.graphics.Bitmap.createBitmap(w, h, android.graphics.Bitmap.Config.ARGB_8888)
-        if (!ReverieCoreBridge.renderLayerCanvas(ReverieCoreBridge.currentLayerIndex(), full)) {
-            full.recycle()
-            return@runCore
-        }
-        val pixels = IntArray(w * h)
-        full.getPixels(pixels, 0, w, 0, 0, w, h)
-        full.recycle()
-        for (y in minY..maxY) {
-            val row = y * w
-            for (x in minX..maxX) {
-                val index = row + x
-                val alpha = (mask[index].toInt() and 0xFF)
-                pixels[index] = if (alpha == 0) 0 else {
-                    val color = pixels[index]
-                    val a = ((color ushr 24) * alpha / 255)
-                    (a shl 24) or (color and 0x00FFFFFF)
-                }
-            }
-        }
-        val bw = maxX - minX + 1
-        val bh = maxY - minY + 1
-        copied = android.graphics.Bitmap.createBitmap(pixels, minY * w + minX, w, bw, bh, android.graphics.Bitmap.Config.ARGB_8888)
-        offsetX = minX
-        offsetY = minY
+    if (!hasSelection) {
+        clearSelectionClipboard()
+        editCanvasClipboard()
+        return
     }
+    copySelectedPixelsToClipboard()
 }
 
-/** 把剪贴板内容贴到当前图层/当前帧的原位置; 引擎写入在渲染线程完成。 */
 internal fun PaintViewModel.pasteSelectionClipboard() {
-    val bmp = selectionClipboard
-    if (bmp == null || bmp.isRecycled) {
-        showActionToast(R.string.selection_clipboard_empty)
+    val bitmap = selectionClipboard
+    if (bitmap == null || bitmap.isRecycled) {
+        editCanvasClipboard(paste = true)
         return
     }
     val x = selectionClipboardX
@@ -2173,8 +2109,107 @@ internal fun PaintViewModel.pasteSelectionClipboard() {
         notifyLayerChanged(contentChanged = true)
         showActionToast(R.string.selection_pasted)
     }) {
-        ReverieCoreBridge.stampBitmap(x, y, bmp)
+        ReverieCoreBridge.stampBitmap(x, y, bitmap)
     }
+}
+
+internal fun PaintViewModel.cutSelectionToClipboard() {
+    if (!hasSelection) {
+        clearSelectionClipboard()
+        editCanvasClipboard(cut = true)
+        return
+    }
+    copySelectedPixelsToClipboard { copied ->
+        if (copied) editCanvasClipboard(cut = true)
+    }
+}
+
+private fun PaintViewModel.copySelectedPixelsToClipboard(onCopied: (Boolean) -> Unit = {}) {
+    var copied: android.graphics.Bitmap? = null
+    var offsetX = 0
+    var offsetY = 0
+    runCore(after = {
+        val bitmap = copied
+        if (bitmap == null) {
+            showActionToast(R.string.toast_selection_empty_pixels, R.drawable.ic_lasso)
+            onCopied(false)
+        } else {
+            clearSelectionClipboard()
+            selectionClipboard = bitmap
+            selectionClipboardX = offsetX
+            selectionClipboardY = offsetY
+            selectionClipboardAvailable = true
+            showActionToast(R.string.selection_copied)
+            onCopied(true)
+        }
+    }) {
+        val mask = ReverieCoreBridge.selectionMask()
+        if (mask == null || mask.isEmpty()) return@runCore
+        val width = ReverieCoreBridge.docWidth()
+        val height = ReverieCoreBridge.docHeight()
+        if (width <= 0 || height <= 0 || mask.size < width * height) return@runCore
+
+        var minX = width
+        var minY = height
+        var maxX = -1
+        var maxY = -1
+        for (y in 0 until height) {
+            val row = y * width
+            for (x in 0 until width) {
+                if (mask[row + x].toInt() and 0xFF == 0) continue
+                minX = minOf(minX, x)
+                minY = minOf(minY, y)
+                maxX = maxOf(maxX, x)
+                maxY = maxOf(maxY, y)
+            }
+        }
+        if (maxX < minX || maxY < minY) return@runCore
+
+        val full = android.graphics.Bitmap.createBitmap(
+            width,
+            height,
+            android.graphics.Bitmap.Config.ARGB_8888,
+        )
+        if (!ReverieCoreBridge.renderLayerCanvas(ReverieCoreBridge.currentLayerIndex(), full)) {
+            full.recycle()
+            return@runCore
+        }
+        val pixels = IntArray(width * height)
+        full.getPixels(pixels, 0, width, 0, 0, width, height)
+        full.recycle()
+        for (y in minY..maxY) {
+            val row = y * width
+            for (x in minX..maxX) {
+                val pixelIndex = row + x
+                val alpha = mask[pixelIndex].toInt() and 0xFF
+                pixels[pixelIndex] = if (alpha == 0) {
+                    0
+                } else {
+                    val color = pixels[pixelIndex]
+                    val maskedAlpha = (color ushr 24) * alpha / 255
+                    (maskedAlpha shl 24) or (color and 0x00FFFFFF)
+                }
+            }
+        }
+        copied = android.graphics.Bitmap.createBitmap(
+            pixels,
+            minY * width + minX,
+            width,
+            maxX - minX + 1,
+            maxY - minY + 1,
+            android.graphics.Bitmap.Config.ARGB_8888,
+        )
+        offsetX = minX
+        offsetY = minY
+    }
+}
+
+private fun PaintViewModel.clearSelectionClipboard() {
+    selectionClipboard?.takeUnless { it.isRecycled }?.recycle()
+    selectionClipboard = null
+    selectionClipboardX = 0
+    selectionClipboardY = 0
+    selectionClipboardAvailable = false
 }
 
 internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean) {
@@ -2238,4 +2273,3 @@ internal fun PaintViewModel.copyOrCutSelection(cut: Boolean, toNewLayer: Boolean
         currentToolId = Tool.TRANSFORM.id
     }
 }
-

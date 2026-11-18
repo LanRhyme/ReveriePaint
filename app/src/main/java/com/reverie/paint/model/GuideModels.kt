@@ -90,6 +90,9 @@ const val SYMMETRY_RAY_COUNT_MIN = 2
 const val SYMMETRY_RAY_COUNT_MAX = 36
 const val SYMMETRY_RAY_COUNT_DEFAULT = 8
 
+const val FISHEYE_SNAP_CURVES = 1
+const val FISHEYE_SNAP_CENTER_RAY = 3
+
 /**
  * 绘图参考线配置
  */
@@ -122,7 +125,7 @@ data class DrawingGuideConfig(
     val fisheyeHorizontalCount: Int = 11, // 横向曲线数, 包含中间直径, 不含边界圆
     val fisheyeVerticalCount: Int = 11, // 纵向曲线数, 包含中间直径, 不含边界圆
     val fisheyeRayCount: Int = 24, // 中心放射线数量 (始终显示)
-    val fisheyeSnapTarget: Int = 0, // 吸附: 0 自动(横/纵曲线+射线), 3 仅中心射线
+    val fisheyeSnapTarget: Int = FISHEYE_SNAP_CURVES, // 吸附: 连续鱼眼弧线 / 中心射线
 ) {
     /**
      * 计算输入点对应的对称镜像分支点列表 (支持对称轴任意角度旋转)

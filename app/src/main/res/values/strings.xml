@@ -1448,7 +1448,7 @@
     <string name="selection_copy_cur">复制到当前图层</string>
     <string name="selection_cut_new">剪切到新图层</string>
     <string name="selection_cut_cur">剪切到当前图层</string>
-    <string name="selection_copy_cut">复制/剪切</string>
+    <string name="selection_copy_cut">复制/粘贴/剪切</string>
     <string name="selection_copy_plain">只复制</string>
     <string name="selection_paste">粘贴</string>
     <string name="selection_copied">已复制选区</string>
@@ -1955,7 +1955,7 @@
     <string name="guide_fisheye_vertical_count">纵向曲线（含中线）</string>
     <string name="guide_fisheye_ray_count">放射线数量</string>
     <string name="guide_fisheye_snap_target">吸附方式</string>
-    <string name="guide_fisheye_snap_auto">自动</string>
+    <string name="guide_fisheye_snap_curves">鱼眼弧线</string>
     <string name="guide_fisheye_snap_ray">中心射线</string>
     <string name="guide_fisheye_reset">重置球心与半径</string>
     <string name="guide_symmetry_type">对称类型</string>
@@ -3301,8 +3301,16 @@
 
     <!-- SRT storyboard import -->
     <string name="srt_import_title">导入 SRT 分镜</string>
-    <string name="srt_import_description">每条字幕按顺序生成一个关键帧，默认长度为 1 帧，可拖动帧格右边缘调整时长；SRT 轨道绘画不会自动切分关键帧；原始时间码只作参考，不决定帧的位置或长度；重新导入会新增轨道并替换字幕参考，不压缩或删除已有画面；请保存为 REVP 工程</string>
-    <string name="srt_choose_file">选择 SRT 文件</string>
+    <string name="srt_import_description">SRT 每条字幕生成一个关键帧；TXT 或普通文本按每个非空行生成一帧。关键帧默认长度为 1 帧，可拖动帧格右边缘调整时长；SRT 轨道绘画不会自动切分关键帧；原始时间码只作参考；重新导入会新增轨道并替换字幕参考，不压缩或删除已有画面；请保存为 REVP 工程</string>
+    <string name="srt_choose_file">选择 SRT/TXT 文件</string>
+    <string name="srt_import_text">粘贴或输入文本</string>
+    <string name="srt_import_text_title">导入分镜文本</string>
+    <string name="srt_import_text_hint">可粘贴 SRT 内容；普通文本按每个非空行生成一帧</string>
+    <string name="srt_import_text_confirm">导入</string>
+    <string name="srt_add_frame_hint">把光标放在分句处，按回车即可拆成新帧；后半段会自动移到新帧继续编辑</string>
+    <string name="srt_add_frame">添加分镜帧</string>
+    <string name="srt_error_append">无法添加字幕帧，请确认字幕映射有效且未达到时间上限</string>
+    <string name="srt_error_split">无法拆分分镜帧，请确认字幕映射有效且未达到时间上限</string>
     <string name="srt_close">关闭</string>
     <string name="srt_remove_title">移除字幕参考？</string>
     <string name="srt_remove_message">只移除字幕参考，SRT 轨道和已经画好的画面会保留。此操作不能撤销</string>

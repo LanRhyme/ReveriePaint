@@ -130,6 +130,44 @@ class FisheyeGuideGeometryTest {
     }
 
     @Test
+    fun `continuous curve parameters pass through the start point without jumping to a visible line`() {
+        val cx = 500.0
+        val cy = 400.0
+        val radius = 300.0
+        val direction = FisheyeGuideGeometry.directionFromDocument(650.0, 550.0, cx, cy, radius)
+        val x = direction.first
+        val y = direction.second
+        val z = direction.third
+
+        val h = FisheyeGuideGeometry.horizontalDirection(
+            FisheyeGuideGeometry.horizontalParameter(x, y, z),
+            kotlin.math.asin(x.coerceIn(-1.0, 1.0)),
+        )
+        val v = FisheyeGuideGeometry.verticalDirection(
+            FisheyeGuideGeometry.verticalParameter(x, y, z),
+            kotlin.math.asin(y.coerceIn(-1.0, 1.0)),
+        )
+        assertEquals(x, h.first, 1e-9)
+        assertEquals(y, h.second, 1e-9)
+        assertEquals(z, h.third, 1e-9)
+        assertEquals(x, v.first, 1e-9)
+        assertEquals(y, v.second, 1e-9)
+        assertEquals(z, v.third, 1e-9)
+    }
+
+    @Test
+    fun `merged curve family follows the initial stroke direction`() {
+        assertEquals(
+            0,
+            FisheyeGuideGeometry.chooseCurveFamily(0.0, 0.0, 1.0, 10.0, 0.0, 0.0, 0.0, 1.0),
+        )
+        assertEquals(
+            1,
+            FisheyeGuideGeometry.chooseCurveFamily(0.0, 0.0, 1.0, 0.0, 10.0, 0.0, 0.0, 1.0),
+        )
+    }
+
+    @Test
     fun `snapping candidates match displayed curves including the diameters`() {
         val visible = FisheyeGuideGeometry.curveAngles(7)
         val snapping = FisheyeGuideGeometry.snappingCurveAngles(7)

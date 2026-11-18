@@ -243,10 +243,14 @@ fun DrawingGuidePanel(
                         )
                         SegmentedOptionSelector(
                             options = listOf(
-                                0 to androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_auto),
-                                3 to androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_ray),
+                                com.reverie.paint.model.FISHEYE_SNAP_CURVES to
+                                    androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_curves),
+                                com.reverie.paint.model.FISHEYE_SNAP_CENTER_RAY to
+                                    androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_ray),
                             ),
-                            selectedKey = guide.fisheyeSnapTarget,
+                            selectedKey = guide.fisheyeSnapTarget.takeIf {
+                                it == com.reverie.paint.model.FISHEYE_SNAP_CENTER_RAY
+                            } ?: com.reverie.paint.model.FISHEYE_SNAP_CURVES,
                             onSelect = { vm.drawingGuide = guide.copy(fisheyeSnapTarget = it) },
                         )
                         CompactSliderItem(

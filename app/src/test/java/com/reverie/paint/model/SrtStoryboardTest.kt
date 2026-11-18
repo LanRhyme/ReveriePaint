@@ -94,6 +94,77 @@ class SrtStoryboardTest {
         assertEquals("01:02:03,004", SrtStoryboard.timestamp(3_723_004))
     }
 
+    @Test fun `plain text import makes one one-frame caption per non-empty line`() {
+        val cues = SrtStoryboard.parseImport("\uFEFF第一句\r\n\r\n第二句\r第三句")
+        assertEquals(listOf("第一句", "第二句", "第三句"), cues.map { it.text })
+        assertEquals(listOf(0L, 1000L, 2000L), cues.map { it.startMs })
+        assertEquals(listOf(1, 2, 3), SrtStoryboard.oneFrameShots(cues).map { it.endExclusive })
+    }
+
+    @Test fun `import keeps SRT parsing and rejects malformed SRT instead of treating it as plain text`() {
+        assertEquals("字幕", SrtStoryboard.parseImport(cue()).single().text)
+        rejects(SrtImportException.Reason.INVALID) {
+            SrtStoryboard.parseImport("00:00:01,000 --> broken\n字幕")
+        }
+    }
+
+    @Test fun `appended and edited cues preserve order and reject blank or over-limit entries`() {
+        val cues = SrtStoryboard.parse(cue(text = "第一句"))
+        val appended = SrtStoryboard.appendedCue(cues, " 第二句 ")
+        assertEquals(SrtCue(2000, 3000, "第二句"), appended)
+        assertEquals(
+            listOf("改好", "第二句"),
+            SrtStoryboard.replaceCue(cues + appended!!, 0, "改好")!!.map { it.text },
+        )
+        assertNull(SrtStoryboard.replaceCue(cues, 0, "  "))
+        assertNull(SrtStoryboard.appendedCue(cues, "  "))
+        assertNull(SrtStoryboard.appendedCue(
+            listOf(SrtCue(SrtStoryboard.MAX_TIMESTAMP_MS - 999, SrtStoryboard.MAX_TIMESTAMP_MS, "末句")),
+            "超时字幕",
+        ))
+    }
+
+    @Test fun `splitting a cue preserves every character on both sides of the caret`() {
+        val original = "cf week is the best time the best"
+        val cues = listOf(SrtCue(0, 1000, original))
+        val split = SrtStoryboard.splitCue(cues, 0, "cf wee", "k is the best time the best")
+
+        assertEquals("cf wee", split!![0].text)
+        assertEquals("k is the best time the best", split[1].text)
+        assertEquals(
+            original.filterNot(Char::isWhitespace),
+            split.joinToString("") { it.text }.filterNot(Char::isWhitespace),
+        )
+    }
+
+    @Test fun `splitting at the start or end keeps the complete text in the other frame`() {
+        val original = "第一句话"
+        val cues = listOf(SrtCue(0, 1000, original))
+        assertEquals(listOf("", original), SrtStoryboard.splitCue(cues, 0, "", original)!!.map { it.text })
+        assertEquals(listOf(original, ""), SrtStoryboard.splitCue(cues, 0, original, "")!!.map { it.text })
+        assertEquals(
+            listOf("", original),
+            SrtStoryboard.parseStored(
+                SrtStoryboard.decode(SrtStoryboard.encode(SrtStoryboard.splitCue(cues, 0, "", original)!!)),
+            ).map { it.text },
+        )
+    }
+
+    @Test fun `insert cue shifts reference times and permits a persisted empty draft`() {
+        val cues = SrtStoryboard.parse(
+            cue("00:00:01,000", "00:00:02,000", "first") + "\n\n" +
+                cue("00:00:02,000", "00:00:03,000", "second"),
+        )
+        val inserted = SrtStoryboard.insertCue(cues, 1, "")
+
+        assertEquals(listOf("first", "", "second"), inserted!!.map { it.text })
+        assertEquals(listOf(1000L, 2000L, 3000L), inserted.map { it.startMs })
+        assertEquals(inserted, SrtStoryboard.parseStored(SrtStoryboard.decode(SrtStoryboard.encode(inserted))))
+        rejects(SrtImportException.Reason.INVALID) {
+            SrtStoryboard.parse(SrtStoryboard.decode(SrtStoryboard.encode(inserted)))
+        }
+    }
+
     @Test fun `subtitle assets cannot be mistaken for audio`() {
         assertEquals(listOf("voice.wav"), AnimationLayerOps.audioAssetsOf(
             listOf(SrtStoryboard.ASSET, SrtStoryboard.ASSET + ".fps", "voice.wav"),

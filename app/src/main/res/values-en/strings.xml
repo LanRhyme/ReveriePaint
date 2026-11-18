@@ -1448,7 +1448,7 @@
     <string name="selection_copy_cur">Copy to Current Layer</string>
     <string name="selection_cut_new">Cut to New Layer</string>
     <string name="selection_cut_cur">Cut to Current Layer</string>
-    <string name="selection_copy_cut">Copy/Cut</string>
+    <string name="selection_copy_cut">Copy/Paste/Cut</string>
     <string name="selection_copy_plain">Copy only</string>
     <string name="selection_paste">Paste</string>
     <string name="selection_copied">Selection copied</string>
@@ -1955,7 +1955,7 @@
     <string name="guide_fisheye_vertical_count">Vertical curves (incl. center)</string>
     <string name="guide_fisheye_ray_count">Ray count</string>
     <string name="guide_fisheye_snap_target">Snap mode</string>
-    <string name="guide_fisheye_snap_auto">Auto</string>
+    <string name="guide_fisheye_snap_curves">Fisheye curves</string>
     <string name="guide_fisheye_snap_ray">Center ray</string>
     <string name="guide_fisheye_reset">Reset center and radius</string>
     <string name="guide_symmetry_type">Symmetry Type</string>
@@ -3301,8 +3301,16 @@
 
     <!-- SRT storyboard import -->
     <string name="srt_import_title">Import SRT storyboard</string>
-    <string name="srt_import_description">Create one keyframe per subtitle in script order, initially one frame long. Drag its right edge to change the duration. Drawing on the SRT track never auto-splits a keyframe. Original timestamps are reference-only. Reimport creates a new track and replaces the reference list; existing drawings are not shortened or deleted. Save as REVP.</string>
-    <string name="srt_choose_file">Choose SRT file</string>
+    <string name="srt_import_description">SRT creates one keyframe per subtitle; TXT or plain text creates one frame per non-empty line. Each keyframe starts one frame long; drag its right edge to change the duration. Drawing on the SRT track never auto-splits a keyframe. Original timestamps are reference-only. Reimport creates a new track and replaces the reference list; existing drawings are not shortened or deleted. Save as REVP.</string>
+    <string name="srt_choose_file">Choose SRT/TXT file</string>
+    <string name="srt_import_text">Paste or type text</string>
+    <string name="srt_import_text_title">Import storyboard text</string>
+    <string name="srt_import_text_hint">Paste SRT content, or use plain text with one frame per non-empty line</string>
+    <string name="srt_import_text_confirm">Import</string>
+    <string name="srt_add_frame_hint">Place the cursor at a sentence break and press Enter to split into a new frame; the text after the cursor moves there for continued editing</string>
+    <string name="srt_add_frame">Add storyboard frame</string>
+    <string name="srt_error_append">Could not add a frame. Check the caption mapping and time limit</string>
+    <string name="srt_error_split">Could not split this shot. Check the caption mapping and time limit</string>
     <string name="srt_close">Close</string>
     <string name="srt_remove_title">Remove subtitle reference?</string>
     <string name="srt_remove_message">Only the subtitle reference is removed. The SRT track and painted frames stay. This cannot be undone</string>

@@ -48,6 +48,54 @@ object FisheyeGuideGeometry {
     /** 吸附候选与显示一致: a=0 的两条直径同样是合法曲线。 */
     fun snappingCurveAngles(count: Int): DoubleArray = curveAngles(count)
 
+    /** 连续横弧参数: 过当前点的横弧族参数, 不量化到可见参考线。 */
+    fun horizontalParameter(x: Double, y: Double, z: Double): Double = atan2(y, z)
+
+    /** 连续纵弧参数: 过当前点的纵弧族参数, 不量化到可见参考线。 */
+    fun verticalParameter(x: Double, y: Double, z: Double): Double = atan2(x, z)
+
+    /**
+     * 合并后的弧线吸附在起笔后按初始运笔方向选择横弧或纵弧。
+     * 两条候选曲线都严格经过起笔点, 因此选择本身不会造成落点跳变。
+     */
+    fun chooseCurveFamily(
+        x: Double,
+        y: Double,
+        z: Double,
+        strokeDx: Double,
+        strokeDy: Double,
+        centerX: Double,
+        centerY: Double,
+        radius: Double,
+    ): Int {
+        val strokeLen = hypot(strokeDx, strokeDy)
+        if (strokeLen <= 1e-9) return 0
+        val aH = horizontalParameter(x, y, z)
+        val aV = verticalParameter(x, y, z)
+        val eps = 1e-3
+        val limit = HALF_PI - 1e-4
+
+        fun tangentScore(
+            sample: (Double) -> Triple<Double, Double, Double>,
+            base: Double,
+        ): Double {
+            val t = base.coerceIn(-limit, limit)
+            val a = sample(t - eps)
+            val b = sample(t + eps)
+            val p0 = documentFromDirection(a.first, a.second, a.third, centerX, centerY, radius)
+            val p1 = documentFromDirection(b.first, b.second, b.third, centerX, centerY, radius)
+            val tx = (p1.x - p0.x).toDouble()
+            val ty = (p1.y - p0.y).toDouble()
+            val len = hypot(tx, ty)
+            if (len <= 1e-9) return 0.0
+            return kotlin.math.abs((tx / len) * (strokeDx / strokeLen) + (ty / len) * (strokeDy / strokeLen))
+        }
+
+        val hScore = tangentScore({ t -> horizontalDirection(aH, t) }, kotlin.math.asin(x.coerceIn(-1.0, 1.0)))
+        val vScore = tangentScore({ t -> verticalDirection(aV, t) }, kotlin.math.asin(y.coerceIn(-1.0, 1.0)))
+        return if (hScore >= vScore) 0 else 1
+    }
+
     /** Orthographic equal-angle projection of one front-facing unit direction onto a unit disk. */
     fun projectDirection(x: Double, y: Double, z: Double): Point2D {
         if (!x.isFinite() || !y.isFinite() || !z.isFinite()) return Point2D(0f, 0f)

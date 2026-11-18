@@ -23,6 +23,7 @@ internal class StoryboardState {
     var cues by mutableStateOf<List<SrtCue>>(emptyList())
     var fps by mutableStateOf(DEFAULT_ANIMATION_FPS)
     var importing by mutableStateOf(false)
+    var adding by mutableStateOf(false)
     var singleFrameMode by mutableStateOf(false)
     var frames by mutableStateOf<List<StoryboardFrame>>(emptyList())
     var trackIndex by mutableStateOf(-1)
@@ -34,6 +35,7 @@ internal class StoryboardState {
         generation++
         cues = emptyList()
         importing = false
+        adding = false
         fps = DEFAULT_ANIMATION_FPS
         probed = false
         singleFrameMode = false
@@ -53,7 +55,7 @@ internal fun PaintViewModel.syncStoryboardFromNative() {
             ?.decodeToString()?.toIntOrNull()?.takeIf { it in 1..240 } ?: anim.framerate.coerceIn(1, 240)
         state.cues = runCatching {
             ReverieCoreBridge.revAssetBytes(SrtStoryboard.ASSET)?.takeIf { it.isNotEmpty() }
-                ?.let { SrtStoryboard.parse(SrtStoryboard.decode(it)) } ?: emptyList()
+                ?.let { SrtStoryboard.parseStored(SrtStoryboard.decode(it)) } ?: emptyList()
         }.getOrDefault(emptyList())
         val savedIndex = ReverieCoreBridge.revAssetBytes(SrtStoryboard.ASSET + ".track")
             ?.decodeToString()?.toIntOrNull()
@@ -156,6 +158,165 @@ internal fun PaintViewModel.isStoryboardTrackOnRenderThread(layer: Int): Boolean
         ReverieCoreBridge.layerId(layer) == anim.storyboard.trackId
 
 internal fun PaintViewModel.animationImportSrt(uri: Uri) {
+    animationImportStoryboard {
+        val bytes = appContext.contentResolver.openInputStream(uri)?.use { input ->
+            val output = ByteArrayOutputStream()
+            val buffer = ByteArray(8192)
+            while (true) {
+                val count = input.read(buffer)
+                if (count < 0) break
+                if (output.size() + count > SrtStoryboard.MAX_BYTES) {
+                    throw SrtImportException(SrtImportException.Reason.TOO_LARGE)
+                }
+                output.write(buffer, 0, count)
+            }
+            output.toByteArray()
+        } ?: throw java.io.IOException("Cannot open subtitle")
+        SrtStoryboard.parseImport(SrtStoryboard.decode(bytes))
+    }
+}
+
+internal fun PaintViewModel.animationImportText(text: String) {
+    animationImportStoryboard { SrtStoryboard.parseImport(text) }
+}
+
+/** Update only the storyboard reference asset; no canvas pixels or keyframes are changed. */
+internal fun PaintViewModel.animationUpdateStoryboardCue(index: Int, text: String) {
+    val state = anim.storyboard
+    val updated = SrtStoryboard.replaceCue(state.cues, index, text)
+    if (updated == null) {
+        showActionToast(R.string.srt_error_invalid)
+        return
+    }
+    if (updated == state.cues) return
+    val assetBytes = SrtStoryboard.encode(updated)
+    if (assetBytes.size > SrtStoryboard.MAX_BYTES) {
+        showActionToast(R.string.srt_error_large)
+        return
+    }
+
+    state.cues = updated
+    state.frames = if (state.singleFrameMode) {
+        SrtStoryboard.resizedShots(
+            updated,
+            anim.keyframeCache[state.trackIndex].orEmpty(),
+            anim.lastFrameHold[state.trackIndex] ?: 1,
+        )
+    } else {
+        runCatching { SrtStoryboard.frames(updated, state.fps) }.getOrDefault(emptyList())
+    }
+    val generation = state.generation
+    runCore(render = false) {
+        if (generation == state.generation && state.probed) {
+            ReverieCoreBridge.storeRevAsset(SrtStoryboard.ASSET, assetBytes)
+        }
+    }
+    isModified = true
+    onPaintingActivity()
+}
+
+/**
+ * Split the editable caption at the text cursor and insert a blank/draft keyframe after it.
+ * Later keyframes are shifted by one frame so their drawings and caption order remain aligned.
+ */
+internal fun PaintViewModel.animationSplitStoryboardCue(
+    index: Int,
+    leftText: String,
+    rightText: String,
+): Boolean {
+    val state = anim.storyboard
+    if (state.adding || state.importing || isImportingMedia) return false
+    if (!state.singleFrameMode || state.trackId == 0L ||
+        state.frames.size != state.cues.size || index !in state.cues.indices
+    ) {
+        showActionToast(R.string.srt_mapping_changed)
+        return false
+    }
+    val updated = SrtStoryboard.splitCue(state.cues, index, leftText, rightText)
+    if (updated == null) {
+        showActionToast(R.string.srt_error_split)
+        return false
+    }
+    val assetBytes = SrtStoryboard.encode(updated)
+    if (assetBytes.size > SrtStoryboard.MAX_BYTES) {
+        showActionToast(R.string.srt_error_large)
+        return false
+    }
+    val generation = state.generation
+    state.adding = true
+    animationPause()
+    var success = false
+    val insertionTime = state.frames.getOrNull(index)?.endExclusive
+    runCore(after = {
+        if (generation != state.generation) return@runCore
+        state.adding = false
+        if (success) {
+            anim.selectedTrack = state.trackIndex
+            anim.selectedFrames = emptySet()
+            anim.scrollPx = anim.currentTime * anim.frameWidthPx
+            isModified = true
+            hasPendingMajorOp = true
+            onPaintingActivity()
+            layerRevision++
+            refreshLayerThumbs(force = true)
+        } else {
+            showActionToast(R.string.srt_error_split)
+        }
+    }) {
+        if (generation != state.generation || state.trackId == 0L) return@runCore
+        val layer = (1 until ReverieCoreBridge.layerCount()).firstOrNull {
+            ReverieCoreBridge.layerId(it) == state.trackId
+        } ?: return@runCore
+        if (!ReverieCoreBridge.layerAnimatable(layer) || !ReverieCoreBridge.layerAnimated(layer)) {
+            return@runCore
+        }
+        val time = insertionTime?.coerceAtLeast(0) ?: return@runCore
+        if (time == Int.MAX_VALUE) return@runCore
+        val shiftTimes = ReverieCoreBridge.keyframeTimes(layer)
+            .filter { it >= time }
+            .sortedDescending()
+        if (shiftTimes.any { it == Int.MAX_VALUE }) return@runCore
+
+        val moved = ArrayList<Pair<Int, Int>>(shiftTimes.size)
+        var added = false
+        var readyToCommit = false
+        ReverieCoreBridge.beginUndoMacro(appContext.getString(R.string.srt_add_frame))
+        try {
+            for (from in shiftTimes) {
+                val to = from + 1
+                if (!ReverieCoreBridge.moveKeyframe(layer, from, to)) {
+                    throw IllegalStateException("Could not shift storyboard keyframe")
+                }
+                moved.add(from to to)
+            }
+            if (!ReverieCoreBridge.addKeyframe(layer, time)) {
+                throw IllegalStateException("Could not create storyboard keyframe")
+            }
+            added = true
+            readyToCommit = true
+        } catch (e: Exception) {
+            android.util.Log.e("RP_SRT", "Storyboard split failed", e)
+        } finally {
+            if (!readyToCommit) {
+                if (added) ReverieCoreBridge.removeKeyframe(layer, time)
+                for ((from, to) in moved.asReversed()) {
+                    ReverieCoreBridge.moveKeyframe(layer, to, from)
+                }
+            }
+            ReverieCoreBridge.endUndoMacro()
+        }
+        if (!readyToCommit) return@runCore
+        success = true
+        state.cues = updated
+        ReverieCoreBridge.storeRevAsset(SrtStoryboard.ASSET, assetBytes)
+        ReverieCoreBridge.storeRevAsset(SrtStoryboard.ASSET + ".track", layer.toString().toByteArray())
+        ReverieCoreBridge.setAnimationCurrentTime(time, false)
+        syncAnimationFromNative()
+    }
+    return true
+}
+
+private fun PaintViewModel.animationImportStoryboard(readCues: suspend () -> List<SrtCue>) {
     val state = anim.storyboard
     if (state.importing || isImportingMedia || !anim.enabled) return
     val generation = state.generation
@@ -163,27 +324,14 @@ internal fun PaintViewModel.animationImportSrt(uri: Uri) {
     isImportingMedia = true
     animationPause()
     viewModelScope.launch {
-        var assetBytes = ByteArray(0)
-        val cues = try {
+        val (cues, assetBytes) = try {
             withContext(Dispatchers.IO) {
-                val bytes = appContext.contentResolver.openInputStream(uri)?.use { input ->
-                    val output = ByteArrayOutputStream()
-                    val buffer = ByteArray(8192)
-                    while (true) {
-                        val count = input.read(buffer)
-                        if (count < 0) break
-                        if (output.size() + count > SrtStoryboard.MAX_BYTES) {
-                            throw SrtImportException(SrtImportException.Reason.TOO_LARGE)
-                        }
-                        output.write(buffer, 0, count)
-                    }
-                    output.toByteArray()
-                } ?: throw java.io.IOException("Cannot open subtitle")
-                SrtStoryboard.parse(SrtStoryboard.decode(bytes)).also { parsed ->
-                    assetBytes = SrtStoryboard.encode(parsed)
+                readCues().let { parsed ->
+                    val assetBytes = SrtStoryboard.encode(parsed)
                     if (assetBytes.size > SrtStoryboard.MAX_BYTES) {
                         throw SrtImportException(SrtImportException.Reason.TOO_LARGE)
                     }
+                    parsed to assetBytes
                 }
             }
         } catch (e: Exception) {

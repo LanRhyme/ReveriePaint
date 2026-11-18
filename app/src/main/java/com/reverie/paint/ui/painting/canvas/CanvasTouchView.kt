@@ -2338,9 +2338,9 @@ class CanvasTouchView(context: Context) : View(context) {
     }
     private var assistLockedRay: AssistRay? = null
 
-    // 鱼眼吸附: 笔画开始时锁定一条横/纵曲线, 后续采样点都投影回这条曲线
+    // 鱼眼吸附: 笔画开始时锁定选定的横/纵曲线或中心射线
     private var assistFisheyeLocked = false
-    private var assistFisheyeFamily = 0 // 0 = 横向曲线, 1 = 纵向曲线
+    private var assistFisheyeFamily = 0 // 0 = 横向曲线, 1 = 纵向曲线, 2 = 中心射线
     private var assistFisheyeA = 0.0
 
     private fun resetFisheyeAssist() {
@@ -2353,120 +2353,58 @@ class CanvasTouchView(context: Context) : View(context) {
      * 把当前笔尖投影回锁定的一条鱼眼曲线。
      *
      * 方向向量 -> 反投影到球面 -> 固定 a 的曲线只保留一个自由度 (t) -> 再投影回画布。
-     * 锁定发生在运笔超过 8px 时, 选离起点最近的一条横/纵曲线, 之后整笔都贴在这条曲线上。
+     * 按面板选择锁定离起点最近的一条横弧/纵弧，或经过球心的中心射线；
+     * 锁定后整笔都投影到该曲线上。
      */
     private fun applyFisheyeAssist(
         v: PaintViewModel,
         guide: com.reverie.paint.model.DrawingGuideConfig,
         firstPt: Offset,
         currentPt: Offset,
-        dist: Float,
     ): Offset {
         val minDim = minOf(v.docWidth, v.docHeight).toFloat().coerceAtLeast(1f)
         val centerX = (guide.fisheyeCenterX * v.docWidth).toDouble()
         val centerY = (guide.fisheyeCenterY * v.docHeight).toDouble()
         val radius = (guide.fisheyeRadius * minDim).toDouble().coerceAtLeast(1.0)
+        // 半球投影只在圆盘内有定义; 圆盘外起笔不吸附, 避免所有点被钳到边缘。
+        if (hypot(firstPt.x.toDouble() - centerX, firstPt.y.toDouble() - centerY) > radius) return currentPt
         fun dir(px: Offset) = FisheyeGuideGeometry.directionFromDocument(
             px.x.toDouble(), px.y.toDouble(), centerX, centerY, radius,
         )
-        fun toDoc(d: Triple<Double, Double, Double>): Offset {
-            val p = FisheyeGuideGeometry.documentFromDirection(
-                d.first, d.second, d.third, centerX, centerY, radius,
-            )
-            return Offset(p.x, p.y)
-        }
-        fun screenDistance(a: Offset, b: Offset): Float {
-            val sa = docToScreen(a)
-            val sb = docToScreen(b)
-            return hypot(sa.x - sb.x, sa.y - sb.y)
-        }
-
-        val explicitRay = guide.fisheyeSnapTarget == 3
         if (!assistFisheyeLocked) {
             val dStart = dir(firstPt)
-            if (explicitRay) {
-                // 中心射线显式模式: 射线经过起笔点, 从第一个采样点就锁定并跟随,
-                // 不需要方向判断, 也不会产生跳变。
+            if (guide.fisheyeSnapTarget == com.reverie.paint.model.FISHEYE_SNAP_CENTER_RAY) {
                 assistFisheyeFamily = 2
                 assistFisheyeA = FisheyeGuideGeometry.azimuthOf(dStart.first, dStart.second)
                 assistFisheyeLocked = true
-                return snapFisheyePoint(dStart, centerX, centerY, radius)
-            }
-            val dNow = dir(currentPt)
-            val startX = dStart.first
-            val startY = dStart.second
-            val startZ = dStart.third
-
-            // 候选关键参数
-            val hAngles = FisheyeGuideGeometry.snappingCurveAngles(guide.fisheyeHorizontalCount)
-            val vAngles = FisheyeGuideGeometry.snappingCurveAngles(guide.fisheyeVerticalCount)
-            val nearestH = FisheyeGuideGeometry.nearestCurveAngle(atan2(startY, startZ), hAngles)
-            val nearestV = FisheyeGuideGeometry.nearestCurveAngle(atan2(startX, startZ), vAngles)
-            val phi = FisheyeGuideGeometry.azimuthOf(startX, startY)
-
-            // 每个候选在起笔点的切线 (极小参数增量求数值切线), 与初始运笔方向比较。
-            fun tangentScore(
-                sample: (Double) -> Triple<Double, Double, Double>,
-                base: Double,
-            ): Float {
-                val eps = 0.01
-                val a = toDoc(sample(base - eps))
-                val b = toDoc(sample(base + eps))
-                val tx = b.x - a.x
-                val ty = b.y - a.y
-                val len = hypot(tx, ty)
-                if (len < 1e-6f) return 0f
-                val sx = currentPt.x - firstPt.x
-                val sy = currentPt.y - firstPt.y
-                val slen = hypot(sx, sy).coerceAtLeast(1e-6f)
-                return abs((tx / len) * (sx / slen) + (ty / len) * (sy / slen))
-            }
-
-            var bestFamily = -1
-            var bestScore = -1f
-            run {
-                val score = tangentScore(
-                    { t -> FisheyeGuideGeometry.horizontalDirection(nearestH, t) },
-                    kotlin.math.asin(startX.coerceIn(-1.0, 1.0)),
+            } else {
+                // 合并后的弧线模式: 起笔后按初始运笔方向选横/纵弧, 参数直接取
+                // 起笔点的连续值 (不量化到显示线), 因此空白区域同样有鱼眼约束,
+                // 且落点不会被拉到邻近的可见参考线上。
+                val s0 = docToScreen(firstPt)
+                val s1 = docToScreen(currentPt)
+                val sdx = s1.x - s0.x
+                val sdy = s1.y - s0.y
+                if (hypot(sdx, sdy) < 3f * density) return currentPt
+                assistFisheyeFamily = FisheyeGuideGeometry.chooseCurveFamily(
+                    dStart.first,
+                    dStart.second,
+                    dStart.third,
+                    sdx.toDouble(),
+                    sdy.toDouble(),
+                    centerX,
+                    centerY,
+                    radius,
                 )
-                if (score > bestScore) { bestScore = score; bestFamily = 0 }
-            }
-            run {
-                val score = tangentScore(
-                    { t -> FisheyeGuideGeometry.verticalDirection(nearestV, t) },
-                    kotlin.math.asin(startY.coerceIn(-1.0, 1.0)),
-                )
-                if (score > bestScore) { bestScore = score; bestFamily = 1 }
-            }
-            run {
-                val theta0 = atan2(hypot(startX, startY), startZ)
-                val score = tangentScore(
-                    { t -> Triple(
-                        kotlin.math.sin(t) * kotlin.math.cos(phi),
-                        kotlin.math.sin(t) * kotlin.math.sin(phi),
-                        kotlin.math.cos(t),
-                    ) },
-                    theta0,
-                )
-                if (score > bestScore) { bestScore = score; bestFamily = 2 }
-            }
-            assistFisheyeFamily = bestFamily
-            assistFisheyeA = when (bestFamily) {
-                0 -> nearestH
-                1 -> nearestV
-                else -> phi
-            }
-            assistFisheyeLocked = true
-
-            if (bestFamily >= 0) {
-                val snappedStart = snapFisheyePoint(dStart, centerX, centerY, radius)
-                if (screenDistance(firstPt, snappedStart) > 16f * density) {
-                    assistFisheyeFamily = -1
+                assistFisheyeA = if (assistFisheyeFamily == 0) {
+                    FisheyeGuideGeometry.horizontalParameter(dStart.first, dStart.second, dStart.third)
+                } else {
+                    FisheyeGuideGeometry.verticalParameter(dStart.first, dStart.second, dStart.third)
                 }
+                assistFisheyeLocked = true
             }
         }
 
-        if (assistFisheyeFamily < 0) return currentPt
         val d = dir(currentPt)
         val snapped = snapFisheyePoint(d, centerX, centerY, radius)
         return snapped
@@ -2543,7 +2481,7 @@ class CanvasTouchView(context: Context) : View(context) {
             }
             GuideMode.PERSPECTIVE -> {
                 if (guide.perspectiveFisheye) {
-                    return applyFisheyeAssist(v, guide, firstPt, currentPt, dist)
+                    return applyFisheyeAssist(v, guide, firstPt, currentPt)
                 }
                 if (guide.perspective3d) return currentPt
                 val vps = if (guide.perspectiveVanishingPoints.isEmpty()) {
@@ -6632,8 +6570,18 @@ class CanvasTouchView(context: Context) : View(context) {
                     safeBeginSymmetryUndoMacro()
                     clearPredictionState(triggerInvalidate = false)
                 }
-                val targetDocPos = docPos
-                firstDocPos = targetDocPos
+                val rawStartDocPos = docPos
+                firstDocPos = rawStartDocPos
+                val guideAtStart = v.drawingGuide
+                val targetDocPos = if (
+                    guideAtStart.mode == GuideMode.PERSPECTIVE &&
+                    guideAtStart.perspectiveFisheye &&
+                    guideAtStart.assistedDrawing
+                ) {
+                    applyAssistedDrawing(rawStartDocPos, rawStartDocPos)
+                } else {
+                    rawStartDocPos
+                }
                 smoothedPressure = pressure
                 currentStrokeDocPos = targetDocPos
                 if (isStylus) {
