@@ -103,8 +103,10 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.foundation.gestures.scrollBy
+import androidx.compose.ui.layout.LocalPinnableContainer
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.runtime.mutableFloatStateOf
+import com.reverie.paint.model.BrushReorderLogic
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 
@@ -361,6 +363,7 @@ fun BrushPanel(
 
     // Category drag state
     var draggingCategory by remember { mutableStateOf<String?>(null) }
+    var dragPreviewCategories by remember { mutableStateOf<List<String>?>(null) }
     var categoryFloatingY by remember { mutableFloatStateOf(0f) }
     var categoryDragYOffsetInItem by remember { mutableFloatStateOf(0f) }
     var categoryFingerYInViewport by remember { mutableFloatStateOf(0f) }
@@ -370,6 +373,7 @@ fun BrushPanel(
 
     fun checkAndPerformCategoryReorder() {
         val draggedCat = draggingCategory ?: return
+        val list = dragPreviewCategories ?: return
         val visibleItems = categoryScrollState.layoutInfo.visibleItemsInfo
         if (visibleItems.isEmpty()) return
 
@@ -379,7 +383,15 @@ fun BrushPanel(
         }
         val targetCat = targetItem?.key as? String ?: return
         if (targetCat !in pinnedCategories && targetCat != draggedCat) {
-            vm.reorderCategoryByName(draggedCat, targetCat, categories)
+            val fromIdx = list.indexOf(draggedCat)
+            val toIdx = list.indexOf(targetCat)
+            // 同一帧内若尚未完成重排测量, 忽略过期 layoutInfo 防止来回换位震荡
+            if (fromIdx < 0 || toIdx < 0 || targetItem.index == fromIdx) return
+            val updated = BrushReorderLogic.moveItem(list, fromIdx, toIdx) ?: return
+            val firstIdx = categoryScrollState.firstVisibleItemIndex
+            val firstOffset = categoryScrollState.firstVisibleItemScrollOffset
+            dragPreviewCategories = updated
+            categoryScrollState.requestScrollToItem(firstIdx, firstOffset)
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         }
     }
@@ -400,6 +412,7 @@ fun BrushPanel(
 
     // Preset list drag state
     var draggingPresetName by remember { mutableStateOf<String?>(null) }
+    var dragPreviewList by remember { mutableStateOf<List<BrushPresetInfo>?>(null) }
     var presetListFloatingY by remember { mutableFloatStateOf(0f) }
     var presetListDragYOffsetInItem by remember { mutableFloatStateOf(0f) }
     var presetListFingerYInViewport by remember { mutableFloatStateOf(0f) }
@@ -409,6 +422,7 @@ fun BrushPanel(
 
     fun checkAndPerformPresetListReorder() {
         val dragged = draggingPresetName ?: return
+        val list = dragPreviewList ?: return
         val visibleItems = presetScrollState.layoutInfo.visibleItemsInfo
         if (visibleItems.isEmpty()) return
 
@@ -418,7 +432,16 @@ fun BrushPanel(
         }
         val targetName = targetItem?.key as? String ?: return
         if (targetName != dragged) {
-            vm.reorderBrushInView(dragged, targetName)
+            val fromIdx = list.indexOfFirst { it.name == dragged }
+            val toIdx = list.indexOfFirst { it.name == targetName }
+            // 同一帧内若尚未完成重排测量, 忽略过期 layoutInfo 防止来回换位震荡
+            if (fromIdx < 0 || toIdx < 0 || targetItem.index == fromIdx) return
+            val updated = BrushReorderLogic.moveItem(list, fromIdx, toIdx) ?: return
+            // 锚定当前可见首项索引与偏移, 防止交换首项时 LazyList 按 key 反向回跳滚动
+            val firstIdx = presetScrollState.firstVisibleItemIndex
+            val firstOffset = presetScrollState.firstVisibleItemScrollOffset
+            dragPreviewList = updated
+            presetScrollState.requestScrollToItem(firstIdx, firstOffset)
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         }
     }
@@ -439,6 +462,7 @@ fun BrushPanel(
 
     // Preset grid drag state
     var draggingPresetGridName by remember { mutableStateOf<String?>(null) }
+    var dragPreviewGridList by remember { mutableStateOf<List<BrushPresetInfo>?>(null) }
     var presetGridFloatingX by remember { mutableFloatStateOf(0f) }
     var presetGridFloatingY by remember { mutableFloatStateOf(0f) }
     var presetGridDragXOffsetInItem by remember { mutableFloatStateOf(0f) }
@@ -453,6 +477,7 @@ fun BrushPanel(
 
     fun checkAndPerformPresetGridReorder() {
         val dragged = draggingPresetGridName ?: return
+        val list = dragPreviewGridList ?: return
         val visibleItems = presetGridScrollState.layoutInfo.visibleItemsInfo
         if (visibleItems.isEmpty()) return
 
@@ -467,7 +492,14 @@ fun BrushPanel(
         }
         val targetName = targetItem?.key as? String ?: return
         if (targetName != dragged) {
-            vm.reorderBrushInView(dragged, targetName)
+            val fromIdx = list.indexOfFirst { it.name == dragged }
+            val toIdx = list.indexOfFirst { it.name == targetName }
+            if (fromIdx < 0 || toIdx < 0 || targetItem.index == fromIdx) return
+            val updated = BrushReorderLogic.moveItem(list, fromIdx, toIdx) ?: return
+            val firstIdx = presetGridScrollState.firstVisibleItemIndex
+            val firstOffset = presetGridScrollState.firstVisibleItemScrollOffset
+            dragPreviewGridList = updated
+            presetGridScrollState.requestScrollToItem(firstIdx, firstOffset)
             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
         }
     }
@@ -608,6 +640,7 @@ fun BrushPanel(
                                             categoryViewportHeightPx = coordinates.size.height.toFloat()
                                         }
                                 ) {
+                                    val displayedCategories = dragPreviewCategories ?: categories
                                     LazyColumn(
                                         state = categoryScrollState,
                                         userScrollEnabled = draggingCategory == null,
@@ -615,8 +648,13 @@ fun BrushPanel(
                                             .fillMaxSize()
                                             .background(Morandi.panelHi.copy(alpha = 0.35f))
                                     ) {
-                                        items(categories, key = { it }) { cat ->
+                                        items(displayedCategories, key = { it }) { cat ->
                                             val isDraggingThis = draggingCategory == cat
+                                            val pinnableContainer = LocalPinnableContainer.current
+                                            DisposableEffect(isDraggingThis, pinnableContainer) {
+                                                val handle = if (isDraggingThis) pinnableContainer?.pin() else null
+                                                onDispose { handle?.release() }
+                                            }
                                             val sel = cat == selectedCategory
                                             val iconRes = when (cat) {
                                                 "常用" -> R.drawable.ic_star
@@ -636,6 +674,7 @@ fun BrushPanel(
                                                         }
                                                     },
                                                     onLongPressOnly = {
+                                                        dragPreviewCategories = null
                                                         draggingCategory = null
                                                         categoryAutoScrollSpeed = 0f
                                                         categoryMenuTarget = cat
@@ -648,6 +687,7 @@ fun BrushPanel(
                                                         categoryDragYOffsetInItem = offset.y
                                                         categoryFloatingY = itemTop
                                                         categoryFingerYInViewport = itemTop + offset.y
+                                                        dragPreviewCategories = categories
                                                         draggingCategory = cat
                                                     },
                                                     onDrag = { change, dragAmount ->
@@ -668,10 +708,16 @@ fun BrushPanel(
                                                         checkAndPerformCategoryReorder()
                                                     },
                                                     onDragEnd = {
+                                                        val finalCats = dragPreviewCategories
+                                                        dragPreviewCategories = null
                                                         draggingCategory = null
                                                         categoryAutoScrollSpeed = 0f
+                                                        if (finalCats != null && finalCats != categories) {
+                                                            vm.commitCategoryOrder(finalCats)
+                                                        }
                                                     },
                                                     onDragCancel = {
+                                                        dragPreviewCategories = null
                                                         draggingCategory = null
                                                         categoryAutoScrollSpeed = 0f
                                                     }
@@ -695,7 +741,7 @@ fun BrushPanel(
                                                     .animateItem(
                                                         fadeInSpec = null,
                                                         fadeOutSpec = null,
-                                                        placementSpec = tween(180)
+                                                        placementSpec = if (isDraggingThis) null else tween(120)
                                                     )
                                                     .fillMaxWidth()
                                                     .padding(horizontal = 5.dp, vertical = 2.dp)
@@ -749,7 +795,7 @@ fun BrushPanel(
                                     if (draggingCategory != null) {
                                         CategoryDragOverlay(
                                             category = draggingCategory!!,
-                                            offsetY = categoryFloatingY
+                                            offsetYProvider = { categoryFloatingY }
                                         )
                                     }
                                 }
@@ -1120,6 +1166,7 @@ fun BrushPanel(
                                                             presetGridViewportHeightPx = coordinates.size.height.toFloat()
                                                         }
                                                 ) {
+                                                    val displayedGridPresets = dragPreviewGridList ?: filtered
                                                     LazyVerticalGrid(
                                                         columns = GridCells.Fixed(3),
                                                         state = presetGridScrollState,
@@ -1130,9 +1177,14 @@ fun BrushPanel(
                                                         horizontalArrangement = Arrangement.spacedBy(6.dp),
                                                         verticalArrangement = Arrangement.spacedBy(6.dp)
                                                     ) {
-                                                        items(filtered, key = { it.name }, contentType = { "preset_grid" }) { preset ->
+                                                        items(displayedGridPresets, key = { it.name }, contentType = { "preset_grid" }) { preset ->
                                                             val isSelected = preset.index == vm.brushPresetIndex
                                                             val isDraggingThis = draggingPresetGridName == preset.name
+                                                            val pinnableContainer = LocalPinnableContainer.current
+                                                            DisposableEffect(isDraggingThis, pinnableContainer) {
+                                                                val handle = if (isDraggingThis) pinnableContainer?.pin() else null
+                                                                onDispose { handle?.release() }
+                                                            }
                                                             val canReorder = !isBatchMode && !isSearchActive && selectedCategory != "最近"
 
                                                             val itemGesture = if (canReorder) {
@@ -1143,6 +1195,7 @@ fun BrushPanel(
                                                                         else vm.selectBrushPreset(preset.index)
                                                                     },
                                                                     onLongPressOnly = {
+                                                                        dragPreviewGridList = null
                                                                         draggingPresetGridName = null
                                                                         presetGridAutoScrollSpeed = 0f
                                                                         reorderPresetName = preset.name
@@ -1162,6 +1215,7 @@ fun BrushPanel(
                                                                         presetGridFloatingY = itemTop
                                                                         presetGridFingerXInViewport = itemLeft + offset.x
                                                                         presetGridFingerYInViewport = itemTop + offset.y
+                                                                        dragPreviewGridList = filtered
                                                                         draggingPresetGridName = preset.name
                                                                     },
                                                                     onDrag = { change, dragAmount ->
@@ -1188,10 +1242,16 @@ fun BrushPanel(
                                                                         checkAndPerformPresetGridReorder()
                                                                     },
                                                                     onDragEnd = {
+                                                                        val finalGrid = dragPreviewGridList
+                                                                        dragPreviewGridList = null
                                                                         draggingPresetGridName = null
                                                                         presetGridAutoScrollSpeed = 0f
+                                                                        if (finalGrid != null && finalGrid != filtered) {
+                                                                            vm.commitBrushOrderFromView(preset.name, finalGrid.map { it.name })
+                                                                        }
                                                                     },
                                                                     onDragCancel = {
+                                                                        dragPreviewGridList = null
                                                                         draggingPresetGridName = null
                                                                         presetGridAutoScrollSpeed = 0f
                                                                     }
@@ -1226,7 +1286,7 @@ fun BrushPanel(
                                                                     .animateItem(
                                                                         fadeInSpec = null,
                                                                         fadeOutSpec = null,
-                                                                        placementSpec = tween(180)
+                                                                        placementSpec = if (isDraggingThis) null else tween(120)
                                                                     )
                                                                     .graphicsLayer {
                                                                         if (isDraggingThis) alpha = 0.25f
@@ -1237,14 +1297,16 @@ fun BrushPanel(
 
                                                     // Floating grid card overlay
                                                     if (draggingPresetGridName != null) {
-                                                        val draggedPreset = vm.brushPresets.firstOrNull { it.name == draggingPresetGridName }
+                                                        val draggedPreset = remember(draggingPresetGridName) {
+                                                            (dragPreviewGridList ?: filtered).firstOrNull { it.name == draggingPresetGridName }
+                                                        }
                                                         if (draggedPreset != null) {
                                                             val cardWidthDp = with(density) { (presetGridCardWidthPx.takeIf { it > 0f } ?: 80f).toDp() }
                                                             val cardHeightDp = with(density) { (presetGridCardHeightPx.takeIf { it > 0f } ?: 80f).toDp() }
                                                             PresetGridDragOverlay(
                                                                 preset = draggedPreset,
-                                                                offsetX = presetGridFloatingX,
-                                                                offsetY = presetGridFloatingY,
+                                                                offsetXProvider = { presetGridFloatingX },
+                                                                offsetYProvider = { presetGridFloatingY },
                                                                 cardWidthDp = if (cardWidthDp > 0.dp) cardWidthDp else 80.dp,
                                                                 cardHeightDp = if (cardHeightDp > 0.dp) cardHeightDp else 96.dp,
                                                                 isModified = vm.isBrushModified(draggedPreset.id)
@@ -1260,6 +1322,7 @@ fun BrushPanel(
                                                             presetListViewportHeightPx = coordinates.size.height.toFloat()
                                                         }
                                                 ) {
+                                                    val displayedListPresets = dragPreviewList ?: filtered
                                                     LazyColumn(
                                                         state = presetScrollState,
                                                         userScrollEnabled = draggingPresetName == null,
@@ -1268,10 +1331,15 @@ fun BrushPanel(
                                                             .padding(horizontal = 12.dp),
                                                         verticalArrangement = Arrangement.spacedBy(8.dp)
                                                     ) {
-                                                        items(filtered, key = { it.name }, contentType = { "preset_list" }) { preset ->
+                                                        items(displayedListPresets, key = { it.name }, contentType = { "preset_list" }) { preset ->
                                                             val isSelected = preset.index == vm.brushPresetIndex
                                                             val isFav = vm.isFavoriteBrush(preset.id)
                                                             val isDraggingThis = draggingPresetName == preset.name
+                                                            val pinnableContainer = LocalPinnableContainer.current
+                                                            DisposableEffect(isDraggingThis, pinnableContainer) {
+                                                                val handle = if (isDraggingThis) pinnableContainer?.pin() else null
+                                                                onDispose { handle?.release() }
+                                                            }
                                                             val canReorder = !isBatchMode && !isSearchActive && selectedCategory != "最近"
                                                             val subtitleText = if (isSearchActive && searchQuery.isNotBlank() && selectedCategory == "全部") {
                                                                 brushCategoryDisplayName(context, preset.group)
@@ -1285,6 +1353,7 @@ fun BrushPanel(
                                                                         else vm.selectBrushPreset(preset.index)
                                                                     },
                                                                     onLongPressOnly = {
+                                                                        dragPreviewList = null
                                                                         draggingPresetName = null
                                                                         presetListAutoScrollSpeed = 0f
                                                                         reorderPresetName = preset.name
@@ -1297,6 +1366,7 @@ fun BrushPanel(
                                                                         presetListDragYOffsetInItem = offset.y
                                                                         presetListFloatingY = itemTop
                                                                         presetListFingerYInViewport = itemTop + offset.y
+                                                                        dragPreviewList = filtered
                                                                         draggingPresetName = preset.name
                                                                     },
                                                                     onDrag = { change, dragAmount ->
@@ -1317,10 +1387,16 @@ fun BrushPanel(
                                                                         checkAndPerformPresetListReorder()
                                                                     },
                                                                     onDragEnd = {
+                                                                        val finalList = dragPreviewList
+                                                                        dragPreviewList = null
                                                                         draggingPresetName = null
                                                                         presetListAutoScrollSpeed = 0f
+                                                                        if (finalList != null && finalList != filtered) {
+                                                                            vm.commitBrushOrderFromView(preset.name, finalList.map { it.name })
+                                                                        }
                                                                     },
                                                                     onDragCancel = {
+                                                                        dragPreviewList = null
                                                                         draggingPresetName = null
                                                                         presetListAutoScrollSpeed = 0f
                                                                     }
@@ -1360,7 +1436,7 @@ fun BrushPanel(
                                                                     .animateItem(
                                                                         fadeInSpec = null,
                                                                         fadeOutSpec = null,
-                                                                        placementSpec = tween(180)
+                                                                        placementSpec = if (isDraggingThis) null else tween(120)
                                                                     )
                                                                     .graphicsLayer {
                                                                         if (isDraggingThis) alpha = 0.25f
@@ -1371,11 +1447,13 @@ fun BrushPanel(
 
                                                     // Floating list row overlay
                                                     if (draggingPresetName != null) {
-                                                        val draggedPreset = vm.brushPresets.firstOrNull { it.name == draggingPresetName }
+                                                        val draggedPreset = remember(draggingPresetName) {
+                                                            (dragPreviewList ?: filtered).firstOrNull { it.name == draggingPresetName }
+                                                        }
                                                         if (draggedPreset != null) {
                                                             PresetListDragOverlay(
                                                                 preset = draggedPreset,
-                                                                offsetY = presetListFloatingY,
+                                                                offsetYProvider = { presetListFloatingY },
                                                                 isFav = vm.isFavoriteBrush(draggedPreset.id),
                                                                 isModified = vm.isBrushModified(draggedPreset.id),
                                                                 modifier = Modifier.padding(horizontal = 12.dp)
@@ -1706,6 +1784,8 @@ fun BrushPanel(
             isModified = isModified,
             onDismiss = {
                 reorderPresetName = null
+                dragPreviewList = null
+                dragPreviewGridList = null
                 draggingPresetName = null
                 draggingPresetGridName = null
             },

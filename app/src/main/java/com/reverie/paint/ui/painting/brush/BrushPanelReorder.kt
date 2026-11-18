@@ -14,7 +14,6 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -40,14 +39,12 @@ import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
-import androidx.compose.ui.unit.IntOffset
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.BrushPresetInfo
 import com.reverie.paint.ui.theme.Morandi
 import kotlinx.coroutines.withTimeoutOrNull
-import kotlin.math.roundToInt
 
 /**
  * 拖动排序专属手势修饰符:
@@ -146,13 +143,15 @@ internal fun Modifier.reorderDragGesture(
 @Composable
 internal fun CategoryDragOverlay(
     category: String,
-    offsetY: Float,
+    offsetYProvider: () -> Float,
     modifier: Modifier = Modifier,
 ) {
     val displayName = brushCategoryDisplayName(category)
     Box(
         modifier = modifier
-            .offset { IntOffset(0, offsetY.roundToInt()) }
+            .graphicsLayer {
+                translationY = offsetYProvider()
+            }
             .fillMaxWidth()
             .padding(horizontal = 5.dp, vertical = 2.dp)
             .height(38.dp)
@@ -194,17 +193,17 @@ internal fun CategoryDragOverlay(
 @Composable
 internal fun PresetListDragOverlay(
     preset: BrushPresetInfo,
-    offsetY: Float,
+    offsetYProvider: () -> Float,
     isFav: Boolean,
     isModified: Boolean,
     modifier: Modifier = Modifier,
 ) {
     Row(
         modifier = modifier
-            .offset { IntOffset(0, offsetY.roundToInt()) }
             .fillMaxWidth()
             .height(48.dp)
             .graphicsLayer {
+                translationY = offsetYProvider()
                 scaleX = 1.03f
                 scaleY = 1.03f
             }
@@ -288,8 +287,8 @@ internal fun PresetListDragOverlay(
 @Composable
 internal fun PresetGridDragOverlay(
     preset: BrushPresetInfo,
-    offsetX: Float,
-    offsetY: Float,
+    offsetXProvider: () -> Float,
+    offsetYProvider: () -> Float,
     cardWidthDp: Dp,
     cardHeightDp: Dp,
     isModified: Boolean,
@@ -297,9 +296,10 @@ internal fun PresetGridDragOverlay(
 ) {
     Column(
         modifier = modifier
-            .offset { IntOffset(offsetX.roundToInt(), offsetY.roundToInt()) }
             .size(width = cardWidthDp, height = cardHeightDp)
             .graphicsLayer {
+                translationX = offsetXProvider()
+                translationY = offsetYProvider()
                 scaleX = 1.08f
                 scaleY = 1.08f
             }

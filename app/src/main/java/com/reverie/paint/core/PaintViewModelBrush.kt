@@ -10,6 +10,7 @@ import com.reverie.paint.core.brushstore.BrushIdentity
 import com.reverie.paint.core.brushstore.BrushStoreBootstrap
 import com.reverie.paint.core.brushstore.ResourceDirs
 import com.reverie.paint.core.brushstore.ResourceStore
+import com.reverie.paint.model.BrushReorderLogic
 import java.io.IOException
 import android.graphics.Bitmap
 import android.os.Handler
@@ -203,6 +204,22 @@ import kotlinx.coroutines.withContext
         saveBrushOrder()
     }
 
+    internal fun PaintViewModel.commitBrushOrderFromView(
+        draggedName: String,
+        reorderedViewNames: List<String>,
+    ) {
+        val newList = BrushReorderLogic.commitMovedItemByKey(
+            fullItems = brushPresets,
+            draggedKey = draggedName,
+            reorderedSubsetKeys = reorderedViewNames,
+            keySelector = { it.name },
+        )
+        if (newList === brushPresets) return
+        brushPresets = newList
+        brushOrder = newList.map { it.id }
+        saveBrushOrder()
+    }
+
     internal fun PaintViewModel.saveCategoryOrder() {
         try {
             val arr = org.json.JSONArray()
@@ -242,6 +259,14 @@ import kotlinx.coroutines.withContext
         val item = list.removeAt(fromIdx)
         list.add(toIdx, item)
         categoryOrder = list.filter { it !in pinned }
+        saveCategoryOrder()
+    }
+
+    internal fun PaintViewModel.commitCategoryOrder(allCategories: List<String>) {
+        val pinned = listOf("全部", "常用", "最近")
+        val newOrder = allCategories.filter { it !in pinned }
+        if (newOrder == categoryOrder) return
+        categoryOrder = newOrder
         saveCategoryOrder()
     }
 
