@@ -702,7 +702,13 @@ void ReverieCore::touchStrokeEnd()
             gc.bitBlt(ext.topLeft(), tempTarget, ext);
             gc.end();
             const int strokeMargin = strokeLayerMargin();
-            markStrokeDirty(ext.adjusted(-strokeMargin, -strokeMargin, strokeMargin, strokeMargin));
+            const QRect dirtyR = ext.adjusted(-strokeMargin, -strokeMargin, strokeMargin, strokeMargin);
+            markStrokeDirty(dirtyR);
+            if (m_staticUnderlayTop > 0 && m_currentLayer < m_staticUnderlayTop) {
+                invalidateStaticUnderlay();
+            } else {
+                invalidateStaticUnderlayRect(dirtyR);
+            }
             committedTempTarget = true;
             bumpLayerThumbGen(pl);
         }
@@ -760,6 +766,11 @@ void ReverieCore::touchStrokeEnd()
             QRect(0, 0, m_document->width(), m_document->height()));
         if (!totalDirty.isEmpty()) {
             markStrokeDirty(totalDirty);
+            if (m_staticUnderlayTop > 0 && m_currentLayer < m_staticUnderlayTop) {
+                invalidateStaticUnderlay();
+            } else {
+                invalidateStaticUnderlayRect(totalDirty);
+            }
         }
     }
 

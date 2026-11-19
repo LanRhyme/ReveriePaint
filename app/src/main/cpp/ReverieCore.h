@@ -1712,6 +1712,7 @@ private:
         m_staticUnderlay = nullptr;
         m_staticUnderlayTiles.clear();
         m_staticUnderlayTop = -1;
+        m_staticUnderlayLayer = -1;
         m_staticUnderlayDoc = nullptr;
     }
     // 只作废与 r 相交的宏瓦片 (像素留着, 下次烘焙前会先清掉再重算); 覆盖整幅时整体作废。
@@ -1738,6 +1739,7 @@ private:
     KisPaintDeviceSP m_staticUnderlay;
     QSet<quint64> m_staticUnderlayTiles;  // 已烘焙的宏瓦片 (ty << 32 | tx)
     int m_staticUnderlayTop = -1;         // 烘焙时的上界 b, 变了整体作废
+    int m_staticUnderlayLayer = -1;       // 烘焙时绘制的目标图层, 图层切换时整体作废
     const void *m_staticUnderlayDoc = nullptr;  // 防止换文档后复用旧像素
 
     friend int strokeStaticUnderlayStop(const ReverieCore &core);

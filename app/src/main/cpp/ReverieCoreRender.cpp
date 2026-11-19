@@ -92,10 +92,11 @@ void ReverieCore::bakeStaticUnderlay(const QRect &r)
         return;
     }
 
-    // 底图记的是 [0, stopIdx) 那摞下层的像素: 上界换了 (或换了文档) 就整体作废。
-    if (m_staticUnderlayTop != stopIdx || m_staticUnderlayDoc != image.data()) {
+    // 底图记的是 [0, stopIdx) 那摞下层的像素: 上界换了、图层换了 (或换了文档) 就整体作废。
+    if (m_staticUnderlayTop != stopIdx || m_staticUnderlayDoc != image.data() || m_staticUnderlayLayer != m_currentLayer) {
         invalidateStaticUnderlay();
         m_staticUnderlayTop = stopIdx;
+        m_staticUnderlayLayer = m_currentLayer;
         m_staticUnderlayDoc = image.data();
     }
     if (!m_staticUnderlay) {

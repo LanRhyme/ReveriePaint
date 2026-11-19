@@ -774,6 +774,8 @@ void ReverieCore::setCurrentLayer(int index)
         touchStrokeEnd();
     }
     m_currentLayer = index;
+    // 切换图层使静态底图失效，杜绝旧图层底图缓存污染新图层绘制
+    invalidateStaticUnderlay();
     // 切换图层时清理各层可能残留的湿笔高度图，防止常驻内存膨胀与陈旧跨层累积
     for (const auto &e : m_layers) {
         if (e.node) {
