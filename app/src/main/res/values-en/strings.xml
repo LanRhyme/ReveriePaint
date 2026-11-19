@@ -816,6 +816,7 @@
     <string name="layer_clipping">Clipping Mask</string>
     <string name="layer_lock">Lock Layer</string>
     <string name="layer_clear">Clear Contents</string>
+    <string name="layer_toast_cleared">Layer content cleared</string>
 
     <!-- Animation -->
     <string name="anim_timeline">Timeline</string>

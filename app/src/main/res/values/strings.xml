@@ -816,6 +816,7 @@
     <string name="layer_clipping">剪贴蒙版</string>
     <string name="layer_lock">锁定图层</string>
     <string name="layer_clear">清空图层内容</string>
+    <string name="layer_toast_cleared">已清空图层内容</string>
 
     <!-- Animation -->
     <string name="anim_timeline">时间轴</string>

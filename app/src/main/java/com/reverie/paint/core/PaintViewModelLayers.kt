@@ -793,11 +793,25 @@ internal fun PaintViewModel.copyLayer(i: Int) {
 }
 
 internal fun PaintViewModel.clearLayer(i: Int) {
-    val layer = layers.getOrNull(i)
-    if (layer != null && active3DLayers.containsKey(layer.id)) {
+    val layer = layers.getOrNull(i) ?: return
+    if (layer.locked) {
+        showActionToast(R.string.canvas_toast_layer_locked, R.drawable.ic_lock)
+        return
+    }
+    if (layer.isBackground || layer.isGroup || layer.nodeType == LayerNodeType.ADJUSTMENT) {
+        return
+    }
+    if (active3DLayers.containsKey(layer.id)) {
         active3DLayers = active3DLayers - layer.id
     }
-    runCore(after = ::notifyLayerChanged) {
+    val isMask = LayerNodeType.isMask(layer.nodeType)
+    runLayerCore(after = {
+        notifyLayerChanged(pixelChanged = true)
+        showActionToast(
+            if (isMask) R.string.layer_mask_toast_cleared else R.string.layer_toast_cleared,
+            R.drawable.ic_erase,
+        )
+    }) {
         ReverieCoreBridge.clearLayer(i)
     }
 }

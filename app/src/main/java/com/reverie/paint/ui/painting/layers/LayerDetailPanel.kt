@@ -1238,9 +1238,8 @@ internal fun LayerDetailPage(
                     android.widget.Toast.makeText(context, appliedMsg, android.widget.Toast.LENGTH_SHORT).show()
                     onBack()
                 }
-                OpItem(R.drawable.ic_trash, stringResource(R.string.layer_op_clear_mask)) {
+                OpItem(R.drawable.ic_erase, stringResource(R.string.layer_op_clear_mask)) {
                     vm.clearLayer(index)
-                    android.widget.Toast.makeText(context, clearedMsg, android.widget.Toast.LENGTH_SHORT).show()
                 }
                 val isSelectionMask = layer?.nodeType == com.reverie.paint.model.LayerNodeType.SELECTION_MASK
                 if (isSelectionMask) {
@@ -1267,6 +1266,13 @@ internal fun LayerDetailPage(
             Column {
                 OpItem(R.drawable.ic_copy, stringResource(R.string.layer_op_duplicate)) { vm.copyLayer(index) }
                 OpItem(R.drawable.ic_rename, stringResource(R.string.layer_op_rename)) { onRename(name) }
+                OpItem(
+                    R.drawable.ic_erase,
+                    stringResource(R.string.layer_clear),
+                    enabled = !isBg && layer?.locked != true && !isFilterLayer && layer?.isGroup != true,
+                ) {
+                    vm.clearLayer(index)
+                }
                 OpItem(R.drawable.ic_trash, stringResource(R.string.layer_op_delete_layer), enabled = !isBg && layer?.locked != true) {
                     vm.removeLayer(index)
                     onBack()
