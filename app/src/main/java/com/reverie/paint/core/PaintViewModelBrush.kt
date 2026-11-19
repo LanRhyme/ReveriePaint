@@ -35,6 +35,7 @@ import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.sync.withLock
 import kotlinx.coroutines.withContext
 
     internal fun PaintViewModel.prefs() =
@@ -837,6 +838,7 @@ import kotlinx.coroutines.withContext
             com.reverie.paint.core.brushstore.BrushImportPipeline.delete(it.id, dir)
         }.toSet()
         if (deletedIds.isNotEmpty()) {
+            deletedIds.forEach { BrushStrokePreviewCache.invalidate(it) }
             // W-08：identity+快照+覆盖一起删，否则下次启动会被 materializeAll 复活
             toolBrushStates = toolBrushStates.mapValues { (_, s) ->
                 val nextS = if (s.presetId in deletedIds) s.copy(presetId = "", presetIndex = -1) else s
@@ -852,6 +854,77 @@ import kotlinx.coroutines.withContext
         persistBrushPanelState()
         saveBrushOrder()
         saveBrushGroups()
+    }
+
+    /**
+     * 按需懒加载/离屏渲染笔刷 S 形笔迹预览：
+     * 内存 LRU -> 磁盘 PNG -> C++ 引擎线程串行渲染（并发去重，不抢占实时落笔）。
+     */
+    internal suspend fun PaintViewModel.loadOrRenderBrushStrokePreview(
+        presetIndex: Int,
+        presetId: String,
+    ): Bitmap? {
+        if (presetId.isBlank() || presetIndex < 0) return null
+        BrushStrokePreviewCache.getFast(presetId)?.let { return it }
+        if (BrushStrokePreviewCache.isMarkedEmpty(presetId)) return null
+
+        BrushStrokePreviewCache.init(appContext.filesDir)
+        val fromDisk = withContext(Dispatchers.IO) {
+            BrushStrokePreviewCache.loadFromDisk(presetId)
+        }
+        if (fromDisk != null) return fromDisk
+
+        val created = kotlinx.coroutines.CompletableDeferred<Bitmap?>()
+        val existing = strokePreviewInFlight.putIfAbsent(presetId, created)
+        if (existing != null) {
+            return existing.await()
+        }
+
+        try {
+            val rendered: Bitmap? = strokePreviewMutex.withLock {
+                BrushStrokePreviewCache.getFast(presetId)?.let { return@withLock it }
+                if (BrushStrokePreviewCache.isMarkedEmpty(presetId)) return@withLock null
+                while (activeStrokeToolOverride != null) {
+                    delay(60L)
+                }
+                val bmp = Bitmap.createBitmap(
+                    BrushStrokePreviewCache.PREVIEW_WIDTH,
+                    BrushStrokePreviewCache.PREVIEW_HEIGHT,
+                    Bitmap.Config.ARGB_8888,
+                )
+                val ok = kotlinx.coroutines.suspendCancellableCoroutine<Boolean> { cont ->
+                    runCore(render = false) {
+                        val success = try {
+                            ReverieCoreBridge.renderBrushStrokePreview(presetIndex, bmp)
+                        } catch (_: Throwable) {
+                            false
+                        }
+                        if (cont.isActive) {
+                            cont.resumeWith(Result.success(success))
+                        }
+                    }
+                }
+                if (ok) {
+                    BrushStrokePreviewCache.putMemory(presetId, bmp)
+                    withContext(Dispatchers.IO) {
+                        BrushStrokePreviewCache.saveToDisk(presetId, bmp)
+                    }
+                    bmp
+                } else {
+                    bmp.recycle()
+                    BrushStrokePreviewCache.markEmpty(presetId)
+                    null
+                }
+            }
+            created.complete(rendered)
+            return rendered
+        } catch (t: Throwable) {
+            created.complete(null)
+            if (t is kotlinx.coroutines.CancellationException) throw t
+            return null
+        } finally {
+            strokePreviewInFlight.remove(presetId, created)
+        }
     }
 
     /** 删除笔刷组 (内置组不可删除)，支持联动物理删除组内所有自定义笔刷 */

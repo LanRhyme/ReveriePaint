@@ -1521,6 +1521,12 @@
     <string name="brush_presets_reload">Reload</string>
     <string name="brush_switch_to_list">Switch to List View</string>
     <string name="brush_switch_to_grid">Switch to Grid View</string>
+    <string name="brush_view_mode_desc">Switch preview mode</string>
+    <string name="brush_view_mode_stroke_icon">Icon + Name + Stroke</string>
+    <string name="brush_view_mode_stroke_only">Name + Stroke</string>
+    <string name="brush_view_mode_two_col">2-Column Stroke</string>
+    <string name="brush_view_mode_list">List View</string>
+    <string name="brush_view_mode_grid">Grid View</string>
     <string name="brush_search_hint">Search brushes</string>
     <string name="brush_search_placeholder">Search brushes or groups…</string>
     <string name="brush_search_clear">Clear search</string>

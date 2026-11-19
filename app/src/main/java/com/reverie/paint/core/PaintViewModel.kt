@@ -857,7 +857,10 @@ class PaintViewModel : ViewModel() {
     var brushPresetScrollOffset: Int = 0
     var categoryPresetScrollMap: Map<String, Pair<Int, Int>> = emptyMap()
     var brushPropertyScrollValue: Int = 0
-    var brushPanelGridView by mutableStateOf(false)
+    var brushPanelViewMode by mutableStateOf(BrushPanelViewMode.STROKE_ICON_NAME)
+    val brushPanelGridView: Boolean get() = brushPanelViewMode.isGrid
+    internal val strokePreviewMutex = kotlinx.coroutines.sync.Mutex()
+    internal val strokePreviewInFlight = java.util.concurrent.ConcurrentHashMap<String, kotlinx.coroutines.CompletableDeferred<Bitmap?>>()
     /** 常用 / 最近：笔刷 id（不是显示名；改名、重名都不影响）。见 [com.reverie.paint.core.brushstore.BrushIdPrefs] */
     var favoriteBrushIds by mutableStateOf<Set<String>>(emptySet())
     var recentBrushIds by mutableStateOf<List<String>>(emptyList())
@@ -900,8 +903,18 @@ class PaintViewModel : ViewModel() {
         persistBrushPanelState()
     }
 
+    fun updateBrushPanelViewMode(mode: BrushPanelViewMode) {
+        if (brushPanelViewMode == mode) return
+        brushPanelViewMode = mode
+        persistBrushPanelState()
+    }
+
     fun toggleBrushPanelGridView() {
-        brushPanelGridView = !brushPanelGridView
+        brushPanelViewMode = if (brushPanelViewMode.isGrid) {
+            BrushPanelViewMode.STROKE_ICON_NAME
+        } else {
+            BrushPanelViewMode.GRID
+        }
         persistBrushPanelState()
     }
 
@@ -2150,7 +2163,8 @@ class PaintViewModel : ViewModel() {
                 p.remove("brush_panel_detail_idx")
             }
 
-            p.putBoolean("brush_panel_grid_view", brushPanelGridView)
+            p.putString("brush_panel_view_mode", brushPanelViewMode.prefValue)
+            p.putBoolean("brush_panel_grid_view", brushPanelViewMode.isGrid)
             if (brushIdPrefsLoaded) {
                 p.putString(com.reverie.paint.core.brushstore.BrushIdPrefs.FAV_IDS, com.reverie.paint.core.brushstore.BrushIdPrefs.encodeList(favoriteBrushIds))
                 p.putString(com.reverie.paint.core.brushstore.BrushIdPrefs.RECENT_IDS, com.reverie.paint.core.brushstore.BrushIdPrefs.encodeList(recentBrushIds))
@@ -5143,7 +5157,9 @@ class PaintViewModel : ViewModel() {
                 brushPanelDetailIndex = prefs.getInt("brush_panel_detail_idx", -1).takeIf { it >= 0 }
             }
 
-            brushPanelGridView = prefs.getBoolean("brush_panel_grid_view", false)
+            val legacyGrid = prefs.getBoolean("brush_panel_grid_view", false)
+            val savedViewMode = prefs.getString("brush_panel_view_mode", null)
+            brushPanelViewMode = BrushPanelViewMode.fromPrefs(savedViewMode, legacyGrid)
             // 常用 / 最近 / 快捷栏顺序按 id：启动时等笔刷库就绪后在 loadBrushIdPrefs 里读；
             // 之后（恢复备份等）再次同步时，库已打开就在这里重读。
             if (com.reverie.paint.core.brushstore.BrushIdentity.isOpen()) loadBrushIdPrefs()

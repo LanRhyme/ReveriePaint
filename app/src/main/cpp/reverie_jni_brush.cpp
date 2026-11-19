@@ -515,6 +515,27 @@ Java_com_reverie_paint_core_ReverieCoreBridge_scratchpadEnd(JNIEnv *, jobject)
     core()->scratchpadEnd();
 }
 
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_renderBrushStrokePreview(JNIEnv *env, jobject, jint presetIndex, jobject bitmap)
+{
+    if (!bitmap) return JNI_FALSE;
+    AndroidBitmapInfo info;
+    if (AndroidBitmap_getInfo(env, bitmap, &info) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        return JNI_FALSE;
+    }
+    if (info.width <= 0 || info.height <= 0 || info.stride < (info.width * 4)) {
+        return JNI_FALSE;
+    }
+    void *pixels = nullptr;
+    if (AndroidBitmap_lockPixels(env, bitmap, &pixels) != ANDROID_BITMAP_RESULT_SUCCESS) {
+        return JNI_FALSE;
+    }
+    memset(pixels, 0, size_t(info.height) * size_t(info.stride));
+    const bool ok = core()->renderBrushStrokePreview(presetIndex, static_cast<quint8 *>(pixels), info.width, info.height, info.stride);
+    AndroidBitmap_unlockPixels(env, bitmap);
+    return ok ? JNI_TRUE : JNI_FALSE;
+}
+
 JNIEXPORT jfloatArray JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_getCurrentBrushOutline(JNIEnv *env, jobject)
 {

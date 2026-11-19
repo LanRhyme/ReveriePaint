@@ -251,6 +251,9 @@ internal object BrushStoreVm {
         if (onlyIfPending && !had) return null
         try {
             val res = EffectivePresetBuilder.materialize(id, dir)
+            if (res == null || res.written) {
+                BrushStrokePreviewCache.invalidate(id)
+            }
             if (host != null) {
                 if (host.activeId() == id) {
                     host.reload(id)
@@ -326,6 +329,7 @@ internal object BrushStoreVm {
         }
         BrushOverrideStore.replace(e.id, initial.overrides)
         EffectivePresetBuilder.materialize(e.id, dir)
+        BrushStrokePreviewCache.invalidate(e.id)
         BrushDiagnostics.log("studio_revert", "id" to e.id, "controls" to initial.overrides.controls.size)
         val s = states[initial.toolId] ?: return states
         val mem = if (initial.memory != null) s.paramMemory + (e.id to initial.memory) else s.paramMemory - e.id
@@ -343,6 +347,7 @@ internal object BrushStoreVm {
             pendingControls.remove(e.id)
         }
         BrushEditSession.reset(e.id, dir) ?: return false
+        BrushStrokePreviewCache.invalidate(e.id)
         val pid = e.id
         vm.toolBrushStates = vm.toolBrushStates.mapValues { (_, s) -> s.copy(paramMemory = s.paramMemory - pid) }
         vm.persistToolBrushStates()

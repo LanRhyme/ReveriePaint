@@ -54,6 +54,7 @@ internal fun PaintViewModel.loadBrushPresets(force: Boolean = false) {
         try {
             val dirs = withContext(Dispatchers.IO) {
                 com.reverie.paint.core.brushstore.BrushDiagnostics.init(appContext.filesDir)
+                BrushStrokePreviewCache.init(appContext.filesDir)
                 val d = copyBundledBrushAssets()
                 bootstrapBrushStore(d.first)
                 d

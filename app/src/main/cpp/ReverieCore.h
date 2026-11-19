@@ -999,6 +999,7 @@ public:
     void scratchpadClear();
     bool scratchpadRender(quint8 *buffer, int w, int h, int stride);
     void scratchpadEnd();
+    bool renderBrushStrokePreview(int presetIndex, quint8 *buffer, int w, int h, int stride);
     bool hasPendingStrokeSamples() const { return m_strokeSamples.size() > m_strokeCarryCount; }
     int currentBrushPreset() const { return m_brushPresetIndex; }
 
@@ -1360,6 +1361,7 @@ private:
     QSet<QString> m_loadedResourceNames;
     // 解析并缓存预设只读元数据; 失败返回 false (out 不保证有效)
     bool ensurePresetInfo(int index, CachedPresetInfo &out);
+    KisPaintOpPresetSP loadPresetObjectFromPath(const QString &path, const QString &name);
     bool loadBrushPresetCommon(const QString &path, const QString &name, int index);
     // #116 临时橡皮覆盖的活状态快照 (引擎串行线程上 begin/end 配对使用)
     KisPaintOpPresetSP m_overrideSnapshotPreset;

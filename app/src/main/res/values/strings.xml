@@ -1521,6 +1521,12 @@
     <string name="brush_presets_reload">重新载入</string>
     <string name="brush_switch_to_list">切换为列表视图</string>
     <string name="brush_switch_to_grid">切换为网格视图</string>
+    <string name="brush_view_mode_desc">切换预览模式</string>
+    <string name="brush_view_mode_stroke_icon">图标 + 名称 + 笔迹</string>
+    <string name="brush_view_mode_stroke_only">名称 + 笔迹</string>
+    <string name="brush_view_mode_two_col">双列笔迹</string>
+    <string name="brush_view_mode_list">列表视图</string>
+    <string name="brush_view_mode_grid">网格视图</string>
     <string name="brush_search_hint">搜索笔刷</string>
     <string name="brush_search_placeholder">搜索笔刷名称或分组…</string>
     <string name="brush_search_clear">清空搜索</string>

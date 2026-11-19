@@ -72,16 +72,22 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.ColorFilter
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.text.SpanStyle
+import androidx.compose.ui.text.buildAnnotatedString
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.text.withStyle
 import androidx.compose.ui.unit.dp
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import com.reverie.paint.ui.theme.Glass
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.core.*
+import com.reverie.paint.model.BrushPanelViewMode
 import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
@@ -418,7 +424,9 @@ fun BrushPanel(
     var presetListFingerYInViewport by remember { mutableFloatStateOf(0f) }
     var presetListViewportHeightPx by remember { mutableFloatStateOf(0f) }
     var presetListAutoScrollSpeed by remember { mutableFloatStateOf(0f) }
-    val presetRowHeightPx = with(density) { 48.dp.toPx() }
+    val presetRowHeightPx = with(density) {
+        (if (vm.brushPanelViewMode.showsStrokePreview) 50.dp else 40.dp).toPx()
+    }
 
     fun checkAndPerformPresetListReorder() {
         val dragged = draggingPresetName ?: return
@@ -977,20 +985,91 @@ fun BrushPanel(
                                                 )
                                             }
                                             Spacer(Modifier.width(6.dp))
-                                            Box(
-                                                modifier = Modifier
-                                                    .size(28.dp)
-                                                    .clip(RoundedCornerShape(6.dp))
-                                                    .background(if (vm.brushPanelGridView) Morandi.accent.copy(alpha = 0.14f) else Morandi.panelHi.copy(alpha = 0.5f))
-                                                    .clickable { vm.toggleBrushPanelGridView() },
-                                                contentAlignment = Alignment.Center
-                                            ) {
-                                                Icon(
-                                                    painter = painterResource(if (vm.brushPanelGridView) R.drawable.ic_menu else R.drawable.ic_grid),
-                                                    contentDescription = stringResource(if (vm.brushPanelGridView) R.string.brush_switch_to_list else R.string.brush_switch_to_grid),
-                                                    tint = if (vm.brushPanelGridView) Morandi.accent else Morandi.icon,
-                                                    modifier = Modifier.size(15.dp)
-                                                )
+                                            var showViewModeMenu by remember { mutableStateOf(false) }
+                                            val modeIconRes = when (vm.brushPanelViewMode) {
+                                                BrushPanelViewMode.STROKE_ICON_NAME -> R.drawable.ic_brush_quick
+                                                BrushPanelViewMode.STROKE_NAME -> R.drawable.ic_shape_stroke
+                                                BrushPanelViewMode.TWO_COLUMN -> R.drawable.ic_columns_2
+                                                BrushPanelViewMode.LIST -> R.drawable.ic_menu
+                                                BrushPanelViewMode.GRID -> R.drawable.ic_grid
+                                            }
+                                            Box {
+                                                Box(
+                                                    modifier = Modifier
+                                                        .size(28.dp)
+                                                        .clip(RoundedCornerShape(6.dp))
+                                                        .background(
+                                                            if (showViewModeMenu || vm.brushPanelViewMode != BrushPanelViewMode.LIST) {
+                                                                Morandi.accent.copy(alpha = 0.14f)
+                                                            } else {
+                                                                Morandi.panelHi.copy(alpha = 0.5f)
+                                                            }
+                                                        )
+                                                        .clickable { showViewModeMenu = true },
+                                                    contentAlignment = Alignment.Center
+                                                ) {
+                                                    Icon(
+                                                        painter = painterResource(modeIconRes),
+                                                        contentDescription = stringResource(R.string.brush_view_mode_desc),
+                                                        tint = if (showViewModeMenu || vm.brushPanelViewMode != BrushPanelViewMode.LIST) {
+                                                            Morandi.accent
+                                                        } else {
+                                                            Morandi.icon
+                                                        },
+                                                        modifier = Modifier.size(15.dp)
+                                                    )
+                                                }
+                                                ReDropdownMenu(
+                                                    expanded = showViewModeMenu,
+                                                    onDismissRequest = { showViewModeMenu = false },
+                                                    modifier = Modifier.width(196.dp),
+                                                ) {
+                                                    ReDropdownMenuItem(
+                                                        text = stringResource(R.string.brush_view_mode_stroke_icon),
+                                                        icon = R.drawable.ic_brush_quick,
+                                                        selected = vm.brushPanelViewMode == BrushPanelViewMode.STROKE_ICON_NAME,
+                                                        onClick = {
+                                                            showViewModeMenu = false
+                                                            vm.updateBrushPanelViewMode(BrushPanelViewMode.STROKE_ICON_NAME)
+                                                        },
+                                                    )
+                                                    ReDropdownMenuItem(
+                                                        text = stringResource(R.string.brush_view_mode_stroke_only),
+                                                        icon = R.drawable.ic_shape_stroke,
+                                                        selected = vm.brushPanelViewMode == BrushPanelViewMode.STROKE_NAME,
+                                                        onClick = {
+                                                            showViewModeMenu = false
+                                                            vm.updateBrushPanelViewMode(BrushPanelViewMode.STROKE_NAME)
+                                                        },
+                                                    )
+                                                    ReDropdownMenuItem(
+                                                        text = stringResource(R.string.brush_view_mode_two_col),
+                                                        icon = R.drawable.ic_columns_2,
+                                                        selected = vm.brushPanelViewMode == BrushPanelViewMode.TWO_COLUMN,
+                                                        onClick = {
+                                                            showViewModeMenu = false
+                                                            vm.updateBrushPanelViewMode(BrushPanelViewMode.TWO_COLUMN)
+                                                        },
+                                                    )
+                                                    ReDropdownMenuItem(
+                                                        text = stringResource(R.string.brush_view_mode_list),
+                                                        icon = R.drawable.ic_menu,
+                                                        selected = vm.brushPanelViewMode == BrushPanelViewMode.LIST,
+                                                        onClick = {
+                                                            showViewModeMenu = false
+                                                            vm.updateBrushPanelViewMode(BrushPanelViewMode.LIST)
+                                                        },
+                                                    )
+                                                    ReDropdownMenuItem(
+                                                        text = stringResource(R.string.brush_view_mode_grid),
+                                                        icon = R.drawable.ic_grid,
+                                                        selected = vm.brushPanelViewMode == BrushPanelViewMode.GRID,
+                                                        onClick = {
+                                                            showViewModeMenu = false
+                                                            vm.updateBrushPanelViewMode(BrushPanelViewMode.GRID)
+                                                        },
+                                                    )
+                                                }
                                             }
                                         }
                                     }
@@ -1149,15 +1228,16 @@ fun BrushPanel(
                                         }
                                     } else {
                                         AnimatedContent(
-                                            targetState = vm.brushPanelGridView,
+                                            targetState = vm.brushPanelViewMode.isGrid to vm.brushPanelViewMode.gridColumns,
                                             transitionSpec = {
                                                 (fadeIn(animationSpec = tween(180)) + scaleIn(initialScale = 0.96f, animationSpec = tween(180)))
                                                     .togetherWith(fadeOut(animationSpec = tween(140)))
                                             },
                                             label = "gridListToggleAnim",
                                             modifier = Modifier.fillMaxWidth().weight(1f)
-                                        ) { isGrid ->
+                                        ) { (isGrid, gridColumns) ->
                                             if (isGrid) {
+                                                val isTwoColumn = gridColumns == 2
                                                 Box(
                                                     modifier = Modifier
                                                         .fillMaxSize()
@@ -1168,16 +1248,20 @@ fun BrushPanel(
                                                 ) {
                                                     val displayedGridPresets = dragPreviewGridList ?: filtered
                                                     LazyVerticalGrid(
-                                                        columns = GridCells.Fixed(3),
+                                                        columns = GridCells.Fixed(gridColumns),
                                                         state = presetGridScrollState,
                                                         userScrollEnabled = draggingPresetGridName == null,
                                                         modifier = Modifier
                                                             .fillMaxSize()
-                                                            .padding(horizontal = 8.dp),
-                                                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                                                        verticalArrangement = Arrangement.spacedBy(6.dp)
+                                                            .padding(horizontal = 6.dp),
+                                                        horizontalArrangement = Arrangement.spacedBy(if (isTwoColumn) 5.dp else 4.dp),
+                                                        verticalArrangement = Arrangement.spacedBy(if (isTwoColumn) 5.dp else 4.dp)
                                                     ) {
-                                                        items(displayedGridPresets, key = { it.name }, contentType = { "preset_grid" }) { preset ->
+                                                        items(
+                                                            displayedGridPresets,
+                                                            key = { it.name },
+                                                            contentType = { if (isTwoColumn) "preset_two_col" else "preset_grid" }
+                                                        ) { preset ->
                                                             val isSelected = preset.index == vm.brushPresetIndex
                                                             val isDraggingThis = draggingPresetGridName == preset.name
                                                             val pinnableContainer = LocalPinnableContainer.current
@@ -1258,40 +1342,80 @@ fun BrushPanel(
                                                                 )
                                                             } else null
 
-                                                            PresetGridCard(
-                                                                preset = preset,
-                                                                isSelected = isSelected,
-                                                                isModified = vm.isBrushModified(preset.id),
-                                                                isBatchMode = isBatchMode,
-                                                                isChecked = preset.name in selectedPresets,
-                                                                onClick = {
-                                                                    if (isBatchMode) {
-                                                                        selectedPresets = if (preset.name in selectedPresets) {
-                                                                            selectedPresets - preset.name
+                                                            if (isTwoColumn) {
+                                                                val strokePreviewBmp = rememberPresetStrokePreview(vm, preset)
+                                                                PresetTwoColumnCard(
+                                                                    preset = preset,
+                                                                    isSelected = isSelected,
+                                                                    isFav = vm.isFavoriteBrush(preset.id),
+                                                                    isModified = vm.isBrushModified(preset.id),
+                                                                    isBatchMode = isBatchMode,
+                                                                    isChecked = preset.name in selectedPresets,
+                                                                    strokePreview = strokePreviewBmp,
+                                                                    onClick = {
+                                                                        if (isBatchMode) {
+                                                                            selectedPresets = if (preset.name in selectedPresets) {
+                                                                                selectedPresets - preset.name
+                                                                            } else {
+                                                                                selectedPresets + preset.name
+                                                                            }
                                                                         } else {
-                                                                            selectedPresets + preset.name
+                                                                            if (isSelected) view = BrushView.Detail(preset.index)
+                                                                            else vm.selectBrushPreset(preset.index)
                                                                         }
-                                                                    } else {
-                                                                        if (isSelected) view = BrushView.Detail(preset.index)
-                                                                        else vm.selectBrushPreset(preset.index)
-                                                                    }
-                                                                },
-                                                                onLongClick = {
-                                                                    if (!isBatchMode) {
-                                                                        reorderPresetName = preset.name
-                                                                    }
-                                                                },
-                                                                itemGestureModifier = itemGesture,
-                                                                modifier = Modifier
-                                                                    .animateItem(
-                                                                        fadeInSpec = null,
-                                                                        fadeOutSpec = null,
-                                                                        placementSpec = if (isDraggingThis) null else tween(120)
-                                                                    )
-                                                                    .graphicsLayer {
-                                                                        if (isDraggingThis) alpha = 0.25f
-                                                                    }
-                                                            )
+                                                                    },
+                                                                    onLongClick = {
+                                                                        if (!isBatchMode) {
+                                                                            reorderPresetName = preset.name
+                                                                        }
+                                                                    },
+                                                                    itemGestureModifier = itemGesture,
+                                                                    modifier = Modifier
+                                                                        .animateItem(
+                                                                            fadeInSpec = null,
+                                                                            fadeOutSpec = null,
+                                                                            placementSpec = if (isDraggingThis) null else tween(120)
+                                                                        )
+                                                                        .graphicsLayer {
+                                                                            if (isDraggingThis) alpha = 0.25f
+                                                                        }
+                                                                )
+                                                            } else {
+                                                                PresetGridCard(
+                                                                    preset = preset,
+                                                                    isSelected = isSelected,
+                                                                    isModified = vm.isBrushModified(preset.id),
+                                                                    isBatchMode = isBatchMode,
+                                                                    isChecked = preset.name in selectedPresets,
+                                                                    onClick = {
+                                                                        if (isBatchMode) {
+                                                                            selectedPresets = if (preset.name in selectedPresets) {
+                                                                                selectedPresets - preset.name
+                                                                            } else {
+                                                                                selectedPresets + preset.name
+                                                                            }
+                                                                        } else {
+                                                                            if (isSelected) view = BrushView.Detail(preset.index)
+                                                                            else vm.selectBrushPreset(preset.index)
+                                                                        }
+                                                                    },
+                                                                    onLongClick = {
+                                                                        if (!isBatchMode) {
+                                                                            reorderPresetName = preset.name
+                                                                        }
+                                                                    },
+                                                                    itemGestureModifier = itemGesture,
+                                                                    modifier = Modifier
+                                                                        .animateItem(
+                                                                            fadeInSpec = null,
+                                                                            fadeOutSpec = null,
+                                                                            placementSpec = if (isDraggingThis) null else tween(120)
+                                                                        )
+                                                                        .graphicsLayer {
+                                                                            if (isDraggingThis) alpha = 0.25f
+                                                                        }
+                                                                )
+                                                            }
                                                         }
                                                     }
 
@@ -1309,7 +1433,9 @@ fun BrushPanel(
                                                                 offsetYProvider = { presetGridFloatingY },
                                                                 cardWidthDp = if (cardWidthDp > 0.dp) cardWidthDp else 80.dp,
                                                                 cardHeightDp = if (cardHeightDp > 0.dp) cardHeightDp else 96.dp,
-                                                                isModified = vm.isBrushModified(draggedPreset.id)
+                                                                isModified = vm.isBrushModified(draggedPreset.id),
+                                                                isTwoColumn = isTwoColumn,
+                                                                strokePreview = if (isTwoColumn) rememberPresetStrokePreview(vm, draggedPreset) else null
                                                             )
                                                         }
                                                     }
@@ -1328,8 +1454,8 @@ fun BrushPanel(
                                                         userScrollEnabled = draggingPresetName == null,
                                                         modifier = Modifier
                                                             .fillMaxSize()
-                                                            .padding(horizontal = 12.dp),
-                                                        verticalArrangement = Arrangement.spacedBy(8.dp)
+                                                            .padding(horizontal = 8.dp),
+                                                        verticalArrangement = Arrangement.spacedBy(4.dp)
                                                     ) {
                                                         items(displayedListPresets, key = { it.name }, contentType = { "preset_list" }) { preset ->
                                                             val isSelected = preset.index == vm.brushPresetIndex
@@ -1403,6 +1529,9 @@ fun BrushPanel(
                                                                 )
                                                             } else null
 
+                                                            val strokePreviewBmp = if (vm.brushPanelViewMode.showsStrokePreview) {
+                                                                rememberPresetStrokePreview(vm, preset)
+                                                            } else null
                                                             PresetListRow(
                                                                 preset = preset,
                                                                 isSelected = isSelected,
@@ -1411,6 +1540,8 @@ fun BrushPanel(
                                                                 isBatchMode = isBatchMode,
                                                                 isChecked = preset.name in selectedPresets,
                                                                 subtitleText = subtitleText,
+                                                                viewMode = vm.brushPanelViewMode,
+                                                                strokePreview = strokePreviewBmp,
                                                                 onClick = {
                                                                     if (isBatchMode) {
                                                                         selectedPresets = if (preset.name in selectedPresets) {
@@ -1456,6 +1587,10 @@ fun BrushPanel(
                                                                 offsetYProvider = { presetListFloatingY },
                                                                 isFav = vm.isFavoriteBrush(draggedPreset.id),
                                                                 isModified = vm.isBrushModified(draggedPreset.id),
+                                                                viewMode = vm.brushPanelViewMode,
+                                                                strokePreview = if (vm.brushPanelViewMode.showsStrokePreview) {
+                                                                    BrushStrokePreviewCache.getFast(draggedPreset.id)
+                                                                } else null,
                                                                 modifier = Modifier.padding(horizontal = 12.dp)
                                                             )
                                                         }
@@ -1997,7 +2132,7 @@ private fun PresetGridCard(
                     onLongClick = onLongClick,
                 )
             )
-            .padding(4.dp),
+            .padding(3.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
@@ -2030,8 +2165,8 @@ private fun PresetGridCard(
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .padding(4.dp)
-                        .size(18.dp)
+                        .padding(3.dp)
+                        .size(16.dp)
                         .clip(CircleShape)
                         .background(if (isChecked) Morandi.accent else Morandi.panel.copy(alpha = 0.85f))
                         .border(1.dp, if (isChecked) Morandi.accent else Morandi.border, CircleShape),
@@ -2042,7 +2177,7 @@ private fun PresetGridCard(
                             painter = painterResource(R.drawable.ic_check),
                             contentDescription = null,
                             tint = Color.White,
-                            modifier = Modifier.size(11.dp)
+                            modifier = Modifier.size(10.dp)
                         )
                     }
                 }
@@ -2050,14 +2185,14 @@ private fun PresetGridCard(
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(4.dp)
-                        .size(6.dp)
+                        .padding(3.dp)
+                        .size(5.dp)
                         .clip(CircleShape)
                         .background(Morandi.accent)
                 )
             }
         }
-        Spacer(Modifier.height(3.dp))
+        Spacer(Modifier.height(2.dp))
         Text(
             preset.name,
             color = if (isSelected && !isBatchMode) Morandi.accent else if (isBatchMode && isChecked) Morandi.text else Morandi.subText,
@@ -2071,6 +2206,170 @@ private fun PresetGridCard(
 }
 
 @Composable
+private fun StrokePreviewStrip(
+    strokePreview: android.graphics.Bitmap?,
+    tint: Color,
+    modifier: Modifier = Modifier,
+) {
+    Box(
+        modifier = modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(4.dp))
+            .background(Morandi.panel.copy(alpha = 0.16f)),
+        contentAlignment = Alignment.Center
+    ) {
+        if (strokePreview != null) {
+            Image(
+                bitmap = strokePreview.asImageBitmap(),
+                contentDescription = null,
+                contentScale = ContentScale.Fit,
+                colorFilter = ColorFilter.tint(tint),
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 2.dp, vertical = 1.dp)
+            )
+        } else {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.55f)
+                    .height(2.dp)
+                    .clip(CircleShape)
+                    .background(Morandi.subText.copy(alpha = 0.14f))
+            )
+        }
+    }
+}
+
+@Composable
+private fun PresetTwoColumnCard(
+    preset: BrushPresetInfo,
+    isSelected: Boolean,
+    isFav: Boolean,
+    isModified: Boolean = false,
+    isBatchMode: Boolean = false,
+    isChecked: Boolean = false,
+    strokePreview: android.graphics.Bitmap? = null,
+    onClick: () -> Unit = {},
+    onLongClick: () -> Unit = {},
+    itemGestureModifier: Modifier? = null,
+    modifier: Modifier = Modifier,
+) {
+    val cellBg = when {
+        isBatchMode && isChecked -> Morandi.accent.copy(alpha = 0.28f)
+        isSelected -> Morandi.accent.copy(alpha = 0.30f)
+        else -> Morandi.panelHi.copy(alpha = 0.38f)
+    }
+    val previewTint = if (isSelected && !isBatchMode) Morandi.accent else Morandi.text
+
+    Column(
+        modifier = modifier
+            .fillMaxWidth()
+            .height(54.dp)
+            .clip(RoundedCornerShape(8.dp))
+            .background(cellBg)
+            .then(
+                if (isSelected && !isBatchMode) {
+                    Modifier.border(1.5.dp, Morandi.accent, RoundedCornerShape(8.dp))
+                } else if (isBatchMode && isChecked) {
+                    Modifier.border(1.5.dp, Morandi.accent.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                } else Modifier
+            )
+            .then(
+                itemGestureModifier ?: Modifier.combinedClickable(
+                    onClick = onClick,
+                    onLongClick = onLongClick,
+                )
+            )
+            .padding(horizontal = 6.dp, vertical = 4.dp),
+        verticalArrangement = Arrangement.spacedBy(2.dp)
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(20.dp),
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            if (isBatchMode) {
+                Box(
+                    modifier = Modifier
+                        .size(14.dp)
+                        .clip(CircleShape)
+                        .background(if (isChecked) Morandi.accent else Color.Transparent)
+                        .border(1.dp, if (isChecked) Morandi.accent else Morandi.border, CircleShape),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (isChecked) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_check),
+                            contentDescription = null,
+                            tint = Color.White,
+                            modifier = Modifier.size(9.dp)
+                        )
+                    }
+                }
+                Spacer(Modifier.width(4.dp))
+            }
+            Box(
+                modifier = Modifier.size(20.dp),
+                contentAlignment = Alignment.Center
+            ) {
+                val bmp = rememberPresetThumb(preset.name, preset.thumbBytes)
+                if (bmp != null) {
+                    Image(
+                        bitmap = bmp.asImageBitmap(),
+                        contentDescription = preset.name,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(4.dp))
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(4.dp))
+                            .background(Morandi.panel.copy(alpha = 0.5f))
+                    )
+                }
+                if (isModified) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(1.dp)
+                            .size(5.dp)
+                            .clip(CircleShape)
+                            .background(Morandi.accent)
+                    )
+                }
+            }
+            Spacer(Modifier.width(5.dp))
+            Text(
+                preset.name,
+                color = if (isSelected && !isBatchMode) Morandi.accent else Morandi.text,
+                fontSize = 11.sp,
+                fontWeight = if (isSelected && !isBatchMode) FontWeight.Bold else FontWeight.Medium,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+                modifier = Modifier.weight(1f)
+            )
+            if (isFav && !isBatchMode) {
+                Spacer(Modifier.width(3.dp))
+                Icon(
+                    painter = painterResource(R.drawable.ic_star_filled),
+                    contentDescription = null,
+                    tint = Morandi.accent,
+                    modifier = Modifier.size(10.dp)
+                )
+            }
+        }
+        StrokePreviewStrip(
+            strokePreview = strokePreview,
+            tint = previewTint,
+            modifier = Modifier.weight(1f)
+        )
+    }
+}
+
+@Composable
 private fun PresetListRow(
     preset: BrushPresetInfo,
     isSelected: Boolean,
@@ -2079,12 +2378,17 @@ private fun PresetListRow(
     isBatchMode: Boolean = false,
     isChecked: Boolean = false,
     subtitleText: String? = null,
+    viewMode: BrushPanelViewMode = BrushPanelViewMode.LIST,
+    strokePreview: android.graphics.Bitmap? = null,
     onClick: () -> Unit = {},
     onLongClick: () -> Unit = {},
     onToggleFav: () -> Unit,
     itemGestureModifier: Modifier? = null,
     modifier: Modifier = Modifier,
 ) {
+    val showStroke = viewMode.showsStrokePreview
+    val showIcon = viewMode.showsPresetIcon
+    val rowHeight = if (showStroke) 50.dp else 40.dp
     val cellBg = when {
         isBatchMode && isChecked -> Morandi.accent.copy(alpha = 0.28f)
         isSelected -> Morandi.accent.copy(alpha = 0.30f)
@@ -2094,14 +2398,14 @@ private fun PresetListRow(
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(48.dp)
-            .clip(RoundedCornerShape(10.dp))
+            .height(rowHeight)
+            .clip(RoundedCornerShape(8.dp))
             .background(cellBg)
             .then(
                 if (isSelected && !isBatchMode) {
-                    Modifier.border(1.5.dp, Morandi.accent, RoundedCornerShape(10.dp))
+                    Modifier.border(1.5.dp, Morandi.accent, RoundedCornerShape(8.dp))
                 } else if (isBatchMode && isChecked) {
-                    Modifier.border(1.5.dp, Morandi.accent.copy(alpha = 0.6f), RoundedCornerShape(10.dp))
+                    Modifier.border(1.5.dp, Morandi.accent.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
                 } else Modifier
             )
             .then(
@@ -2110,13 +2414,18 @@ private fun PresetListRow(
                     onLongClick = onLongClick,
                 )
             )
-            .padding(start = 8.dp, end = 4.dp, top = 4.dp, bottom = 4.dp),
+            .padding(
+                start = if (showIcon) 5.dp else 8.dp,
+                end = if (showStroke) 6.dp else 4.dp,
+                top = if (showStroke) 4.dp else 3.dp,
+                bottom = if (showStroke) 4.dp else 3.dp,
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
         if (isBatchMode) {
             Box(
                 modifier = Modifier
-                    .size(20.dp)
+                    .size(18.dp)
                     .clip(CircleShape)
                     .background(if (isChecked) Morandi.accent else Color.Transparent)
                     .border(1.5.dp, if (isChecked) Morandi.accent else Morandi.border, CircleShape),
@@ -2127,54 +2436,59 @@ private fun PresetListRow(
                         painter = painterResource(R.drawable.ic_check),
                         contentDescription = null,
                         tint = Color.White,
-                        modifier = Modifier.size(12.dp)
+                        modifier = Modifier.size(11.dp)
                     )
                 }
             }
-            Spacer(Modifier.width(8.dp))
+            Spacer(Modifier.width(6.dp))
         }
 
-        Box(
-            modifier = Modifier.size(38.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            val bmp = rememberPresetThumb(preset.name, preset.thumbBytes)
-            if (bmp != null) {
-                Image(
-                    bitmap = bmp.asImageBitmap(),
-                    contentDescription = preset.name,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .then(
-                            if (isSelected && !isBatchMode) {
-                                Modifier.graphicsLayer {
-                                    scaleX = 1.06f
-                                    scaleY = 1.06f
-                                }
-                            } else Modifier
-                        )
-                        .clip(RoundedCornerShape(7.dp))
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(7.dp))
-                        .background(Morandi.panelHi)
-                )
+        if (showIcon) {
+            val iconSize = if (showStroke) 40.dp else 34.dp
+            val iconRadius = 6.dp
+            Box(
+                modifier = Modifier.size(iconSize),
+                contentAlignment = Alignment.Center
+            ) {
+                val bmp = rememberPresetThumb(preset.name, preset.thumbBytes)
+                if (bmp != null) {
+                    Image(
+                        bitmap = bmp.asImageBitmap(),
+                        contentDescription = preset.name,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .then(
+                                if (isSelected && !isBatchMode) {
+                                    Modifier.graphicsLayer {
+                                        scaleX = 1.05f
+                                        scaleY = 1.05f
+                                    }
+                                } else Modifier
+                            )
+                            .clip(RoundedCornerShape(iconRadius))
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(iconRadius))
+                            .background(Morandi.panelHi)
+                    )
+                }
+                if (isModified) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(2.dp)
+                            .size(5.dp)
+                            .clip(CircleShape)
+                            .background(Morandi.accent)
+                    )
+                }
             }
-            if (isModified) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(3.dp)
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(Morandi.accent)
-                )
-            }
+            Spacer(Modifier.width(if (showStroke) 7.dp else 8.dp))
         }
-        Spacer(Modifier.width(10.dp))
+
         val context = LocalContext.current
         val translatedName = BrushPresetTranslations.getTranslatedDisplayName(context, preset.name)
         val inUseText = if (isSelected && !isBatchMode) stringResource(R.string.brush_in_use_hint) else null
@@ -2192,40 +2506,125 @@ private fun PresetListRow(
             if (parts.isNotEmpty()) parts.joinToString(" · ") else null
         }
 
-        Column(Modifier.weight(1f)) {
-            Text(
-                preset.name,
-                color = if (isSelected && !isBatchMode) Morandi.accent else Morandi.text,
-                fontSize = 12.sp,
-                fontWeight = if (isSelected && !isBatchMode) FontWeight.Bold else FontWeight.Normal,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
-            if (fullSubtitle != null) {
+        if (showStroke) {
+            val primaryColor = if (isSelected && !isBatchMode) Morandi.accent else Morandi.text
+            val secondaryColor = if (isSelected && !isBatchMode) {
+                Morandi.accent.copy(alpha = 0.8f)
+            } else {
+                Morandi.subText.copy(alpha = 0.72f)
+            }
+            val titleText = remember(preset.name, fullSubtitle, primaryColor, secondaryColor, isSelected, isBatchMode) {
+                buildAnnotatedString {
+                    withStyle(
+                        SpanStyle(
+                            color = primaryColor,
+                            fontSize = 11.5.sp,
+                            fontWeight = if (isSelected && !isBatchMode) FontWeight.Bold else FontWeight.Medium,
+                        )
+                    ) {
+                        append(preset.name)
+                    }
+                    if (fullSubtitle != null) {
+                        withStyle(
+                            SpanStyle(
+                                color = secondaryColor,
+                                fontSize = 9.5.sp,
+                                fontWeight = FontWeight.Normal,
+                            )
+                        ) {
+                            append("  ")
+                            append(fullSubtitle)
+                        }
+                    }
+                }
+            }
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxHeight(),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .height(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    if (!showIcon && isModified) {
+                        Box(
+                            modifier = Modifier
+                                .padding(end = 4.dp)
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .background(Morandi.accent)
+                        )
+                    }
+                    Text(
+                        text = titleText,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f),
+                    )
+                    if (!isBatchMode) {
+                        Box(
+                            modifier = Modifier
+                                .size(18.dp)
+                                .clip(CircleShape)
+                                .clickable(onClick = onToggleFav),
+                            contentAlignment = Alignment.Center
+                        ) {
+                            Icon(
+                                painter = painterResource(if (isFav) R.drawable.ic_star_filled else R.drawable.ic_star),
+                                contentDescription = stringResource(if (isFav) R.string.brush_fav_remove else R.string.brush_fav_add),
+                                tint = if (isFav) Morandi.accent else Morandi.subText.copy(alpha = 0.30f),
+                                modifier = Modifier.size(12.dp)
+                            )
+                        }
+                    }
+                }
+                val previewTint = if (isSelected && !isBatchMode) Morandi.accent else Morandi.text
+                StrokePreviewStrip(
+                    strokePreview = strokePreview,
+                    tint = previewTint,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+        } else {
+            Column(Modifier.weight(1f)) {
                 Text(
-                    fullSubtitle,
-                    color = if (isSelected && !isBatchMode) Morandi.accent.copy(alpha = 0.85f) else Morandi.subText.copy(alpha = 0.75f),
-                    fontSize = 10.sp,
+                    preset.name,
+                    color = if (isSelected && !isBatchMode) Morandi.accent else Morandi.text,
+                    fontSize = 11.5.sp,
+                    fontWeight = if (isSelected && !isBatchMode) FontWeight.Bold else FontWeight.Normal,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
+                if (fullSubtitle != null) {
+                    Text(
+                        fullSubtitle,
+                        color = if (isSelected && !isBatchMode) Morandi.accent.copy(alpha = 0.85f) else Morandi.subText.copy(alpha = 0.75f),
+                        fontSize = 9.5.sp,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
             }
-        }
-        // Star button (hidden in batch mode)
-        if (!isBatchMode) {
-            Box(
-                modifier = Modifier
-                    .size(36.dp)
-                    .clip(CircleShape)
-                    .clickable(onClick = onToggleFav),
-                contentAlignment = Alignment.Center
-            ) {
-                Icon(
-                    painter = painterResource(if (isFav) R.drawable.ic_star_filled else R.drawable.ic_star),
-                    contentDescription = stringResource(if (isFav) R.string.brush_fav_remove else R.string.brush_fav_add),
-                    tint = if (isFav) Morandi.accent else Morandi.subText.copy(alpha = 0.35f),
-                    modifier = Modifier.size(16.dp)
-                )
+            // Star button (hidden in batch mode)
+            if (!isBatchMode) {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .clip(CircleShape)
+                        .clickable(onClick = onToggleFav),
+                    contentAlignment = Alignment.Center
+                ) {
+                    Icon(
+                        painter = painterResource(if (isFav) R.drawable.ic_star_filled else R.drawable.ic_star),
+                        contentDescription = stringResource(if (isFav) R.string.brush_fav_remove else R.string.brush_fav_add),
+                        tint = if (isFav) Morandi.accent else Morandi.subText.copy(alpha = 0.35f),
+                        modifier = Modifier.size(15.dp)
+                    )
+                }
             }
         }
     }

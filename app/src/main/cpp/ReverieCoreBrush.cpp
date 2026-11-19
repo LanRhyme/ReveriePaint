@@ -1355,7 +1355,7 @@ int ReverieCore::loadBrushResources(const QString &dirPath)
     return loaded;
 }
 
-bool ReverieCore::loadBrushPresetCommon(const QString &path, const QString &name, int index)
+KisPaintOpPresetSP ReverieCore::loadPresetObjectFromPath(const QString &path, const QString &name)
 {
     registerPaintOps();
     if (!m_brushResources) {
@@ -1364,7 +1364,7 @@ bool ReverieCore::loadBrushPresetCommon(const QString &path, const QString &name
     ensureBrushForPreset(path);
     QFile f(path);
     if (!f.open(QIODevice::ReadOnly)) {
-        return false;
+        return nullptr;
     }
     KisPaintOpPresetSP preset;
     if (path.endsWith(QLatin1String(".myb"), Qt::CaseInsensitive)) {
@@ -1384,17 +1384,12 @@ bool ReverieCore::loadBrushPresetCommon(const QString &path, const QString &name
                 KoEmbeddedResource er = loadRes.embeddedResource();
                 if (er.isValid()) {
                     const KoResourceSignature sig = er.signature();
-                    // S1 前置按名查缓存 (绕开 loadSingleBrushResource 的 isBrush 误判), 语义与
-                    // loadSingleBrushResource 的缓存命中返回一致
                     if (memoryResourceAlreadyRegistered({sig.filename, QFileInfo(sig.filename).fileName(), sig.name},
                                                         m_loadedBrushes, m_loadedResourceNames)) {
                         addedSideloaded = true;
-                    }
-                    // 磁盘优先
-                    else if (loadSingleBrushResource(sig.filename)) {
+                    } else if (loadSingleBrushResource(sig.filename)) {
                         addedSideloaded = true;
                     } else {
-                        // 磁盘缺失 → 直接消费内嵌字节内存构造补位 (不再转磁盘找文件)
                         const QByteArray bytes = er.data();
                         const QString md5Hex = resolveMd5HexFromXml(sig.md5sum);
                         const QString sigFile = QFileInfo(sig.filename).fileName();
@@ -1418,8 +1413,6 @@ bool ReverieCore::loadBrushPresetCommon(const QString &path, const QString &name
                                                                m_brushResources);
                             if (b && lr) {
                                 lr->addResource(b.staticCast<KoResource>());
-                                // 原始 filename 带子目录时追加别名克隆 (仅换 filename,
-                                // md5/name 不变), 使带子目录引用在无 md5 精确匹配时也能命中
                                 if (!sig.filename.isEmpty() && sig.filename != sigFile) {
                                     KisBrushSP aliasSp = b->clone().dynamicCast<KisBrush>();
                                     if (aliasSp) {
@@ -1444,11 +1437,21 @@ bool ReverieCore::loadBrushPresetCommon(const QString &path, const QString &name
         if (addedSideloaded) {
             QFile fReopen(path);
             if (fReopen.open(QIODevice::ReadOnly)) {
-                preset->loadFromDevice(&fReopen, m_brushResources);
+                ok = preset->loadFromDevice(&fReopen, m_brushResources);
                 fReopen.close();
             }
         }
     }
+    if (!ok) {
+        return nullptr;
+    }
+    return preset;
+}
+
+bool ReverieCore::loadBrushPresetCommon(const QString &path, const QString &name, int index)
+{
+    KisPaintOpPresetSP preset = loadPresetObjectFromPath(path, name);
+    const bool ok = (preset != nullptr);
     RPC_LOG("RPC loadBrushPresetCommon idx=%d path=%s ok=%d", index, path.toUtf8().constData(), ok);
     if (!ok) {
         return false;
@@ -2786,6 +2789,322 @@ QVector<float> ReverieCore::currentBrushOutline()
     }
     return out;
 }
+
+bool ReverieCore::renderBrushStrokePreview(int presetIndex, quint8 *buffer, int w, int h, int stride)
+{
+    if (!buffer || w <= 0 || h <= 0 || stride < w * 4) {
+        return false;
+    }
+    if (presetIndex < 0 || presetIndex >= m_presets.size()) {
+        return false;
+    }
+
+    const QString &presetName = m_presets[presetIndex].first;
+    const QString &presetPath = m_presets[presetIndex].second;
+    KisPaintOpPresetSP preset = loadPresetObjectFromPath(presetPath, presetName);
+    if (!preset || !preset->settings()) {
+        return false;
+    }
+
+    KisPaintOpSettingsSP s = preset->settings();
+    if (!s->hasProperty("PressureOpacity") && s->getBool("OpacityUseCurve", false)) {
+        s->setProperty("PressureOpacity", true);
+    }
+    if (!s->hasProperty("PressureFlow") && s->getBool("FlowUseCurve", false)) {
+        s->setProperty("PressureFlow", true);
+    }
+    if (!s->hasProperty("PressureSize") && s->getBool("SizeUseCurve", false)) {
+        s->setProperty("PressureSize", true);
+    }
+
+    auto *bs = dynamic_cast<KisBrushBasedPaintOpSettings *>(s.data());
+    if (bs) {
+        injectBrushDefinitionProperties(bs, m_brushResources, m_loadedBrushes);
+    }
+
+    double rawSize = s->paintOpSize();
+    if (!(rawSize > 0.0) || !std::isfinite(rawSize)) {
+        rawSize = 20.0;
+    }
+    const qreal scaleRef = qreal(h) / 56.0;
+    const qreal normalizedBase = qBound(3.0, 1.2 + 3.2 * std::log2(1.0 + rawSize), 22.0);
+    const qreal previewSize = normalizedBase * scaleRef;
+
+    if (bs) {
+        const QString defBefore = bs->getString(QStringLiteral("brush_definition"));
+        s->setPaintOpSize(previewSize);
+        const QString defAfter = bs->getString(QStringLiteral("brush_definition"));
+        if (reverie::brushDefDowngraded(defBefore.toStdString(), defAfter.toStdString())) {
+            bs->setProperty(QStringLiteral("brush_definition"), defBefore);
+            injectBrushDefinitionProperties(bs, m_brushResources, m_loadedBrushes);
+            KisBrushSP rescued = bs->brush();
+            if (rescued && !rescued->filename().isEmpty()) {
+                s->setPaintOpSize(previewSize);
+            }
+        }
+        const qreal parsedSpacing = bs->autoSpacingActive() ? bs->autoSpacingCoeff() : bs->spacing();
+        if (isColorSmudgePreset(preset) && parsedSpacing > 0.0 && std::isfinite(parsedSpacing)) {
+            writeBrushSpacing(bs, preset, previewSize, parsedSpacing);
+        }
+    } else {
+        s->setPaintOpSize(previewSize);
+    }
+
+    const qreal rawOpacity = qBound(0.0, s->getDouble("OpacityValue", 1.0), 1.0);
+    const bool isEraser = (s->effectivePaintOpCompositeOp() == QLatin1String("erase")) ||
+                          s->getBool(QStringLiteral("EraserMode"), false) ||
+                          presetName.contains(QLatin1String("eraser"), Qt::CaseInsensitive) ||
+                          presetName.contains(QStringLiteral("橡皮"));
+    const QString opId = preset->paintOp().id();
+    const bool readsLayerPixels = isColorSmudgePreset(preset) ||
+                                  (opId == QLatin1String("deformbrush")) ||
+                                  (opId == QLatin1String("filter"));
+    const bool isSmudge = !isEraser && readsLayerPixels;
+    const qreal previewOpacity = isEraser ? qBound(0.55, rawOpacity, 1.0)
+                                          : qBound(0.25, rawOpacity, 1.0);
+
+    s->setEraserMode(isEraser);
+    s->setPaintOpOpacity(previewOpacity);
+
+    const bool hasMasking = !isEraser && !isSmudge && preset->hasMaskingPreset();
+    const bool indirect = (!readsLayerPixels && !s->paintIncremental()) || hasMasking;
+
+    QString effectiveOp = QStringLiteral("normal");
+    if (isEraser) {
+        effectiveOp = QStringLiteral("erase");
+    } else {
+        effectiveOp = s->effectivePaintOpCompositeOp();
+        if (effectiveOp.isEmpty() || effectiveOp == QLatin1String("erase")) {
+            effectiveOp = QStringLiteral("normal");
+        }
+    }
+    const QString painterCompOp = indirect ? s->indirectPaintingCompositeOp() : effectiveOp;
+
+    const KoColorSpace *cs = m_document ? m_document->colorSpace() : KoColorSpaceRegistry::instance()->rgb8();
+    KisPaintDeviceSP previewDev = new KisPaintDevice(cs);
+
+    if (isEraser) {
+        const QRect barRect(int(w * 0.05), int(h * 0.25), int(w * 0.90), qMax(4, int(h * 0.50)));
+        previewDev->fill(barRect, KoColor(QColor(255, 255, 255, 170), cs));
+    } else if (isSmudge) {
+        const QRect patchA(int(w * 0.06), int(h * 0.22), int(w * 0.32), qMax(4, int(h * 0.56)));
+        const QRect patchB(int(w * 0.44), int(h * 0.28), int(w * 0.16), qMax(4, int(h * 0.44)));
+        previewDev->fill(patchA, KoColor(QColor(255, 255, 255, 195), cs));
+        previewDev->fill(patchB, KoColor(QColor(255, 255, 255, 115), cs));
+    }
+
+    KisPaintDeviceSP tempDev;
+    if (indirect) {
+        tempDev = previewDev->createCompositionSourceDevice();
+        if (!tempDev) {
+            return false;
+        }
+    }
+    KisPaintDeviceSP target = indirect ? tempDev : previewDev;
+
+    KisNodeSP node = new KisPaintLayer(m_document, QStringLiteral("BrushPreview"), OPACITY_OPAQUE_U8, previewDev);
+    if (indirect) {
+        if (KisPaintLayer *previewLayer = dynamic_cast<KisPaintLayer *>(node.data())) {
+            tempDev->setParentNode(previewLayer);
+            previewLayer->setTemporaryTarget(tempDev);
+            previewLayer->setTemporaryCompositeOp(effectiveOp);
+            previewLayer->setTemporaryOpacity(previewOpacity);
+        }
+    }
+
+    if (readsLayerPixels) {
+        if (KisInterstrokeDataFactory *factory = KisPaintOpRegistry::instance()->createInterstrokeDataFactory(preset)) {
+            KisInterstrokeData *rawData = factory->create(target);
+            delete factory;
+            if (rawData) {
+                if (KUndo2Command *cmd = target->createChangeInterstrokeDataCommand(KisInterstrokeDataSP(rawData))) {
+                    cmd->redo();
+                    delete cmd;
+                }
+            }
+        }
+    }
+
+    KisRandomSourceSP rnd = new KisRandomSource(12345);
+    KisPerStrokeRandomSourceSP perStrokeRnd = new KisPerStrokeRandomSource();
+    const KoColor koFg(Qt::white, cs);
+    const KoColor koBg(Qt::black, cs);
+
+    constexpr int kSamples = 48;
+    const qreal marginX = qreal(w) * 0.08;
+    const qreal spanX = qreal(w) * 0.84;
+    const qreal midY = qreal(h) * 0.5;
+    const qreal ampY = qreal(h) * 0.23;
+
+    auto sampleAt = [&](int idx) -> reverie::StrokePaintSample {
+        const qreal t = qreal(idx) / qreal(kSamples - 1);
+        const qreal x = marginX + t * spanX;
+        const qreal y = midY - ampY * std::sin(t * 2.0 * M_PI);
+        qreal p;
+        if (t < 0.16) {
+            p = 0.15 + 0.80 * (t / 0.16);
+        } else if (t <= 0.76) {
+            p = 0.95 - 0.10 * ((t - 0.16) / 0.60);
+        } else {
+            p = 0.85 * (1.0 - (t - 0.76) / 0.24) + 0.06;
+        }
+        return reverie::StrokePaintSample{QPointF(x, y), p, 0.0, 0.0, 0.0, t * 0.56};
+    };
+
+    const reverie::StrokePaintSample s0 = sampleAt(0);
+    const KisPaintInformation pi0 = reverie::makePaintInfo(s0, 0.0, rnd, perStrokeRnd);
+
+    KisPaintOpPresetSP maskingPreset;
+    KisMaskingBrushRenderer *maskRenderer = nullptr;
+    KisFreehandStrokeInfo *maskStrokeInfo = nullptr;
+    KisFreehandStrokeInfo *maskInfo = nullptr;
+    KisMaskedFreehandStrokePainter *maskedPainter = nullptr;
+
+    if (hasMasking) {
+        const QString maskingCompOpId = s->maskingBrushCompositeOp();
+        maskRenderer = new KisMaskingBrushRenderer(target, maskingCompOpId);
+        if (!maskRenderer->strokeDevice() || !maskRenderer->maskDevice()) {
+            delete maskRenderer;
+            maskRenderer = nullptr;
+        } else {
+            maskingPreset = preset->createMaskingPreset();
+            if (maskingPreset) {
+                if (maskingPreset->settings()) {
+                    injectBrushDefinitionProperties(
+                        dynamic_cast<KisBrushBasedPaintOpSettings *>(maskingPreset->settings().data()),
+                        m_brushResources, m_loadedBrushes);
+                }
+                maskingPreset = adaptMaskingPresetForAlpha8Mask(
+                    maskingPreset, reverieMaskingBrushMaskIsAlpha(), m_brushResources.data());
+                if (maskingPreset && maskingPreset->settings()) {
+                    injectBrushDefinitionProperties(
+                        dynamic_cast<KisBrushBasedPaintOpSettings *>(maskingPreset->settings().data()),
+                        m_brushResources, m_loadedBrushes);
+                }
+            }
+            if (!maskingPreset) {
+                delete maskRenderer;
+                maskRenderer = nullptr;
+            }
+        }
+    }
+
+    if (maskRenderer && maskingPreset) {
+        KisDistanceInformation startDist(s0.pos, 0.0);
+        maskStrokeInfo = new KisFreehandStrokeInfo(startDist);
+        maskInfo = new KisFreehandStrokeInfo(startDist);
+
+        KisPainter *strokeP = maskStrokeInfo->painter;
+        strokeP->begin(maskRenderer->strokeDevice(), nullptr);
+        strokeP->setRunnableStrokeJobsInterface(&m_fakeExecutor);
+        strokeP->setFillStyle(KisPainter::FillStyleForegroundColor);
+        strokeP->setStrokeStyle(KisPainter::StrokeStyleBrush);
+        strokeP->setCompositeOpId(QStringLiteral("alphadarken"));
+        strokeP->setOpacityToUnit();
+        strokeP->setPaintColor(koFg);
+        strokeP->setBackgroundColor(koBg);
+        strokeP->setChannelFlags(QBitArray());
+        strokeP->setPaintOpPreset(preset, node, m_document);
+
+        KisPainter *maskP = maskInfo->painter;
+        maskP->begin(maskRenderer->maskDevice(), nullptr);
+        maskP->setRunnableStrokeJobsInterface(&m_fakeExecutor);
+        maskP->setFillStyle(KisPainter::FillStyleForegroundColor);
+        maskP->setStrokeStyle(KisPainter::StrokeStyleBrush);
+        maskP->setCompositeOpId(QStringLiteral("alphadarken"));
+        maskP->setOpacityToUnit();
+        maskP->setPaintColor(KoColor(Qt::white, maskP->device()->colorSpace()));
+        maskP->setBackgroundColor(KoColor(Qt::black, maskP->device()->colorSpace()));
+        maskP->setChannelFlags(QBitArray());
+        maskP->setPaintOpPreset(maskingPreset, node, m_document);
+
+        maskedPainter = new KisMaskedFreehandStrokePainter(maskStrokeInfo, maskInfo);
+        maskedPainter->paintAt(pi0);
+        scratchpadRunJobs([maskedPainter](QVector<KisRunnableStrokeJobData *> &jobs) {
+            return maskedPainter->doAsynchronousUpdate(jobs);
+        }, previewSize, &m_fakeExecutor);
+        reverieMaskingBrushUpdateProjection(maskRenderer, maskedPainter->takeDirtyRegion());
+
+        reverie::StrokePaintSample prevSample = s0;
+        for (int i = 1; i < kSamples; ++i) {
+            const reverie::StrokePaintSample curSample = sampleAt(i);
+            const qreal dt = qMax(0.004, curSample.timeSec - prevSample.timeSec);
+            const QPointF delta = curSample.pos - prevSample.pos;
+            const qreal speed = std::hypot(delta.x(), delta.y()) / (dt * 1000.0);
+            const KisPaintInformation piA = reverie::makePaintInfo(prevSample, speed, rnd, perStrokeRnd);
+            const KisPaintInformation piB = reverie::makePaintInfo(curSample, speed, rnd, perStrokeRnd);
+            maskedPainter->paintLine(piA, piB);
+            scratchpadRunJobs([maskedPainter](QVector<KisRunnableStrokeJobData *> &jobs) {
+                return maskedPainter->doAsynchronousUpdate(jobs);
+            }, previewSize, &m_fakeExecutor);
+            reverieMaskingBrushUpdateProjection(maskRenderer, maskedPainter->takeDirtyRegion());
+            prevSample = curSample;
+        }
+
+        delete maskedPainter;
+        delete maskStrokeInfo;
+        delete maskInfo;
+        delete maskRenderer;
+    } else {
+        KisPainter painter(target);
+        painter.setRunnableStrokeJobsInterface(&m_fakeExecutor);
+        painter.setPaintOpPreset(preset, node, m_document);
+        painter.setPaintColor(koFg);
+        painter.setBackgroundColor(koBg);
+        painter.setOpacityF(indirect ? 1.0 : previewOpacity);
+        painter.setCompositeOpId(painterCompOp.isEmpty() ? QStringLiteral("normal") : painterCompOp);
+
+        KisDistanceInformation distInfo(s0.pos, 0.0);
+        painter.paintAt(pi0, &distInfo);
+        if (KisPaintOp *op = painter.paintOp()) {
+            scratchpadRunJobs([op](QVector<KisRunnableStrokeJobData *> &jobs) {
+                return op->doAsynchronousUpdate(jobs);
+            }, previewSize, &m_fakeExecutor);
+        }
+
+        reverie::StrokePaintSample prevSample = s0;
+        for (int i = 1; i < kSamples; ++i) {
+            const reverie::StrokePaintSample curSample = sampleAt(i);
+            const qreal dt = qMax(0.004, curSample.timeSec - prevSample.timeSec);
+            const QPointF delta = curSample.pos - prevSample.pos;
+            const qreal speed = std::hypot(delta.x(), delta.y()) / (dt * 1000.0);
+            const KisPaintInformation piA = reverie::makePaintInfo(prevSample, speed, rnd, perStrokeRnd);
+            const KisPaintInformation piB = reverie::makePaintInfo(curSample, speed, rnd, perStrokeRnd);
+            painter.paintLine(piA, piB, &distInfo);
+            if (KisPaintOp *op = painter.paintOp()) {
+                scratchpadRunJobs([op](QVector<KisRunnableStrokeJobData *> &jobs) {
+                    return op->doAsynchronousUpdate(jobs);
+                }, previewSize, &m_fakeExecutor);
+            }
+            prevSample = curSample;
+        }
+        painter.end();
+    }
+
+    if (tempDev) {
+        const QRect ext = tempDev->exactBounds().intersected(QRect(0, 0, w, h));
+        if (!ext.isEmpty()) {
+            KisPainter gc(previewDev);
+            gc.setCompositeOpId(effectiveOp);
+            gc.setOpacityF(previewOpacity);
+            gc.bitBlt(ext.topLeft(), tempDev, ext);
+            gc.end();
+        }
+    }
+
+    const QRect bounds(0, 0, w, h);
+    if (previewDev->exactBounds().intersected(bounds).isEmpty()) {
+        return false;
+    }
+
+    QByteArray readBuf(w * h * 4, Qt::Uninitialized);
+    previewDev->readBytes(reinterpret_cast<quint8 *>(readBuf.data()), 0, 0, w, h);
+    PixelAlpha::toDisplayRows(
+        reinterpret_cast<const uint8_t *>(readBuf.constData()),
+        w * 4, buffer, stride, w, h);
+    return true;
+}
+
 
 
 

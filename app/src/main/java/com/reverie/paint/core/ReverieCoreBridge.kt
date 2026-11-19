@@ -706,6 +706,7 @@ object ReverieCoreBridge {
     external fun scratchpadClear()
     external fun scratchpadRender(bitmap: Bitmap): Boolean
     external fun scratchpadEnd()
+    external fun renderBrushStrokePreview(presetIndex: Int, bitmap: Bitmap): Boolean
 
     external fun renderToBuffer(
         bitmap: Bitmap,

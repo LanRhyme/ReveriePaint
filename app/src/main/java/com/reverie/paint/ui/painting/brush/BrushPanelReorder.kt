@@ -196,88 +196,157 @@ internal fun PresetListDragOverlay(
     offsetYProvider: () -> Float,
     isFav: Boolean,
     isModified: Boolean,
+    viewMode: com.reverie.paint.model.BrushPanelViewMode = com.reverie.paint.model.BrushPanelViewMode.LIST,
+    strokePreview: android.graphics.Bitmap? = null,
     modifier: Modifier = Modifier,
 ) {
+    val showStroke = viewMode.showsStrokePreview
+    val showIcon = viewMode.showsPresetIcon
+    val rowHeight = if (showStroke) 50.dp else 40.dp
     Row(
         modifier = modifier
             .fillMaxWidth()
-            .height(48.dp)
+            .height(rowHeight)
             .graphicsLayer {
                 translationY = offsetYProvider()
                 scaleX = 1.03f
                 scaleY = 1.03f
             }
-            .clip(RoundedCornerShape(10.dp))
+            .clip(RoundedCornerShape(8.dp))
             .background(Morandi.panelHi)
-            .border(1.5.dp, Morandi.accent.copy(alpha = 0.85f), RoundedCornerShape(10.dp))
-            .padding(start = 8.dp, end = 8.dp, top = 4.dp, bottom = 4.dp),
+            .border(1.5.dp, Morandi.accent.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
+            .padding(
+                start = if (showIcon) 5.dp else 8.dp,
+                end = 6.dp,
+                top = if (showStroke) 4.dp else 3.dp,
+                bottom = if (showStroke) 4.dp else 3.dp,
+            ),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        Box(
-            modifier = Modifier.size(38.dp),
-            contentAlignment = Alignment.Center
-        ) {
-            val bmp = rememberPresetThumb(preset.name, preset.thumbBytes)
-            if (bmp != null) {
-                Image(
-                    bitmap = bmp.asImageBitmap(),
-                    contentDescription = preset.name,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(6.dp))
-                )
-            } else {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Morandi.panelHi)
-                )
+        if (showIcon) {
+            val iconSize = if (showStroke) 40.dp else 34.dp
+            Box(
+                modifier = Modifier.size(iconSize),
+                contentAlignment = Alignment.Center
+            ) {
+                val bmp = rememberPresetThumb(preset.name, preset.thumbBytes)
+                if (bmp != null) {
+                    Image(
+                        bitmap = bmp.asImageBitmap(),
+                        contentDescription = preset.name,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(6.dp))
+                    )
+                } else {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .clip(RoundedCornerShape(6.dp))
+                            .background(Morandi.panelHi)
+                    )
+                }
+                if (isModified) {
+                    Box(
+                        modifier = Modifier
+                            .align(Alignment.TopEnd)
+                            .padding(2.dp)
+                            .size(5.dp)
+                            .clip(CircleShape)
+                            .background(Morandi.accent)
+                    )
+                }
             }
-            if (isModified) {
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.TopEnd)
-                        .padding(2.dp)
-                        .size(6.dp)
-                        .clip(CircleShape)
-                        .background(Morandi.accent)
-                )
-            }
+            Spacer(Modifier.width(if (showStroke) 7.dp else 8.dp))
         }
 
-        Spacer(Modifier.width(10.dp))
+        if (showStroke) {
+            Column(
+                modifier = Modifier
+                    .weight(1f)
+                    .fillMaxSize(),
+                verticalArrangement = Arrangement.spacedBy(2.dp)
+            ) {
+                Row(
+                    modifier = Modifier.fillMaxWidth().height(16.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        text = preset.name,
+                        color = Morandi.text,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.SemiBold,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.weight(1f)
+                    )
+                    if (isFav) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_star_filled),
+                            contentDescription = null,
+                            tint = Morandi.accent,
+                            modifier = Modifier.size(12.dp)
+                        )
+                        Spacer(Modifier.width(4.dp))
+                    }
+                    Icon(
+                        painter = painterResource(R.drawable.ic_menu),
+                        contentDescription = null,
+                        tint = Morandi.accent,
+                        modifier = Modifier.size(13.dp)
+                    )
+                }
+                Box(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .weight(1f)
+                        .clip(RoundedCornerShape(4.dp))
+                        .background(Morandi.panel.copy(alpha = 0.18f)),
+                    contentAlignment = Alignment.Center
+                ) {
+                    if (strokePreview != null) {
+                        Image(
+                            bitmap = strokePreview.asImageBitmap(),
+                            contentDescription = null,
+                            contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                            colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Morandi.text),
+                            modifier = Modifier.fillMaxSize().padding(horizontal = 2.dp, vertical = 1.dp)
+                        )
+                    }
+                }
+            }
+        } else {
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.Center
+            ) {
+                Text(
+                    text = preset.name,
+                    color = Morandi.text,
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
 
-        Column(
-            modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.Center
-        ) {
-            Text(
-                text = preset.name,
-                color = Morandi.text,
-                fontSize = 12.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis
-            )
-        }
+            if (isFav) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_star),
+                    contentDescription = null,
+                    tint = Color(0xFFD4A373),
+                    modifier = Modifier.size(14.dp)
+                )
+                Spacer(Modifier.width(6.dp))
+            }
 
-        if (isFav) {
             Icon(
-                painter = painterResource(R.drawable.ic_star),
+                painter = painterResource(R.drawable.ic_menu),
                 contentDescription = null,
-                tint = Color(0xFFD4A373),
-                modifier = Modifier.size(14.dp)
+                tint = Morandi.accent,
+                modifier = Modifier.size(16.dp)
             )
-            Spacer(Modifier.width(6.dp))
         }
-
-        Icon(
-            painter = painterResource(R.drawable.ic_menu),
-            contentDescription = null,
-            tint = Morandi.accent,
-            modifier = Modifier.size(16.dp)
-        )
     }
 }
 
@@ -292,8 +361,95 @@ internal fun PresetGridDragOverlay(
     cardWidthDp: Dp,
     cardHeightDp: Dp,
     isModified: Boolean,
+    isTwoColumn: Boolean = false,
+    strokePreview: android.graphics.Bitmap? = null,
     modifier: Modifier = Modifier,
 ) {
+    if (isTwoColumn) {
+        Column(
+            modifier = modifier
+                .size(width = cardWidthDp, height = cardHeightDp)
+                .graphicsLayer {
+                    translationX = offsetXProvider()
+                    translationY = offsetYProvider()
+                    scaleX = 1.05f
+                    scaleY = 1.05f
+                }
+                .clip(RoundedCornerShape(8.dp))
+                .background(Morandi.panelHi)
+                .border(1.5.dp, Morandi.accent.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
+                .padding(horizontal = 6.dp, vertical = 4.dp),
+            verticalArrangement = Arrangement.spacedBy(2.dp)
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth().height(20.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                Box(
+                    modifier = Modifier.size(20.dp),
+                    contentAlignment = Alignment.Center
+                ) {
+                    val bmp = rememberPresetThumb(preset.name, preset.thumbBytes)
+                    if (bmp != null) {
+                        Image(
+                            bitmap = bmp.asImageBitmap(),
+                            contentDescription = preset.name,
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(4.dp))
+                        )
+                    } else {
+                        Box(
+                            modifier = Modifier
+                                .fillMaxSize()
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(Morandi.panel.copy(alpha = 0.5f))
+                        )
+                    }
+                    if (isModified) {
+                        Box(
+                            modifier = Modifier
+                                .align(Alignment.TopEnd)
+                                .padding(1.dp)
+                                .size(5.dp)
+                                .clip(CircleShape)
+                                .background(Morandi.accent)
+                        )
+                    }
+                }
+                Spacer(Modifier.width(5.dp))
+                Text(
+                    preset.name,
+                    color = Morandi.text,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f)
+                )
+            }
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f)
+                    .clip(RoundedCornerShape(4.dp))
+                    .background(Morandi.panel.copy(alpha = 0.18f)),
+                contentAlignment = Alignment.Center
+            ) {
+                if (strokePreview != null) {
+                    Image(
+                        bitmap = strokePreview.asImageBitmap(),
+                        contentDescription = null,
+                        contentScale = androidx.compose.ui.layout.ContentScale.Fit,
+                        colorFilter = androidx.compose.ui.graphics.ColorFilter.tint(Morandi.text),
+                        modifier = Modifier.fillMaxSize().padding(horizontal = 2.dp, vertical = 1.dp)
+                    )
+                }
+            }
+        }
+        return
+    }
+
     Column(
         modifier = modifier
             .size(width = cardWidthDp, height = cardHeightDp)
@@ -306,7 +462,7 @@ internal fun PresetGridDragOverlay(
             .clip(RoundedCornerShape(8.dp))
             .background(Morandi.panelHi)
             .border(1.5.dp, Morandi.accent.copy(alpha = 0.85f), RoundedCornerShape(8.dp))
-            .padding(4.dp),
+            .padding(3.dp),
         horizontalAlignment = Alignment.CenterHorizontally
     ) {
         Box(
@@ -331,14 +487,14 @@ internal fun PresetGridDragOverlay(
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(4.dp)
-                        .size(6.dp)
+                        .padding(3.dp)
+                        .size(5.dp)
                         .clip(CircleShape)
                         .background(Morandi.accent)
                 )
             }
         }
-        Spacer(Modifier.height(3.dp))
+        Spacer(Modifier.height(2.dp))
         Text(
             preset.name,
             color = Morandi.text,
