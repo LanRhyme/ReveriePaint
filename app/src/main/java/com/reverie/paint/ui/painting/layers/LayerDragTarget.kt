@@ -5,6 +5,8 @@
 package com.reverie.paint.ui.painting.layers
 
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.model.LayerNodeType
+import com.reverie.paint.model.collectAttachedMaskIndices
 import kotlin.math.abs
 
 /**
@@ -47,7 +49,17 @@ internal fun getAllDescendantIndices(
     for (idx in indices) {
         if (idx !in layers.indices) continue
         val l = layers[idx]
-        if (!l.isGroup) continue
+        if (!l.isGroup) {
+            result.addAll(
+                collectAttachedMaskIndices(
+                    layers = layers,
+                    parentIndex = idx,
+                    depth = { it.depth },
+                    isMask = { LayerNodeType.isMask(it.nodeType) },
+                ),
+            )
+            continue
+        }
         val e = (idx + 1 until layers.size).firstOrNull { layers[it].depth <= l.depth } ?: layers.size
         for (k in (idx + 1 until e)) {
             result.add(k)

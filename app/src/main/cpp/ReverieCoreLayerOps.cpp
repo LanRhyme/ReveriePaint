@@ -378,39 +378,7 @@ bool ReverieCore::moveLayerAbove(int fromIndex, int aboveIndex)
 
 bool ReverieCore::moveLayerToGroup(int fromIndex, int groupIndex)
 {
-    if (fromIndex <= 0 || fromIndex >= m_layers.size()) {
-        return false;
-    }
-    if (groupIndex <= 0 || groupIndex >= m_layers.size()) {
-        return false;
-    }
-    const LayerEntry &src = m_layers[fromIndex];
-    const LayerEntry &grp = m_layers[groupIndex];
-    if (src.locked || src.background || !grp.isGroup) {
-        return false;
-    }
-    if (fromIndex == groupIndex) {
-        return false;
-    }
-    KisNodeSP node(src.node);
-    KisNodeSP group(grp.node);
-    if (src.isGroup) {
-        KisNodeSP p(group->parent());
-        while (p) {
-            if (p == node) {
-                return false;
-            }
-            p = p->parent();
-        }
-    }
-    pushUndoCommand(new KisImageLayerMoveCommand(
-        m_document, node, group, group->childCount()));
-    syncLayersFromImage();
-    const int idx = indexOfNode(node.data());
-    if (idx >= 0) m_currentLayer = idx;
-    recompositeProjection();
-    markDirty();
-    return true;
+    return moveLayersToGroup(QVector<int>{fromIndex}, groupIndex);
 }
 
 bool ReverieCore::moveLayersToGroup(const QVector<int> &fromIndices, int groupIndex)
@@ -449,6 +417,25 @@ bool ReverieCore::moveLayersToGroup(const QVector<int> &fromIndices, int groupIn
         }
         nodesToMove.append(node);
     }
+
+    // 确保若移动父图层，其附属的所有蒙版紧随其后成对移动到组内
+    QVector<KisNodeSP> finalNodesToMove;
+    for (KisNodeSP node : nodesToMove) {
+        const bool isMask = reverie::layerProperty(&*node, "reverie_is_transparency_mask").toBool() || dynamic_cast<KisMask *>(node.data());
+        if (!isMask) {
+            finalNodesToMove.append(node);
+            KisNodeSP sib = node->nextSibling();
+            while (sib && (reverie::layerProperty(&*sib, "reverie_is_transparency_mask").toBool() || dynamic_cast<KisMask *>(sib.data()))) {
+                if (!finalNodesToMove.contains(sib)) {
+                    finalNodesToMove.append(sib);
+                }
+                sib = sib->nextSibling();
+            }
+        } else if (!finalNodesToMove.contains(node)) {
+            finalNodesToMove.append(node);
+        }
+    }
+    nodesToMove = finalNodesToMove;
 
     if (nodesToMove.isEmpty()) return false;
 
@@ -538,9 +525,12 @@ bool ReverieCore::moveLayersRelative(const QVector<int> &fromIndices, int target
 
     KisNodeSP currentAbove;
     if (placeAbove) {
-        // Visually ABOVE target: 若 target 拥有紧随的透明度蒙版，越过蒙版插入在蒙版上方
+        // Visually ABOVE target: 若 target 拥有紧随的透明度蒙版/滤镜等附属蒙版，越过蒙版插入在整个子树上方
         KisNodeSP actualTarget = target;
-        if (actualTarget->nextSibling() && reverie::layerProperty(&*actualTarget->nextSibling(), "reverie_is_transparency_mask").toBool() && !nodesToMove.contains(actualTarget->nextSibling())) {
+        while (actualTarget->nextSibling() &&
+               (reverie::layerProperty(&*actualTarget->nextSibling(), "reverie_is_transparency_mask").toBool() ||
+                dynamic_cast<KisMask *>(actualTarget->nextSibling().data())) &&
+               !nodesToMove.contains(actualTarget->nextSibling())) {
             actualTarget = actualTarget->nextSibling();
         }
         currentAbove = actualTarget;

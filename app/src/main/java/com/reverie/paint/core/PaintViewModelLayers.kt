@@ -6,9 +6,11 @@ package com.reverie.paint.core
 
 import android.graphics.Bitmap
 import com.reverie.paint.R
+import com.reverie.paint.model.LayerNodeType
 import com.reverie.paint.model.LayerOrderNode
 import com.reverie.paint.model.OptimisticLayerPlacement
 import com.reverie.paint.model.SettledTilePolicy
+import com.reverie.paint.model.collectAttachedMaskIndices
 import com.reverie.paint.model.computeOptimisticMoveRelative
 import com.reverie.paint.model.computeOptimisticMoveToGroup
 import android.os.Handler
@@ -1129,7 +1131,14 @@ private fun PaintViewModel.applyOptimisticLayerReorder(
 }
 
 private fun PaintViewModel.layerOrderNodes(): List<LayerOrderNode> =
-    layers.map { LayerOrderNode(id = it.id, depth = it.depth, isGroup = it.isGroup) }
+    layers.map {
+        LayerOrderNode(
+            id = it.id,
+            depth = it.depth,
+            isGroup = it.isGroup,
+            isMask = LayerNodeType.isMask(it.nodeType),
+        )
+    }
 
 internal fun PaintViewModel.moveLayer(
     from: Int,
@@ -1156,13 +1165,7 @@ internal fun PaintViewModel.moveLayerToGroup(
     from: Int,
     group: Int,
 ) {
-    applyOptimisticLayerReorder(
-        computeOptimisticMoveToGroup(layerOrderNodes(), listOf(from), group),
-    )
-    runLayerCore(after = ::notifyLayerChanged) {
-        ReverieCoreBridge.moveLayerToGroup(from, group)
-        ensurePanelBordersOnTop(scanEnginePanels())
-    }
+    moveLayersToGroup(listOf(from), group)
 }
 
 internal fun PaintViewModel.moveLayersToGroup(
@@ -1173,11 +1176,17 @@ internal fun PaintViewModel.moveLayersToGroup(
     val effectiveIndices = mutableListOf<Int>()
     val fromSet = fromIndices.toSet()
     for (idx in fromIndices) {
-        effectiveIndices.add(idx)
-        val maskIdx = idx - 1
-        if (maskIdx > 0 && maskIdx !in fromSet && maskIdx in layers.indices) {
-            val maskCandidate = layers[maskIdx]
-            if (com.reverie.paint.model.LayerNodeType.isMask(maskCandidate.nodeType)) {
+        if (idx !in effectiveIndices) {
+            effectiveIndices.add(idx)
+        }
+        val attachedMasks = collectAttachedMaskIndices(
+            layers = layers,
+            parentIndex = idx,
+            depth = { it.depth },
+            isMask = { LayerNodeType.isMask(it.nodeType) },
+        )
+        for (maskIdx in attachedMasks) {
+            if (maskIdx !in fromSet && maskIdx !in effectiveIndices) {
                 effectiveIndices.add(maskIdx)
             }
         }
@@ -1204,15 +1213,21 @@ internal fun PaintViewModel.moveLayersRelative(
     placeAbove: Boolean,
 ) {
     if (fromIndices.isEmpty()) return
-    // 强制绑定: 若移动父图层，自动附带其直接附属的透明度蒙版图层一同移动
+    // 强制绑定: 若移动父图层，自动附带其直接附属的透明度/滤镜等蒙版图层 (idx + 1 且 depth = parent.depth + 1) 一同移动
     val effectiveIndices = mutableListOf<Int>()
     val fromSet = fromIndices.toSet()
     for (idx in fromIndices) {
-        effectiveIndices.add(idx)
-        val maskIdx = idx - 1
-        if (maskIdx > 0 && maskIdx !in fromSet && maskIdx in layers.indices) {
-            val maskCandidate = layers[maskIdx]
-            if (com.reverie.paint.model.LayerNodeType.isMask(maskCandidate.nodeType)) {
+        if (idx !in effectiveIndices) {
+            effectiveIndices.add(idx)
+        }
+        val attachedMasks = collectAttachedMaskIndices(
+            layers = layers,
+            parentIndex = idx,
+            depth = { it.depth },
+            isMask = { LayerNodeType.isMask(it.nodeType) },
+        )
+        for (maskIdx in attachedMasks) {
+            if (maskIdx !in fromSet && maskIdx !in effectiveIndices) {
                 effectiveIndices.add(maskIdx)
             }
         }

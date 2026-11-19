@@ -12,7 +12,35 @@ data class LayerOrderNode(
     val id: Long,
     val depth: Int,
     val isGroup: Boolean,
+    val isMask: Boolean = false,
 )
+
+/**
+ * 收集指定图层节点紧随其后且直接附属的所有蒙版图层下标 (深度为 parent.depth + 1 且为蒙版)。
+ */
+inline fun <T> collectAttachedMaskIndices(
+    layers: List<T>,
+    parentIndex: Int,
+    depth: (T) -> Int,
+    isMask: (T) -> Boolean,
+): List<Int> {
+    if (parentIndex !in layers.indices) return emptyList()
+    val parent = layers[parentIndex]
+    if (isMask(parent)) return emptyList()
+    val parentDepth = depth(parent)
+    val result = mutableListOf<Int>()
+    var k = parentIndex + 1
+    while (k < layers.size && depth(layers[k]) == parentDepth + 1 && isMask(layers[k])) {
+        result.add(k)
+        k++
+    }
+    return result
+}
+
+fun collectAttachedMaskIndices(
+    nodes: List<LayerOrderNode>,
+    parentIndex: Int,
+): List<Int> = collectAttachedMaskIndices(nodes, parentIndex, { it.depth }, { it.isMask })
 
 /**
  * 乐观计算结果: 返回重排后各原始下标的新位置 (originalIndex -> newDepth) 列表。
