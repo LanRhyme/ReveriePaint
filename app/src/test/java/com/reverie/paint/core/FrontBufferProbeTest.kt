@@ -94,9 +94,13 @@ class FrontBufferProbeTest {
         assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "vivo", mfg = "vivo"))
         assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "iQOO", mfg = "vivo"))
 
+        assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "HUAWEI", mfg = "HUAWEI"))
+        assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "HONOR", mfg = "HONOR"))
+
         // Other Android versions are not affected
         assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 34, brand = "Xiaomi", mfg = "Xiaomi"))
         assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "Xiaomi", mfg = "Xiaomi"))
+        assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "HUAWEI", mfg = "HUAWEI"))
         assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "Samsung", mfg = "samsung"))
         assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "google", mfg = "Google"))
     }

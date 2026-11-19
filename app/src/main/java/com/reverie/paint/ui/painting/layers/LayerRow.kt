@@ -242,15 +242,15 @@ internal fun LayerRow(
     // or fully opens. One Animatable covers both phases, so there is no value
     // jump at finger lift.
     val revealAnim = remember { Animatable(0f) }
+    var liveSwipeOffset by remember { mutableFloatStateOf(Float.NaN) }
 
     // When the external revealed flag flips (e.g. another row opens and this one
     // should close, or a tap closes it), snap-animate to the correct position.
     LaunchedEffect(revealed) {
-        val animSpec = if (revealed) {
-            spring<Float>(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
-        } else {
-            spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
-        }
+        val animSpec = spring<Float>(
+            dampingRatio = Spring.DampingRatioNoBouncy,
+            stiffness = Spring.StiffnessMedium,
+        )
         revealAnim.animateTo(if (revealed) -drawerPx.toFloat() else 0f, animSpec)
     }
 
@@ -369,14 +369,14 @@ internal fun LayerRow(
                             val initDx = lastChange.position.x - startX
                             val isRightSwipe = initDx > 0 && startOffset >= -selectThresholdPx && !isMask
                             if (isRightSwipe) {
-                                scope.launch { revealAnim.snapTo(initDx.coerceIn(0f, selectMaxPx.toFloat())) }
+                                liveSwipeOffset = (initDx * 0.6f).coerceIn(0f, selectMaxPx.toFloat())
                                 if (initDx > selectThresholdPx && !selectTriggered) {
                                     selectTriggered = true
                                     haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                                     onSelect()
                                 }
                             } else if (!isPanelMask && !isRightSwipe && initDx < 0) {
-                                scope.launch { revealAnim.snapTo((startOffset + initDx).coerceIn(-drawerPx.toFloat(), 0f)) }
+                                liveSwipeOffset = (startOffset + initDx).coerceIn(-drawerPx.toFloat(), 0f)
                             }
 
                             while (true) {
@@ -393,26 +393,31 @@ internal fun LayerRow(
                                 prevX = currentX
                                 prevTimeNs = nowNs
                                 if (dx > 0 && startOffset >= -selectThresholdPx && !isMask) {
-                                    scope.launch { revealAnim.snapTo(dx.coerceIn(0f, selectMaxPx.toFloat())) }
+                                    liveSwipeOffset = (dx * 0.6f).coerceIn(0f, selectMaxPx.toFloat())
                                     if (dx > selectThresholdPx && !selectTriggered) {
                                         selectTriggered = true
                                         haptic.performHapticFeedback(HapticFeedbackType.ContextClick)
                                         onSelect()
                                     }
                                 } else if (!isPanelMask && (dx < 0 || !isMask)) {
-                                    scope.launch { revealAnim.snapTo((startOffset + dx).coerceIn(-drawerPx.toFloat(), 0f)) }
+                                    liveSwipeOffset = (startOffset + dx).coerceIn(-drawerPx.toFloat(), 0f)
                                 }
                             }
 
-                            val currentOffset = revealAnim.value
+                            val currentOffset = if (liveSwipeOffset.isNaN()) revealAnim.value else liveSwipeOffset
                             val shouldReveal = !isPanelMask && (currentOffset < -drawerPx * 0.4f || velocityX < -500f)
                             val targetOffset = if (shouldReveal) -drawerPx.toFloat() else 0f
-                            val animSpec = if (shouldReveal) {
-                                spring<Float>(dampingRatio = Spring.DampingRatioLowBouncy, stiffness = Spring.StiffnessMediumLow)
-                            } else {
-                                spring<Float>(dampingRatio = Spring.DampingRatioNoBouncy, stiffness = Spring.StiffnessMedium)
+                            val animSpec = spring<Float>(
+                                dampingRatio = Spring.DampingRatioNoBouncy,
+                                stiffness = Spring.StiffnessMedium,
+                            )
+                            scope.launch {
+                                if (!liveSwipeOffset.isNaN()) {
+                                    revealAnim.snapTo(currentOffset)
+                                    liveSwipeOffset = Float.NaN
+                                }
+                                revealAnim.animateTo(targetOffset, animSpec)
                             }
-                            scope.launch { revealAnim.animateTo(targetOffset, animSpec) }
                             if (shouldReveal) onReveal() else onRevealClose()
                         } else if (isTap) {
                             if (isDrawerOpen) {
@@ -494,7 +499,10 @@ internal fun LayerRow(
                     .height(rowHeight)
                     .then(if (groupBorder != null) Modifier.border(groupBorder, RoundedCornerShape(8.dp)) else Modifier)
                     .background(selectionBg, shape = RoundedCornerShape(8.dp))
-                    .offset { IntOffset(revealAnim.value.roundToInt(), 0) }
+                    .offset {
+                        val x = if (liveSwipeOffset.isNaN()) revealAnim.value else liveSwipeOffset
+                        IntOffset(x.roundToInt(), 0)
+                    }
                     .graphicsLayer {
                         alpha = when {
                             isDragging && vm.isLayerDragSettling -> 0f
@@ -550,24 +558,6 @@ internal fun LayerRow(
                         },
                     isDropTargetParent = isDropTargetParent,
                     pressGate = controlPressGate,
-                    dragHandle = if (isBg) {
-                        null
-                    } else {
-                        {
-                            // 行尾手柄: 位移超过 touch slop 立即拖动 (不用等行长按的 300ms)
-                            LayerDragHandle(
-                                onDragStart = { rootPos ->
-                                    onRevealClose()
-                                    onDragStart(rootPos.x, rootPos.y)
-                                },
-                                onDragMove = { rootPos ->
-                                    onDragPosition(rootPos.x, rootPos.y)
-                                },
-                                onDragEnd = onDragEnd,
-                                pressGate = controlPressGate,
-                            )
-                        }
-                    },
                 )
             Row(
                 modifier =
@@ -650,8 +640,6 @@ internal fun LayerRowContent(
     // 行内不透明度药丸的手势宿主; null = 只显示数值 (拖拽跟随卡片用它)
     opacityScrub: LayerOpacityScrub? = null,
     pressGate: LayerRowPressGate? = null,
-    // 行尾拖拽手柄 (由 LayerRow 注入带手势的版本; 卡片注入静态版本)
-    dragHandle: (@Composable () -> Unit)? = null,
     // 当前拖拽落点是否以本组为父图层 (用于组高亮与引导线变色, 参考 Mangar)
     isDropTargetParent: Boolean = false,
     // 行内混合模式标签的直达入口; null = 纯文本 (拖拽卡片与背景/蒙版行)
@@ -1117,9 +1105,6 @@ internal fun LayerRowContent(
                 )
             }
         }
-
-        // 8. Drag handle (行尾): 按下即拖, 不用等 300ms 长按
-        dragHandle?.invoke()
     }
 }
 
