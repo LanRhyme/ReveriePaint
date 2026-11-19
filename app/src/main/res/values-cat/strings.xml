@@ -642,6 +642,7 @@
     <string name="layer_clipping">剪贴蒙版</string>
     <string name="layer_lock">爪爪按住</string>
     <string name="layer_clear">统统扫光图层内容</string>
+    <string name="layer_toast_cleared">已经一爪扫光图层啦喵</string>
 
     <!-- Animation -->
     <string name="anim_timeline">时间轴</string>
@@ -1177,6 +1178,8 @@
     <string name="layer_rename_dialog_hint">给图层起个名</string>
     <string name="layer_add_paint_layer">添加颜料图层</string>
     <string name="layer_add_group">添加图层组</string>
+    <string name="layer_batch_delete">一爪拍飞全部选中的图层</string>
+    <string name="layer_batch_delete_undo">批量拍飞图层</string>
     <string name="layer_more_types">更多图层类型</string>
     <string name="layer_menu_section_masks">蒙版</string>
     <string name="layer_menu_section_layers">图层类型</string>
@@ -1341,6 +1344,12 @@
     <string name="brush_presets_reload">重新叼一遍</string>
     <string name="brush_switch_to_list">切换为列表视图</string>
     <string name="brush_switch_to_grid">切换为网格视图</string>
+    <string name="brush_view_mode_desc">换个爪痕预览模式</string>
+    <string name="brush_view_mode_stroke_icon">图标 + 名字 + 抓痕</string>
+    <string name="brush_view_mode_stroke_only">名字 + 抓痕</string>
+    <string name="brush_view_mode_two_col">两列抓痕</string>
+    <string name="brush_view_mode_list">排排趴列表</string>
+    <string name="brush_view_mode_grid">小方块网格</string>
     <string name="brush_search_hint">嗅嗅笔刷</string>
     <string name="brush_search_placeholder">嗅嗅笔刷名或分组…</string>
     <string name="brush_search_clear">扫掉搜索词</string>

@@ -605,6 +605,7 @@
     <string name="layer_clipping">剪貼蒙版</string>
     <string name="layer_lock">鎖定圖層</string>
     <string name="layer_clear">清空圖層內容</string>
+    <string name="layer_toast_cleared">已清空圖層內容</string>
 
     <!-- Animation -->
     <string name="anim_timeline">時間軸</string>
@@ -1139,6 +1140,8 @@
     <string name="layer_rename_dialog_hint">輸入圖層名稱</string>
     <string name="layer_add_paint_layer">新增顏料圖層</string>
     <string name="layer_add_group">新增圖層組</string>
+    <string name="layer_batch_delete">批次刪除選取圖層</string>
+    <string name="layer_batch_delete_undo">批次刪除圖層</string>
     <string name="layer_more_types">更多圖層型別</string>
     <string name="layer_menu_section_masks">蒙版</string>
     <string name="layer_menu_section_layers">圖層型別</string>
@@ -1298,6 +1301,12 @@
     <string name="brush_presets_reload">重新載入</string>
     <string name="brush_switch_to_list">切換為列表檢視</string>
     <string name="brush_switch_to_grid">切換為網格檢視</string>
+    <string name="brush_view_mode_desc">切換預覽模式</string>
+    <string name="brush_view_mode_stroke_icon">圖示 + 名稱 + 筆跡</string>
+    <string name="brush_view_mode_stroke_only">名稱 + 筆跡</string>
+    <string name="brush_view_mode_two_col">雙欄筆跡</string>
+    <string name="brush_view_mode_list">清單檢視</string>
+    <string name="brush_view_mode_grid">網格檢視</string>
     <string name="brush_search_hint">搜尋筆刷</string>
     <string name="brush_search_placeholder">搜尋筆刷名稱或分組…</string>
     <string name="brush_search_clear">清空搜尋</string>

@@ -605,6 +605,7 @@
     <string name="layer_clipping">クリッピングマスク</string>
     <string name="layer_lock">レイヤーをロック</string>
     <string name="layer_clear">レイヤーの消去</string>
+    <string name="layer_toast_cleared">レイヤーの内容を消去しました</string>
 
     <!-- Animation -->
     <string name="anim_timeline">タイムライン</string>
@@ -1139,6 +1140,8 @@
     <string name="layer_rename_dialog_hint">レイヤー名を入力</string>
     <string name="layer_add_paint_layer">ペイントレイヤーを追加(P)</string>
     <string name="layer_add_group">グループを追加</string>
+    <string name="layer_batch_delete">選択したレイヤーを一括削除</string>
+    <string name="layer_batch_delete_undo">レイヤーの一括削除</string>
     <string name="layer_more_types">その他のレイヤータイプ</string>
     <string name="layer_menu_section_masks">マスク</string>
     <string name="layer_menu_section_layers">レイヤータイプ</string>
@@ -1298,6 +1301,12 @@
     <string name="brush_presets_reload">再読み込み</string>
     <string name="brush_switch_to_list">リスト表示に切り替え</string>
     <string name="brush_switch_to_grid">グリッド表示に切り替え</string>
+    <string name="brush_view_mode_desc">プレビューモードを切り替え</string>
+    <string name="brush_view_mode_stroke_icon">アイコン + 名前 + 筆跡</string>
+    <string name="brush_view_mode_stroke_only">名前 + 筆跡</string>
+    <string name="brush_view_mode_two_col">2列筆跡</string>
+    <string name="brush_view_mode_list">リスト表示</string>
+    <string name="brush_view_mode_grid">グリッド表示</string>
     <string name="brush_search_hint">ブラシを検索</string>
     <string name="brush_search_placeholder">ブラシ名またはグループを検索…</string>
     <string name="brush_search_clear">検索をクリア</string>
