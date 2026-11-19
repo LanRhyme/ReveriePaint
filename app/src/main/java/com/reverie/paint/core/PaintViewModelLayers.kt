@@ -554,6 +554,60 @@ internal fun PaintViewModel.removeLayer(index: Int) {
     }
 }
 
+internal fun PaintViewModel.removeSelectedLayers() {
+    if (isLayerBackendBusy()) return
+    val selected = selectedLayerIndices.filter { it > 0 }.distinct()
+    if (selected.isEmpty()) return
+
+    val selectedLayers = selected.mapNotNull { layers.getOrNull(it) }
+    val deletable = selectedLayers.filter { !it.isBackground && !it.locked }
+    if (deletable.isEmpty()) {
+        showActionToast(R.string.toast_layer_delete_locked, R.drawable.ic_lock)
+        return
+    }
+    val hasLockedSkipped = deletable.size < selectedLayers.size
+    val targetIds = deletable.map { it.id }.toSet()
+
+    if (anim.enabled) {
+        for (layer in deletable.sortedByDescending { it.index }) {
+            removeLayer(layer.index)
+        }
+        return
+    }
+
+    if (transientTransformSelectionPending || canUndoTransformSelection || canRedoTransformSelection) {
+        discardTransientTransformSelection()
+    }
+    clearLayerSelection()
+    cancelLayerContentFlash()
+    for (layer in deletable) {
+        if (active3DLayers.containsKey(layer.id)) {
+            active3DLayers = active3DLayers - layer.id
+        }
+    }
+    val undoLabel = appContext.getString(R.string.layer_batch_delete_undo)
+    Breadcrumbs.record("Layer", "Batch remove layers: ${targetIds.size}")
+    runLayerCore(after = {
+        clearLayerSelection()
+        notifyLayerChanged()
+        if (hasLockedSkipped) {
+            showActionToast(R.string.toast_layer_delete_locked, R.drawable.ic_lock)
+        }
+    }) {
+        ReverieCoreBridge.beginUndoMacro(undoLabel)
+        try {
+            for (idx in (ReverieCoreBridge.layerCount() - 1) downTo 1) {
+                val id = ReverieCoreBridge.layerId(idx)
+                if (id in targetIds && !ReverieCoreBridge.layerLocked(idx)) {
+                    ReverieCoreBridge.removeLayer(idx)
+                }
+            }
+        } finally {
+            ReverieCoreBridge.endUndoMacro()
+        }
+    }
+}
+
 internal fun PaintViewModel.setCurrentLayer(i: Int) {
     Breadcrumbs.record("Layer", "Set current layer: $i")
     val prevIdx = currentLayerIndex
@@ -669,25 +723,38 @@ internal fun PaintViewModel.layerVisible(i: Int) = ReverieCoreBridge.layerVisibl
 
 // ---- Full layer system ----
 internal fun PaintViewModel.addGroupLayer() {
-    val selected = selectedLayerIndices.filter { it > 0 }.sortedDescending()
+    if (isLayerBackendBusy()) return
+    val selected = selectedLayerIndices.filter { it > 0 }.sorted()
+    val selectedIds = selected.mapNotNull { layers.getOrNull(it)?.takeIf { l -> !l.locked && !l.isBackground }?.id }.toSet()
     clearLayerSelection()
     val groupName = generateDefaultGroupName()
-    runCore(after = {
+    runLayerCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
     }) {
-        val allSelectedClipped = selected.isNotEmpty() && selected.all { ReverieCoreBridge.layerClipped(it) }
-        val newGroupIndex = ReverieCoreBridge.addGroupLayer(groupName)
-        if (selected.isNotEmpty() && newGroupIndex >= 0) {
-            val groupIdx = ReverieCoreBridge.currentLayerIndex()
-            if (!allSelectedClipped && ReverieCoreBridge.layerClipped(groupIdx)) {
-                ReverieCoreBridge.setLayerClipped(groupIdx, false)
-            }
-            for (idx in selected) {
-                val actualIdx = if (idx >= newGroupIndex) idx + 1 else idx
-                if (actualIdx != groupIdx && actualIdx > 0) {
-                    ReverieCoreBridge.moveLayerToGroup(actualIdx, groupIdx)
+        val allSelectedClipped = selectedIds.isNotEmpty() && (1 until ReverieCoreBridge.layerCount()).all { i ->
+            ReverieCoreBridge.layerId(i) !in selectedIds || ReverieCoreBridge.layerClipped(i)
+        }
+        if (selectedIds.isNotEmpty()) {
+            ReverieCoreBridge.beginUndoMacro(groupName)
+        }
+        try {
+            val newGroupIndex = ReverieCoreBridge.addGroupLayer(groupName)
+            if (selectedIds.isNotEmpty() && newGroupIndex >= 0) {
+                val groupIdx = ReverieCoreBridge.currentLayerIndex()
+                if (!allSelectedClipped && ReverieCoreBridge.layerClipped(groupIdx)) {
+                    ReverieCoreBridge.setLayerClipped(groupIdx, false)
                 }
+                val indicesToMove = (1 until ReverieCoreBridge.layerCount()).filter { i ->
+                    i != groupIdx && ReverieCoreBridge.layerId(i) in selectedIds && !ReverieCoreBridge.layerLocked(i)
+                }
+                if (indicesToMove.isNotEmpty()) {
+                    ReverieCoreBridge.moveLayersToGroup(indicesToMove.toIntArray(), groupIdx)
+                }
+            }
+        } finally {
+            if (selectedIds.isNotEmpty()) {
+                ReverieCoreBridge.endUndoMacro()
             }
         }
     }

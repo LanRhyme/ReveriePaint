@@ -1356,6 +1356,8 @@
     <string name="layer_rename_dialog_hint">输入图层名称</string>
     <string name="layer_add_paint_layer">添加颜料图层</string>
     <string name="layer_add_group">添加图层组</string>
+    <string name="layer_batch_delete">批量删除选中图层</string>
+    <string name="layer_batch_delete_undo">批量删除图层</string>
     <string name="layer_more_types">更多图层类型</string>
     <string name="layer_menu_section_masks">蒙版</string>
     <string name="layer_menu_section_layers">图层类型</string>

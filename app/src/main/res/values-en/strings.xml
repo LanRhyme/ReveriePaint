@@ -1356,6 +1356,8 @@
     <string name="layer_rename_dialog_hint">Enter layer name</string>
     <string name="layer_add_paint_layer">Add Paint Layer</string>
     <string name="layer_add_group">Add Layer Group</string>
+    <string name="layer_batch_delete">Delete Selected Layers</string>
+    <string name="layer_batch_delete_undo">Batch Delete Layers</string>
     <string name="layer_more_types">More Layer Types</string>
     <string name="layer_menu_section_masks">Masks</string>
     <string name="layer_menu_section_layers">Layer Types</string>

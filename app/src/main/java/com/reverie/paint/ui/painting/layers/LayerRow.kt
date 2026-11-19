@@ -605,11 +605,15 @@ internal fun LayerRow(
                             if (isMask) {
                                 vm.removeMask(index)
                             } else {
-                                val pid = vm.panelIdForGroupRow(index)
-                                if (pid != null) {
-                                    vm.deletePanel(pid)
+                                if (index in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1) {
+                                    vm.removeSelectedLayers()
                                 } else {
-                                    vm.removeLayer(index)
+                                    val pid = vm.panelIdForGroupRow(index)
+                                    if (pid != null) {
+                                        vm.deletePanel(pid)
+                                    } else {
+                                        vm.removeLayer(index)
+                                    }
                                 }
                             }
                         }

@@ -567,7 +567,6 @@ internal fun LayerListView(
                         val now = System.currentTimeMillis()
                         if (now - lastLayerOpTime > 350L) {
                             lastLayerOpTime = now
-                            vm.clearLayerSelection()
                             vm.addGroupLayer()
                         }
                     },
@@ -783,6 +782,20 @@ internal fun LayerListView(
                         }
                     },
                 )
+                if (vm.selectedLayerIndices.isNotEmpty()) {
+                    TopIcon(
+                        resId = R.drawable.ic_trash,
+                        desc = stringResource(R.string.layer_batch_delete),
+                        active = true,
+                        onClick = {
+                            val now = System.currentTimeMillis()
+                            if (now - lastLayerOpTime > 350L) {
+                                lastLayerOpTime = now
+                                vm.removeSelectedLayers()
+                            }
+                        },
+                    )
+                }
                 TopIcon(
                     resId = R.drawable.ic_lock,
                     desc = stringResource(R.string.layer_op_lock_layer),
