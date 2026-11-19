@@ -2,7 +2,7 @@
 <!-- SPDX-License-Identifier: GPL-3.0-or-later -->
 <resources>
     <!-- 顶部栏标题 -->
-    <string name="quick_shape_bar_title">速创形状: %s</string>
+    <string name="quick_shape_bar_title">驻笔成形: %s</string>
 
     <!-- 控制点精准提示文案 -->
     <string name="quick_shape_hint_line">拖动端点调整方向，拖动画面移动整条线</string>
@@ -19,6 +19,9 @@
 
     <!-- 设置区修正文案 -->
     <string name="quick_shape_settings_master_hint">用画笔画完并停留片刻，抬笔后调整形状；喷枪、绘图辅助或非画笔工具不触发</string>
+    <string name="quick_shape_hold_delay">驻笔停留时间</string>
+    <string name="quick_shape_hold_delay_hint">画完停留多久触发成形，越短越快但越容易误触</string>
+    <string name="quick_shape_hold_delay_ms">%d ms</string>
     <string name="quick_shape_settings_conversions">形状转换</string>
     <string name="quick_shape_settings_conversions_hint">编辑矩形、四边形或轮廓时，显示转为平行四边形、矩形和正方形的按钮</string>
     <string name="quick_shape_settings_box_handles_hint">在矩形、四边形和轮廓的四角与边中点调整尺寸，保留独立旋转点</string>
@@ -27,7 +30,7 @@
     <string name="quick_shape_settings_relaxed_hint">容许矩形轻微歪斜、圆钝角以及圆弧和三点曲线的抖动；圆弧仍需单独开启</string>
 
     <!-- 折叠抽屉分组 -->
-    <string name="quick_shape_drawer_title">速创</string>
+    <string name="quick_shape_drawer_title">驻笔成形</string>
     <string name="quick_shape_group_recognition">识别选项</string>
     <string name="quick_shape_group_edit_handles">编辑与手柄</string>
 
@@ -38,5 +41,5 @@
     <string name="tool_guide_lines">辅助线</string>
     <string name="tool_guide_lines_desc">显示或隐藏绘图参考线，不影响吸附辅助</string>
 
-    <string name="quick_shape_stroke_too_large">笔画尺寸过大，无法启用速创形状实时编辑</string>
+    <string name="quick_shape_stroke_too_large">笔画尺寸过大，无法启用驻笔成形实时编辑</string>
 </resources>

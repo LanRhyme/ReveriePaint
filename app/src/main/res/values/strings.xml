@@ -1475,7 +1475,7 @@
     <string name="toast_transform_nothing_applied">选区里没有内容，这次变换没有产生任何改动</string>
     <string name="toast_transform_copy_overlaps">副本与原件重合了，拖动一下就能看到复制出来的那份</string>
     <string name="canvas_toast_group_empty">图层组为空，无法进行变换</string>
-    <string name="quick_shape_title">速创形状: %s</string>
+    <string name="quick_shape_title">驻笔成形: %s</string>
     <string name="quick_shape_to_ellipse">转为椭圆</string>
     <string name="quick_shape_to_circle">转为正圆</string>
     <string name="quick_shape_to_square">转为正方</string>
@@ -3169,7 +3169,7 @@
     <string name="liquify_hardness">硬度</string>
     <string name="project_copying_progress">正在复制作品（%1$d/%2$d）</string>
     <string name="project_copy_result">已复制 %1$d 项，失败 %2$d 项</string>
-    <string name="quick_shape_setting">速创形状</string>
+    <string name="quick_shape_setting">驻笔成形</string>
     <string name="quick_shape_setting_hint">画笔画完停留片刻，抬笔后调整形状\n使用绘图辅助或喷枪时不触发</string>
     <string name="quick_shape_ready">已识别形状，抬笔后调整</string>
     <string name="quick_shape_context_changed">画布已变化，形状编辑已结束</string>
@@ -3259,7 +3259,7 @@
     <string name="quick_shape_arc">圆弧</string>
     <string name="quick_shape_arc_edit_hint">拖动画面移动圆弧，拖动端点或弧上控制点调整弯曲程度</string>
     <string name="quick_shape_angle_snap">直线角度吸附</string>
-    <string name="quick_shape_angle_snap_hint">接近水平、垂直及 30°、45° 等方向时吸附，仅影响速创直线</string>
+    <string name="quick_shape_angle_snap_hint">接近水平、垂直及 30°、45° 等方向时吸附，仅影响驻笔成形直线</string>
     <string name="quick_shape_arc_setting">识别圆弧</string>
     <string name="quick_shape_arc_setting_hint">识别开放的圆形弧线，无法可靠判断时保留原笔画</string>
     <string name="quick_shape_box_handles">八点尺寸控制</string>

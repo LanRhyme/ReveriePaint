@@ -2463,6 +2463,7 @@ class PaintViewModel : ViewModel() {
     // 运笔途中不再随压感忽大忽小
     var cursorOutlineReflectsActualSize by mutableStateOf(true)
     var quickShapeEnabled by mutableStateOf(false) // 驻停线条成形，默认关闭
+    var quickShapeHoldDelayMs by mutableIntStateOf(450)
     var quickShapeQuadrilateralEnabled by mutableStateOf(false)
     var quickShapeConversionsEnabled by mutableStateOf(false)
     var quickShapeCurveEnabled by mutableStateOf(false)
@@ -3619,6 +3620,16 @@ class PaintViewModel : ViewModel() {
         if (hasAppContext()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("quickShapeEnabledV2", enable).apply()
+        }
+    }
+
+    fun updateQuickShapeHoldDelayMs(ms: Int) {
+        val clamped = ms.coerceIn(150, 1200)
+        if (quickShapeHoldDelayMs == clamped) return
+        quickShapeHoldDelayMs = clamped
+        if (hasAppContext()) {
+            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit().putInt("quickShapeHoldDelayMs", clamped).apply()
         }
     }
 
@@ -5021,6 +5032,7 @@ class PaintViewModel : ViewModel() {
             cursorStyleMode = prefs.getInt("cursorStyleMode", 5)
             cursorOutlineReflectsActualSize = prefs.getBoolean("cursorOutlineReflectsActualSize", true)
             quickShapeEnabled = prefs.getBoolean("quickShapeEnabledV2", false)
+            quickShapeHoldDelayMs = prefs.getInt("quickShapeHoldDelayMs", 450).coerceIn(150, 1200)
             quickShapeQuadrilateralEnabled = prefs.getBoolean("quickShapeQuadrilateralEnabled", false)
             quickShapeConversionsEnabled = prefs.getBoolean("quickShapeConversionsEnabled", false)
             quickShapeCurveEnabled = prefs.getBoolean("quickShapeCurveEnabled", false)

@@ -19,6 +19,9 @@
 
     <!-- Settings Descriptions -->
     <string name="quick_shape_settings_master_hint">Draw with the brush, hold still, then lift to edit; inactive with the airbrush, drawing assistance or non-brush tools</string>
+    <string name="quick_shape_hold_delay">Hold delay</string>
+    <string name="quick_shape_hold_delay_hint">How long to hold still after drawing before snapping; shorter is faster but easier to trigger by accident</string>
+    <string name="quick_shape_hold_delay_ms">%d ms</string>
     <string name="quick_shape_settings_conversions">Shape conversions</string>
     <string name="quick_shape_settings_conversions_hint">Show buttons to convert rectangles, quadrilaterals or contours to a parallelogram, rectangle or square</string>
     <string name="quick_shape_settings_box_handles_hint">Resize rectangles, quadrilaterals and contours at corners and edge midpoints; rotate with the separate handle</string>

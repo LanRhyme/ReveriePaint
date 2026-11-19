@@ -37,8 +37,10 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.theme.Morandi
+import kotlin.math.roundToInt
 
 /**
  * 速创形状折叠抽屉 (挂载在绘图辅助面板底部，支持两级分层折叠与平滑展开)
@@ -113,6 +115,11 @@ fun QuickShapeCollapsibleDrawer(
                 )
 
                 if (vm.quickShapeEnabled) {
+                    QuickShapeHoldDelaySlider(
+                        delayMs = vm.quickShapeHoldDelayMs,
+                        onDelayChange = vm::updateQuickShapeHoldDelayMs,
+                    )
+
                     // 识别类开关分组
                     SectionHeader(title = R.string.quick_shape_group_recognition)
                     Column(
@@ -235,5 +242,55 @@ private fun QuickShapeOption(
             Text(stringResource(hint), color = Morandi.subText, fontSize = 10.5.sp, lineHeight = 13.sp)
         }
         ReSwitch(checked = enabled, onChecked = onChanged)
+    }
+}
+
+@Composable
+private fun QuickShapeHoldDelaySlider(
+    delayMs: Int,
+    onDelayChange: (Int) -> Unit,
+) {
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(8.dp))
+            .background(Morandi.border.copy(alpha = 0.12f))
+            .padding(horizontal = 8.dp, vertical = 7.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            Text(
+                text = stringResource(R.string.quick_shape_hold_delay),
+                color = Morandi.text,
+                fontSize = 12.sp,
+                fontWeight = FontWeight.Medium,
+            )
+            Text(
+                text = stringResource(R.string.quick_shape_hold_delay_ms, delayMs),
+                color = Morandi.accent,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+        }
+        ReSlider(
+            value = delayMs.toFloat(),
+            onValue = { raw ->
+                val stepped = ((raw / 50f).roundToInt() * 50).coerceIn(150, 1200)
+                onDelayChange(stepped)
+            },
+            valueRange = 150f..1200f,
+            height = 18,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Text(
+            text = stringResource(R.string.quick_shape_hold_delay_hint),
+            color = Morandi.subText,
+            fontSize = 10.5.sp,
+            lineHeight = 13.sp,
+        )
     }
 }

@@ -197,9 +197,10 @@ class CanvasTouchView(context: Context) : View(context) {
     private val quickShapeHold = Runnable {
         val v = vm
         val capture = v?.quickShapeCapture
+        val holdDelayMs = v?.quickShapeHoldDelayMs?.toLong()?.coerceIn(150L, 1200L) ?: 450L
         if (v != null && capture != null && strokeStarted && v.quickShapeEnabled &&
             effTool() == Tool.BRUSH && capture.travelled >= 48f * density &&
-            SystemClock.uptimeMillis() - capture.lastMovementMs >= 650L) {
+            SystemClock.uptimeMillis() - capture.lastMovementMs >= holdDelayMs) {
             quickShapeCandidate = capture.recognize(v.quickShapeArcEnabled, v.quickShapeRelaxedEnabled,
                 v.quickShapeQuadrilateralEnabled, v.quickShapeCurveEnabled)
             if (quickShapeCandidate != null) {
@@ -7265,7 +7266,7 @@ class CanvasTouchView(context: Context) : View(context) {
                             SystemClock.uptimeMillis(), slop)) {
                         quickShapeCandidate = null
                         removeCallbacks(quickShapeHold)
-                        postDelayed(quickShapeHold, 650L)
+                        postDelayed(quickShapeHold, v.quickShapeHoldDelayMs.toLong().coerceIn(150L, 1200L))
                     }
                 }
                 currentStrokeDocPos = docPos
