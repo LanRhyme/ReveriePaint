@@ -296,27 +296,26 @@ internal fun DrawScope.drawDrawingGuides(
                                 SymmetryType.HORIZONTAL -> {
                                     drawRotatedLine(1f, 0f)
                                 }
-                                SymmetryType.QUADRANT -> {
-                                    drawRotatedLine(0f, 1f)
-                                    drawRotatedLine(1f, 0f)
-                                }
-                                SymmetryType.RADIAL -> {
+                                SymmetryType.ROTATIONAL -> {
                                     val rays = guide.symmetryRayCount.coerceIn(
                                         com.reverie.paint.model.SYMMETRY_RAY_COUNT_MIN,
                                         com.reverie.paint.model.SYMMETRY_RAY_COUNT_MAX,
                                     )
-                                    if (guide.symmetryRotational) {
-                                        val step = 2f * PI.toFloat() / rays.toFloat()
-                                        for (k in 0 until rays) {
-                                            val ang = k * step
-                                            drawRotatedRay(sin(ang), cos(ang))
-                                        }
-                                    } else {
-                                        val step = PI.toFloat() / rays.toFloat()
-                                        for (k in 0 until rays) {
-                                            val ang = k * step
-                                            drawRotatedLine(sin(ang), cos(ang))
-                                        }
+                                    val step = 2f * PI.toFloat() / rays.toFloat()
+                                    for (k in 0 until rays) {
+                                        val ang = k * step
+                                        drawRotatedRay(sin(ang), cos(ang))
+                                    }
+                                }
+                                SymmetryType.KALEIDOSCOPE -> {
+                                    val rays = guide.symmetryRayCount.coerceIn(
+                                        com.reverie.paint.model.SYMMETRY_RAY_COUNT_MIN,
+                                        com.reverie.paint.model.SYMMETRY_RAY_COUNT_MAX,
+                                    )
+                                    val step = PI.toFloat() / rays.toFloat()
+                                    for (k in 0 until rays) {
+                                        val ang = k * step
+                                        drawRotatedLine(sin(ang), cos(ang))
                                     }
                                 }
                             }

@@ -98,25 +98,26 @@ class GuideModelsTest {
     }
 
     @Test
-    fun `computeSymmetricPoints quadrant mode mirrors across both axes`() {
+    fun `computeSymmetricPoints kaleidoscope mode with 2 rays mirrors across both axes (quadrant)`() {
         val config = DrawingGuideConfig(
             mode = GuideMode.SYMMETRY,
-            symmetryType = SymmetryType.QUADRANT,
+            symmetryType = SymmetryType.KALEIDOSCOPE,
+            symmetryRayCount = 2,
             symmetryCenterX = 0.5f,
             symmetryCenterY = 0.5f
         )
         val symPts = config.computeSymmetricPoints(Point2D(200f, 300f), docWidth = 1000, docHeight = 1000)
         assertEquals(3, symPts.size)
-        assertEquals(Point2D(800f, 300f), symPts[0])
-        assertEquals(Point2D(200f, 700f), symPts[1])
-        assertEquals(Point2D(800f, 700f), symPts[2])
+        assertTrue(symPts.any { kotlin.math.abs(it.x - 800f) < 0.01f && kotlin.math.abs(it.y - 300f) < 0.01f })
+        assertTrue(symPts.any { kotlin.math.abs(it.x - 200f) < 0.01f && kotlin.math.abs(it.y - 700f) < 0.01f })
+        assertTrue(symPts.any { kotlin.math.abs(it.x - 800f) < 0.01f && kotlin.math.abs(it.y - 700f) < 0.01f })
     }
 
     @Test
-    fun `computeSymmetricPoints radial mode produces 7 branches`() {
+    fun `computeSymmetricPoints rotational mode produces 7 branches`() {
         val config = DrawingGuideConfig(
             mode = GuideMode.SYMMETRY,
-            symmetryType = SymmetryType.RADIAL,
+            symmetryType = SymmetryType.ROTATIONAL,
             symmetryCenterX = 0.5f,
             symmetryCenterY = 0.5f
         )
@@ -280,10 +281,11 @@ class GuideModelsTest {
     }
 
     @Test
-    fun `writeSymmetricPoints quadrant mode matches computeSymmetricPoints`() {
+    fun `writeSymmetricPoints kaleidoscope mode matches computeSymmetricPoints`() {
         val config = DrawingGuideConfig(
             mode = GuideMode.SYMMETRY,
-            symmetryType = SymmetryType.QUADRANT,
+            symmetryType = SymmetryType.KALEIDOSCOPE,
+            symmetryRayCount = 2,
             symmetryCenterX = 0.5f,
             symmetryCenterY = 0.5f
         )
@@ -308,10 +310,10 @@ class GuideModelsTest {
     }
 
     @Test
-    fun `writeSymmetricPoints radial mode matches computeSymmetricPoints`() {
+    fun `writeSymmetricPoints rotational mode matches computeSymmetricPoints`() {
         val config = DrawingGuideConfig(
             mode = GuideMode.SYMMETRY,
-            symmetryType = SymmetryType.RADIAL,
+            symmetryType = SymmetryType.ROTATIONAL,
             symmetryCenterX = 0.5f,
             symmetryCenterY = 0.5f
         )
@@ -349,12 +351,11 @@ class GuideModelsTest {
     }
 
     @Test
-    fun `computeSymmetricPoints radial mode with 3 rays produces 2 branches for 3-blade top`() {
+    fun `computeSymmetricPoints rotational mode with 3 rays produces 2 branches for 3-blade top`() {
         val config = DrawingGuideConfig(
             mode = GuideMode.SYMMETRY,
-            symmetryType = SymmetryType.RADIAL,
+            symmetryType = SymmetryType.ROTATIONAL,
             symmetryRayCount = 3,
-            symmetryRotational = true,
             symmetryCenterX = 0.5f,
             symmetryCenterY = 0.5f
         )
@@ -370,12 +371,11 @@ class GuideModelsTest {
     }
 
     @Test
-    fun `computeSymmetricPoints radial kaleidoscope mode with 4 rays produces 7 branches`() {
+    fun `computeSymmetricPoints kaleidoscope mode with 4 rays produces 7 branches`() {
         val config = DrawingGuideConfig(
             mode = GuideMode.SYMMETRY,
-            symmetryType = SymmetryType.RADIAL,
+            symmetryType = SymmetryType.KALEIDOSCOPE,
             symmetryRayCount = 4,
-            symmetryRotational = false,
             symmetryCenterX = 0.5f,
             symmetryCenterY = 0.5f
         )
@@ -399,9 +399,8 @@ class GuideModelsTest {
         // 只支持 8 支。分支数本身是产品语义 (2*rays-1), 不能靠调小它来"修"崩溃。
         val config = DrawingGuideConfig(
             mode = GuideMode.SYMMETRY,
-            symmetryType = SymmetryType.RADIAL,
+            symmetryType = SymmetryType.KALEIDOSCOPE,
             symmetryRayCount = SYMMETRY_RAY_COUNT_DEFAULT,
-            symmetryRotational = false,
         )
         val branches = config.computeSymmetricSamples(Point2D(600f, 500f), 0f, 0f, 0f, 1000, 1000)
         assertEquals(2 * SYMMETRY_RAY_COUNT_DEFAULT - 1, branches.size)
@@ -415,9 +414,8 @@ class GuideModelsTest {
         for (rays in SYMMETRY_RAY_COUNT_MIN..SYMMETRY_RAY_COUNT_MAX) {
             val rotational = DrawingGuideConfig(
                 mode = GuideMode.SYMMETRY,
-                symmetryType = SymmetryType.RADIAL,
+                symmetryType = SymmetryType.ROTATIONAL,
                 symmetryRayCount = rays,
-                symmetryRotational = true,
             )
             assertEquals(
                 rays - 1,
@@ -426,9 +424,8 @@ class GuideModelsTest {
 
             val kaleidoscope = DrawingGuideConfig(
                 mode = GuideMode.SYMMETRY,
-                symmetryType = SymmetryType.RADIAL,
+                symmetryType = SymmetryType.KALEIDOSCOPE,
                 symmetryRayCount = rays,
-                symmetryRotational = false,
             )
             assertEquals(
                 2 * rays - 1,

@@ -23,8 +23,8 @@ enum class GuideMode(val title: String) {
 enum class SymmetryType(val title: String) {
     VERTICAL("垂直对称"),
     HORIZONTAL("水平对称"),
-    QUADRANT("四分象限"),
-    RADIAL("径向(8瓣)"),
+    ROTATIONAL("旋转对称"),
+    KALEIDOSCOPE("万花筒镜像"),
 }
 
 /**
@@ -198,32 +198,18 @@ data class DrawingGuideConfig(
                     1
                 } else 0
             }
-            SymmetryType.QUADRANT -> {
+            SymmetryType.ROTATIONAL -> {
+                val rays = symmetryRayCount.coerceIn(SYMMETRY_RAY_COUNT_MIN, SYMMETRY_RAY_COUNT_MAX)
+                val step = 2f * PI.toFloat() / rays.toFloat()
                 var count = 0
-                // branch 1: (-lx, ly)
-                if (count < cap) {
-                    val wx = cx + (-lx * cosR - ly * sinR)
-                    val wy = cy + (-lx * sinR + ly * cosR)
-                    if (wx.isFinite() && wy.isFinite()) {
-                        outX[count] = wx
-                        outY[count] = wy
-                        count++
-                    }
-                }
-                // branch 2: (lx, -ly)
-                if (count < cap) {
-                    val wx = cx + (lx * cosR - (-ly) * sinR)
-                    val wy = cy + (lx * sinR + (-ly) * cosR)
-                    if (wx.isFinite() && wy.isFinite()) {
-                        outX[count] = wx
-                        outY[count] = wy
-                        count++
-                    }
-                }
-                // branch 3: (-lx, -ly)
-                if (count < cap) {
-                    val wx = cx + (-lx * cosR - (-ly) * sinR)
-                    val wy = cy + (-lx * sinR + (-ly) * cosR)
+                for (k in 1 until rays) {
+                    if (count >= cap) break
+                    val cosA = cos(k * step)
+                    val sinA = sin(k * step)
+                    val bx = lx * cosA - ly * sinA
+                    val by = lx * sinA + ly * cosA
+                    val wx = cx + (bx * cosR - by * sinR)
+                    val wy = cy + (bx * sinR + by * cosR)
                     if (wx.isFinite() && wy.isFinite()) {
                         outX[count] = wx
                         outY[count] = wy
@@ -232,56 +218,40 @@ data class DrawingGuideConfig(
                 }
                 count
             }
-            SymmetryType.RADIAL -> {
+            SymmetryType.KALEIDOSCOPE -> {
                 val rays = symmetryRayCount.coerceIn(SYMMETRY_RAY_COUNT_MIN, SYMMETRY_RAY_COUNT_MAX)
                 val step = 2f * PI.toFloat() / rays.toFloat()
                 var count = 0
-                if (symmetryRotational) {
-                    for (k in 1 until rays) {
-                        if (count >= cap) break
-                        val cosA = cos(k * step)
-                        val sinA = sin(k * step)
-                        val bx = lx * cosA - ly * sinA
-                        val by = lx * sinA + ly * cosA
-                        val wx = cx + (bx * cosR - by * sinR)
-                        val wy = cy + (bx * sinR + by * cosR)
-                        if (wx.isFinite() && wy.isFinite()) {
-                            outX[count] = wx
-                            outY[count] = wy
-                            count++
-                        }
+                // 1. 纯旋转分支
+                for (k in 1 until rays) {
+                    if (count >= cap) break
+                    val cosA = cos(k * step)
+                    val sinA = sin(k * step)
+                    val bx = lx * cosA - ly * sinA
+                    val by = lx * sinA + ly * cosA
+                    val wx = cx + (bx * cosR - by * sinR)
+                    val wy = cy + (bx * sinR + by * cosR)
+                    if (wx.isFinite() && wy.isFinite()) {
+                        outX[count] = wx
+                        outY[count] = wy
+                        count++
                     }
-                } else {
-                    // 镜面对称 (万花筒): 旋转分支 + 镜像反射分支
-                    for (k in 1 until rays) {
-                        if (count >= cap) break
-                        val cosA = cos(k * step)
-                        val sinA = sin(k * step)
-                        val bx = lx * cosA - ly * sinA
-                        val by = lx * sinA + ly * cosA
-                        val wx = cx + (bx * cosR - by * sinR)
-                        val wy = cy + (bx * sinR + by * cosR)
-                        if (wx.isFinite() && wy.isFinite()) {
-                            outX[count] = wx
-                            outY[count] = wy
-                            count++
-                        }
-                    }
-                    val mlx = -lx
-                    val mly = ly
-                    for (k in 0 until rays) {
-                        if (count >= cap) break
-                        val cosA = cos(k * step)
-                        val sinA = sin(k * step)
-                        val bx = mlx * cosA - mly * sinA
-                        val by = mlx * sinA + mly * cosA
-                        val wx = cx + (bx * cosR - by * sinR)
-                        val wy = cy + (bx * sinR + by * cosR)
-                        if (wx.isFinite() && wy.isFinite()) {
-                            outX[count] = wx
-                            outY[count] = wy
-                            count++
-                        }
+                }
+                // 2. 镜像反射分支: 沿对称主轴反射后旋转 k * step
+                val mlx = -lx
+                val mly = ly
+                for (k in 0 until rays) {
+                    if (count >= cap) break
+                    val cosA = cos(k * step)
+                    val sinA = sin(k * step)
+                    val bx = mlx * cosA - mly * sinA
+                    val by = mlx * sinA + mly * cosA
+                    val wx = cx + (bx * cosR - by * sinR)
+                    val wy = cy + (bx * sinR + by * cosR)
+                    if (wx.isFinite() && wy.isFinite()) {
+                        outX[count] = wx
+                        outY[count] = wy
+                        count++
                     }
                 }
                 count
@@ -298,40 +268,36 @@ data class DrawingGuideConfig(
     private fun symmetryBranchOffsets(lx: Float, ly: Float): List<Point2D> = when (symmetryType) {
         SymmetryType.VERTICAL -> listOf(Point2D(-lx, ly))
         SymmetryType.HORIZONTAL -> listOf(Point2D(lx, -ly))
-        SymmetryType.QUADRANT -> listOf(
-            Point2D(-lx, ly),
-            Point2D(lx, -ly),
-            Point2D(-lx, -ly),
-        )
-        SymmetryType.RADIAL -> {
+        SymmetryType.ROTATIONAL -> {
             val rays = symmetryRayCount.coerceIn(SYMMETRY_RAY_COUNT_MIN, SYMMETRY_RAY_COUNT_MAX)
             val step = 2f * PI.toFloat() / rays.toFloat()
-            if (symmetryRotational) {
-                val branches = ArrayList<Point2D>(rays - 1)
-                for (k in 1 until rays) {
-                    val cosA = cos(k * step)
-                    val sinA = sin(k * step)
-                    branches.add(Point2D(lx * cosA - ly * sinA, lx * sinA + ly * cosA))
-                }
-                branches
-            } else {
-                val branches = ArrayList<Point2D>(2 * rays - 1)
-                // 1. 纯旋转分支
-                for (k in 1 until rays) {
-                    val cosA = cos(k * step)
-                    val sinA = sin(k * step)
-                    branches.add(Point2D(lx * cosA - ly * sinA, lx * sinA + ly * cosA))
-                }
-                // 2. 镜像反射分支: 沿对称主轴反射后旋转 k * step
-                val mlx = -lx
-                val mly = ly
-                for (k in 0 until rays) {
-                    val cosA = cos(k * step)
-                    val sinA = sin(k * step)
-                    branches.add(Point2D(mlx * cosA - mly * sinA, mlx * sinA + mly * cosA))
-                }
-                branches
+            val branches = ArrayList<Point2D>(rays - 1)
+            for (k in 1 until rays) {
+                val cosA = cos(k * step)
+                val sinA = sin(k * step)
+                branches.add(Point2D(lx * cosA - ly * sinA, lx * sinA + ly * cosA))
             }
+            branches
+        }
+        SymmetryType.KALEIDOSCOPE -> {
+            val rays = symmetryRayCount.coerceIn(SYMMETRY_RAY_COUNT_MIN, SYMMETRY_RAY_COUNT_MAX)
+            val step = 2f * PI.toFloat() / rays.toFloat()
+            val branches = ArrayList<Point2D>(2 * rays - 1)
+            // 1. 纯旋转分支
+            for (k in 1 until rays) {
+                val cosA = cos(k * step)
+                val sinA = sin(k * step)
+                branches.add(Point2D(lx * cosA - ly * sinA, lx * sinA + ly * cosA))
+            }
+            // 2. 镜像反射分支: 沿对称主轴反射后旋转 k * step
+            val mlx = -lx
+            val mly = ly
+            for (k in 0 until rays) {
+                val cosA = cos(k * step)
+                val sinA = sin(k * step)
+                branches.add(Point2D(mlx * cosA - mly * sinA, mlx * sinA + mly * cosA))
+            }
+            branches
         }
     }
 
@@ -386,11 +352,13 @@ data class DrawingGuideConfig(
             val wty = lt.x * sinR + lt.y * cosR
             val branchRotation = when (symmetryType) {
                 SymmetryType.VERTICAL, SymmetryType.HORIZONTAL -> -safeRotation
-                // 第三支 (-lx, -ly) 是两次反射, 姿态回到原样
-                SymmetryType.QUADRANT -> if (i == 2) safeRotation else -safeRotation
-                SymmetryType.RADIAL -> {
+                SymmetryType.ROTATIONAL -> {
                     val rays = symmetryRayCount.coerceIn(SYMMETRY_RAY_COUNT_MIN, SYMMETRY_RAY_COUNT_MAX)
-                    if (symmetryRotational || i < rays - 1) {
+                    safeRotation + (i + 1) * (360f / rays)
+                }
+                SymmetryType.KALEIDOSCOPE -> {
+                    val rays = symmetryRayCount.coerceIn(SYMMETRY_RAY_COUNT_MIN, SYMMETRY_RAY_COUNT_MAX)
+                    if (i < rays - 1) {
                         safeRotation + (i + 1) * (360f / rays)
                     } else {
                         val k = i - (rays - 1)

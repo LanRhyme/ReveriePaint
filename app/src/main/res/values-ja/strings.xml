@@ -1728,8 +1728,8 @@
     <string name="guide_symmetry_type">対称タイプ</string>
     <string name="guide_symmetry_vertical">垂直に</string>
     <string name="guide_symmetry_horizontal">水平に</string>
-    <string name="guide_symmetry_quadrant">4象限</string>
-    <string name="guide_symmetry_radial">球状</string>
+    <string name="guide_symmetry_rotational">回転対称</string>
+    <string name="guide_symmetry_kaleidoscope">万華鏡</string>
     <string name="guide_symmetry_center">対称軸の中心</string>
     <string name="guide_symmetry_rotation">回転角度</string>
     <string name="guide_symmetry_reset_center">中心をリセット</string>

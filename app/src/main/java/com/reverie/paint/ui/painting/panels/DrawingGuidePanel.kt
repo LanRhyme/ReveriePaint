@@ -353,23 +353,14 @@ fun DrawingGuidePanel(
                         options = listOf(
                             SymmetryType.VERTICAL to androidx.compose.ui.res.stringResource(R.string.guide_symmetry_vertical),
                             SymmetryType.HORIZONTAL to androidx.compose.ui.res.stringResource(R.string.guide_symmetry_horizontal),
-                            SymmetryType.QUADRANT to androidx.compose.ui.res.stringResource(R.string.guide_symmetry_quadrant),
-                            SymmetryType.RADIAL to androidx.compose.ui.res.stringResource(R.string.guide_symmetry_radial),
+                            SymmetryType.ROTATIONAL to androidx.compose.ui.res.stringResource(R.string.guide_symmetry_rotational),
+                            SymmetryType.KALEIDOSCOPE to androidx.compose.ui.res.stringResource(R.string.guide_symmetry_kaleidoscope),
                         ),
                         selectedKey = guide.symmetryType,
                         onSelect = { vm.drawingGuide = guide.copy(symmetryType = it) }
                     )
 
-                    if (guide.symmetryType == SymmetryType.RADIAL) {
-                        SegmentedOptionSelector(
-                            options = listOf(
-                                true to androidx.compose.ui.res.stringResource(R.string.guide_symmetry_mode_rotational),
-                                false to androidx.compose.ui.res.stringResource(R.string.guide_symmetry_mode_mirrored),
-                            ),
-                            selectedKey = guide.symmetryRotational,
-                            onSelect = { vm.drawingGuide = guide.copy(symmetryRotational = it) },
-                        )
-
+                    if (guide.symmetryType == SymmetryType.ROTATIONAL || guide.symmetryType == SymmetryType.KALEIDOSCOPE) {
                         // 对称轴数量与快速预设
                         Column(
                             modifier = Modifier
@@ -390,7 +381,7 @@ fun DrawingGuidePanel(
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.Medium,
                                 )
-                                val raysText = if (guide.symmetryRotational) {
+                                val raysText = if (guide.symmetryType == SymmetryType.ROTATIONAL) {
                                     androidx.compose.ui.res.stringResource(R.string.guide_symmetry_rays_rotational_format, guide.symmetryRayCount)
                                 } else {
                                     androidx.compose.ui.res.stringResource(R.string.guide_symmetry_rays_mirrored_format, guide.symmetryRayCount, guide.symmetryRayCount * 2)
@@ -403,12 +394,12 @@ fun DrawingGuidePanel(
                                 )
                             }
 
-                            // 快捷常用轴数预设: 3(三叶陀螺), 4(十字), 5(五叶陀螺), 6(六角), 8(八角), 12(十二角), 16
+                            // 快捷常用轴数预设: 2(四分/二瓣), 3(三叶), 4(十字), 5(五叶), 6(六角), 8(八角), 12(十二角), 16
                             Row(
                                 modifier = Modifier.fillMaxWidth(),
                                 horizontalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
-                                listOf(3, 4, 5, 6, 8, 12, 16).forEach { presetRays ->
+                                listOf(2, 3, 4, 5, 6, 8, 12, 16).forEach { presetRays ->
                                     val isSelected = guide.symmetryRayCount == presetRays
                                     Box(
                                         modifier = Modifier
@@ -507,12 +498,15 @@ fun DrawingGuidePanel(
                         )
                         CompactSliderItem(
                             label = androidx.compose.ui.res.stringResource(R.string.guide_symmetry_center),
-                            valueText = "${(guide.symmetryCenterX * 100f).roundToInt()}%",
+                            valueText = "${(if (guide.symmetryType == SymmetryType.HORIZONTAL) guide.symmetryCenterY * 100f else guide.symmetryCenterX * 100f).roundToInt()}%",
                             range = 0.1f..0.9f,
-                            value = guide.symmetryCenterX,
+                            value = if (guide.symmetryType == SymmetryType.HORIZONTAL) guide.symmetryCenterY else guide.symmetryCenterX,
                             onValue = {
-                                val newY = if (guide.symmetryType == SymmetryType.VERTICAL) 0.5f else it
-                                vm.drawingGuide = guide.copy(symmetryCenterX = it, symmetryCenterY = newY)
+                                when (guide.symmetryType) {
+                                    SymmetryType.HORIZONTAL -> vm.drawingGuide = guide.copy(symmetryCenterX = 0.5f, symmetryCenterY = it)
+                                    SymmetryType.VERTICAL -> vm.drawingGuide = guide.copy(symmetryCenterX = it, symmetryCenterY = 0.5f)
+                                    else -> vm.drawingGuide = guide.copy(symmetryCenterX = it, symmetryCenterY = it)
+                                }
                             },
                             modifier = Modifier.weight(1f),
                         )

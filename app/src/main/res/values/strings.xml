@@ -1957,8 +1957,8 @@
     <string name="guide_symmetry_type">对称类型</string>
     <string name="guide_symmetry_vertical">垂直</string>
     <string name="guide_symmetry_horizontal">水平</string>
-    <string name="guide_symmetry_quadrant">四象限</string>
-    <string name="guide_symmetry_radial">径向</string>
+    <string name="guide_symmetry_rotational">旋转对称</string>
+    <string name="guide_symmetry_kaleidoscope">万花筒</string>
     <string name="guide_symmetry_center">对称轴中心</string>
     <string name="guide_symmetry_rotation">旋转角度</string>
     <string name="guide_symmetry_reset_center">重置居中</string>
