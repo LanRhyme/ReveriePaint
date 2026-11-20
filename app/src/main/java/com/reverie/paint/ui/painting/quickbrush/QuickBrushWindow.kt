@@ -58,6 +58,7 @@ import com.reverie.paint.core.selectBrushPreset
 import com.reverie.paint.model.DragGripSpec
 import com.reverie.paint.model.Tool
 import com.reverie.paint.model.UiPanelSlot
+import com.reverie.paint.model.isFloatingWindowUnpositioned
 import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.components.evadablePanelContent
@@ -139,13 +140,14 @@ fun QuickBrushWindow(
     Box(
         modifier = modifier
             .offset {
-                val x = if (vm.quickBrushWindowX >= 0f) {
+                val unpositioned = isFloatingWindowUnpositioned(vm.quickBrushWindowX, vm.quickBrushWindowY)
+                val x = if (!unpositioned) {
                     vm.quickBrushWindowX.roundToInt()
                 } else {
                     val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
                     ((screenWidthPx - curW) / 2f).coerceAtLeast(0f).roundToInt()
                 }
-                val y = if (vm.quickBrushWindowY >= 0f) {
+                val y = if (!unpositioned) {
                     vm.quickBrushWindowY.roundToInt()
                 } else {
                     val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
@@ -194,12 +196,10 @@ fun QuickBrushWindow(
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = {
-                                    val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
-                                    val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
-                                    if (vm.quickBrushWindowX < 0f) {
+                                    if (isFloatingWindowUnpositioned(vm.quickBrushWindowX, vm.quickBrushWindowY)) {
+                                        val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
+                                        val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
                                         vm.quickBrushWindowX = ((screenWidthPx - curW) / 2f).coerceAtLeast(0f)
-                                    }
-                                    if (vm.quickBrushWindowY < 0f) {
                                         vm.quickBrushWindowY = ((screenHeightPx - curH) / 2f).coerceAtLeast(0f)
                                     }
                                 },
@@ -291,12 +291,10 @@ fun QuickBrushWindow(
                                 .pointerInput(Unit) {
                                     detectDragGestures(
                                         onDragStart = {
-                                            val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
-                                            val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
-                                            if (vm.quickBrushWindowX < 0f) {
+                                            if (isFloatingWindowUnpositioned(vm.quickBrushWindowX, vm.quickBrushWindowY)) {
+                                                val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
+                                                val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
                                                 vm.quickBrushWindowX = ((screenWidthPx - curW) / 2f).coerceAtLeast(0f)
-                                            }
-                                            if (vm.quickBrushWindowY < 0f) {
                                                 vm.quickBrushWindowY = ((screenHeightPx - curH) / 2f).coerceAtLeast(0f)
                                             }
                                         },
@@ -448,12 +446,10 @@ fun QuickBrushWindow(
                                 .pointerInput(Unit) {
                                     detectDragGestures(
                                         onDragStart = {
-                                            val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
-                                            val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
-                                            if (vm.quickBrushWindowX < 0f) {
+                                            if (isFloatingWindowUnpositioned(vm.quickBrushWindowX, vm.quickBrushWindowY)) {
+                                                val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
+                                                val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
                                                 vm.quickBrushWindowX = ((screenWidthPx - curW) / 2f).coerceAtLeast(0f)
-                                            }
-                                            if (vm.quickBrushWindowY < 0f) {
                                                 vm.quickBrushWindowY = ((screenHeightPx - curH) / 2f).coerceAtLeast(0f)
                                             }
                                         },

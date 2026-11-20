@@ -15,6 +15,29 @@ class WindowOrigin {
 }
 
 /**
+ * 悬浮窗「尚未定位」的哨兵坐标值。
+ *
+ * 内存初值与 SharedPreferences 历史数据统一用 `(-1f, -1f)` 表示尚未由用户或开窗居中定位。
+ * 按拖把手夹取允许合法坐标在左沿或左上角出现负值 (例如左沿 `x = -352f`, 或横向笔刷窗左上角
+ * `x = -6f, y = -13f`), 因此必须双轴整体比对哨兵, 绝不能把单轴 `< 0f` 或任意双轴 `< 0f`
+ * 当作未定位。
+ */
+const val FLOATING_WINDOW_UNPOSITIONED = -1f
+
+/**
+ * 判断悬浮窗坐标 `(x, y)` 是否处于「尚未定位」哨兵状态。
+ */
+fun isFloatingWindowUnpositioned(x: Float, y: Float): Boolean =
+    !x.isFinite() || !y.isFinite() ||
+        (x == FLOATING_WINDOW_UNPOSITIONED && y == FLOATING_WINDOW_UNPOSITIONED)
+
+/**
+ * 判断悬浮窗坐标 `(x, y)` 是否已经定位 (包括合法的左沿/顶沿负坐标)。
+ */
+fun isFloatingWindowPositioned(x: Float, y: Float): Boolean =
+    !isFloatingWindowUnpositioned(x, y)
+
+/**
  * 悬浮窗拖把手几何常量 (dp)。
  *
  * 同一组数字被两侧消费, 改这里即可两边同时生效:
@@ -66,7 +89,7 @@ object DragGripSpec {
  * 整窗就是把手时传入 gripLeft=0, gripTop=0, gripW=width, gripH=height。
  *
  * 「未定位哨兵」(x 与 y 同时 < 0, 常见 -1,-1) 的跳过逻辑由调用方 (PaintViewModel) 负责,
- * 本函数不认识哨兵。
+ * 统一通过 [isFloatingWindowPositioned] / [isFloatingWindowUnpositioned] 判定, 本函数不认识哨兵。
  *
  * 结果写入调用方持有的 [out] 并原样返回 (便于链式取值), 热路径请复用同一个容器。
  */

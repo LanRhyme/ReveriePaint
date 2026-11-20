@@ -4,7 +4,9 @@
 package com.reverie.paint.model
 
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
 import org.junit.Assert.assertSame
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class FloatingWindowClampTest {
@@ -94,5 +96,28 @@ class FloatingWindowClampTest {
         clamp(x = 100f, y = 200f, out = reuse)
         assertEquals(100f, reuse.x)
         assertEquals(200f, reuse.y)
+    }
+
+    @Test
+    fun `unpositioned sentinel only matches exact minus one pair or non finite coordinates`() {
+        assertTrue(isFloatingWindowUnpositioned(FLOATING_WINDOW_UNPOSITIONED, FLOATING_WINDOW_UNPOSITIONED))
+        assertFalse(isFloatingWindowPositioned(-1f, -1f))
+        assertTrue(isFloatingWindowUnpositioned(Float.NaN, 100f))
+        assertTrue(isFloatingWindowUnpositioned(100f, Float.POSITIVE_INFINITY))
+    }
+
+    @Test
+    fun `negative clamped coordinates on left or top left are treated as positioned`() {
+        // 左沿出屏: 仅 X 为负 (包括刚好 x == -1f)
+        assertTrue(isFloatingWindowPositioned(-2f, 278f))
+        assertTrue(isFloatingWindowPositioned(-352f, 0f))
+        assertTrue(isFloatingWindowPositioned(-1f, 200f))
+        // 顶沿出屏: 仅 Y 为负 (包括刚好 y == -1f)
+        assertTrue(isFloatingWindowPositioned(500f, -12f))
+        assertTrue(isFloatingWindowPositioned(200f, -1f))
+        // 左上角出屏: 双轴同时为负 (如横向笔刷窗夹取结果 -6f, -13f)
+        val topLeft = clamp(x = -500f, y = -100f, gripLeft = 6f, gripTop = 13f, gripW = 14f, gripH = 28f)
+        assertTrue(isFloatingWindowPositioned(topLeft.x, topLeft.y))
+        assertFalse(isFloatingWindowUnpositioned(topLeft.x, topLeft.y))
     }
 }

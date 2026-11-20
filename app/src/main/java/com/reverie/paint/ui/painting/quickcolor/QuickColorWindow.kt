@@ -59,6 +59,7 @@ import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.UiPanelSlot
+import com.reverie.paint.model.isFloatingWindowUnpositioned
 import com.reverie.paint.ui.components.DragPillHandle
 import com.reverie.paint.ui.components.PanelCloseButton
 import com.reverie.paint.ui.components.ReDropdownMenu
@@ -191,13 +192,14 @@ fun QuickColorWindow(
     Box(
         modifier = modifier
             .offset {
-                val x = if (vm.quickColorWindowX >= 0f) {
+                val unpositioned = isFloatingWindowUnpositioned(vm.quickColorWindowX, vm.quickColorWindowY)
+                val x = if (!unpositioned) {
                     vm.quickColorWindowX.roundToInt()
                 } else {
                     val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
                     ((screenWidthPx - curW) / 2f).coerceAtLeast(0f).roundToInt()
                 }
-                val y = if (vm.quickColorWindowY >= 0f) {
+                val y = if (!unpositioned) {
                     vm.quickColorWindowY.roundToInt()
                 } else {
                     val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
@@ -246,12 +248,10 @@ fun QuickColorWindow(
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = {
-                                    val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
-                                    val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
-                                    if (vm.quickColorWindowX < 0f) {
+                                    if (isFloatingWindowUnpositioned(vm.quickColorWindowX, vm.quickColorWindowY)) {
+                                        val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
+                                        val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
                                         vm.quickColorWindowX = ((screenWidthPx - curW) / 2f).coerceAtLeast(0f)
-                                    }
-                                    if (vm.quickColorWindowY < 0f) {
                                         vm.quickColorWindowY = ((screenHeightPx - curH) / 2f).coerceAtLeast(0f)
                                     }
                                 },
@@ -298,12 +298,10 @@ fun QuickColorWindow(
                     // 1. 顶部操作栏: 拖动手柄 (独立居中，避免与操作项重叠)
                     DragPillHandle(
                         onDrag = { dragAmount ->
-                            val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
-                            val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
-                            if (vm.quickColorWindowX < 0f) {
+                            if (isFloatingWindowUnpositioned(vm.quickColorWindowX, vm.quickColorWindowY)) {
+                                val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
+                                val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
                                 vm.quickColorWindowX = ((screenWidthPx - curW) / 2f).coerceAtLeast(0f)
-                            }
-                            if (vm.quickColorWindowY < 0f) {
                                 vm.quickColorWindowY = ((screenHeightPx - curH) / 2f).coerceAtLeast(0f)
                             }
                             vm.quickColorWindowX += dragAmount.x

@@ -52,6 +52,7 @@ import com.reverie.paint.model.DragGripSpec
 import com.reverie.paint.model.QuickAction
 import com.reverie.paint.model.QuickActionLayoutMode
 import com.reverie.paint.model.UiPanelSlot
+import com.reverie.paint.model.isFloatingWindowUnpositioned
 import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.components.evadablePanelContent
@@ -151,13 +152,14 @@ fun QuickActionWindow(
     Box(
         modifier = modifier
             .offset {
-                val x = if (vm.quickActionWindowX >= 0f) {
+                val unpositioned = isFloatingWindowUnpositioned(vm.quickActionWindowX, vm.quickActionWindowY)
+                val x = if (!unpositioned) {
                     vm.quickActionWindowX.roundToInt()
                 } else {
                     val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
                     ((screenWidthPx - curW) / 2f).coerceAtLeast(0f).roundToInt()
                 }
-                val y = if (vm.quickActionWindowY >= 0f) {
+                val y = if (!unpositioned) {
                     vm.quickActionWindowY.roundToInt()
                 } else {
                     val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
@@ -206,12 +208,10 @@ fun QuickActionWindow(
                     .pointerInput(Unit) {
                         detectDragGestures(
                             onDragStart = {
-                                val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
-                                val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
-                                if (vm.quickActionWindowX < 0f) {
+                                if (isFloatingWindowUnpositioned(vm.quickActionWindowX, vm.quickActionWindowY)) {
+                                    val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
+                                    val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
                                     vm.quickActionWindowX = ((screenWidthPx - curW) / 2f).coerceAtLeast(0f)
-                                }
-                                if (vm.quickActionWindowY < 0f) {
                                     vm.quickActionWindowY = ((screenHeightPx - curH) / 2f).coerceAtLeast(0f)
                                 }
                             },
@@ -310,12 +310,10 @@ fun QuickActionWindow(
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = {
-                                    val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
-                                    val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
-                                    if (vm.quickActionWindowX < 0f) {
+                                    if (isFloatingWindowUnpositioned(vm.quickActionWindowX, vm.quickActionWindowY)) {
+                                        val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
+                                        val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
                                         vm.quickActionWindowX = ((screenWidthPx - curW) / 2f).coerceAtLeast(0f)
-                                    }
-                                    if (vm.quickActionWindowY < 0f) {
                                         vm.quickActionWindowY = ((screenHeightPx - curH) / 2f).coerceAtLeast(0f)
                                     }
                                 },
