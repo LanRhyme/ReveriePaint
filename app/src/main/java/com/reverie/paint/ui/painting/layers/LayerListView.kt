@@ -685,7 +685,7 @@ internal fun LayerListView(
                                     if (!vm.hasSelection) {
                                         android.widget.Toast.makeText(
                                             context,
-                                            context.getString(R.string.layer_mask_toast_no_selection),
+                                            R.string.layer_mask_toast_no_selection,
                                             android.widget.Toast.LENGTH_SHORT
                                         ).show()
                                     } else if (curIdx > 0 && curIdx < vm.layers.size && !isBg && !isFilter) {
@@ -827,8 +827,6 @@ internal fun LayerListView(
         LaunchedEffect(listState.isScrollInProgress) {
             if (listState.isScrollInProgress) revealedIndex = null
         }
-        // 双指捏合合并 Toast 文案在组合期解析 (Lint: LocalContextGetResourceValueCall)
-        val pinchMergedMsg = stringResource(R.string.layer_toast_pinch_merged)
         Box(
             modifier =
                 Modifier
@@ -886,16 +884,16 @@ internal fun LayerListView(
                                         val curLayer = vm.layers.getOrNull(curIdx)
 
                                         if (curLayer == null || curLayer.isBackground) {
-                                            vm.showActionToast(context.getString(R.string.layer_toast_cannot_merge_background), com.reverie.paint.R.drawable.ic_lock)
+                                            vm.showActionToast(R.string.layer_toast_cannot_merge_background, com.reverie.paint.R.drawable.ic_lock)
                                         } else if (curLayer.locked) {
-                                            vm.showActionToast(context.getString(R.string.canvas_toast_layer_locked), com.reverie.paint.R.drawable.ic_lock)
+                                            vm.showActionToast(R.string.canvas_toast_layer_locked, com.reverie.paint.R.drawable.ic_lock)
                                         } else if (curLayer.nodeType == 3) {
-                                            vm.showActionToast(context.getString(R.string.layer_toast_filter_cannot_merge), com.reverie.paint.R.drawable.ic_image_adjust)
+                                            vm.showActionToast(R.string.layer_toast_filter_cannot_merge, com.reverie.paint.R.drawable.ic_image_adjust)
                                         } else if (curLayer.isGroup) {
                                             haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                             vm.flattenGroup(curIdx)
                                             vm.clearLayerSelection()
-                                            vm.showActionToast(context.getString(R.string.layer_toast_group_flattened), com.reverie.paint.R.drawable.ic_merge_down)
+                                            vm.showActionToast(R.string.layer_toast_group_flattened, com.reverie.paint.R.drawable.ic_merge_down)
                                         } else {
                                             var ti = curIdx - 1
                                             while (ti > 0 && vm.layers.getOrNull(ti)?.isGroup == true) {
@@ -903,17 +901,17 @@ internal fun LayerListView(
                                             }
                                             val lowerLayer = vm.layers.getOrNull(ti)
                                             if (lowerLayer == null || lowerLayer.isBackground || ti < 1) {
-                                                vm.showActionToast(context.getString(R.string.layer_toast_cannot_merge_background), com.reverie.paint.R.drawable.ic_lock)
+                                                vm.showActionToast(R.string.layer_toast_cannot_merge_background, com.reverie.paint.R.drawable.ic_lock)
                                             } else if (lowerLayer.locked) {
-                                                vm.showActionToast(context.getString(R.string.canvas_toast_layer_locked), com.reverie.paint.R.drawable.ic_lock)
+                                                vm.showActionToast(R.string.canvas_toast_layer_locked, com.reverie.paint.R.drawable.ic_lock)
                                             } else if (lowerLayer.nodeType == 3) {
-                                                vm.showActionToast(context.getString(R.string.layer_toast_filter_cannot_merge), com.reverie.paint.R.drawable.ic_image_adjust)
+                                                vm.showActionToast(R.string.layer_toast_filter_cannot_merge, com.reverie.paint.R.drawable.ic_image_adjust)
                                             } else {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                                                 vm.mergeDown(curIdx) { ok ->
                                                     if (ok) {
                                                         vm.clearLayerSelection()
-                                                        vm.showActionToast(pinchMergedMsg, com.reverie.paint.R.drawable.ic_merge_down)
+                                                        vm.showActionToast(R.string.layer_toast_pinch_merged, com.reverie.paint.R.drawable.ic_merge_down)
                                                     }
                                                 }
                                             }
