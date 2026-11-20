@@ -893,6 +893,7 @@ fun toolIcon(tool: Tool): Int =
         Tool.SHADING_ASSIST -> R.drawable.ic_moon
         Tool.PANEL -> R.drawable.ic_panel_frame
         Tool.PAN -> R.drawable.ic_hand
+        Tool.ZOOM -> R.drawable.ic_zoom_in
     }
 
 /** Vertical brush-size control: value + logarithmic slider, like Krita's

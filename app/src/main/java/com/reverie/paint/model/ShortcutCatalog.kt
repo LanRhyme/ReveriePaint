@@ -181,6 +181,7 @@ fun toolShortcutNameRes(tool: Tool): Int = when (tool) {
     Tool.SHADING_ASSIST -> R.string.shading_assist_title
     Tool.PAN -> R.string.tool_pan
     Tool.PANEL -> R.string.tool_panel
+    Tool.ZOOM -> R.string.tool_zoom
 }
 
 /** 可绑定为快捷键的「真实工具」（视图类浮窗/开关工具走 PANELS 分类）。 */
@@ -216,8 +217,9 @@ private val SHORTCUT_TOOL_SPECS: List<Pair<Tool, List<String>>> = listOf(
     Tool.TEXT to listOf("T"),
     Tool.LIQUIFY to emptyList(),
     Tool.MEASURE to emptyList(),
-    Tool.PAN to emptyList(),
+    Tool.PAN to listOf("H"),
     Tool.PANEL to emptyList(),
+    Tool.ZOOM to listOf("Z"),
 )
 
 private fun toolSectionOf(tool: Tool): ShortcutSection = when (tool.group) {
@@ -235,6 +237,7 @@ private val TEMPORARY_HOLD_TOOL_GROUPS: Set<ToolGroup> = setOf(
     ToolGroup.FILL,
     ToolGroup.SHAPES,
     ToolGroup.SELECTION,
+    ToolGroup.VIEW,
 )
 
 private val TOOL_SHORTCUTS: List<ShortcutDefinition> = SHORTCUT_TOOL_SPECS.map { (tool, keys) ->
@@ -318,7 +321,7 @@ val ALL_SHORTCUT_DEFINITIONS: List<ShortcutDefinition> = buildList {
     add(def("rotate_reset", ShortcutCategory.VIEW, ShortcutSection.VIEW_ROTATE,
         R.string.shortcut_def_rotate_reset))
     add(def("flip_canvas", ShortcutCategory.VIEW, ShortcutSection.VIEW_ROTATE,
-        R.string.shortcut_def_flip_canvas, "H"))
+        R.string.shortcut_def_flip_canvas, "LeftShift + H"))
     add(def("flip_canvas_vertical", ShortcutCategory.VIEW, ShortcutSection.VIEW_ROTATE,
         R.string.shortcut_def_flip_canvas_vertical))
 
@@ -817,6 +820,7 @@ enum class ShortcutPreset(
         overrides = mapOf(
             "undo" to listOf("Z"),
             "redo" to listOf("LeftShift + Z"),
+            "tool_zoom" to emptyList(),
             "zoom_in" to listOf("="),
             "zoom_out" to listOf("-"),
             "fit_canvas" to listOf("0"),

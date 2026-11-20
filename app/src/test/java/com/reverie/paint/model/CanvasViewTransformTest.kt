@@ -326,4 +326,49 @@ class CanvasViewTransformTest {
         assertTrue(t.update(100, 200, 0f, 0f, 1f, 1f, 0f, 1000, 2000, 1000, 2000, true, false))
         assertFalse(t.update(100, 200, 0f, 0f, 1f, 1f, 0f, 1000, 2000, 1000, 2000, true, false))
     }
+
+    @Test
+    fun `scrubby zoom anchoring preserves touch point document coordinate`() {
+        val viewW = 1200
+        val viewH = 800
+        val initialZoom = 1.2f
+        val initialPanX = 60f
+        val initialPanY = -40f
+        val rotation = 42f
+        val t0 = transform(
+            viewW = viewW, viewH = viewH,
+            panX = initialPanX, panY = initialPanY,
+            zoom = initialZoom, fitScale = 0.9f,
+            rotation = rotation,
+            bmpW = 2000, bmpH = 1500, docW = 2000, docH = 1500,
+        )
+
+        val touchX = 350f
+        val touchY = 520f
+        val docPos = FloatArray(2)
+        t0.screenToDoc(touchX, touchY, docPos)
+
+        // 模拟连续 Scrubby Zoom 与单点 1.25x 放大
+        val targetZooms = listOf(0.5f, 1.25f * initialZoom, 2.0f, 5.0f)
+        for (targetZoom in targetZooms) {
+            val ratio = targetZoom / initialZoom
+            val anchorOffsetX = touchX - viewW / 2f - initialPanX
+            val anchorOffsetY = touchY - viewH / 2f - initialPanY
+            val newPanX = touchX - viewW / 2f - ratio * anchorOffsetX
+            val newPanY = touchY - viewH / 2f - ratio * anchorOffsetY
+
+            val t1 = transform(
+                viewW = viewW, viewH = viewH,
+                panX = newPanX, panY = newPanY,
+                zoom = targetZoom, fitScale = 0.9f,
+                rotation = rotation,
+                bmpW = 2000, bmpH = 1500, docW = 2000, docH = 1500,
+            )
+            val mappedBack = FloatArray(2)
+            t1.docToScreen(docPos[0], docPos[1], mappedBack)
+
+            assertEquals("X 屏幕像素必须严格锚定在触控点", touchX, mappedBack[0], 1e-2f)
+            assertEquals("Y 屏幕像素必须严格锚定在触控点", touchY, mappedBack[1], 1e-2f)
+        }
+    }
 }

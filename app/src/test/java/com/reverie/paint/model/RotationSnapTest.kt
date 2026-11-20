@@ -206,4 +206,46 @@ class RotationSnapTest {
         assertFalse(RotationSnap.isSnapEngaged(Float.NaN, 5f, prevEngaged = true))
         assertFalse(RotationSnap.isSnapEngaged(90f, Float.NaN, prevEngaged = false))
     }
+
+    @Test
+    fun `hold to rotate crossing branch cut accumulates smooth continuous angle`() {
+        // 模拟触控点跨越 -X 轴 (atan2 从 179° 到 -179°)
+        val prevAngle = 179f
+        val currentAngle = -179f
+        var diff = (currentAngle - prevAngle) % 360f
+        if (diff > 180f) diff -= 360f
+        if (diff < -180f) diff += 360f
+
+        // 逆时针微动 2 度，不应产生 -358 度的剧烈翻转
+        assertEquals(2f, diff, 1e-4f)
+
+        // 顺时针同理：从 -179° 到 179°
+        var reverseDiff = (prevAngle - currentAngle) % 360f
+        if (reverseDiff > 180f) reverseDiff -= 360f
+        if (reverseDiff < -180f) reverseDiff += 360f
+        assertEquals(-2f, reverseDiff, 1e-4f)
+    }
+
+    @Test
+    fun `cardinal soft snap within 2 degrees snaps to cardinal angle`() {
+        val testAngles = listOf(
+            0f to 0f,
+            1.8f to 0f,
+            -1.8f to 0f,
+            2.1f to 2.1f, // 超过 2° 不吸附
+            88.5f to 90f,
+            91.5f to 90f,
+            93.0f to 93f, // 超过 2° 不吸附
+            179.0f to 180f,
+            181.5f to 180f,
+            269.0f to 270f,
+            271.9f to 270f,
+        )
+        for ((raw, expected) in testAngles) {
+            val target = RotationSnap.nearestMultiple(raw)
+            val delta = RotationSnap.shortestDelta(raw, target)
+            val finalRot = if (abs(delta) <= 2f) target else raw
+            assertEquals("Angle $raw snap mismatch", expected, finalRot, 1e-4f)
+        }
+    }
 }

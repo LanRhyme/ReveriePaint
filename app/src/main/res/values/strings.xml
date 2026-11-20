@@ -486,6 +486,7 @@
     <string name="tool_symmetry">对称</string>
     <string name="tool_perspective">透视</string>
     <string name="tool_pan">抓手</string>
+    <string name="tool_zoom">缩放</string>
 
     <!-- Default Project & Layer Names -->
     <string name="project_default_name">未命名作品</string>
@@ -642,6 +643,7 @@
     <string name="shortcut_def_crop">裁剪工具</string>
     <string name="shortcut_def_transform">变换工具</string>
     <string name="shortcut_def_tool_pan">抓手工具</string>
+    <string name="shortcut_def_tool_zoom">缩放工具</string>
     <string name="shortcut_def_filter_hsv">色相/饱和度/明度</string>
     <string name="shortcut_def_filter_curves">色彩曲线</string>
     <string name="shortcut_def_filter_blur">高斯模糊</string>

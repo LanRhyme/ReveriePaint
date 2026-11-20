@@ -3226,6 +3226,7 @@
     <string name="create_target_folder_chip">歸入畫集: %s</string>
     <string name="create_target_folder_detach">移出畫集</string>
     <string name="tool_pan">抓手</string>
+    <string name="tool_zoom">縮放</string>
     <string name="crash_report_auto_reporting">崩潰報告會自動匿名上報，可在設定裡關閉</string>
     <string name="crash_report_auto_off">自動上報已關閉</string>
     <string name="crash_report_upload_once">僅上報這一條</string>
@@ -3254,6 +3255,7 @@
     <string name="toast_eraser_mode_off">已關閉橡皮模式</string>
     <string name="toast_eraser_mode_require_brush">請先選擇畫筆工具</string>
     <string name="shortcut_def_tool_pan">抓手工具</string>
+    <string name="shortcut_def_tool_zoom">縮放工具</string>
     <string name="shortcut_cat_view">檢視</string>
     <string name="shortcut_cat_edit">編輯</string>
     <string name="shortcut_cat_selection">選區</string>

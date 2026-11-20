@@ -103,6 +103,14 @@ private fun PaintViewModel.togglePanTool() {
     }
 }
 
+private fun PaintViewModel.toggleZoomTool() {
+    if (currentToolId == "zoom") {
+        applyTool(if (lastToolId.isNotEmpty() && lastToolId != "zoom") lastToolId else "brush")
+    } else {
+        applyTool("zoom")
+    }
+}
+
 /** 工具 id -> Tool 的查表 (按键路径上不再拼字符串) */
 private val TOOL_BY_SHORTCUT_ID: Map<String, Tool> =
     Tool.entries.associateBy { "tool_${it.id}" }
@@ -120,6 +128,7 @@ private fun PaintViewModel.executeToolShortcutAction(id: String): Boolean {
     val tool = TOOL_BY_SHORTCUT_ID[id] ?: return false
     when (tool) {
         Tool.PAN -> togglePanTool()
+        Tool.ZOOM -> toggleZoomTool()
         // 临时吸管: 取一次色就回到之前的工具 (数位笔「吸管取色」动作也走这条 id)
         Tool.PICKER -> {
             applyTool("picker")

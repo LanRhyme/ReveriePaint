@@ -334,6 +334,7 @@ fun CanvasView(
                 touchView.viewW = viewW
                 touchView.viewH = viewH
                 touchView.setSpacePanning(vm?.isSpacePanning == true)
+                touchView.setRotateHolding(vm?.isRotateHolding == true)
                 // 视图翻转不参与手势 (缩放/旋转/平移由手势自己写), 所以放在
                 // isInteracting 判断之外, 免得拖着手时点了翻转却不生效
                 if (touchView.canvasFlipX != flipX || touchView.canvasFlipY != flipY) {

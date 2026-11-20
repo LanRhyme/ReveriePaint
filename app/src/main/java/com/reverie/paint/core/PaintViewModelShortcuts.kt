@@ -555,6 +555,8 @@ internal fun PaintViewModel.clearTemporaryToolHold() {
     holdTemporaryBaseToolId = null
     holdTemporaryKey = null
     holdTemporaryStartMs = 0L
+    isRotateHolding = false
+    isSpacePanning = false
 }
 
 private fun PaintViewModel.findShortcutDefinitionForKey(keyStr: String): ShortcutDefinition? {
@@ -599,6 +601,20 @@ internal fun PaintViewModel.handleKeyEvent(event: KeyEvent): Boolean {
         } else if (event.type == KeyEventType.KeyUp) {
             if (isSpacePanning) {
                 isSpacePanning = false
+            }
+        }
+        return true
+    }
+
+    // 1.1 R 键按住临时旋转画布 (Hold-to-Rotate)
+    if (event.key == Key.R && !event.isCtrlPressed && !event.isAltPressed && !event.isShiftPressed && !event.nativeKeyEvent.isMetaPressed) {
+        if (event.type == KeyEventType.KeyDown) {
+            if (!isRotateHolding) {
+                isRotateHolding = true
+            }
+        } else if (event.type == KeyEventType.KeyUp) {
+            if (isRotateHolding) {
+                isRotateHolding = false
             }
         }
         return true
@@ -662,6 +678,22 @@ internal fun PaintViewModel.handleNativeKeyEvent(event: android.view.KeyEvent): 
         } else if (event.action == android.view.KeyEvent.ACTION_UP) {
             if (isSpacePanning) {
                 isSpacePanning = false
+            }
+        }
+        return true
+    }
+
+    // R 键长按旋转：成对拦截 ACTION_DOWN 与 ACTION_UP
+    if (event.keyCode == android.view.KeyEvent.KEYCODE_R &&
+        !event.isCtrlPressed && !event.isAltPressed && !event.isShiftPressed && !event.isMetaPressed
+    ) {
+        if (event.action == android.view.KeyEvent.ACTION_DOWN) {
+            if (!isRotateHolding) {
+                isRotateHolding = true
+            }
+        } else if (event.action == android.view.KeyEvent.ACTION_UP) {
+            if (isRotateHolding) {
+                isRotateHolding = false
             }
         }
         return true

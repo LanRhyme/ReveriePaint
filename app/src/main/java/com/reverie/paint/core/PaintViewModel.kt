@@ -700,6 +700,8 @@ class PaintViewModel : ViewModel() {
     var isTemporaryPicker by mutableStateOf(false)
     /** 是否长按空格键临时激活画布抓手平移模式 */
     var isSpacePanning by mutableStateOf(false)
+    /** 是否长按 R 键临时激活画布旋转模式 */
+    var isRotateHolding by mutableStateOf(false)
     /** 当前是否有文本输入弹窗处于编辑聚焦状态 (聚焦时跳过物理快捷键拦截) */
     var isTextInputActive by mutableStateOf(false)
     private var textInputCounter = 0

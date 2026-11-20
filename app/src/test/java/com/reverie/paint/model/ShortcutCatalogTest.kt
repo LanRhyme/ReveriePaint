@@ -57,7 +57,7 @@ class ShortcutCatalogTest {
             Tool.SHAPES, Tool.LINE, Tool.RECT, Tool.ELLIPSE, Tool.POLYGON, Tool.POLYLINE, Tool.PATH,
             Tool.SELECT_RECT, Tool.SELECT_ELLIPSE, Tool.SELECT_POLYGON, Tool.LASSO, Tool.MAGICWAND, Tool.SELECT_SIMILAR,
             Tool.TRANSFORM, Tool.CROP,
-            Tool.PICKER, Tool.TEXT, Tool.LIQUIFY, Tool.MEASURE, Tool.PAN,
+            Tool.PICKER, Tool.TEXT, Tool.LIQUIFY, Tool.MEASURE, Tool.PAN, Tool.ZOOM,
         )
         paintableTools.forEach { tool ->
             val def = findShortcutDefinition("tool_${tool.id}")
@@ -92,19 +92,20 @@ class ShortcutCatalogTest {
 
     @Test
     fun `painting tools support hold to use temporarily while panel tools do not`() {
-        // 绘制/填充/形状/选区: 可以长按临时借用, 松开回原工具
+        // 绘制/填充/形状/选区/视图: 可以长按临时借用, 松开回原工具
         listOf(
             "tool_brush", "tool_eraser", "tool_smudge",
             "tool_fill", "tool_enclose_fill", "tool_gradient",
             "tool_shapes", "tool_line", "tool_rect", "tool_ellipse", "tool_polygon",
             "tool_select_rect", "tool_lasso", "tool_magicwand",
+            "tool_pan", "tool_zoom",
         ).forEach { id ->
             assertTrue("$id 应支持长按临时使用", findShortcutDefinition(id)!!.holdTemporary)
         }
         // 会开面板/对话框/自身已是开关语义的工具不参与临时切换
         listOf(
             "tool_transform", "tool_crop", "tool_text", "tool_liquify", "tool_measure",
-            "tool_pan", "tool_picker", "tool_drawing_guide",
+            "tool_picker", "tool_drawing_guide",
             "undo", "layer_new", "undo",
         ).forEach { id ->
             assertFalse("$id 不应参与长按临时使用", findShortcutDefinition(id)!!.holdTemporary)

@@ -39,6 +39,22 @@ class PaintViewModelShortcutsTest {
         // 变换工具同时挂 V 与 Ctrl+T (Krita 与 PS 习惯都照顾)
         val transformDef = ALL_SHORTCUT_DEFINITIONS.firstOrNull { it.id == "tool_transform" }
         assertEquals(listOf("V", "LeftCtrl + T"), transformDef?.defaultKeys)
+
+        val zoomDef = ALL_SHORTCUT_DEFINITIONS.firstOrNull { it.id == "tool_zoom" }
+        assertNotNull("Zoom tool definition should exist", zoomDef)
+        assertEquals("Z", zoomDef?.defaultKey)
+
+        val panDef = ALL_SHORTCUT_DEFINITIONS.firstOrNull { it.id == "tool_pan" }
+        assertNotNull("Pan tool definition should exist", panDef)
+        assertEquals("H", panDef?.defaultKey)
+
+        val flipDef = ALL_SHORTCUT_DEFINITIONS.firstOrNull { it.id == "flip_canvas" }
+        assertNotNull("Flip canvas definition should exist", flipDef)
+        assertEquals("LeftShift + H", flipDef?.defaultKey)
+
+        val rotateDef = ALL_SHORTCUT_DEFINITIONS.firstOrNull { it.id == "rotate_canvas" }
+        assertNotNull("Rotate canvas definition should exist", rotateDef)
+        assertEquals("R", rotateDef?.defaultKey)
     }
 
     @Test

@@ -4,6 +4,12 @@
 
 package com.reverie.paint.ui.painting.panels
 
+import androidx.compose.animation.core.FastOutSlowInEasing
+import androidx.compose.animation.core.RepeatMode
+import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.infiniteRepeatable
+import androidx.compose.animation.core.rememberInfiniteTransition
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.ScrollState
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
@@ -19,7 +25,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.verticalScroll
@@ -127,6 +135,9 @@ internal fun ShortcutSettingsPage(
 
     val bindings = vm.shortcutBindings
     val conflictIds = remember(bindings) { findConflictingShortcutIds(bindings) }
+    val conflictCategories = remember(conflictIds) {
+        ALL_SHORTCUT_DEFINITIONS.filter { it.id in conflictIds }.map { it.category }.toSet()
+    }
     val customizedCount = remember(bindings) {
         ALL_SHORTCUT_DEFINITIONS.count { isShortcutCustomized(bindings, it) }
     }
@@ -179,6 +190,7 @@ internal fun ShortcutSettingsPage(
 
             ShortcutCategoryBar(
                 activeCategory = activeCategory,
+                conflictCategories = conflictCategories,
                 onSelect = { activeCategory = it },
             )
 
@@ -445,16 +457,20 @@ private fun ShortcutSearchField(
             )
         }
         if (query.isNotEmpty()) {
-            Icon(
-                painter = painterResource(R.drawable.ic_x),
-                contentDescription = stringResource(R.string.common_clear),
-                tint = Morandi.subText,
+            Box(
                 modifier = Modifier
-                    .size(16.dp)
-                    .clip(RoundedCornerShape(8.dp))
-                    .clickable { onQueryChange("") }
-                    .padding(3.dp),
-            )
+                    .size(24.dp)
+                    .clip(RoundedCornerShape(12.dp))
+                    .clickable { onQueryChange("") },
+                contentAlignment = Alignment.Center,
+            ) {
+                Icon(
+                    painter = painterResource(R.drawable.ic_x),
+                    contentDescription = stringResource(R.string.common_clear),
+                    tint = Morandi.subText,
+                    modifier = Modifier.size(13.dp),
+                )
+            }
         }
     }
 }
@@ -462,6 +478,7 @@ private fun ShortcutSearchField(
 @Composable
 private fun ShortcutCategoryBar(
     activeCategory: ShortcutCategory?,
+    conflictCategories: Set<ShortcutCategory>,
     onSelect: (ShortcutCategory?) -> Unit,
 ) {
     Row(
@@ -476,12 +493,14 @@ private fun ShortcutCategoryBar(
         ShortcutChip(
             label = stringResource(R.string.shortcut_cat_all),
             selected = activeCategory == null,
+            hasConflict = conflictCategories.isNotEmpty(),
             onClick = { onSelect(null) },
         )
         ShortcutCategory.entries.forEach { category ->
             ShortcutChip(
                 label = stringResource(category.titleRes),
                 selected = activeCategory == category,
+                hasConflict = category in conflictCategories,
                 onClick = { onSelect(category) },
             )
         }
@@ -492,19 +511,33 @@ private fun ShortcutCategoryBar(
 private fun ShortcutChip(
     label: String,
     selected: Boolean,
+    hasConflict: Boolean = false,
     onClick: () -> Unit,
 ) {
-    Text(
-        label,
-        color = if (selected) Morandi.accent else Morandi.subText,
-        fontSize = 11.sp,
-        fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+    Row(
         modifier = Modifier
             .clip(RoundedCornerShape(8.dp))
             .background(if (selected) Morandi.panel else Color.Transparent)
             .clickable { onClick() }
             .padding(horizontal = 11.dp, vertical = 6.dp),
-    )
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Text(
+            label,
+            color = if (selected) Morandi.accent else Morandi.subText,
+            fontSize = 11.sp,
+            fontWeight = if (selected) FontWeight.Bold else FontWeight.Normal,
+        )
+        if (hasConflict) {
+            Box(
+                modifier = Modifier
+                    .size(5.dp)
+                    .clip(CircleShape)
+                    .background(Morandi.error),
+            )
+        }
+    }
 }
 
 @Composable
@@ -584,6 +617,7 @@ private fun ShortcutRow(
         modifier = Modifier
             .fillMaxWidth()
             .clip(RoundedCornerShape(8.dp))
+            .background(if (hasConflict) Morandi.error.copy(alpha = 0.09f) else Color.Transparent)
             .clickable { onRecord() }
             .padding(start = 8.dp, end = 6.dp, top = 7.dp, bottom = 7.dp),
         verticalAlignment = Alignment.CenterVertically,
@@ -593,14 +627,15 @@ private fun ShortcutRow(
                 painter = painterResource(R.drawable.ic_alert_triangle),
                 contentDescription = stringResource(R.string.shortcut_conflict_title),
                 tint = Morandi.error,
-                modifier = Modifier.size(12.dp),
+                modifier = Modifier.size(13.dp),
             )
             Spacer(Modifier.width(5.dp))
         }
         Text(
             title,
-            color = Morandi.text,
+            color = if (hasConflict) Morandi.error else Morandi.text,
             fontSize = 12.sp,
+            fontWeight = if (hasConflict) FontWeight.Medium else FontWeight.Normal,
             modifier = Modifier.weight(1f),
         )
         if (customized) {
@@ -744,10 +779,22 @@ private fun ShortcutRecordDialog(
     var activeSlot by remember { mutableIntStateOf(0) }
     val focusRequester = remember { FocusRequester() }
 
+    val infiniteTransition = rememberInfiniteTransition(label = "listening_pulse")
+    val pulseAlpha by infiniteTransition.animateFloat(
+        initialValue = 0.35f,
+        targetValue = 0.95f,
+        animationSpec = infiniteRepeatable(
+            animation = tween(800, easing = FastOutSlowInEasing),
+            repeatMode = RepeatMode.Reverse,
+        ),
+        label = "pulse_alpha",
+    )
+
     Dialog(onDismissRequest = onDismiss) {
         Box(
             modifier = Modifier
-                .width(300.dp)
+                .widthIn(min = 340.dp, max = 420.dp)
+                .fillMaxWidth(0.92f)
                 .clip(RoundedCornerShape(16.dp))
                 .background(Morandi.panel)
                 .focusRequester(focusRequester)
@@ -792,13 +839,17 @@ private fun ShortcutRecordDialog(
                     label = stringResource(R.string.shortcut_slot_primary),
                     value = primary,
                     active = activeSlot == 0,
+                    pulseAlpha = pulseAlpha,
                     onClick = { activeSlot = 0 },
+                    onClear = if (primary.isNotBlank()) { { primary = ""; activeSlot = 0 } } else null,
                 )
                 ShortcutSlotField(
                     label = stringResource(R.string.shortcut_slot_secondary),
                     value = secondary,
                     active = activeSlot == 1,
+                    pulseAlpha = pulseAlpha,
                     onClick = { activeSlot = 1 },
+                    onClear = if (secondary.isNotBlank()) { { secondary = ""; activeSlot = 1 } } else null,
                 )
 
                 if (def.holdTemporary && vm.shortcutHoldTemporaryTools) {
@@ -869,17 +920,19 @@ private fun ShortcutSlotField(
     label: String,
     value: String,
     active: Boolean,
+    pulseAlpha: Float = 1f,
     onClick: () -> Unit,
+    onClear: (() -> Unit)? = null,
 ) {
     Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
         Text(label, color = Morandi.subText, fontSize = 10.sp)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(40.dp)
+                .height(44.dp)
                 .clip(RoundedCornerShape(10.dp))
                 .background(
-                    if (active) Morandi.accent.copy(alpha = 0.12f) else Morandi.panelHi.copy(alpha = 0.45f)
+                    if (active) Morandi.accent.copy(alpha = 0.12f + 0.08f * pulseAlpha) else Morandi.panelHi.copy(alpha = 0.45f)
                 )
                 .clickable { onClick() }
                 .padding(horizontal = 12.dp),
@@ -891,13 +944,42 @@ private fun ShortcutSlotField(
                 fontSize = 13.sp,
                 fontWeight = if (value.isBlank()) FontWeight.Normal else FontWeight.SemiBold,
             )
+            Spacer(Modifier.weight(1f))
             if (active) {
-                Spacer(Modifier.weight(1f))
-                Text(
-                    stringResource(R.string.settings_shortcut_press_key),
-                    color = Morandi.accent.copy(alpha = 0.8f),
-                    fontSize = 10.sp,
-                )
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .size(6.dp)
+                            .clip(CircleShape)
+                            .background(Morandi.accent.copy(alpha = pulseAlpha)),
+                    )
+                    Text(
+                        stringResource(R.string.settings_shortcut_press_key),
+                        color = Morandi.accent.copy(alpha = pulseAlpha),
+                        fontSize = 11.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
+            if (value.isNotBlank() && onClear != null) {
+                Spacer(Modifier.width(8.dp))
+                Box(
+                    modifier = Modifier
+                        .size(24.dp)
+                        .clip(RoundedCornerShape(12.dp))
+                        .clickable { onClear() },
+                    contentAlignment = Alignment.Center,
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_x),
+                        contentDescription = stringResource(R.string.common_clear),
+                        tint = Morandi.subText,
+                        modifier = Modifier.size(13.dp),
+                    )
+                }
             }
         }
     }

@@ -964,6 +964,22 @@ class CanvasTouchView(context: Context) : View(context) {
     private var spacePanInitialPan = Offset.Zero
     private var isSpaceDragging = false
 
+    // R 键长按临时旋转状态 (Hold-to-Rotate)
+    private var rotateHoldStartPos = Offset.Zero
+    private var rotateHoldStartDownTime = 0L
+    private var rotateHoldPrevAngle = 0f
+    private var rotateHoldCumulativeRot = 0f
+    private var rotateHoldSnapped = false
+    private var isRotateHoldingDragging = false
+
+    // 缩放工具手势状态 (Tool.ZOOM)
+    private var zoomToolStartPos = Offset.Zero
+    private var zoomToolStartDownTime = 0L
+    private var zoomToolStartCanvasZoom = 1f
+    private var zoomToolStartPanX = 0f
+    private var zoomToolStartPanY = 0f
+    private var isZoomToolDragging = false
+
     /**
      * 供全屏覆盖层 (速创形状编辑器) 在编辑期间驱动画布平移/缩放。
      * 编辑器是 zIndex 最高的全屏 overlay, 双指事件到不了 CanvasTouchView;
@@ -996,6 +1012,14 @@ class CanvasTouchView(context: Context) : View(context) {
             if (targetIcon != null && pointerIcon != targetIcon) {
                 pointerIcon = targetIcon
             }
+        }
+        invalidate()
+    }
+
+    fun setRotateHolding(active: Boolean) {
+        if (!active) {
+            isRotateHoldingDragging = false
+            isInteracting = false
         }
         invalidate()
     }
@@ -2687,6 +2711,10 @@ class CanvasTouchView(context: Context) : View(context) {
 
     private val systemGrabPointer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
         PointerIcon.getSystemIcon(context, PointerIcon.TYPE_GRAB)
+    } else null
+
+    private val systemZoomInPointer = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+        PointerIcon.getSystemIcon(context, PointerIcon.TYPE_ZOOM_IN)
     } else null
 
     fun clearMeasure() {
@@ -5004,6 +5032,8 @@ class CanvasTouchView(context: Context) : View(context) {
                         (v?.cursorStyleMode != 4)
                     val targetIcon = if (v?.isSpacePanning == true || effTool() == Tool.PAN) {
                         if (isSpaceDragging) systemGrabPointer ?: systemHandPointer else systemHandPointer ?: systemDefaultPointer
+                    } else if (effTool() == Tool.ZOOM) {
+                        systemZoomInPointer ?: systemDefaultPointer
                     } else if (!overUi && hideCursor && systemNullPointer != null) {
                         systemNullPointer
                     } else {
@@ -5089,6 +5119,82 @@ class CanvasTouchView(context: Context) : View(context) {
                     if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && systemHandPointer != null) {
                         pointerIcon = systemHandPointer
                     }
+                }
+            }
+            return true
+        }
+
+        // 旋转快捷交互 (Hold-to-Rotate, 默认 R 键按住)
+        if (v.isRotateHolding) {
+            when (event.actionMasked) {
+                MotionEvent.ACTION_DOWN -> {
+                    cancelCanvasTransformAnimators()
+                    rotateHoldStartPos = Offset(event.x, event.y)
+                    rotateHoldStartDownTime = android.os.SystemClock.uptimeMillis()
+                    val cx = viewW / 2f
+                    val cy = viewH / 2f
+                    rotateHoldPrevAngle = Math.toDegrees(kotlin.math.atan2((event.y - cy).toDouble(), (event.x - cx).toDouble())).toFloat()
+                    rotateHoldCumulativeRot = canvasRotation
+                    rotateHoldSnapped = false
+                    isRotateHoldingDragging = true
+                    isInteracting = true
+                }
+                MotionEvent.ACTION_MOVE -> {
+                    if (isRotateHoldingDragging) {
+                        val cx = viewW / 2f
+                        val cy = viewH / 2f
+                        val currentAngle = Math.toDegrees(kotlin.math.atan2((event.y - cy).toDouble(), (event.x - cx).toDouble())).toFloat()
+                        val dAngle = normalizeAngle(currentAngle - rotateHoldPrevAngle)
+                        rotateHoldPrevAngle = currentAngle
+                        rotateHoldCumulativeRot += dAngle
+                        // Cardinal angle soft snapping: when within ±2° of 0°, 90°, 180°, 270°, snap to that angle
+                        val target = RotationSnap.nearestMultiple(rotateHoldCumulativeRot)
+                        val deltaToTarget = RotationSnap.shortestDelta(rotateHoldCumulativeRot, target)
+                        val isNearSnap = kotlin.math.abs(deltaToTarget) <= 2f
+                        val finalRot = if (isNearSnap) target else rotateHoldCumulativeRot
+                        if (isNearSnap && !rotateHoldSnapped) {
+                            performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                            onRotationSnap?.invoke(finalRot)
+                        }
+                        rotateHoldSnapped = isNearSnap
+                        val dRot = finalRot - canvasRotation
+                        if (dRot != 0f) {
+                            val rad = Math.toRadians(dRot.toDouble())
+                            val cosR = kotlin.math.cos(rad).toFloat()
+                            val sinR = kotlin.math.sin(rad).toFloat()
+                            val oldPanX = canvasPanX
+                            val oldPanY = canvasPanY
+                            canvasRotation = finalRot
+                            canvasPanX = oldPanX * cosR - oldPanY * sinR
+                            canvasPanY = oldPanX * sinR + oldPanY * cosR
+                            onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+                            invalidate()
+                        }
+                    }
+                }
+                MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                    if (isRotateHoldingDragging) {
+                        isRotateHoldingDragging = false
+                        val duration = android.os.SystemClock.uptimeMillis() - rotateHoldStartDownTime
+                        val dist = kotlin.math.hypot(event.x - rotateHoldStartPos.x, event.y - rotateHoldStartPos.y)
+                        val slop = 8f * density
+                        if (duration < 300L && dist < slop) {
+                            val dRot = 0f - canvasRotation
+                            if (dRot != 0f) {
+                                val rad = Math.toRadians(dRot.toDouble())
+                                val cosR = kotlin.math.cos(rad).toFloat()
+                                val sinR = kotlin.math.sin(rad).toFloat()
+                                val oldPanX = canvasPanX
+                                val oldPanY = canvasPanY
+                                canvasRotation = 0f
+                                canvasPanX = oldPanX * cosR - oldPanY * sinR
+                                canvasPanY = oldPanX * sinR + oldPanY * cosR
+                                onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+                            }
+                        }
+                    }
+                    isInteracting = false
+                    invalidate()
                 }
             }
             return true
@@ -5472,6 +5578,22 @@ class CanvasTouchView(context: Context) : View(context) {
                         return true
                     }
 
+                    if (effTool() == Tool.ZOOM) {
+                        cancelCanvasTransformAnimators()
+                        isPendingLongPress = false
+                        isZoomToolDragging = true
+                        zoomToolStartPos = screenPos
+                        zoomToolStartCanvasZoom = canvasZoom
+                        zoomToolStartPanX = canvasPanX
+                        zoomToolStartPanY = canvasPanY
+                        zoomToolStartDownTime = event.eventTime
+                        isInteracting = true
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && systemZoomInPointer != null) {
+                            pointerIcon = systemZoomInPointer
+                        }
+                        return true
+                    }
+
                     // 笔尖接触瞬间立即启动绘图，彻底消除长按判定位移容差带来的起笔延迟
                     logStylusAxesOnce(event, stylusPointerIndex)
                     updateStylusSensors(event, stylusPointerIndex, isStylus = true)
@@ -5501,6 +5623,30 @@ class CanvasTouchView(context: Context) : View(context) {
                         canvasPanY += deltaY
                         onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
                         invalidate()
+                        return true
+                    }
+
+                    if (effTool() == Tool.ZOOM) {
+                        if (isZoomToolDragging) {
+                            val dx = screenPos.x - zoomToolStartPos.x
+                            val dy = screenPos.y - zoomToolStartPos.y
+                            val dist = kotlin.math.hypot(dx, dy)
+                            val slop = 8f * density
+                            if (dist >= slop) {
+                                val rawDelta = dx + dy
+                                val delta = if (rawDelta > 0f) rawDelta - slop else rawDelta + slop
+                                val factor = kotlin.math.exp((delta / 300f).toDouble()).toFloat()
+                                val targetZoom = (zoomToolStartCanvasZoom * factor).coerceIn(0.02f, 128f)
+                                val ratio = targetZoom / zoomToolStartCanvasZoom
+                                val anchorOffsetX = zoomToolStartPos.x - viewW / 2f - zoomToolStartPanX
+                                val anchorOffsetY = zoomToolStartPos.y - viewH / 2f - zoomToolStartPanY
+                                canvasZoom = targetZoom
+                                canvasPanX = zoomToolStartPos.x - viewW / 2f - ratio * anchorOffsetX
+                                canvasPanY = zoomToolStartPos.y - viewH / 2f - ratio * anchorOffsetY
+                                onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+                                invalidate()
+                            }
+                        }
                         return true
                     }
 
@@ -5564,6 +5710,31 @@ class CanvasTouchView(context: Context) : View(context) {
                         isInteracting = false
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && systemHandPointer != null) {
                             pointerIcon = systemHandPointer
+                        }
+                        invalidate()
+                        return true
+                    }
+
+                    if (effTool() == Tool.ZOOM) {
+                        if (isZoomToolDragging) {
+                            isZoomToolDragging = false
+                            val elapsed = event.eventTime - zoomToolStartDownTime
+                            val dist = kotlin.math.hypot(screenPos.x - zoomToolStartPos.x, screenPos.y - zoomToolStartPos.y)
+                            val slop = 8f * density
+                            if (elapsed < 300L && dist < slop) {
+                                val targetZoom = (zoomToolStartCanvasZoom * 1.25f).coerceIn(0.02f, 128f)
+                                val ratio = targetZoom / zoomToolStartCanvasZoom
+                                val anchorOffsetX = zoomToolStartPos.x - viewW / 2f - zoomToolStartPanX
+                                val anchorOffsetY = zoomToolStartPos.y - viewH / 2f - zoomToolStartPanY
+                                canvasZoom = targetZoom
+                                canvasPanX = zoomToolStartPos.x - viewW / 2f - ratio * anchorOffsetX
+                                canvasPanY = zoomToolStartPos.y - viewH / 2f - ratio * anchorOffsetY
+                                onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+                            }
+                        }
+                        isInteracting = false
+                        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && systemZoomInPointer != null) {
+                            pointerIcon = systemZoomInPointer
                         }
                         invalidate()
                         return true
@@ -5803,6 +5974,7 @@ class CanvasTouchView(context: Context) : View(context) {
             }
             cancelPendingShapeGesture()
             cancelPanelGesture()
+            isZoomToolDragging = false
 
             val isShiftTraceAlign = v.anim.shiftTraceActive && v.anim.shiftTraceGestureMode == ShiftTraceGestureMode.ALIGN_FRAME
 
@@ -6208,6 +6380,7 @@ class CanvasTouchView(context: Context) : View(context) {
             (v.gestureConfig.getTrigger(com.reverie.paint.model.GestureAction.EYEDROPPER) == com.reverie.paint.model.GestureTrigger.SINGLE_FINGER_LONG_PRESS) &&
             isDrawingTool
         val isPanTool = effTool() == Tool.PAN
+        val isZoomTool = effTool() == Tool.ZOOM
         val isSinglePointerPan = isPanTool || (!isTouchSlideQuickMenu && v.penOnlyMode && v.penModeSingleFingerPanEnabled && (
             tool.group == ToolGroup.BRUSH ||
             tool.group == ToolGroup.SELECTION ||
@@ -6221,6 +6394,17 @@ class CanvasTouchView(context: Context) : View(context) {
 
         when (event.actionMasked) {
             MotionEvent.ACTION_DOWN -> {
+                if (isZoomTool) {
+                    cancelCanvasTransformAnimators()
+                    isZoomToolDragging = true
+                    zoomToolStartPos = screenPos
+                    zoomToolStartCanvasZoom = canvasZoom
+                    zoomToolStartPanX = canvasPanX
+                    zoomToolStartPanY = canvasPanY
+                    zoomToolStartDownTime = nowMs
+                    isInteracting = true
+                    return true
+                }
                 // 不在此处取消 180ms 恢复: 双指撤销/重做等多指手势的 DOWN 不经过 handleToolUp,
                 // 取消后没有路径重新调度, 面板会永久停留在回避态。
                 // 真正起笔时由 handleToolDown 的 BRUSH/ERASER/SMUDGE 分支负责取消。
@@ -6421,6 +6605,30 @@ class CanvasTouchView(context: Context) : View(context) {
                     }
                 }
 
+                if (isZoomTool) {
+                    if (isZoomToolDragging) {
+                        val dx = screenPos.x - zoomToolStartPos.x
+                        val dy = screenPos.y - zoomToolStartPos.y
+                        val dist = kotlin.math.hypot(dx, dy)
+                        val slop = 8f * density
+                        if (dist >= slop) {
+                            val rawDelta = dx + dy
+                            val delta = if (rawDelta > 0f) rawDelta - slop else rawDelta + slop
+                            val factor = kotlin.math.exp((delta / 300f).toDouble()).toFloat()
+                            val targetZoom = (zoomToolStartCanvasZoom * factor).coerceIn(0.02f, 128f)
+                            val ratio = targetZoom / zoomToolStartCanvasZoom
+                            val anchorOffsetX = zoomToolStartPos.x - viewW / 2f - zoomToolStartPanX
+                            val anchorOffsetY = zoomToolStartPos.y - viewH / 2f - zoomToolStartPanY
+                            canvasZoom = targetZoom
+                            canvasPanX = zoomToolStartPos.x - viewW / 2f - ratio * anchorOffsetX
+                            canvasPanY = zoomToolStartPos.y - viewH / 2f - ratio * anchorOffsetY
+                            onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+                            invalidate()
+                        }
+                    }
+                    return true
+                }
+
                 val isShiftTraceAlign = v.anim.shiftTraceActive && v.anim.shiftTraceGestureMode == ShiftTraceGestureMode.ALIGN_FRAME
                 if (isSinglePointerPan) {
                     if (isShiftTraceAlign) {
@@ -6468,6 +6676,27 @@ class CanvasTouchView(context: Context) : View(context) {
             }
 
             MotionEvent.ACTION_UP, MotionEvent.ACTION_CANCEL -> {
+                if (isZoomTool) {
+                    if (isZoomToolDragging) {
+                        isZoomToolDragging = false
+                        val elapsed = nowMs - zoomToolStartDownTime
+                        val dist = kotlin.math.hypot(screenPos.x - zoomToolStartPos.x, screenPos.y - zoomToolStartPos.y)
+                        val slop = 8f * density
+                        if (elapsed < 300L && dist < slop) {
+                            val targetZoom = (zoomToolStartCanvasZoom * 1.25f).coerceIn(0.02f, 128f)
+                            val ratio = targetZoom / zoomToolStartCanvasZoom
+                            val anchorOffsetX = zoomToolStartPos.x - viewW / 2f - zoomToolStartPanX
+                            val anchorOffsetY = zoomToolStartPos.y - viewH / 2f - zoomToolStartPanY
+                            canvasZoom = targetZoom
+                            canvasPanX = zoomToolStartPos.x - viewW / 2f - ratio * anchorOffsetX
+                            canvasPanY = zoomToolStartPos.y - viewH / 2f - ratio * anchorOffsetY
+                            onTransform?.invoke(canvasZoom, canvasRotation, canvasPanX, canvasPanY)
+                        }
+                    }
+                    isInteracting = false
+                    invalidate()
+                    return true
+                }
                 clearPredictionState(triggerInvalidate = true)
                 removeCallbacks(longPressRunnable)
                 longPressToken++

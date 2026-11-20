@@ -3231,6 +3231,7 @@
     <string name="create_target_folder_chip">所属スタック: %s</string>
     <string name="create_target_folder_detach">スタックから外す</string>
     <string name="tool_pan">手のひら</string>
+    <string name="tool_zoom">ズーム</string>
     <string name="crash_report_auto_reporting">クラッシュレポートは自動的かつ匿名で送信されます、設定で無効にできます</string>
     <string name="crash_report_auto_off">自動送信は無効です</string>
     <string name="crash_report_upload_once">このレポートのみ送信</string>
@@ -3259,6 +3260,7 @@
     <string name="toast_eraser_mode_off">消しゴムモードを無効にしました</string>
     <string name="toast_eraser_mode_require_brush">先にブラシツールを選択してください</string>
     <string name="shortcut_def_tool_pan">手のひらツール</string>
+    <string name="shortcut_def_tool_zoom">ズームツール</string>
     <string name="shortcut_cat_view">表示</string>
     <string name="shortcut_cat_edit">編集</string>
     <string name="shortcut_cat_selection">選択範囲</string>

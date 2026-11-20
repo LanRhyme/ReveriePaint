@@ -486,6 +486,7 @@
     <string name="tool_symmetry">Symmetry</string>
     <string name="tool_perspective">Perspective</string>
     <string name="tool_pan">Pan</string>
+    <string name="tool_zoom">Zoom</string>
 
     <!-- Default Project & Layer Names -->
     <string name="project_default_name">Untitled Artwork</string>
@@ -642,6 +643,7 @@
     <string name="shortcut_def_crop">Crop Tool</string>
     <string name="shortcut_def_transform">Transform Tool</string>
     <string name="shortcut_def_tool_pan">Pan Tool</string>
+    <string name="shortcut_def_tool_zoom">Zoom Tool</string>
     <string name="shortcut_def_filter_hsv">Hue/Saturation/Value</string>
     <string name="shortcut_def_filter_curves">Color Curves</string>
     <string name="shortcut_def_filter_blur">Gaussian Blur</string>
