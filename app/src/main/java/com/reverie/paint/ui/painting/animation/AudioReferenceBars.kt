@@ -46,15 +46,14 @@ internal fun AudioReferenceBars(vm: PaintViewModel, headerWidth: androidx.compos
     val clips = vm.anim.audioClips
     if (clips.isEmpty()) return
 
-    Column(modifier = Modifier.fillMaxWidth().padding(bottom = 3.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(start = headerWidth, bottom = 3.dp)) {
         clips.forEach { clip ->
             var showRemove by remember(clip.name) { mutableStateOf(false) }
             val density = LocalDensity.current
             val frameWidth = vm.anim.frameWidthPx
             val widthPx = (clip.durationFrames * frameWidth).coerceAtLeast(with(density) { 60.dp.toPx() })
             val widthDp = with(density) { widthPx.toDp() }
-            val xPx = with(density) { headerWidth.toPx() } +
-                clip.startFrame * frameWidth - vm.anim.scrollPx
+            val xPx = clip.startFrame * frameWidth - vm.anim.scrollPx
             val label = clip.name.substringAfterLast('/').takeLast(24)
 
             Box(

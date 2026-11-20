@@ -5,9 +5,9 @@
 package com.reverie.paint.core
 
 import android.graphics.Bitmap
+import androidx.lifecycle.viewModelScope
 import com.reverie.paint.R
 import com.reverie.paint.model.AudioClip
-import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -123,7 +123,7 @@ private fun PaintViewModel.startAnimAudio() {
                 .getOrNull()?.takeIf { it.isNotEmpty() } ?: continue
             payloads += clip to bytes
         }
-        CoroutineScope(Dispatchers.IO).launch {
+        viewModelScope.launch(Dispatchers.IO) {
             val dir = java.io.File(appContext.cacheDir, "anim_audio").apply { mkdirs() }
             val files = payloads.mapNotNull { (clip, bytes) ->
                 runCatching {

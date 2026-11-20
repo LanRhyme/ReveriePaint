@@ -2098,6 +2098,7 @@ internal fun PaintViewModel.copySelectionToClipboard() {
 }
 
 internal fun PaintViewModel.pasteSelectionClipboard() {
+    if (anim.enabled && anim.isPlaying) return
     val bitmap = selectionClipboard
     if (bitmap == null || bitmap.isRecycled) {
         editCanvasClipboard(paste = true)
@@ -2105,11 +2106,32 @@ internal fun PaintViewModel.pasteSelectionClipboard() {
     }
     val x = selectionClipboardX
     val y = selectionClipboardY
+    var pasted = false
     runCore(after = {
-        notifyLayerChanged(contentChanged = true)
-        showActionToast(R.string.selection_pasted)
+        if (pasted) {
+            notifyLayerChanged(contentChanged = true)
+            showActionToast(R.string.selection_pasted)
+        } else {
+            showActionToast(R.string.canvas_edit_failed, R.drawable.ic_copy)
+        }
     }) {
+        if (anim.enabled) {
+            val layer = ReverieCoreBridge.currentLayerIndex()
+            if (layer <= 0 || isStoryboardTrackOnRenderThread(layer) ||
+                !ReverieCoreBridge.layerAnimatable(layer) || ReverieCoreBridge.layerLocked(layer)
+            ) {
+                return@runCore
+            }
+            prepareAnimationCel(
+                layer,
+                ReverieCoreBridge.animationCurrentTime(),
+                preserveDrawing = true,
+            )
+        }
+        // stampBitmap writes directly to the paint device, so it does not apply m_selection.
+        // Keep the user's active selection intact while pasting.
         ReverieCoreBridge.stampBitmap(x, y, bitmap)
+        pasted = true
     }
 }
 
@@ -2119,28 +2141,36 @@ internal fun PaintViewModel.cutSelectionToClipboard() {
         editCanvasClipboard(cut = true)
         return
     }
-    copySelectedPixelsToClipboard { copied ->
-        if (copied) editCanvasClipboard(cut = true)
-    }
+    copySelectedPixelsToClipboard(cut = true)
 }
 
-private fun PaintViewModel.copySelectedPixelsToClipboard(onCopied: (Boolean) -> Unit = {}) {
+private fun PaintViewModel.copySelectedPixelsToClipboard(cut: Boolean = false) {
     var copied: android.graphics.Bitmap? = null
     var offsetX = 0
     var offsetY = 0
-    runCore(after = {
+    var cutSucceeded = !cut
+    runCore(render = cut, after = {
         val bitmap = copied
-        if (bitmap == null) {
+        if (bitmap == null || !cutSucceeded) {
+            if (bitmap != null && !bitmap.isRecycled) bitmap.recycle()
+            if (cut && bitmap != null) {
+                showActionToast(R.string.canvas_edit_failed, R.drawable.ic_copy)
+                return@runCore
+            }
             showActionToast(R.string.toast_selection_empty_pixels, R.drawable.ic_lasso)
-            onCopied(false)
         } else {
             clearSelectionClipboard()
             selectionClipboard = bitmap
             selectionClipboardX = offsetX
             selectionClipboardY = offsetY
             selectionClipboardAvailable = true
-            showActionToast(R.string.selection_copied)
-            onCopied(true)
+            if (cut) {
+                notifyLayerChanged(pixelChanged = true)
+                refreshCanvasEditCapabilities()
+                showActionToast(R.string.selection_cut)
+            } else {
+                showActionToast(R.string.selection_copied)
+            }
         }
     }) {
         val mask = ReverieCoreBridge.selectionMask()
@@ -2201,6 +2231,9 @@ private fun PaintViewModel.copySelectedPixelsToClipboard(onCopied: (Boolean) -> 
         )
         offsetX = minX
         offsetY = minY
+        if (cut) {
+            cutSucceeded = ReverieCoreBridge.copyCanvasToClipboard(cut = true)
+        }
     }
 }
 

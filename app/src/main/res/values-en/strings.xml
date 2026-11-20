@@ -1452,6 +1452,7 @@
     <string name="selection_copy_plain">Copy only</string>
     <string name="selection_paste">Paste</string>
     <string name="selection_copied">Selection copied</string>
+    <string name="selection_cut">Selection cut</string>
     <string name="selection_pasted">Pasted into current layer</string>
     <string name="selection_clipboard_empty">Clipboard is empty</string>
     <string name="selection_complete_close">Close Curve</string>

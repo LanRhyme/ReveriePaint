@@ -240,23 +240,21 @@ internal fun PaintViewModel.animationRemoveAudio(name: String) {
             anim.hiddenAssets = anim.hiddenAssets + name
             anim.audioAssets = anim.audioAssets - name
             anim.audioClips = AnimationAudioClips.without(anim.audioClips, name)
-            java.io.File(appContext.cacheDir, "anim_audio").resolve(name.replace('/', '_')).delete()
             anim.cachedAudioFile = null
             anim.audioWaveform = emptyList()
             isModified = true
             showActionToast(R.string.anim_audio_removed)
-            if (anim.audioAssets.isNotEmpty()) {
-                runCore { syncAnimationFromNative() }
+            viewModelScope.launch(Dispatchers.IO) {
+                java.io.File(appContext.cacheDir, "anim_audio")
+                    .resolve(name.replace('/', '_'))
+                    .delete()
             }
         }
     }) {
         if (generation != anim.storyboard.generation) return@runCore
         val clips = AnimationAudioClips.without(loadAudioClipsOnRenderThread(), name)
-        anim.hiddenAssets = anim.hiddenAssets + name
         ReverieCoreBridge.storeRevAsset(name, ByteArray(0))
         saveAudioClipsOnRenderThread(clips)
-        anim.audioWaveform = emptyList()
-        anim.cachedAudioFile = null
         removed = true
     }
 }

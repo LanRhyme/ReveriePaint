@@ -236,7 +236,10 @@ internal fun StoryboardReferenceBar(
                         state = listState,
                         modifier = Modifier.fillMaxWidth().heightIn(max = 360.dp),
                     ) {
-                        itemsIndexed(cues) { index, cue ->
+                        itemsIndexed(
+                            items = cues,
+                            key = { _, cue -> "${cue.startMs}:${cue.endMs}" },
+                        ) { index, cue ->
                             val targetFrame = frames.getOrNull(index)
                             val focusRequester = remember(index) { FocusRequester() }
                             val autoFocus = state.singleFrameMode && index == focusReadyIndex &&
@@ -359,6 +362,7 @@ private fun StoryboardCueEditor(
 
     LaunchedEffect(autoFocus) {
         if (autoFocus) {
+            value = value.copy(selection = TextRange(0))
             focusRequester.requestFocus()
             onAutoFocus()
         }

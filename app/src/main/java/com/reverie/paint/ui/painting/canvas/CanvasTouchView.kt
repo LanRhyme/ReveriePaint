@@ -2375,7 +2375,15 @@ class CanvasTouchView(context: Context) : View(context) {
             val dStart = dir(firstPt)
             if (guide.fisheyeSnapTarget == com.reverie.paint.model.FISHEYE_SNAP_CENTER_RAY) {
                 assistFisheyeFamily = 2
-                assistFisheyeA = FisheyeGuideGeometry.azimuthOf(dStart.first, dStart.second)
+                if (hypot(dStart.first, dStart.second) <= 1e-6) {
+                    val s0 = docToScreen(firstPt)
+                    val s1 = docToScreen(currentPt)
+                    if (hypot(s1.x - s0.x, s1.y - s0.y) < 3f * density) return currentPt
+                    val dCurrent = dir(currentPt)
+                    assistFisheyeA = FisheyeGuideGeometry.azimuthOf(dCurrent.first, dCurrent.second)
+                } else {
+                    assistFisheyeA = FisheyeGuideGeometry.azimuthOf(dStart.first, dStart.second)
+                }
                 assistFisheyeLocked = true
             } else {
                 // 合并后的弧线模式: 起笔后按初始运笔方向选横/纵弧, 参数直接取
@@ -2390,8 +2398,8 @@ class CanvasTouchView(context: Context) : View(context) {
                     dStart.first,
                     dStart.second,
                     dStart.third,
-                    sdx.toDouble(),
-                    sdy.toDouble(),
+                    (currentPt.x - firstPt.x).toDouble(),
+                    (currentPt.y - firstPt.y).toDouble(),
                     centerX,
                     centerY,
                     radius,
