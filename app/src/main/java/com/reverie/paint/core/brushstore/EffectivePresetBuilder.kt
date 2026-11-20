@@ -60,18 +60,26 @@ object EffectivePresetBuilder {
     }
 
     /** 按 id 生成有效字节；没有快照返回 null */
-    fun buildFor(id: String): ByteArray? {
+    fun buildFor(id: String, resources: ResourceStore? = BrushStoreBootstrap.resourceStore): ByteArray? {
         val snap = PresetSnapshotStore.snapshotFile(id) ?: return null
-        return build(snap.readBytes(), snap.extension, BrushOverrideStore.get(id), BrushThumbStore.get(id))
+        val built = build(snap.readBytes(), snap.extension, BrushOverrideStore.get(id), BrushThumbStore.get(id))
+        if (resources != null && snap.extension.equals("kpp", ignoreCase = true)) {
+            return TipFilenameHeal.apply(built, resources.dirFor(ResourceStore.Kind.TIP), resources)
+        }
+        return built
     }
 
     fun targetFile(presetDir: File, e: BrushIdentity.Entry): File = File(presetDir, "${e.name}.${e.ext}")
 
-    fun materialize(id: String, presetDir: File): Result? {
+    fun materialize(
+        id: String,
+        presetDir: File,
+        resources: ResourceStore? = BrushStoreBootstrap.resourceStore,
+    ): Result? {
         val e = BrushIdentity.entry(id) ?: return null
         val t0 = System.nanoTime()
         val bytes = try {
-            buildFor(id)
+            buildFor(id, resources)
         } catch (t: Throwable) {
             BrushDiagnostics.log("build_failed", "id" to id, "err" to t.toString())
             null
