@@ -1351,12 +1351,31 @@ internal fun PaintViewModel.setGroupPassThrough(
     }
 }
 
-internal fun PaintViewModel.mergeDown(i: Int) {
+internal fun PaintViewModel.mergeDown(i: Int, onResult: ((Boolean) -> Unit)? = null) {
     if (transientTransformSelectionPending || canUndoTransformSelection || canRedoTransformSelection) {
         discardTransientTransformSelection()
     }
-    runLayerCore(after = ::notifyLayerChanged) {
-        ReverieCoreBridge.mergeDown(i)
+    val upper = layers.getOrNull(i)
+    if (upper == null || upper.isBackground || upper.locked || upper.nodeType == LayerNodeType.ADJUSTMENT) {
+        if (upper?.locked == true) {
+            showActionToast(R.string.canvas_toast_layer_locked, R.drawable.ic_lock)
+        }
+        onResult?.invoke(false)
+        return
+    }
+    if (upper.isGroup) {
+        flattenGroup(i)
+        onResult?.invoke(true)
+        return
+    }
+    var ok = false
+    runLayerCore(after = {
+        if (ok) {
+            notifyLayerChanged(pixelChanged = true)
+        }
+        onResult?.invoke(ok)
+    }) {
+        ok = ReverieCoreBridge.mergeDown(i)
     }
 }
 

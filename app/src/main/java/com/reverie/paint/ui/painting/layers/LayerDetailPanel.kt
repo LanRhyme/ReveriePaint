@@ -1285,7 +1285,7 @@ internal fun LayerDetailPage(
                 }
                 OpItem(R.drawable.ic_flip_h, stringResource(R.string.layer_op_flip_h), enabled = !isFilterLayer) { vm.flipLayerHorizontal(index) }
                 OpItem(R.drawable.ic_flip_v, stringResource(R.string.layer_op_flip_v), enabled = !isFilterLayer) { vm.flipLayerVertical(index) }
-                OpItem(R.drawable.ic_merge_down, stringResource(R.string.layer_op_merge_down), enabled = !isBg && index > 0 && !isFilterLayer) {
+                OpItem(R.drawable.ic_merge_down, stringResource(R.string.layer_op_merge_down), enabled = !isBg && index > 1 && !isFilterLayer && layer?.locked != true) {
                     vm.mergeDown(index)
                     onBack()
                 }

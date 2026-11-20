@@ -1153,6 +1153,8 @@
     <string name="layer_stamp_visible">表示レイヤーのコピーを結合</string>
     <string name="layer_toast_filter_cannot_merge">フィルタレイヤーは下のレイヤーと結合できません。ラスタライズしてください</string>
     <string name="layer_toast_pinch_merged">ピンチイン：下のレイヤーと結合しました</string>
+    <string name="layer_toast_cannot_merge_background">背景レイヤーには結合できません</string>
+    <string name="layer_toast_group_flattened">ピンチイン：グループを結合しました</string>
     <string name="layer_drawer_solo">単独表示</string>
     <string name="layer_tag_fill_prefix">塗りつぶし · </string>
     <string name="layer_tag_filter_prefix">フィルタ · </string>

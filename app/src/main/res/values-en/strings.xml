@@ -1370,6 +1370,8 @@
     <string name="layer_stamp_visible">Stamp Visible</string>
     <string name="layer_toast_filter_cannot_merge">Filter layers cannot merge down, please rasterize</string>
     <string name="layer_toast_pinch_merged">Pinch: Merged layer down</string>
+    <string name="layer_toast_cannot_merge_background">Cannot merge into background layer</string>
+    <string name="layer_toast_group_flattened">Pinch: Group merged</string>
     <string name="layer_drawer_solo">Solo</string>
     <string name="layer_tag_fill_prefix">Fill · </string>
     <string name="layer_tag_filter_prefix">Filter · </string>

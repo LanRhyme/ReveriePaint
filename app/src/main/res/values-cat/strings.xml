@@ -1191,6 +1191,8 @@
     <string name="layer_stamp_visible">盖印可见图层</string>
     <string name="layer_toast_filter_cannot_merge">滤镜图层没法向下合并，先栅格化吧</string>
     <string name="layer_toast_pinch_merged">双指一捏：图层合并好啦</string>
+    <string name="layer_toast_cannot_merge_background">背景板板不能揉进去喵</string>
+    <string name="layer_toast_group_flattened">双爪一捏：图层组揉扁啦喵</string>
     <string name="layer_drawer_solo">独显</string>
     <string name="layer_tag_fill_prefix">填充 · </string>
     <string name="layer_tag_filter_prefix">滤镜 · </string>

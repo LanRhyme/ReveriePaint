@@ -746,10 +746,10 @@ internal fun LayerListView(
                 TopIcon(
                     resId = R.drawable.ic_merge_down,
                     desc = stringResource(R.string.layer_op_merge_down),
-                    enabled = selectedIndex > 0 && !isBg && !isFilter,
+                    enabled = selectedIndex > 1 && !isBg && !isFilter && selLayer?.locked != true,
                     onClick = {
                         val now = System.currentTimeMillis()
-                        if (now - lastLayerOpTime > 350L && selectedIndex > 0 && !isBg && !isFilter) {
+                        if (now - lastLayerOpTime > 350L && selectedIndex > 1 && !isBg && !isFilter && selLayer?.locked != true) {
                             lastLayerOpTime = now
                             vm.mergeDown(selectedIndex)
                         }
@@ -849,6 +849,18 @@ internal fun LayerListView(
                             var pinchTriggered = false
                             var lastMergeTime = 0L
 
+                            fun findVisualRow(y: Float): Int? {
+                                val items = listState.layoutInfo.visibleItemsInfo
+                                if (items.isEmpty()) return null
+                                val match = items.firstOrNull { y >= it.offset && y < it.offset + it.size }
+                                if (match != null) return match.index
+                                return when {
+                                    y < items.first().offset -> items.first().index
+                                    y >= items.last().offset + items.last().size -> items.last().index
+                                    else -> null
+                                }
+                            }
+
                             while (true) {
                                 val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
                                 if (draggingFrom >= 0) {
@@ -876,32 +888,39 @@ internal fun LayerListView(
 
                                     if (pinchStartDist == 0f) {
                                         if (displayList.isEmpty()) continue
+                                        val r1 = findVisualRow(p1.position.y) ?: continue
+                                        val r2 = findVisualRow(p2.position.y) ?: continue
+                                        if (r1 == r2) continue
                                         pinchStartDist = dist
-                                        val maxIdx = (displayList.size - 1).coerceAtLeast(0)
-                                        pinchRow1 = ((p1.position.y) / rowPx).toInt().coerceIn(0, maxIdx)
-                                        pinchRow2 = ((p2.position.y) / rowPx).toInt().coerceIn(0, maxIdx)
-                                    } else if (!pinchTriggered && (now - lastMergeTime > 1200L) && (pinchStartDist - dist > 48.dp.toPx())) {
+                                        pinchRow1 = r1
+                                        pinchRow2 = r2
+                                    } else if (!pinchTriggered && (now - lastMergeTime > 800L) && (pinchStartDist - dist > 32.dp.toPx())) {
                                         val topVisual = minOf(pinchRow1, pinchRow2)
                                         val bottomVisual = maxOf(pinchRow1, pinchRow2)
-                                        if (topVisual < bottomVisual && topVisual in displayList.indices) {
+                                        if (topVisual < bottomVisual && topVisual in displayList.indices && bottomVisual in displayList.indices) {
                                             val upperLayer = displayList[topVisual]
-                                            val isBg = upperLayer.index == 0 || upperLayer.name == "背景" || upperLayer.name.equals("Background", ignoreCase = true)
-                                            val isFilter = upperLayer.nodeType == 3
-                                            if (!isBg) {
-                                                if (isFilter) {
-                                                    pinchTriggered = true
-                                                    lastMergeTime = now
-                                                    p1.consume()
-                                                    p2.consume()
-                                                    vm.showActionToast(context.getString(R.string.layer_toast_filter_cannot_merge), com.reverie.paint.R.drawable.ic_image_adjust)
-                                                } else {
-                                                    pinchTriggered = true
-                                                    lastMergeTime = now
-                                                    p1.consume()
-                                                    p2.consume()
-                                                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                    vm.mergeDown(upperLayer.index)
-                                                    vm.showActionToast(pinchMergedMsg, com.reverie.paint.R.drawable.ic_merge_down)
+                                            val lowerLayer = displayList[bottomVisual]
+                                            pinchTriggered = true
+                                            lastMergeTime = now
+                                            p1.consume()
+                                            p2.consume()
+
+                                            if (lowerLayer.isBackground || upperLayer.isBackground) {
+                                                vm.showActionToast(context.getString(R.string.layer_toast_cannot_merge_background), com.reverie.paint.R.drawable.ic_lock)
+                                            } else if (upperLayer.locked || lowerLayer.locked) {
+                                                vm.showActionToast(context.getString(R.string.canvas_toast_layer_locked), com.reverie.paint.R.drawable.ic_lock)
+                                            } else if (upperLayer.nodeType == 3 || lowerLayer.nodeType == 3) {
+                                                vm.showActionToast(context.getString(R.string.layer_toast_filter_cannot_merge), com.reverie.paint.R.drawable.ic_image_adjust)
+                                            } else if (upperLayer.isGroup) {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                vm.flattenGroup(upperLayer.index)
+                                                vm.showActionToast(context.getString(R.string.layer_toast_group_flattened), com.reverie.paint.R.drawable.ic_merge_down)
+                                            } else {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                vm.mergeDown(upperLayer.index) { ok ->
+                                                    if (ok) {
+                                                        vm.showActionToast(pinchMergedMsg, com.reverie.paint.R.drawable.ic_merge_down)
+                                                    }
                                                 }
                                             }
                                         }

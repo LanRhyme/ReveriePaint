@@ -1153,6 +1153,8 @@
     <string name="layer_stamp_visible">蓋印可見圖層</string>
     <string name="layer_toast_filter_cannot_merge">濾鏡圖層不支援向下合併，請使用柵格化</string>
     <string name="layer_toast_pinch_merged">雙指捏合：已向下合併圖層</string>
+    <string name="layer_toast_cannot_merge_background">背景圖層不支援向下合併</string>
+    <string name="layer_toast_group_flattened">雙指捏合：已合併圖層組</string>
     <string name="layer_drawer_solo">獨顯</string>
     <string name="layer_tag_fill_prefix">填充 · </string>
     <string name="layer_tag_filter_prefix">濾鏡 · </string>
