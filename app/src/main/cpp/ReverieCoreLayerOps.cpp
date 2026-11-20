@@ -235,23 +235,49 @@ bool ReverieCore::mergeDown(int index)
     if (!src || !dst) {
         return false;
     }
+    KisNode *targetNode = m_layers[ti].node;
+    const quint8 targetOpacity = targetNode->opacity();
+    const quint8 srcOpacity = e.node->opacity();
+
     // Krita-native undo: the pixel merge is one transaction, the layer
     // removal is a remove command. Commit order matters: txn first, remove
     KisTransaction txn(kundo2_i18n("Merge Down"), dst);
+
+    QRect dstBounds;
+    if (targetOpacity < 255) {
+        dstBounds = dst->exactBounds();
+        if (!dstBounds.isEmpty()) {
+            KisPaintDeviceSP tempDst = new KisPaintDevice(dst->colorSpace());
+            tempDst->makeCloneFrom(dst, dstBounds);
+            dst->clear();
+            KisPainter p(dst);
+            p.setOpacityF(qreal(targetOpacity) / 255.0);
+            p.bitBlt(dstBounds.x(), dstBounds.y(), tempDst, dstBounds.x(), dstBounds.y(), dstBounds.width(), dstBounds.height());
+            p.end();
+        }
+    }
+
     const QRect ext = src->exactBounds();
     if (!ext.isEmpty()) {
         KisPainter painter(dst);
-        painter.setOpacityF(qreal(e.node->opacity()) / 255.0);
+        painter.setOpacityF(qreal(srcOpacity) / 255.0);
         painter.setCompositeOpId(e.node->compositeOpId());
         if (e.clipped) {
             painter.setChannelFlags(dst->colorSpace()->channelFlags(true, false));
         }
         painter.bitBlt(ext.x(), ext.y(), src, ext.x(), ext.y(), ext.width(), ext.height());
-        dst->setDirty(ext);
     }
-    KisNode *targetNode = m_layers[ti].node;
+
+    const QRect fullExt = ext | dstBounds;
+    if (!fullExt.isEmpty()) {
+        dst->setDirty(fullExt);
+    }
+
     beginUndoMacro(QStringLiteral("向下合并"));
     pushUndoCommand(txn.endAndTake());
+    if (targetOpacity < 255) {
+        pushUndoCommand(new KisNodeOpacityCommand(KisNodeSP(targetNode), OPACITY_OPAQUE_U8));
+    }
     pushUndoCommand(new KisImageLayerRemoveCommand(image, KisNodeSP(e.node)));
     endUndoMacro();
     recompositeProjection();
