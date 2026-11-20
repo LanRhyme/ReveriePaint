@@ -66,6 +66,7 @@ import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.updateBrushColor
 import com.reverie.paint.model.DragGripSpec
 import com.reverie.paint.model.UiPanelSlot
+import com.reverie.paint.model.isFloatingWindowUnpositioned
 import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.components.evadablePanelContent
@@ -152,13 +153,14 @@ fun ReferenceWindow(
     Box(
         modifier = modifier
             .offset {
-                val x = if (vm.referenceWindowX >= 0f) {
+                val unpositioned = isFloatingWindowUnpositioned(vm.referenceWindowX, vm.referenceWindowY)
+                val x = if (!unpositioned) {
                     vm.referenceWindowX.roundToInt()
                 } else {
                     val panelWPx = with(density) { vm.referenceWindowWidth.dp.toPx() }
                     ((screenWidthPx - panelWPx) / 2f).coerceAtLeast(0f).roundToInt()
                 }
-                val y = if (vm.referenceWindowY >= 0f) {
+                val y = if (!unpositioned) {
                     vm.referenceWindowY.roundToInt()
                 } else {
                     val panelHPx = with(density) { vm.referenceWindowHeight.dp.toPx() }
@@ -502,12 +504,10 @@ fun ReferenceWindow(
                     .pointerInput(Unit) {
                         detectDragGestures(
                             onDragStart = {
-                                val panelWPx = with(density) { vm.referenceWindowWidth.dp.toPx() }
-                                val panelHPx = with(density) { vm.referenceWindowHeight.dp.toPx() }
-                                if (vm.referenceWindowX < 0f) {
+                                if (isFloatingWindowUnpositioned(vm.referenceWindowX, vm.referenceWindowY)) {
+                                    val panelWPx = with(density) { vm.referenceWindowWidth.dp.toPx() }
+                                    val panelHPx = with(density) { vm.referenceWindowHeight.dp.toPx() }
                                     vm.referenceWindowX = ((screenWidthPx - panelWPx) / 2f).coerceAtLeast(0f)
-                                }
-                                if (vm.referenceWindowY < 0f) {
                                     vm.referenceWindowY = ((screenHeightPx - panelHPx) / 2f).coerceAtLeast(0f)
                                 }
                             },
@@ -556,12 +556,10 @@ fun ReferenceWindow(
                 },
                 onOpenAlbum = { showAlbumPicker = true },
                 onDrag = { dx, dy ->
-                    val panelWPx = with(density) { vm.referenceWindowWidth.dp.toPx() }
-                    val panelHPx = with(density) { vm.referenceWindowHeight.dp.toPx() }
-                    if (vm.referenceWindowX < 0f) {
+                    if (isFloatingWindowUnpositioned(vm.referenceWindowX, vm.referenceWindowY)) {
+                        val panelWPx = with(density) { vm.referenceWindowWidth.dp.toPx() }
+                        val panelHPx = with(density) { vm.referenceWindowHeight.dp.toPx() }
                         vm.referenceWindowX = ((screenWidthPx - panelWPx) / 2f).coerceAtLeast(0f)
-                    }
-                    if (vm.referenceWindowY < 0f) {
                         vm.referenceWindowY = ((screenHeightPx - panelHPx) / 2f).coerceAtLeast(0f)
                     }
                     vm.referenceWindowX += dx

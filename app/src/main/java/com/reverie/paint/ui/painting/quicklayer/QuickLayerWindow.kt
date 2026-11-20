@@ -62,6 +62,7 @@ import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.DragGripSpec
 import com.reverie.paint.model.UiPanelSlot
+import com.reverie.paint.model.isFloatingWindowUnpositioned
 import com.reverie.paint.ui.components.PanelCloseButton
 import com.reverie.paint.ui.components.ReDropdownMenu
 import com.reverie.paint.ui.components.ReDropdownMenuItem
@@ -170,13 +171,14 @@ fun QuickLayerWindow(
     Box(
         modifier = modifier
             .offset {
-                val x = if (vm.quickLayerWindowX >= 0f) {
+                val unpositioned = isFloatingWindowUnpositioned(vm.quickLayerWindowX, vm.quickLayerWindowY)
+                val x = if (!unpositioned) {
                     vm.quickLayerWindowX.roundToInt()
                 } else {
                     val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
                     ((screenWidthPx - curW) / 2f).coerceAtLeast(0f).roundToInt()
                 }
-                val y = if (vm.quickLayerWindowY >= 0f) {
+                val y = if (!unpositioned) {
                     vm.quickLayerWindowY.roundToInt()
                 } else {
                     val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
@@ -224,12 +226,10 @@ fun QuickLayerWindow(
                         .pointerInput(Unit) {
                             detectDragGestures(
                                 onDragStart = {
-                                    val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
-                                    val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
-                                    if (vm.quickLayerWindowX < 0f) {
+                                    if (isFloatingWindowUnpositioned(vm.quickLayerWindowX, vm.quickLayerWindowY)) {
+                                        val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
+                                        val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
                                         vm.quickLayerWindowX = ((screenWidthPx - curW) / 2f).coerceAtLeast(0f)
-                                    }
-                                    if (vm.quickLayerWindowY < 0f) {
                                         vm.quickLayerWindowY = ((screenHeightPx - curH) / 2f).coerceAtLeast(0f)
                                     }
                                 },
@@ -310,12 +310,10 @@ fun QuickLayerWindow(
                             .pointerInput(Unit) {
                                 detectDragGestures(
                                     onDragStart = {
-                                        val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
-                                        val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
-                                        if (vm.quickLayerWindowX < 0f) {
+                                        if (isFloatingWindowUnpositioned(vm.quickLayerWindowX, vm.quickLayerWindowY)) {
+                                            val curW = if (windowSize.width > 0) windowSize.width.toFloat() else defaultW
+                                            val curH = if (windowSize.height > 0) windowSize.height.toFloat() else defaultH
                                             vm.quickLayerWindowX = ((screenWidthPx - curW) / 2f).coerceAtLeast(0f)
-                                        }
-                                        if (vm.quickLayerWindowY < 0f) {
                                             vm.quickLayerWindowY = ((screenHeightPx - curH) / 2f).coerceAtLeast(0f)
                                         }
                                     },
