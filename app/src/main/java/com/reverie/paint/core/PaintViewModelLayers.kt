@@ -1402,12 +1402,26 @@ internal fun PaintViewModel.toggleSoloRawMode() {
 // State lives in PaintViewModel (selectedLayerIndices); these are helpers.
 
 internal fun PaintViewModel.toggleLayerSelection(index: Int) {
-    selectedLayerIndices =
-        if (index in selectedLayerIndices) {
-            selectedLayerIndices - index
-        } else {
-            selectedLayerIndices + index
-        }
+    val current = currentLayerIndex
+    val curLayer = layers.getOrNull(current)
+    val canIncludeCurrent = curLayer != null && !curLayer.isBackground && current > 0
+
+    val base = if (selectedLayerIndices.isEmpty() && canIncludeCurrent && index != current) {
+        setOf(current)
+    } else {
+        selectedLayerIndices
+    }
+
+    val newSet = if (index in base) {
+        base - index
+    } else {
+        base + index
+    }
+    selectedLayerIndices = if (newSet.size == 1 && current in newSet) {
+        emptySet()
+    } else {
+        newSet
+    }
     android.util.Log.d("ReverieLq", "toggle($index) -> $selectedLayerIndices")
 }
 

@@ -841,25 +841,11 @@ internal fun LayerListView(
                         listWidth = b.width
                         listHeight = b.height
                     }
-                    .pointerInput(displayList, draggingFrom) {
+                    .pointerInput(draggingFrom) {
                         awaitPointerEventScope {
                             var pinchStartDist = 0f
-                            var pinchRow1 = -1
-                            var pinchRow2 = -1
                             var pinchTriggered = false
                             var lastMergeTime = 0L
-
-                            fun findVisualRow(y: Float): Int? {
-                                val items = listState.layoutInfo.visibleItemsInfo
-                                if (items.isEmpty()) return null
-                                val match = items.firstOrNull { y >= it.offset && y < it.offset + it.size }
-                                if (match != null) return match.index
-                                return when {
-                                    y < items.first().offset -> items.first().index
-                                    y >= items.last().offset + items.last().size -> items.last().index
-                                    else -> null
-                                }
-                            }
 
                             while (true) {
                                 val event = awaitPointerEvent(androidx.compose.ui.input.pointer.PointerEventPass.Initial)
@@ -884,50 +870,64 @@ internal fun LayerListView(
                                 if (pressedChanges.size == 2) {
                                     val p1 = pressedChanges[0]
                                     val p2 = pressedChanges[1]
-                                    val dist = kotlin.math.abs(p1.position.y - p2.position.y)
+                                    val dist = kotlin.math.hypot(p1.position.x - p2.position.x, p1.position.y - p2.position.y)
 
                                     if (pinchStartDist == 0f) {
-                                        if (displayList.isEmpty()) continue
-                                        val r1 = findVisualRow(p1.position.y) ?: continue
-                                        val r2 = findVisualRow(p2.position.y) ?: continue
-                                        if (r1 == r2) continue
                                         pinchStartDist = dist
-                                        pinchRow1 = r1
-                                        pinchRow2 = r2
-                                    } else if (!pinchTriggered && (now - lastMergeTime > 800L) && (pinchStartDist - dist > 32.dp.toPx())) {
-                                        val topVisual = minOf(pinchRow1, pinchRow2)
-                                        val bottomVisual = maxOf(pinchRow1, pinchRow2)
-                                        if (topVisual < bottomVisual && topVisual in displayList.indices && bottomVisual in displayList.indices) {
-                                            val upperLayer = displayList[topVisual]
-                                            val lowerLayer = displayList[bottomVisual]
-                                            pinchTriggered = true
-                                            lastMergeTime = now
-                                            p1.consume()
-                                            p2.consume()
+                                    } else if (dist > pinchStartDist) {
+                                        pinchStartDist = dist
+                                    } else if (!pinchTriggered && (now - lastMergeTime > 800L) && (pinchStartDist - dist > 24.dp.toPx())) {
+                                        pinchTriggered = true
+                                        lastMergeTime = now
+                                        p1.consume()
+                                        p2.consume()
 
-                                            if (lowerLayer.isBackground || upperLayer.isBackground) {
+                                        val curIdx = if (selectedIndex in vm.layers.indices) selectedIndex else vm.currentLayerIndex
+                                        val curLayer = vm.layers.getOrNull(curIdx)
+
+                                        if (curLayer == null || curLayer.isBackground) {
+                                            vm.showActionToast(context.getString(R.string.layer_toast_cannot_merge_background), com.reverie.paint.R.drawable.ic_lock)
+                                        } else if (curLayer.locked) {
+                                            vm.showActionToast(context.getString(R.string.canvas_toast_layer_locked), com.reverie.paint.R.drawable.ic_lock)
+                                        } else if (curLayer.nodeType == 3) {
+                                            vm.showActionToast(context.getString(R.string.layer_toast_filter_cannot_merge), com.reverie.paint.R.drawable.ic_image_adjust)
+                                        } else if (curLayer.isGroup) {
+                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            vm.flattenGroup(curIdx)
+                                            vm.clearLayerSelection()
+                                            vm.showActionToast(context.getString(R.string.layer_toast_group_flattened), com.reverie.paint.R.drawable.ic_merge_down)
+                                        } else {
+                                            var ti = curIdx - 1
+                                            while (ti > 0 && vm.layers.getOrNull(ti)?.isGroup == true) {
+                                                ti--
+                                            }
+                                            val lowerLayer = vm.layers.getOrNull(ti)
+                                            if (lowerLayer == null || lowerLayer.isBackground || ti < 1) {
                                                 vm.showActionToast(context.getString(R.string.layer_toast_cannot_merge_background), com.reverie.paint.R.drawable.ic_lock)
-                                            } else if (upperLayer.locked || lowerLayer.locked) {
+                                            } else if (lowerLayer.locked) {
                                                 vm.showActionToast(context.getString(R.string.canvas_toast_layer_locked), com.reverie.paint.R.drawable.ic_lock)
-                                            } else if (upperLayer.nodeType == 3 || lowerLayer.nodeType == 3) {
+                                            } else if (lowerLayer.nodeType == 3) {
                                                 vm.showActionToast(context.getString(R.string.layer_toast_filter_cannot_merge), com.reverie.paint.R.drawable.ic_image_adjust)
-                                            } else if (upperLayer.isGroup) {
-                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                vm.flattenGroup(upperLayer.index)
-                                                vm.showActionToast(context.getString(R.string.layer_toast_group_flattened), com.reverie.paint.R.drawable.ic_merge_down)
                                             } else {
                                                 haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                                vm.mergeDown(upperLayer.index) { ok ->
+                                                vm.mergeDown(curIdx) { ok ->
                                                     if (ok) {
+                                                        vm.clearLayerSelection()
                                                         vm.showActionToast(pinchMergedMsg, com.reverie.paint.R.drawable.ic_merge_down)
                                                     }
                                                 }
                                             }
                                         }
                                     }
-                                } else if (pressedChanges.isEmpty()) {
-                                    pinchStartDist = 0f
-                                    pinchTriggered = false
+                                } else {
+                                    if (pressedChanges.isEmpty()) {
+                                        pinchStartDist = 0f
+                                        pinchTriggered = false
+                                    } else if (pinchTriggered) {
+                                        pressedChanges.forEach { it.consume() }
+                                    } else {
+                                        pinchStartDist = 0f
+                                    }
                                 }
                             }
                         }
