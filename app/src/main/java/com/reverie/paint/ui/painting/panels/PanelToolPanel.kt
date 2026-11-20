@@ -17,8 +17,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
+import com.reverie.paint.ui.components.ReSwitch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -215,12 +214,11 @@ private fun PanelPropertiesSection(vm: PaintViewModel, mirror: PanelMirror?) {
                 fontSize = 12.sp,
                 modifier = Modifier.weight(1f),
             )
-            Switch(
+            ReSwitch(
                 checked = if (divideMode) vm.panelSnapAxis else vm.panelSnapPageCenter,
-                onCheckedChange = { on ->
+                onChecked = { on ->
                     if (divideMode) vm.setPanelSnapAxis(on) else vm.setPanelSnapPageCenter(on)
                 },
-                colors = MorandiSwitchColors(),
             )
         }
         Row(
@@ -241,10 +239,9 @@ private fun PanelPropertiesSection(vm: PaintViewModel, mirror: PanelMirror?) {
                     colorArgb = style.fillColor ?: d.fillColor,
                     onPick = { argb -> commitStyle(style.copy(fillColor = argb)) },
                 )
-                Switch(
+                ReSwitch(
                     checked = style.fillEnabled ?: d.fillEnabled,
-                    onCheckedChange = { on -> commitStyle(style.copy(fillEnabled = on)) },
-                    colors = MorandiSwitchColors(),
+                    onChecked = { on -> commitStyle(style.copy(fillEnabled = on)) },
                 )
             }
         }
@@ -333,11 +330,3 @@ private fun PanelColorSwatch(
     }
 }
 
-/** 项目统一的 Morandi 开关配色 (与 EncloseFillPanel 等一致)。 */
-@Composable
-private fun MorandiSwitchColors() = SwitchDefaults.colors(
-    checkedThumbColor = Morandi.accent,
-    checkedTrackColor = Morandi.accent.copy(alpha = 0.5f),
-    uncheckedThumbColor = Morandi.subText,
-    uncheckedTrackColor = Morandi.panelHi,
-)

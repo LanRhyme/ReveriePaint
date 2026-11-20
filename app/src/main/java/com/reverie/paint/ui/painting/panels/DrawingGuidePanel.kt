@@ -22,8 +22,7 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
+import com.reverie.paint.ui.components.ReSwitch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
@@ -164,16 +163,9 @@ fun DrawingGuidePanel(
                                 fontSize = 10.5.sp,
                             )
                         }
-                        Switch(
+                        ReSwitch(
                             checked = guide.assistedDrawing,
-                            onCheckedChange = { vm.drawingGuide = guide.copy(assistedDrawing = it) },
-                            modifier = Modifier.height(28.dp),
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Color.White,
-                                checkedTrackColor = Morandi.accent,
-                                uncheckedThumbColor = Morandi.subText,
-                                uncheckedTrackColor = Morandi.border,
-                            ),
+                            onChecked = { vm.drawingGuide = guide.copy(assistedDrawing = it) },
                         )
                     }
                 }

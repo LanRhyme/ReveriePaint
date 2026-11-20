@@ -1313,11 +1313,24 @@ fun ReSwitch(
     enabled: Boolean = true,
 ) {
     val colors = Theme.current
+    val isDark = colors.bg.luminance() < 0.5f
+
     val trackColor by animateColorAsState(
         if (checked) colors.accent else colors.panelHi,
-        spring(dampingRatio = 0.90f, stiffness = 500f)
+        spring(dampingRatio = 0.90f, stiffness = 500f),
+        label = "switchTrackColor",
     )
-    val thumbProgress by animateFloatAsState(if (checked) 1f else 0f, Motion.springSnap, label = "switchThumb")
+    val thumbColor by animateColorAsState(
+        if (checked) colors.onAccent else colors.subText,
+        spring(dampingRatio = 0.90f, stiffness = 500f),
+        label = "switchThumbColor",
+    )
+    val thumbProgress by animateFloatAsState(
+        if (checked) 1f else 0f,
+        Motion.springSnap,
+        label = "switchThumb",
+    )
+
     Box(
         modifier =
             modifier
@@ -1325,7 +1338,11 @@ fun ReSwitch(
                 .size(48.dp, 28.dp)
                 .clip(RoundedCornerShape(14.dp))
                 .background(trackColor)
-                .clickable(enabled = enabled) { onChecked(!checked) }
+                .clickable(
+                    enabled = enabled,
+                    indication = null,
+                    interactionSource = remember { MutableInteractionSource() },
+                ) { onChecked(!checked) }
                 .padding(3.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
@@ -1333,9 +1350,13 @@ fun ReSwitch(
             Modifier
                 .offset { IntOffset((20.dp.toPx() * thumbProgress).roundToInt(), 0) }
                 .size(22.dp)
-                .shadow(2.dp, CircleShape, spotColor = Color.Black.copy(alpha = 0.35f))
+                .shadow(
+                    elevation = 2.dp,
+                    shape = CircleShape,
+                    spotColor = Color.Black.copy(alpha = if (isDark) 0.30f else 0.15f),
+                )
                 .clip(CircleShape)
-                .background(Color.White),
+                .background(thumbColor),
         )
     }
 }

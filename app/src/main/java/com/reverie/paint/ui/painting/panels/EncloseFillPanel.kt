@@ -18,8 +18,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
+import com.reverie.paint.ui.components.ReSwitch
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -235,15 +234,9 @@ fun EncloseFillPanel(
                             color = Morandi.subText,
                             fontSize = 12.sp,
                         )
-                        Switch(
+                        ReSwitch(
                             checked = vm.encloseFillIncludeContour,
-                            onCheckedChange = { vm.updateEncloseFillIncludeContour(it) },
-                            colors = SwitchDefaults.colors(
-                                checkedThumbColor = Morandi.accent,
-                                checkedTrackColor = Morandi.accent.copy(alpha = 0.5f),
-                                uncheckedThumbColor = Morandi.subText,
-                                uncheckedTrackColor = Morandi.panelHi,
-                            ),
+                            onChecked = { vm.updateEncloseFillIncludeContour(it) },
                         )
                     }
                 }
