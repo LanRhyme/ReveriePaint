@@ -520,6 +520,20 @@ object BrushImportPipeline {
                             val wantedName = file.substringBeforeLast('.')
                             val ext = file.substringAfterLast('.').lowercase()
                             val rawBytes = zip.getInputStream(e).use { it.readBytes() }
+                            if (ext == "kpp") {
+                                val embedded = runCatching { parseEmbeddedResources(rawBytes) }
+                                    .getOrElse {
+                                        BrushDiagnostics.log(
+                                            "import_embedded_parse_failed",
+                                            "name" to wantedName,
+                                            "err" to it.toString(),
+                                        )
+                                        emptyList()
+                                    }
+                                if (embedded.isNotEmpty()) {
+                                    renames.putAll(installResources(embedded, brushDir, patternDir, fileName))
+                                }
+                            }
                             val cleanBytes = if (ext == "kpp") KppHelper.stripKpp(rawBytes) else rawBytes
                             val tag = tags[wantedName]
 
@@ -540,7 +554,7 @@ object BrushImportPipeline {
                             )
                             BrushIdentity.register(BrushIdentity.Entry(id, name, ext, BrushIdentity.Kind.IMPORTED, fileName))
                             if (raw.isNotEmpty()) BrushOverrideStore.replace(id, BrushOverrideStore.Overrides(rawKeys = raw))
-                            EffectivePresetBuilder.materialize(id, presetDir)
+                            EffectivePresetBuilder.materialize(id, presetDir, store)
                             imported += Imported(name, ext, id, wantedName, fileName, tag)
                             BrushDiagnostics.log(
                                 "import", "name" to name, "wanted" to wantedName, "pack" to fileName, "id" to id,
