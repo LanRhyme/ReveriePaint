@@ -405,11 +405,8 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
             }
         }
         const bool haveDirtyWork =
-            m_drawing || hasSpecialCompositeLayer || !m_dirtyRect.isEmpty();
-        const bool mustComposite =
-            m_drawing || hasSpecialCompositeLayer ||
-            !m_nativeProjectionValid || gate.waitForMerger;
-        if (haveDirtyWork && mustComposite) {
+            m_drawing || hasSpecialCompositeLayer || !m_dirtyRect.isEmpty() || !m_nativeProjectionValid;
+        if (haveDirtyWork) {
             // 逐块合成离散脏区, 不再先把几处笔迹并成一个大包围盒再整体合成。
             compositeDirtyRegions(proj);
         }
@@ -606,11 +603,8 @@ int ReverieCore::beginTileFrame(QRect *outRects, int cap)
             }
         }
         const bool haveDirtyWork =
-            m_drawing || hasSpecialCompositeLayer || !m_dirtyRect.isEmpty();
-        const bool mustComposite =
-            m_drawing || hasSpecialCompositeLayer ||
-            !m_nativeProjectionValid || gate.waitForMerger;
-        if (haveDirtyWork && mustComposite) {
+            m_drawing || hasSpecialCompositeLayer || !m_dirtyRect.isEmpty() || !m_nativeProjectionValid;
+        if (haveDirtyWork) {
             compositeDirtyRegions(proj);
         }
         m_nativeProjectionValid = false;

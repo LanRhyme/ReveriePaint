@@ -499,7 +499,6 @@ void ReverieCore::flushProjectionUpdates()
     if (reverie::mayWaitForImage(image->locked())) {
         image->waitForDone();
         perf.phase("waitDone");
-        m_nativeProjectionValid = true;
     }
 }
 
@@ -519,6 +518,16 @@ void ReverieCore::markNodeDirtyAndFlush(KisNode *node)
         rect = node->extent();
     }
     node->setDirty(rect);
+    if (KisLayer *layer = dynamic_cast<KisLayer *>(node)) {
+        if (layer->clippingEnabled()) {
+            if (KisNodeSP base = node->findClippingBase()) {
+                base->setDirty(rect);
+            }
+        }
+    }
+    for (KisNodeSP clipped : node->gatherClippingLayers()) {
+        clipped->setDirty(rect);
+    }
     flushProjectionUpdates();
 }
 
