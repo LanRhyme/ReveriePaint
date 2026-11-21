@@ -17,6 +17,24 @@ enum class TransformMode {
     DISTORT,     // 扭曲: 操控变形-3x3网格(16控制点)
 }
 
+private const val GESTURE_UNDO_LIMIT = 50
+
+/**
+ * 单次变形手势抬笔前的参数快照。
+ *
+ * 模型对齐 Infinite Painter `TransformFrame.onUp` 的 downMatrix 模式, 以及 Procreate 的逐手势撤销:
+ * 每次抬笔且参数确有变化时压入**手势前**状态, 会话内撤销弹栈还原, 不碰引擎历史栈。
+ */
+internal class TransformGestureSnapshot(
+    val scaleX: Float,
+    val scaleY: Float,
+    val rotation: Float,
+    val tx: Float,
+    val ty: Float,
+    val quadCorners: List<Offset>,
+    val meshPoints: List<Offset>,
+)
+
 /**
  * Observable state of the transform tool's rubber band (document coords)
  */
@@ -50,6 +68,9 @@ class TransformState {
     var startQuadCorners by mutableStateOf(listOf(Offset.Zero, Offset.Zero, Offset.Zero, Offset.Zero))
     var startMeshPoints by mutableStateOf(List(16) { Offset.Zero })
 
+    // 会话内逐手势撤销栈 (不用 Compose State 包栈; 提交/取消后 reset 清掉)
+    private val gestureUndoStack = ArrayDeque<TransformGestureSnapshot>()
+
     fun reset(b: Rect) {
         active = true
         bounds = b
@@ -71,6 +92,80 @@ class TransformState {
         meshPoints = mList
         origMeshPoints = mList
         handle = -1
+        clearGestureUndo()
+    }
+
+    /**
+     * 抬笔且参数相对 start* 确有变化时, 把手势前状态压入会话撤销栈。
+     * `handle == -1` 或七项参数全等则不入栈。栈超过 [GESTURE_UNDO_LIMIT] 丢最旧。
+     */
+    fun pushGestureUndo(): Boolean {
+        if (handle == -1) return false
+        if (scaleX == startScaleX &&
+            scaleY == startScaleY &&
+            rotation == startRotation &&
+            tx == startTx &&
+            ty == startTy &&
+            quadCorners == startQuadCorners &&
+            meshPoints == startMeshPoints
+        ) {
+            return false
+        }
+        while (gestureUndoStack.size >= GESTURE_UNDO_LIMIT) {
+            gestureUndoStack.removeFirst()
+        }
+        gestureUndoStack.addLast(
+            TransformGestureSnapshot(
+                scaleX = startScaleX,
+                scaleY = startScaleY,
+                rotation = startRotation,
+                tx = startTx,
+                ty = startTy,
+                quadCorners = startQuadCorners.toList(),
+                meshPoints = startMeshPoints.toList(),
+            ),
+        )
+        return true
+    }
+
+    /**
+     * 弹出最近一次手势前快照并还原七项参数。栈空返回 false。
+     */
+    fun popGestureUndo(): Boolean {
+        val snap = gestureUndoStack.removeLastOrNull() ?: return false
+        scaleX = snap.scaleX
+        scaleY = snap.scaleY
+        rotation = snap.rotation
+        tx = snap.tx
+        ty = snap.ty
+        quadCorners = snap.quadCorners.toList()
+        meshPoints = snap.meshPoints.toList()
+        return true
+    }
+
+    fun clearGestureUndo() {
+        gestureUndoStack.clear()
+    }
+
+    /**
+     * 中断并回滚尚未抬笔的单指变换拖拽 (如双指轻点撤销/双指捏合接管或系统取消手势),
+     * 防止第一根手指落地后的微滑残留到变换参数中。
+     */
+    fun cancelDrag(): Boolean {
+        if (handle == -1) return false
+        scaleX = startScaleX
+        scaleY = startScaleY
+        rotation = startRotation
+        tx = startTx
+        ty = startTy
+        if (startQuadCorners.size == 4) {
+            quadCorners = startQuadCorners.toList()
+        }
+        if (startMeshPoints.size == 16) {
+            meshPoints = startMeshPoints.toList()
+        }
+        handle = -1
+        return true
     }
 }
 

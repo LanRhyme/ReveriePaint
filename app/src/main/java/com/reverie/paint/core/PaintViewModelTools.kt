@@ -1361,8 +1361,10 @@ internal fun PaintViewModel.applyTransform(
     // 「复制到当前图层」这种语义下就是用户点了复制却什么都看不到, 必须说出来,
     // 否则只能收获一句「复制完内容消失了」。
     var applied = true
+    transformPreviewGen++
     runCore(render = true, after = {
         notifyLayerChanged(pixelChanged = true)
+        transformPreviewPending = false
         transformPreviewBitmap = null
         transformCopyOnly = false
         isSelectionTransformPending = false
@@ -1434,8 +1436,10 @@ internal fun PaintViewModel.applyPerspectiveTransform(
         clearSelectionOverlayLocal()
     }
 
+    transformPreviewGen++
     runCore(render = true, after = {
         notifyLayerChanged(pixelChanged = true)
+        transformPreviewPending = false
         transformPreviewBitmap = null
         isSelectionTransformPending = false
         if (wasSelectionPending) {
@@ -1496,8 +1500,10 @@ internal fun PaintViewModel.applyWarpMeshTransform(
         clearSelectionOverlayLocal()
     }
 
+    transformPreviewGen++
     runCore(render = true, after = {
         notifyLayerChanged(pixelChanged = true)
+        transformPreviewPending = false
         transformPreviewBitmap = null
         isSelectionTransformPending = false
         if (wasSelectionPending) {
@@ -1538,7 +1544,7 @@ internal fun PaintViewModel.applyWarpMeshTransform(
  * 用它判断这一笔能否留在前缓冲), 双指轻点撤销本身就会把它置 true, 会让撤销把自己挡住。
  */
 internal val PaintViewModel.isHistoryBlockedByTransform: Boolean
-    get() = transformPreviewBitmap != null
+    get() = transformPreviewPending || transformPreviewBitmap != null
 
 /**
  * 变换期间挡住撤销/重做: 给用户一句提示, 并把链式步 (撤回条泵) 的 settled 回调交还,
@@ -1565,8 +1571,24 @@ internal fun PaintViewModel.undo(
     showToast: Boolean = true,
     settled: (() -> Unit)? = null,
 ) {
-    // 变换预览是引擎里的长事务, 预览期间回滚历史会把它依赖的像素抽走 (见 isHistoryBlockedByTransform)
-    if (blockHistoryDuringTransform(settled)) return
+    // 变换预览是引擎里的长事务: 撤销优先弹会话内手势栈; 栈空则安全取消当前变形并落穿到历史撤销。
+    // 落穿安全性: cancelTransformPreview() 先投递引擎线程关闭 m_previewTransactions 并还原像素,
+    // runCore 同队列串行, 后续 ReverieCoreBridge.undo() 一定排在关闭之后, 避免 KisTransactionData 断言。
+    if (isHistoryBlockedByTransform) {
+        val sessionUndo = transformSessionUndoHook
+        if (sessionUndo != null && sessionUndo.invoke()) {
+            settled?.invoke()
+            return
+        }
+        val cancelHook = transformCancelHook
+        if (cancelHook != null) {
+            // 会话内手势已撤完 (栈空): 取消变形并落穿到历史撤销, 一次按下即"撤回到变形的上一步"
+            cancelHook.invoke()
+            // 不 return: 继续走下方正常历史撤销流程
+        } else if (blockHistoryDuringTransform(settled)) {
+            return
+        }
+    }
     onHistoryActionTriggered(fromPanel)
     val restoreTransformSel = transientTransformSelectionPending || canUndoTransformSelection
     if (isQuickShapeEditing) { cancelQuickShape(); return }
@@ -1600,6 +1622,7 @@ internal fun PaintViewModel.undo(
     transientTransformSelectionPending = false
     var restoredOverlay: android.graphics.Bitmap? = null
     var restoredOutline: androidx.compose.ui.graphics.Path? = null
+    var didUndo = false
     runCore(render = false, after = {
         pendingHistoryOps.decrementAndGet()
         val nw = ReverieCoreBridge.docWidth()
@@ -1613,7 +1636,9 @@ internal fun PaintViewModel.undo(
             renderH = -1
             checkBrushSizeLimit()
         }
-        notifyLayerChanged(forceThumbs = false, immediateRender = true, pixelChanged = true)
+        if (didUndo) {
+            notifyLayerChanged(forceThumbs = false, immediateRender = true, pixelChanged = true)
+        }
         if (restoredOverlay != null) {
             selectionOverlayBitmap = restoredOverlay
             selectionOutlinePath = restoredOutline
@@ -1630,9 +1655,11 @@ internal fun PaintViewModel.undo(
         settled?.invoke()
     }) {
         if (ReverieCoreBridge.canUndo()) {
+            val beforeCount = ReverieCoreBridge.undoCount()
             Breadcrumbs.record("History", "Undo")
             ReverieCoreBridge.undo()
-            if (restoreTransformSel) {
+            didUndo = ReverieCoreBridge.undoCount() != beforeCount
+            if (didUndo && restoreTransformSel) {
                 val count = ReverieCoreBridge.storedSelectionCount()
                 var preIdx = -1
                 for (i in count - 1 downTo 0) {
@@ -1685,6 +1712,7 @@ internal fun PaintViewModel.redo(fromPanel: Boolean = false, settled: (() -> Uni
         showActionToast(R.string.toast_redo, R.drawable.ic_redo)
     }
     canRedoTransformSelection = false
+    var didRedo = false
     runCore(render = false, after = {
         pendingHistoryOps.decrementAndGet()
         val nw = ReverieCoreBridge.docWidth()
@@ -1698,7 +1726,9 @@ internal fun PaintViewModel.redo(fromPanel: Boolean = false, settled: (() -> Uni
             renderH = -1
             checkBrushSizeLimit()
         }
-        notifyLayerChanged(forceThumbs = false, immediateRender = true, pixelChanged = true)
+        if (didRedo) {
+            notifyLayerChanged(forceThumbs = false, immediateRender = true, pixelChanged = true)
+        }
         if (restoreRedoSel) {
             clearSelectionOverlayLocal()
         } else {
@@ -1713,9 +1743,11 @@ internal fun PaintViewModel.redo(fromPanel: Boolean = false, settled: (() -> Uni
         settled?.invoke()
     }) {
         if (ReverieCoreBridge.canRedo()) {
+            val beforeCount = ReverieCoreBridge.redoCount()
             Breadcrumbs.record("History", "Redo")
             ReverieCoreBridge.redo()
-            if (restoreRedoSel) {
+            didRedo = ReverieCoreBridge.redoCount() != beforeCount
+            if (didRedo && restoreRedoSel) {
                 ReverieCoreBridge.setUndoCaptureEnabled(false)
                 try {
                     ReverieCoreBridge.clearSelection()
@@ -2055,6 +2087,8 @@ internal fun PaintViewModel.startTransformPreview() {
     val targets = editTargetLayers().toIntArray()
     if (targets.isEmpty()) return
     val copyOnly = transformCopyOnly
+    val gen = ++transformPreviewGen
+    transformPreviewPending = true
     runCore(render = true) {
         // 预览位图按 TransformPreviewPolicy 封顶 (长边 4096): 按文档尺寸来在 6400x10240 上是
         // 250 MB, 而 CanvasTransformOverlay 会直接 drawBitmap 它 —— 超过 HWUI 单次绘制上限即
@@ -2071,6 +2105,8 @@ internal fun PaintViewModel.startTransformPreview() {
             ReverieCoreBridge.cancelTransformPreview()
         }
         mainHandler.post {
+            if (gen != transformPreviewGen) return@post
+            transformPreviewPending = false
             if (success) {
                 transformPreviewBitmap = b.asImageBitmap()
             } else {
@@ -2083,7 +2119,12 @@ internal fun PaintViewModel.startTransformPreview() {
 
 internal fun PaintViewModel.cancelTransformPreview(resetCopyOnly: Boolean = true) {
     val token = transformSessionToken
+    transformPreviewGen++
+    // 在引擎线程完成 cancelTransformPreview 之前保持 transformPreviewPending = true,
+    // 防止连点撤销在预览事务尚未关闭前滑入 C++ undo()。
+    transformPreviewPending = true
     runCore(render = true, after = {
+        transformPreviewPending = false
         transformPreviewBitmap = null
         if (resetCopyOnly && token == transformSessionToken) {
             transformCopyOnly = false

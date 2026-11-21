@@ -7659,6 +7659,11 @@ class PaintViewModel : ViewModel() {
     var brushOutlinePolygons: List<FloatArray>? by mutableStateOf(null)
 
     var transformPreviewBitmap: androidx.compose.ui.graphics.ImageBitmap? by mutableStateOf(null)
+    var transformPreviewPending: Boolean by mutableStateOf(false)
+    internal var transformPreviewGen: Int = 0
+    var transformCancelHook: (() -> Unit)? = null
+    /** 变形会话内逐手势撤销钩子。返回 true 表示已消费本次撤销做会话弹栈。 */
+    var transformSessionUndoHook: (() -> Boolean)? = null
     var transformCopyOnly: Boolean by mutableStateOf(false)
     var isImportTransformPending: Boolean by mutableStateOf(false)
     var isSelectionTransformPending: Boolean by mutableStateOf(false)
