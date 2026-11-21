@@ -2637,17 +2637,39 @@ class CanvasTouchView(context: Context) : View(context) {
         val guide = v.drawingGuide
         if (guide.mode == GuideMode.PERSPECTIVE) {
             if (guide.perspective3d) {
-                draggingGuideHandleIndex = 200
-                lastOrbitDocPos = screenToDoc(screenPos)
-                isPendingLongPress = false
-                parent?.requestDisallowInterceptTouchEvent(true)
-                return true
+                val orbitDoc = com.reverie.paint.model.DrawingGuideHandleGeometry
+                    .perspective3dOrbitHandleDocPos(v.docWidth, v.docHeight, guide)
+                val orbitScreen = docToScreen(Offset(orbitDoc.x, orbitDoc.y))
+                if (com.reverie.paint.model.DrawingGuideHandleGeometry.isWithinHitRadius(
+                        screenPos.x,
+                        screenPos.y,
+                        orbitScreen.x,
+                        orbitScreen.y,
+                        com.reverie.paint.model.DrawingGuideHandleGeometry.PERSPECTIVE_3D_ORBIT_HIT_RADIUS_DP,
+                        density,
+                    )
+                ) {
+                    draggingGuideHandleIndex = 200
+                    lastOrbitDocPos = screenToDoc(screenPos)
+                    isPendingLongPress = false
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    return true
+                }
+                return false
             }
             val vps = guide.perspectiveVanishingPoints
             var hitVp = -1
             for (i in vps.indices) {
                 val vpScreen = docToScreen(Offset(vps[i].x, vps[i].y))
-                if (hypot(screenPos.x - vpScreen.x, screenPos.y - vpScreen.y) < 48f * density) {
+                if (com.reverie.paint.model.DrawingGuideHandleGeometry.isWithinHitRadius(
+                        screenPos.x,
+                        screenPos.y,
+                        vpScreen.x,
+                        vpScreen.y,
+                        com.reverie.paint.model.DrawingGuideHandleGeometry.PERSPECTIVE_VP_HIT_RADIUS_DP,
+                        density,
+                    )
+                ) {
                     hitVp = i
                     break
                 }
@@ -2659,23 +2681,37 @@ class CanvasTouchView(context: Context) : View(context) {
                 return true
             }
         } else if (guide.mode == GuideMode.SYMMETRY) {
-            val cx = v.docWidth * guide.symmetryCenterX
-            val cy = v.docHeight * guide.symmetryCenterY
-            val symScreen = docToScreen(Offset(cx, cy))
+            val centerDoc = com.reverie.paint.model.DrawingGuideHandleGeometry
+                .symmetryCenterDocPos(v.docWidth, v.docHeight, guide)
+            val symScreen = docToScreen(Offset(centerDoc.x, centerDoc.y))
             // 1. 中心平移控制柄
-            if (hypot(screenPos.x - symScreen.x, screenPos.y - symScreen.y) < 36f * density) {
+            if (com.reverie.paint.model.DrawingGuideHandleGeometry.isWithinHitRadius(
+                    screenPos.x,
+                    screenPos.y,
+                    symScreen.x,
+                    symScreen.y,
+                    com.reverie.paint.model.DrawingGuideHandleGeometry.SYMMETRY_HANDLE_HIT_RADIUS_DP,
+                    density,
+                )
+            ) {
                 draggingGuideHandleIndex = 100
                 isPendingLongPress = false
                 parent?.requestDisallowInterceptTouchEvent(true)
                 return true
             }
             // 2. 旋转控制柄 (沿对称主轴分布)
-            val rotRad = (guide.symmetryRotationDeg % 360f) * (PI.toFloat() / 180f)
-            val rotHandleDist = minOf(v.docWidth, v.docHeight) * 0.35f
-            val rx = -sin(rotRad) * rotHandleDist
-            val ry = cos(rotRad) * rotHandleDist
-            val rotScreen = docToScreen(Offset(cx + rx, cy + ry))
-            if (hypot(screenPos.x - rotScreen.x, screenPos.y - rotScreen.y) < 36f * density) {
+            val rotDoc = com.reverie.paint.model.DrawingGuideHandleGeometry
+                .symmetryRotationHandleDocPos(v.docWidth, v.docHeight, guide)
+            val rotScreen = docToScreen(Offset(rotDoc.x, rotDoc.y))
+            if (com.reverie.paint.model.DrawingGuideHandleGeometry.isWithinHitRadius(
+                    screenPos.x,
+                    screenPos.y,
+                    rotScreen.x,
+                    rotScreen.y,
+                    com.reverie.paint.model.DrawingGuideHandleGeometry.SYMMETRY_HANDLE_HIT_RADIUS_DP,
+                    density,
+                )
+            ) {
                 draggingGuideHandleIndex = 101
                 isPendingLongPress = false
                 parent?.requestDisallowInterceptTouchEvent(true)
@@ -2707,8 +2743,10 @@ class CanvasTouchView(context: Context) : View(context) {
                 true
             }
             100 -> {
-                val newX = if (g.symmetryType == SymmetryType.HORIZONTAL && g.symmetryRotationDeg == 0f) g.symmetryCenterX else (docPos.x / v.docWidth).coerceIn(0.05f, 0.95f)
-                val newY = if (g.symmetryType == SymmetryType.VERTICAL && g.symmetryRotationDeg == 0f) g.symmetryCenterY else (docPos.y / v.docHeight).coerceIn(0.05f, 0.95f)
+                val isZeroRot = com.reverie.paint.model.DrawingGuideHandleGeometry
+                    .isAxisRotationZero(g.symmetryRotationDeg)
+                val newX = if (g.symmetryType == SymmetryType.HORIZONTAL && isZeroRot) g.symmetryCenterX else (docPos.x / v.docWidth).coerceIn(0.05f, 0.95f)
+                val newY = if (g.symmetryType == SymmetryType.VERTICAL && isZeroRot) g.symmetryCenterY else (docPos.y / v.docHeight).coerceIn(0.05f, 0.95f)
                 v.drawingGuide = g.copy(symmetryCenterX = newX, symmetryCenterY = newY)
                 invalidate()
                 true
