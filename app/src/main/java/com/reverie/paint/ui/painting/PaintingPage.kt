@@ -622,6 +622,15 @@ fun PaintingPage(
         }
     }
 
+    androidx.compose.runtime.DisposableEffect(tfState) {
+        vm.transformCancelHook = cancelTransform
+        onDispose {
+            if (vm.transformCancelHook === cancelTransform) {
+                vm.transformCancelHook = null
+            }
+        }
+    }
+
     LaunchedEffect(polyPoints.isNotEmpty(), vm.lassoMultiPoints.isNotEmpty()) {
         if (polyPoints.isNotEmpty()) {
             vm.customUndoHook = {

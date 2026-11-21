@@ -98,11 +98,11 @@ fun TopBar(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            // 变换是引擎里的长事务, 期间撤销/重做会被拒 (见 isHistoryBlockedByTransform):
-            // 直接置灰, 比"点了没反应"更早给用户反馈
+            // 变换期间撤销会安全取消当前变形并退出; 重做无对应语义仍置灰
             ReIconButton(
                 R.drawable.ic_undo, stringResource(R.string.common_undo), onUndo,
-                modifier = Modifier.size(32.dp), enabled = !vm.isHistoryBlockedByTransform,
+                modifier = Modifier.size(32.dp),
+                enabled = !vm.isHistoryBlockedByTransform || vm.transformCancelHook != null,
             )
             ReIconButton(
                 R.drawable.ic_redo, stringResource(R.string.common_redo), onRedo,
@@ -139,11 +139,11 @@ fun TopBar(
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
-            // 变换是引擎里的长事务, 期间撤销/重做会被拒 (见 isHistoryBlockedByTransform):
-            // 直接置灰, 比"点了没反应"更早给用户反馈
+            // 变换期间撤销会安全取消当前变形并退出; 重做无对应语义仍置灰
             ReIconButton(
                 R.drawable.ic_undo, stringResource(R.string.common_undo), onUndo,
-                modifier = Modifier.size(32.dp), enabled = !vm.isHistoryBlockedByTransform,
+                modifier = Modifier.size(32.dp),
+                enabled = !vm.isHistoryBlockedByTransform || vm.transformCancelHook != null,
             )
             ReIconButton(
                 R.drawable.ic_redo, stringResource(R.string.common_redo), onRedo,

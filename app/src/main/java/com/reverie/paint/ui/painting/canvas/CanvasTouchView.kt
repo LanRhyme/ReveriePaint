@@ -6107,6 +6107,9 @@ class CanvasTouchView(context: Context) : View(context) {
             }
             cancelPendingShapeGesture()
             cancelPanelGesture()
+            if (tfState?.cancelDrag() == true) {
+                invalidate()
+            }
             isZoomToolDragging = false
 
             val isShiftTraceAlign = v.anim.shiftTraceActive && v.anim.shiftTraceGestureMode == ShiftTraceGestureMode.ALIGN_FRAME
@@ -9021,7 +9024,11 @@ class CanvasTouchView(context: Context) : View(context) {
                 activeMeasureHandle = -1
             }
             Tool.TRANSFORM -> {
-                tfState?.handle = -1
+                if (isCancel) {
+                    tfState?.cancelDrag()
+                } else {
+                    tfState?.handle = -1
+                }
             }
             Tool.PANEL -> {
                 val st = panelInteraction

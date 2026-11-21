@@ -72,6 +72,27 @@ class TransformState {
         origMeshPoints = mList
         handle = -1
     }
+
+    /**
+     * 中断并回滚尚未抬笔的单指变换拖拽 (如双指轻点撤销/双指捏合接管或系统取消手势),
+     * 防止第一根手指落地后的微滑残留到变换参数中。
+     */
+    fun cancelDrag(): Boolean {
+        if (handle == -1) return false
+        scaleX = startScaleX
+        scaleY = startScaleY
+        rotation = startRotation
+        tx = startTx
+        ty = startTy
+        if (startQuadCorners.size == 4) {
+            quadCorners = startQuadCorners.toList()
+        }
+        if (startMeshPoints.size == 16) {
+            meshPoints = startMeshPoints.toList()
+        }
+        handle = -1
+        return true
+    }
 }
 
 // ---- Transform geometry helpers (relocated from the removed legacy
