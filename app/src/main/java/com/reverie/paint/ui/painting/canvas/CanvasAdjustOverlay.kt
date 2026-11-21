@@ -17,23 +17,27 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
-import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.BlendMode
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Paint
-import androidx.compose.ui.graphics.PaintingStyle
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.nativeCanvas
+import androidx.compose.ui.input.pointer.PointerInputChange
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.unit.dp
+import android.view.HapticFeedbackConstants
+import androidx.compose.ui.platform.LocalView
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.AspectRatioPreset
 import com.reverie.paint.model.CanvasAdjustMode
 import com.reverie.paint.model.CanvasAdjustState
+import com.reverie.paint.model.RotationSnapGesture
 import com.reverie.paint.ui.theme.Morandi
+import kotlin.math.abs
 import kotlin.math.hypot
 import kotlin.math.roundToInt
 
@@ -59,8 +63,10 @@ fun CanvasAdjustOverlay(
     panY: State<Float>,
     fitScale: Float,
     modifier: Modifier = Modifier,
+    onViewTransform: (zoom: Float, rotation: Float, panX: Float, panY: Float) -> Unit = { _, _, _, _ -> },
 ) {
     val context = androidx.compose.ui.platform.LocalContext.current
+    val view = LocalView.current
     val density = LocalDensity.current
     val handleTouchRadiusPx = with(density) { 34.dp.toPx() }
     val bracketLenPx = with(density) { 16.dp.toPx() }
@@ -75,7 +81,9 @@ fun CanvasAdjustOverlay(
     var initialTargetW by remember { mutableStateOf(1000) }
     var initialTargetH by remember { mutableStateOf(1000) }
 
-    // 8 自由度拉伸 / 整体平移: 与原先 onDrag 逻辑完全一致, 只是抽出来供手势循环复用
+    val viewportGesture = remember { CanvasAdjustViewportGesture() }
+
+    // 8 自由度拉伸 / 整体平移 (裁切与扩展模式)
     val applyHandleDrag: (screenPos: Offset, viewW: Int, viewH: Int) -> Unit = { screenPos, viewW, viewH ->
         if (activeHandle != CropHandle.NONE) {
             val docW = vm.docWidth
@@ -235,71 +243,218 @@ fun CanvasAdjustOverlay(
         }
     }
 
+    // 4 角手柄拖动实时等比/自由缩放图像尺寸 (图像缩放模式)
+    val applyScaleHandleDrag: (screenPos: Offset, viewW: Int, viewH: Int) -> Unit = { screenPos, viewW, viewH ->
+        if (activeHandle != CropHandle.NONE) {
+            val docW = vm.docWidth
+            val docH = vm.docHeight
+            val bmpW = if (vm.renderW > 0) vm.renderW else docW
+            val bmpH = if (vm.renderH > 0) vm.renderH else docH
+
+            val currentDocPt = widgetToImage(
+                screenPos,
+                viewW,
+                viewH,
+                panX.value,
+                panY.value,
+                zoom.value,
+                fitScale,
+                rotation.value,
+                bmpW,
+                bmpH,
+                docW,
+                docH,
+                vm.viewFlipX,
+                vm.viewFlipY,
+            )
+
+            val state = vm.canvasAdjustState
+            val centerDocX = docW / 2f
+            val centerDocY = docH / 2f
+
+            val halfTargetW = abs(currentDocPt.x - centerDocX)
+            val halfTargetH = abs(currentDocPt.y - centerDocY)
+
+            val newW: Int
+            val newH: Int
+            if (state.lockAspectRatio) {
+                val origW = maxOf(1, state.origWidth)
+                val origH = maxOf(1, state.origHeight)
+                val scaleW = halfTargetW / (origW / 2f)
+                val scaleH = halfTargetH / (origH / 2f)
+                val scale = maxOf(scaleW, scaleH).coerceIn(0.01f, 16f)
+                newW = (origW * scale).roundToInt().coerceIn(1, 16384)
+                newH = (origH * scale).roundToInt().coerceIn(1, 16384)
+            } else {
+                newW = (halfTargetW * 2f).roundToInt().coerceIn(1, 16384)
+                newH = (halfTargetH * 2f).roundToInt().coerceIn(1, 16384)
+            }
+
+            vm.canvasAdjustState = state.copy(
+                targetWidth = newW,
+                targetHeight = newH,
+            )
+        }
+    }
+
     Canvas(
         modifier = modifier
             .fillMaxSize()
             .pointerInput(Unit) {
-                // 交互铁律: 本覆盖层铺满整个画布区, 一旦无条件消费指针事件就会吞掉
-                // 下层 CanvasTouchView 的平移与缩放。因此只有"确认命中裁切手柄或
-                // 裁切框内部"时才消费事件, 其余情况一律不消费, 让事件下沉到画布:
-                //   · 空格抓手 (vm.isSpacePanning)      → 画布平移
-                //   · 多指手势 (捏合缩放 / 双指平移)     → 画布变换
-                //   · 裁切框之外的空白区域 (遮罩区)      → 画布平移
-                // 注意: pointerInput 不 key 在 canvasAdjustState 上, 否则状态一变
-                // 手势协程就被取消 (与 CanvasView 的教训一致)。
+                // 交互规范 (对标画世界 Pro 与 Issue #200):
+                // 1. 双指触控: 无论落在何处 (手柄、区域内或暗部空白) 均无缝触发视口平移与捏合缩放;
+                // 2. 单指触控:
+                //    - 命中手柄或内部区域: 拖拉变形或移动裁切框;
+                //    - 落在空白暗部或抓手状态: 顺滑平移画布;
+                // 3. 单指拖动手柄中落下第二指: 立即解除手柄捕获, 平滑交由双指驱动画布变换。
                 awaitEachGesture {
                     val down = awaitFirstDown(requireUnconsumed = false)
+                    val viewW = size.width
+                    val viewH = size.height
+                    val docW = vm.docWidth
+                    val docH = vm.docHeight
+                    val bmpW = if (vm.renderW > 0) vm.renderW else docW
+                    val bmpH = if (vm.renderH > 0) vm.renderH else docH
 
-                    // 图像缩放模式无裁切框可交互; 空格按住时整体让位给抓手平移
-                    if (vm.canvasAdjustState.mode != CanvasAdjustMode.CROP_EXPAND || vm.isSpacePanning) {
-                        return@awaitEachGesture
+                    val isResample = vm.canvasAdjustState.mode == CanvasAdjustMode.RESAMPLE_SCALE
+                    var twoFingerActive = false
+                    viewportGesture.reset()
+
+                    val initialHandle = if (vm.isSpacePanning) {
+                        CropHandle.NONE
+                    } else if (isResample) {
+                        resolveScaleHandle(
+                            pos = down.position,
+                            viewW = viewW,
+                            viewH = viewH,
+                            state = vm.canvasAdjustState,
+                            docW = docW,
+                            docH = docH,
+                            bmpW = bmpW,
+                            bmpH = bmpH,
+                            panX = panX.value,
+                            panY = panY.value,
+                            zoom = zoom.value,
+                            fitScale = fitScale,
+                            rotation = rotation.value,
+                            handleTouchRadiusPx = handleTouchRadiusPx,
+                            flipX = vm.viewFlipX,
+                            flipY = vm.viewFlipY,
+                        )
+                    } else {
+                        resolveCropHandle(
+                            pos = down.position,
+                            viewW = viewW,
+                            viewH = viewH,
+                            state = vm.canvasAdjustState,
+                            docW = docW,
+                            docH = docH,
+                            bmpW = bmpW,
+                            bmpH = bmpH,
+                            panX = panX.value,
+                            panY = panY.value,
+                            zoom = zoom.value,
+                            fitScale = fitScale,
+                            rotation = rotation.value,
+                            handleTouchRadiusPx = handleTouchRadiusPx,
+                            flipX = vm.viewFlipX,
+                            flipY = vm.viewFlipY,
+                        )
                     }
 
-                    // 第二根手指立刻落下 → 判定为捏合/双指平移, 交还画布
-                    var event = awaitPointerEvent()
-                    if (event.changes.size > 1) return@awaitEachGesture
-
-                    val handle = resolveCropHandle(
-                        pos = down.position,
-                        viewW = size.width,
-                        viewH = size.height,
-                        state = vm.canvasAdjustState,
-                        docW = vm.docWidth,
-                        docH = vm.docHeight,
-                        bmpW = if (vm.renderW > 0) vm.renderW else vm.docWidth,
-                        bmpH = if (vm.renderH > 0) vm.renderH else vm.docHeight,
-                        panX = panX.value,
-                        panY = panY.value,
-                        zoom = zoom.value,
-                        fitScale = fitScale,
-                        rotation = rotation.value,
-                        handleTouchRadiusPx = handleTouchRadiusPx,
-                        flipX = vm.viewFlipX,
-                        flipY = vm.viewFlipY,
-                    )
-
-                    // 空白区域: 不消费, 事件下沉给画布平移
-                    if (handle == CropHandle.NONE) return@awaitEachGesture
-
-                    val startState = vm.canvasAdjustState
-                    activeHandle = handle
+                    activeHandle = initialHandle
                     dragStartPos = down.position
+                    val startState = vm.canvasAdjustState
                     initialCropX = startState.cropX
                     initialCropY = startState.cropY
                     initialTargetW = startState.targetWidth
                     initialTargetH = startState.targetHeight
+
+                    var lastScreenPos = down.position
+
                     down.consume()
 
-                    while (true) {
-                        event = awaitPointerEvent()
-                        // 拖拽过程中加入第二指: 立即放手, 让画布接管捏合缩放
-                        if (event.changes.size > 1) break
-                        val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                        if (!change.pressed) break
-                        change.consume()
-                        applyHandleDrag(change.position, size.width, size.height)
-                    }
+                    do {
+                        val event = awaitPointerEvent()
+                        var first: PointerInputChange? = null
+                        var second: PointerInputChange? = null
+
+                        for (i in event.changes.indices) {
+                            val p = event.changes[i]
+                            if (!p.pressed) continue
+                            if (first == null) first = p else { second = p; break }
+                        }
+
+                        if (first != null && second != null) {
+                            // 多指捏合/平移/旋转手势: 直接驱动画布变换 (Issue #200)
+                            twoFingerActive = true
+                            activeHandle = CropHandle.NONE
+
+                            val snapThreshold = if (vm.canvasRotationEnabled && !vm.isViewTransformLocked) vm.canvasRotationSnapDegrees else 0f
+                            if (viewportGesture.update(
+                                    firstPointerId = first.id.value,
+                                    firstX = first.position.x,
+                                    firstY = first.position.y,
+                                    secondPointerId = second.id.value,
+                                    secondX = second.position.x,
+                                    secondY = second.position.y,
+                                    viewWidth = viewW,
+                                    viewHeight = viewH,
+                                    currentZoom = zoom.value,
+                                    currentRotation = rotation.value,
+                                    currentPanX = panX.value,
+                                    currentPanY = panY.value,
+                                    rotationEnabled = vm.canvasRotationEnabled,
+                                    snapThreshold = snapThreshold,
+                                    locked = vm.isViewTransformLocked,
+                                    onSnapEngaged = {
+                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    },
+                                )
+                            ) {
+                                onViewTransform(
+                                    viewportGesture.zoom,
+                                    viewportGesture.rotation,
+                                    viewportGesture.panX,
+                                    viewportGesture.panY,
+                                )
+                            }
+                        } else {
+                            viewportGesture.reset()
+
+                            if (!twoFingerActive) {
+                                val change = event.changes.firstOrNull { it.id == down.id }
+                                if (change != null && change.pressed) {
+                                    if (vm.isSpacePanning || initialHandle == CropHandle.NONE) {
+                                        // 空白区域/抓手状态下的单指拖拽: 平移画布
+                                        val deltaX = change.position.x - lastScreenPos.x
+                                        val deltaY = change.position.y - lastScreenPos.y
+                                        if (deltaX != 0f || deltaY != 0f) {
+                                            onViewTransform(
+                                                zoom.value,
+                                                rotation.value,
+                                                panX.value + deltaX,
+                                                panY.value + deltaY,
+                                            )
+                                        }
+                                    } else {
+                                        // 命中控制柄或内部区域: 驱动裁切/缩放变形
+                                        if (isResample) {
+                                            applyScaleHandleDrag(change.position, viewW, viewH)
+                                        } else {
+                                            applyHandleDrag(change.position, viewW, viewH)
+                                        }
+                                    }
+                                    lastScreenPos = change.position
+                                }
+                            }
+                        }
+
+                        event.changes.forEach { it.consume() }
+                    } while (event.changes.any { it.pressed })
+
                     activeHandle = CropHandle.NONE
+                    viewportGesture.reset()
                 }
             },
     ) {
@@ -311,145 +466,332 @@ fun CanvasAdjustOverlay(
         val viewW = size.width.toInt()
         val viewH = size.height.toInt()
 
-        val leftDoc = state.cropX.toFloat()
-        val topDoc = state.cropY.toFloat()
-        val rightDoc = (state.cropX + state.targetWidth).toFloat()
-        val bottomDoc = (state.cropY + state.targetHeight).toFloat()
-        val midXDoc = (leftDoc + rightDoc) / 2f
-        val midYDoc = (topDoc + bottomDoc) / 2f
-
-        // 计算裁切框 4 个角在屏幕坐标系中的位置
-    val toScreen = { docPt: Offset ->
-        imageToWidget(
-            docPt,
-            viewW,
-            viewH,
-            panX.value,
-            panY.value,
-            zoom.value,
-            fitScale,
-            rotation.value,
-            bmpW,
-            bmpH,
-            docW,
-            docH,
-            vm.viewFlipX,
-            vm.viewFlipY,
-        )
-    }
-
-        val pTL = toScreen(Offset(leftDoc, topDoc))
-        val pTR = toScreen(Offset(rightDoc, topDoc))
-        val pBR = toScreen(Offset(rightDoc, bottomDoc))
-        val pBL = toScreen(Offset(leftDoc, bottomDoc))
-
-        val pTC = toScreen(Offset(midXDoc, topDoc))
-        val pBC = toScreen(Offset(midXDoc, bottomDoc))
-        val pCL = toScreen(Offset(leftDoc, midYDoc))
-        val pCR = toScreen(Offset(rightDoc, midYDoc))
-
-        // 1. 绘制外部暗色反向遮罩 (穿孔镂空)
-        val holePath = Path().apply {
-            moveTo(pTL.x, pTL.y)
-            lineTo(pTR.x, pTR.y)
-            lineTo(pBR.x, pBR.y)
-            lineTo(pBL.x, pBL.y)
-            close()
+        val toScreen = { docPt: Offset ->
+            imageToWidget(
+                docPt,
+                viewW,
+                viewH,
+                panX.value,
+                panY.value,
+                zoom.value,
+                fitScale,
+                rotation.value,
+                bmpW,
+                bmpH,
+                docW,
+                docH,
+                vm.viewFlipX,
+                vm.viewFlipY,
+            )
         }
 
-        drawContext.canvas.saveLayer(
-            Rect(0f, 0f, size.width, size.height),
-            Paint(),
-        )
-        // 外部 50% 黑色遮罩
-        drawRect(color = Color.Black.copy(alpha = 0.50f))
-        // 镂空裁切框内部
-        drawPath(holePath, color = Color.White, blendMode = BlendMode.Clear)
-        drawContext.canvas.restore()
-
-        // 2. 绘制裁切边框外轮廓线 (双层：内白外黑确保任何底色下均清晰可见)
-        val borderPath = Path().apply {
-            moveTo(pTL.x, pTL.y)
-            lineTo(pTR.x, pTR.y)
-            lineTo(pBR.x, pBR.y)
-            lineTo(pBL.x, pBL.y)
-            close()
-        }
-        drawPath(borderPath, color = Color(0x66000000), style = Stroke(width = 3.dp.toPx()))
-        drawPath(borderPath, color = Color.White.copy(alpha = 0.95f), style = Stroke(width = 1.5.dp.toPx()))
-
-        // 3. 绘制九宫格三等分参考线
-        for (i in 1..2) {
-            val f = i / 3f
-            // 横线
-            val h1 = toScreen(Offset(leftDoc, topDoc + (bottomDoc - topDoc) * f))
-            val h2 = toScreen(Offset(rightDoc, topDoc + (bottomDoc - topDoc) * f))
-            drawLine(Color.White.copy(alpha = 0.35f), h1, h2, strokeWidth = 1.dp.toPx())
-
-            // 竖线
-            val v1 = toScreen(Offset(leftDoc + (rightDoc - leftDoc) * f, topDoc))
-            val v2 = toScreen(Offset(leftDoc + (rightDoc - leftDoc) * f, bottomDoc))
-            drawLine(Color.White.copy(alpha = 0.35f), v1, v2, strokeWidth = 1.dp.toPx())
-        }
-
-        // 4. 绘制 8 个控制手柄 (在裁切模式下显示)
         if (state.mode == CanvasAdjustMode.CROP_EXPAND) {
-            // 四个直角 L 型手柄
+            // ==========================================
+            // 模式 1: 裁切与扩展 (CROP_EXPAND)
+            // ==========================================
+            val leftDoc = state.cropX.toFloat()
+            val topDoc = state.cropY.toFloat()
+            val rightDoc = (state.cropX + state.targetWidth).toFloat()
+            val bottomDoc = (state.cropY + state.targetHeight).toFloat()
+            val midXDoc = (leftDoc + rightDoc) / 2f
+            val midYDoc = (topDoc + bottomDoc) / 2f
+
+            val pTL = toScreen(Offset(leftDoc, topDoc))
+            val pTR = toScreen(Offset(rightDoc, topDoc))
+            val pBR = toScreen(Offset(rightDoc, bottomDoc))
+            val pBL = toScreen(Offset(leftDoc, bottomDoc))
+
+            val pTC = toScreen(Offset(midXDoc, topDoc))
+            val pBC = toScreen(Offset(midXDoc, bottomDoc))
+            val pCL = toScreen(Offset(leftDoc, midYDoc))
+            val pCR = toScreen(Offset(rightDoc, midYDoc))
+
+            // 1. 外部暗色反向遮罩 (穿孔镂空)
+            val holePath = Path().apply {
+                moveTo(pTL.x, pTL.y)
+                lineTo(pTR.x, pTR.y)
+                lineTo(pBR.x, pBR.y)
+                lineTo(pBL.x, pBL.y)
+                close()
+            }
+
+            drawContext.canvas.saveLayer(
+                Rect(0f, 0f, size.width, size.height),
+                Paint(),
+            )
+            drawRect(color = Color.Black.copy(alpha = 0.50f))
+            drawPath(holePath, color = Color.White, blendMode = BlendMode.Clear)
+            drawContext.canvas.restore()
+
+            // 2. 裁切边框外轮廓线 (双层：内白外黑确保任何底色下均清晰可见)
+            val borderPath = Path().apply {
+                moveTo(pTL.x, pTL.y)
+                lineTo(pTR.x, pTR.y)
+                lineTo(pBR.x, pBR.y)
+                lineTo(pBL.x, pBL.y)
+                close()
+            }
+            drawPath(borderPath, color = Color(0x66000000), style = Stroke(width = 3.dp.toPx()))
+            drawPath(borderPath, color = Color.White.copy(alpha = 0.95f), style = Stroke(width = 1.5.dp.toPx()))
+
+            // 3. 九宫格三等分参考线
+            for (i in 1..2) {
+                val f = i / 3f
+                val h1 = toScreen(Offset(leftDoc, topDoc + (bottomDoc - topDoc) * f))
+                val h2 = toScreen(Offset(rightDoc, topDoc + (bottomDoc - topDoc) * f))
+                drawLine(Color.White.copy(alpha = 0.35f), h1, h2, strokeWidth = 1.dp.toPx())
+
+                val v1 = toScreen(Offset(leftDoc + (rightDoc - leftDoc) * f, topDoc))
+                val v2 = toScreen(Offset(leftDoc + (rightDoc - leftDoc) * f, bottomDoc))
+                drawLine(Color.White.copy(alpha = 0.35f), v1, v2, strokeWidth = 1.dp.toPx())
+            }
+
+            // 4. 8 个控制手柄
             drawCornerBracket(pTL, pTR, pBL, bracketLenPx, bracketThickPx)
             drawCornerBracket(pTR, pBR, pTL, bracketLenPx, bracketThickPx)
             drawCornerBracket(pBR, pBL, pTR, bracketLenPx, bracketThickPx)
             drawCornerBracket(pBL, pTL, pBR, bracketLenPx, bracketThickPx)
 
-            // 四条边居中药丸手柄
             drawEdgePill(pTC, pTL, pTR, pillLenPx, pillThickPx)
             drawEdgePill(pBC, pBL, pBR, pillLenPx, pillThickPx)
             drawEdgePill(pCL, pTL, pBL, pillLenPx, pillThickPx)
             drawEdgePill(pCR, pTR, pBR, pillLenPx, pillThickPx)
-        }
 
-        // 5. 绘制悬浮尺寸气泡徽标 (在顶部中心手柄上方居中)
-        val textPaint = android.graphics.Paint().apply {
-            color = android.graphics.Color.WHITE
-            textSize = 12.dp.toPx()
-            typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
-            textAlign = android.graphics.Paint.Align.CENTER
-            isAntiAlias = true
-        }
-        val bgPaint = android.graphics.Paint().apply {
-            color = android.graphics.Color.argb(210, 24, 26, 32)
-            style = android.graphics.Paint.Style.FILL
-            isAntiAlias = true
-        }
+            // 5. 悬浮尺寸徽标 (在顶部中心手柄上方居中)
+            val textPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.WHITE
+                textSize = 12.dp.toPx()
+                typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                textAlign = android.graphics.Paint.Align.CENTER
+                isAntiAlias = true
+            }
+            val bgPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.argb(215, 24, 26, 32)
+                style = android.graphics.Paint.Style.FILL
+                isAntiAlias = true
+            }
 
-        val maxLayers = com.reverie.paint.ui.create.calculateRealMaxLayers(context, state.targetWidth, state.targetHeight)
-        val maxLayersDesc = context.getString(R.string.create_max_layers_desc, maxLayers)
-        val dimText = "${state.targetWidth} × ${state.targetHeight} px  ·  $maxLayersDesc"
-        val textBounds = android.graphics.Rect()
-        textPaint.getTextBounds(dimText, 0, dimText.length, textBounds)
-        val badgeW = textBounds.width() + 24.dp.toPx()
-        val badgeH = textBounds.height() + 14.dp.toPx()
+            val maxLayers = com.reverie.paint.ui.create.calculateRealMaxLayers(context, state.targetWidth, state.targetHeight)
+            val maxLayersDesc = context.getString(R.string.create_max_layers_desc, maxLayers)
+            val dimText = "${state.targetWidth} × ${state.targetHeight} px  ·  $maxLayersDesc"
+            val textBounds = android.graphics.Rect()
+            textPaint.getTextBounds(dimText, 0, dimText.length, textBounds)
+            val badgeW = textBounds.width() + 24.dp.toPx()
+            val badgeH = textBounds.height() + 14.dp.toPx()
 
-        // 徽标摆放在裁切框顶部中央外侧 ~22dp
-        val badgeCenter = pTC + Offset(0f, -22.dp.toPx())
-        val badgeRect = android.graphics.RectF(
-            badgeCenter.x - badgeW / 2f,
-            badgeCenter.y - badgeH / 2f,
-            badgeCenter.x + badgeW / 2f,
-            badgeCenter.y + badgeH / 2f,
-        )
-        drawContext.canvas.nativeCanvas.drawRoundRect(badgeRect, 8.dp.toPx(), 8.dp.toPx(), bgPaint)
-        drawContext.canvas.nativeCanvas.drawText(
-            dimText,
-            badgeCenter.x,
-            badgeCenter.y + textBounds.height() / 2f - 2.dp.toPx(),
-            textPaint,
-        )
+            val badgeCenter = pTC + Offset(0f, -22.dp.toPx())
+            val badgeRect = android.graphics.RectF(
+                badgeCenter.x - badgeW / 2f,
+                badgeCenter.y - badgeH / 2f,
+                badgeCenter.x + badgeW / 2f,
+                badgeCenter.y + badgeH / 2f,
+            )
+            drawContext.canvas.nativeCanvas.drawRoundRect(badgeRect, 8.dp.toPx(), 8.dp.toPx(), bgPaint)
+            drawContext.canvas.nativeCanvas.drawText(
+                dimText,
+                badgeCenter.x,
+                badgeCenter.y + textBounds.height() / 2f - 2.dp.toPx(),
+                textPaint,
+            )
+        } else {
+            // ==========================================
+            // 模式 2: 图像缩放 (RESAMPLE_SCALE) 实时对比预览
+            // ==========================================
+            val centerDocX = docW / 2f
+            val centerDocY = docH / 2f
+            val halfW = state.targetWidth / 2f
+            val halfH = state.targetHeight / 2f
+
+            val targetLeft = centerDocX - halfW
+            val targetTop = centerDocY - halfH
+            val targetRight = centerDocX + halfW
+            val targetBottom = centerDocY + halfH
+
+            val pTL = toScreen(Offset(targetLeft, targetTop))
+            val pTR = toScreen(Offset(targetRight, targetTop))
+            val pBR = toScreen(Offset(targetRight, targetBottom))
+            val pBL = toScreen(Offset(targetLeft, targetBottom))
+            val pTC = toScreen(Offset(centerDocX, targetTop))
+
+            val origTL = toScreen(Offset(0f, 0f))
+            val origTR = toScreen(Offset(docW.toFloat(), 0f))
+            val origBR = toScreen(Offset(docW.toFloat(), docH.toFloat()))
+            val origBL = toScreen(Offset(0f, docH.toFloat()))
+
+            val isDifferentSize = state.targetWidth != docW || state.targetHeight != docH
+
+            // 1. 原图参考轮廓线 (半透明白色虚线)
+            if (isDifferentSize) {
+                val origPath = Path().apply {
+                    moveTo(origTL.x, origTL.y)
+                    lineTo(origTR.x, origTR.y)
+                    lineTo(origBR.x, origBR.y)
+                    lineTo(origBL.x, origBL.y)
+                    close()
+                }
+                drawPath(
+                    origPath,
+                    color = Color.White.copy(alpha = 0.40f),
+                    style = Stroke(
+                        width = 1.5.dp.toPx(),
+                        pathEffect = PathEffect.dashPathEffect(floatArrayOf(8.dp.toPx(), 6.dp.toPx())),
+                    ),
+                )
+
+                // 2. 4 角缩放投影参考线 (连接原图角点与目标角点)
+                val rayColor = Morandi.accent.copy(alpha = 0.50f)
+                val rayEffect = PathEffect.dashPathEffect(floatArrayOf(4.dp.toPx(), 4.dp.toPx()))
+                drawLine(rayColor, origTL, pTL, strokeWidth = 1.2.dp.toPx(), pathEffect = rayEffect)
+                drawLine(rayColor, origTR, pTR, strokeWidth = 1.2.dp.toPx(), pathEffect = rayEffect)
+                drawLine(rayColor, origBR, pBR, strokeWidth = 1.2.dp.toPx(), pathEffect = rayEffect)
+                drawLine(rayColor, origBL, pBL, strokeWidth = 1.2.dp.toPx(), pathEffect = rayEffect)
+            }
+
+            // 3. 目标缩放区域遮罩与高亮
+            val targetPath = Path().apply {
+                moveTo(pTL.x, pTL.y)
+                lineTo(pTR.x, pTR.y)
+                lineTo(pBR.x, pBR.y)
+                lineTo(pBL.x, pBL.y)
+                close()
+            }
+
+            drawContext.canvas.saveLayer(
+                Rect(0f, 0f, size.width, size.height),
+                Paint(),
+            )
+            // 外部 50% 黑色遮罩
+            drawRect(color = Color.Black.copy(alpha = 0.50f))
+            // 镂空目标缩放框
+            drawPath(targetPath, color = Color.White, blendMode = BlendMode.Clear)
+            drawContext.canvas.restore()
+
+            // 4. 若为放大模式, 在原图到目标之间的扩展带填充淡强调色
+            if (state.targetWidth > docW || state.targetHeight > docH) {
+                val origPath = Path().apply {
+                    moveTo(origTL.x, origTL.y)
+                    lineTo(origTR.x, origTR.y)
+                    lineTo(origBR.x, origBR.y)
+                    lineTo(origBL.x, origBL.y)
+                    close()
+                }
+                drawContext.canvas.saveLayer(
+                    Rect(0f, 0f, size.width, size.height),
+                    Paint(),
+                )
+                drawPath(targetPath, color = Morandi.accent.copy(alpha = 0.08f))
+                drawPath(origPath, color = Color.White, blendMode = BlendMode.Clear)
+                drawContext.canvas.restore()
+            }
+
+            // 5. 绘制目标尺寸边框 (外阴影内强调色)
+            drawPath(targetPath, color = Color(0x66000000), style = Stroke(width = 3.dp.toPx()))
+            drawPath(targetPath, color = Morandi.accent.copy(alpha = 0.95f), style = Stroke(width = 1.8.dp.toPx()))
+
+            // 6. 九宫格参考线
+            for (i in 1..2) {
+                val f = i / 3f
+                val h1 = toScreen(Offset(targetLeft, targetTop + (targetBottom - targetTop) * f))
+                val h2 = toScreen(Offset(targetRight, targetTop + (targetBottom - targetTop) * f))
+                drawLine(Color.White.copy(alpha = 0.25f), h1, h2, strokeWidth = 1.dp.toPx())
+
+                val v1 = toScreen(Offset(targetLeft + (targetRight - targetLeft) * f, targetTop))
+                val v2 = toScreen(Offset(targetLeft + (targetRight - targetLeft) * f, targetBottom))
+                drawLine(Color.White.copy(alpha = 0.25f), v1, v2, strokeWidth = 1.dp.toPx())
+            }
+
+            // 7. 4 个角手柄 (转角 L 型手柄, 支持触控拖拉实时调尺寸)
+            drawCornerBracket(pTL, pTR, pBL, bracketLenPx, bracketThickPx)
+            drawCornerBracket(pTR, pBR, pTL, bracketLenPx, bracketThickPx)
+            drawCornerBracket(pBR, pBL, pTR, bracketLenPx, bracketThickPx)
+            drawCornerBracket(pBL, pTL, pBR, bracketLenPx, bracketThickPx)
+
+            // 8. 悬浮尺寸与缩放徽标 (在顶部中心外侧)
+            val textPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.WHITE
+                textSize = 12.dp.toPx()
+                typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.BOLD)
+                textAlign = android.graphics.Paint.Align.CENTER
+                isAntiAlias = true
+            }
+            val bgPaint = android.graphics.Paint().apply {
+                color = android.graphics.Color.argb(215, 24, 26, 32)
+                style = android.graphics.Paint.Style.FILL
+                isAntiAlias = true
+            }
+
+            val scaleRatioX = state.targetWidth.toFloat() / maxOf(1, docW)
+            val scaleRatioY = state.targetHeight.toFloat() / maxOf(1, docH)
+            val ratioText = if (abs(scaleRatioX - scaleRatioY) < 0.005f) {
+                "%.2f× (%d%%)".format(scaleRatioX, (scaleRatioX * 100).roundToInt())
+            } else {
+                "W: %.2f×, H: %.2f×".format(scaleRatioX, scaleRatioY)
+            }
+            val filterName = context.getString(state.resampleFilter.labelRes)
+            val maxLayers = com.reverie.paint.ui.create.calculateRealMaxLayers(context, state.targetWidth, state.targetHeight)
+            val maxLayersDesc = context.getString(R.string.create_max_layers_desc, maxLayers)
+
+            val dimText = "${state.targetWidth} × ${state.targetHeight} px  ·  $ratioText  ·  $filterName  ·  $maxLayersDesc"
+            val textBounds = android.graphics.Rect()
+            textPaint.getTextBounds(dimText, 0, dimText.length, textBounds)
+            val badgeW = textBounds.width() + 24.dp.toPx()
+            val badgeH = textBounds.height() + 14.dp.toPx()
+
+            val badgeCenter = pTC + Offset(0f, -22.dp.toPx())
+            val badgeRect = android.graphics.RectF(
+                badgeCenter.x - badgeW / 2f,
+                badgeCenter.y - badgeH / 2f,
+                badgeCenter.x + badgeW / 2f,
+                badgeCenter.y + badgeH / 2f,
+            )
+            drawContext.canvas.nativeCanvas.drawRoundRect(badgeRect, 8.dp.toPx(), 8.dp.toPx(), bgPaint)
+            drawContext.canvas.nativeCanvas.drawText(
+                dimText,
+                badgeCenter.x,
+                badgeCenter.y + textBounds.height() / 2f - 2.dp.toPx(),
+                textPaint,
+            )
+
+            // 9. 原图参考标签 (在尺寸改变时显示在原图左上角外侧)
+            if (isDifferentSize) {
+                val subTextPaint = android.graphics.Paint().apply {
+                    color = android.graphics.Color.argb(230, 200, 205, 215)
+                    textSize = 10.dp.toPx()
+                    typeface = android.graphics.Typeface.create(android.graphics.Typeface.DEFAULT, android.graphics.Typeface.NORMAL)
+                    textAlign = android.graphics.Paint.Align.LEFT
+                    isAntiAlias = true
+                }
+                val origDesc = "${docW} × ${docH} (${context.getString(R.string.filter_compare_original)})"
+                val origBounds = android.graphics.Rect()
+                subTextPaint.getTextBounds(origDesc, 0, origDesc.length, origBounds)
+                val origBadgeW = origBounds.width() + 14.dp.toPx()
+                val origBadgeH = origBounds.height() + 8.dp.toPx()
+                val origBadgePos = origTL + Offset(0f, -14.dp.toPx())
+                val origBadgeRect = android.graphics.RectF(
+                    origBadgePos.x,
+                    origBadgePos.y - origBadgeH,
+                    origBadgePos.x + origBadgeW,
+                    origBadgePos.y,
+                )
+                val subBgPaint = android.graphics.Paint().apply {
+                    color = android.graphics.Color.argb(180, 20, 22, 28)
+                    style = android.graphics.Paint.Style.FILL
+                    isAntiAlias = true
+                }
+                drawContext.canvas.nativeCanvas.drawRoundRect(origBadgeRect, 4.dp.toPx(), 4.dp.toPx(), subBgPaint)
+                drawContext.canvas.nativeCanvas.drawText(
+                    origDesc,
+                    origBadgePos.x + 7.dp.toPx(),
+                    origBadgePos.y - 4.dp.toPx(),
+                    subTextPaint,
+                )
+            }
+        }
     }
 }
 
 /**
- * 命中测试: 判断触点落在哪个裁切手柄上。
- * 返回 NONE 表示该点既不在手柄上也不在裁切框内, 事件应下沉给画布。
+ * 命中测试 (裁切模式): 判断触点落在哪个裁切手柄或裁切框内。
  */
 private fun resolveCropHandle(
     pos: Offset,
@@ -544,6 +886,76 @@ private fun resolveCropHandle(
 }
 
 /**
+ * 命中测试 (图像缩放模式): 判断触点落在哪个角手柄上。
+ */
+private fun resolveScaleHandle(
+    pos: Offset,
+    viewW: Int,
+    viewH: Int,
+    state: CanvasAdjustState,
+    docW: Int,
+    docH: Int,
+    bmpW: Int,
+    bmpH: Int,
+    panX: Float,
+    panY: Float,
+    zoom: Float,
+    fitScale: Float,
+    rotation: Float,
+    handleTouchRadiusPx: Float,
+    flipX: Boolean = false,
+    flipY: Boolean = false,
+): CropHandle {
+    val centerDocX = docW / 2f
+    val centerDocY = docH / 2f
+    val halfW = state.targetWidth / 2f
+    val halfH = state.targetHeight / 2f
+
+    val targetLeft = centerDocX - halfW
+    val targetTop = centerDocY - halfH
+    val targetRight = centerDocX + halfW
+    val targetBottom = centerDocY + halfH
+
+    val toScreen = { docPt: Offset ->
+        imageToWidget(
+            docPt,
+            viewW,
+            viewH,
+            panX,
+            panY,
+            zoom,
+            fitScale,
+            rotation,
+            bmpW,
+            bmpH,
+            docW,
+            docH,
+            flipX,
+            flipY,
+        )
+    }
+
+    val handleMap = mapOf(
+        CropHandle.TOP_LEFT to Offset(targetLeft, targetTop),
+        CropHandle.TOP_RIGHT to Offset(targetRight, targetTop),
+        CropHandle.BOTTOM_LEFT to Offset(targetLeft, targetBottom),
+        CropHandle.BOTTOM_RIGHT to Offset(targetRight, targetBottom),
+    )
+
+    var nearestHandle = CropHandle.NONE
+    var minDist = handleTouchRadiusPx
+    for ((handle, docPt) in handleMap) {
+        val screenPt = toScreen(docPt)
+        val dist = hypot(pos.x - screenPt.x, pos.y - screenPt.y)
+        if (dist < minDist) {
+            minDist = dist
+            nearestHandle = handle
+        }
+    }
+    return nearestHandle
+}
+
+/**
  * 绘制转角 L 型手柄
  */
 private fun androidx.compose.ui.graphics.drawscope.DrawScope.drawCornerBracket(
@@ -592,3 +1004,134 @@ private fun normalize(offset: Offset): Offset {
     val len = hypot(offset.x, offset.y)
     return if (len > 0.0001f) Offset(offset.x / len, offset.y / len) else Offset.Zero
 }
+
+/**
+ * 画布调整模式专属双指视口手势探测器:
+ * 联动缩放、平移与旋转, 保持双指触控中心点绝对标定, 并集成 90° 吸附收敛与震动触觉反馈。
+ */
+private class CanvasAdjustViewportGesture {
+    private var active = false
+    private var firstId = 0L
+    private var secondId = 0L
+    private var previousX = 0f
+    private var previousY = 0f
+    private var previousDistance = 1f
+    private var previousAngle = 0f
+
+    var zoom = 1f
+        private set
+    var rotation = 0f
+        private set
+    var panX = 0f
+        private set
+    var panY = 0f
+        private set
+
+    val rotationSnapGesture = RotationSnapGesture()
+    private var snapEngaged = false
+
+    fun reset() {
+        active = false
+    }
+
+    fun update(
+        firstPointerId: Long,
+        firstX: Float,
+        firstY: Float,
+        secondPointerId: Long,
+        secondX: Float,
+        secondY: Float,
+        viewWidth: Int,
+        viewHeight: Int,
+        currentZoom: Float,
+        currentRotation: Float,
+        currentPanX: Float,
+        currentPanY: Float,
+        rotationEnabled: Boolean,
+        snapThreshold: Float,
+        locked: Boolean,
+        onSnapEngaged: (() -> Unit)? = null,
+    ): Boolean {
+        if (firstPointerId == secondPointerId || viewWidth <= 0 || viewHeight <= 0 ||
+            !firstX.isFinite() || !firstY.isFinite() || !secondX.isFinite() || !secondY.isFinite() ||
+            !currentZoom.isFinite() || currentZoom <= 0f ||
+            !currentRotation.isFinite() ||
+            !currentPanX.isFinite() || !currentPanY.isFinite()
+        ) {
+            reset()
+            return false
+        }
+
+        val centerX = (firstX + secondX) * 0.5f
+        val centerY = (firstY + secondY) * 0.5f
+        val distance = hypot(secondX - firstX, secondY - firstY).coerceAtLeast(1f)
+        val angle = Math.toDegrees(kotlin.math.atan2((secondY - firstY).toDouble(), (secondX - firstX).toDouble())).toFloat()
+
+        val samePair = active &&
+            ((firstPointerId == firstId && secondPointerId == secondId) ||
+                (firstPointerId == secondId && secondPointerId == firstId))
+
+        var changed = false
+        if (samePair) {
+            val nextZoom = if (locked) currentZoom
+                else (currentZoom * (distance / previousDistance)).coerceIn(0.02f, 128f)
+            val actualK = if (currentZoom > 0.0001f) nextZoom / currentZoom else 1f
+
+            val dRot: Float
+            val nextRotation: Float
+            if (rotationEnabled && !locked) {
+                val rawDelta = normalizeAngle(angle - previousAngle).coerceIn(-15f, 15f)
+                val safeDelta = if (rawDelta.isFinite()) rawDelta else 0f
+                val snapped = rotationSnapGesture.update(safeDelta, snapThreshold)
+                dRot = snapped - currentRotation
+                nextRotation = snapped
+
+                val engaged = rotationSnapGesture.isSnapped
+                if (engaged && !snapEngaged) {
+                    onSnapEngaged?.invoke()
+                }
+                snapEngaged = engaged
+            } else {
+                dRot = 0f
+                nextRotation = currentRotation
+            }
+
+            val rad = Math.toRadians(dRot.toDouble())
+            val cosR = kotlin.math.cos(rad).toFloat()
+            val sinR = kotlin.math.sin(rad).toFloat()
+
+            val vx = previousX - (viewWidth * 0.5f + currentPanX)
+            val vy = previousY - (viewHeight * 0.5f + currentPanY)
+
+            val vRotX = actualK * (vx * cosR - vy * sinR)
+            val vRotY = actualK * (vx * sinR + vy * cosR)
+
+            val nextPanX = centerX - vRotX - viewWidth * 0.5f
+            val nextPanY = centerY - vRotY - viewHeight * 0.5f
+
+            if (!nextZoom.isFinite() || !nextRotation.isFinite() || !nextPanX.isFinite() || !nextPanY.isFinite()) {
+                reset()
+                return false
+            }
+
+            zoom = nextZoom
+            rotation = nextRotation
+            panX = nextPanX
+            panY = nextPanY
+            changed = true
+        } else {
+            rotationSnapGesture.begin(currentRotation)
+            snapEngaged = false
+        }
+
+        active = true
+        firstId = firstPointerId
+        secondId = secondPointerId
+        previousX = centerX
+        previousY = centerY
+        previousDistance = distance
+        previousAngle = angle
+        return changed
+    }
+}
+

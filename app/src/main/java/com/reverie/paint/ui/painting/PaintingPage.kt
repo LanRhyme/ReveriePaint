@@ -1036,6 +1036,13 @@ fun PaintingPage(
                     panX = panXState,
                     panY = panYState,
                     fitScale = fitScale,
+                    onViewTransform = { z, r, px, py ->
+                        canvasTouchView?.applyViewTransform(z, r, px, py)
+                            ?: com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.applyViewTransform(z, r, px, py)
+                        if (chromeEntered) {
+                            indicatorState.onPinch()
+                        }
+                    },
                 )
             }
         }
