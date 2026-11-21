@@ -488,7 +488,6 @@ fun DrawingGuidePanel(
                             selectedKey = ((guide.symmetryRotationDeg % 180f + 180f) % 180f).roundToInt(),
                             onSelect = { vm.drawingGuide = guide.copy(symmetryRotationDeg = it.toFloat()) }
                         )
-
                         Row(
                             modifier = Modifier.fillMaxWidth(),
                             horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -502,29 +501,36 @@ fun DrawingGuidePanel(
                                 modifier = Modifier.weight(1f),
                             )
                             CompactSliderItem(
-                                label = stringResource(R.string.guide_symmetry_center),
-                                valueText = "${(if (guide.symmetryType == SymmetryType.HORIZONTAL) guide.symmetryCenterY * 100f else guide.symmetryCenterX * 100f).roundToInt()}%",
-                                range = 0.1f..0.9f,
-                                value = if (guide.symmetryType == SymmetryType.HORIZONTAL) guide.symmetryCenterY else guide.symmetryCenterX,
-                                onValue = {
-                                    when (guide.symmetryType) {
-                                        SymmetryType.HORIZONTAL -> vm.drawingGuide = guide.copy(symmetryCenterX = 0.5f, symmetryCenterY = it)
-                                        SymmetryType.VERTICAL -> vm.drawingGuide = guide.copy(symmetryCenterX = it, symmetryCenterY = 0.5f)
-                                        else -> vm.drawingGuide = guide.copy(symmetryCenterX = it, symmetryCenterY = it)
-                                    }
-                                },
+                                label = stringResource(R.string.guide_line_opacity),
+                                valueText = "${(guide.opacity * 100f).roundToInt()}%",
+                                range = 0.1f..1f,
+                                value = guide.opacity,
+                                onValue = { vm.drawingGuide = guide.copy(opacity = it) },
                                 modifier = Modifier.weight(1f),
                             )
                         }
 
-                        CompactSliderItem(
-                            label = stringResource(R.string.guide_line_opacity),
-                            valueText = "${(guide.opacity * 100f).roundToInt()}%",
-                            range = 0.1f..1f,
-                            value = guide.opacity,
-                            onValue = { vm.drawingGuide = guide.copy(opacity = it) },
+                        Row(
                             modifier = Modifier.fillMaxWidth(),
-                        )
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CompactSliderItem(
+                                label = stringResource(R.string.guide_symmetry_center_x),
+                                valueText = "${(guide.symmetryCenterX * 100f).roundToInt()}%",
+                                range = 0.05f..0.95f,
+                                value = guide.symmetryCenterX,
+                                onValue = { vm.drawingGuide = guide.copy(symmetryCenterX = it) },
+                                modifier = Modifier.weight(1f),
+                            )
+                            CompactSliderItem(
+                                label = stringResource(R.string.guide_symmetry_center_y),
+                                valueText = "${(guide.symmetryCenterY * 100f).roundToInt()}%",
+                                range = 0.05f..0.95f,
+                                value = guide.symmetryCenterY,
+                                onValue = { vm.drawingGuide = guide.copy(symmetryCenterY = it) },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
                     }
 
                     // 3. GRID_2D & ISOMETRIC 模式

@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.dp
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.GuideMode
+import com.reverie.paint.model.DrawingGuideHandleGeometry
 import com.reverie.paint.model.PERSPECTIVE_RAY_COUNT_MAX
 import com.reverie.paint.model.PERSPECTIVE_RAY_COUNT_MIN
 import com.reverie.paint.model.Perspective3DMath
@@ -197,6 +198,22 @@ internal fun DrawScope.drawDrawingGuides(
                                             if (az != null) drawLine(Color(0xFF61AFEF), Offset(o.x, o.y), Offset(az.x, az.y), strokeWidth = gStroke.width * 1.2f)
                                         }
                                     }
+
+                                    // 3. 3D 轨道旋转控制柄 (仅面板展开时绘制, 与 CanvasTouchView 共享几何坐标)
+                                    if (vm.drawingGuidePanelOpen) {
+                                        val scX = bmp.width.toFloat() / maxOf(1, vm.docWidth)
+                                        val scY = bmp.height.toFloat() / maxOf(1, vm.docHeight)
+                                        val orbitDoc = DrawingGuideHandleGeometry.perspective3dOrbitHandleDocPos(
+                                            vm.docWidth,
+                                            vm.docHeight,
+                                            guide,
+                                        )
+                                        val orbitCenter = Offset(orbitDoc.x * scX - halfW, orbitDoc.y * scY - halfH)
+                                        val currentScale = zoom * fitScale
+                                        drawCircle(Morandi.accent.copy(alpha = 0.30f), radius = 12.dp.toPx() / currentScale, center = orbitCenter)
+                                        drawCircle(Morandi.accent, radius = 6.5.dp.toPx() / currentScale, center = orbitCenter)
+                                        drawCircle(Color.White, radius = 3.dp.toPx() / currentScale, center = orbitCenter)
+                                    }
                                 }
                             } else {
                                 val pts = if (guide.perspectiveVanishingPoints.isEmpty()) {
@@ -328,10 +345,12 @@ internal fun DrawScope.drawDrawingGuides(
                                 drawCircle(Color.White, radius = 2.5.dp.toPx() / currentScale, center = Offset(cx, cy))
 
                                 // 2. 轴向旋转控制柄 (沿对称主轴分布)
-                                val rotHandleDist = minOf(docW, docH) * 0.35f * scX
-                                val rotHandleX = cx - sinR * rotHandleDist
-                                val rotHandleY = cy + cosR * rotHandleDist
-                                val rotCenter = Offset(rotHandleX, rotHandleY)
+                                val rotDoc = DrawingGuideHandleGeometry.symmetryRotationHandleDocPos(
+                                    vm.docWidth,
+                                    vm.docHeight,
+                                    guide,
+                                )
+                                val rotCenter = Offset(rotDoc.x * scX - halfW, rotDoc.y * scY - halfH)
 
                                 drawCircle(Morandi.accent.copy(alpha = 0.25f), radius = 13.dp.toPx() / currentScale, center = rotCenter)
                                 drawCircle(Morandi.accent, radius = 7.dp.toPx() / currentScale, center = rotCenter)

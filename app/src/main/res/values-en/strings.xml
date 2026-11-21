@@ -1962,6 +1962,8 @@
     <string name="guide_symmetry_radial_count">Radial Count</string>
     <string name="guide_symmetry_radial_count_value">%1$d petals</string>
     <string name="guide_symmetry_center">Axis Center</string>
+    <string name="guide_symmetry_center_x">Center X</string>
+    <string name="guide_symmetry_center_y">Center Y</string>
     <string name="guide_symmetry_rotation">Rotation Angle</string>
     <string name="guide_symmetry_reset_center">Reset Center</string>
     <string name="guide_symmetry_mode">Symmetry Mode</string>
@@ -1973,7 +1975,7 @@
     <string name="guide_perspective_ray_density">Ray Density</string>
     <string name="guide_perspective_mode_3d">3D Grid</string>
     <string name="guide_perspective_mode_vanish">Vanishing Rays</string>
-    <string name="guide_perspective_3d_hint">Drag on canvas to rotate 3D view; close panel to lock</string>
+    <string name="guide_perspective_3d_hint">Drag the 3D origin handle to rotate view; close panel to lock</string>
     <string name="guide_perspective_pitch">Pitch</string>
     <string name="guide_perspective_yaw">Yaw</string>
     <string name="guide_perspective_roll">Camera Roll</string>
