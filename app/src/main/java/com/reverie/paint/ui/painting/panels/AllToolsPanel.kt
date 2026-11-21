@@ -212,14 +212,7 @@ fun AllToolsPanel(
                 ) {
                     groupedTools.forEach { (group, tools) ->
                         val isViewGroup = group == ToolGroup.VIEW
-                        val itemsList = buildList {
-                            for (t in tools) {
-                                add(AllToolItem.Regular(t))
-                                if (t == Tool.DRAWING_GUIDE) {
-                                    add(AllToolItem.GuideLines)
-                                }
-                            }
-                        }
+                        val itemsList = tools.map { AllToolItem.Regular(it) }
                         val chunked = itemsList.chunked(2)
 
                         if (isViewGroup) {

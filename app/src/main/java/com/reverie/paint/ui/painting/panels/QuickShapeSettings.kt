@@ -43,158 +43,106 @@ import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.roundToInt
 
 /**
- * 速创形状折叠抽屉 (挂载在绘图辅助面板底部，支持两级分层折叠与平滑展开)
+ * 速创形状 Tab 内容 (作为绘图辅助中心的二级独立分栏，平铺一级呈现并支持内部卡片独立折叠)
  */
 @Composable
-fun QuickShapeCollapsibleDrawer(
+fun QuickShapeTabContent(
     vm: PaintViewModel,
     modifier: Modifier = Modifier,
 ) {
-    var isExpanded by rememberSaveable { mutableStateOf(false) }
-
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(12.dp))
-            .background(Morandi.border.copy(alpha = 0.18f))
-            .animateContentSize()
-            .padding(horizontal = 10.dp, vertical = 8.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .animateContentSize(),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
-        // 抽屉头部卡片（点击展开/折叠）
-        Row(
+        // 第一层：总开关与停顿延迟卡片
+        Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(8.dp))
-                .clickable { isExpanded = !isExpanded }
-                .padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
+                .clip(RoundedCornerShape(12.dp))
+                .background(Morandi.border.copy(alpha = 0.18f))
+                .padding(horizontal = 10.dp, vertical = 8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp),
         ) {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_shapes),
-                    contentDescription = null,
-                    tint = if (vm.quickShapeEnabled) Morandi.accent else Morandi.icon,
-                    modifier = Modifier.size(16.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    text = stringResource(R.string.quick_shape_drawer_title),
-                    color = Morandi.text,
-                    fontSize = 12.5.sp,
-                    fontWeight = FontWeight.SemiBold,
+            QuickShapeOption(
+                title = R.string.quick_shape_setting,
+                hint = R.string.quick_shape_settings_master_hint,
+                enabled = vm.quickShapeEnabled,
+                onChanged = vm::updateQuickShapeEnabled,
+            )
+
+            if (vm.quickShapeEnabled) {
+                QuickShapeHoldDelaySlider(
+                    delayMs = vm.quickShapeHoldDelayMs,
+                    onDelayChange = vm::updateQuickShapeHoldDelayMs,
                 )
             }
-            Icon(
-                painter = painterResource(R.drawable.ic_chevron_down),
-                contentDescription = null,
-                tint = Morandi.subText,
-                modifier = Modifier
-                    .size(16.dp)
-                    .rotate(if (isExpanded) 180f else 0f),
-            )
         }
 
-        // 展开内容
-        AnimatedVisibility(
-            visible = isExpanded,
-            enter = expandVertically() + fadeIn(),
-            exit = shrinkVertically() + fadeOut(),
-        ) {
-            Column(
-                modifier = Modifier.fillMaxWidth(),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+        // 第二层：图元识别分类折叠卡片
+        if (vm.quickShapeEnabled) {
+            QuickShapeFoldableSection(
+                title = R.string.quick_shape_group_recognition,
+                initialExpanded = true,
             ) {
-                // 第一层：总开关
                 QuickShapeOption(
-                    title = R.string.quick_shape_setting,
-                    hint = R.string.quick_shape_settings_master_hint,
-                    enabled = vm.quickShapeEnabled,
-                    onChanged = vm::updateQuickShapeEnabled,
+                    title = R.string.quick_shape_quad_setting,
+                    hint = R.string.quick_shape_quad_hint,
+                    enabled = vm.quickShapeQuadrilateralEnabled,
+                    onChanged = vm::updateQuickShapeQuadrilateralEnabled,
                 )
+                QuickShapeOption(
+                    title = R.string.quick_shape_curve_setting,
+                    hint = R.string.quick_shape_curve_hint,
+                    enabled = vm.quickShapeCurveEnabled,
+                    onChanged = vm::updateQuickShapeCurveEnabled,
+                )
+                QuickShapeOption(
+                    title = R.string.quick_shape_arc_setting,
+                    hint = R.string.quick_shape_arc_setting_hint,
+                    enabled = vm.quickShapeArcEnabled,
+                    onChanged = vm::updateQuickShapeArcEnabled,
+                )
+                QuickShapeOption(
+                    title = R.string.quick_shape_relaxed,
+                    hint = R.string.quick_shape_settings_relaxed_hint,
+                    enabled = vm.quickShapeRelaxedEnabled,
+                    onChanged = vm::updateQuickShapeRelaxedEnabled,
+                )
+            }
 
-                if (vm.quickShapeEnabled) {
-                    QuickShapeHoldDelaySlider(
-                        delayMs = vm.quickShapeHoldDelayMs,
-                        onDelayChange = vm::updateQuickShapeHoldDelayMs,
-                    )
-
-                    // 识别类开关分组
-                    SectionHeader(title = R.string.quick_shape_group_recognition)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Morandi.border.copy(alpha = 0.12f))
-                            .padding(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
+            // 第三层：编辑手柄与对齐分类折叠卡片
+            QuickShapeFoldableSection(
+                title = R.string.quick_shape_group_edit_handles,
+                initialExpanded = false,
+            ) {
+                QuickShapeOption(
+                    title = R.string.quick_shape_angle_snap,
+                    hint = R.string.quick_shape_angle_snap_hint,
+                    enabled = vm.quickShapeAngleSnapEnabled,
+                    onChanged = vm::updateQuickShapeAngleSnapEnabled,
+                )
+                QuickShapeOption(
+                    title = R.string.quick_shape_per_point_pressure,
+                    hint = R.string.quick_shape_per_point_pressure_hint,
+                    enabled = vm.quickShapePerPointPressureEnabled,
+                    onChanged = vm::updateQuickShapePerPointPressureEnabled,
+                )
+                QuickShapeOption(
+                    title = R.string.quick_shape_box_handles,
+                    hint = R.string.quick_shape_settings_box_handles_hint,
+                    enabled = vm.quickShapeBoxHandlesEnabled,
+                    onChanged = vm::updateQuickShapeBoxHandlesEnabled,
+                )
+                if (vm.quickShapeBoxHandlesEnabled) {
+                    Box(modifier = Modifier.padding(start = 14.dp)) {
                         QuickShapeOption(
-                            title = R.string.quick_shape_quad_setting,
-                            hint = R.string.quick_shape_quad_hint,
-                            enabled = vm.quickShapeQuadrilateralEnabled,
-                            onChanged = vm::updateQuickShapeQuadrilateralEnabled,
+                            title = R.string.quick_shape_contour_setting,
+                            hint = R.string.quick_shape_settings_contour_hint,
+                            enabled = vm.quickShapeContourEnabled,
+                            onChanged = vm::updateQuickShapeContourEnabled,
                         )
-                        QuickShapeOption(
-                            title = R.string.quick_shape_curve_setting,
-                            hint = R.string.quick_shape_curve_hint,
-                            enabled = vm.quickShapeCurveEnabled,
-                            onChanged = vm::updateQuickShapeCurveEnabled,
-                        )
-                        QuickShapeOption(
-                            title = R.string.quick_shape_arc_setting,
-                            hint = R.string.quick_shape_arc_setting_hint,
-                            enabled = vm.quickShapeArcEnabled,
-                            onChanged = vm::updateQuickShapeArcEnabled,
-                        )
-                        QuickShapeOption(
-                            title = R.string.quick_shape_relaxed,
-                            hint = R.string.quick_shape_settings_relaxed_hint,
-                            enabled = vm.quickShapeRelaxedEnabled,
-                            onChanged = vm::updateQuickShapeRelaxedEnabled,
-                        )
-                    }
-
-                    // 第二层：「编辑与手柄」分组
-                    SectionHeader(title = R.string.quick_shape_group_edit_handles)
-                    Column(
-                        modifier = Modifier
-                            .fillMaxWidth()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Morandi.border.copy(alpha = 0.12f))
-                            .padding(8.dp),
-                        verticalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        QuickShapeOption(
-                            title = R.string.quick_shape_angle_snap,
-                            hint = R.string.quick_shape_angle_snap_hint,
-                            enabled = vm.quickShapeAngleSnapEnabled,
-                            onChanged = vm::updateQuickShapeAngleSnapEnabled,
-                        )
-                        QuickShapeOption(
-                            title = R.string.quick_shape_per_point_pressure,
-                            hint = R.string.quick_shape_per_point_pressure_hint,
-                            enabled = vm.quickShapePerPointPressureEnabled,
-                            onChanged = vm::updateQuickShapePerPointPressureEnabled,
-                        )
-                        QuickShapeOption(
-                            title = R.string.quick_shape_box_handles,
-                            hint = R.string.quick_shape_settings_box_handles_hint,
-                            enabled = vm.quickShapeBoxHandlesEnabled,
-                            onChanged = vm::updateQuickShapeBoxHandlesEnabled,
-                        )
-                        // 八点尺寸控制开启时缩进显示按住调整轮廓
-                        if (vm.quickShapeBoxHandlesEnabled) {
-                            Box(modifier = Modifier.padding(start = 14.dp)) {
-                                QuickShapeOption(
-                                    title = R.string.quick_shape_contour_setting,
-                                    hint = R.string.quick_shape_settings_contour_hint,
-                                    enabled = vm.quickShapeContourEnabled,
-                                    onChanged = vm::updateQuickShapeContourEnabled,
-                                )
-                            }
-                        }
                     }
                 }
             }
@@ -203,22 +151,84 @@ fun QuickShapeCollapsibleDrawer(
 }
 
 /**
- * 兼容旧调用点
+ * 分类独立折叠卡片
+ */
+@Composable
+private fun QuickShapeFoldableSection(
+    title: Int,
+    initialExpanded: Boolean = true,
+    content: @Composable () -> Unit,
+) {
+    var isExpanded by rememberSaveable { mutableStateOf(initialExpanded) }
+
+    Column(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(12.dp))
+            .background(Morandi.border.copy(alpha = 0.14f))
+            .animateContentSize()
+            .padding(horizontal = 10.dp, vertical = 7.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(8.dp))
+                .clickable { isExpanded = !isExpanded }
+                .padding(vertical = 3.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = stringResource(title),
+                color = Morandi.accent,
+                fontSize = 11.5.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Icon(
+                painter = painterResource(R.drawable.ic_chevron_down),
+                contentDescription = null,
+                tint = Morandi.subText,
+                modifier = Modifier
+                    .size(15.dp)
+                    .rotate(if (isExpanded) 180f else 0f),
+            )
+        }
+
+        AnimatedVisibility(
+            visible = isExpanded,
+            enter = expandVertically() + fadeIn(),
+            exit = shrinkVertically() + fadeOut(),
+        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 2.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                content()
+            }
+        }
+    }
+}
+
+/**
+ * 兼容旧抽屉组件调用点
+ */
+@Composable
+fun QuickShapeCollapsibleDrawer(
+    vm: PaintViewModel,
+    modifier: Modifier = Modifier,
+) {
+    QuickShapeTabContent(vm = vm, modifier = modifier)
+}
+
+/**
+ * 兼容旧行组件调用点
  */
 @Composable
 internal fun QuickShapeSettingRow(vm: PaintViewModel) {
     QuickShapeCollapsibleDrawer(vm)
-}
-
-@Composable
-private fun SectionHeader(title: Int) {
-    Text(
-        text = stringResource(title),
-        color = Morandi.accent,
-        fontSize = 11.sp,
-        fontWeight = FontWeight.SemiBold,
-        modifier = Modifier.padding(top = 2.dp, bottom = 2.dp),
-    )
 }
 
 @Composable
