@@ -2088,3 +2088,54 @@ private class UiSlotNode(
         )
     }
 }
+
+/**
+ * 莫兰迪流光扫掠微动效 (Shimmer Beam Glow)
+ *
+ * 当 [triggerKey] 变化时，在容器表面平滑扫过一条 45 度轻盈微光高光弧带，
+ * 为 Toast、状态 HUD 或高光卡片注入灵动精致的水晶科技感。
+ */
+fun Modifier.shimmerGlow(
+    triggerKey: Any?,
+    glowColor: Color = Color.White,
+    durationMs: Int = 420,
+): Modifier = composed {
+    val progress = remember { androidx.compose.animation.core.Animatable(1f) }
+    LaunchedEffect(triggerKey) {
+        if (triggerKey != null) {
+            progress.snapTo(0f)
+            progress.animateTo(
+                targetValue = 1f,
+                animationSpec = androidx.compose.animation.core.tween(
+                    durationMillis = durationMs,
+                    easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                ),
+            )
+        }
+    }
+
+    if (progress.value >= 1f) {
+        this
+    } else {
+        this.drawWithContent {
+            drawContent()
+            val frac = progress.value
+            val totalDistance = size.width + size.height * 1.5f
+            val startX = -size.height + totalDistance * frac
+            val beamWidth = (size.width * 0.35f).coerceIn(40.dp.toPx(), 90.dp.toPx())
+            val shimmerBrush = androidx.compose.ui.graphics.Brush.linearGradient(
+                colors = listOf(
+                    glowColor.copy(alpha = 0f),
+                    glowColor.copy(alpha = 0.28f * (1f - frac * 0.4f)),
+                    glowColor.copy(alpha = 0f),
+                ),
+                start = androidx.compose.ui.geometry.Offset(startX, 0f),
+                end = androidx.compose.ui.geometry.Offset(startX + beamWidth, size.height),
+            )
+            drawRect(
+                brush = shimmerBrush,
+                blendMode = androidx.compose.ui.graphics.BlendMode.Screen,
+            )
+        }
+    }
+}

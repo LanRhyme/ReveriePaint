@@ -9,7 +9,9 @@ import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
+import kotlinx.coroutines.launch
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.scaleIn
@@ -370,6 +372,18 @@ fun QuickColorWindow(
                                 horizontalArrangement = Arrangement.spacedBy(6.dp),
                             ) {
                                 val swapSource = remember { MutableInteractionSource() }
+                                var swapRotationTarget by remember { mutableFloatStateOf(0f) }
+                                val swapRotationAnim by animateFloatAsState(
+                                    targetValue = swapRotationTarget,
+                                    animationSpec = spring(
+                                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
+                                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+                                    ),
+                                    label = "swapColorRotation",
+                                )
+                                val swapPulseAnim = remember { androidx.compose.animation.core.Animatable(0f) }
+                                val swapScope = rememberCoroutineScope()
+
                                 Box(
                                     modifier = Modifier
                                         .size(32.dp, 22.dp)
@@ -379,6 +393,14 @@ fun QuickColorWindow(
                                             indication = null,
                                         ) {
                                             haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                            swapRotationTarget += 180f
+                                            swapScope.launch {
+                                                swapPulseAnim.snapTo(1f)
+                                                swapPulseAnim.animateTo(
+                                                    targetValue = 0f,
+                                                    animationSpec = androidx.compose.animation.core.tween(260),
+                                                )
+                                            }
                                             val targetHex = vm.brushSecondaryColor
                                             try {
                                                 val c = android.graphics.Color.parseColor(targetHex)
@@ -392,24 +414,44 @@ fun QuickColorWindow(
                                         },
                                     contentAlignment = Alignment.Center,
                                 ) {
-                                    // 背景色块 (右下)
+                                    if (swapPulseAnim.value > 0.001f) {
+                                        val p = swapPulseAnim.value
+                                        Box(
+                                            modifier = Modifier
+                                                .matchParentSize()
+                                                .graphicsLayer {
+                                                    scaleX = 1f + 0.45f * (1f - p)
+                                                    scaleY = 1f + 0.45f * (1f - p)
+                                                    alpha = p * 0.7f
+                                                }
+                                                .background(parsedCurrentColor.copy(alpha = 0.45f * p), RoundedCornerShape(6.dp))
+                                        )
+                                    }
                                     Box(
                                         modifier = Modifier
-                                            .size(16.dp)
-                                            .align(Alignment.BottomEnd)
-                                            .clip(RoundedCornerShape(3.5.dp))
-                                            .background(parsedSecondaryColor)
-                                            .border(0.5.dp, Morandi.border, RoundedCornerShape(3.5.dp))
-                                    )
-                                    // 前景色块 (左上)
-                                    Box(
-                                        modifier = Modifier
-                                            .size(16.dp)
-                                            .align(Alignment.TopStart)
-                                            .clip(RoundedCornerShape(3.5.dp))
-                                            .background(parsedCurrentColor)
-                                            .border(0.5.dp, Morandi.border, RoundedCornerShape(3.5.dp))
-                                    )
+                                            .fillMaxSize()
+                                            .graphicsLayer { rotationZ = swapRotationAnim },
+                                        contentAlignment = Alignment.Center,
+                                    ) {
+                                        // 背景色块 (右下)
+                                        Box(
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .align(Alignment.BottomEnd)
+                                                .clip(RoundedCornerShape(3.5.dp))
+                                                .background(parsedSecondaryColor)
+                                                .border(0.5.dp, Morandi.border, RoundedCornerShape(3.5.dp))
+                                        )
+                                        // 前景色块 (左上)
+                                        Box(
+                                            modifier = Modifier
+                                                .size(16.dp)
+                                                .align(Alignment.TopStart)
+                                                .clip(RoundedCornerShape(3.5.dp))
+                                                .background(parsedCurrentColor)
+                                                .border(0.5.dp, Morandi.border, RoundedCornerShape(3.5.dp))
+                                        )
+                                    }
                                 }
 
                                 // 面板偏好菜单：这两项都是"用户各有习惯"的行为，

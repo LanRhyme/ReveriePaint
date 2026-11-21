@@ -939,6 +939,130 @@ private class DistortionWaveController(
         return true
     }
 
+    override fun tryCreateCanvas(
+        focusPx: WaveOffset?,
+        performCreate: () -> Unit,
+    ): Boolean {
+        if (phase != WavePhase.IDLE || activeJob?.isActive == true) {
+            return false
+        }
+        val viewport = readViewportPx()
+        if (viewport.width < 16 || viewport.height < 16) {
+            return false
+        }
+
+        val speed = Motion.currentSpeed
+        val reduced = speed == UiAnimationSpeed.OFF || isSystemAnimatorDisabled(context)
+        val density = readDensity().coerceAtLeast(1f)
+        val sizeDp = WaveSize(viewport.width / density, viewport.height / density)
+        val focusDp = focusPx?.let { WaveOffset(it.x / density, it.y / density) }
+            ?: WaveOffset(sizeDp.width / 2f, sizeDp.height * 0.85f)
+        val sourceDp = WaveRect(
+            left = focusDp.x - 60f,
+            top = focusDp.y - 24f,
+            right = focusDp.x + 60f,
+            bottom = focusDp.y + 24f,
+        )
+        val style = DistortionWaveStyle.forSpeed(speed, readCornerRadiusDp())
+
+        activeJob = scope.launch {
+            var blurJob: Job? = null
+            try {
+                val createPageBmp = captureRootBitmap()
+                if (createPageBmp == null || createPageBmp.isRecycled) {
+                    performCreate()
+                    return@launch
+                }
+
+                releasePyramids()
+                val outPyr = WaveSnapshotPyramid(sharp = createPageBmp)
+                outgoingPyramid = outPyr
+
+                val needAgslBlur = !reduced &&
+                    Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                    shaderPipeline != null
+                if (needAgslBlur) {
+                    blurJob = scope.launch(Dispatchers.Default) {
+                        SnapshotBlurHelper.populateBlurs(outPyr, density, style.nearBlur, style.blur)
+                    }
+                }
+
+                activeStyle = style
+                reducedMotionActive = reduced
+                particles = if (reduced) emptyList() else List(style.particleCount) { WaveParticle(it, style) }
+                showSlowLoadPill = false
+                vm.isWaveTransitionManaged = true
+                vm.suppressPaintingLoadingOverlay = true
+                vm.paintingChromeRevealed = false
+                phase = WavePhase.GATHERING
+                activeFront = if (reduced) null else WaveFront.gathering(0f, sourceDp, sizeDp, style, focusDp)
+
+                performCreate()
+
+                // Phase 1: 蓄力等待新画布创建完成 + 首帧就绪
+                val gatherStartNs = withFrameNanos { it }
+                var elapsedSec = 0f
+                var loadedReady = false
+
+                while (true) {
+                    val nowNs = withFrameNanos { it }
+                    elapsedSec = ((nowNs - gatherStartNs) / 1_000_000_000.0).toFloat().coerceAtLeast(0f)
+                    if (!reduced) {
+                        activeFront = WaveFront.gathering(elapsedSec, sourceDp, sizeDp, style, focusDp)
+                    }
+                    if (!showSlowLoadPill && elapsedSec >= SLOW_LOAD_HINT_THRESHOLD_SEC) {
+                        showSlowLoadPill = true
+                    }
+
+                    if (!vm.isBlockingLoading && !vm.awaitingFirstFrameAfterLoad) {
+                        loadedReady = true
+                        break
+                    }
+                    if (vm.currentPage != Page.PAINTING && !vm.isBlockingLoading) {
+                        break
+                    }
+                }
+
+                if (!loadedReady) {
+                    return@launch
+                }
+
+                blurJob?.join()
+                phase = WavePhase.SWEEPING
+                val launchTimeSec = elapsedSec
+                val sweepStartNs = withFrameNanos { it }
+                val totalPostLaunch = style.postLaunchDuration
+
+                while (true) {
+                    val nowNs = withFrameNanos { it }
+                    val sinceLaunch = ((nowNs - sweepStartNs) / 1_000_000_000.0).toFloat().coerceAtLeast(0f)
+                    if (vm.currentPage != Page.PAINTING) {
+                        break
+                    }
+                    val front = WaveFront.sweeping(
+                        sinceLaunchSec = sinceLaunch,
+                        launchTimeSec = launchTimeSec,
+                        source = sourceDp,
+                        size = sizeDp,
+                        style = style,
+                        focus = focusDp,
+                    )
+                    activeFront = front
+                    if (front.hasCleared && !vm.paintingChromeRevealed) {
+                        vm.paintingChromeRevealed = true
+                    }
+                    if (sinceLaunch >= totalPostLaunch) {
+                        break
+                    }
+                }
+            } finally {
+                blurJob?.cancel()
+                resetToIdle()
+            }
+        }
+        return true
+    }
+
     fun cancelAndRelease() {
         activeJob?.cancel()
         activeJob = null

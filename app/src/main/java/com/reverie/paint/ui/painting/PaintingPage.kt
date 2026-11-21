@@ -109,6 +109,7 @@ import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.components.reportUiSlot
+import com.reverie.paint.ui.components.shimmerGlow
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import com.reverie.paint.ui.painting.animation.AnimationTimelinePanel
@@ -2458,6 +2459,7 @@ fun PaintingPage(
                         .clip(RoundedCornerShape(10.dp))
                         .background(Morandi.panelHi.copy(alpha = 0.94f))
                         .glassBorder(RoundedCornerShape(10.dp))
+                        .shimmerGlow(vm.actionToastRevision)
                         .animateContentSize(
                             animationSpec = spring(
                                 dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,

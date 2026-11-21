@@ -7,6 +7,7 @@ package com.reverie.paint.ui.painting.canvas
 import com.reverie.paint.model.CanvasDecorGeometry
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.DrawScope
@@ -397,6 +398,26 @@ internal fun DrawScope.drawColorLoupe(
     withTransform({
         scale(scaleX = loupeScale, scaleY = loupeScale, pivot = loupeCenter)
     }) {
+        // 0. Ambient Luminous Aura (动态自发光光谱柔晕: 提取当前采样色的柔光外溢)
+        val effectiveAuraColor = if (pickerCurrentColor.alpha > 0.05f) {
+            pickerCurrentColor
+        } else {
+            Color.White
+        }
+        val auraGlowRadius = outerRadius + 14.dp.toPx()
+        drawCircle(
+            brush = Brush.radialGradient(
+                0.0f to Color.Transparent,
+                (innerRadius / auraGlowRadius).coerceIn(0f, 0.7f) to effectiveAuraColor.copy(alpha = 0.32f * alpha),
+                (outerRadius / auraGlowRadius).coerceIn(0f, 0.88f) to effectiveAuraColor.copy(alpha = 0.16f * alpha),
+                1.0f to Color.Transparent,
+                center = loupeCenter,
+                radius = auraGlowRadius,
+            ),
+            radius = auraGlowRadius,
+            center = loupeCenter,
+        )
+
         // Outer drop shadow
         drawCircle(
             color = Color.Black.copy(alpha = 0.35f * alpha),
@@ -438,6 +459,26 @@ internal fun DrawScope.drawColorLoupe(
                 style = Stroke(width = ringThickness)
             )
         }
+
+        // Crystal glass rim sheen (外环顶部与下部的水晶微光反射光弧)
+        drawArc(
+            color = Color.White.copy(alpha = 0.40f * alpha),
+            startAngle = 210f,
+            sweepAngle = 120f,
+            useCenter = false,
+            topLeft = Offset(loupeCenter.x - outerRadius, loupeCenter.y - outerRadius),
+            size = Size(outerRadius * 2, outerRadius * 2),
+            style = Stroke(width = 1.2.dp.toPx()),
+        )
+        drawArc(
+            color = Color.White.copy(alpha = 0.25f * alpha),
+            startAngle = 40f,
+            sweepAngle = 100f,
+            useCenter = false,
+            topLeft = Offset(loupeCenter.x - innerRadius, loupeCenter.y - innerRadius),
+            size = Size(innerRadius * 2, innerRadius * 2),
+            style = Stroke(width = 1.0.dp.toPx()),
+        )
 
         // Outer border line
         drawCircle(

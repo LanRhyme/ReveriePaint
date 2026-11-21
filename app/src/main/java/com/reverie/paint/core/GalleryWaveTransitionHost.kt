@@ -37,4 +37,16 @@ interface GalleryWaveTransitionHost {
      * @return true 表示已由转场托管 (宿主会在截图后调用 [performGoHome]); false 表示调用方应直接执行
      */
     fun tryReturnToGallery(performGoHome: () -> Unit): Boolean
+
+    /**
+     * 从新建画布页创建画布: 截取新建画布页画面作为始发态, 核心线程异步创建文档并在首帧就绪后放波扫屏。
+     *
+     * @param focusPx 用户点击创建按钮的位置在窗口根坐标系下的像素坐标 (缺省则从屏幕中下部扩散)
+     * @param performCreate 执行新建画布的核心逻辑
+     * @return true 表示已由转场托管; false 表示宿主忙或不可用, 调用方直接执行 [performCreate]
+     */
+    fun tryCreateCanvas(
+        focusPx: WaveOffset?,
+        performCreate: () -> Unit,
+    ): Boolean
 }

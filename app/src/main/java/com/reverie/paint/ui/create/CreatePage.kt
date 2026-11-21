@@ -306,13 +306,20 @@ fun CreatePage(vm: PaintViewModel) {
     val executeStartPainting = {
         val finalW = widthVal.coerceIn(MIN_CANVAS_SIZE, MAX_CANVAS_SIZE)
         val finalH = heightVal.coerceIn(MIN_CANVAS_SIZE, MAX_CANVAS_SIZE)
-        vm.startPainting(
-            w = finalW,
-            h = finalH,
-            dpi = ppiVal,
-            animation = animationCanvas,
-            animationFps = DEFAULT_ANIMATION_FPS,
-        )
+        val perform = {
+            vm.startPainting(
+                w = finalW,
+                h = finalH,
+                dpi = ppiVal,
+                animation = animationCanvas,
+                animationFps = DEFAULT_ANIMATION_FPS,
+            )
+        }
+        val host = vm.waveTransitionHost
+        val handled = host?.tryCreateCanvas(focusPx = null, performCreate = perform) == true
+        if (!handled) {
+            perform()
+        }
     }
 
     val onStartPainting = {
