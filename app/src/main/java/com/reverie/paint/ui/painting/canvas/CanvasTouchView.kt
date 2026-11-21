@@ -9027,6 +9027,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 if (isCancel) {
                     tfState?.cancelDrag()
                 } else {
+                    tfState?.pushGestureUndo()
                     tfState?.handle = -1
                 }
             }

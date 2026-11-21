@@ -1571,21 +1571,23 @@ internal fun PaintViewModel.undo(
     showToast: Boolean = true,
     settled: (() -> Unit)? = null,
 ) {
-    // 变换预览是引擎里的长事务: 触发撤销时优先安全取消当前变形会话 (还原像素并关闭预览事务,
-    // 同 QuickShape / BackHandler 语义), 避免撞 KisTransactionData 断言或误越级回退历史。
+    // 变换预览是引擎里的长事务: 撤销优先弹会话内手势栈; 栈空则安全取消当前变形并落穿到历史撤销。
+    // 落穿安全性: cancelTransformPreview() 先投递引擎线程关闭 m_previewTransactions 并还原像素,
+    // runCore 同队列串行, 后续 ReverieCoreBridge.undo() 一定排在关闭之后, 避免 KisTransactionData 断言。
     if (isHistoryBlockedByTransform) {
-        val cancelHook = transformCancelHook
-        if (cancelHook != null) {
-            cancelHook.invoke()
-            val now = android.os.SystemClock.uptimeMillis()
-            if (showToast && undoToastEnabled && now - lastTransformBlockToastAtMs >= 1500L) {
-                lastTransformBlockToastAtMs = now
-                showActionToast(R.string.toast_transform_cancelled, R.drawable.ic_tf_standard)
-            }
+        val sessionUndo = transformSessionUndoHook
+        if (sessionUndo != null && sessionUndo.invoke()) {
             settled?.invoke()
             return
         }
-        if (blockHistoryDuringTransform(settled)) return
+        val cancelHook = transformCancelHook
+        if (cancelHook != null) {
+            // 会话内手势已撤完 (栈空): 取消变形并落穿到历史撤销, 一次按下即"撤回到变形的上一步"
+            cancelHook.invoke()
+            // 不 return: 继续走下方正常历史撤销流程
+        } else if (blockHistoryDuringTransform(settled)) {
+            return
+        }
     }
     onHistoryActionTriggered(fromPanel)
     val restoreTransformSel = transientTransformSelectionPending || canUndoTransformSelection
