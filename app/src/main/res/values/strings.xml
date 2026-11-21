@@ -1983,6 +1983,14 @@
     <string name="guide_perspective_cube">立体立方体</string>
     <string name="guide_grid_size">网格尺寸</string>
     <string name="guide_line_opacity">参考线不透明度</string>
+    <string name="guide_tab_spatial">空间参考线</string>
+    <string name="guide_tab_quickshape">速创形状</string>
+    <string name="guide_pill_lines_visible">显示参考线</string>
+    <string name="guide_pill_lines_hidden">参考线已藏</string>
+    <string name="guide_pill_assisted_on">辅助吸附</string>
+    <string name="guide_pill_assisted_off">未吸附</string>
+    <string name="guide_inactive_hint">参考线已停用，轻触上方模式启用</string>
+    <string name="guide_mode_toggle_off_hint">轻触高亮模式可停用</string>
 
     <!-- Animation Timeline Details -->
     <string name="timeline_inbetween">自动中割</string>

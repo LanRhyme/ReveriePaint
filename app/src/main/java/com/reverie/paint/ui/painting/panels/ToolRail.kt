@@ -339,20 +339,6 @@ fun ToolButtonsContent(
                             },
                         )
                     }
-                    if (t == Tool.DRAWING_GUIDE) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxHeight()) {
-                            ReIconButton(
-                                icon = R.drawable.ic_guide_lines,
-                                desc = stringResource(R.string.tool_guide_lines),
-                                modifier = Modifier.fillMaxHeight().width(32.dp),
-                                selected = vm.drawingGuideLinesVisible,
-                                onTap = {
-                                    tooltipTool = null
-                                    vm.toggleDrawingGuideLines()
-                                },
-                            )
-                        }
-                    }
                 }
 
                 // More tools button
@@ -461,20 +447,6 @@ fun ToolButtonsContent(
                                     )
                                 }
                             }
-                        }
-                    }
-                    if (t == Tool.DRAWING_GUIDE) {
-                        Box(contentAlignment = Alignment.Center, modifier = Modifier.fillMaxWidth()) {
-                            ReIconButton(
-                                icon = R.drawable.ic_guide_lines,
-                                desc = stringResource(R.string.tool_guide_lines),
-                                modifier = Modifier.fillMaxWidth().height(32.dp),
-                                selected = vm.drawingGuideLinesVisible,
-                                onTap = {
-                                    tooltipTool = null
-                                    vm.toggleDrawingGuideLines()
-                                },
-                            )
                         }
                     }
                 }

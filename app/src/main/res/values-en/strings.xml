@@ -1983,6 +1983,14 @@
     <string name="guide_perspective_cube">Guide Cube</string>
     <string name="guide_grid_size">Grid Size</string>
     <string name="guide_line_opacity">Guide Opacity</string>
+    <string name="guide_tab_spatial">Spatial Guides</string>
+    <string name="guide_tab_quickshape">QuickShape</string>
+    <string name="guide_pill_lines_visible">Show Guides</string>
+    <string name="guide_pill_lines_hidden">Hide Guides</string>
+    <string name="guide_pill_assisted_on">Assisted Drawing</string>
+    <string name="guide_pill_assisted_off">No Snapping</string>
+    <string name="guide_inactive_hint">Guides are off. Tap a mode to enable</string>
+    <string name="guide_mode_toggle_off_hint">Tap active mode to turn off</string>
 
     <!-- Animation Timeline Details -->
     <string name="timeline_inbetween">In-between</string>
