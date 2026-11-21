@@ -399,8 +399,10 @@ object ShadingAssistEngine {
         rollingBallContour: Boolean = true,
         rollingBallRadius: Int = 8
     ): NormalField {
-        val w = min(baseBitmap.width, targetResolution).coerceAtLeast(64)
-        val h = min(baseBitmap.height, targetResolution).coerceAtLeast(64)
+        val maxDim = maxOf(baseBitmap.width, baseBitmap.height)
+        val scale = min(targetResolution.toFloat() / maxDim, 1.0f)
+        val w = (baseBitmap.width * scale).toInt().coerceAtLeast(64)
+        val h = (baseBitmap.height * scale).toInt().coerceAtLeast(64)
 
         val scaledBase = if (baseBitmap.width == w && baseBitmap.height == h) {
             baseBitmap
@@ -1070,6 +1072,7 @@ object ShadingAssistEngine {
     /**
      * 实时渲染阴影位图 (可在后台并发线程或协程中极速执行)
      * 输出的 Bitmap 可直接交由 Compose 60fps 实时预览或盖印进图层
+     * 内部具备分辨率上限钳制与 OOM 自动降级容灾机制，杜绝大画布连续分配大数组崩溃
      */
     suspend fun renderShadingBitmap(
         normalField: NormalField,
@@ -1079,6 +1082,69 @@ object ShadingAssistEngine {
         outWidth: Int = baseBitmap.width,
         outHeight: Int = baseBitmap.height
     ): Bitmap? = withContext(Dispatchers.Default) {
+        if (baseBitmap.isRecycled || outWidth <= 0 || outHeight <= 0) return@withContext null
+
+        val maxDim = maxOf(outWidth, outHeight)
+        // 限制内部计算最大分辨率不超过 2048px，避免 Dalvik 堆连续大数组 (58MB+) 触发 OOM
+        val maxAllowedDim = 2048
+        val initialScale = if (maxDim > maxAllowedDim) {
+            maxAllowedDim.toFloat() / maxDim
+        } else {
+            1.0f
+        }
+
+        var currentScale = initialScale
+        var resultBmp: Bitmap? = null
+
+        // 若遇极端低内存设备，以更低分辨率降级重试 (2048 -> 1024 -> 512)
+        while (currentScale > 0.05f && isActive) {
+            val calcW = (outWidth * currentScale).toInt().coerceAtLeast(1)
+            val calcH = (outHeight * currentScale).toInt().coerceAtLeast(1)
+
+            try {
+                val computed = renderShadingBitmapInternal(
+                    normalField = normalField,
+                    baseBitmap = baseBitmap,
+                    lineBitmap = lineBitmap,
+                    config = config,
+                    calcW = calcW,
+                    calcH = calcH
+                )
+                if (computed != null) {
+                    if (calcW == outWidth && calcH == outHeight) {
+                        resultBmp = computed
+                    } else {
+                        val scaled = Bitmap.createScaledBitmap(computed, outWidth, outHeight, true)
+                        if (scaled != computed) {
+                            computed.recycle()
+                        }
+                        resultBmp = scaled
+                    }
+                    break
+                }
+            } catch (oom: OutOfMemoryError) {
+                Log.w(TAG, "OOM calculating shading at ${calcW}x${calcH}, retrying with lower resolution", oom)
+                System.gc()
+                currentScale *= 0.5f
+            } catch (e: Exception) {
+                Log.e(TAG, "Failed to render shading bitmap", e)
+                break
+            }
+        }
+
+        resultBmp
+    }
+
+    private suspend fun renderShadingBitmapInternal(
+        normalField: NormalField,
+        baseBitmap: Bitmap,
+        lineBitmap: Bitmap?,
+        config: ShadingAssistConfig,
+        calcW: Int,
+        calcH: Int
+    ): Bitmap? = coroutineScope {
+        val outWidth = calcW
+        val outHeight = calcH
         val outBitmap = Bitmap.createBitmap(outWidth, outHeight, Bitmap.Config.ARGB_8888)
         val lightVec = config.computeLightVector()
         val lx = lightVec[0]
@@ -1107,7 +1173,7 @@ object ShadingAssistEngine {
         val isTwoStep = config.celSteps == CelSteps.TWO_STEP
         val isAi = config.useAiModel
 
-        if (baseBitmap.isRecycled) return@withContext null
+        if (baseBitmap.isRecycled) return@coroutineScope null
 
         // 采样缩放比例
         val scaleNormX = normalField.width.toFloat() / outWidth
@@ -1173,7 +1239,7 @@ object ShadingAssistEngine {
                 }
             }
             outBitmap.setPixels(outPixels, 0, outWidth, 0, 0, outWidth, outHeight)
-            return@withContext outBitmap
+            return@coroutineScope outBitmap
         }
 
         // 原理 5: 预览模式 - 立体线框与解构部位可视化
@@ -1217,7 +1283,7 @@ object ShadingAssistEngine {
                 }
             }
             outBitmap.setPixels(outPixels, 0, outWidth, 0, 0, outWidth, outHeight)
-            return@withContext outBitmap
+            return@coroutineScope outBitmap
         }
 
         // 原理 8: 下巴向颈部投射阴影评分预计算
@@ -1421,7 +1487,7 @@ object ShadingAssistEngine {
 
         if (!isActive) {
             outBitmap.recycle()
-            return@withContext null
+            return@coroutineScope null
         }
 
         // Pass 2: 色块边缘引导吸附 (Joint Bilateral Edge Snapping)
@@ -1502,7 +1568,7 @@ object ShadingAssistEngine {
 
         if (!isActive) {
             outBitmap.recycle()
-            return@withContext null
+            return@coroutineScope null
         }
 
         // Pass 3: 赛璐珞二分掩码生成、连通域清碎渣与形态学平滑 (Sub-pixel Morphological Smoothing)
@@ -1588,7 +1654,7 @@ object ShadingAssistEngine {
 
         if (!isActive) {
             outBitmap.recycle()
-            return@withContext null
+            return@coroutineScope null
         }
 
         // Pass 4: 像素合成输出 (应用阴影颜色、线稿避让 lineFade 与不透明度)
@@ -1650,7 +1716,7 @@ object ShadingAssistEngine {
 
         if (!isActive) {
             outBitmap.recycle()
-            return@withContext null
+            return@coroutineScope null
         }
         outBitmap.setPixels(outPixels, 0, outWidth, 0, 0, outWidth, outHeight)
         outBitmap

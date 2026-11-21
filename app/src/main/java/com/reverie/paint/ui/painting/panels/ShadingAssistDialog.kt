@@ -4,6 +4,7 @@
 
 package com.reverie.paint.ui.painting.panels
 
+import android.graphics.Bitmap
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -314,26 +315,21 @@ fun ShadingAssistDialog(
                                         val shadowBmp = vm.shadingAssistPreviewBitmap
                                         val lineBmp = vm.shadingAssistLineBitmap
 
-                                        if (config.previewMode == ShadingPreviewMode.SHADING && baseBmp != null && !baseBmp.isRecycled) {
-                                            Image(
-                                                bitmap = baseBmp.asImageBitmap(),
-                                                contentDescription = null,
+                                        if (config.previewMode == ShadingPreviewMode.SHADING) {
+                                            SafePreviewImage(
+                                                bitmap = baseBmp,
                                                 modifier = Modifier.fillMaxSize()
                                             )
                                         }
 
-                                        if (shadowBmp != null && !shadowBmp.isRecycled) {
-                                            Image(
-                                                bitmap = shadowBmp.asImageBitmap(),
-                                                contentDescription = null,
-                                                modifier = Modifier.fillMaxSize()
-                                            )
-                                        }
+                                        SafePreviewImage(
+                                            bitmap = shadowBmp,
+                                            modifier = Modifier.fillMaxSize()
+                                        )
 
-                                        if (config.previewMode == ShadingPreviewMode.SHADING && lineBmp != null && !lineBmp.isRecycled) {
-                                            Image(
-                                                bitmap = lineBmp.asImageBitmap(),
-                                                contentDescription = null,
+                                        if (config.previewMode == ShadingPreviewMode.SHADING) {
+                                            SafePreviewImage(
+                                                bitmap = lineBmp,
                                                 modifier = Modifier.fillMaxSize()
                                             )
                                         }
@@ -1756,4 +1752,29 @@ private fun LineArtLayerPicker(
             }
         }
     }
+}
+
+@Composable
+private fun SafePreviewImage(
+    bitmap: Bitmap?,
+    modifier: Modifier = Modifier
+) {
+    if (bitmap == null || bitmap.isRecycled) return
+    val imgBitmap = remember(bitmap) {
+        if (!bitmap.isRecycled) {
+            try {
+                bitmap.asImageBitmap()
+            } catch (_: Throwable) {
+                null
+            }
+        } else {
+            null
+        }
+    } ?: return
+
+    Image(
+        bitmap = imgBitmap,
+        contentDescription = null,
+        modifier = modifier
+    )
 }

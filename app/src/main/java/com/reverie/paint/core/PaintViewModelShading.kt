@@ -86,7 +86,6 @@ internal fun PaintViewModel.openShadingAssist() {
         }
 
         withContext(Dispatchers.Main) {
-            shadingAssistBaseBitmap?.recycle()
             shadingAssistBaseBitmap = baseBmp
         }
 
@@ -102,7 +101,6 @@ internal fun PaintViewModel.openShadingAssist() {
         }
 
         withContext(Dispatchers.Main) {
-            shadingAssistLineBitmap?.recycle()
             shadingAssistLineBitmap = lineBmp
         }
 
@@ -150,10 +148,7 @@ internal fun PaintViewModel.openShadingAssist() {
         )
 
         withContext(Dispatchers.Main) {
-            if (!isActive) {
-                preview?.recycle()
-            } else {
-                shadingAssistPreviewBitmap?.recycle()
+            if (isActive) {
                 shadingAssistPreviewBitmap = preview
                 shadingAssistIsProcessing = false
                 if (modelFallback) {
@@ -208,7 +203,6 @@ internal fun PaintViewModel.updateShadingConfig(
                     null
                 }
                 withContext(Dispatchers.Main) {
-                    shadingAssistLineBitmap?.recycle()
                     shadingAssistLineBitmap = lineBmp
                 }
             }
@@ -255,10 +249,7 @@ internal fun PaintViewModel.updateShadingConfig(
             )
 
             withContext(Dispatchers.Main) {
-                if (!isActive) {
-                    preview?.recycle()
-                } else {
-                    shadingAssistPreviewBitmap?.recycle()
+                if (isActive) {
                     shadingAssistPreviewBitmap = preview
                     shadingAssistIsProcessing = false
                     if (modelFallback) {
@@ -287,10 +278,7 @@ internal fun PaintViewModel.updateShadingConfig(
                 )
 
                 withContext(Dispatchers.Main) {
-                    if (!isActive) {
-                        preview?.recycle()
-                    } else {
-                        shadingAssistPreviewBitmap?.recycle()
+                    if (isActive) {
                         shadingAssistPreviewBitmap = preview
                     }
                 }
@@ -322,14 +310,10 @@ private fun PaintViewModel.triggerShadingPreviewRender() {
             outHeight = baseBmp.height
         )
         if (!isActive) {
-            preview?.recycle()
             return@launch
         }
         withContext(Dispatchers.Main) {
-            if (!isActive) {
-                preview?.recycle()
-            } else {
-                shadingAssistPreviewBitmap?.recycle()
+            if (isActive) {
                 shadingAssistPreviewBitmap = preview
             }
         }
@@ -348,13 +332,8 @@ internal fun PaintViewModel.closeShadingAssist() {
     shadingAssistRawDepth = null
     shadingAssistNormalField = null
 
-    shadingAssistPreviewBitmap?.recycle()
     shadingAssistPreviewBitmap = null
-
-    shadingAssistBaseBitmap?.recycle()
     shadingAssistBaseBitmap = null
-
-    shadingAssistLineBitmap?.recycle()
     shadingAssistLineBitmap = null
 }
 
@@ -371,10 +350,25 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
         val fullW = coreW
         val fullH = coreH
 
-        // 1. 全分辨率采样底色与线稿 (通过 runCore 在渲染线程安全执行，严禁直接调用 JNI)
-        val fullBase = Bitmap.createBitmap(fullW, fullH, Bitmap.Config.ARGB_8888)
-        if (!renderLayerPixels(baseLayerIdx, fullBase) || !isActive) {
-            fullBase.recycle()
+        // 采样底色与线稿：为避免在超大画布 (如 4K+) 上连续分配多个 58MB+ 的全尺寸 Bitmap 导致 Native/Dalvik 内存峰值，
+        // 采样尺寸限制为最大边不超过 2048px (阴影计算和法线场最大也在 2048px 运行)
+        val maxDim = maxOf(fullW, fullH)
+        val sampleScale = if (maxDim > 2048) 2048f / maxDim else 1.0f
+        val sampleW = (fullW * sampleScale).toInt().coerceAtLeast(1)
+        val sampleH = (fullH * sampleScale).toInt().coerceAtLeast(1)
+
+        val sampleBase = try {
+            Bitmap.createBitmap(sampleW, sampleH, Bitmap.Config.ARGB_8888)
+        } catch (oom: OutOfMemoryError) {
+            withContext(Dispatchers.Main) {
+                shadingAssistIsProcessing = false
+                Toast.makeText(appContext, R.string.shading_assist_toast_failed, Toast.LENGTH_SHORT).show()
+            }
+            return@launch
+        }
+
+        if (!renderLayerPixels(baseLayerIdx, sampleBase) || !isActive) {
+            sampleBase.recycle()
             withContext(Dispatchers.Main) {
                 shadingAssistIsProcessing = false
                 Toast.makeText(appContext, R.string.shading_assist_toast_need_layer, Toast.LENGTH_SHORT).show()
@@ -383,10 +377,14 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
         }
 
         val lineId = shadingAssistConfig.referenceLineLayerId
-        val fullLine = if (lineId != null) {
-            val lb = Bitmap.createBitmap(fullW, fullH, Bitmap.Config.ARGB_8888)
-            if (renderLayerPixels(lineId, lb)) lb else {
-                lb.recycle()
+        val sampleLine = if (lineId != null) {
+            try {
+                val lb = Bitmap.createBitmap(sampleW, sampleH, Bitmap.Config.ARGB_8888)
+                if (renderLayerPixels(lineId, lb)) lb else {
+                    lb.recycle()
+                    null
+                }
+            } catch (oom: OutOfMemoryError) {
                 null
             }
         } else {
@@ -396,8 +394,8 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
         // 2. 生成高精度全尺寸法线场
         val modelFile = ShadingModelManager.getActiveModelFile(appContext)
         if (modelFile == null && shadingAssistConfig.useAiModel) {
-            fullBase.recycle()
-            fullLine?.recycle()
+            sampleBase.recycle()
+            sampleLine?.recycle()
             withContext(Dispatchers.Main) {
                 shadingAssistIsProcessing = false
                 Toast.makeText(appContext, R.string.shading_assist_model_not_installed, Toast.LENGTH_SHORT).show()
@@ -405,11 +403,11 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
             return@launch
         }
 
-        val targetRes = min(fullW, fullH).coerceIn(512, shadingAssistConfig.downsampleTargetSize)
+        val targetRes = min(sampleW, sampleH).coerceIn(512, shadingAssistConfig.downsampleTargetSize)
         val rawDepth = if (modelFile != null && shadingAssistConfig.useAiModel) {
             ShadingAssistEngine.estimateRawDepth(
-                baseBitmap = fullBase,
-                lineBitmap = fullLine,
+                baseBitmap = sampleBase,
+                lineBitmap = sampleLine,
                 modelFile = modelFile,
                 targetResolution = targetRes
             )
@@ -418,8 +416,8 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
         }
 
         if (!isActive) {
-            fullBase.recycle()
-            fullLine?.recycle()
+            sampleBase.recycle()
+            sampleLine?.recycle()
             return@launch
         }
 
@@ -427,7 +425,7 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
             ShadingAssistEngine.computeNormalFieldFromDepth(rawDepth, shadingAssistConfig.volumeSmoothness)
         } else {
             ShadingAssistEngine.generateCspNormalField(
-                fullBase,
+                sampleBase,
                 shadingAssistConfig.volumeSmoothness,
                 targetRes,
                 shadingAssistConfig.rollingBallContour,
@@ -435,23 +433,28 @@ internal fun PaintViewModel.applyShadingAssist(onComplete: () -> Unit = {}) {
             )
         }
 
-        // 3. 全分辨率光照与线稿遮挡计算 (始终以真实阴影图层模式输出)
-        val fullShadow = ShadingAssistEngine.renderShadingBitmap(
-            normalField = normalField,
-            baseBitmap = fullBase,
-            lineBitmap = fullLine,
-            config = shadingAssistConfig.copy(previewMode = com.reverie.paint.model.ShadingPreviewMode.SHADING),
-            outWidth = fullW,
-            outHeight = fullH
-        )
+        // 3. 全分辨率光照与线稿遮挡计算 (始终以真实阴影图层模式输出，renderShadingBitmap 内部受控并在必要时自动双线性上采样至画布全尺寸 fullW x fullH)
+        val fullShadow = try {
+            ShadingAssistEngine.renderShadingBitmap(
+                normalField = normalField,
+                baseBitmap = sampleBase,
+                lineBitmap = sampleLine,
+                config = shadingAssistConfig.copy(previewMode = com.reverie.paint.model.ShadingPreviewMode.SHADING),
+                outWidth = fullW,
+                outHeight = fullH
+            )
+        } catch (oom: OutOfMemoryError) {
+            null
+        }
 
-        fullBase.recycle()
-        fullLine?.recycle()
+        sampleBase.recycle()
+        sampleLine?.recycle()
 
         if (fullShadow == null || !isActive) {
             fullShadow?.recycle()
             withContext(Dispatchers.Main) {
                 shadingAssistIsProcessing = false
+                Toast.makeText(appContext, R.string.shading_assist_toast_failed, Toast.LENGTH_SHORT).show()
             }
             return@launch
         }
