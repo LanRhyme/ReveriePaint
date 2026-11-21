@@ -7103,7 +7103,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
                 // Native stroke stays untouched until a deliberate hold followed by pen-up.
                 if (v.quickShapeEnabled && effTool() == Tool.BRUSH && !v.brushAirbrush &&
-                    !(v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing) && !v.anim.isPlaying) {
+                    com.reverie.paint.model.QuickShapeAssistPolicy.isQuickShapeAllowed(v.drawingGuide) && !v.anim.isPlaying) {
                     v.quickShapeCapture = QuickShapeStrokeCapture().also {
                         val startScreen = docToScreen(targetDocPos)
                         it.begin(startScreen.x, startScreen.y, SystemClock.uptimeMillis())
@@ -8851,7 +8851,8 @@ class CanvasTouchView(context: Context) : View(context) {
                         } else {
                             recognized
                         }
-                        val started = v.beginQuickShape(snapRecognized, capture.snapshot())
+                        val symmetryGuide = if (hasSymmetry) v.drawingGuide else null
+                        val started = v.beginQuickShape(snapRecognized, capture.snapshot(), symmetryGuide = symmetryGuide)
                         resetMirrorBranches()
                         safeEndSymmetryUndoMacro()
                         if (!started) {
