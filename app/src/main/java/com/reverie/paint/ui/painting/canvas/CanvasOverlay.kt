@@ -40,6 +40,7 @@ import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.asAndroidBitmap
 import androidx.compose.ui.graphics.asAndroidPath
 import androidx.compose.ui.graphics.asImageBitmap
+import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.unit.IntOffset
@@ -246,8 +247,11 @@ internal fun CanvasOverlay(
         }
     }
     val selDstRectF = androidx.compose.runtime.remember { android.graphics.RectF() }
+    val selSrcRect = androidx.compose.runtime.remember { android.graphics.Rect() }
     val inProgressClosedPath = androidx.compose.runtime.remember { androidx.compose.ui.graphics.Path() }
     val inProgressRectF = androidx.compose.runtime.remember { android.graphics.RectF() }
+    val multiLassoPath = androidx.compose.runtime.remember { androidx.compose.ui.graphics.Path() }
+    val multiLassoClosedPath = androidx.compose.runtime.remember { androidx.compose.ui.graphics.Path() }
 
     // 切层闪现: 合成画面之上叠加"本层内容的纯色形状" (tint+SrcIn, 与图层选中态
     // 同一语义色) 脉冲, 只有本层内容在闪 (线条闪 accent 色再恢复), 其他层像素
@@ -1366,13 +1370,59 @@ internal fun CanvasOverlay(
                 val isSelectionTool = tool.group == ToolGroup.SELECTION
                 val shouldShowZebra = isSelectionTool && !isTransform && !vm.transientTransformSelectionPending && (vm.hasSelection || isSelecting)
                 val selBmp = if (vm.hasSelection) vm.selectionOverlayBitmap else null
-                if (shouldShowZebra) {
+
+                // 计算当前屏幕视口在画布坐标系中的包围盒 (AABB)，并与文档边界求交集。
+                // 仅对可见区域执行 saveLayer、斑马纹填充与选区轮廓绘制，
+                // 避免在放大画布时盲目渲染数千万像素及海量密集条纹导致的严重卡顿。
+                val currentScale = (zoom.value * fitScale).coerceAtLeast(0.001f)
+                val invScale = 1f / currentScale
+                val rad = Math.toRadians(-rotation.value.toDouble())
+                val cosA = kotlin.math.cos(rad).toFloat()
+                val sinA = kotlin.math.sin(rad).toFloat()
+                val cX = center.x
+                val cY = center.y
+                val fx = if (flipX) -1f else 1f
+                val fy = if (flipY) -1f else 1f
+
+                var minVisX = Float.POSITIVE_INFINITY
+                var maxVisX = Float.NEGATIVE_INFINITY
+                var minVisY = Float.POSITIVE_INFINITY
+                var maxVisY = Float.NEGATIVE_INFINITY
+
+                for (cornerIdx in 0 until 4) {
+                    val sx = if (cornerIdx == 1 || cornerIdx == 2) size.width else 0f
+                    val sy = if (cornerIdx == 2 || cornerIdx == 3) size.height else 0f
+                    val dx = sx - cX
+                    val dy = sy - cY
+                    val rx = dx * cosA - dy * sinA
+                    val ry = dx * sinA + dy * cosA
+                    val cx = (rx * invScale) * fx
+                    val cy = (ry * invScale) * fy
+                    if (cx < minVisX) minVisX = cx
+                    if (cx > maxVisX) maxVisX = cx
+                    if (cy < minVisY) minVisY = cy
+                    if (cy > maxVisY) maxVisY = cy
+                }
+
+                val visPad = 32.dp.toPx() * invScale
+                minVisX -= visPad
+                maxVisX += visPad
+                minVisY -= visPad
+                maxVisY += visPad
+
+                val docLeft = -bmp.width / 2f
+                val docTop = -bmp.height / 2f
+                val docRight = bmp.width / 2f
+                val docBottom = bmp.height / 2f
+
+                val visLeft = maxOf(docLeft, minVisX)
+                val visTop = maxOf(docTop, minVisY)
+                val visRight = minOf(docRight, maxVisX)
+                val visBottom = minOf(docBottom, maxVisY)
+                val isVisibleOnScreen = visLeft < visRight && visTop < visBottom
+
+                if (shouldShowZebra && isVisibleOnScreen) {
                     val nativeCanvas = drawContext.canvas.nativeCanvas
-                    val currentScale = (zoom.value * fitScale).coerceAtLeast(0.001f)
-                    val left = -bmp.width / 2f
-                    val top = -bmp.height / 2f
-                    val right = bmp.width / 2f
-                    val bottom = bmp.height / 2f
 
                     // 45 度斜向动态流动斑马纹（Procreate 风格）
                     // 保持在物理屏幕上 1:1 的条纹粗细与方向，不受画布缩放与旋转影响
@@ -1389,13 +1439,20 @@ internal fun CanvasOverlay(
                     val opacityScale = (vm.selectionMaskOpacity / 0.47f).coerceIn(0.2f, 2.0f)
                     zebraPaint.alpha = (opacityScale * 255).toInt().coerceIn(20, 255)
 
-                    val saveCount = nativeCanvas.saveLayer(left, top, right, bottom, null)
-                    nativeCanvas.drawRect(left, top, right, bottom, zebraPaint)
+                    val saveCount = nativeCanvas.saveLayer(visLeft, visTop, visRight, visBottom, null)
+                    nativeCanvas.drawRect(visLeft, visTop, visRight, visBottom, zebraPaint)
 
-                    // 若存在已有提交选区，且当前处于追加/减去/相交模式（或当前未在绘制新选区），则先应用已有选区遮罩
+                    // 若存在已有提交选区，且当前处于追加/减去/相交模式（或当前未在绘制新选区），则先应用已有选区遮罩 (仅绘制视口内可见部分)
                     if (vm.hasSelection && selBmp != null && !selBmp.isRecycled && (vm.selectionMode != 0 || !isSelecting)) {
-                        selDstRectF.set(left, top, right, bottom)
-                        nativeCanvas.drawBitmap(selBmp, null, selDstRectF, selMaskPaint)
+                        val bmLeft = ((visLeft - docLeft) / bmp.width * selBmp.width).toInt().coerceIn(0, selBmp.width)
+                        val bmTop = ((visTop - docTop) / bmp.height * selBmp.height).toInt().coerceIn(0, selBmp.height)
+                        val bmRight = kotlin.math.ceil((visRight - docLeft) / bmp.width * selBmp.width).toInt().coerceIn(bmLeft, selBmp.width)
+                        val bmBottom = kotlin.math.ceil((visBottom - docTop) / bmp.height * selBmp.height).toInt().coerceIn(bmTop, selBmp.height)
+                        if (bmRight > bmLeft && bmBottom > bmTop) {
+                            selSrcRect.set(bmLeft, bmTop, bmRight, bmBottom)
+                            selDstRectF.set(visLeft, visTop, visRight, visBottom)
+                            nativeCanvas.drawBitmap(selBmp, selSrcRect, selDstRectF, selMaskPaint)
+                        }
                     }
 
                     // 实时反向斑马纹预览：将正在拖拽/绘制的路径内部镂空 (CLEAR) 或叠加，外部即刻呈现斑马纹
@@ -1418,7 +1475,7 @@ internal fun CanvasOverlay(
                                     3 -> {
                                         nativeCanvas.save()
                                         nativeCanvas.clipOutPath(inProgressClosedPath.asAndroidPath())
-                                        nativeCanvas.drawRect(left, top, right, bottom, zebraPaint)
+                                        nativeCanvas.drawRect(visLeft, visTop, visRight, visBottom, zebraPaint)
                                         nativeCanvas.restore()
                                     }
                                 }
@@ -1438,17 +1495,18 @@ internal fun CanvasOverlay(
                                     3 -> {
                                         nativeCanvas.save()
                                         nativeCanvas.clipOutPath(inProgressClosedPath.asAndroidPath())
-                                        nativeCanvas.drawRect(left, top, right, bottom, zebraPaint)
+                                        nativeCanvas.drawRect(visLeft, visTop, visRight, visBottom, zebraPaint)
                                         nativeCanvas.restore()
                                     }
                                 }
                             }
                             // 多边形选择（>=3 点时可闭合镂空预览）
                             tool == Tool.SELECT_POLYGON && polyPoints.size >= 3 -> {
+                                val pts = polyPoints
                                 inProgressClosedPath.reset()
-                                inProgressClosedPath.moveTo(polyPoints[0].x * scX - halfW, polyPoints[0].y * scY - halfH)
-                                for (i in 1 until polyPoints.size) {
-                                    inProgressClosedPath.lineTo(polyPoints[i].x * scX - halfW, polyPoints[i].y * scY - halfH)
+                                inProgressClosedPath.moveTo(pts[0].x * scX - halfW, pts[0].y * scY - halfH)
+                                for (i in 1 until pts.size) {
+                                    inProgressClosedPath.lineTo(pts[i].x * scX - halfW, pts[i].y * scY - halfH)
                                 }
                                 inProgressClosedPath.close()
                                 when (vm.selectionMode) {
@@ -1457,7 +1515,7 @@ internal fun CanvasOverlay(
                                     3 -> {
                                         nativeCanvas.save()
                                         nativeCanvas.clipOutPath(inProgressClosedPath.asAndroidPath())
-                                        nativeCanvas.drawRect(left, top, right, bottom, zebraPaint)
+                                        nativeCanvas.drawRect(visLeft, visTop, visRight, visBottom, zebraPaint)
                                         nativeCanvas.restore()
                                     }
                                 }
@@ -1477,7 +1535,7 @@ internal fun CanvasOverlay(
                                     3 -> {
                                         nativeCanvas.save()
                                         nativeCanvas.clipOutRect(inProgressRectF)
-                                        nativeCanvas.drawRect(left, top, right, bottom, zebraPaint)
+                                        nativeCanvas.drawRect(visLeft, visTop, visRight, visBottom, zebraPaint)
                                         nativeCanvas.restore()
                                     }
                                 }
@@ -1499,7 +1557,7 @@ internal fun CanvasOverlay(
                                         inProgressClosedPath.addOval(androidx.compose.ui.geometry.Rect(rLeft, rTop, rRight, rBottom))
                                         nativeCanvas.save()
                                         nativeCanvas.clipOutPath(inProgressClosedPath.asAndroidPath())
-                                        nativeCanvas.drawRect(left, top, right, bottom, zebraPaint)
+                                        nativeCanvas.drawRect(visLeft, visTop, visRight, visBottom, zebraPaint)
                                         nativeCanvas.restore()
                                     }
                                 }
@@ -1511,7 +1569,7 @@ internal fun CanvasOverlay(
                 }
 
                 // 2. 选区边界动态黑白交替流动蚂蚁线：无论在选区工具内还是切到其他工具（画笔、橡皮擦等），只要存在活动选区，选区边缘均显示动态流动的黑白相间蚂蚁线
-                val shouldShowOutline = !vm.transientTransformSelectionPending && CanvasDecorGeometry.selectionOutlineVisible(
+                val shouldShowOutline = !vm.transientTransformSelectionPending && isVisibleOnScreen && CanvasDecorGeometry.selectionOutlineVisible(
                     hasSelection = vm.hasSelection,
                     isTransform = isTransform,
                     isSelecting = isSelecting,
@@ -1519,158 +1577,180 @@ internal fun CanvasOverlay(
                 )
                 if (shouldShowOutline) {
                     vm.selectionOutlinePath?.let { outlinePath ->
-                        val currentScale = (zoom.value * fitScale).coerceAtLeast(0.001f)
-                        with(CanvasDecorDraw) { drawSelectionAnts(outlinePath, currentScale, animFraction) }
+                        val pathBounds = outlinePath.getBounds()
+                        val isOutlineVisible = pathBounds.right >= visLeft && pathBounds.left <= visRight &&
+                            pathBounds.bottom >= visTop && pathBounds.top <= visBottom
+                        if (isOutlineVisible) {
+                            clipRect(visLeft, visTop, visRight, visBottom) {
+                                with(CanvasDecorDraw) { drawSelectionAnts(outlinePath, currentScale, animFraction) }
 
-                        // 选区闭合/生成瞬间的晶莹轮廓流光爆发 (Selection Contour Flash)
-                        val flashFrac = selectionFlashProgress.value
-                        if (flashFrac < 1f) {
-                            val flashAlpha = (1f - flashFrac).coerceIn(0f, 1f)
-                            val glowWidth = (2.2.dp + 5.0.dp * flashFrac).toPx() / currentScale
-                            val coreWidth = (1.5.dp + 0.8.dp * (1f - flashFrac)).toPx() / currentScale
+                                // 选区闭合/生成瞬间的晶莹轮廓流光爆发 (Selection Contour Flash)
+                                val flashFrac = selectionFlashProgress.value
+                                if (flashFrac < 1f) {
+                                    val flashAlpha = (1f - flashFrac).coerceIn(0f, 1f)
+                                    val glowWidth = (2.2.dp + 5.0.dp * flashFrac).toPx() / currentScale
+                                    val coreWidth = (1.5.dp + 0.8.dp * (1f - flashFrac)).toPx() / currentScale
 
-                            // 柔和外晕 (Morandi Accent / Cyan Light)
-                            drawPath(
-                                path = outlinePath,
-                                color = Morandi.accent.copy(alpha = 0.55f * flashAlpha),
-                                style = Stroke(
-                                    width = glowWidth,
-                                    cap = StrokeCap.Round,
-                                    join = StrokeJoin.Round,
-                                ),
-                            )
-                            // 晶莹白光高光核心
-                            drawPath(
-                                path = outlinePath,
-                                color = Color.White.copy(alpha = 0.90f * flashAlpha),
-                                style = Stroke(
-                                    width = coreWidth,
-                                    cap = StrokeCap.Round,
-                                    join = StrokeJoin.Round,
-                                ),
-                            )
+                                    // 柔和外晕 (Morandi Accent / Cyan Light)
+                                    drawPath(
+                                        path = outlinePath,
+                                        color = Morandi.accent.copy(alpha = 0.55f * flashAlpha),
+                                        style = Stroke(
+                                            width = glowWidth,
+                                            cap = StrokeCap.Round,
+                                            join = StrokeJoin.Round,
+                                        ),
+                                    )
+                                    // 晶莹白光高光核心
+                                    drawPath(
+                                        path = outlinePath,
+                                        color = Color.White.copy(alpha = 0.90f * flashAlpha),
+                                        style = Stroke(
+                                            width = coreWidth,
+                                            cap = StrokeCap.Round,
+                                            join = StrokeJoin.Round,
+                                        ),
+                                    )
+                                }
+                            }
                         }
                     }
                 }
 
-                liveSelectionPath.value?.let { livePath ->
-                    val currentScale = (zoom.value * fitScale).coerceAtLeast(0.001f)
-                    val strokeW = 1.0.dp.toPx() / currentScale
-                    val blackStrokeW = 1.4.dp.toPx() / currentScale
-                    val dashInterval = 3.5.dp.toPx() / currentScale
-                    val antPhase = animFraction * (dashInterval * 2)
+                if (isVisibleOnScreen) {
+                    liveSelectionPath.value?.let { livePath ->
+                        clipRect(visLeft, visTop, visRight, visBottom) {
+                            val strokeW = 1.0.dp.toPx() / currentScale
+                            val blackStrokeW = 1.4.dp.toPx() / currentScale
+                            val dashInterval = 3.5.dp.toPx() / currentScale
+                            val antPhase = animFraction * (dashInterval * 2)
 
-                    // 细腻双色虚线蚂蚁线轮廓 (黑色底 + 白色错位虚线)
-                    drawPath(
-                        path = livePath,
-                        color = Color.Black.copy(alpha = 0.85f),
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(
-                            width = blackStrokeW,
-                            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
-                                floatArrayOf(dashInterval, dashInterval),
-                                phase = antPhase
+                            // 细腻双色虚线蚂蚁线轮廓 (黑色底 + 白色错位虚线)
+                            drawPath(
+                                path = livePath,
+                                color = Color.Black.copy(alpha = 0.85f),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = blackStrokeW,
+                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                        floatArrayOf(dashInterval, dashInterval),
+                                        phase = antPhase
+                                    )
+                                )
                             )
-                        )
-                    )
-                    drawPath(
-                        path = livePath,
-                        color = Color.White,
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(
-                            width = strokeW,
-                            pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
-                                floatArrayOf(dashInterval, dashInterval),
-                                phase = antPhase + dashInterval
+                            drawPath(
+                                path = livePath,
+                                color = Color.White,
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = strokeW,
+                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                        floatArrayOf(dashInterval, dashInterval),
+                                        phase = antPhase + dashInterval
+                                    )
+                                )
                             )
-                        )
-                    )
+                        }
+                    }
                 }
 
                 // 多次操作套索（折线/自由混合）在空闲等待手势时的在编路径与起点指示
                 val multiPts = vm.lassoMultiPoints
-                if (multiPts.isNotEmpty() && liveSelectionPath.value == null && tool == Tool.LASSO) {
-                    val currentScale = (zoom.value * fitScale).coerceAtLeast(0.001f)
-                    val strokeW = 1.0.dp.toPx() / currentScale
-                    val blackStrokeW = 1.5.dp.toPx() / currentScale
-                    val dashInterval = 3.5.dp.toPx() / currentScale
-                    val antPhase = animFraction * (dashInterval * 2)
-                    val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
-                    val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
-                    val halfW = bmp.width / 2f
-                    val halfH = bmp.height / 2f
-                    val bx = { x: Int, y: Int -> Offset(x * scX - halfW, y * scY - halfH) }
+                if (multiPts.isNotEmpty() && liveSelectionPath.value == null && tool == Tool.LASSO && isVisibleOnScreen) {
+                    clipRect(visLeft, visTop, visRight, visBottom) {
+                        val strokeW = 1.0.dp.toPx() / currentScale
+                        val blackStrokeW = 1.5.dp.toPx() / currentScale
+                        val dashInterval = 3.5.dp.toPx() / currentScale
+                        val antPhase = animFraction * (dashInterval * 2)
+                        val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
+                        val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
+                        val halfW = bmp.width / 2f
+                        val halfH = bmp.height / 2f
+                        val bx = { x: Int, y: Int -> Offset(x * scX - halfW, y * scY - halfH) }
 
-                    val path = Path().apply {
+                        multiLassoPath.reset()
                         val p0 = bx(multiPts[0].first, multiPts[0].second)
-                        moveTo(p0.x, p0.y)
+                        multiLassoPath.moveTo(p0.x, p0.y)
                         for (i in 1 until multiPts.size) {
                             val pi = bx(multiPts[i].first, multiPts[i].second)
-                            lineTo(pi.x, pi.y)
+                            multiLassoPath.lineTo(pi.x, pi.y)
                         }
-                    }
 
-                    if (multiPts.size >= 3) {
-                        val closedPath = Path().apply {
-                            addPath(path)
-                            close()
+                        if (multiPts.size >= 3) {
+                            multiLassoClosedPath.reset()
+                            multiLassoClosedPath.addPath(multiLassoPath)
+                            multiLassoClosedPath.close()
+                            // 双色闭合蚂蚁线
+                            drawPath(
+                                path = multiLassoClosedPath,
+                                color = Color.Black.copy(alpha = 0.85f),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = blackStrokeW,
+                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                        floatArrayOf(dashInterval, dashInterval),
+                                        phase = antPhase
+                                    )
+                                )
+                            )
+                            drawPath(
+                                path = multiLassoClosedPath,
+                                color = Color.White,
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = strokeW,
+                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                        floatArrayOf(dashInterval, dashInterval),
+                                        phase = antPhase + dashInterval
+                                    )
+                                )
+                            )
+                        } else {
+                            // 只有2点时的开放线段双色蚂蚁线
+                            drawPath(
+                                path = multiLassoPath,
+                                color = Color.Black.copy(alpha = 0.85f),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = blackStrokeW,
+                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                        floatArrayOf(dashInterval, dashInterval),
+                                        phase = antPhase
+                                    )
+                                )
+                            )
+                            drawPath(
+                                path = multiLassoPath,
+                                color = Color.White,
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(
+                                    width = strokeW,
+                                    pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
+                                        floatArrayOf(dashInterval, dashInterval),
+                                        phase = antPhase + dashInterval
+                                    )
+                                )
+                            )
                         }
-                        // 双色闭合蚂蚁线
-                        drawPath(
-                            path = closedPath,
-                            color = Color.Black.copy(alpha = 0.85f),
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(
-                                width = blackStrokeW,
-                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
-                                    floatArrayOf(dashInterval, dashInterval),
-                                    phase = antPhase
-                                )
-                            )
-                        )
-                        drawPath(
-                            path = closedPath,
-                            color = Color.White,
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(
-                                width = strokeW,
-                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
-                                    floatArrayOf(dashInterval, dashInterval),
-                                    phase = antPhase + dashInterval
-                                )
-                            )
-                        )
-                    } else {
-                        // 只有2点时的开放线段双色蚂蚁线
-                        drawPath(
-                            path = path,
-                            color = Color.Black.copy(alpha = 0.85f),
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(
-                                width = blackStrokeW,
-                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
-                                    floatArrayOf(dashInterval, dashInterval),
-                                    phase = antPhase
-                                )
-                            )
-                        )
-                        drawPath(
-                            path = path,
-                            color = Color.White,
-                            style = androidx.compose.ui.graphics.drawscope.Stroke(
-                                width = strokeW,
-                                pathEffect = androidx.compose.ui.graphics.PathEffect.dashPathEffect(
-                                    floatArrayOf(dashInterval, dashInterval),
-                                    phase = antPhase + dashInterval
-                                )
-                            )
-                        )
-                    }
 
-                    // 中间转折锚点（仅在每段操作的交接点绘制，不在自由曲线内部点上绘制）
-                    if (vm.lassoSegmentCounts.isNotEmpty()) {
-                        var acc = 0
-                        for (count in vm.lassoSegmentCounts) {
-                            acc += count
-                            val jointIdx = acc - 1
-                            if (jointIdx in 1 until multiPts.size - 1) {
-                                val pt = multiPts[jointIdx]
-                                val center = bx(pt.first, pt.second)
+                        // 中间转折锚点（仅在每段操作的交接点绘制，不在自由曲线内部点上绘制）
+                        if (vm.lassoSegmentCounts.isNotEmpty()) {
+                            var acc = 0
+                            for (count in vm.lassoSegmentCounts) {
+                                acc += count
+                                val jointIdx = acc - 1
+                                if (jointIdx in 1 until multiPts.size - 1) {
+                                    val pt = multiPts[jointIdx]
+                                    val center = bx(pt.first, pt.second)
+                                    drawCircle(
+                                        color = Color.Black.copy(alpha = 0.65f),
+                                        radius = 3.8.dp.toPx() / currentScale,
+                                        center = center,
+                                    )
+                                    drawCircle(
+                                        color = Color.White,
+                                        radius = 2.4.dp.toPx() / currentScale,
+                                        center = center,
+                                    )
+                                }
+                            }
+                        } else if (vm.lassoSubMode == LassoSubMode.POLYLINE) {
+                            for (i in 1 until multiPts.size - 1) {
+                                val center = bx(multiPts[i].first, multiPts[i].second)
                                 drawCircle(
                                     color = Color.Black.copy(alpha = 0.65f),
                                     radius = 3.8.dp.toPx() / currentScale,
@@ -1683,55 +1763,41 @@ internal fun CanvasOverlay(
                                 )
                             }
                         }
-                    } else if (vm.lassoSubMode == LassoSubMode.POLYLINE) {
-                        for (i in 1 until multiPts.size - 1) {
-                            val center = bx(multiPts[i].first, multiPts[i].second)
-                            drawCircle(
-                                color = Color.Black.copy(alpha = 0.65f),
-                                radius = 3.8.dp.toPx() / currentScale,
-                                center = center,
-                            )
-                            drawCircle(
-                                color = Color.White,
-                                radius = 2.4.dp.toPx() / currentScale,
-                                center = center,
-                            )
-                        }
+
+                        // 起点闭合光圈 (高亮起点，提示用户点击可闭合)
+                        val startCenter = bx(multiPts[0].first, multiPts[0].second)
+                        drawCircle(
+                            color = Color.Black.copy(alpha = 0.6f),
+                            radius = 8.5.dp.toPx() / currentScale,
+                            center = startCenter,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.8.dp.toPx() / currentScale)
+                        )
+                        drawCircle(
+                            color = if (vm.selectionMode == 2) Color(0xFFFF5252) else Morandi.accent,
+                            radius = 8.dp.toPx() / currentScale,
+                            center = startCenter,
+                            style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx() / currentScale)
+                        )
+                        drawCircle(
+                            color = Color.White,
+                            radius = 3.5.dp.toPx() / currentScale,
+                            center = startCenter
+                        )
+
+                        // 最新末端锚点
+                        val lastPt = multiPts.last()
+                        val endCenter = bx(lastPt.first, lastPt.second)
+                        drawCircle(
+                            color = Color.Black.copy(alpha = 0.6f),
+                            radius = 4.8.dp.toPx() / currentScale,
+                            center = endCenter
+                        )
+                        drawCircle(
+                            color = Morandi.accent,
+                            radius = 3.4.dp.toPx() / currentScale,
+                            center = endCenter
+                        )
                     }
-
-                    // 起点闭合光圈 (高亮起点，提示用户点击可闭合)
-                    val startCenter = bx(multiPts[0].first, multiPts[0].second)
-                    drawCircle(
-                        color = Color.Black.copy(alpha = 0.6f),
-                        radius = 8.5.dp.toPx() / currentScale,
-                        center = startCenter,
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.8.dp.toPx() / currentScale)
-                    )
-                    drawCircle(
-                        color = if (vm.selectionMode == 2) Color(0xFFFF5252) else Morandi.accent,
-                        radius = 8.dp.toPx() / currentScale,
-                        center = startCenter,
-                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx() / currentScale)
-                    )
-                    drawCircle(
-                        color = Color.White,
-                        radius = 3.5.dp.toPx() / currentScale,
-                        center = startCenter
-                    )
-
-                    // 最新末端锚点
-                    val lastPt = multiPts.last()
-                    val endCenter = bx(lastPt.first, lastPt.second)
-                    drawCircle(
-                        color = Color.Black.copy(alpha = 0.6f),
-                        radius = 4.8.dp.toPx() / currentScale,
-                        center = endCenter
-                    )
-                    drawCircle(
-                        color = Morandi.accent,
-                        radius = 3.4.dp.toPx() / currentScale,
-                        center = endCenter
-                    )
                 }
 
                 drawDrawingGuides(
