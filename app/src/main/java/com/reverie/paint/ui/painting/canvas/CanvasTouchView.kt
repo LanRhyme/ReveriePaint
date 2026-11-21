@@ -959,6 +959,40 @@ class CanvasTouchView(context: Context) : View(context) {
         }
     }
 
+    private var threeFingerSlideActive = false
+    private var threeFingerSlideAxis = 0 // 0=None, 1=Size (Vertical), 2=Opacity (Horizontal)
+    private var threeFingerSlideStartX = 0f
+    private var threeFingerSlideStartY = 0f
+    private var threeFingerSlideInitialSize = 0.0
+    private var threeFingerSlideInitialOpacity = 0.0
+    private var lastHapticOpacityStep = -1
+    private var lastHapticSizeStep = -1
+
+    private val twoFingerLongPressRunnable = Runnable {
+        val v = vm ?: return@Runnable
+        val tapAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.TWO_FINGER_TAP)
+        if (tapAction != null && tapAction != com.reverie.paint.model.GestureAction.NONE) return@Runnable
+        val longPressAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.TWO_FINGER_LONG_PRESS)
+        if (longPressAction != null && longPressAction != com.reverie.paint.model.GestureAction.NONE && maxTouchPointers == 2 && !isPinchMotion && !isTwoFingerRotation) {
+            performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            v.dispatchGestureAction(longPressAction, anchor = initialCentroid, docPos = screenToDoc(initialCentroid))
+            removeCallbacks(continuousUndoRunnable)
+        }
+    }
+
+    private val threeFingerLongPressRunnable = Runnable {
+        val v = vm ?: return@Runnable
+        val tapAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_TAP)
+        if (tapAction != null && tapAction != com.reverie.paint.model.GestureAction.NONE) return@Runnable
+        val longPressAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_LONG_PRESS)
+        if (longPressAction != null && longPressAction != com.reverie.paint.model.GestureAction.NONE && !editMenuSwipe.moved && !threeFingerSlideActive) {
+            performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+            val anchor = Offset(threeFingerSlideStartX, threeFingerSlideStartY)
+            v.dispatchGestureAction(longPressAction, anchor = anchor, docPos = screenToDoc(anchor))
+            removeCallbacks(continuousRedoRunnable)
+        }
+    }
+
     // 空格键长按临时抓手平移状态 (Spacebar Hold-to-Pan)
     private var spacePanStartPos = Offset.Zero
     private var spacePanInitialPan = Offset.Zero
@@ -1206,11 +1240,19 @@ class CanvasTouchView(context: Context) : View(context) {
             }
             cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
             cachedDriver?.feedbackManager?.stopStrokeSound()
-            isLongPressPickerActive = true
-            pickerActive?.value = true
-            val refHex = v.brushColor
-            pickerInitialColor?.value = parseColor(refHex)
-            sampleColorAtScreenPos(pendingDownScreenPos)
+            val configuredAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.SINGLE_FINGER_LONG_PRESS)
+                ?: if (v.longPressEyedropperEnabled) com.reverie.paint.model.GestureAction.EYEDROPPER else com.reverie.paint.model.GestureAction.NONE
+
+            if (configuredAction == com.reverie.paint.model.GestureAction.EYEDROPPER) {
+                isLongPressPickerActive = true
+                pickerActive?.value = true
+                val refHex = v.brushColor
+                pickerInitialColor?.value = parseColor(refHex)
+                sampleColorAtScreenPos(pendingDownScreenPos)
+            } else if (configuredAction != com.reverie.paint.model.GestureAction.NONE) {
+                performHapticFeedback(android.view.HapticFeedbackConstants.LONG_PRESS)
+                v.dispatchGestureAction(configuredAction, anchor = pendingDownScreenPos, docPos = screenToDoc(pendingDownScreenPos))
+            }
         }
     }
 
@@ -5833,7 +5875,10 @@ class CanvasTouchView(context: Context) : View(context) {
             v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_SWIPE_UP) != null ||
             v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_SWIPE_LEFT) != null ||
             v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_SWIPE_RIGHT) != null ||
-            v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_TAP) != null
+            v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_TAP) != null ||
+            v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_DOUBLE_TAP) != null ||
+            v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_LONG_PRESS) != null ||
+            v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_SLIDE) != null
 
         if (!editMenuGestureActive && hasThreeFingerAction && numFingers == 3 &&
             (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN || (!isTransformActive && !isPinchMotion)) &&
@@ -5843,6 +5888,19 @@ class CanvasTouchView(context: Context) : View(context) {
             editMenuGestureActive = true
             isPinchMotion = false
             editMenuPointersReleased = false
+            threeFingerSlideActive = false
+            threeFingerSlideAxis = 0
+            val idx0 = fingerIndices[0]
+            val idx1 = fingerIndices[1]
+            val idx2 = fingerIndices[2]
+            threeFingerSlideStartX = (event.getX(idx0) + event.getX(idx1) + event.getX(idx2)) / 3f
+            threeFingerSlideStartY = (event.getY(idx0) + event.getY(idx1) + event.getY(idx2)) / 3f
+            threeFingerSlideInitialSize = v.brushSize
+            threeFingerSlideInitialOpacity = v.brushOpacity
+            lastHapticOpacityStep = (v.brushOpacity * 10).roundToInt()
+            val minL = v.brushMinSizeLimit.coerceAtLeast(0.5)
+            lastHapticSizeStep = (Math.log((v.brushSize / minL).coerceAtLeast(1.0)) / Math.log(1.25)).toInt()
+
             editMenuSwipe.begin(event.eventTime, density)
             for (i in 0..2) {
                 val index = fingerIndices[i]
@@ -5854,6 +5912,7 @@ class CanvasTouchView(context: Context) : View(context) {
             isPendingLongPress = false
             removeCallbacks(continuousUndoRunnable)
             removeCallbacks(continuousRedoRunnable)
+            removeCallbacks(threeFingerLongPressRunnable)
             // 12 条强制复位路径之一：三指编辑菜单/三指轻点重做接管。
             clearAllEvasionState(v)
             if (strokeStarted) {
@@ -5866,7 +5925,12 @@ class CanvasTouchView(context: Context) : View(context) {
             }
             cancelPendingShapeGesture()
             cancelPanelGesture()
-            if (v.gestureThreeFingerRedo && v.gestureContinuousUndo) postDelayed(continuousRedoRunnable, 420L)
+            val threeLongPressAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_LONG_PRESS)
+            if (threeLongPressAction != null && threeLongPressAction != com.reverie.paint.model.GestureAction.NONE) {
+                postDelayed(threeFingerLongPressRunnable, 420L)
+            } else if (v.gestureThreeFingerRedo && v.gestureContinuousUndo) {
+                postDelayed(continuousRedoRunnable, 420L)
+            }
         }
         if (editMenuGestureActive) {
             if (numFingers > 3 || stylusPointerIndex >= 0 ||
@@ -5887,17 +5951,94 @@ class CanvasTouchView(context: Context) : View(context) {
                         editMenuSwipe.update(i, event.getX(index), event.getY(index))
                     }
                 }
-                // After the first lift, remaining fingers may still move: suppress tap redo,
-                // but never recognize a new swipe from fewer than three fingers.
-                if (!editMenuPointersReleased && numFingers == 3) editMenuSwipe.evaluate(event.eventTime)
+                if (!editMenuPointersReleased && numFingers == 3) {
+                    val pIdx0 = event.findPointerIndex(editMenuPointerIds[0])
+                    val pIdx1 = event.findPointerIndex(editMenuPointerIds[1])
+                    val pIdx2 = event.findPointerIndex(editMenuPointerIds[2])
+                    if (pIdx0 >= 0 && pIdx1 >= 0 && pIdx2 >= 0) {
+                        val cx = (event.getX(pIdx0) + event.getX(pIdx1) + event.getX(pIdx2)) / 3f
+                        val cy = (event.getY(pIdx0) + event.getY(pIdx1) + event.getY(pIdx2)) / 3f
+                        val distMoved = hypot(cx - threeFingerSlideStartX, cy - threeFingerSlideStartY)
+                        if (v.brushSlideAdjustEnabled) {
+                            val dx = cx - threeFingerSlideStartX
+                            val dy = cy - threeFingerSlideStartY
+                            if (!threeFingerSlideActive && distMoved > 10f * density) {
+                                threeFingerSlideActive = true
+                                threeFingerSlideAxis = if (kotlin.math.abs(dx) >= kotlin.math.abs(dy)) 2 else 1
+                                editMenuSwipe.reject()
+                                removeCallbacks(threeFingerLongPressRunnable)
+                                removeCallbacks(continuousRedoRunnable)
+                                performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                            }
+                            if (threeFingerSlideActive) {
+                                if (threeFingerSlideAxis == 2) {
+                                    // 水平滑动 -> 仅调节不透明度 (Horizontal slide -> Opacity only)
+                                    val targetOpacity = (threeFingerSlideInitialOpacity + dx / (260f * density)).coerceIn(0.01, 1.0)
+                                    v.updateBrushOpacity(targetOpacity, commit = false)
+                                    val percent = kotlin.math.round(targetOpacity * 100).toInt()
+                                    v.showActionToast(R.string.toast_brush_opacity, R.drawable.ic_droplet, percent)
+
+                                    val curStep = (targetOpacity * 10).roundToInt()
+                                    if (curStep != lastHapticOpacityStep) {
+                                        lastHapticOpacityStep = curStep
+                                        performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                                    }
+                                } else if (threeFingerSlideAxis == 1) {
+                                    // 垂直滑动 -> 仅调节笔刷大小 (Vertical slide -> Size only, 向上增大/向下减小)
+                                    val factor = Math.pow(2.0, (-dy / (90f * density)).toDouble())
+                                    val minL = v.brushMinSizeLimit.coerceAtLeast(0.5)
+                                    val maxL = v.effectiveBrushMaxSize.coerceAtLeast(minL)
+                                    val targetSize = (threeFingerSlideInitialSize * factor).coerceIn(minL, maxL)
+                                    v.updateBrushSize(targetSize, commit = false)
+                                    val formatted = if (targetSize < 10.0) {
+                                        String.format(java.util.Locale.US, "%.1f", targetSize)
+                                    } else {
+                                        "${targetSize.toInt()}"
+                                    }
+                                    v.showActionToast(R.string.toast_brush_size, R.drawable.ic_brush, formatted)
+
+                                    val curStep = (Math.log((targetSize / minL).coerceAtLeast(1.0)) / Math.log(1.25)).toInt()
+                                    if (curStep != lastHapticSizeStep) {
+                                        lastHapticSizeStep = curStep
+                                        performHapticFeedback(android.view.HapticFeedbackConstants.CLOCK_TICK)
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    if (!threeFingerSlideActive) {
+                        editMenuSwipe.evaluate(event.eventTime)
+                    }
+                }
             }
-            if (editMenuSwipe.moved || editMenuSwipe.rejected || event.actionMasked == MotionEvent.ACTION_POINTER_UP) {
+            if (editMenuSwipe.moved || editMenuSwipe.rejected || threeFingerSlideActive || event.actionMasked == MotionEvent.ACTION_POINTER_UP) {
+                removeCallbacks(threeFingerLongPressRunnable)
                 removeCallbacks(continuousRedoRunnable)
             }
-            if (event.actionMasked == MotionEvent.ACTION_POINTER_UP) editMenuPointersReleased = true
+            if (event.actionMasked == MotionEvent.ACTION_POINTER_UP) {
+                editMenuPointersReleased = true
+                if (threeFingerSlideActive) {
+                    if (threeFingerSlideAxis == 1) {
+                        v.updateBrushSize(v.brushSize, commit = true)
+                    } else if (threeFingerSlideAxis == 2) {
+                        v.updateBrushOpacity(v.brushOpacity, commit = true)
+                    }
+                    threeFingerSlideActive = false
+                    threeFingerSlideAxis = 0
+                }
+            }
             if (event.actionMasked == MotionEvent.ACTION_UP || event.actionMasked == MotionEvent.ACTION_CANCEL) {
+                removeCallbacks(threeFingerLongPressRunnable)
                 removeCallbacks(continuousRedoRunnable)
-                if (event.actionMasked == MotionEvent.ACTION_UP && !isContinuousUndoing) {
+                if (threeFingerSlideActive) {
+                    if (threeFingerSlideAxis == 1) {
+                        v.updateBrushSize(v.brushSize, commit = true)
+                    } else if (threeFingerSlideAxis == 2) {
+                        v.updateBrushOpacity(v.brushOpacity, commit = true)
+                    }
+                    threeFingerSlideActive = false
+                    threeFingerSlideAxis = 0
+                } else if (event.actionMasked == MotionEvent.ACTION_UP && !isContinuousUndoing) {
                     if (editMenuSwipe.swiped) {
                         val trigger = when (editMenuSwipe.swipeDirection) {
                             com.reverie.paint.model.SwipeDirection.DOWN -> com.reverie.paint.model.GestureTrigger.THREE_FINGER_SWIPE_DOWN
@@ -5913,19 +6054,11 @@ class CanvasTouchView(context: Context) : View(context) {
                             v.requestUiCommand("open_edit_menu")
                         }
                     } else if (editMenuSwipe.isTap(event.eventTime)) {
-                        val doubleTapAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_DOUBLE_TAP)
-                        val isDoubleTap = doubleTapAction != null && (nowMs - lastThreeFingerTapTimeMs < 350L)
-                        if (isDoubleTap) {
-                            lastThreeFingerTapTimeMs = 0L
-                            v.dispatchGestureAction(doubleTapAction)
-                        } else {
-                            lastThreeFingerTapTimeMs = nowMs
-                            val action = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_TAP)
-                            if (action != null) {
-                                v.dispatchGestureAction(action)
-                            } else if (v.gestureThreeFingerRedo) {
-                                v.redo()
-                            }
+                        val action = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_TAP)
+                        if (action != null) {
+                            v.dispatchGestureAction(action)
+                        } else if (v.gestureThreeFingerRedo) {
+                            v.redo()
                         }
                     }
                 }
@@ -6028,12 +6161,18 @@ class CanvasTouchView(context: Context) : View(context) {
 
                     removeCallbacks(continuousUndoRunnable)
                     removeCallbacks(continuousRedoRunnable)
+                    removeCallbacks(twoFingerLongPressRunnable)
                     continuousStepCount = 0
-                    if (!isShiftTraceAlign && isNewGesture && v.gestureContinuousUndo) {
-                        if (numFingers == 2 && v.gestureTwoFingerUndo) {
-                            postDelayed(continuousUndoRunnable, 560L)
-                        } else if (numFingers >= 3 && v.gestureThreeFingerRedo) {
-                            postDelayed(continuousRedoRunnable, 560L)
+                    if (!isShiftTraceAlign && isNewGesture) {
+                        val twoLongPressAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.TWO_FINGER_LONG_PRESS)
+                        if (twoLongPressAction != null && twoLongPressAction != com.reverie.paint.model.GestureAction.NONE) {
+                            postDelayed(twoFingerLongPressRunnable, 420L)
+                        } else if (v.gestureContinuousUndo) {
+                            if (numFingers == 2 && v.gestureTwoFingerUndo) {
+                                postDelayed(continuousUndoRunnable, 560L)
+                            } else if (numFingers >= 3 && v.gestureThreeFingerRedo) {
+                                postDelayed(continuousRedoRunnable, 560L)
+                            }
                         }
                     }
                 } else {
@@ -6137,6 +6276,7 @@ class CanvasTouchView(context: Context) : View(context) {
                             isPinchMotion = true
                             removeCallbacks(continuousUndoRunnable)
                             removeCallbacks(continuousRedoRunnable)
+                            removeCallbacks(twoFingerLongPressRunnable)
                         }
                         // 双指专用修正: 旧公式在双指并拢时几乎失敏 —— 间距 40px 时可转 20° 以上仍被
                         // 判成"轻点", 双指轻点撤销会吞掉旋转手势 (既多触发一次撤销, 又让旋转结束后
@@ -6154,6 +6294,7 @@ class CanvasTouchView(context: Context) : View(context) {
                         ) {
                             isTwoFingerRotation = true
                             removeCallbacks(continuousUndoRunnable)
+                            removeCallbacks(twoFingerLongPressRunnable)
                         }
 
                         // 围绕双指中心 (prevCentroid) 几何旋转与缩放补偿，保证手指标定点完全不动
@@ -6258,10 +6399,12 @@ class CanvasTouchView(context: Context) : View(context) {
                 MotionEvent.ACTION_POINTER_UP -> {
                     removeCallbacks(continuousUndoRunnable)
                     removeCallbacks(continuousRedoRunnable)
+                    removeCallbacks(twoFingerLongPressRunnable)
                 }
                 MotionEvent.ACTION_UP -> {
                     removeCallbacks(continuousUndoRunnable)
                     removeCallbacks(continuousRedoRunnable)
+                    removeCallbacks(twoFingerLongPressRunnable)
                     val durationMs = nowMs - touchDownTimeMs
                     isInteracting = false
                     val settled = fitAnimator?.isRunning != true && snapAnimator?.isRunning != true
@@ -6293,33 +6436,31 @@ class CanvasTouchView(context: Context) : View(context) {
                             v.showActionToast(context.getString(R.string.canvas_toast_fit_reset), R.drawable.ic_refresh)
                         }
                     } else if (!isContinuousUndoing && !isPinchMotion && !isTwoFingerRotation && !filterSessionActive && maxTouchPointers == 2 && durationMs < 360L) {
-                        val doubleTapAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.TWO_FINGER_DOUBLE_TAP)
-                        val isDoubleTap = doubleTapAction != null && (nowMs - lastTwoFingerTapTimeMs < 350L)
-                        if (isDoubleTap) {
-                            lastTwoFingerTapTimeMs = 0L
-                            v.dispatchGestureAction(doubleTapAction, anchor = initialCentroid, docPos = screenToDoc(initialCentroid))
+                        val tapAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.TWO_FINGER_TAP)
+                        if (tapAction != null && tapAction != com.reverie.paint.model.GestureAction.NONE) {
+                            v.dispatchGestureAction(tapAction, anchor = initialCentroid, docPos = screenToDoc(initialCentroid))
                         } else {
-                            lastTwoFingerTapTimeMs = nowMs
-                            val tapAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.TWO_FINGER_TAP)
-                            if (tapAction != null) {
-                                v.dispatchGestureAction(tapAction, anchor = initialCentroid, docPos = screenToDoc(initialCentroid))
-                            } else if (v.gestureTwoFingerUndo) {
-                                v.undo()
+                            val doubleTapAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.TWO_FINGER_DOUBLE_TAP)
+                            val isDoubleTap = doubleTapAction != null && doubleTapAction != com.reverie.paint.model.GestureAction.NONE && (nowMs - lastTwoFingerTapTimeMs < 350L)
+                            if (isDoubleTap) {
+                                lastTwoFingerTapTimeMs = 0L
+                                v.dispatchGestureAction(doubleTapAction, anchor = initialCentroid, docPos = screenToDoc(initialCentroid))
+                            } else {
+                                lastTwoFingerTapTimeMs = nowMs
                             }
                         }
                     } else if (!isContinuousUndoing && !isPinchMotion && !filterSessionActive && maxTouchPointers == 3 && durationMs < 380L) {
-                        val doubleTapAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_DOUBLE_TAP)
-                        val isDoubleTap = doubleTapAction != null && (nowMs - lastThreeFingerTapTimeMs < 350L)
-                        if (isDoubleTap) {
-                            lastThreeFingerTapTimeMs = 0L
-                            v.dispatchGestureAction(doubleTapAction, anchor = initialCentroid, docPos = screenToDoc(initialCentroid))
+                        val tapAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_TAP)
+                        if (tapAction != null && tapAction != com.reverie.paint.model.GestureAction.NONE) {
+                            v.dispatchGestureAction(tapAction, anchor = initialCentroid, docPos = screenToDoc(initialCentroid))
                         } else {
-                            lastThreeFingerTapTimeMs = nowMs
-                            val tapAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_TAP)
-                            if (tapAction != null) {
-                                v.dispatchGestureAction(tapAction, anchor = initialCentroid, docPos = screenToDoc(initialCentroid))
-                            } else if (v.gestureThreeFingerRedo) {
-                                v.redo()
+                            val doubleTapAction = v.gestureConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_DOUBLE_TAP)
+                            val isDoubleTap = doubleTapAction != null && doubleTapAction != com.reverie.paint.model.GestureAction.NONE && (nowMs - lastThreeFingerTapTimeMs < 350L)
+                            if (isDoubleTap) {
+                                lastThreeFingerTapTimeMs = 0L
+                                v.dispatchGestureAction(doubleTapAction, anchor = initialCentroid, docPos = screenToDoc(initialCentroid))
+                            } else {
+                                lastThreeFingerTapTimeMs = nowMs
                             }
                         }
                     } else if (!isContinuousUndoing && !filterSessionActive && maxTouchPointers >= 4 && durationMs < 550L) {
@@ -6347,6 +6488,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 MotionEvent.ACTION_CANCEL -> {
                     removeCallbacks(continuousUndoRunnable)
                     removeCallbacks(continuousRedoRunnable)
+                    removeCallbacks(twoFingerLongPressRunnable)
                     isContinuousUndoing = false
                     dismissPickerOverlay()
                     if (strokeStarted) {

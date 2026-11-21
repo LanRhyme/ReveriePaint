@@ -3181,6 +3181,57 @@ class PaintViewModel : ViewModel() {
         setCurrentLayer(index)
     }
 
+    var brushSlideAdjustEnabled by mutableStateOf(true)
+
+    fun updateBrushSlideAdjustEnabled(enabled: Boolean) {
+        brushSlideAdjustEnabled = enabled
+        viewModelScope.launch(Dispatchers.IO) {
+            val sp = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+            sp.edit().putBoolean("brush_slide_adjust_enabled", enabled).apply()
+        }
+    }
+
+    fun toggleEraserTool() {
+        if (currentToolId == "eraser") {
+            val target = if (lastDrawingToolId.isNotEmpty() && lastDrawingToolId != "eraser") lastDrawingToolId else "brush"
+            applyTool(target)
+            showActionToast(R.string.tool_brush, R.drawable.ic_brush)
+        } else {
+            applyTool("eraser")
+            showActionToast(R.string.tool_eraser, R.drawable.ic_eraser)
+        }
+    }
+
+    fun updateTriggerAction(
+        trigger: com.reverie.paint.model.GestureTrigger,
+        action: com.reverie.paint.model.GestureAction,
+    ) {
+        val newConfig = gestureConfig.withTriggerMapping(trigger, action)
+        gestureConfig = newConfig
+
+        if (action == com.reverie.paint.model.GestureAction.QUICK_MENU &&
+            trigger == com.reverie.paint.model.GestureTrigger.SINGLE_FINGER_TOUCH_SLIDE
+        ) {
+            if (penModeSingleFingerPanEnabled) {
+                updatePenModeSingleFingerPan(false)
+                if (::appContext.isInitialized) {
+                    showActionToast(appContext.getString(R.string.gesture_touch_slide_warning))
+                }
+            }
+        }
+
+        gestureTwoFingerUndo = newConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.TWO_FINGER_TAP) == com.reverie.paint.model.GestureAction.UNDO
+        gestureThreeFingerRedo = newConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_TAP) == com.reverie.paint.model.GestureAction.REDO
+        gestureThreeFingerEditMenu = newConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_SWIPE_DOWN) == com.reverie.paint.model.GestureAction.QUICK_MENU
+        gestureQuickPinchFit = newConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.QUICK_PINCH) == com.reverie.paint.model.GestureAction.FIT_CANVAS
+
+        if (trigger == com.reverie.paint.model.GestureTrigger.SINGLE_FINGER_LONG_PRESS) {
+            longPressEyedropperEnabled = action == com.reverie.paint.model.GestureAction.EYEDROPPER
+        }
+
+        persistGestureConfig()
+    }
+
     fun updateGestureTrigger(
         action: com.reverie.paint.model.GestureAction,
         trigger: com.reverie.paint.model.GestureTrigger,
@@ -3264,6 +3315,13 @@ class PaintViewModel : ViewModel() {
             com.reverie.paint.model.GestureAction.FIT_CANVAS -> requestUiCommand("reset_view")
             com.reverie.paint.model.GestureAction.CLEAR_LAYER -> clearLayer(currentLayerIndex)
             com.reverie.paint.model.GestureAction.EYEDROPPER -> requestUiCommand("open_color")
+            com.reverie.paint.model.GestureAction.FLIP_CANVAS_H -> toggleViewFlipHorizontal()
+            com.reverie.paint.model.GestureAction.FLIP_CANVAS_V -> toggleViewFlipVertical()
+            com.reverie.paint.model.GestureAction.RESET_ROTATION -> requestUiCommand("rotate_reset")
+            com.reverie.paint.model.GestureAction.TOGGLE_ERASER -> toggleEraserTool()
+            com.reverie.paint.model.GestureAction.NEW_LAYER -> addLayer()
+            com.reverie.paint.model.GestureAction.LOCK_VIEW -> toggleViewTransformLocked()
+            com.reverie.paint.model.GestureAction.BRUSH_SLIDE_ADJUST -> Unit
             com.reverie.paint.model.GestureAction.NONE -> Unit
         }
     }
@@ -4896,6 +4954,7 @@ class PaintViewModel : ViewModel() {
             drawingGuideLinesVisible = prefs.getBoolean("drawing_guide_lines_visible", true)
             leftHandMode = prefs.getBoolean("leftHandMode", false)
             autoHidePanelsOnStroke = prefs.getBoolean("autoHidePanelsOnStroke", true)
+            brushSlideAdjustEnabled = prefs.getBoolean("brush_slide_adjust_enabled", true)
             val isTabletDevice = DeviceUtils.isTablet(appContext)
             val floatingSavedEnabled = prefs.getBoolean("floatingUi_enabled", isTabletDevice)
             val topBarEdgeName = prefs.getString("floatingUi_topBarEdge", "TOP") ?: "TOP"

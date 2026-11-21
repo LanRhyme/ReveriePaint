@@ -3539,7 +3539,32 @@
     <string name="gesture_action_clear_layer_desc">Quickly clear current layer content</string>
     <string name="gesture_action_select_layer_at_point">Select Layer at Point</string>
     <string name="gesture_action_select_layer_at_point_desc">Double-tap to find and switch between layers with content at that point</string>
+    <string name="gesture_action_flip_canvas_h">Flip Canvas Horizontally</string>
+    <string name="gesture_action_flip_canvas_h_desc">Temporarily flip canvas view horizontally</string>
+    <string name="gesture_action_flip_canvas_v">Flip Canvas Vertically</string>
+    <string name="gesture_action_flip_canvas_v_desc">Temporarily flip canvas view vertically</string>
+    <string name="gesture_action_reset_rotation">Reset Canvas Rotation</string>
+    <string name="gesture_action_reset_rotation_desc">Reset canvas rotation angle back to 0 degrees</string>
+    <string name="gesture_action_toggle_eraser">Toggle Eraser</string>
+    <string name="gesture_action_toggle_eraser_desc">Quickly switch between brush and eraser tools</string>
+    <string name="gesture_action_new_layer">New Layer</string>
+    <string name="gesture_action_new_layer_desc">Create a new empty layer above current layer</string>
+    <string name="gesture_action_lock_view">Lock Canvas View</string>
+    <string name="gesture_action_lock_view_desc">Lock or unlock canvas panning, zooming, and rotation</string>
+    <string name="gesture_action_brush_slide_adjust">Adjust Brush Size &amp; Opacity</string>
+    <string name="gesture_action_brush_slide_adjust_desc">Slide horizontally to adjust opacity and vertically for size</string>
     <string name="gesture_action_none">Disabled</string>
+
+    <string name="gesture_trigger_three_finger_slide">Three-finger Slide</string>
+    <string name="gesture_brush_adjust_group">Brush Touch Control</string>
+    <string name="brush_slide_adjust_title">Three-finger Brush Adjustment</string>
+    <string name="brush_slide_adjust_desc">Slide vertically with three fingers to adjust brush size, horizontally to adjust opacity</string>
+    <string name="gesture_mappings_title">Gesture Shortcuts</string>
+    <string name="gesture_three_finger_slide_priority_hint">Brush adjustment enabled; three-finger slide adjusts brush</string>
+    <string name="gesture_disabled_due_to_tap">Auto-disabled when tap action is set</string>
+    <string name="gesture_toast_disable_two_finger_tap">Two-finger tap is active; set it to Disabled first</string>
+    <string name="gesture_toast_disable_three_finger_tap">Three-finger tap is active; set it to Disabled first</string>
+    <string name="gesture_select_action_title">Select Gesture Action</string>
 
     <string name="gesture_trigger_single_finger_touch_slide">Touch &amp; Slide</string>
     <string name="gesture_trigger_single_finger_touch_slide_desc">Touch to summon menu, slide in direction to trigger instantly; tap stays open (disables single-finger canvas pan)</string>

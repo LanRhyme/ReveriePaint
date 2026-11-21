@@ -3539,7 +3539,32 @@
     <string name="gesture_action_clear_layer_desc">快速清空当前选中图层内容</string>
     <string name="gesture_action_select_layer_at_point">点选图层</string>
     <string name="gesture_action_select_layer_at_point_desc">双击触点位置检索并切换该位置包含内容的图层</string>
+    <string name="gesture_action_flip_canvas_h">水平翻转画布</string>
+    <string name="gesture_action_flip_canvas_h_desc">临时水平镜像翻转画布视图</string>
+    <string name="gesture_action_flip_canvas_v">垂直翻转画布</string>
+    <string name="gesture_action_flip_canvas_v_desc">临时垂直镜像翻转画布视图</string>
+    <string name="gesture_action_reset_rotation">重置画布旋转</string>
+    <string name="gesture_action_reset_rotation_desc">将画布旋转角度复位至0度</string>
+    <string name="gesture_action_toggle_eraser">切换画笔/橡皮擦</string>
+    <string name="gesture_action_toggle_eraser_desc">在当前画笔与橡皮擦工具之间快速切换</string>
+    <string name="gesture_action_new_layer">新建图层</string>
+    <string name="gesture_action_new_layer_desc">在当前图层上方新建空白图层</string>
+    <string name="gesture_action_lock_view">锁定画布视口</string>
+    <string name="gesture_action_lock_view_desc">锁定或解锁画布平移、缩放与旋转</string>
+    <string name="gesture_action_brush_slide_adjust">调节笔刷大小与不透明度</string>
+    <string name="gesture_action_brush_slide_adjust_desc">横向滑动调节不透明度，纵向滑动调节笔刷像素大小</string>
     <string name="gesture_action_none">禁用</string>
+
+    <string name="gesture_trigger_three_finger_slide">三指滑动调节</string>
+    <string name="gesture_brush_adjust_group">画笔触控调节</string>
+    <string name="brush_slide_adjust_title">三指滑动调节画笔</string>
+    <string name="brush_slide_adjust_desc">在画布上三指垂直滑动调节笔刷大小，水平滑动调节不透明度</string>
+    <string name="gesture_mappings_title">快捷手势映射</string>
+    <string name="gesture_three_finger_slide_priority_hint">已开启画笔触控调节，三指滑动优先用于调节画笔</string>
+    <string name="gesture_disabled_due_to_tap">轻点已配置操作时自动停用</string>
+    <string name="gesture_toast_disable_two_finger_tap">双指轻点已配置操作，请先将其设为“禁用”</string>
+    <string name="gesture_toast_disable_three_finger_tap">三指轻点已配置操作，请先将其设为“禁用”</string>
+    <string name="gesture_select_action_title">选择手势操作</string>
 
     <string name="gesture_trigger_single_finger_touch_slide">单指点击与滑动</string>
     <string name="gesture_trigger_single_finger_touch_slide_desc">手指触屏展开菜单，划向目标方向直接盲操触发；单击仍可常驻展示（将禁用单指平移画布）</string>

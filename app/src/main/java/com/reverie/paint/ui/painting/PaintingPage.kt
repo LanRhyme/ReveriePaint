@@ -1045,6 +1045,7 @@ fun PaintingPage(
                     },
                 )
             }
+
         }
 
         val requestExit: () -> Unit = {
@@ -2429,7 +2430,7 @@ fun PaintingPage(
         }
         // ---- Action Toast (Undo/Redo, top-center, animated pill) ----
         androidx.compose.animation.AnimatedVisibility(
-            visible = vm.undoToastEnabled && vm.actionToastMessage != null && chromeEntered,
+            visible = (vm.undoToastEnabled || (vm.actionToastIcon != R.drawable.ic_undo && vm.actionToastIcon != R.drawable.ic_redo)) && vm.actionToastMessage != null && chromeEntered,
             enter =
                 androidx.compose.animation.fadeIn(
                     androidx.compose.animation.core
@@ -2467,8 +2468,8 @@ fun PaintingPage(
                         .glassBorder(RoundedCornerShape(10.dp))
                         .animateContentSize(
                             animationSpec = spring(
-                                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioMediumBouncy,
-                                stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+                                dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+                                stiffness = androidx.compose.animation.core.Spring.StiffnessHigh,
                             ),
                         )
                         .padding(horizontal = 12.dp, vertical = 6.dp),
@@ -2477,10 +2478,16 @@ fun PaintingPage(
                 AnimatedContent(
                     targetState = Pair(msg, iconRes),
                     transitionSpec = {
-                        (fadeIn(tween(140)) + scaleIn(initialScale = 0.92f, animationSpec = tween(140)))
-                            .togetherWith(
-                                fadeOut(tween(110)) + scaleOut(targetScale = 1.06f, animationSpec = tween(110))
+                        if (initialState.second == targetState.second) {
+                            androidx.compose.animation.EnterTransition.None.togetherWith(
+                                androidx.compose.animation.ExitTransition.None
                             )
+                        } else {
+                            (fadeIn(tween(140)) + scaleIn(initialScale = 0.92f, animationSpec = tween(140)))
+                                .togetherWith(
+                                    fadeOut(tween(110)) + scaleOut(targetScale = 1.06f, animationSpec = tween(110))
+                                )
+                        }
                     },
                     label = "actionToastContent",
                 ) { (currentMsg, currentIcon) ->
