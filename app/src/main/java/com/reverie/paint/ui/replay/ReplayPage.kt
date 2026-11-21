@@ -1117,14 +1117,14 @@ private fun TimelapseExportSheet(
     // 原始分辨率探测
     var baseW by remember { mutableIntStateOf(1280) }
     var baseH by remember { mutableIntStateOf(720) }
-    val firstFile = frameFiles.firstOrNull()
+    val refFile = frameFiles.lastOrNull()
 
-    LaunchedEffect(firstFile) {
-        if (firstFile != null && firstFile.exists()) {
+    LaunchedEffect(refFile) {
+        if (refFile != null && refFile.exists()) {
             withContext(Dispatchers.IO) {
                 try {
                     val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                    BitmapFactory.decodeFile(firstFile.absolutePath, bounds)
+                    BitmapFactory.decodeFile(refFile.absolutePath, bounds)
                     if (bounds.outWidth > 0 && bounds.outHeight > 0) {
                         withContext(Dispatchers.Main) {
                             baseW = bounds.outWidth

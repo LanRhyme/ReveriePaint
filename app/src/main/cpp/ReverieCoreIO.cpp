@@ -3501,11 +3501,28 @@ bool ReverieCore::renderDocumentThumb(int w, int h, void *dstPixels, int dstStri
         return false;
     }
     reverie::PerfTimer perf("renderDocumentThumb");
-    KisPaintDeviceSP dev = image->projection();
+    bool hasVisibleTransparencyMask = false;
+    for (const LayerEntry &le : m_layers) {
+        if (le.visible && le.nodeType == NodeTypeTransparencyMask) {
+            hasVisibleTransparencyMask = true;
+            break;
+        }
+    }
+
+    const QRect docRect(0, 0, image->width(), image->height());
+    KisPaintDeviceSP dev;
+    KisPaintDeviceSP compDev;
+    if (hasVisibleTransparencyMask) {
+        compDev = new KisPaintDevice(image->colorSpace());
+        compDev->clear(docRect);
+        compositeLayersRange(compDev, 0, m_layers.size(), docRect);
+        dev = compDev;
+    } else {
+        dev = image->projection();
+    }
     if (!dev) {
         return false;
     }
-    const QRect docRect(0, 0, image->width(), image->height());
     // 真的降采样时才走快路径 (见 sampleThumbnailToRgba 的实测成本对比); 同尺寸或快路径
     // 不适用 (16bit / 自定义 ICC) 时回退 Krita 原路径, 保持原来的颜色管理语义。
     bool wroteFast = false;

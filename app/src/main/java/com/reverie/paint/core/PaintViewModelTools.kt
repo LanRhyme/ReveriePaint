@@ -1245,9 +1245,10 @@ internal fun PaintViewModel.cropCanvas(
         // the viewport render reads stale dimensions (crop crash)
         val nw = ReverieCoreBridge.docWidth()
         val nh = ReverieCoreBridge.docHeight()
+        val sizeChanged = nw > 0 && nh > 0 && (nw != docWidth || nh != docHeight)
         coreW = nw
         coreH = nh
-        if (nw > 0 && nh > 0 && (nw != docWidth || nh != docHeight)) {
+        if (sizeChanged) {
             docWidth = nw
             docHeight = nh
             checkBrushSizeLimit()
@@ -1258,6 +1259,9 @@ internal fun PaintViewModel.cropCanvas(
         renderH = -1
         syncLayersFromNative()
         notifyLayerChanged(pixelChanged = true)
+        if (sizeChanged) {
+            triggerTimelapseCapture(isChanged = true, force = true)
+        }
     }) {
         ReverieCoreBridge.cropCanvas(x, y, w, h)
     }
@@ -1271,9 +1275,10 @@ internal fun PaintViewModel.scaleImage(
     runCore(after = {
         val nw = ReverieCoreBridge.docWidth()
         val nh = ReverieCoreBridge.docHeight()
+        val sizeChanged = nw > 0 && nh > 0 && (nw != docWidth || nh != docHeight)
         coreW = nw
         coreH = nh
-        if (nw > 0 && nh > 0 && (nw != docWidth || nh != docHeight)) {
+        if (sizeChanged) {
             docWidth = nw
             docHeight = nh
             checkBrushSizeLimit()
@@ -1282,6 +1287,9 @@ internal fun PaintViewModel.scaleImage(
         renderH = -1
         syncLayersFromNative()
         notifyLayerChanged(pixelChanged = true)
+        if (sizeChanged) {
+            triggerTimelapseCapture(isChanged = true, force = true)
+        }
     }) {
         ReverieCoreBridge.scaleImage(w, h, filterType)
     }
@@ -1627,9 +1635,10 @@ internal fun PaintViewModel.undo(
         pendingHistoryOps.decrementAndGet()
         val nw = ReverieCoreBridge.docWidth()
         val nh = ReverieCoreBridge.docHeight()
+        val sizeChanged = nw > 0 && nh > 0 && (nw != docWidth || nh != docHeight)
         coreW = nw
         coreH = nh
-        if (nw > 0 && nh > 0 && (nw != docWidth || nh != docHeight)) {
+        if (sizeChanged) {
             docWidth = nw
             docHeight = nh
             renderW = -1
@@ -1638,6 +1647,9 @@ internal fun PaintViewModel.undo(
         }
         if (didUndo) {
             notifyLayerChanged(forceThumbs = false, immediateRender = true, pixelChanged = true)
+            if (sizeChanged) {
+                triggerTimelapseCapture(isChanged = true, force = true)
+            }
         }
         if (restoredOverlay != null) {
             selectionOverlayBitmap = restoredOverlay
@@ -1717,9 +1729,10 @@ internal fun PaintViewModel.redo(fromPanel: Boolean = false, settled: (() -> Uni
         pendingHistoryOps.decrementAndGet()
         val nw = ReverieCoreBridge.docWidth()
         val nh = ReverieCoreBridge.docHeight()
+        val sizeChanged = nw > 0 && nh > 0 && (nw != docWidth || nh != docHeight)
         coreW = nw
         coreH = nh
-        if (nw > 0 && nh > 0 && (nw != docWidth || nh != docHeight)) {
+        if (sizeChanged) {
             docWidth = nw
             docHeight = nh
             renderW = -1
@@ -1728,6 +1741,9 @@ internal fun PaintViewModel.redo(fromPanel: Boolean = false, settled: (() -> Uni
         }
         if (didRedo) {
             notifyLayerChanged(forceThumbs = false, immediateRender = true, pixelChanged = true)
+            if (sizeChanged) {
+                triggerTimelapseCapture(isChanged = true, force = true)
+            }
         }
         if (restoreRedoSel) {
             clearSelectionOverlayLocal()

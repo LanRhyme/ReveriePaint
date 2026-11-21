@@ -12,6 +12,7 @@ import android.media.MediaCodecInfo
 import android.media.MediaFormat
 import android.media.MediaMuxer
 import android.util.Log
+import com.reverie.paint.core.fitBitmapToTarget
 import java.io.File
 import java.nio.ByteBuffer
 
@@ -56,14 +57,16 @@ object TimelapseExport {
 
         val totalFrames = frameFiles.size
 
-        // 读取首帧尺寸，强制偶数 (H.264 要求)
+        // 读取尾帧尺寸作为基准导出尺寸，强制偶数 (H.264 要求)
+        // 绘画过程中可能调整/裁切画布尺寸，导出视频以最终成画尺寸为准
         val boundsOptions = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-        BitmapFactory.decodeFile(frameFiles[0].absolutePath, boundsOptions)
+        val refFile = frameFiles.last()
+        BitmapFactory.decodeFile(refFile.absolutePath, boundsOptions)
         var targetWidth = (boundsOptions.outWidth / 2) * 2
         var targetHeight = (boundsOptions.outHeight / 2) * 2
 
         if (targetWidth <= 0 || targetHeight <= 0) {
-            Log.e(TAG, "Invalid dimensions from first frame: ${boundsOptions.outWidth}x${boundsOptions.outHeight}")
+            Log.e(TAG, "Invalid dimensions from frame ${refFile.name}: ${boundsOptions.outWidth}x${boundsOptions.outHeight}")
             return false
         }
 
@@ -147,12 +150,8 @@ object TimelapseExport {
                     continue
                 }
 
-                // 尺寸不符的帧归一化到首帧尺寸
-                if (bmp.width != targetWidth || bmp.height != targetHeight) {
-                    val scaled = Bitmap.createScaledBitmap(bmp, targetWidth, targetHeight, true)
-                    bmp.recycle()
-                    bmp = scaled
-                }
+                // 尺寸不符的帧归一化到最终画面尺寸，不同比例时保持宽高比居中留黑边 (Letterbox/Pillarbox)
+                bmp = fitBitmapToTarget(bmp, targetWidth, targetHeight)
 
                 bmp.getPixels(argbPixels, 0, targetWidth, 0, 0, targetWidth, targetHeight)
                 bmp.recycle()

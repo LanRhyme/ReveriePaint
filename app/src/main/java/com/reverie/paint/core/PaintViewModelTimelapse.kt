@@ -9,6 +9,7 @@ import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Canvas
 import android.graphics.Paint
+import android.graphics.Rect
 import android.graphics.RectF
 import android.graphics.Typeface
 import android.net.Uri
@@ -22,6 +23,7 @@ import com.reverie.paint.model.TimelapseStorage
 import java.io.File
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
+import kotlin.math.abs
 import kotlin.math.max
 import kotlin.math.min
 import kotlin.math.roundToInt
@@ -596,6 +598,38 @@ data class TimelapseExportOptions(
 )
 
 /**
+ * 将序列帧位图按目标尺寸归一化。
+ * 若宽高比一致则直接平滑缩放；若宽高比存在差异 (例如绘制中途调整了画布尺寸/裁切)，
+ * 则保持原图比例并居中留黑边 (Letterbox / Pillarbox)，防止画面拉伸变形。
+ */
+internal fun fitBitmapToTarget(src: Bitmap, targetW: Int, targetH: Int): Bitmap {
+    if (src.width == targetW && src.height == targetH) {
+        return src
+    }
+    val srcRatio = src.width.toFloat() / src.height.toFloat()
+    val targetRatio = targetW.toFloat() / targetH.toFloat()
+    if (abs(srcRatio - targetRatio) < 0.005f) {
+        val scaled = Bitmap.createScaledBitmap(src, targetW, targetH, true)
+        if (scaled !== src) src.recycle()
+        return scaled
+    }
+    val scaleFactor = min(targetW.toFloat() / src.width, targetH.toFloat() / src.height)
+    val drawW = (src.width * scaleFactor).roundToInt()
+    val drawH = (src.height * scaleFactor).roundToInt()
+    val left = (targetW - drawW) / 2
+    val top = (targetH - drawH) / 2
+    val fitted = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
+    val canvas = Canvas(fitted)
+    canvas.drawColor(0xFF000000.toInt())
+    val paint = Paint(Paint.FILTER_BITMAP_FLAG or Paint.ANTI_ALIAS_FLAG)
+    val srcRect = Rect(0, 0, src.width, src.height)
+    val dstRect = Rect(left, top, left + drawW, top + drawH)
+    canvas.drawBitmap(src, srcRect, dstRect, paint)
+    src.recycle()
+    return fitted
+}
+
+/**
  * 统一执行延时摄影帧序列编码导出 (后台线程执行)。
  */
 fun PaintViewModel.exportTimelapse(
@@ -652,9 +686,9 @@ fun PaintViewModel.exportTimelapse(
         try {
             if (isCancelled()) throw InterruptedException(getString(R.string.replay_export_err_cancelled))
 
-            val firstFile = selectedFiles[0]
+            val refFile = selectedFiles.last()
             val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            BitmapFactory.decodeFile(firstFile.absolutePath, bounds)
+            BitmapFactory.decodeFile(refFile.absolutePath, bounds)
             val baseW = if (bounds.outWidth > 0) bounds.outWidth else 1280
             val baseH = if (bounds.outHeight > 0) bounds.outHeight else 720
             val (targetW, targetH) = computeExportDimensions(baseW, baseH, scale, fmt)
@@ -723,14 +757,7 @@ fun PaintViewModel.exportTimelapse(
                 } else {
                     val rawBmp = BitmapFactory.decodeFile(selectedFiles[srcIdx].absolutePath)
                         ?: continue
-                    val scaled =
-                        if (rawBmp.width != targetW || rawBmp.height != targetH) {
-                            Bitmap.createScaledBitmap(rawBmp, targetW, targetH, true).also {
-                                if (it !== rawBmp) rawBmp.recycle()
-                            }
-                        } else {
-                            rawBmp
-                        }
+                    val scaled = fitBitmapToTarget(rawBmp, targetW, targetH)
 
                     val workingBmp =
                         if (!scaled.isMutable) {
