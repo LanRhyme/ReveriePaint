@@ -1778,6 +1778,8 @@
     <string name="guide_symmetry_rotational">旋转对称</string>
     <string name="guide_symmetry_kaleidoscope">万花筒</string>
     <string name="guide_symmetry_center">对称轴中心</string>
+    <string name="guide_symmetry_center_x">中心 X</string>
+    <string name="guide_symmetry_center_y">中心 Y</string>
     <string name="guide_symmetry_rotation">旋转角度</string>
     <string name="guide_symmetry_reset_center">重置居中</string>
     <string name="guide_symmetry_mode">对称模式</string>
@@ -1789,7 +1791,7 @@
     <string name="guide_perspective_ray_density">参考线密度</string>
     <string name="guide_perspective_mode_3d">3D 空间网格</string>
     <string name="guide_perspective_mode_vanish">传统灭点射线</string>
-    <string name="guide_perspective_3d_hint">在画布上滑一下能自由转视角，关掉面板就固定参考喵</string>
+    <string name="guide_perspective_3d_hint">拽动 3D 原点控制柄转转视角，关掉面板就固定参考喵</string>
     <string name="guide_perspective_pitch">俯仰角 (Pitch)</string>
     <string name="guide_perspective_yaw">偏航角 (Yaw)</string>
     <string name="guide_perspective_roll">倾斜角度 (Roll)</string>
@@ -1799,6 +1801,14 @@
     <string name="guide_perspective_cube">立体立方体</string>
     <string name="guide_grid_size">网格尺寸</string>
     <string name="guide_line_opacity">参考线不透明度</string>
+    <string name="guide_tab_spatial">空间参考线</string>
+    <string name="guide_tab_quickshape">速创形状</string>
+    <string name="guide_pill_lines_visible">显示参考线</string>
+    <string name="guide_pill_lines_hidden">参考线已藏</string>
+    <string name="guide_pill_assisted_on">辅助吸附</string>
+    <string name="guide_pill_assisted_off">未吸附</string>
+    <string name="guide_inactive_hint">参考线睡着了，点一下上面模式叫醒喵</string>
+    <string name="guide_mode_toggle_off_hint">轻戳亮着的模式就能停用喵</string>
 
     <!-- Animation Timeline Details -->
     <string name="timeline_inbetween">自动中割</string>
@@ -3057,6 +3067,7 @@
     <string name="shading_assist_layer_name">智能阴影</string>
     <string name="shading_assist_toast_success">剪贴阴影已经生成在底色图层上方啦喵 (=^▽^=)</string>
     <string name="shading_assist_toast_need_layer">先挑一个有颜色的图层喵 (´･ω･`)</string>
+    <string name="shading_assist_toast_failed">阴影揉翻车了，画布太大或者内存吃紧喵 (｡•́︿•̀｡)</string>
     <string name="shading_assist_import_failed">自定义模型没叼进来喵</string>
     <string name="shading_assist_ai_hint">Depth Anything V2 深度神经网络，离线端侧推理喵</string>
     <string name="shading_assist_model_fallback_toast">AI 模型不兼容，已经自动退回 2.5D 几何算法喵</string>
@@ -3208,7 +3219,32 @@
     <string name="gesture_action_clear_layer_desc">快快扫光当前图层喵~</string>
     <string name="gesture_action_select_layer_at_point">喵爪点选图层</string>
     <string name="gesture_action_select_layer_at_point_desc">双击爪爪位置找出有毛毛内容的图层并切换喵</string>
+    <string name="gesture_action_flip_canvas_h">水平翻转画布</string>
+    <string name="gesture_action_flip_canvas_h_desc">临时水平镜像翻转画布视图喵 (=｀ω´=)</string>
+    <string name="gesture_action_flip_canvas_v">垂直翻转画布</string>
+    <string name="gesture_action_flip_canvas_v_desc">临时垂直镜像翻转画布视图喵 (=｀ω´=)</string>
+    <string name="gesture_action_reset_rotation">重置画布旋转</string>
+    <string name="gesture_action_reset_rotation_desc">把画布旋转角度扶正到 0 度喵</string>
+    <string name="gesture_action_toggle_eraser">切换画笔/橡皮擦</string>
+    <string name="gesture_action_toggle_eraser_desc">在画笔和橡皮擦之间快速切爪喵</string>
+    <string name="gesture_action_new_layer">新建图层</string>
+    <string name="gesture_action_new_layer_desc">在当前图层上方揉一张空白新层喵</string>
+    <string name="gesture_action_lock_view">锁定画布视口</string>
+    <string name="gesture_action_lock_view_desc">按住或解开画布平移、缩放与旋转喵</string>
+    <string name="gesture_action_brush_slide_adjust">调节笔刷大小与不透明度</string>
+    <string name="gesture_action_brush_slide_adjust_desc">横向滑动调不透明度，纵向滑动调笔刷大小喵</string>
     <string name="gesture_action_none">禁用</string>
+
+    <string name="gesture_trigger_three_finger_slide">三指滑动调节</string>
+    <string name="gesture_brush_adjust_group">画笔触控调节</string>
+    <string name="brush_slide_adjust_title">三指滑动调节画笔</string>
+    <string name="brush_slide_adjust_desc">在画布上三指竖滑调笔刷大小，横滑调不透明度喵</string>
+    <string name="gesture_mappings_title">快捷手势映射</string>
+    <string name="gesture_three_finger_slide_priority_hint">已开启画笔触控调节，三指滑动优先拿来调笔刷喵</string>
+    <string name="gesture_disabled_due_to_tap">轻点配了操作时自动收爪停用喵</string>
+    <string name="gesture_toast_disable_two_finger_tap">双指轻点已经配了操作，先把它设成“禁用”喵 (´･ω･`)</string>
+    <string name="gesture_toast_disable_three_finger_tap">三指轻点已经配了操作，先把它设成“禁用”喵 (´･ω･`)</string>
+    <string name="gesture_select_action_title">选择手势操作</string>
 
     <string name="gesture_trigger_single_finger_touch_slide">单指点击与滑动</string>
     <string name="gesture_trigger_single_finger_touch_slide_desc">手指按在屏上展开菜单，朝目标方向滑就直接盲操触发；单击也会常驻展示（会关掉单指平移画布）</string>
@@ -3448,6 +3484,7 @@
     <string name="settings_undo_scrub_bar_desc">连续倒退或重抓时在底部冒出滑块，左右滑一滑就能快速穿越历史爪印喵</string>
     <string name="quick_action_eraser_mode">橡皮模式</string>
     <string name="toast_transform_blocks_undo">还在变大变小呢，先确认或者算啦再撤销喵</string>
+    <string name="toast_transform_cancelled">收爪不算，变换取消了喵</string>
     <string name="brush_import_too_large">画笔包太胖啦 (超过 64MB)，先去电脑上拆瘦一点再叼进来喵</string>
     <string name="brush_sensor_perspective">透视网格 (Perspective)</string>
     <string name="guide_symmetry_radial_count">放射花瓣数</string>
@@ -3778,5 +3815,10 @@
     <string name="onboarding_open_theme_settings">前往外观与主题设置喵</string>
     <string name="settings_replay_onboarding">新手小猫功能向导</string>
     <string name="settings_replay_onboarding_desc">重新查看核心功能布局与工作区定制指引喵</string>
+    <string name="toast_text_rasterized">文字图层烘焙成普通层啦喵 (=^･ω･^=)</string>
+    <string name="canvas_toast_text_not_drawable">文字层爪爪画不上去，先栅格化才能画喵 (´･ω･`)</string>
+    <string name="layer_text_settings_title">文字图层设置</string>
+    <string name="typography_add_text">添加文字</string>
+    <string name="typography_empty_placeholder">输入文字...</string>
 </resources>
 

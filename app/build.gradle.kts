@@ -77,8 +77,8 @@ android {
         }
         minSdk = 23
         targetSdk = 33
-        versionCode = 66
-        versionName = "1.9.3"
+        versionCode = 67
+        versionName = "1.10.0"
 
         buildConfigField("String", "AIFADIAN_API_TOKEN", "\"$aifadianApiToken\"")
         buildConfigField("String", "AIFADIAN_USER_ID", "\"$aifadianUserId\"")

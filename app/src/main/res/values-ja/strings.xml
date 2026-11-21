@@ -1731,12 +1731,14 @@
     <string name="guide_symmetry_rotational">回転対称</string>
     <string name="guide_symmetry_kaleidoscope">万華鏡</string>
     <string name="guide_symmetry_center">対称軸の中心</string>
+    <string name="guide_symmetry_center_x">中心 X</string>
+    <string name="guide_symmetry_center_y">中心 Y</string>
     <string name="guide_symmetry_rotation">回転角度</string>
     <string name="guide_symmetry_reset_center">中心をリセット</string>
     <string name="guide_perspective_ray_density">パース線の密度</string>
     <string name="guide_perspective_mode_3d">3D空間グリッド</string>
     <string name="guide_perspective_mode_vanish">消失点パース線</string>
-    <string name="guide_perspective_3d_hint">キャンバス上をドラッグして3D視点を自由に回転、パネルを閉じるとガイドを固定します</string>
+    <string name="guide_perspective_3d_hint">3D原点ハンドルをドラッグして視点を回転、パネルを閉じるとガイドを固定します</string>
     <string name="guide_perspective_pitch">仰俯角 (Pitch)</string>
     <string name="guide_perspective_yaw">ヨー角 (Yaw)</string>
     <string name="guide_perspective_roll">ロール角 (Roll)</string>
@@ -1746,6 +1748,14 @@
     <string name="guide_perspective_cube">ガイドキューブ</string>
     <string name="guide_grid_size">グリッドサイズ</string>
     <string name="guide_line_opacity">ガイド線の不透明度</string>
+    <string name="guide_tab_spatial">空間ガイド</string>
+    <string name="guide_tab_quickshape">クイックシェイプ</string>
+    <string name="guide_pill_lines_visible">ガイドを表示</string>
+    <string name="guide_pill_lines_hidden">ガイドを非表示</string>
+    <string name="guide_pill_assisted_on">スナップ支援</string>
+    <string name="guide_pill_assisted_off">スナップ無効</string>
+    <string name="guide_inactive_hint">ガイドは無効です。上のモードをタップして有効化します</string>
+    <string name="guide_mode_toggle_off_hint">ハイライト中のモードをタップすると無効化されます</string>
 
     <!-- Animation Timeline Details -->
     <string name="timeline_inbetween">自動中割り</string>
@@ -2979,6 +2989,7 @@
     <string name="shading_assist_layer_name">陰影アシスト</string>
     <string name="shading_assist_toast_success">下塗りレイヤーの上にクリッピング影レイヤーを生成しました</string>
     <string name="shading_assist_toast_need_layer">カラー内容が含まれるレイヤーを先に選択してください</string>
+    <string name="shading_assist_toast_failed">シャドウの生成に失敗しました。解像度が大きすぎるかメモリが不足しています</string>
     <string name="shading_assist_import_failed">カスタムモデルのインポートに失敗しました</string>
     <string name="shading_assist_ai_hint">Depth Anything V2 深度ニューラルネットワーク、完全オフライン端末内推論</string>
     <string name="shading_assist_model_fallback_toast">AIモデルの推論に互換性がないため、2.5D幾何アルゴリズムに自動フォールバックしました</string>
@@ -3117,7 +3128,32 @@
     <string name="gesture_action_clear_layer_desc">選択中のレイヤーの内容を消去</string>
     <string name="gesture_action_select_layer_at_point">タップ位置のレイヤー選択</string>
     <string name="gesture_action_select_layer_at_point_desc">ダブルタップした位置に描画内容があるレイヤーを検索して切り替えます</string>
+    <string name="gesture_action_flip_canvas_h">キャンバスを左右反転</string>
+    <string name="gesture_action_flip_canvas_h_desc">キャンバス表示を一時的に左右反転します</string>
+    <string name="gesture_action_flip_canvas_v">キャンバスを上下反転</string>
+    <string name="gesture_action_flip_canvas_v_desc">キャンバス表示を一時的に上下反転します</string>
+    <string name="gesture_action_reset_rotation">キャンバスの回転をリセット</string>
+    <string name="gesture_action_reset_rotation_desc">キャンバスの回転角度を0度にリセットします</string>
+    <string name="gesture_action_toggle_eraser">ブラシ/消しゴム切り替え</string>
+    <string name="gesture_action_toggle_eraser_desc">現在のブラシと消しゴムツールをすばやく切り替えます</string>
+    <string name="gesture_action_new_layer">新規レイヤー</string>
+    <string name="gesture_action_new_layer_desc">現在のレイヤーの上に新しい空のレイヤーを作成します</string>
+    <string name="gesture_action_lock_view">キャンバス表示をロック</string>
+    <string name="gesture_action_lock_view_desc">キャンバスの移動・拡大縮小・回転をロックまたは解除します</string>
+    <string name="gesture_action_brush_slide_adjust">ブラシサイズと不透明度を調整</string>
+    <string name="gesture_action_brush_slide_adjust_desc">左右にスライドして不透明度、上下にスライドしてブラシサイズを調整します</string>
     <string name="gesture_action_none">無効</string>
+
+    <string name="gesture_trigger_three_finger_slide">3本指スライド調整</string>
+    <string name="gesture_brush_adjust_group">ブラシタッチ操作調整</string>
+    <string name="brush_slide_adjust_title">3本指ブラシ調整</string>
+    <string name="brush_slide_adjust_desc">キャンバス上で3本指を上下にスライドしてサイズ、左右にスライドして不透明度を調整します</string>
+    <string name="gesture_mappings_title">ショートカットジェスチャー設定</string>
+    <string name="gesture_three_finger_slide_priority_hint">ブラシタッチ操作が有効なため、3本指スライドはブラシ調整が優先されます</string>
+    <string name="gesture_disabled_due_to_tap">タップ操作が設定されている場合は自動的に無効化されます</string>
+    <string name="gesture_toast_disable_two_finger_tap">2本指タップに操作が割り当てられています。先に「無効」に設定してください</string>
+    <string name="gesture_toast_disable_three_finger_tap">3本指タップに操作が割り当てられています。先に「無効」に設定してください</string>
+    <string name="gesture_select_action_title">ジェスチャー操作を選択</string>
 
     <string name="gesture_trigger_single_finger_touch_slide">1本指タッチ＆スライド</string>
     <string name="gesture_trigger_single_finger_touch_slide_desc">画面にタッチしてメニューを開き、目的の方向にスライドして素早く操作を実行。タップで常時表示（1本指でのキャンバス移動は無効になります）</string>
@@ -3413,6 +3449,7 @@
     <string name="toast_layer_delete_locked">レイヤーがロックされています、ロックを解除してから削除してください</string>
     <string name="toast_layer_delete_stale">レイヤー一覧が更新されました、もう一度お試しください</string>
     <string name="toast_transform_blocks_undo">変形処理中です、先に変形を確定またはキャンセルしてください</string>
+    <string name="toast_transform_cancelled">変形をキャンセルしました</string>
     <string name="toast_transform_nothing_applied">選択範囲内に描画内容がないため、変形は適用されませんでした</string>
     <string name="toast_transform_copy_overlaps">複製が元の画像と重なっています、ドラッグすると複製された内容を確認できます</string>
     <string name="brush_locate_current_preset">現在のブラシが属するグループを表示</string>
@@ -3783,5 +3820,10 @@
     <string name="onboarding_open_theme_settings">外観とテーマ設定へ移動</string>
     <string name="settings_replay_onboarding">機能ツアーガイド</string>
     <string name="settings_replay_onboarding_desc">主要な機能のレイアウトとワークスペースのカスタマイズ案内を再確認</string>
+    <string name="toast_text_rasterized">テキストレイヤーをラスタライズしました</string>
+    <string name="canvas_toast_text_not_drawable">テキストレイヤーには直接描画できません。先にラスタライズしてください</string>
+    <string name="layer_text_settings_title">テキストレイヤー設定</string>
+    <string name="typography_add_text">テキストを追加</string>
+    <string name="typography_empty_placeholder">テキストを入力...</string>
 </resources>
 

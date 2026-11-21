@@ -1731,12 +1731,14 @@
     <string name="guide_symmetry_rotational">旋轉對稱</string>
     <string name="guide_symmetry_kaleidoscope">萬花筒</string>
     <string name="guide_symmetry_center">對稱軸中心</string>
+    <string name="guide_symmetry_center_x">中心 X</string>
+    <string name="guide_symmetry_center_y">中心 Y</string>
     <string name="guide_symmetry_rotation">旋轉角度</string>
     <string name="guide_symmetry_reset_center">重置居中</string>
     <string name="guide_perspective_ray_density">參考線密度</string>
     <string name="guide_perspective_mode_3d">3D 空間網格</string>
     <string name="guide_perspective_mode_vanish">傳統滅點射線</string>
-    <string name="guide_perspective_3d_hint">在畫布上滑動可自由旋轉視角，關閉面板即固定參考</string>
+    <string name="guide_perspective_3d_hint">拖曳 3D 原點控制柄旋轉視角，關閉面板即固定參考</string>
     <string name="guide_perspective_pitch">俯仰角 (Pitch)</string>
     <string name="guide_perspective_yaw">偏航角 (Yaw)</string>
     <string name="guide_perspective_roll">傾斜角度 (Roll)</string>
@@ -1746,6 +1748,14 @@
     <string name="guide_perspective_cube">立體立方體</string>
     <string name="guide_grid_size">網格尺寸</string>
     <string name="guide_line_opacity">參考線不透明度</string>
+    <string name="guide_tab_spatial">空間參考線</string>
+    <string name="guide_tab_quickshape">速創形狀</string>
+    <string name="guide_pill_lines_visible">顯示參考線</string>
+    <string name="guide_pill_lines_hidden">參考線已隱藏</string>
+    <string name="guide_pill_assisted_on">輔助吸附</string>
+    <string name="guide_pill_assisted_off">未吸附</string>
+    <string name="guide_inactive_hint">參考線已停用，輕觸上方模式啟用</string>
+    <string name="guide_mode_toggle_off_hint">輕觸高亮模式可停用</string>
 
     <!-- Animation Timeline Details -->
     <string name="timeline_inbetween">自動中割</string>
@@ -2974,6 +2984,7 @@
     <string name="shading_assist_layer_name">智慧陰影</string>
     <string name="shading_assist_toast_success">已在底色圖層上方生成剪貼陰影</string>
     <string name="shading_assist_toast_need_layer">請先選擇包含色彩內容的圖層</string>
+    <string name="shading_assist_toast_failed">陰影生成失敗，畫布解析度過大或記憶體不足</string>
     <string name="shading_assist_import_failed">匯入自定義模型失敗</string>
     <string name="shading_assist_ai_hint">Depth Anything V2 深度神經網路，離線端側推理</string>
     <string name="shading_assist_model_fallback_toast">AI 模型推理不相容，已自動回退為 2.5D 幾何演算法</string>
@@ -3112,7 +3123,32 @@
     <string name="gesture_action_clear_layer_desc">快速清空當前選中圖層內容</string>
     <string name="gesture_action_select_layer_at_point">點選圖層</string>
     <string name="gesture_action_select_layer_at_point_desc">按兩下觸點位置檢索並切換該位置包含內容的圖層</string>
+    <string name="gesture_action_flip_canvas_h">水平翻轉畫布</string>
+    <string name="gesture_action_flip_canvas_h_desc">臨時水平鏡像翻轉畫布視圖</string>
+    <string name="gesture_action_flip_canvas_v">垂直翻轉畫布</string>
+    <string name="gesture_action_flip_canvas_v_desc">臨時垂直鏡像翻轉畫布視圖</string>
+    <string name="gesture_action_reset_rotation">重置畫布旋轉</string>
+    <string name="gesture_action_reset_rotation_desc">將畫布旋轉角度重設至 0 度</string>
+    <string name="gesture_action_toggle_eraser">切換畫筆/橡皮擦</string>
+    <string name="gesture_action_toggle_eraser_desc">在目前畫筆與橡皮擦工具之間快速切換</string>
+    <string name="gesture_action_new_layer">新建圖層</string>
+    <string name="gesture_action_new_layer_desc">在目前圖層上方新建空白圖層</string>
+    <string name="gesture_action_lock_view">鎖定畫布視口</string>
+    <string name="gesture_action_lock_view_desc">鎖定或解鎖畫布平移、縮放與旋轉</string>
+    <string name="gesture_action_brush_slide_adjust">調節筆刷大小與不透明度</string>
+    <string name="gesture_action_brush_slide_adjust_desc">橫向滑動調節不透明度，縱向滑動調節筆刷像素大小</string>
     <string name="gesture_action_none">停用</string>
+
+    <string name="gesture_trigger_three_finger_slide">三指滑動調節</string>
+    <string name="gesture_brush_adjust_group">畫筆觸控調節</string>
+    <string name="brush_slide_adjust_title">三指滑動調節畫筆</string>
+    <string name="brush_slide_adjust_desc">在畫布上三指垂直滑動調節筆刷大小，水平滑動調節不透明度</string>
+    <string name="gesture_mappings_title">快捷手勢映射</string>
+    <string name="gesture_three_finger_slide_priority_hint">已開啟畫筆觸控調節，三指滑動優先用於調節畫筆</string>
+    <string name="gesture_disabled_due_to_tap">輕點已設定操作時自動停用</string>
+    <string name="gesture_toast_disable_two_finger_tap">雙指輕點已設定操作，請先將其設為「停用」</string>
+    <string name="gesture_toast_disable_three_finger_tap">三指輕點已設定操作，請先將其設為「停用」</string>
+    <string name="gesture_select_action_title">選擇手勢操作</string>
 
     <string name="gesture_trigger_single_finger_touch_slide">單指點選與滑動</string>
     <string name="gesture_trigger_single_finger_touch_slide_desc">手指觸屏展開選單，划向目標方向直接盲操觸發；單擊仍可常駐展示（將停用單指平移畫布）</string>
@@ -3408,6 +3444,7 @@
     <string name="toast_layer_delete_locked">圖層已鎖定，先解鎖再刪除</string>
     <string name="toast_layer_delete_stale">圖層列表已更新，請重試</string>
     <string name="toast_transform_blocks_undo">變換進行中, 請先確認或取消變換</string>
+    <string name="toast_transform_cancelled">已取消變形</string>
     <string name="toast_transform_nothing_applied">選區裡沒有內容，這次變換沒有產生任何改動</string>
     <string name="toast_transform_copy_overlaps">副本與原件重合了，拖動一下就能看到複製出來的那份</string>
     <string name="brush_locate_current_preset">定位當前筆刷所在分組</string>
@@ -3778,5 +3815,10 @@
     <string name="onboarding_open_theme_settings">前往外觀與主題設定</string>
     <string name="settings_replay_onboarding">新手功能引導</string>
     <string name="settings_replay_onboarding_desc">重新檢視核心功能佈局與工作區定製指引</string>
+    <string name="toast_text_rasterized">文字圖層已柵格化</string>
+    <string name="canvas_toast_text_not_drawable">文字圖層不可直接繪製，請先柵格化</string>
+    <string name="layer_text_settings_title">文字圖層設定</string>
+    <string name="typography_add_text">新增文字</string>
+    <string name="typography_empty_placeholder">輸入文字...</string>
 </resources>
 
