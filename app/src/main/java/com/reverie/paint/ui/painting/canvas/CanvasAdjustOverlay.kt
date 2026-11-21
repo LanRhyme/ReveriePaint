@@ -297,6 +297,14 @@ fun CanvasAdjustOverlay(
         }
     }
 
+    val adjustState = vm.canvasAdjustState
+    val maxLayers = remember(adjustState.targetWidth, adjustState.targetHeight) {
+        com.reverie.paint.ui.create.calculateRealMaxLayers(context, adjustState.targetWidth, adjustState.targetHeight)
+    }
+    val maxLayersDesc = androidx.compose.ui.res.stringResource(R.string.create_max_layers_desc, maxLayers)
+    val filterName = androidx.compose.ui.res.stringResource(adjustState.resampleFilter.labelRes)
+    val origCompareLabel = androidx.compose.ui.res.stringResource(R.string.filter_compare_original)
+
     Canvas(
         modifier = modifier
             .fillMaxSize()
@@ -571,8 +579,6 @@ fun CanvasAdjustOverlay(
                 isAntiAlias = true
             }
 
-            val maxLayers = com.reverie.paint.ui.create.calculateRealMaxLayers(context, state.targetWidth, state.targetHeight)
-            val maxLayersDesc = context.getString(R.string.create_max_layers_desc, maxLayers)
             val dimText = "${state.targetWidth} × ${state.targetHeight} px  ·  $maxLayersDesc"
             val textBounds = android.graphics.Rect()
             textPaint.getTextBounds(dimText, 0, dimText.length, textBounds)
@@ -727,10 +733,6 @@ fun CanvasAdjustOverlay(
             } else {
                 "W: %.2f×, H: %.2f×".format(scaleRatioX, scaleRatioY)
             }
-            val filterName = context.getString(state.resampleFilter.labelRes)
-            val maxLayers = com.reverie.paint.ui.create.calculateRealMaxLayers(context, state.targetWidth, state.targetHeight)
-            val maxLayersDesc = context.getString(R.string.create_max_layers_desc, maxLayers)
-
             val dimText = "${state.targetWidth} × ${state.targetHeight} px  ·  $ratioText  ·  $filterName  ·  $maxLayersDesc"
             val textBounds = android.graphics.Rect()
             textPaint.getTextBounds(dimText, 0, dimText.length, textBounds)
@@ -761,7 +763,7 @@ fun CanvasAdjustOverlay(
                     textAlign = android.graphics.Paint.Align.LEFT
                     isAntiAlias = true
                 }
-                val origDesc = "${docW} × ${docH} (${context.getString(R.string.filter_compare_original)})"
+                val origDesc = "${docW} × ${docH} ($origCompareLabel)"
                 val origBounds = android.graphics.Rect()
                 subTextPaint.getTextBounds(origDesc, 0, origDesc.length, origBounds)
                 val origBadgeW = origBounds.width() + 14.dp.toPx()
