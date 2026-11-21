@@ -32,6 +32,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.luminance
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.painterResource
@@ -41,13 +42,9 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.ui.components.liquidHighlight
-import com.reverie.paint.ui.components.liquidJelly
 import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.theme.AppColors
-import com.reverie.paint.ui.theme.Glass
-import com.reverie.paint.ui.theme.glassBorder
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
 
 @Composable
 internal fun GallerySelectionBottomBar(
@@ -61,7 +58,6 @@ internal fun GallerySelectionBottomBar(
     onDelete: () -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    val shape = RoundedCornerShape(32.dp)
     val hasSelection = selectedCount > 0
     val canShare = hasSelection && canShareOrDuplicate
     val canDuplicate = hasSelection && canShareOrDuplicate
@@ -71,31 +67,18 @@ internal fun GallerySelectionBottomBar(
     Box(
         modifier = modifier
             .fillMaxWidth()
-            .padding(horizontal = 24.dp, vertical = 12.dp),
+            .padding(horizontal = 20.dp, vertical = 12.dp),
         contentAlignment = Alignment.Center,
     ) {
         Row(
             modifier = Modifier
-                .liquidJelly(maxOffset = 10.dp)
-                .shadow(
-                    elevation = 16.dp,
-                    shape = shape,
-                    spotColor = colors.accent.copy(alpha = 0.35f),
-                    ambientColor = Color.Black.copy(alpha = 0.25f),
+                .height(HOME_DOCK_HEIGHT)
+                .homeLiquidGlassSurface(
+                    colors = colors,
+                    shape = CircleShape,
+                    hazeState = hazeState,
                 )
-                .clip(shape)
-                .then(
-                    if (hazeState != null) {
-                        Modifier.hazeChild(
-                            state = hazeState,
-                            style = Glass.barStyle(0.90f),
-                        )
-                    } else {
-                        Modifier.background(colors.panel.copy(alpha = 0.90f))
-                    }
-                )
-                .glassBorder(shape)
-                .padding(horizontal = 8.dp, vertical = 6.dp),
+                .padding(horizontal = 8.dp, vertical = 4.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.spacedBy(2.dp),
         ) {
@@ -127,7 +110,7 @@ internal fun GallerySelectionBottomBar(
                 iconRes = R.drawable.ic_trash,
                 label = stringResource(R.string.common_delete),
                 colors = colors,
-                tint = Color(0xFFFF5252),
+                tint = colors.error,
                 enabled = canDelete,
                 onClick = onDelete,
             )
@@ -158,7 +141,7 @@ private fun SelectionActionButton(
         horizontalArrangement = Arrangement.Center,
         modifier = modifier
             .pressScale(interactionSource, pressedScale = if (enabled) 0.92f else 1.0f)
-            .clip(RoundedCornerShape(20.dp))
+            .clip(RoundedCornerShape(22.dp))
             .then(
                 if (enabled) {
                     Modifier
@@ -192,11 +175,12 @@ private fun SelectionActionButton(
 
 @Composable
 private fun ActionDivider(colors: AppColors) {
+    val isDark = colors.panel.luminance() < 0.5f
     Box(
         modifier = Modifier
             .width(1.dp)
             .height(16.dp)
-            .background(colors.border.copy(alpha = 0.5f))
+            .background((if (isDark) Color.White else Color.Black).copy(alpha = 0.10f))
     )
 }
 

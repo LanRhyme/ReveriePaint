@@ -87,11 +87,12 @@ import com.reverie.paint.ui.dialog.SponsorPromptDialog
 import com.reverie.paint.ui.dialog.SponsorsDialog
 import com.reverie.paint.core.*
 import com.reverie.paint.model.Project
+import com.reverie.paint.model.UiAnimationSpeed
 import com.reverie.paint.ui.theme.AppColors
 import com.reverie.paint.ui.theme.Motion
 import com.reverie.paint.ui.theme.Theme
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.haze
+import dev.chrisbanes.haze.hazeSource
 import java.io.File
 import java.text.SimpleDateFormat
 import java.util.*
@@ -171,10 +172,10 @@ fun HomePage(vm: PaintViewModel) {
             }
         }
 
-    // Refresh projects upon entering and check sponsor prompt
-    LaunchedEffect(currentFolder, selectedTab, vm.currentPage) {
+    // Refresh projects upon entering or switching folder (avoid redundant IO + widget IPC storm on tab switch)
+    LaunchedEffect(currentFolder, vm.currentPage) {
+        vm.refreshProjects()
         if (selectedTab == 0) {
-            vm.refreshProjects()
             vm.checkSponsorPromptTrigger()
         }
     }
@@ -401,39 +402,63 @@ fun HomePage(vm: PaintViewModel) {
         modifier =
             Modifier
                 .fillMaxSize()
-                .background(colors.bg)
-                .haze(hazeState),
+                .background(colors.bg),
     ) {
-        if (homeBgBitmap != null && vm.homeCustomBgEnabled) {
-            val scale = if (vm.homeCustomBgScaleMode == "FIT") ContentScale.Fit else ContentScale.Crop
-            val blurModifier = if (vm.homeCustomBgBlurDp > 0f) Modifier.blur(vm.homeCustomBgBlurDp.dp) else Modifier
-            Image(
-                bitmap = homeBgBitmap,
-                contentDescription = null,
-                contentScale = scale,
-                alpha = vm.homeCustomBgOpacity,
-                modifier = Modifier
+        // 背景与主内容作为 haze 源层，与悬浮底栏保持兄弟层级以正确采样实时模糊
+        Box(
+            modifier =
+                Modifier
                     .fillMaxSize()
-                    .then(blurModifier),
-            )
-            if (vm.homeCustomBgMaskAlpha > 0f) {
-                Box(
+                    .then(if (vm.blurBackground) Modifier.hazeSource(hazeState) else Modifier),
+        ) {
+            if (homeBgBitmap != null && vm.homeCustomBgEnabled) {
+                val scale = if (vm.homeCustomBgScaleMode == "FIT") ContentScale.Fit else ContentScale.Crop
+                val blurModifier = if (vm.homeCustomBgBlurDp > 0f) Modifier.blur(vm.homeCustomBgBlurDp.dp) else Modifier
+                Image(
+                    bitmap = homeBgBitmap,
+                    contentDescription = null,
+                    contentScale = scale,
+                    alpha = vm.homeCustomBgOpacity,
                     modifier = Modifier
                         .fillMaxSize()
-                        .background(Color.Black.copy(alpha = vm.homeCustomBgMaskAlpha)),
+                        .then(blurModifier),
                 )
+                if (vm.homeCustomBgMaskAlpha > 0f) {
+                    Box(
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .background(Color.Black.copy(alpha = vm.homeCustomBgMaskAlpha)),
+                    )
+                }
             }
-        }
 
-        AnimatedContent(
-            targetState = selectedTab,
-            transitionSpec = {
-                fadeIn(tween(220, easing = FastOutSlowInEasing))
-                    .togetherWith(fadeOut(tween(160)))
-            },
-            modifier = Modifier.fillMaxSize(),
-            label = "HomeTabTransition",
-        ) { tabIndex ->
+            AnimatedContent(
+                targetState = selectedTab,
+                transitionSpec = {
+                    val dir = if (targetState > initialState) 1 else -1
+                    when (Motion.currentSpeed) {
+                        UiAnimationSpeed.OFF -> EnterTransition.None togetherWith ExitTransition.None
+                        UiAnimationSpeed.FAST -> {
+                            (slideInHorizontally(tween(90, easing = FastOutSlowInEasing)) { dir * (it / 20) } +
+                                fadeIn(tween(90)))
+                                .togetherWith(
+                                    slideOutHorizontally(tween(70, easing = FastOutSlowInEasing)) { -dir * (it / 24) } +
+                                        fadeOut(tween(70)),
+                                )
+                        }
+                        UiAnimationSpeed.NORMAL -> {
+                            (slideInHorizontally(tween(260, easing = FastOutSlowInEasing)) { dir * (it / 16) } +
+                                fadeIn(tween(240, easing = FastOutSlowInEasing)))
+                                .togetherWith(
+                                    slideOutHorizontally(tween(180, easing = FastOutSlowInEasing)) { -dir * (it / 20) } +
+                                        fadeOut(tween(160)),
+                                )
+                        }
+                    }
+                },
+                modifier = Modifier.fillMaxSize(),
+                label = "HomeTabTransition",
+            ) { tabIndex ->
             if (tabIndex == 0) {
                 Box(modifier = Modifier.fillMaxSize()) {
                     Column(modifier = Modifier.fillMaxSize()) {
@@ -1472,19 +1497,37 @@ fun HomePage(vm: PaintViewModel) {
                     SettingsPageContent(vm)
                 }
             }
+            }
         }
 
         val inGallerySelectMode = isSelectMode && selectedTab == 0
+        val effectiveBarHaze = if (vm.blurBackground) hazeState else null
 
         AnimatedContent(
             targetState = inGallerySelectMode,
             transitionSpec = {
-                if (targetState) {
-                    (slideInVertically(spring(dampingRatio = 0.82f, stiffness = 420f)) { it } + fadeIn(tween(200)))
-                        .togetherWith(slideOutVertically(tween(160)) { it } + fadeOut(tween(140)))
-                } else {
-                    (slideInVertically(spring(dampingRatio = 0.82f, stiffness = 420f)) { it } + fadeIn(tween(200)))
-                        .togetherWith(slideOutVertically(tween(160)) { it } + fadeOut(tween(140)))
+                when (Motion.currentSpeed) {
+                    UiAnimationSpeed.OFF -> EnterTransition.None togetherWith ExitTransition.None
+                    UiAnimationSpeed.FAST -> {
+                        (slideInVertically(tween(90, easing = FastOutSlowInEasing)) { it / 2 } +
+                            scaleIn(tween(90), initialScale = 0.94f) +
+                            fadeIn(tween(90)))
+                            .togetherWith(
+                                slideOutVertically(tween(70)) { it / 2 } +
+                                    scaleOut(tween(70), targetScale = 0.94f) +
+                                    fadeOut(tween(70)),
+                            )
+                    }
+                    UiAnimationSpeed.NORMAL -> {
+                        (slideInVertically(spring(dampingRatio = 0.80f, stiffness = 420f)) { it / 2 } +
+                            scaleIn(spring(dampingRatio = 0.82f, stiffness = 420f), initialScale = 0.94f) +
+                            fadeIn(tween(200)))
+                            .togetherWith(
+                                slideOutVertically(tween(160, easing = FastOutSlowInEasing)) { it / 2 } +
+                                    scaleOut(tween(150), targetScale = 0.94f) +
+                                    fadeOut(tween(140)),
+                            )
+                    }
                 }
             },
             modifier = Modifier
@@ -1497,7 +1540,7 @@ fun HomePage(vm: PaintViewModel) {
                     colors = colors,
                     selectedCount = selectedProjects.size,
                     canShareOrDuplicate = selectedProjects.any { !it.isFolder },
-                    hazeState = hazeState,
+                    hazeState = effectiveBarHaze,
                     onShare = {
                         shareProjectFiles(context, selectedProjects.toList())
                     },
@@ -1519,7 +1562,7 @@ fun HomePage(vm: PaintViewModel) {
                     colors = colors,
                     vm = vm,
                     selectedTab = selectedTab,
-                    hazeState = hazeState,
+                    hazeState = effectiveBarHaze,
                 )
             }
         }
