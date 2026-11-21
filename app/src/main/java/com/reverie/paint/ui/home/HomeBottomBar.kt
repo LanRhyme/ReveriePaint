@@ -4,6 +4,7 @@
 
 package com.reverie.paint.ui.home
 
+import android.view.HapticFeedbackConstants
 import androidx.compose.animation.*
 import androidx.compose.animation.core.*
 import androidx.compose.foundation.background
@@ -12,7 +13,8 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.*
+import androidx.compose.material3.Icon
+import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -24,9 +26,12 @@ import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.geometry.Size
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.positionInParent
+import androidx.compose.ui.platform.LocalView
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -34,17 +39,13 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
-import com.reverie.paint.ui.theme.AppColors
-import com.reverie.paint.ui.theme.Motion
-import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
 import com.reverie.paint.ui.components.liquidHighlight
-import com.reverie.paint.ui.components.liquidJelly
-import com.reverie.paint.ui.components.liquidLean
-import com.reverie.paint.ui.components.liquidSheen
 import com.reverie.paint.ui.components.pressScale
+import com.reverie.paint.ui.theme.AppColors
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.glassBorder
+import dev.chrisbanes.haze.HazeState
+import dev.chrisbanes.haze.hazeChild
 
 @Composable
 internal fun HomeBottomBar(
@@ -56,32 +57,36 @@ internal fun HomeBottomBar(
 ) {
     val isGallery = selectedTab == 0
     val isSettings = selectedTab == 1
+    val view = LocalView.current
 
     val createSource = remember { MutableInteractionSource() }
 
-    // 滑行 pill：单个指示背景在两个槽位之间弹簧滑行（穿过中间）
+    // 滑行 pill：指示背景在两个槽位之间弹簧滑行
     var gallerySlot by remember { mutableStateOf(Rect.Zero) }
     var settingsSlot by remember { mutableStateOf(Rect.Zero) }
     val targetSlot = if (isGallery) gallerySlot else settingsSlot
     val ready = targetSlot != Rect.Zero && gallerySlot != Rect.Zero && settingsSlot != Rect.Zero
-    val pillLeft by animateFloatAsState(if (ready) targetSlot.left else 0f, Motion.springSnap, label = "pillX")
-    val pillWidth by animateFloatAsState(if (ready) targetSlot.width else 0f, Motion.springSnap, label = "pillW")
-    val pillHeight by animateFloatAsState(if (ready) targetSlot.height else 0f, Motion.springSnap, label = "pillH")
-    val pillTop by animateFloatAsState(if (ready) targetSlot.top else 0f, Motion.springSnap, label = "pillY")
 
-    // 图标切换 pop 回弹
+    // 弹簧物理对齐 dsh-Go AppMotion.thumbSpring (320ms, bounce 0.15 -> dampingRatio ≈ 0.82, stiffness ≈ 380)
+    val thumbSpring = remember { spring<Float>(dampingRatio = 0.82f, stiffness = 380f) }
+    val pillLeft by animateFloatAsState(if (ready) targetSlot.left else 0f, thumbSpring, label = "pillX")
+    val pillWidth by animateFloatAsState(if (ready) targetSlot.width else 0f, thumbSpring, label = "pillW")
+    val pillHeight by animateFloatAsState(if (ready) targetSlot.height else 0f, thumbSpring, label = "pillH")
+    val pillTop by animateFloatAsState(if (ready) targetSlot.top else 0f, thumbSpring, label = "pillY")
+
+    // 图标切换 pop 弹性回弹
     val galleryIconScale = remember { Animatable(1f) }
     val settingsIconScale = remember { Animatable(1f) }
     LaunchedEffect(isGallery) {
         if (isGallery) {
-            galleryIconScale.snapTo(0.75f)
-            galleryIconScale.animateTo(1f, Motion.snapBouncy)
+            galleryIconScale.snapTo(0.82f)
+            galleryIconScale.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = 420f))
         }
     }
     LaunchedEffect(isSettings) {
         if (isSettings) {
-            settingsIconScale.snapTo(0.75f)
-            settingsIconScale.animateTo(1f, Motion.snapBouncy)
+            settingsIconScale.snapTo(0.82f)
+            settingsIconScale.animateTo(1f, spring(dampingRatio = 0.55f, stiffness = 420f))
         }
     }
 
@@ -95,12 +100,11 @@ internal fun HomeBottomBar(
     ) {
         Row(
             modifier = Modifier
-                .liquidJelly(maxOffset = 12.dp)
                 .shadow(
                     elevation = 16.dp,
                     shape = shape,
-                    spotColor = colors.accent.copy(alpha = 0.35f),
-                    ambientColor = Color.Black.copy(alpha = 0.25f),
+                    spotColor = colors.accent.copy(alpha = 0.28f),
+                    ambientColor = Color.Black.copy(alpha = 0.20f),
                 )
                 .clip(shape)
                 .then(
@@ -118,11 +122,20 @@ internal fun HomeBottomBar(
                 .drawBehind {
                     // 滑行 pill 背景（画在内容之下，坐标系与 tab 槽位一致）
                     if (pillWidth > 1f) {
+                        val pillRadius = CornerRadius(22.dp.toPx())
                         drawRoundRect(
-                            color = colors.panelHi.copy(alpha = 0.85f),
+                            color = colors.panelHi.copy(alpha = 0.88f),
                             topLeft = Offset(pillLeft, pillTop),
                             size = Size(pillWidth, pillHeight),
-                            cornerRadius = CornerRadius(22.dp.toPx()),
+                            cornerRadius = pillRadius,
+                        )
+                        // 发丝高光微描边
+                        drawRoundRect(
+                            color = Color.White.copy(alpha = 0.12f),
+                            topLeft = Offset(pillLeft, pillTop),
+                            size = Size(pillWidth, pillHeight),
+                            cornerRadius = pillRadius,
+                            style = Stroke(width = 1.dp.toPx()),
                         )
                     }
                 },
@@ -137,7 +150,12 @@ internal fun HomeBottomBar(
                     .pressScale(gallerySource, pressedScale = 0.95f)
                     .clip(RoundedCornerShape(22.dp))
                     .liquidHighlight(gallerySource, Color.White, radius = 26.dp)
-                    .clickable(interactionSource = gallerySource, indication = null) { vm.homeSelectedTab = 0 }
+                    .clickable(interactionSource = gallerySource, indication = null) {
+                        if (vm.homeSelectedTab != 0) {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            vm.homeSelectedTab = 0
+                        }
+                    }
                     .onGloballyPositioned { gallerySlot = Rect(it.positionInParent(), Size(it.size.width.toFloat(), it.size.height.toFloat())) }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
@@ -164,16 +182,36 @@ internal fun HomeBottomBar(
                 }
             }
 
-            // Create Action Button (Liquid: 触点倾倒 + 按压缩放 + 高光跟随)
+            // Create Action Button (莫兰迪强调色光感按钮，居中对称)
             Box(
                 modifier = Modifier
                     .size(46.dp)
-                    .liquidLean(createSource, maxOffset = 6.dp)
-                    .pressScale(createSource, pressedScale = 0.90f)
+                    .shadow(
+                        elevation = 10.dp,
+                        shape = CircleShape,
+                        spotColor = colors.accent.copy(alpha = 0.40f),
+                        ambientColor = Color.Black.copy(alpha = 0.18f),
+                    )
                     .clip(CircleShape)
-                    .liquidHighlight(createSource, Color.White, radius = 30.dp)
                     .background(colors.accent)
-                    .clickable(interactionSource = createSource, indication = null) { vm.goCreate() },
+                    .drawBehind {
+                        // 顶部发丝高光弧
+                        drawCircle(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(
+                                    Color.White.copy(alpha = 0.35f),
+                                    Color.Transparent,
+                                ),
+                            ),
+                            style = Stroke(width = 1.dp.toPx()),
+                        )
+                    }
+                    .pressScale(createSource, pressedScale = 0.92f)
+                    .liquidHighlight(createSource, Color.White, radius = 30.dp)
+                    .clickable(interactionSource = createSource, indication = null) {
+                        view.performHapticFeedback(HapticFeedbackConstants.VIRTUAL_KEY)
+                        vm.goCreate()
+                    },
                 contentAlignment = Alignment.Center,
             ) {
                 Icon(
@@ -192,7 +230,12 @@ internal fun HomeBottomBar(
                     .pressScale(settingsSource, pressedScale = 0.95f)
                     .clip(RoundedCornerShape(22.dp))
                     .liquidHighlight(settingsSource, Color.White, radius = 26.dp)
-                    .clickable(interactionSource = settingsSource, indication = null) { vm.homeSelectedTab = 1 }
+                    .clickable(interactionSource = settingsSource, indication = null) {
+                        if (vm.homeSelectedTab != 1) {
+                            view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                            vm.homeSelectedTab = 1
+                        }
+                    }
                     .onGloballyPositioned { settingsSlot = Rect(it.positionInParent(), Size(it.size.width.toFloat(), it.size.height.toFloat())) }
                     .padding(horizontal = 16.dp, vertical = 10.dp),
             ) {
