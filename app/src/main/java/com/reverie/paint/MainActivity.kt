@@ -652,96 +652,107 @@ fun ReverieApp(vm: PaintViewModel = viewModel()) {
     // Global indication override: every clickable / M3 component that did not
     // explicitly opt out renders a touch-point light glow (LiquidIndication)
     // instead of the Material ripple. See docs spec 2026-08-25.
-    androidx.compose.animation.AnimatedContent(
-        targetState = vm.currentPage,
-        transitionSpec = {
-            if (targetState == Page.PAINTING) {
-                // 进入画布只做一次短淡入, 不再 scaleIn(0.88f): 对含 setZOrderOnTop(true) 的
-                // FrontBufferPreviewOverlay (SurfaceView + CanvasFrontBufferedRenderer) 的父容器做
-                // 弹簧缩放时, 首笔前缓冲 HardwareBuffer 按缩放中的尺寸创建, 真机上观察到首笔笔迹
-                // 折行裂成几块 (抬笔 commit() 重建缓冲后恢复)。
-                androidx.compose.animation.fadeIn(
-                    androidx.compose.animation.core
-                        .tween(160, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                ).togetherWith(
-                    androidx.compose.animation.fadeOut(
+    com.reverie.paint.ui.components.transition.DistortionWaveStage(vm = vm) {
+        androidx.compose.animation.AnimatedContent(
+            targetState = vm.currentPage,
+            transitionSpec = {
+                if (vm.isWaveTransitionManaged &&
+                    (
+                        (initialState == Page.HOME && targetState == Page.PAINTING) ||
+                            (initialState == Page.PAINTING && targetState == Page.HOME)
+                    )
+                ) {
+                    androidx.compose.animation.EnterTransition.None.togetherWith(
+                        androidx.compose.animation.ExitTransition.None,
+                    )
+                } else if (targetState == Page.PAINTING) {
+                    // 进入画布只做一次短淡入, 不再 scaleIn(0.88f): 对含 setZOrderOnTop(true) 的
+                    // FrontBufferPreviewOverlay (SurfaceView + CanvasFrontBufferedRenderer) 的父容器做
+                    // 弹簧缩放时, 首笔前缓冲 HardwareBuffer 按缩放中的尺寸创建, 真机上观察到首笔笔迹
+                    // 折行裂成几块 (抬笔 commit() 重建缓冲后恢复)。
+                    androidx.compose.animation.fadeIn(
                         androidx.compose.animation.core
-                            .tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                    ) +
-                        androidx.compose.animation.scaleOut(
-                            targetScale = 1.08f,
-                            animationSpec =
-                                androidx.compose.animation.core.tween(
-                                    220,
-                                    easing = androidx.compose.animation.core.FastOutSlowInEasing,
-                                ),
+                            .tween(160, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                    ).togetherWith(
+                        androidx.compose.animation.fadeOut(
+                            androidx.compose.animation.core
+                                .tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                        ) +
+                            androidx.compose.animation.scaleOut(
+                                targetScale = 1.08f,
+                                animationSpec =
+                                    androidx.compose.animation.core.tween(
+                                        220,
+                                        easing = androidx.compose.animation.core.FastOutSlowInEasing,
+                                    ),
+                            ),
+                    )
+                } else if (initialState == Page.PAINTING) {
+                    // Contracting smoothly back into gallery from canvas
+                    (
+                        androidx.compose.animation.fadeIn(
+                            androidx.compose.animation.core
+                                .tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                        ) +
+                            androidx.compose.animation.scaleIn(
+                                initialScale = 1.08f,
+                                animationSpec =
+                                    androidx.compose.animation.core.spring(
+                                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
+                                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+                                    ),
+                            )
+                    ).togetherWith(
+                        androidx.compose.animation.fadeOut(
+                            androidx.compose.animation.core
+                                .tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing),
                         ),
-                )
-            } else if (initialState == Page.PAINTING) {
-                // Contracting smoothly back into gallery from canvas
-                (
-                    androidx.compose.animation.fadeIn(
-                        androidx.compose.animation.core
-                            .tween(260, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                    ) +
-                        androidx.compose.animation.scaleIn(
-                            initialScale = 1.08f,
-                            animationSpec =
-                                androidx.compose.animation.core.spring(
-                                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioNoBouncy,
-                                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
-                                ),
-                        )
-                ).togetherWith(
-                    androidx.compose.animation.fadeOut(
-                        androidx.compose.animation.core
-                            .tween(180, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                    ),
-                )
-            } else {
-                (
-                    androidx.compose.animation.fadeIn(
-                        androidx.compose.animation.core
-                            .tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing),
-                    ) +
-                        androidx.compose.animation.slideInHorizontally(
-                            animationSpec =
-                                androidx.compose.animation.core.spring(
-                                    dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
-                                    stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
-                                ),
-                        ) { if (targetState == Page.CREATE) it / 3 else -it / 3 }
-                ).togetherWith(
-                    androidx.compose.animation.fadeOut(
-                        androidx.compose.animation.core
-                            .tween(160),
-                    ) +
-                        androidx.compose.animation.slideOutHorizontally(
-                            animationSpec =
-                                androidx.compose.animation.core
-                                    .tween(160),
-                        ) { if (targetState == Page.CREATE) -it / 3 else it / 3 },
-                )
-            }
-        },
-        label = "AppPageTransition",
-    ) { page ->
-        CompositionLocalProvider(LocalIndication provides LiquidIndication) {
-            when (page) {
-                Page.HOME -> {
-                    HomePage(vm)
+                    )
+                } else {
+                    (
+                        androidx.compose.animation.fadeIn(
+                            androidx.compose.animation.core
+                                .tween(220, easing = androidx.compose.animation.core.FastOutSlowInEasing),
+                        ) +
+                            androidx.compose.animation.slideInHorizontally(
+                                animationSpec =
+                                    androidx.compose.animation.core.spring(
+                                        dampingRatio = androidx.compose.animation.core.Spring.DampingRatioLowBouncy,
+                                        stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow,
+                                    ),
+                            ) { if (targetState == Page.CREATE) it / 3 else -it / 3 }
+                    ).togetherWith(
+                        androidx.compose.animation.fadeOut(
+                            androidx.compose.animation.core
+                                .tween(160),
+                        ) +
+                            androidx.compose.animation.slideOutHorizontally(
+                                animationSpec =
+                                    androidx.compose.animation.core
+                                        .tween(160),
+                            ) { if (targetState == Page.CREATE) -it / 3 else it / 3 },
+                    )
                 }
+            },
+            label = "AppPageTransition",
+        ) { page ->
+            CompositionLocalProvider(LocalIndication provides LiquidIndication) {
+                when (page) {
+                    Page.HOME -> {
+                        HomePage(vm)
+                    }
 
-                Page.CREATE -> {
-                    CreatePage(vm)
-                }
+                    Page.CREATE -> {
+                        CreatePage(vm)
+                    }
 
-                Page.PAINTING -> {
-                    PaintingPage(vm)
-                }
+                    Page.PAINTING -> {
+                        PaintingPage(vm)
+                    }
 
-                Page.REPLAY -> {
-                    ReplayPage(vm)
+                    Page.REPLAY -> {
+                        ReplayPage(vm)
+                    }
                 }
             }
         }

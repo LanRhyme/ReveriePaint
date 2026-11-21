@@ -23,6 +23,7 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.scale
+import com.reverie.paint.ui.theme.Motion
 import androidx.compose.ui.input.pointer.PointerIcon
 import androidx.compose.ui.input.pointer.pointerHoverIcon
 import androidx.compose.ui.text.font.FontWeight
@@ -98,24 +99,21 @@ internal fun PickerLayerSourceBar(
     vm: PaintViewModel,
     hazeState: HazeState,
     modifier: Modifier = Modifier,
+    chromeRevealed: Boolean = true,
 ) {
     AnimatedVisibility(
-        visible = tool == Tool.PICKER,
+        visible = tool == Tool.PICKER && chromeRevealed,
         modifier = modifier,
         enter =
-            androidx.compose.animation.fadeIn(
-                androidx.compose.animation.core.tween(200)
-            ) +
+            androidx.compose.animation.fadeIn(Motion.enterSpring()) +
                 androidx.compose.animation.slideInVertically(
-                    androidx.compose.animation.core.tween(200),
+                    Motion.enterSpring(),
                     initialOffsetY = { it / 2 }
                 ),
         exit =
-            androidx.compose.animation.fadeOut(
-                androidx.compose.animation.core.tween(200)
-            ) +
+            androidx.compose.animation.fadeOut(Motion.exitTween(180)) +
                 androidx.compose.animation.slideOutVertically(
-                    androidx.compose.animation.core.tween(200),
+                    Motion.exitTween(180),
                     targetOffsetY = { it / 2 }
                 )
     ) {

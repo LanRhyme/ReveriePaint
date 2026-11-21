@@ -451,6 +451,36 @@ internal fun PaintViewModel.discardAndExit() {
     goHome()
 }
 
+/**
+ * 从画廊卡片触发打开工程: 优先交由顶层扭曲波转场托管 (蓄力等待首帧 -> 卡片荡波揭幕);
+ * 若转场宿主暂未就绪则回落到直接 [loadProject]。
+ */
+internal fun PaintViewModel.openProjectFromGallery(
+    p: com.reverie.paint.model.Project,
+    cardBoundsPx: com.reverie.paint.model.WaveRect? = null,
+    focusPx: com.reverie.paint.model.WaveOffset? = null,
+    delayCaptureFrames: Int = 0,
+) {
+    val host = waveTransitionHost
+    if (host != null && host.tryOpenProjectFromGallery(p, cardBoundsPx, focusPx, delayCaptureFrames)) {
+        return
+    }
+    lastOpenedProjectPath = p.filePath
+    lastOpenedCardBoundsPx = cardBoundsPx
+    loadProject(p)
+}
+
+/** 画廊转场蓄力期间发生工程加载失败时安全退回画廊 (不触发返回收拢波, 避免暴露空白画布)。 */
+internal fun PaintViewModel.abortFailedGalleryLoadToHome() {
+    isBlockingLoading = false
+    cancelAwaitingFirstFrameAfterLoad()
+    pendingCanvasOrientation = null
+    currentProjectFile = null
+    docName = ""
+    isModified = false
+    currentPage = Page.HOME
+}
+
 internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     android.util.Log.d("RP_IO", "loadProject START: name=${p.name}, path=${p.filePath}, isAutoSaved=${p.isAutoSaved}")
     if (quickShapeDraft?.nativeOriginalActive == true) {
@@ -519,11 +549,15 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             if (!documentLoaded) {
                 Breadcrumbs.record("IO", "loadProject FAILED for: ${p.name}")
                 isBlockingLoading = false
-                showActionToast(R.string.toast_project_import_unsupported, R.drawable.ic_alert_triangle)
+                if (!suppressPaintingLoadingOverlay) {
+                    showActionToast(R.string.toast_project_import_unsupported, R.drawable.ic_alert_triangle)
+                }
                 // 加载失败不留旧方向。
                 pendingCanvasOrientation = null
                 // 换文档标记必须收掉: 失败时不会再有"新文档首帧", 否则画布会一直不画东西。
                 cancelAwaitingFirstFrameAfterLoad()
+                lastLoadProjectSucceeded = false
+                loadProjectOutcomeVersion++
                 return@runCore
             }
             Breadcrumbs.record("IO", "loadProject SUCCESS: ${p.name} (healed=$isHealed)")
@@ -623,6 +657,8 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             // 画布就不画任何文档像素了 (旧网格已作废、旧整图缓冲已放掉), 提前撤遮罩只会
             // 让用户看到一片空白 —— 那正是上一次"加载前清 displayBitmap"被回退的原因。
             beginAwaitingFirstFrameAfterLoad()
+            lastLoadProjectSucceeded = true
+            loadProjectOutcomeVersion++
             if (isRecovered) {
                 showActionToast(R.string.toast_project_restored_autosave, R.drawable.ic_save)
             } else if (isHealed) {
@@ -1703,6 +1739,20 @@ internal fun PaintViewModel.exportImageToGallery(
 }
 
 internal fun PaintViewModel.goHome() {
+    val host = waveTransitionHost
+    if (currentPage == Page.PAINTING && host != null) {
+        // 保存退出时优先记住最新存档路径, 方便新建作品保存后也能对齐到画廊新卡片
+        if (!currentProjectFile.isNullOrBlank()) {
+            lastOpenedProjectPath = currentProjectFile
+        }
+        if (host.tryReturnToGallery { performGoHomeNow() }) {
+            return
+        }
+    }
+    performGoHomeNow()
+}
+
+private fun PaintViewModel.performGoHomeNow() {
     resetProjectReferences()
     stopPaintingTimer()
     // 动画播放与状态镜像: 离开绘画页彻底停止并重置动画状态, 避免耗电和跨画布状态残留
@@ -1798,6 +1848,8 @@ internal fun PaintViewModel.startPainting(
         activeQuickShape = null
         isQuickShapeEditing = false
     }
+    lastOpenedProjectPath = null
+    lastOpenedCardBoundsPx = null
     resetProjectReferences()
     val actualName = name?.ifBlank { null } ?: generateNextProjectName()
     val targetDir = currentFolder?.let { File(it.filePath) }?.takeIf { it.exists() && it.isDirectory }

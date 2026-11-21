@@ -358,7 +358,7 @@ fun HomePage(vm: PaintViewModel) {
         )
     }
 
-    if (vm.isBlockingLoading && selectedTab == 0) {
+    if (vm.isBlockingLoading && selectedTab == 0 && !vm.suppressPaintingLoadingOverlay) {
         Dialog(
             onDismissRequest = {},
             properties = DialogProperties(dismissOnBackPress = false, dismissOnClickOutside = false),
@@ -879,12 +879,13 @@ fun HomePage(vm: PaintViewModel) {
                                     ) { index, p ->
                                         val isSelected = selectedProjects.contains(p)
 
-                                        // 入场级联: 只在该卡片首次出现时播一次, 滚回来不再重播
+                                        // 入场级联: 只在该卡片首次出现时播一次, 滚回来不再重播; 从画布扭曲波返回时直接就位
                                         val enterProgress =
                                             rememberGalleryEntrance(
                                                 tracker = entranceTracker,
                                                 key = p.filePath,
                                                 index = index,
+                                                skipAnimation = vm.suppressGalleryEntranceOnce,
                                             )
                                         val initialFanAngle =
                                             remember(p.filePath) {
@@ -1004,6 +1005,15 @@ fun HomePage(vm: PaintViewModel) {
                                                             folderBoundsMap[p.filePath] = bounds
                                                         } else {
                                                             artworkBoundsMap[p.filePath] = bounds
+                                                            if (p.filePath == vm.lastOpenedProjectPath) {
+                                                                vm.lastOpenedCardBoundsPx =
+                                                                    com.reverie.paint.model.WaveRect(
+                                                                        left = bounds.left,
+                                                                        top = bounds.top,
+                                                                        right = bounds.right,
+                                                                        bottom = bounds.bottom,
+                                                                    )
+                                                            }
                                                         }
                                                     },
                                         ) {
@@ -1108,7 +1118,15 @@ fun HomePage(vm: PaintViewModel) {
                                                                                 if (change.changedToUpIgnoreConsumed()) {
                                                                                     change.consume()
                                                                                     endPress(false)
-                                                                                    vm.loadProject(currentProject)
+                                                                                    val cardRect = artworkBoundsMap[currentProject.filePath]?.let {
+                                                                                        com.reverie.paint.model.WaveRect(it.left, it.top, it.right, it.bottom)
+                                                                                    }
+                                                                                    val upRoot = itemCoordinates?.localToRoot(change.position) ?: downRoot
+                                                                                    vm.openProjectFromGallery(
+                                                                                        p = currentProject,
+                                                                                        cardBoundsPx = cardRect,
+                                                                                        focusPx = com.reverie.paint.model.WaveOffset(upRoot.x, upRoot.y),
+                                                                                    )
                                                                                     return@withTimeout
                                                                                 }
                                                                             }
@@ -1330,7 +1348,15 @@ fun HomePage(vm: PaintViewModel) {
                                                             vm.currentFolder = p
                                                             vm.refreshProjects()
                                                         } else {
-                                                            vm.loadProject(p)
+                                                            val cardRect = artworkBoundsMap[p.filePath]?.let {
+                                                                com.reverie.paint.model.WaveRect(it.left, it.top, it.right, it.bottom)
+                                                            }
+                                                            vm.openProjectFromGallery(
+                                                                p = p,
+                                                                cardBoundsPx = cardRect,
+                                                                focusPx = null,
+                                                                delayCaptureFrames = 2,
+                                                            )
                                                         }
                                                     },
                                                 )

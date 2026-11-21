@@ -7496,6 +7496,24 @@ class PaintViewModel : ViewModel() {
     var pendingCanvasOrientation by mutableStateOf<CanvasOrientation?>(null)
     var isBlockingLoading by mutableStateOf(false)
     var blockingLoadingMessage by mutableStateOf("")
+    /** 顶层画廊↔画布扭曲波转场宿主 (仅由 DistortionWaveStage 绑定与释放, 不反向依赖 ui/) */
+    var waveTransitionHost: GalleryWaveTransitionHost? = null
+    /** 当前页切换是否由扭曲波托管 (托管时 AnimatedContent 瞬切, 避免双层叠动画与缩放出画布) */
+    var isWaveTransitionManaged by mutableStateOf(false)
+    /** 转场蓄力等待首帧或退回截屏期间临时隐藏绘画页居中加载弹窗 */
+    var suppressPaintingLoadingOverlay by mutableStateOf(false)
+    /** 绘画页工具栏/顶栏/常驻浮窗是否允许入场显现 (扭曲波扫屏期间先露纯净画布, 扫过后与沉浸态就绪同步丝滑滑入) */
+    var paintingChromeRevealed by mutableStateOf(true)
+    /** 返回画廊波纹期间跳过画廊卡片首屏入场级联, 保持画面连贯不闪跳 */
+    var suppressGalleryEntranceOnce by mutableStateOf(false)
+    /** 最近一次从画廊打开/保存的工程路径与卡片根坐标, 供返回画廊收拢波定位锚点 */
+    var lastOpenedProjectPath: String? = null
+    var lastOpenedCardBoundsPx: com.reverie.paint.model.WaveRect? = null
+    /** loadProject 异步完成结果版本戳与成功标记 (供转场状态机可靠感知加载成败) */
+    var loadProjectOutcomeVersion by mutableIntStateOf(0)
+        internal set
+    var lastLoadProjectSucceeded by mutableStateOf(true)
+        internal set
     var currentFolder by mutableStateOf<com.reverie.paint.model.Project?>(null)
     var searchQuery by mutableStateOf("")
     var pendingExternalImageUri by mutableStateOf<android.net.Uri?>(null)

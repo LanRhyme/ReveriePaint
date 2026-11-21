@@ -41,12 +41,18 @@ internal fun rememberGalleryEntrance(
     tracker: GalleryEntranceTracker,
     key: String,
     index: Int,
+    skipAnimation: Boolean = false,
 ): Animatable<Float, AnimationVector1D> {
-    val cascade = index < ENTRANCE_CASCADE_LIMIT
+    val cascade = !skipAnimation && index < ENTRANCE_CASCADE_LIMIT
     val progress = remember(key) {
         Animatable(if (cascade && !tracker.hasEntered(key)) 0f else 1f)
     }
-    LaunchedEffect(key) {
+    LaunchedEffect(key, skipAnimation) {
+        if (skipAnimation) {
+            tracker.markEntered(key)
+            if (progress.value < 1f) progress.snapTo(1f)
+            return@LaunchedEffect
+        }
         if (!cascade || !tracker.markEntered(key)) return@LaunchedEffect
         val delayMs = (index * ENTRANCE_STAGGER_MS).coerceAtMost(ENTRANCE_MAX_STAGGER_MS)
         if (delayMs > 0) delay(delayMs.toLong())

@@ -156,6 +156,8 @@ import com.reverie.paint.ui.painting.panels.ToolFloatPanel
 import com.reverie.paint.ui.painting.panels.ToolRail
 import com.reverie.paint.ui.painting.panels.TransformPanel
 import com.reverie.paint.ui.painting.panels.*
+import com.reverie.paint.ui.components.transition.paintingChromeEntrance
+import com.reverie.paint.ui.components.transition.rememberChromeEntranceProgress
 
 private class FillDiffusionWave(
     val id: Long,
@@ -224,6 +226,36 @@ fun PaintingPage(
     val indicatorState = remember { TransformIndicatorState() }
     val flashIndicator: () -> Unit = { indicatorState.flash() }
 
+    // 绘画页各工具栏/浮窗入场门控: 画廊扭曲波扫屏期间先呈现纯净画布, 待波前扫过且沉浸态系统栏稳定后错峰滑入,
+    // 消除沉浸态 insets 突变导致的面板瞬跳; 新建画布同样在首帧就绪后轻柔滑入。
+    var chromeEntered by remember {
+        mutableStateOf(
+            vm.paintingChromeRevealed &&
+                !vm.isBlockingLoading &&
+                !vm.awaitingFirstFrameAfterLoad &&
+                Motion.currentSpeed == com.reverie.paint.model.UiAnimationSpeed.OFF,
+        )
+    }
+    LaunchedEffect(vm.paintingChromeRevealed, vm.isBlockingLoading, vm.awaitingFirstFrameAfterLoad) {
+        if (!vm.paintingChromeRevealed) {
+            chromeEntered = false
+        } else if (!chromeEntered && !vm.isBlockingLoading && !vm.awaitingFirstFrameAfterLoad) {
+            chromeEntered = true
+        }
+    }
+    val topBarEntrance = rememberChromeEntranceProgress(
+        revealed = chromeEntered,
+        delayMs = 0,
+    )
+    val toolRailEntrance = rememberChromeEntranceProgress(
+        revealed = chromeEntered,
+        delayMs = 45,
+    )
+    val sliderRailEntrance = rememberChromeEntranceProgress(
+        revealed = chromeEntered,
+        delayMs = 85,
+    )
+
     // Auto-hide action toast 1.0s after trigger
     LaunchedEffect(vm.actionToastRevision) {
         if (vm.actionToastRevision > 0L && vm.actionToastMessage != null) {
@@ -241,7 +273,7 @@ fun PaintingPage(
     }
 
     // 单次消费工程恢复的二值方向（0°/90°），只改旋转角，不改缩放/平移/历史；触摸视图已建立走 applyViewTransform，
-    // 否则只改本页 rotation，由 CanvasView 的 update 块同步。
+    // 否则只改本页 rotation，由 CanvasView 的 update 块同步。打开工程恢复方向属于静默初始化，不弹出缩放/旋转提示。
     LaunchedEffect(vm.pendingCanvasOrientation) {
         val restored = vm.pendingCanvasOrientation ?: return@LaunchedEffect
         val view = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
@@ -251,7 +283,6 @@ fun PaintingPage(
             rotation = restored.rotationDegrees
         }
         vm.pendingCanvasOrientation = null
-        flashIndicator()
     }
 
     var textDialogPos by remember { mutableStateOf<Pair<Float, Float>?>(null) }
@@ -879,7 +910,9 @@ fun PaintingPage(
                     rotation = r
                     panX = px
                     panY = py
-                    indicatorState.onPinch()
+                    if (chromeEntered) {
+                        indicatorState.onPinch()
+                    }
                 },
                 onTouchViewReady = { canvasTouchView = it },
                 onTextRequested = { x, y ->
@@ -1254,7 +1287,9 @@ fun PaintingPage(
                         androidx.compose.foundation.layout.BoxWithConstraints(modifier = Modifier.fillMaxSize()) {
                             // 1. Floating TopBar
                         TopBar(
-                            modifier = resolveFloatingModifier("TOPBAR", topPos).zIndex(50f),
+                            modifier = resolveFloatingModifier("TOPBAR", topPos)
+                                .zIndex(50f)
+                                .paintingChromeEntrance(topBarEntrance, topPos.edge),
                         vm = vm,
                         opacity = vm.uiOpacity,
                         hazeState = hazeState,
@@ -1388,7 +1423,9 @@ fun PaintingPage(
 
                     // 2. Floating ToolRail
                     FloatingToolRailCapsule(
-                        modifier = resolveFloatingModifier("TOOLRAIL", toolPos).zIndex(50f),
+                        modifier = resolveFloatingModifier("TOOLRAIL", toolPos)
+                            .zIndex(50f)
+                            .paintingChromeEntrance(toolRailEntrance, toolPos.edge),
                         vm = vm,
                         hazeState = hazeState,
                         opacity = vm.uiOpacity.toDouble(),
@@ -1475,7 +1512,9 @@ fun PaintingPage(
 
                     // 3. Floating SliderRail
                     FloatingSliderRailCapsule(
-                        modifier = resolveFloatingModifier("SLIDERRAIL", sliderPos).zIndex(50f),
+                        modifier = resolveFloatingModifier("SLIDERRAIL", sliderPos)
+                            .zIndex(50f)
+                            .paintingChromeEntrance(sliderRailEntrance, sliderPos.edge),
                         vm = vm,
                         hazeState = hazeState,
                         opacity = vm.uiOpacity.toDouble(),
@@ -1522,7 +1561,11 @@ fun PaintingPage(
                         modifier = Modifier
                             .align(if (vm.leftHandMode) Alignment.TopStart else Alignment.TopEnd)
                             .statusBarsPadding()
-                            .zIndex(50f),
+                            .zIndex(50f)
+                            .paintingChromeEntrance(
+                                progress = topBarEntrance,
+                                edge = com.reverie.paint.model.PanelEdge.TOP,
+                            ),
                         vm = vm,
                         opacity = vm.uiOpacity,
                         hazeState = hazeState,
@@ -1581,7 +1624,15 @@ fun PaintingPage(
                                 .padding(top = 48.dp) // Gap from top bar
                                 .navigationBarsPadding()
                                 .fillMaxHeight()
-                                .zIndex(50f),
+                                .zIndex(50f)
+                                .paintingChromeEntrance(
+                                    progress = toolRailEntrance,
+                                    edge = if (vm.leftHandMode) {
+                                        com.reverie.paint.model.PanelEdge.RIGHT
+                                    } else {
+                                        com.reverie.paint.model.PanelEdge.LEFT
+                                    },
+                                ),
                         vm = vm,
                         hazeState = hazeState,
                         opacity = vm.uiOpacity.toDouble(),
@@ -1808,18 +1859,23 @@ fun PaintingPage(
 
         // ---- Transform tool options panel ----
         androidx.compose.animation.AnimatedVisibility(
-            visible = filterController == null && tool == Tool.TRANSFORM && tfState.active,
+            visible = filterController == null && tool == Tool.TRANSFORM && tfState.active && chromeEntered,
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = bottomDockPadding),
             enter =
-                androidx.compose.animation.fadeIn(Motion.enterSpring()),
+                androidx.compose.animation.fadeIn(Motion.enterSpring()) +
+                    androidx.compose.animation.slideInVertically(
+                        Motion.enterSpring(),
+                        initialOffsetY = { it / 2 },
+                    ),
             exit =
-                androidx.compose.animation.fadeOut(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ),
+                androidx.compose.animation.fadeOut(Motion.exitTween(180)) +
+                    androidx.compose.animation.slideOutVertically(
+                        Motion.exitTween(180),
+                        targetOffsetY = { it / 2 },
+                    ),
         ) {
             TransformPanel(
                 vm = vm,
@@ -1851,18 +1907,23 @@ fun PaintingPage(
 
         // ---- Shape tools options panel ----
         androidx.compose.animation.AnimatedVisibility(
-            visible = filterController == null && (tool in shapeTools || tool.group == ToolGroup.SHAPES),
+            visible = filterController == null && (tool in shapeTools || tool.group == ToolGroup.SHAPES) && chromeEntered,
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = bottomDockPadding),
             enter =
-                androidx.compose.animation.fadeIn(Motion.enterSpring()),
+                androidx.compose.animation.fadeIn(Motion.enterSpring()) +
+                    androidx.compose.animation.slideInVertically(
+                        Motion.enterSpring(),
+                        initialOffsetY = { it / 2 },
+                    ),
             exit =
-                androidx.compose.animation.fadeOut(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ),
+                androidx.compose.animation.fadeOut(Motion.exitTween(180)) +
+                    androidx.compose.animation.slideOutVertically(
+                        Motion.exitTween(180),
+                        targetOffsetY = { it / 2 },
+                    ),
         ) {
             ShapeToolPanel(
                 vm = vm,
@@ -1872,18 +1933,23 @@ fun PaintingPage(
 
         // ---- Typography / Text tool options panel ----
         androidx.compose.animation.AnimatedVisibility(
-            visible = filterController == null && tool == Tool.TEXT && vm.isTypographyEditing,
+            visible = filterController == null && tool == Tool.TEXT && vm.isTypographyEditing && chromeEntered,
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = bottomDockPadding),
             enter =
-                androidx.compose.animation.fadeIn(Motion.enterSpring()),
+                androidx.compose.animation.fadeIn(Motion.enterSpring()) +
+                    androidx.compose.animation.slideInVertically(
+                        Motion.enterSpring(),
+                        initialOffsetY = { it / 2 },
+                    ),
             exit =
-                androidx.compose.animation.fadeOut(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ),
+                androidx.compose.animation.fadeOut(Motion.exitTween(180)) +
+                    androidx.compose.animation.slideOutVertically(
+                        Motion.exitTween(180),
+                        targetOffsetY = { it / 2 },
+                    ),
         ) {
             com.reverie.paint.ui.painting.panels.TypographyPanel(
                 vm = vm,
@@ -1894,18 +1960,23 @@ fun PaintingPage(
 
         // ---- Canvas Adjust options panel (裁切与扩展 / 图像缩放) ----
         androidx.compose.animation.AnimatedVisibility(
-            visible = filterController == null && vm.isCanvasAdjustActive,
+            visible = filterController == null && vm.isCanvasAdjustActive && chromeEntered,
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
                     .padding(bottom = bottomDockPadding),
             enter =
-                androidx.compose.animation.fadeIn(Motion.enterSpring()),
+                androidx.compose.animation.fadeIn(Motion.enterSpring()) +
+                    androidx.compose.animation.slideInVertically(
+                        Motion.enterSpring(),
+                        initialOffsetY = { it / 2 },
+                    ),
             exit =
-                androidx.compose.animation.fadeOut(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ),
+                androidx.compose.animation.fadeOut(Motion.exitTween(180)) +
+                    androidx.compose.animation.slideOutVertically(
+                        Motion.exitTween(180),
+                        targetOffsetY = { it / 2 },
+                    ),
         ) {
             CanvasAdjustPanel(
                 vm = vm,
@@ -1915,15 +1986,20 @@ fun PaintingPage(
 
         // ---- Gradient / Fill / Liquify tool options ----
         androidx.compose.animation.AnimatedVisibility(
-            visible = filterController == null && tool == Tool.GRADIENT,
+            visible = filterController == null && tool == Tool.GRADIENT && chromeEntered,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomDockPadding),
             enter =
-                androidx.compose.animation.fadeIn(Motion.enterSpring()),
+                androidx.compose.animation.fadeIn(Motion.enterSpring()) +
+                    androidx.compose.animation.slideInVertically(
+                        Motion.enterSpring(),
+                        initialOffsetY = { it / 2 },
+                    ),
             exit =
-                androidx.compose.animation.fadeOut(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ),
+                androidx.compose.animation.fadeOut(Motion.exitTween(180)) +
+                    androidx.compose.animation.slideOutVertically(
+                        Motion.exitTween(180),
+                        targetOffsetY = { it / 2 },
+                    ),
         ) {
             GradientPanel(
                 vm = vm,
@@ -1941,23 +2017,27 @@ fun PaintingPage(
         // switches to pure color (100% opacity + Normal + no inherit alpha).
         // Closing solo restores every layer's original state exactly.
         androidx.compose.animation.AnimatedVisibility(
-            visible = filterController == null && vm.soloActive,
+            visible = filterController == null && vm.soloActive && chromeEntered,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomDockPadding),
             enter =
                 androidx.compose.animation.fadeIn(Motion.enterSpring()) +
                     androidx.compose.animation.scaleIn(
                         Motion.enterSpring(),
                         initialScale = 0.95f,
+                    ) +
+                    androidx.compose.animation.slideInVertically(
+                        Motion.enterSpring(),
+                        initialOffsetY = { it / 2 },
                     ),
             exit =
-                androidx.compose.animation.fadeOut(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ) +
+                androidx.compose.animation.fadeOut(Motion.exitTween(180)) +
                     androidx.compose.animation.scaleOut(
-                        androidx.compose.animation.core
-                            .tween(200),
+                        Motion.exitTween(180),
                         targetScale = 0.95f,
+                    ) +
+                    androidx.compose.animation.slideOutVertically(
+                        Motion.exitTween(180),
+                        targetOffsetY = { it / 2 },
                     ),
         ) {
             ToolFloatPanel(modifier = Modifier, vm = vm, hazeState = hazeState, slot = UiPanelSlot.SOLO_MODE_BAR) {
@@ -1985,15 +2065,20 @@ fun PaintingPage(
             }
         }
         androidx.compose.animation.AnimatedVisibility(
-            visible = filterController == null && tool == Tool.FILL,
+            visible = filterController == null && tool == Tool.FILL && chromeEntered,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomDockPadding),
             enter =
-                androidx.compose.animation.fadeIn(Motion.enterSpring()),
+                androidx.compose.animation.fadeIn(Motion.enterSpring()) +
+                    androidx.compose.animation.slideInVertically(
+                        Motion.enterSpring(),
+                        initialOffsetY = { it / 2 },
+                    ),
             exit =
-                androidx.compose.animation.fadeOut(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ),
+                androidx.compose.animation.fadeOut(Motion.exitTween(180)) +
+                    androidx.compose.animation.slideOutVertically(
+                        Motion.exitTween(180),
+                        targetOffsetY = { it / 2 },
+                    ),
         ) {
             FillPanel(
                 vm = vm,
@@ -2005,15 +2090,20 @@ fun PaintingPage(
             )
         }
         androidx.compose.animation.AnimatedVisibility(
-            visible = filterController == null && tool == Tool.ENCLOSE_FILL,
+            visible = filterController == null && tool == Tool.ENCLOSE_FILL && chromeEntered,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomDockPadding),
             enter =
-                androidx.compose.animation.fadeIn(Motion.enterSpring()),
+                androidx.compose.animation.fadeIn(Motion.enterSpring()) +
+                    androidx.compose.animation.slideInVertically(
+                        Motion.enterSpring(),
+                        initialOffsetY = { it / 2 },
+                    ),
             exit =
-                androidx.compose.animation.fadeOut(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ),
+                androidx.compose.animation.fadeOut(Motion.exitTween(180)) +
+                    androidx.compose.animation.slideOutVertically(
+                        Motion.exitTween(180),
+                        targetOffsetY = { it / 2 },
+                    ),
         ) {
             EncloseFillPanel(
                 vm = vm,
@@ -2023,15 +2113,20 @@ fun PaintingPage(
             )
         }
         androidx.compose.animation.AnimatedVisibility(
-            visible = filterController == null && tool == Tool.LIQUIFY,
+            visible = filterController == null && tool == Tool.LIQUIFY && chromeEntered,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomDockPadding),
             enter =
-                androidx.compose.animation.fadeIn(Motion.enterSpring()),
+                androidx.compose.animation.fadeIn(Motion.enterSpring()) +
+                    androidx.compose.animation.slideInVertically(
+                        Motion.enterSpring(),
+                        initialOffsetY = { it / 2 },
+                    ),
             exit =
-                androidx.compose.animation.fadeOut(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ),
+                androidx.compose.animation.fadeOut(Motion.exitTween(180)) +
+                    androidx.compose.animation.slideOutVertically(
+                        Motion.exitTween(180),
+                        targetOffsetY = { it / 2 },
+                    ),
         ) {
             LiquifyPanel(
                 vm = vm,
@@ -2052,15 +2147,20 @@ fun PaintingPage(
             )
         }
         androidx.compose.animation.AnimatedVisibility(
-            visible = filterController == null && tool == Tool.MEASURE,
+            visible = filterController == null && tool == Tool.MEASURE && chromeEntered,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomDockPadding),
             enter =
-                androidx.compose.animation.fadeIn(Motion.enterSpring()),
+                androidx.compose.animation.fadeIn(Motion.enterSpring()) +
+                    androidx.compose.animation.slideInVertically(
+                        Motion.enterSpring(),
+                        initialOffsetY = { it / 2 },
+                    ),
             exit =
-                androidx.compose.animation.fadeOut(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ),
+                androidx.compose.animation.fadeOut(Motion.exitTween(180)) +
+                    androidx.compose.animation.slideOutVertically(
+                        Motion.exitTween(180),
+                        targetOffsetY = { it / 2 },
+                    ),
         ) {
             MeasurePanel(
                 vm = vm,
@@ -2075,15 +2175,20 @@ fun PaintingPage(
 
         // ---- Panel (comic) tool options panel ----
         androidx.compose.animation.AnimatedVisibility(
-            visible = filterController == null && tool == Tool.PANEL,
+            visible = filterController == null && tool == Tool.PANEL && chromeEntered,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomDockPadding),
             enter =
-                androidx.compose.animation.fadeIn(Motion.enterSpring()),
+                androidx.compose.animation.fadeIn(Motion.enterSpring()) +
+                    androidx.compose.animation.slideInVertically(
+                        Motion.enterSpring(),
+                        initialOffsetY = { it / 2 },
+                    ),
             exit =
-                androidx.compose.animation.fadeOut(
-                    androidx.compose.animation.core
-                        .tween(200),
-                ),
+                androidx.compose.animation.fadeOut(Motion.exitTween(180)) +
+                    androidx.compose.animation.slideOutVertically(
+                        Motion.exitTween(180),
+                        targetOffsetY = { it / 2 },
+                    ),
         ) {
             PanelToolPanel(
                 vm = vm,
@@ -2122,7 +2227,7 @@ fun PaintingPage(
         // Context-sensitive: shown while a selection tool is active, sliding
         // in from the canvas edge; draggable so it never blocks the work
         androidx.compose.animation.AnimatedVisibility(
-            visible = filterController == null && tool in selectionTools,
+            visible = filterController == null && tool in selectionTools && chromeEntered,
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
@@ -2262,6 +2367,7 @@ fun PaintingPage(
             tool = tool,
             vm = vm,
             hazeState = hazeState,
+            chromeRevealed = chromeEntered,
             modifier = Modifier.align(Alignment.BottomCenter).padding(bottom = bottomDockPadding),
         )
         // ---- 动画时间轴面板 (仅动画画布): 悬浮模式居中自适应避让，非悬浮模式紧贴左侧滑块工具条 ----
@@ -2307,7 +2413,7 @@ fun PaintingPage(
         }
 
         AnimatedVisibility(
-            visible = vm.anim.enabled && vm.anim.panelOpen,
+            visible = vm.anim.enabled && vm.anim.panelOpen && chromeEntered,
             enter = fadeIn(Motion.enterSpring()) + slideInVertically(Motion.enterSpring()) { it },
             exit = fadeOut(Motion.exitTween(200)) + slideOutVertically(Motion.exitTween(200)) { it },
             modifier = animTimelineModifier,
@@ -2316,7 +2422,7 @@ fun PaintingPage(
         }
         // ---- Action Toast (Undo/Redo, top-center, animated pill) ----
         androidx.compose.animation.AnimatedVisibility(
-            visible = vm.undoToastEnabled && vm.actionToastMessage != null,
+            visible = vm.undoToastEnabled && vm.actionToastMessage != null && chromeEntered,
             enter =
                 androidx.compose.animation.fadeIn(
                     androidx.compose.animation.core
@@ -2400,6 +2506,7 @@ fun PaintingPage(
             indicatorState = indicatorState,
             isFilterAdjustActive = vm.isFilterAdjustActive,
             hasActionToast = vm.actionToastMessage != null,
+            suppressed = !chromeEntered,
             zoomState = zoomState,
             rotationState = rotationState,
             fitScale = fitScale,
@@ -2603,6 +2710,7 @@ fun PaintingPage(
         PaintingQuickWindows(
             vm = vm,
             hazeState = hazeState,
+            chromeRevealed = chromeEntered,
             onOpenFullLayerPanel = { layerPanelOpen = true },
             onOpenLayerDetails = { layerId ->
                 targetFilterLayers = null
@@ -2717,52 +2825,58 @@ fun PaintingPage(
 
 
         // Drawing Guides & Assist panel
-        if (drawingGuidePanelOpen) {
-            val (guideAlign, guidePaddingModifier) = if (vm.floatingUiConfig.enabled) {
-                val hostPos = vm.floatingUiConfig.toolRailPosition
-                val mDp = vm.floatingUiConfig.popupInwardMarginDp(hostPos).dp
-                when (hostPos.edge) {
-                    com.reverie.paint.model.PanelEdge.LEFT -> {
-                        when (hostPos.alignment) {
-                            com.reverie.paint.model.PanelAlignment.START -> Alignment.TopStart to Modifier.padding(start = mDp, top = 24.dp)
-                            com.reverie.paint.model.PanelAlignment.CENTER -> Alignment.CenterStart to Modifier.padding(start = mDp)
-                            com.reverie.paint.model.PanelAlignment.END -> Alignment.BottomStart to Modifier.padding(start = mDp, bottom = 24.dp)
-                        }
-                    }
-                    com.reverie.paint.model.PanelEdge.RIGHT -> {
-                        when (hostPos.alignment) {
-                            com.reverie.paint.model.PanelAlignment.START -> Alignment.TopEnd to Modifier.padding(end = mDp, top = 24.dp)
-                            com.reverie.paint.model.PanelAlignment.CENTER -> Alignment.CenterEnd to Modifier.padding(end = mDp)
-                            com.reverie.paint.model.PanelAlignment.END -> Alignment.BottomEnd to Modifier.padding(end = mDp, bottom = 24.dp)
-                        }
-                    }
-                    com.reverie.paint.model.PanelEdge.TOP -> {
-                        when (hostPos.alignment) {
-                            com.reverie.paint.model.PanelAlignment.START -> Alignment.TopStart to Modifier.padding(start = 24.dp, top = mDp)
-                            com.reverie.paint.model.PanelAlignment.CENTER -> Alignment.TopCenter to Modifier.padding(top = mDp)
-                            com.reverie.paint.model.PanelAlignment.END -> Alignment.TopEnd to Modifier.padding(end = 24.dp, top = mDp)
-                        }
-                    }
-                    com.reverie.paint.model.PanelEdge.BOTTOM -> {
-                        when (hostPos.alignment) {
-                            com.reverie.paint.model.PanelAlignment.START -> Alignment.BottomStart to Modifier.padding(start = 24.dp, bottom = mDp)
-                            com.reverie.paint.model.PanelAlignment.CENTER -> Alignment.BottomCenter to Modifier.padding(bottom = mDp)
-                            com.reverie.paint.model.PanelAlignment.END -> Alignment.BottomEnd to Modifier.padding(end = 24.dp, bottom = mDp)
-                        }
+        val (guideAlign, guidePaddingModifier) = if (vm.floatingUiConfig.enabled) {
+            val hostPos = vm.floatingUiConfig.toolRailPosition
+            val mDp = vm.floatingUiConfig.popupInwardMarginDp(hostPos).dp
+            when (hostPos.edge) {
+                com.reverie.paint.model.PanelEdge.LEFT -> {
+                    when (hostPos.alignment) {
+                        com.reverie.paint.model.PanelAlignment.START -> Alignment.TopStart to Modifier.padding(start = mDp, top = 24.dp)
+                        com.reverie.paint.model.PanelAlignment.CENTER -> Alignment.CenterStart to Modifier.padding(start = mDp)
+                        com.reverie.paint.model.PanelAlignment.END -> Alignment.BottomStart to Modifier.padding(start = mDp, bottom = 24.dp)
                     }
                 }
-            } else {
-                (if (vm.leftHandMode) Alignment.TopStart else Alignment.TopEnd) to Modifier.padding(
-                    top = 56.dp,
-                    start = if (vm.leftHandMode) 12.dp else 0.dp,
-                    end = if (vm.leftHandMode) 0.dp else 12.dp,
-                )
+                com.reverie.paint.model.PanelEdge.RIGHT -> {
+                    when (hostPos.alignment) {
+                        com.reverie.paint.model.PanelAlignment.START -> Alignment.TopEnd to Modifier.padding(end = mDp, top = 24.dp)
+                        com.reverie.paint.model.PanelAlignment.CENTER -> Alignment.CenterEnd to Modifier.padding(end = mDp)
+                        com.reverie.paint.model.PanelAlignment.END -> Alignment.BottomEnd to Modifier.padding(end = mDp, bottom = 24.dp)
+                    }
+                }
+                com.reverie.paint.model.PanelEdge.TOP -> {
+                    when (hostPos.alignment) {
+                        com.reverie.paint.model.PanelAlignment.START -> Alignment.TopStart to Modifier.padding(start = 24.dp, top = mDp)
+                        com.reverie.paint.model.PanelAlignment.CENTER -> Alignment.TopCenter to Modifier.padding(top = mDp)
+                        com.reverie.paint.model.PanelAlignment.END -> Alignment.TopEnd to Modifier.padding(end = 24.dp, top = mDp)
+                    }
+                }
+                com.reverie.paint.model.PanelEdge.BOTTOM -> {
+                    when (hostPos.alignment) {
+                        com.reverie.paint.model.PanelAlignment.START -> Alignment.BottomStart to Modifier.padding(start = 24.dp, bottom = mDp)
+                        com.reverie.paint.model.PanelAlignment.CENTER -> Alignment.BottomCenter to Modifier.padding(bottom = mDp)
+                        com.reverie.paint.model.PanelAlignment.END -> Alignment.BottomEnd to Modifier.padding(end = 24.dp, bottom = mDp)
+                    }
+                }
             }
+        } else {
+            (if (vm.leftHandMode) Alignment.TopStart else Alignment.TopEnd) to Modifier.padding(
+                top = 56.dp,
+                start = if (vm.leftHandMode) 12.dp else 0.dp,
+                end = if (vm.leftHandMode) 0.dp else 12.dp,
+            )
+        }
+        androidx.compose.animation.AnimatedVisibility(
+            visible = drawingGuidePanelOpen,
+            enter = androidx.compose.animation.fadeIn(Motion.enterSpring()) +
+                androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
+            exit = androidx.compose.animation.fadeOut(Motion.exitTween(150)) +
+                androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
+            modifier = Modifier
+                .align(guideAlign)
+                .then(guidePaddingModifier),
+        ) {
             DrawingGuidePanel(
                 vm = vm,
-                modifier = Modifier
-                    .align(guideAlign)
-                    .then(guidePaddingModifier),
                 onDismiss = { drawingGuidePanelOpen = false },
                 hazeState = hazeState,
             )
@@ -2791,77 +2905,80 @@ fun PaintingPage(
         // 换文档期间 (vm.awaitingFirstFrameAfterLoad) 遮罩必须盖到新文档第一帧上屏: 那段时间
         // 画布上一个文档像素都没有, 提前撤遮罩就是一片空白; 底色也换成不透明的画布底色
         // (半透明黑下面透出来的, 只会是"换文档前的残影")。
-        androidx.compose.animation.AnimatedVisibility(
-            visible = vm.isBlockingLoading || vm.awaitingFirstFrameAfterLoad,
-            enter =
-                androidx.compose.animation.fadeIn(
-                    androidx.compose.animation.core
-                        .tween(150),
-                ) +
-                    androidx.compose.animation.scaleIn(
+        // 画廊扭曲波转场托管蓄力或退出截屏时由顶层舞台接管加载反馈, 立即撤除本弹窗防止残影。
+        if (!vm.suppressPaintingLoadingOverlay) {
+            androidx.compose.animation.AnimatedVisibility(
+                visible = vm.isBlockingLoading || vm.awaitingFirstFrameAfterLoad,
+                enter =
+                    androidx.compose.animation.fadeIn(
                         androidx.compose.animation.core
                             .tween(150),
-                        initialScale = 0.94f,
-                    ),
-            exit =
-                androidx.compose.animation.fadeOut(
-                    androidx.compose.animation.core
-                        .tween(150),
-                ) +
-                    androidx.compose.animation.scaleOut(
-                        androidx.compose.animation.core
-                            .tween(150),
-                        targetScale = 0.94f,
-                    ),
-            modifier = Modifier.zIndex(999f),
-        ) {
-            Box(
-                modifier =
-                    Modifier
-                        .fillMaxSize()
-                        .background(
-                            if (vm.awaitingFirstFrameAfterLoad) {
-                                Morandi.canvasBg
-                            } else {
-                                androidx.compose.ui.graphics.Color.Black
-                                    .copy(alpha = 0.45f)
-                            },
-                        ).clickable(
-                            interactionSource =
-                                remember {
-                                    androidx.compose.foundation.interaction
-                                        .MutableInteractionSource()
-                                },
-                            indication = null,
-                            onClick = {},
+                    ) +
+                        androidx.compose.animation.scaleIn(
+                            androidx.compose.animation.core
+                                .tween(150),
+                            initialScale = 0.94f,
                         ),
-                contentAlignment = Alignment.Center,
+                exit =
+                    androidx.compose.animation.fadeOut(
+                        androidx.compose.animation.core
+                            .tween(150),
+                    ) +
+                        androidx.compose.animation.scaleOut(
+                            androidx.compose.animation.core
+                                .tween(150),
+                            targetScale = 0.94f,
+                        ),
+                modifier = Modifier.zIndex(999f),
             ) {
                 Box(
                     modifier =
                         Modifier
-                            .clip(RoundedCornerShape(18.dp))
-                            .background(Morandi.panelHi)
-                            .glassBorder(RoundedCornerShape(18.dp))
-                            .padding(horizontal = 28.dp, vertical = 22.dp),
+                            .fillMaxSize()
+                            .background(
+                                if (vm.awaitingFirstFrameAfterLoad) {
+                                    Morandi.canvasBg
+                                } else {
+                                    androidx.compose.ui.graphics.Color.Black
+                                        .copy(alpha = 0.45f)
+                                },
+                            ).clickable(
+                                interactionSource =
+                                    remember {
+                                        androidx.compose.foundation.interaction
+                                            .MutableInteractionSource()
+                                    },
+                                indication = null,
+                                onClick = {},
+                            ),
                     contentAlignment = Alignment.Center,
                 ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                        verticalArrangement = Arrangement.Center,
+                    Box(
+                        modifier =
+                            Modifier
+                                .clip(RoundedCornerShape(18.dp))
+                                .background(Morandi.panelHi)
+                                .glassBorder(RoundedCornerShape(18.dp))
+                                .padding(horizontal = 28.dp, vertical = 22.dp),
+                        contentAlignment = Alignment.Center,
                     ) {
-                        androidx.compose.material3.CircularProgressIndicator(
-                            color = Morandi.accent,
-                            strokeWidth = 3.dp,
-                            modifier = Modifier.size(36.dp),
-                        )
-                        Spacer(Modifier.height(14.dp))
-                        Text(
-                            text = vm.blockingLoadingMessage.ifBlank { stringResource(R.string.loading_please_wait) },
-                            color = Morandi.text,
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Medium,
-                        )
+                        Column(
+                            horizontalAlignment = Alignment.CenterHorizontally,
+                            verticalArrangement = Arrangement.Center,
+                        ) {
+                            androidx.compose.material3.CircularProgressIndicator(
+                                color = Morandi.accent,
+                                strokeWidth = 3.dp,
+                                modifier = Modifier.size(36.dp),
+                            )
+                            Spacer(Modifier.height(14.dp))
+                            Text(
+                                text = vm.blockingLoadingMessage.ifBlank { stringResource(R.string.loading_please_wait) },
+                                color = Morandi.text,
+                                fontSize = 14.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
                     }
                 }
             }
@@ -2964,8 +3081,9 @@ private fun TransformIndicatorHud(
     isViewTransformLocked: Boolean,
     onToggleLock: () -> Unit,
     modifier: Modifier = Modifier,
+    suppressed: Boolean = false,
 ) {
-    // 变换指示器最后一次触发 1.2s 后自动隐藏; toast 显示期间不保持可见 (避免 toast 退场后冒出 HUD)
+    // 变换指示器最后一次触发 1.2s 后自动隐藏; toast 显示或进工程转场期间不保持可见
     LaunchedEffect(indicatorState.tick) {
         if (indicatorState.tick > 0) {
             kotlinx.coroutines.delay(1200)
@@ -2973,14 +3091,14 @@ private fun TransformIndicatorHud(
         }
     }
 
-    LaunchedEffect(hasActionToast) {
-        if (hasActionToast) {
+    LaunchedEffect(hasActionToast, suppressed) {
+        if (hasActionToast || suppressed) {
             indicatorState.visible = false
         }
     }
 
     AnimatedVisibility(
-        visible = indicatorState.visible && !isFilterAdjustActive && !hasActionToast,
+        visible = indicatorState.visible && !isFilterAdjustActive && !hasActionToast && !suppressed,
         enter =
             fadeIn(
                 spring(stiffness = androidx.compose.animation.core.Spring.StiffnessMediumLow),

@@ -38,7 +38,26 @@ internal fun BoxScope.PaintingQuickWindows(
     hazeState: HazeState,
     onOpenFullLayerPanel: () -> Unit,
     onOpenLayerDetails: (Long) -> Unit,
+    chromeRevealed: Boolean = true,
 ) {
+    // 常驻浮窗在边缘工具栏开始滑入后错峰 ~90ms 轻柔绽放, 避开扭曲波扫屏与沉浸态布局稳定期
+    var quickWindowsRevealed by remember {
+        mutableStateOf(chromeRevealed && Motion.currentSpeed == com.reverie.paint.model.UiAnimationSpeed.OFF)
+    }
+    LaunchedEffect(chromeRevealed) {
+        if (!chromeRevealed) {
+            quickWindowsRevealed = false
+        } else if (!quickWindowsRevealed) {
+            val staggerMs = when (Motion.currentSpeed) {
+                com.reverie.paint.model.UiAnimationSpeed.OFF -> 0L
+                com.reverie.paint.model.UiAnimationSpeed.FAST -> 40L
+                com.reverie.paint.model.UiAnimationSpeed.NORMAL -> 90L
+            }
+            if (staggerMs > 0L) kotlinx.coroutines.delay(staggerMs)
+            quickWindowsRevealed = true
+        }
+    }
+
     // ---- Reference Window & Quick Windows 布局状态管理 ----
     // 仅初次打开或未定位过时居中显示; 后续打开或旋转时保持用户拖拽位置 (横竖屏独立记忆各方向坐标)
     val density = LocalDensity.current
@@ -175,7 +194,7 @@ internal fun BoxScope.PaintingQuickWindows(
 
     // ---- Persistent Floating Reference Window (常态固定显示参考窗口) ----
     AnimatedVisibility(
-        visible = vm.referenceWindowOpen,
+        visible = vm.referenceWindowOpen && quickWindowsRevealed,
         enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
         exit = fadeOut(Motion.exitTween(150)) + androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
         modifier = Modifier.zIndex(70f),
@@ -190,7 +209,7 @@ internal fun BoxScope.PaintingQuickWindows(
 
     // ---- Persistent Floating Quick Action Window (常驻悬浮快捷操作小窗) ----
     AnimatedVisibility(
-        visible = vm.quickActionWindowOpen,
+        visible = vm.quickActionWindowOpen && quickWindowsRevealed,
         enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
         exit = fadeOut(Motion.exitTween(150)) + androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
         modifier = Modifier.zIndex(75f),
@@ -208,7 +227,7 @@ internal fun BoxScope.PaintingQuickWindows(
 
     // ---- Persistent Floating Quick Brush Window (常驻悬浮快捷笔刷小窗) ----
     AnimatedVisibility(
-        visible = vm.quickBrushWindowOpen,
+        visible = vm.quickBrushWindowOpen && quickWindowsRevealed,
         enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
         exit = fadeOut(Motion.exitTween(150)) + androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
         modifier = Modifier.zIndex(76f),
@@ -225,18 +244,12 @@ internal fun BoxScope.PaintingQuickWindows(
     }
 
     // ---- Persistent Floating Quick Color Window (常驻悬浮快捷颜色小窗) ----
-    //
-    // 这里不使用 AnimatedVisibility 做淡入/缩放: 该面板进入过渡态时, 其图层会被裁到
-    // 错误的偏小边界 —— 逐帧抓图实测, 过渡期间只渲染出顶部约 33% 宽 × 49% 高的区域
-    // (标题可见、文字尺寸正常, 右侧与底部被切掉), 过渡结束后才突然恢复完整, 观感是
-    // 「先露出一小块再整体展开」的两段式割裂。
-    //
-    // 已排除: animateContentSize 的零尺寸初始化、hazeChild 模糊、Modifier.shadow 图层、
-    // requiredSize 强制尺寸、onSizeChanged 布局期写状态。去掉动画后渲染与稳定态完全一致
-    // (标题宽 91px / 垂直 262..858), 可确认问题出在该面板的图层堆叠与过渡动画不兼容。
-    // 改为瞬时显隐后既不裁切, 也不再产生过渡帧掉帧。
-    // 后续若要恢复动画, 需先把面板背景从 haze/阴影图层改为普通绘制再接入过渡。
-    if (vm.quickColorWindowOpen) {
+    AnimatedVisibility(
+        visible = vm.quickColorWindowOpen && quickWindowsRevealed,
+        enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
+        exit = fadeOut(Motion.exitTween(150)) + androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
+        modifier = Modifier.zIndex(77f),
+    ) {
         com.reverie.paint.ui.painting.quickcolor.QuickColorWindow(
             vm = vm,
             hazeState = hazeState,
@@ -250,7 +263,7 @@ internal fun BoxScope.PaintingQuickWindows(
 
     // ---- Persistent Floating Quick OKLCH Window (常驻悬浮 OKLCH 调色小窗) ----
     AnimatedVisibility(
-        visible = vm.quickOklchWindowOpen,
+        visible = vm.quickOklchWindowOpen && quickWindowsRevealed,
         enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
         exit = fadeOut(Motion.exitTween(150)) + androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
         modifier = Modifier.zIndex(77.5f),
@@ -268,7 +281,7 @@ internal fun BoxScope.PaintingQuickWindows(
 
     // ---- Persistent Floating Quick Layer Window (常驻悬浮快捷图层小窗) ----
     AnimatedVisibility(
-        visible = vm.quickLayerWindowOpen,
+        visible = vm.quickLayerWindowOpen && quickWindowsRevealed,
         enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
         exit = fadeOut(Motion.exitTween(150)) + androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
         modifier = Modifier.zIndex(78f),
