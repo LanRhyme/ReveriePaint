@@ -24,6 +24,7 @@ import androidx.compose.animation.core.infiniteRepeatable
 import androidx.compose.animation.core.rememberInfiniteTransition
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.core.animateFloat
+import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -32,6 +33,8 @@ import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.FilterQuality
 import androidx.compose.ui.graphics.Path
+import androidx.compose.ui.graphics.StrokeCap
+import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.TileMode
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.asAndroidBitmap
@@ -134,6 +137,26 @@ internal fun CanvasOverlay(
         ),
         label = "selectionFraction"
     )
+
+    // 选区闭合/生成时的晶莹轮廓流光爆发 (Selection Contour Flash)
+    val selectionFlashProgress = remember { Animatable(1f) }
+    var lastFlashOutline by remember { mutableStateOf<Path?>(null) }
+    LaunchedEffect(vm.selectionOutlinePath) {
+        val path = vm.selectionOutlinePath
+        if (path != null && path !== lastFlashOutline) {
+            lastFlashOutline = path
+            selectionFlashProgress.snapTo(0f)
+            selectionFlashProgress.animateTo(
+                targetValue = 1f,
+                animationSpec = tween(
+                    durationMillis = 360,
+                    easing = FastOutSlowInEasing,
+                ),
+            )
+        } else if (path == null) {
+            lastFlashOutline = null
+        }
+    }
 
     // 吸色放大镜平滑微弹出现与渐隐动画
     val pickerAnimProgress by androidx.compose.animation.core.animateFloatAsState(
@@ -1467,6 +1490,35 @@ internal fun CanvasOverlay(
                     vm.selectionOutlinePath?.let { outlinePath ->
                         val currentScale = (zoom.value * fitScale).coerceAtLeast(0.001f)
                         with(CanvasDecorDraw) { drawSelectionAnts(outlinePath, currentScale, animFraction) }
+
+                        // 选区闭合/生成瞬间的晶莹轮廓流光爆发 (Selection Contour Flash)
+                        val flashFrac = selectionFlashProgress.value
+                        if (flashFrac < 1f) {
+                            val flashAlpha = (1f - flashFrac).coerceIn(0f, 1f)
+                            val glowWidth = (2.2.dp + 5.0.dp * flashFrac).toPx() / currentScale
+                            val coreWidth = (1.5.dp + 0.8.dp * (1f - flashFrac)).toPx() / currentScale
+
+                            // 柔和外晕 (Morandi Accent / Cyan Light)
+                            drawPath(
+                                path = outlinePath,
+                                color = Morandi.accent.copy(alpha = 0.55f * flashAlpha),
+                                style = Stroke(
+                                    width = glowWidth,
+                                    cap = StrokeCap.Round,
+                                    join = StrokeJoin.Round,
+                                ),
+                            )
+                            // 晶莹白光高光核心
+                            drawPath(
+                                path = outlinePath,
+                                color = Color.White.copy(alpha = 0.90f * flashAlpha),
+                                style = Stroke(
+                                    width = coreWidth,
+                                    cap = StrokeCap.Round,
+                                    join = StrokeJoin.Round,
+                                ),
+                            )
+                        }
                     }
                 }
 
