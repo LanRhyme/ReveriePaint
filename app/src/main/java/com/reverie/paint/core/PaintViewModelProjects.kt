@@ -69,6 +69,29 @@ internal fun checkProjectDiskSpace(targetFile: File, requiredBytes: Long): Boole
     }
 }
 
+private fun PaintViewModel.layersTextJson(): String {
+    val snapshot = if (isTypographyEditing && editingTextLayerId != null && typographyConfig.text.isNotBlank()) {
+        val lid = editingTextLayerId!!
+        val existing = activeTextLayers[lid] ?: emptyList()
+        val idx = existing.indexOfFirst { it.id == typographyConfig.id }
+        val merged = if (idx >= 0) {
+            existing.toMutableList().apply { set(idx, typographyConfig) }
+        } else {
+            existing + typographyConfig
+        }
+        activeTextLayers + (lid to merged)
+    } else {
+        activeTextLayers
+    }
+    if (snapshot.isEmpty()) return ""
+    return snapshot.entries.joinToString(",") { (layerId, items) ->
+        val idx = layers.indexOfFirst { it.id == layerId }
+        val name = if (idx in 0 until layers.size) layers[idx].name else ""
+        val itemsArr = items.joinToString(",") { it.toJsonObject().toString() }
+        """{"layerId":$layerId,"layerIndex":$idx,"layerName":${org.json.JSONObject.quote(name)},"items":[$itemsArr]}"""
+    }
+}
+
 // Blocking loading overlay state (used during canvas loading, saving, creating)
 
 /** Calls [onComplete] only after a successful save; failures keep the current document open and dirty state intact. */
@@ -162,12 +185,16 @@ internal fun PaintViewModel.saveProject(
         if (active3DLayers.isNotEmpty()) {
             commitAllActive3DLayersSync()
         }
+        if (isTypographyEditing) {
+            commitTypographyToCanvas()
+        }
 
         val layers3DJson = active3DLayers.values.joinToString(",") { st ->
             val idx = layers.indexOfFirst { it.id == st.layerId }
             val name = if (idx in 0 until layers.size) layers[idx].name else ""
             st.copy(layerIndex = idx, layerName = name).toJsonString()
         }
+        val layersTextJson = layersTextJson()
         val extraJson =
             """
             {
@@ -183,7 +210,8 @@ internal fun PaintViewModel.saveProject(
                 "activeLayerIndex": $currentLayerIndex,
                 "collapsedGroups": [${collapsedGroupsForSave().joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }}],
                 "collapsedPanels": [${collapsedPanelIds.joinToString(",")}],
-                "active3DLayers": [$layers3DJson]
+                "active3DLayers": [$layers3DJson],
+                "activeTextLayers": [$layersTextJson]
             }
             """.trimIndent()
         val saveT0 = android.os.SystemClock.elapsedRealtime()
@@ -259,6 +287,7 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
             val name = if (idx in 0 until layers.size) layers[idx].name else ""
             st.copy(layerIndex = idx, layerName = name).toJsonString()
         }
+        val layersTextJson = layersTextJson()
         val extraJson =
             """
             {
@@ -277,7 +306,8 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
                 "activeLayerIndex": $currentLayerIndex,
                 "collapsedGroups": [${collapsedGroupsForSave().joinToString(",") { "\"${it.replace("\\", "\\\\").replace("\"", "\\\"")}\"" }}],
                 "collapsedPanels": [${collapsedPanelIds.joinToString(",")}],
-                "active3DLayers": [$layers3DJson]
+                "active3DLayers": [$layers3DJson],
+                "activeTextLayers": [$layersTextJson]
             }
             """.trimIndent()
         val backupFile = File(autoSaveFile.parentFile, "${autoSaveFile.name}.bak")
@@ -338,6 +368,7 @@ internal fun PaintViewModel.emergencySaveOnCrash() {
             val name = if (idx in 0 until layers.size) layers[idx].name else ""
             st.copy(layerIndex = idx, layerName = name).toJsonString()
         }
+        val layersTextJson = layersTextJson()
         // 崩溃抢救同样带方向：恢复的工程按抢救快照的方向打开，与自动保存一致。
         val orientationJson = canvasOrientationJsonFragment()
         val extraJson =
@@ -357,7 +388,8 @@ internal fun PaintViewModel.emergencySaveOnCrash() {
                 "panelDefaults": ${panelDefaultsJson()},
                 "selectedLayerIndex": $currentLayerIndex,
                 "activeLayerIndex": $currentLayerIndex,
-                "active3DLayers": [$layers3DJson]
+                "active3DLayers": [$layers3DJson],
+                "activeTextLayers": [$layersTextJson]
             }
             """.trimIndent()
         val saved = ReverieCoreBridge.saveRevp(emergencyFile.absolutePath, extraJson, null)
@@ -533,6 +565,7 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     var loadedCollapsedPanelsPresent = false
     var loadedCanvasOrientation: com.reverie.paint.model.CanvasOrientation? = null
     var loaded3DStates: List<com.reverie.paint.model.Model3DState> = emptyList()
+    var loadedTextStates: List<Triple<Long, String, List<com.reverie.paint.model.TypographyConfig>>> = emptyList()
     var loadedPanelDefaults: com.reverie.paint.model.PanelDefaults? = null
     var documentLoaded = false
     var isHealed = false
@@ -639,6 +672,24 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
             } else {
                 active3DLayers = emptyMap()
             }
+
+            // 恢复文字图层 (保证在 syncLayersFromNative 更新 layers 之后准确绑定)
+            if (loadedTextStates.isNotEmpty()) {
+                val map = HashMap<Long, List<com.reverie.paint.model.TypographyConfig>>()
+                for ((oldId, name, items) in loadedTextStates) {
+                    val target = layers.find { it.name == name && it.name.isNotBlank() && !map.containsKey(it.id) }
+                        ?: layers.find { it.id == oldId && !map.containsKey(it.id) }
+                        ?: layers.find { (it.name.startsWith("文本") || it.name.startsWith("Text")) && !map.containsKey(it.id) }
+                    if (target != null) {
+                        map[target.id] = items
+                    }
+                }
+                activeTextLayers = map
+            } else {
+                activeTextLayers = emptyMap()
+            }
+            editingTextLayerId = null
+            editingTextItemId = null
             frontBufferQuietUntilMs = FrontBufferQuiet.onDocumentLoaded(
                 android.os.SystemClock.uptimeMillis(),
                 PaintViewModel.NEW_CANVAS_FRONT_BUFFER_QUIET_MS,
@@ -756,6 +807,22 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
                                         }
                                     }
                                     loaded3DStates = parsedStates
+                                }
+                                val arrText = json.optJSONArray("activeTextLayers")
+                                if (arrText != null && arrText.length() > 0) {
+                                    val parsedText = ArrayList<Triple<Long, String, List<com.reverie.paint.model.TypographyConfig>>>()
+                                    for (k in 0 until arrText.length()) {
+                                        val obj = arrText.optJSONObject(k)
+                                        if (obj != null) {
+                                            val oldId = obj.optLong("layerId", 0L)
+                                            val name = obj.optString("layerName", "")
+                                            val parsed = parseTextLayerJson(obj)
+                                            if (parsed != null && parsed.second.isNotEmpty()) {
+                                                parsedText.add(Triple(oldId, name, parsed.second))
+                                            }
+                                        }
+                                    }
+                                    loadedTextStates = parsedText
                                 }
                                 // 分格默认样式 (无则恢复为出厂默认)
                                 json.optJSONObject("panelDefaults")?.let { pdObj ->
@@ -1512,6 +1579,9 @@ internal fun PaintViewModel.exportDocument(
     onError: (String) -> Unit = {},
 ) {
     val fmt = format.lowercase()
+    if (isTypographyEditing) {
+        commitTypographyToCanvas()
+    }
     runCore(render = false) {
         if (active3DLayers.isNotEmpty()) {
             commitAllActive3DLayersSync()
@@ -1785,6 +1855,9 @@ private fun PaintViewModel.performGoHomeNow() {
     // 的画布前几帧什么都不画。
     cancelAwaitingFirstFrameAfterLoad()
     active3DLayers = emptyMap()
+    activeTextLayers = emptyMap()
+    editingTextLayerId = null
+    editingTextItemId = null
     show3DPosePanel = false
     currentPage = Page.HOME
     refreshProjects()
@@ -1926,6 +1999,9 @@ internal fun PaintViewModel.startPainting(
             resetPanelSessionState()
             refreshPanels()
             active3DLayers = emptyMap()
+            activeTextLayers = emptyMap()
+            editingTextLayerId = null
+            editingTextItemId = null
             show3DPosePanel = false
         },
     ) {

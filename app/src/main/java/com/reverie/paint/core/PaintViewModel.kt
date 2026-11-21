@@ -2842,6 +2842,13 @@ class PaintViewModel : ViewModel() {
     var typographyConfig by mutableStateOf(TypographyConfig())
     var isTypographyEditing by mutableStateOf(false)
     var typographySnapGuides by mutableStateOf<List<com.reverie.paint.model.TypographySnapGuide>>(emptyList())
+    var activeTextLayers by mutableStateOf<Map<Long, List<TypographyConfig>>>(emptyMap())
+    var editingTextLayerId by mutableStateOf<Long?>(null)
+    var editingTextItemId by mutableStateOf<String?>(null)
+    var typographyInputFocusTrigger by mutableIntStateOf(0)
+
+    val currentTextLayerConfig: TypographyConfig?
+        get() = editingTextLayerId?.let { id -> activeTextLayers[id]?.find { it.id == editingTextItemId } } ?: typographyConfig
 
     var pressureCurvePreset by mutableIntStateOf(0) // 0: 线性, 1: 轻压灵敏, 2: 重压偏硬, 3: S型, 4: 自定义
     var pressureControlPoints by mutableStateOf(
@@ -7530,6 +7537,20 @@ class PaintViewModel : ViewModel() {
         currentLayerIndex = ReverieCoreBridge.currentLayerIndex()
         if (selectedLayerIndices.isNotEmpty()) {
             selectedLayerIndices = selectedLayerIndices.filter { it in 1 until n }.toSet()
+        }
+
+        if (activeTextLayers.isNotEmpty()) {
+            val existingIds = layers.map { it.id }.toSet()
+            val pruned = activeTextLayers.filterKeys { it in existingIds }
+            if (pruned.size != activeTextLayers.size) {
+                activeTextLayers = pruned
+                if (editingTextLayerId != null && editingTextLayerId !in existingIds) {
+                    editingTextLayerId = null
+                    editingTextItemId = null
+                    isTypographyEditing = false
+                    typographySnapGuides = emptyList()
+                }
+            }
         }
 
         // 时间轴"选中轨道"与当前图层强制对齐 (修"创建帧错乱"):

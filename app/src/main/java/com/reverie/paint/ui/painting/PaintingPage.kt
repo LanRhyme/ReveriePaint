@@ -46,8 +46,11 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.ui.unit.max
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.navigationBarsPadding
@@ -285,7 +288,6 @@ fun PaintingPage(
         vm.pendingCanvasOrientation = null
     }
 
-    var textDialogPos by remember { mutableStateOf<Pair<Float, Float>?>(null) }
     var brushPanelOpen by remember { mutableStateOf(false) }
     var layerPanelOpen by remember { mutableStateOf(false) }
     // 图层面板未钉住且在滤镜调节页 (无遮罩, 画布可落笔) 时由 LayerPanel 回报。
@@ -838,8 +840,7 @@ fun PaintingPage(
             if (vm.typographyConfig.text.isNotBlank()) {
                 vm.commitTypographyToCanvas()
             } else {
-                vm.isTypographyEditing = false
-                vm.typographySnapGuides = emptyList()
+                vm.cancelTypographyEditing()
             }
         }
         if (tool != Tool.LASSO && vm.lassoMultiPoints.isNotEmpty()) {
@@ -915,8 +916,8 @@ fun PaintingPage(
                     }
                 },
                 onTouchViewReady = { canvasTouchView = it },
-                onTextRequested = { x, y ->
-                    textDialogPos = x to y
+                onTextRequested = { _, _ ->
+                    vm.typographyInputFocusTrigger++
                 },
                 tool = tool,
                 tfState = tfState,
@@ -948,8 +949,7 @@ fun PaintingPage(
                     settingsPanelOpen = settingsPanelOpen,
                     moreToolsOpen = moreToolsOpen,
                     drawingGuidePanelOpen = drawingGuidePanelOpen,
-                    modalDialogOpen = textDialogPos != null ||
-                        showExitSaveDialog || showDiscardConfirmDialog ||
+                    modalDialogOpen = showExitSaveDialog || showDiscardConfirmDialog ||
                         vm.showLowStorageDialog || vm.showToolbarSqueezedDialog ||
                         canvasEditMenuCustomizeOpen || vm.shadingAssistDialogOpen ||
                         vm.activeLayerDrag != null,
@@ -1940,12 +1940,14 @@ fun PaintingPage(
         }
 
         // ---- Typography / Text tool options panel ----
+        val imeDensity = LocalDensity.current
+        val imeBottomDp = with(imeDensity) { WindowInsets.ime.getBottom(this).toDp() }
         androidx.compose.animation.AnimatedVisibility(
             visible = filterController == null && tool == Tool.TEXT && vm.isTypographyEditing && chromeEntered,
             modifier =
                 Modifier
                     .align(Alignment.BottomCenter)
-                    .padding(bottom = bottomDockPadding),
+                    .padding(bottom = max(bottomDockPadding, imeBottomDp + 8.dp)),
             enter =
                 androidx.compose.animation.fadeIn(Motion.enterSpring()) +
                     androidx.compose.animation.slideInVertically(
@@ -1961,7 +1963,6 @@ fun PaintingPage(
         ) {
             com.reverie.paint.ui.painting.panels.TypographyPanel(
                 vm = vm,
-                onOpenTextDialog = { textDialogPos = vm.typographyConfig.posX to vm.typographyConfig.posY },
                 hazeState = hazeState,
             )
         }
@@ -2893,25 +2894,6 @@ fun PaintingPage(
                 vm = vm,
                 onDismiss = { drawingGuidePanelOpen = false },
                 hazeState = hazeState,
-            )
-        }
-
-        // Text tool editing dialog
-        textDialogPos?.let {
-            TextInputGuard(vm)
-            com.reverie.paint.ui.painting.panels.TypographyTextDialog(
-                initialText = vm.typographyConfig.text,
-                onConfirm = { newText ->
-                    vm.typographyConfig = vm.typographyConfig.copy(text = newText)
-                    textDialogPos = null
-                },
-                onDismiss = {
-                    textDialogPos = null
-                    if (vm.typographyConfig.text.isBlank()) {
-                        vm.isTypographyEditing = false
-                        vm.typographySnapGuides = emptyList()
-                    }
-                },
             )
         }
 

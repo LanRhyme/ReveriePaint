@@ -76,6 +76,10 @@ object TypographyEngine {
         }
     }
 
+    fun resolveTargetWidth(cfg: TypographyConfig): Int {
+        return cfg.boxWidth.toInt().coerceAtLeast(maxOf(24, cfg.fontSize.toInt()))
+    }
+
     fun createLayout(cfg: TypographyConfig, paint: TextPaint, width: Int): TypographyDrawLayout {
         if (cfg.isVertical) {
             return VerticalTypographyLayout(cfg, paint, width)
@@ -86,7 +90,7 @@ object TypographyEngine {
             else -> Layout.Alignment.ALIGN_NORMAL
         }
         val displayText = if (cfg.isAllCaps) cfg.text.uppercase() else cfg.text
-        val targetWidth = width.coerceAtLeast(40)
+        val targetWidth = width.coerceAtLeast(24)
         val staticLayout = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             StaticLayout.Builder.obtain(displayText, 0, displayText.length, paint, targetWidth)
                 .setAlignment(align)
@@ -117,7 +121,7 @@ object TypographyEngine {
     ): Triple<Bitmap, Int, Int>? {
         if (cfg.text.isBlank()) return null
         val paint = createTextPaint(cfg, opacity)
-        val targetW = cfg.boxWidth.toInt().coerceAtLeast(60)
+        val targetW = resolveTargetWidth(cfg)
         val layout = createLayout(cfg, paint, targetW)
         val w = layout.width.coerceAtLeast(1)
         val h = layout.height.coerceAtLeast(1)
@@ -203,18 +207,42 @@ class VerticalTypographyLayout(
 
     init {
         val displayText = if (cfg.isAllCaps) cfg.text.uppercase() else cfg.text
-        val rawLines = displayText.split("\n")
-        val lines = if (rawLines.isEmpty()) listOf("") else rawLines
+        val paragraphs = displayText.split("\n")
 
         val fontSize = cfg.fontSize.coerceAtLeast(8f)
         val charStep = (fontSize + cfg.letterSpacingSp).coerceAtLeast(8f)
         val colWidth = (fontSize * cfg.lineHeightMultiplier.coerceIn(0.8f, 3.0f)).coerceAtLeast(10f)
 
+        val maxBoxH = cfg.boxHeight
+        val lines = if (maxBoxH > 0f) {
+            val maxCharsPerCol = (maxBoxH / charStep).toInt().coerceAtLeast(1)
+            val wrapped = mutableListOf<String>()
+            for (para in paragraphs) {
+                if (para.isEmpty()) {
+                    wrapped.add("")
+                } else {
+                    var idx = 0
+                    while (idx < para.length) {
+                        val end = minOf(idx + maxCharsPerCol, para.length)
+                        wrapped.add(para.substring(idx, end))
+                        idx = end
+                    }
+                }
+            }
+            if (wrapped.isEmpty()) listOf("") else wrapped
+        } else {
+            if (paragraphs.isEmpty()) listOf("") else paragraphs
+        }
+
         val fm = paint.fontMetrics
         val baselineInCell = (charStep - (fm.descent - fm.ascent)) * 0.5f - fm.ascent
 
         val maxChars = lines.maxOfOrNull { it.length }?.coerceAtLeast(1) ?: 1
-        val measuredH = maxOf(40f, maxChars * charStep)
+        val measuredH = if (maxBoxH > 0f) {
+            maxOf(charStep, maxBoxH)
+        } else {
+            maxOf(40f, maxChars * charStep)
+        }
         val measuredW = maxOf(40f, lines.size * colWidth)
 
         layoutWidth = ceil(measuredW).toInt()

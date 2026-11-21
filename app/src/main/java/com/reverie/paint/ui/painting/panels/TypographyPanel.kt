@@ -9,51 +9,67 @@ import androidx.compose.animation.expandVertically
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.shrinkVertically
+import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
-import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
-import androidx.compose.material3.AlertDialog
+import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.material3.Icon
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.focus.FocusRequester
+import androidx.compose.ui.focus.focusRequester
+import androidx.compose.ui.focus.onFocusChanged
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
+import androidx.compose.ui.layout.boundsInRoot
+import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
-import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.FontManager
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.cancelTypographyEditing
 import com.reverie.paint.core.commitTypographyToCanvas
-import com.reverie.paint.ui.components.ReTextButton
+import com.reverie.paint.core.updateBrushColor
+import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.painting.TextInputGuard
 import com.reverie.paint.ui.theme.Morandi
 import dev.chrisbanes.haze.HazeState
+import java.util.Locale
 import kotlin.math.roundToInt
 
 /**
- * 画布内富文本排版控制悬浮面板与操作栏 (紧凑胶囊栏 + 折叠抽屉规范化设计)
+ * 画布内富文本排版控制悬浮面板与内联即时输入栏 (无需弹窗，所见即所得)
  */
 @Composable
 fun TypographyPanel(
     vm: PaintViewModel,
-    onOpenTextDialog: () -> Unit = {},
     hazeState: HazeState? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -61,10 +77,59 @@ fun TypographyPanel(
     val context = LocalContext.current
     var propsOpen by remember { mutableStateOf(false) }
     var fontPickerOpen by remember { mutableStateOf(false) }
+    var colorPickerOpen by remember { mutableStateOf(false) }
+    var swatchBounds by remember { mutableStateOf<Rect?>(null) }
+    var isInputFocused by remember { mutableStateOf(false) }
     val scrollState = rememberScrollState()
+    val focusRequester = remember { FocusRequester() }
+    val keyboardController = LocalSoftwareKeyboardController.current
+
+    if (isInputFocused) {
+        TextInputGuard(vm)
+    }
+
+    LaunchedEffect(vm.typographyInputFocusTrigger) {
+        if (vm.typographyInputFocusTrigger > 0) {
+            kotlinx.coroutines.delay(50)
+            try {
+                focusRequester.requestFocus()
+                keyboardController?.show()
+            } catch (_: Throwable) {
+            }
+            vm.typographyInputFocusTrigger = 0
+        }
+    }
+
+    val textColor = remember(cfg.textColor) {
+        try {
+            Color(android.graphics.Color.parseColor(cfg.textColor))
+        } catch (_: Throwable) {
+            Color.Black
+        }
+    }
 
     if (fontPickerOpen) {
         FontPickerDialog(vm = vm, onDismiss = { fontPickerOpen = false })
+    }
+
+    if (colorPickerOpen) {
+        CompactColorPickerPopup(
+            title = stringResource(R.string.gradient_pick_color),
+            initialColor = textColor,
+            anchorBounds = swatchBounds,
+            onColorSelected = { selected ->
+                val hex = String.format(
+                    Locale.US,
+                    "#%02X%02X%02X",
+                    (selected.red * 255).toInt().coerceIn(0, 255),
+                    (selected.green * 255).toInt().coerceIn(0, 255),
+                    (selected.blue * 255).toInt().coerceIn(0, 255),
+                )
+                vm.updateBrushColor(hex)
+            },
+            onDismiss = { colorPickerOpen = false },
+            showFastSwatches = true,
+        )
     }
 
     val currentFontDisplayShort = remember(cfg.fontFamilyName, cfg.fontPath) {
@@ -89,20 +154,88 @@ fun TypographyPanel(
             verticalArrangement = Arrangement.spacedBy(8.dp),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
+            // 内联实时文本框 + 文字色彩选择点
+            Row(
+                modifier = Modifier.widthIn(min = 260.dp, max = 360.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                Box(
+                    modifier = Modifier
+                        .size(28.dp)
+                        .onGloballyPositioned { swatchBounds = it.boundsInRoot() }
+                        .clip(CircleShape)
+                        .background(textColor)
+                        .border(1.5.dp, Color.White.copy(alpha = 0.78f), CircleShape)
+                        .noRippleClickable { colorPickerOpen = true },
+                )
+
+                Box(
+                    modifier = Modifier
+                        .weight(1f)
+                        .heightIn(min = 34.dp, max = 96.dp)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Morandi.panel.copy(alpha = 0.78f))
+                        .border(
+                            width = 1.dp,
+                            color = if (isInputFocused) Morandi.accent else Morandi.border.copy(alpha = 0.65f),
+                            shape = RoundedCornerShape(10.dp),
+                        )
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
+                    contentAlignment = Alignment.CenterStart,
+                ) {
+                    if (cfg.text.isEmpty()) {
+                        Text(
+                            text = stringResource(R.string.typography_empty_placeholder),
+                            color = Morandi.subText.copy(alpha = 0.7f),
+                            fontSize = 13.sp,
+                        )
+                    }
+                    BasicTextField(
+                        value = cfg.text,
+                        onValueChange = { vm.typographyConfig = cfg.copy(text = it) },
+                        textStyle = TextStyle(
+                            color = Morandi.text,
+                            fontSize = 13.sp,
+                        ),
+                        cursorBrush = SolidColor(Morandi.accent),
+                        maxLines = 4,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .focusRequester(focusRequester)
+                            .onFocusChanged { isInputFocused = it.isFocused },
+                    )
+                }
+
+                if (cfg.text.isNotEmpty()) {
+                    Box(
+                        modifier = Modifier
+                            .size(26.dp)
+                            .clip(CircleShape)
+                            .background(Morandi.panelHi.copy(alpha = 0.8f))
+                            .noRippleClickable {
+                                vm.typographyConfig = cfg.copy(text = "")
+                                focusRequester.requestFocus()
+                            },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Icon(
+                            painter = painterResource(R.drawable.ic_x),
+                            contentDescription = null,
+                            tint = Morandi.subText,
+                            modifier = Modifier.size(12.dp),
+                        )
+                    }
+                }
+            }
+
             // 主胶囊操作栏 (统一规格图标动作按钮与气泡下拉)
             Row(
                 modifier = Modifier.horizontalScroll(scrollState),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
             ) {
-                // 1. 编辑文字内容
-                ToolActionButton(
-                    iconRes = R.drawable.ic_text,
-                    label = stringResource(R.string.typography_edit_text),
-                    onClick = onOpenTextDialog,
-                )
-
-                // 2. 字体选择入口 (显示当前字体简称，带右下小三角指示)
+                // 1. 字体选择入口 (显示当前字体简称，带右下小三角指示)
                 ToolDropdownTriggerButton(
                     iconRes = R.drawable.ic_text,
                     label = currentFontDisplayShort,
@@ -110,14 +243,12 @@ fun TypographyPanel(
                     onClick = { fontPickerOpen = true },
                 )
 
-                // 3. 排版方向与换列模式下拉 (横排 / 竖排·右至左 / 竖排·左至右)
+                // 2. 排版方向与换列模式下拉 (横排 / 竖排·右至左 / 竖排·左至右)
                 ToolBubbleDropdown(
                     items = orientationOptions,
                     selected = if (!cfg.isVertical) 0 else if (cfg.verticalRtl) 1 else 2,
                     labelOverride = if (!cfg.isVertical) {
                         stringResource(R.string.typography_horizontal)
-                    } else if (cfg.verticalRtl) {
-                        stringResource(R.string.typography_vertical)
                     } else {
                         stringResource(R.string.typography_vertical)
                     },
@@ -131,7 +262,7 @@ fun TypographyPanel(
                     },
                 )
 
-                // 4. 对齐方式下拉 (左 / 中 / 右)
+                // 3. 对齐方式下拉 (左 / 中 / 右)
                 ToolBubbleDropdown(
                     items = alignOptions,
                     selected = cfg.alignment,
@@ -144,7 +275,7 @@ fun TypographyPanel(
                     onSelect = { vm.typographyConfig = cfg.copy(alignment = it) },
                 )
 
-                // 5. 属性抽屉开关 (字号、字距、行距、样式、磁吸)
+                // 4. 属性抽屉开关 (字号、字距、行距、样式、磁吸)
                 ToolActionButton(
                     iconRes = R.drawable.ic_sliders,
                     label = if (propsOpen) stringResource(R.string.typography_collapse) else stringResource(R.string.typography_props),
@@ -152,7 +283,7 @@ fun TypographyPanel(
                     onClick = { propsOpen = !propsOpen },
                 )
 
-                // 6. 完成 (✔) 与 取消 (✕)
+                // 5. 完成 (✔) 与 取消 (✕)
                 ToolActionButton(
                     iconRes = R.drawable.ic_check,
                     label = stringResource(R.string.confirm),
@@ -164,8 +295,7 @@ fun TypographyPanel(
                     label = stringResource(R.string.cancel),
                     danger = true,
                     onClick = {
-                        vm.isTypographyEditing = false
-                        vm.typographySnapGuides = emptyList()
+                        vm.cancelTypographyEditing()
                     },
                 )
             }
@@ -250,77 +380,4 @@ fun TypographyPanel(
             }
         }
     }
-}
-
-
-/**
- * 文本内容快速输入与编辑对话框
- */
-@Composable
-fun TypographyTextDialog(
-    initialText: String,
-    onConfirm: (String) -> Unit,
-    onDismiss: () -> Unit,
-) {
-    var text by remember { mutableStateOf(initialText) }
-
-    AlertDialog(
-        onDismissRequest = onDismiss,
-        title = {
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Icon(
-                    painter = painterResource(R.drawable.ic_text),
-                    contentDescription = null,
-                    tint = Morandi.accent,
-                    modifier = Modifier.size(20.dp),
-                )
-                Spacer(Modifier.width(8.dp))
-                Text(
-                    androidx.compose.ui.res.stringResource(R.string.typography_dialog_title),
-                    color = Morandi.text,
-                    fontSize = 16.sp,
-                    fontWeight = FontWeight.SemiBold,
-                )
-            }
-        },
-        text = {
-            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                OutlinedTextField(
-                    value = text,
-                    onValueChange = { text = it },
-                    minLines = 3,
-                    maxLines = 8,
-                    placeholder = { Text(androidx.compose.ui.res.stringResource(R.string.typography_dialog_placeholder), color = Morandi.subText, fontSize = 13.sp) },
-                    modifier = Modifier.fillMaxWidth(),
-                    colors = OutlinedTextFieldDefaults.colors(
-                        focusedBorderColor = Morandi.accent,
-                        unfocusedBorderColor = Morandi.border,
-                        focusedContainerColor = Morandi.panel,
-                        unfocusedContainerColor = Morandi.panel,
-                        cursorColor = Morandi.accent,
-                        focusedTextColor = Morandi.text,
-                        unfocusedTextColor = Morandi.text,
-                    ),
-                )
-            }
-        },
-        confirmButton = {
-            ReTextButton(
-                text = androidx.compose.ui.res.stringResource(R.string.confirm),
-                onClick = {
-                    onConfirm(text)
-                    onDismiss()
-                },
-                textColor = Morandi.accentHi,
-            )
-        },
-        dismissButton = {
-            ReTextButton(
-                text = androidx.compose.ui.res.stringResource(R.string.cancel),
-                onClick = onDismiss,
-                textColor = Morandi.subText,
-            )
-        },
-        containerColor = Morandi.panelHi,
-    )
 }

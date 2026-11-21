@@ -3836,5 +3836,10 @@
     <string name="onboarding_open_theme_settings">前往外观与主题设置</string>
     <string name="settings_replay_onboarding">新手功能引导</string>
     <string name="settings_replay_onboarding_desc">重新查看核心功能布局与工作区定制指引</string>
+    <string name="toast_text_rasterized">文字图层已栅格化</string>
+    <string name="canvas_toast_text_not_drawable">文字图层不可直接绘制，请先栅格化</string>
+    <string name="layer_text_settings_title">文字图层设置</string>
+    <string name="typography_add_text">添加文字</string>
+    <string name="typography_empty_placeholder">输入文字...</string>
 </resources>
 

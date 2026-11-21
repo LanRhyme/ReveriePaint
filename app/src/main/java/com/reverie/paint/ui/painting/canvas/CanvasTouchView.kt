@@ -830,6 +830,9 @@ class CanvasTouchView(context: Context) : View(context) {
     private var textDragStartCfg: TypographyConfig = TypographyConfig()
     private var lastTextTapTimeMs: Long = 0L
     private var lastTextTapDocPos: Offset = Offset.Zero
+    private var textTouchDownDocPos: Offset = Offset.Zero
+    private var textSelectedBeforeDown: Boolean = false
+    private var textDraggedDuringGesture: Boolean = false
 
     // 形状交互状态
     private var lastShapeTapTimeMs: Long = 0L
@@ -7033,6 +7036,10 @@ class CanvasTouchView(context: Context) : View(context) {
             v.showActionToast(context.getString(R.string.canvas_toast_layer_hidden), R.drawable.ic_eye_off)
             return
         }
+        if (activeLayer != null && v.activeTextLayers.containsKey(activeLayer.id) && isDrawingTool) {
+            v.showActionToast(context.getString(R.string.canvas_toast_text_not_drawable), R.drawable.ic_text)
+            return
+        }
 
         firstDocPos = docPos
         shapeEndDocPos = docPos
@@ -9654,7 +9661,7 @@ class CanvasTouchView(context: Context) : View(context) {
         val hitDist = (28f * density) / maxOf(0.01f, currentScale)
         val v = vm ?: return -1
         val paint = TypographyEngine.createTextPaint(cfg, v.brushOpacity)
-        val targetW = cfg.boxWidth.toInt().coerceAtLeast(60)
+        val targetW = TypographyEngine.resolveTargetWidth(cfg)
         val layout = TypographyEngine.createLayout(cfg, paint, targetW)
         val w = layout.width.toFloat()
         val h = layout.height.toFloat()
@@ -9690,24 +9697,79 @@ class CanvasTouchView(context: Context) : View(context) {
         return -1
     }
 
+    private fun hitTestText(
+        cfg: TypographyConfig,
+        docPos: Offset,
+        density: Float,
+        currentScale: Float,
+        brushOpacity: Double = 1.0,
+    ): Boolean {
+        val hitDist = (28f * density) / maxOf(0.01f, currentScale)
+        val paint = TypographyEngine.createTextPaint(cfg, brushOpacity)
+        val targetW = TypographyEngine.resolveTargetWidth(cfg)
+        val layout = TypographyEngine.createLayout(cfg, paint, targetW)
+        val w = layout.width.toFloat()
+        val h = layout.height.toFloat()
+
+        val left = cfg.posX
+        val top = cfg.posY
+        val right = left + w
+        val bottom = top + h
+        val cx = left + w / 2f
+        val cy = top + h / 2f
+
+        val localPt = if (abs(cfg.rotationDeg) > 0.01f) {
+            ShapeGeometry.rotatePoint(Point2D(docPos.x, docPos.y), Point2D(cx, cy), -cfg.rotationDeg)
+        } else Point2D(docPos.x, docPos.y)
+        val localPos = Offset(localPt.x, localPt.y)
+
+        return localPos.x in (left - hitDist)..(right + hitDist) && localPos.y in (top - hitDist)..(bottom + hitDist)
+    }
+
+    private fun findHitText(
+        docPos: Offset,
+        density: Float,
+        currentScale: Float,
+    ): Pair<PaintViewModel.LayerUiState, TypographyConfig>? {
+        val v = vm ?: return null
+        val curLayer = v.layers.getOrNull(v.currentLayerIndex)
+
+        // 1. 优先检测当前选中的图层 (若是文字图层)
+        if (curLayer != null && curLayer.visible && !curLayer.locked) {
+            val items = v.activeTextLayers[curLayer.id]
+            if (items != null) {
+                for (cfg in items.asReversed()) {
+                    if (hitTestText(cfg, docPos, density, currentScale, v.brushOpacity)) {
+                        return curLayer to cfg
+                    }
+                }
+            }
+        }
+
+        // 2. 从上至下扫描其他可见且未锁定的文字图层
+        for (layer in v.layers.asReversed()) {
+            if (layer.id == curLayer?.id) continue
+            if (!layer.visible || layer.locked) continue
+            val items = v.activeTextLayers[layer.id] ?: continue
+            for (cfg in items.asReversed()) {
+                if (hitTestText(cfg, docPos, density, currentScale, v.brushOpacity)) {
+                    return layer to cfg
+                }
+            }
+        }
+        return null
+    }
+
     private fun handleTextDown(docPos: Offset) {
         val v = vm ?: return
         val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
-        val hitDist = (28f * density) / currentScale
-        val now = SystemClock.uptimeMillis()
+
+        textTouchDownDocPos = docPos
+        textSelectedBeforeDown = v.isTypographyEditing
+        textDraggedDuringGesture = false
 
         if (v.isTypographyEditing) {
             val hit = hitTestTextHandle(v.typographyConfig, docPos, density, currentScale)
-            if (hit == -10 && now - lastTextTapTimeMs < 350L &&
-                hypot(docPos.x - lastTextTapDocPos.x, docPos.y - lastTextTapDocPos.y) < hitDist
-            ) {
-                onTextRequested?.invoke(v.typographyConfig.posX, v.typographyConfig.posY)
-                lastTextTapTimeMs = 0L
-                return
-            }
-            lastTextTapTimeMs = now
-            lastTextTapDocPos = docPos
-
             if (hit != -1) {
                 activeTextHandle = hit
                 textDragStartDocPos = docPos
@@ -9716,33 +9778,61 @@ class CanvasTouchView(context: Context) : View(context) {
                 return
             }
 
-            // 点击外部：若当前文本有内容，自动提交
+            // 点击外部：若当前文本有内容，自动提交；若为空文本则取消编辑
             if (v.typographyConfig.text.isNotBlank()) {
                 v.commitTypographyToCanvas()
+            } else {
+                v.cancelTypographyEditing()
             }
         }
 
-        val initFontSize = (v.brushSize * 2.0).toFloat().coerceIn(24f, 160f)
-        v.typographyConfig = v.typographyConfig.copy(
-            text = "",
-            posX = docPos.x,
-            posY = docPos.y,
-            fontSize = initFontSize,
-            boxWidth = 400f,
-            rotationDeg = 0f,
-            textColor = v.brushColor,
-        )
-        v.isTypographyEditing = true
+        // 检查是否点中了画布上现存的某个文字块
+        val hitEntry = findHitText(docPos, density, currentScale)
+        if (hitEntry != null) {
+            val (hitLayer, hitCfg) = hitEntry
+            v.startEditingTextLayer(hitLayer.id, hitCfg.id)
+            activeTextHandle = -10
+            textDragStartDocPos = docPos
+            textDragStartCfg = v.typographyConfig
+            v.typographySnapGuides = emptyList()
+            lastTextTapTimeMs = 0L
+            return
+        }
+
+        // 若之前正在编辑文字，点击画布空白处已在上面提交，此时仅取消选中，不新建文字
+        if (textSelectedBeforeDown) {
+            activeTextHandle = -1
+            lastTextTapTimeMs = 0L
+            return
+        }
+
+        // 之前未选中任何文字且点击空白处：
+        // 若当前选中的图层已经是文字图层，则直接在当前图层追加新文字块；否则准备新建独立文字图层
+        val curLayer = v.layers.getOrNull(v.currentLayerIndex)
+        val targetLayerId = if (curLayer != null && v.activeTextLayers.containsKey(curLayer.id)) {
+            curLayer.id
+        } else null
+
+        v.startNewTextItem(targetLayerId, docPos)
+        textDragStartDocPos = docPos
+        textDragStartCfg = v.typographyConfig
         v.typographySnapGuides = emptyList()
         activeTextHandle = -1
-        lastTextTapTimeMs = now
-        lastTextTapDocPos = docPos
+        lastTextTapTimeMs = 0L
         onTextRequested?.invoke(docPos.x, docPos.y)
     }
 
     private fun handleTextMove(docPos: Offset) {
         val v = vm ?: return
         if (!v.isTypographyEditing || activeTextHandle == -1) return
+
+        val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
+        val tapSlop = (8f * density) / currentScale
+        if (!textDraggedDuringGesture) {
+            val moveDist = hypot(docPos.x - textTouchDownDocPos.x, docPos.y - textTouchDownDocPos.y)
+            if (moveDist <= tapSlop) return
+            textDraggedDuringGesture = true
+        }
 
         when (activeTextHandle) {
             -10 -> {
@@ -9752,12 +9842,11 @@ class CanvasTouchView(context: Context) : View(context) {
 
                 if (textDragStartCfg.snapEnabled) {
                     val paint = TypographyEngine.createTextPaint(textDragStartCfg, v.brushOpacity)
-                    val targetW = textDragStartCfg.boxWidth.toInt().coerceAtLeast(60)
+                    val targetW = TypographyEngine.resolveTargetWidth(textDragStartCfg)
                     val layout = TypographyEngine.createLayout(textDragStartCfg, paint, targetW)
                     val textW = layout.width.toFloat()
                     val textH = layout.height.toFloat()
 
-                    val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
                     val snapThreshold = (16f * density) / currentScale
                     val margin = minOf(v.docWidth, v.docHeight) * 0.05f
                     val snapResult = com.reverie.paint.model.TypographySnapHelper.calculateSnap(
@@ -9785,7 +9874,8 @@ class CanvasTouchView(context: Context) : View(context) {
             }
             -20 -> {
                 val paint = TypographyEngine.createTextPaint(textDragStartCfg, v.brushOpacity)
-                val layout = TypographyEngine.createLayout(textDragStartCfg, paint, textDragStartCfg.boxWidth.toInt())
+                val targetW = TypographyEngine.resolveTargetWidth(textDragStartCfg)
+                val layout = TypographyEngine.createLayout(textDragStartCfg, paint, targetW)
                 val cx = textDragStartCfg.posX + layout.width / 2f
                 val cy = textDragStartCfg.posY + layout.height / 2f
                 val angleRad = atan2(docPos.y - cy, docPos.x - cx)
@@ -9793,19 +9883,58 @@ class CanvasTouchView(context: Context) : View(context) {
                 v.typographyConfig = textDragStartCfg.copy(rotationDeg = deg)
             }
             -30 -> {
-                val dx = docPos.x - textDragStartCfg.posX
-                val newW = maxOf(80f, dx)
-                val ratio = (newW / maxOf(80f, textDragStartCfg.boxWidth)).coerceIn(0.4f, 4.0f)
-                val newSize = (textDragStartCfg.fontSize * ratio).coerceIn(12f, 240f)
-                v.typographyConfig = textDragStartCfg.copy(boxWidth = newW, fontSize = newSize)
+                val deltaX = docPos.x - textDragStartDocPos.x
+                val deltaY = docPos.y - textDragStartDocPos.y
+                val localDelta = if (abs(textDragStartCfg.rotationDeg) > 0.01f) {
+                    ShapeGeometry.rotatePoint(Point2D(deltaX, deltaY), Point2D(0f, 0f), -textDragStartCfg.rotationDeg)
+                } else Point2D(deltaX, deltaY)
+
+                if (textDragStartCfg.isVertical) {
+                    val baseH = if (textDragStartCfg.boxHeight > 0f) {
+                        textDragStartCfg.boxHeight
+                    } else {
+                        val paint = TypographyEngine.createTextPaint(textDragStartCfg, v.brushOpacity)
+                        val targetW = TypographyEngine.resolveTargetWidth(textDragStartCfg)
+                        TypographyEngine.createLayout(textDragStartCfg, paint, targetW).height.toFloat()
+                    }
+                    val minH = maxOf(24f, textDragStartCfg.fontSize * 1.2f)
+                    val newH = maxOf(minH, baseH + localDelta.y)
+                    v.typographyConfig = textDragStartCfg.copy(boxHeight = newH)
+                } else {
+                    val minW = maxOf(24f, textDragStartCfg.fontSize * 1.1f)
+                    val newW = maxOf(minW, textDragStartCfg.boxWidth + localDelta.x)
+                    v.typographyConfig = textDragStartCfg.copy(boxWidth = newW)
+                }
             }
         }
     }
 
     private fun handleTextUp(docPos: Offset) {
+        val v = vm ?: return
+        val now = SystemClock.uptimeMillis()
+        val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
+        val tapDist = (24f * density) / currentScale
+
+        if (textDraggedDuringGesture) {
+            lastTextTapTimeMs = 0L
+        } else if (activeTextHandle == -10 && v.isTypographyEditing) {
+            // 仅在选中状态下发生干净双击时才弹出输入法
+            if (textSelectedBeforeDown &&
+                now - lastTextTapTimeMs < 350L &&
+                hypot(docPos.x - lastTextTapDocPos.x, docPos.y - lastTextTapDocPos.y) < tapDist
+            ) {
+                onTextRequested?.invoke(v.typographyConfig.posX, v.typographyConfig.posY)
+                lastTextTapTimeMs = 0L
+            } else {
+                lastTextTapTimeMs = now
+                lastTextTapDocPos = docPos
+            }
+        }
+
         activeTextHandle = -1
+        textDraggedDuringGesture = false
         textDragStartDocPos = Offset.Zero
-        vm?.typographySnapGuides = emptyList()
+        v.typographySnapGuides = emptyList()
     }
 
     private fun cancelPendingGradientGesture() {

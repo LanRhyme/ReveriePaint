@@ -709,6 +709,9 @@ import kotlinx.coroutines.withContext
         if (colorPanelTab != 2) {
             colorSphereBaseHex = c
         }
+        if (isTypographyEditing) {
+            typographyConfig = typographyConfig.copy(textColor = c)
+        }
         runCore(render = false) { ReverieCoreBridge.setBrushColor(c) }
         if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)

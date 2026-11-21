@@ -927,6 +927,23 @@ internal fun LayerRowContent(
                         )
                     }
                 }
+                if (vm.activeTextLayers.containsKey(layer.id)) {
+                    val count = vm.activeTextLayers[layer.id]?.size ?: 0
+                    val badgeText = if (count > 1) "T $count" else "T"
+                    Box(
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(3.dp))
+                            .background(Morandi.accent.copy(alpha = 0.16f))
+                            .padding(horizontal = 4.dp, vertical = 1.dp)
+                    ) {
+                        Text(
+                            text = badgeText,
+                            color = Morandi.accent,
+                            fontSize = 9.sp,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
                 val panelId = vm.panelIdForGroupRow(layer.index)
                 if (panelId != null && vm.panelSharesDraw(panelId)) {
                     Box(

@@ -270,6 +270,8 @@ internal fun CanvasOverlay(
         vm.clearLayerFlash()
     }
 
+    val textEmptyPlaceholder = androidx.compose.ui.res.stringResource(com.reverie.paint.R.string.typography_empty_placeholder)
+
     Canvas(Modifier.fillMaxSize()) {
         val isSelectionTool = tool.group == ToolGroup.SELECTION
         val isSelecting = liveSelectionPath.value != null ||
@@ -1221,14 +1223,43 @@ internal fun CanvasOverlay(
                 // Interactive Typography Tool Rendering (Handles + WYSIWYG Preview)
                 if (vm.isTypographyEditing) {
                     val cfg = vm.typographyConfig
+                    val editLayerId = vm.editingTextLayerId
+                    val activeItemId = vm.editingTextItemId
                     val scX = if (vm.docWidth > 0) bmp.width.toFloat() / vm.docWidth else 1f
                     val scY = if (vm.docHeight > 0) bmp.height.toFloat() / vm.docHeight else 1f
                     val bx = { p: Offset -> Offset(p.x * scX - bmp.width / 2f, p.y * scY - bmp.height / 2f) }
                     val currentScale = zoom.value * fitScale
 
-                    val paint = TypographyEngine.createTextPaint(cfg, vm.brushOpacity)
-                    val targetW = cfg.boxWidth.toInt().coerceAtLeast(60)
-                    val layout = TypographyEngine.createLayout(cfg, paint, targetW)
+                    // 1. 同图层其他非编辑文字块实时预览渲染
+                    if (editLayerId != null) {
+                        val siblingItems = vm.activeTextLayers[editLayerId] ?: emptyList()
+                        for (item in siblingItems) {
+                            if (item.id == activeItemId || item.text.isBlank()) continue
+                            val itemPaint = TypographyEngine.createTextPaint(item, vm.brushOpacity)
+                            val itemTargetW = TypographyEngine.resolveTargetWidth(item)
+                            val itemLayout = TypographyEngine.createLayout(item, itemPaint, itemTargetW)
+                            val itemTl = bx(Offset(item.posX, item.posY))
+                            val itemBr = bx(Offset(item.posX + itemLayout.width, item.posY + itemLayout.height))
+                            val itemBoxCenter = (itemTl + itemBr) / 2f
+
+                            withTransform({
+                                rotate(item.rotationDeg, pivot = itemBoxCenter)
+                            }) {
+                                drawContext.canvas.nativeCanvas.save()
+                                drawContext.canvas.nativeCanvas.translate(itemTl.x, itemTl.y)
+                                itemLayout.draw(drawContext.canvas.nativeCanvas)
+                                drawContext.canvas.nativeCanvas.restore()
+                            }
+                        }
+                    }
+
+                    // 2. 当前正在交互编辑的文字块
+                    val isEmptyText = cfg.text.isEmpty()
+                    val displayCfg = if (isEmptyText) cfg.copy(text = textEmptyPlaceholder) else cfg
+                    val displayOpacity = if (isEmptyText) vm.brushOpacity * 0.45 else vm.brushOpacity
+                    val paint = TypographyEngine.createTextPaint(displayCfg, displayOpacity)
+                    val targetW = TypographyEngine.resolveTargetWidth(displayCfg)
+                    val layout = TypographyEngine.createLayout(displayCfg, paint, targetW)
                     val w = layout.width.toFloat()
                     val h = layout.height.toFloat()
 

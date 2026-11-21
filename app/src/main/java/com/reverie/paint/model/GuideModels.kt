@@ -376,6 +376,7 @@ data class DrawingGuideConfig(
  * 画布内富文本排版配置
  */
 data class TypographyConfig(
+    val id: String = java.util.UUID.randomUUID().toString(),
     val text: String = "点击编辑文字",
     val fontFamilyName: String = "bundled:lxgw_wenkai",
     val fontPath: String? = null,
@@ -391,6 +392,7 @@ data class TypographyConfig(
     val posX: Float = 100f,
     val posY: Float = 100f,
     val boxWidth: Float = 400f,
+    val boxHeight: Float = 0f,
     val rotationDeg: Float = 0f,
     val snapEnabled: Boolean = true,
     val isVertical: Boolean = false,

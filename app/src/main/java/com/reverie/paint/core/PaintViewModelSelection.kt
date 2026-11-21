@@ -691,35 +691,6 @@ internal fun PaintViewModel.updateDrawingGuide(config: DrawingGuideConfig) {
     drawingGuide = config
 }
 
-internal fun PaintViewModel.commitTypographyToCanvas() {
-    val cfg = typographyConfig
-    if (cfg.text.isBlank()) {
-        isTypographyEditing = false
-        return
-    }
-
-    val renderResult = TypographyEngine.renderToBitmap(cfg, brushOpacity)
-    if (renderResult == null) {
-        isTypographyEditing = false
-        return
-    }
-    val (textBmp, docLeft, docTop) = renderResult
-
-
-    runCore {
-        val stampBmp = ImageImportHelper.swapRedAndBlueForStamp(textBmp)
-        try {
-            ReverieCoreBridge.stampBitmap(docLeft, docTop, stampBmp)
-        } finally {
-            stampBmp.recycle()
-            textBmp.recycle()
-        }
-    }
-
-    isTypographyEditing = false
-    typographySnapGuides = emptyList()
-    showActionToast(R.string.toast_text_created, R.drawable.ic_check)
-}
 
 internal fun PaintViewModel.commitActiveShape() {
     val state = shapeState

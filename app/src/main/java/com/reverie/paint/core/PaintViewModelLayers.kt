@@ -405,7 +405,7 @@ internal fun PaintViewModel.generateDefaultGroupName(): String {
     return if (!hasPlain && idx == 1) prefix else "$prefix $idx"
 }
 
-private inline fun PaintViewModel.executeAddLayerSafely(
+internal inline fun PaintViewModel.executeAddLayerSafely(
     wasInsidePanel: Boolean,
     action: () -> Unit,
 ) {
@@ -546,6 +546,15 @@ internal fun PaintViewModel.removeLayer(index: Int) {
     cancelLayerContentFlash()
     if (active3DLayers.containsKey(target.id)) {
         active3DLayers = active3DLayers - target.id
+    }
+    if (activeTextLayers.containsKey(target.id)) {
+        activeTextLayers = activeTextLayers - target.id
+        if (editingTextLayerId == target.id) {
+            editingTextLayerId = null
+            editingTextItemId = null
+            isTypographyEditing = false
+            typographySnapGuides = emptyList()
+        }
     }
     Breadcrumbs.record("Layer", "Remove layer: $index")
     runLayerCore(after = {
@@ -768,6 +777,7 @@ internal fun PaintViewModel.copyLayer(i: Int) {
     clearLayerSelection()
     val srcLayer = layers.getOrNull(i)
     val src3DState = srcLayer?.let { active3DLayers[it.id] }
+    val srcTextState = srcLayer?.let { activeTextLayers[it.id] }
     val isZh = LanguageManager.isChinese()
     runCore(after = {
         isCopyingLayer = false
@@ -778,6 +788,12 @@ internal fun PaintViewModel.copyLayer(i: Int) {
             if (newLayer != null) {
                 active3DLayers = active3DLayers + (newLayer.id to src3DState.copy(layerId = newLayer.id))
                 ensure3DLayerClearedInCore(newLayer.id)
+            }
+        }
+        if (srcTextState != null) {
+            val newLayer = layers.getOrNull(currentLayerIndex)
+            if (newLayer != null) {
+                activeTextLayers = activeTextLayers + (newLayer.id to srcTextState.map { it.copy(id = java.util.UUID.randomUUID().toString()) })
             }
         }
     }) {

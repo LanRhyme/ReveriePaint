@@ -321,6 +321,130 @@ internal fun LayerDetailPage(
         val isFilterLayer = (layer?.nodeType == 3)
         val isStrokeLayer = (layer?.isStrokeLayer == true) || (layer?.nodeType == 6)
         val isMaskLayer = com.reverie.paint.model.LayerNodeType.isMask(layer?.nodeType ?: 0)
+        val isTextLayer = layer != null && vm.activeTextLayers.containsKey(layer.id)
+
+        if (isTextLayer) {
+            val items = vm.activeTextLayers[layer!!.id] ?: emptyList()
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                for (item in items) {
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(Morandi.panelHi)
+                            .noRippleClickable {
+                                vm.startEditingTextLayer(layer.id, item.id)
+                                onBack()
+                            }
+                            .padding(horizontal = 12.dp, vertical = 10.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
+                            modifier = Modifier.weight(1f),
+                        ) {
+                            Box(
+                                modifier = Modifier
+                                    .size(28.dp)
+                                    .clip(RoundedCornerShape(6.dp))
+                                    .background(Morandi.accent.copy(alpha = 0.16f)),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                Icon(
+                                    painterResource(R.drawable.ic_text),
+                                    contentDescription = null,
+                                    tint = Morandi.accent,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                            Column(modifier = Modifier.weight(1f)) {
+                                Text(
+                                    text = item.text.ifBlank { stringResource(R.string.typography_edit_text) },
+                                    color = Morandi.text,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                )
+                                Text(
+                                    text = "${item.fontSize.roundToInt()}sp · ${if (item.isVertical) stringResource(R.string.typography_vertical) else stringResource(R.string.typography_horizontal)}",
+                                    color = Morandi.subText,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                        }
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            if (items.size > 1) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(28.dp)
+                                        .clip(RoundedCornerShape(6.dp))
+                                        .noRippleClickable {
+                                            vm.deleteTextItem(layer.id, item.id)
+                                        },
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Icon(
+                                        painterResource(R.drawable.ic_trash),
+                                        contentDescription = null,
+                                        tint = Morandi.subText,
+                                        modifier = Modifier.size(14.dp),
+                                    )
+                                }
+                            }
+                            Icon(
+                                painterResource(R.drawable.ic_chevron),
+                                contentDescription = null,
+                                tint = Morandi.accent,
+                                modifier = Modifier.size(14.dp),
+                            )
+                        }
+                    }
+                }
+
+                // 添加文字按钮
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Morandi.panelHi.copy(alpha = 0.6f))
+                        .noRippleClickable {
+                            val centerX = vm.docWidth / 2f
+                            val centerY = vm.docHeight / 2f
+                            vm.startNewTextItem(layer.id, androidx.compose.ui.geometry.Offset(centerX, centerY))
+                            vm.typographyInputFocusTrigger++
+                            onBack()
+                        }
+                        .padding(horizontal = 12.dp, vertical = 9.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center,
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_text),
+                        contentDescription = null,
+                        tint = Morandi.accent,
+                        modifier = Modifier.size(15.dp),
+                    )
+                    Spacer(Modifier.width(6.dp))
+                    Text(
+                        stringResource(R.string.typography_add_text),
+                        color = Morandi.accent,
+                        fontSize = 12.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                }
+            }
+        }
 
         if (isFillLayer) {
             var showPatterns by remember { mutableStateOf(false) }
@@ -1304,7 +1428,20 @@ internal fun LayerDetailPage(
                 OpToggle(R.drawable.ic_alpha_inherit, stringResource(R.string.layer_op_alpha_inherit), layer?.alphaInherited == true, enabled = !isBg) {
                     vm.setLayerAlphaInherited(index, !(layer?.alphaInherited == true))
                 }
-                val canRasterize = isFilterLayer || isFillLayer || (layer != null && layer.nodeType != 0 && !layer.isGroup)
+                if (isTextLayer) {
+                    val firstItem = vm.activeTextLayers[layer!!.id]?.firstOrNull()
+                    if (firstItem != null) {
+                        OpItem(R.drawable.ic_text, stringResource(R.string.typography_edit_text)) {
+                            vm.startEditingTextLayer(layer.id, firstItem.id)
+                            onBack()
+                        }
+                    }
+                    OpItem(R.drawable.ic_fill, stringResource(R.string.layer_op_rasterize)) {
+                        vm.rasterizeTextLayer(layer.id)
+                        onBack()
+                    }
+                }
+                val canRasterize = !isTextLayer && (isFilterLayer || isFillLayer || (layer != null && layer.nodeType != 0 && !layer.isGroup))
                 if (canRasterize) {
                     OpItem(R.drawable.ic_fill, stringResource(R.string.layer_op_rasterize)) {
                         if (isFilterLayer) {

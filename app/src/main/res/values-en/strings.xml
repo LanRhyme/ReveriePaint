@@ -3837,5 +3837,10 @@
     <string name="onboarding_open_theme_settings">Open Theme &amp; Appearance</string>
     <string name="settings_replay_onboarding">Beginner’s Guide</string>
     <string name="settings_replay_onboarding_desc">Replay the feature tour and workspace customization guide</string>
+    <string name="toast_text_rasterized">Text layer rasterized</string>
+    <string name="canvas_toast_text_not_drawable">Text layer cannot be drawn on, please rasterize first</string>
+    <string name="layer_text_settings_title">Text Layer Settings</string>
+    <string name="typography_add_text">Add Text</string>
+    <string name="typography_empty_placeholder">Enter text...</string>
 </resources>
 
