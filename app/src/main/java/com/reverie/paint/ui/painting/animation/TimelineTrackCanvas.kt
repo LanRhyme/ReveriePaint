@@ -63,6 +63,8 @@ import com.reverie.paint.core.PerfTrace
 import com.reverie.paint.core.animationBatchAdjustExposure
 import com.reverie.paint.core.animationRippleMoveFrame
 import com.reverie.paint.core.animationRippleResizeFrame
+import com.reverie.paint.core.animationOpenCel
+import com.reverie.paint.core.animationRequestDeleteTrack
 import com.reverie.paint.core.animationSeek
 import com.reverie.paint.core.animationToggleFrameSelection
 import com.reverie.paint.core.frameThumbKey
@@ -138,10 +140,42 @@ internal fun TimelineRuler(
                             vm.animationSeek(f)
                         }
                         seek(down.position.x)
+                        var lastDistance = 0f
+                        var lastCentroid = down.position
+                        var wasMultiTouch = false
                         while (true) {
                             val event = awaitPointerEvent()
                             val pressed = event.changes.filter { it.pressed }
                             if (pressed.isEmpty()) break
+                            if (pressed.size >= 2) {
+                                wasMultiTouch = true
+                                val p0 = pressed[0].position
+                                val p1 = pressed[1].position
+                                val centroid = Offset((p0.x + p1.x) / 2f, (p0.y + p1.y) / 2f)
+                                val dx = p0.x - p1.x
+                                val dy = p0.y - p1.y
+                                val distance = kotlin.math.sqrt(dx * dx + dy * dy).coerceAtLeast(1f)
+                                if (lastDistance > 0f) {
+                                    val oldWidth = vm.anim.frameWidthPx
+                                    val newWidth = (oldWidth * (distance / lastDistance).coerceIn(0.85f, 1.15f))
+                                        .coerceIn(96f, 480f)
+                                    val frameAtPivot = (vm.anim.scrollPx + centroid.x) / oldWidth
+                                    vm.anim.scrollPx = (frameAtPivot * newWidth - centroid.x).coerceAtLeast(0f)
+                                    vm.anim.frameWidthPx = newWidth
+                                    vm.anim.scrollPx = (vm.anim.scrollPx - (centroid.x - lastCentroid.x))
+                                        .coerceAtLeast(0f)
+                                }
+                                lastDistance = distance
+                                lastCentroid = centroid
+                                event.changes.forEach { it.consume() }
+                                continue
+                            }
+                            if (wasMultiTouch) {
+                                // 第二根手指抬起后, 不把剩下的手指误识别成一次跳帧点击。
+                                lastDistance = 0f
+                                event.changes.forEach { it.consume() }
+                                continue
+                            }
                             val c = pressed.firstOrNull { it.id == down.id } ?: pressed.first()
                             seek(c.position.x)
                             c.consume()
@@ -154,15 +188,17 @@ internal fun TimelineRuler(
         val last = ((scroll + size.width) / frameW).toInt() + 2
 
         val waveform = vm.anim.audioWaveform
-        if (waveform.isNotEmpty()) {
-            val totalFrames = maxOf(1, vm.anim.length)
-            val samplesPerFrame = waveform.size.toFloat() / totalFrames
+        val waveformClip = vm.anim.audioClips.firstOrNull()
+        if (waveform.isNotEmpty() && waveformClip != null) {
             val rulerMidY = size.height * 0.58f
             val maxAmpH = size.height * 0.35f
             for (f in first..last) {
-                if (f < 0 || f >= totalFrames) continue
+                val clipFrame = f - waveformClip.startFrame
+                if (clipFrame !in 0 until waveformClip.durationFrames) continue
                 val screenX = f * frameW - scroll
-                val sIdx = (f * samplesPerFrame).toInt().coerceIn(0, waveform.size - 1)
+                val sIdx = (
+                    clipFrame.toFloat() / waveformClip.durationFrames * waveform.size
+                ).toInt().coerceIn(0, waveform.size - 1)
                 val amp = waveform[sIdx]
                 val barH = amp * maxAmpH
                 if (barH > 0.8f) {
@@ -425,6 +461,9 @@ internal fun TimelineTrackArea(
                         // 前景/背景帧是常驻层, 整行视为一条带: 不做帧块命中 (不弹帧菜单、不启动拖拽),
                         // 但仍返回所在帧号, 保证点击能正常定位播放头。
                         if (markerColorOf(vm, layer) != null) return Triple(layer, frame, false)
+                        if (layer != vm.anim.storyboard.trackIndex &&
+                            frameThumbKey(layer, hit) in vm.anim.emptyFrameThumbs
+                        ) return Triple(layer, frame, false)
                         return if (inBlock) Triple(layer, hit, true) else Triple(layer, frame, false)
                     }
 
@@ -449,6 +488,9 @@ internal fun TimelineTrackArea(
                         val activeTime = vm.anim.currentTime
                         for (i in times.indices) {
                             val t = times[i]
+                            if (layer != vm.anim.storyboard.trackIndex &&
+                                frameThumbKey(layer, t) in vm.anim.emptyFrameThumbs
+                            ) continue
                             val nxt = if (i + 1 < times.size) times[i + 1] else (t + (vm.anim.lastFrameHold[layer] ?: 1))
                             val isTarget = if (vm.anim.isMultiSelectMode) {
                                 vm.anim.selectedFrames.contains(t)
@@ -509,7 +551,13 @@ internal fun TimelineTrackArea(
                                     return
                                 }
                             }
-                            vm.animationSeek(frame)
+                            if (row in ls.indices && !ls[row].isGroup && !vm.anim.isPlaying &&
+                                markerColorOf(vm, ls[row].index) == null
+                            ) {
+                                vm.animationOpenCel(ls[row].index, frame)
+                            } else {
+                                vm.animationSeek(frame)
+                            }
                         }
                     }
 
@@ -683,8 +731,13 @@ internal fun TimelineTrackArea(
                                 if (!vm.anim.isPlaying && downPos.x < hw && row in ls.indices) {
                                     val layer = ls[row]
                                     liveHaptics.value.performHapticFeedback(HapticFeedbackType.LongPress)
-                                    val rowTop = row * rpx - liveScroll.value
-                                    trackMenu = TrackMenuState(layer.index, layer.name, hw / 2f, rowTop)
+                                    if (downPos.x >= headPadPx + eyeZonePx) {
+                                        vm.animationRequestDeleteTrack(layer.index)
+                                    } else {
+                                        // Keep track-management commands accessible beside the title.
+                                        val rowTop = row * rpx - liveScroll.value
+                                        trackMenu = TrackMenuState(layer.index, layer.name, hw / 2f, rowTop)
+                                    }
                                     while (true) {
                                         val ev = awaitPointerEvent()
                                         val pressed = ev.changes.filter { it.pressed }
@@ -884,7 +937,7 @@ internal fun TimelineTrackArea(
                                     if (lastDistance > 0f) {
                                         val factor = (dist / lastDistance).coerceIn(0.85f, 1.15f)
                                         val oldW = vm.anim.frameWidthPx
-                                        val newW = (oldW * factor).coerceIn(160f, 400f)
+                                        val newW = (oldW * factor).coerceIn(96f, 480f)
                                         val trackPivotX = centroid.x - liveHeaderW.value
                                         if (trackPivotX > 0f) {
                                             val frameAtPivot = (vm.anim.scrollPx + trackPivotX) / oldW
@@ -1009,6 +1062,13 @@ internal fun TimelineTrackArea(
                                 }
                                 val next = if (idx + 1 < times.size) times[idx + 1] else t + lastHold
                                 var span = (next - t).coerceAtLeast(1)
+                                val emptySlot = !layer.isGroup && markerColor == null &&
+                                    layer.index != vm.anim.storyboard.trackIndex &&
+                                    frameThumbKey(layer.index, t) in vm.anim.emptyFrameThumbs
+                                if (emptySlot) {
+                                    if (t != currentTime || layer.index != vm.currentLayerIndex) continue
+                                    span = 1
+                                }
                                 // 前景/背景帧: 强制铺到动画末尾, 画出来就是一条贯穿整行的常驻条。
                                 // 但**不必超过可视范围**: 画布已经 clip 过, 画到视口外只是白白让 Skia
                                 // 每次重绘都去构造一个几百万像素宽的圆角矩形路径 —— 那是纯浪费。

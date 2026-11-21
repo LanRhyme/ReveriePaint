@@ -35,6 +35,7 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.model.FisheyeGuideGeometry
 import com.reverie.paint.model.GuideMode
 import com.reverie.paint.model.Point2D
 import com.reverie.paint.model.SymmetryType
@@ -172,6 +173,105 @@ fun DrawingGuidePanel(
 
                 // 1. PERSPECTIVE 模式
                 if (guide.mode == GuideMode.PERSPECTIVE) {
+                    // 鱼眼透视开关: 球心 + 半径, 直接拖动画面上的两个手柄
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        CompactToggleChip(
+                            label = androidx.compose.ui.res.stringResource(R.string.guide_perspective_fisheye),
+                            selected = guide.perspectiveFisheye,
+                            onClick = {
+                                val on = !guide.perspectiveFisheye
+                                vm.drawingGuide = guide.copy(
+                                    perspectiveFisheye = on,
+                                    assistedDrawing = if (on) true else guide.assistedDrawing,
+                                    perspective3d = if (on) false else guide.perspective3d,
+                                )
+                            },
+                            modifier = Modifier.weight(1f),
+                        )
+                    }
+
+                    if (guide.perspectiveFisheye) {
+                        Text(
+                            androidx.compose.ui.res.stringResource(R.string.guide_fisheye_hint),
+                            color = Morandi.subText,
+                            fontSize = 11.sp,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                        ) {
+                            CompactSliderItem(
+                                label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_horizontal_count),
+                                valueText = "${guide.fisheyeHorizontalCount.coerceIn(5, 25) or 1}",
+                                range = 5f..25f,
+                                value = guide.fisheyeHorizontalCount.toFloat(),
+                                onValue = {
+                                    vm.drawingGuide = guide.copy(
+                                        fisheyeHorizontalCount = FisheyeGuideGeometry.normalizeCurveCount(it.roundToInt()),
+                                    )
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                            CompactSliderItem(
+                                label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_vertical_count),
+                                valueText = "${guide.fisheyeVerticalCount.coerceIn(5, 25) or 1}",
+                                range = 5f..25f,
+                                value = guide.fisheyeVerticalCount.toFloat(),
+                                onValue = {
+                                    vm.drawingGuide = guide.copy(
+                                        fisheyeVerticalCount = FisheyeGuideGeometry.normalizeCurveCount(it.roundToInt()),
+                                    )
+                                },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                        Text(
+                            androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_target),
+                            color = Morandi.subText,
+                            fontSize = 11.sp,
+                        )
+                        SegmentedOptionSelector(
+                            options = listOf(
+                                com.reverie.paint.model.FISHEYE_SNAP_CURVES to
+                                    androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_curves),
+                                com.reverie.paint.model.FISHEYE_SNAP_CENTER_RAY to
+                                    androidx.compose.ui.res.stringResource(R.string.guide_fisheye_snap_ray),
+                            ),
+                            selectedKey = guide.fisheyeSnapTarget.takeIf {
+                                it == com.reverie.paint.model.FISHEYE_SNAP_CENTER_RAY
+                            } ?: com.reverie.paint.model.FISHEYE_SNAP_CURVES,
+                            onSelect = { vm.drawingGuide = guide.copy(fisheyeSnapTarget = it) },
+                        )
+                        CompactSliderItem(
+                            label = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_ray_count),
+                            valueText = "${guide.fisheyeRayCount.coerceIn(4, 48)}",
+                            range = 4f..48f,
+                            value = guide.fisheyeRayCount.toFloat(),
+                            onValue = {
+                                vm.drawingGuide = guide.copy(fisheyeRayCount = it.roundToInt().coerceIn(4, 48))
+                            },
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Text(
+                            text = androidx.compose.ui.res.stringResource(R.string.guide_fisheye_reset),
+                            color = Morandi.accent,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.Medium,
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .clickable {
+                                    vm.drawingGuide = guide.copy(
+                                        fisheyeCenterX = 0.5f,
+                                        fisheyeCenterY = 0.5f,
+                                        fisheyeRadius = 0.42f,
+                                    )
+                                }
+                                .padding(horizontal = 6.dp, vertical = 2.dp),
+                        )
+                    } else {
                     // 3D 空间网格 vs 传统灭点射线 子分段器
                     PerspectiveSubModeSelector(
                         is3d = guide.perspective3d,
@@ -311,6 +411,7 @@ fun DrawingGuidePanel(
                                 modifier = Modifier.weight(1f),
                             )
                         }
+                    }
                     }
                 }
 

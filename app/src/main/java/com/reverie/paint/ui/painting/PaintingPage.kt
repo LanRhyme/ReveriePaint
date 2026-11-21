@@ -2420,6 +2420,33 @@ fun PaintingPage(
         ) {
             AnimationTimelinePanel(vm = vm, hazeState = hazeState)
         }
+
+        // 时间轴被完全关闭时保留一个可见入口: 之前只能靠顶栏同一个小图标重新打开,
+        // 关闭后底部什么都不剩, 很容易以为时间轴坏了
+        AnimatedVisibility(
+            visible = vm.anim.enabled && !vm.anim.panelOpen,
+            enter = fadeIn(),
+            exit = fadeOut(),
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 14.dp)
+                .zIndex(19f),
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(Morandi.panel.copy(alpha = 0.92f))
+                    .clickable { vm.anim.panelOpen = true }
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.anim_expand_timeline),
+                    color = Morandi.text,
+                    fontSize = 12.sp,
+                )
+            }
+        }
+        com.reverie.paint.ui.painting.animation.TimelineDeleteDialog(vm)
         // ---- Action Toast (Undo/Redo, top-center, animated pill) ----
         androidx.compose.animation.AnimatedVisibility(
             visible = vm.undoToastEnabled && vm.actionToastMessage != null && chromeEntered,
