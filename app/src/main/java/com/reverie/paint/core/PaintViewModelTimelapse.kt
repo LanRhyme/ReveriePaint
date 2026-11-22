@@ -56,6 +56,36 @@ private var pendingIdleCaptureRunnable: Runnable? = null
 private var cachedFrameRecorder: FrameRecorder? = null
 private var cachedFramesDirPath: String? = null
 
+/** 复用抓帧位图，避免每笔分配/回收 1080p+ ARGB_8888 引起内存抖动 */
+private val captureBitmapLock = Any()
+private var cachedCaptureBitmap: Bitmap? = null
+
+private fun acquireCaptureBitmap(targetW: Int, targetH: Int): Bitmap {
+    synchronized(captureBitmapLock) {
+        val existing = cachedCaptureBitmap
+        if (existing != null && !existing.isRecycled && existing.width == targetW && existing.height == targetH) {
+            existing.eraseColor(0)
+            return existing
+        }
+        if (existing != null && !existing.isRecycled) {
+            existing.recycle()
+        }
+        val created = Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
+        cachedCaptureBitmap = created
+        return created
+    }
+}
+
+private fun releaseCaptureBitmapCache() {
+    synchronized(captureBitmapLock) {
+        val existing = cachedCaptureBitmap
+        cachedCaptureBitmap = null
+        if (existing != null && !existing.isRecycled && !isTimelapseCapturing.get()) {
+            existing.recycle()
+        }
+    }
+}
+
 /**
  * 重置延时摄影录制器缓存
  */
@@ -422,6 +452,7 @@ fun PaintViewModel.resetTimelapseCaptureState() {
     lastCaptureTriggerTimeMs = 0L
     cachedFrameRecorder = null
     cachedFramesDirPath = null
+    releaseCaptureBitmapCache()
 }
 
 /**
@@ -486,7 +517,7 @@ private fun PaintViewModel.executeTimelapseCaptureNow(force: Boolean) {
 
     val nowMs = System.currentTimeMillis()
     val recorder = getOrCreateFrameRecorder()
-    if (recorder == null || (!force && !recorder.shouldCapture(nowMs, isChanged = true))) {
+    if (recorder == null) {
         isTimelapseCapturing.set(false)
         return
     }
@@ -513,10 +544,8 @@ private fun PaintViewModel.executeTimelapseCaptureNow(force: Boolean) {
 
     lastCaptureTriggerTimeMs = SystemClock.uptimeMillis()
     runCore(render = false) {
-        // 位图在引擎 lambda 内部分配: 原先在 runCore 之前分配, 一旦 lambda 没被执行
-        // (引擎队列异常/文档已销毁) 这块 ARGB_8888 (可达数 MB) 就没人回收。
         val captureBitmap = try {
-            Bitmap.createBitmap(targetW, targetH, Bitmap.Config.ARGB_8888)
+            acquireCaptureBitmap(targetW, targetH)
         } catch (e: Throwable) {
             Log.e(TAG_TIMELAPSE, "Failed to allocate capture bitmap", e)
             isTimelapseCapturing.set(false)
@@ -549,7 +578,12 @@ private fun PaintViewModel.executeTimelapseCaptureNow(force: Boolean) {
                 } catch (t: Throwable) {
                     Log.e(TAG_TIMELAPSE, "Exception during timelapse capture processing", t)
                 } finally {
-                    captureBitmap.recycle()
+                    val shouldRecycleOrphan = synchronized(captureBitmapLock) {
+                        cachedCaptureBitmap !== captureBitmap
+                    }
+                    if (shouldRecycleOrphan && !captureBitmap.isRecycled) {
+                        captureBitmap.recycle()
+                    }
                     val elapsed = SystemClock.uptimeMillis() - startUptime
                     if (elapsed > 300L) {
                         Log.w(TAG_TIMELAPSE, "Timelapse capture processing took ${elapsed}ms > 300ms")
@@ -563,7 +597,12 @@ private fun PaintViewModel.executeTimelapseCaptureNow(force: Boolean) {
                 }
             }
         } else {
-            captureBitmap.recycle()
+            val shouldRecycleOrphan = synchronized(captureBitmapLock) {
+                cachedCaptureBitmap !== captureBitmap
+            }
+            if (shouldRecycleOrphan && !captureBitmap.isRecycled) {
+                captureBitmap.recycle()
+            }
             isTimelapseCapturing.set(false)
             if (pendingTimelapseCapture.compareAndSet(true, false)) {
                 mainHandler.post {

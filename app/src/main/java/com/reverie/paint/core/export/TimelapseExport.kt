@@ -259,9 +259,16 @@ object TimelapseExport {
             val rowOffset = y * w
             for (x in 0 until w) {
                 val c = argb[rowOffset + x]
-                val r = (c ushr 16) and 0xFF
-                val g = (c ushr 8) and 0xFF
-                val b = c and 0xFF
+                val a = (c ushr 24) and 0xFF
+                var r = (c ushr 16) and 0xFF
+                var g = (c ushr 8) and 0xFF
+                var b = c and 0xFF
+                if (a < 255) {
+                    val whiteWeight = 255 * (255 - a)
+                    r = (r * a + whiteWeight + 127) / 255
+                    g = (g * a + whiteWeight + 127) / 255
+                    b = (b * a + whiteWeight + 127) / 255
+                }
                 val yVal = ((66 * r + 129 * g + 25 * b + 128) ushr 8) + 16
                 yBuf.put(y * yRowStride + x * yPixStride, yVal.coerceIn(0, 255).toByte())
 
@@ -294,9 +301,16 @@ object TimelapseExport {
             val rowOffset = y * w
             for (x in 0 until w) {
                 val c = argb[rowOffset + x]
-                val r = (c ushr 16) and 0xFF
-                val g = (c ushr 8) and 0xFF
-                val b = c and 0xFF
+                val a = (c ushr 24) and 0xFF
+                var r = (c ushr 16) and 0xFF
+                var g = (c ushr 8) and 0xFF
+                var b = c and 0xFF
+                if (a < 255) {
+                    val whiteWeight = 255 * (255 - a)
+                    r = (r * a + whiteWeight + 127) / 255
+                    g = (g * a + whiteWeight + 127) / 255
+                    b = (b * a + whiteWeight + 127) / 255
+                }
                 val yVal = ((66 * r + 129 * g + 25 * b + 128) ushr 8) + 16
                 yuvTemp[yIdx++] = yVal.coerceIn(0, 255).toByte()
 
