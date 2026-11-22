@@ -199,14 +199,20 @@ internal fun tfHandles(tfState: TransformState): List<Offset> {
     }
     val r = tfState.bounds
     val corners = listOf(r.topLeft, r.topRight, r.bottomRight, r.bottomLeft)
-    val mids =
-        listOf(
-            Offset((r.left + r.right) / 2f, r.top),
-            Offset(r.right, (r.top + r.bottom) / 2f),
-            Offset((r.left + r.right) / 2f, r.bottom),
-            Offset(r.left, (r.top + r.bottom) / 2f),
-        )
-    return corners.map { tfTransform(tfState, it) } + mids.map { tfTransform(tfState, it) }
+    return corners.map { tfTransform(tfState, it) }
+}
+
+internal fun distanceToSegment(p: Offset, a: Offset, b: Offset): Float {
+    val abx = b.x - a.x
+    val aby = b.y - a.y
+    val lenSq = abx * abx + aby * aby
+    if (lenSq <= 1e-6f) {
+        return kotlin.math.hypot(p.x - a.x, p.y - a.y)
+    }
+    val t = (((p.x - a.x) * abx + (p.y - a.y) * aby) / lenSq).coerceIn(0f, 1f)
+    val projX = a.x + t * abx
+    val projY = a.y + t * aby
+    return kotlin.math.hypot(p.x - projX, p.y - projY)
 }
 
 /**

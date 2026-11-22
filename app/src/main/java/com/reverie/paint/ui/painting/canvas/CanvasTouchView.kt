@@ -7527,16 +7527,30 @@ class CanvasTouchView(context: Context) : View(context) {
                         val halfH = state.bounds.height / 2f
                         val inBox = ux >= -halfW && ux <= halfW && uy >= -halfH && uy <= halfH
 
-                        val maxHandleRadius = minOf(halfW, halfH) * 0.4f
+                        val scaledHalfW = halfW * abs(state.scaleX)
+                        val scaledHalfH = halfH * abs(state.scaleY)
+                        val maxHandleRadius = minOf(scaledHalfW, scaledHalfH) * 0.4f
                         val hitThresholdDoc = minOf(baseThresholdDoc, maxOf(1f, maxHandleRadius))
 
-                        var best = -1
-                        var bestD = hitThresholdDoc
-                        for (i in handles.indices) {
+                        var bestCorner = -1
+                        var bestCornerD = hitThresholdDoc
+                        for (i in 0 until minOf(4, handles.size)) {
                             val d = hypot(handles[i].x - docPos.x, handles[i].y - docPos.y)
-                            if (d < bestD) {
-                                bestD = d
-                                best = i
+                            if (d < bestCornerD) {
+                                bestCornerD = d
+                                bestCorner = i
+                            }
+                        }
+
+                        var bestEdge = -1
+                        var bestEdgeD = baseThresholdDoc * 0.85f
+                        if (bestCorner < 0 && handles.size >= 4) {
+                            for (e in 0..3) {
+                                val d = distanceToSegment(docPos, handles[e], handles[(e + 1) % 4])
+                                if (d < bestEdgeD) {
+                                    bestEdgeD = d
+                                    bestEdge = 4 + e
+                                }
                             }
                         }
 
@@ -7546,7 +7560,8 @@ class CanvasTouchView(context: Context) : View(context) {
 
                         state.handle = when {
                             inInnerSafetyZone -> 8
-                            best >= 0 -> best
+                            bestCorner >= 0 -> bestCorner
+                            bestEdge >= 0 -> bestEdge
                             inBox -> 8
                             else -> 9
                         }

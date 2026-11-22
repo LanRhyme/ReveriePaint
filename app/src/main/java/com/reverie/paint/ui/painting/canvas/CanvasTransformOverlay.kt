@@ -288,39 +288,46 @@ internal fun DrawScope.drawTransformHandles(
                             // Draw inner grid lines
                             drawPath(
                                 distortGridInnerPath,
-                                color = Color(0x66181B22),
-                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx() / currentScale),
+                                color = Color(0x38181B22),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6.dp.toPx() / currentScale),
                             )
                             drawPath(
                                 distortGridInnerPath,
-                                color = Color(0x88AAB3C2),
-                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx() / currentScale),
+                                color = Color(0x66AAB3C2),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 0.9.dp.toPx() / currentScale),
                             )
 
                             // Draw border grid lines
                             drawPath(
                                 distortGridBorderPath,
-                                color = Color(0xFF181B22),
-                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx() / currentScale),
+                                color = Color(0x4D181B22),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx() / currentScale),
                             )
                             drawPath(
                                 distortGridBorderPath,
-                                color = Morandi.accent,
-                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx() / currentScale),
+                                color = Morandi.accent.copy(alpha = 0.78f),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.1.dp.toPx() / currentScale),
                             )
 
                             // 3. Draw 16 Control Handles
                             handles.forEachIndexed { idx, h ->
                                 val isCorner = (idx == 0 || idx == 3 || idx == 12 || idx == 15)
-                                val hr = (if (isCorner) 9.dp.toPx() else 6.5.dp.toPx()) / currentScale
-                                drawCircle(Color(0xFF22262E), radius = hr, center = h)
+                                val isActive = (tfState.handle == idx)
+                                val hr = (if (isCorner) 7.5.dp.toPx() else 5.5.dp.toPx()) / currentScale
+                                drawCircle(Color(if (isActive) 0x80D8DEE8 else 0x55C8CFD8), radius = hr, center = h)
                                 drawCircle(
-                                    if (isCorner) Morandi.accent else Color(0xFFAAB3C2),
+                                    Color(0x44181B22),
                                     radius = hr,
                                     center = h,
-                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx() / currentScale),
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6.dp.toPx() / currentScale),
                                 )
-                                drawCircle(Color.White, radius = (if (isCorner) 3.dp.toPx() else 2.dp.toPx()) / currentScale, center = h)
+                                drawCircle(
+                                    if (isCorner || isActive) Morandi.accent.copy(alpha = 0.85f) else Color(0xAAAAB3C2),
+                                    radius = hr,
+                                    center = h,
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.1.dp.toPx() / currentScale),
+                                )
+                                drawCircle(Color(0xDCE8ECF2), radius = (if (isCorner) 2.5.dp.toPx() else 1.8.dp.toPx()) / currentScale, center = h)
                             }
                         }
                     } else if (tfState.mode == TransformMode.PERSPECTIVE) {
@@ -335,23 +342,25 @@ internal fun DrawScope.drawTransformHandles(
                             }
                             drawPath(
                                 quadPath,
-                                color = Color(0xFF181B22),
-                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx() / currentScale),
+                                color = Color(0x4D181B22),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx() / currentScale),
                             )
                             drawPath(
                                 quadPath,
-                                color = Morandi.accent,
-                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx() / currentScale),
+                                color = Morandi.accent.copy(alpha = 0.78f),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.1.dp.toPx() / currentScale),
                             )
-                            val handleRadius = 11.dp.toPx() / currentScale
-                            handles.forEach { h ->
-                                drawCircle(Color(0xFF22262E), radius = handleRadius, center = h)
-                                drawCircle(Morandi.accent, radius = handleRadius, center = h, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6.dp.toPx() / currentScale))
-                                drawCircle(Color.White, radius = 3.dp.toPx() / currentScale, center = h)
+                            val handleRadius = 8.dp.toPx() / currentScale
+                            handles.forEachIndexed { idx, h ->
+                                val isActive = (tfState.handle == idx)
+                                drawCircle(Color(if (isActive) 0x80D8DEE8 else 0x55C8CFD8), radius = handleRadius, center = h)
+                                drawCircle(Color(0x44181B22), radius = handleRadius, center = h, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.6.dp.toPx() / currentScale))
+                                drawCircle(Morandi.accent.copy(alpha = if (isActive) 0.95f else 0.85f), radius = handleRadius, center = h, style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.1.dp.toPx() / currentScale))
+                                drawCircle(Color(0xDCE8ECF2), radius = 2.5.dp.toPx() / currentScale, center = h)
                             }
                         }
                     } else {
-                        // Standard / Free 8-Handle Bounding Box
+                        // Standard / Free 4-Corner Bounding Box (edges are directly draggable)
                         val frame = androidx.compose.ui.graphics.Path()
                         if (handles.size >= 4) {
                             frame.moveTo(handles[0].x, handles[0].y)
@@ -360,54 +369,95 @@ internal fun DrawScope.drawTransformHandles(
                             }
                             frame.close()
 
-                            // 1. High-contrast dual-layer bounding frame
+                            // 1. Lightweight semi-transparent dual-layer bounding frame
                             drawPath(
                                 frame,
-                                color = Color(0xFF181B22),
-                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3.dp.toPx() / currentScale),
+                                color = Color(0x4D181B22),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 2.dp.toPx() / currentScale),
                             )
                             drawPath(
                                 frame,
-                                color = Color(0xFFAAB3C2),
-                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.5.dp.toPx() / currentScale),
+                                color = Color(0xB8D8DEE8),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 1.dp.toPx() / currentScale),
                             )
+
+                            // Highlight active edge when dragging an edge (handles 4..7)
+                            if (tfState.handle in 4..7) {
+                                val edgeStart = handles[tfState.handle - 4]
+                                val edgeEnd = handles[(tfState.handle - 3) % 4]
+                                drawLine(
+                                    color = Morandi.accent.copy(alpha = 0.9f),
+                                    start = edgeStart,
+                                    end = edgeEnd,
+                                    strokeWidth = 2.dp.toPx() / currentScale,
+                                    cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                                )
+                            }
 
                             // 2. Center Pivot Indicator
                             val centerDoc = tfState.bounds.center + Offset(tfState.tx, tfState.ty)
                             val centerBmp = bx(centerDoc)
-                            val cr = 5.dp.toPx() / currentScale
-                            drawLine(Color(0xFF181B22), centerBmp - Offset(cr, 0f), centerBmp + Offset(cr, 0f), strokeWidth = 3.dp.toPx() / currentScale)
-                            drawLine(Color(0xFF181B22), centerBmp - Offset(0f, cr), centerBmp + Offset(0f, cr), strokeWidth = 3.dp.toPx() / currentScale)
-                            drawLine(Morandi.accent, centerBmp - Offset(cr, 0f), centerBmp + Offset(cr, 0f), strokeWidth = 1.5.dp.toPx() / currentScale)
-                            drawLine(Morandi.accent, centerBmp - Offset(0f, cr), centerBmp + Offset(0f, cr), strokeWidth = 1.5.dp.toPx() / currentScale)
+                            val cr = 4.5.dp.toPx() / currentScale
+                            drawLine(Color(0x4D181B22), centerBmp - Offset(cr, 0f), centerBmp + Offset(cr, 0f), strokeWidth = 2.dp.toPx() / currentScale)
+                            drawLine(Color(0x4D181B22), centerBmp - Offset(0f, cr), centerBmp + Offset(0f, cr), strokeWidth = 2.dp.toPx() / currentScale)
+                            drawLine(Morandi.accent.copy(alpha = 0.75f), centerBmp - Offset(cr, 0f), centerBmp + Offset(cr, 0f), strokeWidth = 1.2.dp.toPx() / currentScale)
+                            drawLine(Morandi.accent.copy(alpha = 0.75f), centerBmp - Offset(0f, cr), centerBmp + Offset(0f, cr), strokeWidth = 1.2.dp.toPx() / currentScale)
 
-                            // 3. Huashijie Pro Style Vector Handle Badges
-                            val handleRadius = 11.dp.toPx() / currentScale
-                            val badgeStrokeW = 1.4.dp.toPx() / currentScale
+                            // 3. 4 Translucent Corner Handle Badges
+                            val handleRadius = 8.dp.toPx() / currentScale
+                            val badgeStrokeW = 1.1.dp.toPx() / currentScale
+                            val outerContrastW = 1.6.dp.toPx() / currentScale
                             val glyphSize = handleRadius * 0.52f
-                            val glyphColor = Color.White
+                            val glyphColor = Color(0xDCE8ECF2)
+                            val glyphShadowColor = Color(0x38181B22)
                             val glyphStroke = androidx.compose.ui.graphics.drawscope.Stroke(
-                                width = 1.5.dp.toPx() / currentScale,
+                                width = 1.3.dp.toPx() / currentScale,
+                                cap = androidx.compose.ui.graphics.StrokeCap.Round,
+                                join = androidx.compose.ui.graphics.StrokeJoin.Round,
+                            )
+                            val glyphShadowStroke = androidx.compose.ui.graphics.drawscope.Stroke(
+                                width = 2.1.dp.toPx() / currentScale,
                                 cap = androidx.compose.ui.graphics.StrokeCap.Round,
                                 join = androidx.compose.ui.graphics.StrokeJoin.Round,
                             )
 
-                            handles.forEachIndexed { i, h ->
-                                drawCircle(Color(0xFF22262E), radius = handleRadius, center = h)
-                                drawCircle(if (i == 1 || i == 3) Morandi.accent else Color(0xFF9098A6), radius = handleRadius, center = h, style = androidx.compose.ui.graphics.drawscope.Stroke(width = badgeStrokeW))
+                            for (i in 0..3) {
+                                val h = handles[i]
+                                val isActive = (tfState.handle == i)
+                                drawCircle(Color(if (isActive) 0x80D8DEE8 else 0x55C8CFD8), radius = handleRadius, center = h)
+                                drawCircle(Color(0x44181B22), radius = handleRadius, center = h, style = androidx.compose.ui.graphics.drawscope.Stroke(width = outerContrastW))
+                                drawCircle(
+                                    if (i == 1 || i == 3 || isActive) Morandi.accent.copy(alpha = if (isActive) 0.95f else 0.85f) else Color(0xBBE2E6EE),
+                                    radius = handleRadius,
+                                    center = h,
+                                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = badgeStrokeW),
+                                )
                                 when (i) {
                                     0, 2 -> {
-                                        drawLine(glyphColor, h - Offset(glyphSize, glyphSize), h + Offset(glyphSize, glyphSize), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
                                         val ah = glyphSize * 0.45f
-                                        drawLine(glyphColor, h - Offset(glyphSize, glyphSize), h - Offset(glyphSize - ah, glyphSize), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
-                                        drawLine(glyphColor, h - Offset(glyphSize, glyphSize), h - Offset(glyphSize, glyphSize - ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
-                                        drawLine(glyphColor, h + Offset(glyphSize, glyphSize), h + Offset(glyphSize - ah, glyphSize), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
-                                        drawLine(glyphColor, h + Offset(glyphSize, glyphSize), h + Offset(glyphSize, glyphSize - ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        val p1 = h - Offset(glyphSize, glyphSize)
+                                        val p2 = h + Offset(glyphSize, glyphSize)
+                                        drawLine(glyphShadowColor, p1, p2, strokeWidth = glyphShadowStroke.width, cap = glyphStroke.cap)
+                                        drawLine(glyphColor, p1, p2, strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        drawLine(glyphColor, p1, h - Offset(glyphSize - ah, glyphSize), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        drawLine(glyphColor, p1, h - Offset(glyphSize, glyphSize - ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        drawLine(glyphColor, p2, h + Offset(glyphSize - ah, glyphSize), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        drawLine(glyphColor, p2, h + Offset(glyphSize, glyphSize - ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
                                     }
                                     1, 3 -> {
                                         val arcRect = androidx.compose.ui.geometry.Rect(h - Offset(glyphSize, glyphSize), h + Offset(glyphSize, glyphSize))
+                                        val accentGlyph = Morandi.accent.copy(alpha = 0.9f)
                                         drawArc(
-                                            color = Morandi.accent,
+                                            color = glyphShadowColor,
+                                            startAngle = 40f,
+                                            sweepAngle = 260f,
+                                            useCenter = false,
+                                            topLeft = arcRect.topLeft,
+                                            size = arcRect.size,
+                                            style = glyphShadowStroke,
+                                        )
+                                        drawArc(
+                                            color = accentGlyph,
                                             startAngle = 40f,
                                             sweepAngle = 260f,
                                             useCenter = false,
@@ -417,24 +467,8 @@ internal fun DrawScope.drawTransformHandles(
                                         )
                                         val rad = Math.toRadians(300.0)
                                         val tip = h + Offset((glyphSize * kotlin.math.cos(rad)).toFloat(), (glyphSize * kotlin.math.sin(rad)).toFloat())
-                                        drawLine(Morandi.accent, tip, tip + Offset(-glyphSize * 0.35f, -glyphSize * 0.2f), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
-                                        drawLine(Morandi.accent, tip, tip + Offset(-glyphSize * 0.15f, glyphSize * 0.35f), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
-                                    }
-                                    4, 6 -> {
-                                        drawLine(glyphColor, h - Offset(0f, glyphSize), h + Offset(0f, glyphSize), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
-                                        val ah = glyphSize * 0.38f
-                                        drawLine(glyphColor, h - Offset(0f, glyphSize), h - Offset(-ah, glyphSize - ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
-                                        drawLine(glyphColor, h - Offset(0f, glyphSize), h - Offset(ah, glyphSize - ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
-                                        drawLine(glyphColor, h + Offset(0f, glyphSize), h + Offset(-ah, glyphSize - ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
-                                        drawLine(glyphColor, h + Offset(0f, glyphSize), h + Offset(ah, glyphSize - ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
-                                    }
-                                    5, 7 -> {
-                                        drawLine(glyphColor, h - Offset(glyphSize, 0f), h + Offset(glyphSize, 0f), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
-                                        val ah = glyphSize * 0.38f
-                                        drawLine(glyphColor, h - Offset(glyphSize, 0f), h - Offset(glyphSize - ah, -ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
-                                        drawLine(glyphColor, h - Offset(glyphSize, 0f), h - Offset(glyphSize - ah, ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
-                                        drawLine(glyphColor, h + Offset(glyphSize, 0f), h + Offset(glyphSize - ah, -ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
-                                        drawLine(glyphColor, h + Offset(glyphSize, 0f), h + Offset(glyphSize - ah, ah), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        drawLine(accentGlyph, tip, tip + Offset(-glyphSize * 0.35f, -glyphSize * 0.2f), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
+                                        drawLine(accentGlyph, tip, tip + Offset(-glyphSize * 0.15f, glyphSize * 0.35f), strokeWidth = glyphStroke.width, cap = glyphStroke.cap)
                                     }
                                 }
                             }
