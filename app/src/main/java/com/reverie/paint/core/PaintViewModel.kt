@@ -2990,21 +2990,15 @@ class PaintViewModel : ViewModel() {
     }
 
     /** 检查指定图层自身是否隐藏，或其任意祖先图层组是否隐藏。 */
-    fun isLayerEffectivelyHidden(layerIndex: Int): Boolean {
-        val layer = layers.firstOrNull { it.index == layerIndex } ?: return false
-        if (!layer.visible) return true
-        var currentDepth = layer.depth
-        var idx = layerIndex - 1
-        while (idx >= 0 && currentDepth > 0) {
-            val candidate = layers.getOrNull(idx) ?: break
-            if (candidate.depth == currentDepth - 1 && candidate.isGroup) {
-                if (!candidate.visible) return true
-                currentDepth = candidate.depth
-            }
-            idx--
-        }
-        return false
-    }
+    fun isLayerEffectivelyHidden(layerIndex: Int): Boolean =
+        com.reverie.paint.model.isLayerEffectivelyHiddenAt(
+            index = layerIndex,
+            layerCount = layers.size,
+            depthAt = { layers[it].depth },
+            visibleAt = { layers[it].visible },
+            groupAt = { layers[it].isGroup },
+            maskAt = { com.reverie.paint.model.LayerNodeType.isMask(layers[it].nodeType) },
+        )
 
     // 独显浮窗的“取消所有效果”模式（C++ 状态，经 notifyLayerChanged 同步为
     // Compose state，保证点击后 chip 高亮即时刷新）

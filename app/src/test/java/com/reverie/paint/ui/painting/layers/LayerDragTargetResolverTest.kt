@@ -5,6 +5,7 @@
 package com.reverie.paint.ui.painting.layers
 
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.model.LayerNodeType
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
@@ -19,6 +20,7 @@ class LayerDragTargetResolverTest {
         name: String = "Layer $index",
         locked: Boolean = false,
         isBackground: Boolean = false,
+        nodeType: Int = 0,
     ) = PaintViewModel.LayerUiState(
         index = index,
         name = name,
@@ -26,6 +28,7 @@ class LayerDragTargetResolverTest {
         locked = locked,
         alphaLocked = false,
         isGroup = isGroup,
+        nodeType = nodeType,
         depth = depth,
         colorLabel = 0,
         clipped = false,
@@ -82,6 +85,54 @@ class LayerDragTargetResolverTest {
         assertEquals(LayerDropPlacement.BELOW, targetBelow?.placement)
         assertEquals(0, targetBelow?.visualDepth)
         assertEquals(1, targetBelow?.visualSlot)
+    }
+
+    @Test
+    fun `透明度蒙版行不能作为 BELOW 落点锚 - issue 216`() {
+        // 显示顺序 (顶到底): 图层1 / 蒙版(深度1) / 图层组1 / 图层2 / 图层组2
+        val host = mockLayer(3, depth = 0, name = "图层1")
+        val mask = mockLayer(4, depth = 1, name = "蒙版 图层1", nodeType = LayerNodeType.TRANSPARENCY_MASK)
+        val group1 = mockLayer(0, depth = 0, isGroup = true, name = "图层组1")
+        val child = mockLayer(1, depth = 1, name = "图层2")
+        val group2 = mockLayer(2, depth = 1, isGroup = true, name = "图层组2")
+        val remaining = listOf(host, mask, group1, child, group2)
+        val bounds = mapOf(
+            3 to (0f to 50f),
+            4 to (50f to 100f),
+            0 to (100f to 150f),
+            1 to (150f to 200f),
+            2 to (200f to 250f),
+        )
+
+        // 悬停在蒙版行下半区、手指向右偏移偏深层: 旧逻辑会给出 anchor=蒙版 BELOW,
+        // 引擎按"插到蒙版下方"执行, 结果把图层组2 插进宿主与蒙版之间 (蒙版改跟图层组2)
+        val target = resolveLayerDropTarget(
+            fingerX = 300f,
+            fingerY = 90f,
+            dragStartX = 0f,
+            listLeft = 0f,
+            listTop = 0f,
+            listWidth = 300f,
+            rowHeightPx = 50f,
+            remainingRows = remaining,
+            rowBounds = bounds,
+            allLayers = remaining,
+        )
+        assertNotNull(target)
+        assertEquals("落点必须是宿主图层, 不能以蒙版为锚", host.index, target!!.anchorIndex)
+        assertEquals(LayerDropPlacement.BELOW, target.placement)
+    }
+
+    @Test
+    fun `蒙版行的父组沿宿主图层继续向上查找`() {
+        // 显示顺序: 组 / 宿主图层 / 蒙版
+        val group = mockLayer(10, depth = 0, isGroup = true)
+        val host = mockLayer(11, depth = 1)
+        val mask = mockLayer(12, depth = 2, nodeType = LayerNodeType.TRANSPARENCY_MASK)
+        val rows = listOf(group, host, mask)
+        assertEquals(10, findParentGroupIndex(rows, 2))
+        // 宿主在根级时没有父组
+        assertEquals(null, findParentGroupIndex(listOf(host, mask), 1))
     }
 
     @Test

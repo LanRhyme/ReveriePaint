@@ -1278,8 +1278,14 @@ internal fun PaintViewModel.moveLayersRelative(
     }
     val selectedIds = layers.filter { it.index in effectiveIndices }.map { it.id }.toSet()
     val selectedNames = layers.filter { it.index in effectiveIndices }.map { it.name }.toSet()
+    // 落点是蒙版时改以宿主为锚 (下方): 引擎侧同样会这样归一, 这里保证乐观预览一致 (issue #216)
+    val anchorTarget = if (placeAbove) target else com.reverie.paint.model.resolveMaskAnchorHost(
+        index = target,
+        layerCount = layers.size,
+        isMaskAt = { com.reverie.paint.model.LayerNodeType.isMask(layers[it].nodeType) },
+    )
     applyOptimisticLayerReorder(
-        computeOptimisticMoveRelative(layerOrderNodes(), effectiveIndices, target, placeAbove),
+        computeOptimisticMoveRelative(layerOrderNodes(), effectiveIndices, anchorTarget, placeAbove),
         selectedIds = selectedIds,
         selectedNames = selectedNames,
     )
@@ -1287,7 +1293,7 @@ internal fun PaintViewModel.moveLayersRelative(
         notifyLayerChanged()
         selectedLayerIndices = layers.filter { it.id in selectedIds || it.name in selectedNames }.map { it.index }.toSet()
     }) {
-        ReverieCoreBridge.moveLayersRelative(effectiveIndices.toIntArray(), target, placeAbove)
+        ReverieCoreBridge.moveLayersRelative(effectiveIndices.toIntArray(), anchorTarget, placeAbove)
     }
 }
 

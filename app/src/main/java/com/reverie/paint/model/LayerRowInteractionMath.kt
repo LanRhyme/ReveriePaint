@@ -69,3 +69,38 @@ fun layersHiddenByHiddenGroup(
     }
     return out
 }
+
+/**
+ * [index] 行是否"实际不可见/不可落笔": 自身隐藏, 或祖先链上有隐藏的组。
+ *
+ * 与 [layersHiddenByHiddenGroup] 的差别: 后者批量给行画灰, 这里只回答"当前这行
+ * 能不能编辑", 允许 O(n) 回溯。
+ *
+ * **透明度蒙版的直接父级是宿主图层, 不一定是组** (Layer-as-Mask: 蒙版是宿主上方
+ * 的同级 KisPaintLayer, 列表里记为 depth+1 的子行)。旧实现只把组当父级, 会跨过
+ * 宿主继续往上找到下方无关的组, 于是"下方组隐藏 → 上方蒙版被判隐藏" (issue #215)。
+ */
+inline fun isLayerEffectivelyHiddenAt(
+    index: Int,
+    layerCount: Int,
+    depthAt: (Int) -> Int,
+    visibleAt: (Int) -> Boolean,
+    groupAt: (Int) -> Boolean,
+    maskAt: (Int) -> Boolean,
+): Boolean {
+    if (index !in 0 until layerCount) return false
+    if (!visibleAt(index)) return true
+    // 只允许蒙版的第一层父级是普通图层; 宿主之上的祖先仍然必须是组
+    var parentMayBeLayer = maskAt(index)
+    var depth = depthAt(index).coerceAtLeast(0)
+    var i = index - 1
+    while (i >= 0 && depth > 0) {
+        if (depthAt(i).coerceAtLeast(0) == depth - 1 && (groupAt(i) || parentMayBeLayer)) {
+            if (!visibleAt(i)) return true
+            depth -= 1
+            parentMayBeLayer = false
+        }
+        i--
+    }
+    return false
+}

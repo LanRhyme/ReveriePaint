@@ -3092,16 +3092,97 @@ static QString kraChannelFlagsString(const KoColorSpace *cs, bool alphaDisabled)
     return s;
 }
 
+// Layer-as-Mask 的透明度蒙版是宿主上方的同级 KisPaintLayer。导出 KRA 时必须写成
+// 宿主 <layer> 内嵌的 <masks><mask nodetype="transparencymask"> 子节点，并把蒙版
+// 像素转成 Krita 的 ALPHA8 pixelselection；否则 Krita 只看到一张普通图层 (#217)。
+static bool isTransparencyMaskNode(const KisNodeSP &node)
+{
+    return node && reverie::layerProperty(&*node, "reverie_is_transparency_mask").toBool();
+}
+
+static QVector<KisNodeSP> attachedTransparencyMasks(const KisNodeSP &host)
+{
+    QVector<KisNodeSP> masks;
+    if (!host) return masks;
+    for (KisNodeSP sib = host->nextSibling(); isTransparencyMaskNode(sib); sib = sib->nextSibling()) {
+        masks.append(sib);
+    }
+    return masks;
+}
+
+static void writeKraMaskElements(QXmlStreamWriter &xml, const QVector<KisNodeSP> &masks,
+                                 int &maskCounter, QStringList &outFileNames)
+{
+    if (masks.isEmpty()) return;
+    xml.writeStartElement(QStringLiteral("masks"));
+    for (KisNodeSP maskNode : masks) {
+        const QString fileName = QStringLiteral("mask%1").arg(maskCounter++);
+        outFileNames.append(fileName);
+        xml.writeStartElement(QStringLiteral("mask"));
+        xml.writeAttribute(QStringLiteral("name"), maskNode->name());
+        xml.writeAttribute(QStringLiteral("visible"), maskNode->visible() ? QStringLiteral("1") : QStringLiteral("0"));
+        xml.writeAttribute(QStringLiteral("locked"), maskNode->userLocked() ? QStringLiteral("1") : QStringLiteral("0"));
+        xml.writeAttribute(QStringLiteral("nodetype"), QStringLiteral("transparencymask"));
+        xml.writeAttribute(QStringLiteral("filename"), fileName);
+        xml.writeAttribute(QStringLiteral("x"), QString::number(maskNode->x()));
+        xml.writeAttribute(QStringLiteral("y"), QString::number(maskNode->y()));
+        xml.writeAttribute(QStringLiteral("uuid"), QUuid::createUuid().toString());
+        xml.writeAttribute(QStringLiteral("colorlabel"), QString::number(maskNode->colorLabelIndex()));
+        xml.writeEndElement(); // mask
+    }
+    xml.writeEndElement(); // masks
+}
+
+// 蒙版像素 (BGRA, 白=透光, 黑/空=遮挡) -> Krita 透明度蒙版的像素选择 (ALPHA8, 255=透光)。
+// 编码与引擎 applyMaskModulation 完全一致: factor = gray * alpha / 255。
+static bool writeKraTransparencyMaskData(KoStore *store, const QString &docName,
+                                         const QString &maskFileName, KisNodeSP maskNode,
+                                         KisImageSP image)
+{
+    KisPaintLayer *maskLayer = dynamic_cast<KisPaintLayer *>(maskNode.data());
+    if (!store || !maskLayer || !maskLayer->paintDevice() || !image) return false;
+    const KoColorSpace *alphaCs = KoColorSpaceRegistry::instance()->alpha8();
+    if (!alphaCs) return false;
+    const int w = image->width();
+    const int h = image->height();
+    if (w <= 0 || h <= 0) return false;
+    KisPaintDeviceSP maskDev(new KisPaintDevice(alphaCs));
+    if (!maskDev) return false;
+    maskDev->setDefaultPixel(KoColor::createTransparent(alphaCs));
+    const int stripRows = qMin(256, h);
+    QVector<quint8> rgba(size_t(w) * size_t(stripRows) * 4);
+    QVector<quint8> alpha(size_t(w) * size_t(stripRows));
+    for (int y = 0; y < h; y += stripRows) {
+        const int rows = qMin(stripRows, h - y);
+        maskLayer->paintDevice()->readBytes(rgba.data(), 0, y, w, rows);
+        const int count = w * rows;
+        for (int i = 0; i < count; ++i) {
+            const quint8 a = rgba[i * 4 + 3];
+            const quint8 gray = a ? quint8((rgba[i * 4] * 11 + rgba[i * 4 + 1] * 59 + rgba[i * 4 + 2] * 30 + 50) / 100) : 0;
+            alpha[i] = quint8((unsigned(gray) * unsigned(a) + 127) / 255);
+        }
+        maskDev->writeBytes(alpha.constData(), 0, y, w, rows);
+    }
+    const QString loc = QStringLiteral("%1/layers/%2.pixelselection").arg(docName, maskFileName);
+    if (!store->open(loc)) return false;
+    KisStorePaintDeviceWriter writer(store);
+    maskDev->write(writer);
+    return store->close();
+}
+
 static void writeKraNodesXml(QXmlStreamWriter &xml,
                              KisNodeSP parentNode,
                              const QString &docName,
                              KoStore *store,
                              int &layerCounter,
+                             int &maskCounter,
                              KisImageSP image)
 {
     if (!parentNode) return;
 
     for (KisNodeSP node = parentNode->lastChild(); node; node = node->prevSibling()) {
+        // 透明度蒙版作为宿主的 <masks> 子元素导出，不再单独成层 (#217)
+        if (isTransparencyMaskNode(node)) continue;
         KisLayer *layer = dynamic_cast<KisLayer *>(node.data());
         if (!layer) continue;
 
@@ -3139,10 +3220,19 @@ static void writeKraNodesXml(QXmlStreamWriter &xml,
             xml.writeAttribute(QStringLiteral("y"), QString::number(layer->y()));
 
             xml.writeStartElement(QStringLiteral("layers"));
-            writeKraNodesXml(xml, node, docName, store, layerCounter, image);
+            writeKraNodesXml(xml, node, docName, store, layerCounter, maskCounter, image);
             xml.writeEndElement(); // layers
 
+            // 组也可以挂透明度蒙版 (分格裁剪等)
+            const QVector<KisNodeSP> groupMasks = attachedTransparencyMasks(node);
+            QStringList groupMaskFiles;
+            writeKraMaskElements(xml, groupMasks, maskCounter, groupMaskFiles);
             xml.writeEndElement(); // layer
+            for (int i = 0; i < groupMasks.size(); ++i) {
+                if (!writeKraTransparencyMaskData(store, docName, groupMaskFiles.value(i), groupMasks[i], image)) {
+                    qWarning() << "saveKra: failed to write transparency mask data for" << groupMasks[i]->name();
+                }
+            }
         } else if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(layer)) {
             const QString layerFileName = QString("layer%1").arg(layerCounter++);
             const QString alphaLockedStr = pl->alphaLocked() ? QStringLiteral("1") : QStringLiteral("0");
@@ -3172,6 +3262,10 @@ static void writeKraNodesXml(QXmlStreamWriter &xml,
             xml.writeAttribute(QStringLiteral("collapsed"), QStringLiteral("0"));
             xml.writeAttribute(QStringLiteral("x"), QString::number(layer->x()));
             xml.writeAttribute(QStringLiteral("y"), QString::number(layer->y()));
+
+            const QVector<KisNodeSP> layerMasks = attachedTransparencyMasks(node);
+            QStringList layerMaskFiles;
+            writeKraMaskElements(xml, layerMasks, maskCounter, layerMaskFiles);
             xml.writeEndElement(); // layer
 
             // Write Krita tile data to <docName>/layers/<layerFileName>
@@ -3215,6 +3309,11 @@ static void writeKraNodesXml(QXmlStreamWriter &xml,
                     store->close();
                 }
             }
+            for (int i = 0; i < layerMasks.size(); ++i) {
+                if (!writeKraTransparencyMaskData(store, docName, layerMaskFiles.value(i), layerMasks[i], image)) {
+                    qWarning() << "saveKra: failed to write transparency mask data for" << layerMasks[i]->name();
+                }
+            }
         } else {
             const QString layerFileName = QString("layer%1").arg(layerCounter++);
             xml.writeStartElement(QStringLiteral("layer"));
@@ -3233,7 +3332,15 @@ static void writeKraNodesXml(QXmlStreamWriter &xml,
             xml.writeAttribute(QStringLiteral("collapsed"), QStringLiteral("0"));
             xml.writeAttribute(QStringLiteral("x"), QString::number(layer->x()));
             xml.writeAttribute(QStringLiteral("y"), QString::number(layer->y()));
+            const QVector<KisNodeSP> layerMasks = attachedTransparencyMasks(node);
+            QStringList layerMaskFiles;
+            writeKraMaskElements(xml, layerMasks, maskCounter, layerMaskFiles);
             xml.writeEndElement();
+            for (int i = 0; i < layerMasks.size(); ++i) {
+                if (!writeKraTransparencyMaskData(store, docName, layerMaskFiles.value(i), layerMasks[i], image)) {
+                    qWarning() << "saveKra: failed to write transparency mask data for" << layerMasks[i]->name();
+                }
+            }
         }
     }
 }
@@ -3303,7 +3410,8 @@ bool ReverieCore::saveKra(const QString &path)
 
         xml.writeStartElement(QStringLiteral("layers"));
         int layerCounter = 0;
-        writeKraNodesXml(xml, image->rootLayer(), docName, store.data(), layerCounter, image);
+        int maskCounter = 0;
+        writeKraNodesXml(xml, image->rootLayer(), docName, store.data(), layerCounter, maskCounter, image);
         xml.writeEndElement(); // layers
 
         xml.writeEndElement(); // IMAGE

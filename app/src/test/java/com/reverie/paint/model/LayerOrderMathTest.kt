@@ -119,6 +119,22 @@ class LayerOrderMathTest {
     }
 
     @Test
+    fun `蒙版落点锚回退到宿主, 多蒙版时继续向下找宿主`() {
+        val nodes = listOf(
+            LayerOrderNode(id = 1L, depth = 0, isGroup = false),
+            LayerOrderNode(id = 2L, depth = 0, isGroup = false), // 宿主
+            LayerOrderNode(id = 3L, depth = 1, isGroup = false, isMask = true),
+            LayerOrderNode(id = 4L, depth = 1, isGroup = false, isMask = true),
+        )
+        val isMaskAt: (Int) -> Boolean = { nodes[it].isMask }
+        assertEquals(1, resolveMaskAnchorHost(1, nodes.size, isMaskAt))
+        assertEquals(1, resolveMaskAnchorHost(2, nodes.size, isMaskAt))
+        assertEquals(1, resolveMaskAnchorHost(3, nodes.size, isMaskAt))
+        // 越界输入原样返回, 由引擎侧校验
+        assertEquals(5, resolveMaskAnchorHost(5, nodes.size, isMaskAt))
+    }
+
+    @Test
     fun `collectAttachedMaskIndices collects all consecutive masks and stops at next sibling`() {
         val nodes = listOf(
             LayerOrderNode(id = 100L, depth = 0, isGroup = false),

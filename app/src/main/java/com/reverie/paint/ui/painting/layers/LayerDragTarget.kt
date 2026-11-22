@@ -78,11 +78,15 @@ internal fun findParentGroupIndex(
     if (visualIndex !in rows.indices) return null
     val target = rows[visualIndex]
     if (target.depth <= 0) return null
-    val expectedParentDepth = target.depth - 1
+    // 透明度蒙版的直接父级是宿主图层 (可能不是组), 宿主之上才是真正的组祖先 (issue #215/#216)
+    var depth = target.depth
+    var parentMayBeLayer = LayerNodeType.isMask(target.nodeType)
     for (i in visualIndex - 1 downTo 0) {
         val r = rows[i]
-        if (r.depth == expectedParentDepth && r.isGroup) {
-            return r.index
+        if (r.depth == depth - 1 && (r.isGroup || parentMayBeLayer)) {
+            if (r.isGroup) return r.index
+            depth -= 1
+            parentMayBeLayer = false
         }
     }
     return null
@@ -283,7 +287,9 @@ private fun dropTargetAtBoundary(
             parentGroupIdx = previous.index
         } else {
             val prefix = remainingRows.take(boundary + 1)
-            val matching = prefix.lastOrNull { it.depth == d } ?: continue
+            // 蒙版行与宿主是一体: 以蒙版为 BELOW 锚会让引擎把兄弟插进宿主与蒙版之间,
+            // 蒙版随后改跟新插入的图层 (issue #216)。跳过蒙版锚, 落到宿主行下方。
+            val matching = prefix.lastOrNull { it.depth == d && !LayerNodeType.isMask(it.nodeType) } ?: continue
             anchor = matching
             placement = LayerDropPlacement.BELOW
             val matchingIdxInRows = prefix.indexOf(matching)

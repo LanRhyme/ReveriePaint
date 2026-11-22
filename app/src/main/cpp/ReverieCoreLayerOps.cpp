@@ -11,6 +11,24 @@
 #include "ReverieCoreLayerExtras.h"
 #include "PixelAlpha.h"
 
+// Layer-as-Mask: 透明度蒙版是宿主图层上方的同级 KisPaintLayer; 滤镜/变换等是
+// KisMask 子节点。两者都不是可独立换位的图层: 移动宿主时必须成对携带。
+static bool isAttachedMaskNode(const KisNodeSP &node)
+{
+    return node && (reverie::layerProperty(&*node, "reverie_is_transparency_mask").toBool()
+                    || dynamic_cast<const KisMask *>(node.data()));
+}
+
+// 蒙版的宿主 = 其下方最近的普通兄弟节点 (中间可能夹着多个附属蒙版)。
+static KisNodeSP maskHostNode(const KisNodeSP &mask)
+{
+    KisNodeSP host = mask ? mask->prevSibling() : KisNodeSP();
+    while (host && isAttachedMaskNode(host)) {
+        host = host->prevSibling();
+    }
+    return host;
+}
+
 void ReverieCore::flipLayerHorizontal(int index)
 {
     if (!isLayerEditable(index)) {
@@ -303,6 +321,10 @@ bool ReverieCore::moveLayer(int fromIndex, int toIndex)
         return false;
     }
     KisNodeSP node(src.node);
+    // 蒙版与宿主是一体, 不能单独换位 (拖拽已禁用, 这里兜住快捷键/脚本路径)
+    if (isAttachedMaskNode(node)) {
+        return false;
+    }
     const LayerEntry &dst = m_layers[toIndex];
     KisNodeSP parent(dst.node->parent() ? dst.node->parent() : m_document->root());
     // never move a group into its own subtree
@@ -336,55 +358,32 @@ bool ReverieCore::moveLayerAbove(int fromIndex, int aboveIndex)
     if (aboveIndex >= 0 && fromIndex == aboveIndex) {
         return false;
     }
+    // 普通"移到某层上方"与批量移动共用一套宿主+蒙版绑定逻辑 (issue #216)
+    if (aboveIndex >= 0) {
+        return moveLayersRelative(QVector<int>{fromIndex}, aboveIndex, true);
+    }
     const LayerEntry &src = m_layers[fromIndex];
     if (src.locked || src.background) {
         return false;
     }
     KisNodeSP node(src.node);
-    KisNodeSP parent;
-    KisNodeSP aboveNode;
-    if (aboveIndex >= 0) {
-        const LayerEntry &above = m_layers[aboveIndex];
-        aboveNode = KisNodeSP(above.node);
-        if (aboveNode == node) {
-            return false;
-        }
-        parent = aboveNode->parent() ? aboveNode->parent() : m_document->root();
-    } else {
-        // aboveIndex == -1: move to the very top of the root.
-        // moveNode's newIndex semantics are relative to the PRE-removal tree,
-        // so it cannot express "land at index childCount"; remove + add to the
-        // end instead (addNode(node, parent) appends at the visual top).
-        parent = m_document->root();
-        aboveNode = parent->lastChild();
-        if (aboveNode == node) {
-            return true;  // already at the top
-        }
-        if (src.isGroup) {
-            KisNodeSP p = node->parent();
-            while (p) {
-                if (p == node) {
-                    return false;
-                }
-                p = p->parent();
-            }
-        }
-        // Krita-native undo: remove + re-add as two commands so undo
-        // restores the original parent and slot exactly
-        pushUndoCommand(new KisImageLayerRemoveCommand(m_document, node));
-        pushUndoCommand(new KisImageLayerAddCommand(
-            m_document, node, parent, KisNodeSP()));
-        syncLayersFromImage();
-        recompositeProjection();
-        markDirty();
-        return true;
+    if (!node || isAttachedMaskNode(node)) {
+        return false;  // 蒙版不能脱离宿主单独移动
     }
-    if (parent == node) {
-        return false;  // cannot move a group into its own subtree
+
+    // aboveIndex == -1: move to the very top of the root.
+    // moveNode's newIndex semantics are relative to the PRE-removal tree,
+    // so it cannot express "land at index childCount"; remove + add to the
+    // end instead (addNode(node, parent) appends at the visual top).
+    KisNodeSP parent = m_document->root();
+    if (!parent) {
+        return false;
     }
-    // never move a group into its own subtree
+    if (parent->lastChild() == node) {
+        return true;  // already at the top
+    }
     if (src.isGroup) {
-        KisNodeSP p(parent);
+        KisNodeSP p = node->parent();
         while (p) {
             if (p == node) {
                 return false;
@@ -392,9 +391,26 @@ bool ReverieCore::moveLayerAbove(int fromIndex, int aboveIndex)
             p = p->parent();
         }
     }
-    // Krita-native undo: the move command redo() relocates the node
-    pushUndoCommand(new KisImageLayerMoveCommand(
-        m_document, node, parent, aboveNode));
+
+    // 宿主附带的蒙版必须一起搬到顶部，否则会留在原地并与其它图层重新配对 (issue #216)。
+    // Krita-native undo: 整个搬移包在一个宏里，撤销一次即可完整还原。
+    QVector<KisNodeSP> attachedMasks;
+    for (KisNodeSP sib = node->nextSibling(); sib && isAttachedMaskNode(sib); sib = sib->nextSibling()) {
+        attachedMasks.append(sib);
+    }
+    beginUndoMacro(QStringLiteral("Move Layers"));
+    pushUndoCommand(new KisImageLayerRemoveCommand(m_document, node));
+    for (KisNodeSP mask : attachedMasks) {
+        pushUndoCommand(new KisImageLayerRemoveCommand(m_document, mask));
+    }
+    pushUndoCommand(new KisImageLayerAddCommand(
+        m_document, node, parent, KisNodeSP()));
+    KisNodeSP above = node;
+    for (KisNodeSP mask : attachedMasks) {
+        pushUndoCommand(new KisImageLayerAddCommand(m_document, mask, parent, above));
+        above = mask;
+    }
+    endUndoMacro();
     syncLayersFromImage();
     recompositeProjection();
     markDirty();
@@ -428,6 +444,11 @@ bool ReverieCore::moveLayersToGroup(const QVector<int> &fromIndices, int groupIn
         if (src.locked || src.background || !src.node) continue;
 
         KisNodeSP node(src.node);
+        // 蒙版与宿主是一体: 单独把蒙版拖进组会撕裂绑定, 跳过 (宿主进组时下面成对携带)
+        if (isAttachedMaskNode(node)) {
+            KisNodeSP host = maskHostNode(node);
+            if (!host || !fromIndices.contains(indexOfNode(host.data()))) continue;
+        }
         if (src.isGroup) {
             KisNodeSP p(group->parent());
             bool isAncestor = false;
@@ -446,11 +467,11 @@ bool ReverieCore::moveLayersToGroup(const QVector<int> &fromIndices, int groupIn
     // 确保若移动父图层，其附属的所有蒙版紧随其后成对移动到组内
     QVector<KisNodeSP> finalNodesToMove;
     for (KisNodeSP node : nodesToMove) {
-        const bool isMask = reverie::layerProperty(&*node, "reverie_is_transparency_mask").toBool() || dynamic_cast<KisMask *>(node.data());
+        const bool isMask = isAttachedMaskNode(node);
         if (!isMask) {
             finalNodesToMove.append(node);
             KisNodeSP sib = node->nextSibling();
-            while (sib && (reverie::layerProperty(&*sib, "reverie_is_transparency_mask").toBool() || dynamic_cast<KisMask *>(sib.data()))) {
+            while (isAttachedMaskNode(sib)) {
                 if (!finalNodesToMove.contains(sib)) {
                     finalNodesToMove.append(sib);
                 }
@@ -493,8 +514,16 @@ bool ReverieCore::moveLayersRelative(const QVector<int> &fromIndices, int target
     }
 
     KisNodeSP target(dst.node);
+    // 蒙版与宿主是一体: 落到蒙版下方 == 落到宿主下方; 绝不允许把兄弟插进两者之间 (issue #216)
+    if (!placeAbove && isAttachedMaskNode(target)) {
+        KisNodeSP host = maskHostNode(target);
+        if (host) {
+            target = host;
+        }
+    }
     KisNodeSP parent = target->parent() ? target->parent() : KisNodeSP(m_document->rootLayer());
     if (!parent) parent = m_document->rootLayer();
+    const int effectiveTargetIndex = indexOfNode(target.data());
 
     // Sort fromIndices ascending (composition order: 0 is lowest, N is highest)
     QVector<int> sortedIndices = fromIndices;
@@ -503,7 +532,7 @@ bool ReverieCore::moveLayersRelative(const QVector<int> &fromIndices, int target
     QVector<KisNodeSP> nodesToMove;
     for (int idx : sortedIndices) {
         if (idx <= 0 || idx >= m_layers.size()) continue;
-        if (idx == targetIndex) continue;
+        if (idx == targetIndex || idx == effectiveTargetIndex) continue;
         const LayerEntry &src = m_layers[idx];
         if (src.locked || src.background || !src.node) continue;
 
@@ -523,6 +552,19 @@ bool ReverieCore::moveLayersRelative(const QVector<int> &fromIndices, int target
             if (isAncestor) continue;
         }
         nodesToMove.append(node);
+    }
+
+    // 蒙版不能脱离宿主单独移动: 宿主不在移动集合里时丢弃该蒙版 (拖拽已禁止, 这里兜底快捷键/批量路径)
+    {
+        QVector<KisNodeSP> filtered;
+        for (KisNodeSP node : nodesToMove) {
+            if (isAttachedMaskNode(node)) {
+                KisNodeSP host = maskHostNode(node);
+                if (!host || !nodesToMove.contains(host)) continue;
+            }
+            filtered.append(node);
+        }
+        nodesToMove = filtered;
     }
 
     // 确保若移动父图层，其附属的所有蒙版紧随其后成对移动

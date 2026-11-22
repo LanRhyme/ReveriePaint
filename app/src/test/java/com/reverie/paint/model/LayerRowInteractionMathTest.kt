@@ -6,6 +6,8 @@ package com.reverie.paint.model
 
 import org.junit.Assert.assertArrayEquals
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertFalse
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 /**
@@ -103,6 +105,79 @@ class LayerRowInteractionMathTest {
             visible = listOf(true, true, true, false, true, true),
         )
         assertArrayEquals(booleanArrayOf(false, false, false, false, true, true), hidden)
+    }
+
+    // ==================== 单行可编辑性 (落笔门禁) ====================
+
+    @Test
+    fun `蒙版可编辑性只看自身与宿主祖先, 不跟随下方无关组 - issue 215`() {
+        // 引擎层序 (底到顶): 组1(0,隐藏) / 图层2(1) / 图层1(0) / 蒙版(1)
+        val depths = listOf(0, 1, 0, 1)
+        val visible = listOf(false, true, true, true)
+        val groups = listOf(true, false, false, false)
+        val masks = listOf(false, false, false, true)
+        fun hiddenAt(i: Int) = isLayerEffectivelyHiddenAt(
+            index = i,
+            layerCount = depths.size,
+            depthAt = { depths[it] },
+            visibleAt = { visible[it] },
+            groupAt = { groups[it] },
+            maskAt = { masks[it] },
+        )
+        // 蒙版与宿主可见; 下方隐藏组不是它们的祖先
+        assertFalse(hiddenAt(3))
+        assertFalse(hiddenAt(2))
+        // 组1 的子层确实被隐藏
+        assertTrue(hiddenAt(1))
+        // 自身隐藏仍然不可编辑
+        assertTrue(hiddenAt(0))
+    }
+
+    @Test
+    fun `宿主位于隐藏组内时蒙版跟随祖先组隐藏`() {
+        // 组(0,隐藏) / 宿主(1) / 蒙版(2)
+        val depths = listOf(0, 1, 2)
+        val visible = listOf(false, true, true)
+        val groups = listOf(true, false, false)
+        val masks = listOf(false, false, true)
+        fun hiddenAt(i: Int) = isLayerEffectivelyHiddenAt(
+            index = i,
+            layerCount = depths.size,
+            depthAt = { depths[it] },
+            visibleAt = { visible[it] },
+            groupAt = { groups[it] },
+            maskAt = { masks[it] },
+        )
+        assertTrue(hiddenAt(2))
+    }
+
+    @Test
+    fun `宿主自身隐藏时蒙版不可编辑`() {
+        val depths = listOf(0, 1)
+        val visible = listOf(false, true)
+        fun hiddenAt(i: Int) = isLayerEffectivelyHiddenAt(
+            index = i,
+            layerCount = depths.size,
+            depthAt = { depths[it] },
+            visibleAt = { visible[it] },
+            groupAt = { false },
+            maskAt = { it == 1 },
+        )
+        assertTrue(hiddenAt(1))
+    }
+
+    @Test
+    fun `越界或深度异常时保持可编辑`() {
+        assertFalse(
+            isLayerEffectivelyHiddenAt(
+                index = -1,
+                layerCount = 3,
+                depthAt = { 0 },
+                visibleAt = { true },
+                groupAt = { false },
+                maskAt = { false },
+            ),
+        )
     }
 
     @Test

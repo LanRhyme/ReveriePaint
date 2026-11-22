@@ -180,3 +180,19 @@ private fun extractMovedBlocks(
     }
     return result
 }
+
+/**
+ * 落点锚是蒙版时返回它的宿主下标: 蒙版是宿主上方的同级节点 (列表里伪造为子行),
+ * 把兄弟插到"蒙版下方"等于插进宿主与蒙版之间, 会让蒙版改跟新图层 (issue #216)。
+ * 返回宿主后按"宿主下方"移动, 视觉上就是蒙版行下方的缝隙。
+ */
+inline fun resolveMaskAnchorHost(
+    index: Int,
+    layerCount: Int,
+    isMaskAt: (Int) -> Boolean,
+): Int {
+    if (index !in 0 until layerCount || !isMaskAt(index)) return index
+    var i = index - 1
+    while (i >= 0 && isMaskAt(i)) i--
+    return if (i >= 0) i else index
+}
