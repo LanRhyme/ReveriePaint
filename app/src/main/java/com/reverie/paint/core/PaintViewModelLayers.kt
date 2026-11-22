@@ -455,6 +455,7 @@ internal fun PaintViewModel.addLayer() {
     }) {
         executeAddLayerSafely(wasInside) {
             ReverieCoreBridge.addLayer(defaultName)
+            initializeNewAnimationCel()
         }
     }
 }
@@ -482,6 +483,7 @@ internal fun PaintViewModel.importImageToNewLayer(
         try {
             executeAddLayerSafely(wasInside) {
                 ReverieCoreBridge.addLayer(finalName)
+                initializeNewAnimationCel()
             }
             val placement = ImageImportHelper.calculateFitPlacement(
                 docW = coreW,
@@ -537,6 +539,18 @@ internal fun PaintViewModel.removeLayer(index: Int) {
     }
     if (target.locked) {
         showActionToast(R.string.toast_layer_delete_locked, R.drawable.ic_lock)
+        return
+    }
+    if (anim.enabled) {
+        // 动画文档里"轨道就是图层": 图层面板的删除只清当前帧格的内容,
+        // 不删图层/轴 (整条轴删除走时间轴长按标题的确认入口)。
+        if (target.nodeType == 0 && index != anim.backgroundLayerIndex &&
+            index != anim.foregroundLayerIndex
+        ) {
+            animationRemoveKeyframe(index)
+        } else {
+            animationRequestDeleteTrack(index)
+        }
         return
     }
     if (transientTransformSelectionPending || canUndoTransformSelection || canRedoTransformSelection) {
@@ -1506,6 +1520,7 @@ internal fun PaintViewModel.addLayerWithType(
     }) {
         executeAddLayerSafely(wasInside) {
             ReverieCoreBridge.addLayerWithType(name, type, fillColor)
+            if (type == 0) initializeNewAnimationCel()
         }
     }
 }

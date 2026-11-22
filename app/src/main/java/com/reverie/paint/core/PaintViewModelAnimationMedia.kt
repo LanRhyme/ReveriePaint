@@ -6,12 +6,14 @@ package com.reverie.paint.core
 
 import android.graphics.Bitmap
 import android.net.Uri
+import androidx.lifecycle.viewModelScope
 import com.reverie.paint.R
 import com.reverie.paint.model.*
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import kotlin.math.ceil
 
 private fun PaintViewModel.importTargetLayer(): Int = selectedTrackIndex()
 
@@ -166,13 +168,107 @@ internal fun PaintViewModel.animationImportVideo(
     }
 }
 
-/** 导入音频: 字节存入 .revp 的 assets/<name> (随保存/加载持久化)。 */
+/** 导入音频: 文件字节与起始帧/时长一并存进 .revp。 */
 internal fun PaintViewModel.animationImportAudio(uri: android.net.Uri, name: String) {
-    runCatching {
-        val bytes = appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
-        if (bytes != null && bytes.isNotEmpty()) {
-            ReverieCoreBridge.storeRevAsset(name, bytes)
+    val generation = anim.storyboard.generation
+    viewModelScope.launch {
+        val imported = withContext(Dispatchers.IO) {
+            runCatching {
+                val bytes = appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+                    ?.takeIf { it.isNotEmpty() } ?: return@runCatching null
+                val retriever = android.media.MediaMetadataRetriever()
+                val durationMs = try {
+                    retriever.setDataSource(appContext, uri)
+                    retriever.extractMetadata(
+                        android.media.MediaMetadataRetriever.METADATA_KEY_DURATION,
+                    )?.toLongOrNull() ?: 0L
+                } finally {
+                    runCatching { retriever.release() }
+                }
+                bytes to durationMs
+            }.getOrNull()
         }
+        if (imported == null) {
+            showActionToast(R.string.anim_audio_import_failed)
+            return@launch
+        }
+        val (bytes, durationMs) = imported
+        val fps = anim.framerate.coerceIn(1, 240)
+        val durationFrames = if (durationMs > 0L) {
+            ceil(durationMs * fps / 1000.0).toInt().coerceIn(1, AnimationAudioClips.MAX_TIMELINE_FRAMES)
+        } else {
+            fps * AnimationAudioClips.FALLBACK_SECONDS
+        }
+        var added = false
+        runCore(after = {
+            if (generation == anim.storyboard.generation && added) {
+                anim.hiddenAssets = anim.hiddenAssets - name
+                anim.audioAssets = (anim.audioAssets + name).distinct()
+                anim.audioClips = AnimationAudioClips.reconcile(anim.audioClips, anim.audioAssets, fps)
+                anim.cachedAudioFile = null
+                anim.audioWaveform = emptyList()
+                isModified = true
+                showActionToast(R.string.anim_audio_imported)
+            }
+        }) {
+            if (generation != anim.storyboard.generation) return@runCore
+            anim.hiddenAssets = anim.hiddenAssets - name
+            val current = AnimationLayerOps.audioAssetsOf(ReverieCoreBridge.revAssetNames().toList())
+                .filterNot { it in anim.hiddenAssets }
+            val clips = AnimationAudioClips.reconcile(
+                loadAudioClipsOnRenderThread(),
+                current,
+                fps,
+            ).filterNot { it.name == name }.toMutableList()
+            ReverieCoreBridge.storeRevAsset(name, bytes)
+            if (clips.none { it.name == name }) clips += AudioClip(name, 0, durationFrames)
+            saveAudioClipsOnRenderThread(clips)
+            syncAnimationFromNative()
+            added = true
+        }
+    }
+}
+
+/** 长按音频条确认后移除: 停止播放, 清除资源及位置元数据。 */
+internal fun PaintViewModel.animationRemoveAudio(name: String) {
+    if (name !in anim.audioAssets) return
+    animationPause()
+    val generation = anim.storyboard.generation
+    var removed = false
+    runCore(after = {
+        if (generation == anim.storyboard.generation && removed) {
+            anim.hiddenAssets = anim.hiddenAssets + name
+            anim.audioAssets = anim.audioAssets - name
+            anim.audioClips = AnimationAudioClips.without(anim.audioClips, name)
+            anim.cachedAudioFile = null
+            anim.audioWaveform = emptyList()
+            isModified = true
+            showActionToast(R.string.anim_audio_removed)
+            viewModelScope.launch(Dispatchers.IO) {
+                java.io.File(appContext.cacheDir, "anim_audio")
+                    .resolve(name.replace('/', '_'))
+                    .delete()
+            }
+        }
+    }) {
+        if (generation != anim.storyboard.generation) return@runCore
+        val clips = AnimationAudioClips.without(loadAudioClipsOnRenderThread(), name)
+        ReverieCoreBridge.storeRevAsset(name, ByteArray(0))
+        saveAudioClipsOnRenderThread(clips)
+        removed = true
+    }
+}
+
+/** 拖动音频条后保存新起始帧。 */
+internal fun PaintViewModel.animationMoveAudioClip(name: String, startFrame: Int) {
+    val generation = anim.storyboard.generation
+    val clips = AnimationAudioClips.withStart(anim.audioClips, name, startFrame)
+    anim.audioClips = clips
+    runCore(after = {
+        if (generation == anim.storyboard.generation) isModified = true
+    }) {
+        if (generation != anim.storyboard.generation) return@runCore
+        saveAudioClipsOnRenderThread(clips)
     }
 }
 

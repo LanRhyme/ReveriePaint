@@ -907,6 +907,13 @@
     <string name="anim_settings_thumbnails">Frame Thumbnails</string>
     <string name="anim_settings_audio">Audio</string>
     <string name="anim_audio_with_playback">%d tracks · With playback</string>
+    <string name="anim_audio_bar_label">Audio · %1$s</string>
+    <string name="anim_audio_remove_title">Remove this audio clip?</string>
+    <string name="anim_audio_remove_message">“%1$s” will be removed from the animation and current playback will stop. This cannot be undone</string>
+    <string name="anim_audio_remove_confirm">Remove audio</string>
+    <string name="anim_audio_imported">Audio added to the timeline</string>
+    <string name="anim_audio_removed">Audio removed</string>
+    <string name="anim_audio_import_failed">Could not import audio</string>
     <string name="anim_settings_import">Import</string>
     <string name="anim_export_chip">Export Animation (GIF / Video / Sequence)</string>
     <string name="anim_import_images">Images</string>
@@ -1448,7 +1455,13 @@
     <string name="selection_copy_cur">Copy to Current Layer</string>
     <string name="selection_cut_new">Cut to New Layer</string>
     <string name="selection_cut_cur">Cut to Current Layer</string>
-    <string name="selection_copy_cut">Copy/Cut</string>
+    <string name="selection_copy_cut">Copy/Paste/Cut</string>
+    <string name="selection_copy_plain">Copy only</string>
+    <string name="selection_paste">Paste</string>
+    <string name="selection_copied">Selection copied</string>
+    <string name="selection_cut">Selection cut</string>
+    <string name="selection_pasted">Pasted into current layer</string>
+    <string name="selection_clipboard_empty">Clipboard is empty</string>
     <string name="selection_complete_close">Close Curve</string>
     <string name="selection_complete_sel">Done Selection</string>
     <string name="selection_undo_point">Undo Point</string>
@@ -1955,6 +1968,15 @@
     <string name="guide_perspective_1pt">1-Point</string>
     <string name="guide_perspective_2pt">2-Point</string>
     <string name="guide_perspective_3pt">3-Point</string>
+    <string name="guide_perspective_fisheye">Fisheye</string>
+    <string name="guide_fisheye_hint">Drag the center dot to move, drag the rim dot to resize</string>
+    <string name="guide_fisheye_horizontal_count">Horizontal curves (incl. center)</string>
+    <string name="guide_fisheye_vertical_count">Vertical curves (incl. center)</string>
+    <string name="guide_fisheye_ray_count">Ray count</string>
+    <string name="guide_fisheye_snap_target">Snap mode</string>
+    <string name="guide_fisheye_snap_curves">Fisheye curves</string>
+    <string name="guide_fisheye_snap_ray">Center ray</string>
+    <string name="guide_fisheye_reset">Reset center and radius</string>
     <string name="guide_symmetry_type">Symmetry Type</string>
     <string name="guide_symmetry_vertical">Vertical</string>
     <string name="guide_symmetry_horizontal">Horizontal</string>
@@ -3309,9 +3331,21 @@
 
     <!-- SRT storyboard import -->
     <string name="srt_import_title">Import SRT storyboard</string>
-    <string name="srt_import_description">Create one keyframe per subtitle in script order, initially one frame long. Drag its right edge to change the duration. Drawing on the SRT track never auto-splits a keyframe. Original timestamps are reference-only. Reimport creates a new track and replaces the reference list; existing drawings are not shortened or deleted. Save as REVP.</string>
-    <string name="srt_choose_file">Choose SRT file</string>
+    <string name="srt_import_description">SRT creates one keyframe per subtitle; TXT or plain text creates one frame per non-empty line. Each keyframe starts one frame long; drag its right edge to change the duration. Drawing on the SRT track never auto-splits a keyframe. Original timestamps are reference-only. Reimport creates a new track and replaces the reference list; existing drawings are not shortened or deleted. Save as REVP.</string>
+    <string name="srt_choose_file">Choose SRT/TXT file</string>
+    <string name="srt_import_text">Paste or type text</string>
+    <string name="srt_import_text_title">Import storyboard text</string>
+    <string name="srt_import_text_hint">Paste SRT content, or use plain text with one frame per non-empty line</string>
+    <string name="srt_import_text_confirm">Import</string>
+    <string name="srt_add_frame_hint">Place the cursor at a sentence break and press Enter to split into a new frame; the text after the cursor moves there for continued editing</string>
+    <string name="srt_add_frame">Add storyboard frame</string>
+    <string name="srt_error_append">Could not add a frame. Check the caption mapping and time limit</string>
+    <string name="srt_error_split">Could not split this shot. Check the caption mapping and time limit</string>
     <string name="srt_close">Close</string>
+    <string name="srt_remove_title">Remove subtitle reference?</string>
+    <string name="srt_remove_message">Only the subtitle reference is removed. The SRT track and painted frames stay. This cannot be undone</string>
+    <string name="srt_remove_confirm">Remove subtitles</string>
+    <string name="srt_remove_done">Subtitle reference removed</string>
     <string name="srt_layer_name">SRT storyboard</string>
     <string name="srt_import_success">Storyboard imported. Tap the caption bar to navigate</string>
     <string name="srt_error_invalid">Invalid SRT: check encoding, caption text and timestamps within 24 hours</string>
@@ -3846,5 +3880,10 @@
     <string name="layer_text_settings_title">Text Layer Settings</string>
     <string name="typography_add_text">Add Text</string>
     <string name="typography_empty_placeholder">Enter text...</string>
+    <string name="anim_delete_cel">Delete current cel</string>
+    <string name="anim_create_cel">Create independent cel</string>
+    <string name="anim_cel_failed">Could not edit the cel; existing content was preserved</string>
+    <string name="anim_delete_track_title">Delete the entire layer track?</string>
+    <string name="anim_delete_track_message">This removes “%1$s” at every frame and can be undone.\nTo delete only the current cel, use the cel or layer panel delete button.</string>
+    <string name="anim_delete_track_confirm">Delete entire track</string>
 </resources>
-

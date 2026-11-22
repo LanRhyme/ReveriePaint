@@ -533,6 +533,7 @@ class CanvasTouchView(context: Context) : View(context) {
         safeEndSymmetryUndoMacro()
         resetMirrorBranches()
         assistLockedRay = null
+        resetFisheyeAssist()
         clearPredictionState(triggerInvalidate = true)
         currentStrokeDocPos = Offset.Zero
         firstDocPos = Offset.Zero
@@ -2513,6 +2514,109 @@ class CanvasTouchView(context: Context) : View(context) {
     }
     private var assistLockedRay: AssistRay? = null
 
+    // 鱼眼吸附: 笔画开始时锁定选定的横/纵曲线或中心射线
+    private var assistFisheyeLocked = false
+    private var assistFisheyeFamily = 0 // 0 = 横向曲线, 1 = 纵向曲线, 2 = 中心射线
+    private var assistFisheyeA = 0.0
+
+    private fun resetFisheyeAssist() {
+        assistFisheyeLocked = false
+        assistFisheyeFamily = 0
+        assistFisheyeA = 0.0
+    }
+
+    /**
+     * 把当前笔尖投影回锁定的一条鱼眼曲线。
+     *
+     * 方向向量 -> 反投影到球面 -> 固定 a 的曲线只保留一个自由度 (t) -> 再投影回画布。
+     * 按面板选择锁定离起点最近的一条横弧/纵弧，或经过球心的中心射线；
+     * 锁定后整笔都投影到该曲线上。
+     */
+    private fun applyFisheyeAssist(
+        v: PaintViewModel,
+        guide: com.reverie.paint.model.DrawingGuideConfig,
+        firstPt: Offset,
+        currentPt: Offset,
+    ): Offset {
+        val minDim = minOf(v.docWidth, v.docHeight).toFloat().coerceAtLeast(1f)
+        val centerX = (guide.fisheyeCenterX * v.docWidth).toDouble()
+        val centerY = (guide.fisheyeCenterY * v.docHeight).toDouble()
+        val radius = (guide.fisheyeRadius * minDim).toDouble().coerceAtLeast(1.0)
+        // 半球投影只在圆盘内有定义; 圆盘外起笔不吸附, 避免所有点被钳到边缘。
+        if (hypot(firstPt.x.toDouble() - centerX, firstPt.y.toDouble() - centerY) > radius) return currentPt
+        fun dir(px: Offset) = FisheyeGuideGeometry.directionFromDocument(
+            px.x.toDouble(), px.y.toDouble(), centerX, centerY, radius,
+        )
+        if (!assistFisheyeLocked) {
+            val dStart = dir(firstPt)
+            if (guide.fisheyeSnapTarget == com.reverie.paint.model.FISHEYE_SNAP_CENTER_RAY) {
+                assistFisheyeFamily = 2
+                if (hypot(dStart.first, dStart.second) <= 1e-6) {
+                    val s0 = docToScreen(firstPt)
+                    val s1 = docToScreen(currentPt)
+                    if (hypot(s1.x - s0.x, s1.y - s0.y) < 3f * density) return currentPt
+                    val dCurrent = dir(currentPt)
+                    assistFisheyeA = FisheyeGuideGeometry.azimuthOf(dCurrent.first, dCurrent.second)
+                } else {
+                    assistFisheyeA = FisheyeGuideGeometry.azimuthOf(dStart.first, dStart.second)
+                }
+                assistFisheyeLocked = true
+            } else {
+                // 合并后的弧线模式: 起笔后按初始运笔方向选横/纵弧, 参数直接取
+                // 起笔点的连续值 (不量化到显示线), 因此空白区域同样有鱼眼约束,
+                // 且落点不会被拉到邻近的可见参考线上。
+                val s0 = docToScreen(firstPt)
+                val s1 = docToScreen(currentPt)
+                val sdx = s1.x - s0.x
+                val sdy = s1.y - s0.y
+                if (hypot(sdx, sdy) < 3f * density) return currentPt
+                assistFisheyeFamily = FisheyeGuideGeometry.chooseCurveFamily(
+                    dStart.first,
+                    dStart.second,
+                    dStart.third,
+                    (currentPt.x - firstPt.x).toDouble(),
+                    (currentPt.y - firstPt.y).toDouble(),
+                    centerX,
+                    centerY,
+                    radius,
+                )
+                assistFisheyeA = if (assistFisheyeFamily == 0) {
+                    FisheyeGuideGeometry.horizontalParameter(dStart.first, dStart.second, dStart.third)
+                } else {
+                    FisheyeGuideGeometry.verticalParameter(dStart.first, dStart.second, dStart.third)
+                }
+                assistFisheyeLocked = true
+            }
+        }
+
+        val d = dir(currentPt)
+        val snapped = snapFisheyePoint(d, centerX, centerY, radius)
+        return snapped
+    }
+
+    private fun snapFisheyePoint(
+        direction: Triple<Double, Double, Double>,
+        centerX: Double,
+        centerY: Double,
+        radius: Double,
+    ): Offset {
+        val snapped = when (assistFisheyeFamily) {
+            0 -> FisheyeGuideGeometry.snapToHorizontalCurve(
+                assistFisheyeA, direction.first, direction.second, direction.third,
+            )
+            1 -> FisheyeGuideGeometry.snapToVerticalCurve(
+                assistFisheyeA, direction.first, direction.second, direction.third,
+            )
+            else -> FisheyeGuideGeometry.snapToCenterRay(
+                assistFisheyeA, direction.first, direction.second, direction.third,
+            )
+        }
+        val p = FisheyeGuideGeometry.documentFromDirection(
+            snapped.first, snapped.second, snapped.third, centerX, centerY, radius,
+        )
+        return Offset(p.x, p.y)
+    }
+
     private fun applyAssistedDrawing(firstPt: Offset, currentPt: Offset): Offset {
         val v = vm ?: return currentPt
         val guide = v.drawingGuide
@@ -2560,6 +2664,9 @@ class CanvasTouchView(context: Context) : View(context) {
                 Offset(firstPt.x + bestDir.x * dot, firstPt.y + bestDir.y * dot)
             }
             GuideMode.PERSPECTIVE -> {
+                if (guide.perspectiveFisheye) {
+                    return applyFisheyeAssist(v, guide, firstPt, currentPt)
+                }
                 if (guide.perspective3d) return currentPt
                 val vps = if (guide.perspectiveVanishingPoints.isEmpty()) {
                     listOf(Point2D(v.docWidth * 0.5f, vm?.docHeight?.toFloat()?.times(0.35f) ?: 350f))
@@ -2636,6 +2743,26 @@ class CanvasTouchView(context: Context) : View(context) {
         }
         val guide = v.drawingGuide
         if (guide.mode == GuideMode.PERSPECTIVE) {
+            if (guide.perspectiveFisheye) {
+                val minDim = minOf(v.docWidth, v.docHeight).toFloat()
+                val cDoc = Offset(v.docWidth * guide.fisheyeCenterX, v.docHeight * guide.fisheyeCenterY)
+                val cScreen = docToScreen(cDoc)
+                if (hypot(screenPos.x - cScreen.x, screenPos.y - cScreen.y) < 36f * density) {
+                    draggingGuideHandleIndex = 102
+                    isPendingLongPress = false
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    return true
+                }
+                val rimDoc = Offset(cDoc.x + guide.fisheyeRadius * minDim, cDoc.y)
+                val rimScreen = docToScreen(rimDoc)
+                if (hypot(screenPos.x - rimScreen.x, screenPos.y - rimScreen.y) < 36f * density) {
+                    draggingGuideHandleIndex = 103
+                    isPendingLongPress = false
+                    parent?.requestDisallowInterceptTouchEvent(true)
+                    return true
+                }
+                return false
+            }
             if (guide.perspective3d) {
                 val orbitDoc = com.reverie.paint.model.DrawingGuideHandleGeometry
                     .perspective3dOrbitHandleDocPos(v.docWidth, v.docHeight, guide)
@@ -2725,6 +2852,22 @@ class CanvasTouchView(context: Context) : View(context) {
         val v = vm ?: return false
         val g = v.drawingGuide
         return when (draggingGuideHandleIndex) {
+            102 -> {
+                val newX = (docPos.x / maxOf(1, v.docWidth)).coerceIn(0.02f, 0.98f)
+                val newY = (docPos.y / maxOf(1, v.docHeight)).coerceIn(0.02f, 0.98f)
+                v.drawingGuide = g.copy(fisheyeCenterX = newX, fisheyeCenterY = newY)
+                invalidate()
+                true
+            }
+            103 -> {
+                val cx = v.docWidth * g.fisheyeCenterX
+                val cy = v.docHeight * g.fisheyeCenterY
+                val minDim = minOf(v.docWidth, v.docHeight).toFloat().coerceAtLeast(1f)
+                val radius = (hypot(docPos.x - cx, docPos.y - cy) / minDim).coerceIn(0.05f, 1.5f)
+                v.drawingGuide = g.copy(fisheyeRadius = radius)
+                invalidate()
+                true
+            }
             200 -> {
                 val dx = docPos.x - lastOrbitDocPos.x
                 val dy = docPos.y - lastOrbitDocPos.y
@@ -4188,6 +4331,8 @@ class CanvasTouchView(context: Context) : View(context) {
     /** 这一笔可能出现动态吸附导引线 (2D 透视 / 等轴测 / 2D 网格 且开了辅助绘图)。 */
     private fun snapGuidePossible(v: PaintViewModel): Boolean {
         val g = v.drawingGuide
+        // 鱼眼当前不显示动态提示线, 前缓冲也不要为它预留孔洞/绘制。
+        if (g.mode == GuideMode.PERSPECTIVE && g.perspectiveFisheye) return false
         return FrontBufferHolePolicy.snapLinesPossible(
             g.assistedDrawing,
             g.mode == GuideMode.PERSPECTIVE && !g.perspective3d,
@@ -4535,6 +4680,10 @@ class CanvasTouchView(context: Context) : View(context) {
             val maxExt = maxOf(v.docWidth, v.docHeight).toFloat() * 50f + 500_000f
             when (guide.mode) {
                 GuideMode.PERSPECTIVE -> {
+                    // 鱼眼不参与旧透视的动态提示线: 旧逻辑会用 perspectiveVanishingPoints
+                    // 或默认 (0.5w, 0.35h) 画斜虚线, 与鱼眼圆心无关。
+                    // 暂不画曲线高亮, 直接返回"没有提示线", 不是中止整帧。
+                    if (guide.perspectiveFisheye) return DynamicGuidePainter.KIND_NONE
                     if (guide.perspective3d) return DYNAMIC_GUIDE_ABORT_FRAME
                     val locked = assistLockedRay
                     val dx = currentStrokeDocPos.x - firstDocPos.x
@@ -7089,13 +7238,24 @@ class CanvasTouchView(context: Context) : View(context) {
             Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
                 val hasSymmetry = v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing
                 assistLockedRay = null
+                resetFisheyeAssist()
                 strokeAbortedUntilUp = false
                 if (hasSymmetry) {
                     safeBeginSymmetryUndoMacro()
                     clearPredictionState(triggerInvalidate = false)
                 }
-                val targetDocPos = docPos
-                firstDocPos = targetDocPos
+                val rawStartDocPos = docPos
+                firstDocPos = rawStartDocPos
+                val guideAtStart = v.drawingGuide
+                val targetDocPos = if (
+                    guideAtStart.mode == GuideMode.PERSPECTIVE &&
+                    guideAtStart.perspectiveFisheye &&
+                    guideAtStart.assistedDrawing
+                ) {
+                    applyAssistedDrawing(rawStartDocPos, rawStartDocPos)
+                } else {
+                    rawStartDocPos
+                }
                 smoothedPressure = pressure
                 currentStrokeDocPos = targetDocPos
                 if (isStylus) {
@@ -8931,6 +9091,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
                 strokeAbortedUntilUp = false
                 assistLockedRay = null
+                resetFisheyeAssist()
                 clearPredictionState(triggerInvalidate = true)
                 currentStrokeDocPos = Offset.Zero
                 firstDocPos = Offset.Zero

@@ -16,6 +16,7 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.dp
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.model.FisheyeGuideGeometryCache
 import com.reverie.paint.model.GuideMode
 import com.reverie.paint.model.DrawingGuideHandleGeometry
 import com.reverie.paint.model.PERSPECTIVE_RAY_COUNT_MAX
@@ -27,9 +28,32 @@ import com.reverie.paint.model.SymmetryType
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.parseColor
 import kotlin.math.PI
+import kotlin.math.atan2
 import kotlin.math.cos
 import kotlin.math.hypot
 import kotlin.math.sin
+
+private fun DrawScope.drawFisheyeCurves(
+    curves: List<FloatArray>,
+    centerX: Float,
+    centerY: Float,
+    radius: Float,
+    color: Color,
+    strokeWidth: Float,
+) {
+    for (curve in curves) {
+        var i = 0
+        while (i + 3 < curve.size) {
+            drawLine(
+                color = color,
+                start = Offset(centerX + curve[i] * radius, centerY + curve[i + 1] * radius),
+                end = Offset(centerX + curve[i + 2] * radius, centerY + curve[i + 3] * radius),
+                strokeWidth = strokeWidth,
+            )
+            i += 2
+        }
+    }
+}
 
 internal fun DrawScope.drawDrawingGuides(
     vm: PaintViewModel,
@@ -83,7 +107,66 @@ internal fun DrawScope.drawDrawingGuides(
                             }
                         }
                         GuideMode.PERSPECTIVE -> {
-                            if (guide.perspective3d) {
+                            if (guide.perspectiveFisheye) {
+                                // 180° 鱼眼网格: 两组从四个主消失点出发的球面方向曲线,
+                                // 不构造有限房间、不设 near/far, 边界 z=0 由数学模型直接投影。
+                                clipRect(left = -halfW, top = -halfH, right = halfW, bottom = halfH) {
+                                    val centerX = guide.fisheyeCenterX * docW - halfW
+                                    val centerY = guide.fisheyeCenterY * docH - halfH
+                                    val radius = guide.fisheyeRadius.coerceIn(0.02f, 1.5f) * minOf(docW, docH)
+                                    if (radius > 2f) {
+                                        val screenRadius = radius * zoom * fitScale
+                                        val mesh = FisheyeGuideGeometryCache.get(
+                                            guide.fisheyeHorizontalCount,
+                                            guide.fisheyeVerticalCount,
+                                            screenRadius,
+                                        )
+                                        drawFisheyeCurves(
+                                            mesh.horizontal,
+                                            centerX, centerY, radius, guideCol, gStroke.width,
+                                        )
+                                        drawFisheyeCurves(
+                                            mesh.vertical,
+                                            centerX, centerY, radius, guideCol, gStroke.width,
+                                        )
+                                        run {
+                                            val rayCount = guide.fisheyeRayCount.coerceIn(4, 48)
+                                            val rayColor = guideCol.copy(alpha = guideCol.alpha * 0.48f)
+                                            // 直径曲线已从显示中移除, 水平/垂直方向的直线只由射线提供,
+                                            // 因此这里不再跳过 0/90/180/270 度的射线。
+                                            for (i in 0 until rayCount) {
+                                                val angle = (2.0 * PI * i / rayCount).toFloat()
+                                                drawLine(
+                                                    color = rayColor,
+                                                    start = Offset(centerX, centerY),
+                                                    end = Offset(centerX + cos(angle) * radius, centerY + sin(angle) * radius),
+                                                    strokeWidth = gStroke.width,
+                                                )
+                                            }
+                                        }
+                                        // 边界圆只画一次; 它不是横/纵曲线数量的一部分。
+                                        drawCircle(
+                                            color = guideCol.copy(alpha = (guideCol.alpha * 1.5f).coerceAtMost(1f)),
+                                            radius = radius,
+                                            center = Offset(centerX, centerY),
+                                            style = Stroke(width = gStroke.width * 1.6f),
+                                        )
+                                        // 手柄: 球心圆点 / 边界控制点
+                                        drawCircle(Morandi.accent, radius = 4.dp.toPx(), center = Offset(centerX, centerY))
+                                        drawCircle(
+                                            Morandi.accent,
+                                            radius = 4.dp.toPx(),
+                                            center = Offset(centerX + radius, centerY),
+                                        )
+                                        drawCircle(
+                                            Morandi.accent.copy(alpha = 0.35f),
+                                            radius = 8.dp.toPx(),
+                                            center = Offset(centerX + radius, centerY),
+                                            style = Stroke(width = 1.dp.toPx()),
+                                        )
+                                    }
+                                }
+                            } else if (guide.perspective3d) {
                                 // 限制在画布范围内渲染 (画布矩形之外不渲染)
                                 clipRect(left = -halfW, top = -halfH, right = halfW, bottom = halfH) {
                                     // ---- 3D 空间透视参考模式 (自由旋转视角，地面网格 + 参考立方体) ----

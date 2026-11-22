@@ -144,7 +144,8 @@ class ReplayVerifyReceiver : BroadcastReceiver() {
         val t0 = SystemClock.elapsedRealtime()
         if (intent.getStringExtra("newcanvas") != null) {
             // 新建画布: 录制流短, 便于验证"录制->回放"的单个操作 (老工程的链太长, 解码困难)
-            vm.startPainting(1200, 900)
+            if (intent.getStringExtra("celverify") != null) vm.startPainting(64, 64)
+            else vm.startPainting(1200, 900)
         } else {
             parsed?.let { vm.loadProject(it) }
         }
@@ -154,6 +155,10 @@ class ReplayVerifyReceiver : BroadcastReceiver() {
             result.put("loadMs", SystemClock.elapsedRealtime() - t0)
             if (!loaded) {
                 fail(outDir, result, "load_timeout")
+                return@onDone
+            }
+            if (intent.getStringExtra("celverify") != null && useNewCanvas) {
+                AnimationCelVerify.run(vm, outDir)
                 return@onDone
             }
             if (!makeFillColor.isNullOrBlank()) {

@@ -90,6 +90,9 @@ const val SYMMETRY_RAY_COUNT_MIN = 2
 const val SYMMETRY_RAY_COUNT_MAX = 36
 const val SYMMETRY_RAY_COUNT_DEFAULT = 8
 
+const val FISHEYE_SNAP_CURVES = 1
+const val FISHEYE_SNAP_CENTER_RAY = 3
+
 /**
  * 绘图参考线配置
  */
@@ -115,6 +118,14 @@ data class DrawingGuideConfig(
     val perspectiveShowGround: Boolean = true, // 是否显示地面网格 (XZ 面)
     val perspectiveShowCube: Boolean = true, // 是否显示原点参考立方体 (提供 Z/Y 轴立体深度)
     val perspectiveGridDensity: Int = 12, // 地面网格分度 (4..24)
+    val perspectiveFisheye: Boolean = false, // 五点鱼眼透视网格
+    val fisheyeCenterX: Float = 0.5f, // 球心归一化坐标
+    val fisheyeCenterY: Float = 0.5f,
+    val fisheyeRadius: Float = 0.42f, // 半径占画布短边的比例
+    val fisheyeHorizontalCount: Int = 11, // 横向曲线数, 包含中间直径, 不含边界圆
+    val fisheyeVerticalCount: Int = 11, // 纵向曲线数, 包含中间直径, 不含边界圆
+    val fisheyeRayCount: Int = 24, // 中心放射线数量 (始终显示)
+    val fisheyeSnapTarget: Int = FISHEYE_SNAP_CURVES, // 吸附: 连续鱼眼弧线 / 中心射线
 ) {
     /**
      * 计算输入点对应的对称镜像分支点列表 (支持对称轴任意角度旋转)
