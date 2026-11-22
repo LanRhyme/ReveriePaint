@@ -105,9 +105,15 @@ class FrameRecorder(
             val h = bitmap.height
             if (w <= 0 || h <= 0) return null
 
-            // 1. 感知视觉差异过滤：若非强制且画面改动点低于阈值则跳过
+            // 1. 感知视觉差异过滤：触发抓帧本身已由真实变更事件驱动，只需过滤完全无变化/极微弱重复帧
             val fingerprint = computeFingerprint(bitmap)
-            if (!force && _frameCount > 0 && !hasSignificantVisualChange(fingerprint, lastFrameFingerprint)) {
+            if (!force && _frameCount > 0 && !hasSignificantVisualChange(
+                    fingerprint,
+                    lastFrameFingerprint,
+                    colorThreshold = 4,
+                    minChangedPoints = 1,
+                )
+            ) {
                 return null
             }
 
@@ -172,10 +178,10 @@ class FrameRecorder(
     internal fun computeFingerprint(bmp: Bitmap): IntArray {
         val sampleW = 48
         val sampleH = 48
-        // 先缩到 48x48 再整块 getPixels: 原来逐点 getPixel 每次都是一次 JNI 调用
-        // (48*48=2304 次), 在 MIN_PRIORITY 抓帧线程上会把单帧处理时间拉长一个量级。
+        // 先缩到 48x48 (开启双线性过滤避免细笔触从最近邻采样缝隙漏掉) 再整块 getPixels:
+        // 原来逐点 getPixel 每次都是一次 JNI 调用 (2304 次), 在 MIN_PRIORITY 抓帧线程上会把单帧处理时间拉长一个量级。
         val scaled = try {
-            Bitmap.createScaledBitmap(bmp, sampleW, sampleH, false)
+            Bitmap.createScaledBitmap(bmp, sampleW, sampleH, true)
         } catch (_: Throwable) {
             null
         }
