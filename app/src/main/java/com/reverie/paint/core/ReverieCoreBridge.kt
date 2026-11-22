@@ -962,6 +962,20 @@ object ReverieCoreBridge {
     ): Boolean
 
     /**
+     * 保存 .revp 并返回结构化结果 JSON (含 ok, stage, errno, detail, timestamp)。
+     */
+    external fun saveRevpDetailed(
+        path: String,
+        extraMetaJson: String = "",
+        recordingBlob: ByteArray? = null,
+    ): String
+
+    /**
+     * 获取最近一次保存（含异步保存）的结构化结果 JSON。
+     */
+    external fun getLastSaveError(): String
+
+    /**
      * 上一次 .revp 保存的阶段耗时(ms)与产物体积, 供性能标尺显示:
      * `[total, snapshot, encode, write, pngCount, pngBytes, fileBytes, async]`。
      * 典型用法是保存后或每秒钟取一次 (见 `PaintViewModel.pollSaveStats`)。

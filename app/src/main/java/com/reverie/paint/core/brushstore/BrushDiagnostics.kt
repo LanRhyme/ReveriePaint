@@ -61,6 +61,15 @@ object BrushDiagnostics {
         }
     }
 
+    fun d(event: String, vararg kv: Pair<String, Any?>) {
+        val line = format(event, kv.toList())
+        try {
+            android.util.Log.d(TAG, line)
+        } catch (_: Throwable) {
+            // JVM 单测里 android.util.Log 是桩实现
+        }
+    }
+
     fun log(event: String, vararg kv: Pair<String, Any?>) {
         val line = format(event, kv.toList())
         try {

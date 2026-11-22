@@ -689,12 +689,37 @@ RevpPngJob makeKeyframePngJob(const QString &name, KisRasterKeyframeChannel *ch,
     return job;
 }
 
-bool verifyAndCommitTmp(const QString &tmpPath, const QString &dstPath)
+struct SaveError {
+    QString stage;
+    int errNo = 0;
+    QString detail;
+};
+
+static std::mutex s_saveErrorMutex;
+static SaveError s_lastSaveError;
+
+static void setLastSaveError(const SaveError &err) {
+    std::lock_guard<std::mutex> lock(s_saveErrorMutex);
+    s_lastSaveError = err;
+}
+
+static SaveError getLastSaveErrorInternal() {
+    std::lock_guard<std::mutex> lock(s_saveErrorMutex);
+    return s_lastSaveError;
+}
+
+bool verifyAndCommitTmp(const QString &tmpPath, const QString &dstPath, SaveError *errOut = nullptr)
 {
     // 1. 验证写入后的临时文件非空且具备基础 ZIP 尺寸 (ZIP EOCD 记录最小 22 字节)
     QFile tmpFile(tmpPath);
-    if (!tmpFile.exists() || tmpFile.size() < 22) {
+    if (!tmpFile.exists()) {
+        qWarning() << "verifyAndCommitTmp: tmp file does not exist:" << tmpPath;
+        if (errOut) *errOut = {"tmp_missing", errno, QString("Temporary file does not exist: %1").arg(tmpPath)};
+        return false;
+    }
+    if (tmpFile.size() < 22) {
         qWarning() << "verifyAndCommitTmp: tmp file invalid or truncated, size=" << tmpFile.size();
+        if (errOut) *errOut = {"tmp_truncated", errno, QString("Temporary file truncated or too small (%1 bytes): %2").arg(tmpFile.size()).arg(tmpPath)};
         tmpFile.remove();
         return false;
     }
@@ -702,12 +727,14 @@ bool verifyAndCommitTmp(const QString &tmpPath, const QString &dstPath)
     // 2. 校验 ZIP 尾部 EOCD (End of Central Directory 签名 0x06054b50)
     if (!tmpFile.open(QIODevice::ReadOnly)) {
         qWarning() << "verifyAndCommitTmp: failed to open tmp file for verification:" << tmpPath;
+        if (errOut) *errOut = {"tmp_open_read", errno, QString("Failed to open tmp file for verification (errno=%1): %2").arg(errno).arg(tmpPath)};
         tmpFile.remove();
         return false;
     }
     const qint64 fileSize = tmpFile.size();
     const qint64 searchLen = qMin<qint64>(fileSize, 1024);
     if (!tmpFile.seek(fileSize - searchLen)) {
+        if (errOut) *errOut = {"seek_failed", errno, QString("Failed to seek tmp file: %1").arg(tmpPath)};
         tmpFile.close();
         tmpFile.remove();
         return false;
@@ -718,6 +745,7 @@ bool verifyAndCommitTmp(const QString &tmpPath, const QString &dstPath)
     const char eocdMagic[] = {0x50, 0x4b, 0x05, 0x06};
     if (tail.indexOf(QByteArray::fromRawData(eocdMagic, 4)) < 0) {
         qWarning() << "verifyAndCommitTmp: missing ZIP EOCD magic, file corrupted during write:" << tmpPath;
+        if (errOut) *errOut = {"eocd_corrupt", 0, QString("Missing ZIP EOCD magic in %1, archive corrupted during write").arg(tmpPath)};
         QFile::remove(tmpPath);
         return false;
     }
@@ -725,7 +753,9 @@ bool verifyAndCommitTmp(const QString &tmpPath, const QString &dstPath)
     // 3. fsync 强制物理落盘 (防断电/掉电导致闪存空洞)
     int fd = ::open(tmpPath.toUtf8().constData(), O_RDONLY);
     if (fd >= 0) {
-        ::fsync(fd);
+        if (::fsync(fd) != 0) {
+            qWarning() << "fsync failed on tmp file, errno=" << errno;
+        }
         ::close(fd);
     }
 
@@ -733,16 +763,25 @@ bool verifyAndCommitTmp(const QString &tmpPath, const QString &dstPath)
     const QByteArray srcUtf8 = tmpPath.toUtf8();
     const QByteArray dstUtf8 = dstPath.toUtf8();
     if (::rename(srcUtf8.constData(), dstUtf8.constData()) != 0) {
-        qWarning() << "verifyAndCommitTmp: atomic ::rename failed, falling back to copy replacement";
+        const int renameErr = errno;
+        qWarning() << "verifyAndCommitTmp: atomic ::rename failed, errno=" << renameErr << ", falling back to copy replacement";
         QFile::remove(dstPath);
         if (!QFile::rename(tmpPath, dstPath)) {
-            QFile::copy(tmpPath, dstPath);
+            if (!QFile::copy(tmpPath, dstPath)) {
+                if (errOut) *errOut = {"commit_failed", renameErr, QString("Both rename and copy failed to commit tmp to %1 (errno=%2)").arg(dstPath).arg(renameErr)};
+                QFile::remove(tmpPath);
+                return false;
+            }
             QFile::remove(tmpPath);
         }
     }
 
     QFile f(dstPath);
-    return f.exists() && f.size() > 0;
+    const bool valid = f.exists() && f.size() > 0;
+    if (!valid && errOut) {
+        *errOut = {"commit_verify", errno, QString("Destination file missing or empty after commit: %1").arg(dstPath)};
+    }
+    return valid;
 }
 
 // 快照 || 编码/写盘 流水线:
@@ -874,11 +913,13 @@ public:
     }
 
     const RevpPngStats &stats() const { return m_stats; }
+    const SaveError &error() const { return m_error; }
 
 private:
     void runWriter() {
         QScopedPointer<KoStore> store(KoStore::createStore(m_tmpPath, KoStore::Write, "application/x-reveriepaint", KoStore::Zip));
         if (!store || store->bad()) {
+            m_error = {"create_store", errno, QString("Failed to create KoStore zip archive at %1 (errno=%2)").arg(m_tmpPath).arg(errno)};
             m_success = false;
             m_abort.store(true, std::memory_order_release);
             m_cvProducer.notify_all();
@@ -930,23 +971,51 @@ private:
                 writeTimer.start();
 
                 store->setCompressionEnabled(entry->isCompressed);
-                if (store->open(entry->name)) {
-                    store->write(entry->data);
+                if (!store->open(entry->name)) {
+                    m_error = {"open_entry", errno, QString("Failed to open zip entry %1 (errno=%2)").arg(entry->name).arg(errno)};
+                    m_abort.store(true, std::memory_order_release);
+                    m_cvProducer.notify_all();
+                    break;
+                }
+                const qint64 written = store->write(entry->data);
+                if (written != entry->data.size()) {
+                    m_error = {"write_entry", errno, QString("Failed to write zip entry %1: wrote %2 of %3 bytes (errno=%4)").arg(entry->name).arg(written).arg(entry->data.size()).arg(errno)};
                     store->close();
+                    m_abort.store(true, std::memory_order_release);
+                    m_cvProducer.notify_all();
+                    break;
+                }
+                if (!store->close()) {
+                    m_error = {"close_entry", errno, QString("Failed to close zip entry %1 (errno=%2)").arg(entry->name).arg(errno)};
+                    m_abort.store(true, std::memory_order_release);
+                    m_cvProducer.notify_all();
+                    break;
                 }
 
                 const qint64 w = writeTimer.nsecsElapsed();
                 m_stats.zipWriteNs += w;
                 m_stats.writeNs += w;
+            } else if (entry->isPng && !entry->reused) {
+                m_error = {"png_encode", 0, QString("PNG encode returned empty data for %1").arg(entry->name)};
+                m_abort.store(true, std::memory_order_release);
+                m_cvProducer.notify_all();
+                break;
             }
             entry->data.clear();
+        }
+
+        if (m_abort.load(std::memory_order_acquire) && !m_error.stage.isEmpty()) {
+            store.reset();
+            QFile::remove(m_tmpPath);
+            m_success = false;
+            return;
         }
 
         QElapsedTimer closeTimer;
         closeTimer.start();
         store.reset(); // 关闭并落盘 zip
 
-        m_success = verifyAndCommitTmp(m_tmpPath, m_path);
+        m_success = verifyAndCommitTmp(m_tmpPath, m_path, &m_error);
 
         const qint64 c = closeTimer.nsecsElapsed();
         m_stats.closeNs += c;
@@ -955,6 +1024,7 @@ private:
 
     QString m_path;
     QString m_tmpPath;
+    SaveError m_error;
     RevpPngStats *m_externalStats = nullptr;
     RevpPngStats m_stats;
     QThreadPool *m_pool = nullptr;
@@ -1150,6 +1220,7 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) {
+        setLastSaveError({"no_document", 0, "No active document image"});
         return false;
     }
 
@@ -1415,6 +1486,11 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
     const qint64 snapshotMs = QDateTime::currentMSecsSinceEpoch() - saveStartMs;
     pipeline.finishProduction();
     const bool ok = pipeline.waitDone();
+    if (!ok) {
+        setLastSaveError(pipeline.error());
+    } else {
+        setLastSaveError({"none", 0, ""});
+    }
     revpIncrCommit(*incr, ok);
 
     QFile out(path);
@@ -1444,11 +1520,13 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
 {
     if (s_savingRevpAsync.load()) {
         qDebug() << "saveRevpAsync: previous async save still running, skip";
+        setLastSaveError({"busy", 0, "Previous async save still running"});
         return false;
     }
 
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) {
+        setLastSaveError({"no_document", 0, "No active document image"});
         return false;
     }
 
@@ -1708,6 +1786,11 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
 
     std::thread([pipeline, incr, path, saveStartMs, snapshotMs, compositeMs, layerCloneMs, selMaskMs]() {
         const bool ok = pipeline->waitDone();
+        if (!ok) {
+            setLastSaveError(pipeline->error());
+        } else {
+            setLastSaveError({"none", 0, ""});
+        }
         revpIncrCommit(*incr, ok);
         QFile out(path);
         const RevpPngStats &pngStats = pipeline->stats();
@@ -1735,6 +1818,19 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
     }).detach();
 
     return true;
+}
+
+QString ReverieCore::lastSaveErrorJson() const
+{
+    const SaveError err = getLastSaveErrorInternal();
+    QJsonObject obj;
+    const bool ok = (err.stage.isEmpty() || err.stage == "none");
+    obj["ok"] = ok;
+    obj["stage"] = err.stage;
+    obj["errno"] = err.errNo;
+    obj["detail"] = err.detail;
+    obj["timestamp"] = QDateTime::currentMSecsSinceEpoch();
+    return QString::fromUtf8(QJsonDocument(obj).toJson(QJsonDocument::Compact));
 }
 
 void ReverieCore::revpSaveStats(qint64 *out)

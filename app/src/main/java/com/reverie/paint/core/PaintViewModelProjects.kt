@@ -37,6 +37,8 @@ import java.io.File
 import java.util.Locale
 import java.util.zip.ZipFile
 
+private var consecutiveAutoSaveFailures = 0
+
 internal fun PaintViewModel.projectDir(): java.io.File {
     val intDir = java.io.File(appContext.filesDir, "projects")
     if (!intDir.exists()) intDir.mkdirs()
@@ -140,8 +142,23 @@ internal fun PaintViewModel.saveProject(
             isBlockingLoading = false
             val targetFile = savedFile
             if (targetFile == null) {
-                Breadcrumbs.record("Save", "saveProject FAILED for: $name")
-                showActionToast(R.string.toast_project_save_failed, R.drawable.ic_save)
+                val latestFail = SaveFailureRecorder.getLatestFailure(appContext)
+                val stage = latestFail?.stage ?: "unknown"
+                val errno = latestFail?.errno ?: 0
+                Breadcrumbs.record("Save", "saveProject FAILED for: $name (stage=$stage, errno=$errno)")
+
+                val freeDiskMb = (latestFail?.availableDiskBytes ?: Long.MAX_VALUE) / (1024 * 1024)
+                if (errno == 28 || freeDiskMb < 50) { // 28 = ENOSPC
+                    lowStorageMessage = getString(R.string.toast_save_failed_disk_full)
+                    showLowStorageDialog = true
+                    showActionToast(R.string.toast_save_failed_disk_full, R.drawable.ic_alert_triangle)
+                } else if (stage == "oom" || (latestFail != null && latestFail.nativeHeapAllocatedBytes > 2500L * 1024 * 1024)) {
+                    showActionToast(R.string.toast_save_failed_memory, R.drawable.ic_alert_triangle)
+                } else if (stage == "commit_failed" || stage == "create_store") {
+                    showActionToast(R.string.toast_save_failed_io, R.drawable.ic_alert_triangle)
+                } else {
+                    showActionToast(R.string.toast_project_save_failed, R.drawable.ic_save)
+                }
                 return@runCore
             }
             Breadcrumbs.record("Save", "saveProject SUCCESS: $name ($totalStrokes strokes)")
@@ -215,20 +232,31 @@ internal fun PaintViewModel.saveProject(
             }
             """.trimIndent()
         val saveT0 = android.os.SystemClock.elapsedRealtime()
-        val saved = ReverieCoreBridge.saveRevp(finalFile.absolutePath, extraJson, null)
+        val detailedJson = ReverieCoreBridge.saveRevpDetailed(finalFile.absolutePath, extraJson, null)
+        val errorInfo = SaveErrorInfo.parseNativeJson(
+            nativeJson = detailedJson,
+            targetPath = finalFile.absolutePath,
+            isAutoSave = false,
+            docWidth = docWidth,
+            docHeight = docHeight,
+            layerCount = layers.size,
+            context = appContext,
+        )
+        val saved = errorInfo.ok
         PerfTrace.event(
             "saveProject",
             "ms" to (android.os.SystemClock.elapsedRealtime() - saveT0),
             "layers" to layers.size.toLong(),
             "mb" to (finalFile.length() / (1024L * 1024L)),
         )
-        android.util.Log.d("RP_IO", "saveRevp result=$saved, file exists=${finalFile.exists()}, length=${finalFile.length()}")
+        android.util.Log.d("RP_IO", "saveRevp result=$saved, stage=${errorInfo.stage}, errno=${errorInfo.errno}, file exists=${finalFile.exists()}, length=${finalFile.length()}")
         // An old non-empty file is not evidence that this save succeeded.
         // Leave the result unset on false or exception so runCore's after callback cannot report success.
         if (saved && finalFile.isFile && finalFile.length() > 0) {
             savedFile = finalFile
         } else {
-            android.util.Log.w("RP_IO", "saveRevp failed, retaining document state and autosave draft")
+            SaveFailureRecorder.recordFailure(appContext, errorInfo)
+            android.util.Log.w("RP_IO", "saveRevp failed: stage=${errorInfo.stage}, errno=${errorInfo.errno}, detail=${errorInfo.detail}")
         }
     }
 }
@@ -248,6 +276,10 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
     )
     if (!checkProjectDiskSpace(autoSaveFile, requiredSpace)) {
         android.util.Log.w("RP_IO", "autoSaveProject: insufficient disk space ($requiredSpace bytes required), suspending autosave")
+        consecutiveAutoSaveFailures++
+        if (consecutiveAutoSaveFailures == 3) {
+            showActionToast(R.string.toast_autosave_consecutive_failed, R.drawable.ic_alert_triangle)
+        }
         return
     }
 
@@ -324,6 +356,7 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
         if (saved) {
             viewModelScope.launch(Dispatchers.IO) {
                 var waitMs = 0
+                var success = false
                 while (waitMs < 60_000) {
                     delay(300)
                     waitMs += 300
@@ -334,6 +367,8 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
                             false
                         }
                         if (isValid) {
+                            success = true
+                            consecutiveAutoSaveFailures = 0
                             if (backupFile.exists() && oldFileSize > 100_000L && autoSaveFile.length() < oldFileSize * 0.3) {
                                 android.util.Log.w("RP_IO", "autoSaveRevpAsync: size dropped drastically (${oldFileSize} -> ${autoSaveFile.length()}), backup preserved at ${backupFile.name}")
                             } else if (backupFile.exists()) {
@@ -352,6 +387,39 @@ internal fun PaintViewModel.autoSaveProject(isPeriodic: Boolean = true) {
                         }
                     }
                 }
+                if (!success) {
+                    consecutiveAutoSaveFailures++
+                    val errInfo = SaveErrorInfo.parseNativeJson(
+                        nativeJson = ReverieCoreBridge.getLastSaveError(),
+                        targetPath = autoSaveFile.absolutePath,
+                        isAutoSave = true,
+                        docWidth = docWidth,
+                        docHeight = docHeight,
+                        layerCount = layerCount,
+                        context = appContext,
+                    )
+                    SaveFailureRecorder.recordFailure(appContext, errInfo)
+                    if (consecutiveAutoSaveFailures == 3) {
+                        launch(Dispatchers.Main) {
+                            showActionToast(R.string.toast_autosave_consecutive_failed, R.drawable.ic_alert_triangle)
+                        }
+                    }
+                }
+            }
+        } else {
+            consecutiveAutoSaveFailures++
+            val errInfo = SaveErrorInfo.parseNativeJson(
+                nativeJson = ReverieCoreBridge.getLastSaveError(),
+                targetPath = autoSaveFile.absolutePath,
+                isAutoSave = true,
+                docWidth = docWidth,
+                docHeight = docHeight,
+                layerCount = layerCount,
+                context = appContext,
+            )
+            SaveFailureRecorder.recordFailure(appContext, errInfo)
+            if (consecutiveAutoSaveFailures == 3) {
+                showActionToast(R.string.toast_autosave_consecutive_failed, R.drawable.ic_alert_triangle)
             }
         }
     }

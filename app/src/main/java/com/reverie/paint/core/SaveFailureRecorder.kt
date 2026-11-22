@@ -1,0 +1,232 @@
+/*
+ * SPDX-License-Identifier: GPL-3.0-or-later
+ */
+
+package com.reverie.paint.core
+
+import android.app.ActivityManager
+import android.content.Context
+import android.os.Debug
+import android.os.StatFs
+import com.reverie.paint.BuildConfig
+import org.json.JSONObject
+import java.io.File
+import java.text.SimpleDateFormat
+import java.util.Date
+import java.util.Locale
+
+data class SaveErrorInfo(
+    val ok: Boolean,
+    val stage: String = "",
+    val errno: Int = 0,
+    val detail: String = "",
+    val timestamp: Long = System.currentTimeMillis(),
+    val targetPath: String = "",
+    val isAutoSave: Boolean = false,
+    val docWidth: Int = 0,
+    val docHeight: Int = 0,
+    val layerCount: Int = 0,
+    val availableDiskBytes: Long = 0L,
+    val totalDiskBytes: Long = 0L,
+    val availableRamBytes: Long = 0L,
+    val totalRamBytes: Long = 0L,
+    val nativeHeapAllocatedBytes: Long = 0L,
+    val jvmHeapAllocatedBytes: Long = 0L,
+    val appVersion: String = BuildConfig.VERSION_NAME,
+) {
+    fun toJson(): String {
+        val obj = JSONObject()
+        obj.put("ok", ok)
+        obj.put("stage", stage)
+        obj.put("errno", errno)
+        obj.put("detail", detail)
+        obj.put("timestamp", timestamp)
+        obj.put("targetPath", targetPath)
+        obj.put("isAutoSave", isAutoSave)
+        obj.put("docWidth", docWidth)
+        obj.put("docHeight", docHeight)
+        obj.put("layerCount", layerCount)
+        obj.put("availableDiskBytes", availableDiskBytes)
+        obj.put("totalDiskBytes", totalDiskBytes)
+        obj.put("availableRamBytes", availableRamBytes)
+        obj.put("totalRamBytes", totalRamBytes)
+        obj.put("nativeHeapAllocatedBytes", nativeHeapAllocatedBytes)
+        obj.put("jvmHeapAllocatedBytes", jvmHeapAllocatedBytes)
+        obj.put("appVersion", appVersion)
+        return obj.toString()
+    }
+
+    companion object {
+        fun fromJson(jsonStr: String): SaveErrorInfo? = runCatching {
+            val obj = JSONObject(jsonStr)
+            SaveErrorInfo(
+                ok = obj.optBoolean("ok", false),
+                stage = obj.optString("stage", ""),
+                errno = obj.optInt("errno", 0),
+                detail = obj.optString("detail", ""),
+                timestamp = obj.optLong("timestamp", 0L),
+                targetPath = obj.optString("targetPath", ""),
+                isAutoSave = obj.optBoolean("isAutoSave", false),
+                docWidth = obj.optInt("docWidth", 0),
+                docHeight = obj.optInt("docHeight", 0),
+                layerCount = obj.optInt("layerCount", 0),
+                availableDiskBytes = obj.optLong("availableDiskBytes", 0L),
+                totalDiskBytes = obj.optLong("totalDiskBytes", 0L),
+                availableRamBytes = obj.optLong("availableRamBytes", 0L),
+                totalRamBytes = obj.optLong("totalRamBytes", 0L),
+                nativeHeapAllocatedBytes = obj.optLong("nativeHeapAllocatedBytes", 0L),
+                jvmHeapAllocatedBytes = obj.optLong("jvmHeapAllocatedBytes", 0L),
+                appVersion = obj.optString("appVersion", BuildConfig.VERSION_NAME),
+            )
+        }.getOrNull()
+
+        fun parseNativeJson(
+            nativeJson: String,
+            targetPath: String,
+            isAutoSave: Boolean,
+            docWidth: Int,
+            docHeight: Int,
+            layerCount: Int,
+            context: Context,
+        ): SaveErrorInfo {
+            val obj = runCatching { JSONObject(nativeJson) }.getOrNull() ?: JSONObject()
+            val ok = obj.optBoolean("ok", false)
+            val stage = obj.optString("stage", if (ok) "none" else "unknown")
+            val errno = obj.optInt("errno", 0)
+            val detail = obj.optString("detail", "")
+            val ts = obj.optLong("timestamp", System.currentTimeMillis())
+
+            val targetFile = File(targetPath)
+            val dirToCheck = if (targetFile.parentFile?.exists() == true) targetFile.parentFile!! else context.filesDir
+            var freeDisk = 0L
+            var totalDisk = 0L
+            try {
+                val stat = StatFs(dirToCheck.absolutePath)
+                freeDisk = stat.availableBlocksLong * stat.blockSizeLong
+                totalDisk = stat.blockCountLong * stat.blockSizeLong
+            } catch (_: Throwable) {}
+
+            var availRam = 0L
+            var totalRam = 0L
+            try {
+                val am = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+                if (am != null) {
+                    val mi = ActivityManager.MemoryInfo()
+                    am.getMemoryInfo(mi)
+                    availRam = mi.availMem
+                    totalRam = mi.totalMem
+                }
+            } catch (_: Throwable) {}
+
+            val runtime = Runtime.getRuntime()
+            val jvmHeap = runtime.totalMemory() - runtime.freeMemory()
+            val nativeHeap = try { Debug.getNativeHeapAllocatedSize() } catch (_: Throwable) { 0L }
+
+            return SaveErrorInfo(
+                ok = ok,
+                stage = stage,
+                errno = errno,
+                detail = detail,
+                timestamp = ts,
+                targetPath = targetPath,
+                isAutoSave = isAutoSave,
+                docWidth = docWidth,
+                docHeight = docHeight,
+                layerCount = layerCount,
+                availableDiskBytes = freeDisk,
+                totalDiskBytes = totalDisk,
+                availableRamBytes = availRam,
+                totalRamBytes = totalRam,
+                nativeHeapAllocatedBytes = nativeHeap,
+                jvmHeapAllocatedBytes = jvmHeap,
+                appVersion = BuildConfig.VERSION_NAME,
+            )
+        }
+    }
+}
+
+/**
+ * 记录与持久化工程保存失败详情。
+ * 针对 #211 / #212 场景：保存失败时记录具体 stage、errno、磁盘剩余空间及内存状态，
+ * 写入应用私有存储目录 `save_failures/`。即使用户清后台重启应用，诊断提取器仍能读取并注入报告。
+ */
+object SaveFailureRecorder {
+    private const val DIR_NAME = "save_failures"
+    private const val MAX_RECORDS = 5
+    private val lock = Any()
+    internal var dirOverrideForTest: File? = null
+
+    fun getDir(context: Context? = null): File {
+        val override = dirOverrideForTest
+        if (override != null) {
+            if (!override.exists()) override.mkdirs()
+            return override
+        }
+        val base = context?.filesDir ?: File(System.getProperty("java.io.tmpdir"), "reverie_save_failures")
+        return File(base, DIR_NAME).apply { if (!exists()) mkdirs() }
+    }
+
+    fun recordFailure(context: Context? = null, info: SaveErrorInfo) {
+        if (info.ok) return
+        synchronized(lock) {
+            try {
+                val dir = getDir(context)
+                val file = File(dir, "failure_${info.timestamp}.json")
+                file.writeText(info.toJson())
+                val files = dir.listFiles { f -> f.isFile && f.name.startsWith("failure_") && f.name.endsWith(".json") }
+                if (files != null && files.size > MAX_RECORDS) {
+                    files.sortedBy { it.name }
+                        .take(files.size - MAX_RECORDS)
+                        .forEach { it.delete() }
+                }
+            } catch (t: Throwable) {
+                android.util.Log.w("RP_IO", "Failed to persist save failure record", t)
+            }
+        }
+    }
+
+    fun getAllFailures(context: Context? = null): List<SaveErrorInfo> = synchronized(lock) {
+        val dir = getDir(context)
+        val files = dir.listFiles { f -> f.isFile && f.name.startsWith("failure_") && f.name.endsWith(".json") }
+            ?: return emptyList()
+        files.mapNotNull { f -> runCatching { SaveErrorInfo.fromJson(f.readText()) }.getOrNull() }
+            .sortedByDescending { it.timestamp }
+    }
+
+    fun getLatestFailure(context: Context? = null): SaveErrorInfo? = getAllFailures(context).firstOrNull()
+
+    fun clear(context: Context? = null) = synchronized(lock) {
+        getDir(context).deleteRecursively()
+    }
+
+    fun formatForDiagnostics(context: Context? = null): String {
+        val failures = getAllFailures(context)
+        val sb = StringBuilder()
+        sb.append("\n--- [Recent Project Save Failures (Persistent, Survives Restart)] ---\n")
+        if (failures.isEmpty()) {
+            sb.append("(No save failures recorded)\n")
+            return sb.toString()
+        }
+        sb.append("Total recorded failures: ${failures.size}\n")
+        val sdf = SimpleDateFormat("yyyy-MM-dd HH:mm:ss.SSS", Locale.US)
+        failures.forEachIndexed { idx, f ->
+            val dateStr = sdf.format(Date(f.timestamp))
+            val modeStr = if (f.isAutoSave) "AutoSave" else "Manual Save"
+            sb.append("[$dateStr] #$idx $modeStr: stage=${f.stage}, errno=${f.errno}\n")
+            if (f.detail.isNotBlank()) {
+                sb.append("  Detail: ${f.detail}\n")
+            }
+            sb.append("  Target: ${f.targetPath}\n")
+            sb.append("  Canvas: ${f.docWidth}x${f.docHeight}, ${f.layerCount} layers\n")
+            val freeMb = f.availableDiskBytes / (1024 * 1024)
+            val totalMb = f.totalDiskBytes / (1024 * 1024)
+            sb.append("  Disk: $freeMb MB free / $totalMb MB total\n")
+            val ramFreeMb = f.availableRamBytes / (1024 * 1024)
+            val ramTotalMb = f.totalRamBytes / (1024 * 1024)
+            val nativeMb = f.nativeHeapAllocatedBytes / (1024 * 1024)
+            val jvmMb = f.jvmHeapAllocatedBytes / (1024 * 1024)
+            sb.append("  RAM: $ramFreeMb MB avail / $ramTotalMb MB total, NativeHeap: $nativeMb MB, JVMHeap: $jvmMb MB\n")
+        }
+        return sb.toString()
+    }
+}

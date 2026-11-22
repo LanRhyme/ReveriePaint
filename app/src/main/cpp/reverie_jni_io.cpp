@@ -68,6 +68,34 @@ Java_com_reverie_paint_core_ReverieCoreBridge_saveRevp(JNIEnv *env, jobject, jst
     return ok ? JNI_TRUE : JNI_FALSE;
 }
 
+JNIEXPORT jstring JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_saveRevpDetailed(JNIEnv *env, jobject, jstring path, jstring extraMetaJson, jbyteArray recordingBlob)
+{
+    const char *c = env->GetStringUTFChars(path, nullptr);
+    const char *metaStr = extraMetaJson ? env->GetStringUTFChars(extraMetaJson, nullptr) : nullptr;
+    QByteArray rec;
+    if (recordingBlob) {
+        const jsize len = env->GetArrayLength(recordingBlob);
+        if (len > 0) {
+            jbyte *bytes = env->GetByteArrayElements(recordingBlob, nullptr);
+            rec = QByteArray(reinterpret_cast<const char *>(bytes), len);
+            env->ReleaseByteArrayElements(recordingBlob, bytes, JNI_ABORT);
+        }
+    }
+    core()->saveRevp(QString::fromUtf8(c), metaStr ? QString::fromUtf8(metaStr) : QString(), rec);
+    const QString errJson = core()->lastSaveErrorJson();
+    if (metaStr) env->ReleaseStringUTFChars(extraMetaJson, metaStr);
+    env->ReleaseStringUTFChars(path, c);
+    return env->NewStringUTF(errJson.toUtf8().constData());
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_getLastSaveError(JNIEnv *env, jobject)
+{
+    const QString errJson = core()->lastSaveErrorJson();
+    return env->NewStringUTF(errJson.toUtf8().constData());
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_saveRevpAsync(JNIEnv *env, jobject, jstring path, jstring extraMetaJson, jbyteArray recordingBlob)
 {

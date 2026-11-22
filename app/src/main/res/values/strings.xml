@@ -3175,6 +3175,10 @@
     <string name="canvas_edit_copied">已复制</string>
     <string name="canvas_edit_failed">操作未完成，请检查当前图层与选区</string>
     <string name="toast_project_save_failed">保存失败，修改尚未保存，请重试</string>
+    <string name="toast_save_failed_disk_full">存储空间不足，工程保存失败，请清理空间或另存为</string>
+    <string name="toast_save_failed_memory">可用内存不足导致保存失败，请尝试合并图层或重启应用</string>
+    <string name="toast_save_failed_io">文件写入失败，请检查存储权限或使用「另存为」</string>
+    <string name="toast_autosave_consecutive_failed">自动保存连续失败，请检查存储空间并手动另存为备份</string>
 
     <!-- Canvas View Lock & Krita Weighted Smoothing -->
     <string name="toast_view_locked">视图已锁定</string>

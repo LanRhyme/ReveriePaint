@@ -75,23 +75,58 @@ object EffectivePresetBuilder {
         id: String,
         presetDir: File,
         resources: ResourceStore? = BrushStoreBootstrap.resourceStore,
+        isBatchBootstrap: Boolean = false,
     ): Result? {
         val e = BrushIdentity.entry(id) ?: return null
         val t0 = System.nanoTime()
+        val target = targetFile(presetDir, e)
+        val snap = PresetSnapshotStore.snapshotFile(id)
+        val overrides = BrushOverrideStore.get(id)
+        val hasThumb = BrushThumbStore.thumbFile(id)?.exists() == true
+
+        // 快检: 无覆盖与自定义缩略图时，若目标文件存在且 mtime+size 与快照完全一致，跳过 build/比较
+        if (overrides.isEmpty() && !hasThumb && snap != null && snap.exists() && target.exists()) {
+            val sLen = snap.length()
+            val tLen = target.length()
+            val sTime = snap.lastModified()
+            val tTime = target.lastModified()
+            if (sLen > 0 && sLen == tLen && sTime == tTime) {
+                val ms = (System.nanoTime() - t0) / 1_000_000
+                if (!isBatchBootstrap) {
+                    BrushDiagnostics.d("materialize", "id" to id, "name" to e.name, "written" to false, "fast" to true, "ms" to ms)
+                }
+                return Result(id, target, false, "", ms)
+            }
+        }
+
         val bytes = try {
             buildFor(id, resources)
         } catch (t: Throwable) {
             BrushDiagnostics.log("build_failed", "id" to id, "err" to t.toString())
             null
         } ?: return null
-        val target = targetFile(presetDir, e)
+
         val same = target.exists() && target.length() == bytes.size.toLong() && target.readBytes().contentEquals(bytes)
         if (!same) AtomicFiles.write(target, bytes)
+
+        // 若无覆盖与缩略图，同步目标文件的时间戳与快照一致，使后续启动直接命中快检
+        if (overrides.isEmpty() && !hasThumb && snap != null && snap.exists()) {
+            target.setLastModified(snap.lastModified())
+        }
+
         val ms = (System.nanoTime() - t0) / 1_000_000
         val md5 = BrushDiagnostics.md5(bytes)
-        BrushDiagnostics.log("materialize", "id" to id, "name" to e.name, "written" to !same, "md5" to md5, "ms" to ms)
-        return Result(id, target, !same, md5, ms)
+        val written = !same
+
+        if (written || ms > 100) {
+            BrushDiagnostics.log("materialize", "id" to id, "name" to e.name, "written" to written, "md5" to md5, "ms" to ms)
+        } else if (!isBatchBootstrap) {
+            BrushDiagnostics.d("materialize", "id" to id, "name" to e.name, "written" to false, "md5" to md5, "ms" to ms)
+        }
+
+        return Result(id, target, written, md5, ms)
     }
 
-    fun materializeAll(presetDir: File): List<Result> = BrushIdentity.all().mapNotNull { materialize(it.id, presetDir) }
+    fun materializeAll(presetDir: File): List<Result> =
+        BrushIdentity.all().mapNotNull { materialize(it.id, presetDir, isBatchBootstrap = true) }
 }

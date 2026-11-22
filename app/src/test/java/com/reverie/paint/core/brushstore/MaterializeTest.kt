@@ -74,4 +74,12 @@ class MaterializeTest {
         assertEquals(snapMd5, BrushDiagnostics.md5(File(presetDir, "${stems[0]}.kpp").readBytes()))
         assertFalse(File(presetDir, "${stems[0]}.kpp.tmp").exists())
     }
+
+    @Test
+    fun `快照与目标文件 mtime 与 size 一致时直接命中快检且不重写`() {
+        BrushStoreBootstrap.run(tmp, presetDir, "1", ::assets, migrate = { true })
+        val id = "builtin:${stems[0]}"
+        val res = EffectivePresetBuilder.materialize(id, presetDir)!!
+        assertFalse(res.written)
+    }
 }

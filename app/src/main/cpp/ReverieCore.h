@@ -1040,6 +1040,7 @@ public:
     static bool loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image, KoStore *store, bool *bgVisible, bool *outHealed = nullptr);
     bool saveRevp(const QString &path, const QString &extraMetaJson = QString(),                  const QByteArray &recordingBlob = QByteArray());
     bool saveRevpAsync(const QString &path, const QString &extraMetaJson = QString(),                       const QByteArray &recordingBlob = QByteArray());
+    QString lastSaveErrorJson() const;
 
     enum RevpStat {
         StatTotal = 0,   // 整个 saveRevp 的墙钟 (ms)

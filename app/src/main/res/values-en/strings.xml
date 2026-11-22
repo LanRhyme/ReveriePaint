@@ -3175,6 +3175,10 @@
     <string name="canvas_edit_copied">Copied</string>
     <string name="canvas_edit_failed">Action failed; check the current layer and selection</string>
     <string name="toast_project_save_failed">Save failed. Your changes are still unsaved. Please try again.</string>
+    <string name="toast_save_failed_disk_full">Insufficient storage. Save failed. Please free up space or Save As</string>
+    <string name="toast_save_failed_memory">Insufficient memory. Save failed. Please try merging layers or restarting</string>
+    <string name="toast_save_failed_io">File write failed. Please check storage permissions or use Save As</string>
+    <string name="toast_autosave_consecutive_failed">Auto-save failed repeatedly. Please check storage space and manually Save As</string>
 
     <!-- Canvas View Lock & Krita Weighted Smoothing -->
     <string name="toast_view_locked">View locked</string>

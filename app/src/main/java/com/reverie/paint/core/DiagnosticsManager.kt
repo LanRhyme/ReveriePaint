@@ -62,6 +62,11 @@ object DiagnosticsManager {
         return result
     }
 
+    private fun isHighFrequencyNoise(line: String): Boolean {
+        // 笔刷存储已有独立 tail 专区，过滤 logcat 里的 materialize 刷屏以保护关键事件窗口
+        return line.contains("ReverieBrush") && line.contains("materialize")
+    }
+
     /**
      * 动态抓取当前进程最近的 Logcat 输出
      */
@@ -76,10 +81,12 @@ object DiagnosticsManager {
             BufferedReader(InputStreamReader(process.inputStream, Charsets.UTF_8)).use { reader ->
                 var line = reader.readLine()
                 while (line != null) {
-                    if (deque.size >= maxLines) {
-                        deque.pollFirst()
+                    if (!isHighFrequencyNoise(line)) {
+                        if (deque.size >= maxLines) {
+                            deque.pollFirst()
+                        }
+                        deque.addLast(line)
                     }
-                    deque.addLast(line)
                     line = reader.readLine()
                 }
             }
@@ -93,7 +100,7 @@ object DiagnosticsManager {
                 BufferedReader(InputStreamReader(process.inputStream, Charsets.UTF_8)).use { reader ->
                     var line = reader.readLine()
                     while (line != null) {
-                        if (line.contains(pidStr)) {
+                        if (line.contains(pidStr) && !isHighFrequencyNoise(line)) {
                             if (deque.size >= maxLines) {
                                 deque.pollFirst()
                             }
@@ -198,6 +205,10 @@ object DiagnosticsManager {
             sb.append("\n--- [Recent Crash Record (Sanitized)] ---\n")
             sb.append(sanitize(latestCrash)).append("\n")
         }
+
+        // 6.5 最近保存失败记录 (如有，重启不丢失)
+        val saveFailures = SaveFailureRecorder.formatForDiagnostics(context)
+        sb.append(saveFailures)
 
         // 7. 笔刷存储日志尾部 (brush_diag/brush.log)
         val brushLog = com.reverie.paint.core.brushstore.BrushDiagnostics.tail()
