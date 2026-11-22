@@ -2151,6 +2151,65 @@ static bool stageLayerDataFromStore(KoStore *store, LayerPixelLoader *loader, Ki
     return false;
 }
 
+// Krita 原生透明度蒙版: 蒙版像素选择存为 <docName>/layers/<filename>.pixelselection,
+// 内容是 ALPHA8 的 Krita tile 流。转换口径与导出完全对称: 255=透光 -> 白色+alpha=255,
+// 0=遮挡 -> alpha=0 (引擎 applyMaskModulation 的 factor = gray * alpha / 255)。
+static bool loadKraMaskPixelSelection(KoStore *store, const QString &docName,
+                                      const QString &filename, KisImageSP image,
+                                      KisPaintDeviceSP targetDev)
+{
+    if (!store || !image || !targetDev || filename.isEmpty()) return false;
+    QStringList candidates;
+    if (!docName.isEmpty()) {
+        candidates << QStringLiteral("%1/layers/%2.pixelselection").arg(docName, filename);
+    }
+    candidates << QStringLiteral("layers/%1.pixelselection").arg(filename);
+    candidates << QStringLiteral("%1.pixelselection").arg(filename);
+
+    QByteArray data;
+    for (const QString &cand : candidates) {
+        if (!store->open(cand)) continue;
+        data = readAllStoreBytes(store);
+        store->close();
+        if (!data.isEmpty()) break;
+    }
+    if (data.isEmpty()) return false;
+
+    const KoColorSpace *alphaCs = KoColorSpaceRegistry::instance()->alpha8();
+    if (!alphaCs) return false;
+    KisPaintDeviceSP alphaDev(new KisPaintDevice(alphaCs));
+    if (!alphaDev) return false;
+    alphaDev->setDefaultPixel(KoColor::createTransparent(alphaCs));
+    QBuffer buf;
+    buf.setData(data);
+    buf.open(QIODevice::ReadOnly);
+    if (!alphaDev->read(&buf)) {
+        qWarning() << "loadKraMaskPixelSelection: failed to read tile stream for" << filename;
+        return false;
+    }
+
+    const int w = image->width();
+    const int h = image->height();
+    if (w <= 0 || h <= 0) return false;
+    const int stripRows = qMin(256, h);
+    QVector<quint8> alpha(size_t(w) * size_t(stripRows));
+    QVector<quint8> rgba(size_t(w) * size_t(stripRows) * 4);
+    for (int y = 0; y < h; y += stripRows) {
+        const int rows = qMin(stripRows, h - y);
+        alphaDev->readBytes(alpha.data(), 0, y, w, rows);
+        const int count = w * rows;
+        for (int i = 0; i < count; ++i) {
+            rgba[i * 4 + 0] = 255;
+            rgba[i * 4 + 1] = 255;
+            rgba[i * 4 + 2] = 255;
+            rgba[i * 4 + 3] = alpha[i];
+        }
+        targetDev->writeBytes(rgba.constData(), 0, y, w, rows);
+    }
+    targetDev->setDirty();
+    return true;
+}
+
 static bool loadKraNodesDom(const QDomElement &parentElem,
                             KisImageSP image,
                             KisNodeSP parentNode,
@@ -2302,29 +2361,49 @@ static bool loadKraNodesDom(const QDomElement &parentElem,
                 if (!subLayers.isNull()) {
                     loadKraNodesDom(subLayers, image, node, store, docName, layerIndexCounter, bgVisible, loader);
                 }
-            } else if (!isMask) {
-                // 加载内嵌在图层内的蒙版 (Krita 官方结构常将 mask 节点作为 layer 的直接子元素)
-                for (QDomElement childMask = el.firstChildElement(); !childMask.isNull(); childMask = childMask.nextSiblingElement()) {
-                    const QString cTag = childMask.tagName().toLower();
+            }
+
+            // 加载内嵌蒙版: 现代 Krita 写在 <masks><mask/> 里, 旧格式直接挂在 layer 下。
+            // 组和颜料层都可以有蒙版, 统一在这里处理 (#217 反向导入)。
+            if (!isMask) {
+                auto loadMaskElement = [&](const QDomElement &childMask) {
                     const QString cType = childMask.attribute("nodetype", childMask.attribute("layertype")).toLower();
-                    if (cTag == "mask" || cType.contains("mask")) {
-                        QString mName = childMask.attribute("name");
-                        if (mName.isEmpty()) mName = QStringLiteral("蒙版");
-                        const int mOpacity = qBound(0, childMask.attribute("opacity", "255").toInt(), 255);
-                        KisPaintLayerSP tmask = new KisPaintLayer(image, mName, mOpacity, cs);
-                        reverie::setLayerProperty(&*tmask, "reverie_is_transparency_mask", true);
-                        // offset 必须先于像素写回 (见上方 paintlayer 分支说明)
-                        tmask->setX(childMask.attribute("x", "0").toInt());
-                        tmask->setY(childMask.attribute("y", "0").toInt());
-                        const QString mFn = childMask.attribute("filename");
-                        const bool mLoaded = stageLayerDataFromStore(store, loader, tmask->paintDevice(), docName, mFn, layerIndexCounter++);
-                        if (!mLoaded) {
-                            tmask->paintDevice()->fill(QRect(0, 0, image->width(), image->height()), KoColor(Qt::white, cs));
+                    if (childMask.tagName().toLower() != "mask" && !cType.contains("mask")) return;
+                    QString mName = childMask.attribute("name");
+                    if (mName.isEmpty()) mName = QStringLiteral("蒙版");
+                    const int mOpacity = qBound(0, childMask.attribute("opacity", "255").toInt(), 255);
+                    KisPaintLayerSP tmask = new KisPaintLayer(image, mName, mOpacity, cs);
+                    reverie::setLayerProperty(&*tmask, "reverie_is_transparency_mask", true);
+                    // offset 必须先于像素写回 (见上方 paintlayer 分支说明)
+                    tmask->setX(childMask.attribute("x", "0").toInt());
+                    tmask->setY(childMask.attribute("y", "0").toInt());
+                    const QString mFn = childMask.attribute("filename");
+                    const int maskIndex = layerIndexCounter++;
+                    // 先按既有 PNG/旧式数据路径加载 (ReveriePaint 自己的旧格式兼容)
+                    bool mLoaded = stageLayerDataFromStore(store, loader, tmask->paintDevice(), docName, mFn, maskIndex);
+                    // 桌面 Krita 的 ALPHA8 pixelselection: 直接转成内部 RGBA 蒙版
+                    if (!mLoaded) {
+                        mLoaded = loadKraMaskPixelSelection(store, docName, mFn, image, tmask->paintDevice());
+                    }
+                    if (!mLoaded) {
+                        tmask->paintDevice()->fill(QRect(0, 0, image->width(), image->height()), KoColor(Qt::white, cs));
+                    }
+                    tmask->setVisible(childMask.attribute("visible", "1") != "0");
+                    tmask->setOpacity(quint8(mOpacity));
+                    tmask->setUserLocked(childMask.attribute("locked", "0") == "1");
+                    // Layer-as-Mask: 蒙版是宿主上方的同级节点, 不是宿主的子节点
+                    if (node->parent()) {
+                        image->addNode(tmask, node->parent(), node);
+                    }
+                };
+                for (QDomElement child = el.firstChildElement(); !child.isNull(); child = child.nextSiblingElement()) {
+                    const QString cTag = child.tagName().toLower();
+                    if (cTag == "masks") {
+                        for (QDomElement m = child.firstChildElement(); !m.isNull(); m = m.nextSiblingElement()) {
+                            loadMaskElement(m);
                         }
-                        tmask->setVisible(childMask.attribute("visible", "1") != "0");
-                        tmask->setOpacity(quint8(mOpacity));
-                        tmask->setUserLocked(childMask.attribute("locked", "0") == "1");
-                        image->addNode(tmask, node);
+                    } else {
+                        loadMaskElement(child);
                     }
                 }
             }
