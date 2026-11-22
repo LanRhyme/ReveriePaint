@@ -17,10 +17,10 @@ void reverieApplyScalarKernel(QImage &img, int filterType, double p1, double p2,
     if (w <= 0 || h <= 0) return;
     img.bits();
     switch (filterType) {
-    case 0: { // HSBC: Hue (-180..180), Sat (0..2), Bright (0..2), Contrast (0..2)
+    case 0: { // HSBC: Hue (-180..180), Sat (0..2), Lightness offset (0..2), Contrast (0..2)
         const double hShift = p1;
         const double sScale = qMax(0.0, p2);
-        const double vScale = qMax(0.0, p3);
+        const double lOffset = qMax(0.0, p3) - 1.0;
         const double cScale = qMax(0.0, p4);
 
         filterParallelFor(0, h, [&](int startY, int endY) {
@@ -28,26 +28,31 @@ void reverieApplyScalarKernel(QImage &img, int filterType, double p1, double p2,
                 quint8 *line = img.scanLine(y);
                 for (int x = 0; x < w; ++x) {
                     quint8 *px = line + x * 4;
-                    if (px[3] == 0) continue; // Skip transparent
-                    int r = px[2], g = px[1], b = px[0];
+                    const int a = px[3];
+                    if (a == 0) continue; // Skip transparent
+                    // 缓冲区是预乘 ARGB, 先还原为直通色再做 HSL 运算, 否则半透明笔画会偏暗
+                    int r = qBound(0, px[2] * 255 / a, 255);
+                    int g = qBound(0, px[1] * 255 / a, 255);
+                    int b = qBound(0, px[0] * 255 / a, 255);
                     QColor col(r, g, b);
-                    float qh = 0.0f, qs = 0.0f, qv = 0.0f;
-                    col.getHsvF(&qh, &qs, &qv);
-                    if (qh >= 0.0f) {
-                        qh = fmodf(qh + float(hShift) / 360.0f + 1.0f, 1.0f);
-                    } else if (hShift != 0.0) {
-                        qh = fmodf(float(hShift) / 360.0f + 1.0f, 1.0f);
-                    }
+                    float qh = 0.0f, qs = 0.0f, ql = 0.0f;
+                    col.getHslF(&qh, &qs, &ql);
+                    if (qh < 0.0f) qh = 0.0f; // 灰色没有色相
+                    qh = fmodf(qh + float(hShift) / 360.0f + 1.0f, 1.0f);
+                    // HSL 饱和度归零得到同亮度灰 (HSV 会得到白色);
+                    // 明度用加法偏移, 黑色才能被提亮 (HSV 的 V 乘 0 仍是黑)
                     qs = qBound(0.0f, qs * float(sScale), 1.0f);
-                    qv = qBound(0.0f, qv * float(vScale), 1.0f);
-                    col.setHsvF(qh, qs, qv);
+                    ql = qBound(0.0f, ql + float(lOffset), 1.0f);
+                    col.setHslF(qh, qs, ql);
                     r = col.red(); g = col.green(); b = col.blue();
                     if (cScale != 1.0) {
                         r = qBound(0, int((r - 128) * cScale + 128), 255);
                         g = qBound(0, int((g - 128) * cScale + 128), 255);
                         b = qBound(0, int((b - 128) * cScale + 128), 255);
                     }
-                    px[2] = quint8(r); px[1] = quint8(g); px[0] = quint8(b);
+                    px[2] = quint8((r * a + 127) / 255);
+                    px[1] = quint8((g * a + 127) / 255);
+                    px[0] = quint8((b * a + 127) / 255);
                 }
             }
         });
@@ -133,16 +138,17 @@ void reverieApplyScalarKernel(QImage &img, int filterType, double p1, double p2,
         });
         break;
     }
-    case 4: { // Sharpen: strength (0.1..3.0) via Alpha-weighted Unsharp Masking
-        const double strength = qBound(0.1, p1, 3.0);
-        QImage tmp = img.copy();
+    case 4: { // Sharpen: strength (0.1..5.0, matches the UI slider), RGB + alpha unsharp
+        const double strength = qBound(0.1, p1, 5.0);
+        const QImage tmp = img.copy();
         filterParallelFor(0, h, [&](int startY, int endY) {
             for (int y = startY; y < endY; ++y) {
                 quint8 *dst = img.scanLine(y);
                 for (int x = 0; x < w; ++x) {
                     const quint8 *pC = tmp.constScanLine(y) + x * 4;
                     quint8 *px = dst + x * 4;
-                    if (pC[3] == 0) {
+                    const int curA = pC[3];
+                    if (curA == 0) {
                         px[0] = 0; px[1] = 0; px[2] = 0; px[3] = 0;
                         continue;
                     }
@@ -153,25 +159,37 @@ void reverieApplyScalarKernel(QImage &img, int filterType, double p1, double p2,
                         for (int dx = -1; dx <= 1; ++dx) {
                             int nx = qBound(0, x + dx, w - 1);
                             const quint8 *p = row + nx * 4;
-                            int a = p[3];
-                            sumA += a;
-                            sumR += p[2] * a;
-                            sumG += p[1] * a;
-                            sumB += p[0] * a;
+                            const int pa = p[3];
+                            sumA += pa;
+                            if (pa > 0) {
+                                sumR += qBound(0, p[2] * 255 / pa, 255) * pa;
+                                sumG += qBound(0, p[1] * 255 / pa, 255) * pa;
+                                sumB += qBound(0, p[0] * 255 / pa, 255) * pa;
+                            }
                         }
                     }
-                    int blurR = (sumA > 0) ? (sumR / sumA) : pC[2];
-                    int blurG = (sumA > 0) ? (sumG / sumA) : pC[1];
-                    int blurB = (sumA > 0) ? (sumB / sumA) : pC[0];
+                    const int blurA = sumA / 9;
+                    const int curR = qBound(0, pC[2] * 255 / curA, 255);
+                    const int curG = qBound(0, pC[1] * 255 / curA, 255);
+                    const int curB = qBound(0, pC[0] * 255 / curA, 255);
+                    const int blurR = sumA > 0 ? sumR / sumA : curR;
+                    const int blurG = sumA > 0 ? sumG / sumA : curG;
+                    const int blurB = sumA > 0 ? sumB / sumA : curB;
 
-                    int diffR = pC[2] - blurR;
-                    int diffG = pC[1] - blurG;
-                    int diffB = pC[0] - blurB;
-
-                    px[2] = quint8(qBound(0, int(pC[2] + diffR * strength), 255));
-                    px[1] = quint8(qBound(0, int(pC[1] + diffG * strength), 255));
-                    px[0] = quint8(qBound(0, int(pC[0] + diffB * strength), 255));
-                    px[3] = pC[3];
+                    // RGB 与 alpha 同时做 unsharp: 纯黑线稿没有颜色梯度, 只有 alpha 边缘可锐化,
+                    // 否则「锐化对线稿完全无效果」(#209)
+                    const int nr = qBound(0, int(curR + (curR - blurR) * strength + 0.5), 255);
+                    const int ng = qBound(0, int(curG + (curG - blurG) * strength + 0.5), 255);
+                    const int nb = qBound(0, int(curB + (curB - blurB) * strength + 0.5), 255);
+                    const int na = qBound(0, int(curA + (curA - blurA) * strength + 0.5), 255);
+                    if (na == 0) {
+                        px[0] = 0; px[1] = 0; px[2] = 0; px[3] = 0;
+                        continue;
+                    }
+                    px[2] = quint8((nr * na + 127) / 255);
+                    px[1] = quint8((ng * na + 127) / 255);
+                    px[0] = quint8((nb * na + 127) / 255);
+                    px[3] = quint8(na);
                 }
             }
         });
