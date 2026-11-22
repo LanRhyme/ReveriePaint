@@ -14,7 +14,6 @@ import com.reverie.paint.model.PanelQuad
 import com.reverie.paint.model.PanelStyle
 import com.reverie.paint.model.Point2D
 import com.reverie.paint.model.ResolvedPanelStyle
-import com.reverie.paint.model.parsePanelMeta
 import com.reverie.paint.model.parsePanelMetas
 import com.reverie.paint.model.serializePanelMetas
 import com.reverie.paint.model.resolve
@@ -497,11 +496,13 @@ internal fun applyPanelMetaEvent(
     if (e.groupIdx >= 0 && !e.metaJson.isNullOrEmpty()) {
         runCatching { ReverieCoreBridge.setPanelMeta(e.groupIdx, e.metaJson) }
     }
-    val metaQuad = e.metaJson?.let { parsePanelMeta(it)?.quad }
+    val metaQuads: List<PanelQuad> = e.metaJson?.let { parsePanelMetas(it).map { m -> m.quad } }.orEmpty()
+    val metaQuad = metaQuads.firstOrNull()
     val maskQuads: List<PanelQuad>? = when {
         e.maskIdx < 0 -> null
         e.maskQuads != null -> e.maskQuads
-        else -> metaQuad?.let { listOf(it) }
+        metaQuads.isNotEmpty() -> metaQuads
+        else -> null
     }
     // 旧像素清除: oldQuad 非空时按老 quad 外扩 1px 硬边 ERASE (脏区只到老 quad bbox);
     // null (创建/回放兜底) 时仍走 clearLayer
@@ -875,7 +876,6 @@ private fun PaintViewModel.buildPanelStructureOp(
     resolved: ResolvedPanelStyle,
     includeContent: Boolean = true,
 ): PanelBuildResult? {
-    val json = meta.toJson()
     val scan = scanEnginePanels()
     // 1. 根组 (首个分格时自动创建; 挂在最顶的顶层图层上方)
     var rootIdx = scan.rootIdx
@@ -980,8 +980,8 @@ internal fun PaintViewModel.syncGroupMaskAndBorders(groupId: Long) {
         val ev = PanelMetaEvent(
             groupIdx = groupNow,
             maskIdx = maskNow,
-            fillIdx = fillNow,
-            borderIdx = borderNow,
+            fillIdx = -1,
+            borderIdx = -1,
             metaJson = json,
             borderWidth = 0f,
             borderColor = 0,
