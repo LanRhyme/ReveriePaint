@@ -47,6 +47,8 @@ data class SaveErrorInfo(
     val totalRamBytes: Long = 0L,
     val nativeHeapAllocatedBytes: Long = 0L,
     val jvmHeapAllocatedBytes: Long = 0L,
+    val undoCount: Int = -1,
+    val fdCount: Int = -1,
     val appVersion: String = BuildConfig.VERSION_NAME,
 ) {
     fun toJson(): String {
@@ -67,6 +69,8 @@ data class SaveErrorInfo(
         obj.put("totalRamBytes", totalRamBytes)
         obj.put("nativeHeapAllocatedBytes", nativeHeapAllocatedBytes)
         obj.put("jvmHeapAllocatedBytes", jvmHeapAllocatedBytes)
+        obj.put("undoCount", undoCount)
+        obj.put("fdCount", fdCount)
         obj.put("appVersion", appVersion)
         return obj.toString()
     }
@@ -75,16 +79,19 @@ data class SaveErrorInfo(
      * 归类失败原因。优先级：磁盘满 -> 内存不足 -> IO -> 未知。
      *
      * - `availableDiskBytes == 0` 表示取不到 StatFs（未知），此时不能当成磁盘满；
-     * - 内存判据要求 native 堆绝对值够大或占总内存比例够高，避免把普通 IO 失败误判成 OOM；
+     * - 内存判据要求 native 堆绝对值够大、占总内存比例够高、availRam 过低或 errno=ENOMEM；
      * - [failureKind] 只依赖本对象字段，便于单测覆盖，不在 UI 线程做任何 IO/系统查询。
      */
     fun failureKind(): SaveFailureKind {
         if (errno == ERRNO_ENOSPC) return SaveFailureKind.DISK_FULL
         if (availableDiskBytes in 1L until LOW_DISK_BYTES) return SaveFailureKind.DISK_FULL
         if (stage == STAGE_DISK_PRECHECK) return SaveFailureKind.DISK_FULL
+        if (errno == ERRNO_ENOMEM) return SaveFailureKind.OUT_OF_MEMORY
+        val lowAvailRam = availableRamBytes in 1L until LOW_RAM_BYTES
         val heapPressure = nativeHeapAllocatedBytes >= LARGE_NATIVE_HEAP_BYTES ||
             (totalRamBytes > 0 && nativeHeapAllocatedBytes * 100 >= totalRamBytes * NATIVE_HEAP_PRESSURE_PERCENT)
-        if (stage == STAGE_OOM || heapPressure) return SaveFailureKind.OUT_OF_MEMORY
+        if (stage == STAGE_OOM || heapPressure || lowAvailRam) return SaveFailureKind.OUT_OF_MEMORY
+        if (errno == ERRNO_EMFILE || errno == ERRNO_ENFILE) return SaveFailureKind.IO
         if (stage in IO_STAGES) return SaveFailureKind.IO
         return SaveFailureKind.UNKNOWN
     }
@@ -92,12 +99,20 @@ data class SaveErrorInfo(
     companion object {
         /** Linux ENOSPC：写盘途中空间耗尽，C++ 侧 write_entry 失败时 errno 即此值 */
         const val ERRNO_ENOSPC = 28
+        /** Linux ENOMEM：内存分配失败 */
+        const val ERRNO_ENOMEM = 12
+        /** Linux ENFILE / EMFILE：系统或进程文件句柄耗尽 */
+        const val ERRNO_ENFILE = 23
+        const val ERRNO_EMFILE = 24
         /** 低于该剩余空间时，即使 errno 没带出来也按磁盘满引导用户 */
         const val LOW_DISK_BYTES = 50L * 1024 * 1024
+        /** 低于该可用 RAM 时视为严重内存压力 */
+        const val LOW_RAM_BYTES = 256L * 1024 * 1024
         /** native 堆超过该绝对值视为内存压力（接近 32 位地址空间上限 / 大画布峰值） */
         const val LARGE_NATIVE_HEAP_BYTES = 2L * 1024 * 1024 * 1024
-        const val NATIVE_HEAP_PRESSURE_PERCENT = 60
+        const val NATIVE_HEAP_PRESSURE_PERCENT = 30
         const val STAGE_DISK_PRECHECK = "disk_precheck"
+        const val STAGE_NO_DOCUMENT = "no_document"
         const val STAGE_OOM = "oom"
         const val STAGE_VERIFY_FAILED = "verify_failed"
         const val STAGE_OP_FAILED = "op_failed"
@@ -109,6 +124,7 @@ data class SaveErrorInfo(
             "open_entry",
             "write_entry",
             "close_entry",
+            "png_encode",
             "commit_failed",
             "commit_verify",
             "verify_failed",
@@ -138,6 +154,8 @@ data class SaveErrorInfo(
                 totalRamBytes = obj.optLong("totalRamBytes", 0L),
                 nativeHeapAllocatedBytes = obj.optLong("nativeHeapAllocatedBytes", 0L),
                 jvmHeapAllocatedBytes = obj.optLong("jvmHeapAllocatedBytes", 0L),
+                undoCount = obj.optInt("undoCount", -1),
+                fdCount = obj.optInt("fdCount", -1),
                 appVersion = obj.optString("appVersion", BuildConfig.VERSION_NAME),
             )
         }.getOrNull()
@@ -150,6 +168,7 @@ data class SaveErrorInfo(
             docHeight: Int,
             layerCount: Int,
             context: Context,
+            undoCount: Int = -1,
         ): SaveErrorInfo {
             val obj = runCatching { JSONObject(nativeJson) }.getOrNull() ?: JSONObject()
             val ok = obj.optBoolean("ok", false)
@@ -183,6 +202,7 @@ data class SaveErrorInfo(
             val runtime = Runtime.getRuntime()
             val jvmHeap = runtime.totalMemory() - runtime.freeMemory()
             val nativeHeap = try { Debug.getNativeHeapAllocatedSize() } catch (_: Throwable) { 0L }
+            val fdCount = try { File("/proc/self/fd").list()?.size ?: -1 } catch (_: Throwable) { -1 }
 
             return SaveErrorInfo(
                 ok = ok,
@@ -201,6 +221,8 @@ data class SaveErrorInfo(
                 totalRamBytes = totalRam,
                 nativeHeapAllocatedBytes = nativeHeap,
                 jvmHeapAllocatedBytes = jvmHeap,
+                undoCount = undoCount,
+                fdCount = fdCount,
                 appVersion = BuildConfig.VERSION_NAME,
             )
         }
@@ -295,7 +317,11 @@ object SaveFailureRecorder {
             val ramTotalMb = f.totalRamBytes / (1024 * 1024)
             val nativeMb = f.nativeHeapAllocatedBytes / (1024 * 1024)
             val jvmMb = f.jvmHeapAllocatedBytes / (1024 * 1024)
-            sb.append("  RAM: $ramFreeMb MB avail / $ramTotalMb MB total, NativeHeap: $nativeMb MB, JVMHeap: $jvmMb MB\n")
+            sb.append("  RAM: $ramFreeMb MB avail / $ramTotalMb MB total, NativeHeap: $nativeMb MB, JVMHeap: $jvmMb MB")
+            if (f.undoCount >= 0 || f.fdCount >= 0) {
+                sb.append(", Undo: ${f.undoCount}, FDs: ${f.fdCount}")
+            }
+            sb.append("\n")
         }
         return sb.toString()
     }

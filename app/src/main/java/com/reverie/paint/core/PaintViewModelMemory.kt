@@ -9,6 +9,8 @@ import android.content.ComponentCallbacks2
 import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Bitmap
+import android.os.Debug
+import com.reverie.paint.R
 import com.reverie.paint.model.FrameCachePolicy
 
 /**
@@ -98,14 +100,20 @@ internal fun PaintViewModel.registerMemoryPressureCallbacks() {
                 // RUNNING_LOW 以下就开始丢缓存: 等到 OOM 再丢, 用户损失的是
                 // 正在播放的动画进度甚至进程本身
                 if (level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_LOW) {
+                    val critical = level == ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL ||
+                        level >= ComponentCallbacks2.TRIM_MEMORY_COMPLETE
                     releaseReclaimableCaches(aggressive = level >= ComponentCallbacks2.TRIM_MEMORY_RUNNING_CRITICAL)
                     realInkSink?.trimMemory()
+                    if (critical) {
+                        triggerLowMemoryWarningIfNeeded()
+                    }
                 }
             }
 
             override fun onLowMemory() {
                 releaseReclaimableCaches(aggressive = true)
                 realInkSink?.trimMemory()
+                triggerLowMemoryWarningIfNeeded()
             }
 
             override fun onConfigurationChanged(newConfig: Configuration) = Unit
@@ -130,4 +138,45 @@ internal fun PaintViewModel.recyclePlaybackBitmap(bmp: Bitmap?) {
     if (bmp == null || bmp.isRecycled) return
     if (bmp === displayBitmap) return
     bmp.recycle()
+}
+
+/** 当前设备可用内存或 Native 堆是否偏紧（用于保存前主动腾挪缓存） */
+internal fun PaintViewModel.isMemoryTight(): Boolean {
+    if (!isAppContextReady()) return false
+    return try {
+        val am = appContext.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        val mi = ActivityManager.MemoryInfo()
+        am?.getMemoryInfo(mi)
+        val nativeHeap = try { Debug.getNativeHeapAllocatedSize() } catch (_: Throwable) { 0L }
+        val tightAvail = mi.lowMemory || (mi.availMem in 1L until 512L * 1024 * 1024)
+        val tightNative = (mi.totalMem > 0L && nativeHeap * 100L >= mi.totalMem * 22L) ||
+            nativeHeap >= 1536L * 1024 * 1024
+        tightAvail || tightNative
+    } catch (_: Throwable) {
+        false
+    }
+}
+
+/** 严重低内存告警时提示用户（每个绘画会话限弹一次，避免打断作画） */
+internal fun PaintViewModel.triggerLowMemoryWarningIfNeeded() {
+    mainHandler.post {
+        if (currentPage == Page.PAINTING && !lowMemoryWarnedInSession && !isBlockingLoading && !showLowMemoryDialog) {
+            lowMemoryWarnedInSession = true
+            lowMemoryMessage = getString(R.string.dialog_low_memory_desc)
+            showLowMemoryDialog = true
+            Breadcrumbs.record("Memory", "Low memory warning dialog triggered on PAINTING")
+        }
+    }
+}
+
+/** 用户在低内存弹窗点击「释放缓存并保存」 */
+internal fun PaintViewModel.releaseCachesAndSave() {
+    showLowMemoryDialog = false
+    releaseReclaimableCaches(aggressive = true)
+    realInkSink?.trimMemory()
+    System.gc()
+    val name = docName.ifBlank {
+        if (LanguageManager.isChinese()) "未命名作品" else "Untitled Artwork"
+    }
+    saveProject(name)
 }

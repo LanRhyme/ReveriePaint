@@ -643,6 +643,61 @@ internal fun LowStorageDialog(
     }
 }
 
+@Composable
+internal fun LowMemoryDialog(
+    message: String,
+    onReleaseAndSave: () -> Unit,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.ui.window.Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .width(320.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Morandi.panel)
+                .glassBorder(RoundedCornerShape(16.dp))
+                .padding(20.dp),
+        ) {
+            Column {
+                Text(
+                    text = stringResource(R.string.dialog_low_memory_title),
+                    color = Morandi.text,
+                    fontSize = 17.sp,
+                    fontWeight = FontWeight.Bold,
+                )
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    text = message.ifEmpty { stringResource(R.string.dialog_low_memory_desc) },
+                    color = Morandi.subText,
+                    fontSize = 13.sp,
+                    lineHeight = 18.sp,
+                )
+                Spacer(Modifier.height(20.dp))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.End,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    ReTextButton(
+                        text = stringResource(R.string.telemetry_notice_ok),
+                        onClick = onDismiss,
+                        textColor = Morandi.subText,
+                        fontSize = 13.sp,
+                    )
+                    Spacer(Modifier.width(8.dp))
+                    ReTextButton(
+                        text = stringResource(R.string.dialog_low_memory_save_action),
+                        onClick = onReleaseAndSave,
+                        textColor = Morandi.accent,
+                        fontWeight = FontWeight.Bold,
+                        fontSize = 13.sp,
+                    )
+                }
+            }
+        }
+    }
+}
+
 
 
 

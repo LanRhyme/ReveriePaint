@@ -961,7 +961,8 @@ fun PaintingPage(
                     moreToolsOpen = moreToolsOpen,
                     drawingGuidePanelOpen = drawingGuidePanelOpen,
                     modalDialogOpen = showExitSaveDialog || showDiscardConfirmDialog ||
-                        vm.showLowStorageDialog || vm.showToolbarSqueezedDialog ||
+                        vm.showLowStorageDialog || vm.showLowMemoryDialog ||
+                        vm.showToolbarSqueezedDialog ||
                         canvasEditMenuCustomizeOpen || vm.shadingAssistDialogOpen ||
                         vm.activeLayerDrag != null,
                 ),
@@ -1094,6 +1095,7 @@ fun PaintingPage(
                 vm.pendingExternalImageUri != null -> vm.pendingExternalImageUri = null
                 vm.pendingExternalBrushUris != null -> vm.pendingExternalBrushUris = null
                 vm.showLowStorageDialog -> vm.showLowStorageDialog = false
+                vm.showLowMemoryDialog -> vm.showLowMemoryDialog = false
                 vm.showToolbarSqueezedDialog -> vm.showToolbarSqueezedDialog = false
                 showDiscardConfirmDialog -> showDiscardConfirmDialog = false
                 showExitSaveDialog -> showExitSaveDialog = false

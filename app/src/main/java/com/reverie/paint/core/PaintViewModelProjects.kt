@@ -154,6 +154,11 @@ internal fun PaintViewModel.saveProject(
 
     val referenceProfile = referenceProfileId
     val previousReferencePath = currentProjectFile
+    if (isMemoryTight()) {
+        releaseReclaimableCaches(aggressive = true)
+        realInkSink?.trimMemory()
+        Breadcrumbs.record("Memory", "Released reclaimable caches before saveProject")
+    }
     tickPaintingTimer()
     flushPendingTimelapseCapture()
     isBlockingLoading = true
@@ -189,15 +194,20 @@ internal fun PaintViewModel.saveProject(
                         SaveFailureRecorder.recordFailure(appContext, synthetic)
                     }
                 }
-                when (failure?.failureKind()) {
-                    SaveFailureKind.DISK_FULL -> {
+                when {
+                    stage == SaveErrorInfo.STAGE_NO_DOCUMENT ->
+                        showActionToast(R.string.toast_save_failed_no_document, R.drawable.ic_alert_triangle)
+                    failure?.failureKind() == SaveFailureKind.DISK_FULL -> {
                         lowStorageMessage = getString(R.string.toast_save_failed_disk_full)
                         showLowStorageDialog = true
                         showActionToast(R.string.toast_save_failed_disk_full, R.drawable.ic_alert_triangle)
                     }
-                    SaveFailureKind.OUT_OF_MEMORY ->
+                    failure?.failureKind() == SaveFailureKind.OUT_OF_MEMORY -> {
+                        lowMemoryMessage = getString(R.string.toast_save_failed_memory)
+                        showLowMemoryDialog = true
                         showActionToast(R.string.toast_save_failed_memory, R.drawable.ic_alert_triangle)
-                    SaveFailureKind.IO ->
+                    }
+                    failure?.failureKind() == SaveFailureKind.IO ->
                         showActionToast(R.string.toast_save_failed_io, R.drawable.ic_alert_triangle)
                     else ->
                         showActionToast(R.string.toast_project_save_failed, R.drawable.ic_save)
@@ -286,6 +296,7 @@ internal fun PaintViewModel.saveProject(
             docHeight = docHeight,
             layerCount = layers.size,
             context = appContext,
+            undoCount = ReverieCoreBridge.undoCount(),
         )
         val saved = errorInfo.ok
         PerfTrace.event(
@@ -753,6 +764,7 @@ internal fun PaintViewModel.loadProject(p: com.reverie.paint.model.Project) {
     val isRecovered = p.isAutoSaved || p.filePath.contains(".autosave")
     docName = p.name
     lastAutoSaveTimeMs = 0L
+    lowMemoryWarnedInSession = false
     val masterFile = if (p.masterFilePath.isNotBlank()) File(p.masterFilePath) else File(projectDir(), "${p.name}.revp")
     currentProjectFile = if (!isRecovered) {
         p.filePath

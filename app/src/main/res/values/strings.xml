@@ -533,6 +533,9 @@
     <string name="toast_project_save_low_storage">可用存储空间过低，已取消保存以防文件损坏</string>
     <string name="dialog_storage_insufficient_title">存储空间不足</string>
     <string name="dialog_storage_insufficient_desc">设备剩余存储空间过低，为防止工程损坏已阻止写盘，请清理设备空间后重试</string>
+    <string name="dialog_low_memory_title">设备内存偏紧</string>
+    <string name="dialog_low_memory_desc">当前设备可用运行内存较低，继续长时间绘制可能导致保存异常或系统回收进程，建议立即释放缓存并保存作品，或清理后台应用后重启</string>
+    <string name="dialog_low_memory_save_action">释放缓存并保存</string>
     <string name="diagnostics_dialog_title">系统运行诊断与日志</string>
     <string name="diagnostics_dialog_desc">包含设备软硬件信息、内存状态、操作轨迹以及当前进程 Logcat，已自动对密码与 Token 脱敏</string>
     <string name="diagnostics_dialog_generating">正在抓取并生成系统诊断日志...</string>
@@ -3179,6 +3182,7 @@
     <string name="toast_project_save_failed">保存失败，修改尚未保存，请重试</string>
     <string name="toast_save_failed_disk_full">存储空间不足，工程保存失败，请清理空间或另存为</string>
     <string name="toast_save_failed_memory">可用内存不足导致保存失败，请尝试合并图层或重启应用</string>
+    <string name="toast_save_failed_no_document">当前画布会话已失效，请从最近快照恢复作品</string>
     <string name="toast_save_failed_io">文件写入失败，请检查存储权限或使用「另存为」</string>
     <string name="toast_autosave_consecutive_failed">自动保存连续失败，请检查存储空间并手动另存为备份</string>
 

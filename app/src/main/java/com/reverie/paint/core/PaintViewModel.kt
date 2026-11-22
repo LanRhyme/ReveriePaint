@@ -2371,6 +2371,9 @@ class PaintViewModel : ViewModel() {
     var toolbarSqueezedWarningDismissed by mutableStateOf(false)
     var showLowStorageDialog by mutableStateOf(false)
     var lowStorageMessage by mutableStateOf("")
+    var showLowMemoryDialog by mutableStateOf(false)
+    var lowMemoryMessage by mutableStateOf("")
+    internal var lowMemoryWarnedInSession = false
 
     fun dismissToolbarSqueezedWarning(forever: Boolean) {
         showToolbarSqueezedDialog = false
@@ -7535,7 +7538,12 @@ class PaintViewModel : ViewModel() {
     internal fun syncLayersFromNative() {
         val page = LayerSnapshotProbe.read()
         if (page != null) {
-            layers = page.layers.map(LayerSnapshotProbe::toUiState)
+            if (page.layers.isEmpty() && currentPage == Page.PAINTING && layers.isNotEmpty()) {
+                android.util.Log.w("ReverieCore", "syncLayersFromNative: empty snapshot while on PAINTING (kept ${layers.size} layers)")
+                Breadcrumbs.record("Layer", "empty native snapshot on PAINTING, kept ${layers.size} layers")
+            } else {
+                layers = page.layers.map(LayerSnapshotProbe::toUiState)
+            }
         } else {
             LayerSnapshotProbe.reportUnavailable()
         }

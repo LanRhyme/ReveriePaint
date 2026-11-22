@@ -75,6 +75,14 @@ internal fun PaintingGlobalDialogs(
         )
     }
 
+    if (vm.showLowMemoryDialog) {
+        LowMemoryDialog(
+            message = vm.lowMemoryMessage,
+            onReleaseAndSave = { vm.releaseCachesAndSave() },
+            onDismiss = { vm.showLowMemoryDialog = false },
+        )
+    }
+
     vm.brushImportProgress?.let { progress ->
         BrushImportProgressDialog(progress = progress)
     }
