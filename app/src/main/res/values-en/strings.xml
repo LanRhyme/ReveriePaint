@@ -2750,8 +2750,10 @@
     <string name="filter_cat_distort">Distort &amp; Spatial</string>
 
     <!-- Filter Names & Descriptions -->
-    <string name="filter_name_hsv">Hue / Saturation / Brightness / Contrast</string>
-    <string name="filter_desc_hsv">Adjust hue shift, saturation, and contrast</string>
+    <string name="filter_name_hsv">Hue / Saturation / Value / Contrast (HSV)</string>
+    <string name="filter_desc_hsv">HSV: value is multiplicative; lowering saturation fades toward white</string>
+    <string name="filter_name_hsl">Hue / Saturation / Lightness / Contrast (HSL)</string>
+    <string name="filter_desc_hsl">HSL: zero saturation yields gray; lightness lifts blacks</string>
     <string name="filter_name_color_balance">Color Balance</string>
     <string name="filter_desc_color_balance">Balance cyan-red, magenta-green, and yellow-blue</string>
     <string name="filter_name_gaussian_blur">Gaussian Blur</string>

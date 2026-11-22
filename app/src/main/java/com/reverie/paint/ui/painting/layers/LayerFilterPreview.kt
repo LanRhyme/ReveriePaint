@@ -279,6 +279,7 @@ internal data class AdjustParams(val type: Int, val p1: Double, val p2: Double, 
 internal fun adjustParamsOf(st: FilterAdjustState, filterId: Int): AdjustParams? {
     val p = when (filterId) {
             0 -> AdjustParams(0, st.hue.toDouble(), st.sat.toDouble(), st.bright.toDouble(), st.contrast.toDouble())
+            35 -> AdjustParams(35, st.hue.toDouble(), st.sat.toDouble(), st.bright.toDouble(), st.contrast.toDouble())
             1 -> AdjustParams(1, st.cr.toDouble(), st.mg.toDouble(), st.yb.toDouble(), 0.0)
             2 -> AdjustParams(2, st.blurRadius.toDouble(), 0.0, 0.0, 0.0)
             3 -> AdjustParams(3, st.motionAngle.toDouble(), st.motionDist.toDouble(), 0.0, 0.0)
@@ -319,6 +320,7 @@ internal fun adjustParamsOf(st: FilterAdjustState, filterId: Int): AdjustParams?
 internal fun filterNameResOf(filterId: Int): Int {
     return when (filterId) {
         0 -> R.string.filter_name_hsv
+        35 -> R.string.filter_name_hsl
         1 -> R.string.filter_name_color_balance
         2 -> R.string.filter_name_gaussian_blur
         3 -> R.string.filter_name_motion_blur
@@ -360,7 +362,8 @@ internal fun filterNameResOf(filterId: Int): Int {
 internal fun filterNameOf(filterId: Int, context: android.content.Context? = null): String {
     val resId = filterNameResOf(filterId)
     return context?.getString(resId) ?: when (filterId) {
-        0 -> "色相 / 饱和度 / 明度 / 对比度"
+        0 -> "色相 / 饱和度 / 明度 / 对比度 (HSV)"
+        35 -> "色相 / 饱和度 / 明度 / 对比度 (HSL)"
         1 -> "色彩平衡"
         2 -> "高斯模糊"
         3 -> "动感模糊"
@@ -405,7 +408,7 @@ internal fun applyConfigToState(cfg: AdjustmentConfigCodec.Config, st: FilterAdj
     val p3 = cfg.p3.toFloat()
     val p4 = cfg.p4.toFloat()
     when (cfg.type) {
-        0 -> { st.hue = p1; st.sat = p2; st.bright = p3; st.contrast = p4 }
+        0, 35 -> { st.hue = p1; st.sat = p2; st.bright = p3; st.contrast = p4 }
         1 -> { st.cr = p1; st.mg = p2; st.yb = p3 }
         2 -> { st.blurRadius = p1 }
         3 -> { st.motionAngle = p1; st.motionDist = p2 }

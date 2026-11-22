@@ -3,7 +3,7 @@
  *
  * ReverieCoreFilterRegistry.cpp - 滤镜像素内核的 KisFilter 注册层。
  *
- * 把 ReverieCoreFilterKernels 的 35 个内核 (id 0-34, 含 FX 与曲线LUT/渐变映射)
+ * 把 ReverieCoreFilterKernels 的 36 个内核 (id 0-35, 含 HSV/HSL 与 FX/曲线LUT/渐变映射)
  * 以 "reverie-f<N>" 为 ID 注册进 KisFilterRegistry, 使 KisAsyncMerger 能够在
  * KisAdjustmentLayer / KisFilterMask 上原生驱动它们 —— 这是上一次调整图层实验
  * 回滚的直接修正: merger 只认注册表滤镜, 未注册的 ID 会得到透明输出。
@@ -56,7 +56,7 @@ public:
         case 7: case 20: case 29: case 30: return FiltersCategoryMapId;
         case 8: case 25: return FiltersCategoryEdgeDetectionId;
         case 9: return FiltersCategoryEmbossId;
-        case 0: case 1: case 12: case 13: case 14: case 15: case 16: case 17:
+        case 0: case 1: case 12: case 13: case 14: case 15: case 16: case 17: case 35:
             return FiltersCategoryAdjustId;
         default: return FiltersCategoryOtherId;
         }
@@ -163,7 +163,7 @@ private:
 void registerReverieRegistryFilters()
 {
     KisFilterRegistry *registry = KisFilterRegistry::instance();
-    for (int type = 0; type <= 34; ++type) {
+    for (int type = 0; type <= 35; ++type) {
         const QString id = QStringLiteral("reverie-f%1").arg(type);
         if (!registry->get(id)) {
             registry->add(id, new ReverieKernelFilter(type));

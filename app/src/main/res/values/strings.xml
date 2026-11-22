@@ -2750,8 +2750,10 @@
     <string name="filter_cat_distort">空间与扭曲</string>
 
     <!-- Filter Names & Descriptions -->
-    <string name="filter_name_hsv">色相 / 饱和度 / 明度 / 对比度</string>
-    <string name="filter_desc_hsv">色相偏移、饱和度与明暗对比调节</string>
+    <string name="filter_name_hsv">色相 / 饱和度 / 明度 / 对比度 (HSV)</string>
+    <string name="filter_desc_hsv">HSV 计算：明度乘算，纯色降低饱和度会趋白</string>
+    <string name="filter_name_hsl">色相 / 饱和度 / 明度 / 对比度 (HSL)</string>
+    <string name="filter_desc_hsl">HSL 计算：饱和度归零得到灰，明度可提亮黑色</string>
     <string name="filter_name_color_balance">色彩平衡</string>
     <string name="filter_desc_color_balance">青红、洋绿、黄蓝平衡</string>
     <string name="filter_name_gaussian_blur">高斯模糊</string>

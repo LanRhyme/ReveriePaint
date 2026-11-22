@@ -97,7 +97,7 @@ internal data class FilterParamDef(
 
 internal fun filterParamDefinitions(filterId: Int): List<FilterParamDef> {
     return when (filterId) {
-        0 -> listOf(
+        0, 35 -> listOf(
             FilterParamDef(0, "色相", -180f..180f, "°", { it.hue }, { st, v -> st.hue = v }, { "${if (it >= 0) "+${it.roundToInt()}" else "${it.roundToInt()}"}°" }, R.string.filter_param_hue),
             FilterParamDef(1, "饱和度", 0f..2f, "", { it.sat }, { st, v -> st.sat = v }, { String.format(Locale.US, "%.2f", it) }, R.string.filter_param_sat),
             FilterParamDef(2, "明度", 0f..2f, "", { it.bright }, { st, v -> st.bright = v }, { String.format(Locale.US, "%.2f", it) }, R.string.filter_param_bright),

@@ -454,6 +454,8 @@ val ALL_SHORTCUT_DEFINITIONS: List<ShortcutDefinition> = buildList {
     // ---- 滤镜：常用单项 ----
     add(def("filter_hsv", ShortcutCategory.FILTERS, ShortcutSection.FILTER_COLOR,
         R.string.filter_name_hsv, "LeftCtrl + U"))
+    add(def("filter_hsl", ShortcutCategory.FILTERS, ShortcutSection.FILTER_COLOR,
+        R.string.filter_name_hsl))
     add(def("filter_curves", ShortcutCategory.FILTERS, ShortcutSection.FILTER_COLOR,
         R.string.filter_name_curves, "LeftCtrl + M"))
     add(def("filter_levels", ShortcutCategory.FILTERS, ShortcutSection.FILTER_COLOR,

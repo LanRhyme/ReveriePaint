@@ -148,6 +148,7 @@ internal val FILTER_CATEGORY_DEFS: List<FilterCategoryDef> = listOf(
         iconRes = R.drawable.ic_image_adjust,
         filters = listOf(
             FilterItemDef(0, R.string.filter_name_hsv, true, R.string.filter_desc_hsv),
+            FilterItemDef(35, R.string.filter_name_hsl, true, R.string.filter_desc_hsl),
             FilterItemDef(13, R.string.filter_name_curves, true, R.string.filter_desc_curves),
             FilterItemDef(14, R.string.filter_name_levels, true, R.string.filter_desc_levels),
             FilterItemDef(28, R.string.filter_name_vibrance, true, R.string.filter_desc_vibrance),

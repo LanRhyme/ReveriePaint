@@ -3,7 +3,7 @@
  * AdjustmentConfigCodec.kt - 调整层配置事件参数的纯 Kotlin 编解码
  *
  * L_ADJ_CONFIG 事件 arg 格式: "<type>|<p1>|<p2>|<p3>|<p4>|<lutHex>"
- * - type: 滤镜类型 id (reverieType, 0-34)
+ * - type: 滤镜类型 id (reverieType, 0-35)
  * - p1-p4: 双精度参数, toString/toDouble 往返
  * - lutHex: 可选 LUT 字节的十六进制 (曲线 768B / 渐变映射 1024B); 无则空串
  */

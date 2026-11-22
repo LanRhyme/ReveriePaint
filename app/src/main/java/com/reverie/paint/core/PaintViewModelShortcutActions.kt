@@ -312,6 +312,7 @@ private fun PaintViewModel.executeFilterShortcutAction(id: String): Boolean {
 /** 动作 id 与引擎滤镜编号 (LayerFiltersPage 的 FilterItemDef.id) 的映射。 */
 private val SHORTCUT_FILTER_IDS: Map<String, Int> = mapOf(
     "filter_hsv" to 0,
+    "filter_hsl" to 35,
     "filter_curves" to 13,
     "filter_levels" to 14,
     "filter_vibrance" to 28,

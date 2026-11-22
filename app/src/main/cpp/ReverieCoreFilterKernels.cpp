@@ -17,7 +17,47 @@ void reverieApplyScalarKernel(QImage &img, int filterType, double p1, double p2,
     if (w <= 0 || h <= 0) return;
     img.bits();
     switch (filterType) {
-    case 0: { // HSBC: Hue (-180..180), Sat (0..2), Lightness offset (0..2), Contrast (0..2)
+    case 0: { // HSV variant: Hue (-180..180), Sat (0..2), Value (0..2), Contrast (0..2)
+        const double hShift = p1;
+        const double sScale = qMax(0.0, p2);
+        const double vScale = qMax(0.0, p3);
+        const double cScale = qMax(0.0, p4);
+
+        filterParallelFor(0, h, [&](int startY, int endY) {
+            for (int y = startY; y < endY; ++y) {
+                quint8 *line = img.scanLine(y);
+                for (int x = 0; x < w; ++x) {
+                    quint8 *px = line + x * 4;
+                    const int a = px[3];
+                    if (a == 0) continue; // Skip transparent
+                    // 缓冲区是预乘 ARGB, 先还原为直通色再做 HSV 运算, 否则半透明笔画会偏暗
+                    int r = qBound(0, px[2] * 255 / a, 255);
+                    int g = qBound(0, px[1] * 255 / a, 255);
+                    int b = qBound(0, px[0] * 255 / a, 255);
+                    QColor col(r, g, b);
+                    float qh = 0.0f, qs = 0.0f, qv = 0.0f;
+                    col.getHsvF(&qh, &qs, &qv);
+                    if (qh < 0.0f) qh = 0.0f; // 灰色没有色相
+                    qh = fmodf(qh + float(hShift) / 360.0f + 1.0f, 1.0f);
+                    // HSV 语义保持不变: 饱和度/明度都是乘算, 纯黑乘任何明度仍是黑
+                    qs = qBound(0.0f, qs * float(sScale), 1.0f);
+                    qv = qBound(0.0f, qv * float(vScale), 1.0f);
+                    col.setHsvF(qh, qs, qv);
+                    r = col.red(); g = col.green(); b = col.blue();
+                    if (cScale != 1.0) {
+                        r = qBound(0, int((r - 128) * cScale + 128), 255);
+                        g = qBound(0, int((g - 128) * cScale + 128), 255);
+                        b = qBound(0, int((b - 128) * cScale + 128), 255);
+                    }
+                    px[2] = quint8((r * a + 127) / 255);
+                    px[1] = quint8((g * a + 127) / 255);
+                    px[0] = quint8((b * a + 127) / 255);
+                }
+            }
+        });
+        break;
+    }
+    case 35: { // HSL variant: Hue (-180..180), Sat (0..2), Lightness offset (0..2), Contrast (0..2)
         const double hShift = p1;
         const double sScale = qMax(0.0, p2);
         const double lOffset = qMax(0.0, p3) - 1.0;
@@ -29,18 +69,16 @@ void reverieApplyScalarKernel(QImage &img, int filterType, double p1, double p2,
                 for (int x = 0; x < w; ++x) {
                     quint8 *px = line + x * 4;
                     const int a = px[3];
-                    if (a == 0) continue; // Skip transparent
-                    // 缓冲区是预乘 ARGB, 先还原为直通色再做 HSL 运算, 否则半透明笔画会偏暗
+                    if (a == 0) continue;
                     int r = qBound(0, px[2] * 255 / a, 255);
                     int g = qBound(0, px[1] * 255 / a, 255);
                     int b = qBound(0, px[0] * 255 / a, 255);
                     QColor col(r, g, b);
                     float qh = 0.0f, qs = 0.0f, ql = 0.0f;
                     col.getHslF(&qh, &qs, &ql);
-                    if (qh < 0.0f) qh = 0.0f; // 灰色没有色相
+                    if (qh < 0.0f) qh = 0.0f;
                     qh = fmodf(qh + float(hShift) / 360.0f + 1.0f, 1.0f);
-                    // HSL 饱和度归零得到同亮度灰 (HSV 会得到白色);
-                    // 明度用加法偏移, 黑色才能被提亮 (HSV 的 V 乘 0 仍是黑)
+                    // HSL 语义: 饱和度归零得到同亮度灰; 明度用加法偏移, 黑色可被提亮
                     qs = qBound(0.0f, qs * float(sScale), 1.0f);
                     ql = qBound(0.0f, ql + float(lOffset), 1.0f);
                     col.setHslF(qh, qs, ql);
