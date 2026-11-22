@@ -3647,6 +3647,32 @@
     <string name="srt_single_frame_title">SRT storyboard · source times are reference-only</string>
     <string name="srt_single_frame_hint">Drag the right edge for duration · drawing does not split SRT frames</string>
     <string name="srt_mapping_changed">Keyframe count changed; caption positioning paused</string>
+    <string name="srt_delete_cue">Delete this shot</string>
+    <string name="srt_delete_cue_title">Delete this storyboard shot?</string>
+    <string name="srt_delete_cue_message">Its keyframe and caption will be deleted; other shots and frames keep their positions</string>
+    <string name="srt_delete_cue_confirm">Delete shot</string>
+    <string name="srt_delete_cue_done">Storyboard shot deleted</string>
+    <string name="srt_pdf_export">Export storyboard PDF</string>
+    <string name="srt_pdf_exporting">Exporting PDF…</string>
+    <string name="srt_pdf_layout_title">Choose an A4 storyboard layout</string>
+    <string name="srt_pdf_layout_description">Each panel shows its matching SRT description above the frame</string>
+    <string name="srt_pdf_four">4 panels · A4 landscape</string>
+    <string name="srt_pdf_six">6 panels · A4 portrait</string>
+    <string name="srt_pdf_filename_landscape">storyboard-a4-landscape.pdf</string>
+    <string name="srt_pdf_filename_portrait">storyboard-a4-portrait.pdf</string>
+    <string name="srt_pdf_page_title">Storyboard · Page %1$d</string>
+    <string name="srt_pdf_shot_header">Shot %1$d · %2$s</string>
+    <string name="srt_pdf_export_success">Storyboard PDF exported</string>
+    <string name="srt_pdf_export_failed">Could not export storyboard PDF</string>
+    <string name="srt_pdf_mapping_error">Storyboard and keyframes do not match; PDF export is unavailable</string>
+    <string name="countdown_title">Drawing countdown</string>
+    <string name="countdown_minutes">%1$d min</string>
+    <string name="countdown_custom_minutes">Custom minutes</string>
+    <string name="countdown_start_custom">Start custom</string>
+    <string name="countdown_pause">Pause</string>
+    <string name="countdown_resume">Resume</string>
+    <string name="countdown_reset">Reset</string>
+    <string name="countdown_finished">Countdown finished</string>
 
     <!-- 智能阴影辅助 Shading Assist -->
     <string name="shading_assist_title">Shading Assist</string>

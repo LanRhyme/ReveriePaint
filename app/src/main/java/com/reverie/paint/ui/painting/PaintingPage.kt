@@ -1544,6 +1544,10 @@ fun PaintingPage(
                                     vm.persistQuickLayerState()
                                     moreToolsOpen = false
                                 }
+                                Tool.COUNTDOWN -> {
+                                    vm.toggleCountdownWindow()
+                                    moreToolsOpen = false
+                                }
                                 Tool.DRAWING_GUIDE, Tool.SYMMETRY, Tool.PERSPECTIVE -> {
                                     drawingGuidePanelOpen = !drawingGuidePanelOpen
                                     moreToolsOpen = false
@@ -1748,6 +1752,10 @@ fun PaintingPage(
                                 Tool.QUICK_LAYER -> {
                                     vm.quickLayerWindowOpen = !vm.quickLayerWindowOpen
                                     vm.persistQuickLayerState()
+                                    moreToolsOpen = false
+                                }
+                                Tool.COUNTDOWN -> {
+                                    vm.toggleCountdownWindow()
                                     moreToolsOpen = false
                                 }
                                 Tool.DRAWING_GUIDE, Tool.SYMMETRY, Tool.PERSPECTIVE -> {
@@ -2801,6 +2809,10 @@ fun PaintingPage(
                         Tool.QUICK_LAYER -> {
                             vm.quickLayerWindowOpen = !vm.quickLayerWindowOpen
                             vm.persistQuickLayerState()
+                            moreToolsOpen = false
+                        }
+                        Tool.COUNTDOWN -> {
+                            vm.toggleCountdownWindow()
                             moreToolsOpen = false
                         }
                         Tool.DRAWING_GUIDE, Tool.SYMMETRY, Tool.PERSPECTIVE -> {

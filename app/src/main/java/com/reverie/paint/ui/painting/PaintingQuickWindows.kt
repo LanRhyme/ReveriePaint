@@ -30,7 +30,7 @@ import dev.chrisbanes.haze.HazeState
 /**
  * Overlay layer hosting persistent floating tool windows:
  * Reference Window, Quick Action Window, Quick Brush Window,
- * Quick Color Window, and Quick Layer Window.
+ * Quick Color Window, Quick Layer Window, and Countdown Timer.
  */
 @Composable
 internal fun BoxScope.PaintingQuickWindows(
@@ -138,6 +138,19 @@ internal fun BoxScope.PaintingQuickWindows(
             }
         }
         vm.quickActionWindowWasOpen = vm.quickActionWindowOpen
+    }
+
+    LaunchedEffect(vm.countdownWindowOpen) {
+        if (vm.countdownWindowOpen && !vm.countdownWindowWasOpen) {
+            if (vm.countdownWindowX < 0f || vm.countdownWindowY < 0f) {
+                val panelW = with(density) { 248.dp.toPx() }
+                val panelH = with(density) { 300.dp.toPx() }
+                vm.countdownWindowX = ((screenW - panelW) / 2f).coerceAtLeast(0f)
+                vm.countdownWindowY = ((screenH - panelH) / 2f).coerceAtLeast(0f)
+                vm.persistCountdownWindowState()
+            }
+        }
+        vm.countdownWindowWasOpen = vm.countdownWindowOpen
     }
 
     LaunchedEffect(vm.quickBrushWindowOpen) {
@@ -299,6 +312,22 @@ internal fun BoxScope.PaintingQuickWindows(
             onOpenFullLayerPanel = onOpenFullLayerPanel,
             onOpenLayerDetails = onOpenLayerDetails,
             hazeState = hazeState,
+            opacity = vm.popupPanelOpacity,
+        )
+    }
+
+    AnimatedVisibility(
+        visible = vm.countdownWindowOpen,
+        enter = fadeIn(Motion.enterSpring()) + androidx.compose.animation.scaleIn(Motion.enterSpring(), initialScale = 0.92f),
+        exit = fadeOut(Motion.exitTween(150)) + androidx.compose.animation.scaleOut(Motion.exitTween(150), targetScale = 0.92f),
+        modifier = Modifier.zIndex(79f),
+    ) {
+        CountdownTimerWindow(
+            vm = vm,
+            onClose = {
+                vm.countdownWindowOpen = false
+                vm.persistCountdownWindowState()
+            },
             opacity = vm.popupPanelOpacity,
         )
     }

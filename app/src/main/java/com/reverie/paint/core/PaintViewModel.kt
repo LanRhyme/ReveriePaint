@@ -516,6 +516,18 @@ class PaintViewModel : ViewModel() {
     var quickActionWindowHeight by mutableFloatStateOf(0f)
     var quickActionCollapsed by mutableStateOf(false)
 
+    // Countdown floating tool window and session state.
+    var countdownWindowOpen by mutableStateOf(false)
+    var countdownWindowWasOpen = false
+    var countdownWindowX by mutableFloatStateOf(-1f)
+    var countdownWindowY by mutableFloatStateOf(-1f)
+    var countdownWindowWidth by mutableFloatStateOf(0f)
+    var countdownWindowHeight by mutableFloatStateOf(0f)
+    var countdownRemainingMs by mutableLongStateOf(0L)
+    var countdownDeadlineElapsedMs by mutableLongStateOf(0L)
+    var countdownRunning by mutableStateOf(false)
+    internal var countdownJob: Job? = null
+
     // Quick Brush Tool Window State (快捷笔刷浮窗)
     var quickBrushWindowOpen by mutableStateOf(false)
     var quickBrushWindowWasOpen = false

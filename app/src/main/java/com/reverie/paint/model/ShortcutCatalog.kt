@@ -175,6 +175,7 @@ fun toolShortcutNameRes(tool: Tool): Int = when (tool) {
     Tool.QUICK_COLOR -> R.string.tool_quick_color
     Tool.QUICK_OKLCH -> R.string.tool_quick_oklch
     Tool.QUICK_LAYER -> R.string.tool_quick_layer
+    Tool.COUNTDOWN -> R.string.countdown_title
     Tool.DRAWING_GUIDE -> R.string.guide_title
     Tool.SYMMETRY -> R.string.tool_symmetry
     Tool.PERSPECTIVE -> R.string.tool_perspective

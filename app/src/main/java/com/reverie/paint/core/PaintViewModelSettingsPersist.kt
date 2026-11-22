@@ -498,6 +498,10 @@ internal fun PaintViewModel.syncSettingsFromPrefs() {
         quickActionWindowX = if (qaUseSlot) { if (isLand) quickActionWindowX_land else quickActionWindowX_port } else qaLegacyX
         quickActionWindowY = if (qaUseSlot) { if (isLand) quickActionWindowY_land else quickActionWindowY_port } else qaLegacyY
         quickActionCollapsed = prefs.getBoolean("quick_action_collapsed", false)
+        countdownWindowOpen = prefs.getBoolean("countdown_window_open", false)
+        countdownWindowWasOpen = countdownWindowOpen
+        countdownWindowX = prefs.getFloat("countdown_window_x", -1f)
+        countdownWindowY = prefs.getFloat("countdown_window_y", -1f)
         val layoutMode = com.reverie.paint.model.QuickActionLayoutMode.fromId(prefs.getString("quick_action_layout", "column") ?: "column")
         val showLabels = prefs.getBoolean("quick_action_show_labels", false)
         val actionsRaw = prefs.getString("quick_action_actions", null)

@@ -323,6 +323,7 @@ private fun AllToolCell(
                 Tool.QUICK_COLOR -> vm.quickColorWindowOpen
                 Tool.QUICK_OKLCH -> vm.quickOklchWindowOpen
                 Tool.QUICK_LAYER -> vm.quickLayerWindowOpen
+                Tool.COUNTDOWN -> vm.countdownWindowOpen
                 Tool.DRAWING_GUIDE -> vm.drawingGuide.mode != GuideMode.OFF
                 Tool.SYMMETRY -> vm.drawingGuide.mode == GuideMode.SYMMETRY
                 Tool.PERSPECTIVE -> vm.drawingGuide.mode == GuideMode.PERSPECTIVE

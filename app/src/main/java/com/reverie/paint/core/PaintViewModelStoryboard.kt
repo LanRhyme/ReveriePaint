@@ -2,6 +2,14 @@
 package com.reverie.paint.core
 
 import android.net.Uri
+import android.graphics.Bitmap
+import android.graphics.Color
+import android.graphics.Paint
+import android.graphics.RectF
+import android.graphics.pdf.PdfDocument
+import android.text.Layout
+import android.text.StaticLayout
+import android.text.TextPaint
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.setValue
@@ -18,11 +26,14 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.ByteArrayOutputStream
+import kotlin.math.min
+import kotlin.math.roundToInt
 
 internal class StoryboardState {
     var cues by mutableStateOf<List<SrtCue>>(emptyList())
     var fps by mutableStateOf(DEFAULT_ANIMATION_FPS)
     var importing by mutableStateOf(false)
+    var exportingPdf by mutableStateOf(false)
     var adding by mutableStateOf(false)
     var singleFrameMode by mutableStateOf(false)
     var frames by mutableStateOf<List<StoryboardFrame>>(emptyList())
@@ -35,6 +46,7 @@ internal class StoryboardState {
         generation++
         cues = emptyList()
         importing = false
+        exportingPdf = false
         adding = false
         fps = DEFAULT_ANIMATION_FPS
         probed = false
@@ -42,6 +54,182 @@ internal class StoryboardState {
         frames = emptyList()
         trackIndex = -1
         trackId = 0L
+    }
+}
+
+/** Export every mapped SRT shot to A4 PDF; 4-up is landscape and 6-up is portrait. */
+internal fun PaintViewModel.animationExportStoryboardPdf(uri: Uri, cellsPerPage: Int) {
+    val state = anim.storyboard
+    val cues = state.cues.toList()
+    val frames = state.frames.toList()
+    if (state.exportingPdf || cues.isEmpty()) return
+    if (cellsPerPage !in setOf(4, 6) || frames.size != cues.size) {
+        showActionToast(R.string.srt_pdf_mapping_error)
+        return
+    }
+
+    state.exportingPdf = true
+    animationPause()
+    viewModelScope.launch {
+        val output = try {
+            withContext(Dispatchers.IO) { appContext.contentResolver.openOutputStream(uri, "wt") }
+        } catch (_: Exception) {
+            null
+        }
+        if (output == null) {
+            state.exportingPdf = false
+            showActionToast(R.string.srt_pdf_export_failed)
+            return@launch
+        }
+
+        var originalTime = anim.currentTime
+        var succeeded = false
+        runCore(after = {
+            state.exportingPdf = false
+            anim.currentTime = originalTime
+            showActionToast(
+                if (succeeded) R.string.srt_pdf_export_success else R.string.srt_pdf_export_failed,
+            )
+        }) {
+            originalTime = ReverieCoreBridge.animationCurrentTime()
+            val width = ReverieCoreBridge.docWidth()
+            val height = ReverieCoreBridge.docHeight()
+            if (width <= 0 || height <= 0) {
+                output.close()
+                return@runCore
+            }
+
+            val pdf = PdfDocument()
+            var page: PdfDocument.Page? = null
+            var bitmap: Bitmap? = null
+            val restoreOnionSuppression = anim.isPlaying || anim.shiftTraceActive
+            try {
+                bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+                ReverieCoreBridge.setOnionSkinSuppressed(true)
+                val pageWidth = if (cellsPerPage == 4) 842 else 595
+                val pageHeight = if (cellsPerPage == 4) 595 else 842
+                val columns = 2
+                val rows = if (cellsPerPage == 4) 2 else 3
+                val margin = 26f
+                val gap = 16f
+                val cellWidth = (pageWidth - margin * 2 - gap) / columns
+                val cellHeight = (pageHeight - margin * 2 - gap * (rows - 1)) / rows
+                val headerPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.rgb(70, 70, 70)
+                    textSize = 9f
+                    typeface = android.graphics.Typeface.create(
+                        "sans-serif-medium",
+                        android.graphics.Typeface.NORMAL,
+                    )
+                }
+                val bodyPaint = TextPaint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.BLACK
+                    textSize = 10f
+                }
+                val borderPaint = Paint(Paint.ANTI_ALIAS_FLAG).apply {
+                    color = Color.rgb(205, 205, 205)
+                    style = Paint.Style.STROKE
+                    strokeWidth = 0.8f
+                }
+                val imagePaint = Paint(Paint.ANTI_ALIAS_FLAG or Paint.FILTER_BITMAP_FLAG)
+                val whitePaint = Paint().apply { color = Color.WHITE }
+                val captionHeight = if (cellsPerPage == 4) 67f else 63f
+                var pageIndex = -1
+
+                cues.indices.forEach { index ->
+                    if (index % cellsPerPage == 0) {
+                        page?.let(pdf::finishPage)
+                        pageIndex++
+                        page = pdf.startPage(
+                            PdfDocument.PageInfo.Builder(pageWidth, pageHeight, pageIndex + 1).create(),
+                        )
+                        page!!.canvas.drawColor(Color.WHITE)
+                        page!!.canvas.drawText(
+                            appContext.getString(R.string.srt_pdf_page_title, pageIndex + 1),
+                            margin,
+                            17f,
+                            headerPaint,
+                        )
+                    }
+
+                    val canvas = page!!.canvas
+                    val slot = index % cellsPerPage
+                    val column = slot % columns
+                    val row = slot / columns
+                    val left = margin + column * (cellWidth + gap)
+                    val top = margin + row * (cellHeight + gap)
+                    val cue = cues[index]
+                    canvas.drawText(
+                        appContext.getString(
+                            R.string.srt_pdf_shot_header,
+                            index + 1,
+                            SrtStoryboard.timestamp(cue.startMs),
+                        ),
+                        left,
+                        top + 11f,
+                        headerPaint,
+                    )
+                    val caption = StaticLayout.Builder.obtain(
+                        cue.text,
+                        0,
+                        cue.text.length,
+                        bodyPaint,
+                        cellWidth.toInt(),
+                    )
+                        .setAlignment(Layout.Alignment.ALIGN_NORMAL)
+                        .setIncludePad(false)
+                        .setMaxLines(3)
+                        .build()
+                    canvas.save()
+                    canvas.translate(left, top + 15f)
+                    caption.draw(canvas)
+                    canvas.restore()
+
+                    val imageRect = RectF(left, top + captionHeight, left + cellWidth, top + cellHeight)
+                    canvas.drawRect(imageRect, whitePaint)
+                    val frame = frames[index]
+                    ReverieCoreBridge.setAnimationCurrentTime(frame.start, false)
+                    check(ReverieCoreBridge.renderToBuffer(bitmap!!, true, null))
+                    val scale = min(
+                        (imageRect.width() - 8f) / width,
+                        (imageRect.height() - 8f) / height,
+                    )
+                    val drawWidth = width * scale
+                    val drawHeight = height * scale
+                    val destination = RectF(
+                        imageRect.centerX() - drawWidth / 2f,
+                        imageRect.centerY() - drawHeight / 2f,
+                        imageRect.centerX() + drawWidth / 2f,
+                        imageRect.centerY() + drawHeight / 2f,
+                    )
+                    val pageBitmap = Bitmap.createScaledBitmap(
+                        bitmap!!,
+                        (drawWidth * 1.5f).roundToInt().coerceAtLeast(1),
+                        (drawHeight * 1.5f).roundToInt().coerceAtLeast(1),
+                        true,
+                    )
+                    try {
+                        canvas.drawBitmap(pageBitmap, null, destination, imagePaint)
+                    } finally {
+                        if (pageBitmap !== bitmap && !pageBitmap.isRecycled) pageBitmap.recycle()
+                    }
+                    canvas.drawRect(imageRect, borderPaint)
+                }
+                page?.let(pdf::finishPage)
+                page = null
+                output.use { pdf.writeTo(it) }
+                succeeded = true
+            } catch (e: Exception) {
+                android.util.Log.e("RP_SRT", "Storyboard PDF export failed", e)
+                runCatching { output.close() }
+            } finally {
+                page?.let { runCatching { pdf.finishPage(it) } }
+                ReverieCoreBridge.setAnimationCurrentTime(originalTime, false)
+                ReverieCoreBridge.setOnionSkinSuppressed(restoreOnionSuppression)
+                bitmap?.recycle()
+                pdf.close()
+            }
+        }
     }
 }
 
@@ -213,6 +401,68 @@ internal fun PaintViewModel.animationUpdateStoryboardCue(index: Int, text: Strin
     }
     isModified = true
     onPaintingActivity()
+}
+
+/** Delete one caption and its linked SRT keyframe without moving any remaining drawing. */
+internal fun PaintViewModel.animationRemoveStoryboardCue(index: Int): Boolean {
+    val state = anim.storyboard
+    if (state.adding || state.importing || isImportingMedia) return false
+    val updated = SrtStoryboard.removeCue(state.cues, index) ?: return false
+    val assetBytes = SrtStoryboard.encode(updated)
+    if (assetBytes.size > SrtStoryboard.MAX_BYTES) {
+        showActionToast(R.string.srt_error_large)
+        return false
+    }
+    val frame = state.frames.getOrNull(index)
+    if (state.singleFrameMode && (state.frames.size != state.cues.size || frame == null || state.trackId == 0L)) {
+        showActionToast(R.string.srt_mapping_changed)
+        return false
+    }
+
+    val generation = state.generation
+    state.adding = true
+    animationPause()
+    var success = false
+    runCore(after = {
+        if (generation != state.generation) return@runCore
+        state.adding = false
+        if (success) {
+            anim.selectedTrack = state.trackIndex
+            anim.selectedFrames = emptySet()
+            isModified = true
+            hasPendingMajorOp = true
+            onPaintingActivity()
+            layerRevision++
+            refreshLayerThumbs(force = true)
+            showActionToast(R.string.srt_delete_cue_done)
+        } else {
+            showActionToast(R.string.srt_mapping_changed)
+        }
+    }) {
+        if (generation != state.generation) return@runCore
+        if (state.singleFrameMode) {
+            val targetFrame = frame ?: return@runCore
+            val layer = (1 until ReverieCoreBridge.layerCount()).firstOrNull {
+                ReverieCoreBridge.layerId(it) == state.trackId
+            } ?: return@runCore
+            val keyTimes = ReverieCoreBridge.keyframeTimes(layer).sorted()
+            if (keyTimes.size != state.cues.size || keyTimes.getOrNull(index) != targetFrame.start) {
+                return@runCore
+            }
+            ReverieCoreBridge.beginUndoMacro(appContext.getString(R.string.srt_delete_cue))
+            val removed = try {
+                ReverieCoreBridge.removeKeyframe(layer, targetFrame.start)
+            } finally {
+                ReverieCoreBridge.endUndoMacro()
+            }
+            if (!removed) return@runCore
+        }
+        ReverieCoreBridge.storeRevAsset(SrtStoryboard.ASSET, assetBytes)
+        state.cues = updated
+        syncAnimationFromNative()
+        success = true
+    }
+    return true
 }
 
 /**

@@ -124,6 +124,18 @@ class SrtStoryboardTest {
         ))
     }
 
+    @Test fun `removing one cue preserves remaining cues and their reference times`() {
+        val cues = SrtStoryboard.parse(
+            cue("00:00:01,000", "00:00:02,000", "first") + "\n\n" +
+                cue("00:00:05,000", "00:00:07,000", "second"),
+        )
+
+        assertEquals(listOf(cues[1]), SrtStoryboard.removeCue(cues, 0))
+        assertEquals(listOf(cues[0]), SrtStoryboard.removeCue(cues, 1))
+        assertNull(SrtStoryboard.removeCue(cues, -1))
+        assertNull(SrtStoryboard.removeCue(cues, 2))
+    }
+
     @Test fun `splitting a cue preserves every character on both sides of the caret`() {
         val original = "cf week is the best time the best"
         val cues = listOf(SrtCue(0, 1000, original))

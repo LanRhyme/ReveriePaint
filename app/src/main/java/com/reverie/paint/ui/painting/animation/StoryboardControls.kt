@@ -53,7 +53,9 @@ import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.animationImportSrt
 import com.reverie.paint.core.animationImportText
 import com.reverie.paint.core.animationPause
+import com.reverie.paint.core.animationRemoveStoryboardCue
 import com.reverie.paint.core.animationRemoveStoryboardReference
+import com.reverie.paint.core.animationExportStoryboardPdf
 import com.reverie.paint.core.animationSeek
 import com.reverie.paint.core.animationSplitStoryboardCue
 import com.reverie.paint.core.animationUpdateStoryboardCue
@@ -153,6 +155,54 @@ internal fun StoryboardImportButton(vm: PaintViewModel) {
 }
 
 @Composable
+internal fun StoryboardPdfExportButton(vm: PaintViewModel) {
+    val state = vm.anim.storyboard
+    if (state.cues.isEmpty()) return
+    var chooseLayout by remember { mutableStateOf(false) }
+    var pendingCells by remember { mutableIntStateOf(4) }
+    val landscapeName = stringResource(R.string.srt_pdf_filename_landscape)
+    val portraitName = stringResource(R.string.srt_pdf_filename_portrait)
+    val picker = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/pdf"),
+    ) { uri ->
+        if (uri != null) vm.animationExportStoryboardPdf(uri, pendingCells)
+    }
+    ReChip(
+        text = stringResource(if (state.exportingPdf) R.string.srt_pdf_exporting else R.string.srt_pdf_export),
+        onTap = { if (!state.exportingPdf) chooseLayout = true },
+        selected = state.exportingPdf,
+        modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+    )
+    if (chooseLayout) {
+        AlertDialog(
+            onDismissRequest = { chooseLayout = false },
+            containerColor = Morandi.panel,
+            title = { Text(stringResource(R.string.srt_pdf_layout_title), color = Morandi.text) },
+            text = { Text(stringResource(R.string.srt_pdf_layout_description), color = Morandi.subText) },
+            confirmButton = {
+                Column {
+                    TextButton(onClick = {
+                        chooseLayout = false
+                        pendingCells = 4
+                        picker.launch(landscapeName)
+                    }) { Text(stringResource(R.string.srt_pdf_four)) }
+                    TextButton(onClick = {
+                        chooseLayout = false
+                        pendingCells = 6
+                        picker.launch(portraitName)
+                    }) { Text(stringResource(R.string.srt_pdf_six)) }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { chooseLayout = false }) {
+                    Text(stringResource(R.string.srt_close))
+                }
+            },
+        )
+    }
+}
+
+@Composable
 internal fun StoryboardReferenceBar(
     vm: PaintViewModel,
     modifier: Modifier = Modifier,
@@ -162,6 +212,7 @@ internal fun StoryboardReferenceBar(
     if (cues.isEmpty()) return
     var showList by remember { mutableStateOf(false) }
     var showRemove by remember { mutableStateOf(false) }
+    var pendingDeleteIndex by remember { mutableIntStateOf(-1) }
     var pendingFocusIndex by remember { mutableIntStateOf(-1) }
     var pendingFocusCueCount by remember { mutableIntStateOf(-1) }
     var focusReadyIndex by remember { mutableIntStateOf(-1) }
@@ -247,23 +298,37 @@ internal fun StoryboardReferenceBar(
                             Column(
                                 modifier = Modifier.fillMaxWidth().padding(vertical = 8.dp),
                             ) {
-                                Text(
-                                    "${index + 1} · ${SrtStoryboard.timestamp(cue.startMs)} → " +
-                                        SrtStoryboard.timestamp(cue.endMs),
-                                    fontSize = 11.sp,
-                                    color = Morandi.subText,
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .clickable(enabled = !mappingMissing && targetFrame != null) {
-                                            targetFrame?.let { frame ->
-                                                vm.animationPause()
-                                                vm.animationSeek(frame.start)
-                                                vm.anim.scrollPx = frame.start * vm.anim.frameWidthPx
-                                                vm.anim.toolbarExpanded = false
-                                                showList = false
-                                            }
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        "${index + 1} · ${SrtStoryboard.timestamp(cue.startMs)} → " +
+                                            SrtStoryboard.timestamp(cue.endMs),
+                                        fontSize = 11.sp,
+                                        color = Morandi.subText,
+                                        modifier = Modifier
+                                            .weight(1f)
+                                            .clickable(enabled = !mappingMissing && targetFrame != null) {
+                                                targetFrame?.let { frame ->
+                                                    vm.animationPause()
+                                                    vm.animationSeek(frame.start)
+                                                    vm.anim.scrollPx = frame.start * vm.anim.frameWidthPx
+                                                    vm.anim.toolbarExpanded = false
+                                                    showList = false
+                                                }
+                                            },
+                                    )
+                                    TextButton(
+                                        enabled = !state.adding && !state.importing,
+                                        onClick = {
+                                            pendingDeleteIndex = index
+                                            showList = false
                                         },
-                                )
+                                    ) {
+                                        Text(stringResource(R.string.srt_delete_cue))
+                                    }
+                                }
                                 StoryboardCueEditor(
                                     vm = vm,
                                     index = index,
@@ -296,6 +361,28 @@ internal fun StoryboardReferenceBar(
             },
             confirmButton = {
                 TextButton(onClick = { showList = false }) { Text(stringResource(R.string.srt_close)) }
+            },
+        )
+    }
+    if (pendingDeleteIndex in cues.indices) {
+        AlertDialog(
+            onDismissRequest = { pendingDeleteIndex = -1 },
+            containerColor = Morandi.panel,
+            title = { Text(stringResource(R.string.srt_delete_cue_title), color = Morandi.text) },
+            text = { Text(stringResource(R.string.srt_delete_cue_message), color = Morandi.text) },
+            confirmButton = {
+                TextButton(onClick = {
+                    val index = pendingDeleteIndex
+                    pendingDeleteIndex = -1
+                    vm.animationRemoveStoryboardCue(index)
+                }) {
+                    Text(stringResource(R.string.srt_delete_cue_confirm))
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { pendingDeleteIndex = -1 }) {
+                    Text(stringResource(R.string.srt_close))
+                }
             },
         )
     }
