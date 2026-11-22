@@ -1329,4 +1329,22 @@ class PanelModelsTest {
         val finalQuad = initial.movedBy(snappedDelta)
         assertEquals(220f, finalQuad.corners[0].x, 0.001f)
     }
+
+    @Test
+    fun `single-panel serializePanelMetas payload is rejected by parsePanelMeta but decoded by parsePanelMetas`() {
+        val quad = square(100f, 120f, 600f, 820f)
+        val meta = PanelMeta(quad, PanelStyle(), cropEnabled = true, panelId = 1L)
+        val wrappedJson = serializePanelMetas(listOf(meta))
+
+        // Regression guard: buildPanelStructureOp emits serializePanelMetas(listOf(meta));
+        // parsePanelMeta only handles legacy top-level objects and returns null for {"panels":[...]}.
+        assertNull(parsePanelMeta(wrappedJson))
+
+        val parsed = parsePanelMetas(wrappedJson)
+        assertEquals(1, parsed.size)
+        assertEquals(quad, parsed[0].quad)
+
+        // Cross-panel marker JSON must not produce fake quads
+        assertTrue(parsePanelMetas("{\"crossPanel\":true}").isEmpty())
+    }
 }
