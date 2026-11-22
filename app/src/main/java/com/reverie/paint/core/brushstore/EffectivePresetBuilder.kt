@@ -17,6 +17,10 @@ import java.io.File
  */
 object EffectivePresetBuilder {
 
+    /**
+     * [md5] 只在真正构建出字节时计算；快检命中（目标文件与快照 size+mtime 都一致）时为空串，
+     * 调用方不要把空串当成有效校验和（诊断日志里也会显示空）。
+     */
     data class Result(val id: String, val file: File, val written: Boolean, val md5: String, val buildMs: Long)
 
     /** 覆盖中会写进 kpp 的控件（LIVE + REBUILD），按 [ControlId] 解析；未知键忽略并记日志 */
@@ -111,7 +115,10 @@ object EffectivePresetBuilder {
 
         // 若无覆盖与缩略图，同步目标文件的时间戳与快照一致，使后续启动直接命中快检
         if (overrides.isEmpty() && !hasThumb && snap != null && snap.exists()) {
-            target.setLastModified(snap.lastModified())
+            if (!target.setLastModified(snap.lastModified())) {
+                // 个别文件系统拒绝改 mtime：下次启动会退回全量比较（只是慢，结果仍然正确）
+                BrushDiagnostics.log("mtime_sync_failed", "id" to id, "file" to target.name)
+            }
         }
 
         val ms = (System.nanoTime() - t0) / 1_000_000

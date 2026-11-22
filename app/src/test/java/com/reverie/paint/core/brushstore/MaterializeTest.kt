@@ -76,10 +76,34 @@ class MaterializeTest {
     }
 
     @Test
-    fun `快照与目标文件 mtime 与 size 一致时直接命中快检且不重写`() {
+    fun `快照与目标文件 mtime 与 size 一致时命中快检且不重算 md5`() {
         BrushStoreBootstrap.run(tmp, presetDir, "1", ::assets, migrate = { true })
         val id = "builtin:${stems[0]}"
+        val target = File(presetDir, "${stems[0]}.kpp")
+        val snap = PresetSnapshotStore.snapshotFile(id)!!
+        // 首次物化必须把目标 mtime 对齐快照，否则下次启动命中不了快检
+        assertEquals(snap.length(), target.length())
+        assertEquals(snap.lastModified(), target.lastModified())
+
         val res = EffectivePresetBuilder.materialize(id, presetDir)!!
         assertFalse(res.written)
+        // 快检命中不构建字节、不计算 md5，以此与"构建后发现字节未变"区分开
+        assertTrue(res.md5.isEmpty())
+    }
+
+    @Test
+    fun `目标 mtime 漂移时绕过快检并重新对齐时间戳`() {
+        BrushStoreBootstrap.run(tmp, presetDir, "1", ::assets, migrate = { true })
+        val id = "builtin:${stems[0]}"
+        val target = File(presetDir, "${stems[0]}.kpp")
+        val snap = PresetSnapshotStore.snapshotFile(id)!!
+        assertTrue(target.setLastModified(snap.lastModified() - 60_000L))
+
+        val res = EffectivePresetBuilder.materialize(id, presetDir)!!
+        assertFalse(res.written) // 有效字节本来就和快照一致
+        assertTrue(res.md5.isNotEmpty()) // 走了完整构建（md5 非空）
+        assertArrayEquals(snap.readBytes(), target.readBytes())
+        // 构建后重新对齐 mtime，下一次启动才能继续命中快检
+        assertEquals(snap.lastModified(), target.lastModified())
     }
 }
