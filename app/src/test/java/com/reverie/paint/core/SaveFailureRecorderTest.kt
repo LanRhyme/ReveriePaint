@@ -128,4 +128,70 @@ class SaveFailureRecorderTest {
         assertTrue(report.contains("50 MB free"))
         assertTrue(report.contains("NativeHeap: 300 MB"))
     }
+
+    @Test
+    fun `失败原因归类优先磁盘满再内存不足再 IO`() {
+        assertEquals(
+            SaveFailureKind.DISK_FULL,
+            SaveErrorInfo(ok = false, stage = "write_entry", errno = SaveErrorInfo.ERRNO_ENOSPC).failureKind(),
+        )
+        assertEquals(
+            SaveFailureKind.DISK_FULL,
+            SaveErrorInfo(ok = false, stage = "write_entry", availableDiskBytes = 10L * 1024 * 1024).failureKind(),
+        )
+        assertEquals(
+            SaveFailureKind.DISK_FULL,
+            SaveErrorInfo(ok = false, stage = SaveErrorInfo.STAGE_DISK_PRECHECK).failureKind(),
+        )
+        // 取不到 StatFs 时 availableDiskBytes=0 是"未知"，不能据此判磁盘满
+        assertEquals(
+            SaveFailureKind.IO,
+            SaveErrorInfo(ok = false, stage = "write_entry", availableDiskBytes = 0L).failureKind(),
+        )
+        assertEquals(
+            SaveFailureKind.OUT_OF_MEMORY,
+            SaveErrorInfo(ok = false, stage = "write_entry", nativeHeapAllocatedBytes = 3L * 1024 * 1024 * 1024).failureKind(),
+        )
+        // native 堆未到绝对值阈值，但已占设备内存 60% 以上：同样按内存压力归类
+        assertEquals(
+            SaveFailureKind.OUT_OF_MEMORY,
+            SaveErrorInfo(
+                ok = false,
+                stage = "write_entry",
+                nativeHeapAllocatedBytes = 1900L * 1024 * 1024,
+                totalRamBytes = 3L * 1024 * 1024 * 1024,
+            ).failureKind(),
+        )
+        // 堆大小与设备内存都不异常时，不能靠 nativeHeap 误判成内存不足
+        assertEquals(
+            SaveFailureKind.IO,
+            SaveErrorInfo(
+                ok = false,
+                stage = "commit_failed",
+                nativeHeapAllocatedBytes = 900L * 1024 * 1024,
+                totalRamBytes = 8L * 1024 * 1024 * 1024,
+            ).failureKind(),
+        )
+        assertEquals(
+            SaveFailureKind.IO,
+            SaveErrorInfo(ok = false, stage = "commit_failed").failureKind(),
+        )
+        assertEquals(
+            SaveFailureKind.UNKNOWN,
+            SaveErrorInfo(ok = false, stage = "not_yet_classified").failureKind(),
+        )
+    }
+
+    @Test
+    fun `成功记录不落盘且诊断输出带原因分类`() {
+        SaveFailureRecorder.recordFailure(null, SaveErrorInfo(ok = true, stage = "none"))
+        assertTrue(SaveFailureRecorder.getAllFailures().isEmpty())
+
+        SaveFailureRecorder.recordFailure(
+            null,
+            SaveErrorInfo(ok = false, stage = "write_entry", errno = SaveErrorInfo.ERRNO_ENOSPC, timestamp = 1L),
+        )
+        val report = SaveFailureRecorder.formatForDiagnostics()
+        assertTrue(report.contains("stage=write_entry, errno=28, reason=DISK_FULL"))
+    }
 }

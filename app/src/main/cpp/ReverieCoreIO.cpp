@@ -813,6 +813,7 @@ public:
         if (m_writerThread.joinable()) {
             m_writerThread.join();
         }
+        drainInFlightTasks();
     }
 
     void startWriter() {
@@ -872,26 +873,46 @@ public:
             m_inFlight.fetch_add(1, std::memory_order_relaxed);
         }
 
-        m_pool->start([this, entry, job = std::move(job)]() mutable {
-            if (!m_abort.load(std::memory_order_acquire)) {
-                qint64 cNs = 0, dNs = 0;
-                if (job.produce) {
-                    entry->data = job.produce(m_quality, &cNs, &dNs);
-                } else if (!job.img.isNull()) {
-                    QElapsedTimer t;
-                    t.start();
-                    entry->data = encodePngBytes(job.img, m_quality);
-                    dNs = t.nsecsElapsed();
+        // 任务一旦 start 就一定要跑完并递减计数；drain 靠它判断 this 还能不能被析构。
+        // 先加计数再 start：即使写盘线程恰好在两步之间 abort，任务也会被执行（开头读 abort 后空转）。
+        m_liveTasks.fetch_add(1, std::memory_order_release);
+        try {
+            m_pool->start([this, entry, job = std::move(job)]() mutable {
+                if (!m_abort.load(std::memory_order_acquire)) {
+                    qint64 cNs = 0, dNs = 0;
+                    if (job.produce) {
+                        entry->data = job.produce(m_quality, &cNs, &dNs);
+                    } else if (!job.img.isNull()) {
+                        QElapsedTimer t;
+                        t.start();
+                        entry->data = encodePngBytes(job.img, m_quality);
+                        dNs = t.nsecsElapsed();
+                    }
+                    entry->convertNs = cNs;
+                    entry->deflateNs = dNs;
                 }
-                entry->convertNs = cNs;
-                entry->deflateNs = dNs;
-            }
-            entry->ready.store(true, std::memory_order_release);
+                entry->ready.store(true, std::memory_order_release);
 
-            m_inFlight.fetch_sub(1, std::memory_order_relaxed);
-            m_cvProducer.notify_one();
-            m_cvWriter.notify_one();
-        });
+                m_inFlight.fetch_sub(1, std::memory_order_relaxed);
+                m_cvProducer.notify_one();
+                m_cvWriter.notify_one();
+
+                // 任务内最后一次触碰 pipeline 成员：计数器递减必须排在上面所有访问之后，
+                // notify 放在锁内 —— drain 观察到 0 时，任务已经不会再访问 this。
+                std::lock_guard<std::mutex> drainLock(m_drainMutex);
+                m_liveTasks.fetch_sub(1, std::memory_order_release);
+                m_drainCv.notify_all();
+            });
+        } catch (...) {
+            // 投递失败（分配 OOM 等）：回滚计数并中止整次保存，避免 waitDone 永久等待一个不会执行的任务
+            qWarning() << "RevpSavePipeline: failed to enqueue encode task, aborting save";
+            m_abort.store(true, std::memory_order_release);
+            m_cvProducer.notify_all();
+            m_cvWriter.notify_all();
+            std::lock_guard<std::mutex> drainLock(m_drainMutex);
+            m_liveTasks.fetch_sub(1, std::memory_order_release);
+            m_drainCv.notify_all();
+        }
     }
 
     void finishProduction() {
@@ -906,6 +927,9 @@ public:
         if (m_writerThread.joinable()) {
             m_writerThread.join();
         }
+        // 写盘线程可能先于在飞编码任务退出（写盘失败 abort / ready 已置但任务还差最后几条指令），
+        // 不 drain 就返回会让调用方随即析构对象，任务再摸 this 就是 use-after-free。
+        drainInFlightTasks();
         if (m_externalStats) {
             *m_externalStats = m_stats;
         }
@@ -916,6 +940,15 @@ public:
     const SaveError &error() const { return m_error; }
 
 private:
+    // 等所有已 start 的编码任务真正结束。任务由进程级、永不析构的线程池执行，
+    // 且 enqueueJob 在投递失败时会回滚计数，所以这里可以无超时等待；超时后放行反而会留下 UAF。
+    void drainInFlightTasks() {
+        std::unique_lock<std::mutex> lock(m_drainMutex);
+        m_drainCv.wait(lock, [this]() {
+            return m_liveTasks.load(std::memory_order_acquire) == 0;
+        });
+    }
+
     void runWriter() {
         QScopedPointer<KoStore> store(KoStore::createStore(m_tmpPath, KoStore::Write, "application/x-reveriepaint", KoStore::Zip));
         if (!store || store->bad()) {
@@ -1004,7 +1037,12 @@ private:
             entry->data.clear();
         }
 
-        if (m_abort.load(std::memory_order_acquire) && !m_error.stage.isEmpty()) {
+        if (m_abort.load(std::memory_order_acquire)) {
+            // abort 可能来自写盘错误，也可能来自后续新增的取消来源（如任务投递失败）:
+            // 只要 abort 就不能继续 commit 半截 zip，没有 stage 时补一个默认原因。
+            if (m_error.stage.isEmpty()) {
+                m_error = {"aborted", 0, QStringLiteral("Save pipeline aborted before commit")};
+            }
             store.reset();
             QFile::remove(m_tmpPath);
             m_success = false;
@@ -1032,6 +1070,10 @@ private:
     int m_maxInFlight = 8;
     std::atomic<int> m_inFlight{0};
     std::atomic<bool> m_abort{false};
+    // 已投递到线程池、尚未结束的编码任务数（含排队中）；析构前必须归零
+    std::atomic<int> m_liveTasks{0};
+    std::mutex m_drainMutex;
+    std::condition_variable m_drainCv;
     bool m_productionFinished = false;
     bool m_success = false;
 

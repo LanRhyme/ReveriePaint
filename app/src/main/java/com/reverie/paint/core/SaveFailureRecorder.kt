@@ -15,6 +15,21 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 
+/**
+ * 保存失败的可行动原因。
+ *
+ * 只用于给用户选一条最可能有效的提示文案 + 给诊断报告分类，不参与保存逻辑本身；
+ * 判据都来自保存失败那一刻的快照（errno / 剩余空间 / native 堆），因此对本进程内
+ * 一次保存失败是稳定的，也不会把上一次失败的原因串到这一次（旧实现从磁盘读最近记录，
+ * 会出现"保存失败但提示磁盘满"的误报）。
+ */
+enum class SaveFailureKind {
+    DISK_FULL,
+    OUT_OF_MEMORY,
+    IO,
+    UNKNOWN,
+}
+
 data class SaveErrorInfo(
     val ok: Boolean,
     val stage: String = "",
@@ -56,7 +71,54 @@ data class SaveErrorInfo(
         return obj.toString()
     }
 
+    /**
+     * 归类失败原因。优先级：磁盘满 -> 内存不足 -> IO -> 未知。
+     *
+     * - `availableDiskBytes == 0` 表示取不到 StatFs（未知），此时不能当成磁盘满；
+     * - 内存判据要求 native 堆绝对值够大或占总内存比例够高，避免把普通 IO 失败误判成 OOM；
+     * - [failureKind] 只依赖本对象字段，便于单测覆盖，不在 UI 线程做任何 IO/系统查询。
+     */
+    fun failureKind(): SaveFailureKind {
+        if (errno == ERRNO_ENOSPC) return SaveFailureKind.DISK_FULL
+        if (availableDiskBytes in 1L until LOW_DISK_BYTES) return SaveFailureKind.DISK_FULL
+        if (stage == STAGE_DISK_PRECHECK) return SaveFailureKind.DISK_FULL
+        val heapPressure = nativeHeapAllocatedBytes >= LARGE_NATIVE_HEAP_BYTES ||
+            (totalRamBytes > 0 && nativeHeapAllocatedBytes * 100 >= totalRamBytes * NATIVE_HEAP_PRESSURE_PERCENT)
+        if (stage == STAGE_OOM || heapPressure) return SaveFailureKind.OUT_OF_MEMORY
+        if (stage in IO_STAGES) return SaveFailureKind.IO
+        return SaveFailureKind.UNKNOWN
+    }
+
     companion object {
+        /** Linux ENOSPC：写盘途中空间耗尽，C++ 侧 write_entry 失败时 errno 即此值 */
+        const val ERRNO_ENOSPC = 28
+        /** 低于该剩余空间时，即使 errno 没带出来也按磁盘满引导用户 */
+        const val LOW_DISK_BYTES = 50L * 1024 * 1024
+        /** native 堆超过该绝对值视为内存压力（接近 32 位地址空间上限 / 大画布峰值） */
+        const val LARGE_NATIVE_HEAP_BYTES = 2L * 1024 * 1024 * 1024
+        const val NATIVE_HEAP_PRESSURE_PERCENT = 60
+        const val STAGE_DISK_PRECHECK = "disk_precheck"
+        const val STAGE_OOM = "oom"
+        const val STAGE_VERIFY_FAILED = "verify_failed"
+        const val STAGE_OP_FAILED = "op_failed"
+        const val STAGE_AUTOSAVE_TIMEOUT = "autosave_timeout"
+        const val STAGE_ASYNC_REJECTED = "async_rejected"
+
+        private val IO_STAGES = setOf(
+            "create_store",
+            "open_entry",
+            "write_entry",
+            "close_entry",
+            "commit_failed",
+            "commit_verify",
+            "verify_failed",
+            "tmp_missing",
+            "tmp_truncated",
+            "tmp_open_read",
+            "seek_failed",
+            "eocd_corrupt",
+        )
+
         fun fromJson(jsonStr: String): SaveErrorInfo? = runCatching {
             val obj = JSONObject(jsonStr)
             SaveErrorInfo(
@@ -172,7 +234,15 @@ object SaveFailureRecorder {
             try {
                 val dir = getDir(context)
                 val file = File(dir, "failure_${info.timestamp}.json")
-                file.writeText(info.toJson())
+                val json = info.toJson()
+                // 先写 .tmp 再 rename：避免进程在写 JSON 途中被杀留下半截文件，
+                // 半截文件虽然解析会被跳过，但会占着 MAX_RECORDS 名额挤掉真正的失败记录
+                val tmp = File(dir, "${file.name}.tmp")
+                tmp.writeText(json)
+                if (!tmp.renameTo(file)) {
+                    file.writeText(json)
+                    tmp.delete()
+                }
                 val files = dir.listFiles { f -> f.isFile && f.name.startsWith("failure_") && f.name.endsWith(".json") }
                 if (files != null && files.size > MAX_RECORDS) {
                     files.sortedBy { it.name }
@@ -212,7 +282,7 @@ object SaveFailureRecorder {
         failures.forEachIndexed { idx, f ->
             val dateStr = sdf.format(Date(f.timestamp))
             val modeStr = if (f.isAutoSave) "AutoSave" else "Manual Save"
-            sb.append("[$dateStr] #$idx $modeStr: stage=${f.stage}, errno=${f.errno}\n")
+            sb.append("[$dateStr] #$idx $modeStr: stage=${f.stage}, errno=${f.errno}, reason=${f.failureKind().name}\n")
             if (f.detail.isNotBlank()) {
                 sb.append("  Detail: ${f.detail}\n")
             }
