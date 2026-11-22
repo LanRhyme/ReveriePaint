@@ -98,7 +98,7 @@ const val FISHEYE_SNAP_CENTER_RAY = 3
  */
 data class DrawingGuideConfig(
     val mode: GuideMode = GuideMode.OFF,
-    val assistedDrawing: Boolean = true,
+    val assistedDrawing: Boolean = false,
     val gridSize: Float = 48f,
     val opacity: Float = 0.5f,
     val colorHex: String = "#88A0B0",

@@ -23,6 +23,7 @@ internal fun PaintViewModel.refreshCanvasEditCapabilities() {
 internal fun PaintViewModel.editCanvasClipboard(cut: Boolean = false, paste: Boolean = false) {
     if (canvasEditBusy || renderHandler == null) return
     val required = if (paste) 4 else if (cut) 2 else 1
+    if (canvasEditCapabilities and required == 0) return
     canvasEditBusy = true
     var success = false
     val pastedName = appContext.getString(R.string.canvas_edit_pasted_layer)
@@ -46,7 +47,6 @@ internal fun PaintViewModel.editCanvasClipboard(cut: Boolean = false, paste: Boo
         }
         refreshCanvasEditCapabilities()
     }) {
-        if (ReverieCoreBridge.canvasClipboardCapabilities() and required == 0) return@runCore
         if (paste) {
             val index = ReverieCoreBridge.pasteCanvasClipboard()
             success = index >= 0

@@ -150,10 +150,9 @@ fun DrawingGuidePanel(
                             val pts = if (guide.perspectiveVanishingPoints.isEmpty()) {
                                 listOf(Point2D(vm.docWidth * 0.5f, vm.docHeight * 0.35f))
                             } else guide.perspectiveVanishingPoints
-                            val enableAssist = !(targetMode == GuideMode.PERSPECTIVE && guide.perspective3d)
                             vm.drawingGuide = guide.copy(
                                 mode = targetMode,
-                                assistedDrawing = enableAssist,
+                                assistedDrawing = false,
                                 perspectiveVanishingPoints = pts,
                             )
                         }
@@ -174,7 +173,7 @@ fun DrawingGuidePanel(
                             modifier = Modifier.weight(1f),
                         )
 
-                        val canAssist = (guide.mode != GuideMode.PERSPECTIVE || !guide.perspective3d) || guide.perspectiveFisheye
+                        val canAssist = guide.mode != GuideMode.PERSPECTIVE || !guide.perspective3d
                         if (canAssist) {
                             GuideQuickPill(
                                 iconRes = R.drawable.ic_check,
@@ -188,245 +187,258 @@ fun DrawingGuidePanel(
 
                     // 1. PERSPECTIVE 模式
                     if (guide.mode == GuideMode.PERSPECTIVE) {
-                        // 鱼眼透视开关: 球心 + 半径, 直接拖动画面上的两个手柄
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        ) {
-                            CompactToggleChip(
-                                label = stringResource(R.string.guide_perspective_fisheye),
-                                selected = guide.perspectiveFisheye,
-                                onClick = {
-                                    val on = !guide.perspectiveFisheye
-                                    vm.drawingGuide = guide.copy(
-                                        perspectiveFisheye = on,
-                                        assistedDrawing = if (on) true else guide.assistedDrawing,
-                                        perspective3d = if (on) false else guide.perspective3d,
-                                    )
-                                },
-                                modifier = Modifier.weight(1f),
-                            )
+                        val currentSubMode = when {
+                            guide.perspectiveFisheye -> PerspectiveSubMode.FISHEYE
+                            guide.perspective3d -> PerspectiveSubMode.SPACE_3D
+                            else -> PerspectiveSubMode.VANISHING
                         }
 
-                        if (guide.perspectiveFisheye) {
-                            Text(
-                                stringResource(R.string.guide_fisheye_hint),
-                                color = Morandi.subText,
-                                fontSize = 11.sp,
-                            )
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                CompactSliderItem(
-                                    label = stringResource(R.string.guide_fisheye_horizontal_count),
-                                    valueText = "${guide.fisheyeHorizontalCount.coerceIn(5, 25) or 1}",
-                                    range = 5f..25f,
-                                    value = guide.fisheyeHorizontalCount.toFloat(),
-                                    onValue = {
-                                        vm.drawingGuide = guide.copy(
-                                            fisheyeHorizontalCount = FisheyeGuideGeometry.normalizeCurveCount(it.roundToInt()),
-                                        )
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                )
-                                CompactSliderItem(
-                                    label = stringResource(R.string.guide_fisheye_vertical_count),
-                                    valueText = "${guide.fisheyeVerticalCount.coerceIn(5, 25) or 1}",
-                                    range = 5f..25f,
-                                    value = guide.fisheyeVerticalCount.toFloat(),
-                                    onValue = {
-                                        vm.drawingGuide = guide.copy(
-                                            fisheyeVerticalCount = FisheyeGuideGeometry.normalizeCurveCount(it.roundToInt()),
-                                        )
-                                    },
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                            Text(
-                                stringResource(R.string.guide_fisheye_snap_target),
-                                color = Morandi.subText,
-                                fontSize = 11.sp,
-                            )
-                            SegmentedOptionSelector(
-                                options = listOf(
-                                    com.reverie.paint.model.FISHEYE_SNAP_CURVES to
-                                        stringResource(R.string.guide_fisheye_snap_curves),
-                                    com.reverie.paint.model.FISHEYE_SNAP_CENTER_RAY to
-                                        stringResource(R.string.guide_fisheye_snap_ray),
-                                ),
-                                selectedKey = guide.fisheyeSnapTarget.takeIf {
-                                    it == com.reverie.paint.model.FISHEYE_SNAP_CENTER_RAY
-                                } ?: com.reverie.paint.model.FISHEYE_SNAP_CURVES,
-                                onSelect = { vm.drawingGuide = guide.copy(fisheyeSnapTarget = it) },
-                            )
-                            CompactSliderItem(
-                                label = stringResource(R.string.guide_fisheye_ray_count),
-                                valueText = "${guide.fisheyeRayCount.coerceIn(4, 48)}",
-                                range = 4f..48f,
-                                value = guide.fisheyeRayCount.toFloat(),
-                                onValue = {
-                                    vm.drawingGuide = guide.copy(fisheyeRayCount = it.roundToInt().coerceIn(4, 48))
-                                },
-                                modifier = Modifier.fillMaxWidth(),
-                            )
-                            Text(
-                                text = stringResource(R.string.guide_fisheye_reset),
-                                color = Morandi.accent,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
-                                modifier = Modifier
-                                    .clip(RoundedCornerShape(4.dp))
-                                    .clickable {
-                                        vm.drawingGuide = guide.copy(
-                                            fisheyeCenterX = 0.5f,
-                                            fisheyeCenterY = 0.5f,
-                                            fisheyeRadius = 0.42f,
-                                        )
-                                    }
-                                    .padding(horizontal = 6.dp, vertical = 2.dp),
-                            )
-                        } else {
-                        // 3D 空间网格 vs 传统灭点射线 子分段器
+                        // 3D 空间网格 vs 传统灭点射线 vs 鱼眼透视 子分段器
                         PerspectiveSubModeSelector(
-                            is3d = guide.perspective3d,
-                            onToggle = { is3d ->
-                                if (is3d == guide.perspective3d) return@PerspectiveSubModeSelector
-                                vm.drawingGuide = guide.copy(perspective3d = is3d, assistedDrawing = !is3d)
+                            currentMode = currentSubMode,
+                            onSelect = { selected ->
+                                when (selected) {
+                                    PerspectiveSubMode.SPACE_3D -> vm.drawingGuide = guide.copy(
+                                        perspective3d = true,
+                                        perspectiveFisheye = false,
+                                    )
+                                    PerspectiveSubMode.VANISHING -> vm.drawingGuide = guide.copy(
+                                        perspective3d = false,
+                                        perspectiveFisheye = false,
+                                    )
+                                    PerspectiveSubMode.FISHEYE -> vm.drawingGuide = guide.copy(
+                                        perspective3d = false,
+                                        perspectiveFisheye = true,
+                                    )
+                                }
                             }
                         )
 
-                        if (guide.perspective3d) {
-                            // 地面网格 / 立体立方体 开关
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                CompactToggleChip(
-                                    label = stringResource(R.string.guide_perspective_ground),
-                                    selected = guide.perspectiveShowGround,
-                                    onClick = { vm.drawingGuide = guide.copy(perspectiveShowGround = !guide.perspectiveShowGround) },
-                                    modifier = Modifier.weight(1f),
-                                )
-                                CompactToggleChip(
-                                    label = stringResource(R.string.guide_perspective_cube),
-                                    selected = guide.perspectiveShowCube,
-                                    onClick = { vm.drawingGuide = guide.copy(perspectiveShowCube = !guide.perspectiveShowCube) },
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-
-                            // 3D 参数卡片: 双列紧凑网格
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                CompactSliderItem(
-                                    label = stringResource(R.string.guide_perspective_pitch),
-                                    valueText = "${guide.perspectivePitchDeg.roundToInt()}°",
-                                    range = -85f..85f,
-                                    value = guide.perspectivePitchDeg,
-                                    onValue = { vm.drawingGuide = guide.copy(perspectivePitchDeg = it) },
-                                    modifier = Modifier.weight(1f),
-                                )
-                                CompactSliderItem(
-                                    label = stringResource(R.string.guide_perspective_yaw),
-                                    valueText = "${guide.perspectiveYawDeg.roundToInt()}°",
-                                    range = -180f..180f,
-                                    value = guide.perspectiveYawDeg,
-                                    onValue = { vm.drawingGuide = guide.copy(perspectiveYawDeg = it) },
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                CompactSliderItem(
-                                    label = stringResource(R.string.guide_perspective_roll),
-                                    valueText = "${guide.perspectiveRollDeg.roundToInt()}°",
-                                    range = -90f..90f,
-                                    value = guide.perspectiveRollDeg,
-                                    onValue = { vm.drawingGuide = guide.copy(perspectiveRollDeg = it) },
-                                    modifier = Modifier.weight(1f),
-                                )
-                                CompactSliderItem(
-                                    label = stringResource(R.string.guide_perspective_fov),
-                                    valueText = "${guide.perspectiveFovDeg.roundToInt()}°",
-                                    range = 20f..110f,
-                                    value = guide.perspectiveFovDeg,
-                                    onValue = { vm.drawingGuide = guide.copy(perspectiveFovDeg = it) },
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                CompactSliderItem(
-                                    label = stringResource(R.string.guide_perspective_grid_div),
-                                    valueText = "${guide.perspectiveGridDensity}",
-                                    range = 4f..24f,
-                                    value = guide.perspectiveGridDensity.toFloat(),
-                                    onValue = { vm.drawingGuide = guide.copy(perspectiveGridDensity = it.roundToInt()) },
-                                    modifier = Modifier.weight(1f),
-                                )
-                                CompactSliderItem(
-                                    label = stringResource(R.string.guide_line_opacity),
-                                    valueText = "${(guide.opacity * 100f).roundToInt()}%",
-                                    range = 0.1f..1f,
-                                    value = guide.opacity,
-                                    onValue = { vm.drawingGuide = guide.copy(opacity = it) },
-                                    modifier = Modifier.weight(1f),
-                                )
-                            }
-                        } else {
-                            // 传统 1~3 点灭点预设分段器
-                            SegmentedOptionSelector(
-                                options = listOf(
-                                    1 to stringResource(R.string.guide_perspective_1pt),
-                                    2 to stringResource(R.string.guide_perspective_2pt),
-                                    3 to stringResource(R.string.guide_perspective_3pt),
-                                ),
-                                selectedKey = guide.perspectiveVanishingPoints.size.coerceIn(1, 3),
-                                onSelect = { cnt ->
-                                    val pts = when (cnt) {
-                                        1 -> listOf(Point2D(vm.docWidth * 0.5f, vm.docHeight * 0.35f))
-                                        2 -> listOf(Point2D(vm.docWidth * 0.1f, vm.docHeight * 0.38f), Point2D(vm.docWidth * 0.9f, vm.docHeight * 0.38f))
-                                        else -> listOf(
-                                            Point2D(vm.docWidth * 0.15f, vm.docHeight * 0.35f),
-                                            Point2D(vm.docWidth * 0.85f, vm.docHeight * 0.35f),
-                                            Point2D(vm.docWidth * 0.5f, vm.docHeight * 0.95f),
-                                        )
-                                    }
-                                    vm.drawingGuide = guide.copy(perspectiveVanishingPoints = pts)
+                        when (currentSubMode) {
+                            PerspectiveSubMode.SPACE_3D -> {
+                                // 地面网格 / 立体立方体 开关
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    CompactToggleChip(
+                                        label = stringResource(R.string.guide_perspective_ground),
+                                        selected = guide.perspectiveShowGround,
+                                        onClick = { vm.drawingGuide = guide.copy(perspectiveShowGround = !guide.perspectiveShowGround) },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    CompactToggleChip(
+                                        label = stringResource(R.string.guide_perspective_cube),
+                                        selected = guide.perspectiveShowCube,
+                                        onClick = { vm.drawingGuide = guide.copy(perspectiveShowCube = !guide.perspectiveShowCube) },
+                                        modifier = Modifier.weight(1f),
+                                    )
                                 }
-                            )
 
-                            Row(
-                                modifier = Modifier.fillMaxWidth(),
-                                horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                CompactSliderItem(
-                                    label = stringResource(R.string.guide_perspective_ray_density),
-                                    valueText = "${guide.perspectiveRayCount}",
-                                    range = 2f..96f,
-                                    value = guide.perspectiveRayCount.toFloat(),
-                                    onValue = { vm.drawingGuide = guide.copy(perspectiveRayCount = it.roundToInt()) },
-                                    modifier = Modifier.weight(1f),
+                                // 3D 参数卡片: 双列紧凑网格
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    CompactSliderItem(
+                                        label = stringResource(R.string.guide_perspective_pitch),
+                                        valueText = "${guide.perspectivePitchDeg.roundToInt()}°",
+                                        range = -85f..85f,
+                                        value = guide.perspectivePitchDeg,
+                                        onValue = { vm.drawingGuide = guide.copy(perspectivePitchDeg = it) },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    CompactSliderItem(
+                                        label = stringResource(R.string.guide_perspective_yaw),
+                                        valueText = "${guide.perspectiveYawDeg.roundToInt()}°",
+                                        range = -180f..180f,
+                                        value = guide.perspectiveYawDeg,
+                                        onValue = { vm.drawingGuide = guide.copy(perspectiveYawDeg = it) },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    CompactSliderItem(
+                                        label = stringResource(R.string.guide_perspective_roll),
+                                        valueText = "${guide.perspectiveRollDeg.roundToInt()}°",
+                                        range = -90f..90f,
+                                        value = guide.perspectiveRollDeg,
+                                        onValue = { vm.drawingGuide = guide.copy(perspectiveRollDeg = it) },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    CompactSliderItem(
+                                        label = stringResource(R.string.guide_perspective_fov),
+                                        valueText = "${guide.perspectiveFovDeg.roundToInt()}°",
+                                        range = 20f..110f,
+                                        value = guide.perspectiveFovDeg,
+                                        onValue = { vm.drawingGuide = guide.copy(perspectiveFovDeg = it) },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    CompactSliderItem(
+                                        label = stringResource(R.string.guide_perspective_grid_div),
+                                        valueText = "${guide.perspectiveGridDensity}",
+                                        range = 4f..24f,
+                                        value = guide.perspectiveGridDensity.toFloat(),
+                                        onValue = { vm.drawingGuide = guide.copy(perspectiveGridDensity = it.roundToInt()) },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    CompactSliderItem(
+                                        label = stringResource(R.string.guide_line_opacity),
+                                        valueText = "${(guide.opacity * 100f).roundToInt()}%",
+                                        range = 0.1f..1f,
+                                        value = guide.opacity,
+                                        onValue = { vm.drawingGuide = guide.copy(opacity = it) },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
+                            PerspectiveSubMode.VANISHING -> {
+                                // 传统 1~3 点灭点预设分段器
+                                SegmentedOptionSelector(
+                                    options = listOf(
+                                        1 to stringResource(R.string.guide_perspective_1pt),
+                                        2 to stringResource(R.string.guide_perspective_2pt),
+                                        3 to stringResource(R.string.guide_perspective_3pt),
+                                    ),
+                                    selectedKey = guide.perspectiveVanishingPoints.size.coerceIn(1, 3),
+                                    onSelect = { cnt ->
+                                        val pts = when (cnt) {
+                                            1 -> listOf(Point2D(vm.docWidth * 0.5f, vm.docHeight * 0.35f))
+                                            2 -> listOf(Point2D(vm.docWidth * 0.1f, vm.docHeight * 0.38f), Point2D(vm.docWidth * 0.9f, vm.docHeight * 0.38f))
+                                            else -> listOf(
+                                                Point2D(vm.docWidth * 0.15f, vm.docHeight * 0.35f),
+                                                Point2D(vm.docWidth * 0.85f, vm.docHeight * 0.35f),
+                                                Point2D(vm.docWidth * 0.5f, vm.docHeight * 0.95f),
+                                            )
+                                        }
+                                        vm.drawingGuide = guide.copy(perspectiveVanishingPoints = pts)
+                                    }
                                 )
-                                CompactSliderItem(
-                                    label = stringResource(R.string.guide_line_opacity),
-                                    valueText = "${(guide.opacity * 100f).roundToInt()}%",
-                                    range = 0.1f..1f,
-                                    value = guide.opacity,
-                                    onValue = { vm.drawingGuide = guide.copy(opacity = it) },
-                                    modifier = Modifier.weight(1f),
+
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    CompactSliderItem(
+                                        label = stringResource(R.string.guide_perspective_ray_density),
+                                        valueText = "${guide.perspectiveRayCount}",
+                                        range = 2f..96f,
+                                        value = guide.perspectiveRayCount.toFloat(),
+                                        onValue = { vm.drawingGuide = guide.copy(perspectiveRayCount = it.roundToInt()) },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    CompactSliderItem(
+                                        label = stringResource(R.string.guide_line_opacity),
+                                        valueText = "${(guide.opacity * 100f).roundToInt()}%",
+                                        range = 0.1f..1f,
+                                        value = guide.opacity,
+                                        onValue = { vm.drawingGuide = guide.copy(opacity = it) },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                            }
+                            PerspectiveSubMode.FISHEYE -> {
+                                Text(
+                                    stringResource(R.string.guide_fisheye_hint),
+                                    color = Morandi.subText,
+                                    fontSize = 11.sp,
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    CompactSliderItem(
+                                        label = stringResource(R.string.guide_fisheye_horizontal_count),
+                                        valueText = "${guide.fisheyeHorizontalCount.coerceIn(5, 25) or 1}",
+                                        range = 5f..25f,
+                                        value = guide.fisheyeHorizontalCount.toFloat(),
+                                        onValue = {
+                                            vm.drawingGuide = guide.copy(
+                                                fisheyeHorizontalCount = FisheyeGuideGeometry.normalizeCurveCount(it.roundToInt()),
+                                            )
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    CompactSliderItem(
+                                        label = stringResource(R.string.guide_fisheye_vertical_count),
+                                        valueText = "${guide.fisheyeVerticalCount.coerceIn(5, 25) or 1}",
+                                        range = 5f..25f,
+                                        value = guide.fisheyeVerticalCount.toFloat(),
+                                        onValue = {
+                                            vm.drawingGuide = guide.copy(
+                                                fisheyeVerticalCount = FisheyeGuideGeometry.normalizeCurveCount(it.roundToInt()),
+                                            )
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                                Text(
+                                    stringResource(R.string.guide_fisheye_snap_target),
+                                    color = Morandi.subText,
+                                    fontSize = 11.sp,
+                                )
+                                SegmentedOptionSelector(
+                                    options = listOf(
+                                        com.reverie.paint.model.FISHEYE_SNAP_CURVES to
+                                            stringResource(R.string.guide_fisheye_snap_curves),
+                                        com.reverie.paint.model.FISHEYE_SNAP_CENTER_RAY to
+                                            stringResource(R.string.guide_fisheye_snap_ray),
+                                    ),
+                                    selectedKey = guide.fisheyeSnapTarget.takeIf {
+                                        it == com.reverie.paint.model.FISHEYE_SNAP_CENTER_RAY
+                                    } ?: com.reverie.paint.model.FISHEYE_SNAP_CURVES,
+                                    onSelect = { vm.drawingGuide = guide.copy(fisheyeSnapTarget = it) },
+                                )
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                ) {
+                                    CompactSliderItem(
+                                        label = stringResource(R.string.guide_fisheye_ray_count),
+                                        valueText = "${guide.fisheyeRayCount.coerceIn(4, 48)}",
+                                        range = 4f..48f,
+                                        value = guide.fisheyeRayCount.toFloat(),
+                                        onValue = {
+                                            vm.drawingGuide = guide.copy(fisheyeRayCount = it.roundToInt().coerceIn(4, 48))
+                                        },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                    CompactSliderItem(
+                                        label = stringResource(R.string.guide_line_opacity),
+                                        valueText = "${(guide.opacity * 100f).roundToInt()}%",
+                                        range = 0.1f..1f,
+                                        value = guide.opacity,
+                                        onValue = { vm.drawingGuide = guide.copy(opacity = it) },
+                                        modifier = Modifier.weight(1f),
+                                    )
+                                }
+                                Text(
+                                    text = stringResource(R.string.guide_fisheye_reset),
+                                    color = Morandi.accent,
+                                    fontSize = 11.sp,
+                                    fontWeight = FontWeight.Medium,
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(4.dp))
+                                        .clickable {
+                                            vm.drawingGuide = guide.copy(
+                                                fisheyeCenterX = 0.5f,
+                                                fisheyeCenterY = 0.5f,
+                                                fisheyeRadius = 0.42f,
+                                            )
+                                        }
+                                        .padding(horizontal = 6.dp, vertical = 2.dp),
                                 )
                             }
-                        }
                         }
                     }
 
@@ -826,13 +838,19 @@ private fun SegmentedModeSelector(
     }
 }
 
+private enum class PerspectiveSubMode {
+    SPACE_3D,
+    VANISHING,
+    FISHEYE,
+}
+
 /**
- * 透视子模式胶囊分段器 (3D 空间网格 / 传统灭点射线)
+ * 透视子模式胶囊分段器 (3D 空间网格 / 传统灭点射线 / 鱼眼透视)
  */
 @Composable
 private fun PerspectiveSubModeSelector(
-    is3d: Boolean,
-    onToggle: (Boolean) -> Unit,
+    currentMode: PerspectiveSubMode,
+    onSelect: (PerspectiveSubMode) -> Unit,
     modifier: Modifier = Modifier,
 ) {
     Row(
@@ -844,24 +862,25 @@ private fun PerspectiveSubModeSelector(
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         val options = listOf(
-            true to stringResource(R.string.guide_perspective_mode_3d),
-            false to stringResource(R.string.guide_perspective_mode_vanish),
+            PerspectiveSubMode.SPACE_3D to stringResource(R.string.guide_perspective_mode_3d),
+            PerspectiveSubMode.VANISHING to stringResource(R.string.guide_perspective_mode_vanish),
+            PerspectiveSubMode.FISHEYE to stringResource(R.string.guide_perspective_fisheye),
         )
-        for ((flag, label) in options) {
-            val isSelected = is3d == flag
+        for ((subMode, label) in options) {
+            val isSelected = currentMode == subMode
             Box(
                 modifier = Modifier
                     .weight(1f)
                     .clip(RoundedCornerShape(8.dp))
                     .background(if (isSelected) Morandi.accent.copy(alpha = 0.9f) else Color.Transparent)
-                    .clickable { onToggle(flag) }
+                    .clickable { onSelect(subMode) }
                     .padding(vertical = 5.dp),
                 contentAlignment = Alignment.Center,
             ) {
                 Text(
                     text = label,
                     color = if (isSelected) Morandi.onAccent else Morandi.text,
-                    fontSize = 11.5.sp,
+                    fontSize = 11.sp,
                     fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
                     maxLines = 1,
                 )
