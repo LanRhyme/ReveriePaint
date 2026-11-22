@@ -1050,6 +1050,12 @@ class PaintViewModel : ViewModel() {
     var referencePanX by mutableFloatStateOf(0f)
     var referencePanY by mutableFloatStateOf(0f)
 
+    // 画布预览页 (tab 1) 使用独立的视图变换, 与参考图片页互不影响 (issue #208)
+    var referenceCanvasZoom by mutableFloatStateOf(1f)
+    var referenceCanvasRotation by mutableFloatStateOf(0f)
+    var referenceCanvasPanX by mutableFloatStateOf(0f)
+    var referenceCanvasPanY by mutableFloatStateOf(0f)
+
     // Reference Window Position & Size (pixels/dp)
     var referenceWindowX by mutableFloatStateOf(80f)
     var referenceWindowY by mutableFloatStateOf(140f)
@@ -2205,6 +2211,7 @@ class PaintViewModel : ViewModel() {
         referenceAllowRotation = allow
         if (!allow) {
             referenceRotation = 0f
+            referenceCanvasRotation = 0f
         }
         persistReferenceState()
     }
@@ -2254,10 +2261,17 @@ class PaintViewModel : ViewModel() {
     fun clearReferenceImage() = clearProjectReferences()
 
     fun resetReferenceTransform() {
-        referenceZoom = 1f
-        referenceRotation = 0f
-        referencePanX = 0f
-        referencePanY = 0f
+        if (referenceActiveTab == 1) {
+            referenceCanvasZoom = 1f
+            referenceCanvasRotation = 0f
+            referenceCanvasPanX = 0f
+            referenceCanvasPanY = 0f
+        } else {
+            referenceZoom = 1f
+            referenceRotation = 0f
+            referencePanX = 0f
+            referencePanY = 0f
+        }
         persistReferenceState()
     }
 

@@ -19,9 +19,21 @@ import kotlinx.coroutines.withContext
 import java.io.File
 import java.util.UUID
 
-private fun PaintViewModel.referenceState() = ReferenceViewState(referenceWindowOpen, referenceIsGrayscale,
-    referenceIsFlipped, referenceActiveTab, referenceBarsCollapsed, referenceZoom, referenceRotation,
-    referencePanX, referencePanY)
+private fun PaintViewModel.referenceState() = ReferenceViewState(
+    open = referenceWindowOpen,
+    grayscale = referenceIsGrayscale,
+    flipped = referenceIsFlipped,
+    tab = referenceActiveTab,
+    collapsed = referenceBarsCollapsed,
+    zoom = referenceZoom,
+    rotation = referenceRotation,
+    panX = referencePanX,
+    panY = referencePanY,
+    canvasZoom = referenceCanvasZoom,
+    canvasRotation = referenceCanvasRotation,
+    canvasPanX = referenceCanvasPanX,
+    canvasPanY = referenceCanvasPanY,
+)
 
 internal fun PaintViewModel.projectReferenceBitmap(uri: Uri): Bitmap? =
     referenceImages.getOrNull(referenceAlbumSelectedUris.indexOf(uri))
@@ -46,6 +58,10 @@ private fun PaintViewModel.applyReferenceState(state: ReferenceViewState) {
     referenceRotation = if (referenceAllowRotation) state.rotation else 0f
     referencePanX = state.panX
     referencePanY = state.panY
+    referenceCanvasZoom = state.canvasZoom
+    referenceCanvasRotation = if (referenceAllowRotation) state.canvasRotation else 0f
+    referenceCanvasPanX = state.canvasPanX
+    referenceCanvasPanY = state.canvasPanY
     referenceSavedState = referenceState()
 }
 

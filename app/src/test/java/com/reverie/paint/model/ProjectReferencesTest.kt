@@ -36,4 +36,33 @@ class ProjectReferencesTest {
         assertNull(ProjectReferences.movedPath(path("projects-backup", "a.revp"), "projects", "other"))
         assertNull(ProjectReferences.movedPath("a.revp.bak", "a.revp", "b.revp"))
     }
+
+    @Test
+    fun `画布页与参考图片页的视图变换互不影响`() {
+        val state = ReferenceViewState(
+            zoom = 2.5f, rotation = -37f, panX = -123f, panY = 876f,
+            canvasZoom = 0.75f, canvasRotation = 12f, canvasPanX = 34f, canvasPanY = -56f,
+        )
+        val valid = ProjectReferences.validState(state)
+        assertEquals(2.5f, valid.zoom)
+        assertEquals(-37f, valid.rotation)
+        assertEquals(0.75f, valid.canvasZoom)
+        assertEquals(12f, valid.canvasRotation)
+        assertEquals(34f, valid.canvasPanX)
+        assertEquals(-56f, valid.canvasPanY)
+    }
+
+    @Test
+    fun `画布页非法变换会回退到默认状态`() {
+        for (state in listOf(
+            ReferenceViewState(canvasZoom = Float.NaN),
+            ReferenceViewState(canvasZoom = 0f),
+            ReferenceViewState(canvasZoom = 200f),
+            ReferenceViewState(canvasRotation = Float.NEGATIVE_INFINITY),
+            ReferenceViewState(canvasPanX = Float.POSITIVE_INFINITY),
+            ReferenceViewState(canvasPanY = Float.NaN),
+        )) {
+            assertEquals(ReferenceViewState(), ProjectReferences.validState(state))
+        }
+    }
 }

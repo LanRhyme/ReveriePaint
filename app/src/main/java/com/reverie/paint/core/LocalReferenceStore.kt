@@ -82,6 +82,8 @@ internal class LocalReferenceStore(private val context: Context) {
             p.getBoolean("open", false), p.getBoolean("gray", false), p.getBoolean("flip", false),
             p.getInt("tab", 0), p.getBoolean("collapsed", false), p.getFloat("zoom", 1f),
             p.getFloat("rotation", 0f), p.getFloat("panX", 0f), p.getFloat("panY", 0f),
+            p.getFloat("canvasZoom", 1f), p.getFloat("canvasRotation", 0f),
+            p.getFloat("canvasPanX", 0f), p.getFloat("canvasPanY", 0f),
         ))
     }.getOrDefault(ReferenceViewState())
 
@@ -89,6 +91,8 @@ internal class LocalReferenceStore(private val context: Context) {
         putBoolean("open", state.open); putBoolean("gray", state.grayscale); putBoolean("flip", state.flipped)
         putInt("tab", state.tab); putBoolean("collapsed", state.collapsed); putFloat("zoom", state.zoom)
         putFloat("rotation", state.rotation); putFloat("panX", state.panX); putFloat("panY", state.panY)
+        putFloat("canvasZoom", state.canvasZoom); putFloat("canvasRotation", state.canvasRotation)
+        putFloat("canvasPanX", state.canvasPanX); putFloat("canvasPanY", state.canvasPanY)
     }
 
     fun images(id: String): List<File> {

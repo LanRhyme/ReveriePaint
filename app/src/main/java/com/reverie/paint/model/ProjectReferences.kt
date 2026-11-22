@@ -13,6 +13,11 @@ data class ReferenceViewState(
     val rotation: Float = 0f,
     val panX: Float = 0f,
     val panY: Float = 0f,
+    // 画布预览页独立视图变换: 与参考图片页互不影响 (issue #208)
+    val canvasZoom: Float = 1f,
+    val canvasRotation: Float = 0f,
+    val canvasPanX: Float = 0f,
+    val canvasPanY: Float = 0f,
 )
 
 /** Local-only limits and path matching; no project format or binary protocol. */
@@ -21,8 +26,12 @@ object ProjectReferences {
     const val MAX_BYTES = 64 * 1024 * 1024
 
     fun validState(state: ReferenceViewState): ReferenceViewState =
-        if (state.tab in 0..1 && state.zoom.isFinite() && state.zoom in .02f..128f &&
-            state.rotation.isFinite() && state.panX.isFinite() && state.panY.isFinite()) state
+        if (state.tab in 0..1 &&
+            state.zoom.isFinite() && state.zoom in .02f..128f &&
+            state.rotation.isFinite() && state.panX.isFinite() && state.panY.isFinite() &&
+            state.canvasZoom.isFinite() && state.canvasZoom in .02f..128f &&
+            state.canvasRotation.isFinite() && state.canvasPanX.isFinite() && state.canvasPanY.isFinite()
+        ) state
         else ReferenceViewState()
 
     fun movedPath(path: String, source: String, target: String): String? = when {

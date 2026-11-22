@@ -191,10 +191,11 @@ fun ReferenceWindow(
                 .pointerInput(vm.referenceAllowRotation, vm.longPressEyedropperEnabled, vm.eyedropperSensitivity) {
                     awaitEachGesture {
                         val down = awaitFirstDown(requireUnconsumed = false)
-                        var localZoom = vm.referenceZoom
-                        var localRotation = vm.referenceRotation
-                        var localPanX = vm.referencePanX
-                        var localPanY = vm.referencePanY
+                        val canvasTab = vm.referenceActiveTab == 1
+                        var localZoom = if (canvasTab) vm.referenceCanvasZoom else vm.referenceZoom
+                        var localRotation = if (canvasTab) vm.referenceCanvasRotation else vm.referenceRotation
+                        var localPanX = if (canvasTab) vm.referenceCanvasPanX else vm.referencePanX
+                        var localPanY = if (canvasTab) vm.referenceCanvasPanY else vm.referencePanY
 
                         var transformStarted = false
                         var prevCentroid = Offset.Zero
@@ -259,6 +260,11 @@ fun ReferenceWindow(
                                 val initColor = parseColor(vm.brushColor)
                                 eyedropperInitialColor = initColor
                                 val offset = if (vm.eyedropperOffsetEnabled) Offset(-36f * density.density, -36f * density.density) else Offset.Zero
+                                // 吸色使用当前标签页的独立视图变换 (issue #208)
+                                val sampleZoom = if (vm.referenceActiveTab == 1) vm.referenceCanvasZoom else vm.referenceZoom
+                                val sampleRotation = if (vm.referenceActiveTab == 1) vm.referenceCanvasRotation else vm.referenceRotation
+                                val samplePanX = if (vm.referenceActiveTab == 1) vm.referenceCanvasPanX else vm.referencePanX
+                                val samplePanY = if (vm.referenceActiveTab == 1) vm.referenceCanvasPanY else vm.referencePanY
                                 var curPos = down.position
                                 var samplePos = curPos + offset
                                 eyedropperScreenPos = samplePos
@@ -267,10 +273,10 @@ fun ReferenceWindow(
                                     touchPos = samplePos,
                                     viewportW = viewportSize.width.toFloat(),
                                     viewportH = viewportSize.height.toFloat(),
-                                    zoom = vm.referenceZoom,
-                                    rotation = vm.referenceRotation,
-                                    panX = vm.referencePanX,
-                                    panY = vm.referencePanY,
+                                    zoom = sampleZoom,
+                                    rotation = sampleRotation,
+                                    panX = samplePanX,
+                                    panY = samplePanY,
                                     isFlipped = vm.referenceIsFlipped,
                                     isGrayscale = vm.referenceIsGrayscale,
                                     activeTab = vm.referenceActiveTab,
@@ -303,10 +309,10 @@ fun ReferenceWindow(
                                         touchPos = samplePos,
                                         viewportW = viewportSize.width.toFloat(),
                                         viewportH = viewportSize.height.toFloat(),
-                                        zoom = vm.referenceZoom,
-                                        rotation = vm.referenceRotation,
-                                        panX = vm.referencePanX,
-                                        panY = vm.referencePanY,
+                                        zoom = sampleZoom,
+                                        rotation = sampleRotation,
+                                        panX = samplePanX,
+                                        panY = samplePanY,
                                         isFlipped = vm.referenceIsFlipped,
                                         isGrayscale = vm.referenceIsGrayscale,
                                         activeTab = vm.referenceActiveTab,
@@ -385,10 +391,17 @@ fun ReferenceWindow(
                                     localPanX = centroid.x - vRotX - viewW / 2f
                                     localPanY = centroid.y - vRotY - viewH / 2f
 
-                                    vm.referenceZoom = localZoom
-                                    vm.referenceRotation = localRotation
-                                    vm.referencePanX = localPanX
-                                    vm.referencePanY = localPanY
+                                    if (canvasTab) {
+                                        vm.referenceCanvasZoom = localZoom
+                                        vm.referenceCanvasRotation = localRotation
+                                        vm.referenceCanvasPanX = localPanX
+                                        vm.referenceCanvasPanY = localPanY
+                                    } else {
+                                        vm.referenceZoom = localZoom
+                                        vm.referenceRotation = localRotation
+                                        vm.referencePanX = localPanX
+                                        vm.referencePanY = localPanY
+                                    }
 
                                     prevCentroid = centroid
                                     prevDistance = distance
@@ -411,8 +424,13 @@ fun ReferenceWindow(
 
                             localPanX += delta.x
                             localPanY += delta.y
-                            vm.referencePanX = localPanX
-                            vm.referencePanY = localPanY
+                            if (canvasTab) {
+                                vm.referenceCanvasPanX = localPanX
+                                vm.referenceCanvasPanY = localPanY
+                            } else {
+                                vm.referencePanX = localPanX
+                                vm.referencePanY = localPanY
+                            }
                             point.consume()
                         }
                     }
@@ -467,10 +485,10 @@ fun ReferenceWindow(
                     ReferenceSingleBitmapView(
                         bitmap = canvasBmp,
                         revision = rev,
-                        zoom = vm.referenceZoom,
-                        rotation = vm.referenceRotation,
-                        panX = vm.referencePanX,
-                        panY = vm.referencePanY,
+                        zoom = vm.referenceCanvasZoom,
+                        rotation = vm.referenceCanvasRotation,
+                        panX = vm.referenceCanvasPanX,
+                        panY = vm.referenceCanvasPanY,
                         isGrayscale = vm.referenceIsGrayscale,
                         isFlipped = vm.referenceIsFlipped
                     )
