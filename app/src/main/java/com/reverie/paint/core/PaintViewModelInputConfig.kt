@@ -17,7 +17,7 @@ internal fun PaintViewModel.updateCanvasEditMenuActions(actions: List<com.reveri
     val encoded = com.reverie.paint.model.CanvasEditAction.encode(actions)
     canvasEditMenuActions = com.reverie.paint.model.CanvasEditAction.decode(encoded)
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString(com.reverie.paint.model.CanvasEditAction.PREFERENCE_KEY, encoded).apply()
     }
 }
@@ -59,7 +59,7 @@ internal fun PaintViewModel.selectLayer(index: Int) {
 internal fun PaintViewModel.updateBrushSlideAdjustEnabled(enabled: Boolean) {
     brushSlideAdjustEnabled = enabled
     viewModelScope.launch(Dispatchers.IO) {
-        val sp = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        val sp = prefs
         sp.edit().putBoolean("brush_slide_adjust_enabled", enabled).apply()
     }
 }
@@ -156,7 +156,7 @@ internal fun PaintViewModel.resetGestureConfigToDefaults() {
 
 internal fun PaintViewModel.persistGestureConfig() {
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putString("gestureConfig", gestureConfig.serialize())
             .putBoolean("gestureTwoFingerUndo", gestureTwoFingerUndo)
@@ -226,8 +226,7 @@ internal fun PaintViewModel.updateGestureThreeFingerEditMenu(enable: Boolean) {
 internal fun PaintViewModel.updateGestureTwoFingerUndo(enable: Boolean) {
     gestureTwoFingerUndo = enable
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("gestureTwoFingerUndo", enable)
             .apply()
@@ -237,8 +236,7 @@ internal fun PaintViewModel.updateGestureTwoFingerUndo(enable: Boolean) {
 internal fun PaintViewModel.updateGestureThreeFingerRedo(enable: Boolean) {
     gestureThreeFingerRedo = enable
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("gestureThreeFingerRedo", enable)
             .apply()
@@ -248,8 +246,7 @@ internal fun PaintViewModel.updateGestureThreeFingerRedo(enable: Boolean) {
 internal fun PaintViewModel.updateGesturePinchTransform(enable: Boolean) {
     gesturePinchTransform = enable
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("gesturePinchTransform", enable)
             .apply()
@@ -259,8 +256,7 @@ internal fun PaintViewModel.updateGesturePinchTransform(enable: Boolean) {
 internal fun PaintViewModel.updateGestureQuickPinchFit(enable: Boolean) {
     gestureQuickPinchFit = enable
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("gestureQuickPinchFit", enable)
             .apply()
@@ -270,8 +266,7 @@ internal fun PaintViewModel.updateGestureQuickPinchFit(enable: Boolean) {
 internal fun PaintViewModel.updateGestureContinuousUndo(enable: Boolean) {
     gestureContinuousUndo = enable
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("gestureContinuousUndo", enable)
             .apply()
@@ -282,8 +277,7 @@ internal fun PaintViewModel.updateBackKeyAction(action: BackKeyAction) {
     if (backKeyAction == action) return
     backKeyAction = action
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putString("backKeyAction", action.id)
             .apply()
@@ -295,8 +289,7 @@ internal fun PaintViewModel.updateAllowEdgeBackGesture(enable: Boolean) {
     if (allowEdgeBackGesture == enable) return
     allowEdgeBackGesture = enable
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("allowEdgeBackGesture", enable)
             .apply()
@@ -309,8 +302,7 @@ internal fun PaintViewModel.updateUiAnimationSpeed(speed: com.reverie.paint.mode
     uiAnimationSpeed = speed
     com.reverie.paint.ui.theme.Motion.currentSpeed = speed
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putString("uiAnimationSpeed", speed.id)
             .apply()
@@ -348,8 +340,7 @@ internal fun PaintViewModel.getString(@StringRes resId: Int, vararg formatArgs: 
 internal fun PaintViewModel.updateBrushCursorMode(mode: Int) {
     brushCursorMode = mode
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putInt("brushCursorMode", mode)
             .apply()
@@ -359,8 +350,7 @@ internal fun PaintViewModel.updateBrushCursorMode(mode: Int) {
 internal fun PaintViewModel.updateEraserCursorMode(mode: Int) {
     eraserCursorMode = mode
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putInt("eraserCursorMode", mode)
             .apply()
@@ -370,8 +360,7 @@ internal fun PaintViewModel.updateEraserCursorMode(mode: Int) {
 internal fun PaintViewModel.updateCursorStyleMode(mode: Int) {
     cursorStyleMode = mode
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putInt("cursorStyleMode", mode)
             .apply()
@@ -381,8 +370,7 @@ internal fun PaintViewModel.updateCursorStyleMode(mode: Int) {
 internal fun PaintViewModel.updateCursorOutlineReflectsActualSize(enabled: Boolean) {
     cursorOutlineReflectsActualSize = enabled
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("cursorOutlineReflectsActualSize", enabled)
             .apply()
@@ -392,7 +380,7 @@ internal fun PaintViewModel.updateCursorOutlineReflectsActualSize(enabled: Boole
 internal fun PaintViewModel.updateQuickShapeQuadrilateralEnabled(enable: Boolean) {
     quickShapeQuadrilateralEnabled = enable
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("quickShapeQuadrilateralEnabled", enable).apply()
     }
 }
@@ -400,7 +388,7 @@ internal fun PaintViewModel.updateQuickShapeQuadrilateralEnabled(enable: Boolean
 internal fun PaintViewModel.updateQuickShapeConversionsEnabled(enable: Boolean) {
     quickShapeConversionsEnabled = enable
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("quickShapeConversionsEnabled", enable).apply()
     }
 }
@@ -408,7 +396,7 @@ internal fun PaintViewModel.updateQuickShapeConversionsEnabled(enable: Boolean) 
 internal fun PaintViewModel.updateQuickShapeCurveEnabled(enable: Boolean) {
     quickShapeCurveEnabled = enable
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("quickShapeCurveEnabled", enable).apply()
     }
 }
@@ -416,7 +404,7 @@ internal fun PaintViewModel.updateQuickShapeCurveEnabled(enable: Boolean) {
 internal fun PaintViewModel.updateQuickShapeRelaxedEnabled(enable: Boolean) {
     quickShapeRelaxedEnabled = enable
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("quickShapeRelaxedEnabled", enable).apply()
     }
 }
@@ -424,7 +412,7 @@ internal fun PaintViewModel.updateQuickShapeRelaxedEnabled(enable: Boolean) {
 internal fun PaintViewModel.updateQuickShapeArcEnabled(enable: Boolean) {
     quickShapeArcEnabled = enable
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("quickShapeArcEnabled", enable).apply()
     }
 }
@@ -432,7 +420,7 @@ internal fun PaintViewModel.updateQuickShapeArcEnabled(enable: Boolean) {
 internal fun PaintViewModel.updateQuickShapeBoxHandlesEnabled(enable: Boolean) {
     quickShapeBoxHandlesEnabled = enable
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("quickShapeBoxHandlesEnabled", enable).apply()
     }
 }
@@ -440,7 +428,7 @@ internal fun PaintViewModel.updateQuickShapeBoxHandlesEnabled(enable: Boolean) {
 internal fun PaintViewModel.updateQuickShapeCurvedContourEnabled(enable: Boolean) {
     quickShapeCurvedContourEnabled = enable
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("quickShapeCurvedContourEnabled", enable).apply()
     }
 }
@@ -448,7 +436,7 @@ internal fun PaintViewModel.updateQuickShapeCurvedContourEnabled(enable: Boolean
 internal fun PaintViewModel.updateQuickShapeContourEnabled(enable: Boolean) {
     quickShapeContourEnabled = enable
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("quickShapeContourEnabled", enable).apply()
     }
 }
@@ -456,7 +444,7 @@ internal fun PaintViewModel.updateQuickShapeContourEnabled(enable: Boolean) {
 internal fun PaintViewModel.updateQuickShapeAngleSnapEnabled(enable: Boolean) {
     quickShapeAngleSnapEnabled = enable
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("quickShapeAngleSnapEnabled", enable).apply()
     }
 }
@@ -464,7 +452,7 @@ internal fun PaintViewModel.updateQuickShapeAngleSnapEnabled(enable: Boolean) {
 internal fun PaintViewModel.updateQuickShapePerPointPressureEnabled(enable: Boolean) {
     quickShapePerPointPressureEnabled = enable
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("quickShapePerPointPressureEnabled", enable).apply()
     }
 }
@@ -473,7 +461,7 @@ internal fun PaintViewModel.updateQuickShapeEnabled(enable: Boolean) {
     quickShapeEnabled = enable
     if (!enable) cancelQuickShape()
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("quickShapeEnabledV2", enable).apply()
     }
 }
@@ -483,7 +471,7 @@ internal fun PaintViewModel.updateQuickShapeHoldDelayMs(ms: Int) {
     if (quickShapeHoldDelayMs == clamped) return
     quickShapeHoldDelayMs = clamped
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putInt("quickShapeHoldDelayMs", clamped).apply()
     }
 }

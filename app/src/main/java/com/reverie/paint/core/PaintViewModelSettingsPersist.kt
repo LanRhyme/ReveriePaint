@@ -18,8 +18,7 @@ import kotlin.math.roundToInt
 internal fun PaintViewModel.updateAutoSaveEnabled(enabled: Boolean) {
     autoSaveEnabled = enabled
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("autoSaveEnabled", enabled)
             .apply()
@@ -32,8 +31,7 @@ internal fun PaintViewModel.updateAutoSaveEnabled(enabled: Boolean) {
 internal fun PaintViewModel.updateAutoSaveIntervalMinutes(minutes: Int) {
     autoSaveIntervalMinutes = minutes.coerceIn(1, 60)
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putInt("autoSaveIntervalMinutes", autoSaveIntervalMinutes)
             .apply()
@@ -47,8 +45,7 @@ internal fun PaintViewModel.updateAutoSaveMaxSnapshots(maxCount: Int) {
     )
     autoSaveMaxSnapshots = clamped
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putInt("autoSaveMaxSnapshots", clamped)
             .apply()
@@ -59,8 +56,7 @@ internal fun PaintViewModel.updateAutoSaveMaxSnapshots(maxCount: Int) {
 internal fun PaintViewModel.updateAutoSaveToastEnabled(enabled: Boolean) {
     autoSaveToastEnabled = enabled
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("autoSaveToastEnabled", enabled)
             .apply()
@@ -71,8 +67,7 @@ internal fun PaintViewModel.updateLayerFlashEnabled(enabled: Boolean) {
     layerFlashEnabled = enabled
     if (!enabled) cancelLayerContentFlash()
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("layerFlashEnabled", enabled)
             .apply()
@@ -82,8 +77,7 @@ internal fun PaintViewModel.updateLayerFlashEnabled(enabled: Boolean) {
 internal fun PaintViewModel.updateMaxUndoSteps(steps: Int) {
     maxUndoSteps = steps.coerceIn(10, 200)
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putInt("maxUndoSteps", maxUndoSteps)
             .apply()
@@ -100,8 +94,7 @@ internal fun PaintViewModel.updateMaxUndoSteps(steps: Int) {
 internal fun PaintViewModel.updatePromptSaveOnExit(prompt: Boolean) {
     promptSaveOnExit = prompt
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("promptSaveOnExit", prompt)
             .apply()
@@ -112,8 +105,7 @@ internal fun PaintViewModel.updateRenderScheduleMode(mode: com.reverie.paint.mod
     if (renderScheduleMode == mode) return
     renderScheduleMode = mode
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putInt("renderScheduleMode", mode.id)
             .apply()
@@ -125,7 +117,7 @@ internal fun PaintViewModel.syncSettingsFromPrefs() {
         com.reverie.paint.core.stylus.FrontBufferProbe.warmUpPreservedContentCheck(appContext)
         // Toolbar choices must restore even when no brush parameter cache has been saved yet.
         loadPinnedTools()
-        val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        val prefs = prefs
         anim.manualKeyframes = prefs.getBoolean(ANIMATION_MANUAL_KEYFRAMES_PREF, false)
         // 性能标尺: 设置项(仅 debug 构建有该入口, 见 PerfHud)或 setprop 任一为真即为开。
         // 用 PerfHud.readPref 而不是直接读偏好 —— 正式版恒 false, 避免残留偏好默默开着标尺。
@@ -609,8 +601,7 @@ internal fun PaintViewModel.syncSettingsFromPrefs() {
 internal fun PaintViewModel.persistSliderPresets(key: String, list: List<Double?>) {
     if (isAppContextReady()) {
         val str = list.joinToString(",") { it?.toString() ?: "null" }
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putString(key, str)
             .apply()
@@ -619,7 +610,7 @@ internal fun PaintViewModel.persistSliderPresets(key: String, list: List<Double?
 
 internal fun PaintViewModel.loadSliderPresets(key: String): List<Double?> {
     if (isAppContextReady()) {
-        val str = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).getString(key, null)
+        val str = prefs.getString(key, null)
         if (!str.isNullOrBlank()) {
             val parts = str.split(",")
             val result = MutableList<Double?>(9) { null }
@@ -641,7 +632,7 @@ internal fun PaintViewModel.loadSliderPresets(key: String): List<Double?> {
 internal fun PaintViewModel.setDefaultPalette(id: String) {
     defaultPaletteId = id
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("defaultPaletteId", id).apply()
     }
 }
@@ -657,7 +648,7 @@ internal fun PaintViewModel.updatePanelPinningEnabled(enabled: Boolean) {
         colorPanelOffset = androidx.compose.ui.geometry.Offset.Zero
     }
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("panelPinningEnabled", enabled).apply()
     }
 }
@@ -665,7 +656,7 @@ internal fun PaintViewModel.updatePanelPinningEnabled(enabled: Boolean) {
 internal fun PaintViewModel.updateColorHarmonyMode(mode: String) {
     colorHarmonyModeName = mode
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("colorHarmonyMode", mode).apply()
     }
 }
@@ -673,7 +664,7 @@ internal fun PaintViewModel.updateColorHarmonyMode(mode: String) {
 internal fun PaintViewModel.updateColorHarmonyBaseHue(hue: Float) {
     colorHarmonyBaseHue = hue
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putFloat("colorHarmonyBaseHue", hue).apply()
     }
 }
@@ -681,7 +672,7 @@ internal fun PaintViewModel.updateColorHarmonyBaseHue(hue: Float) {
 internal fun PaintViewModel.updateColorHarmonySubTab(subTab: Int) {
     colorHarmonySubTab = subTab
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putInt("colorHarmonySubTab", subTab).apply()
     }
 }
@@ -694,8 +685,7 @@ internal fun PaintViewModel.updateColorModel(model: String) {
     if (colorWheelInnerShape != "SQUARE" && model != "hsv") return
     colorModel = model
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putString("colorModel", model)
             .apply()
@@ -708,8 +698,7 @@ internal fun PaintViewModel.updateColorWheelInnerShape(shape: String) {
         updateColorModel("hsv")
     }
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putString("colorWheelInnerShape", shape)
             .apply()
@@ -726,8 +715,7 @@ internal fun PaintViewModel.updateColorPanelTab(tab: Int) {
 internal fun PaintViewModel.updateColorPickerMode(mode: String) {
     colorPickerMode = mode
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putString("colorPickerMode", mode)
             .apply()

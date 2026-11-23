@@ -85,7 +85,7 @@ fun PaintViewModel.updateSpenAirBinding(gesture: SpenAirGesture, actionId: Strin
         else -> return
     }
     // 与现有 prefs() 扩展惯例一致: 设置 UI 调用时 ViewModel 必然已完成 context 注入
-    appContext.getSharedPreferences("paint_prefs", Context.MODE_PRIVATE)
+    prefs
         .edit { putString(spenAirPrefsKey(gesture), actionId) }
 }
 

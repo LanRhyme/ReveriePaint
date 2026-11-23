@@ -44,7 +44,7 @@ internal fun PaintViewModel.updateAutoHidePanelsOnStroke(enabled: Boolean) {
     autoHidePanelsOnStroke = enabled
     if (!enabled) clearAllSlotEvasion()
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("autoHidePanelsOnStroke", enabled).apply()
     }
 }
@@ -54,7 +54,7 @@ internal fun PaintViewModel.dismissToolbarSqueezedWarning(forever: Boolean) {
     if (forever) {
         toolbarSqueezedWarningDismissed = true
         if (isAppContextReady()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+            prefs
                 .edit()
                 .putBoolean("toolbarSqueezedWarningDismissed", true)
                 .apply()

@@ -19,7 +19,7 @@ internal fun PaintViewModel.persistQuickActionsState() {
             quickActionWindowX_port = quickActionWindowX
             quickActionWindowY_port = quickActionWindowY
         }
-        val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
+        val p = prefs.edit()
         p.putBoolean("quick_action_open", quickActionWindowOpen)
         p.putFloat("quick_action_x_land", quickActionWindowX_land)
         p.putFloat("quick_action_y_land", quickActionWindowY_land)
@@ -48,7 +48,7 @@ internal fun PaintViewModel.persistQuickBrushState() {
             quickBrushWindowY_port = quickBrushWindowY
             quickBrushOrientation_port = quickBrushOrientation
         }
-        val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
+        val p = prefs.edit()
         p.putBoolean("quick_brush_open", quickBrushWindowOpen)
         p.putFloat("quick_brush_x_land", quickBrushWindowX_land)
         p.putFloat("quick_brush_y_land", quickBrushWindowY_land)
@@ -88,7 +88,7 @@ internal fun PaintViewModel.persistQuickColorState() {
             quickColorWindowX_port = quickColorWindowX
             quickColorWindowY_port = quickColorWindowY
         }
-        val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
+        val p = prefs.edit()
         p.putBoolean("quick_color_open", quickColorWindowOpen && !quickColorEphemeral)
         p.putBoolean("quick_color_follows_stylus", quickColorFollowsStylus)
         p.putBoolean("quick_color_auto_hide_on_stroke", quickColorAutoHideOnStroke)
@@ -161,7 +161,7 @@ internal fun PaintViewModel.persistQuickOklchState() {
             quickOklchWindowX_port = quickOklchWindowX
             quickOklchWindowY_port = quickOklchWindowY
         }
-        val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
+        val p = prefs.edit()
         p.putBoolean("quick_oklch_open", quickOklchWindowOpen)
         p.putFloat("quick_oklch_x_land", quickOklchWindowX_land)
         p.putFloat("quick_oklch_y_land", quickOklchWindowY_land)
@@ -199,7 +199,7 @@ internal fun PaintViewModel.persistQuickLayerState() {
             quickLayerWindowX_port = quickLayerWindowX
             quickLayerWindowY_port = quickLayerWindowY
         }
-        val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
+        val p = prefs.edit()
         p.putBoolean("quick_layer_open", quickLayerWindowOpen)
         p.putFloat("quick_layer_x_land", quickLayerWindowX_land)
         p.putFloat("quick_layer_y_land", quickLayerWindowY_land)

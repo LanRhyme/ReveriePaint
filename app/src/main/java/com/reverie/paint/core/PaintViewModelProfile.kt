@@ -88,7 +88,7 @@ internal fun PaintViewModel.deleteAuthorProfilePreset(presetId: String): Boolean
 internal fun PaintViewModel.persistAuthorProfiles() {
     if (!isAppContextReady()) return
     try {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putString("author_profile_json", authorProfile.toJson())
             .putString(
@@ -102,7 +102,7 @@ internal fun PaintViewModel.persistAuthorProfiles() {
 
 internal fun PaintViewModel.checkOnboardingTrigger() {
     if (!isAppContextReady()) return
-    val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+    val prefs = prefs
     val completed = prefs.getBoolean("onboarding_completed_v1", false)
     if (!completed) {
         onboardingActive = true
@@ -116,7 +116,7 @@ internal fun PaintViewModel.dismissOnboarding(markCompleted: Boolean = true) {
     allToolsPanelMeasuredBounds = null
     viewToolsMeasuredBounds = null
     if (markCompleted && isAppContextReady()) {
-        val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        val prefs = prefs
         prefs.edit().putBoolean("onboarding_completed_v1", true).apply()
     }
 }
@@ -128,7 +128,7 @@ internal fun PaintViewModel.startOnboarding() {
 
 internal fun PaintViewModel.recordLaunch() {
     if (!isAppContextReady()) return
-    val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+    val prefs = prefs
     val cur = prefs.getInt("launch_count", 0) + 1
     prefs.edit().putInt("launch_count", cur).apply()
     launchCount = cur
@@ -138,7 +138,7 @@ internal fun PaintViewModel.recordLaunch() {
 
 internal fun PaintViewModel.recordExport() {
     if (!isAppContextReady()) return
-    val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+    val prefs = prefs
     val cur = prefs.getInt("export_count", 0) + 1
     prefs.edit().putInt("export_count", cur).apply()
     exportCount = cur
@@ -146,7 +146,7 @@ internal fun PaintViewModel.recordExport() {
 
 internal fun PaintViewModel.recordCanvasCreated() {
     if (!isAppContextReady()) return
-    val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+    val prefs = prefs
     val cur = prefs.getInt("created_canvas_count", 0) + 1
     prefs.edit().putInt("created_canvas_count", cur).apply()
     createdCanvasCount = cur
@@ -155,7 +155,7 @@ internal fun PaintViewModel.recordCanvasCreated() {
 
 internal fun PaintViewModel.checkSponsorPromptTrigger() {
     if (!isAppContextReady()) return
-    val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+    val prefs = prefs
     val suppressed = prefs.getBoolean("sponsor_prompt_suppressed", false)
     if (suppressed) return
     val launches = prefs.getInt("launch_count", 0)
@@ -169,7 +169,7 @@ internal fun PaintViewModel.checkSponsorPromptTrigger() {
 
 internal fun PaintViewModel.postponeSponsorPrompt() {
     if (!isAppContextReady()) return
-    val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+    val prefs = prefs
     val currentLaunches = prefs.getInt("launch_count", 0)
     val currentExports = prefs.getInt("export_count", 0)
     prefs.edit()
@@ -181,7 +181,7 @@ internal fun PaintViewModel.postponeSponsorPrompt() {
 
 internal fun PaintViewModel.suppressSponsorPrompt() {
     if (!isAppContextReady()) return
-    val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+    val prefs = prefs
     prefs.edit().putBoolean("sponsor_prompt_suppressed", true).apply()
     showSponsorPromptDialog = false
 }

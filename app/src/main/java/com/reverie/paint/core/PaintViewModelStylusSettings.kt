@@ -105,8 +105,7 @@ internal fun PaintViewModel.updateCustomPressureCurve(points: List<androidx.comp
             for (pt in points) {
                 arr.put(org.json.JSONObject().put("x", pt.x.toDouble()).put("y", pt.y.toDouble()))
             }
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+            prefs
                 .edit()
                 .putInt("pressureCurvePreset", 4)
                 .putString("pressureControlPoints", arr.toString())
@@ -123,8 +122,7 @@ internal fun PaintViewModel.updateLongPressEyedropperEnabled(enable: Boolean) {
         updateGestureTrigger(com.reverie.paint.model.GestureAction.EYEDROPPER, targetTrigger)
     }
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("longPressEyedropperEnabled", enable)
             .apply()
@@ -135,8 +133,7 @@ internal fun PaintViewModel.updateEyedropperSensitivity(level: Int) {
     val clamped = level.coerceIn(1, 5)
     eyedropperSensitivity = clamped
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putInt("eyedropperSensitivity", clamped)
             .apply()
@@ -146,8 +143,7 @@ internal fun PaintViewModel.updateEyedropperSensitivity(level: Int) {
 internal fun PaintViewModel.updateEyedropperOffsetEnabled(enable: Boolean) {
     eyedropperOffsetEnabled = enable
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("eyedropperOffsetEnabled", enable)
             .apply()
@@ -157,8 +153,7 @@ internal fun PaintViewModel.updateEyedropperOffsetEnabled(enable: Boolean) {
 internal fun PaintViewModel.updatePenModeStylusEyedropperEnabled(enable: Boolean) {
     penModeStylusEyedropperEnabled = enable
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("penModeStylusEyedropperEnabled", enable)
             .apply()
@@ -168,8 +163,7 @@ internal fun PaintViewModel.updatePenModeStylusEyedropperEnabled(enable: Boolean
 internal fun PaintViewModel.updatePenOnlyMode(enable: Boolean) {
     penOnlyMode = enable
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("penOnlyMode", enable)
             .apply()
@@ -179,8 +173,7 @@ internal fun PaintViewModel.updatePenOnlyMode(enable: Boolean) {
 internal fun PaintViewModel.updatePenModeSingleFingerPan(enable: Boolean) {
     penModeSingleFingerPanEnabled = enable
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("penModeSingleFingerPanEnabled", enable)
             .apply()
@@ -190,7 +183,7 @@ internal fun PaintViewModel.updatePenModeSingleFingerPan(enable: Boolean) {
 internal fun PaintViewModel.updateOppoPencilModelMode(mode: String) {
     oppoPencilModelMode = mode
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("oppoPencilModelMode", mode).apply()
     }
 }
@@ -198,7 +191,7 @@ internal fun PaintViewModel.updateOppoPencilModelMode(mode: String) {
 internal fun PaintViewModel.updateOppoSlideAction(actionId: String) {
     oppoSlideAction = actionId
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("oppoSlideAction", actionId).apply()
     }
 }
@@ -206,7 +199,7 @@ internal fun PaintViewModel.updateOppoSlideAction(actionId: String) {
 internal fun PaintViewModel.updateOppoSlideSensitivity(sensitivity: String) {
     oppoSlideSensitivity = sensitivity
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("oppoSlideSensitivity", sensitivity).apply()
     }
 }
@@ -215,7 +208,7 @@ internal fun PaintViewModel.updateOppoInPenHapticsEnabled(enabled: Boolean) {
     oppoInPenHapticsEnabled = enabled
     stylusDriver?.syncSettings()
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("oppoInPenHapticsEnabled", enabled).apply()
     }
 }
@@ -303,7 +296,7 @@ internal fun PaintViewModel.executeXiaomiSlide(up: Boolean): Boolean {
 internal fun PaintViewModel.updateOppoDoubleTapAction(actionId: String) {
     oppoDoubleTapAction = actionId
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("oppoDoubleTapAction", actionId).apply()
     }
 }
@@ -312,7 +305,7 @@ internal fun PaintViewModel.updateStylusHapticsEnabled(enabled: Boolean) {
     stylusHapticsEnabled = enabled
     stylusDriver?.syncSettings()
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("stylusHapticsEnabled", enabled).apply()
     }
 }
@@ -321,7 +314,7 @@ internal fun PaintViewModel.updateStylusHapticsIntensity(intensity: Float) {
     stylusHapticsIntensity = intensity
     stylusDriver?.syncSettings()
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putFloat("stylusHapticsIntensity", intensity).apply()
     }
 }
@@ -329,7 +322,7 @@ internal fun PaintViewModel.updateStylusHapticsIntensity(intensity: Float) {
 internal fun PaintViewModel.updateStylusAudioEnabled(enabled: Boolean) {
     stylusAudioEnabled = enabled
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("stylusAudioEnabled", enabled).apply()
         // 设置面板可能在绘画页内打开: 即时同步引擎, 否则音量/开关要到重进绘画页才生效
         getOrCreateStylusDriver(appContext).syncSettings()
@@ -339,7 +332,7 @@ internal fun PaintViewModel.updateStylusAudioEnabled(enabled: Boolean) {
 internal fun PaintViewModel.updateStylusAudioVolume(volume: Float) {
     stylusAudioVolume = volume
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putFloat("stylusAudioVolume", volume).apply()
         getOrCreateStylusDriver(appContext).syncSettings()
     }
@@ -348,7 +341,7 @@ internal fun PaintViewModel.updateStylusAudioVolume(volume: Float) {
 internal fun PaintViewModel.updateStylusAudioType(type: StylusAudioType) {
     stylusAudioType = type
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putInt("stylusAudioType", type.ordinal).apply()
         getOrCreateStylusDriver(appContext).syncSettings()
     }
@@ -362,7 +355,7 @@ internal fun PaintViewModel.updateStylusStrokePredictionEnabled(enabled: Boolean
         updateFrontBufferPredictionEnabled(false)
     }
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("stylusStrokePredictionEnabled", enabled).apply()
     }
 }
@@ -375,7 +368,7 @@ internal fun PaintViewModel.updateFrontBufferPredictionEnabled(enabled: Boolean)
         updateStylusStrokePredictionEnabled(false)
     }
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("frontBufferPredictionEnabled", enabled).apply()
     }
 }
@@ -390,7 +383,7 @@ internal fun PaintViewModel.updateStylusPredictionMaster(enabled: Boolean) {
 internal fun PaintViewModel.updateSamsungSideButtonErase(enabled: Boolean) {
     samsungSideButtonErase = enabled
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("samsungSideButtonErase", enabled).apply()
     }
 }
@@ -398,7 +391,7 @@ internal fun PaintViewModel.updateSamsungSideButtonErase(enabled: Boolean) {
 internal fun PaintViewModel.updateSamsungSingleClickAction(actionId: String) {
     samsungSingleClickAction = actionId
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("samsungSingleClickAction", actionId).apply()
     }
 }
@@ -406,7 +399,7 @@ internal fun PaintViewModel.updateSamsungSingleClickAction(actionId: String) {
 internal fun PaintViewModel.updateSamsungDoubleClickAction(actionId: String) {
     samsungDoubleClickAction = actionId
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("samsungDoubleClickAction", actionId).apply()
     }
 }
@@ -414,7 +407,7 @@ internal fun PaintViewModel.updateSamsungDoubleClickAction(actionId: String) {
 internal fun PaintViewModel.updateSamsungLongPressAction(actionId: String) {
     samsungLongPressAction = actionId
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("samsungLongPressAction", actionId).apply()
     }
 }
@@ -422,7 +415,7 @@ internal fun PaintViewModel.updateSamsungLongPressAction(actionId: String) {
 internal fun PaintViewModel.updateHuaweiPencilModelMode(mode: String) {
     huaweiPencilModelMode = mode
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("huaweiPencilModelMode", mode).apply()
     }
 }
@@ -430,7 +423,7 @@ internal fun PaintViewModel.updateHuaweiPencilModelMode(mode: String) {
 internal fun PaintViewModel.updateHuaweiDoubleTapAction(actionId: String) {
     huaweiDoubleTapAction = actionId
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("huaweiDoubleTapAction", actionId).apply()
     }
 }
@@ -438,7 +431,7 @@ internal fun PaintViewModel.updateHuaweiDoubleTapAction(actionId: String) {
 internal fun PaintViewModel.updateHuaweiSqueezeAction(actionId: String) {
     huaweiSqueezeAction = actionId
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("huaweiSqueezeAction", actionId).apply()
     }
 }
@@ -446,7 +439,7 @@ internal fun PaintViewModel.updateHuaweiSqueezeAction(actionId: String) {
 internal fun PaintViewModel.updateHuaweiSingleClickAction(actionId: String) {
     huaweiSingleClickAction = actionId
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("huaweiSingleClickAction", actionId).apply()
     }
 }
@@ -454,7 +447,7 @@ internal fun PaintViewModel.updateHuaweiSingleClickAction(actionId: String) {
 internal fun PaintViewModel.updateHuaweiLongPressAction(actionId: String) {
     huaweiLongPressAction = actionId
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("huaweiLongPressAction", actionId).apply()
     }
 }
@@ -462,7 +455,7 @@ internal fun PaintViewModel.updateHuaweiLongPressAction(actionId: String) {
 internal fun PaintViewModel.updateHuaweiSideButtonErase(enabled: Boolean) {
     huaweiSideButtonErase = enabled
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("huaweiSideButtonErase", enabled).apply()
     }
 }
@@ -470,7 +463,7 @@ internal fun PaintViewModel.updateHuaweiSideButtonErase(enabled: Boolean) {
 internal fun PaintViewModel.updateHuaweiHapticsEnabled(enabled: Boolean) {
     huaweiHapticsEnabled = enabled
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("huaweiHapticsEnabled", enabled).apply()
     }
 }
@@ -478,7 +471,7 @@ internal fun PaintViewModel.updateHuaweiHapticsEnabled(enabled: Boolean) {
 internal fun PaintViewModel.updateHonorPencilModelMode(mode: String) {
     honorPencilModelMode = mode
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("honorPencilModelMode", mode).apply()
     }
 }
@@ -486,7 +479,7 @@ internal fun PaintViewModel.updateHonorPencilModelMode(mode: String) {
 internal fun PaintViewModel.updateHonorDoubleTapAction(actionId: String) {
     honorDoubleTapAction = actionId
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("honorDoubleTapAction", actionId).apply()
     }
 }
@@ -494,7 +487,7 @@ internal fun PaintViewModel.updateHonorDoubleTapAction(actionId: String) {
 internal fun PaintViewModel.updateHonorSingleClickAction(actionId: String) {
     honorSingleClickAction = actionId
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("honorSingleClickAction", actionId).apply()
     }
 }
@@ -502,7 +495,7 @@ internal fun PaintViewModel.updateHonorSingleClickAction(actionId: String) {
 internal fun PaintViewModel.updateHonorSideButtonErase(enabled: Boolean) {
     honorSideButtonErase = enabled
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("honorSideButtonErase", enabled).apply()
     }
 }
@@ -510,7 +503,7 @@ internal fun PaintViewModel.updateHonorSideButtonErase(enabled: Boolean) {
 internal fun PaintViewModel.updateHonorHapticsEnabled(enabled: Boolean) {
     honorHapticsEnabled = enabled
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("honorHapticsEnabled", enabled).apply()
     }
 }
@@ -519,7 +512,7 @@ internal fun PaintViewModel.updateXiaomiPencilModelMode(mode: String) {
     xiaomiPencilModelMode = mode
     stylusDriver?.syncSettings()
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("xiaomiPencilModelMode", mode).apply()
     }
 }
@@ -528,7 +521,7 @@ internal fun PaintViewModel.updateXiaomiPrimaryButtonAction(actionId: String) {
     xiaomiPrimaryButtonAction = actionId
     stylusDriver?.syncSettings()
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("xiaomiPrimaryButtonAction", actionId).apply()
     }
 }
@@ -537,7 +530,7 @@ internal fun PaintViewModel.updateXiaomiSecondaryButtonAction(actionId: String) 
     xiaomiSecondaryButtonAction = actionId
     stylusDriver?.syncSettings()
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("xiaomiSecondaryButtonAction", actionId).apply()
     }
 }
@@ -546,7 +539,7 @@ internal fun PaintViewModel.updateXiaomiFocusButtonAction(actionId: String) {
     xiaomiFocusButtonAction = actionId
     stylusDriver?.syncSettings()
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("xiaomiFocusButtonAction", actionId).apply()
     }
 }
@@ -555,7 +548,7 @@ internal fun PaintViewModel.updateXiaomiDoubleTapAction(actionId: String) {
     xiaomiDoubleTapAction = actionId
     stylusDriver?.syncSettings()
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("xiaomiDoubleTapAction", actionId).apply()
     }
 }
@@ -564,7 +557,7 @@ internal fun PaintViewModel.updateXiaomiSideButtonErase(enabled: Boolean) {
     xiaomiSideButtonErase = enabled
     stylusDriver?.syncSettings()
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("xiaomiSideButtonErase", enabled).apply()
     }
 }
@@ -573,7 +566,7 @@ internal fun PaintViewModel.updateXiaomiSqueezeAction(actionId: String) {
     xiaomiSqueezeAction = actionId
     stylusDriver?.syncSettings()
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("xiaomiSqueezeAction", actionId).apply()
     }
 }
@@ -582,7 +575,7 @@ internal fun PaintViewModel.updateXiaomiSlideAction(actionId: String) {
     xiaomiSlideAction = actionId
     stylusDriver?.syncSettings()
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("xiaomiSlideAction", actionId).apply()
     }
 }
@@ -591,7 +584,7 @@ internal fun PaintViewModel.updateXiaomiSlideSensitivity(sensitivity: String) {
     xiaomiSlideSensitivity = sensitivity
     stylusDriver?.syncSettings()
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("xiaomiSlideSensitivity", sensitivity).apply()
     }
 }
@@ -600,7 +593,7 @@ internal fun PaintViewModel.updateXiaomiInPenHapticsEnabled(enabled: Boolean) {
     xiaomiInPenHapticsEnabled = enabled
     stylusDriver?.syncSettings()
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("xiaomiInPenHapticsEnabled", enabled).apply()
     }
 }
@@ -609,7 +602,7 @@ internal fun PaintViewModel.updateVivoPencilModelMode(mode: String) {
     vivoPencilModelMode = mode
     stylusDriver?.syncSettings()
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("vivoPencilModelMode", mode).apply()
     }
 }
@@ -617,7 +610,7 @@ internal fun PaintViewModel.updateVivoPencilModelMode(mode: String) {
 internal fun PaintViewModel.updateVivoDoubleTapAction(actionId: String) {
     vivoDoubleTapAction = actionId
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("vivoDoubleTapAction", actionId).apply()
     }
 }
@@ -625,7 +618,7 @@ internal fun PaintViewModel.updateVivoDoubleTapAction(actionId: String) {
 internal fun PaintViewModel.updateVivoPrimaryClickAction(actionId: String) {
     vivoPrimaryClickAction = actionId
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("vivoPrimaryClickAction", actionId).apply()
     }
 }
@@ -633,7 +626,7 @@ internal fun PaintViewModel.updateVivoPrimaryClickAction(actionId: String) {
 internal fun PaintViewModel.updateVivoSecondaryClickAction(actionId: String) {
     vivoSecondaryClickAction = actionId
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("vivoSecondaryClickAction", actionId).apply()
     }
 }
@@ -641,7 +634,7 @@ internal fun PaintViewModel.updateVivoSecondaryClickAction(actionId: String) {
 internal fun PaintViewModel.updateVivoSideButtonErase(enabled: Boolean) {
     vivoSideButtonErase = enabled
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("vivoSideButtonErase", enabled).apply()
     }
 }
@@ -651,7 +644,7 @@ internal fun PaintViewModel.updateVivoWritingVibrateEnabled(enabled: Boolean) {
     // 关闭时立即停掉可能在振的笔身 (VivoStylusAdapter.syncSettings 处理边沿)
     stylusDriver?.syncSettings()
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("vivoWritingVibrateEnabled", enabled).apply()
     }
 }
@@ -659,7 +652,7 @@ internal fun PaintViewModel.updateVivoWritingVibrateEnabled(enabled: Boolean) {
 internal fun PaintViewModel.updateGenericPrimaryButtonAction(actionId: String) {
     genericPrimaryButtonAction = actionId
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("genericPrimaryButtonAction", actionId).apply()
     }
 }
@@ -667,7 +660,7 @@ internal fun PaintViewModel.updateGenericPrimaryButtonAction(actionId: String) {
 internal fun PaintViewModel.updateGenericSecondaryButtonAction(actionId: String) {
     genericSecondaryButtonAction = actionId
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putString("genericSecondaryButtonAction", actionId).apply()
     }
 }
@@ -675,7 +668,7 @@ internal fun PaintViewModel.updateGenericSecondaryButtonAction(actionId: String)
 internal fun PaintViewModel.updateGenericStylusEnabled(enabled: Boolean) {
     genericStylusEnabled = enabled
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("genericStylusEnabled", enabled).apply()
     }
     stylusDriver?.syncSettings()
@@ -684,7 +677,7 @@ internal fun PaintViewModel.updateGenericStylusEnabled(enabled: Boolean) {
 internal fun PaintViewModel.updateGenericSideButtonErase(enabled: Boolean) {
     genericSideButtonErase = enabled
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("genericSideButtonErase", enabled).apply()
     }
 }
@@ -763,8 +756,7 @@ internal fun PaintViewModel.updatePressureCurvePreset(preset: Int) {
         }
     }
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putInt("pressureCurvePreset", preset)
             .apply()

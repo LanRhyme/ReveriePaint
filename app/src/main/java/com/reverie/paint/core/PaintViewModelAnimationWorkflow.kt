@@ -11,7 +11,7 @@ internal const val ANIMATION_MANUAL_KEYFRAMES_PREF = "animationManualKeyframes"
 /** 作画方式只控制下一次落笔，不改写文档、已有曝光或洋葱皮配置。 */
 internal fun PaintViewModel.animationSetManualKeyframes(enabled: Boolean) {
     anim.manualKeyframes = enabled
-    appContext.getSharedPreferences("paint_prefs", Context.MODE_PRIVATE)
+    prefs
         .edit().putBoolean(ANIMATION_MANUAL_KEYFRAMES_PREF, enabled).apply()
 }
 

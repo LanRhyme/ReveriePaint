@@ -17,8 +17,7 @@ import kotlin.math.roundToInt
 internal fun PaintViewModel.updateUiOpacity(v: Float) {
     uiOpacity = v
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putFloat("uiOpacity", v)
             .apply()
@@ -28,8 +27,7 @@ internal fun PaintViewModel.updateUiOpacity(v: Float) {
 internal fun PaintViewModel.updatePopupPanelOpacity(v: Float) {
     popupPanelOpacity = v
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putFloat("popupPanelOpacity", v)
             .apply()
@@ -39,8 +37,7 @@ internal fun PaintViewModel.updatePopupPanelOpacity(v: Float) {
 internal fun PaintViewModel.updatePaintingUiScale(scale: Float) {
     paintingUiScale = scale.coerceIn(0.70f, 1.40f)
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putFloat("paintingUiScale", paintingUiScale)
             .apply()
@@ -50,8 +47,7 @@ internal fun PaintViewModel.updatePaintingUiScale(scale: Float) {
 internal fun PaintViewModel.updateLayerRowHeight(height: Int) {
     layerRowHeightDp = height.coerceIn(40, 80)
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putInt("layerRowHeightDp", layerRowHeightDp)
             .apply()
@@ -61,8 +57,7 @@ internal fun PaintViewModel.updateLayerRowHeight(height: Int) {
 internal fun PaintViewModel.updateQuickSliderHeight(height: Int) {
     quickSliderHeightDp = height.coerceIn(100, 260)
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putInt("quickSliderHeightDp", quickSliderHeightDp)
             .apply()
@@ -72,8 +67,7 @@ internal fun PaintViewModel.updateQuickSliderHeight(height: Int) {
 internal fun PaintViewModel.updateLeftHandMode(enabled: Boolean) {
     leftHandMode = enabled
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("leftHandMode", enabled)
             .apply()
@@ -135,8 +129,7 @@ internal fun PaintViewModel.resetFloatingUiEdges() {
 
 internal fun PaintViewModel.persistFloatingUiConfig() {
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("floatingUi_enabled", floatingUiConfig.enabled)
             .putString("floatingUi_topBarEdge", floatingUiConfig.topBarPosition.edge.name)
@@ -156,8 +149,7 @@ internal fun PaintViewModel.persistFloatingUiConfig() {
 internal fun PaintViewModel.updateLayerHeaderInheritAlpha(enabled: Boolean) {
     layerHeaderInheritAlpha = enabled
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("layerHeaderInheritAlpha", enabled)
             .apply()
@@ -167,8 +159,7 @@ internal fun PaintViewModel.updateLayerHeaderInheritAlpha(enabled: Boolean) {
 internal fun PaintViewModel.updateSelectionMaskColor(hex: String) {
     selectionMaskColorHex = hex
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putString("selection_mask_color", hex)
             .apply()
@@ -178,8 +169,7 @@ internal fun PaintViewModel.updateSelectionMaskColor(hex: String) {
 internal fun PaintViewModel.updateSelectionMaskOpacity(opacity: Float) {
     selectionMaskOpacity = opacity.coerceIn(0.10f, 0.90f)
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putFloat("selection_mask_opacity", selectionMaskOpacity)
             .apply()
@@ -189,8 +179,7 @@ internal fun PaintViewModel.updateSelectionMaskOpacity(opacity: Float) {
 internal fun PaintViewModel.updateCanvasBgColor(hex: String) {
     canvasBgColorHex = hex
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putString("canvasBgColor", hex)
             .apply()
@@ -201,8 +190,7 @@ internal fun PaintViewModel.updateCanvasBgColor(hex: String) {
 internal fun PaintViewModel.updateCanvasGridEnabled(enabled: Boolean) {
     canvasGridEnabled = enabled
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("canvas_grid_enabled", enabled)
             .apply()
@@ -213,8 +201,7 @@ internal fun PaintViewModel.updateCanvasGridOpacity(opacity: Float) {
     val clamped = opacity.coerceIn(0.05f, 0.60f)
     canvasGridOpacity = clamped
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putFloat("canvas_grid_opacity", clamped)
             .apply()
@@ -225,8 +212,7 @@ internal fun PaintViewModel.updateCanvasGridSizeDp(sizeDp: Int) {
     val clamped = sizeDp.coerceIn(12, 48)
     canvasGridSizeDp = clamped
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putInt("canvas_grid_size_dp", clamped)
             .apply()
@@ -236,8 +222,7 @@ internal fun PaintViewModel.updateCanvasGridSizeDp(sizeDp: Int) {
 internal fun PaintViewModel.updateAccentColor(hex: String) {
     accentColorHex = hex
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putString("accentColor", hex)
             .apply()
@@ -248,8 +233,7 @@ internal fun PaintViewModel.updateAccentColor(hex: String) {
 internal fun PaintViewModel.updateMonetEnabled(enable: Boolean) {
     monetEnabled = enable
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("monetEnabled", enable)
             .apply()
@@ -260,8 +244,7 @@ internal fun PaintViewModel.updateMonetEnabled(enable: Boolean) {
 internal fun PaintViewModel.updateThemeMode(mode: String) {
     themeMode = mode
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putString("themeMode", mode)
             .apply()
@@ -272,8 +255,7 @@ internal fun PaintViewModel.updateThemeMode(mode: String) {
 internal fun PaintViewModel.updateThemeContrast(contrast: String) {
     themeContrast = contrast
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putString("themeContrast", contrast)
             .apply()
@@ -284,8 +266,7 @@ internal fun PaintViewModel.updateThemeContrast(contrast: String) {
 internal fun PaintViewModel.updateThemeStyle(style: String) {
     themeStyle = style
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putString("themeStyle", style)
             .apply()
@@ -341,8 +322,7 @@ internal fun PaintViewModel.updateImmersiveMode(enable: Boolean) {
 internal fun PaintViewModel.updateExtendToCutout(extend: Boolean) {
     extendToCutout = extend
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("extendToCutout", extend)
             .apply()
@@ -355,8 +335,7 @@ internal fun PaintViewModel.updateExtendToCutout(extend: Boolean) {
 internal fun PaintViewModel.updateBlurBackground(enable: Boolean) {
     blurBackground = enable
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("blurBackground", enable)
             .apply()
@@ -368,8 +347,7 @@ internal fun PaintViewModel.updateCanvasOpenWaveEnabled(enable: Boolean) {
     val actual = enable && supported
     canvasOpenWaveEnabled = actual
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("canvasOpenWaveEnabled", actual)
             .apply()
@@ -471,7 +449,7 @@ internal fun PaintViewModel.clearHomeBackground() {
     if (isAppContextReady()) {
         val file = File(appContext.filesDir, "custom_bg/home_wallpaper.png")
         if (file.exists()) file.delete()
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putBoolean("home_custom_bg_enabled", false)
             .apply()
@@ -484,7 +462,7 @@ internal fun PaintViewModel.updateHomeBgOpacity(opacity: Float) {
     val clamped = opacity.coerceIn(0.1f, 1.0f)
     homeCustomBgOpacity = clamped
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putFloat("home_custom_bg_opacity", clamped)
             .apply()
@@ -495,7 +473,7 @@ internal fun PaintViewModel.updateHomeBgBlurDp(blurDp: Float) {
     val clamped = blurDp.coerceIn(0f, 30f)
     homeCustomBgBlurDp = clamped
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putFloat("home_custom_bg_blur", clamped)
             .apply()
@@ -505,7 +483,7 @@ internal fun PaintViewModel.updateHomeBgBlurDp(blurDp: Float) {
 internal fun PaintViewModel.updateHomeBgScaleMode(mode: String) {
     homeCustomBgScaleMode = mode
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putString("home_custom_bg_scale", mode)
             .apply()
@@ -516,7 +494,7 @@ internal fun PaintViewModel.updateHomeBgMaskAlpha(alpha: Float) {
     val clamped = alpha.coerceIn(0f, 0.8f)
     homeCustomBgMaskAlpha = clamped
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putFloat("home_custom_bg_mask", clamped)
             .apply()

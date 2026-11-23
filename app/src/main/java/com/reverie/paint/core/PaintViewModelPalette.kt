@@ -103,8 +103,7 @@ internal fun PaintViewModel.clearRecentColors() {
 
 internal fun PaintViewModel.persistRecentColors() {
     if (isAppContextReady()) {
-        appContext
-            .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit()
             .putString("recentColors", recentColors.joinToString(","))
             .apply()
@@ -113,7 +112,7 @@ internal fun PaintViewModel.persistRecentColors() {
 
 internal fun PaintViewModel.loadRecentColors(): List<String> {
     if (isAppContextReady()) {
-        val saved = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        val saved = prefs
             .getString("recentColors", null)
         if (!saved.isNullOrBlank()) {
             return saved.split(",").filter { it.isNotBlank() }.take(16)
@@ -138,8 +137,7 @@ internal fun PaintViewModel.persistUserPalettes() {
                 o.put("colors", colorsArr)
                 arr.put(o)
             }
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+            prefs
                 .edit()
                 .putString("userPalettes", arr.toString())
                 .apply()
@@ -149,7 +147,7 @@ internal fun PaintViewModel.persistUserPalettes() {
 
 internal fun PaintViewModel.loadUserPalettes(): List<ColorPaletteItem> {
     if (isAppContextReady()) {
-        val json = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        val json = prefs
             .getString("userPalettes", null)
         if (!json.isNullOrBlank()) {
             return runCatching {

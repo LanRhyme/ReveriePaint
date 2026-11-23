@@ -43,7 +43,7 @@ import kotlinx.coroutines.withContext
 
     internal fun PaintViewModel.brushIdKvGroups() = BrushIdPrefs.SharedPrefsKv(prefs())
     internal fun PaintViewModel.brushIdKvMain() =
-        BrushIdPrefs.SharedPrefsKv(appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE))
+        BrushIdPrefs.SharedPrefsKv(prefs)
 
     /** 名字 → id 的一次性迁移（幂等）。identity 没打开时不能迁：全部会被当成对不上。 */
     internal fun PaintViewModel.migrateBrushPrefsToIds() {
@@ -67,7 +67,7 @@ import kotlinx.coroutines.withContext
         set(value) {
             _abrBlendPolicy.value = value
             try {
-                appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                prefs
                     .edit()
                     .putString("abr_blend_policy", value.name)
                     .apply()
@@ -79,7 +79,7 @@ import kotlinx.coroutines.withContext
     internal fun PaintViewModel.loadAbrBlendPolicy() {
         if (_abrBlendPolicyLoaded || !appContextReady) return
         _abrBlendPolicyLoaded = true
-        val saved = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        val saved = prefs
             .getString("abr_blend_policy", null)
         if (saved != null) {
             runCatching { AbrBlendModes.Policy.valueOf(saved) }.getOrNull()?.let {
@@ -714,7 +714,7 @@ import kotlinx.coroutines.withContext
         }
         runCore(render = false) { ReverieCoreBridge.setBrushColor(c) }
         if (isAppContextReady()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+            prefs
                 .edit().putString("brushColor", c).apply()
         }
     }
@@ -722,7 +722,7 @@ import kotlinx.coroutines.withContext
     internal fun PaintViewModel.updateBrushSecondaryColor(c: String) {
         brushSecondaryColor = c
         if (isAppContextReady()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+            prefs
                 .edit().putString("brushSecondaryColor", c).apply()
         }
         runCore(render = false) { ReverieCoreBridge.setBrushSecondaryColor(c) }

@@ -88,7 +88,7 @@ internal fun PaintViewModel.resetProjectReferences(loading: Boolean = false) {
 
 internal fun PaintViewModel.persistProjectReferenceState() {
     if (!isAppContextReady()) return
-    appContext.getSharedPreferences("paint_prefs", 0).edit {
+    prefs.edit {
         // 位置 (x/y) 不持久化: 面板每次打开都在 UI 层重新居中, 防止上次
         // 会话拖出屏幕的位置把面板"丢"在屏外
         putFloat("ref_window_w", referenceWindowWidth); putFloat("ref_window_h", referenceWindowHeight)
@@ -306,7 +306,7 @@ internal fun PaintViewModel.clearProjectReferences() {
 }
 
 internal fun PaintViewModel.importLegacyProjectReferences() {
-    val count = appContext.getSharedPreferences("paint_prefs", 0).getInt("ref_images_count", 0)
+    val count = prefs.getInt("ref_images_count", 0)
         .coerceIn(0, MAX_REFERENCE_IMAGES)
     val dir = File(appContext.filesDir, "ref_images")
     importProjectReferences((0 until count).map { File(dir, "ref_$it.png") }

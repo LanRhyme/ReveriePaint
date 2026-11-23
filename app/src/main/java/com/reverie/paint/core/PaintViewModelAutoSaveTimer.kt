@@ -178,7 +178,7 @@ internal fun PaintViewModel.updatePerfHudEnabled(on: Boolean) {
     perfHudForcedByProp = PerfTrace.isEnabledByProp
     PerfTrace.enabled = on || PerfTrace.isEnabledByProp
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putBoolean("perfHud", on).apply()
     }
 }
@@ -187,7 +187,7 @@ internal fun PaintViewModel.updateLiquifyProxyPercent(pct: Int) {
     liquifyProxyPercent = pct
     LiquifyGpuPreview.proxyPercentOverride = pct
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putInt("liquifyProxyPercent", pct).apply()
     }
 }
@@ -196,7 +196,7 @@ internal fun PaintViewModel.updateLiquifyCoalesceSteps(steps: Int) {
     liquifyCoalesceSteps = steps
     PerfTrace.liquifyCoalesceOverride = steps
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putInt("liquifyCoalesceSteps", steps).apply()
     }
 }
@@ -205,7 +205,7 @@ internal fun PaintViewModel.updateLiquifyHostDraw(mode: Int) {
     liquifyHostDraw = mode
     LiquifyGpuPreview.hostDrawOverride = mode
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putInt("liquifyHostDraw", mode).apply()
     }
 }
@@ -214,7 +214,7 @@ internal fun PaintViewModel.updateLiquifyField(mode: Int) {
     liquifyField = mode
     LiquifyGlesPreview.fieldOverride = mode
     if (isAppContextReady()) {
-        appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+        prefs
             .edit().putInt("liquifyField", mode).apply()
     }
 }

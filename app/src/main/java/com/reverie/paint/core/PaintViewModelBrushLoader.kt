@@ -129,7 +129,7 @@ private fun PaintViewModel.copyBundledBrushAssets(): Pair<File, File> {
     val dir = ResourceDirs.presets(appContext.filesDir)
     val brushDir = ResourceDirs.tips(appContext.filesDir)
     val patternDir = ResourceDirs.patterns(appContext.filesDir)
-    val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+    val prefs = prefs
     val lastInstalledHash = prefs.getString("brush_assets_installed_hash", null)
     val isHashMatched = lastInstalledHash == com.reverie.paint.BuildConfig.BUILTIN_BRUSH_ASSETS_HASH
     val lastInstalledVersion = prefs.getInt("brush_assets_installed_version", -1)

@@ -173,7 +173,7 @@ internal fun PaintViewModel.getToolEffectiveSize(toolId: String): Double {
 internal fun PaintViewModel.persistBrushPanelState() {
     if (!isAppContextReady()) return
     try {
-        val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
+        val p = prefs.edit()
         p.putString("brush_panel_category", brushPanelSelectedCategory)
         p.putInt("brush_cat_scroll_idx", brushCategoryScrollIndex)
         p.putInt("brush_cat_scroll_offset", brushCategoryScrollOffset)

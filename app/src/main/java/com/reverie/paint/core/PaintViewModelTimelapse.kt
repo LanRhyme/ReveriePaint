@@ -111,7 +111,7 @@ internal fun PaintViewModel.purgeTimelapseFrames(project: Project? = null) {
  */
 fun PaintViewModel.updateTimelapseRecordingEnabled(enabled: Boolean) {
     timelapseRecordingEnabled = enabled
-    appContext.getSharedPreferences("paint_prefs", Context.MODE_PRIVATE).edit {
+    prefs.edit {
         putBoolean("timelapse_recording", enabled)
     }
 }
@@ -121,7 +121,7 @@ fun PaintViewModel.updateTimelapseRecordingEnabled(enabled: Boolean) {
  */
 fun PaintViewModel.updateTimelapseMinInterval(intervalMs: Long) {
     timelapseMinIntervalMs = intervalMs.coerceIn(100L, 5000L)
-    appContext.getSharedPreferences("paint_prefs", Context.MODE_PRIVATE).edit {
+    prefs.edit {
         putLong("timelapse_min_interval_ms", timelapseMinIntervalMs)
     }
     cachedFrameRecorder = null // 参数变动使捕获器缓存失效重置
@@ -132,7 +132,7 @@ fun PaintViewModel.updateTimelapseMinInterval(intervalMs: Long) {
  */
 fun PaintViewModel.updateTimelapseMaxFrames(maxFrames: Int) {
     timelapseMaxFrames = maxFrames.coerceIn(100, 20000)
-    appContext.getSharedPreferences("paint_prefs", Context.MODE_PRIVATE).edit {
+    prefs.edit {
         putInt("timelapse_max_frames", timelapseMaxFrames)
     }
     cachedFrameRecorder = null
@@ -143,7 +143,7 @@ fun PaintViewModel.updateTimelapseMaxFrames(maxFrames: Int) {
  */
 fun PaintViewModel.updateTimelapseResolution(resolution: Int) {
     timelapseResolution = resolution.coerceIn(480, 3840)
-    appContext.getSharedPreferences("paint_prefs", Context.MODE_PRIVATE).edit {
+    prefs.edit {
         putInt("timelapse_resolution", timelapseResolution)
     }
     cachedFrameRecorder = null
@@ -154,7 +154,7 @@ fun PaintViewModel.updateTimelapseResolution(resolution: Int) {
  */
 fun PaintViewModel.updateTimelapseQuality(quality: Int) {
     timelapseQuality = quality.coerceIn(50, 100)
-    appContext.getSharedPreferences("paint_prefs", Context.MODE_PRIVATE).edit {
+    prefs.edit {
         putInt("timelapse_quality", timelapseQuality)
     }
     cachedFrameRecorder = null

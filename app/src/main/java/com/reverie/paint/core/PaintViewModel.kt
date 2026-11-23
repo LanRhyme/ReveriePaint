@@ -1983,6 +1983,15 @@ class PaintViewModel : ViewModel() {
     /** Injected by MainActivity; the engine needs it for file paths. */
     lateinit var appContext: android.content.Context
 
+    /**
+     * 统一的偏好文件访问器 (MODE_PRIVATE)。
+     *
+     * 原先 180 处散落的 `getSharedPreferences("paint_prefs", ...)` 字面量: 文件名拼错一处
+     * 就会静默丢设置。集中到这里, 语义与逐处直取完全等价 (framework 按名缓存实例)。
+     */
+    internal val prefs: android.content.SharedPreferences
+        get() = prefs
+
 
     var selectionMask: ByteArray? by mutableStateOf(null)
     var hasSelection by mutableStateOf(false)
