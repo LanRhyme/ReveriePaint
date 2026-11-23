@@ -134,6 +134,16 @@ jobs:
           echo "build failed after 3 attempts" >&2
           exit 1
 
+      - name: Archive R8 Mapping
+        # 正式包开启 R8 后崩溃栈是混淆名, mapping.txt 是还原栈帧的唯一依据
+        # (崩溃看板/retrace 都靠它)。只作为工作流产物归档, 不进 Release 附件。
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: mapping-${{ steps.tag.outputs.tag }}
+          path: app/build/outputs/mapping/release/mapping.txt
+          if-no-files-found: warn
+
       - name: Prepare Artifact
         run: |
           mkdir -p ci-artifacts

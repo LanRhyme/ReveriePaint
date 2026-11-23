@@ -214,7 +214,14 @@ android {
 
     buildTypes {
         release {
-            isMinifyEnabled = false
+            // R8 代码压缩/混淆 + 资源清理。keep 规则见 app/proguard-rules.pro
+            // (JNI 桥接/Qt 反射/lowlatency/ONNX 四处按名查找的边界)。
+            isMinifyEnabled = true
+            isShrinkResources = true
+            proguardFiles(
+                getDefaultProguardFile("proguard-android-optimize.txt"),
+                "proguard-rules.pro",
+            )
             if (hasReleaseSigning) {
                 signingConfig = signingConfigs.getByName("release")
             } else {
@@ -297,4 +304,16 @@ dependencies {
     testImplementation("junit:junit:4.13.2")
     // android.jar 的 org.json 在 JVM 单测里是桩实现，brushstore 的 JSON 读写需要真实现
     testImplementation("org.json:json:20240303")
+}
+
+/**
+ * Compose 分组映射文件: 默认开启, 但本工程的组件版本组合下拉不到对应构件
+ * (AGP 9.3.1 内置 Kotlin 为 2.2.10, 而 org.jetbrains.kotlin:compose-group-mapping
+ * 只从 2.3.0 起发布, 于是 produceReleaseComposeMapping 解析失败)。
+ *
+ * 该文件只是给 R8 的「Compose group key」可选优化输入, 关掉不影响任何运行时行为;
+ * 代码压缩/混淆与资源清理照常生效。
+ */
+composeCompiler {
+    includeComposeMappingFile.set(false)
 }
