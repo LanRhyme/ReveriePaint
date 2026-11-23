@@ -73,7 +73,7 @@ internal fun PaintViewModel.closeRestoreBackupDialog() {
 }
 
 internal fun PaintViewModel.executeExportBackup(uri: Uri) {
-    if (!hasAppContext()) return
+    if (!isAppContextReady()) return
     val categories = localBackupState.selectedExportCategories
     if (categories.isEmpty()) return
 
@@ -122,7 +122,7 @@ internal fun PaintViewModel.executeExportBackup(uri: Uri) {
 }
 
 internal fun PaintViewModel.startInspectBackup(uri: Uri) {
-    if (!hasAppContext()) return
+    if (!isAppContextReady()) return
     localBackupState.status = LocalBackupStatus.INSPECTING
     localBackupState.errorMessage = null
     localBackupState.pendingRestoreUri = uri
@@ -161,7 +161,7 @@ internal fun PaintViewModel.executeRestoreBackup() {
     val uri = localBackupState.pendingRestoreUri ?: return
     val selected = localBackupState.selectedRestoreCategories
     if (selected.isEmpty()) return
-    if (!hasAppContext()) return
+    if (!isAppContextReady()) return
 
     localBackupState.status = LocalBackupStatus.RESTORING
     localBackupState.doneCount = 0

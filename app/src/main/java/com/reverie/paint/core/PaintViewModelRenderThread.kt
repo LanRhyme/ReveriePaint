@@ -19,7 +19,7 @@ internal fun PaintViewModel.initPerformanceHintSession() {
     if (adpfDisabled || DeviceInfo.isHuaweiOrHonor) {
         return
     }
-    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hasAppContext() && renderThreadTid > 0 && performanceHintSession == null) {
+    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && isAppContextReady() && renderThreadTid > 0 && performanceHintSession == null) {
         try {
             val phm = appContext.getSystemService(android.os.PerformanceHintManager::class.java)
             if (phm != null) {

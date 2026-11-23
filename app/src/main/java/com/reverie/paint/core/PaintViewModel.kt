@@ -1983,7 +1983,6 @@ class PaintViewModel : ViewModel() {
     /** Injected by MainActivity; the engine needs it for file paths. */
     lateinit var appContext: android.content.Context
 
-    internal fun hasAppContext(): Boolean = ::appContext.isInitialized
 
     var selectionMask: ByteArray? by mutableStateOf(null)
     var hasSelection by mutableStateOf(false)

@@ -391,7 +391,7 @@ internal fun PaintViewModel.updateCursorOutlineReflectsActualSize(enabled: Boole
 
 internal fun PaintViewModel.updateQuickShapeQuadrilateralEnabled(enable: Boolean) {
     quickShapeQuadrilateralEnabled = enable
-    if (hasAppContext()) {
+    if (isAppContextReady()) {
         appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
             .edit().putBoolean("quickShapeQuadrilateralEnabled", enable).apply()
     }
@@ -399,7 +399,7 @@ internal fun PaintViewModel.updateQuickShapeQuadrilateralEnabled(enable: Boolean
 
 internal fun PaintViewModel.updateQuickShapeConversionsEnabled(enable: Boolean) {
     quickShapeConversionsEnabled = enable
-    if (hasAppContext()) {
+    if (isAppContextReady()) {
         appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
             .edit().putBoolean("quickShapeConversionsEnabled", enable).apply()
     }
@@ -407,7 +407,7 @@ internal fun PaintViewModel.updateQuickShapeConversionsEnabled(enable: Boolean) 
 
 internal fun PaintViewModel.updateQuickShapeCurveEnabled(enable: Boolean) {
     quickShapeCurveEnabled = enable
-    if (hasAppContext()) {
+    if (isAppContextReady()) {
         appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
             .edit().putBoolean("quickShapeCurveEnabled", enable).apply()
     }
@@ -415,7 +415,7 @@ internal fun PaintViewModel.updateQuickShapeCurveEnabled(enable: Boolean) {
 
 internal fun PaintViewModel.updateQuickShapeRelaxedEnabled(enable: Boolean) {
     quickShapeRelaxedEnabled = enable
-    if (hasAppContext()) {
+    if (isAppContextReady()) {
         appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
             .edit().putBoolean("quickShapeRelaxedEnabled", enable).apply()
     }
@@ -423,7 +423,7 @@ internal fun PaintViewModel.updateQuickShapeRelaxedEnabled(enable: Boolean) {
 
 internal fun PaintViewModel.updateQuickShapeArcEnabled(enable: Boolean) {
     quickShapeArcEnabled = enable
-    if (hasAppContext()) {
+    if (isAppContextReady()) {
         appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
             .edit().putBoolean("quickShapeArcEnabled", enable).apply()
     }
@@ -431,7 +431,7 @@ internal fun PaintViewModel.updateQuickShapeArcEnabled(enable: Boolean) {
 
 internal fun PaintViewModel.updateQuickShapeBoxHandlesEnabled(enable: Boolean) {
     quickShapeBoxHandlesEnabled = enable
-    if (hasAppContext()) {
+    if (isAppContextReady()) {
         appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
             .edit().putBoolean("quickShapeBoxHandlesEnabled", enable).apply()
     }
@@ -439,7 +439,7 @@ internal fun PaintViewModel.updateQuickShapeBoxHandlesEnabled(enable: Boolean) {
 
 internal fun PaintViewModel.updateQuickShapeCurvedContourEnabled(enable: Boolean) {
     quickShapeCurvedContourEnabled = enable
-    if (hasAppContext()) {
+    if (isAppContextReady()) {
         appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
             .edit().putBoolean("quickShapeCurvedContourEnabled", enable).apply()
     }
@@ -447,7 +447,7 @@ internal fun PaintViewModel.updateQuickShapeCurvedContourEnabled(enable: Boolean
 
 internal fun PaintViewModel.updateQuickShapeContourEnabled(enable: Boolean) {
     quickShapeContourEnabled = enable
-    if (hasAppContext()) {
+    if (isAppContextReady()) {
         appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
             .edit().putBoolean("quickShapeContourEnabled", enable).apply()
     }
@@ -455,7 +455,7 @@ internal fun PaintViewModel.updateQuickShapeContourEnabled(enable: Boolean) {
 
 internal fun PaintViewModel.updateQuickShapeAngleSnapEnabled(enable: Boolean) {
     quickShapeAngleSnapEnabled = enable
-    if (hasAppContext()) {
+    if (isAppContextReady()) {
         appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
             .edit().putBoolean("quickShapeAngleSnapEnabled", enable).apply()
     }
@@ -463,7 +463,7 @@ internal fun PaintViewModel.updateQuickShapeAngleSnapEnabled(enable: Boolean) {
 
 internal fun PaintViewModel.updateQuickShapePerPointPressureEnabled(enable: Boolean) {
     quickShapePerPointPressureEnabled = enable
-    if (hasAppContext()) {
+    if (isAppContextReady()) {
         appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
             .edit().putBoolean("quickShapePerPointPressureEnabled", enable).apply()
     }
@@ -472,7 +472,7 @@ internal fun PaintViewModel.updateQuickShapePerPointPressureEnabled(enable: Bool
 internal fun PaintViewModel.updateQuickShapeEnabled(enable: Boolean) {
     quickShapeEnabled = enable
     if (!enable) cancelQuickShape()
-    if (hasAppContext()) {
+    if (isAppContextReady()) {
         appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
             .edit().putBoolean("quickShapeEnabledV2", enable).apply()
     }
@@ -482,7 +482,7 @@ internal fun PaintViewModel.updateQuickShapeHoldDelayMs(ms: Int) {
     val clamped = ms.coerceIn(150, 1200)
     if (quickShapeHoldDelayMs == clamped) return
     quickShapeHoldDelayMs = clamped
-    if (hasAppContext()) {
+    if (isAppContextReady()) {
         appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
             .edit().putInt("quickShapeHoldDelayMs", clamped).apply()
     }

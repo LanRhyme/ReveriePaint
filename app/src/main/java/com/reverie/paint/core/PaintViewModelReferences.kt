@@ -87,7 +87,7 @@ internal fun PaintViewModel.resetProjectReferences(loading: Boolean = false) {
 }
 
 internal fun PaintViewModel.persistProjectReferenceState() {
-    if (!hasAppContext()) return
+    if (!isAppContextReady()) return
     appContext.getSharedPreferences("paint_prefs", 0).edit {
         // 位置 (x/y) 不持久化: 面板每次打开都在 UI 层重新居中, 防止上次
         // 会话拖出屏幕的位置把面板"丢"在屏外
@@ -204,7 +204,7 @@ private fun PaintViewModel.copyReferenceSource(uri: Uri, file: File) {
 
 /** Imported images are written once; subsequent artwork saves do not encode or copy reference pixels. */
 internal fun PaintViewModel.importProjectReferences(uris: List<Uri>, replace: Boolean) {
-    if (!hasAppContext() || currentPage != Page.PAINTING) return
+    if (!isAppContextReady() || currentPage != Page.PAINTING) return
     if (referenceLoading || referenceBitmapLoading || isImportingMedia || referenceCacheClearing) {
         showActionToast(R.string.toast_importing_media, R.drawable.ic_image)
         return

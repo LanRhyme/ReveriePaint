@@ -93,7 +93,7 @@ private fun PaintViewModel.syncPrefs() =
 private fun PaintViewModel.syncManifestFile() = File(appContext.filesDir, MANIFEST_FILE)
 
 private fun PaintViewModel.savedPassword(): String =
-    if (hasAppContext()) SyncCredentialStore.loadPassword(appContext) else ""
+    if (isAppContextReady()) SyncCredentialStore.loadPassword(appContext) else ""
 
 private fun PaintViewModel.bundledNames(assetDir: String): Set<String> =
     try {
@@ -121,7 +121,7 @@ private fun PaintViewModel.syncSources(): List<SyncSource> {
 }
 
 internal fun PaintViewModel.loadSyncSettings() {
-    if (!hasAppContext()) return
+    if (!isAppContextReady()) return
     val prefs = syncPrefs()
     syncState.serverUrl = prefs.getString(PREF_SERVER_URL, "") ?: ""
     syncState.username = prefs.getString(PREF_USERNAME, "") ?: ""
@@ -224,7 +224,7 @@ private fun PaintViewModel.syncClient(
 ) = WebDavSyncClient(url, user, pass, SyncHttp.client(syncState.trustSelfSigned))
 
 private fun PaintViewModel.isOnWifi(): Boolean {
-    if (!hasAppContext()) return false
+    if (!isAppContextReady()) return false
     val cm =
         appContext.getSystemService(android.content.Context.CONNECTIVITY_SERVICE)
             as? android.net.ConnectivityManager ?: return false
@@ -272,7 +272,7 @@ internal fun PaintViewModel.connectSync(
             syncState.username = user
             syncState.connected = true
             syncState.editing = false
-            if (hasAppContext()) {
+            if (isAppContextReady()) {
                 if (passwordDraft.isNotEmpty()) {
                     SyncCredentialStore.savePassword(appContext, passwordDraft)
                 }
@@ -317,7 +317,7 @@ internal fun PaintViewModel.testSyncConnection() {
 }
 
 internal fun PaintViewModel.disconnectSync() {
-    if (hasAppContext()) {
+    if (isAppContextReady()) {
         SyncCredentialStore.clearPassword(appContext)
         syncPrefs()
             .edit()
@@ -355,7 +355,7 @@ internal fun PaintViewModel.backupToCloud() {
         syncState.statusDetail = SYNC_DETAIL_NOT_CONFIGURED
         return
     }
-    if (!hasAppContext()) return
+    if (!isAppContextReady()) return
     val url = SyncCredentials.normalizeServerUrl(syncState.serverUrl)
     val user = syncState.username
     val pass = savedPassword()
@@ -455,7 +455,7 @@ internal fun PaintViewModel.syncAll() {
         syncState.statusDetail = SYNC_DETAIL_NOT_CONFIGURED
         return
     }
-    if (!hasAppContext()) return
+    if (!isAppContextReady()) return
     if (syncState.backupStatus == SyncBackupStatus.RUNNING) return
     val url = SyncCredentials.normalizeServerUrl(syncState.serverUrl)
     val user = syncState.username
@@ -604,7 +604,7 @@ private fun PaintViewModel.isSyncConfigValid(): Boolean =
     SyncCredentials.isValidServerUrl(syncState.serverUrl) && syncState.username.isNotBlank()
 
 private fun PaintViewModel.persistSyncSettings() {
-    if (!hasAppContext()) return
+    if (!isAppContextReady()) return
     syncPrefs()
         .edit()
         .putString(PREF_SERVER_URL, syncState.serverUrl)
