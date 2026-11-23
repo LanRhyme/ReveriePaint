@@ -4,7 +4,6 @@
 
 package com.reverie.paint.ui.painting.canvas
 
-import com.reverie.paint.core.FrontBufferFeatureFlags
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.Canvas
@@ -14,13 +13,11 @@ import android.os.SystemClock
 import android.view.MotionEvent
 import android.view.PointerIcon
 import android.view.View
-import android.view.WindowManager
 import androidx.compose.runtime.MutableState
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.Path
-import com.reverie.paint.BuildConfig
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.core.stylus.FrontBufferProbe
@@ -28,19 +25,9 @@ import com.reverie.paint.core.stylus.UniversalKalmanPredictor
 import com.reverie.paint.model.*
 import com.reverie.paint.ui.theme.parseColor
 import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
 import com.reverie.paint.perf.FbGeomLog
 import com.reverie.paint.perf.PerfHud
-import com.reverie.paint.ui.painting.brush.BrushTipDecoder
-import kotlin.math.PI
-import kotlin.math.abs
-import kotlin.math.atan2
-import kotlin.math.ceil
-import kotlin.math.cos
-import kotlin.math.floor
 import kotlin.math.hypot
-import kotlin.math.roundToInt
-import kotlin.math.sin
 
 /** 单帧最多绘制的像素网格线条数, 超过则跳过网格 (防极端缩放下的掉帧) */
 internal const val MAX_VISIBLE_GRID_LINES = 6000

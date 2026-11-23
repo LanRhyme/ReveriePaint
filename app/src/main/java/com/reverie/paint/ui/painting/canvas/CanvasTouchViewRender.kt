@@ -11,36 +11,17 @@ import android.graphics.Canvas
 import android.graphics.Paint
 import android.os.Build
 import android.os.SystemClock
-import android.view.MotionEvent
-import android.view.PointerIcon
 import android.view.View
 import android.view.WindowManager
-import androidx.compose.runtime.MutableState
 import androidx.compose.ui.geometry.Offset
-import androidx.compose.ui.geometry.Rect
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.Path
-import com.reverie.paint.BuildConfig
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.core.stylus.FrontBufferProbe
-import com.reverie.paint.core.stylus.UniversalKalmanPredictor
 import com.reverie.paint.model.*
-import com.reverie.paint.ui.theme.parseColor
 import android.graphics.PorterDuff
-import android.graphics.PorterDuffColorFilter
-import com.reverie.paint.perf.FbGeomLog
 import com.reverie.paint.perf.PerfHud
-import com.reverie.paint.ui.painting.brush.BrushTipDecoder
-import kotlin.math.PI
-import kotlin.math.abs
-import kotlin.math.atan2
-import kotlin.math.ceil
-import kotlin.math.cos
-import kotlin.math.floor
 import kotlin.math.hypot
-import kotlin.math.roundToInt
-import kotlin.math.sin
 import com.reverie.paint.ui.painting.canvas.CanvasTouchView.LargeBitmapTile
 
 // 拆分自 CanvasTouchView.kt: 同域实现集中于此 (AGENTS.md §6 单文件行数上限)
