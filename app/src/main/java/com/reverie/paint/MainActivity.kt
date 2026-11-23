@@ -38,6 +38,7 @@ import com.reverie.paint.ui.dialog.UpdateDialog
 import com.reverie.paint.ui.home.HomePage
 import com.reverie.paint.ui.painting.PaintingPage
 import com.reverie.paint.ui.replay.ReplayPage
+import com.reverie.paint.ui.painting.canvas.applyHighRefreshRateAndUnbuffered
 
 class MainActivity : ComponentActivity() {
     companion object {

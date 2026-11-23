@@ -40,6 +40,7 @@ import org.json.JSONObject
 import java.io.File
 import java.util.zip.ZipFile
 import kotlin.math.roundToInt
+import com.reverie.paint.ui.painting.canvas.invalidateFromRender
 
 /** Max reference images allowed in reference window and album picker */
 const val MAX_REFERENCE_IMAGES = 50
