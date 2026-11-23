@@ -8,6 +8,8 @@ import android.content.Context
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
 import com.reverie.paint.R
+import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.model.LayerNodeType
 
 private val PAINT_LAYER_REGEX = Regex("""^(?:颜料图层|Paint Layer)\s*(\d+)$""", RegexOption.IGNORE_CASE)
 private val GROUP_LAYER_REGEX = Regex("""^(?:图层组|Group)\s*(\d+)?$""", RegexOption.IGNORE_CASE)
@@ -122,4 +124,17 @@ fun layerDisplayName(context: Context, name: String): String {
         return context.getString(R.string.layer_default_selection, num)
     }
     return name
+}
+
+/**
+ * Whether swiping this layer row left should offer "clear contents" instead of "delete":
+ * true when this is the sole non-background, non-mask layer and supports clearing.
+ */
+internal fun shouldSwipeClearInsteadOfDelete(
+    layers: List<PaintViewModel.LayerUiState>,
+    layer: PaintViewModel.LayerUiState,
+): Boolean {
+    if (layer.isBackground || LayerNodeType.isMask(layer.nodeType)) return false
+    if (layer.isGroup || layer.nodeType == LayerNodeType.ADJUSTMENT) return false
+    return layers.count { !it.isBackground && !LayerNodeType.isMask(it.nodeType) } == 1
 }

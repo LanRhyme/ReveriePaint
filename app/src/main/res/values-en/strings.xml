@@ -1385,6 +1385,7 @@
     <string name="layer_toast_cannot_merge_background">Cannot merge into background layer</string>
     <string name="layer_toast_group_flattened">Pinch: Group merged</string>
     <string name="layer_drawer_solo">Solo</string>
+    <string name="layer_drawer_clear">Clear</string>
     <string name="layer_tag_fill_prefix">Fill · </string>
     <string name="layer_tag_filter_prefix">Filter · </string>
     <string name="layer_tag_stroke_prefix">Stroke · </string>

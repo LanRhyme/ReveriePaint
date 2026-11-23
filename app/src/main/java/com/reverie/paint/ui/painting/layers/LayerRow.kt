@@ -590,10 +590,18 @@ internal fun LayerRow(
                     }
                 }
                 if (!(isMask && isPanelMask)) {
-                    DrawerAction(Modifier.weight(1f), Color(0xFFB05552), R.drawable.ic_trash, stringResource(R.string.common_delete)) {
+                    val isClearAction = shouldSwipeClearInsteadOfDelete(vm.layers, layer)
+                    DrawerAction(
+                        Modifier.weight(1f),
+                        Color(0xFFB05552),
+                        if (isClearAction) R.drawable.ic_erase else R.drawable.ic_trash,
+                        stringResource(if (isClearAction) R.string.layer_drawer_clear else R.string.common_delete),
+                    ) {
                         if (!isBg) {
                             if (isMask) {
                                 vm.removeMask(index)
+                            } else if (isClearAction) {
+                                vm.clearLayer(index)
                             } else {
                                 if (index in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1) {
                                     vm.removeSelectedLayers()
@@ -1126,7 +1134,7 @@ internal fun LayerRowContent(
 }
 
 @Composable
-private fun DrawerAction(
+internal fun DrawerAction(
     modifier: Modifier = Modifier,
     color: Color,
     resId: Int,

@@ -224,12 +224,20 @@ fun LayerPanel(
         )
     }
     var renameTarget by remember { mutableStateOf<LayerRenameTarget?>(null) }
+    var openedDirectlyToDetail by remember { mutableStateOf(false) }
 
     // One-shot navigation from Quick Layers, also while this panel is already pinned open.
     // Resolve by ID here rather than retaining an index across an asynchronous layer refresh.
     LaunchedEffect(initialDetailLayerId) {
         val id = initialDetailLayerId ?: return@LaunchedEffect
-        view = vm.layers.firstOrNull { it.id == id }?.let { LayerView.Detail(it.index) } ?: LayerView.List
+        val target = vm.layers.firstOrNull { it.id == id }
+        if (target != null) {
+            openedDirectlyToDetail = true
+            view = LayerView.Detail(target.index)
+        } else {
+            openedDirectlyToDetail = false
+            view = LayerView.List
+        }
         onInitialDetailConsumed()
     }
 
@@ -369,7 +377,14 @@ fun LayerPanel(
                         LayerDetailPage(
                             vm = vm,
                             index = v.index,
-                            onBack = { view = LayerView.List },
+                            onBack = {
+                                if (openedDirectlyToDetail) {
+                                    openedDirectlyToDetail = false
+                                    onClose()
+                                } else {
+                                    view = LayerView.List
+                                }
+                            },
                             onOpenBlendModes = { view = LayerView.BlendModes(v.index) },
                             onOpenFilters = { view = LayerView.Filters(v.index) },
                             onOpenFilterAdjust = { filterId, filterName ->
@@ -425,7 +440,10 @@ fun LayerPanel(
                             filterId = v.filterId,
                             filterName = v.filterName,
                             onBack = { view = LayerView.Filters(v.indices) },
-                            onDone = { view = LayerView.List }
+                            onDone = {
+                                openedDirectlyToDetail = false
+                                view = LayerView.List
+                            }
                         )
                     }
 

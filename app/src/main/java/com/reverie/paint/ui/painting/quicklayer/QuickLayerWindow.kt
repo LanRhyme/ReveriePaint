@@ -7,7 +7,10 @@ package com.reverie.paint.ui.painting.quicklayer
 import androidx.compose.animation.AnimatedContent
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
+import androidx.compose.animation.core.Animatable
+import androidx.compose.animation.core.Spring
 import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
@@ -19,6 +22,8 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.combinedClickable
+import androidx.compose.foundation.gestures.awaitEachGesture
+import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
@@ -32,6 +37,7 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.Color
@@ -41,6 +47,7 @@ import androidx.compose.ui.graphics.StrokeJoin
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
 import androidx.compose.ui.layout.onGloballyPositioned
@@ -50,6 +57,7 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalWindowInfo
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalViewConfiguration
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -61,6 +69,7 @@ import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.model.DragGripSpec
+import com.reverie.paint.model.LayerNodeType
 import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.model.isFloatingWindowUnpositioned
 import com.reverie.paint.ui.components.PanelCloseButton
@@ -70,16 +79,20 @@ import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.components.evadablePanelContent
 import com.reverie.paint.ui.components.evadablePanelSurface
+import com.reverie.paint.ui.painting.layers.DrawerAction
 import com.reverie.paint.ui.painting.layers.LightCheckerboard
 import com.reverie.paint.ui.painting.layers.layerDisplayName
 import com.reverie.paint.ui.painting.layers.layerLabelColor
+import com.reverie.paint.ui.painting.layers.shouldSwipeClearInsteadOfDelete
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.Motion
 import com.reverie.paint.ui.theme.glassBorder
 import com.reverie.paint.ui.theme.systemHoverIcon
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
+import kotlin.math.abs
 import kotlin.math.roundToInt
+import kotlinx.coroutines.launch
 
 /**
  * 悬浮快捷图层面板 (QuickLayerWindow - 参考画世界设计)
@@ -507,6 +520,14 @@ fun QuickLayerWindow(
                     )
 
                     // 2. 纵向图层列表 (每个图层高度 46dp, 独立左侧眼睛显隐区 + 右侧预览区与名称)
+                    var revealedLayerId by remember { mutableStateOf<Long?>(null) }
+                    LaunchedEffect(displayLayers) {
+                        if (revealedLayerId != null && displayLayers.none { it.id == revealedLayerId }) {
+                            revealedLayerId = null
+                        }
+                    }
+                    val viewConfig = LocalViewConfiguration.current
+                    val swipeScope = rememberCoroutineScope()
 
                     LazyColumn(
                         modifier = Modifier
@@ -515,6 +536,22 @@ fun QuickLayerWindow(
                     ) {
                         items(displayLayers, key = { it.id }) { layer ->
                             val isSelected = layer.index == vm.currentLayerIndex
+                            val isPanelMask = vm.panelCropStateFor(layer.index) != null
+                            val canSwipe = !layer.isBackground && !isPanelMask
+                            val revealed = canSwipe && revealedLayerId == layer.id
+                            val drawerWidth = 46.dp
+                            val drawerPx = with(density) { drawerWidth.roundToPx() }
+                            val revealAnim = remember(layer.id) { Animatable(0f) }
+                            var liveSwipeOffset by remember(layer.id) { mutableFloatStateOf(Float.NaN) }
+
+                            LaunchedEffect(revealed, drawerPx) {
+                                val animSpec = spring<Float>(
+                                    dampingRatio = Spring.DampingRatioNoBouncy,
+                                    stiffness = Spring.StiffnessMedium,
+                                )
+                                revealAnim.animateTo(if (revealed) -drawerPx.toFloat() else 0f, animSpec)
+                            }
+
                             val rowSource = remember { MutableInteractionSource() }
                             val labelColor = if (layer.colorLabel > 0) layerLabelColor(layer.colorLabel) else Color.Transparent
 
@@ -547,12 +584,96 @@ fun QuickLayerWindow(
                                         placementSpec = Motion.enterSpring()
                                     )
                             ) {
-                                Row(
+                                Box(
                                     modifier = Modifier
                                         .fillMaxWidth()
-                                        .height(46.dp),
-                                    verticalAlignment = Alignment.CenterVertically,
+                                        .height(46.dp)
+                                        .clipToBounds()
+                                        .then(
+                                            if (!canSwipe) {
+                                                Modifier
+                                            } else {
+                                                Modifier.pointerInput(layer.id, canSwipe, drawerPx) {
+                                                    awaitEachGesture {
+                                                        val down = awaitFirstDown(requireUnconsumed = false)
+                                                        val startX = down.position.x
+                                                        val startY = down.position.y
+                                                        val startOffset = revealAnim.value
+                                                        val touchSlop = viewConfig.touchSlop
+                                                        var lastChange = down
+                                                        var isHorizontalSwipe = false
+
+                                                        while (true) {
+                                                            val event = awaitPointerEvent()
+                                                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                                            lastChange = change
+                                                            if (change.changedToUpIgnoreConsumed()) break
+                                                            val dx = change.position.x - startX
+                                                            val dy = change.position.y - startY
+                                                            if (!isHorizontalSwipe) {
+                                                                if (abs(dy) > touchSlop && abs(dy) > abs(dx) * 1.2f) {
+                                                                    break
+                                                                }
+                                                                if (abs(dx) > touchSlop && abs(dx) > abs(dy) * 1.25f) {
+                                                                    if (dx < 0 || startOffset < -1f) {
+                                                                        isHorizontalSwipe = true
+                                                                        if (revealedLayerId != null && revealedLayerId != layer.id) {
+                                                                            revealedLayerId = null
+                                                                        }
+                                                                        change.consume()
+                                                                    } else {
+                                                                        break
+                                                                    }
+                                                                }
+                                                            }
+                                                            if (isHorizontalSwipe) {
+                                                                change.consume()
+                                                                liveSwipeOffset = (startOffset + dx).coerceIn(-drawerPx.toFloat(), 0f)
+                                                            }
+                                                        }
+
+                                                        if (isHorizontalSwipe) {
+                                                            var velocityX = 0f
+                                                            val dxTotal = lastChange.position.x - startX
+                                                            val dtMs = (lastChange.uptimeMillis - down.uptimeMillis).coerceAtLeast(1L)
+                                                            if (dtMs < 200L) {
+                                                                velocityX = dxTotal / dtMs * 1000f
+                                                            }
+                                                            val currentOffset = if (liveSwipeOffset.isNaN()) revealAnim.value else liveSwipeOffset
+                                                            val shouldReveal = currentOffset < -drawerPx * 0.4f || velocityX < -500f
+                                                            val targetOffset = if (shouldReveal) -drawerPx.toFloat() else 0f
+                                                            swipeScope.launch {
+                                                                if (!liveSwipeOffset.isNaN()) {
+                                                                    revealAnim.snapTo(currentOffset)
+                                                                    liveSwipeOffset = Float.NaN
+                                                                }
+                                                                revealAnim.animateTo(
+                                                                    targetOffset,
+                                                                    spring(
+                                                                        dampingRatio = Spring.DampingRatioNoBouncy,
+                                                                        stiffness = Spring.StiffnessMedium,
+                                                                    ),
+                                                                )
+                                                            }
+                                                            revealedLayerId = if (shouldReveal) layer.id else null
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        ),
                                 ) {
+                                    val xOffset = if (liveSwipeOffset.isNaN()) revealAnim.value else liveSwipeOffset
+                                    Box(
+                                        modifier = Modifier
+                                            .fillMaxSize()
+                                            .offset { IntOffset(xOffset.roundToInt(), 0) },
+                                    ) {
+                                        Row(
+                                            modifier = Modifier
+                                                .fillMaxWidth()
+                                                .height(46.dp),
+                                            verticalAlignment = Alignment.CenterVertically,
+                                        ) {
                                     // 2.1 左侧独立显隐控制列 (宽 28dp, 带显隐微动效)
                                     val eyeSource = remember { MutableInteractionSource() }
                                     Box(
@@ -608,6 +729,10 @@ fun QuickLayerWindow(
                                                 indication = null,
                                             ) {
                                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                if (revealedLayerId != null) {
+                                                    revealedLayerId = null
+                                                    return@clickable
+                                                }
                                                 // Resolve the stable ID again: indices can change after delete/undo.
                                                 vm.layers.firstOrNull { it.id == layer.id }?.let { current ->
                                                     if (current.index == vm.currentLayerIndex) {
@@ -898,6 +1023,45 @@ fun QuickLayerWindow(
                                                         overflow = TextOverflow.Ellipsis,
                                                         modifier = Modifier.weight(1f),
                                                     )
+                                                }
+                                            }
+                                        }
+                                    }
+                                        }
+                                        if (canSwipe) {
+                                            val isMask = LayerNodeType.isMask(layer.nodeType)
+                                            val isClearAction = shouldSwipeClearInsteadOfDelete(vm.layers, layer)
+                                            Box(
+                                                modifier = Modifier
+                                                    .align(Alignment.CenterEnd)
+                                                    .offset { IntOffset(drawerPx, 0) }
+                                                    .width(drawerWidth)
+                                                    .fillMaxHeight(),
+                                            ) {
+                                                DrawerAction(
+                                                    modifier = Modifier.fillMaxSize(),
+                                                    color = Color(0xFFB05552),
+                                                    resId = if (isClearAction) R.drawable.ic_erase else R.drawable.ic_trash,
+                                                    desc = stringResource(
+                                                        if (isClearAction) R.string.layer_drawer_clear else R.string.common_delete,
+                                                    ),
+                                                ) {
+                                                    val currentIdx = vm.layers.firstOrNull { it.id == layer.id }?.index
+                                                    if (currentIdx != null) {
+                                                        if (isMask) {
+                                                            vm.removeMask(currentIdx)
+                                                        } else if (isClearAction) {
+                                                            vm.clearLayer(currentIdx)
+                                                        } else {
+                                                            val pid = vm.panelIdForGroupRow(currentIdx)
+                                                            if (pid != null) {
+                                                                vm.deletePanel(pid)
+                                                            } else {
+                                                                vm.removeLayer(currentIdx)
+                                                            }
+                                                        }
+                                                    }
+                                                    revealedLayerId = null
                                                 }
                                             }
                                         }
