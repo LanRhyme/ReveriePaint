@@ -130,6 +130,7 @@ import com.reverie.paint.ui.painting.canvas.CanvasView
 import com.reverie.paint.ui.painting.canvas.TransformMode
 import com.reverie.paint.ui.painting.canvas.TransformState
 import com.reverie.paint.ui.painting.canvas.widgetToImage
+import com.reverie.paint.ui.painting.canvas.clearMeasure
 import com.reverie.paint.ui.theme.parseColor
 import com.reverie.paint.ui.painting.layers.LayerPanel
 import com.reverie.paint.ui.painting.layers.LayerDragOverlay
