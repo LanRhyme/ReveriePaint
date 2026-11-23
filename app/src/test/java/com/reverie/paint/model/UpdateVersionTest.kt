@@ -109,4 +109,26 @@ class UpdateVersionTest {
         val matched = AbiMatcher.selectBestApk(assets, arm32Device)
         assertEquals(null, matched)
     }
+
+    @Test
+    fun `release notes aggregator merges newer versions and excludes current or older`() {
+        val releases = listOf(
+            "v1.10.1" to "fix 1",
+            "v1.10.0" to "feat 2",
+            "v1.9.3" to "old fix",
+            "v1.9.2" to "older fix",
+        )
+        val merged = ReleaseNotesAggregator.mergeNewerReleaseNotes(releases, "1.9.3")
+        assertEquals("## v1.10.1\n\nfix 1\n\n---\n\n## v1.10.0\n\nfeat 2", merged)
+    }
+
+    @Test
+    fun `release notes aggregator returns single body without heading when only one version newer`() {
+        val releases = listOf(
+            "v1.10.1" to "fix 1",
+            "v1.10.0" to "feat 2",
+        )
+        val merged = ReleaseNotesAggregator.mergeNewerReleaseNotes(releases, "1.10.0")
+        assertEquals("fix 1", merged)
+    }
 }

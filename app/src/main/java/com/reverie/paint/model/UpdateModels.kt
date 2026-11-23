@@ -213,3 +213,28 @@ object VersionComparator {
         return remote > current
     }
 }
+
+/**
+ * 聚合从当前版本到最新版本之间的更新日志
+ */
+object ReleaseNotesAggregator {
+    fun mergeNewerReleaseNotes(
+        releases: List<Pair<String, String>>,
+        currentVersion: String,
+    ): String {
+        val newer = releases
+            .filter { (tag, body) ->
+                tag.isNotBlank() && body.isNotBlank() &&
+                    VersionComparator.isNewerVersion(tag, currentVersion)
+            }
+            .sortedWith { a, b ->
+                VersionComparator.parse(b.first).compareTo(VersionComparator.parse(a.first))
+            }
+        if (newer.isEmpty()) return ""
+        if (newer.size == 1) return newer.first().second.trim()
+        return newer.joinToString("\n\n---\n\n") { (tag, body) ->
+            val heading = if (tag.startsWith("v", ignoreCase = true)) tag else "v$tag"
+            "## $heading\n\n${body.trim()}"
+        }
+    }
+}

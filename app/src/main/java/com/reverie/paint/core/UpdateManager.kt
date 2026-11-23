@@ -22,6 +22,7 @@ import com.reverie.paint.model.DownloadStatus
 import com.reverie.paint.model.MarkdownParser
 import com.reverie.paint.model.ReleaseAsset
 import com.reverie.paint.model.ReleaseInfo
+import com.reverie.paint.model.ReleaseNotesAggregator
 import com.reverie.paint.model.UpdateCheckResult
 import com.reverie.paint.model.VersionComparator
 import kotlinx.coroutines.CoroutineScope
@@ -34,6 +35,7 @@ import androidx.core.text.HtmlCompat
 import okhttp3.Call
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import org.xmlpull.v1.XmlPullParser
 import java.io.File
@@ -46,6 +48,9 @@ import java.util.concurrent.TimeUnit
  * GitHub Releases API 版本检测与应用内下载更新管理器
  */
 object UpdateManager {
+
+    private const val GITHUB_RELEASES_LIST_URL =
+        "https://api.github.com/repos/LanRhyme/ReveriePaint/releases?per_page=20"
 
     private const val GITHUB_LATEST_RELEASE_URL =
         "https://api.github.com/repos/LanRhyme/ReveriePaint/releases/latest"
@@ -138,7 +143,10 @@ object UpdateManager {
 
         scope.launch(Dispatchers.IO) {
             try {
-                val release = fetchReleaseFromApi() ?: fetchReleaseFromAtomFeed() ?: fetchReleaseFromMirrorChyan()
+                val currentVersion = BuildConfig.VERSION_NAME
+                val release = fetchReleaseFromApi(currentVersion)
+                    ?: fetchReleaseFromAtomFeed(currentVersion)
+                    ?: fetchReleaseFromMirrorChyan()
 
                 if (release == null) {
                     withContext(Dispatchers.Main) {
@@ -152,7 +160,6 @@ object UpdateManager {
                     return@launch
                 }
 
-                val currentVersion = BuildConfig.VERSION_NAME
                 val hasNew = VersionComparator.isNewerVersion(release.tagName, currentVersion)
 
                 withContext(Dispatchers.Main) {
@@ -181,7 +188,88 @@ object UpdateManager {
         }
     }
 
-    private fun fetchReleaseFromApi(): ReleaseInfo? {
+    private fun fetchReleaseFromApi(currentVersion: String): ReleaseInfo? {
+        return fetchReleaseListFromApi(currentVersion) ?: fetchSingleLatestReleaseFromApi()
+    }
+
+    private fun parseReleaseObject(json: JSONObject): ReleaseInfo? {
+        val tagName = json.optString("tag_name", "")
+        if (tagName.isBlank()) return null
+        val name = json.optString("name", tagName)
+        val body = json.optString("body", "")
+        val htmlUrl = json.optString("html_url", "https://github.com/LanRhyme/ReveriePaint/releases")
+        val publishedAt = json.optString("published_at", "")
+
+        val assetsJson = json.optJSONArray("assets")
+        val candidateAssets = mutableListOf<ReleaseAsset>()
+        if (assetsJson != null) {
+            for (i in 0 until assetsJson.length()) {
+                val assetObj = assetsJson.optJSONObject(i) ?: continue
+                val assetName = assetObj.optString("name", "")
+                val downloadUrl = assetObj.optString("browser_download_url", "")
+                val size = assetObj.optLong("size", 0L)
+                val contentType = assetObj.optString("content_type", "")
+
+                if (assetName.endsWith(".apk", ignoreCase = true)) {
+                    candidateAssets.add(
+                        ReleaseAsset(
+                            name = assetName,
+                            downloadUrl = downloadUrl,
+                            size = size,
+                            contentType = contentType,
+                        )
+                    )
+                }
+            }
+        }
+
+        val apkAsset = AbiMatcher.selectBestApk(candidateAssets, Build.SUPPORTED_ABIS)
+
+        return ReleaseInfo(
+            tagName = tagName,
+            name = name,
+            body = body,
+            htmlUrl = htmlUrl,
+            publishedAt = publishedAt,
+            apkAsset = apkAsset,
+        )
+    }
+
+    private fun fetchReleaseListFromApi(currentVersion: String): ReleaseInfo? {
+        try {
+            val request = Request.Builder()
+                .url(GITHUB_RELEASES_LIST_URL)
+                .header("Accept", "application/vnd.github.v3+json")
+                .header("User-Agent", "ReveriePaint-Android")
+                .build()
+
+            val response = okHttpClient.newCall(request).execute()
+            if (!response.isSuccessful) return null
+
+            val bodyStr = response.body?.string() ?: return null
+            val array = JSONArray(bodyStr)
+            var latestRelease: ReleaseInfo? = null
+            val notesPairs = mutableListOf<Pair<String, String>>()
+
+            for (i in 0 until array.length()) {
+                val obj = array.optJSONObject(i) ?: continue
+                if (obj.optBoolean("draft", false) || obj.optBoolean("prerelease", false)) continue
+                val parsed = parseReleaseObject(obj) ?: continue
+                if (latestRelease == null) {
+                    latestRelease = parsed
+                }
+                notesPairs.add(parsed.tagName to parsed.body)
+            }
+
+            val latest = latestRelease ?: return null
+            val mergedNotes = ReleaseNotesAggregator.mergeNewerReleaseNotes(notesPairs, currentVersion)
+            return if (mergedNotes.isNotBlank()) latest.copy(body = mergedNotes) else latest
+        } catch (_: Exception) {
+            return null
+        }
+    }
+
+    private fun fetchSingleLatestReleaseFromApi(): ReleaseInfo? {
         try {
             val request = Request.Builder()
                 .url(GITHUB_LATEST_RELEASE_URL)
@@ -193,54 +281,13 @@ object UpdateManager {
             if (!response.isSuccessful) return null
 
             val bodyStr = response.body?.string() ?: return null
-            val json = JSONObject(bodyStr)
-
-            val tagName = json.optString("tag_name", "")
-            if (tagName.isBlank()) return null
-            val name = json.optString("name", tagName)
-            val body = json.optString("body", "")
-            val htmlUrl = json.optString("html_url", "https://github.com/LanRhyme/ReveriePaint/releases")
-            val publishedAt = json.optString("published_at", "")
-
-            val assetsJson = json.optJSONArray("assets")
-            val candidateAssets = mutableListOf<ReleaseAsset>()
-            if (assetsJson != null) {
-                for (i in 0 until assetsJson.length()) {
-                    val assetObj = assetsJson.optJSONObject(i) ?: continue
-                    val assetName = assetObj.optString("name", "")
-                    val downloadUrl = assetObj.optString("browser_download_url", "")
-                    val size = assetObj.optLong("size", 0L)
-                    val contentType = assetObj.optString("content_type", "")
-
-                    if (assetName.endsWith(".apk", ignoreCase = true)) {
-                        candidateAssets.add(
-                            ReleaseAsset(
-                                name = assetName,
-                                downloadUrl = downloadUrl,
-                                size = size,
-                                contentType = contentType,
-                            )
-                        )
-                    }
-                }
-            }
-
-            val apkAsset = AbiMatcher.selectBestApk(candidateAssets, Build.SUPPORTED_ABIS)
-
-            return ReleaseInfo(
-                tagName = tagName,
-                name = name,
-                body = body,
-                htmlUrl = htmlUrl,
-                publishedAt = publishedAt,
-                apkAsset = apkAsset,
-            )
+            return parseReleaseObject(JSONObject(bodyStr))
         } catch (_: Exception) {
             return null
         }
     }
 
-    private fun fetchReleaseFromAtomFeed(): ReleaseInfo? {
+    private fun fetchReleaseFromAtomFeed(currentVersion: String): ReleaseInfo? {
         try {
             val request = Request.Builder()
                 .url(GITHUB_RELEASES_ATOM_URL)
@@ -254,23 +301,32 @@ object UpdateManager {
             val parser = Xml.newPullParser()
             parser.setInput(StringReader(xmlStr))
             var eventType = parser.eventType
-            var inFirstEntry = false
+            var inEntry = false
             var title = ""
             var updated = ""
             var contentHtml = ""
             var htmlUrl = ""
+
+            data class AtomEntry(
+                val tag: String,
+                val updated: String,
+                val body: String,
+                val htmlUrl: String,
+            )
+
+            val entries = mutableListOf<AtomEntry>()
 
             while (eventType != XmlPullParser.END_DOCUMENT) {
                 val name = parser.name
                 when (eventType) {
                     XmlPullParser.START_TAG -> {
                         if (name == "entry") {
-                            if (!inFirstEntry) {
-                                inFirstEntry = true
-                            } else {
-                                break
-                            }
-                        } else if (inFirstEntry) {
+                            inEntry = true
+                            title = ""
+                            updated = ""
+                            contentHtml = ""
+                            htmlUrl = ""
+                        } else if (inEntry) {
                             when (name) {
                                 "title" -> if (title.isEmpty()) title = parser.nextText()
                                 "updated" -> if (updated.isEmpty()) updated = parser.nextText()
@@ -286,26 +342,38 @@ object UpdateManager {
                             }
                         }
                     }
+                    XmlPullParser.END_TAG -> {
+                        if (name == "entry" && inEntry) {
+                            inEntry = false
+                            val tag = title.trim()
+                            if (tag.isNotBlank()) {
+                                val convertedBody = MarkdownParser.htmlToMarkdown(contentHtml)
+                                val finalBody = if (convertedBody.isNotBlank()) {
+                                    convertedBody
+                                } else {
+                                    HtmlCompat.fromHtml(contentHtml, HtmlCompat.FROM_HTML_MODE_COMPACT).toString().trim()
+                                }
+                                entries.add(AtomEntry(tag, updated, finalBody, htmlUrl))
+                            }
+                        }
+                    }
                 }
                 eventType = parser.next()
             }
 
-            if (title.isBlank()) return null
-            val tagName = title.trim()
-            val convertedBody = MarkdownParser.htmlToMarkdown(contentHtml)
-            val finalBody = if (convertedBody.isNotBlank()) {
-                convertedBody
-            } else {
-                HtmlCompat.fromHtml(contentHtml, HtmlCompat.FROM_HTML_MODE_COMPACT).toString().trim()
-            }
-            val apkAsset = AbiMatcher.buildFallbackApkAsset(tagName, Build.SUPPORTED_ABIS)
+            val first = entries.firstOrNull() ?: return null
+            val mergedNotes = ReleaseNotesAggregator.mergeNewerReleaseNotes(
+                entries.map { it.tag to it.body },
+                currentVersion,
+            )
+            val apkAsset = AbiMatcher.buildFallbackApkAsset(first.tag, Build.SUPPORTED_ABIS)
 
             return ReleaseInfo(
-                tagName = tagName,
-                name = tagName,
-                body = finalBody,
-                htmlUrl = htmlUrl.ifBlank { "https://github.com/LanRhyme/ReveriePaint/releases/tag/$tagName" },
-                publishedAt = updated,
+                tagName = first.tag,
+                name = first.tag,
+                body = mergedNotes.ifBlank { first.body },
+                htmlUrl = first.htmlUrl.ifBlank { "https://github.com/LanRhyme/ReveriePaint/releases/tag/${first.tag}" },
+                publishedAt = first.updated,
                 apkAsset = apkAsset,
             )
         } catch (_: Exception) {
