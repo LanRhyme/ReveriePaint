@@ -65,6 +65,9 @@ import com.reverie.paint.ui.theme.systemHoverIcon
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 import kotlin.math.roundToInt
+import com.reverie.paint.core.clampQuickWindowsToSafeArea
+import com.reverie.paint.core.executeQuickAction
+import com.reverie.paint.core.persistQuickActionsState
 
 /**
  * 悬浮快捷操作小窗 (QuickActionWindow)

@@ -109,6 +109,9 @@ import kotlin.math.cos
 import kotlin.math.roundToInt
 import kotlin.math.sin
 import kotlin.math.sqrt
+import com.reverie.paint.core.clampQuickWindowsToSafeArea
+import com.reverie.paint.core.persistQuickOklchState
+import com.reverie.paint.core.swapColors
 
 /**
  * 调色视角模式:

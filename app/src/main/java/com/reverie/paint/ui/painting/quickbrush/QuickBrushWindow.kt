@@ -70,6 +70,9 @@ import com.reverie.paint.ui.theme.systemHoverIcon
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeChild
 import kotlin.math.roundToInt
+import com.reverie.paint.core.clampQuickWindowsToSafeArea
+import com.reverie.paint.core.getOrderedFavoriteBrushes
+import com.reverie.paint.core.persistQuickBrushState
 
 /**
  * 悬浮快捷笔刷胶囊小窗 (QuickBrushWindow)

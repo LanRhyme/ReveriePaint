@@ -322,7 +322,7 @@ class PaintViewModel : ViewModel() {
         if (!on) PerfTrace.isEnabledByProp = false
         perfHudForcedByProp = PerfTrace.isEnabledByProp
         PerfTrace.enabled = on || PerfTrace.isEnabledByProp
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("perfHud", on).apply()
         }
@@ -337,7 +337,7 @@ class PaintViewModel : ViewModel() {
     fun updateLiquifyProxyPercent(pct: Int) {
         liquifyProxyPercent = pct
         LiquifyGpuPreview.proxyPercentOverride = pct
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putInt("liquifyProxyPercent", pct).apply()
         }
@@ -362,7 +362,7 @@ class PaintViewModel : ViewModel() {
     fun updateLiquifyCoalesceSteps(steps: Int) {
         liquifyCoalesceSteps = steps
         PerfTrace.liquifyCoalesceOverride = steps
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putInt("liquifyCoalesceSteps", steps).apply()
         }
@@ -378,7 +378,7 @@ class PaintViewModel : ViewModel() {
     fun updateLiquifyHostDraw(mode: Int) {
         liquifyHostDraw = mode
         LiquifyGpuPreview.hostDrawOverride = mode
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putInt("liquifyHostDraw", mode).apply()
         }
@@ -396,7 +396,7 @@ class PaintViewModel : ViewModel() {
     fun updateLiquifyField(mode: Int) {
         liquifyField = mode
         LiquifyGlesPreview.fieldOverride = mode
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putInt("liquifyField", mode).apply()
         }
@@ -1132,33 +1132,6 @@ class PaintViewModel : ViewModel() {
     var quickActionWindowHeight by mutableFloatStateOf(0f)
     var quickActionCollapsed by mutableStateOf(false)
 
-    fun persistQuickActionsState() {
-        if (!::appContext.isInitialized) return
-        try {
-            if (isLandscapeMode) {
-                quickActionWindowX_land = quickActionWindowX
-                quickActionWindowY_land = quickActionWindowY
-            } else {
-                quickActionWindowX_port = quickActionWindowX
-                quickActionWindowY_port = quickActionWindowY
-            }
-            val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
-            p.putBoolean("quick_action_open", quickActionWindowOpen)
-            p.putFloat("quick_action_x_land", quickActionWindowX_land)
-            p.putFloat("quick_action_y_land", quickActionWindowY_land)
-            p.putFloat("quick_action_x_port", quickActionWindowX_port)
-            p.putFloat("quick_action_y_port", quickActionWindowY_port)
-            p.putFloat("quick_action_x", quickActionWindowX)
-            p.putFloat("quick_action_y", quickActionWindowY)
-            p.putBoolean("quick_action_collapsed", quickActionCollapsed)
-            p.putString("quick_action_layout", quickActionsConfig.layoutMode.id)
-            p.putBoolean("quick_action_show_labels", quickActionsConfig.showLabels)
-            val actionsStr = quickActionsConfig.actions.joinToString(",") { it.id }
-            p.putString("quick_action_actions", actionsStr)
-            p.apply()
-        } catch (_: Exception) {}
-    }
-
     // Quick Brush Tool Window State (快捷笔刷浮窗)
     var quickBrushWindowOpen by mutableStateOf(false)
     var quickBrushWindowWasOpen = false
@@ -1170,38 +1143,6 @@ class PaintViewModel : ViewModel() {
     var quickBrushOrientation by mutableStateOf("horizontal") // "horizontal" or "vertical"
     var quickBrushMaxLength by mutableIntStateOf(6) // 最大长度（显示数量上限）
     var quickBrushOrder by mutableStateOf<List<String>>(emptyList())
-
-    fun persistQuickBrushState() {
-        if (!::appContext.isInitialized) return
-        try {
-            if (isLandscapeMode) {
-                quickBrushWindowX_land = quickBrushWindowX
-                quickBrushWindowY_land = quickBrushWindowY
-                quickBrushOrientation_land = quickBrushOrientation
-            } else {
-                quickBrushWindowX_port = quickBrushWindowX
-                quickBrushWindowY_port = quickBrushWindowY
-                quickBrushOrientation_port = quickBrushOrientation
-            }
-            val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
-            p.putBoolean("quick_brush_open", quickBrushWindowOpen)
-            p.putFloat("quick_brush_x_land", quickBrushWindowX_land)
-            p.putFloat("quick_brush_y_land", quickBrushWindowY_land)
-            p.putString("quick_brush_orientation_land", quickBrushOrientation_land)
-            p.putFloat("quick_brush_x_port", quickBrushWindowX_port)
-            p.putFloat("quick_brush_y_port", quickBrushWindowY_port)
-            p.putString("quick_brush_orientation_port", quickBrushOrientation_port)
-            p.putFloat("quick_brush_x", quickBrushWindowX)
-            p.putFloat("quick_brush_y", quickBrushWindowY)
-            p.putBoolean("quick_brush_collapsed", quickBrushCollapsed)
-            p.putString("quick_brush_orientation", quickBrushOrientation)
-            p.putInt("quick_brush_max_length", quickBrushMaxLength)
-            if (brushIdPrefsLoaded) {
-                p.putString(com.reverie.paint.core.brushstore.BrushIdPrefs.QUICK_IDS, com.reverie.paint.core.brushstore.BrushIdPrefs.encodeList(quickBrushOrder))
-            }
-            p.apply()
-        } catch (_: Exception) {}
-    }
 
     // Pointer Screen Position Tracking (for opening floating panels at pointer)
     var lastPointerScreenPosition by mutableStateOf<androidx.compose.ui.geometry.Offset?>(null)
@@ -1226,7 +1167,7 @@ class PaintViewModel : ViewModel() {
      * 两派用户都有，所以做成偏好而不是由应用替用户选。
      */
     var quickColorFollowsStylus by mutableStateOf(true)
-        private set
+        internal set
 
     /**
      * 快捷调色盘：**落笔是否自动收起**（仅对临时态面板生效）。
@@ -1234,17 +1175,8 @@ class PaintViewModel : ViewModel() {
      * 默认关闭 —— 强行收起会打断习惯常驻微调的作画流。
      */
     var quickColorAutoHideOnStroke by mutableStateOf(false)
-        private set
+        internal set
 
-    fun updateQuickColorFollowsStylus(enabled: Boolean) {
-        quickColorFollowsStylus = enabled
-        persistQuickColorState()
-    }
-
-    fun updateQuickColorAutoHideOnStroke(enabled: Boolean) {
-        quickColorAutoHideOnStroke = enabled
-        persistQuickColorState()
-    }
     var quickColorWindowWasOpen = false
     var quickColorWindowX by mutableFloatStateOf(-1f)
     var quickColorWindowY by mutableFloatStateOf(-1f)
@@ -1252,79 +1184,6 @@ class PaintViewModel : ViewModel() {
     var quickColorWindowHeight by mutableFloatStateOf(0f)
     var quickColorCollapsed by mutableStateOf(false)
     var quickColorTab by mutableIntStateOf(0)
-
-    fun persistQuickColorState() {
-        if (!::appContext.isInitialized) return
-        try {
-            if (isLandscapeMode) {
-                quickColorWindowX_land = quickColorWindowX
-                quickColorWindowY_land = quickColorWindowY
-            } else {
-                quickColorWindowX_port = quickColorWindowX
-                quickColorWindowY_port = quickColorWindowY
-            }
-            val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
-            p.putBoolean("quick_color_open", quickColorWindowOpen && !quickColorEphemeral)
-            p.putBoolean("quick_color_follows_stylus", quickColorFollowsStylus)
-            p.putBoolean("quick_color_auto_hide_on_stroke", quickColorAutoHideOnStroke)
-            p.putFloat("quick_color_x_land", quickColorWindowX_land)
-            p.putFloat("quick_color_y_land", quickColorWindowY_land)
-            p.putFloat("quick_color_x_port", quickColorWindowX_port)
-            p.putFloat("quick_color_y_port", quickColorWindowY_port)
-            p.putFloat("quick_color_x", quickColorWindowX)
-            p.putFloat("quick_color_y", quickColorWindowY)
-            p.putBoolean("quick_color_collapsed", quickColorCollapsed)
-            p.putInt("quick_color_tab", quickColorTab)
-            p.apply()
-        } catch (_: Exception) {}
-    }
-
-    /**
-     * 开关快捷调色盘。
-     *
-     * @param atPointer 首次兜底时是否以笔尖为参照
-     * @param ephemeral 是否为笔手势唤起的临时态（是否落笔收起再由用户偏好决定）
-     */
-    fun toggleQuickColor(atPointer: Boolean = false, ephemeral: Boolean = false) {
-        if (quickColorWindowOpen) {
-            quickColorWindowOpen = false
-            quickColorEphemeral = false
-        } else {
-            // 随笔尖弹出(默认) → 每次唤出都定位到笔尖附近，便于就近取色；
-            // 固定模式 → 沿用上次拖动位置；从未定位过时仍按笔尖兜底，避免落在屏幕角落。
-            val anchoredToPointer = atPointer &&
-                (quickColorFollowsStylus || isFloatingWindowUnpositioned(quickColorWindowX, quickColorWindowY))
-            if (anchoredToPointer) {
-                lastPointerScreenPosition?.let { pos ->
-                    quickColorWindowX = (pos.x - 110f).coerceAtLeast(0f)
-                    quickColorWindowY = (pos.y - 120f).coerceAtLeast(0f)
-                }
-            }
-            quickColorEphemeral = ephemeral
-            quickColorWindowOpen = true
-        }
-        persistQuickColorState()
-    }
-
-    /**
-     * 收起「临时态」快捷调色盘(笔手势唤起的那一个)。
-     *
-     * 由落笔触发，但**是否真的收起取决于用户偏好** [quickColorAutoHideOnStroke]
-     * (默认关闭) —— 很多用户要把面板留在画布上随时取色。
-     * 常驻态(工具栏打开)始终不受影响。
-     */
-    fun dismissEphemeralQuickColor() {
-        if (quickColorWindowOpen && quickColorEphemeral && quickColorAutoHideOnStroke) {
-            toggleQuickColor()
-        }
-    }
-
-    fun swapColors() {
-        val c1 = brushColor
-        val c2 = brushSecondaryColor
-        updateBrushColor(c2)
-        updateBrushSecondaryColor(c1)
-    }
 
     // Quick OKLCH Tool Window State (OKLCH 悬浮调色窗)
     var quickOklchWindowOpen by mutableStateOf(false)
@@ -1335,44 +1194,6 @@ class PaintViewModel : ViewModel() {
     var quickOklchWindowHeight by mutableFloatStateOf(0f)
     var quickOklchCollapsed by mutableStateOf(false)
 
-    fun persistQuickOklchState() {
-        if (!::appContext.isInitialized) return
-        try {
-            if (isLandscapeMode) {
-                quickOklchWindowX_land = quickOklchWindowX
-                quickOklchWindowY_land = quickOklchWindowY
-            } else {
-                quickOklchWindowX_port = quickOklchWindowX
-                quickOklchWindowY_port = quickOklchWindowY
-            }
-            val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
-            p.putBoolean("quick_oklch_open", quickOklchWindowOpen)
-            p.putFloat("quick_oklch_x_land", quickOklchWindowX_land)
-            p.putFloat("quick_oklch_y_land", quickOklchWindowY_land)
-            p.putFloat("quick_oklch_x_port", quickOklchWindowX_port)
-            p.putFloat("quick_oklch_y_port", quickOklchWindowY_port)
-            p.putFloat("quick_oklch_x", quickOklchWindowX)
-            p.putFloat("quick_oklch_y", quickOklchWindowY)
-            p.putBoolean("quick_oklch_collapsed", quickOklchCollapsed)
-            p.apply()
-        } catch (_: Exception) {}
-    }
-
-    fun toggleQuickOklch(atPointer: Boolean = false) {
-        if (quickOklchWindowOpen) {
-            quickOklchWindowOpen = false
-        } else {
-            if (atPointer) {
-                lastPointerScreenPosition?.let { pos ->
-                    quickOklchWindowX = (pos.x - 110f).coerceAtLeast(0f)
-                    quickOklchWindowY = (pos.y - 120f).coerceAtLeast(0f)
-                }
-            }
-            quickOklchWindowOpen = true
-        }
-        persistQuickOklchState()
-    }
-
     // Quick Layer Tool Window State (快捷图层浮窗)
     var quickLayerWindowOpen by mutableStateOf(false)
     var quickLayerWindowWasOpen = false
@@ -1382,183 +1203,6 @@ class PaintViewModel : ViewModel() {
     var quickLayerWindowHeight by mutableFloatStateOf(0f)
     var quickLayerCollapsed by mutableStateOf(false)
     var quickLayerPinned by mutableStateOf(true)
-
-    fun persistQuickLayerState() {
-        if (!::appContext.isInitialized) return
-        try {
-            if (isLandscapeMode) {
-                quickLayerWindowX_land = quickLayerWindowX
-                quickLayerWindowY_land = quickLayerWindowY
-            } else {
-                quickLayerWindowX_port = quickLayerWindowX
-                quickLayerWindowY_port = quickLayerWindowY
-            }
-            val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
-            p.putBoolean("quick_layer_open", quickLayerWindowOpen)
-            p.putFloat("quick_layer_x_land", quickLayerWindowX_land)
-            p.putFloat("quick_layer_y_land", quickLayerWindowY_land)
-            p.putFloat("quick_layer_x_port", quickLayerWindowX_port)
-            p.putFloat("quick_layer_y_port", quickLayerWindowY_port)
-            p.putFloat("quick_layer_x", quickLayerWindowX)
-            p.putFloat("quick_layer_y", quickLayerWindowY)
-            p.putBoolean("quick_layer_collapsed", quickLayerCollapsed)
-            p.putBoolean("quick_layer_pinned", quickLayerPinned)
-            p.apply()
-        } catch (_: Exception) {}
-    }
-
-    fun toggleQuickLayer() {
-        quickLayerWindowOpen = !quickLayerWindowOpen
-        persistQuickLayerState()
-    }
-
-    /**
-     * 处理屏幕方向（横屏 / 竖屏）切换或屏幕尺寸变动。
-     * 为悬浮快捷小窗维护独立的横屏与竖屏排布记忆，杜绝旋转时将靠下/靠右的小窗单向挤压至正方形区域。
-     */
-    fun handleOrientationChange(
-        newIsLandscape: Boolean,
-        screenWidthPx: Float,
-        screenHeightPx: Float,
-        density: Float,
-    ) {
-        if (screenWidthPx <= 0f || screenHeightPx <= 0f) return
-
-        if (newIsLandscape == isLandscapeMode) {
-            val clampW = if (floatingHostWidthPx > 0f) floatingHostWidthPx else screenWidthPx
-            val clampH = if (floatingHostHeightPx > 0f) floatingHostHeightPx else screenHeightPx
-            clampQuickWindowsToSafeArea(clampW, clampH, density)
-            return
-        }
-
-        // 1. 保存当前活跃坐标到即将离去方向的独立槽位
-        if (isLandscapeMode) {
-            quickActionWindowX_land = quickActionWindowX
-            quickActionWindowY_land = quickActionWindowY
-            quickBrushWindowX_land = quickBrushWindowX
-            quickBrushWindowY_land = quickBrushWindowY
-            quickBrushOrientation_land = quickBrushOrientation
-            quickColorWindowX_land = quickColorWindowX
-            quickColorWindowY_land = quickColorWindowY
-            quickOklchWindowX_land = quickOklchWindowX
-            quickOklchWindowY_land = quickOklchWindowY
-            quickLayerWindowX_land = quickLayerWindowX
-            quickLayerWindowY_land = quickLayerWindowY
-            referenceWindowX_land = referenceWindowX
-            referenceWindowY_land = referenceWindowY
-        } else {
-            quickActionWindowX_port = quickActionWindowX
-            quickActionWindowY_port = quickActionWindowY
-            quickBrushWindowX_port = quickBrushWindowX
-            quickBrushWindowY_port = quickBrushWindowY
-            quickBrushOrientation_port = quickBrushOrientation
-            quickColorWindowX_port = quickColorWindowX
-            quickColorWindowY_port = quickColorWindowY
-            quickOklchWindowX_port = quickOklchWindowX
-            quickOklchWindowY_port = quickOklchWindowY
-            quickLayerWindowX_port = quickLayerWindowX
-            quickLayerWindowY_port = quickLayerWindowY
-            referenceWindowX_port = referenceWindowX
-            referenceWindowY_port = referenceWindowY
-        }
-
-        // 2. 切换方向标记
-        isLandscapeMode = newIsLandscape
-
-        // 3. 恢复进入新方向的独立记忆 (若新方向从未配置过，继承离去方向坐标作为初值)
-        if (newIsLandscape) {
-            if (isFloatingWindowPositioned(quickActionWindowX_land, quickActionWindowY_land)) {
-                quickActionWindowX = quickActionWindowX_land
-                quickActionWindowY = quickActionWindowY_land
-            }
-            if (isFloatingWindowPositioned(quickBrushWindowX_land, quickBrushWindowY_land)) {
-                quickBrushWindowX = quickBrushWindowX_land
-                quickBrushWindowY = quickBrushWindowY_land
-            }
-            quickBrushOrientation = quickBrushOrientation_land
-            if (isFloatingWindowPositioned(quickColorWindowX_land, quickColorWindowY_land)) {
-                quickColorWindowX = quickColorWindowX_land
-                quickColorWindowY = quickColorWindowY_land
-            }
-            if (isFloatingWindowPositioned(quickOklchWindowX_land, quickOklchWindowY_land)) {
-                quickOklchWindowX = quickOklchWindowX_land
-                quickOklchWindowY = quickOklchWindowY_land
-            }
-            if (isFloatingWindowPositioned(quickLayerWindowX_land, quickLayerWindowY_land)) {
-                quickLayerWindowX = quickLayerWindowX_land
-                quickLayerWindowY = quickLayerWindowY_land
-            }
-            if (isFloatingWindowPositioned(referenceWindowX_land, referenceWindowY_land)) {
-                referenceWindowX = referenceWindowX_land
-                referenceWindowY = referenceWindowY_land
-            }
-        } else {
-            if (isFloatingWindowPositioned(quickActionWindowX_port, quickActionWindowY_port)) {
-                quickActionWindowX = quickActionWindowX_port
-                quickActionWindowY = quickActionWindowY_port
-            }
-            if (isFloatingWindowPositioned(quickBrushWindowX_port, quickBrushWindowY_port)) {
-                quickBrushWindowX = quickBrushWindowX_port
-                quickBrushWindowY = quickBrushWindowY_port
-            }
-            quickBrushOrientation = quickBrushOrientation_port
-            if (isFloatingWindowPositioned(quickColorWindowX_port, quickColorWindowY_port)) {
-                quickColorWindowX = quickColorWindowX_port
-                quickColorWindowY = quickColorWindowY_port
-            }
-            if (isFloatingWindowPositioned(quickOklchWindowX_port, quickOklchWindowY_port)) {
-                quickOklchWindowX = quickOklchWindowX_port
-                quickOklchWindowY = quickOklchWindowY_port
-            }
-            if (isFloatingWindowPositioned(quickLayerWindowX_port, quickLayerWindowY_port)) {
-                quickLayerWindowX = quickLayerWindowX_port
-                quickLayerWindowY = quickLayerWindowY_port
-            }
-            if (isFloatingWindowPositioned(referenceWindowX_port, referenceWindowY_port)) {
-                referenceWindowX = referenceWindowX_port
-                referenceWindowY = referenceWindowY_port
-            }
-        }
-
-        // 4. 按绘画页布局夹取; 宿主尚未测量时回退到本次传入的屏幕尺寸
-        val clampW = if (floatingHostWidthPx > 0f) floatingHostWidthPx else screenWidthPx
-        val clampH = if (floatingHostHeightPx > 0f) floatingHostHeightPx else screenHeightPx
-        clampQuickWindowsToSafeArea(clampW, clampH, density)
-
-        // 5. 更新新方向槽位并持久化保存
-        if (newIsLandscape) {
-            quickActionWindowX_land = quickActionWindowX
-            quickActionWindowY_land = quickActionWindowY
-            quickBrushWindowX_land = quickBrushWindowX
-            quickBrushWindowY_land = quickBrushWindowY
-            quickColorWindowX_land = quickColorWindowX
-            quickColorWindowY_land = quickColorWindowY
-            quickOklchWindowX_land = quickOklchWindowX
-            quickOklchWindowY_land = quickOklchWindowY
-            quickLayerWindowX_land = quickLayerWindowX
-            quickLayerWindowY_land = quickLayerWindowY
-            referenceWindowX_land = referenceWindowX
-            referenceWindowY_land = referenceWindowY
-        } else {
-            quickActionWindowX_port = quickActionWindowX
-            quickActionWindowY_port = quickActionWindowY
-            quickBrushWindowX_port = quickBrushWindowX
-            quickBrushWindowY_port = quickBrushWindowY
-            quickColorWindowX_port = quickColorWindowX
-            quickColorWindowY_port = quickColorWindowY
-            quickOklchWindowX_port = quickOklchWindowX
-            quickOklchWindowY_port = quickOklchWindowY
-            quickLayerWindowX_port = quickLayerWindowX
-            quickLayerWindowY_port = quickLayerWindowY
-            referenceWindowX_port = referenceWindowX
-            referenceWindowY_port = referenceWindowY
-        }
-        persistQuickActionsState()
-        persistQuickBrushState()
-        persistQuickColorState()
-        persistQuickOklchState()
-        persistQuickLayerState()
-    }
 
     /** 绘画页宿主 Box 的实测像素尺寸。0 表示尚未 layout, 方向切换时回退到传入的屏幕尺寸。 */
     internal var floatingHostWidthPx: Float = 0f
@@ -1594,355 +1238,7 @@ class PaintViewModel : ViewModel() {
     internal val quickLayerGrip = FloatingGrip()
 
     /** 夹取结果复用容器: 拖拽期每帧要夹 6 个窗, 避免每帧分配 Pair 与装箱。仅主线程使用。 */
-    private val clampScratch = WindowOrigin()
-
-    /**
-     * 夹一个窗: 有实测把手就用实测矩形, 没有时用 [fallbackLeft]/[fallbackTop]/[fallbackW]/[fallbackH]。
-     *
-     * 实测把手总是缺一帧 —— 宿主 Box 在 measure 阶段就回调 onSizeChanged, 而子节点的把手要到
-     * place 阶段才 onGloballyPositioned, 所以首帧/方向切换时走兜底。兜底几何统一引用 DragGripSpec,
-     * 与 ui 侧实际尺寸同源, 不会悄悄漂移。
-     */
-    private inline fun applyGripClamp(
-        x: Float,
-        y: Float,
-        grip: FloatingGrip,
-        fallbackLeft: Float,
-        fallbackTop: Float,
-        fallbackW: Float,
-        fallbackH: Float,
-        parentW: Float,
-        parentH: Float,
-        keepInside: Float,
-        persist: Boolean,
-        write: (Float, Float) -> Unit,
-        save: () -> Unit,
-    ) {
-        val gripLeft: Float
-        val gripTop: Float
-        val gripW: Float
-        val gripH: Float
-        if (grip.placed) {
-            gripLeft = grip.left
-            gripTop = grip.top
-            gripW = grip.width
-            gripH = grip.height
-        } else {
-            gripLeft = fallbackLeft
-            gripTop = fallbackTop
-            gripW = fallbackW
-            gripH = fallbackH
-        }
-        clampPlacedWindowOrigin(
-            x, y, parentW, parentH, gripLeft, gripTop, gripW, gripH, keepInside, clampScratch,
-        )
-        val nx = clampScratch.x
-        val ny = clampScratch.y
-        if (nx != x || ny != y) {
-            write(nx, ny)
-            if (persist) save()
-        }
-    }
-
-    /**
-     * 将各悬浮快捷小窗按绘画页布局夹取: 左右可出界但留住 48dp 拖把手, 顶部不允许滑出。
-     * 已测量的把手优先; 未测量时用各窗布局对应的把手 fallback。
-     * persist=false 用于拖拽过程中的实时夹取: 只改内存坐标, 不落盘 (落盘仍由松手时的 onDragEnd 负责)。
-     * 通过 [isFloatingWindowPositioned] 跳过「未定位」哨兵 (-1,-1), 避免把未打开过的窗夹到左上角,
-     * 同时保留合法的左沿/左上角负坐标继续参与夹取。
-     */
-    fun clampQuickWindowsToSafeArea(
-        parentW: Float,
-        parentH: Float,
-        density: Float,
-        persist: Boolean = true,
-    ) {
-        if (parentW <= 0f || parentH <= 0f) return
-        val keepInside = 48f * density
-
-        // 1. Reference Window: 顶栏整宽 (展开 38dp / 收起 28dp 拖动条)。未定位哨兵不夹。
-        if (isFloatingWindowPositioned(referenceWindowX, referenceWindowY)) {
-            val w = referenceWindowWidth * density
-            val h = referenceWindowHeight * density
-            val barH = if (referenceBarsCollapsed) {
-                DragGripSpec.REFERENCE_STRIP_HEIGHT_DP
-            } else {
-                DragGripSpec.REFERENCE_TOP_BAR_HEIGHT_DP
-            }
-            applyGripClamp(
-                referenceWindowX, referenceWindowY, referenceGrip,
-                0f, 0f, w, minOf(barH * density, h),
-                parentW, parentH, keepInside, persist,
-                { nx, ny -> referenceWindowX = nx; referenceWindowY = ny },
-                ::persistReferenceState,
-            )
-        }
-
-        // 2. Quick Action Window: 顶栏整宽 (展开 24dp), 折叠时把手就是整窗
-        if (isFloatingWindowPositioned(quickActionWindowX, quickActionWindowY)) {
-            val fallbackW = when {
-                quickActionCollapsed -> 64f * density
-                quickActionsConfig.layoutMode == com.reverie.paint.model.QuickActionLayoutMode.COLUMN -> 56f * density
-                quickActionsConfig.layoutMode == com.reverie.paint.model.QuickActionLayoutMode.ROW -> 240f * density
-                quickActionsConfig.layoutMode == com.reverie.paint.model.QuickActionLayoutMode.GRID_2 -> 110f * density
-                else -> 160f * density
-            }
-            val fallbackH = when {
-                quickActionCollapsed -> 44f * density
-                quickActionsConfig.layoutMode == com.reverie.paint.model.QuickActionLayoutMode.COLUMN -> 280f * density
-                quickActionsConfig.layoutMode == com.reverie.paint.model.QuickActionLayoutMode.ROW -> 76f * density
-                else -> 160f * density
-            }
-            val w = if (quickActionWindowWidth > 0f) quickActionWindowWidth else fallbackW
-            val h = if (quickActionWindowHeight > 0f) quickActionWindowHeight else fallbackH
-            val gripH = if (quickActionCollapsed) {
-                h
-            } else {
-                minOf(DragGripSpec.QUICK_ACTION_TOP_BAR_HEIGHT_DP * density, h)
-            }
-            applyGripClamp(
-                quickActionWindowX, quickActionWindowY, quickActionGrip,
-                0f, 0f, w, gripH,
-                parentW, parentH, keepInside, persist,
-                { nx, ny -> quickActionWindowX = nx; quickActionWindowY = ny },
-                ::persistQuickActionsState,
-            )
-        }
-
-        // 3. Quick Brush Window: 折叠整窗; 竖向顶部握把; 横向左端握把
-        if (isFloatingWindowPositioned(quickBrushWindowX, quickBrushWindowY)) {
-            val fallbackW = when {
-                quickBrushCollapsed -> 64f * density
-                quickBrushOrientation == "vertical" -> 54f * density
-                else -> (quickBrushMaxLength * 43f - 1f).coerceAtLeast(42f) * density
-            }
-            val fallbackH = when {
-                quickBrushCollapsed -> 44f * density
-                quickBrushOrientation == "vertical" -> 260f * density
-                else -> 54f * density
-            }
-            val w = if (quickBrushWindowWidth > 0f) quickBrushWindowWidth else fallbackW
-            val h = if (quickBrushWindowHeight > 0f) quickBrushWindowHeight else fallbackH
-            val gripLeft: Float
-            val gripTop: Float
-            val gripW: Float
-            val gripH: Float
-            when {
-                quickBrushCollapsed -> {
-                    gripLeft = 0f
-                    gripTop = 0f
-                    gripW = w
-                    gripH = h
-                }
-                quickBrushOrientation == "vertical" -> {
-                    val barW = DragGripSpec.QUICK_BRUSH_TOP_WIDTH_DP * density
-                    gripW = minOf(barW, w)
-                    gripH = minOf(DragGripSpec.QUICK_BRUSH_TOP_HEIGHT_DP * density, h)
-                    gripLeft = ((w - barW) / 2f).coerceAtLeast(0f)
-                    gripTop = 0f
-                }
-                else -> {
-                    val barH = DragGripSpec.QUICK_BRUSH_SIDE_HEIGHT_DP * density
-                    gripW = minOf(DragGripSpec.QUICK_BRUSH_SIDE_WIDTH_DP * density, w)
-                    gripH = minOf(barH, h)
-                    gripLeft = DragGripSpec.QUICK_BRUSH_SIDE_INSET_DP * density
-                    gripTop = ((h - barH) / 2f).coerceAtLeast(0f)
-                }
-            }
-            applyGripClamp(
-                quickBrushWindowX, quickBrushWindowY, quickBrushGrip,
-                gripLeft, gripTop, gripW, gripH,
-                parentW, parentH, keepInside, persist,
-                { nx, ny -> quickBrushWindowX = nx; quickBrushWindowY = ny },
-                ::persistQuickBrushState,
-            )
-        }
-
-        // 4. Quick Color Window: 折叠整窗 46dp; 展开居中 60x16 小横条
-        if (isFloatingWindowPositioned(quickColorWindowX, quickColorWindowY)) {
-            val fallbackW = if (quickColorCollapsed) 46f * density else 212f * density
-            val fallbackH = if (quickColorCollapsed) 46f * density else 272f * density
-            val w = if (quickColorWindowWidth > 0f) quickColorWindowWidth else fallbackW
-            val h = if (quickColorWindowHeight > 0f) quickColorWindowHeight else fallbackH
-            val gripLeft: Float
-            val gripW: Float
-            val gripH: Float
-            if (quickColorCollapsed) {
-                gripLeft = 0f
-                gripW = w
-                gripH = h
-            } else {
-                val barW = DragGripSpec.PILL_WIDTH_DP * density
-                gripW = minOf(barW, w)
-                gripH = minOf(DragGripSpec.PILL_HEIGHT_DP * density, h)
-                gripLeft = ((w - barW) / 2f).coerceAtLeast(0f)
-            }
-            applyGripClamp(
-                quickColorWindowX, quickColorWindowY, quickColorGrip,
-                gripLeft, 0f, gripW, gripH,
-                parentW, parentH, keepInside, persist,
-                { nx, ny -> quickColorWindowX = nx; quickColorWindowY = ny },
-                ::persistQuickColorState,
-            )
-        }
-
-        // 5. Quick OKLCH Window: 折叠整窗 46dp; 展开宽 256dp, 把手同颜色窗
-        if (isFloatingWindowPositioned(quickOklchWindowX, quickOklchWindowY)) {
-            val fallbackW = if (quickOklchCollapsed) 46f * density else 256f * density
-            val fallbackH = if (quickOklchCollapsed) 46f * density else 320f * density
-            val w = if (quickOklchWindowWidth > 0f) quickOklchWindowWidth else fallbackW
-            val h = if (quickOklchWindowHeight > 0f) quickOklchWindowHeight else fallbackH
-            val gripLeft: Float
-            val gripW: Float
-            val gripH: Float
-            if (quickOklchCollapsed) {
-                gripLeft = 0f
-                gripW = w
-                gripH = h
-            } else {
-                val barW = DragGripSpec.PILL_WIDTH_DP * density
-                gripW = minOf(barW, w)
-                gripH = minOf(DragGripSpec.PILL_HEIGHT_DP * density, h)
-                gripLeft = ((w - barW) / 2f).coerceAtLeast(0f)
-            }
-            applyGripClamp(
-                quickOklchWindowX, quickOklchWindowY, quickOklchGrip,
-                gripLeft, 0f, gripW, gripH,
-                parentW, parentH, keepInside, persist,
-                { nx, ny -> quickOklchWindowX = nx; quickOklchWindowY = ny },
-                ::persistQuickOklchState,
-            )
-        }
-
-        // 6. Quick Layer Window: 折叠整窗 46dp; 展开顶栏 38dp
-        if (isFloatingWindowPositioned(quickLayerWindowX, quickLayerWindowY)) {
-            val fallbackW = if (quickLayerCollapsed) 46f * density else 156f * density
-            val fallbackH = if (quickLayerCollapsed) 46f * density else 290f * density
-            val w = if (quickLayerWindowWidth > 0f) quickLayerWindowWidth else fallbackW
-            val h = if (quickLayerWindowHeight > 0f) quickLayerWindowHeight else fallbackH
-            val gripH = if (quickLayerCollapsed) {
-                h
-            } else {
-                minOf(DragGripSpec.QUICK_LAYER_TOP_BAR_HEIGHT_DP * density, h)
-            }
-            applyGripClamp(
-                quickLayerWindowX, quickLayerWindowY, quickLayerGrip,
-                0f, 0f, w, gripH,
-                parentW, parentH, keepInside, persist,
-                { nx, ny -> quickLayerWindowX = nx; quickLayerWindowY = ny },
-                ::persistQuickLayerState,
-            )
-        }
-    }
-
-    fun getOrderedFavoriteBrushes(): List<BrushPresetInfo> {
-        val favs = brushPresets.filter { isFavoriteBrush(it.id) }
-        if (quickBrushOrder.isEmpty()) return favs
-        val orderMap = quickBrushOrder.withIndex().associate { it.value to it.index }
-        return favs.sortedWith(compareBy({ orderMap[it.id] ?: Int.MAX_VALUE }, { it.name }))
-    }
-
-    fun executeQuickAction(action: com.reverie.paint.model.QuickAction) {
-        when (action) {
-            com.reverie.paint.model.QuickAction.LOCK_VIEW -> {
-                isViewTransformLocked = !isViewTransformLocked
-            }
-            com.reverie.paint.model.QuickAction.FLIP_H -> {
-                // 快捷面板固定为"视图翻转": 这里要的是随时可切回的临时镜像,
-                // 完全翻转要逐层改像素且进撤销栈, 放快捷面板上容易误触。
-                toggleViewFlipHorizontal()
-            }
-            com.reverie.paint.model.QuickAction.FLIP_V -> {
-                toggleViewFlipVertical()
-            }
-            com.reverie.paint.model.QuickAction.RESET_VIEW -> {
-                requestUiCommand("reset_view")
-            }
-            com.reverie.paint.model.QuickAction.ZOOM_IN -> requestUiCommand(CanvasViewportStep.ZOOM_IN.command)
-            com.reverie.paint.model.QuickAction.ZOOM_OUT -> requestUiCommand(CanvasViewportStep.ZOOM_OUT.command)
-            com.reverie.paint.model.QuickAction.ROTATE_CCW -> requestUiCommand(CanvasViewportStep.ROTATE_CCW.command)
-            com.reverie.paint.model.QuickAction.ROTATE_CW -> requestUiCommand(CanvasViewportStep.ROTATE_CW.command)
-            com.reverie.paint.model.QuickAction.UNDO -> {
-                undoFromPanel()
-            }
-            com.reverie.paint.model.QuickAction.REDO -> {
-                redoFromPanel()
-            }
-            com.reverie.paint.model.QuickAction.TOGGLE_ERASER -> {
-                if (currentToolId == "eraser") {
-                    applyTool("brush")
-                } else {
-                    applyTool("eraser")
-                }
-            }
-            com.reverie.paint.model.QuickAction.ERASER_MODE -> {
-                toggleEraserMode()
-            }
-            com.reverie.paint.model.QuickAction.LAST_TOOL -> {
-                val t = lastToolId
-                if (t.isNotEmpty() && t != currentToolId) {
-                    applyTool(t)
-                }
-            }
-            com.reverie.paint.model.QuickAction.PICK_COLOR -> {
-                applyTool("picker")
-            }
-            com.reverie.paint.model.QuickAction.SWAP_COLOR -> {
-                swapColors()
-            }
-            com.reverie.paint.model.QuickAction.BRUSH_SIZE_INC -> {
-                val newSize = (brushSize * 1.25).coerceAtMost(effectiveBrushMaxSize)
-                updateBrushSize(newSize)
-            }
-            com.reverie.paint.model.QuickAction.BRUSH_SIZE_DEC -> {
-                val minL = brushMinSizeLimit.coerceAtLeast(0.5)
-                val newSize = (brushSize / 1.25).coerceAtLeast(minL)
-                updateBrushSize(newSize)
-            }
-            com.reverie.paint.model.QuickAction.ALPHA_LOCK -> {
-                val idx = currentLayerIndex
-                val layer = layers.firstOrNull { it.index == idx }
-                if (layer != null && !layer.isBackground && layer.nodeType != 3) {
-                    val curr = layer.alphaLocked
-                    setLayerAlphaLocked(idx, !curr)
-                }
-            }
-            com.reverie.paint.model.QuickAction.NEW_LAYER -> {
-                addLayer()
-            }
-            com.reverie.paint.model.QuickAction.DUPLICATE_LAYER -> {
-                copyLayer(currentLayerIndex)
-            }
-            com.reverie.paint.model.QuickAction.MERGE_DOWN -> {
-                mergeDown(currentLayerIndex)
-            }
-            com.reverie.paint.model.QuickAction.CLEAR_LAYER -> {
-                clearLayer(currentLayerIndex)
-            }
-            com.reverie.paint.model.QuickAction.DISABLE_TOUCH -> {
-                isCanvasTouchDisabled = !isCanvasTouchDisabled
-            }
-            com.reverie.paint.model.QuickAction.TOGGLE_QUICK_COLOR -> {
-                toggleQuickColor(atPointer = true)
-            }
-            com.reverie.paint.model.QuickAction.TOGGLE_QUICK_OKLCH -> {
-                toggleQuickOklch(atPointer = true)
-            }
-            com.reverie.paint.model.QuickAction.TOGGLE_QUICK_LAYER -> {
-                toggleQuickLayer()
-            }
-            com.reverie.paint.model.QuickAction.SHADING_ASSIST -> {
-                openShadingAssist()
-            }
-            com.reverie.paint.model.QuickAction.PAN -> {
-                if (currentToolId == "pan") {
-                    applyTool(if (lastToolId.isNotEmpty() && lastToolId != "pan") lastToolId else "brush")
-                } else {
-                    applyTool("pan")
-                }
-            }
-        }
-    }
+    internal val clampScratch = WindowOrigin()
 
     fun isCurrentLayerAlphaLocked(): Boolean {
         val idx = currentLayerIndex
@@ -2037,7 +1333,7 @@ class PaintViewModel : ViewModel() {
     }
 
     private fun persistAuthorProfiles() {
-        if (!::appContext.isInitialized) return
+        if (!isAppContextReady()) return
         try {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -2059,7 +1355,7 @@ class PaintViewModel : ViewModel() {
     var viewToolsMeasuredBounds by mutableStateOf<androidx.compose.ui.geometry.Rect?>(null)
 
     fun checkOnboardingTrigger() {
-        if (!::appContext.isInitialized) return
+        if (!isAppContextReady()) return
         val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
         val completed = prefs.getBoolean("onboarding_completed_v1", false)
         if (!completed) {
@@ -2073,7 +1369,7 @@ class PaintViewModel : ViewModel() {
         layerPanelMeasuredBounds = null
         allToolsPanelMeasuredBounds = null
         viewToolsMeasuredBounds = null
-        if (markCompleted && ::appContext.isInitialized) {
+        if (markCompleted && isAppContextReady()) {
             val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
             prefs.edit().putBoolean("onboarding_completed_v1", true).apply()
         }
@@ -2091,7 +1387,7 @@ class PaintViewModel : ViewModel() {
     var createdCanvasCount by mutableIntStateOf(0)
 
     fun recordLaunch() {
-        if (!::appContext.isInitialized) return
+        if (!isAppContextReady()) return
         val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
         val cur = prefs.getInt("launch_count", 0) + 1
         prefs.edit().putInt("launch_count", cur).apply()
@@ -2101,7 +1397,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun recordExport() {
-        if (!::appContext.isInitialized) return
+        if (!isAppContextReady()) return
         val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
         val cur = prefs.getInt("export_count", 0) + 1
         prefs.edit().putInt("export_count", cur).apply()
@@ -2109,7 +1405,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun recordCanvasCreated() {
-        if (!::appContext.isInitialized) return
+        if (!isAppContextReady()) return
         val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
         val cur = prefs.getInt("created_canvas_count", 0) + 1
         prefs.edit().putInt("created_canvas_count", cur).apply()
@@ -2118,7 +1414,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun checkSponsorPromptTrigger() {
-        if (!::appContext.isInitialized) return
+        if (!isAppContextReady()) return
         val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
         val suppressed = prefs.getBoolean("sponsor_prompt_suppressed", false)
         if (suppressed) return
@@ -2132,7 +1428,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun postponeSponsorPrompt() {
-        if (!::appContext.isInitialized) return
+        if (!isAppContextReady()) return
         val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
         val currentLaunches = prefs.getInt("launch_count", 0)
         val currentExports = prefs.getInt("export_count", 0)
@@ -2144,7 +1440,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun suppressSponsorPrompt() {
-        if (!::appContext.isInitialized) return
+        if (!isAppContextReady()) return
         val prefs = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
         prefs.edit().putBoolean("sponsor_prompt_suppressed", true).apply()
         showSponsorPromptDialog = false
@@ -2170,7 +1466,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun persistBrushPanelState() {
-        if (!::appContext.isInitialized) return
+        if (!isAppContextReady()) return
         try {
             val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
             p.putString("brush_panel_category", brushPanelSelectedCategory)
@@ -2352,7 +1648,7 @@ class PaintViewModel : ViewModel() {
     fun updateAutoHidePanelsOnStroke(enabled: Boolean) {
         autoHidePanelsOnStroke = enabled
         if (!enabled) clearAllSlotEvasion()
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("autoHidePanelsOnStroke", enabled).apply()
         }
@@ -2381,7 +1677,7 @@ class PaintViewModel : ViewModel() {
         showToolbarSqueezedDialog = false
         if (forever) {
             toolbarSqueezedWarningDismissed = true
-            if (::appContext.isInitialized) {
+            if (isAppContextReady()) {
                 appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                     .edit()
                     .putBoolean("toolbarSqueezedWarningDismissed", true)
@@ -3123,7 +2419,7 @@ class PaintViewModel : ViewModel() {
     fun updateCustomPressureCurve(points: List<androidx.compose.ui.geometry.Offset>) {
         pressureCurvePreset = 4
         pressureControlPoints = points
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             try {
                 val arr = org.json.JSONArray()
                 for (pt in points) {
@@ -3152,7 +2448,7 @@ class PaintViewModel : ViewModel() {
     fun updateCanvasEditMenuActions(actions: List<com.reverie.paint.model.CanvasEditAction>) {
         val encoded = com.reverie.paint.model.CanvasEditAction.encode(actions)
         canvasEditMenuActions = com.reverie.paint.model.CanvasEditAction.decode(encoded)
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString(com.reverie.paint.model.CanvasEditAction.PREFERENCE_KEY, encoded).apply()
         }
@@ -3234,7 +2530,7 @@ class PaintViewModel : ViewModel() {
         ) {
             if (penModeSingleFingerPanEnabled) {
                 updatePenModeSingleFingerPan(false)
-                if (::appContext.isInitialized) {
+                if (isAppContextReady()) {
                     showActionToast(appContext.getString(R.string.gesture_touch_slide_warning))
                 }
             }
@@ -3264,7 +2560,7 @@ class PaintViewModel : ViewModel() {
         ) {
             if (penModeSingleFingerPanEnabled) {
                 updatePenModeSingleFingerPan(false)
-                if (::appContext.isInitialized) {
+                if (isAppContextReady()) {
                     showActionToast(appContext.getString(R.string.gesture_touch_slide_warning))
                 }
             }
@@ -3278,7 +2574,7 @@ class PaintViewModel : ViewModel() {
             longPressEyedropperEnabled = trigger == com.reverie.paint.model.GestureTrigger.SINGLE_FINGER_LONG_PRESS
         }
 
-        if (conflictAction != null && ::appContext.isInitialized) {
+        if (conflictAction != null && isAppContextReady()) {
             val triggerName = appContext.getString(trigger.labelRes())
             val conflictName = appContext.getString(conflictAction.labelRes())
             val actionName = appContext.getString(action.labelRes())
@@ -3296,13 +2592,13 @@ class PaintViewModel : ViewModel() {
         gestureQuickPinchFit = true
         gestureContinuousUndo = true
         persistGestureConfig()
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             showActionToast(appContext.getString(R.string.gesture_reset_defaults_done))
         }
     }
 
     private fun persistGestureConfig() {
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
                 .putString("gestureConfig", gestureConfig.serialize())
@@ -3374,7 +2670,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateGestureTwoFingerUndo(enable: Boolean) {
         gestureTwoFingerUndo = enable
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -3385,7 +2681,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateGestureThreeFingerRedo(enable: Boolean) {
         gestureThreeFingerRedo = enable
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -3396,7 +2692,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateGesturePinchTransform(enable: Boolean) {
         gesturePinchTransform = enable
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -3407,7 +2703,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateGestureQuickPinchFit(enable: Boolean) {
         gestureQuickPinchFit = enable
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -3420,7 +2716,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateGestureContinuousUndo(enable: Boolean) {
         gestureContinuousUndo = enable
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -3435,7 +2731,7 @@ class PaintViewModel : ViewModel() {
     fun updateBackKeyAction(action: BackKeyAction) {
         if (backKeyAction == action) return
         backKeyAction = action
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -3451,7 +2747,7 @@ class PaintViewModel : ViewModel() {
     fun updateAllowEdgeBackGesture(enable: Boolean) {
         if (allowEdgeBackGesture == enable) return
         allowEdgeBackGesture = enable
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -3468,7 +2764,7 @@ class PaintViewModel : ViewModel() {
         if (uiAnimationSpeed == speed) return
         uiAnimationSpeed = speed
         com.reverie.paint.ui.theme.Motion.currentSpeed = speed
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -3495,7 +2791,7 @@ class PaintViewModel : ViewModel() {
         iconRes: Int? = null,
         vararg formatArgs: Any,
     ) {
-        val msg = if (::appContext.isInitialized) {
+        val msg = if (isAppContextReady()) {
             if (formatArgs.isEmpty()) appContext.getString(messageRes)
             else appContext.getString(messageRes, *formatArgs)
         } else ""
@@ -3513,7 +2809,7 @@ class PaintViewModel : ViewModel() {
     @Volatile internal var layerFlashFrontIdx = 0
 
     fun getString(@StringRes resId: Int, vararg formatArgs: Any): String {
-        return if (::appContext.isInitialized) {
+        return if (isAppContextReady()) {
             if (formatArgs.isEmpty()) appContext.getString(resId)
             else appContext.getString(resId, *formatArgs)
         } else ""
@@ -3529,7 +2825,7 @@ class PaintViewModel : ViewModel() {
         if (gestureConfig.getTrigger(com.reverie.paint.model.GestureAction.EYEDROPPER) != targetTrigger) {
             updateGestureTrigger(com.reverie.paint.model.GestureAction.EYEDROPPER, targetTrigger)
         }
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -3541,7 +2837,7 @@ class PaintViewModel : ViewModel() {
     fun updateEyedropperSensitivity(level: Int) {
         val clamped = level.coerceIn(1, 5)
         eyedropperSensitivity = clamped
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -3552,7 +2848,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateEyedropperOffsetEnabled(enable: Boolean) {
         eyedropperOffsetEnabled = enable
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -3565,7 +2861,7 @@ class PaintViewModel : ViewModel() {
 
     fun updatePenModeStylusEyedropperEnabled(enable: Boolean) {
         penModeStylusEyedropperEnabled = enable
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -3576,7 +2872,7 @@ class PaintViewModel : ViewModel() {
 
     fun updatePenOnlyMode(enable: Boolean) {
         penOnlyMode = enable
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -3587,7 +2883,7 @@ class PaintViewModel : ViewModel() {
 
     fun updatePenModeSingleFingerPan(enable: Boolean) {
         penModeSingleFingerPanEnabled = enable
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -3598,7 +2894,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateBrushCursorMode(mode: Int) {
         brushCursorMode = mode
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -3609,7 +2905,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateEraserCursorMode(mode: Int) {
         eraserCursorMode = mode
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -3620,7 +2916,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateCursorStyleMode(mode: Int) {
         cursorStyleMode = mode
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -3631,7 +2927,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateCursorOutlineReflectsActualSize(enabled: Boolean) {
         cursorOutlineReflectsActualSize = enabled
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -3740,7 +3036,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateOppoPencilModelMode(mode: String) {
         oppoPencilModelMode = mode
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("oppoPencilModelMode", mode).apply()
         }
@@ -3748,7 +3044,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateOppoSlideAction(actionId: String) {
         oppoSlideAction = actionId
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("oppoSlideAction", actionId).apply()
         }
@@ -3756,7 +3052,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateOppoSlideSensitivity(sensitivity: String) {
         oppoSlideSensitivity = sensitivity
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("oppoSlideSensitivity", sensitivity).apply()
         }
@@ -3765,7 +3061,7 @@ class PaintViewModel : ViewModel() {
     fun updateOppoInPenHapticsEnabled(enabled: Boolean) {
         oppoInPenHapticsEnabled = enabled
         stylusDriver?.syncSettings()
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("oppoInPenHapticsEnabled", enabled).apply()
         }
@@ -3811,7 +3107,7 @@ class PaintViewModel : ViewModel() {
                     newSize
                 }
                 updateBrushSize(finalSize)
-                if (::appContext.isInitialized) {
+                if (isAppContextReady()) {
                     mainHandler.post {
                         val formatted = if (finalSize < 10.0) {
                             String.format(java.util.Locale.US, "%.1f", finalSize)
@@ -3831,7 +3127,7 @@ class PaintViewModel : ViewModel() {
                 }
                 val newOpacity = (brushOpacity + (if (isIncrease) step else -step)).coerceIn(0.01, 1.0)
                 updateBrushOpacity(newOpacity)
-                if (::appContext.isInitialized) {
+                if (isAppContextReady()) {
                     mainHandler.post {
                         showActionToast(R.string.toast_brush_opacity, R.drawable.ic_brush, kotlin.math.round(newOpacity * 100).toInt())
                     }
@@ -3853,7 +3149,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateOppoDoubleTapAction(actionId: String) {
         oppoDoubleTapAction = actionId
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("oppoDoubleTapAction", actionId).apply()
         }
@@ -3862,7 +3158,7 @@ class PaintViewModel : ViewModel() {
     fun updateStylusHapticsEnabled(enabled: Boolean) {
         stylusHapticsEnabled = enabled
         stylusDriver?.syncSettings()
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("stylusHapticsEnabled", enabled).apply()
         }
@@ -3871,7 +3167,7 @@ class PaintViewModel : ViewModel() {
     fun updateStylusHapticsIntensity(intensity: Float) {
         stylusHapticsIntensity = intensity
         stylusDriver?.syncSettings()
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putFloat("stylusHapticsIntensity", intensity).apply()
         }
@@ -3879,7 +3175,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateStylusAudioEnabled(enabled: Boolean) {
         stylusAudioEnabled = enabled
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("stylusAudioEnabled", enabled).apply()
             // 设置面板可能在绘画页内打开: 即时同步引擎, 否则音量/开关要到重进绘画页才生效
@@ -3889,7 +3185,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateStylusAudioVolume(volume: Float) {
         stylusAudioVolume = volume
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putFloat("stylusAudioVolume", volume).apply()
             getOrCreateStylusDriver(appContext).syncSettings()
@@ -3898,7 +3194,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateStylusAudioType(type: StylusAudioType) {
         stylusAudioType = type
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putInt("stylusAudioType", type.ordinal).apply()
             getOrCreateStylusDriver(appContext).syncSettings()
@@ -3912,7 +3208,7 @@ class PaintViewModel : ViewModel() {
             // 对称互斥: 打开旧开关时关闭新开关, 两者永不同时开启 (last wins)。
             updateFrontBufferPredictionEnabled(false)
         }
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("stylusStrokePredictionEnabled", enabled).apply()
         }
@@ -3925,7 +3221,7 @@ class PaintViewModel : ViewModel() {
             // 死开关 (见 CanvasTouchView 双系统分派), 此处直接关闭旧开关, 免得用户困惑。
             updateStylusStrokePredictionEnabled(false)
         }
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("frontBufferPredictionEnabled", enabled).apply()
         }
@@ -3940,7 +3236,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateSamsungSideButtonErase(enabled: Boolean) {
         samsungSideButtonErase = enabled
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("samsungSideButtonErase", enabled).apply()
         }
@@ -3948,7 +3244,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateSamsungSingleClickAction(actionId: String) {
         samsungSingleClickAction = actionId
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("samsungSingleClickAction", actionId).apply()
         }
@@ -3956,7 +3252,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateSamsungDoubleClickAction(actionId: String) {
         samsungDoubleClickAction = actionId
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("samsungDoubleClickAction", actionId).apply()
         }
@@ -3964,7 +3260,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateSamsungLongPressAction(actionId: String) {
         samsungLongPressAction = actionId
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("samsungLongPressAction", actionId).apply()
         }
@@ -3972,7 +3268,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateHuaweiPencilModelMode(mode: String) {
         huaweiPencilModelMode = mode
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("huaweiPencilModelMode", mode).apply()
         }
@@ -3980,7 +3276,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateHuaweiDoubleTapAction(actionId: String) {
         huaweiDoubleTapAction = actionId
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("huaweiDoubleTapAction", actionId).apply()
         }
@@ -3988,7 +3284,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateHuaweiSqueezeAction(actionId: String) {
         huaweiSqueezeAction = actionId
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("huaweiSqueezeAction", actionId).apply()
         }
@@ -3996,7 +3292,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateHuaweiSingleClickAction(actionId: String) {
         huaweiSingleClickAction = actionId
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("huaweiSingleClickAction", actionId).apply()
         }
@@ -4004,7 +3300,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateHuaweiLongPressAction(actionId: String) {
         huaweiLongPressAction = actionId
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("huaweiLongPressAction", actionId).apply()
         }
@@ -4012,7 +3308,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateHuaweiSideButtonErase(enabled: Boolean) {
         huaweiSideButtonErase = enabled
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("huaweiSideButtonErase", enabled).apply()
         }
@@ -4020,7 +3316,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateHuaweiHapticsEnabled(enabled: Boolean) {
         huaweiHapticsEnabled = enabled
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("huaweiHapticsEnabled", enabled).apply()
         }
@@ -4028,7 +3324,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateHonorPencilModelMode(mode: String) {
         honorPencilModelMode = mode
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("honorPencilModelMode", mode).apply()
         }
@@ -4036,7 +3332,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateHonorDoubleTapAction(actionId: String) {
         honorDoubleTapAction = actionId
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("honorDoubleTapAction", actionId).apply()
         }
@@ -4044,7 +3340,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateHonorSingleClickAction(actionId: String) {
         honorSingleClickAction = actionId
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("honorSingleClickAction", actionId).apply()
         }
@@ -4052,7 +3348,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateHonorSideButtonErase(enabled: Boolean) {
         honorSideButtonErase = enabled
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("honorSideButtonErase", enabled).apply()
         }
@@ -4060,7 +3356,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateHonorHapticsEnabled(enabled: Boolean) {
         honorHapticsEnabled = enabled
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("honorHapticsEnabled", enabled).apply()
         }
@@ -4069,7 +3365,7 @@ class PaintViewModel : ViewModel() {
     fun updateXiaomiPencilModelMode(mode: String) {
         xiaomiPencilModelMode = mode
         stylusDriver?.syncSettings()
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("xiaomiPencilModelMode", mode).apply()
         }
@@ -4078,7 +3374,7 @@ class PaintViewModel : ViewModel() {
     fun updateXiaomiPrimaryButtonAction(actionId: String) {
         xiaomiPrimaryButtonAction = actionId
         stylusDriver?.syncSettings()
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("xiaomiPrimaryButtonAction", actionId).apply()
         }
@@ -4087,7 +3383,7 @@ class PaintViewModel : ViewModel() {
     fun updateXiaomiSecondaryButtonAction(actionId: String) {
         xiaomiSecondaryButtonAction = actionId
         stylusDriver?.syncSettings()
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("xiaomiSecondaryButtonAction", actionId).apply()
         }
@@ -4096,7 +3392,7 @@ class PaintViewModel : ViewModel() {
     fun updateXiaomiFocusButtonAction(actionId: String) {
         xiaomiFocusButtonAction = actionId
         stylusDriver?.syncSettings()
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("xiaomiFocusButtonAction", actionId).apply()
         }
@@ -4105,7 +3401,7 @@ class PaintViewModel : ViewModel() {
     fun updateXiaomiDoubleTapAction(actionId: String) {
         xiaomiDoubleTapAction = actionId
         stylusDriver?.syncSettings()
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("xiaomiDoubleTapAction", actionId).apply()
         }
@@ -4114,7 +3410,7 @@ class PaintViewModel : ViewModel() {
     fun updateXiaomiSideButtonErase(enabled: Boolean) {
         xiaomiSideButtonErase = enabled
         stylusDriver?.syncSettings()
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("xiaomiSideButtonErase", enabled).apply()
         }
@@ -4123,7 +3419,7 @@ class PaintViewModel : ViewModel() {
     fun updateXiaomiSqueezeAction(actionId: String) {
         xiaomiSqueezeAction = actionId
         stylusDriver?.syncSettings()
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("xiaomiSqueezeAction", actionId).apply()
         }
@@ -4132,7 +3428,7 @@ class PaintViewModel : ViewModel() {
     fun updateXiaomiSlideAction(actionId: String) {
         xiaomiSlideAction = actionId
         stylusDriver?.syncSettings()
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("xiaomiSlideAction", actionId).apply()
         }
@@ -4141,7 +3437,7 @@ class PaintViewModel : ViewModel() {
     fun updateXiaomiSlideSensitivity(sensitivity: String) {
         xiaomiSlideSensitivity = sensitivity
         stylusDriver?.syncSettings()
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("xiaomiSlideSensitivity", sensitivity).apply()
         }
@@ -4150,7 +3446,7 @@ class PaintViewModel : ViewModel() {
     fun updateXiaomiInPenHapticsEnabled(enabled: Boolean) {
         xiaomiInPenHapticsEnabled = enabled
         stylusDriver?.syncSettings()
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("xiaomiInPenHapticsEnabled", enabled).apply()
         }
@@ -4159,7 +3455,7 @@ class PaintViewModel : ViewModel() {
     fun updateVivoPencilModelMode(mode: String) {
         vivoPencilModelMode = mode
         stylusDriver?.syncSettings()
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("vivoPencilModelMode", mode).apply()
         }
@@ -4167,7 +3463,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateVivoDoubleTapAction(actionId: String) {
         vivoDoubleTapAction = actionId
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("vivoDoubleTapAction", actionId).apply()
         }
@@ -4175,7 +3471,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateVivoPrimaryClickAction(actionId: String) {
         vivoPrimaryClickAction = actionId
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("vivoPrimaryClickAction", actionId).apply()
         }
@@ -4183,7 +3479,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateVivoSecondaryClickAction(actionId: String) {
         vivoSecondaryClickAction = actionId
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("vivoSecondaryClickAction", actionId).apply()
         }
@@ -4191,7 +3487,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateVivoSideButtonErase(enabled: Boolean) {
         vivoSideButtonErase = enabled
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("vivoSideButtonErase", enabled).apply()
         }
@@ -4201,7 +3497,7 @@ class PaintViewModel : ViewModel() {
         vivoWritingVibrateEnabled = enabled
         // 关闭时立即停掉可能在振的笔身 (VivoStylusAdapter.syncSettings 处理边沿)
         stylusDriver?.syncSettings()
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("vivoWritingVibrateEnabled", enabled).apply()
         }
@@ -4209,7 +3505,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateGenericPrimaryButtonAction(actionId: String) {
         genericPrimaryButtonAction = actionId
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("genericPrimaryButtonAction", actionId).apply()
         }
@@ -4217,7 +3513,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateGenericSecondaryButtonAction(actionId: String) {
         genericSecondaryButtonAction = actionId
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("genericSecondaryButtonAction", actionId).apply()
         }
@@ -4225,7 +3521,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateGenericStylusEnabled(enabled: Boolean) {
         genericStylusEnabled = enabled
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("genericStylusEnabled", enabled).apply()
         }
@@ -4234,7 +3530,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateGenericSideButtonErase(enabled: Boolean) {
         genericSideButtonErase = enabled
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("genericSideButtonErase", enabled).apply()
         }
@@ -4313,7 +3609,7 @@ class PaintViewModel : ViewModel() {
                 }
             }
         }
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4328,7 +3624,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateUiOpacity(v: Float) {
         uiOpacity = v
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4339,7 +3635,7 @@ class PaintViewModel : ViewModel() {
 
     fun updatePopupPanelOpacity(v: Float) {
         popupPanelOpacity = v
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4350,7 +3646,7 @@ class PaintViewModel : ViewModel() {
 
     fun updatePaintingUiScale(scale: Float) {
         paintingUiScale = scale.coerceIn(0.70f, 1.40f)
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4361,7 +3657,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateLayerRowHeight(height: Int) {
         layerRowHeightDp = height.coerceIn(40, 80)
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4372,7 +3668,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateQuickSliderHeight(height: Int) {
         quickSliderHeightDp = height.coerceIn(100, 260)
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4383,7 +3679,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateLeftHandMode(enabled: Boolean) {
         leftHandMode = enabled
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4446,7 +3742,7 @@ class PaintViewModel : ViewModel() {
     }
 
     private fun persistFloatingUiConfig() {
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4467,7 +3763,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateLayerHeaderInheritAlpha(enabled: Boolean) {
         layerHeaderInheritAlpha = enabled
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4478,7 +3774,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateSelectionMaskColor(hex: String) {
         selectionMaskColorHex = hex
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4489,7 +3785,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateSelectionMaskOpacity(opacity: Float) {
         selectionMaskOpacity = opacity.coerceIn(0.10f, 0.90f)
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4498,12 +3794,11 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-
     var canvasBgColorHex by mutableStateOf("DEFAULT")
 
     fun updateCanvasBgColor(hex: String) {
         canvasBgColorHex = hex
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4519,7 +3814,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateCanvasGridEnabled(enabled: Boolean) {
         canvasGridEnabled = enabled
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4531,7 +3826,7 @@ class PaintViewModel : ViewModel() {
     fun updateCanvasGridOpacity(opacity: Float) {
         val clamped = opacity.coerceIn(0.05f, 0.60f)
         canvasGridOpacity = clamped
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4543,7 +3838,7 @@ class PaintViewModel : ViewModel() {
     fun updateCanvasGridSizeDp(sizeDp: Int) {
         val clamped = sizeDp.coerceIn(12, 48)
         canvasGridSizeDp = clamped
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4554,7 +3849,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateAccentColor(hex: String) {
         accentColorHex = hex
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4566,7 +3861,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateMonetEnabled(enable: Boolean) {
         monetEnabled = enable
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4578,7 +3873,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateThemeMode(mode: String) {
         themeMode = mode
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4590,7 +3885,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateThemeContrast(contrast: String) {
         themeContrast = contrast
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4602,7 +3897,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateThemeStyle(style: String) {
         themeStyle = style
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4616,7 +3911,7 @@ class PaintViewModel : ViewModel() {
         return when (themeMode) {
             "LIGHT" -> false
             "SYSTEM" -> {
-                if (::appContext.isInitialized) {
+                if (isAppContextReady()) {
                     val uiMode =
                         appContext.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
                     uiMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
@@ -4629,7 +3924,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun applyCurrentTheme() {
-        if (!::appContext.isInitialized) return
+        if (!isAppContextReady()) return
         val dark = isCurrentlyDark()
         val parsedAccent = com.reverie.paint.ui.theme.parseColor(accentColorHex)
         val baseTheme = if (monetEnabled && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
@@ -4659,7 +3954,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateExtendToCutout(extend: Boolean) {
         extendToCutout = extend
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4673,7 +3968,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateBlurBackground(enable: Boolean) {
         blurBackground = enable
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4686,7 +3981,7 @@ class PaintViewModel : ViewModel() {
         val supported = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
         val actual = enable && supported
         canvasOpenWaveEnabled = actual
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4696,7 +3991,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun getHomeCustomBgFile(): File? {
-        if (!::appContext.isInitialized) return null
+        if (!isAppContextReady()) return null
         val file = File(appContext.filesDir, "custom_bg/home_wallpaper.png")
         return if (file.exists() && file.length() > 0) file else null
     }
@@ -4787,7 +4082,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun clearHomeBackground() {
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             val file = File(appContext.filesDir, "custom_bg/home_wallpaper.png")
             if (file.exists()) file.delete()
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
@@ -4802,7 +4097,7 @@ class PaintViewModel : ViewModel() {
     fun updateHomeBgOpacity(opacity: Float) {
         val clamped = opacity.coerceIn(0.1f, 1.0f)
         homeCustomBgOpacity = clamped
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
                 .putFloat("home_custom_bg_opacity", clamped)
@@ -4813,7 +4108,7 @@ class PaintViewModel : ViewModel() {
     fun updateHomeBgBlurDp(blurDp: Float) {
         val clamped = blurDp.coerceIn(0f, 30f)
         homeCustomBgBlurDp = clamped
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
                 .putFloat("home_custom_bg_blur", clamped)
@@ -4823,7 +4118,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateHomeBgScaleMode(mode: String) {
         homeCustomBgScaleMode = mode
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
                 .putString("home_custom_bg_scale", mode)
@@ -4834,7 +4129,7 @@ class PaintViewModel : ViewModel() {
     fun updateHomeBgMaskAlpha(alpha: Float) {
         val clamped = alpha.coerceIn(0f, 0.8f)
         homeCustomBgMaskAlpha = clamped
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
                 .putFloat("home_custom_bg_mask", clamped)
@@ -4844,7 +4139,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateAutoSaveEnabled(enabled: Boolean) {
         autoSaveEnabled = enabled
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4858,7 +4153,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateAutoSaveIntervalMinutes(minutes: Int) {
         autoSaveIntervalMinutes = minutes.coerceIn(1, 60)
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4873,7 +4168,7 @@ class PaintViewModel : ViewModel() {
             com.reverie.paint.model.AutoSaveSnapshotPolicy.MAX_MAX_SNAPSHOTS,
         )
         autoSaveMaxSnapshots = clamped
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4885,7 +4180,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateAutoSaveToastEnabled(enabled: Boolean) {
         autoSaveToastEnabled = enabled
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4897,7 +4192,7 @@ class PaintViewModel : ViewModel() {
     fun updateLayerFlashEnabled(enabled: Boolean) {
         layerFlashEnabled = enabled
         if (!enabled) cancelLayerContentFlash()
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4908,7 +4203,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateMaxUndoSteps(steps: Int) {
         maxUndoSteps = steps.coerceIn(10, 200)
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4926,7 +4221,7 @@ class PaintViewModel : ViewModel() {
 
     fun updatePromptSaveOnExit(prompt: Boolean) {
         promptSaveOnExit = prompt
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4938,7 +4233,7 @@ class PaintViewModel : ViewModel() {
     fun updateRenderScheduleMode(mode: com.reverie.paint.model.RenderScheduleMode) {
         if (renderScheduleMode == mode) return
         renderScheduleMode = mode
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -4953,7 +4248,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun syncSettingsFromPrefs() {
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             com.reverie.paint.core.stylus.FrontBufferProbe.warmUpPreservedContentCheck(appContext)
             // Toolbar choices must restore even when no brush parameter cache has been saved yet.
             loadPinnedTools()
@@ -5305,7 +4600,7 @@ class PaintViewModel : ViewModel() {
             hasLegacyReferenceImages = prefs.getInt("ref_images_count", 0) > 0 &&
                 File(appContext.filesDir, "ref_images").isDirectory
 
-            val isLand = if (::appContext.isInitialized) {
+            val isLand = if (isAppContextReady()) {
                 val conf = appContext.resources.configuration
                 conf.orientation == android.content.res.Configuration.ORIENTATION_LANDSCAPE ||
                         (conf.orientation != android.content.res.Configuration.ORIENTATION_PORTRAIT &&
@@ -5505,7 +4800,7 @@ class PaintViewModel : ViewModel() {
     }
 
     private fun persistSliderPresets(key: String, list: List<Double?>) {
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             val str = list.joinToString(",") { it?.toString() ?: "null" }
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
@@ -5516,7 +4811,7 @@ class PaintViewModel : ViewModel() {
     }
 
     private fun loadSliderPresets(key: String): List<Double?> {
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             val str = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).getString(key, null)
             if (!str.isNullOrBlank()) {
                 val parts = str.split(",")
@@ -5578,7 +4873,7 @@ class PaintViewModel : ViewModel() {
 
     fun setDefaultPalette(id: String) {
         defaultPaletteId = id
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("defaultPaletteId", id).apply()
         }
@@ -5639,7 +4934,7 @@ class PaintViewModel : ViewModel() {
             isColorPanelPinned = false
             colorPanelOffset = androidx.compose.ui.geometry.Offset.Zero
         }
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putBoolean("panelPinningEnabled", enabled).apply()
         }
@@ -5652,7 +4947,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateColorHarmonyMode(mode: String) {
         colorHarmonyModeName = mode
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putString("colorHarmonyMode", mode).apply()
         }
@@ -5660,7 +4955,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateColorHarmonyBaseHue(hue: Float) {
         colorHarmonyBaseHue = hue
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putFloat("colorHarmonyBaseHue", hue).apply()
         }
@@ -5668,7 +4963,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateColorHarmonySubTab(subTab: Int) {
         colorHarmonySubTab = subTab
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit().putInt("colorHarmonySubTab", subTab).apply()
         }
@@ -5757,7 +5052,7 @@ class PaintViewModel : ViewModel() {
     fun updateColorModel(model: String) {
         if (colorWheelInnerShape != "SQUARE" && model != "hsv") return
         colorModel = model
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -5784,7 +5079,7 @@ class PaintViewModel : ViewModel() {
         if (shape != "SQUARE" && colorModel != "hsv") {
             updateColorModel("hsv")
         }
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -5801,7 +5096,7 @@ class PaintViewModel : ViewModel() {
     }
 
     private fun persistRecentColors() {
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -5811,7 +5106,7 @@ class PaintViewModel : ViewModel() {
     }
 
     private fun loadRecentColors(): List<String> {
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             val saved = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .getString("recentColors", null)
             if (!saved.isNullOrBlank()) {
@@ -5825,7 +5120,7 @@ class PaintViewModel : ViewModel() {
     }
 
     private fun persistUserPalettes() {
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             try {
                 val arr = org.json.JSONArray()
                 for (p in userPalettes) {
@@ -5847,7 +5142,7 @@ class PaintViewModel : ViewModel() {
     }
 
     private fun loadUserPalettes(): List<ColorPaletteItem> {
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             val json = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .getString("userPalettes", null)
             if (!json.isNullOrBlank()) {
@@ -5894,7 +5189,7 @@ class PaintViewModel : ViewModel() {
 
     fun updateColorPickerMode(mode: String) {
         colorPickerMode = mode
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             appContext
                 .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
                 .edit()
@@ -6486,7 +5781,7 @@ class PaintViewModel : ViewModel() {
          * 点刷家族判定: 印章/喷溅/飞溅/海绵/耙/噪点/粒子/网格/曲线/网点类预设。
          * 这类笔刷以大间距散点落墨, 连续盖印/连续假线都会失真, STAMP 与假线一律禁行。
          */
-        private fun isDottedStampFamily(presetName: String): Boolean {
+        internal fun isDottedStampFamily(presetName: String): Boolean {
             return presetName.contains("Stamp", ignoreCase = true) ||
                 presetName.contains("Spray", ignoreCase = true) ||
                 presetName.contains("Splat", ignoreCase = true) ||
@@ -6994,7 +6289,6 @@ class PaintViewModel : ViewModel() {
         mirrorQueue.clear()
         resetRenderedFrontier()
     }
-
 
     /**
      * UI 线程: 追加一个镜像采样点。队列满时丢弃最新的这个点 (不覆盖已入队的点),
@@ -7598,7 +6892,6 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-
     internal fun isAppContextReady(): Boolean = ::appContext.isInitialized
 
     var currentProjectFile by mutableStateOf<String?>(null)
@@ -7635,7 +6928,7 @@ class PaintViewModel : ViewModel() {
 
     /** Injected by MainActivity; the engine needs it for file paths. */
     lateinit var appContext: android.content.Context
-    internal val appContextReady: Boolean get() = ::appContext.isInitialized
+    internal val appContextReady: Boolean get() = isAppContextReady()
 
     internal fun hasAppContext(): Boolean = ::appContext.isInitialized
 
@@ -7647,7 +6940,7 @@ class PaintViewModel : ViewModel() {
      * 退出等任意时机，重复调用不会重复计数。
      */
     fun recordCreationSession() {
-        if (!::appContext.isInitialized) return
+        if (!isAppContextReady()) return
         val delta = com.reverie.paint.model.CreationStatsDelta.since(
             totalStrokes = totalStrokes,
             totalSeconds = elapsedSeconds,
@@ -7662,7 +6955,7 @@ class PaintViewModel : ViewModel() {
 
     /** 清空每日创作统计 (设置页入口; 只清历史, 不影响当前工程计时)。 */
     fun resetCreationStats() {
-        if (!::appContext.isInitialized) return
+        if (!isAppContextReady()) return
         CreationStatsManager.reset(appContext)
     }
 
@@ -7673,7 +6966,7 @@ class PaintViewModel : ViewModel() {
     }
 
     fun recordBrushUsageStats(brushName: String) {
-        if (::appContext.isInitialized) {
+        if (isAppContextReady()) {
             CreationStatsManager.recordBrushUsage(appContext, brushName)
         }
     }
@@ -7765,4 +7058,3 @@ enum class Page { HOME, CREATE, PAINTING, REPLAY }
  * 同名组是合法状态（复制组、手动重名），按名字存会让它们共享同一个折叠开关。
  */
 internal fun groupCollapseKey(id: Long): String = "g$id"
-
