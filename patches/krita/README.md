@@ -28,6 +28,7 @@
 | 0015 | `perf-sketch-2D-O-N-2-O-1` | 为 `KisSketchPaintOp` 引入 2D 空间网格桶与局部候选点排序检索，消除长笔画时逐事件遍历整笔历史点的 $O(N^2)$ 计算死锁 |
 | 0016 | `perf-marker` | 优化 `KisMarkerPainter` 圆头笔混合：引入透明度缓存跳过 90%+ 内部实心像素的虚函数重设，并简化半平面叉乘与距离判定 |
 | 0017 | `fix-gridbrush-HSV-KoColorTransformation` | 修复网格笔刷在启用 HSV 随机调整时每次粒子采样均泄露 `KoColorTransformation` 实例的内存泄露缺陷 |
+| 0018 | `fix-paintop-resources` | 修复 `KisHairyPaintOp` 空笔尖/空设备崩溃、`KisTextureOption::apply` 用 `pixelSize()` 越界读取 `channels` 崩溃，以及 `LocalResourcesSource` 悬垂引用 `QList` 导致的 `SIGBUS` |
 
 ## 应用与重建
 
