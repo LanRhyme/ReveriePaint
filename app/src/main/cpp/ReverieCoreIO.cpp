@@ -3111,6 +3111,53 @@ bool ReverieCore::loadPsd(const QString &path)
                 layer->setAlphaLocked(rec->transparencyProtected);
                 layer->setColorLabelIndex(rec->labelColor);
                 image->addNode(layer, groupStack.isEmpty() ? image->rootLayer() : groupStack.top());
+
+                // PSD 图层蒙版: mask channel (channelId < -1) 导入为 Layer-as-Mask 的
+                // 透明度蒙版同级图层, 而不是丢失它 (issue #223)。
+                for (ChannelInfo *maskChannel : rec->channelInfoRecords) {
+                    if (!maskChannel || maskChannel->channelId >= -1) continue;
+                    const QRect maskRect = rec->channelRect(maskChannel).intersected(QRect(0, 0, w, h));
+                    if (maskRect.isEmpty()) continue;
+                    const KoColorSpace *alphaCs = KoColorSpaceRegistry::instance()->alpha8();
+                    if (!alphaCs) break;
+                    KisPaintDeviceSP maskDev(new KisPaintDevice(alphaCs));
+                    maskDev->setDefaultBounds(new KisDefaultBounds(image));
+                    if (!rec->readMask(file, maskDev, maskChannel)) {
+                        qWarning() << "loadPsd: failed to read mask for" << name;
+                        continue;
+                    }
+                    KisPaintLayerSP maskLayer = new KisPaintLayer(
+                        image, QStringLiteral("蒙版 %1").arg(name), 255, cs);
+                    reverie::setLayerProperty(&*maskLayer, "reverie_is_transparency_mask", true);
+                    const int defaultAlpha = qBound(0, int(rec->layerMask.defaultColor), 255);
+                    maskLayer->paintDevice()->setDefaultPixel(
+                        KoColor(QColor(255, 255, 255, defaultAlpha), cs));
+                    const int stripRows = qMin(256, maskRect.height());
+                    QVector<quint8> alphaBytes(maskRect.width() * stripRows);
+                    QVector<quint8> rgbaBytes(maskRect.width() * stripRows * 4);
+                    for (int my = 0; my < maskRect.height(); my += stripRows) {
+                        const int rows = qMin(stripRows, maskRect.height() - my);
+                        maskDev->readBytes(alphaBytes.data(), maskRect.x(), maskRect.y() + my,
+                                           maskRect.width(), rows);
+                        const int count = maskRect.width() * rows;
+                        for (int pi = 0; pi < count; ++pi) {
+                            int v = alphaBytes[pi];
+                            if (rec->layerMask.invertLayerMaskWhenBlending) v = 255 - v;
+                            rgbaBytes[pi * 4 + 0] = 255;
+                            rgbaBytes[pi * 4 + 1] = 255;
+                            rgbaBytes[pi * 4 + 2] = 255;
+                            rgbaBytes[pi * 4 + 3] = quint8(v);
+                        }
+                        maskLayer->paintDevice()->writeBytes(
+                            rgbaBytes.constData(), maskRect.x(), maskRect.y() + my,
+                            maskRect.width(), rows);
+                    }
+                    maskLayer->paintDevice()->setDirty(maskRect);
+                    maskLayer->setVisible(!rec->layerMask.disabled);
+                    maskLayer->setColorLabelIndex(rec->labelColor);
+                    image->addNode(maskLayer, layer->parent(), layer);
+                }
+
                 lastAddedLayer = layer;
                 loadedLayersCount++;
             }
