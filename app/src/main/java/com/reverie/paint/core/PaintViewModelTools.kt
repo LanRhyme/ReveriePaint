@@ -28,7 +28,6 @@ import kotlinx.coroutines.launch
 import org.json.JSONObject
 import java.io.File
 import java.util.zip.ZipFile
-import com.reverie.paint.ui.painting.canvas.abortActiveStrokeForHistory
 
 internal fun PaintViewModel.computeEffectivePressure(raw: Double): Double {
     if (!brushPressureEnabled) return 1.0

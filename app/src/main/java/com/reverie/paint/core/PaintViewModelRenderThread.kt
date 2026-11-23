@@ -10,7 +10,6 @@ import android.os.Handler
 import android.os.HandlerThread
 import com.reverie.paint.model.*
 import kotlinx.coroutines.delay
-import com.reverie.paint.ui.painting.canvas.invalidateFromRender
 import com.reverie.paint.core.PaintViewModel.RenderedFrontier
 
 // 拆分自 PaintViewModel.kt: 同域实现集中于此 (AGENTS.md §6 单文件行数上限)
