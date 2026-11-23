@@ -29,6 +29,7 @@ import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
@@ -39,8 +40,12 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.clipToBounds
 import androidx.compose.ui.draw.rotate
+import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.StrokeCap
 import androidx.compose.ui.graphics.StrokeJoin
@@ -50,6 +55,7 @@ import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.changedToUpIgnoreConsumed
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.LayoutCoordinates
+import androidx.compose.ui.layout.boundsInRoot
 import androidx.compose.ui.layout.onGloballyPositioned
 import androidx.compose.ui.layout.onSizeChanged
 import androidx.compose.ui.platform.LocalConfiguration
@@ -80,9 +86,14 @@ import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.components.evadablePanelContent
 import com.reverie.paint.ui.components.evadablePanelSurface
 import com.reverie.paint.ui.painting.layers.DrawerAction
+import com.reverie.paint.ui.painting.layers.LayerDragTarget
+import com.reverie.paint.ui.painting.layers.LayerDropPlacement
 import com.reverie.paint.ui.painting.layers.LightCheckerboard
+import com.reverie.paint.ui.painting.layers.getAllDescendantIndices
 import com.reverie.paint.ui.painting.layers.layerDisplayName
 import com.reverie.paint.ui.painting.layers.layerLabelColor
+import com.reverie.paint.ui.painting.layers.resolveDisplayDropSlot
+import com.reverie.paint.ui.painting.layers.resolveLayerDropTarget
 import com.reverie.paint.ui.painting.layers.shouldSwipeClearInsteadOfDelete
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.Motion
@@ -93,6 +104,7 @@ import dev.chrisbanes.haze.hazeChild
 import kotlin.math.abs
 import kotlin.math.roundToInt
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withTimeoutOrNull
 
 /**
  * 悬浮快捷图层面板 (QuickLayerWindow - 参考画世界设计)
@@ -528,16 +540,111 @@ fun QuickLayerWindow(
                     }
                     val viewConfig = LocalViewConfiguration.current
                     val swipeScope = rememberCoroutineScope()
+                    val listState = rememberLazyListState()
+                    val rowHeightDp = 46.dp
+                    val rowHeightPx = with(density) { rowHeightDp.toPx() }
+                    var listBounds by remember { mutableStateOf(Rect.Zero) }
+                    val rowBounds = remember { mutableStateMapOf<Int, Pair<Float, Float>>() }
+                    var draggingLayerId by remember { mutableStateOf<Long?>(null) }
+                    var dragFingerX by remember { mutableFloatStateOf(0f) }
+                    var dragFingerY by remember { mutableFloatStateOf(0f) }
+                    var dragStartX by remember { mutableFloatStateOf(0f) }
+                    var dragGrabOffsetY by remember { mutableFloatStateOf(0f) }
+                    var currentDropTarget by remember { mutableStateOf<LayerDragTarget?>(null) }
+                    var previewDropIdx by remember { mutableIntStateOf(-1) }
 
-                    LazyColumn(
+                    fun updateDrag(fingerX: Float, fingerY: Float) {
+                        dragFingerX = fingerX
+                        dragFingerY = fingerY
+                        val draggedId = draggingLayerId ?: return
+                        val fromIdx = vm.layers.firstOrNull { it.id == draggedId }?.index ?: return
+                        val draggedDescendants = getAllDescendantIndices(listOf(fromIdx), vm.layers)
+                        val draggedSet = (listOf(fromIdx) + draggedDescendants).toSet()
+                        val remaining = displayLayers.filter { it.index !in draggedSet }
+                        val clampedX = fingerX.coerceIn(listBounds.left, listBounds.right)
+                        val target = resolveLayerDropTarget(
+                            fingerX = clampedX,
+                            fingerY = fingerY,
+                            dragStartX = dragStartX.coerceIn(listBounds.left, listBounds.right),
+                            listLeft = listBounds.left,
+                            listTop = listBounds.top,
+                            listWidth = listBounds.width,
+                            rowHeightPx = rowHeightPx,
+                            remainingRows = remaining,
+                            rowBounds = rowBounds,
+                            allLayers = vm.layers,
+                            panelRootGroupIdx = vm.panelRootGroupIdx,
+                            horizontalThresholdPx = with(density) { 28.dp.toPx() },
+                        )
+                        currentDropTarget = target
+                        previewDropIdx = if (target == null || target.placement == LayerDropPlacement.INSIDE) {
+                            -1
+                        } else {
+                            resolveDisplayDropSlot(target, displayLayers)
+                        }
+                    }
+
+                    fun endDrag() {
+                        val draggedId = draggingLayerId
+                        val target = currentDropTarget
+                        draggingLayerId = null
+                        currentDropTarget = null
+                        previewDropIdx = -1
+                        if (draggedId == null || target == null) return
+                        val fromIdx = vm.layers.firstOrNull { it.id == draggedId }?.index ?: return
+                        if (fromIdx <= 0) return
+
+                        val fromPid = vm.panelIdForGroupRow(fromIdx)
+                        if (fromPid != null) {
+                            val displaySlot = resolveDisplayDropSlot(target, displayLayers)
+                            val curVisualIdx = displayLayers.indexOfFirst { it.index == fromIdx }
+                            vm.movePanelZBy(fromPid, up = displaySlot < curVisualIdx)
+                            return
+                        }
+
+                        when (target.placement) {
+                            LayerDropPlacement.INSIDE -> {
+                                vm.moveLayerToGroup(fromIdx, target.anchorIndex)
+                                val groupLayer = vm.layers.firstOrNull { it.index == target.anchorIndex }
+                                if (groupLayer != null) {
+                                    val pid = vm.panelIdForGroupRow(target.anchorIndex)
+                                    if (pid != null) {
+                                        if (pid in vm.collapsedPanelIds) {
+                                            vm.collapsedPanelIds = vm.collapsedPanelIds - pid
+                                        }
+                                    } else {
+                                        vm.setGroupCollapsed(groupLayer.id, collapsed = false)
+                                    }
+                                }
+                            }
+                            LayerDropPlacement.ABOVE -> {
+                                vm.moveLayersRelative(listOf(fromIdx), target.anchorIndex, placeAbove = true)
+                            }
+                            LayerDropPlacement.BELOW -> {
+                                vm.moveLayersRelative(listOf(fromIdx), target.anchorIndex, placeAbove = false)
+                            }
+                        }
+                    }
+
+                    Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .heightIn(max = (windowHeight - 120.dp).coerceIn(46.dp, 280.dp)),
+                            .heightIn(max = (windowHeight - 120.dp).coerceIn(46.dp, 280.dp))
+                            .onGloballyPositioned { listBounds = it.boundsInRoot() },
+                    ) {
+                    LazyColumn(
+                        state = listState,
+                        userScrollEnabled = draggingLayerId == null,
+                        modifier = Modifier.fillMaxWidth(),
                     ) {
                         items(displayLayers, key = { it.id }) { layer ->
                             val isSelected = layer.index == vm.currentLayerIndex
                             val isPanelMask = vm.panelCropStateFor(layer.index) != null
                             val canSwipe = !layer.isBackground && !isPanelMask
+                            val canDrag = canSwipe && !LayerNodeType.isMask(layer.nodeType)
+                            val isDraggingThis = draggingLayerId == layer.id
+                            val isDropGroupTarget = currentDropTarget?.placement == LayerDropPlacement.INSIDE &&
+                                currentDropTarget?.anchorIndex == layer.index
                             val revealed = canSwipe && revealedLayerId == layer.id
                             val drawerWidth = 46.dp
                             val drawerPx = with(density) { drawerWidth.roundToPx() }
@@ -559,6 +666,7 @@ fun QuickLayerWindow(
                             val rowBgColor by animateColorAsState(
                                 targetValue =
                                     when {
+                                        isDropGroupTarget -> Morandi.accent.copy(alpha = 0.28f)
                                         layer.colorLabel > 0 ->
                                             if (isSelected) labelColor.copy(alpha = 0.26f) else labelColor.copy(alpha = 0.12f)
                                         isSelected ->
@@ -589,11 +697,18 @@ fun QuickLayerWindow(
                                         .fillMaxWidth()
                                         .height(46.dp)
                                         .clipToBounds()
+                                        .onGloballyPositioned { coords ->
+                                            val b = coords.boundsInRoot()
+                                            rowBounds[layer.index] = b.top to b.bottom
+                                        }
+                                        .graphicsLayer {
+                                            alpha = if (isDraggingThis) 0.3f else 1f
+                                        }
                                         .then(
                                             if (!canSwipe) {
                                                 Modifier
                                             } else {
-                                                Modifier.pointerInput(layer.id, canSwipe, drawerPx) {
+                                                Modifier.pointerInput(layer.id, canSwipe, canDrag, drawerPx) {
                                                     awaitEachGesture {
                                                         val down = awaitFirstDown(requireUnconsumed = false)
                                                         val startX = down.position.x
@@ -602,17 +717,22 @@ fun QuickLayerWindow(
                                                         val touchSlop = viewConfig.touchSlop
                                                         var lastChange = down
                                                         var isHorizontalSwipe = false
+                                                        var isVerticalScroll = false
+                                                        val isDrawerOpen = revealed || startOffset < -touchSlop
 
-                                                        while (true) {
-                                                            val event = awaitPointerEvent()
-                                                            val change = event.changes.firstOrNull { it.id == down.id } ?: break
-                                                            lastChange = change
-                                                            if (change.changedToUpIgnoreConsumed()) break
-                                                            val dx = change.position.x - startX
-                                                            val dy = change.position.y - startY
-                                                            if (!isHorizontalSwipe) {
+                                                        val earlyExit: Int? = withTimeoutOrNull(300L) {
+                                                            while (true) {
+                                                                val event = awaitPointerEvent()
+                                                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                                                lastChange = change
+                                                                if (change.changedToUpIgnoreConsumed()) {
+                                                                    return@withTimeoutOrNull 0
+                                                                }
+                                                                val dx = change.position.x - startX
+                                                                val dy = change.position.y - startY
                                                                 if (abs(dy) > touchSlop && abs(dy) > abs(dx) * 1.2f) {
-                                                                    break
+                                                                    isVerticalScroll = true
+                                                                    return@withTimeoutOrNull 2
                                                                 }
                                                                 if (abs(dx) > touchSlop && abs(dx) > abs(dy) * 1.25f) {
                                                                     if (dx < 0 || startOffset < -1f) {
@@ -621,18 +741,61 @@ fun QuickLayerWindow(
                                                                             revealedLayerId = null
                                                                         }
                                                                         change.consume()
+                                                                        return@withTimeoutOrNull 1
                                                                     } else {
-                                                                        break
+                                                                        return@withTimeoutOrNull 3
                                                                     }
                                                                 }
                                                             }
-                                                            if (isHorizontalSwipe) {
-                                                                change.consume()
-                                                                liveSwipeOffset = (startOffset + dx).coerceIn(-drawerPx.toFloat(), 0f)
-                                                            }
+                                                            null
                                                         }
 
-                                                        if (isHorizontalSwipe) {
+                                                        if (earlyExit == null && canDrag && !isDrawerOpen && !isVerticalScroll) {
+                                                            // 长按 300ms 触发拖拽排序
+                                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                            revealedLayerId = null
+                                                            val itemOffsetY = listState.layoutInfo.visibleItemsInfo
+                                                                .firstOrNull { it.key == layer.id }
+                                                                ?.offset?.toFloat()
+                                                                ?: ((rowBounds[layer.index]?.first ?: listBounds.top) - listBounds.top)
+                                                            val rowTop = listBounds.top + itemOffsetY
+                                                            val initRootX = listBounds.left + startX
+                                                            val initRootY = rowTop + startY
+                                                            dragStartX = initRootX
+                                                            dragGrabOffsetY = startY
+                                                            draggingLayerId = layer.id
+                                                            updateDrag(initRootX, initRootY)
+
+                                                            try {
+                                                                while (true) {
+                                                                    val event = awaitPointerEvent()
+                                                                    val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                                                    lastChange = change
+                                                                    if (change.changedToUpIgnoreConsumed()) {
+                                                                        change.consume()
+                                                                        break
+                                                                    }
+                                                                    change.consume()
+                                                                    updateDrag(
+                                                                        listBounds.left + change.position.x,
+                                                                        rowTop + change.position.y,
+                                                                    )
+                                                                }
+                                                            } finally {
+                                                                endDrag()
+                                                            }
+                                                        } else if (isHorizontalSwipe) {
+                                                            liveSwipeOffset = (startOffset + (lastChange.position.x - startX))
+                                                                .coerceIn(-drawerPx.toFloat(), 0f)
+                                                            while (true) {
+                                                                val event = awaitPointerEvent()
+                                                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                                                lastChange = change
+                                                                if (change.changedToUpIgnoreConsumed()) break
+                                                                change.consume()
+                                                                val dx = change.position.x - startX
+                                                                liveSwipeOffset = (startOffset + dx).coerceIn(-drawerPx.toFloat(), 0f)
+                                                            }
                                                             var velocityX = 0f
                                                             val dxTotal = lastChange.position.x - startX
                                                             val dtMs = (lastChange.uptimeMillis - down.uptimeMillis).coerceAtLeast(1L)
@@ -729,6 +892,7 @@ fun QuickLayerWindow(
                                                 indication = null,
                                             ) {
                                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
+                                                if (draggingLayerId != null) return@clickable
                                                 if (revealedLayerId != null) {
                                                     revealedLayerId = null
                                                     return@clickable
@@ -1077,6 +1241,97 @@ fun QuickLayerWindow(
                                 )
                             }
                         }
+                    }
+
+                    // 拖拽插入指示线
+                    if (draggingLayerId != null && previewDropIdx >= 0) {
+                        val targetY = remember(previewDropIdx, listState.firstVisibleItemIndex, listState.firstVisibleItemScrollOffset) {
+                            val vis = listState.layoutInfo.visibleItemsInfo
+                            val atSlot = vis.firstOrNull { it.index == previewDropIdx }
+                            when {
+                                atSlot != null -> atSlot.offset.toFloat()
+                                previewDropIdx == displayLayers.size && vis.isNotEmpty() -> {
+                                    val last = vis.last()
+                                    (last.offset + last.size).toFloat()
+                                }
+                                else -> {
+                                    ((previewDropIdx - listState.firstVisibleItemIndex) * rowHeightPx - listState.firstVisibleItemScrollOffset)
+                                }
+                            }
+                        }
+                        Canvas(modifier = Modifier.matchParentSize()) {
+                            val y = targetY.coerceIn(2f, size.height - 2f)
+                            val startX = 28.dp.toPx()
+                            val endX = size.width - 8.dp.toPx()
+                            drawLine(
+                                brush = Brush.horizontalGradient(
+                                    colors = listOf(
+                                        Morandi.accent,
+                                        Morandi.accent.copy(alpha = 0.75f),
+                                        Morandi.accent.copy(alpha = 0.2f),
+                                    ),
+                                    startX = startX,
+                                    endX = endX,
+                                ),
+                                start = Offset(startX, y),
+                                end = Offset(endX, y),
+                                strokeWidth = 2.dp.toPx(),
+                                cap = StrokeCap.Round,
+                            )
+                        }
+                    }
+
+                    // 拖拽悬浮行预览
+                    val draggingLayer = draggingLayerId?.let { id -> displayLayers.firstOrNull { it.id == id } }
+                    if (draggingLayer != null) {
+                        val floatY = (dragFingerY - listBounds.top - dragGrabOffsetY)
+                            .coerceIn(0f, (listBounds.height - rowHeightPx).coerceAtLeast(0f))
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(rowHeightDp)
+                                .offset { IntOffset(0, floatY.roundToInt()) }
+                                .graphicsLayer {
+                                    scaleX = 1.03f
+                                    scaleY = 1.03f
+                                    alpha = 0.94f
+                                }
+                                .shadow(6.dp)
+                                .background(Morandi.panelHi)
+                                .padding(horizontal = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            val thumb = vm.thumbFor(draggingLayer.index, draggingLayer.name)
+                            if (thumb != null && !thumb.isRecycled) {
+                                Image(
+                                    bitmap = thumb.asImageBitmap(),
+                                    contentDescription = draggingLayer.name,
+                                    modifier = Modifier
+                                        .size(32.dp, 26.dp)
+                                        .clip(RoundedCornerShape(4.dp)),
+                                )
+                            } else {
+                                Icon(
+                                    painter = painterResource(
+                                        if (draggingLayer.isGroup) R.drawable.ic_folder else R.drawable.ic_layers
+                                    ),
+                                    contentDescription = null,
+                                    tint = Morandi.accent,
+                                    modifier = Modifier.size(16.dp),
+                                )
+                            }
+                            Text(
+                                text = layerDisplayName(draggingLayer.name),
+                                fontSize = 11.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                color = Morandi.text,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
                     }
                 }
             }
