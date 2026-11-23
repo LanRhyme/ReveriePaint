@@ -1903,34 +1903,26 @@ private fun SegmentedTabSwitcher(
     modifier: Modifier = Modifier
 ) {
     val colors = Theme.current
-    Row(
+    com.reverie.paint.ui.components.LiquidSegmentedBar(
+        count = tabs.size,
+        selectedIndex = selectedIndex,
+        onSelect = onTabSelected,
         modifier = modifier
             .fillMaxWidth()
-            .height(38.dp)
-            .clip(RoundedCornerShape(19.dp))
-            .background(colors.panelHi)
-            .padding(3.dp),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        tabs.forEachIndexed { index, title ->
-            val isSelected = selectedIndex == index
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .fillMaxHeight()
-                    .clip(RoundedCornerShape(16.dp))
-                    .background(if (isSelected) colors.accent else Color.Transparent)
-                    .clickable { onTabSelected(index) },
-                contentAlignment = Alignment.Center
-            ) {
-                Text(
-                    text = title,
-                    color = if (isSelected) colors.onAccent else colors.subText,
-                    fontSize = 12.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium
-                )
-            }
-        }
+            .height(38.dp),
+        trackColor = colors.panelHi,
+        pillColor = colors.accent,
+        trackCornerRadius = 19.dp,
+        pillCornerRadius = 16.dp,
+        trackPadding = 3.dp,
+    ) { index, isActive ->
+        Text(
+            text = tabs[index],
+            color = if (isActive) colors.onAccent else colors.subText,
+            fontSize = 12.sp,
+            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+            maxLines = 1,
+        )
     }
 }
 

@@ -806,35 +806,29 @@ private fun SegmentedModeSelector(
         GuideMode.PERSPECTIVE to stringResource(R.string.guide_mode_perspective),
         GuideMode.SYMMETRY to stringResource(R.string.guide_mode_symmetry),
     )
-
-    Row(
+    val rawSelectedIdx = modes.indexOfFirst { it.first == currentMode }
+    val hasSelection = rawSelectedIdx >= 0
+    com.reverie.paint.ui.components.LiquidSegmentedBar(
+        count = modes.size,
+        selectedIndex = rawSelectedIdx.coerceAtLeast(0),
+        onSelect = { idx -> modes.getOrNull(idx)?.let { onSelectMode(it.first) } },
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(Morandi.border.copy(alpha = 0.25f))
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        for ((m, label) in modes) {
-            val isSelected = currentMode == m
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (isSelected) Morandi.accent else Color.Transparent)
-                    .clickable { onSelectMode(m) }
-                    .padding(vertical = 6.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = label,
-                    color = if (isSelected) Morandi.onAccent else Morandi.text,
-                    fontSize = 11.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                    maxLines = 1,
-                )
-            }
-        }
+            .height(34.dp),
+        trackColor = Morandi.border.copy(alpha = 0.25f),
+        pillColor = if (!hasSelection) Color.Transparent else Morandi.accent,
+        trackCornerRadius = 10.dp,
+        pillCornerRadius = 8.dp,
+        trackPadding = 3.dp,
+    ) { idx, isActive ->
+        val showActive = isActive && hasSelection
+        Text(
+            text = modes[idx].second,
+            color = if (showActive) Morandi.onAccent else Morandi.text,
+            fontSize = 11.sp,
+            fontWeight = if (showActive) FontWeight.Bold else FontWeight.Normal,
+            maxLines = 1,
+        )
     }
 }
 
@@ -853,39 +847,32 @@ private fun PerspectiveSubModeSelector(
     onSelect: (PerspectiveSubMode) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    val options = listOf(
+        PerspectiveSubMode.SPACE_3D to stringResource(R.string.guide_perspective_mode_3d),
+        PerspectiveSubMode.VANISHING to stringResource(R.string.guide_perspective_mode_vanish),
+        PerspectiveSubMode.FISHEYE to stringResource(R.string.guide_perspective_fisheye),
+    )
+    val selectedIdx = options.indexOfFirst { it.first == currentMode }.coerceAtLeast(0)
+    com.reverie.paint.ui.components.LiquidSegmentedBar(
+        count = options.size,
+        selectedIndex = selectedIdx,
+        onSelect = { idx -> options.getOrNull(idx)?.let { onSelect(it.first) } },
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(Morandi.border.copy(alpha = 0.22f))
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        val options = listOf(
-            PerspectiveSubMode.SPACE_3D to stringResource(R.string.guide_perspective_mode_3d),
-            PerspectiveSubMode.VANISHING to stringResource(R.string.guide_perspective_mode_vanish),
-            PerspectiveSubMode.FISHEYE to stringResource(R.string.guide_perspective_fisheye),
+            .height(32.dp),
+        trackColor = Morandi.border.copy(alpha = 0.22f),
+        pillColor = Morandi.accent.copy(alpha = 0.9f),
+        trackCornerRadius = 10.dp,
+        pillCornerRadius = 8.dp,
+        trackPadding = 3.dp,
+    ) { idx, isActive ->
+        Text(
+            text = options[idx].second,
+            color = if (isActive) Morandi.onAccent else Morandi.text,
+            fontSize = 11.sp,
+            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1,
         )
-        for ((subMode, label) in options) {
-            val isSelected = currentMode == subMode
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (isSelected) Morandi.accent.copy(alpha = 0.9f) else Color.Transparent)
-                    .clickable { onSelect(subMode) }
-                    .padding(vertical = 5.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = label,
-                    color = if (isSelected) Morandi.onAccent else Morandi.text,
-                    fontSize = 11.sp,
-                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                    maxLines = 1,
-                )
-            }
-        }
     }
 }
 
@@ -899,34 +886,27 @@ private fun <T> SegmentedOptionSelector(
     onSelect: (T) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    val selectedIdx = options.indexOfFirst { it.first == selectedKey }.coerceAtLeast(0)
+    com.reverie.paint.ui.components.LiquidSegmentedBar(
+        count = options.size,
+        selectedIndex = selectedIdx,
+        onSelect = { idx -> options.getOrNull(idx)?.let { onSelect(it.first) } },
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(Morandi.border.copy(alpha = 0.22f))
-            .padding(3.dp),
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        for ((key, label) in options) {
-            val isSelected = selectedKey == key
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (isSelected) Morandi.accent.copy(alpha = 0.9f) else Color.Transparent)
-                    .clickable { onSelect(key) }
-                    .padding(vertical = 5.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = label,
-                    color = if (isSelected) Morandi.onAccent else Morandi.text,
-                    fontSize = 11.5.sp,
-                    fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                    maxLines = 1,
-                )
-            }
-        }
+            .height(32.dp),
+        trackColor = Morandi.border.copy(alpha = 0.22f),
+        pillColor = Morandi.accent.copy(alpha = 0.9f),
+        trackCornerRadius = 10.dp,
+        pillCornerRadius = 8.dp,
+        trackPadding = 3.dp,
+    ) { idx, isActive ->
+        Text(
+            text = options[idx].second,
+            color = if (isActive) Morandi.onAccent else Morandi.text,
+            fontSize = 11.5.sp,
+            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+            maxLines = 1,
+        )
     }
 }
 

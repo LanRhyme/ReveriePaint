@@ -157,34 +157,28 @@ fun ColorHarmonyPage(
             )
         } else {
             // 1. Harmony Mode Selector Tabs
-            Row(
+            val harmonyModes = ColorHarmonyMode.entries
+            val selectedHarmonyIdx = harmonyModes.indexOf(harmonyMode).coerceAtLeast(0)
+            com.reverie.paint.ui.components.LiquidSegmentedBar(
+                count = harmonyModes.size,
+                selectedIndex = selectedHarmonyIdx,
+                onSelect = { idx -> harmonyModes.getOrNull(idx)?.let { vm.updateColorHarmonyMode(it.name) } },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Morandi.panelHi)
-                    .padding(2.dp),
-                horizontalArrangement = Arrangement.SpaceBetween,
-                verticalAlignment = Alignment.CenterVertically
-            ) {
-                for (mode in ColorHarmonyMode.entries) {
-                    val isSel = harmonyMode == mode
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(24.dp)
-                            .clip(RoundedCornerShape(6.dp))
-                            .background(if (isSel) Morandi.accent else Color.Transparent)
-                            .clickable { vm.updateColorHarmonyMode(mode.name) },
-                        contentAlignment = Alignment.Center
-                    ) {
-                        Text(
-                            text = androidx.compose.ui.res.stringResource(mode.labelRes),
-                            color = if (isSel) Morandi.onAccent else Morandi.subText,
-                            fontSize = 10.sp,
-                            fontWeight = if (isSel) FontWeight.Bold else FontWeight.Normal
-                        )
-                    }
-                }
+                    .height(28.dp),
+                trackColor = Morandi.panelHi,
+                pillColor = Morandi.accent,
+                trackCornerRadius = 8.dp,
+                pillCornerRadius = 6.dp,
+                trackPadding = 2.dp,
+            ) { idx, isActive ->
+                Text(
+                    text = androidx.compose.ui.res.stringResource(harmonyModes[idx].labelRes),
+                    color = if (isActive) Morandi.onAccent else Morandi.subText,
+                    fontSize = 10.sp,
+                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
+                )
             }
 
             // 2. Harmony Wheel Canvas (205dp)

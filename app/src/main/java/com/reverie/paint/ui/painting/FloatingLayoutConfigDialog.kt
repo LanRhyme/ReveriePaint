@@ -437,55 +437,44 @@ fun FloatingLayoutConfigDialog(
                         verticalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
                         // Segmented Pill Tab Switcher
-                        Row(
+                        com.reverie.paint.ui.components.LiquidSegmentedBar(
+                            count = 2,
+                            selectedIndex = activeTab,
+                            onSelect = { activeTab = it },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(12.dp))
-                                .background(colors.panelHi.copy(alpha = 0.5f))
-                                .glassBorder(RoundedCornerShape(12.dp))
-                                .padding(3.dp),
-                        ) {
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(9.dp))
-                                    .background(if (activeTab == 0) colors.accent else Color.Transparent)
-                                    .clickable { activeTab = 0 }
-                                    .padding(vertical = 7.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
+                                .height(38.dp)
+                                .glassBorder(RoundedCornerShape(12.dp)),
+                            trackColor = colors.panelHi.copy(alpha = 0.5f),
+                            pillColor = colors.accent,
+                            trackCornerRadius = 12.dp,
+                            pillCornerRadius = 9.dp,
+                            trackPadding = 3.dp,
+                        ) { idx, isActive ->
+                            if (idx == 0) {
                                 Text(
                                     text = stringResource(R.string.floating_tab_layout),
-                                    color = if (activeTab == 0) colors.onAccent else colors.text,
+                                    color = if (isActive) colors.onAccent else colors.text,
                                     fontSize = 12.sp,
-                                    fontWeight = if (activeTab == 0) FontWeight.Bold else FontWeight.Medium,
+                                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
                                 )
-                            }
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(9.dp))
-                                    .background(if (activeTab == 1) colors.accent else Color.Transparent)
-                                    .clickable { activeTab = 1 }
-                                    .padding(vertical = 7.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
+                            } else {
                                 Row(
                                     verticalAlignment = Alignment.CenterVertically,
                                     horizontalArrangement = Arrangement.spacedBy(6.dp),
                                 ) {
                                     Text(
                                         text = stringResource(R.string.floating_tab_shortcuts),
-                                        color = if (activeTab == 1) colors.onAccent else colors.text,
+                                        color = if (isActive) colors.onAccent else colors.text,
                                         fontSize = 12.sp,
-                                        fontWeight = if (activeTab == 1) FontWeight.Bold else FontWeight.Medium,
+                                        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
                                     )
                                     if (currentTopBarActions.isNotEmpty()) {
                                         Box(
                                             modifier = Modifier
                                                 .size(16.dp)
                                                 .clip(CircleShape)
-                                                .background(if (activeTab == 1) colors.onAccent.copy(alpha = 0.2f) else colors.accent),
+                                                .background(if (isActive) colors.onAccent.copy(alpha = 0.2f) else colors.accent),
                                             contentAlignment = Alignment.Center,
                                         ) {
                                             Text(

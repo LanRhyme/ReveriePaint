@@ -528,39 +528,32 @@ private fun OklchModeSegmentedTabs(
     onModeSelected: (OklchPickerMode) -> Unit,
     modifier: Modifier = Modifier,
 ) {
-    Row(
+    val modes = listOf(
+        Triple(OklchPickerMode.HUE_PLANE, R.string.oklch_view_lc, R.string.oklch_view_lc_desc),
+        Triple(OklchPickerMode.LIGHTNESS_WHEEL, R.string.oklch_view_wheel, R.string.oklch_view_wheel_desc),
+        Triple(OklchPickerMode.SLIDERS, R.string.oklch_view_sliders, R.string.oklch_view_sliders_desc),
+    )
+    val selectedIdx = modes.indexOfFirst { it.first == currentMode }.coerceAtLeast(0)
+    com.reverie.paint.ui.components.LiquidSegmentedBar(
+        count = modes.size,
+        selectedIndex = selectedIdx,
+        onSelect = { idx -> modes.getOrNull(idx)?.let { onModeSelected(it.first) } },
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(Morandi.panelHi.copy(alpha = 0.4f))
-            .padding(2.dp),
-        horizontalArrangement = Arrangement.spacedBy(2.dp),
-    ) {
-        val modes = listOf(
-            Triple(OklchPickerMode.HUE_PLANE, R.string.oklch_view_lc, R.string.oklch_view_lc_desc),
-            Triple(OklchPickerMode.LIGHTNESS_WHEEL, R.string.oklch_view_wheel, R.string.oklch_view_wheel_desc),
-            Triple(OklchPickerMode.SLIDERS, R.string.oklch_view_sliders, R.string.oklch_view_sliders_desc),
+            .height(26.dp),
+        trackColor = Morandi.panelHi.copy(alpha = 0.4f),
+        pillColor = Morandi.accent.copy(alpha = 0.22f),
+        trackCornerRadius = 8.dp,
+        pillCornerRadius = 6.dp,
+        trackPadding = 2.dp,
+    ) { idx, isActive ->
+        Text(
+            text = stringResource(modes[idx].second),
+            fontSize = 11.sp,
+            fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+            color = if (isActive) Morandi.accent else Morandi.subText,
+            maxLines = 1,
         )
-
-        modes.forEach { (mode, labelRes, _) ->
-            val isSelected = currentMode == mode
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(if (isSelected) Morandi.accent.copy(alpha = 0.22f) else Color.Transparent)
-                    .clickable { onModeSelected(mode) }
-                    .padding(vertical = 3.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    text = stringResource(labelRes),
-                    fontSize = 11.sp,
-                    fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Medium,
-                    color = if (isSelected) Morandi.accent else Morandi.subText,
-                )
-            }
-        }
     }
 }
 

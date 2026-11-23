@@ -454,47 +454,34 @@ private fun ColorPanelBottomTabs(
     selectedTab: Int,
     onTabSelect: (Int) -> Unit
 ) {
-    Row(
+    com.reverie.paint.ui.components.LiquidSegmentedBar(
+        count = 5,
+        selectedIndex = selectedTab,
+        onSelect = onTabSelect,
         modifier = Modifier
             .fillMaxWidth()
-            .height(36.dp)
-            .clip(RoundedCornerShape(10.dp))
-            .background(Morandi.panelHi),
-        horizontalArrangement = Arrangement.SpaceAround,
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-        // Tab 0: Wheel
-        BottomTabButton(
-            selected = selectedTab == 0,
-            onClick = { onTabSelect(0) }
-        ) { tint ->
-            Icon(
+            .height(36.dp),
+        trackColor = Morandi.panelHi,
+        pillColor = Morandi.accent.copy(alpha = 0.25f),
+        trackCornerRadius = 10.dp,
+        pillCornerRadius = 8.dp,
+        trackPadding = 3.dp,
+    ) { index, isActive ->
+        val tint = if (isActive) Morandi.accent else Morandi.icon
+        when (index) {
+            0 -> Icon(
                 painter = painterResource(R.drawable.ic_tabler_color_wheel),
                 contentDescription = stringResource(R.string.color_tab_wheel),
                 tint = tint,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(18.dp),
             )
-        }
-
-        // Tab 1: Square / Card
-        BottomTabButton(
-            selected = selectedTab == 1,
-            onClick = { onTabSelect(1) }
-        ) { tint ->
-            Icon(
+            1 -> Icon(
                 painter = painterResource(R.drawable.ic_tabler_color_square),
                 contentDescription = stringResource(R.string.color_tab_square),
                 tint = tint,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(18.dp),
             )
-        }
-
-        // Tab 2: Harmony (3 connected chord nodes)
-        BottomTabButton(
-            selected = selectedTab == 2,
-            onClick = { onTabSelect(2) }
-        ) { tint ->
-            Canvas(modifier = Modifier.size(17.dp)) {
+            2 -> Canvas(modifier = Modifier.size(17.dp)) {
                 val r = size.minDimension / 2f
                 drawCircle(tint, radius = r, style = Stroke(1.8.dp.toPx()))
                 val cx = size.width / 2f
@@ -515,50 +502,18 @@ private fun ColorPanelBottomTabs(
                 drawCircle(tint, radius = 1.8.dp.toPx(), center = p2)
                 drawCircle(tint, radius = 1.8.dp.toPx(), center = p3)
             }
-        }
-
-        // Tab 3: Palettes Grid
-        BottomTabButton(
-            selected = selectedTab == 3,
-            onClick = { onTabSelect(3) }
-        ) { tint ->
-            Icon(
+            3 -> Icon(
                 painter = painterResource(R.drawable.ic_grid),
                 contentDescription = stringResource(R.string.color_tab_palette),
                 tint = tint,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(18.dp),
             )
-        }
-
-        // Tab 4: Sliders
-        BottomTabButton(
-            selected = selectedTab == 4,
-            onClick = { onTabSelect(4) }
-        ) { tint ->
-            Icon(
+            else -> Icon(
                 painter = painterResource(R.drawable.ic_sliders),
                 contentDescription = stringResource(R.string.color_tab_slider),
                 tint = tint,
-                modifier = Modifier.size(18.dp)
+                modifier = Modifier.size(18.dp),
             )
         }
-    }
-}
-
-@Composable
-private fun BottomTabButton(
-    selected: Boolean,
-    onClick: () -> Unit,
-    iconContent: @Composable (Color) -> Unit
-) {
-    Box(
-        modifier = Modifier
-            .size(44.dp, 28.dp)
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (selected) Morandi.accent.copy(alpha = 0.25f) else Color.Transparent)
-            .clickable(onClick = onClick),
-        contentAlignment = Alignment.Center
-    ) {
-        iconContent(if (selected) Morandi.accent else Morandi.icon)
     }
 }

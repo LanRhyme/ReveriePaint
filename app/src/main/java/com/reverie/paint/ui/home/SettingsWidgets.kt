@@ -647,34 +647,28 @@ internal fun <T> SettingSegmentGroupItem(
                 }
             }
             Spacer(Modifier.height(10.dp))
-            Row(
+            val selectedIdx = options.indexOfFirst { it.first == selected }.coerceAtLeast(0)
+            com.reverie.paint.ui.components.LiquidSegmentedBar(
+                count = options.size,
+                selectedIndex = selectedIdx,
+                onSelect = { idx -> options.getOrNull(idx)?.let { onSelect(it.first) } },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .height(38.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(colors.panelHi)
-                    .padding(3.dp),
-                horizontalArrangement = Arrangement.spacedBy(3.dp),
-            ) {
-                options.forEach { (key, label) ->
-                    val isSelected = key == selected
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .fillMaxHeight()
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (isSelected) colors.accent else Color.Transparent)
-                            .clickable { onSelect(key) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = label,
-                            color = if (isSelected) colors.onAccent else colors.subText,
-                            fontSize = 12.sp,
-                            fontWeight = if (isSelected) FontWeight.Bold else FontWeight.Normal,
-                        )
-                    }
-                }
+                    .height(38.dp),
+                trackColor = colors.panelHi,
+                pillColor = colors.accent,
+                trackCornerRadius = 10.dp,
+                pillCornerRadius = 8.dp,
+                trackPadding = 3.dp,
+            ) { idx, isActive ->
+                val label = options[idx].second
+                Text(
+                    text = label,
+                    color = if (isActive) colors.onAccent else colors.subText,
+                    fontSize = 12.sp,
+                    fontWeight = if (isActive) FontWeight.Bold else FontWeight.Normal,
+                    maxLines = 1,
+                )
             }
         }
     }

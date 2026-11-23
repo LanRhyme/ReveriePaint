@@ -176,35 +176,46 @@ fun SettingsPanel(
                 ),
         ) {
             // Segmented Capsule Tab Bar (3 tabs: 画布, 导出, 设置)
-            Row(
+            val tabs = listOf(
+                Triple(SettingsTab.CANVAS, R.drawable.ic_canvas_tab, R.string.panel_tab_canvas),
+                Triple(SettingsTab.EXPORT, R.drawable.ic_export_tab, R.string.panel_tab_export),
+                Triple(SettingsTab.SETTINGS, R.drawable.ic_settings, R.string.panel_tab_settings),
+            )
+            val selectedTabIdx = tabs.indexOfFirst { it.first == currentTab }.coerceAtLeast(0)
+            com.reverie.paint.ui.components.LiquidSegmentedBar(
+                count = tabs.size,
+                selectedIndex = selectedTabIdx,
+                onSelect = { idx -> tabs.getOrNull(idx)?.let { currentTab = it.first } },
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Morandi.panelHi.copy(alpha = 0.5f))
-                    .padding(3.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                TabCapsuleItem(
-                    icon = R.drawable.ic_canvas_tab,
-                    label = stringResource(R.string.panel_tab_canvas),
-                    selected = currentTab == SettingsTab.CANVAS,
-                    onClick = { currentTab = SettingsTab.CANVAS },
-                    modifier = Modifier.weight(1f),
-                )
-                TabCapsuleItem(
-                    icon = R.drawable.ic_export_tab,
-                    label = stringResource(R.string.panel_tab_export),
-                    selected = currentTab == SettingsTab.EXPORT,
-                    onClick = { currentTab = SettingsTab.EXPORT },
-                    modifier = Modifier.weight(1f),
-                )
-                TabCapsuleItem(
-                    icon = R.drawable.ic_settings,
-                    label = stringResource(R.string.panel_tab_settings),
-                    selected = currentTab == SettingsTab.SETTINGS,
-                    onClick = { currentTab = SettingsTab.SETTINGS },
-                    modifier = Modifier.weight(1f),
-                )
+                    .height(38.dp),
+                trackColor = Morandi.panelHi.copy(alpha = 0.5f),
+                pillColor = Morandi.panel,
+                trackCornerRadius = 12.dp,
+                pillCornerRadius = 9.dp,
+                trackPadding = 3.dp,
+            ) { idx, isActive ->
+                val (_, iconRes, labelRes) = tabs[idx]
+                val label = stringResource(labelRes)
+                Row(
+                    horizontalArrangement = Arrangement.Center,
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        painter = painterResource(iconRes),
+                        contentDescription = label,
+                        tint = if (isActive) Morandi.accent else Morandi.subText,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Spacer(Modifier.width(5.dp))
+                    Text(
+                        text = label,
+                        color = if (isActive) Morandi.text else Morandi.subText,
+                        fontSize = 12.sp,
+                        fontWeight = if (isActive) FontWeight.Bold else FontWeight.Medium,
+                        maxLines = 1,
+                    )
+                }
             }
 
             Spacer(Modifier.height(10.dp))
@@ -225,42 +236,6 @@ fun SettingsPanel(
                 }
             }
         }
-    }
-}
-
-@Composable
-private fun TabCapsuleItem(
-    icon: Int,
-    label: String,
-    selected: Boolean,
-    onClick: () -> Unit,
-    modifier: Modifier = Modifier,
-) {
-    val interaction = remember { MutableInteractionSource() }
-    val shape = RoundedCornerShape(9.dp)
-
-    Row(
-        modifier = modifier
-            .clip(shape)
-            .background(if (selected) Morandi.panel else Color.Transparent)
-            .clickable(interactionSource = interaction, indication = null) { onClick() }
-            .padding(vertical = 7.dp),
-        horizontalArrangement = Arrangement.Center,
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Icon(
-            painter = painterResource(icon),
-            contentDescription = label,
-            tint = if (selected) Morandi.accent else Morandi.subText,
-            modifier = Modifier.size(16.dp),
-        )
-        Spacer(Modifier.width(5.dp))
-        Text(
-            text = label,
-            color = if (selected) Morandi.text else Morandi.subText,
-            fontSize = 12.sp,
-            fontWeight = if (selected) FontWeight.Bold else FontWeight.Medium,
-        )
     }
 }
 
