@@ -1001,7 +1001,7 @@ internal fun LayerListView(
                             onDragStart = { startX, startY ->
                                 if (vm.isLayerBackendBusy()) return@LayerRow
                                 revealedIndex = null
-                                if (layer.index !in vm.selectedLayerIndices) {
+                                if (vm.selectedLayerIndices.isNotEmpty()) {
                                     vm.clearLayerSelection()
                                 }
                                 draggingFrom = layer.index
@@ -1059,7 +1059,7 @@ internal fun LayerListView(
                             onClick = {
                                 revealedIndex = null
                                 val panelId = vm.panelIdForGroupRow(layer.index)
-                                if (layer.index !in vm.selectedLayerIndices) {
+                                if (vm.selectedLayerIndices.isNotEmpty()) {
                                     vm.clearLayerSelection()
                                 }
                                 if (panelId != null) {
@@ -1182,16 +1182,17 @@ internal fun LayerListView(
                     val y = animatedLineY.value.coerceIn(0f, size.height)
                     val dotRadius = 4.5.dp.toPx()
                     val haloRadius = 7.5.dp.toPx()
-                    val lineStroke = 2.5.dp.toPx()
-                    val startX = (16 + animatedDepth.value * LAYER_INDENT_STEP_DP).dp.toPx()
-                    val endX = size.width - 16.dp.toPx()
+                    val lineStroke = 2.dp.toPx()
+                    val startX = (32 + animatedDepth.value * LAYER_INDENT_STEP_DP).dp.toPx()
+                    val endX = size.width - 10.dp.toPx()
 
                     // 1. Soft glowing outer beam
                     drawLine(
                         brush = Brush.horizontalGradient(
                             colors = listOf(
-                                Morandi.accent.copy(alpha = lineAlpha * 0.35f),
-                                Morandi.accent.copy(alpha = lineAlpha * 0.15f),
+                                Morandi.accent.copy(alpha = lineAlpha * 0.18f),
+                                Morandi.accent.copy(alpha = lineAlpha * 0.28f),
+                                Morandi.accent.copy(alpha = lineAlpha * 0.18f),
                                 Color.Transparent,
                             ),
                             startX = startX,
@@ -1199,39 +1200,26 @@ internal fun LayerListView(
                         ),
                         start = Offset(startX, y),
                         end = Offset(endX, y),
-                        strokeWidth = lineStroke * 2.2f,
+                        strokeWidth = lineStroke * 2.5f,
                         cap = StrokeCap.Round,
                     )
 
-                    // 2. Crisp foreground beam
+                    // 2. Crisp foreground beam (no left dot)
                     drawLine(
                         brush = Brush.horizontalGradient(
                             colors = listOf(
+                                Morandi.accent.copy(alpha = lineAlpha * 0.95f),
                                 Morandi.accent.copy(alpha = lineAlpha),
-                                Morandi.accent.copy(alpha = lineAlpha * 0.85f),
-                                Morandi.accent.copy(alpha = lineAlpha * 0.45f),
+                                Morandi.accent.copy(alpha = lineAlpha * 0.75f),
+                                Morandi.accent.copy(alpha = lineAlpha * 0.20f),
                             ),
                             startX = startX,
                             endX = endX,
                         ),
-                        start = Offset(startX + dotRadius, y),
+                        start = Offset(startX, y),
                         end = Offset(endX, y),
                         strokeWidth = lineStroke,
                         cap = StrokeCap.Round,
-                    )
-
-                    // 3. Glowing dot outer halo
-                    drawCircle(
-                        color = Morandi.accent.copy(alpha = lineAlpha * 0.35f),
-                        radius = haloRadius,
-                        center = Offset(startX, y),
-                    )
-
-                    // 4. Glowing dot inner core
-                    drawCircle(
-                        color = Morandi.accent.copy(alpha = lineAlpha),
-                        radius = dotRadius,
-                        center = Offset(startX, y),
                     )
                 }
             }

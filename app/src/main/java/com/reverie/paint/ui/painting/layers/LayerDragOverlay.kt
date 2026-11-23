@@ -164,7 +164,6 @@ fun LayerDragOverlay(
                     scaleY = cardScale
                     rotationZ = cardTilt
                     alpha = cardAlpha
-                    shape = RoundedCornerShape(8.dp)
                     clip = false
                 },
         ) {
@@ -176,9 +175,7 @@ fun LayerDragOverlay(
                             .fillMaxSize()
                             .offset(x = 6.dp * fanOffset, y = (-6).dp * fanOffset)
                             .graphicsLayer { rotationZ = -2.5f * fanOffset }
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Morandi.panelHi.copy(alpha = 0.6f))
-                            .border(1.dp, Morandi.accent.copy(alpha = 0.3f), RoundedCornerShape(8.dp)),
+                            .background(Morandi.panelHi.copy(alpha = 0.6f)),
                     )
                 }
                 if (activeDrag.multiCount >= 2) {
@@ -187,9 +184,7 @@ fun LayerDragOverlay(
                             .fillMaxSize()
                             .offset(x = 3.dp * fanOffset, y = (-3).dp * fanOffset)
                             .graphicsLayer { rotationZ = -1.2f * fanOffset }
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Morandi.panelHi.copy(alpha = 0.8f))
-                            .border(1.dp, Morandi.accent.copy(alpha = 0.35f), RoundedCornerShape(8.dp)),
+                            .background(Morandi.panelHi.copy(alpha = 0.8f)),
                     )
                 }
             }
@@ -204,10 +199,8 @@ fun LayerDragOverlay(
                 onToggleCollapse = {},
                 modifier = Modifier
                     .fillMaxSize()
-                    .clip(RoundedCornerShape(8.dp))
                     .background(Morandi.panelHi)
-                    .border(1.dp, Morandi.accent.copy(alpha = 0.45f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 8.dp),
+                    .padding(end = 6.dp),
             )
 
             // Multi-selection count badge

@@ -497,8 +497,7 @@ internal fun LayerRow(
                 Modifier
                     .fillMaxWidth()
                     .height(rowHeight)
-                    .then(if (groupBorder != null) Modifier.border(groupBorder, RoundedCornerShape(8.dp)) else Modifier)
-                    .background(selectionBg, shape = RoundedCornerShape(8.dp))
+                    .then(if (groupBorder != null) Modifier.border(groupBorder) else Modifier)
                     .offset {
                         val x = if (liveSwipeOffset.isNaN()) revealAnim.value else liveSwipeOffset
                         IntOffset(x.roundToInt(), 0)
@@ -513,11 +512,20 @@ internal fun LayerRow(
                         scaleY = groupScale
                     },
         ) {
-            // Selected indicator pill on the left
+            // Selection / color-label background starts after the 32dp eye visibility column
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(start = 32.dp)
+                    .background(selectionBg),
+            )
+
+            // Selected indicator pill on the left edge of the content area (after eye column)
             if (selected && !isDragging) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
+                        .padding(start = 32.dp)
                         .width(3.dp)
                         .height(24.dp)
                         .clip(RoundedCornerShape(topEnd = 1.5.dp, bottomEnd = 1.5.dp))
@@ -665,7 +673,6 @@ internal fun LayerRowContent(
             modifier = Modifier
                 .width(32.dp)
                 .fillMaxHeight()
-                .clip(RoundedCornerShape(topStart = 8.dp, bottomStart = 8.dp))
                 .background(if (visible) Color.Transparent else Morandi.panel.copy(alpha = 0.35f))
                 .noRippleClickable {
                     when {
