@@ -4,7 +4,11 @@
 
 package com.reverie.paint.ui.components
 
+import android.view.HapticFeedbackConstants
 import androidx.annotation.DrawableRes
+import androidx.compose.ui.platform.LocalView
+import kotlin.math.PI
+import kotlin.math.sin
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -35,6 +39,9 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MenuDefaults
 import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.core.Animatable
+import androidx.compose.runtime.rememberCoroutineScope
+import kotlinx.coroutines.launch
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.slideInVertically
 import androidx.compose.animation.animateColorAsState
@@ -556,16 +563,31 @@ fun ReVerticalSlider(
     val colors = Theme.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
-    var localFraction by remember(fraction) { mutableFloatStateOf(fraction) }
-    var trackPx by remember { mutableIntStateOf(1) }
+    val scope = rememberCoroutineScope()
     var isDragging by remember { mutableStateOf(false) }
+    val fractionAnim = remember { Animatable(fraction.coerceIn(0f, 1f)) }
+    LaunchedEffect(fraction) {
+        if (!isDragging) {
+            fractionAnim.animateTo(
+                fraction.coerceIn(0f, 1f),
+                spring(dampingRatio = 0.88f, stiffness = 620f),
+            )
+        }
+    }
+    val displayFraction = fractionAnim.value.coerceIn(0f, 1f)
+    var trackPx by remember { mutableIntStateOf(1) }
     var showPopup by remember { mutableStateOf(false) }
     var lastHapticStep by remember { mutableIntStateOf((fraction * 100).toInt()) }
     var dragSpeed by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(dragSpeed) {
-        if (dragSpeed > 0.001f) {
-            kotlinx.coroutines.delay(45)
+    LaunchedEffect(isDragging) {
+        if (!isDragging) {
             dragSpeed = 0f
+            return@LaunchedEffect
+        }
+        while (true) {
+            kotlinx.coroutines.delay(16)
+            dragSpeed *= 0.82f
+            if (dragSpeed < 0.05f) dragSpeed = 0f
         }
     }
 
@@ -594,9 +616,9 @@ fun ReVerticalSlider(
                     title = title,
                     iconRes = iconRes,
                     valueText = valueText,
-                    fraction = localFraction,
+                    fraction = displayFraction,
                     onFraction = { frac ->
-                        localFraction = frac
+                        scope.launch { fractionAnim.snapTo(frac.coerceIn(0f, 1f)) }
                         onFraction(frac)
                     },
                     onStep = onStep,
@@ -633,31 +655,33 @@ fun ReVerticalSlider(
                             )
                         }
                         .pointerInput(Unit) {
+                            var lastEventMs = 0L
                             detectDragGestures(
                                 onDragStart = {
                                     isDragging = true
                                     dragSpeed = 0f
+                                    lastEventMs = android.os.SystemClock.uptimeMillis()
                                     haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                                 },
                                 onDragEnd = {
                                     isDragging = false
                                     dragSpeed = 0f
-                                    onRelease?.invoke(localFraction)
+                                    onRelease?.invoke(fractionAnim.value)
                                 },
                                 onDragCancel = {
                                     isDragging = false
                                     dragSpeed = 0f
-                                    onRelease?.invoke(localFraction)
+                                    onRelease?.invoke(fractionAnim.value)
                                 }
                             ) { change, dragAmount ->
-                                val speed = (kotlin.math.abs(dragAmount.y) / density.density).coerceIn(0f, 15f)
-                                if (speed > dragSpeed) {
-                                    dragSpeed = speed
-                                } else {
-                                    dragSpeed = dragSpeed * 0.6f + speed * 0.4f
-                                }
+                                val nowMs = android.os.SystemClock.uptimeMillis()
+                                val dtSec = ((nowMs - lastEventMs).coerceIn(4L, 64L)) / 1000f
+                                lastEventMs = nowMs
+                                val velDpPerSec = (kotlin.math.abs(dragAmount.y) / density.density) / dtSec
+                                val normSpeed = ((velDpPerSec - 60f) / 45f).coerceIn(0f, 16f)
+                                dragSpeed = maxOf(dragSpeed * 0.7f, normSpeed)
                                 val value = 1f - (change.position.y / trackPx.toFloat()).coerceIn(0f, 1f)
-                                localFraction = value
+                                scope.launch { fractionAnim.snapTo(value) }
                                 onFraction(value)
                                 val curStep = (value * 50).toInt()
                                 if (curStep != lastHapticStep) {
@@ -671,8 +695,8 @@ fun ReVerticalSlider(
             ) {
                 val capsuleRadius = (trackWidth / 2).dp
                 val capsuleGrow by animateFloatAsState(
-                    targetValue = if (isDragging) 1.04f else 1f,
-                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f),
+                    targetValue = if (isDragging) 1.06f else 1f,
+                    animationSpec = spring(dampingRatio = 0.68f, stiffness = 480f),
                     label = "capsuleGrow"
                 )
 
@@ -710,33 +734,33 @@ fun ReVerticalSlider(
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .fillMaxHeight(localFraction.coerceIn(0f, 1f))
+                            .fillMaxHeight(displayFraction)
                             .align(Alignment.BottomCenter)
-                            .background(colors.accent.copy(alpha = (0.22f * panelAlpha).coerceIn(0.10f, 0.26f)))
+                            .background(colors.accent.copy(alpha = (0.24f * panelAlpha).coerceIn(0.10f, 0.28f)))
                     )
                 }
 
-                // 动量微拉伸：拖拽时沿滑动轴微幅伸长 0~1.8dp，横向微压缩保持流体体积感
+                // 动量微拉伸：拖拽时沿滑动轴随真实物理速度 (dp/s) 伸长 0~14dp，横向微压缩保持流体体积感
                 val dynamicStretch by animateFloatAsState(
-                    targetValue = if (isDragging) (dragSpeed * 0.16f).coerceIn(0f, 1.8f) else 0f,
-                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f),
+                    targetValue = if (isDragging) (dragSpeed * 0.9f).coerceIn(0f, 14f) else 0f,
+                    animationSpec = spring(dampingRatio = 0.70f, stiffness = 560f),
                     label = "ind_stretch"
                 )
 
                 // Dynamic Indicator Line (Spring animations with momentum stretch & squash)
                 val indicatorHeight by animateDpAsState(
-                    targetValue = if (isDragging) (8.0f + dynamicStretch).dp else 3.dp,
-                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f),
+                    targetValue = if (isDragging) (10.0f + dynamicStretch).dp else 3.5.dp,
+                    animationSpec = spring(dampingRatio = 0.68f, stiffness = 480f),
                     label = "ind_h"
                 )
                 val indicatorWidth by animateDpAsState(
-                    targetValue = if (isDragging) ((trackWidth - 0.5f) - dynamicStretch * 0.5f).dp else (trackWidth - 2f).dp,
-                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f),
+                    targetValue = if (isDragging) ((trackWidth + 2f) - dynamicStretch * 0.35f).coerceAtLeast(10f).dp else (trackWidth - 2f).dp,
+                    animationSpec = spring(dampingRatio = 0.68f, stiffness = 480f),
                     label = "ind_w"
                 )
                 val indicatorAlpha by animateFloatAsState(
-                    targetValue = if (isDragging) 0.68f else 0.78f,
-                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f),
+                    targetValue = if (isDragging) 0.94f else 0.78f,
+                    animationSpec = spring(dampingRatio = 0.80f, stiffness = 460f),
                     label = "ind_alpha"
                 )
 
@@ -747,7 +771,7 @@ fun ReVerticalSlider(
                     modifier = Modifier
                         .align(Alignment.BottomCenter)
                         .graphicsLayer {
-                            translationY = -(localFraction.coerceIn(0f, 1f) * travelPx)
+                            translationY = -(displayFraction * travelPx)
                         }
                         .width(indicatorWidth)
                         .height(indicatorHeight)
@@ -871,16 +895,31 @@ fun ReHorizontalSlider(
     val colors = Theme.current
     val haptic = LocalHapticFeedback.current
     val density = LocalDensity.current
-    var localFraction by remember(fraction) { mutableFloatStateOf(fraction) }
-    var trackPx by remember { mutableIntStateOf(1) }
+    val scope = rememberCoroutineScope()
     var isDragging by remember { mutableStateOf(false) }
+    val fractionAnim = remember { Animatable(fraction.coerceIn(0f, 1f)) }
+    LaunchedEffect(fraction) {
+        if (!isDragging) {
+            fractionAnim.animateTo(
+                fraction.coerceIn(0f, 1f),
+                spring(dampingRatio = 0.88f, stiffness = 620f),
+            )
+        }
+    }
+    val displayFraction = fractionAnim.value.coerceIn(0f, 1f)
+    var trackPx by remember { mutableIntStateOf(1) }
     var showPopup by remember { mutableStateOf(false) }
     var lastHapticStep by remember { mutableIntStateOf((fraction * 100).toInt()) }
     var dragSpeed by remember { mutableFloatStateOf(0f) }
-    LaunchedEffect(dragSpeed) {
-        if (dragSpeed > 0.001f) {
-            kotlinx.coroutines.delay(45)
+    LaunchedEffect(isDragging) {
+        if (!isDragging) {
             dragSpeed = 0f
+            return@LaunchedEffect
+        }
+        while (true) {
+            kotlinx.coroutines.delay(16)
+            dragSpeed *= 0.82f
+            if (dragSpeed < 0.05f) dragSpeed = 0f
         }
     }
 
@@ -907,9 +946,9 @@ fun ReHorizontalSlider(
                     title = title,
                     iconRes = iconRes,
                     valueText = valueText,
-                    fraction = localFraction,
+                    fraction = displayFraction,
                     onFraction = { frac ->
-                        localFraction = frac
+                        scope.launch { fractionAnim.snapTo(frac.coerceIn(0f, 1f)) }
                         onFraction(frac)
                     },
                     onStep = onStep,
@@ -939,32 +978,34 @@ fun ReHorizontalSlider(
                         )
                     }
                     .pointerInput(Unit) {
+                        var lastEventMs = 0L
                         detectDragGestures(
                             onDragStart = {
                                 isDragging = true
                                 dragSpeed = 0f
+                                lastEventMs = android.os.SystemClock.uptimeMillis()
                                 haptic.performHapticFeedback(HapticFeedbackType.TextHandleMove)
                             },
-                            onDragEnd = {
-                                isDragging = false
-                                dragSpeed = 0f
-                                onRelease?.invoke(localFraction)
-                            },
-                            onDragCancel = {
-                                isDragging = false
-                                dragSpeed = 0f
-                                onRelease?.invoke(localFraction)
-                            }
-                        ) { change, dragAmount ->
-                            val speed = (kotlin.math.abs(dragAmount.x) / density.density).coerceIn(0f, 15f)
-                            if (speed > dragSpeed) {
-                                dragSpeed = speed
-                            } else {
-                                dragSpeed = dragSpeed * 0.6f + speed * 0.4f
-                            }
-                            val value = (change.position.x / trackPx.toFloat()).coerceIn(0f, 1f)
-                            localFraction = value
-                            onFraction(value)
+                                onDragEnd = {
+                                    isDragging = false
+                                    dragSpeed = 0f
+                                    onRelease?.invoke(fractionAnim.value)
+                                },
+                                onDragCancel = {
+                                    isDragging = false
+                                    dragSpeed = 0f
+                                    onRelease?.invoke(fractionAnim.value)
+                                }
+                            ) { change, dragAmount ->
+                                val nowMs = android.os.SystemClock.uptimeMillis()
+                                val dtSec = ((nowMs - lastEventMs).coerceIn(4L, 64L)) / 1000f
+                                lastEventMs = nowMs
+                                val velDpPerSec = (kotlin.math.abs(dragAmount.x) / density.density) / dtSec
+                                val normSpeed = ((velDpPerSec - 60f) / 45f).coerceIn(0f, 16f)
+                                dragSpeed = maxOf(dragSpeed * 0.7f, normSpeed)
+                                val value = (change.position.x / trackPx.toFloat()).coerceIn(0f, 1f)
+                                scope.launch { fractionAnim.snapTo(value) }
+                                onFraction(value)
                             val curStep = (value * 50).toInt()
                             if (curStep != lastHapticStep) {
                                 lastHapticStep = curStep
@@ -977,8 +1018,8 @@ fun ReHorizontalSlider(
             ) {
                 val capsuleRadius = (trackHeight / 2).dp
                 val capsuleGrow by animateFloatAsState(
-                    targetValue = if (isDragging) 1.04f else 1f,
-                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f),
+                    targetValue = if (isDragging) 1.06f else 1f,
+                    animationSpec = spring(dampingRatio = 0.68f, stiffness = 480f),
                     label = "capsuleGrowH"
                 )
 
@@ -1014,33 +1055,33 @@ fun ReHorizontalSlider(
                     Box(
                         modifier = Modifier
                             .fillMaxHeight()
-                            .fillMaxWidth(localFraction.coerceIn(0f, 1f))
+                            .fillMaxWidth(displayFraction)
                             .align(Alignment.CenterStart)
-                            .background(colors.accent.copy(alpha = (0.22f * panelAlpha).coerceIn(0.10f, 0.26f)))
+                            .background(colors.accent.copy(alpha = (0.24f * panelAlpha).coerceIn(0.10f, 0.28f)))
                     )
                 }
 
-                // 动量微拉伸：拖拽时沿水平轴微幅伸长 0~1.8dp，纵向微压缩保持流体体积感
+                // 动量微拉伸：拖拽时沿水平轴随真实物理速度 (dp/s) 伸长 0~14dp，纵向微压缩保持流体体积感
                 val dynamicStretch by animateFloatAsState(
-                    targetValue = if (isDragging) (dragSpeed * 0.16f).coerceIn(0f, 1.8f) else 0f,
-                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f),
+                    targetValue = if (isDragging) (dragSpeed * 0.9f).coerceIn(0f, 14f) else 0f,
+                    animationSpec = spring(dampingRatio = 0.70f, stiffness = 560f),
                     label = "ind_stretch_h"
                 )
 
                 // Dynamic Indicator Line (Spring animations with momentum stretch & squash)
                 val indicatorWidth by animateDpAsState(
-                    targetValue = if (isDragging) (8.0f + dynamicStretch).dp else 3.dp,
-                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f),
+                    targetValue = if (isDragging) (10.0f + dynamicStretch).dp else 3.5.dp,
+                    animationSpec = spring(dampingRatio = 0.68f, stiffness = 480f),
                     label = "ind_w_h"
                 )
                 val indicatorHeight by animateDpAsState(
-                    targetValue = if (isDragging) ((trackHeight - 0.5f) - dynamicStretch * 0.5f).dp else (trackHeight - 2f).dp,
-                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f),
+                    targetValue = if (isDragging) ((trackHeight + 2f) - dynamicStretch * 0.35f).coerceAtLeast(10f).dp else (trackHeight - 2f).dp,
+                    animationSpec = spring(dampingRatio = 0.68f, stiffness = 480f),
                     label = "ind_h_h"
                 )
                 val indicatorAlpha by animateFloatAsState(
-                    targetValue = if (isDragging) 0.68f else 0.78f,
-                    animationSpec = spring(dampingRatio = 0.88f, stiffness = 420f),
+                    targetValue = if (isDragging) 0.94f else 0.78f,
+                    animationSpec = spring(dampingRatio = 0.80f, stiffness = 460f),
                     label = "ind_alpha_h"
                 )
 
@@ -1051,7 +1092,7 @@ fun ReHorizontalSlider(
                     modifier = Modifier
                         .align(Alignment.CenterStart)
                         .graphicsLayer {
-                            translationX = localFraction.coerceIn(0f, 1f) * travelPx
+                            translationX = displayFraction * travelPx
                         }
                         .width(indicatorWidth)
                         .height(indicatorHeight)
@@ -1155,16 +1196,39 @@ fun ReSlider(
         onValue(valueRange.start + frac * rangeSpan)
     }
     val currentOnRelease by rememberUpdatedState(onRelease)
+    val scope = rememberCoroutineScope()
+    var isHolding by remember { mutableStateOf(false) }
     var interacting by remember { mutableStateOf(false) }
-    var dragFraction by remember { mutableStateOf<Float?>(null) }
-    val thumbScale by animateFloatAsState(if (interacting && enabled) 1.15f else 1f, Motion.springSnap, label = "sliderThumbScale")
-    val glowAlpha by animateFloatAsState(if (interacting && enabled) 0.22f else 0f, Motion.springSnap, label = "sliderGlow")
+    val thumbScale by animateFloatAsState(
+        if ((isHolding || interacting) && enabled) 1.22f else 1f,
+        spring(dampingRatio = 0.82f, stiffness = 520f),
+        label = "sliderThumbScale",
+    )
+    val trackScaleY by animateFloatAsState(
+        if (interacting && enabled) 1.08f else 1f,
+        spring(dampingRatio = 0.85f, stiffness = 500f),
+        label = "sliderTrackScaleY",
+    )
+    val glowAlpha by animateFloatAsState(
+        if ((isHolding || interacting) && enabled) 0.24f else 0f,
+        spring(dampingRatio = 0.85f, stiffness = 480f),
+        label = "sliderGlow",
+    )
 
     val density = LocalDensity.current
     val thumbW = with(density) { 4.dp.toPx() }
     val pad = thumbW / 2f + with(density) { 2.dp.toPx() }
 
     val normalizedVal = ((value - valueRange.start) / rangeSpan).coerceIn(0f, 1f)
+    val fractionAnim = remember { Animatable(normalizedVal) }
+    LaunchedEffect(normalizedVal) {
+        if (!interacting) {
+            fractionAnim.animateTo(
+                normalizedVal,
+                spring(dampingRatio = 0.94f, stiffness = 780f),
+            )
+        }
+    }
 
     Box(
         modifier =
@@ -1187,6 +1251,7 @@ fun ReSlider(
                         val touchSlop = viewConfiguration.touchSlop
                         var isDragging = false
                         var isScrollingVertically = false
+                        isHolding = true
 
                         try {
                             while (true) {
@@ -1219,6 +1284,7 @@ fun ReSlider(
                                     if (absDy > touchSlop && absDy > absDx) {
                                         // 纵向滚动优先，退出手势让渡给外层可滚动容器
                                         isScrollingVertically = true
+                                        isHolding = false
                                         break
                                     } else if (absDx > touchSlop && absDx >= absDy) {
                                         // 横向拖拽生效
@@ -1230,13 +1296,13 @@ fun ReSlider(
                                 if (isDragging) {
                                     change.consume()
                                     val curVal = ((change.position.x - pad) / span).coerceIn(0f, 1f)
-                                    dragFraction = curVal
+                                    scope.launch { fractionAnim.snapTo(curVal) }
                                     currentOnValue(curVal)
                                 }
                             }
                         } finally {
-                            dragFraction = null
                             interacting = false
+                            isHolding = false
                         }
                     }
                 },
@@ -1246,10 +1312,11 @@ fun ReSlider(
             val h = size.height
             if (w <= 0f || h <= 0f) return@Canvas
             val cy = h / 2f
-            val currentFraction = (dragFraction ?: normalizedVal).coerceIn(0f, 1f)
+            val currentFraction = fractionAnim.value.coerceIn(0f, 1f)
 
             val minTrackH = minOf(6.dp.toPx(), h)
-            val trackH = (height * 0.65f).dp.toPx().coerceIn(minTrackH, maxOf(minTrackH, h))
+            val baseTrackH = (height * 0.65f).dp.toPx().coerceIn(minTrackH, maxOf(minTrackH, h))
+            val trackH = (baseTrackH * trackScaleY).coerceAtMost(h)
             val trackCorner = androidx.compose.ui.geometry.CornerRadius(trackH / 2f, trackH / 2f)
 
             val thumbH = (trackH + 4.dp.toPx()).coerceAtMost(h)
@@ -1313,47 +1380,143 @@ fun ReSwitch(
     enabled: Boolean = true,
 ) {
     val colors = Theme.current
+    val view = LocalView.current
     val isDark = colors.bg.luminance() < 0.5f
 
+    val latestChecked by rememberUpdatedState(checked)
+    val latestOnChecked by rememberUpdatedState(onChecked)
+
+    var isHolding by remember { mutableStateOf(false) }
+    var dragProgress by remember { mutableStateOf<Float?>(null) }
+
+    val visualTarget = dragProgress ?: if (checked) 1f else 0f
+    val thumbProgress by animateFloatAsState(
+        targetValue = visualTarget,
+        animationSpec = if (dragProgress != null) {
+            spring(dampingRatio = 1f, stiffness = 2400f)
+        } else {
+            spring(dampingRatio = 0.68f, stiffness = 520f)
+        },
+        label = "switchThumb",
+    )
+    val holdStretch by animateFloatAsState(
+        targetValue = if (isHolding && enabled) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.65f, stiffness = 520f),
+        label = "switchHoldStretch",
+    )
+    val trackScale by animateFloatAsState(
+        targetValue = if (isHolding && enabled) 1.04f else 1f,
+        animationSpec = spring(dampingRatio = 0.68f, stiffness = 520f),
+        label = "switchTrackScale",
+    )
+
+    val effectiveOn = (dragProgress?.let { it >= 0.5f } ?: checked)
     val trackColor by animateColorAsState(
-        if (checked) colors.accent else colors.panelHi,
+        if (effectiveOn) colors.accent else colors.panelHi,
         spring(dampingRatio = 0.90f, stiffness = 500f),
         label = "switchTrackColor",
     )
     val thumbColor by animateColorAsState(
-        if (checked) colors.onAccent else colors.subText,
+        if (effectiveOn) colors.onAccent else colors.subText,
         spring(dampingRatio = 0.90f, stiffness = 500f),
         label = "switchThumbColor",
-    )
-    val thumbProgress by animateFloatAsState(
-        if (checked) 1f else 0f,
-        Motion.springSnap,
-        label = "switchThumb",
     )
 
     Box(
         modifier =
             modifier
-                .graphicsLayer { alpha = if (enabled) 1f else 0.4f }
+                .graphicsLayer {
+                    alpha = if (enabled) 1f else 0.4f
+                    scaleX = trackScale
+                    scaleY = trackScale
+                }
                 .size(48.dp, 28.dp)
                 .clip(RoundedCornerShape(14.dp))
                 .background(trackColor)
-                .clickable(
-                    enabled = enabled,
-                    indication = null,
-                    interactionSource = remember { MutableInteractionSource() },
-                ) { onChecked(!checked) }
+                .pointerInput(enabled) {
+                    if (!enabled) return@pointerInput
+                    awaitEachGesture {
+                        val down = awaitFirstDown(requireUnconsumed = false)
+                        val touchSlop = viewConfiguration.touchSlop
+                        val travelPx = 20.dp.toPx()
+                        val startProgress = if (latestChecked) 1f else 0f
+                        var dragging = false
+                        var scrollingVertically = false
+                        var lastHalf = latestChecked
+                        isHolding = true
+
+                        try {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull { it.id == down.id } ?: break
+                                if (!change.pressed) {
+                                    if (!scrollingVertically) {
+                                        val nextChecked = if (dragging) {
+                                            (dragProgress ?: startProgress) >= 0.5f
+                                        } else {
+                                            !latestChecked
+                                        }
+                                        if (nextChecked != latestChecked) {
+                                            if (!dragging) {
+                                                view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                            }
+                                            latestOnChecked(nextChecked)
+                                        }
+                                    }
+                                    break
+                                }
+
+                                val dx = change.position.x - down.position.x
+                                val dy = change.position.y - down.position.y
+                                val absDx = kotlin.math.abs(dx)
+                                val absDy = kotlin.math.abs(dy)
+
+                                if (!dragging) {
+                                    if (absDy > touchSlop && absDy > absDx) {
+                                        scrollingVertically = true
+                                        isHolding = false
+                                        break
+                                    } else if (absDx > touchSlop * 0.6f && absDx >= absDy) {
+                                        dragging = true
+                                    }
+                                }
+
+                                if (dragging) {
+                                    change.consume()
+                                    val p = (startProgress + dx / travelPx).coerceIn(0f, 1f)
+                                    dragProgress = p
+                                    val half = p >= 0.5f
+                                    if (half != lastHalf) {
+                                        lastHalf = half
+                                        view.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK)
+                                    }
+                                }
+                            }
+                        } finally {
+                            dragProgress = null
+                            isHolding = false
+                        }
+                    }
+                }
                 .padding(3.dp),
         contentAlignment = Alignment.CenterStart,
     ) {
+        val density = LocalDensity.current
+        val baseSizePx = with(density) { 22.dp.toPx() }
+        val travelSpanPx = with(density) { 20.dp.toPx() }
+        val flightStretch = sin(thumbProgress.coerceIn(0f, 1f) * PI).toFloat()
+        val extraWidthPx = with(density) { 5.dp.toPx() } * maxOf(holdStretch, flightStretch * 0.7f)
+        val thumbW = with(density) { (baseSizePx + extraWidthPx).toDp() }
+        val offsetPx = thumbProgress.coerceIn(0f, 1f) * (travelSpanPx - extraWidthPx)
+
         Box(
             Modifier
-                .offset { IntOffset((20.dp.toPx() * thumbProgress).roundToInt(), 0) }
-                .size(22.dp)
+                .offset { IntOffset(offsetPx.roundToInt(), 0) }
+                .size(width = thumbW, height = 22.dp)
                 .shadow(
-                    elevation = 2.dp,
+                    elevation = if (isHolding) 4.dp else 2.dp,
                     shape = CircleShape,
-                    spotColor = Color.Black.copy(alpha = if (isDark) 0.30f else 0.15f),
+                    spotColor = Color.Black.copy(alpha = if (isDark) 0.32f else 0.16f),
                 )
                 .clip(CircleShape)
                 .background(thumbColor),
