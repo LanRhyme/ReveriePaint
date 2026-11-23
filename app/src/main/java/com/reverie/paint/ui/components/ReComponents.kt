@@ -116,7 +116,6 @@ import androidx.compose.foundation.interaction.collectIsPressedAsState
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.foundation.layout.offset
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
 import dev.chrisbanes.haze.hazeEffect
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.DragGripSpec
@@ -293,7 +292,7 @@ fun SliderFineTunePopup(
                     .background(colors.panel.copy(alpha = popupAlpha))
                     .then(
                         if (vm?.blurBackground == true && hazeState != null) {
-                            Modifier.hazeChild(
+                            Modifier.hazeEffect(
                                 state = hazeState,
                                 style = Glass.popupStyle(popupAlpha),
                             )

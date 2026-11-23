@@ -84,7 +84,7 @@ import com.reverie.paint.ui.theme.systemHoverIcon
 import com.reverie.paint.ui.theme.parseColor
 import com.reverie.paint.core.*
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.hazeEffect
 import com.reverie.paint.ui.theme.Glass
 
 @Composable
@@ -284,7 +284,7 @@ fun ToolButtonsContent(
             .clip(shape)
             .then(
                 if (vm.blurBackground && hazeState != null) {
-                    Modifier.hazeChild(
+                    Modifier.hazeEffect(
                         state = hazeState,
                         style = Glass.barStyle(if (opacity >= 0.99) 0.90f else opacity.toFloat()),
                     )
@@ -595,7 +595,7 @@ fun SlidersPanelContent(
         .clip(shape)
         .then(
             if (vm.blurBackground && hazeState != null) {
-                Modifier.hazeChild(
+                Modifier.hazeEffect(
                     state = hazeState,
                     style = Glass.barStyle(if (opacity >= 0.99) 0.90f else opacity.toFloat()),
                 )

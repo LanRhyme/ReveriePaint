@@ -4,6 +4,9 @@
 
 package com.reverie.paint.ui.painting.panels
 
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
+
 import android.content.ClipData
 import android.content.ClipboardManager
 import android.content.Context
@@ -229,6 +232,12 @@ fun CompactHsvSlider(
     val currentOnValueChange by rememberUpdatedState(onValueChange)
     val currentOnInteractionStart by rememberUpdatedState(onInteractionStart)
     val currentOnInteractionEnd by rememberUpdatedState(onInteractionEnd)
+    var isInteracting by remember { mutableStateOf(false) }
+    val thumbScale by animateFloatAsState(
+        targetValue = if (isInteracting) 1.24f else 1f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 540f),
+        label = "compactHsvThumbScale",
+    )
 
     val measurer = rememberTextMeasurer()
     val density = LocalDensity.current
@@ -268,6 +277,7 @@ fun CompactHsvSlider(
                 .pointerInput(max) {
                     awaitEachGesture {
                         val down = awaitFirstDown().also { it.consume() }
+                        isInteracting = true
                         currentOnInteractionStart()
                         val updateVal = { pos: Offset ->
                             val frac = (pos.x / size.width).coerceIn(0f, 1f)
@@ -275,23 +285,28 @@ fun CompactHsvSlider(
                         }
                         updateVal(down.position)
 
-                        while (true) {
-                            val event = awaitPointerEvent()
-                            val change = event.changes.firstOrNull() ?: break
-                            if (!change.pressed) break
-                            updateVal(change.position)
-                            change.consume()
+                        try {
+                            while (true) {
+                                val event = awaitPointerEvent()
+                                val change = event.changes.firstOrNull() ?: break
+                                if (!change.pressed) break
+                                updateVal(change.position)
+                                change.consume()
+                            }
+                        } finally {
+                            isInteracting = false
+                            currentOnInteractionEnd()
                         }
-                        currentOnInteractionEnd()
                     }
                 }
         ) {
             Canvas(modifier = Modifier.fillMaxSize()) {
                 val cx = ((value / max).coerceIn(0f, 1f)) * size.width
-                drawCircle(Color.White, radius = 5.dp.toPx(), center = Offset(cx, size.height / 2f))
+                val r = 5.dp.toPx() * thumbScale
+                drawCircle(Color.White, radius = r, center = Offset(cx, size.height / 2f))
                 drawCircle(
                     color = Color.Black.copy(alpha = 0.55f),
-                    radius = 5.dp.toPx(),
+                    radius = r,
                     center = Offset(cx, size.height / 2f),
                     style = Stroke(1.2.dp.toPx())
                 )

@@ -335,7 +335,9 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
 
     private val surfaceGeometryCallback = object : SurfaceHolder.Callback {
         override fun surfaceCreated(holder: SurfaceHolder) {
-            // 尺寸要等 surfaceChanged; androidx 也是那时才分配缓冲。
+            if (!released && !isRendererInitialized && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                initRenderer()
+            }
         }
 
         override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
@@ -344,6 +346,9 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
 
         override fun surfaceDestroyed(holder: SurfaceHolder) {
             onSurfaceGeometry(valid = false, w = 0, h = 0)
+            // 在 Surface 彻底销毁前同步释放 CanvasFrontBufferedRenderer,
+            // 防止后台切回或退出页面时残留事务打到已销毁的 SurfaceControl 触发 libgui SIGSEGV
+            releaseFrontRendererOnly()
         }
     }
 
@@ -1583,6 +1588,23 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
         }
     }
 
+    private fun releaseFrontRendererOnly() {
+        val rendererToRelease = frontRenderer
+        frontRenderer = null
+        isRendererInitialized = false
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q && rendererToRelease != null) {
+            try {
+                @Suppress("UNCHECKED_CAST")
+                (rendererToRelease as? CanvasFrontBufferedRenderer<FrontBufferPathPacket>)
+                    ?.release(true)
+            } catch (t: Throwable) {
+                Log.w(TAG, "release error: ${t.message}")
+            }
+        }
+        noteGuideOnScreen(false)
+        resetInkQueue()
+    }
+
     /**
      * 释放前缓冲渲染器资源。
      *
@@ -1602,20 +1624,7 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
         hasContent = false
         hasInkContent = false
         synchronized(submitLock) { releaseQueuedLocked() }
-        val rendererToRelease = frontRenderer
-        frontRenderer = null
-        isRendererInitialized = false
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            try {
-                @Suppress("UNCHECKED_CAST")
-                (rendererToRelease as? CanvasFrontBufferedRenderer<FrontBufferPathPacket>)
-                    ?.release(true)
-            } catch (t: Throwable) {
-                Log.w(TAG, "release error: ${t.message}")
-            }
-        }
-        noteGuideOnScreen(false)
-        resetInkQueue()
+        releaseFrontRendererOnly()
     }
 
     var targetTouchView: CanvasTouchView? = null

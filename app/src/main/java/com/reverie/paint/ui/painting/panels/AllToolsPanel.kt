@@ -38,7 +38,7 @@ import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.hazeEffect
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.glassBorder
 import com.reverie.paint.model.Tool
@@ -150,7 +150,7 @@ fun AllToolsPanel(
                 }
                 .then(
                     if (vm.blurBackground && hazeState != null) {
-                        Modifier.hazeChild(
+                        Modifier.hazeEffect(
                             state = hazeState,
                             style = Glass.barStyle(if (opacity >= 0.99f) 0.92f else opacity),
                         )

@@ -63,7 +63,7 @@ import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.hazeEffect
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.glassBorder
 import com.reverie.paint.ui.painting.canvas.CanvasTabPage
@@ -160,7 +160,7 @@ fun SettingsPanel(
                 .clip(panelShape)
                 .then(
                     if (vm.blurBackground && hazeState != null) {
-                        Modifier.hazeChild(
+                        Modifier.hazeEffect(
                             state = hazeState,
                             style = Glass.popupStyle(if (opacity >= 0.99f) 0.92f else opacity),
                         )

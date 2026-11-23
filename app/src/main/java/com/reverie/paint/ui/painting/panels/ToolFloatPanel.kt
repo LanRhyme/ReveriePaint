@@ -61,7 +61,7 @@ import com.reverie.paint.ui.theme.systemHoverIcon
 import kotlin.math.roundToInt
 
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.hazeEffect
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.glassBorder
 import com.reverie.paint.core.*
@@ -132,7 +132,7 @@ fun ToolFloatPanel(
                 .clip(capsuleShape)
                 .then(
                     if (vm?.blurBackground == true && hazeState != null) {
-                        Modifier.hazeChild(
+                        Modifier.hazeEffect(
                             state = hazeState,
                             style = Glass.popupStyle(vm.popupPanelOpacity),
                         )

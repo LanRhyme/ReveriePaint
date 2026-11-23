@@ -66,7 +66,7 @@ import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.glassBorder
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.hazeEffect
 import kotlin.math.roundToInt
 
 /** 动画设置浮窗: 独立卡片悬在时间轴面板上方 (不占面板高度, 不挤压轨道区) */
@@ -91,7 +91,7 @@ internal fun AnimationSettingsCard(
             .clip(shape)
             .then(
                 if (vm.blurBackground && hazeState != null) {
-                    Modifier.hazeChild(state = hazeState, style = Glass.popupStyle(alpha))
+                    Modifier.hazeEffect(state = hazeState, style = Glass.popupStyle(alpha))
                 } else {
                     Modifier.background(Morandi.panel.copy(alpha = alpha))
                 },

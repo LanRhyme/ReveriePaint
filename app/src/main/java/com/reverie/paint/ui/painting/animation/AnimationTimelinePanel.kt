@@ -59,7 +59,7 @@ import com.reverie.paint.ui.components.reportUiSlot
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.Morandi
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.hazeEffect
 import kotlin.math.abs
 import kotlin.math.roundToInt
 
@@ -294,7 +294,7 @@ private fun TimelinePanelSurface(
             )
             .then(
                 if (useHaze && hazeState != null) {
-                    Modifier.hazeChild(state = hazeState, style = Glass.barStyle(panelAlpha))
+                    Modifier.hazeEffect(state = hazeState, style = Glass.barStyle(panelAlpha))
                 } else {
                     Modifier.background(Morandi.panel.copy(alpha = panelAlpha))
                 },

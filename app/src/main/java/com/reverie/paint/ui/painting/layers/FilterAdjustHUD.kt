@@ -72,7 +72,7 @@ import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.glassBorder
 
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.hazeEffect
 import java.util.Locale
 import kotlin.math.roundToInt
 
@@ -308,7 +308,7 @@ internal fun FilterTopPillHUD(
             .clip(pillShape)
             .then(
                 if (vm?.blurBackground != false && hazeState != null) {
-                    Modifier.hazeChild(state = hazeState, style = Glass.popupStyle(opacity))
+                    Modifier.hazeEffect(state = hazeState, style = Glass.popupStyle(opacity))
                 } else {
                     Modifier.background(Morandi.panelHi.copy(alpha = opacity))
                 }
@@ -529,7 +529,7 @@ internal fun FilterBottomDock(
             .clip(dockShape)
             .then(
                 if (vm?.blurBackground != false && hazeState != null) {
-                    Modifier.hazeChild(state = hazeState, style = Glass.popupStyle(opacity))
+                    Modifier.hazeEffect(state = hazeState, style = Glass.popupStyle(opacity))
                 } else {
                     Modifier.background(Morandi.panelHi.copy(alpha = opacity))
                 }

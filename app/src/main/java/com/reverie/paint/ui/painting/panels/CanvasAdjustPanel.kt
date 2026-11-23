@@ -88,7 +88,7 @@ import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.glassBorder
 import dev.chrisbanes.haze.HazeState
-import dev.chrisbanes.haze.hazeChild
+import dev.chrisbanes.haze.hazeEffect
 import kotlin.math.roundToInt
 
 /** 面板拖拽时与屏幕边缘/顶栏保持的最小安全间距 */
@@ -167,7 +167,7 @@ fun CanvasAdjustPanel(
                 .clip(panelShape)
                 .then(
                     if (vm.blurBackground && hazeState != null) {
-                        Modifier.hazeChild(
+                        Modifier.hazeEffect(
                             state = hazeState,
                             style = Glass.popupStyle(vm.popupPanelOpacity),
                         )
