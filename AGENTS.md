@@ -56,6 +56,10 @@ app/src/main/java/com/reverie/paint/     # 正式(与 debug 共用)代码
 │   ├── PaintViewModel{Brush,Layers,Tools,Filters,Projects,Shortcuts,
 │   │                  Adjustment,Animation,AnimationExport,Memory}.kt
 │   │                        #   ViewModel 扩展文件 (同包同类的 partial 模式)
+│   │   PaintViewModel{Computed,RenderThread,InputConfig,UiConfig,SettingsPersist,
+│   │                  StylusSettings,QuickWindows,Session,Profile,Palette,
+│   │                  BrushPanelState,AutoSaveTimer,ReferenceWindow}.kt
+│   │                        #   同模式按域细分; 实例状态仍在 PaintViewModel.kt
 │   ├── PaintRecorder.kt     #   绘制过程录制 (紧凑二进制事件流)
 │   ├── PlaybackEngine.kt    #   回放会话与渲染线程
 │   └── RecordingEvents.kt   #   事件编解码 (零分配热路径)
@@ -72,6 +76,10 @@ app/src/main/java/com/reverie/paint/     # 正式(与 debug 共用)代码
         ├── TopBar.kt / PaintingDialogs.kt / ToolbarCustomizeDialog.kt
         ├── ExportTabPage.kt / ReferenceWindow.kt
         ├── canvas/          #   CanvasView 手势绘画 / CanvasOverlay / 变换状态
+        │                    #   CanvasTouchView.kt 只留类状态与 View 回调;
+        │                    #   同域实现在 CanvasTouchView{TouchDispatch,ToolGesture,
+        │                    #   Render,Assist,ShapeGesture,Stylus,Liquify,Panel,
+        │                    #   FrontBuffer,Transform,Cursor}.kt (扩展函数)
         ├── layers/          #   图层树/图层详情/滤镜页/曲线图/渐变编辑器
         ├── brush/           #   笔刷面板 + 笔刷工坊 (BrushStudio)
         └── panels/          #   工具栏/工具属性面板/取色器/设置面板/选区浮窗
