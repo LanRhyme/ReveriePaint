@@ -2635,6 +2635,9 @@
     <string name="floating_shared_slot_swap">Swap Inner/Outer</string>
     <string name="theme_category_effects">Display &amp; Effects</string>
     <string name="theme_blur_title">Background Frosted Glass Effect</string>
+    <string name="theme_canvas_wave_title">Canvas Opening Wave Effect</string>
+    <string name="theme_canvas_wave_desc">Show luminous distortion wave transition when opening or creating a canvas; uses classic fade-scale when off</string>
+    <string name="theme_canvas_wave_unsupported">Requires Android 12 or higher to render properly</string>
     <string name="theme_blur_desc">Enable translucent background Gaussian blur for all panels and toolbars</string>
     <string name="theme_blur_unsupported">This device or system version does not support blur effects</string>
     <string name="theme_immersive_title">Immersive Mode</string>

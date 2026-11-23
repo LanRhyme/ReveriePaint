@@ -40,6 +40,7 @@ import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.rounded.ViewSidebar
 import androidx.compose.material.icons.rounded.AspectRatio
+import androidx.compose.material.icons.rounded.AutoAwesome
 import androidx.compose.material.icons.rounded.BlurOn
 import androidx.compose.material.icons.rounded.Brightness4
 import androidx.compose.material.icons.rounded.ColorLens
@@ -658,15 +659,25 @@ internal fun ThemeSettingsSubPage(
             // Section 2: 视觉与效果
             SettingCategoryTitle(stringResource(R.string.theme_category_effects))
             SettingGroup {
-                val blurSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                val effectSupported = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
                 SettingSwitchGroupItem(
                     icon = Icons.Rounded.BlurOn,
                     title = stringResource(R.string.theme_blur_title),
-                    summary = if (blurSupported) stringResource(R.string.theme_blur_desc) else stringResource(R.string.theme_blur_unsupported),
+                    summary = if (effectSupported) stringResource(R.string.theme_blur_desc) else stringResource(R.string.theme_blur_unsupported),
                     checked = vm.blurBackground,
-                    enabled = blurSupported,
-                    shape = settingGroupShape(0, 2),
+                    enabled = effectSupported,
+                    shape = settingGroupShape(0, 3),
                     onCheckedChange = { vm.updateBlurBackground(it) },
+                )
+
+                SettingSwitchGroupItem(
+                    icon = Icons.Rounded.AutoAwesome,
+                    title = stringResource(R.string.theme_canvas_wave_title),
+                    summary = if (effectSupported) stringResource(R.string.theme_canvas_wave_desc) else stringResource(R.string.theme_canvas_wave_unsupported),
+                    checked = vm.canvasOpenWaveEnabled && effectSupported,
+                    enabled = effectSupported,
+                    shape = settingGroupShape(1, 3),
+                    onCheckedChange = { vm.updateCanvasOpenWaveEnabled(it) },
                 )
 
                 SettingSegmentGroupItem(
@@ -677,7 +688,7 @@ internal fun ThemeSettingsSubPage(
                         it to stringResource(it.labelRes())
                     },
                     selected = vm.uiAnimationSpeed,
-                    shape = settingGroupShape(1, 2),
+                    shape = settingGroupShape(2, 3),
                     onSelect = { vm.updateUiAnimationSpeed(it) },
                 )
             }

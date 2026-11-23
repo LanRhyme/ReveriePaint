@@ -2635,6 +2635,9 @@
     <string name="floating_shared_slot_swap">交换内外顺序</string>
     <string name="theme_category_effects">显示与效果</string>
     <string name="theme_blur_title">背景毛玻璃效果</string>
+    <string name="theme_canvas_wave_title">画布开启波纹特效</string>
+    <string name="theme_canvas_wave_desc">打开或新建画布时显示有机光波转场，关闭后使用经典淡入缩放动画</string>
+    <string name="theme_canvas_wave_unsupported">需要 Android 12 及以上系统才能正常渲染此特效</string>
     <string name="theme_blur_desc">为所有面板与工具栏启用半透明背景高斯模糊</string>
     <string name="theme_blur_unsupported">此设备系统版本不支持模糊效果</string>
     <string name="theme_immersive_title">沉浸模式</string>

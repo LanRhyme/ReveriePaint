@@ -2279,6 +2279,7 @@ class PaintViewModel : ViewModel() {
     var uiOpacity by mutableFloatStateOf(1.0f) // For Top and Left panels
     var popupPanelOpacity by mutableFloatStateOf(0.95f) // For floating panels
     var blurBackground by mutableStateOf(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) // 背景毛玻璃效果，默认开启（API<31 设备不支持模糊，自动回退实色）
+    var canvasOpenWaveEnabled by mutableStateOf(android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) // 打开/新建画布扭曲波纹特效，默认开启（Android 12 以下强制关闭）
     var accentColorHex by mutableStateOf("#879ED1")
     var monetEnabled by mutableStateOf(false) // 莫奈动态取色
     var themeMode by mutableStateOf("DARK") // "DARK", "LIGHT", "SYSTEM"
@@ -4680,6 +4681,19 @@ class PaintViewModel : ViewModel() {
         }
     }
 
+    fun updateCanvasOpenWaveEnabled(enable: Boolean) {
+        val supported = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+        val actual = enable && supported
+        canvasOpenWaveEnabled = actual
+        if (::appContext.isInitialized) {
+            appContext
+                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
+                .edit()
+                .putBoolean("canvasOpenWaveEnabled", actual)
+                .apply()
+        }
+    }
+
     fun getHomeCustomBgFile(): File? {
         if (!::appContext.isInitialized) return null
         val file = File(appContext.filesDir, "custom_bg/home_wallpaper.png")
@@ -5018,6 +5032,8 @@ class PaintViewModel : ViewModel() {
             selectionMaskColorHex = prefs.getString("selection_mask_color", "#141416") ?: "#141416"
             selectionMaskOpacity = prefs.getFloat("selection_mask_opacity", 0.47f).coerceIn(0.10f, 0.90f)
             blurBackground = prefs.getBoolean("blurBackground", true) &&
+                android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
+            canvasOpenWaveEnabled = prefs.getBoolean("canvasOpenWaveEnabled", true) &&
                 android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
             val savedAccent = prefs.getString("accentColor", "#879ED1") ?: "#879ED1"
             accentColorHex = if (savedAccent.equals("#0A84FF", ignoreCase = true) || savedAccent.equals("#5E8BA8", ignoreCase = true) || savedAccent.equals("#5A6E8A", ignoreCase = true)) "#879ED1" else savedAccent

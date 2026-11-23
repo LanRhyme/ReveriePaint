@@ -668,12 +668,16 @@ private class DistortionWaveController(
 
     private var activeJob: Job? = null
 
+    private fun isWaveEffectEnabled(): Boolean =
+        vm.canvasOpenWaveEnabled && Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+
     override fun tryOpenProjectFromGallery(
         project: Project,
         cardBoundsPx: WaveRect?,
         focusPx: WaveOffset?,
         delayCaptureFrames: Int,
     ): Boolean {
+        if (!isWaveEffectEnabled()) return false
         if (phase != WavePhase.IDLE || activeJob?.isActive == true) {
             // 防止双击卡片重复触发加载
             return true
@@ -848,6 +852,7 @@ private class DistortionWaveController(
     }
 
     override fun tryReturnToGallery(performGoHome: () -> Unit): Boolean {
+        if (!isWaveEffectEnabled()) return false
         if (phase != WavePhase.IDLE || activeJob?.isActive == true) {
             return false
         }
@@ -943,6 +948,7 @@ private class DistortionWaveController(
         focusPx: WaveOffset?,
         performCreate: () -> Unit,
     ): Boolean {
+        if (!isWaveEffectEnabled()) return false
         if (phase != WavePhase.IDLE || activeJob?.isActive == true) {
             return false
         }
