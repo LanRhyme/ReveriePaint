@@ -145,6 +145,7 @@ art/        # 图标素材
 - 缩进 4 空格, 行宽 ≤120 (见 `.editorconfig`)
 - **UI 文案统一使用 strings.xml 国际化资源管理** (`stringResource(R.string.*)`), 严禁在 Compose 中硬编码中文字符串字面量; 平时日常编写代码时只需维护简体中文 (`values/strings.xml`) 与英文 (`values-en/strings.xml`), 中文文案尽量少用句号; 日语 (`values-ja/`)、繁体中文 (`values-zh-rTW/`) 与猫猫语 (`values-cat/`) 三种扩展语言只在每次大版本更新发版前或用户明确指示时进行全量增量补全, 平时日常开发无需频繁同步; 主题色一律引用 `ui/theme` 的 Morandi 语义色, 禁止散落硬编码颜色
 - 状态管理: ViewModel 用 `mutableStateOf/mutableIntStateOf/...` + `by` 委托; 高频数值 (缩放%/旋转°) 用专用 `mutable*StateOf` 重载避免装箱
+- 偏好读写统一走 `PaintViewModel.prefs` 访问器, 不要在任何地方再写 `getSharedPreferences("paint_prefs", ...)` 字面量 (文件名原先散落 180 处, 拼错一处即静默丢设置); 只有接收 `Context` 形参的工具函数可以直接 `context.getSharedPreferences(...)`
 - ViewModel 过大时按域拆分为同包扩展文件 (如 `PaintViewModelBrush.kt`), 保持类名不变, 不要为拆分而引入新接口层
 - Composable 命名 PascalCase, 普通函数 camelCase; 一个功能族一个文件是允许的 (如 `ToolPanels.kt` 收纳多个小面板), 但单文件超过 ~2000 行时应拆分
 - import 禁止保留通配符以外的无用导入; 允许 `import com.reverie.paint.core.*` 这类同模块通配 (现状惯例)
