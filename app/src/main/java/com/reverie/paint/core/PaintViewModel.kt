@@ -1990,7 +1990,7 @@ class PaintViewModel : ViewModel() {
      * 就会静默丢设置。集中到这里, 语义与逐处直取完全等价 (framework 按名缓存实例)。
      */
     internal val prefs: android.content.SharedPreferences
-        get() = prefs
+        get() = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
 
 
     var selectionMask: ByteArray? by mutableStateOf(null)

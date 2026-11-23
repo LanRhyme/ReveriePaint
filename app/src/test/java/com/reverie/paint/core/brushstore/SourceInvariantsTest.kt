@@ -174,4 +174,23 @@ class SourceInvariantsTest {
             renderBody.indexOf("ReverieCoreBridge.beginRenderTiles(forceFullDummyDirtyRects)") in 1 until renderBody.indexOf("ReverieCoreBridge.renderToBuffer(back, forceFull, renderDirty)"),
         )
     }
+
+    @Test
+    fun `prefs 访问器必须真的读偏好 且不存在自引用赋值`() {
+        // 历史教训: 把散落的 getSharedPreferences("paint_prefs", ...) 批量收敛到
+        // PaintViewModel.prefs 时, 替换正则把访问器自身的函数体也改成了 `get() = prefs`
+        // —— 编译通过、单测通过, 但任何一次偏好读写都会无限递归 (StackOverflowError)。
+        val vm = File(mainRoot, "com/reverie/paint/core/PaintViewModel.kt").readText()
+        val getter = vm.substringAfter("internal val prefs: android.content.SharedPreferences")
+        assertTrue("缺少 PaintViewModel.prefs 访问器", getter.isNotEmpty())
+        assertTrue(
+            "prefs 访问器必须真正调用 getSharedPreferences, 否则会自引用递归",
+            getter.substringBefore("\n\n").contains("""getSharedPreferences("paint_prefs""""),
+        )
+        // 事故痕迹: 局部变量用同名成员给自己初始化 (批量替换把 `= appContext.getSharedPreferences(...)`
+        // 换成了 `= prefs` 的结果)。注意不能用通用 `val x = x` 模式: 工程里存在
+        // `val uiLocale = uiLocale()` / `val density = density` 这类与同名函数/上级作用域
+        // 同名的合法写法, 会误报。
+        assertEquals(emptyList<String>(), hits(Regex("""\bval\s+prefs\s*=\s*prefs\b""")))
+    }
 }
