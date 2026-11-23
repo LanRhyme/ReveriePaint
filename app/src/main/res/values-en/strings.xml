@@ -1626,7 +1626,13 @@
     <string name="selection_copy_cur">Copy to Current Layer</string>
     <string name="selection_cut_new">Cut to New Layer</string>
     <string name="selection_cut_cur">Cut to Current Layer</string>
-    <string name="selection_copy_cut">Copy / Cut</string>
+    <string name="selection_copy_cut">Copy/Paste/Cut</string>
+    <string name="selection_copy_plain">Copy only</string>
+    <string name="selection_paste">Paste</string>
+    <string name="selection_copied">Selection copied</string>
+    <string name="selection_cut">Selection cut</string>
+    <string name="selection_pasted">Pasted into current layer</string>
+    <string name="selection_clipboard_empty">Clipboard is empty</string>
     <string name="selection_complete_close">Close Curve</string>
     <string name="selection_complete_sel">Done Selection</string>
     <string name="selection_undo_point">Undo Point</string>

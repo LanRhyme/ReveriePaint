@@ -1388,6 +1388,8 @@ class PaintViewModel : ViewModel() {
         if (currentInstance == this) {
             currentInstance = null
         }
+        selectionClipboard?.takeUnless { it.isRecycled }?.recycle()
+        selectionClipboard = null
         stylusDriver?.release()
         stylusDriver = null
         stopAirbrush()
@@ -2035,6 +2037,12 @@ class PaintViewModel : ViewModel() {
 
     var selectionMask: ByteArray? by mutableStateOf(null)
     var hasSelection by mutableStateOf(false)
+
+    /** Lasso clipboard pastes into the currently selected layer and animation cel. */
+    internal var selectionClipboard: android.graphics.Bitmap? = null
+    internal var selectionClipboardX = 0
+    internal var selectionClipboardY = 0
+    var selectionClipboardAvailable by mutableStateOf(false)
 
     // Semi-transparent blue overlay bitmap built from the mask, drawn on top
     // of the canvas so the user can see the active selection (Krita-style)

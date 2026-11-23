@@ -189,7 +189,8 @@ internal fun CanvasEditMenu(vm: PaintViewModel, onDismiss: () -> Unit, onCustomi
                             stringResource(
                                 when {
                                     vm.canvasEditBusy -> R.string.canvas_edit_loading
-                                    !vm.canvasClipboardAvailable -> R.string.canvas_edit_unavailable
+                                    !vm.canvasClipboardAvailable && !vm.selectionClipboardAvailable ->
+                                        R.string.canvas_edit_unavailable
                                     vm.canvasEditCapabilities and 1 == 0 -> R.string.canvas_edit_no_pixels
                                     vm.hasSelection -> R.string.canvas_edit_selection_hint
                                     else -> R.string.canvas_edit_layer_hint
@@ -287,8 +288,12 @@ private fun CanvasEditActionButton(
             disabledContainerColor = Morandi.panelHi.copy(alpha = 0.9f),
             disabledContentColor = Morandi.subText.copy(alpha = 0.6f),
         ),
-        enabled = clipboard == null ||
-            (!vm.canvasEditBusy && vm.canvasEditCapabilities and clipboard.capability != 0),
+        enabled = !vm.canvasEditBusy && when (clipboard) {
+            null -> true
+            CanvasEditAction.Clipboard.PASTE ->
+                vm.canvasClipboardAvailable || vm.selectionClipboardAvailable
+            else -> vm.canvasEditCapabilities and clipboard.capability != 0
+        },
         onClick = {
             vm.executeCanvasEditAction(action)
             onDismiss()
