@@ -69,6 +69,7 @@ import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.theme.Theme
 import com.reverie.paint.ui.theme.optimalTextColor
+import com.reverie.paint.core.getHomeCustomBgFile
 
 @Composable
 internal fun AuthorSettingsSubPage(

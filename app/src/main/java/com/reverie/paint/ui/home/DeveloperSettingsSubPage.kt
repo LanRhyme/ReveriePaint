@@ -35,6 +35,7 @@ import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.perf.PerfHud
 import com.reverie.paint.ui.dialog.DiagnosticsDialog
 import com.reverie.paint.ui.theme.Theme
+import com.reverie.paint.core.getHomeCustomBgFile
 
 @Composable
 internal fun DeveloperSettingsSubPage(

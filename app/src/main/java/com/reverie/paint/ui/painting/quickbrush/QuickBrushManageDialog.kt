@@ -47,6 +47,7 @@ import com.reverie.paint.ui.painting.brush.rememberPresetThumb
 import com.reverie.paint.ui.theme.Theme
 import com.reverie.paint.core.getOrderedFavoriteBrushes
 import com.reverie.paint.core.persistQuickBrushState
+import com.reverie.paint.core.toggleFavoriteBrush
 
 /**
  * 快捷笔刷设置与排序对话框 (QuickBrushManageDialog)

@@ -48,6 +48,7 @@ import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.CanvasEditAction
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.core.updateCanvasEditMenuActions
 
 internal val CanvasEditAction.titleRes: Int
     @StringRes get() = when (this) {

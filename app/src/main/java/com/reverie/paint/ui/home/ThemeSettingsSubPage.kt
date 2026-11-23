@@ -88,6 +88,35 @@ import com.reverie.paint.ui.theme.colorToHsl
 import com.reverie.paint.ui.theme.hslToColor
 import com.reverie.paint.ui.theme.optimalTextColor
 import com.reverie.paint.ui.theme.parseColor
+import com.reverie.paint.core.updateUiAnimationSpeed
+import com.reverie.paint.core.clearHomeBackground
+import com.reverie.paint.core.getHomeCustomBgFile
+import com.reverie.paint.core.resetFloatingUiEdges
+import com.reverie.paint.core.updateAccentColor
+import com.reverie.paint.core.updateBlurBackground
+import com.reverie.paint.core.updateCanvasBgColor
+import com.reverie.paint.core.updateCanvasGridEnabled
+import com.reverie.paint.core.updateCanvasGridOpacity
+import com.reverie.paint.core.updateCanvasGridSizeDp
+import com.reverie.paint.core.updateCanvasOpenWaveEnabled
+import com.reverie.paint.core.updateFloatingUiEnabled
+import com.reverie.paint.core.updateFloatingUiScale
+import com.reverie.paint.core.updateHomeBgBlurDp
+import com.reverie.paint.core.updateHomeBgMaskAlpha
+import com.reverie.paint.core.updateHomeBgOpacity
+import com.reverie.paint.core.updateHomeBgScaleMode
+import com.reverie.paint.core.updateLayerRowHeight
+import com.reverie.paint.core.updateLeftHandMode
+import com.reverie.paint.core.updateMonetEnabled
+import com.reverie.paint.core.updatePaintingUiScale
+import com.reverie.paint.core.updatePopupPanelOpacity
+import com.reverie.paint.core.updateQuickSliderHeight
+import com.reverie.paint.core.updateSelectionMaskOpacity
+import com.reverie.paint.core.updateThemeContrast
+import com.reverie.paint.core.updateThemeMode
+import com.reverie.paint.core.updateThemeStyle
+import com.reverie.paint.core.updateUiOpacity
+import com.reverie.paint.core.importHomeBackground
 
 @Composable
 internal fun ThemeSettingsSubPage(

@@ -50,6 +50,7 @@ import com.reverie.paint.model.QuickShapeType
 import com.reverie.paint.model.quickShapeEditCapabilities
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.glassBorder
+import com.reverie.paint.core.updateQuickShapeCurvedContourEnabled
 
 @OptIn(ExperimentalLayoutApi::class)
 @Composable

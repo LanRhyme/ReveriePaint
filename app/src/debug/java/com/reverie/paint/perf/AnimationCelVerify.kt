@@ -11,6 +11,7 @@ import com.reverie.paint.model.SrtCue
 import com.reverie.paint.model.SrtStoryboard
 import org.json.JSONObject
 import java.io.File
+import com.reverie.paint.core.runCore
 
 /** Debug-only native integration check. The receiver requires a NEW disposable 64x64 canvas. */
 internal object AnimationCelVerify {

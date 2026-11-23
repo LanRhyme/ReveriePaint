@@ -24,6 +24,11 @@ import com.reverie.paint.ui.home.SettingDropdownGroupItem
 import com.reverie.paint.ui.home.SettingGroup
 import com.reverie.paint.ui.home.SettingSwitchGroupItem
 import com.reverie.paint.ui.home.settingGroupShape
+import com.reverie.paint.core.updateLiquifyCoalesceSteps
+import com.reverie.paint.core.updateLiquifyField
+import com.reverie.paint.core.updateLiquifyHostDraw
+import com.reverie.paint.core.updateLiquifyProxyPercent
+import com.reverie.paint.core.updatePerfHudEnabled
 
 /**
  * 性能标尺 (开发/量测用, **debug 构建专属**)。

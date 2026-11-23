@@ -96,6 +96,8 @@ import com.reverie.paint.model.shortcutPresetOverrides
 import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.painting.TextInputGuard
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.core.getString
+import com.reverie.paint.core.showActionToast
 
 /** 待确认的冲突：动作、期望按键、被占用的其他动作。 */
 private data class ShortcutConflictRequest(

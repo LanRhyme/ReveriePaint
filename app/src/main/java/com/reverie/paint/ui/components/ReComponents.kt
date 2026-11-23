@@ -126,6 +126,7 @@ import com.reverie.paint.ui.theme.Theme
 import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import kotlin.math.roundToInt
+import com.reverie.paint.core.isCurrentlyDark
 
 fun Modifier.noRippleClickable(onClick: () -> Unit): Modifier = composed {
     clickable(indication = null, interactionSource = remember { MutableInteractionSource() }) {

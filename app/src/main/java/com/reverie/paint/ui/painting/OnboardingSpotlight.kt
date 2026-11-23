@@ -75,6 +75,7 @@ import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.glassBorder
 import kotlin.math.roundToInt
+import com.reverie.paint.core.updateQuickSliderHeight
 
 private const val TOTAL_STEPS = 7
 

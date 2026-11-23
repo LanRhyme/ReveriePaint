@@ -40,6 +40,7 @@ import com.reverie.paint.model.QuickMenuLayout
 import com.reverie.paint.model.QuickMenuSlotOffset
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.roundToInt
+import com.reverie.paint.core.executeCanvasEditAction
 
 /** Floating capsules around the editor entry with smooth burst-in physics animation. */
 @Composable

@@ -30,6 +30,9 @@ import com.reverie.paint.model.SettledTilePolicy
 import com.reverie.paint.model.UiClipSnapshot
 import com.reverie.paint.perf.FbGeomLog
 import java.util.concurrent.atomic.AtomicBoolean
+import com.reverie.paint.core.invalidateCanvasFromRender
+import com.reverie.paint.core.runCore
+import com.reverie.paint.core.scheduleRender
 
 /**
  * 前缓冲真墨呈现 (续 #81)。

@@ -76,6 +76,10 @@ import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.theme.Theme
 import com.reverie.paint.ui.theme.glassBorder
 import kotlin.math.roundToInt
+import com.reverie.paint.core.updateFloatingUiMargin
+import com.reverie.paint.core.updateFloatingUiPositions
+import com.reverie.paint.core.updateFloatingUiScale
+import com.reverie.paint.core.updateFloatingUiTopBarActions
 
 private enum class DragTargetPanel {
     NONE,

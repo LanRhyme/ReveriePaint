@@ -30,6 +30,7 @@ import com.reverie.paint.ui.widget.RecentProjectWidgetHelper
 import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
+import com.reverie.paint.core.updatePerfHudEnabled
 
 /**
  * 回放保真度自动验证入口 (仅 debug 源集).

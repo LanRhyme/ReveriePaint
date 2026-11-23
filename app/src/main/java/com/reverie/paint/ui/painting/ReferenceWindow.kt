@@ -87,6 +87,8 @@ import kotlin.math.roundToInt
 import com.reverie.paint.ui.painting.canvas.angleDegrees
 import com.reverie.paint.ui.painting.canvas.normalizeAngle
 import com.reverie.paint.core.clampQuickWindowsToSafeArea
+import com.reverie.paint.core.scheduleRender
+import com.reverie.paint.core.showActionToast
 
 private data class PlacedReferenceImage(
     val bitmap: Bitmap,

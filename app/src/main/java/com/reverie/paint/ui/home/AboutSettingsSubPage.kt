@@ -67,6 +67,7 @@ import com.reverie.paint.ui.dialog.ContributorsDialog
 import com.reverie.paint.ui.dialog.SponsorsDialog
 import com.reverie.paint.ui.theme.Theme
 import kotlin.math.sin
+import com.reverie.paint.core.getHomeCustomBgFile
 
 /**
  * Bespoke Artistic About Page for ReveriePaint

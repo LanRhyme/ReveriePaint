@@ -55,6 +55,11 @@ import com.reverie.paint.ui.home.stylus.VivoStylusConfigDialog
 import com.reverie.paint.ui.home.stylus.XiaomiStylusConfigDialog
 import com.reverie.paint.ui.home.stylus.GenericStylusConfigDialog
 import com.reverie.paint.ui.theme.Theme
+import com.reverie.paint.core.updateBrushCursorMode
+import com.reverie.paint.core.updateCursorOutlineReflectsActualSize
+import com.reverie.paint.core.updateCursorStyleMode
+import com.reverie.paint.core.updateEraserCursorMode
+import com.reverie.paint.core.getHomeCustomBgFile
 
 @Composable
 internal fun StylusSettingsSubPage(

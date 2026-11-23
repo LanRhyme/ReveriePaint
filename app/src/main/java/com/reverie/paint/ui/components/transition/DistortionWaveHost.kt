@@ -95,6 +95,7 @@ import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import kotlin.math.max
 import kotlin.math.min
+import com.reverie.paint.core.isCurrentlyDark
 
 private enum class WavePhase {
     IDLE,

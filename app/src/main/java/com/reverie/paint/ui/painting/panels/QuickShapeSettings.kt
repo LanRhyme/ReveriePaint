@@ -41,6 +41,16 @@ import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.roundToInt
+import com.reverie.paint.core.updateQuickShapeAngleSnapEnabled
+import com.reverie.paint.core.updateQuickShapeArcEnabled
+import com.reverie.paint.core.updateQuickShapeBoxHandlesEnabled
+import com.reverie.paint.core.updateQuickShapeContourEnabled
+import com.reverie.paint.core.updateQuickShapeCurveEnabled
+import com.reverie.paint.core.updateQuickShapeEnabled
+import com.reverie.paint.core.updateQuickShapeHoldDelayMs
+import com.reverie.paint.core.updateQuickShapePerPointPressureEnabled
+import com.reverie.paint.core.updateQuickShapeQuadrilateralEnabled
+import com.reverie.paint.core.updateQuickShapeRelaxedEnabled
 
 /**
  * 速创形状 Tab 内容 (作为绘图辅助中心的二级独立分栏，平铺一级呈现并支持内部卡片独立折叠)

@@ -48,10 +48,10 @@ const val MAX_REFERENCE_IMAGES = 50
 /** Max stroke samples buffered between render-thread drains. Sized for a
  *  240Hz stylus under heavy multi-frame stalls with generous headroom (256 samples);
  *  preallocated once, zero allocation on hot path. */
-private const val STROKE_BATCH_CAPACITY = 256
+internal const val STROKE_BATCH_CAPACITY = 256
 
 /** Delay before the stroke-start idle kick flushes a pen-down dot. */
-private const val STROKE_START_KICK_MS = 24L
+internal const val STROKE_START_KICK_MS = 24L
 
 /** 批内合并: 上一批「引擎 flush + 瓦片渲染」超过这个耗时 (一整帧 60Hz 预算) 才把新样本并进同一批 (ms)。 */
 private const val STROKE_MERGE_TRIGGER_MS = 16L
@@ -88,9 +88,6 @@ class PaintViewModel : ViewModel() {
     var initialStrokeCount by mutableIntStateOf(0)
     var isModified by mutableStateOf(false)
     var brushModifiedEpoch by mutableLongStateOf(0L)
-    fun notifyBrushModified() {
-        brushModifiedEpoch++
-    }
     var elapsedSeconds by mutableLongStateOf(0L)
     var canvasCreatedTime by mutableLongStateOf(System.currentTimeMillis())
 
@@ -114,160 +111,8 @@ class PaintViewModel : ViewModel() {
     internal val IDLE_THRESHOLD_MS = 60_000L
     internal var timerJob: Job? = null
 
-    fun onPaintingActivity() {
-        val now = System.currentTimeMillis()
-        if (lastActiveTimeMs == 0L || (now - lastActiveTimeMs) > IDLE_THRESHOLD_MS) {
-            // Start or resume active drawing session
-            lastActiveTimeMs = now
-            lastTickTimeMs = now
-        } else {
-            // Continuously painting within 1-minute window
-            lastActiveTimeMs = now
-        }
-    }
-
-    internal fun tickPaintingTimer() {
-        val now = System.currentTimeMillis()
-        if (lastActiveTimeMs > 0L) {
-            val deltaFromActive = now - lastActiveTimeMs
-            if (deltaFromActive <= IDLE_THRESHOLD_MS) {
-                // Within 1-minute active window
-                if (lastTickTimeMs > 0L) {
-                    val dt = (now - lastTickTimeMs).coerceAtLeast(0L)
-                    if (dt in 1..2000) {
-                        activeMillisAccumulator += dt
-                        val addSecs = activeMillisAccumulator / 1000L
-                        if (addSecs > 0) {
-                            elapsedSeconds += addSecs
-                            activeMillisAccumulator %= 1000L
-                        }
-                    }
-                }
-                lastTickTimeMs = now
-            } else {
-                // Idle over 1 minute: pause timer
-                lastTickTimeMs = now
-            }
-        } else {
-            lastTickTimeMs = now
-        }
-    }
-
-    internal fun startPaintingTimer() {
-        if (lastAutoSaveTimeMs == 0L) {
-            lastAutoSaveTimeMs = android.os.SystemClock.elapsedRealtime()
-        }
-        timerJob?.cancel()
-        timerJob =
-            viewModelScope.launch {
-                while (isActive) {
-                    delay(1000L)
-                    if (currentPage == Page.PAINTING) {
-                        tickPaintingTimer()
-                        checkAutoSave()
-                        // 标尺开启时顺带取一次保存/液化的引擎侧统计 (关闭时只剩一次布尔判断)。
-                        // 必须走 runCore: 架构铁律要求引擎调用不经 UI 线程。这两条 JNI 只读
-                        // C++ 侧的 relaxed 原子量、不牵动渲染, 所以 render = false。
-                        if (PerfTrace.enabled) {
-                            runCore(render = false) {
-                                pollSaveStats()
-                                pollLiquifyStats()
-                                if (PerfHud.gridOverlayEnabled) pollLiquifyGrid()
-                            }
-                        }
-                    }
-                }
-            }
-    }
-
-    internal fun stopPaintingTimer() {
-        tickPaintingTimer()
-        timerJob?.cancel()
-        timerJob = null
-        lastActiveTimeMs = 0L
-        lastTickTimeMs = 0L
-        activeMillisAccumulator = 0L
-    }
-
-    internal fun checkAutoSave() {
-        if (isQuickShapeEditing) return
-        if (!autoSaveEnabled || isAutoSaving || isBlockingLoading) return
-        if (currentPage != Page.PAINTING) return
-        if (!hasUnsavedChanges()) return
-
-        // 避免在用户正在落笔绘画或多指手势时保存，确保绘画热路径零干扰
-        val touchView = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
-        if (touchView?.isInteracting == true || touchView?.isTransformActive == true) return
-
-        // 无感化门控: 引擎队列非空 (笔画/滤镜/撤销在途) 或刚抬笔不久时不触发,
-        // 防止 saveRevp 的秒级序列化排在下一笔前面造成卡顿/撤销迟滞。
-        if (pendingCoreOps.get() > 0) return
-        if (filterPreviewJob?.isActive == true) return
-        val sinceStrokeEnd = android.os.SystemClock.elapsedRealtime() - lastStrokeEndElapsedMs
-        if (lastStrokeEndElapsedMs != 0L && sinceStrokeEnd < 4_000L) return
-
-        val now = android.os.SystemClock.elapsedRealtime()
-        val intervalMs = autoSaveIntervalMinutes * 60 * 1000L
-        if (lastAutoSaveTimeMs == 0L) {
-            lastAutoSaveTimeMs = now
-            return
-        }
-
-        val timeElapsed = now - lastAutoSaveTimeMs >= intervalMs
-        val strokeThresholdReached = (strokesSinceLastAutoSave >= 60 || hasPendingMajorOp) && (now - lastAutoSaveTimeMs >= 60_000L)
-
-        if (timeElapsed && sinceStrokeEnd >= 8_000L) {
-            // 定期兜底自动保存 (默认 5 分钟，带轻量 Toast 提示，抬笔空闲 8 秒后静默触发)
-            autoSaveProject(isPeriodic = true)
-        } else if (strokeThresholdReached && sinceStrokeEnd >= 15_000L) {
-            // 笔画或重大操作触发的空闲静默快照 (用户完全停笔休息 15 秒后触发，避免刚想画下一笔时撞上序列化)
-            autoSaveProject(isPeriodic = false)
-        }
-    }
-
-    fun onAppBackgrounded() {
-        // 切后台时按键的 KeyUp 可能永远不会到: 丢掉挂起的"临时工具"状态, 避免下次进前台莫名其妙回切
-        clearTemporaryToolHold()
-        cancelQuickShape() // Restore the freehand draft before background backup is queued
-        // 后台不再每秒唤醒: 计时与自动保存都只在绘画页前台有意义。
-        // 必须放在下面几个早退之前 —— 否则"无未保存改动"时计时器会一直留在后台跑。
-        stopPaintingTimer()
-        stopSyncTimer()
-        maybeExitBackup()
-        if (!autoSaveEnabled || isAutoSaving || isBlockingLoading) return
-        if (currentPage != Page.PAINTING) return
-        // 只切过图层 (contentChanged=false) 也算"有东西没落盘": 这里静默存一次, 否则
-        // "切到第 12 层 → 切后台/被杀"下次打开还停在第 5 层。刻意不把它并入
-        // hasUnsavedChanges(): 那会让退出重新弹"未保存", 也会让 checkAutoSave 每点一次
-        // 图层就拉响自动保存 —— 正是本 PR 要修的问题。
-        if (!hasUnsavedChanges() && !selectionDirty) return
-
-        // 软件切入后台时，立即触发后台静默自动保存
-        autoSaveProject(isPeriodic = false)
-    }
-
-    /** 回到前台: 若仍停在绘画页, 恢复每秒计时与自动保存唤醒。 */
-    fun onAppForegrounded() {
-        if (currentPage == Page.PAINTING) startPaintingTimer()
-        startSyncTimerIfNeeded()
-    }
-
     /** ElapsedRealtime of the last stroke end; autosave defers for a quiet window after it. */
     @Volatile internal var lastStrokeEndElapsedMs = 0L
-
-    fun markModified() {
-        isModified = true
-    }
-
-    fun markMajorOp() {
-        hasPendingMajorOp = true
-        isModified = true
-    }
-
-    fun hasUnsavedChanges(): Boolean {
-        val strokesAdded = totalStrokes > initialStrokeCount
-        return isModified || strokesAdded || ReverieCoreBridge.canUndo()
-    }
 
     // Auto-Save & General Settings state
     var autoSaveEnabled by mutableStateOf(true)
@@ -315,33 +160,11 @@ class PaintViewModel : ViewModel() {
      */
     var perfHudForcedByProp by mutableStateOf(false)
 
-    fun updatePerfHudEnabled(on: Boolean) {
-        perfHudEnabled = on
-        // 属性只在启动时打开一次 (PerfTrace.refreshFromSystemProp), 之后单方面为真;
-        // 用户在这里显式关闭时必须能压过它, 否则表现为"标尺关不掉"。下次启动仍按属性打开。
-        if (!on) PerfTrace.isEnabledByProp = false
-        perfHudForcedByProp = PerfTrace.isEnabledByProp
-        PerfTrace.enabled = on || PerfTrace.isEnabledByProp
-        if (isAppContextReady()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("perfHud", on).apply()
-        }
-    }
-
     /**
      * 实验 A: 液化预览代理分辨率百分比 (0 = 跟随 property/构建档位)。debug 设置页可改 ——
      * 没有数据线时靠它做 100/75/50/25 对照; 正式版没有该入口, 读取器恒返回 0。
      */
     var liquifyProxyPercent by mutableIntStateOf(0)
-
-    fun updateLiquifyProxyPercent(pct: Int) {
-        liquifyProxyPercent = pct
-        LiquifyGpuPreview.proxyPercentOverride = pct
-        if (isAppContextReady()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putInt("liquifyProxyPercent", pct).apply()
-        }
-    }
 
     /**
      * Phase 3B: latest-state-wins 每帧最多推进的补点数 (-1 = 跟随 property/构建档位; 0 = 关闭)。
@@ -359,30 +182,12 @@ class PaintViewModel : ViewModel() {
     @Volatile
     internal var liquifyMaterializePending: Boolean = false
 
-    fun updateLiquifyCoalesceSteps(steps: Int) {
-        liquifyCoalesceSteps = steps
-        PerfTrace.liquifyCoalesceOverride = steps
-        if (isAppContextReady()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putInt("liquifyCoalesceSteps", steps).apply()
-        }
-    }
-
     /**
      * Phase 5 · C2: 液化预览**由谁画** (0 = 自动 / 1 = 引擎侧 CPU 叠加 / 2 = AGSL 覆盖层 /
      * 3 = GLES 覆盖层)。debug 设置页可改 —— 这是**没有数据线时**做 AGSL↔GLES A/B 的唯一入口
      * (正式版没有该入口, 读取器恒返回 0)。判定发生在手势开始, 改完下一段手势生效。
      */
     var liquifyHostDraw by mutableIntStateOf(LiquifyGpuPreview.HOST_OVERRIDE_AUTO)
-
-    fun updateLiquifyHostDraw(mode: Int) {
-        liquifyHostDraw = mode
-        LiquifyGpuPreview.hostDrawOverride = mode
-        if (isAppContextReady()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putInt("liquifyHostDraw", mode).apply()
-        }
-    }
 
     /**
      * Phase 5 · C3: 液化位移场的来源 (0 = 自动 / 1 = 常驻浮点场 / 2 = Krita 网格)。
@@ -393,208 +198,22 @@ class PaintViewModel : ViewModel() {
      */
     var liquifyField by mutableIntStateOf(LiquifyGlesPreview.FIELD_OVERRIDE_AUTO)
 
-    fun updateLiquifyField(mode: Int) {
-        liquifyField = mode
-        LiquifyGlesPreview.fieldOverride = mode
-        if (isAppContextReady()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putInt("liquifyField", mode).apply()
-        }
-    }
-
-    /**
-     * 取一次引擎侧"上一次保存"的阶段统计 (仅标尺开启时调用, 每秒一次)。保存慢的时候
-     * 必须能看清是慢在快照、PNG 编码还是写盘, 否则只能盲改。
-     *
-     * **必须在引擎线程调用**(调用点见 `startPaintingTimer` 里的 `runCore`): 虽然 C++ 侧只做
-     * `relaxed` 原子量读取、不触碰文档与投影, 但"引擎调用不经 UI 线程"是架构铁律, 不做例外。
-     */
-    internal fun pollSaveStats() {
-        if (!PerfTrace.enabled) return
-        val s = ReverieCoreBridge.revpSaveStats() ?: return
-        val profile = SaveProfile.fromStats(s) ?: return
-        PerfTrace.saveStats(
-            totalMs = profile.totalMs,
-            snapshotMs = profile.snapshotMs,
-            encodeMs = profile.encodeMs,
-            writeMs = profile.writeMs,
-            pngCount = profile.pngCount,
-            pngBytes = profile.pngBytes,
-            fileBytes = profile.fileBytes,
-            wasAsync = profile.wasAsync,
-            compositeMs = profile.compositeMs,
-            layerCloneMs = profile.layerCloneMs,
-            selMaskMs = profile.selMaskMs,
-            convertMs = profile.convertMs,
-            pngDeflateMs = profile.pngDeflateMs,
-            zipWriteMs = profile.zipWriteMs,
-            closeMs = profile.closeMs,
-            reusedEntries = profile.reusedEntries,
-            reusedBytes = profile.reusedBytes,
-        )
-    }
-
-    /**
-     * 取一次引擎侧"上一次液化 apply"的分段耗时 (仅标尺开启时调用, 每秒一次)。
-     * 四段为 形变(Krita 网格) / 补洞(内存流量) / 回写图层 / 投影合成 —— 用来确定
-     * "液化大笔刷卡顿"下一步该优化哪一段, 而不是凭感觉加线程。
-     *
-     * **必须在引擎线程调用**(调用点见 `startPaintingTimer` 里的 `runCore`)。
-     */
-    internal fun pollLiquifyStats() {
-        if (!PerfTrace.enabled) return
-        // Phase 3 埋点 (docs/LIQUIFY-REBASE-INVESTIGATION.md §8): rebase / 节流两条物化边分开读。
-        // 刻意放在下面 apply 的早退**之前** —— rebase 读数与"是否已有 apply"无关。
-        ReverieCoreBridge.liquifyRebaseStats()?.let { PerfTrace.liquifyRebase(it) }
-        val s = ReverieCoreBridge.liquifyStats() ?: return
-        if (s.size < 10 || s[7] <= 0L) return // 还没做过液化
-        PerfTrace.liquifyApply(s[0], s[1], s[2], s[3], s[4], s[5], s[6], s[7], s[8], s[9])
-    }
-
-    /**
-     * 取一次液化网格快照 (仅"网格可视化"打开时调用, 每秒一次; **引擎线程**)。
-     * 摘要进标尺 HUD 第 5 行, 原始网格交给 `PerfHud` 叠加绘制 —— 正式版里两者都不存在。
-     */
-    internal fun pollLiquifyGrid() {
-        val g = ReverieCoreBridge.liquifyGrid() ?: return
-        if (g.size < 8) return
-        val count = g[7].toInt()
-        if (count <= 0) return
-        PerfTrace.liquifyGrid(g[4].toInt(), g[5].toInt(), g[6].toInt(), count, g)
-        PerfHud.setLiquifyGrid(g)
-    }
-
     // Phase 2B: 上次取到的预览版本与裁剪指纹(只在引擎线程读写, 无需加锁)
-    private var lqGpuPreviewSeq = -1L
-    private var lqGpuCropKey = Long.MIN_VALUE
+    internal var lqGpuPreviewSeq = -1L
+    internal var lqGpuCropKey = Long.MIN_VALUE
 
     // Phase 5 · C3-2 收尾: 源像素缓冲**复用**(两块轮换)。
     // 以前每段手势都要新分配一份 `cropW*cropH*4`(4M px 文档就是 16MB), 连续压测时是持续的
     // 大对象垃圾; 复用后这块只在尺寸变化时才重建。用两块轮换是因为上一段手势的数组可能还被
     // 覆盖层暂存着(等渲染线程消费), 直接复用同一块会让那张源纹理读到新一段的像素(画面错位),
     // 轮换一块就够避开这个窗口。
-    private var lqSrcBufA: ByteArray? = null
-    private var lqSrcBufB: ByteArray? = null
-    private var lqSrcBufUseA = false
-
-    /**
-     * Phase 5 · C3-2: 作废"源裁剪指纹", 让下一次取数**重新取一份源像素**。
-     *
-     * 为什么需要: 场通路的裁剪就是**整篇文档** ⇒ 两段手势的几何完全相同, 指纹也一样, 于是第二次
-     * 手势会沿用上一段手势的源纹理 —— 而那份源早已被上一段手势的提交改过(画面会整体错位)。
-     * 经典路径的裁剪每段手势都不同, 所以只在场通路里调它。
-     */
-    internal fun invalidateLiquifySourceKey() {
-        lqGpuCropKey = Long.MIN_VALUE
-    }
+    internal var lqSrcBufA: ByteArray? = null
+    internal var lqSrcBufB: ByteArray? = null
+    internal var lqSrcBufUseA = false
 
     /** Phase 5 · C2: GLES 覆盖层失败后的"一次性交回引擎 CPU 预览"标记(只在引擎线程读写)。 */
-    private var lqGlesRecovered = false
+    internal var lqGlesRecovered = false
 
-    /**
-     * Phase 2B: 取一次预览所需的"源裁剪 + 位移网格" (**引擎线程**, 调用点见 `doRender`)。
-     *
-     * 只有 GPU 诊断开关打开时才有内容, 且引擎此时既不生成也不叠加 CPU 预览:
-     *  - 源裁剪(未形变)只在 rebase 时变 ⇒ 整段手势只上传一次纹理;
-     *  - 位移网格每个 dab 都变 ⇒ 每次取(6~25KB 级小数组, 不做差分)。
-     *
-     * Phase 5 · C2: 取数链路**不变**, 只多一个消费端 —— 本次手势由 GLES 覆盖层画时,
-     * 同一份 `crop/src/grid` 同时喂给 `LiquifyGlesPreview`(它自己的渲染线程上传纹理并出图);
-     * AGSL 侧这一份仅用于"本帧文档脏区"基线(它不再建纹理, 见 `CanvasTouchView.drawCanvas`)。
-     */
-    internal fun pollLiquifyGpuPreview() {
-        if (liquifyPresentation.isPending(liquifyPresentationGesture)) return
-        // GLES failure: retire the independent preview and restore document projection.
-        // "要么 GPU 画, 要么引擎画"是这条线不可破的底线; 恢复动作必须在引擎线程做(JNI 时序由
-        // ViewModel 保证), 只做一次 —— 失败后 LiquifyGlesPreview.failed 会挡掉后续手势的重试。
-        if (LiquifyGlesPreview.failed && !lqGlesRecovered) {
-            lqGlesRecovered = true
-            LiquifyGlesPreview.clear()
-            // The old preview base must be retired together with the failed surface.
-            // 这里已经在引擎线程上, 可直接调 JNI。
-            ReverieCoreBridge.setLiquifyPreviewBaseRect(0, 0, 0, 0)
-            ReverieCoreBridge.setLiquifyPreviewHostDrawMode(2)
-            return
-        }
-        if (!LiquifyGpuPreview.requested) {
-            // HUD 读数: 走到这里 = 预览由引擎侧 CPU 叠加(没有 GPU 覆盖层接手)
-            if (PerfTrace.enabled) PerfTrace.liquifyHost(PerfTrace.HOST_ENGINE)
-            return
-        }
-        val crop = ReverieCoreBridge.liquifyPreviewSourceMeta() ?: return
-        if (crop.size < 7) return
-        if (crop[0] <= 0) {
-            // Field source is prepared asynchronously after begin; do not cancel it mid-flight.
-            if (LiquifyGlesPreview.fieldArmed) return
-            // 没有源裁剪(超出面积预算 / 非 8bit BGRA / 手势结束): 摘掉覆盖层, 由引擎侧
-            // CPU 预览兜底 —— 不能两边都不画
-            LiquifyGpuPreview.clear()
-            return
-        }
-        val seq = crop[6].toLong()
-        if (seq == lqGpuPreviewSeq) return
-        lqGpuPreviewSeq = seq
-        val key = LiquifyGpuPreview.cropKeyOf(crop)
-        val src =
-            if (key != lqGpuCropKey) {
-                lqGpuCropKey = key
-                val need = crop[0] * crop[1] * 4
-                lqSrcBufUseA = !lqSrcBufUseA
-                var buf = if (lqSrcBufUseA) lqSrcBufA else lqSrcBufB
-                if (buf == null || buf.size != need) {
-                    buf = ByteArray(need)
-                    if (lqSrcBufUseA) lqSrcBufA = buf else lqSrcBufB = buf
-                }
-                ReverieCoreBridge.liquifyPreviewSourcePixelsInto(buf)
-                buf
-            } else {
-                null
-            }
-        val grid = ReverieCoreBridge.liquifyGrid()
-        val useGles = LiquifyGlesPreview.requested
-        // HUD 读数: 这一行是判断"设置里的预览方式生效了没"的唯一依据(见 PerfTrace.liquifyHost)
-        if (PerfTrace.enabled) {
-            PerfTrace.liquifyHost(if (useGles) PerfTrace.HOST_GLES else PerfTrace.HOST_AGSL)
-        }
-        // 脏区基线两条路都要: GLES 接管时 AGSL 侧不会被 draw(不会建纹理), 只贡献脏区计算
-        LiquifyGpuPreview.update(crop, src, grid)
-        if (useGles) {
-            val underlay = if (src != null && LiquifyGlesPreview.fieldArmed) {
-                ByteArray(src.size).also {
-                    if (!ReverieCoreBridge.liquifyPreviewUnderlayPixelsInto(it)) {
-                        LiquifyGlesPreview.markFailed()
-                    }
-                }
-            } else null
-            if (LiquifyGlesPreview.failed) return
-            LiquifyGlesPreview.update(crop, src, grid, underlay)
-            // 上报实际在画的那条路的读数(语义与 AGSL 侧同名字段一致)
-            // Phase 3B: 源纹理上传次数(正常恒为 1; > 1 说明高速拖动中 rebase 过频)
-            PerfTrace.liquifyUpload(LiquifyGlesPreview.sourceUploadCount)
-            val tw = LiquifyGlesPreview.textureWidth
-            val th = LiquifyGlesPreview.textureHeight
-            PerfTrace.liquifyProxy(tw, th, tw.toLong() * th.toLong() * 4L)
-            // 干预实验(§4.15): "暂存 / 网格上传"计数, 验证"上传 ≤ 1/帧"
-            PerfTrace.liquifyPipeline(LiquifyGlesPreview.previewUpdates, LiquifyGlesPreview.gridUploads)
-        } else {
-            // Phase 3B: 上报源纹理上传次数(正常恒为 1; > 1 说明高速拖动中 rebase 过频)
-            PerfTrace.liquifyUpload(LiquifyGpuPreview.sourceUploadCount)
-            // 实验 A: 上报预览源纹理(代理)尺寸与占用, 便于对照不同代理分辨率
-            PerfTrace.liquifyProxy(
-                LiquifyGpuPreview.proxyWidth,
-                LiquifyGpuPreview.proxyHeight,
-                LiquifyGpuPreview.proxyUploadBytes,
-            )
-            // 干预实验(§4.15): 上报预览"暂存 / 网格上传"计数, 验证"上传 ≤ 1/帧"
-            PerfTrace.liquifyPipeline(LiquifyGpuPreview.previewUpdates, LiquifyGpuPreview.gridUploads)
-        }
-        // 主机侧绘制模式下引擎不写显示缓冲(没有脏区), 所以"该重绘了"必须由这里发起。
-        // Liquify V2 · Phase 2 (docs/LIQUIFY-V2-PLAN.md §4): 改走 CanvasTouchView 的**局部失效**
-        // 入口 —— 它回到 UI 线程, 用"本帧文档脏区 ∪ 光标环前后位置"算一个最小重绘矩形,
-        // 任一安全条件不满足时自行整屏回退。原来这里是无条件整屏 postInvalidate。
-        com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
-            ?.onLiquifyPreviewUpdated()
-    }
     // 无 UI 读者: 保持普通字段, 避免每次自动保存触发 Compose 快照写入
     var isAutoSaving = false
     var lastAutoSaveTimeMs by mutableLongStateOf(0L)
@@ -705,27 +324,11 @@ class PaintViewModel : ViewModel() {
     var isRotateHolding by mutableStateOf(false)
     /** 当前是否有文本输入弹窗处于编辑聚焦状态 (聚焦时跳过物理快捷键拦截) */
     var isTextInputActive by mutableStateOf(false)
-    private var textInputCounter = 0
-
-    fun pushTextInputActive() {
-        textInputCounter++
-        isTextInputActive = true
-    }
-
-    fun popTextInputActive() {
-        textInputCounter = (textInputCounter - 1).coerceAtLeast(0)
-        isTextInputActive = textInputCounter > 0
-    }
+    internal var textInputCounter = 0
 
     /** 当前是否有快捷键录制弹窗打开 (打开时跳过物理快捷键拦截，优先录制按键) */
     var isShortcutRecordingActive by mutableStateOf(false)
 
-    fun restorePreviousTool() {
-        if (!isTemporaryPicker) return
-        isTemporaryPicker = false
-        val prev = lastToolId.ifEmpty { "brush" }
-        applyTool(if (prev == "picker") "brush" else prev)
-    }
     // One-shot UI 命令: 视口缩放/旋转与面板开关状态在 PaintingPage 本地,
     // VM 只发命令 token, UI 侧 LaunchedEffect 消费 (见 PaintingPage)。
     // 不能 private set —— 同包扩展函数 (requestUiCommand) 需要写入
@@ -742,75 +345,10 @@ class PaintViewModel : ViewModel() {
     var scratchpadLiveInput by mutableFloatStateOf(-1f)
     var scratchpadLiveOutput by mutableFloatStateOf(-1f)
 
-    fun getBrushDynamicOption(key: String): com.reverie.paint.model.DynamicOptionConfig {
-        return brushDynamicOptions[key] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor(key).let { def ->
-            val sensor = when (key.lowercase()) {
-                "size" -> brushParams.sizeSensor
-                "opacity" -> brushParams.opacitySensor
-                "flow" -> brushParams.flowSensor
-                "rotation" -> brushParams.rotationSensor
-                "scatter" -> brushParams.scatterSensor
-                else -> def.sensorId
-            }
-            def.copy(sensorId = sensor.ifBlank { def.sensorId })
-        }.also {
-            brushDynamicOptions[key] = it
-        }
-    }
-
     internal var brushStudioInitialKppBytes: ByteArray? = null
 
     /** v2：进入工作台时的覆盖（null = 该预设不归 v2 管，走 [brushStudioInitialKppBytes]） */
     internal var brushStudioInitial: BrushStoreVm.StudioSnapshot? = null
-
-    fun updateBrushDynamicOption(config: com.reverie.paint.model.DynamicOptionConfig) {
-        updateBrushDynamicOption(config.optionKey, config)
-    }
-
-    fun updateBrushDynamicOption(
-        key: String,
-        config: com.reverie.paint.model.DynamicOptionConfig,
-    ) {
-        val finalConfig = if (config.enabled && config.strength <= 0.001f) config.copy(strength = 1.0f) else config
-        brushDynamicOptions[key] = finalConfig
-        val strength = if (finalConfig.enabled) finalConfig.strength.toDouble() else 0.0
-        brushParams = when (key.lowercase()) {
-            "size" -> brushParams.copy(
-                pressureSize = strength,
-                pressureEnabled = brushPressureEnabled || finalConfig.enabled,
-                sizeSensor = finalConfig.sensorId,
-            )
-            "opacity" -> brushParams.copy(
-                pressureOpacity = strength,
-                pressureEnabled = brushPressureEnabled || finalConfig.enabled,
-                opacitySensor = finalConfig.sensorId,
-            )
-            "flow" -> brushParams.copy(
-                pressureFlow = strength,
-                pressureEnabled = brushPressureEnabled || finalConfig.enabled,
-                flowSensor = finalConfig.sensorId,
-            )
-            "scatter" -> brushParams.copy(scatterSensor = finalConfig.sensorId)
-            "rotation" -> brushParams.copy(rotationSensor = finalConfig.sensorId)
-            else -> brushParams
-        }
-        val cid = when (key.lowercase()) {
-            "size" -> com.reverie.paint.core.brushstore.ControlId.CURVE_SIZE
-            "opacity" -> com.reverie.paint.core.brushstore.ControlId.CURVE_OPACITY
-            "flow" -> com.reverie.paint.core.brushstore.ControlId.CURVE_FLOW
-            "rotation" -> com.reverie.paint.core.brushstore.ControlId.CURVE_ROTATION
-            "scatter" -> com.reverie.paint.core.brushstore.ControlId.CURVE_SCATTER
-            "softness" -> com.reverie.paint.core.brushstore.ControlId.CURVE_SOFTNESS
-            "spacing" -> com.reverie.paint.core.brushstore.ControlId.CURVE_SPACING
-            "smudgerate" -> com.reverie.paint.core.brushstore.ControlId.CURVE_SMUDGE_RATE
-            "colorrate" -> com.reverie.paint.core.brushstore.ControlId.CURVE_COLOR_RATE
-            "ratio" -> com.reverie.paint.core.brushstore.ControlId.CURVE_RATIO
-            else -> null
-        }
-        if (cid != null) {
-            BrushStoreVm.stage(this, cid, finalConfig.toCurveXml())
-        }
-    }
 
     val effectiveBrushMaxSize: Double
         get() {
@@ -821,13 +359,6 @@ class PaintViewModel : ViewModel() {
                 brushMaxSizeLimit.coerceAtLeast(minL + 0.1)
             }
         }
-
-    fun checkBrushSizeLimit() {
-        val maxL = effectiveBrushMaxSize
-        if (brushSize > maxL) {
-            updateBrushSize(maxL)
-        }
-    }
 
     // Masking Brush (双重画笔/蒙版画笔)
 
@@ -887,40 +418,6 @@ class PaintViewModel : ViewModel() {
     internal var shadingAssistComputeJob: kotlinx.coroutines.Job? = null
     internal var shadingAssistRawDepth: ShadingAssistEngine.RawDepthData? = null
 
-    fun toggleFavoriteBrush(id: String) {
-        if (id.isBlank()) return
-        favoriteBrushIds = if (favoriteBrushIds.contains(id)) {
-            favoriteBrushIds - id
-        } else {
-            favoriteBrushIds + id
-        }
-        persistBrushPanelState()
-    }
-
-    fun isFavoriteBrush(id: String): Boolean = favoriteBrushIds.contains(id)
-
-    fun recordRecentBrush(id: String) {
-        if (id.isBlank()) return
-        val list = (listOf(id) + recentBrushIds.filter { it != id }).take(com.reverie.paint.core.brushstore.BrushIdPrefs.RECENT_MAX)
-        recentBrushIds = list
-        persistBrushPanelState()
-    }
-
-    fun updateBrushPanelViewMode(mode: BrushPanelViewMode) {
-        if (brushPanelViewMode == mode) return
-        brushPanelViewMode = mode
-        persistBrushPanelState()
-    }
-
-    fun toggleBrushPanelGridView() {
-        brushPanelViewMode = if (brushPanelViewMode.isGrid) {
-            BrushPanelViewMode.STROKE_ICON_NAME
-        } else {
-            BrushPanelViewMode.GRID
-        }
-        persistBrushPanelState()
-    }
-
     // Stroke stabilizer working set: written every touch sample, read by no
     // composable — plain fields by design (zero allocation, zero recomposition).
     internal var smoothedStrokeX = 0f
@@ -941,28 +438,6 @@ class PaintViewModel : ViewModel() {
     internal val smoothingHistP = DoubleArray(SMOOTHING_HISTORY_CAPACITY)
     internal val smoothingHistDist = DoubleArray(SMOOTHING_HISTORY_CAPACITY)
     internal var smoothingHistCount = 0
-
-    fun getCategoryPresetScroll(cat: String): Pair<Int, Int> {
-        return categoryPresetScrollMap[cat] ?: Pair(brushPresetScrollIndex, brushPresetScrollOffset)
-    }
-
-    fun saveCategoryPresetScroll(cat: String, index: Int, offset: Int, persist: Boolean = false) {
-        brushPresetScrollIndex = index
-        brushPresetScrollOffset = offset
-        categoryPresetScrollMap = categoryPresetScrollMap.toMutableMap().apply {
-            put(cat, Pair(index, offset))
-        }
-        val t = com.reverie.paint.model.Tool.fromId(currentToolId)
-        if (t == com.reverie.paint.model.Tool.BRUSH || t == com.reverie.paint.model.Tool.ERASER || t == com.reverie.paint.model.Tool.SMUDGE) {
-            val state = toolBrushStates[t.id] ?: ToolBrushState()
-            toolBrushStates = toolBrushStates.toMutableMap().apply {
-                put(t.id, state.copy(presetScrollIndex = index, presetScrollOffset = offset))
-            }
-        }
-        if (persist) {
-            persistBrushPanelState()
-        }
-    }
 
     data class ToolBrushState(
         val presetIndex: Int = -1,
@@ -1008,19 +483,6 @@ class PaintViewModel : ViewModel() {
     )
     internal var strokeSaved: StrokeSaved = StrokeSaved()
     internal var activeStrokePresetSwitched: Boolean = false
-
-    /**
-     * 获取指定工具 (如 "eraser") 的当前有效笔尖尺寸
-     */
-    fun getToolEffectiveSize(toolId: String): Double {
-        val state = toolBrushStates[toolId]
-        val curPreset = brushPresets.firstOrNull { it.index == state?.presetIndex }
-        val pid = curPreset?.id ?: state?.presetId
-        val mem = pid?.takeIf { it.isNotBlank() }?.let { state?.paramMemory?.get(it) }
-        mem?.getOrNull(0)?.let { return it }
-        val saved = pid?.takeIf { it.isNotBlank() }?.let { BrushStoreVm.readback(it)?.first }
-        return saved?.size ?: brushSize
-    }
 
     /** 最近一次活跃的绘制类工具 (brush / eraser / smudge), 用于在临时工具 (如吸管) 切换回笔刷时保留笔刷尺寸与参数 */
     var lastDrawingToolId: String = "brush"
@@ -1463,45 +925,6 @@ class PaintViewModel : ViewModel() {
         runCore(render = false) {
             ReverieCoreBridge.setAuthorProfile(authorProfile.toJson())
         }
-    }
-
-    fun persistBrushPanelState() {
-        if (!isAppContextReady()) return
-        try {
-            val p = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE).edit()
-            p.putString("brush_panel_category", brushPanelSelectedCategory)
-            p.putInt("brush_cat_scroll_idx", brushCategoryScrollIndex)
-            p.putInt("brush_cat_scroll_offset", brushCategoryScrollOffset)
-            p.putInt("brush_preset_scroll_idx", brushPresetScrollIndex)
-            p.putInt("brush_preset_scroll_offset", brushPresetScrollOffset)
-            p.putInt("brush_prop_scroll_val", brushPropertyScrollValue)
-
-            // Persist per-category scroll positions as JSON
-            val json = org.json.JSONObject()
-            categoryPresetScrollMap.forEach { (cat, pair) ->
-                val arr = org.json.JSONArray().apply {
-                    put(pair.first)
-                    put(pair.second)
-                }
-                json.put(cat, arr)
-            }
-            p.putString("brush_category_preset_scroll_map", json.toString())
-
-            if (brushPanelDetailIndex != null) {
-                p.putInt("brush_panel_detail_idx", brushPanelDetailIndex!!)
-            } else {
-                p.remove("brush_panel_detail_idx")
-            }
-
-            p.putString("brush_panel_view_mode", brushPanelViewMode.prefValue)
-            p.putBoolean("brush_panel_grid_view", brushPanelViewMode.isGrid)
-            if (brushIdPrefsLoaded) {
-                p.putString(com.reverie.paint.core.brushstore.BrushIdPrefs.FAV_IDS, com.reverie.paint.core.brushstore.BrushIdPrefs.encodeList(favoriteBrushIds))
-                p.putString(com.reverie.paint.core.brushstore.BrushIdPrefs.RECENT_IDS, com.reverie.paint.core.brushstore.BrushIdPrefs.encodeList(recentBrushIds))
-            }
-
-            p.apply()
-        } catch (_: Exception) {}
     }
 
     fun updateReferenceAllowRotation(allow: Boolean) {
@@ -2440,19 +1863,10 @@ class PaintViewModel : ViewModel() {
     var gestureThreeFingerRedo by mutableStateOf(true)
     var gestureThreeFingerEditMenu by mutableStateOf(true)
     var canvasEditMenuActions by mutableStateOf(com.reverie.paint.model.CanvasEditAction.defaults)
-        private set
+        internal set
     var canvasEditBusy by mutableStateOf(false)
     var canvasEditCapabilities by mutableIntStateOf(0)
     var canvasClipboardAvailable by mutableStateOf(true)
-
-    fun updateCanvasEditMenuActions(actions: List<com.reverie.paint.model.CanvasEditAction>) {
-        val encoded = com.reverie.paint.model.CanvasEditAction.encode(actions)
-        canvasEditMenuActions = com.reverie.paint.model.CanvasEditAction.decode(encoded)
-        if (isAppContextReady()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putString(com.reverie.paint.model.CanvasEditAction.PREFERENCE_KEY, encoded).apply()
-        }
-    }
 
     var gestureConfig by mutableStateOf(com.reverie.paint.model.GestureConfig())
 
@@ -2463,340 +1877,25 @@ class PaintViewModel : ViewModel() {
     var layerSelectAnchor by mutableStateOf<androidx.compose.ui.geometry.Offset?>(null)
     var layerSelectHitIndices by mutableStateOf<List<Int>>(emptyList())
 
-    fun triggerSelectLayerAtPoint(
-        anchor: androidx.compose.ui.geometry.Offset?,
-        docPos: androidx.compose.ui.geometry.Offset?,
-    ) {
-        val targetDocPos = docPos ?: anchor ?: return
-        val x = targetDocPos.x.toInt()
-        val y = targetDocPos.y.toInt()
-        val applyResult: (IntArray) -> Unit = { hitIndices ->
-            if (hitIndices.isEmpty()) {
-                showActionToast(R.string.canvas_toast_no_layer_content, R.drawable.ic_layers)
-                layerSelectPopupVisible = false
-            } else {
-                layerSelectAnchor = anchor ?: targetDocPos
-                layerSelectHitIndices = hitIndices.toList()
-                layerSelectPopupVisible = true
-                refreshLayerThumbs(force = true)
-            }
-        }
-        val h = renderHandler
-        if (h != null) {
-            h.post {
-                val hitIndices = ReverieCoreBridge.findLayersAtPoint(x, y, radius = 4)
-                mainHandler.post { applyResult(hitIndices) }
-            }
-        } else {
-            val hitIndices = ReverieCoreBridge.findLayersAtPoint(x, y, radius = 4)
-            applyResult(hitIndices)
-        }
-    }
-
-    fun selectLayer(index: Int) {
-        setCurrentLayer(index)
-    }
-
     var brushSlideAdjustEnabled by mutableStateOf(true)
 
-    fun updateBrushSlideAdjustEnabled(enabled: Boolean) {
-        brushSlideAdjustEnabled = enabled
-        viewModelScope.launch(Dispatchers.IO) {
-            val sp = appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-            sp.edit().putBoolean("brush_slide_adjust_enabled", enabled).apply()
-        }
-    }
-
-    fun toggleEraserTool() {
-        if (currentToolId == "eraser") {
-            val target = if (lastDrawingToolId.isNotEmpty() && lastDrawingToolId != "eraser") lastDrawingToolId else "brush"
-            applyTool(target)
-            showActionToast(R.string.tool_brush, R.drawable.ic_brush)
-        } else {
-            applyTool("eraser")
-            showActionToast(R.string.tool_eraser, R.drawable.ic_eraser)
-        }
-    }
-
-    fun updateTriggerAction(
-        trigger: com.reverie.paint.model.GestureTrigger,
-        action: com.reverie.paint.model.GestureAction,
-    ) {
-        val newConfig = gestureConfig.withTriggerMapping(trigger, action)
-        gestureConfig = newConfig
-
-        if (action == com.reverie.paint.model.GestureAction.QUICK_MENU &&
-            trigger == com.reverie.paint.model.GestureTrigger.SINGLE_FINGER_TOUCH_SLIDE
-        ) {
-            if (penModeSingleFingerPanEnabled) {
-                updatePenModeSingleFingerPan(false)
-                if (isAppContextReady()) {
-                    showActionToast(appContext.getString(R.string.gesture_touch_slide_warning))
-                }
-            }
-        }
-
-        gestureTwoFingerUndo = newConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.TWO_FINGER_TAP) == com.reverie.paint.model.GestureAction.UNDO
-        gestureThreeFingerRedo = newConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_TAP) == com.reverie.paint.model.GestureAction.REDO
-        gestureThreeFingerEditMenu = newConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.THREE_FINGER_SWIPE_DOWN) == com.reverie.paint.model.GestureAction.QUICK_MENU
-        gestureQuickPinchFit = newConfig.getActionForTrigger(com.reverie.paint.model.GestureTrigger.QUICK_PINCH) == com.reverie.paint.model.GestureAction.FIT_CANVAS
-
-        if (trigger == com.reverie.paint.model.GestureTrigger.SINGLE_FINGER_LONG_PRESS) {
-            longPressEyedropperEnabled = action == com.reverie.paint.model.GestureAction.EYEDROPPER
-        }
-
-        persistGestureConfig()
-    }
-
-    fun updateGestureTrigger(
-        action: com.reverie.paint.model.GestureAction,
-        trigger: com.reverie.paint.model.GestureTrigger,
-    ) {
-        val (newConfig, conflictAction) = gestureConfig.withMapping(action, trigger)
-        gestureConfig = newConfig
-
-        if (action == com.reverie.paint.model.GestureAction.QUICK_MENU &&
-            trigger == com.reverie.paint.model.GestureTrigger.SINGLE_FINGER_TOUCH_SLIDE
-        ) {
-            if (penModeSingleFingerPanEnabled) {
-                updatePenModeSingleFingerPan(false)
-                if (isAppContextReady()) {
-                    showActionToast(appContext.getString(R.string.gesture_touch_slide_warning))
-                }
-            }
-        }
-
-        gestureTwoFingerUndo = newConfig.getTrigger(com.reverie.paint.model.GestureAction.UNDO) != com.reverie.paint.model.GestureTrigger.NONE
-        gestureThreeFingerRedo = newConfig.getTrigger(com.reverie.paint.model.GestureAction.REDO) != com.reverie.paint.model.GestureTrigger.NONE
-        gestureThreeFingerEditMenu = newConfig.getTrigger(com.reverie.paint.model.GestureAction.QUICK_MENU) != com.reverie.paint.model.GestureTrigger.NONE
-        gestureQuickPinchFit = newConfig.getTrigger(com.reverie.paint.model.GestureAction.FIT_CANVAS) != com.reverie.paint.model.GestureTrigger.NONE
-        if (action == com.reverie.paint.model.GestureAction.EYEDROPPER) {
-            longPressEyedropperEnabled = trigger == com.reverie.paint.model.GestureTrigger.SINGLE_FINGER_LONG_PRESS
-        }
-
-        if (conflictAction != null && isAppContextReady()) {
-            val triggerName = appContext.getString(trigger.labelRes())
-            val conflictName = appContext.getString(conflictAction.labelRes())
-            val actionName = appContext.getString(action.labelRes())
-            showActionToast(appContext.getString(R.string.gesture_conflict_toast, triggerName, conflictName, actionName))
-        }
-
-        persistGestureConfig()
-    }
-
-    fun resetGestureConfigToDefaults() {
-        gestureConfig = com.reverie.paint.model.GestureConfig()
-        gestureTwoFingerUndo = true
-        gestureThreeFingerRedo = true
-        gestureThreeFingerEditMenu = true
-        gestureQuickPinchFit = true
-        gestureContinuousUndo = true
-        persistGestureConfig()
-        if (isAppContextReady()) {
-            showActionToast(appContext.getString(R.string.gesture_reset_defaults_done))
-        }
-    }
-
-    private fun persistGestureConfig() {
-        if (isAppContextReady()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putString("gestureConfig", gestureConfig.serialize())
-                .putBoolean("gestureTwoFingerUndo", gestureTwoFingerUndo)
-                .putBoolean("gestureThreeFingerRedo", gestureThreeFingerRedo)
-                .putBoolean("gestureThreeFingerEditMenu", gestureThreeFingerEditMenu)
-                .putBoolean("gestureQuickPinchFit", gestureQuickPinchFit)
-                .putBoolean("gestureContinuousUndo", gestureContinuousUndo)
-                .apply()
-        }
-    }
-
-    fun dispatchGestureAction(
-        action: com.reverie.paint.model.GestureAction,
-        anchor: androidx.compose.ui.geometry.Offset? = null,
-        docPos: androidx.compose.ui.geometry.Offset? = null,
-    ) {
-        when (action) {
-            com.reverie.paint.model.GestureAction.SELECT_LAYER_AT_POINT -> {
-                triggerSelectLayerAtPoint(anchor, docPos)
-            }
-            com.reverie.paint.model.GestureAction.QUICK_MENU -> {
-                quickMenuAnchor = anchor
-                refreshCanvasEditCapabilities()
-                requestUiCommand("open_edit_menu")
-            }
-            com.reverie.paint.model.GestureAction.UNDO -> undo()
-            com.reverie.paint.model.GestureAction.REDO -> redo()
-            com.reverie.paint.model.GestureAction.FULLSCREEN -> requestUiCommand("toggle_fullscreen")
-            com.reverie.paint.model.GestureAction.FIT_CANVAS -> requestUiCommand("reset_view")
-            com.reverie.paint.model.GestureAction.CLEAR_LAYER -> clearLayer(currentLayerIndex)
-            com.reverie.paint.model.GestureAction.EYEDROPPER -> requestUiCommand("open_color")
-            com.reverie.paint.model.GestureAction.FLIP_CANVAS_H -> toggleViewFlipHorizontal()
-            com.reverie.paint.model.GestureAction.FLIP_CANVAS_V -> toggleViewFlipVertical()
-            com.reverie.paint.model.GestureAction.RESET_ROTATION -> requestUiCommand("rotate_reset")
-            com.reverie.paint.model.GestureAction.TOGGLE_ERASER -> toggleEraserTool()
-            com.reverie.paint.model.GestureAction.NEW_LAYER -> addLayer()
-            com.reverie.paint.model.GestureAction.LOCK_VIEW -> toggleViewTransformLocked()
-            com.reverie.paint.model.GestureAction.BRUSH_SLIDE_ADJUST -> Unit
-            com.reverie.paint.model.GestureAction.NONE -> Unit
-        }
-    }
-
-    fun executeCanvasEditAction(action: com.reverie.paint.model.CanvasEditAction) {
-        when (action) {
-            is com.reverie.paint.model.CanvasEditAction.Clipboard -> editCanvasClipboard(
-                cut = action == com.reverie.paint.model.CanvasEditAction.Clipboard.CUT,
-                paste = action == com.reverie.paint.model.CanvasEditAction.Clipboard.PASTE,
-            )
-            is com.reverie.paint.model.CanvasEditAction.Shortcut -> executeQuickAction(action.action)
-        }
-    }
-
-    fun executeCanvasEditActionByIndex(index: Int) {
-        val actions = canvasEditMenuActions.take(6)
-        if (index in actions.indices) {
-            executeCanvasEditAction(actions[index])
-        }
-    }
-
-    fun updateGestureThreeFingerEditMenu(enable: Boolean) {
-        gestureThreeFingerEditMenu = enable
-        val newTrigger = if (enable) com.reverie.paint.model.GestureTrigger.THREE_FINGER_SWIPE_DOWN else com.reverie.paint.model.GestureTrigger.NONE
-        gestureConfig = gestureConfig.withMapping(com.reverie.paint.model.GestureAction.QUICK_MENU, newTrigger).first
-        persistGestureConfig()
-    }
     var gesturePinchTransform by mutableStateOf(true)
     var gestureQuickPinchFit by mutableStateOf(true)
 
-    fun updateGestureTwoFingerUndo(enable: Boolean) {
-        gestureTwoFingerUndo = enable
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("gestureTwoFingerUndo", enable)
-                .apply()
-        }
-    }
-
-    fun updateGestureThreeFingerRedo(enable: Boolean) {
-        gestureThreeFingerRedo = enable
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("gestureThreeFingerRedo", enable)
-                .apply()
-        }
-    }
-
-    fun updateGesturePinchTransform(enable: Boolean) {
-        gesturePinchTransform = enable
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("gesturePinchTransform", enable)
-                .apply()
-        }
-    }
-
-    fun updateGestureQuickPinchFit(enable: Boolean) {
-        gestureQuickPinchFit = enable
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("gestureQuickPinchFit", enable)
-                .apply()
-        }
-    }
-
     var gestureContinuousUndo by mutableStateOf(true)
-
-    fun updateGestureContinuousUndo(enable: Boolean) {
-        gestureContinuousUndo = enable
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("gestureContinuousUndo", enable)
-                .apply()
-        }
-    }
 
     /** 绘画主界面返回键的兜底行为 (浮层都已关闭时才生效), 见 [BackKeyAction] */
     var backKeyAction by mutableStateOf(BackKeyAction.NONE)
 
-    fun updateBackKeyAction(action: BackKeyAction) {
-        if (backKeyAction == action) return
-        backKeyAction = action
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putString("backKeyAction", action.id)
-                .apply()
-        }
-        com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.updateSystemGestureExclusion()
-    }
-
     /** 是否允许屏幕边缘侧滑返回手势 (开启且返回键行为非无时释放手势排除区) */
     var allowEdgeBackGesture by mutableStateOf(true)
-
-    fun updateAllowEdgeBackGesture(enable: Boolean) {
-        if (allowEdgeBackGesture == enable) return
-        allowEdgeBackGesture = enable
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("allowEdgeBackGesture", enable)
-                .apply()
-        }
-        com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.updateSystemGestureExclusion()
-    }
 
     /** 界面动效速度设置 (NORMAL / FAST / OFF) */
     var uiAnimationSpeed by mutableStateOf(com.reverie.paint.model.UiAnimationSpeed.NORMAL)
 
-    fun updateUiAnimationSpeed(speed: com.reverie.paint.model.UiAnimationSpeed) {
-        if (uiAnimationSpeed == speed) return
-        uiAnimationSpeed = speed
-        com.reverie.paint.ui.theme.Motion.currentSpeed = speed
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putString("uiAnimationSpeed", speed.id)
-                .apply()
-        }
-    }
-
     var actionToastMessage by mutableStateOf<String?>(null)
     var actionToastIcon by mutableStateOf<Int?>(null)
     var actionToastRevision by mutableLongStateOf(0L)
-
-    fun showActionToast(
-        message: String,
-        iconRes: Int? = null,
-    ) {
-        actionToastMessage = message
-        actionToastIcon = iconRes
-        actionToastRevision++
-    }
-
-    fun showActionToast(
-        @StringRes messageRes: Int,
-        iconRes: Int? = null,
-        vararg formatArgs: Any,
-    ) {
-        val msg = if (isAppContextReady()) {
-            if (formatArgs.isEmpty()) appContext.getString(messageRes)
-            else appContext.getString(messageRes, *formatArgs)
-        } else ""
-        showActionToast(msg, iconRes)
-    }
 
     // 切层内容闪现 (见 PaintViewModelLayerFlash.kt): layerFlashBitmap 为当前
     // 闪现内容 (null=不显示), layerFlashTick 驱动 CanvasOverlay 动画重启,
@@ -2807,13 +1906,6 @@ class PaintViewModel : ViewModel() {
     @Volatile internal var layerFlashRequestId = 0
     @Volatile internal var layerFlashBuffers: Array<Bitmap>? = null
     @Volatile internal var layerFlashFrontIdx = 0
-
-    fun getString(@StringRes resId: Int, vararg formatArgs: Any): String {
-        return if (isAppContextReady()) {
-            if (formatArgs.isEmpty()) appContext.getString(resId)
-            else appContext.getString(resId, *formatArgs)
-        } else ""
-    }
 
     var longPressEyedropperEnabled by mutableStateOf(true)
     var eyedropperSensitivity by mutableIntStateOf(3) // 1..5, default 3
@@ -2889,148 +1981,6 @@ class PaintViewModel : ViewModel() {
                 .edit()
                 .putBoolean("penModeSingleFingerPanEnabled", enable)
                 .apply()
-        }
-    }
-
-    fun updateBrushCursorMode(mode: Int) {
-        brushCursorMode = mode
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putInt("brushCursorMode", mode)
-                .apply()
-        }
-    }
-
-    fun updateEraserCursorMode(mode: Int) {
-        eraserCursorMode = mode
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putInt("eraserCursorMode", mode)
-                .apply()
-        }
-    }
-
-    fun updateCursorStyleMode(mode: Int) {
-        cursorStyleMode = mode
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putInt("cursorStyleMode", mode)
-                .apply()
-        }
-    }
-
-    fun updateCursorOutlineReflectsActualSize(enabled: Boolean) {
-        cursorOutlineReflectsActualSize = enabled
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("cursorOutlineReflectsActualSize", enabled)
-                .apply()
-        }
-    }
-
-    fun updateQuickShapeQuadrilateralEnabled(enable: Boolean) {
-        quickShapeQuadrilateralEnabled = enable
-        if (hasAppContext()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("quickShapeQuadrilateralEnabled", enable).apply()
-        }
-    }
-
-    fun updateQuickShapeConversionsEnabled(enable: Boolean) {
-        quickShapeConversionsEnabled = enable
-        if (hasAppContext()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("quickShapeConversionsEnabled", enable).apply()
-        }
-    }
-
-    fun updateQuickShapeCurveEnabled(enable: Boolean) {
-        quickShapeCurveEnabled = enable
-        if (hasAppContext()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("quickShapeCurveEnabled", enable).apply()
-        }
-    }
-
-    fun updateQuickShapeRelaxedEnabled(enable: Boolean) {
-        quickShapeRelaxedEnabled = enable
-        if (hasAppContext()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("quickShapeRelaxedEnabled", enable).apply()
-        }
-    }
-
-    fun updateQuickShapeArcEnabled(enable: Boolean) {
-        quickShapeArcEnabled = enable
-        if (hasAppContext()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("quickShapeArcEnabled", enable).apply()
-        }
-    }
-
-    fun updateQuickShapeBoxHandlesEnabled(enable: Boolean) {
-        quickShapeBoxHandlesEnabled = enable
-        if (hasAppContext()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("quickShapeBoxHandlesEnabled", enable).apply()
-        }
-    }
-
-    fun updateQuickShapeCurvedContourEnabled(enable: Boolean) {
-        quickShapeCurvedContourEnabled = enable
-        if (hasAppContext()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("quickShapeCurvedContourEnabled", enable).apply()
-        }
-    }
-
-    fun updateQuickShapeContourEnabled(enable: Boolean) {
-        quickShapeContourEnabled = enable
-        if (hasAppContext()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("quickShapeContourEnabled", enable).apply()
-        }
-    }
-
-    fun updateQuickShapeAngleSnapEnabled(enable: Boolean) {
-        quickShapeAngleSnapEnabled = enable
-        if (hasAppContext()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("quickShapeAngleSnapEnabled", enable).apply()
-        }
-    }
-    fun updateQuickShapePerPointPressureEnabled(enable: Boolean) {
-        quickShapePerPointPressureEnabled = enable
-        if (hasAppContext()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("quickShapePerPointPressureEnabled", enable).apply()
-        }
-    }
-
-    fun updateQuickShapeEnabled(enable: Boolean) {
-        quickShapeEnabled = enable
-        if (!enable) cancelQuickShape()
-        if (hasAppContext()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putBoolean("quickShapeEnabledV2", enable).apply()
-        }
-    }
-
-    fun updateQuickShapeHoldDelayMs(ms: Int) {
-        val clamped = ms.coerceIn(150, 1200)
-        if (quickShapeHoldDelayMs == clamped) return
-        quickShapeHoldDelayMs = clamped
-        if (hasAppContext()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit().putInt("quickShapeHoldDelayMs", clamped).apply()
         }
     }
 
@@ -3622,520 +2572,11 @@ class PaintViewModel : ViewModel() {
     var immersiveMode by mutableStateOf(true)
         internal set
 
-    fun updateUiOpacity(v: Float) {
-        uiOpacity = v
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putFloat("uiOpacity", v)
-                .apply()
-        }
-    }
-
-    fun updatePopupPanelOpacity(v: Float) {
-        popupPanelOpacity = v
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putFloat("popupPanelOpacity", v)
-                .apply()
-        }
-    }
-
-    fun updatePaintingUiScale(scale: Float) {
-        paintingUiScale = scale.coerceIn(0.70f, 1.40f)
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putFloat("paintingUiScale", paintingUiScale)
-                .apply()
-        }
-    }
-
-    fun updateLayerRowHeight(height: Int) {
-        layerRowHeightDp = height.coerceIn(40, 80)
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putInt("layerRowHeightDp", layerRowHeightDp)
-                .apply()
-        }
-    }
-
-    fun updateQuickSliderHeight(height: Int) {
-        quickSliderHeightDp = height.coerceIn(100, 260)
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putInt("quickSliderHeightDp", quickSliderHeightDp)
-                .apply()
-        }
-    }
-
-    fun updateLeftHandMode(enabled: Boolean) {
-        leftHandMode = enabled
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("leftHandMode", enabled)
-                .apply()
-        }
-    }
-
-    fun updateFloatingUiEnabled(enabled: Boolean) {
-        floatingUiConfig = floatingUiConfig.copy(enabled = enabled)
-        persistFloatingUiConfig()
-    }
-
-    fun updateFloatingUiPositions(
-        topBarPosition: com.reverie.paint.model.PanelPosition = floatingUiConfig.topBarPosition,
-        toolRailPosition: com.reverie.paint.model.PanelPosition = floatingUiConfig.toolRailPosition,
-        sliderRailPosition: com.reverie.paint.model.PanelPosition = floatingUiConfig.sliderRailPosition,
-        panelOrder: List<String> = floatingUiConfig.panelOrder,
-    ) {
-        floatingUiConfig = floatingUiConfig.copy(
-            topBarPosition = topBarPosition,
-            toolRailPosition = toolRailPosition,
-            sliderRailPosition = sliderRailPosition,
-            panelOrder = panelOrder,
-        )
-        persistFloatingUiConfig()
-    }
-
-    fun updateFloatingUiMargin(marginDp: Int) {
-        floatingUiConfig = floatingUiConfig.copy(marginDp = marginDp.coerceIn(8, 48))
-        persistFloatingUiConfig()
-    }
-
-    fun updateFloatingUiScale(scale: Float) {
-        floatingUiConfig = floatingUiConfig.copy(scale = scale.coerceIn(0.70f, 1.40f))
-        persistFloatingUiConfig()
-    }
-
-    fun updateFloatingUiTopBarActions(actions: List<com.reverie.paint.model.QuickAction>) {
-        floatingUiConfig = floatingUiConfig.copy(topBarActions = actions)
-        persistFloatingUiConfig()
-    }
-
-    fun updateFloatingUiPanelOrder(order: List<String>) {
-        floatingUiConfig = floatingUiConfig.copy(panelOrder = order)
-        persistFloatingUiConfig()
-    }
-
-    fun resetFloatingUiEdges() {
-        floatingUiConfig = floatingUiConfig.copy(
-            topBarPosition = com.reverie.paint.model.PanelPosition(com.reverie.paint.model.PanelEdge.TOP, com.reverie.paint.model.PanelAlignment.END),
-            toolRailPosition = com.reverie.paint.model.PanelPosition(com.reverie.paint.model.PanelEdge.LEFT, com.reverie.paint.model.PanelAlignment.START),
-            sliderRailPosition = com.reverie.paint.model.PanelPosition(com.reverie.paint.model.PanelEdge.LEFT, com.reverie.paint.model.PanelAlignment.END),
-            marginDp = 12,
-            scale = 1.0f,
-            topBarActions = emptyList(),
-            panelOrder = com.reverie.paint.model.FloatingUiConfig.DEFAULT_PANEL_ORDER,
-        )
-        persistFloatingUiConfig()
-    }
-
-    private fun persistFloatingUiConfig() {
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("floatingUi_enabled", floatingUiConfig.enabled)
-                .putString("floatingUi_topBarEdge", floatingUiConfig.topBarPosition.edge.name)
-                .putString("floatingUi_topBarAlign", floatingUiConfig.topBarPosition.alignment.name)
-                .putString("floatingUi_toolRailEdge", floatingUiConfig.toolRailPosition.edge.name)
-                .putString("floatingUi_toolRailAlign", floatingUiConfig.toolRailPosition.alignment.name)
-                .putString("floatingUi_sliderRailEdge", floatingUiConfig.sliderRailPosition.edge.name)
-                .putString("floatingUi_sliderRailAlign", floatingUiConfig.sliderRailPosition.alignment.name)
-                .putInt("floatingUi_marginDp", floatingUiConfig.marginDp)
-                .putFloat("floatingUi_scale", floatingUiConfig.scale)
-                .putString("floatingUi_topBarActions", floatingUiConfig.topBarActions.joinToString(",") { it.id })
-                .putString("floatingUi_panelOrder", floatingUiConfig.panelOrder.joinToString(","))
-                .apply()
-        }
-    }
-
-    fun updateLayerHeaderInheritAlpha(enabled: Boolean) {
-        layerHeaderInheritAlpha = enabled
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("layerHeaderInheritAlpha", enabled)
-                .apply()
-        }
-    }
-
-    fun updateSelectionMaskColor(hex: String) {
-        selectionMaskColorHex = hex
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putString("selection_mask_color", hex)
-                .apply()
-        }
-    }
-
-    fun updateSelectionMaskOpacity(opacity: Float) {
-        selectionMaskOpacity = opacity.coerceIn(0.10f, 0.90f)
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putFloat("selection_mask_opacity", selectionMaskOpacity)
-                .apply()
-        }
-    }
-
     var canvasBgColorHex by mutableStateOf("DEFAULT")
-
-    fun updateCanvasBgColor(hex: String) {
-        canvasBgColorHex = hex
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putString("canvasBgColor", hex)
-                .apply()
-        }
-        applyCurrentTheme()
-    }
 
     var canvasGridEnabled by mutableStateOf(true)
     var canvasGridOpacity by mutableFloatStateOf(0.08f)
     var canvasGridSizeDp by mutableIntStateOf(16)
-
-    fun updateCanvasGridEnabled(enabled: Boolean) {
-        canvasGridEnabled = enabled
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("canvas_grid_enabled", enabled)
-                .apply()
-        }
-    }
-
-    fun updateCanvasGridOpacity(opacity: Float) {
-        val clamped = opacity.coerceIn(0.05f, 0.60f)
-        canvasGridOpacity = clamped
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putFloat("canvas_grid_opacity", clamped)
-                .apply()
-        }
-    }
-
-    fun updateCanvasGridSizeDp(sizeDp: Int) {
-        val clamped = sizeDp.coerceIn(12, 48)
-        canvasGridSizeDp = clamped
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putInt("canvas_grid_size_dp", clamped)
-                .apply()
-        }
-    }
-
-    fun updateAccentColor(hex: String) {
-        accentColorHex = hex
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putString("accentColor", hex)
-                .apply()
-        }
-        applyCurrentTheme()
-    }
-
-    fun updateMonetEnabled(enable: Boolean) {
-        monetEnabled = enable
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("monetEnabled", enable)
-                .apply()
-        }
-        applyCurrentTheme()
-    }
-
-    fun updateThemeMode(mode: String) {
-        themeMode = mode
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putString("themeMode", mode)
-                .apply()
-        }
-        applyCurrentTheme()
-    }
-
-    fun updateThemeContrast(contrast: String) {
-        themeContrast = contrast
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putString("themeContrast", contrast)
-                .apply()
-        }
-        applyCurrentTheme()
-    }
-
-    fun updateThemeStyle(style: String) {
-        themeStyle = style
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putString("themeStyle", style)
-                .apply()
-        }
-        applyCurrentTheme()
-    }
-
-    fun isCurrentlyDark(): Boolean {
-        return when (themeMode) {
-            "LIGHT" -> false
-            "SYSTEM" -> {
-                if (isAppContextReady()) {
-                    val uiMode =
-                        appContext.resources.configuration.uiMode and android.content.res.Configuration.UI_MODE_NIGHT_MASK
-                    uiMode == android.content.res.Configuration.UI_MODE_NIGHT_YES
-                } else {
-                    true
-                }
-            }
-            else -> true
-        }
-    }
-
-    fun applyCurrentTheme() {
-        if (!isAppContextReady()) return
-        val dark = isCurrentlyDark()
-        val parsedAccent = com.reverie.paint.ui.theme.parseColor(accentColorHex)
-        val baseTheme = if (monetEnabled && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S) {
-            com.reverie.paint.ui.theme.getMonetColors(appContext, isDark = dark, fallbackAccent = parsedAccent, contrast = themeContrast, style = themeStyle)
-        } else {
-            com.reverie.paint.ui.theme.buildThemeColors(isDark = dark, accent = parsedAccent, contrast = themeContrast, style = themeStyle)
-        }
-
-        com.reverie.paint.ui.theme.Theme.current = if (canvasBgColorHex.isNotBlank() && canvasBgColorHex != "DEFAULT") {
-            try {
-                baseTheme.copy(canvasBg = com.reverie.paint.ui.theme.parseColor(canvasBgColorHex))
-            } catch (_: Exception) {
-                baseTheme
-            }
-        } else {
-            baseTheme
-        }
-        com.reverie.paint.MainActivity.applySystemBarsTheme(com.reverie.paint.ui.theme.Theme.current, dark)
-    }
-
-    fun updateImmersiveMode(enable: Boolean) {
-        immersiveMode = true
-        val shouldImmerse = (currentPage == Page.PAINTING)
-        com.reverie.paint.MainActivity
-            .applyImmersive(shouldImmerse, extendToCutout)
-    }
-
-    fun updateExtendToCutout(extend: Boolean) {
-        extendToCutout = extend
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("extendToCutout", extend)
-                .apply()
-        }
-        val shouldImmerse = (currentPage == Page.PAINTING)
-        com.reverie.paint.MainActivity
-            .applyImmersive(shouldImmerse, extend)
-    }
-
-    fun updateBlurBackground(enable: Boolean) {
-        blurBackground = enable
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("blurBackground", enable)
-                .apply()
-        }
-    }
-
-    fun updateCanvasOpenWaveEnabled(enable: Boolean) {
-        val supported = android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.S
-        val actual = enable && supported
-        canvasOpenWaveEnabled = actual
-        if (isAppContextReady()) {
-            appContext
-                .getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("canvasOpenWaveEnabled", actual)
-                .apply()
-        }
-    }
-
-    fun getHomeCustomBgFile(): File? {
-        if (!isAppContextReady()) return null
-        val file = File(appContext.filesDir, "custom_bg/home_wallpaper.png")
-        return if (file.exists() && file.length() > 0) file else null
-    }
-
-    suspend fun importHomeBackground(uri: android.net.Uri, context: android.content.Context): Boolean {
-        val dir = File(context.filesDir, "custom_bg")
-        val targetFile = File(dir, "home_wallpaper.png")
-        val saved = withContext(Dispatchers.IO) {
-            try {
-                if (!dir.exists()) dir.mkdirs()
-                val tmpDownload = File(dir, "home_wallpaper_src.tmp")
-                val tmpPng = File(dir, "home_wallpaper.png.tmp")
-                val copied = context.contentResolver.openInputStream(uri)?.use { input ->
-                    tmpDownload.outputStream().use { out -> input.copyTo(out) }
-                    true
-                } ?: false
-                if (!copied || !tmpDownload.exists() || tmpDownload.length() <= 0L) {
-                    tmpDownload.delete()
-                    return@withContext false
-                }
-                val boundsOpts = android.graphics.BitmapFactory.Options().apply {
-                    inJustDecodeBounds = true
-                }
-                android.graphics.BitmapFactory.decodeFile(tmpDownload.absolutePath, boundsOpts)
-                val maxEdge = 2560
-                var sampleSize = 1
-                val srcW = boundsOpts.outWidth
-                val srcH = boundsOpts.outHeight
-                if (srcW > maxEdge || srcH > maxEdge) {
-                    while ((srcW / (sampleSize * 2)) >= maxEdge || (srcH / (sampleSize * 2)) >= maxEdge) {
-                        sampleSize *= 2
-                    }
-                }
-                val decodeOpts = android.graphics.BitmapFactory.Options().apply {
-                    inSampleSize = sampleSize
-                }
-                val decoded = android.graphics.BitmapFactory.decodeFile(tmpDownload.absolutePath, decodeOpts)
-                tmpDownload.delete()
-                if (decoded == null) return@withContext false
-                val finalBmp = try {
-                    val maxDim = maxOf(decoded.width, decoded.height)
-                    if (maxDim > maxEdge && maxDim > 0) {
-                        val scale = maxEdge.toFloat() / maxDim.toFloat()
-                        val sw = (decoded.width * scale).roundToInt().coerceAtLeast(1)
-                        val sh = (decoded.height * scale).roundToInt().coerceAtLeast(1)
-                        Bitmap.createScaledBitmap(decoded, sw, sh, true).also {
-                            if (it !== decoded) decoded.recycle()
-                        }
-                    } else {
-                        decoded
-                    }
-                } catch (t: Throwable) {
-                    decoded.recycle()
-                    throw t
-                }
-                val ok = try {
-                    java.io.FileOutputStream(tmpPng).use { out ->
-                        finalBmp.compress(Bitmap.CompressFormat.PNG, 100, out)
-                    }
-                } finally {
-                    finalBmp.recycle()
-                }
-                if (!ok || !tmpPng.exists() || tmpPng.length() <= 0L) {
-                    tmpPng.delete()
-                    return@withContext false
-                }
-                if (targetFile.exists()) targetFile.delete()
-                tmpPng.renameTo(targetFile) || (tmpPng.copyTo(targetFile, overwrite = true).let {
-                    tmpPng.delete()
-                    true
-                })
-            } catch (e: Exception) {
-                android.util.Log.e("PaintViewModel", "Failed to import home background", e)
-                false
-            }
-        }
-        return if (saved && targetFile.exists() && targetFile.length() > 0L) {
-            homeCustomBgEnabled = true
-            homeCustomBgVersion = System.currentTimeMillis()
-            context.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("home_custom_bg_enabled", true)
-                .apply()
-            true
-        } else {
-            false
-        }
-    }
-
-    fun clearHomeBackground() {
-        if (isAppContextReady()) {
-            val file = File(appContext.filesDir, "custom_bg/home_wallpaper.png")
-            if (file.exists()) file.delete()
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putBoolean("home_custom_bg_enabled", false)
-                .apply()
-        }
-        homeCustomBgEnabled = false
-        homeCustomBgVersion = System.currentTimeMillis()
-    }
-
-    fun updateHomeBgOpacity(opacity: Float) {
-        val clamped = opacity.coerceIn(0.1f, 1.0f)
-        homeCustomBgOpacity = clamped
-        if (isAppContextReady()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putFloat("home_custom_bg_opacity", clamped)
-                .apply()
-        }
-    }
-
-    fun updateHomeBgBlurDp(blurDp: Float) {
-        val clamped = blurDp.coerceIn(0f, 30f)
-        homeCustomBgBlurDp = clamped
-        if (isAppContextReady()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putFloat("home_custom_bg_blur", clamped)
-                .apply()
-        }
-    }
-
-    fun updateHomeBgScaleMode(mode: String) {
-        homeCustomBgScaleMode = mode
-        if (isAppContextReady()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putString("home_custom_bg_scale", mode)
-                .apply()
-        }
-    }
-
-    fun updateHomeBgMaskAlpha(alpha: Float) {
-        val clamped = alpha.coerceIn(0f, 0.8f)
-        homeCustomBgMaskAlpha = clamped
-        if (isAppContextReady()) {
-            appContext.getSharedPreferences("paint_prefs", android.content.Context.MODE_PRIVATE)
-                .edit()
-                .putFloat("home_custom_bg_mask", clamped)
-                .apply()
-        }
-    }
 
     fun updateAutoSaveEnabled(enabled: Boolean) {
         autoSaveEnabled = enabled
@@ -4240,11 +2681,6 @@ class PaintViewModel : ViewModel() {
                 .putInt("renderScheduleMode", mode.id)
                 .apply()
         }
-    }
-
-    fun clearActionToast() {
-        actionToastMessage = null
-        actionToastIcon = null
     }
 
     fun syncSettingsFromPrefs() {
@@ -5384,7 +3820,7 @@ class PaintViewModel : ViewModel() {
     }
 
     // Cumulative dirty rect for large bitmap tiling (> 100MB) synchronization
-    private val largeBitmapDirtyRect = android.graphics.Rect()
+    internal val largeBitmapDirtyRect = android.graphics.Rect()
 
     internal fun consumeLargeBitmapDirtyRect(out: android.graphics.Rect): Boolean {
         synchronized(largeBitmapDirtyRect) {
@@ -5396,24 +3832,24 @@ class PaintViewModel : ViewModel() {
     }
 
     // Zero-allocation reusable canvas, rect and dirty array for buffer synchronization
-    private val syncCanvas = android.graphics.Canvas()
-    private val syncPaint = android.graphics.Paint().apply {
+    internal val syncCanvas = android.graphics.Canvas()
+    internal val syncPaint = android.graphics.Paint().apply {
         xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC)
     }
     // Cumulative dirty rects missing from backBuffer and frontBuffer to ensure 100% sync
-    private val backMissingRect = android.graphics.Rect()
-    private val frontMissingRect = android.graphics.Rect()
-    private val renderDirty = IntArray(4)
+    internal val backMissingRect = android.graphics.Rect()
+    internal val frontMissingRect = android.graphics.Rect()
+    internal val renderDirty = IntArray(4)
     internal val forceFullDummyDirtyRects = IntArray(4)
-    private var hasWrittenRect = false
+    internal var hasWrittenRect = false
 
     // 本帧实际写入区域 (渲染缓冲坐标 x/y/w/h), 供 UI 侧做局部失效。
     // 双缓冲交替发布: 渲染线程每帧只写一份不重复使用的副本, 读侧拿到的引用
     // 必然是完整一帧的结果, 且这条每帧路径上不产生任何新数组 (§4)。
     @Volatile internal var renderDirtySnapshot: IntArray? = null
-    private val dirtySnapshotA = IntArray(4)
-    private val dirtySnapshotB = IntArray(4)
-    private var dirtySnapshotFlip = false
+    internal val dirtySnapshotA = IntArray(4)
+    internal val dirtySnapshotB = IntArray(4)
+    internal var dirtySnapshotFlip = false
 
     @Volatile internal var displayBufferInvalid = false
 
@@ -5530,55 +3966,9 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    private var performanceHintSession: Any? = null
-    private var renderThreadTid: Int = -1
-    private var adpfDisabled: Boolean = false
-
-    internal fun initPerformanceHintSession() {
-        if (adpfDisabled || DeviceInfo.isHuaweiOrHonor) {
-            return
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && hasAppContext() && renderThreadTid > 0 && performanceHintSession == null) {
-            try {
-                val phm = appContext.getSystemService(android.os.PerformanceHintManager::class.java)
-                if (phm != null) {
-                    val targetNanos = 8_333_333L // 120Hz frame budget target
-                    performanceHintSession = phm.createHintSession(intArrayOf(renderThreadTid), targetNanos)
-                    android.util.Log.i("PaintViewModel", "ADPF PerformanceHintSession created for tid $renderThreadTid (target=${targetNanos}ns)")
-                }
-            } catch (t: Throwable) {
-                adpfDisabled = true
-                android.util.Log.w("PaintViewModel", "ADPF PerformanceHintSession init failed, disabling ADPF: ${t.message}")
-            }
-        }
-    }
-
-    internal fun reportRenderWorkDuration(durationNanos: Long) {
-        if (adpfDisabled || DeviceInfo.isHuaweiOrHonor || durationNanos <= 0L) {
-            return
-        }
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            if (performanceHintSession == null) {
-                initPerformanceHintSession()
-            }
-            try {
-                (performanceHintSession as? android.os.PerformanceHintManager.Session)?.reportActualWorkDuration(durationNanos)
-            } catch (t: Throwable) {
-                adpfDisabled = true
-                closePerformanceHintSession()
-                android.util.Log.w("PaintViewModel", "ADPF reportActualWorkDuration failed, disabling ADPF: ${t.message}")
-            }
-        }
-    }
-
-    private fun closePerformanceHintSession() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            try {
-                (performanceHintSession as? android.os.PerformanceHintManager.Session)?.close()
-            } catch (_: Throwable) {}
-            performanceHintSession = null
-        }
-    }
+    internal var performanceHintSession: Any? = null
+    internal var renderThreadTid: Int = -1
+    internal var adpfDisabled: Boolean = false
 
     // Same debounced-write pattern for per-tool brush states: slider ticks
     // update the in-memory map every event, disk writes coalesce 250ms after
@@ -5587,58 +3977,6 @@ class PaintViewModel : ViewModel() {
     internal fun schedulePersistToolBrushStates(delayMs: Long = 250L) {
         mainHandler.removeCallbacks(persistToolStatesRunnable)
         mainHandler.postDelayed(persistToolStatesRunnable, delayMs)
-    }
-
-    internal fun startRenderThread() {
-        val thread = HandlerThread("reverie-render", android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY)
-        thread.start()
-        renderThread = thread
-        renderHandler = Handler(thread.looper)
-        // Ensure priority is set to URGENT_DISPLAY and bind affinity to performance cores
-        val h = renderHandler
-        h?.post {
-            renderThreadTid = android.os.Process.myTid()
-            android.os.Process.setThreadPriority(
-                android.os.Process.THREAD_PRIORITY_URGENT_DISPLAY
-            )
-            try {
-                if (!DeviceInfo.isHuaweiOrHonor) {
-                    ReverieCoreBridge.bindCurrentThreadToPerformanceCores()
-                }
-            } catch (t: Throwable) {
-                android.util.Log.w("PaintViewModel", "Failed to bind render thread affinity: ${t.message}")
-            }
-            initPerformanceHintSession()
-        }
-    }
-
-    /**
-     * Run a C++ document operation on the render thread, then schedule a
-     * display refresh and (optionally) run [after] on the main thread.
-     * All core mutation must go through here so it never races with the
-     * projection recomposition running on the render thread.
-     */
-    internal fun runCore(
-        render: Boolean = true,
-        after: (() -> Unit)? = null,
-        op: () -> Unit,
-    ) {
-        val h = renderHandler ?: run {
-            if (after != null) mainHandler.post { after() }
-            return
-        }
-        pendingCoreOps.incrementAndGet()
-        h.post {
-            pendingCoreOps.decrementPositive()
-            try {
-                op()
-            } catch (t: Throwable) {
-                android.util.Log.e("ReverieCore", "runCore op() threw, still dispatching after()", t)
-            } finally {
-                if (render) scheduleRender()
-                if (after != null) mainHandler.post { after() }
-            }
-        }
     }
 
     internal val pendingCoreOps = java.util.concurrent.atomic.AtomicInteger(0)
@@ -5650,38 +3988,6 @@ class PaintViewModel : ViewModel() {
      * 主线程完成状态对账回调 (`after`) 后才递减，用于阻止后端尚未完成时用户抢先下笔或重复拖拽。
      */
     internal val pendingLayerStructureOps = java.util.concurrent.atomic.AtomicInteger(0)
-
-    internal fun isLayerBackendBusy(): Boolean = pendingLayerStructureOps.get() > 0
-
-    internal fun runLayerCore(
-        render: Boolean = true,
-        after: (() -> Unit)? = null,
-        op: () -> Unit,
-    ) {
-        val h = renderHandler ?: run {
-            if (after != null) mainHandler.post { after() }
-            return
-        }
-        pendingLayerStructureOps.incrementAndGet()
-        pendingCoreOps.incrementAndGet()
-        h.post {
-            pendingCoreOps.decrementPositive()
-            try {
-                op()
-            } catch (t: Throwable) {
-                android.util.Log.e("ReverieCore", "runLayerCore op() threw, still dispatching after()", t)
-            } finally {
-                if (render) scheduleRender()
-                mainHandler.post {
-                    try {
-                        after?.invoke()
-                    } finally {
-                        pendingLayerStructureOps.decrementPositive()
-                    }
-                }
-            }
-        }
-    }
 
     /**
      * 「帧转图层」整条链复用的中转位图(一张 ARGB_8888, 2800×1840 约 20MB)。
@@ -5882,25 +4188,25 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    @Volatile private var pendingSampleX = 0.0
-    @Volatile private var pendingSampleY = 0.0
-    @Volatile private var pendingSampleP = 1.0
-    private val strokeBatchLock = Any()
-    private val strokeBatchCoords = FloatArray(STROKE_BATCH_CAPACITY * STROKE_SAMPLE_STRIDE)
+    @Volatile internal var pendingSampleX = 0.0
+    @Volatile internal var pendingSampleY = 0.0
+    @Volatile internal var pendingSampleP = 1.0
+    internal val strokeBatchLock = Any()
+    internal val strokeBatchCoords = FloatArray(STROKE_BATCH_CAPACITY * STROKE_SAMPLE_STRIDE)
     private val strokeDrainCoords = FloatArray(STROKE_BATCH_CAPACITY * (STROKE_SAMPLE_STRIDE + 1))
-    private val strokeBatchTimes = LongArray(STROKE_BATCH_CAPACITY)
+    internal val strokeBatchTimes = LongArray(STROKE_BATCH_CAPACITY)
     private val strokeDrainTimes = LongArray(STROKE_BATCH_CAPACITY)
     @Volatile internal var strokeStartInputTimeMs: Long = 0L
-    private var strokeBatchCount = 0
-    private var batchOverflowLogCounter = 0 // queueStrokeMove 仅 UI 线程调用
+    internal var strokeBatchCount = 0
+    internal var batchOverflowLogCounter = 0 // queueStrokeMove 仅 UI 线程调用
     // ---- 对称实时镜像队列 ----
     // 镜像点由 UI 线程在 appendMirrorSample 里追加, 渲染线程独占 drain。
     // s12-F1: 每个点带落笔时分配的笔画号; 渲染线程只取"引擎当前打开的那一笔"([engineMirrorSeq])
     // 的点, 快速连笔时下一笔的点不会被上一笔收尾的 drain 画进上一笔的笔触。
-    private val mirrorQueue = MirrorSampleQueue(MIRROR_BRANCH_COUNT, MIRROR_BRANCH_CAPACITY, STROKE_SAMPLE_STRIDE_WITH_TIME)
-    private val mirrorDrainCoords = arrayOfNulls<FloatArray>(MIRROR_BRANCH_COUNT)
-    private val mirrorPushScratch = FloatArray(STROKE_SAMPLE_STRIDE_WITH_TIME) // 仅 UI 线程
-    private var mirrorOverflowLogCounter = 0
+    internal val mirrorQueue = MirrorSampleQueue(MIRROR_BRANCH_COUNT, MIRROR_BRANCH_CAPACITY, STROKE_SAMPLE_STRIDE_WITH_TIME)
+    internal val mirrorDrainCoords = arrayOfNulls<FloatArray>(MIRROR_BRANCH_COUNT)
+    internal val mirrorPushScratch = FloatArray(STROKE_SAMPLE_STRIDE_WITH_TIME) // 仅 UI 线程
+    internal var mirrorOverflowLogCounter = 0
     /** 笔画号计数 (仅 UI 线程, touchStart 递增; 0 表示"没有笔画")。 */
     internal var mirrorStrokeSeqCounter = 0
     /**
@@ -5917,13 +4223,13 @@ class PaintViewModel : ViewModel() {
     val symmetryMirrorLive: Boolean get() = mirrorGate.isLive
     /** s13-C5: 本笔已被撤销/重做/取消中止, 抬笔不得重放镜像 (见 [MirrorLiveGate.abort])。 */
     val mirrorStrokeAborted: Boolean get() = mirrorGate.isAborted
-    @Volatile private var strokeBatchQueued = false
-    @Volatile private var lastQueuedInputEventTime = 0L
-    @Volatile private var lastQueuedUptime = 0L
+    @Volatile internal var strokeBatchQueued = false
+    @Volatile internal var lastQueuedInputEventTime = 0L
+    @Volatile internal var lastQueuedUptime = 0L
     // 遥测锚点: 当前待消费批首点的入队时刻。queueStrokeMove 入队时若批原本为空 (本点即
     // 首点) 记录; strokeBatchRunnable 消费时快照并复位。消费慢时 UI 线程不会覆盖已排队
     // 批的锚点, queueWait 不再因 lastQueuedUptime 被反复刷新而变成负数。
-    @Volatile private var firstQueuedUptime = 0L
+    @Volatile internal var firstQueuedUptime = 0L
     // 初值取一帧量级: 原先 40L 配合 "e2e in 5L..250L" 的更新条件, 硬笔快速运笔时实测 e2e 只有
     // 1~4ms, 永远更新不上, 延迟估计锁死在 40 + 14 = 54ms, 预览回填窗口过大 (拐角重影)。
     @Volatile var lastE2ePipelineMs: Long = 8L
@@ -5947,17 +4253,6 @@ class PaintViewModel : ViewModel() {
 
     val lastRenderedFrontierTimeMs: Long
         get() = currentRenderedFrontier?.timeMs ?: 0L
-
-    fun resetRenderedFrontier() {
-        currentRenderedFrontier = null
-        lastE2ePipelineMs = 8L
-    }
-
-    fun updateRenderedFrontier(docX: Float, docY: Float, timeMs: Long) {
-        if (docX.isFinite() && docY.isFinite()) {
-            currentRenderedFrontier = RenderedFrontier(docX, docY, timeMs)
-        }
-    }
 
     /**
      * 估计的"已绘制→已上屏"呈现延迟 (invalidate→onDraw + HWUI/合成尾)。
@@ -5984,13 +4279,13 @@ class PaintViewModel : ViewModel() {
 
     /** 上一次运笔渲染结束的系统时间戳 (uptimeMillis), 用于调度节流与温控。只在渲染线程读写。 */
     private var lastStrokeRenderFinishUptimeMs = 0L
-    private var strokeThrottleRenderScheduled = false
+    internal var strokeThrottleRenderScheduled = false
     private var pendingFrontierDocX = 0f
     private var pendingFrontierDocY = 0f
     private var pendingFrontierSampleTime = 0L
     private var hasPendingFrontier = false
 
-    private val strokeThrottleRenderRunnable = Runnable {
+    internal val strokeThrottleRenderRunnable = Runnable {
         strokeThrottleRenderScheduled = false
         if (renderW > 0 && renderH > 0) {
             val tStart = android.os.SystemClock.elapsedRealtimeNanos()
@@ -6005,7 +4300,7 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    private val strokeBatchRunnable: Runnable = Runnable {
+    internal val strokeBatchRunnable: Runnable = Runnable {
         val tDispatch = android.os.SystemClock.uptimeMillis()
         strokeBatchQueued = false
         val n: Int
@@ -6184,232 +4479,13 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    internal fun queueStrokeMove(
-        x: Float,
-        y: Float,
-        p: Double,
-        inputEventTimeMs: Long = 0L,
-        tiltX: Double = 0.0,
-        tiltY: Double = 0.0,
-        rotation: Double = 0.0,
-    ) {
-        val h = renderHandler ?: return
-        lastQueuedInputEventTime = inputEventTimeMs
-        lastQueuedUptime = android.os.SystemClock.uptimeMillis()
-        if (x.isNaN() || y.isNaN()) return
-        val safeP = if (p.isNaN() || p < 0.0) 1f else p.toFloat().coerceIn(0f, 1f)
-        val safeTiltX = if (tiltX.isNaN()) 0f else tiltX.toFloat().coerceIn(-60f, 60f)
-        val safeTiltY = if (tiltY.isNaN()) 0f else tiltY.toFloat().coerceIn(-60f, 60f)
-        // 笔身旋转 (AXIS_RZ 换算结果) 必须原样进批: 这里曾硬编码 0f, 把上层已解析好的旋转值
-        // 整条链路吞掉, Krita 的 Rotation 传感器因此恒为 0
-        val safeRotation =
-            com.reverie.paint.model.BarrelRotationPolicy.strokeComponent(rotation).toFloat()
-
-        pendingSampleX = x.toDouble()
-        pendingSampleY = y.toDouble()
-        pendingSampleP = safeP.toDouble()
-        synchronized(strokeBatchLock) {
-            if (strokeBatchCount == 0) {
-                // 本点是当前待消费批的首点, 记录入队时刻作为 queueWait 遥测锚点
-                firstQueuedUptime = android.os.SystemClock.uptimeMillis()
-            }
-            if (strokeBatchCount < STROKE_BATCH_CAPACITY) {
-                val o = strokeBatchCount * STROKE_SAMPLE_STRIDE
-                strokeBatchCoords[o] = x
-                strokeBatchCoords[o + 1] = y
-                strokeBatchCoords[o + 2] = safeP
-                strokeBatchCoords[o + 3] = safeTiltX
-                strokeBatchCoords[o + 4] = safeTiltY
-                strokeBatchCoords[o + 5] = safeRotation
-                strokeBatchTimes[strokeBatchCount] = inputEventTimeMs
-                strokeBatchCount++
-            } else {
-                // 队列满 (渲染线程被长任务阻塞): 覆盖最后一个样本而非静默
-                // 丢弃新样本 —— drain 时笔画尾端仍是最新位置, 中段被直线化
-                // 但不断线不缺墨 (此前满后直接 return, 新点整段丢失)。
-                val o = (strokeBatchCount - 1) * STROKE_SAMPLE_STRIDE
-                strokeBatchCoords[o] = x
-                strokeBatchCoords[o + 1] = y
-                strokeBatchCoords[o + 2] = safeP
-                strokeBatchCoords[o + 3] = safeTiltX
-                strokeBatchCoords[o + 4] = safeTiltY
-                strokeBatchCoords[o + 5] = safeRotation
-                strokeBatchTimes[strokeBatchCount - 1] = inputEventTimeMs
-                if (++batchOverflowLogCounter % 60 == 1) {
-                    android.util.Log.w(
-                        "ReveriePerf",
-                        "StrokeBatch overflow: render thread backed up, overwriting tail (capacity=$STROKE_BATCH_CAPACITY)"
-                    )
-                }
-            }
-        }
-        if (!strokeBatchQueued) {
-            strokeBatchQueued = true
-            pendingCoreOps.incrementAndGet()
-            h.post(strokeBatchRunnable) // 预建 Runnable 直接投递, 每样本零分配
-        }
-    }
-
-    /**
-     * 渲染线程上, 在提交 touchStrokeEnd 之前把还排在队列里的运笔补点切片循环同步排空 (防御性)。
-     *
-     * 切片化消费 (单次最多 16 点) 下, 若队列仍有积压点, 循环摘除已排队的 [strokeBatchRunnable]
-     * (若尚未入队则先递增 [pendingCoreOps] 配平 runnable 内部的 decrement) 并同步执行,
-     * 确保全部尾段采样在 touchStrokeEnd 提交前 100% 落入引擎。只允许在渲染线程调用。
-     */
-    internal fun drainPendingStrokeBatchOnRenderThread() {
-        if (strokeThrottleRenderScheduled) {
-            renderHandler?.removeCallbacks(strokeThrottleRenderRunnable)
-            strokeThrottleRenderScheduled = false
-        }
-        val h = renderHandler ?: return
-        while (synchronized(strokeBatchLock) { strokeBatchCount > 0 }) {
-            if (strokeBatchQueued) {
-                h.removeCallbacks(strokeBatchRunnable)
-            } else {
-                pendingCoreOps.incrementAndGet()
-            }
-            strokeBatchRunnable.run()
-        }
-    }
-
-    /** Drop undelivered stroke samples (cancel path: they must not reach the
-     *  engine after touchStrokeCancel ran). */
-    internal fun clearPendingStrokeSamples() {
-        if (strokeThrottleRenderScheduled) {
-            renderHandler?.removeCallbacks(strokeThrottleRenderRunnable)
-            strokeThrottleRenderScheduled = false
-        }
-        synchronized(strokeBatchLock) {
-            strokeBatchCount = 0
-        }
-        // s12-F1: 取消 / 撤销 / 重做 / 离开页面都会让引擎关掉打开的笔触, 镜像门同步关掉,
-        // 否则后续镜像批被引擎按过期丢弃而 Kotlin 仍以为在实时出墨, 抬笔也不重放。
-        mirrorGate.abort()
-        mirrorQueue.clear()
-        resetRenderedFrontier()
-    }
-
-    /**
-     * UI 线程: 追加一个镜像采样点。队列满时丢弃最新的这个点 (不覆盖已入队的点),
-     * 也不在 UI 线程调用 JNI。
-     */
-    internal fun queueMirrorSample(
-        branchIndex: Int,
-        x: Float,
-        y: Float,
-        pressure: Float,
-        tiltX: Float,
-        tiltY: Float,
-        rotation: Float,
-        timeSeconds: Float,
-    ) {
-        if (!mirrorGate.isQueueing) return
-        if (branchIndex < 0 || branchIndex >= MIRROR_BRANCH_COUNT) return
-        if (x.isNaN() || y.isNaN()) return
-        val seq = mirrorGate.currentSeq
-        if (seq <= 0) return
-        val sc = mirrorPushScratch
-        sc[0] = x
-        sc[1] = y
-        sc[2] = if (pressure.isNaN()) 1f else pressure.coerceIn(0f, 1f)
-        // 与主笔 touchStart / queueStrokeMove 一致, 倾角夹到 ±60
-        sc[3] = if (tiltX.isNaN()) 0f else tiltX.coerceIn(-60f, 60f)
-        sc[4] = if (tiltY.isNaN()) 0f else tiltY.coerceIn(-60f, 60f)
-        sc[5] = if (rotation.isNaN()) 0f else rotation
-        sc[6] = if (timeSeconds.isNaN()) 0f else timeSeconds.coerceAtLeast(0f)
-        if (!mirrorQueue.push(branchIndex, seq, sc) && ++mirrorOverflowLogCounter % 60 == 1) {
-            android.util.Log.w(
-                "ReverieCore",
-                "MirrorBatch overflow: branch=$branchIndex dropped (capacity=$MIRROR_BRANCH_CAPACITY)"
-            )
-        }
-    }
-
-    /**
-     * 渲染线程: 把引擎当前打开那一笔 ([engineMirrorSeq]) 的镜像点画进笔触。返回是否送出了被引擎
-     * 接受的镜像墨 (调用方据此决定要不要 doRender)。
-     *
-     * - 只取本笔笔画号的点; 下一笔 (笔画号更大) 的点留在队列里, 更早的过期点丢弃。
-     * - 本笔还在 PENDING 时, 送墨在 [MirrorLiveGate.withLock] 内执行, 与 UI 线程抬笔判定
-     *   ([resolveMirrorLiveAtPenUp]) 互斥; 进入 LIVE 后不可能再回退, 其余分支在锁外送 (UI 不被整批阻塞)。
-     * - 引擎拒绝 (本笔还没有任何实时镜像墨) -> FALLBACK, 丢弃本笔剩余镜像点, 抬笔走 replaySymmetricBranches。
-     * - 引擎回报过期 (它已不在画这一笔) -> 丢弃本笔剩余镜像点, 状态不变。
-     */
-    internal fun drainMirrorBatchesOnRenderThread(): Boolean {
-        val seq = engineMirrorSeq
-        if (seq <= 0) return false
-        val st0 = mirrorGate.stateOf(seq)
-        if (st0 != MirrorLiveGate.State.PENDING && st0 != MirrorLiveGate.State.LIVE) {
-            if (st0 == MirrorLiveGate.State.FALLBACK) mirrorQueue.discardUpTo(seq)
-            return false
-        }
-        var painted = false
-        for (b in 0 until MIRROR_BRANCH_COUNT) {
-            val dst = mirrorQueue.take(b, seq, mirrorDrainCoords[b]) ?: continue
-            mirrorDrainCoords[b] = dst
-            val n = dst.size / STROKE_SAMPLE_STRIDE_WITH_TIME
-            val result: MirrorLiveGate.EngineResult? = when (mirrorGate.stateOf(seq)) {
-                MirrorLiveGate.State.LIVE -> sendMirrorBatch(dst, n, b, seq).also { mirrorGate.onEngineResult(seq, it) }
-                MirrorLiveGate.State.PENDING -> mirrorGate.withLock {
-                    // 锁内再看一次: UI 线程可能刚在抬笔时把本笔判成 FALLBACK
-                    when (mirrorGate.stateOf(seq)) {
-                        MirrorLiveGate.State.PENDING, MirrorLiveGate.State.LIVE ->
-                            sendMirrorBatch(dst, n, b, seq).also { mirrorGate.onEngineResult(seq, it) }
-                        else -> null
-                    }
-                }
-                else -> null
-            }
-            when (result) {
-                MirrorLiveGate.EngineResult.ACCEPTED -> painted = true
-                MirrorLiveGate.EngineResult.REJECTED -> {
-                    if (mirrorGate.stateOf(seq) != MirrorLiveGate.State.LIVE) {
-                        // 本笔还没有实时镜像墨: 抬笔重放 (镜像缓冲仍完整保存在 CanvasTouchView)
-                        mirrorQueue.discardUpTo(seq)
-                        return painted
-                    }
-                }
-                MirrorLiveGate.EngineResult.STALE, null -> {
-                    mirrorQueue.discardUpTo(seq)
-                    return painted
-                }
-            }
-        }
-        return painted
-    }
-
-    /** 渲染线程: 送一批镜像点并把 JNI 返回码映射成 [MirrorLiveGate.EngineResult]。 */
-    private fun sendMirrorBatch(coords: FloatArray, count: Int, branch: Int, seq: Int): MirrorLiveGate.EngineResult {
-        val r = try {
-            ReverieCoreBridge.touchStrokeMirrorBatch(coords, count, branch, seq)
-        } catch (_: Throwable) {
-            MIRROR_BATCH_REJECTED
-        }
-        return when (r) {
-            MIRROR_BATCH_ACCEPTED -> MirrorLiveGate.EngineResult.ACCEPTED
-            MIRROR_BATCH_STALE -> MirrorLiveGate.EngineResult.STALE
-            else -> MirrorLiveGate.EngineResult.REJECTED
-        }
-    }
-
-    /**
-     * UI 线程抬笔: 镜像是否已实时出墨。false 时 (含引擎还没来得及确认) 本笔停止入队并丢弃本笔
-     * 还在队列里的镜像点, 调用方走 replaySymmetricBranches; 保证不会既实时又重放。
-     */
-    internal fun resolveMirrorLiveAtPenUp(): Boolean {
-        val live = mirrorGate.resolveAtPenUp()
-        if (!live) mirrorQueue.discardUpTo(mirrorGate.currentSeq)
-        return live
-    }
-
     // Airbrush hold-still ink flow: a self-rescheduling timer on the render
     // handler; every tick paints one dab via strokeAirbrushTick (engine-side,
     // same thread contract as queueStrokeMove). Ticks are not recorded into
     // the stroke event stream (known replay limitation).
-    @Volatile private var airbrushActive = false
-    private var airbrushIntervalMs = 950L
-    private val airbrushRunnable: Runnable = Runnable {
+    @Volatile internal var airbrushActive = false
+    internal var airbrushIntervalMs = 950L
+    internal val airbrushRunnable: Runnable = Runnable {
         if (!airbrushActive) return@Runnable
         val h = renderHandler ?: return@Runnable
         pendingCoreOps.incrementAndGet()
@@ -6423,30 +4499,6 @@ class PaintViewModel : ViewModel() {
             scheduleRender()
         }
         h.postDelayed(airbrushRunnable, airbrushIntervalMs)
-    }
-
-    /** Arm the airbrush timer for the current stroke if the brush enables it.
-     *  Also seeds the coalesced-sample fields so ticks fired before the first
-     *  move record the stroke's true start point instead of stale values. */
-    internal fun startAirbrushIfNeeded(
-        x: Float,
-        y: Float,
-        p: Double,
-    ) {
-        pendingSampleX = x.toDouble()
-        pendingSampleY = y.toDouble()
-        pendingSampleP = p
-        if (!brushAirbrush) return
-        val rate = brushAirbrushRate.coerceIn(10.0, 120.0)
-        airbrushIntervalMs = (1000.0 / rate).toLong().coerceIn(8L, 100L)
-        airbrushActive = true
-        renderHandler?.postDelayed(airbrushRunnable, airbrushIntervalMs)
-    }
-
-    /** Disarm the airbrush timer; safe to call repeatedly. */
-    internal fun stopAirbrush() {
-        airbrushActive = false
-        renderHandler?.removeCallbacks(airbrushRunnable)
     }
 
     // Pen-down instant-ink kick: shortly after touchStrokeStart, if the stylus
@@ -6467,330 +4519,17 @@ class PaintViewModel : ViewModel() {
         }
     }
 
-    internal fun armStrokeStartKick() {
-        renderHandler?.postDelayed(strokeStartKickRunnable, STROKE_START_KICK_MS)
-    }
-
-    internal fun disarmStrokeStartKick() {
-        renderHandler?.removeCallbacks(strokeStartKickRunnable)
-    }
-
-    internal fun scheduleRender(immediate: Boolean = false) {
-        val h = renderHandler ?: return
-        if (strokeThrottleRenderScheduled) {
-            h.removeCallbacks(strokeThrottleRenderRunnable)
-            strokeThrottleRenderScheduled = false
-        }
-        if (immediate) {
-            // touchEnd / undo / structural changes: render right away and
-            // drop any pending throttled render (its 16ms-later run would
-            // otherwise re-render the exact same state a second time)
-            pendingRenderRunnable?.let { h.removeCallbacks(it) }
-            pendingRenderRunnable = null
-            renderScheduled = false
-            renderFollowUpPending = true
-            h.post { doRender() }
-            return
-        }
-        // Post immediately. The old fixed +16ms delay existed because renders
-        // fired per touch event; now they only fire after the engine actually
-        // painted ink (strokeBatchRunnable gates on touchStrokeMoveBatch's
-        // result) or once per user op via runCore, so at most ONE render is
-        // ever pending (renderScheduled dedupe) and doRender's input-first
-        // defer still keeps queued stroke ops ahead of rendering. The delay
-        // was two full frames of constant pen latency on 120Hz panels.
-        if (renderScheduled) return
-        renderScheduled = true
-        val r =
-            Runnable {
-                pendingRenderRunnable = null
-                renderScheduled = false
-                doRender()
-            }
-        pendingRenderRunnable = r
-        val delay = if (renderScheduleMode == com.reverie.paint.model.RenderScheduleMode.POWER_SAVER && !realInkHeld()) 16L else 0L
-        if (delay > 0L) {
-            h.postDelayed(r, delay)
-        } else {
-            h.post(r)
-        }
-    }
-
     @Volatile internal var liquifyPresentationGesture = 0L
     internal val liquifyPresentation = com.reverie.paint.model.LiquifyPresentationFence<Bitmap>()
-
-    internal fun onLiquifyBitmapDrawn(bitmap: Bitmap) {
-        if (!liquifyPresentation.isPending(liquifyPresentationGesture)) return
-        if (liquifyPresentation.consume(liquifyPresentationGesture, bitmap)) LiquifyGpuPreview.clear()
-    }
 
     internal var renderDeferCount = 0
 
     /** 渲染线程正在执行 [doRender] (L-02 "渲染空闲"推断信号的一部分)。 */
     @Volatile internal var renderInFlight = false
 
-    internal fun doRender() {
-        renderInFlight = true
-        try {
-            doRenderBody()
-        } finally {
-            renderInFlight = false
-        }
-    }
-
-    private fun doRenderBody() {
-        renderScheduled = false
-        renderFollowUpPending = false
-        renderDeferCount = 0
-        val rh = renderHandler
-        val w = renderW
-        val h = renderH
-        if (w <= 0 || h <= 0) return
-        // 文档与显示缓冲 1:1 时走 512 显示瓦片网格: 一帧只 lockPixels 脏区命中的那几张瓦片,
-        // 其余瓦片的位图引用原封不动, HWUI 直接复用显存纹理。其余情况维持整图双缓冲。
-        if (shouldRenderDisplayTiles(w, h)) {
-            doRenderTiles(w, h)
-            return
-        }
-        clearDisplayTileGrid()
-
-        val sizeMismatch =
-            backBuffer == null || backBuffer?.width != w || backBuffer?.height != h ||
-                frontBuffer == null || frontBuffer?.width != w || frontBuffer?.height != h
-        val wasInvalid = displayBufferInvalid
-        val forceFull = sizeMismatch || wasInvalid
-        if (sizeMismatch) {
-            try {
-                frontBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                backBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-            } catch (oom: OutOfMemoryError) {
-                android.util.Log.e("PaintViewModel", "OOM allocating front/back buffers ($w x $h)", oom)
-                releaseReclaimableCaches(aggressive = true)
-                System.gc()
-                try {
-                    frontBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                    backBuffer = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888)
-                } catch (retryOom: OutOfMemoryError) {
-                    android.util.Log.e("PaintViewModel", "OOM retry failed, aborting frame", retryOom)
-                    return
-                }
-            }
-        }
-        if (forceFull) {
-            displayBufferInvalid = false
-            frontMissingRect.setEmpty()
-            backMissingRect.setEmpty()
-            synchronized(largeBitmapDirtyRect) { largeBitmapDirtyRect.setEmpty() }
-            hasWrittenRect = false
-            // 全量重绘或缓冲重分配后旧脏区已无意义, 清掉免得 UI 侧拿它做局部失效
-            renderDirtySnapshot = null
-        }
-
-        val front = frontBuffer
-        val back = backBuffer ?: return
-
-        // Synchronize all cumulative regions missing from backBuffer using frontBuffer
-        if (!forceFull && !backMissingRect.isEmpty && front != null) {
-            syncCanvas.setBitmap(back)
-            syncCanvas.drawBitmap(front, backMissingRect, backMissingRect, syncPaint)
-            backMissingRect.setEmpty()
-        }
-
-        // Phase 2B: 先取 AGSL 预览数据再渲染 —— 放在 renderToBuffer 之前, 免得
-        // "无脏区 ⇒ 直接 return" 的分支把这帧的预览更新吞掉(GPU 模式下缓冲本来就不变)。
-        pollLiquifyGpuPreview()
-        // 干预实验(§4.16): 每渲染采样一次液化 apply 统计 —— 提高采样频率, 才能抓到
-        // 拖动中每次 rebase/物化的单次耗时尖峰(原先只在 1s 定时器里取, 只能拿到"最后一次")。
-        pollLiquifyStats()
-
-        // C++ recompositeProjection() (newDocument / loadRevp / loadPng / 图层与滤镜操作)
-        // 以及 undo()/redo() 会把 m_nativeProjectionValid 置为 true, 而 touchStrokeStart/Move/End
-        // 直接向图层 paintDevice 落墨却不清除 m_nativeProjectionValid。回放或 Seek 静默重放期间
-        // (render = false) 笔画闭合后 m_drawing == false, 若 m_nativeProjectionValid 仍为 true,
-        // renderToBuffer(forceFull = true) 会判定 mustComposite == false 而跳过 compositeDirtyRegions,
-        // 直接把空白 projection 拷入显示缓冲并清空 m_dirtyRect, 导致画布大面积空白/仅局部笔画脏区显现。
-        // 在全量帧进入 renderToBuffer 前先调一次 beginRenderTiles 将 m_nativeProjectionValid 复位为 false,
-        // 紧接着 renderToBuffer(forceFull = true) 的 bufReset 会执行 setDirtyFullFrame(0, 0, iw, ih),
-        // 从而 100% 触发全画布 compositeDirtyRegions(proj)。
-        if (forceFull) {
-            ReverieCoreBridge.beginRenderTiles(forceFullDummyDirtyRects)
-        }
-
-        // renderToBuffer 是每帧最重的一步 (合成 + 像素转换)。标尺开启时按渲染路径分桶
-        // 计时 (全量/增量/跳过), 关闭时整段只剩一次布尔判断 —— 分桶是为了回答
-        // "到底走的是哪条路径、值不值得动它", 单看总耗时看不出来。
-        val traceOn = PerfTrace.enabled
-        val tEngineNs =
-            if (traceOn) android.os.SystemClock.elapsedRealtimeNanos() else 0L
-        val ok = ReverieCoreBridge.renderToBuffer(back, forceFull, renderDirty)
-        if (traceOn) {
-            PerfTrace.renderPath(
-                when {
-                    !ok -> PerfTrace.PATH_SKIP
-                    forceFull -> PerfTrace.PATH_FULL
-                    else -> PerfTrace.PATH_INCR
-                },
-                android.os.SystemClock.elapsedRealtimeNanos() - tEngineNs,
-                if (ok) renderDirty[2].toLong() * renderDirty[3].toLong() else 0L,
-            )
-            if (w != coreW || h != coreH) PerfTrace.renderScaled()
-        }
-        PerfTrace.tick("render.calls", 1000L)
-        if (!ok) {
-            if (forceFull) {
-                displayBufferInvalid = true
-            }
-            if (ReverieCoreBridge.renderPendingDirty()) {
-                renderFollowUpPending = true
-                rh?.postDelayed({ doRender() }, 4L)
-            } else if (liquifyPresentation.isPending(liquifyPresentationGesture)) {
-                displayBitmap?.let { liquifyPresentation.publish(liquifyPresentationGesture, it) }
-                com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidateFromRender()
-            }
-            if (referenceWindowOpen && referenceActiveTab == 1 && displayBitmap != null) {
-                mainHandler.post {
-                    referenceCanvasRevision++
-                }
-            }
-            return
-        }
-
-        if (renderDirty[2] > 0 && renderDirty[3] > 0) {
-            val writtenLeft = renderDirty[0]
-            val writtenTop = renderDirty[1]
-            val writtenRight = renderDirty[0] + renderDirty[2]
-            val writtenBottom = renderDirty[1] + renderDirty[3]
-            if (frontMissingRect.isEmpty) {
-                frontMissingRect.set(writtenLeft, writtenTop, writtenRight, writtenBottom)
-            } else {
-                frontMissingRect.union(writtenLeft, writtenTop, writtenRight, writtenBottom)
-            }
-            synchronized(largeBitmapDirtyRect) {
-                if (largeBitmapDirtyRect.isEmpty) {
-                    largeBitmapDirtyRect.set(writtenLeft, writtenTop, writtenRight, writtenBottom)
-                } else {
-                    largeBitmapDirtyRect.union(writtenLeft, writtenTop, writtenRight, writtenBottom)
-                }
-            }
-            hasWrittenRect = true
-            publishRenderDirtySnapshot()
-        } else {
-            hasWrittenRect = false
-            renderDirtySnapshot = null
-        }
-
-        // Swap front and back buffers, and swap their missing tracking
-        val rendered = back
-        backBuffer = front
-        frontBuffer = rendered
-        displayBitmap = rendered
-        val tempL = backMissingRect.left
-        val tempT = backMissingRect.top
-        val tempR = backMissingRect.right
-        val tempB = backMissingRect.bottom
-        backMissingRect.set(frontMissingRect)
-        frontMissingRect.set(tempL, tempT, tempR, tempB)
-        liquifyPresentation.publish(liquifyPresentationGesture, rendered)
-
-        // 纹理重传代理量: 每翻转一次, 下一帧 HWUI 都要把整张 Bitmap 纹理重传一遍
-        // (HWUI 不做局部纹理更新), 这是本项目最大的带宽开销
-        if (traceOn) PerfTrace.renderFlip(w.toLong() * h * 4, w.toLong() * h)
-
-        if (!DeviceInfo.isHuaweiOrHonor && android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-            try {
-                rendered.prepareToDraw()
-            } catch (_: Throwable) {}
-        }
-
-        if (referenceWindowOpen && referenceActiveTab == 1) {
-            mainHandler.post {
-                referenceCanvasRevision++
-            }
-        }
-
-        // Direct hardware invalidate from render thread (zero Handler hop, zero frame delay).
-        // 走 invalidateFromRender: 视图侧能证明画面其他部分不受影响时只失效脏区,
-        // 否则 (光标/预测笔迹/旋转/大脏区等) 自动回退为整屏重绘。
-        // Compose 观察者只在回放页或参考窗口打开时通知。整图帧与瓦片帧共用这一出口。
-        // 整图路径不呈现真墨, 但要回报"这一帧没留在前缓冲上", 抬笔后的追赶清除才不会悬着。
-        tileRevision++
-        realInkSink?.finishFrame(false)
-        realInkSink?.onTileFrameEnd(tileRevision)
-        notifyCanvasFramePublished()
-    }
-
-    /** 瓦片帧: 把本帧写入的文档矩形 `[l, t, r, b)` 发布给 UI 线程做局部失效。 */
-    internal fun publishRenderWrittenRect(l: Int, t: Int, r: Int, b: Int) {
-        renderDirty[0] = l
-        renderDirty[1] = t
-        renderDirty[2] = r - l
-        renderDirty[3] = b - t
-        hasWrittenRect = true
-        publishRenderDirtySnapshot()
-    }
-
-    /** 瓦片帧: 本帧没有写入任何像素。 */
-    internal fun clearRenderWrittenRect() {
-        hasWrittenRect = false
-        renderDirtySnapshot = null
-    }
-
-    /** 瓦片网格发布后整图 front/back 缓冲用不上了: 丢掉引用 (不 recycle, HWUI 可能还持有)。 */
-    internal fun releaseFullCanvasBuffers() {
-        val showing = displayBitmap
-        if (showing != null && (showing === frontBuffer || showing === backBuffer)) displayBitmap = null
-        frontBuffer = null
-        backBuffer = null
-        frontMissingRect.setEmpty()
-        backMissingRect.setEmpty()
-        synchronized(largeBitmapDirtyRect) { largeBitmapDirtyRect.setEmpty() }
-    }
-
     /** 主线程上的画布失效 (预建 Runnable, 每帧投递零分配)。 */
-    private val postedCanvasInvalidate = Runnable {
+    internal val postedCanvasInvalidate = Runnable {
         com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView?.invalidateFromRender()
-    }
-
-    /** 让画布从渲染线程失效重绘 (视图未挂上时投递到主线程)。 */
-    internal fun invalidateCanvasFromRender() {
-        val tv = com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
-        if (tv != null) {
-            tv.invalidateFromRender()
-        } else {
-            mainHandler.post(postedCanvasInvalidate)
-        }
-    }
-
-    /** 笔画批次仍在排队或引擎任务未完成 (运笔中)。 */
-    internal fun isStrokeRenderActive(): Boolean = strokeBatchQueued || (pendingCoreOps.get() > 0)
-
-    /**
-     * 新一帧像素已发布: 失效画布, 并通知参考窗口/回放页这类 Compose 观察者。与 doRender 尾部同语义。
-     * [keptOnFrontBuffer] = 这一帧已由前缓冲真墨接住, 主画布不失效 (省掉一次 HWUI 纹理上传)。
-     */
-    internal fun notifyCanvasFramePublished(keptOnFrontBuffer: Boolean = false) {
-        if (!keptOnFrontBuffer) {
-            invalidateCanvasFromRender()
-            if (!isStrokeRenderActive()) {
-                mainHandler.post(postedCanvasInvalidate)
-            }
-        }
-        if (currentPage == Page.REPLAY) {
-            mainHandler.post {
-                displayRevision++
-            }
-        }
-    }
-
-    /** 把本帧写入区域发布给 UI 线程做局部失效 (双缓冲交替, 零分配) */
-    private fun publishRenderDirtySnapshot() {
-        val target = if (dirtySnapshotFlip) dirtySnapshotB else dirtySnapshotA
-        dirtySnapshotFlip = !dirtySnapshotFlip
-        target[0] = renderDirty[0]
-        target[1] = renderDirty[1]
-        target[2] = renderDirty[2]
-        target[3] = renderDirty[3]
-        renderDirtySnapshot = target
     }
 
     var layers by mutableStateOf(listOf<LayerUiState>())
@@ -6836,61 +4575,6 @@ class PaintViewModel : ViewModel() {
         get() = currentLayer3DState != null
 
     val layerCount: Int get() = layers.size
-
-    /** Mirror all native layer state into [layers] / [currentLayerIndex].
-     * Must run on the main thread after any C++ layer mutation. */
-    /**
-     * 把引擎里的图层状态镜像到 [layers] / [currentLayerIndex]。
-     * 必须在每次 C++ 图层变更后的主线程上调用。
-     *
-     * P1b: 只从**引擎生成的只读快照**取数 (一次 JNI 调用)。旧的逐项 getter 路径
-     * 与对应的 JNI 已退役; 快照取不到时保持上一次的镜像并限流告警, 不会清空面板。
-     */
-    internal fun syncLayersFromNative() {
-        val page = LayerSnapshotProbe.read()
-        if (page != null) {
-            if (page.layers.isEmpty() && currentPage == Page.PAINTING && layers.isNotEmpty()) {
-                android.util.Log.w("ReverieCore", "syncLayersFromNative: empty snapshot while on PAINTING (kept ${layers.size} layers)")
-                Breadcrumbs.record("Layer", "empty native snapshot on PAINTING, kept ${layers.size} layers")
-            } else {
-                layers = page.layers.map(LayerSnapshotProbe::toUiState)
-            }
-        } else {
-            LayerSnapshotProbe.reportUnavailable()
-        }
-
-        val n = layers.size
-        syncStoryboardTrackFromNative()
-        currentLayerIndex = ReverieCoreBridge.currentLayerIndex()
-        if (selectedLayerIndices.isNotEmpty()) {
-            selectedLayerIndices = selectedLayerIndices.filter { it in 1 until n }.toSet()
-        }
-
-        if (activeTextLayers.isNotEmpty()) {
-            val existingIds = layers.map { it.id }.toSet()
-            val pruned = activeTextLayers.filterKeys { it in existingIds }
-            if (pruned.size != activeTextLayers.size) {
-                activeTextLayers = pruned
-                if (editingTextLayerId != null && editingTextLayerId !in existingIds) {
-                    editingTextLayerId = null
-                    editingTextItemId = null
-                    isTypographyEditing = false
-                    typographySnapGuides = emptyList()
-                }
-            }
-        }
-
-        // 时间轴"选中轨道"与当前图层强制对齐 (修"创建帧错乱"):
-        // selectedTrack 旧实现只在时间轴 tap 时写入且**永不重置** —— 用户在
-        // 时间轴点过任意一行后, 去图层面板切了别的图层再点"新建帧"/落笔
-        // 自动建帧, 帧会建到上次点过的那条轨道上 (selectedTrackIndex()
-        // 优先读它)。UI 上选中轨道与当前图层本来就是同时设置 (轨道区 tap
-        // 两处都写), 这里把图层面板改层 / undo 删层 / 切换文档等路径也
-        // 收敛到同一状态, 帧的落轨依据从此只有 currentLayerIndex。
-        if (anim.enabled && anim.selectedTrack != currentLayerIndex) {
-            anim.selectedTrack = currentLayerIndex
-        }
-    }
 
     internal fun isAppContextReady(): Boolean = ::appContext.isInitialized
 

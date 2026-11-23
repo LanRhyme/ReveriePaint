@@ -3,6 +3,8 @@ package com.reverie.paint.ui.painting
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.popTextInputActive
+import com.reverie.paint.core.pushTextInputActive
 
 /**
  * Ensures that physical hardware keyboard shortcuts (e.g. Delete, Backspace, tool keys)

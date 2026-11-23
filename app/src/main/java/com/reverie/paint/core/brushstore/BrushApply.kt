@@ -12,6 +12,8 @@ import com.reverie.paint.core.ReverieCoreBridge
 import com.reverie.paint.core.applySensorXmlToDynamicOptions
 import com.reverie.paint.core.fetchBrushOutlinePolygons
 import java.io.File
+import com.reverie.paint.core.runCore
+import com.reverie.paint.core.checkBrushSizeLimit
 
 /**
  * select 的尺寸决策（纯函数，输入均为基础类型，供 JVM 单测；只服务 select 完整分支，轻量 reload 不用）：
