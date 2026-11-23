@@ -228,15 +228,6 @@ class CanvasTouchView(context: Context) : View(context) {
     /** 绘画路径的生效工具: 侧键按住或物理橡皮擦末端时强制橡皮, 其余时刻跟随 UI 工具。 */
     internal fun effTool(): Tool = if (tempEraseActive || physicalEraserActive) Tool.ERASER else tool
 
-    internal fun getOrCreateStylusDriver(): com.reverie.paint.core.stylus.StylusDriver? {
-        val cached = cachedDriver
-        if (cached != null) return cached
-        val v = vm ?: return null
-        val driver = v.getOrCreateStylusDriver(context)
-        cachedDriver = driver
-        return driver
-    }
-
     var viewW: Int = 1
     var viewH: Int = 1
     var canvasZoom: Float = 1f
@@ -260,8 +251,8 @@ class CanvasTouchView(context: Context) : View(context) {
     var onPolyPoint: ((Offset) -> Unit)? = null
     var onPolyPopPoint: (() -> Unit)? = null
     internal var isPolyPointPendingOnTouch = false
-    private var shapeCreatedOnCurrentTouch = false
-    private var gradientCreatedOnCurrentTouch = false
+    internal var shapeCreatedOnCurrentTouch = false
+    internal var gradientCreatedOnCurrentTouch = false
     var onCropRect: ((Rect?) -> Unit)? = null
 
     var liveShapeStart: MutableState<Offset?>? = null
@@ -370,15 +361,6 @@ class CanvasTouchView(context: Context) : View(context) {
     internal val hasLocalCursorPos: Boolean
         get() = !localCursorX.isNaN() && !localCursorY.isNaN()
 
-    internal fun setLocalCursorPos(x: Float, y: Float) {
-        localCursorX = x
-        localCursorY = y
-    }
-
-    internal fun clearLocalCursorPos() {
-        localCursorX = Float.NaN
-        localCursorY = Float.NaN
-    }
     internal var localIsHovering = false
     internal var localIsTouching = false
         set(value) {
@@ -399,30 +381,12 @@ class CanvasTouchView(context: Context) : View(context) {
 
     // compose ([FrontBufferHolePolicy.MODE_COMPOSE]): 前缓冲重放的静态覆盖层 (像素网格 / 绘图辅助线),
     // 与窗口同一组绘制函数录成 Picture。只在覆盖层状态变了时重录 (空闲帧里, 不在落笔路径上)。
-    private val composeDecorRecorder by lazy(LazyThreadSafetyMode.NONE) { FrontBufferDecorRecorder(this) }
-    private var composeDecor: FrontBufferDecor? = null
+    internal val composeDecorRecorder by lazy(LazyThreadSafetyMode.NONE) { FrontBufferDecorRecorder(this) }
+    internal var composeDecor: FrontBufferDecor? = null
     internal var localPressure = 1f
     internal var localCursorAngle = 0f
-    private var lastCursorMoveDocX = Float.NaN
-    private var lastCursorMoveDocY = Float.NaN
-
-    internal fun updateCursorAngleFromDocMove(docX: Float, docY: Float, isDown: Boolean) {
-        if (isDown) {
-            lastCursorMoveDocX = docX
-            lastCursorMoveDocY = docY
-        } else if (!lastCursorMoveDocX.isNaN() && !lastCursorMoveDocY.isNaN()) {
-            val dX = docX - lastCursorMoveDocX
-            val dY = docY - lastCursorMoveDocY
-            if (hypot(dX, dY) > 1.5f) {
-                localCursorAngle = Math.toDegrees(kotlin.math.atan2(dY.toDouble(), dX.toDouble())).toFloat()
-                lastCursorMoveDocX = docX
-                lastCursorMoveDocY = docY
-            }
-        } else {
-            lastCursorMoveDocX = docX
-            lastCursorMoveDocY = docY
-        }
-    }
+    internal var lastCursorMoveDocX = Float.NaN
+    internal var lastCursorMoveDocY = Float.NaN
 
     // 硬件加速直出渲染 Paint
     var checkerboardPaint: Paint? = null
@@ -471,24 +435,6 @@ class CanvasTouchView(context: Context) : View(context) {
     internal var currentStrokeDocPos = Offset.Zero
     internal var isSymmetryUndoMacroOpen = false
 
-    internal fun safeBeginSymmetryUndoMacro() {
-        if (!isSymmetryUndoMacroOpen) {
-            vm?.runCore(render = false) {
-                ReverieCoreBridge.beginUndoMacro("Symmetry Stroke")
-            }
-            isSymmetryUndoMacroOpen = true
-        }
-    }
-
-    internal fun safeEndSymmetryUndoMacro() {
-        if (isSymmetryUndoMacroOpen) {
-            vm?.runCore(render = false) {
-                ReverieCoreBridge.endUndoMacro()
-            }
-            isSymmetryUndoMacroOpen = false
-        }
-    }
-
     // 绘制状态 (手写笔专属)
     internal var strokeTool: Tool? = null
     internal var strokeStarted = false
@@ -505,72 +451,6 @@ class CanvasTouchView(context: Context) : View(context) {
      */
     internal var strokeAbortedUntilUp = false
 
-    /**
-     * s13-C5: 顶栏撤销/重做在笔画进行中被点下 (UI 线程)。按"取消当前笔画"收掉这一笔 (主笔与
-     * 镜像同时回滚, 关对称撤销宏), 与双指撤销手势在笔画中的处理一致; 之后调用方照常执行撤销/重做。
-     * 返回是否真的中止了一笔。液化等非画笔工具不处理 (保持原行为)。
-     */
-    internal fun abortActiveStrokeForHistory(): Boolean {
-        if (!strokeStarted) return false
-        when (strokeTool) {
-            Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> Unit
-            else -> return false
-        }
-        val v = vm ?: return false
-        removeCallbacks(quickShapeHold)
-        isPendingLongPress = false
-        longPressToken++
-        cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
-        cachedDriver?.feedbackManager?.stopStrokeSound()
-        v.quickShapeCapture = null
-        quickShapeCandidate = null
-        v.touchCancel()
-        abortAndClearRealInk()
-        clearAllEvasionState(v)
-        strokeStarted = false
-        strokeAbortedUntilUp = true
-        safeEndSymmetryUndoMacro()
-        resetMirrorBranches()
-        assistLockedRay = null
-        resetFisheyeAssist()
-        clearPredictionState(triggerInvalidate = true)
-        currentStrokeDocPos = Offset.Zero
-        firstDocPos = Offset.Zero
-        shapeEndDocPos = Offset.Zero
-        return true
-    }
-
-    internal fun cancelActiveStroke(v: PaintViewModel) {
-        firstDocPos = Offset.Zero
-        shapeEndDocPos = Offset.Zero
-        when (strokeTool) {
-            Tool.BRUSH, Tool.ERASER, Tool.SMUDGE -> {
-                cachedDriver?.feedbackManager?.setWritingHapticsEnabled(false)
-                cachedDriver?.feedbackManager?.stopStrokeSound()
-                v.quickShapeCapture = null
-                quickShapeCandidate = null
-                abortAndClearRealInk()
-                v.touchCancel()
-                resetMirrorBranches()
-                safeEndSymmetryUndoMacro()
-                clearPredictionState(triggerInvalidate = true)
-                strokeStarted = false
-            }
-            Tool.LIQUIFY -> {
-                removeCallbacks(liquifyFlushRunnable)
-                liquifyFlushPosted = false
-                liquifySession.reset()
-                liquifyFieldGesture = false
-                liquifyBasePolicy.reset()
-                liquifyDrawRect = null
-                v.liquifyCancel()
-                strokeStarted = false
-            }
-            else -> {
-                strokeStarted = false
-            }
-        }
-    }
     internal var firstDocPos = Offset.Zero
     internal var shapeEndDocPos = Offset.Zero
     internal var previousSinglePos = Offset.Zero
@@ -689,117 +569,11 @@ class CanvasTouchView(context: Context) : View(context) {
     internal var touchTiltY: Double = 0.0
     internal var touchRotation: Double = 0.0
     /** AXIS_RZ (笔身自转) 能力缓存: 设备 id + 是否上报; null = 未探测 */
-    private var barrelRotationSupported: Boolean? = null
-    private var barrelRotationDeviceId: Int = -1
-
-    internal fun updateStylusSensors(
-        event: MotionEvent,
-        pointerIndex: Int,
-        isStylus: Boolean,
-        historyPos: Int = -1,
-    ) {
-        if (!isStylus) {
-            touchTiltX = 0.0
-            touchTiltY = 0.0
-            touchRotation = 0.0
-            return
-        }
-        // 笔身旋转先于倾角解析: 它与倾角无关, 不能因为倾角缺失就一起清零 (见 resolveTouchRotation)
-        touchRotation = resolveTouchRotation(event, pointerIndex, historyPos)
-
-        val tiltRad = if (historyPos >= 0) {
-            event.getHistoricalAxisValue(MotionEvent.AXIS_TILT, pointerIndex, historyPos)
-        } else {
-            event.getAxisValue(MotionEvent.AXIS_TILT, pointerIndex)
-        }
-        if (!tiltRad.isFinite() || tiltRad < 0f) {
-            touchTiltX = 0.0
-            touchTiltY = 0.0
-            return
-        }
-        val orientationRad = if (historyPos >= 0) {
-            event.getHistoricalAxisValue(MotionEvent.AXIS_ORIENTATION, pointerIndex, historyPos)
-        } else {
-            event.getAxisValue(MotionEvent.AXIS_ORIENTATION, pointerIndex)
-        }
-        if (orientationRad.isNaN()) {
-            touchTiltX = 0.0
-            touchTiltY = 0.0
-            return
-        }
-        val canvasRotRad = Math.toRadians(canvasRotation.toDouble())
-        val docOrientationRad = orientationRad.toDouble() - canvasRotRad
-        val tiltDeg = (tiltRad.toDouble() * (180.0 / Math.PI)).coerceIn(0.0, 60.0)
-        touchTiltX = (Math.sin(docOrientationRad) * tiltDeg).coerceIn(-60.0, 60.0)
-        touchTiltY = (-Math.cos(docOrientationRad) * tiltDeg).coerceIn(-60.0, 60.0)
-    }
-
-    /**
-     * 笔身旋转 (Barrel Rotation) 解析 —— Krita 的 Rotation 传感器输入。
-     *
-     * 来源是通用旋转轴 AXIS_RZ(弧度), 与倾角方位角 AXIS_ORIENTATION 无关: 后者是笔尖指向的
-     * 方位角, 拿它当自转会让带朝向动态的笔刷在画弧线/折线时 dab 剧烈扭曲撕裂 (历史结论, 勿改回)。
-     * 换算口径与 Krita/Qt 官方修复一致, 见 [BarrelRotationPolicy]。
-     *
-     * 设备未上报 AXIS_RZ 时必须保持 0: 该轴缺省读数是 0 弧度, 换算后是 180°,
-     * 会把 Rotation 动态顶到曲线末端 —— 无自转硬件的用户会突然看到笔刷变形。
-     */
-    private fun resolveTouchRotation(event: MotionEvent, pointerIndex: Int, historyPos: Int): Double {
-        if (!deviceReportsBarrelRotation(event)) return 0.0
-        val rz = if (historyPos >= 0) {
-            event.getHistoricalAxisValue(MotionEvent.AXIS_RZ, pointerIndex, historyPos)
-        } else {
-            event.getAxisValue(MotionEvent.AXIS_RZ, pointerIndex)
-        }
-        return BarrelRotationPolicy.fromRadians(rz)
-    }
+    internal var barrelRotationSupported: Boolean? = null
+    internal var barrelRotationDeviceId: Int = -1
 
     /** 已打印过能力清单的设备 id (每台设备一次, 避免热路径刷屏) */
-    private var loggedStylusDeviceId: Int = Int.MIN_VALUE
-
-    /**
-     * 手写笔输入能力清单 —— 每台设备只打一条, 进 logcat 后会被「全景系统运行诊断」抓取。
-     * 用来回答「为什么有些用户的倾斜/笔身旋转用不了」: 直接看该设备的 AXIS_TILT /
-     * AXIS_ORIENTATION / AXIS_RZ 有没有实际量程, 而不是靠猜笔的型号。
-     */
-    internal fun logStylusAxesOnce(event: MotionEvent, pointerIndex: Int) {
-        if (loggedStylusDeviceId == event.deviceId) return
-        val device = event.device ?: return
-        loggedStylusDeviceId = event.deviceId
-        fun range(axis: Int): String = try {
-            val r = device.getMotionRange(axis)
-            if (r == null) "none" else "${r.min}..${r.max}"
-        } catch (_: Exception) {
-            "err"
-        }
-        val toolType = when (event.getToolType(pointerIndex)) {
-            MotionEvent.TOOL_TYPE_STYLUS -> "stylus"
-            MotionEvent.TOOL_TYPE_ERASER -> "eraser"
-            MotionEvent.TOOL_TYPE_MOUSE -> "mouse"
-            else -> "other(${event.getToolType(pointerIndex)})"
-        }
-        android.util.Log.i(
-            "ReverieStylus",
-            "stylus-axes device=${device.name} id=${event.deviceId} tool=$toolType " +
-                "tilt=${range(MotionEvent.AXIS_TILT)} orientation=${range(MotionEvent.AXIS_ORIENTATION)} " +
-                "rz=${range(MotionEvent.AXIS_RZ)} pressure=${range(MotionEvent.AXIS_PRESSURE)}",
-        )
-    }
-
-    /** AXIS_RZ 是否有实际量程 (按设备缓存一次; getDevice() 为空时按不支持处理) */
-    private fun deviceReportsBarrelRotation(event: MotionEvent): Boolean {
-        val deviceId = event.deviceId
-        val cached = barrelRotationSupported
-        if (cached != null && barrelRotationDeviceId == deviceId) return cached
-        val supported = try {
-            event.device?.getMotionRange(MotionEvent.AXIS_RZ) != null
-        } catch (_: Exception) {
-            false
-        }
-        barrelRotationSupported = supported
-        barrelRotationDeviceId = deviceId
-        return supported
-    }
+    internal var loggedStylusDeviceId: Int = Int.MIN_VALUE
 
     // ---- 笔画有效倾角: 硬件倾角直通 (手指/零倾角笔为 0, 与 Krita 无倾角输入一致) ----
     // touchTiltX/Y 来自 updateStylusSensors; strokeTiltX/Y 是笔画采样真正下发的倾角。
@@ -810,33 +584,19 @@ class CanvasTouchView(context: Context) : View(context) {
     /** 最近一次真实输入压感 (原始, 未过校准): 抬笔收尾补点的"真实末端压感"来源 */
     internal var lastStrokeRawPressure: Float = Float.NaN
 
-    /** 落笔: 倾角直通硬件值 (docX/docY 不再使用, 保留签名以免改动全部调用点) */
-    @Suppress("UNUSED_PARAMETER")
-    internal fun beginStrokeTilt(hwTiltX: Double, hwTiltY: Double, docX: Float, docY: Float) {
-        strokeTiltX = StrokeTiltPolicy.component(hwTiltX)
-        strokeTiltY = StrokeTiltPolicy.component(hwTiltY)
-    }
-
-    /** 每个采样点: 倾角直通硬件值; 必须在消费该点坐标的 touchMove 之前调用 */
-    @Suppress("UNUSED_PARAMETER")
-    internal fun resolveStrokeTilt(hwTiltX: Double, hwTiltY: Double, docX: Float, docY: Float) {
-        strokeTiltX = StrokeTiltPolicy.component(hwTiltX)
-        strokeTiltY = StrokeTiltPolicy.component(hwTiltY)
-    }
-
     // 文本交互状态
-    private var activeTextHandle: Int = -1
-    private var textDragStartDocPos: Offset = Offset.Zero
-    private var textDragStartCfg: TypographyConfig = TypographyConfig()
-    private var lastTextTapTimeMs: Long = 0L
-    private var lastTextTapDocPos: Offset = Offset.Zero
-    private var textTouchDownDocPos: Offset = Offset.Zero
-    private var textSelectedBeforeDown: Boolean = false
-    private var textDraggedDuringGesture: Boolean = false
+    internal var activeTextHandle: Int = -1
+    internal var textDragStartDocPos: Offset = Offset.Zero
+    internal var textDragStartCfg: TypographyConfig = TypographyConfig()
+    internal var lastTextTapTimeMs: Long = 0L
+    internal var lastTextTapDocPos: Offset = Offset.Zero
+    internal var textTouchDownDocPos: Offset = Offset.Zero
+    internal var textSelectedBeforeDown: Boolean = false
+    internal var textDraggedDuringGesture: Boolean = false
 
     // 形状交互状态
-    private var lastShapeTapTimeMs: Long = 0L
-    private var lastShapeTapDocPos: Offset = Offset.Zero
+    internal var lastShapeTapTimeMs: Long = 0L
+    internal var lastShapeTapDocPos: Offset = Offset.Zero
 
     // 多次操作套索状态
     internal var lastLassoTapTimeMs = 0L
@@ -1345,16 +1105,6 @@ class CanvasTouchView(context: Context) : View(context) {
     internal val hasPredictedScreenPoint: Boolean
         get() = !predictedScreenX.isNaN() && !predictedScreenY.isNaN()
 
-    internal fun setPredictedScreenPoint(x: Float, y: Float) {
-        predictedScreenX = x
-        predictedScreenY = y
-    }
-
-    internal fun clearPredictedScreenPoint() {
-        predictedScreenX = Float.NaN
-        predictedScreenY = Float.NaN
-    }
-
     // STAMP 笔画级位图缓存引用 (单笔笔画期间复用, 避免在 120Hz/240Hz MOVE 热路径重复查表与分配 Key)
     internal var predictedPressure: Float = 1f
     internal val tempScalarPredPoint = FloatArray(3)
@@ -1513,25 +1263,11 @@ class CanvasTouchView(context: Context) : View(context) {
     }
 
     // 物理触控采样环形缓冲区 (容量 64，热路径零分配)，用于提取已上屏真墨前沿并回填滞后空窗
-    private val touchHistoryX = FloatArray(64)
-    private val touchHistoryY = FloatArray(64)
-    private val touchHistoryTime = LongArray(64)
-    private var touchHistoryCount = 0
-    private var touchHistoryHead = 0
-
-    internal fun recordTouchSample(x: Float, y: Float, timeMs: Long) {
-        if (!x.isFinite() || !y.isFinite()) return
-        touchHistoryX[touchHistoryHead] = x
-        touchHistoryY[touchHistoryHead] = y
-        touchHistoryTime[touchHistoryHead] = timeMs
-        touchHistoryHead = (touchHistoryHead + 1) % 64
-        if (touchHistoryCount < 64) touchHistoryCount++
-    }
-
-    private fun resetTouchHistory() {
-        touchHistoryCount = 0
-        touchHistoryHead = 0
-    }
+    internal val touchHistoryX = FloatArray(64)
+    internal val touchHistoryY = FloatArray(64)
+    internal val touchHistoryTime = LongArray(64)
+    internal var touchHistoryCount = 0
+    internal var touchHistoryHead = 0
 
     // --- 低延迟预测光标与局部重绘状态 ---
     private var activePredictedTipScreenX = 0f
@@ -1539,9 +1275,9 @@ class CanvasTouchView(context: Context) : View(context) {
     private var hasActivePredictedTip = false
 
     // 悬停运动前瞻 (1 帧 VSYNC 估算，空中挥笔如影随形)
-    private var lastHoverRawX = 0f
-    private var lastHoverRawY = 0f
-    private var lastHoverEventTimeMs = 0L
+    internal var lastHoverRawX = 0f
+    internal var lastHoverRawY = 0f
+    internal var lastHoverEventTimeMs = 0L
 
     // 光标压力平滑滤波 (EMA 阻尼 alpha = 0.35，防止瞬时物理压力噪点导致光标圆环呼吸抖动)
     internal var smoothedCursorPressure = -1f
@@ -1576,70 +1312,6 @@ class CanvasTouchView(context: Context) : View(context) {
         realInk.release()
         realInk.cancelCatchUp()
         frontBufferOverlay?.clearInk()
-    }
-
-    internal fun clearPredictionState(triggerInvalidate: Boolean = false) {
-        frontBufferOverlay?.clearPreview()
-        if (isWatchdogScheduled) {
-            removeCallbacks(predictionStagnationRunnable)
-            isWatchdogScheduled = false
-        }
-        val had = hasPredictedScreenPoint
-        clearPredictedScreenPoint()
-        smoothedCursorPressure = -1f
-        priorStrokeScreenPos = Offset.Zero
-        smoothedLeadMs = 20f
-        resetTouchHistory()
-        try {
-            huaweiPredictor?.reset()
-        } catch (_: Throwable) {}
-        try {
-            xiaomiPredictor?.reset()
-        } catch (_: Throwable) {}
-        universalPredictor.reset()
-        if (triggerInvalidate && had) {
-            postInvalidateOnAnimation()
-        }
-    }
-
-    /**
-     * 计算悬空状态手写笔 1 帧 VSYNC 极轻量前向外推位置，补偿显示呈现延迟。
-     */
-    private fun calculatePredictedHoverPos(rawX: Float, rawY: Float, eventTimeMs: Long): Offset {
-        val dt = if (lastHoverEventTimeMs > 0L) eventTimeMs - lastHoverEventTimeMs else 0L
-        var predX = rawX
-        var predY = rawY
-
-        if (vm?.frontBufferPredictionEnabled == true && dt in 2L..100L) {
-            val vx = (rawX - lastHoverRawX) / dt
-            val vy = (rawY - lastHoverRawY) / dt
-            val speed = hypot(vx, vy)
-            // 仅在真实移动时前瞻，静止不产生漂移 (最低阈值 0.05px/ms)
-            if (speed > 0.05f) {
-                val reportRateMs = universalPredictor.avgReportRateMs.coerceIn(6f, 20f)
-                var leadDx = vx * reportRateMs
-                var leadDy = vy * reportRateMs
-                val leadDist = hypot(leadDx, leadDy)
-                val maxLeadPx = 25f * density
-                if (leadDist > maxLeadPx) {
-                    val scale = maxLeadPx / leadDist
-                    leadDx *= scale
-                    leadDy *= scale
-                }
-                predX += leadDx
-                predY += leadDy
-            }
-        }
-
-        lastHoverRawX = rawX
-        lastHoverRawY = rawY
-        lastHoverEventTimeMs = eventTimeMs
-
-        val w = width.toFloat()
-        val h = height.toFloat()
-        val clampedX = if (w > 0f) predX.coerceIn(0f, w) else predX
-        val clampedY = if (h > 0f) predY.coerceIn(0f, h) else predY
-        return Offset(clampedX, clampedY)
     }
 
     /**
@@ -1790,18 +1462,18 @@ class CanvasTouchView(context: Context) : View(context) {
     internal val clampedTiles = ClampedTileDrawer()
     internal var gridLinesBuffer = FloatArray(4096)
     internal val renderBoundsScratch = IntArray(4)
-    private val pixelScratch = IntArray(1)
+    internal val pixelScratch = IntArray(1)
     private val frontierPointScratch = FloatArray(2)
     @Volatile internal var lastInvalidateFromRenderUptimeNs = 0L
     internal var smoothedLeadMs = 20f
 
     /** 画笔颜色的解析缓存 (brushColor 是字符串, 每帧 parseColor 纯属浪费) */
-    private var cachedColorHex: String? = null
-    private var cachedColorInt: Int = android.graphics.Color.BLACK
+    internal var cachedColorHex: String? = null
+    internal var cachedColorInt: Int = android.graphics.Color.BLACK
 
     /** 压力曲线查表的量化缓存 (JNI 调用; 落笔期间压力连续但帧间变化很小) */
-    private var cachedPressureKey: Int = -1
-    private var cachedPressureFraction: Float = 1f
+    internal var cachedPressureKey: Int = -1
+    internal var cachedPressureFraction: Float = 1f
 
     /** 局部失效开关: 任一安全条件不满足时自动回退全量重绘 */
     var partialInvalidateEnabled: Boolean = true
@@ -2114,139 +1786,19 @@ class CanvasTouchView(context: Context) : View(context) {
     internal val largeBitmapDstRect = android.graphics.Rect()
     internal val largeBitmapDirtyScratch = android.graphics.Rect()
 
-    private val holeCursorPainter by lazy(LazyThreadSafetyMode.NONE) { HoldCursorPainter(density) }
-    private val holeCursorBox = IntArray(4)
-    private val holeCursorDstIn = Paint().apply {
+    internal val holeCursorPainter by lazy(LazyThreadSafetyMode.NONE) { HoldCursorPainter(density) }
+    internal val holeCursorBox = IntArray(4)
+    internal val holeCursorDstIn = Paint().apply {
         xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.DST_IN)
         isFilterBitmap = false
     }
 
     // 上一次因光标压孔而失效的屏幕框 (noteHoldCursor 用来擦掉旧位置)
-    private var holeCursorBoxValid = false
-    private var holeCursorL = 0
-    private var holeCursorT = 0
-    private var holeCursorR = 0
-    private var holeCursorB = 0
-
-    internal fun drawHoleCursor(canvas: Canvas) {
-        if (!realInk.held) return
-        val holes = realInk.strokeHoles ?: return
-        val bmp = holes.bitmap ?: return
-        val r = realInk.cursorR
-        if (r <= 0f || bmp.isRecycled) return
-        val b = holeCursorBox
-        if (!HoldCursorPainter.bounds(realInk.cursorX, realInk.cursorY, holeCursorPainter.half(r), realInk.symCursorX,
-                realInk.symCursorY, realInk.symCursorCount, b)
-        ) {
-            return
-        }
-        if (!holes.grid.anyExact(b[0], b[1], b[2], b[3])) return
-        canvas.saveLayer(b[0].toFloat(), b[1].toFloat(), b[2].toFloat(), b[3].toFloat(), null)
-        // 前缓冲在 UI 避让区外才画光标, 避让区里由下面的常规分支画; 这里同样避开, 免得叠两次。
-        val clips = uiClipSnapshot
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            for (i in 0 until clips.count) canvas.clipOutRect(clips.left(i), clips.top(i), clips.right(i), clips.bottom(i))
-        }
-        holeCursorPainter.drawAll(canvas, realInk.cursorX, realInk.cursorY, r, realInk.cursorStyle, realInk.symCursorX,
-            realInk.symCursorY, realInk.symCursorCount)
-        canvas.drawBitmap(bmp, 0f, 0f, holeCursorDstIn)
-        canvas.restore()
-    }
-
-    /**
-     * 按住期间光标框压到孔洞 (或上一次压到) 时让窗口重画这两个框; 其余情况零额外工作。
-     * 判定用 O(1) 的保守 [com.reverie.paint.model.HoleMaskGrid.anyInRect]。UI 线程。
-     */
-    private fun invalidateHoleCursor() {
-        val holes = realInk.strokeHoles
-        var hit = false
-        val b = holeCursorBox
-        if (holes != null && realInk.held && realInk.cursorR > 0f &&
-            HoldCursorPainter.bounds(realInk.cursorX, realInk.cursorY, holeCursorPainter.half(realInk.cursorR),
-                realInk.symCursorX, realInk.symCursorY, realInk.symCursorCount, b)
-        ) {
-            hit = holes.grid.anyInRect(b[0], b[1], b[2], b[3])
-        }
-        if (!hit && !holeCursorBoxValid) return
-        var l = Int.MAX_VALUE
-        var t = Int.MAX_VALUE
-        var r = Int.MIN_VALUE
-        var bt = Int.MIN_VALUE
-        if (holeCursorBoxValid) {
-            l = holeCursorL; t = holeCursorT; r = holeCursorR; bt = holeCursorB
-        }
-        if (hit) {
-            l = minOf(l, b[0]); t = minOf(t, b[1]); r = maxOf(r, b[2]); bt = maxOf(bt, b[3])
-            holeCursorL = b[0]; holeCursorT = b[1]; holeCursorR = b[2]; holeCursorB = b[3]
-        }
-        holeCursorBoxValid = hit
-        postInvalidateOnAnimation(maxOf(l, 0), maxOf(t, 0), minOf(r, width), minOf(bt, height))
-    }
-
-    internal fun sampleColorAtScreenPos(screenPos: Offset) {
-        val v = vm ?: return
-        val samplePos = if (v.eyedropperOffsetEnabled) {
-            screenPos + Offset(-48f * density, -48f * density)
-        } else {
-            screenPos
-        }
-        pickerScreenPos?.value = samplePos
-        val docPos = screenToDoc(samplePos)
-
-        // 当前图层模式：直接从底层当前图层的 PaintDevice 采样
-        if (v.pickerSampleLayers == 0 || v.pickerCurrentLayerOnly) {
-            val ix = docPos.x.toInt()
-            val iy = docPos.y.toInt()
-            val docW = if (v.docWidth > 0) v.docWidth else (v.displayBitmap?.width ?: 0)
-            val docH = if (v.docHeight > 0) v.docHeight else (v.displayBitmap?.height ?: 0)
-            if (ix in 0 until docW && iy in 0 until docH) {
-                val hex = ReverieCoreBridge.pickColorAt(ix, iy, true)
-                if (!hex.isNullOrEmpty()) {
-                    try {
-                        pickerCurrentColor?.value = Color(android.graphics.Color.parseColor(hex))
-                    } catch (_: Throwable) {
-                        pickerCurrentColor?.value = Color.Transparent
-                    }
-                } else {
-                    pickerCurrentColor?.value = Color.Transparent
-                }
-            } else {
-                pickerCurrentColor?.value = Color.Transparent
-            }
-            return
-        }
-
-        val tiles = v.displayTiles.drawable()
-        if (tiles != null) {
-            // 瓦片路径下没有整图: 直接从覆盖该像素的瓦片取色 (瓦片坐标 = 文档坐标)
-            val ix = docPos.x.toInt()
-            val iy = docPos.y.toInt()
-            val idx = tiles.grid.tileIndexAt(ix, iy)
-            val tile = if (idx >= 0) tiles.tiles.get(idx) else null
-            if (tile != null && !tile.isRecycled) {
-                val lx = ix - tiles.grid.tileLeft(idx % tiles.grid.cols)
-                val ly = iy - tiles.grid.tileTop(idx / tiles.grid.cols)
-                if (lx in 0 until tile.width && ly in 0 until tile.height) {
-                    tile.getPixels(pixelScratch, 0, 1, lx, ly, 1, 1)
-                    pickerCurrentColor?.value = Color(pixelScratch[0])
-                }
-            }
-            return
-        }
-        val bmp = v.displayBitmap ?: docBitmap
-        if (bmp != null && bmp.width > 0 && bmp.height > 0) {
-            val docW = if (v.docWidth > 0) v.docWidth else bmp.width
-            val docH = if (v.docHeight > 0) v.docHeight else bmp.height
-            val ix = (docPos.x * (bmp.width.toFloat() / docW)).toInt()
-            val iy = (docPos.y * (bmp.height.toFloat() / docH)).toInt()
-            if (ix in 0 until bmp.width && iy in 0 until bmp.height) {
-                // getPixel 每个采样点都是一趟 JNI; 改用复用数组 + getPixels,
-                // 拖动吸色期间每个采样点省一次跨语言调用且零分配
-                bmp.getPixels(pixelScratch, 0, 1, ix, iy, 1, 1)
-                pickerCurrentColor?.value = Color(pixelScratch[0])
-            }
-        }
-    }
+    internal var holeCursorBoxValid = false
+    internal var holeCursorL = 0
+    internal var holeCursorT = 0
+    internal var holeCursorR = 0
+    internal var holeCursorB = 0
 
     // ---- 前缓冲真墨 (续 #81) ----
 
@@ -2259,200 +1811,9 @@ class CanvasTouchView(context: Context) : View(context) {
      */
     // ---- L-02: 前缓冲就绪门控 (每笔落笔评估一次并锁定) ----
     /** 本笔落笔时的就绪判定; 未就绪落下的笔整笔不按住真墨、也不画 #81 前沿预览。 */
-    private var strokeFbReady = false
-    private var strokeFbDecision = FrontBufferReadyGate.NOT_READY
-    private var strokeFbMask = 0
-
-    /** 落笔时的就绪门控快照写进 FbGeomLog (只在 PerfTrace 打开时调用)。 */
-    private fun logFrontBufferReady(v: PaintViewModel, held: Boolean) {
-        val fb = frontBufferOverlay
-        val loc = IntArray(2)
-        if (fb != null) fb.getLocationOnScreen(loc)
-        val tiles = v.displayTiles.drawable()
-        com.reverie.paint.perf.FbGeomLog.strokeReady(
-            strokeSeq = realInk.currentStrokeSeq,
-            held = held,
-            decision = strokeFbDecision,
-            mask = strokeFbMask,
-            inferredMask = 0,
-            gateEnabled = FrontBufferFeatureFlags.readyGate,
-            msSinceQuietStart = -1L,
-            msUntilFallback = 0L,
-            surfaceX = loc[0],
-            surfaceY = loc[1],
-            surfaceW = fb?.width ?: -1,
-            surfaceH = fb?.height ?: -1,
-            viewW = width,
-            viewH = height,
-            stableFrames = 0,
-            refreshHz = 0f,
-            targetRefreshHz = 0f,
-            renderW = v.renderW,
-            renderH = v.renderH,
-            gridW = tiles?.grid?.width ?: 0,
-            gridH = tiles?.grid?.height ?: 0,
-            tileGeneration = v.displayTiles.generation,
-            bufferInvalid = v.displayBufferInvalid,
-            zoom = canvasZoom,
-            fitScale = canvasFitScale,
-            panX = canvasPanX,
-            panY = canvasPanY,
-            rotation = canvasRotation,
-            renderScheduled = v.renderScheduled,
-            renderFollowUp = v.renderFollowUpPending,
-            renderInFlight = v.renderInFlight,
-            loading = v.isBlockingLoading,
-        )
-    }
-
-    /**
-     * 落笔时评估一次就绪门控并锁定到 [strokeFbReady]。
-     * 真正必要的条件只有: 瓦片已是最终版 (tilesFinal, 不是加载中的低清), 不在加载。
-     */
-    private fun latchFrontBufferReady(v: PaintViewModel) {
-        val tiles = v.displayTiles.drawable()
-        val tilesFinal = FrontBufferReadyGate.tilesFinal(
-            tiles?.grid?.width ?: 0, tiles?.grid?.height ?: 0, v.renderW, v.renderH, v.displayBufferInvalid,
-        )
-        val loading = v.isBlockingLoading
-        val now = android.os.SystemClock.uptimeMillis()
-        strokeFbMask = FrontBufferReadyGate.conditionMask(tilesFinal, loading)
-        strokeFbDecision = FrontBufferReadyGate.decide(
-            now, v.frontBufferQuietUntilMs, tilesFinal, loading, FrontBufferFeatureFlags.readyGate,
-        )
-        strokeFbReady = FrontBufferReadyGate.isReady(strokeFbDecision)
-    }
-
-    internal fun armRealInkHold(v: PaintViewModel, hasSymmetry: Boolean, x: Float, y: Float, pressure: Float) {
-        // 透光台对位模式: 前缓冲置顶会盖住 ShiftTraceOverlay, 统一不按住真墨,
-        // 走 #81 前沿预览 + 主画布实时刷新。透明/不透明画布行为一致。
-        if (v.anim.shiftTraceActive) {
-            abortAndClearRealInk()
-            clearAllEvasionState(v)
-            frontBufferOverlay?.clearPreview()
-        }
-        rebuildUiExclusionSnapshot()
-        // 落笔时无条件强制刷新最新位姿，杜绝上一笔 held 期间微动 (<0.5px) 导致 pose 过期
-        ensureViewTransform(forcePublishPose = true)
-        latchFrontBufferReady(v)
-        val has3DVisible = v.layers.any { it.visible && v.active3DLayers.containsKey(it.id) }
-        val hasCheckerboard = checkerboardPaint != null
-        var allowed = v.frontBufferPredictionEnabled && (!hasSymmetry || v.mirrorGate.isQueueing) &&
-            v.displayTiles.drawable() != null && FrontBufferProbe.realInkHoldAllowed() &&
-            strokeFbReady && !v.anim.shiftTraceActive &&
-            RealInkHoldPolicy.bakeSupported(hasCheckerboard, has3DVisible)
-        // compose: 覆盖层 (像素网格/绘图辅助线/动态导引线/光标) 由前缓冲按窗口同一顺序画进去 ——
-        // 不挖孔、不建掩码、不让窗口重画、吸附线也按住。只有蚂蚁线可见或画布旋转/镜像时这一笔退回 H-min。
-        val modeFlag = FrontBufferFeatureFlags.holeMode
-        val composePose = realInk.pose
-        val compose = allowed && composePose != null && composeApplies(v, composePose)
-        if (compose) {
-            realInk.setStrokeCompose(true, composeDecorFor(v, composePose!!))
-        } else {
-            realInk.setStrokeCompose(false, null)
-        }
-        // H-1: 覆盖层 (参考线/对称轴/像素网格/选区蚂蚁线...) 在前缓冲上挖孔, 由窗口画孔内。
-        val holeMode = if (compose) FrontBufferHolePolicy.MODE_COMPOSE else FrontBufferHolePolicy.holeModeFor(modeFlag)
-        var holeArm = if (compose) FrontBufferHolePolicy.ARM_COMPOSE else FrontBufferHolePolicy.ARM_NO_HOLES
-        var holeMask: HoleMask? = null
-        var holeCov = 0f
-        if (!compose && allowed && holeMode != FrontBufferHolePolicy.MODE_OFF) {
-            val pose = realInk.pose
-            val other = holeOtherOverlayActive(v)
-            val mask = if (pose != null && !other) holeMasks.readyFor(v, pose) else null
-            val visible = when {
-                mask != null -> !mask.isEmpty
-                pose != null -> holeMasks.anyDecorVisible(v, pose)
-                else -> true
-            }
-            holeCov = mask?.grid?.coverage ?: 0f
-            holeArm = FrontBufferHolePolicy.decideArm(
-                holeMode, visible, mask != null, holeCov, FrontBufferFeatureFlags.holeMaxCoverage, other,
-            )
-            if (holeArm == FrontBufferHolePolicy.ARM_NORMAL) allowed = false
-            if (holeArm == FrontBufferHolePolicy.ARM_WITH_MASK) holeMask = mask
-            // 掩码过期 (刚平移/缩放完还没建好): 这一笔走常规路径, 抬笔后自动补建。
-            if (mask == null && visible && pose != null && !other) holeMasks.scheduleIfStale(v, pose)
-        }
-        realInk.setStrokeHoles(holeMask, holeMode)
-        val t = effTool()
-        val cursorMode = if (t == Tool.ERASER) v.eraserCursorMode else v.brushCursorMode
-        val cursorWhileDrawing = (cursorMode == 1 || cursorMode == 3) && v.cursorStyleMode != 4
-        // 吸附导引线由前缓冲画, 擦旧位置要靠备份层: 可能出现导引线的笔画从首帧起维护备份层。
-        // compose 不需要备份层: 旧光标/导引线处按 pose 重烤瓦片恢复。预测笔尖 (关低延迟时没有) 不画。
-        val extras = !compose && (cursorWhileDrawing || predictedTipEligible(v) ||
-            FrontBufferHolePolicy.snapNeedsExtras(snapGuidePossible(v), FrontBufferFeatureFlags.snapHold))
-        val armed = realInk.arm(allowed, extras, uiClipSnapshot)
-        if (holeMode != FrontBufferHolePolicy.MODE_OFF) {
-            com.reverie.paint.perf.FbGeomLog.holeArm(realInk.currentStrokeSeq, holeMode, holeArm, holeCov)
-        }
-        holeCursorBoxValid = false
-        resetHeldGuide()
-        if (com.reverie.paint.core.PerfTrace.enabled) logFrontBufferReady(v, armed)
-        if (armed) {
-            noteHoldCursor(x, y, pressure)
-            if (prevCursorRectValid) {
-                val l = floor(prevCursorLeft).toInt()
-                val t = floor(prevCursorTop).toInt()
-                val r = ceil(prevCursorRight).toInt()
-                val b = ceil(prevCursorBottom).toInt()
-                invalidate(l, t, r, b)
-            }
-        }
-    }
-
-    /**
-     * 孔洞方案处理不了的覆盖层: 非笔刷类工具的工具覆盖层; 以及辅助绘图的动态吸附线 ——
-     * 默认 ([FrontBufferFeatureFlags.snapHold] 关) 走常规路径保证严格同图; 开关打开时按住,
-     * 由前缓冲在孔洞外画、窗口在孔洞内画 (见 [drawHeldGuide] / [invalidateHeldGuide])。
-     */
-    private fun holeOtherOverlayActive(v: PaintViewModel): Boolean {
-        val t = effTool()
-        if (t != Tool.BRUSH && t != Tool.ERASER && t != Tool.SMUDGE) return true
-        val composePossible = realInk.pose?.let { composeApplies(v, it) } == true
-        return FrontBufferHolePolicy.snapForcesNormal(
-            snapPossible = snapGuidePossible(v),
-            snapHoldEnabled = FrontBufferFeatureFlags.snapHold,
-            isCompose = composePossible,
-        )
-    }
-
-    /**
-     * 当前状态下这一笔能否走 compose: 模式开着、画笔/橡皮/涂抹、没有可见蚂蚁线 (随时间流动, 两表面
-     * 无法锁相)、画布轴对齐 (旋转/镜像时窗口的双线性采样前缓冲在 CPU 上复刻不出逐像素一致)。
-     */
-    internal fun composeApplies(v: PaintViewModel, pose: CanvasPose): Boolean {
-        val t = effTool()
-        val other = t != Tool.BRUSH && t != Tool.ERASER && t != Tool.SMUDGE
-        return FrontBufferHolePolicy.composeEligible(
-            FrontBufferFeatureFlags.holeMode,
-            antsVisible(v),
-            FrontBufferCompose.isAxisAligned(pose),
-            other,
-            FrontBufferFeatureFlags.composeAnts,
-        )
-    }
-
-    /** 选区蚂蚁线此刻是否可见 (与 [FrontBufferDecorRecorder] 同一判据; 运笔时不可能正在框选)。 */
-    private fun antsVisible(v: PaintViewModel): Boolean =
-        v.selectionOutlinePath != null && CanvasDecorGeometry.selectionOutlineVisible(
-            hasSelection = v.hasSelection,
-            isTransform = tool == Tool.TRANSFORM,
-            isSelecting = false,
-            selectionMode = v.selectionMode,
-        )
-
-    /** compose 的静态覆盖层: 状态没变就用已录的那份 (几次引用比较), 变了才重录。 */
-    internal fun composeDecorFor(v: PaintViewModel, pose: CanvasPose): FrontBufferDecor? {
-        val tr = tool == Tool.TRANSFORM
-        val antsPhase = if (antsVisible(v)) {
-            (SystemClock.uptimeMillis() % 1200L).toFloat() / 1200f
-        } else 0f
-        if (composeDecorRecorder.isStale(v, pose, tr)) {
-            composeDecor = composeDecorRecorder.record(v, pose, tr, forMask = false, antsPhase = antsPhase)
-        }
-        return composeDecor
-    }
+    internal var strokeFbReady = false
+    internal var strokeFbDecision = FrontBufferReadyGate.NOT_READY
+    internal var strokeFbMask = 0
 
     internal val holdGuideSeg = FloatArray(DynamicGuidePainter.SEG_SIZE)
     internal var holdGuidePrevKind = DynamicGuidePainter.KIND_NONE
@@ -2460,116 +1821,6 @@ class CanvasTouchView(context: Context) : View(context) {
     internal val holdGuidePrevBox = IntArray(4)
     internal val holdGuideBox = IntArray(4)
     internal val holdGuideScratch = FloatArray(4)
-
-    /** 预测笔尖圆点只给纯色高不透明的一级预测笔刷 (半透明/水彩/纹理笔刷上画点会露馅)。 */
-    private fun predictedTipEligible(v: PaintViewModel): Boolean =
-        RealInkHoldPolicy.isRealInkTool(tool, effTool()) &&
-            v.effectivePredictionTier == PaintViewModel.PredictionFidelityTier.TIER_1 &&
-            v.brushOpacity >= 0.85 && (v.brushFlow <= 0.0 || v.brushFlow >= 0.85)
-
-    /**
-     * 按住期间的预测笔尖: 沿预测方向从当前触点外推, 最多 0.85 倍笔宽 (与真墨末端重叠衔接,
-     * 不脱节成孤立点)。只写快照, 不进引擎, 零分配。
-     */
-    internal fun updatePredictedTip(v: PaintViewModel, rawX: Float, rawY: Float) {
-        val hasSymmetry = v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing
-        if (hasSymmetry || !hasPredictedScreenPoint || !predictedTipEligible(v)) {
-            realInk.tipWidth = 0f
-            return
-        }
-        val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
-        val pForWidth =
-            if (predictedPressure.isFinite() && predictedPressure > 0.02f) predictedPressure else localPressure
-        val pFrac = if (v.brushPressureEnabled) pressureFractionCached(pForWidth) else 1f
-        val w = (v.brushSize.toFloat() * scale * pFrac).coerceAtLeast(1.5f)
-        val dx = predictedScreenX - rawX
-        val dy = predictedScreenY - rawY
-        val dist = hypot(dx, dy)
-        if (!dist.isFinite() || dist < 1.5f) {
-            realInk.tipWidth = 0f
-            return
-        }
-        val maxLead = maxOf(w * 0.85f, 6f * density).coerceAtMost(28f * density)
-        val d = dist.coerceAtMost(maxLead)
-        realInk.tipX = rawX + dx / dist * d
-        realInk.tipY = rawY + dy / dist * d
-        realInk.tipColor = (resolveBrushColorCached(v.brushColor) and 0x00FFFFFF) or (0xFF shl 24)
-        realInk.tipWidth = w
-    }
-
-    /** 按住期间光标不走视图失效, 位置/半径记进快照, 由前缓冲随墨一起画。 */
-    internal fun noteHoldCursor(screenX: Float, screenY: Float, pressure: Float) {
-        val v = vm
-        var cx = screenX
-        var cy = screenY
-        if (hasPredictedScreenPoint && predictedScreenX.isFinite() && predictedScreenY.isFinite()) {
-            val dx = predictedScreenX - screenX
-            val dy = predictedScreenY - screenY
-            val dist = hypot(dx, dy)
-            val maxLead = 24f * density
-            if (dist in 0.5f..maxLead) {
-                cx = screenX + dx * 0.65f
-                cy = screenY + dy * 0.65f
-            } else if (dist > maxLead) {
-                val s = (maxLead * 0.65f) / dist
-                cx = screenX + dx * s
-                cy = screenY + dy * s
-            }
-        }
-        realInk.cursorX = cx
-        realInk.cursorY = cy
-        if (!realInk.held || v == null) {
-            realInk.cursorR = 0f
-            realInk.symCursorCount = 0
-            if (holeCursorBoxValid) invalidateHoleCursor()
-            return
-        }
-        val t = effTool()
-        val cursorMode = if (t == Tool.ERASER) v.eraserCursorMode else v.brushCursorMode
-        val style = v.cursorStyleMode
-        realInk.cursorStyle = style
-        val showWhileDrawing = cursorMode == 1 || cursorMode == 3
-        if (!showWhileDrawing || style == 4 || (t != Tool.BRUSH && t != Tool.ERASER && t != Tool.SMUDGE) ||
-            dynamicGuideAbortsFrame(v)
-        ) {
-            realInk.cursorR = 0f
-            realInk.symCursorCount = 0
-            if (holeCursorBoxValid) invalidateHoleCursor()
-            return
-        }
-        val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
-        val size = if (t == Tool.ERASER && tool != Tool.ERASER) {
-            v.getToolEffectiveSize("eraser").toFloat()
-        } else {
-            v.brushSize.toFloat()
-        }
-        val sample = if (pressure.isFinite()) pressure.coerceIn(0f, 1f) else 1f
-        smoothedCursorPressure =
-            if (smoothedCursorPressure < 0f) sample else smoothedCursorPressure * 0.65f + sample * 0.35f
-        realInk.cursorR = CursorOutlineGeometry.outlineRadius(
-            size, scale, pressureFractionCached(smoothedCursorPressure), v.cursorOutlineReflectsActualSize,
-        )
-
-        // 记入对称镜像分支光标位置 (由前缓冲随墨一起在 GL 线程直出)
-        if (v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing) {
-            ensureViewTransform()
-            viewTransform.screenToDoc(cx, cy, pointScratch)
-            val count = v.drawingGuide.writeSymmetricPoints(
-                pointScratch[0], pointScratch[1],
-                v.docWidth, v.docHeight,
-                symScratchX, symScratchY
-            )
-            for (i in 0 until count) {
-                viewTransform.docToScreen(symScratchX[i], symScratchY[i], pointScratch)
-                realInk.symCursorX[i] = pointScratch[0]
-                realInk.symCursorY[i] = pointScratch[1]
-            }
-            realInk.symCursorCount = count
-        } else {
-            realInk.symCursorCount = 0
-        }
-        if (realInk.strokeHoles != null || holeCursorBoxValid) invalidateHoleCursor()
-    }
 
     /** 刷新缓存的视图变换 (参数未变化时内部直接返回, 几乎零开销) */
     internal fun ensureViewTransform(forcePublishPose: Boolean = false) {
@@ -2665,39 +1916,6 @@ class CanvasTouchView(context: Context) : View(context) {
         out[1] = floor(minY).toInt()
         out[2] = ceil(maxX).toInt()
         out[3] = ceil(maxY).toInt()
-    }
-
-    /** 画笔颜色字符串 -> 颜色值的解析缓存 (brushColor 每帧都可能被读取) */
-    internal fun resolveBrushColorCached(hex: String): Int {
-        val cached = cachedColorHex
-        if (cached === hex || cached == hex) return cachedColorInt
-        val parsed =
-            try {
-                android.graphics.Color.parseColor(hex)
-            } catch (_: Throwable) {
-                android.graphics.Color.BLACK
-            }
-        cachedColorHex = hex
-        cachedColorInt = parsed
-        return parsed
-    }
-
-    /**
-     * 压力曲线的量化缓存。压力曲线由引擎侧提供 (JNI), 落笔期间压力逐帧连续
-     * 变化但幅度很小, 按 1/256 量化后绝大多数帧直接命中缓存。
-     */
-    internal fun pressureFractionCached(p: Float): Float {
-        val key = (p.coerceIn(0f, 1f) * 256f).toInt()
-        if (key == cachedPressureKey) return cachedPressureFraction
-        val frac =
-            try {
-                ReverieCoreBridge.brushPressureFraction(p)
-            } catch (_: Throwable) {
-                1f
-            }
-        cachedPressureKey = key
-        cachedPressureFraction = frac
-        return frac
     }
 
     /**
@@ -3045,833 +2263,6 @@ class CanvasTouchView(context: Context) : View(context) {
     internal fun superOnDraw(canvas: Canvas) = super.onDraw(canvas)
 
     // ---------------- Phase 5 · C3-2: 场通路(拖动期零引擎解算 + 抬笔一次性提交) ----------------
-
-    private fun isShapeTool(t: Tool): Boolean =
-        t == Tool.SHAPES || t == Tool.LINE || t == Tool.RECT ||
-        t == Tool.ELLIPSE || t == Tool.POLYGON || t == Tool.POLYLINE ||
-        t == Tool.PATH || t.group == ToolGroup.SHAPES
-
-    private fun defaultShapeType(t: Tool, fallback: ShapeType): ShapeType =
-        when (t) {
-            Tool.LINE -> ShapeType.LINE
-            Tool.RECT -> ShapeType.RECT
-            Tool.ELLIPSE -> ShapeType.ELLIPSE
-            Tool.POLYGON -> ShapeType.POLYGON
-            Tool.POLYLINE -> ShapeType.POLYLINE
-            Tool.PATH -> ShapeType.BEZIER
-            else -> fallback
-        }
-
-    private fun hitTestShapeHandle(
-        state: ShapeState,
-        docPos: Offset,
-        density: Float,
-        currentScale: Float,
-    ): Int {
-        val hitDist = (28f * density) / maxOf(0.01f, currentScale)
-        when (state.type) {
-            ShapeType.LINE -> {
-                if (hypot(docPos.x - state.p1.x, docPos.y - state.p1.y) < hitDist) return ShapeHandleId.LINE_P1
-                if (hypot(docPos.x - state.p2.x, docPos.y - state.p2.y) < hitDist) return ShapeHandleId.LINE_P2
-                val mid = (state.p1 + state.p2) / 2f
-                if (hypot(docPos.x - mid.x, docPos.y - mid.y) < hitDist) return ShapeHandleId.TRANSLATE_BODY
-                val d = ShapeGeometry.distanceToSegment(Point2D(docPos.x, docPos.y), Point2D(state.p1.x, state.p1.y), Point2D(state.p2.x, state.p2.y))
-                if (d < hitDist) return ShapeHandleId.TRANSLATE_BODY
-            }
-            ShapeType.RECT, ShapeType.ROUNDED_RECT, ShapeType.ELLIPSE -> {
-                val p2 = if (state.keepAspect) {
-                    val pt = ShapeGeometry.constrainAspect(Point2D(state.p1.x, state.p1.y), Point2D(state.p2.x, state.p2.y))
-                    Offset(pt.x, pt.y)
-                } else state.p2
-                val (tl, br) = ShapeGeometry.normalizeRect(Point2D(state.p1.x, state.p1.y), Point2D(p2.x, p2.y))
-                val tr = Offset(br.x, tl.y)
-                val bl = Offset(tl.x, br.y)
-                val center = Offset((tl.x + br.x) / 2f, (tl.y + br.y) / 2f)
-
-                val localPos = if (abs(state.rotationDegrees) > 0.01f) {
-                    val rotated = ShapeGeometry.rotatePoint(Point2D(docPos.x, docPos.y), Point2D(center.x, center.y), -state.rotationDegrees)
-                    Offset(rotated.x, rotated.y)
-                } else docPos
-
-                val rotPos = Offset(center.x, tl.y - (28f * density) / maxOf(0.01f, currentScale))
-                if (hypot(localPos.x - rotPos.x, localPos.y - rotPos.y) < hitDist) return ShapeHandleId.ROTATE
-
-                if (state.type == ShapeType.ROUNDED_RECT) {
-                    val cr = state.cornerRadius.coerceIn(0f, minOf(br.x - tl.x, br.y - tl.y) / 2f)
-                    val crPos = Offset(tl.x + cr, tl.y + cr)
-                    if (hypot(localPos.x - crPos.x, localPos.y - crPos.y) < hitDist) return ShapeHandleId.CORNER_RADIUS
-                }
-
-                if (hypot(localPos.x - tl.x, localPos.y - tl.y) < hitDist) return ShapeHandleId.CORNER_TL
-                if (hypot(localPos.x - tr.x, localPos.y - tr.y) < hitDist) return ShapeHandleId.CORNER_TR
-                if (hypot(localPos.x - br.x, localPos.y - br.y) < hitDist) return ShapeHandleId.CORNER_BR
-                if (hypot(localPos.x - bl.x, localPos.y - bl.y) < hitDist) return ShapeHandleId.CORNER_BL
-
-                if (localPos.x in tl.x..br.x && localPos.y in tl.y..br.y) return ShapeHandleId.TRANSLATE_BODY
-            }
-            ShapeType.REGULAR_POLYGON -> {
-                val center = (state.p1 + state.p2) / 2f
-                val radius = hypot(state.p2.x - state.p1.x, state.p2.y - state.p1.y) / 2f
-                val baseAngle = (-PI / 2.0).toFloat() + Math.toRadians(state.rotationDegrees.toDouble()).toFloat()
-                val topH = Offset(center.x + radius * cos(baseAngle), center.y + radius * sin(baseAngle))
-                if (hypot(docPos.x - topH.x, docPos.y - topH.y) < hitDist) return ShapeHandleId.STAR_OUTER
-                if (hypot(docPos.x - center.x, docPos.y - center.y) < hitDist) return ShapeHandleId.TRANSLATE_BODY
-                if (hypot(docPos.x - center.x, docPos.y - center.y) < radius) return ShapeHandleId.TRANSLATE_BODY
-            }
-            ShapeType.STAR -> {
-                val center = (state.p1 + state.p2) / 2f
-                val outerR = hypot(state.p2.x - state.p1.x, state.p2.y - state.p1.y) / 2f
-                val innerR = outerR * state.starInnerRatio
-                val baseAngle = (-PI / 2.0).toFloat() + Math.toRadians(state.rotationDegrees.toDouble()).toFloat()
-                val outerH = Offset(center.x + outerR * cos(baseAngle), center.y + outerR * sin(baseAngle))
-                if (hypot(docPos.x - outerH.x, docPos.y - outerH.y) < hitDist) return ShapeHandleId.STAR_OUTER
-                val angleStep = (PI / state.starPoints).toFloat()
-                val innerAngle = baseAngle + angleStep
-                val innerH = Offset(
-                    center.x + innerR * cos(innerAngle),
-                    center.y + innerR * sin(innerAngle)
-                )
-                if (hypot(docPos.x - innerH.x, docPos.y - innerH.y) < hitDist) return ShapeHandleId.STAR_INNER
-                if (hypot(docPos.x - center.x, docPos.y - center.y) < hitDist) return ShapeHandleId.TRANSLATE_BODY
-                if (hypot(docPos.x - center.x, docPos.y - center.y) < outerR) return ShapeHandleId.TRANSLATE_BODY
-            }
-            ShapeType.POLYLINE, ShapeType.POLYGON -> {
-                for (i in state.nodes.indices) {
-                    val n = state.nodes[i]
-                    if (hypot(docPos.x - n.pos.x, docPos.y - n.pos.y) < hitDist) {
-                        state.selectedNodeIndex = i
-                        return ShapeHandleId.NODE_ANCHOR_BASE + i
-                    }
-                }
-            }
-            ShapeType.BEZIER -> {
-                val selIdx = state.selectedNodeIndex
-                if (selIdx in 0 until state.nodes.size) {
-                    val n = state.nodes[selIdx]
-                    if (hypot(docPos.x - n.cpIn.x, docPos.y - n.cpIn.y) < hitDist) {
-                        return ShapeHandleId.NODE_CP_IN_BASE + selIdx
-                    }
-                    if (hypot(docPos.x - n.cpOut.x, docPos.y - n.cpOut.y) < hitDist) {
-                        return ShapeHandleId.NODE_CP_OUT_BASE + selIdx
-                    }
-                }
-                for (i in state.nodes.indices) {
-                    val n = state.nodes[i]
-                    if (hypot(docPos.x - n.pos.x, docPos.y - n.pos.y) < hitDist) {
-                        state.selectedNodeIndex = i
-                        return ShapeHandleId.NODE_ANCHOR_BASE + i
-                    }
-                }
-            }
-        }
-        return ShapeHandleId.NONE
-    }
-
-    internal fun handleShapeDown(docPos: Offset) {
-        val v = vm ?: return
-        val state = v.shapeState
-        val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
-        val hitDist = (28f * density) / currentScale
-        val now = SystemClock.uptimeMillis()
-
-        if (state.active) {
-            val hit = hitTestShapeHandle(state, docPos, density, currentScale)
-            if (hit != ShapeHandleId.NONE) {
-                state.activeHandle = hit
-                state.dragStartDocPos = docPos
-                state.dragP1 = state.p1
-                state.dragP2 = state.p2
-                state.dragRotation = state.rotationDegrees
-                state.dragCornerRadius = state.cornerRadius
-                state.dragStarInnerRatio = state.starInnerRatio
-                state.isCreatingNewNode = false
-                shapeCreatedOnCurrentTouch = false
-
-                val isBoxShape = state.type == ShapeType.RECT ||
-                    state.type == ShapeType.ROUNDED_RECT ||
-                    state.type == ShapeType.ELLIPSE
-                if (isBoxShape) {
-                    val p2Init = if (state.keepAspect) {
-                        val pt = ShapeGeometry.constrainAspect(Point2D(state.p1.x, state.p1.y), Point2D(state.p2.x, state.p2.y))
-                        Point2D(pt.x, pt.y)
-                    } else Point2D(state.p2.x, state.p2.y)
-                    val corners = ShapeGeometry.getBoxCornersDoc(Point2D(state.p1.x, state.p1.y), p2Init, state.rotationDegrees)
-                    state.dragAnchorDoc = when (hit) {
-                        ShapeHandleId.CORNER_TL -> Offset(corners[2].x, corners[2].y)
-                        ShapeHandleId.CORNER_TR -> Offset(corners[3].x, corners[3].y)
-                        ShapeHandleId.CORNER_BR -> Offset(corners[0].x, corners[0].y)
-                        ShapeHandleId.CORNER_BL -> Offset(corners[1].x, corners[1].y)
-                        else -> Offset.Zero
-                    }
-                }
-            } else {
-                if (state.type == ShapeType.POLYLINE || state.type == ShapeType.POLYGON || state.type == ShapeType.BEZIER) {
-                    if (state.nodes.size >= 3) {
-                        val firstPos = state.nodes.first().pos
-                        val isNearFirst = hypot(docPos.x - firstPos.x, docPos.y - firstPos.y) < hitDist
-                        val isDoubleTap = now - lastShapeTapTimeMs < 350L &&
-                            hypot(docPos.x - lastShapeTapDocPos.x, docPos.y - lastShapeTapDocPos.y) < hitDist
-                        if (isNearFirst || isDoubleTap) {
-                            lastShapeTapTimeMs = 0L
-                            state.closed = true
-                            v.commitActiveShape()
-                            return
-                        }
-                    }
-                    lastShapeTapTimeMs = now
-                    lastShapeTapDocPos = docPos
-
-                    state.nodes.add(ShapeNode(Point2D(docPos.x, docPos.y)))
-                    val newIdx = state.nodes.size - 1
-                    state.selectedNodeIndex = newIdx
-                    state.activeHandle = ShapeHandleId.NODE_ANCHOR_BASE + newIdx
-                    state.dragStartDocPos = docPos
-                    state.isCreatingNewNode = true
-                    shapeCreatedOnCurrentTouch = false
-                } else {
-                    // 连续绘制保障：若当前有尺寸有效的前序形状，自动提交上屏
-                    val shapeDist = hypot(state.p2.x - state.p1.x, state.p2.y - state.p1.y)
-                    if (shapeDist > 4f) {
-                        v.commitActiveShape()
-                    }
-
-                    val targetType = defaultShapeType(tool, state.type)
-                    val targetDoc = if (targetType == ShapeType.LINE) {
-                        val sp = snapPointToPanelBorders(Point2D(docPos.x, docPos.y))
-                        Offset(sp.x, sp.y)
-                    } else docPos
-                    state.reset(targetType, targetDoc)
-                    if (state.strokeWidth <= 0f) {
-                        state.strokeWidth = v.brushSize.toFloat().coerceIn(1f, 100f)
-                    }
-                    state.activeHandle = if (targetType == ShapeType.LINE) ShapeHandleId.LINE_P2 else ShapeHandleId.CORNER_BR
-                    state.dragStartDocPos = targetDoc
-                    state.dragAnchorDoc = targetDoc
-                    state.dragP1 = targetDoc
-                    state.dragP2 = targetDoc
-                    state.isCreatingNewNode = false
-                    shapeCreatedOnCurrentTouch = true
-                }
-            }
-        } else {
-            val targetType = defaultShapeType(tool, state.type)
-            val targetDoc = if (targetType == ShapeType.LINE) {
-                val sp = snapPointToPanelBorders(Point2D(docPos.x, docPos.y))
-                Offset(sp.x, sp.y)
-            } else docPos
-            state.reset(targetType, targetDoc)
-            if (state.strokeWidth <= 0f) {
-                state.strokeWidth = v.brushSize.toFloat().coerceIn(1f, 100f)
-            }
-            if (targetType == ShapeType.POLYLINE || targetType == ShapeType.POLYGON || targetType == ShapeType.BEZIER) {
-                state.activeHandle = ShapeHandleId.NODE_ANCHOR_BASE + 0
-                state.selectedNodeIndex = 0
-                state.dragStartDocPos = targetDoc
-                state.isCreatingNewNode = true
-                shapeCreatedOnCurrentTouch = false
-                lastShapeTapTimeMs = now
-                lastShapeTapDocPos = targetDoc
-            } else {
-                state.activeHandle = if (targetType == ShapeType.LINE) ShapeHandleId.LINE_P2 else ShapeHandleId.CORNER_BR
-                state.dragStartDocPos = targetDoc
-                state.dragAnchorDoc = targetDoc
-                state.dragP1 = targetDoc
-                state.dragP2 = targetDoc
-                state.isCreatingNewNode = false
-                shapeCreatedOnCurrentTouch = true
-            }
-        }
-    }
-
-    internal fun handleShapeMove(docPos: Offset) {
-        val v = vm ?: return
-        val state = v.shapeState
-        if (state.active && state.activeHandle != ShapeHandleId.NONE) {
-            val handle = state.activeHandle
-            when {
-                handle == ShapeHandleId.TRANSLATE_BODY -> {
-                    val delta = docPos - state.dragStartDocPos
-                    state.p1 = state.dragP1 + delta
-                    state.p2 = state.dragP2 + delta
-                }
-                handle == ShapeHandleId.LINE_P1 -> {
-                    state.p1 = docPos
-                }
-                handle == ShapeHandleId.LINE_P2 -> {
-                    state.p2 = docPos
-                }
-                handle == ShapeHandleId.ROTATE -> {
-                    val center = (state.p1 + state.p2) / 2f
-                    val angleRad = atan2(docPos.y - center.y, docPos.x - center.x)
-                    state.rotationDegrees = Math.toDegrees(angleRad.toDouble()).toFloat() + 90f
-                }
-                handle == ShapeHandleId.CORNER_BR || handle == ShapeHandleId.CORNER_TL ||
-                handle == ShapeHandleId.CORNER_TR || handle == ShapeHandleId.CORNER_BL -> {
-                    val (newP1, newP2) = ShapeGeometry.resizeBox(
-                        anchorDoc = Point2D(state.dragAnchorDoc.x, state.dragAnchorDoc.y),
-                        touchDoc = Point2D(docPos.x, docPos.y),
-                        rotationDeg = state.rotationDegrees,
-                        keepAspect = state.keepAspect,
-                    )
-                    state.p1 = Offset(newP1.x, newP1.y)
-                    state.p2 = Offset(newP2.x, newP2.y)
-                }
-                handle == ShapeHandleId.CORNER_RADIUS -> {
-                    val center = (state.dragP1 + state.dragP2) / 2f
-                    val localPt = if (abs(state.rotationDegrees) > 0.01f) {
-                        ShapeGeometry.rotatePoint(Point2D(docPos.x, docPos.y), Point2D(center.x, center.y), -state.rotationDegrees)
-                    } else Point2D(docPos.x, docPos.y)
-                    val localDocPos = Offset(localPt.x, localPt.y)
-                    val minDim = minOf(abs(state.p2.x - state.p1.x), abs(state.p2.y - state.p1.y))
-                    val dist = hypot(localDocPos.x - state.p1.x, localDocPos.y - state.p1.y)
-                    state.cornerRadius = dist.coerceIn(0f, minDim / 2f)
-                }
-                handle == ShapeHandleId.STAR_OUTER -> {
-                    val center = (state.p1 + state.p2) / 2f
-                    val r = hypot(docPos.x - center.x, docPos.y - center.y)
-                    state.p1 = center - Offset(r, r)
-                    state.p2 = center + Offset(r, r)
-                    val angleRad = atan2(docPos.y - center.y, docPos.x - center.x)
-                    state.rotationDegrees = Math.toDegrees(angleRad.toDouble()).toFloat() + 90f
-                }
-                handle == ShapeHandleId.STAR_INNER -> {
-                    val center = (state.p1 + state.p2) / 2f
-                    val outerR = hypot(state.p2.x - state.p1.x, state.p2.y - state.p1.y) / 2f
-                    val curR = hypot(docPos.x - center.x, docPos.y - center.y)
-                    if (outerR > 1f) state.starInnerRatio = (curR / outerR).coerceIn(0.1f, 0.9f)
-                }
-                handle >= ShapeHandleId.NODE_CP_OUT_BASE -> {
-                    val idx = handle - ShapeHandleId.NODE_CP_OUT_BASE
-                    if (idx in 0 until state.nodes.size) {
-                        val old = state.nodes[idx]
-                        state.nodes[idx] = ShapeNode(old.pos, old.cpIn, Point2D(docPos.x, docPos.y))
-                    }
-                }
-                handle >= ShapeHandleId.NODE_CP_IN_BASE -> {
-                    val idx = handle - ShapeHandleId.NODE_CP_IN_BASE
-                    if (idx in 0 until state.nodes.size) {
-                        val old = state.nodes[idx]
-                        state.nodes[idx] = ShapeNode(old.pos, Point2D(docPos.x, docPos.y), old.cpOut)
-                    }
-                }
-                handle >= ShapeHandleId.NODE_ANCHOR_BASE -> {
-                    val idx = handle - ShapeHandleId.NODE_ANCHOR_BASE
-                    if (idx in 0 until state.nodes.size) {
-                        if (state.isCreatingNewNode && state.type == ShapeType.BEZIER) {
-                            val center = state.dragStartDocPos
-                            val deltaX = docPos.x - center.x
-                            val deltaY = docPos.y - center.y
-                            state.nodes[idx] = ShapeNode(
-                                Point2D(center.x, center.y),
-                                Point2D(center.x - deltaX, center.y - deltaY),
-                                Point2D(center.x + deltaX, center.y + deltaY),
-                            )
-                        } else {
-                            val old = state.nodes[idx]
-                            val delta = docPos - Offset(old.pos.x, old.pos.y)
-                            state.nodes[idx] = ShapeNode(
-                                Point2D(docPos.x, docPos.y),
-                                Point2D(old.cpIn.x + delta.x, old.cpIn.y + delta.y),
-                                Point2D(old.cpOut.x + delta.x, old.cpOut.y + delta.y)
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    internal fun handleShapeUp(docPos: Offset) {
-        val v = vm ?: return
-        if (v.shapeState.active && v.shapeState.type == ShapeType.LINE) {
-            val sp = snapPointToPanelBorders(Point2D(docPos.x, docPos.y))
-            v.shapeState.p2 = Offset(sp.x, sp.y)
-        }
-        v.shapeState.activeHandle = ShapeHandleId.NONE
-        v.shapeState.dragStartDocPos = Offset.Zero
-        v.shapeState.isCreatingNewNode = false
-        shapeCreatedOnCurrentTouch = false
-    }
-
-    internal fun cancelPendingShapeGesture() {
-        val v = vm ?: return
-        val state = v.shapeState
-        lastShapeTapTimeMs = 0L
-
-        if (state.active) {
-            if (state.isCreatingNewNode) {
-                if (state.nodes.size <= 1) {
-                    state.clear()
-                } else {
-                    state.nodes.removeAt(state.nodes.size - 1)
-                    state.selectedNodeIndex = state.nodes.size - 1
-                    state.activeHandle = ShapeHandleId.NONE
-                    state.dragStartDocPos = Offset.Zero
-                    state.isCreatingNewNode = false
-                }
-            } else if (shapeCreatedOnCurrentTouch) {
-                state.clear()
-            } else if (state.activeHandle != ShapeHandleId.NONE) {
-                state.p1 = state.dragP1
-                state.p2 = state.dragP2
-                state.rotationDegrees = state.dragRotation
-                state.cornerRadius = state.dragCornerRadius
-                state.starInnerRatio = state.dragStarInnerRatio
-                state.activeHandle = ShapeHandleId.NONE
-                state.dragStartDocPos = Offset.Zero
-            }
-        }
-
-        shapeCreatedOnCurrentTouch = false
-        cancelPendingGradientGesture()
-
-        if (isPolyPointPendingOnTouch) {
-            onPolyPopPoint?.invoke()
-            isPolyPointPendingOnTouch = false
-        }
-
-        liveShapeStart?.value = null
-        liveShapeEnd?.value = null
-        if (lassoPoints.isNotEmpty()) {
-            lassoPoints.clear()
-            liveSelectionPath?.value = null
-        }
-
-        invalidate()
-    }
-
-    private fun hitTestTextHandle(
-        cfg: TypographyConfig,
-        docPos: Offset,
-        density: Float,
-        currentScale: Float,
-    ): Int {
-        val hitDist = (28f * density) / maxOf(0.01f, currentScale)
-        val v = vm ?: return -1
-        val paint = TypographyEngine.createTextPaint(cfg, v.brushOpacity)
-        val targetW = TypographyEngine.resolveTargetWidth(cfg)
-        val layout = TypographyEngine.createLayout(cfg, paint, targetW)
-        val w = layout.width.toFloat()
-        val h = layout.height.toFloat()
-
-        val left = cfg.posX
-        val top = cfg.posY
-        val right = left + w
-        val bottom = top + h
-        val cx = left + w / 2f
-        val cy = top + h / 2f
-
-        val localPt = if (abs(cfg.rotationDeg) > 0.01f) {
-            ShapeGeometry.rotatePoint(Point2D(docPos.x, docPos.y), Point2D(cx, cy), -cfg.rotationDeg)
-        } else Point2D(docPos.x, docPos.y)
-        val localPos = Offset(localPt.x, localPt.y)
-
-        // 1. 顶部旋转手柄
-        val rotPos = Offset(cx, top - (24f * density) / maxOf(0.01f, currentScale))
-        if (hypot(localPos.x - rotPos.x, localPos.y - rotPos.y) < hitDist) {
-            return -20
-        }
-
-        // 2. 右下角尺寸缩放手柄
-        if (hypot(localPos.x - right, localPos.y - bottom) < hitDist) {
-            return -30
-        }
-
-        // 3. 文本框内部拖拽平移
-        if (localPos.x in (left - hitDist)..(right + hitDist) && localPos.y in (top - hitDist)..(bottom + hitDist)) {
-            return -10
-        }
-
-        return -1
-    }
-
-    private fun hitTestText(
-        cfg: TypographyConfig,
-        docPos: Offset,
-        density: Float,
-        currentScale: Float,
-        brushOpacity: Double = 1.0,
-    ): Boolean {
-        val hitDist = (28f * density) / maxOf(0.01f, currentScale)
-        val paint = TypographyEngine.createTextPaint(cfg, brushOpacity)
-        val targetW = TypographyEngine.resolveTargetWidth(cfg)
-        val layout = TypographyEngine.createLayout(cfg, paint, targetW)
-        val w = layout.width.toFloat()
-        val h = layout.height.toFloat()
-
-        val left = cfg.posX
-        val top = cfg.posY
-        val right = left + w
-        val bottom = top + h
-        val cx = left + w / 2f
-        val cy = top + h / 2f
-
-        val localPt = if (abs(cfg.rotationDeg) > 0.01f) {
-            ShapeGeometry.rotatePoint(Point2D(docPos.x, docPos.y), Point2D(cx, cy), -cfg.rotationDeg)
-        } else Point2D(docPos.x, docPos.y)
-        val localPos = Offset(localPt.x, localPt.y)
-
-        return localPos.x in (left - hitDist)..(right + hitDist) && localPos.y in (top - hitDist)..(bottom + hitDist)
-    }
-
-    private fun findHitText(
-        docPos: Offset,
-        density: Float,
-        currentScale: Float,
-    ): Pair<PaintViewModel.LayerUiState, TypographyConfig>? {
-        val v = vm ?: return null
-        val curLayer = v.layers.getOrNull(v.currentLayerIndex)
-
-        // 1. 优先检测当前选中的图层 (若是文字图层)
-        if (curLayer != null && curLayer.visible && !curLayer.locked) {
-            val items = v.activeTextLayers[curLayer.id]
-            if (items != null) {
-                for (cfg in items.asReversed()) {
-                    if (hitTestText(cfg, docPos, density, currentScale, v.brushOpacity)) {
-                        return curLayer to cfg
-                    }
-                }
-            }
-        }
-
-        // 2. 从上至下扫描其他可见且未锁定的文字图层
-        for (layer in v.layers.asReversed()) {
-            if (layer.id == curLayer?.id) continue
-            if (!layer.visible || layer.locked) continue
-            val items = v.activeTextLayers[layer.id] ?: continue
-            for (cfg in items.asReversed()) {
-                if (hitTestText(cfg, docPos, density, currentScale, v.brushOpacity)) {
-                    return layer to cfg
-                }
-            }
-        }
-        return null
-    }
-
-    internal fun handleTextDown(docPos: Offset) {
-        val v = vm ?: return
-        val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
-
-        textTouchDownDocPos = docPos
-        textSelectedBeforeDown = v.isTypographyEditing
-        textDraggedDuringGesture = false
-
-        if (v.isTypographyEditing) {
-            val hit = hitTestTextHandle(v.typographyConfig, docPos, density, currentScale)
-            if (hit != -1) {
-                activeTextHandle = hit
-                textDragStartDocPos = docPos
-                textDragStartCfg = v.typographyConfig
-                v.typographySnapGuides = emptyList()
-                return
-            }
-
-            // 点击外部：若当前文本有内容，自动提交；若为空文本则取消编辑
-            if (v.typographyConfig.text.isNotBlank()) {
-                v.commitTypographyToCanvas()
-            } else {
-                v.cancelTypographyEditing()
-            }
-        }
-
-        // 检查是否点中了画布上现存的某个文字块
-        val hitEntry = findHitText(docPos, density, currentScale)
-        if (hitEntry != null) {
-            val (hitLayer, hitCfg) = hitEntry
-            v.startEditingTextLayer(hitLayer.id, hitCfg.id)
-            activeTextHandle = -10
-            textDragStartDocPos = docPos
-            textDragStartCfg = v.typographyConfig
-            v.typographySnapGuides = emptyList()
-            lastTextTapTimeMs = 0L
-            return
-        }
-
-        // 若之前正在编辑文字，点击画布空白处已在上面提交，此时仅取消选中，不新建文字
-        if (textSelectedBeforeDown) {
-            activeTextHandle = -1
-            lastTextTapTimeMs = 0L
-            return
-        }
-
-        // 之前未选中任何文字且点击空白处：
-        // 若当前选中的图层已经是文字图层，则直接在当前图层追加新文字块；否则准备新建独立文字图层
-        val curLayer = v.layers.getOrNull(v.currentLayerIndex)
-        val targetLayerId = if (curLayer != null && v.activeTextLayers.containsKey(curLayer.id)) {
-            curLayer.id
-        } else null
-
-        v.startNewTextItem(targetLayerId, docPos)
-        textDragStartDocPos = docPos
-        textDragStartCfg = v.typographyConfig
-        v.typographySnapGuides = emptyList()
-        activeTextHandle = -1
-        lastTextTapTimeMs = 0L
-        onTextRequested?.invoke(docPos.x, docPos.y)
-    }
-
-    internal fun handleTextMove(docPos: Offset) {
-        val v = vm ?: return
-        if (!v.isTypographyEditing || activeTextHandle == -1) return
-
-        val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
-        val tapSlop = (8f * density) / currentScale
-        if (!textDraggedDuringGesture) {
-            val moveDist = hypot(docPos.x - textTouchDownDocPos.x, docPos.y - textTouchDownDocPos.y)
-            if (moveDist <= tapSlop) return
-            textDraggedDuringGesture = true
-        }
-
-        when (activeTextHandle) {
-            -10 -> {
-                val delta = docPos - textDragStartDocPos
-                val rawLeft = textDragStartCfg.posX + delta.x
-                val rawTop = textDragStartCfg.posY + delta.y
-
-                if (textDragStartCfg.snapEnabled) {
-                    val paint = TypographyEngine.createTextPaint(textDragStartCfg, v.brushOpacity)
-                    val targetW = TypographyEngine.resolveTargetWidth(textDragStartCfg)
-                    val layout = TypographyEngine.createLayout(textDragStartCfg, paint, targetW)
-                    val textW = layout.width.toFloat()
-                    val textH = layout.height.toFloat()
-
-                    val snapThreshold = (16f * density) / currentScale
-                    val margin = minOf(v.docWidth, v.docHeight) * 0.05f
-                    val snapResult = com.reverie.paint.model.TypographySnapHelper.calculateSnap(
-                        boxLeft = rawLeft,
-                        boxTop = rawTop,
-                        boxWidth = textW,
-                        boxHeight = textH,
-                        canvasWidth = v.docWidth,
-                        canvasHeight = v.docHeight,
-                        threshold = snapThreshold,
-                        safeMargin = margin,
-                    )
-                    v.typographyConfig = textDragStartCfg.copy(
-                        posX = snapResult.snappedLeft,
-                        posY = snapResult.snappedTop,
-                    )
-                    v.typographySnapGuides = snapResult.guides
-                } else {
-                    v.typographyConfig = textDragStartCfg.copy(
-                        posX = rawLeft,
-                        posY = rawTop,
-                    )
-                    v.typographySnapGuides = emptyList()
-                }
-            }
-            -20 -> {
-                val paint = TypographyEngine.createTextPaint(textDragStartCfg, v.brushOpacity)
-                val targetW = TypographyEngine.resolveTargetWidth(textDragStartCfg)
-                val layout = TypographyEngine.createLayout(textDragStartCfg, paint, targetW)
-                val cx = textDragStartCfg.posX + layout.width / 2f
-                val cy = textDragStartCfg.posY + layout.height / 2f
-                val angleRad = atan2(docPos.y - cy, docPos.x - cx)
-                val deg = Math.toDegrees(angleRad.toDouble()).toFloat() + 90f
-                v.typographyConfig = textDragStartCfg.copy(rotationDeg = deg)
-            }
-            -30 -> {
-                val deltaX = docPos.x - textDragStartDocPos.x
-                val deltaY = docPos.y - textDragStartDocPos.y
-                val localDelta = if (abs(textDragStartCfg.rotationDeg) > 0.01f) {
-                    ShapeGeometry.rotatePoint(Point2D(deltaX, deltaY), Point2D(0f, 0f), -textDragStartCfg.rotationDeg)
-                } else Point2D(deltaX, deltaY)
-
-                if (textDragStartCfg.isVertical) {
-                    val baseH = if (textDragStartCfg.boxHeight > 0f) {
-                        textDragStartCfg.boxHeight
-                    } else {
-                        val paint = TypographyEngine.createTextPaint(textDragStartCfg, v.brushOpacity)
-                        val targetW = TypographyEngine.resolveTargetWidth(textDragStartCfg)
-                        TypographyEngine.createLayout(textDragStartCfg, paint, targetW).height.toFloat()
-                    }
-                    val minH = maxOf(24f, textDragStartCfg.fontSize * 1.2f)
-                    val newH = maxOf(minH, baseH + localDelta.y)
-                    v.typographyConfig = textDragStartCfg.copy(boxHeight = newH)
-                } else {
-                    val minW = maxOf(24f, textDragStartCfg.fontSize * 1.1f)
-                    val newW = maxOf(minW, textDragStartCfg.boxWidth + localDelta.x)
-                    v.typographyConfig = textDragStartCfg.copy(boxWidth = newW)
-                }
-            }
-        }
-    }
-
-    internal fun handleTextUp(docPos: Offset) {
-        val v = vm ?: return
-        val now = SystemClock.uptimeMillis()
-        val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
-        val tapDist = (24f * density) / currentScale
-
-        if (textDraggedDuringGesture) {
-            lastTextTapTimeMs = 0L
-        } else if (activeTextHandle == -10 && v.isTypographyEditing) {
-            // 仅在选中状态下发生干净双击时才弹出输入法
-            if (textSelectedBeforeDown &&
-                now - lastTextTapTimeMs < 350L &&
-                hypot(docPos.x - lastTextTapDocPos.x, docPos.y - lastTextTapDocPos.y) < tapDist
-            ) {
-                onTextRequested?.invoke(v.typographyConfig.posX, v.typographyConfig.posY)
-                lastTextTapTimeMs = 0L
-            } else {
-                lastTextTapTimeMs = now
-                lastTextTapDocPos = docPos
-            }
-        }
-
-        activeTextHandle = -1
-        textDraggedDuringGesture = false
-        textDragStartDocPos = Offset.Zero
-        v.typographySnapGuides = emptyList()
-    }
-
-    private fun cancelPendingGradientGesture() {
-        val v = vm ?: return
-        val state = v.gradientState
-        if (state.active) {
-            if (gradientCreatedOnCurrentTouch) {
-                state.clear()
-            } else if (state.activeHandle != GradientHandleId.NONE) {
-                state.p1 = state.dragOriginalP1
-                state.p2 = state.dragOriginalP2
-                state.activeHandle = GradientHandleId.NONE
-            }
-        }
-        gradientCreatedOnCurrentTouch = false
-    }
-
-    private fun hitTestGradientHandle(
-        state: GradientState,
-        docPos: Offset,
-        density: Float,
-        currentScale: Float,
-    ): Int {
-        val hitDist = (28f * density) / maxOf(0.01f, currentScale)
-        val lineVec = state.p2 - state.p1
-        val lineLen = hypot(lineVec.x, lineVec.y)
-
-        // 1. 中间色标手柄 (仅非动态自定义色标且色标数 > 2 时允许拖动中间手柄)
-        if (lineLen > 10f && !state.isDynamicFgBg && !state.isDynamicFgTrans && state.stops.size > 2) {
-            for (i in 1 until state.stops.size - 1) {
-                val s = state.stops[i]
-                val stopDocPos = state.p1 + lineVec * s.position
-                if (hypot(docPos.x - stopDocPos.x, docPos.y - stopDocPos.y) < hitDist) {
-                    return GradientHandleId.STOP_BASE + i
-                }
-            }
-        }
-
-        // 2. 起点手柄
-        if (hypot(docPos.x - state.p1.x, docPos.y - state.p1.y) < hitDist) {
-            return GradientHandleId.START
-        }
-
-        // 3. 终点手柄
-        if (hypot(docPos.x - state.p2.x, docPos.y - state.p2.y) < hitDist) {
-            return GradientHandleId.END
-        }
-
-        // 4. 中心手柄及轴线拖拽
-        val mid = (state.p1 + state.p2) / 2f
-        if (hypot(docPos.x - mid.x, docPos.y - mid.y) < hitDist) {
-            return GradientHandleId.MID_BODY
-        }
-        if (lineLen > 10f) {
-            val d = ShapeGeometry.distanceToSegment(
-                Point2D(docPos.x, docPos.y),
-                Point2D(state.p1.x, state.p1.y),
-                Point2D(state.p2.x, state.p2.y)
-            )
-            if (d < hitDist) {
-                return GradientHandleId.MID_BODY
-            }
-        }
-
-        return GradientHandleId.NONE
-    }
-
-    internal fun handleGradientDown(docPos: Offset) {
-        val v = vm ?: return
-        val state = v.gradientState
-        val currentScale = maxOf(0.01f, canvasZoom * canvasFitScale)
-
-        if (state.active) {
-            val hit = hitTestGradientHandle(state, docPos, density, currentScale)
-            if (hit != GradientHandleId.NONE) {
-                state.activeHandle = hit
-                state.dragStartDocPos = docPos
-                state.dragOriginalP1 = state.p1
-                state.dragOriginalP2 = state.p2
-                gradientCreatedOnCurrentTouch = false
-                return
-            }
-            // 未命中现有手柄：先自动提交前序渐变
-            val len = hypot(state.p2.x - state.p1.x, state.p2.y - state.p1.y)
-            if (len > 4f) {
-                v.commitActiveGradient()
-            }
-        }
-
-        // 新建渐变
-        state.reset(docPos, docPos)
-        state.activeHandle = GradientHandleId.END
-        state.dragStartDocPos = docPos
-        state.dragOriginalP1 = docPos
-        state.dragOriginalP2 = docPos
-        gradientCreatedOnCurrentTouch = true
-    }
-
-    internal fun handleGradientMove(docPos: Offset) {
-        val v = vm ?: return
-        val state = v.gradientState
-        if (!state.active) return
-
-        when (val handle = state.activeHandle) {
-            GradientHandleId.START -> {
-                state.p1 = docPos
-            }
-            GradientHandleId.END -> {
-                state.p2 = docPos
-            }
-            GradientHandleId.MID_BODY -> {
-                val delta = docPos - state.dragStartDocPos
-                state.p1 = state.dragOriginalP1 + delta
-                state.p2 = state.dragOriginalP2 + delta
-            }
-            else -> {
-                if (handle >= GradientHandleId.STOP_BASE) {
-                    val idx = handle - GradientHandleId.STOP_BASE
-                    if (idx in 1 until state.stops.size - 1) {
-                        val lineVec = state.p2 - state.p1
-                        val lenSq = lineVec.x * lineVec.x + lineVec.y * lineVec.y
-                        if (lenSq > 1f) {
-                            val toPos = docPos - state.p1
-                            val proj = (toPos.x * lineVec.x + toPos.y * lineVec.y) / lenSq
-                            val newPos = proj.coerceIn(0.01f, 0.99f)
-                            val stop = state.stops[idx]
-                            state.stops[idx] = stop.copy(position = newPos)
-                        }
-                    }
-                }
-            }
-        }
-    }
-
-    internal fun handleGradientUp(docPos: Offset) {
-        val v = vm ?: return
-        val state = v.gradientState
-        if (!state.active) return
-
-        state.activeHandle = GradientHandleId.NONE
-        if (gradientCreatedOnCurrentTouch) {
-            gradientCreatedOnCurrentTouch = false
-            val len = hypot(state.p2.x - state.p1.x, state.p2.y - state.p1.y)
-            if (len < 4f) {
-                val defSpan = 150f / maxOf(0.1f, canvasZoom * canvasFitScale)
-                state.p2 = state.p1 + Offset(defSpan, defSpan)
-            }
-        }
-    }
 
     override fun onKeyDown(keyCode: Int, event: android.view.KeyEvent?): Boolean {
         if (event != null && getOrCreateStylusDriver()?.onStylusKeyEvent(event) == true) {
