@@ -233,7 +233,9 @@ Conventional Commits, **中文描述**, 格式:
   - **查询 PR 贡献者 Handle**: 对涉及的 PR 编号执行 `gh pr view <num> --json author --jq .author.login` 获取作者 GitHub 用户名
 - **生成结构化日志并写入 CHANGELOG.md**:
   - 在 `CHANGELOG.md` 顶部插入 `## [vX.Y.Z] - YYYY-MM-DD`
-  - 严格按 Conventional Commits 分类为两大板块: `### 新增特性 (Features)` 与 `### 缺陷修复 (Bug Fixes)` (如有系统级调整可追加 `### 体验优化与工程调整`)
+  - 按 `### 新增特性 (Features)` 与 `### 缺陷修复 (Bug Fixes)` 分类 (如有体验/性能调整可追加 `### 体验优化与调整`)
+  - **面向用户、简洁直白**: 每条用一句话说清用户能感知到的变化, 严禁出现类名/函数名/文件名或技术黑话 (如 `GC`、`JNI`、`Lint`、`Compose`、`errno`、`mtime` 等); 工程或性能优化类提交统一改写为实际体感描述 (如"提升冷启动速度"、"减少内存占用")
+  - **同版本功能与修复去重**: 在同一版本内新实现的功能及其后续修复提交, 只保留实现该功能的日志条目, 不单独列出对该新功能的修复 (若修复来自社区 PR, 可将署名合并到对应功能条目末尾)
   - **PR 贡献者行内署名**: 凡是通过 Pull Request 引入的条目 (包含维护者与社区贡献者), 须在条目末尾追加 `(by @<username> in #<num>)` (示例: `- **WebDAV 同步**: 支持通过 WebDAV 协议进行云端备份与还原 (by @ChinsaaWei in #16)`)
   - 严禁使用句号与任何表情符号 (emoji), 保持极简清晰
 - **提交版本变更**: 执行 `git add app/build.gradle.kts CHANGELOG.md && git commit -m "chore(release): 发布 X.Y.Z 版本并更新变更日志"`
