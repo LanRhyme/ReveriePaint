@@ -162,6 +162,7 @@ import com.reverie.paint.ui.painting.panels.TransformPanel
 import com.reverie.paint.ui.painting.panels.*
 import com.reverie.paint.ui.components.transition.paintingChromeEntrance
 import com.reverie.paint.ui.components.transition.rememberChromeEntranceProgress
+import com.reverie.paint.ui.painting.canvas.animateFitCanvas
 
 private class FillDiffusionWave(
     val id: Long,
