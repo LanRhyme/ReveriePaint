@@ -164,8 +164,10 @@ class SourceInvariantsTest {
     @Test
     fun `全量重绘必须复位原生投影有效标志并复用同尺寸双缓冲`() {
 
-        val vm = File(mainRoot, "com/reverie/paint/core/PaintViewModel.kt").readText()
-        val renderBody = vm.substringAfter("private fun doRenderBody()").substringBefore("internal fun publishRenderWrittenRect")
+        // doRenderBody/publishRenderWrittenRect 已按域拆分到 PaintViewModelRenderThread.kt
+        val renderThread = File(mainRoot, "com/reverie/paint/core/PaintViewModelRenderThread.kt").readText()
+        val renderBody = renderThread.substringAfter("fun PaintViewModel.doRenderBody()")
+            .substringBefore("fun PaintViewModel.publishRenderWrittenRect")
         assertTrue("doRenderBody 只在 sizeMismatch 时重分配 Bitmap，同尺寸全量重绘零分配复用", renderBody.contains("if (sizeMismatch)"))
         assertTrue(
             "doRenderBody 在 forceFull 时必须先调用 beginRenderTiles 清除 m_nativeProjectionValid 再调用 renderToBuffer",
