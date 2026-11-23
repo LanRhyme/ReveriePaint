@@ -544,6 +544,7 @@
     <string name="settings_auto_check_update">Check for updates on launch</string>
     <string name="settings_auto_check_update_sub">Automatically check for new releases in background</string>
     <string name="settings_check_update">Check for Updates</string>
+    <string name="settings_update_disabled_test">Update checks are disabled in test builds</string>
     <string name="settings_checking_update">Checking</string>
     <string name="settings_website">Official Website</string>
     <string name="settings_website_sub">Visit ReveriePaint official homepage</string>

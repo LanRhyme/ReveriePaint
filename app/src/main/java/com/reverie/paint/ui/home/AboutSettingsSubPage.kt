@@ -90,6 +90,7 @@ fun AboutSettingsSubPage(
     var showLicensesDialog by remember { mutableStateOf(false) }
     var showDiagnosticsDialog by remember { mutableStateOf(false) }
     var autoCheckUpdates by remember { mutableStateOf(UpdateManager.isAutoCheckEnabled(context)) }
+    val updatePromptDisabled = UpdateManager.isUpdatePromptDisabled
 
     // Subtle wave animation for the painting canvas header
     val infiniteTransition = rememberInfiniteTransition(label = "artHeader")
@@ -348,75 +349,85 @@ fun AboutSettingsSubPage(
                 icon = Icons.Rounded.Info,
                 title = stringResource(R.string.settings_version_title),
                 summary = stringResource(R.string.settings_version_summary, BuildConfig.VERSION_NAME),
-                rightWidget = {
-                    Box(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(colors.panelHi)
-                            .clickable {
-                                if (!UpdateManager.isChecking) {
-                                    UpdateManager.checkForUpdates(context, isManual = true)
+                rightWidget = if (updatePromptDisabled) {
+                    null
+                } else {
+                    {
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(colors.panelHi)
+                                .clickable {
+                                    if (!UpdateManager.isChecking) {
+                                        UpdateManager.checkForUpdates(context, isManual = true)
+                                    }
                                 }
-                            }
-                            .padding(horizontal = 10.dp, vertical = 5.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        if (UpdateManager.isChecking) {
-                            Row(
-                                verticalAlignment = Alignment.CenterVertically,
-                                horizontalArrangement = Arrangement.spacedBy(6.dp),
-                            ) {
-                                CircularProgressIndicator(
-                                    modifier = Modifier.size(12.dp),
-                                    strokeWidth = 2.dp,
-                                    color = colors.accent,
-                                )
+                                .padding(horizontal = 10.dp, vertical = 5.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            if (UpdateManager.isChecking) {
+                                Row(
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                                ) {
+                                    CircularProgressIndicator(
+                                        modifier = Modifier.size(12.dp),
+                                        strokeWidth = 2.dp,
+                                        color = colors.accent,
+                                    )
+                                    Text(
+                                        text = stringResource(R.string.settings_checking_update),
+                                        color = colors.accent,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                }
+                            } else {
                                 Text(
-                                    text = stringResource(R.string.settings_checking_update),
+                                    text = stringResource(R.string.settings_check_update),
                                     color = colors.accent,
                                     fontSize = 12.sp,
                                     fontWeight = FontWeight.SemiBold,
                                 )
                             }
-                        } else {
-                            Text(
-                                text = stringResource(R.string.settings_check_update),
-                                color = colors.accent,
-                                fontSize = 12.sp,
-                                fontWeight = FontWeight.SemiBold,
-                            )
                         }
                     }
                 },
                 shape = RoundedCornerShape(topStart = 18.dp, topEnd = 18.dp, bottomStart = 4.dp, bottomEnd = 4.dp),
-                onClick = {
-                    if (!UpdateManager.isChecking) {
-                        UpdateManager.checkForUpdates(context, isManual = true)
+                onClick = if (updatePromptDisabled) {
+                    null
+                } else {
+                    {
+                        if (!UpdateManager.isChecking) {
+                            UpdateManager.checkForUpdates(context, isManual = true)
+                        }
                     }
                 },
             )
 
-            // 启动时自动检查更新 (Middle Rounded)
-            AboutGroupItem(
-                icon = Icons.Rounded.Sync,
-                title = stringResource(R.string.settings_auto_check_update),
-                summary = stringResource(R.string.settings_auto_check_update_sub),
-                shape = RoundedCornerShape(4.dp),
-                rightWidget = {
-                    ReSwitch(
-                        checked = autoCheckUpdates,
-                        onChecked = { checked ->
-                            autoCheckUpdates = checked
-                            UpdateManager.setAutoCheckEnabled(context, checked)
-                        },
-                    )
-                },
-                onClick = {
-                    val newVal = !autoCheckUpdates
-                    autoCheckUpdates = newVal
-                    UpdateManager.setAutoCheckEnabled(context, newVal)
-                },
-            )
+            // 启动时自动检查更新 (Middle Rounded, 测试版不展示)
+            if (!updatePromptDisabled) {
+                AboutGroupItem(
+                    icon = Icons.Rounded.Sync,
+                    title = stringResource(R.string.settings_auto_check_update),
+                    summary = stringResource(R.string.settings_auto_check_update_sub),
+                    shape = RoundedCornerShape(4.dp),
+                    rightWidget = {
+                        ReSwitch(
+                            checked = autoCheckUpdates,
+                            onChecked = { checked ->
+                                autoCheckUpdates = checked
+                                UpdateManager.setAutoCheckEnabled(context, checked)
+                            },
+                        )
+                    },
+                    onClick = {
+                        val newVal = !autoCheckUpdates
+                        autoCheckUpdates = newVal
+                        UpdateManager.setAutoCheckEnabled(context, newVal)
+                    },
+                )
+            }
 
             // 第三方开源许可 (Middle Rounded)
             AboutGroupItem(

@@ -544,6 +544,7 @@
     <string name="settings_auto_check_update">启动时自动检查更新</string>
     <string name="settings_auto_check_update_sub">每次打开应用时在后台检测新版本</string>
     <string name="settings_check_update">检查更新</string>
+    <string name="settings_update_disabled_test">测试版已关闭更新检查</string>
     <string name="settings_checking_update">检查中</string>
     <string name="settings_website">项目官网</string>
     <string name="settings_website_sub">访问 ReveriePaint 官方主页</string>

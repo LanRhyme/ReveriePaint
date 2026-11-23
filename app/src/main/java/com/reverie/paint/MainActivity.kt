@@ -639,7 +639,7 @@ fun ReverieApp(vm: PaintViewModel = viewModel()) {
     val context = LocalContext.current
 
     LaunchedEffect(Unit) {
-        if (UpdateManager.isAutoCheckEnabled(context)) {
+        if (!UpdateManager.isUpdatePromptDisabled && UpdateManager.isAutoCheckEnabled(context)) {
             UpdateManager.checkForUpdates(context, isManual = false)
         }
     }
