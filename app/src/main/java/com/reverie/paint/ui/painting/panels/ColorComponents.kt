@@ -65,6 +65,9 @@ import com.reverie.paint.R
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.*
+import com.reverie.paint.core.addColorToPalette
+import com.reverie.paint.core.clearRecentColors
+import com.reverie.paint.core.defaultPalette
 
 /**
  * Calculates RGB integer from (hue, s, v) based on the given color model.

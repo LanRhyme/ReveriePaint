@@ -43,6 +43,9 @@ import com.reverie.paint.model.SphereShading
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.*
+import com.reverie.paint.core.updateColorSphereBaseHex
+import com.reverie.paint.core.addColorToPalette
+import com.reverie.paint.core.defaultPalette
 
 /**
  * 3D Shading Sphere Color Picker:

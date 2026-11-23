@@ -90,6 +90,8 @@ import com.reverie.paint.ui.theme.glassBorder
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.hazeEffect
 import kotlin.math.roundToInt
+import com.reverie.paint.core.applyCanvasAdjustment
+import com.reverie.paint.core.exitCanvasAdjustMode
 
 /** 面板拖拽时与屏幕边缘/顶栏保持的最小安全间距 */
 private val PANEL_EDGE_MARGIN = 12.dp

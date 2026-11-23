@@ -42,6 +42,15 @@ import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.glassBorder
+import com.reverie.paint.core.setDefaultPalette
+import com.reverie.paint.core.addColorToPalette
+import com.reverie.paint.core.createNewPalette
+import com.reverie.paint.core.deletePalette
+import com.reverie.paint.core.duplicatePalette
+import com.reverie.paint.core.importPaletteFromBitmap
+import com.reverie.paint.core.removeColorFromPalette
+import com.reverie.paint.core.renamePalette
+import com.reverie.paint.core.allPalettes
 
 /**
  * Tab 2: Palettes Page with:

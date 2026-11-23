@@ -35,6 +35,15 @@ import androidx.compose.material3.Text
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.theme.Theme
+import com.reverie.paint.core.updateStylusStrokePredictionEnabled
+import com.reverie.paint.core.updateVivoDoubleTapAction
+import com.reverie.paint.core.updateVivoPencilModelMode
+import com.reverie.paint.core.updateVivoPrimaryClickAction
+import com.reverie.paint.core.updateVivoSecondaryClickAction
+import com.reverie.paint.core.updateVivoSideButtonErase
+import com.reverie.paint.core.updateVivoWritingVibrateEnabled
+import com.reverie.paint.core.detectedVivoPencilModel
+import com.reverie.paint.core.vivoPencilModel
 
 @Composable
 internal fun VivoStylusConfigDialog(

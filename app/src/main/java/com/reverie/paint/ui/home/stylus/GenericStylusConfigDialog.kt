@@ -25,6 +25,10 @@ import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.theme.Theme
+import com.reverie.paint.core.updateGenericPrimaryButtonAction
+import com.reverie.paint.core.updateGenericSecondaryButtonAction
+import com.reverie.paint.core.updateGenericSideButtonErase
+import com.reverie.paint.core.updateGenericStylusEnabled
 
 @Composable
 internal fun GenericStylusConfigDialog(

@@ -17,6 +17,9 @@ import androidx.compose.ui.unit.dp
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.CursorOutlineGeometry
 import com.reverie.paint.model.Tool
+import com.reverie.paint.core.brushAngle
+import com.reverie.paint.core.brushRotation
+import com.reverie.paint.core.brushSize
 
 /**
  * Brush cursor ring in its OWN Canvas layer above the image canvas.

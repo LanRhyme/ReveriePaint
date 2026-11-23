@@ -35,6 +35,15 @@ import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.theme.Theme
+import com.reverie.paint.core.updateHuaweiDoubleTapAction
+import com.reverie.paint.core.updateHuaweiHapticsEnabled
+import com.reverie.paint.core.updateHuaweiLongPressAction
+import com.reverie.paint.core.updateHuaweiPencilModelMode
+import com.reverie.paint.core.updateHuaweiSideButtonErase
+import com.reverie.paint.core.updateHuaweiSingleClickAction
+import com.reverie.paint.core.updateHuaweiSqueezeAction
+import com.reverie.paint.core.detectedHuaweiPencilModel
+import com.reverie.paint.core.huaweiPencilModel
 
 @Composable
 internal fun HuaweiStylusConfigDialog(

@@ -9,6 +9,8 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import com.reverie.paint.core.Page
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.executeStylusAction
+import com.reverie.paint.core.oppoPencilModel
 
 /**
  * Unified Stylus Driver orchestrator.

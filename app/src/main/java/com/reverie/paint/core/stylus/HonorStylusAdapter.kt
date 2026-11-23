@@ -22,6 +22,7 @@ import android.view.MotionEvent
 import androidx.core.content.ContextCompat
 import com.reverie.paint.core.PaintViewModel
 import java.lang.ref.WeakReference
+import com.reverie.paint.core.executeStylusAction
 
 /**
  * Dedicated Stylus Adapter for HONOR Magic-Pencil (1st, 2nd, 3rd Gen) and Magic-Pen (Foldable Series).

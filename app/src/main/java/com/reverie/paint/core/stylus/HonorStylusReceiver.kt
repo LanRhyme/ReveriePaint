@@ -9,6 +9,7 @@ import android.content.Context
 import android.content.Intent
 import android.util.Log
 import com.reverie.paint.MainActivity
+import com.reverie.paint.core.getOrCreateStylusDriver
 
 /**
  * Manifest-declared static BroadcastReceiver for Honor Magic-Pencil stylus button events.

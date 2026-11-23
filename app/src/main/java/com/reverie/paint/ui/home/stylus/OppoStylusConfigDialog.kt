@@ -36,6 +36,14 @@ import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.stylus.OppoPencilModel
 import com.reverie.paint.ui.theme.Theme
 import com.reverie.paint.core.showActionToast
+import com.reverie.paint.core.updateOppoDoubleTapAction
+import com.reverie.paint.core.updateOppoInPenHapticsEnabled
+import com.reverie.paint.core.updateOppoPencilModelMode
+import com.reverie.paint.core.updateOppoSlideAction
+import com.reverie.paint.core.updateOppoSlideSensitivity
+import com.reverie.paint.core.updateStylusHapticsEnabled
+import com.reverie.paint.core.updateStylusHapticsIntensity
+import com.reverie.paint.core.oppoPencilModel
 
 @Composable
 internal fun OppoStylusConfigDialog(

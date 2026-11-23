@@ -14,6 +14,7 @@ import android.view.InputDevice
 import android.view.KeyEvent
 import android.view.MotionEvent
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.executeStylusAction
 
 /**
  * Dedicated Stylus Adapter for Samsung Galaxy S Pen and Wacom EMR digitizers.

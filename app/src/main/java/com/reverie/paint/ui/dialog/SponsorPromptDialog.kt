@@ -69,6 +69,8 @@ import com.reverie.paint.ui.components.pressGrow
 import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.theme.Theme
 import kotlinx.coroutines.launch
+import com.reverie.paint.core.postponeSponsorPrompt
+import com.reverie.paint.core.suppressSponsorPrompt
 
 /**
  * 风格化画室纪念通票与来信组件 (Atelier Commemorative Pass & Letter Overlay)

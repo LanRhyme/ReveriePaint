@@ -67,6 +67,7 @@ import java.util.Calendar
 import java.util.Date
 import java.util.Locale
 import com.reverie.paint.core.getHomeCustomBgFile
+import com.reverie.paint.core.resetCreationStats
 
 @Composable
 fun StatisticsSettingsSubPage(

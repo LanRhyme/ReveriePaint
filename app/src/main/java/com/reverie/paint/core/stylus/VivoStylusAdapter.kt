@@ -13,6 +13,8 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import com.reverie.paint.core.PaintViewModel
 import java.lang.ref.WeakReference
+import com.reverie.paint.core.executeStylusAction
+import com.reverie.paint.core.vivoPencilModel
 
 /**
  * Dedicated Stylus Adapter for vivo Pencil / iQOO Pencil series (vivo Pad / iQOO Pad).

@@ -76,6 +76,8 @@ import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.glassBorder
 import kotlin.math.roundToInt
 import com.reverie.paint.core.updateQuickSliderHeight
+import com.reverie.paint.core.dismissOnboarding
+import com.reverie.paint.core.openMoreSettings
 
 private const val TOTAL_STEPS = 7
 

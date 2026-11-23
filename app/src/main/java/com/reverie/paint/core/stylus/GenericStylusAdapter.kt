@@ -11,6 +11,7 @@ import android.view.KeyEvent
 import android.view.MotionEvent
 import com.reverie.paint.core.PaintViewModel
 import kotlin.math.hypot
+import com.reverie.paint.core.executeStylusAction
 
 /**
  * Enhanced fallback adapter for generic Android styluses, Wacom EMR digitizers,

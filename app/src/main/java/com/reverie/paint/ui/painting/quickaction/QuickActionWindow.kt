@@ -68,6 +68,10 @@ import kotlin.math.roundToInt
 import com.reverie.paint.core.clampQuickWindowsToSafeArea
 import com.reverie.paint.core.executeQuickAction
 import com.reverie.paint.core.persistQuickActionsState
+import com.reverie.paint.core.isCurrentLayerAlphaLocked
+import com.reverie.paint.core.brushMinSizeLimit
+import com.reverie.paint.core.brushSize
+import com.reverie.paint.core.effectiveBrushMaxSize
 
 /**
  * 悬浮快捷操作小窗 (QuickActionWindow)

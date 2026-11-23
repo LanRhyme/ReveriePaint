@@ -17,6 +17,9 @@ import com.reverie.paint.core.Page
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.model.XiaomiTouchFilmGesture
 import com.reverie.paint.model.XiaomiTouchFilmKeys
+import com.reverie.paint.core.executeStylusAction
+import com.reverie.paint.core.executeXiaomiSlide
+import com.reverie.paint.core.xiaomiPencilModel
 
 /**
  * Dedicated Stylus Adapter for Xiaomi Focus Pen and Xiaomi Smart Pen (1st & 2nd Gen).

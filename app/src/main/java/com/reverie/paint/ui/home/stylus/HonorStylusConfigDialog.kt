@@ -35,6 +35,13 @@ import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.theme.Theme
+import com.reverie.paint.core.updateHonorDoubleTapAction
+import com.reverie.paint.core.updateHonorHapticsEnabled
+import com.reverie.paint.core.updateHonorPencilModelMode
+import com.reverie.paint.core.updateHonorSideButtonErase
+import com.reverie.paint.core.updateHonorSingleClickAction
+import com.reverie.paint.core.detectedHonorPencilModel
+import com.reverie.paint.core.honorPencilModel
 
 @Composable
 internal fun HonorStylusConfigDialog(

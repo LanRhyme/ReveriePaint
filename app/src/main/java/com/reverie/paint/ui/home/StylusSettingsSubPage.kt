@@ -60,6 +60,16 @@ import com.reverie.paint.core.updateCursorOutlineReflectsActualSize
 import com.reverie.paint.core.updateCursorStyleMode
 import com.reverie.paint.core.updateEraserCursorMode
 import com.reverie.paint.core.getHomeCustomBgFile
+import com.reverie.paint.core.getOrCreateStylusDriver
+import com.reverie.paint.core.updateCustomPressureCurve
+import com.reverie.paint.core.updatePenModeSingleFingerPan
+import com.reverie.paint.core.updatePenOnlyMode
+import com.reverie.paint.core.updatePressureCurvePreset
+import com.reverie.paint.core.updateStylusAudioEnabled
+import com.reverie.paint.core.updateStylusAudioType
+import com.reverie.paint.core.updateStylusAudioVolume
+import com.reverie.paint.core.updateStylusPredictionMaster
+import com.reverie.paint.core.stylusPredictionMasterEnabled
 
 @Composable
 internal fun StylusSettingsSubPage(

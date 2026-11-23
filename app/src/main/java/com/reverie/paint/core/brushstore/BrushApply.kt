@@ -14,6 +14,12 @@ import com.reverie.paint.core.fetchBrushOutlinePolygons
 import java.io.File
 import com.reverie.paint.core.runCore
 import com.reverie.paint.core.checkBrushSizeLimit
+import com.reverie.paint.core.brushAngle
+import com.reverie.paint.core.brushCompositeOp
+import com.reverie.paint.core.brushFlow
+import com.reverie.paint.core.brushOpacity
+import com.reverie.paint.core.brushRotation
+import com.reverie.paint.core.brushSize
 
 /**
  * select 的尺寸决策（纯函数，输入均为基础类型，供 JVM 单测；只服务 select 完整分支，轻量 reload 不用）：

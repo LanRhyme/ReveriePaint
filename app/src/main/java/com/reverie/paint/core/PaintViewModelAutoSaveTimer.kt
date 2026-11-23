@@ -4,42 +4,13 @@
 
 package com.reverie.paint.core
 
-import com.reverie.paint.core.brushstore.toCurveXml
-import android.graphics.Bitmap
-import android.os.Build
-import android.os.Handler
-import android.os.HandlerThread
-import android.os.Looper
-import androidx.annotation.StringRes
-import androidx.compose.animation.core.Animatable
-import androidx.compose.runtime.getValue
-import androidx.compose.runtime.mutableDoubleStateOf
-import androidx.compose.runtime.mutableFloatStateOf
-import androidx.compose.runtime.mutableIntStateOf
-import androidx.compose.runtime.mutableLongStateOf
-import androidx.compose.runtime.mutableStateMapOf
-import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.neverEqualPolicy
-import androidx.compose.runtime.setValue
-import androidx.compose.ui.graphics.asImageBitmap
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.reverie.paint.R
-import com.reverie.paint.core.stylus.StylusAudioType
 import com.reverie.paint.model.*
 import com.reverie.paint.perf.PerfHud
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.isActive
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.File
-import java.util.zip.ZipFile
-import kotlin.math.roundToInt
-import com.reverie.paint.ui.painting.canvas.invalidateFromRender
 
 // 拆分自 PaintViewModel.kt: 同域实现集中于此 (AGENTS.md §6 单文件行数上限)
 

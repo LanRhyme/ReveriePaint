@@ -36,6 +36,18 @@ import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.stylus.XiaomiPencilModel
 import com.reverie.paint.ui.theme.Theme
+import com.reverie.paint.core.updateXiaomiDoubleTapAction
+import com.reverie.paint.core.updateXiaomiFocusButtonAction
+import com.reverie.paint.core.updateXiaomiInPenHapticsEnabled
+import com.reverie.paint.core.updateXiaomiPencilModelMode
+import com.reverie.paint.core.updateXiaomiPrimaryButtonAction
+import com.reverie.paint.core.updateXiaomiSecondaryButtonAction
+import com.reverie.paint.core.updateXiaomiSideButtonErase
+import com.reverie.paint.core.updateXiaomiSlideAction
+import com.reverie.paint.core.updateXiaomiSlideSensitivity
+import com.reverie.paint.core.updateXiaomiSqueezeAction
+import com.reverie.paint.core.detectedXiaomiPencilModel
+import com.reverie.paint.core.xiaomiPencilModel
 
 @Composable
 internal fun XiaomiStylusConfigDialog(

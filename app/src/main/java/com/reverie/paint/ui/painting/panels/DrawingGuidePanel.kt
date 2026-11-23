@@ -50,6 +50,7 @@ import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.theme.Morandi
 import dev.chrisbanes.haze.HazeState
 import kotlin.math.roundToInt
+import com.reverie.paint.core.toggleDrawingGuideLines
 
 /**
  * 绘图辅助中心 Tab 枚举

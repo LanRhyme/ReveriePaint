@@ -70,6 +70,12 @@ import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.theme.Theme
 import com.reverie.paint.ui.theme.optimalTextColor
 import com.reverie.paint.core.getHomeCustomBgFile
+import com.reverie.paint.core.createAuthorProfilePreset
+import com.reverie.paint.core.deleteAuthorProfilePreset
+import com.reverie.paint.core.duplicateAuthorProfilePreset
+import com.reverie.paint.core.renameAuthorProfilePreset
+import com.reverie.paint.core.switchAuthorProfile
+import com.reverie.paint.core.updateAuthorProfile
 
 @Composable
 internal fun AuthorSettingsSubPage(

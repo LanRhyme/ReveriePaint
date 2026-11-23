@@ -17,6 +17,9 @@ import android.provider.Settings
 import android.view.KeyEvent
 import android.view.MotionEvent
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.executeStylusAction
+import com.reverie.paint.core.executeStylusSlide
+import com.reverie.paint.core.oppoPencilModel
 
 /**
  * Dedicated Stylus Adapter for OPPO Pencil & OnePlus Stylo series.

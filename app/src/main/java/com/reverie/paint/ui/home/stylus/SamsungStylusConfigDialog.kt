@@ -33,6 +33,10 @@ import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.ui.theme.Theme
+import com.reverie.paint.core.updateSamsungDoubleClickAction
+import com.reverie.paint.core.updateSamsungLongPressAction
+import com.reverie.paint.core.updateSamsungSideButtonErase
+import com.reverie.paint.core.updateSamsungSingleClickAction
 
 /** 按 actionId 查选项文案, 未命中时回退到 fallbackIdx 对应文案 */
 @Composable

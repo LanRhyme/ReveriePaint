@@ -22,6 +22,8 @@ import android.view.MotionEvent
 import androidx.core.content.ContextCompat
 import com.reverie.paint.core.PaintViewModel
 import java.lang.ref.WeakReference
+import com.reverie.paint.core.executeStylusAction
+import com.reverie.paint.core.huaweiPencilModel
 
 /**
  * Dedicated Stylus Adapter for HUAWEI M-Pencil (1st, 2nd, 3rd Gen NearLink) and M-Pen series.

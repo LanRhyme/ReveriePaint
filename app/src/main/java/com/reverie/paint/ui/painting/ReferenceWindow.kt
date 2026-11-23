@@ -89,6 +89,12 @@ import com.reverie.paint.ui.painting.canvas.normalizeAngle
 import com.reverie.paint.core.clampQuickWindowsToSafeArea
 import com.reverie.paint.core.scheduleRender
 import com.reverie.paint.core.showActionToast
+import com.reverie.paint.core.applyReferenceAlbumSelection
+import com.reverie.paint.core.clearReferenceImage
+import com.reverie.paint.core.importReferenceImagesFromUris
+import com.reverie.paint.core.persistReferenceState
+import com.reverie.paint.core.resetReferenceTransform
+import com.reverie.paint.core.updateReferenceAllowRotation
 
 private data class PlacedReferenceImage(
     val bitmap: Bitmap,

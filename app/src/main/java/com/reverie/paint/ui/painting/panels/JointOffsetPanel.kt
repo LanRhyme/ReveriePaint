@@ -42,6 +42,7 @@ import com.reverie.paint.perf.JointOffsetExport
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.roundToInt
+import com.reverie.paint.core.currentLayer3DState
 
 /**
  * 关节位置微调面板。
