@@ -28,7 +28,13 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
     if (event.actionMasked == MotionEvent.ACTION_DOWN && v.layerFlashBitmap != null) {
         v.cancelLayerContentFlash()
     }
-    if (v.isQuickShapeEditing) return true
+    if (event.actionMasked == MotionEvent.ACTION_DOWN) {
+        removeCallbacks(stylusPostUpHoverGuardRunnable)
+    }
+    if (v.isQuickShapeEditing) {
+        clearTouchCursor(clearHover = true, triggerInvalidate = true)
+        return true
+    }
     if (event.actionMasked == MotionEvent.ACTION_POINTER_DOWN || event.actionMasked == MotionEvent.ACTION_CANCEL) {
         removeCallbacks(quickShapeHold)
         quickShapeCandidate = null
@@ -72,6 +78,7 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && systemHandPointer != null) {
                     pointerIcon = systemHandPointer
                 }
+                clearTouchCursor(clearHover = false, triggerInvalidate = true)
             }
         }
         return true
@@ -147,6 +154,7 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
                     }
                 }
                 isInteracting = false
+                clearTouchCursor(clearHover = false)
                 invalidate()
             }
         }
@@ -216,6 +224,7 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
             isTransformActive = false
             isContinuousUndoing = false
             dismissPickerOverlay()
+            clearTouchCursor(clearHover = true, triggerInvalidate = true)
             return true
         }
         // 存在手写笔 Pointer 时，强制清除手指计数，避免手掌贴屏引发视口晃动或多指手势
@@ -297,6 +306,9 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
                             isCancel = event.actionMasked == MotionEvent.ACTION_CANCEL,
                             isStylus = isStylusTouch,
                         )
+                    }
+                    if (!isStylusTouch) {
+                        clearTouchCursor(clearHover = true, triggerInvalidate = true)
                     }
                 }
             }
@@ -424,6 +436,9 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
                     touch3DIsPinch = false
                     v.active3DBoneAxis = -1
                     v.isInteracting3D = false
+                    if (!isStylusTouch) {
+                        clearTouchCursor(clearHover = true)
+                    }
                     invalidate()
                 }
                 MotionEvent.ACTION_POINTER_UP -> {
@@ -699,15 +714,34 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
                 removeCallbacks(longPressRunnable)
                 longPressToken++
                 isPendingLongPress = false
+                val isCancel = event.actionMasked == MotionEvent.ACTION_CANCEL
+                val stylusToolType = event.getToolType(stylusPointerIndex)
                 if (isLongPressPickerActive) {
                     finishLongPressPicker(v)
-                    localIsHovering = true
+                    if (isCancel) {
+                        clearTouchCursor(clearHover = true, triggerInvalidate = true)
+                    } else {
+                        localIsTouching = false
+                        localIsHovering = true
+                        if (stylusToolType != MotionEvent.TOOL_TYPE_MOUSE) {
+                            removeCallbacks(stylusPostUpHoverGuardRunnable)
+                            postDelayed(stylusPostUpHoverGuardRunnable, 120L)
+                        }
+                    }
                     return true
                 }
 
-                handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL), isStylus = true)
-                localIsTouching = false
-                localIsHovering = true
+                handleToolUp(event, docPos, isCancel = isCancel, isStylus = true)
+                if (isCancel) {
+                    clearTouchCursor(clearHover = true)
+                } else {
+                    localIsTouching = false
+                    localIsHovering = true
+                    if (stylusToolType != MotionEvent.TOOL_TYPE_MOUSE) {
+                        removeCallbacks(stylusPostUpHoverGuardRunnable)
+                        postDelayed(stylusPostUpHoverGuardRunnable, 120L)
+                    }
+                }
                 isInteracting = false
                 currentStrokeDocPos = Offset.Zero
                 firstDocPos = Offset.Zero
@@ -797,6 +831,7 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
         !v.anim.shiftTraceActive && tool != Tool.TRANSFORM && tool != Tool.CROP
     ) {
         editMenuGestureActive = true
+        clearTouchCursor(clearHover = true, triggerInvalidate = true)
         isPinchMotion = false
         editMenuPointersReleased = false
         threeFingerSlideActive = false
@@ -981,6 +1016,7 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
             maxTouchPointers = 0
             lastPos0 = Offset.Zero
             lastPos1 = Offset.Zero
+            clearTouchCursor(clearHover = true)
             invalidate()
         }
         return true
@@ -988,6 +1024,7 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
 
     // 1. 多指手势 (双指捏合缩放/旋转/平移 + 碎片期融合)
     if (numFingers >= 2 || (isTransformActive && (nowMs - lastTransformTimestamp) < 150)) {
+        clearTouchCursor(clearHover = true, triggerInvalidate = true)
         lastSingleFingerTapTimeMs = 0L
         lastSingleFingerTapDrewStroke = false
         if (touchAndSlideActive) {
@@ -1397,6 +1434,7 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
                 maxTouchPointers = 0
                 lastPos0 = Offset.Zero
                 lastPos1 = Offset.Zero
+                clearTouchCursor(clearHover = true)
                 invalidate()
             }
             MotionEvent.ACTION_CANCEL -> {
@@ -1419,6 +1457,7 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
                 cancelPendingShapeGesture()
                 cancelPanelGesture()
                 postDelayed(resetTransformRunnable, 150)
+                clearTouchCursor(clearHover = true)
                 invalidate()
             }
         }
@@ -1570,7 +1609,7 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
                 // 防止双指撤回时第一根手指先落下的毫秒级微差误触发新填充并顶掉撤销堆栈
                 val isTapCommitTool = tool == Tool.FILL || tool == Tool.MAGICWAND || tool == Tool.SELECT_SIMILAR
                 if (!isTapCommitTool) {
-                    handleToolDown(screenPos, docPos, 1f, isStylus = false)
+                    handleToolDown(screenPos, docPos, 1f, isStylus = false, eventTimeMs = event.eventTime)
                 }
                 // 真墨按住时这一笔由前缓冲呈现, 不再整屏失效主画布。
                 if (!realInk.wantsHold()) invalidate()
@@ -1629,7 +1668,7 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
                         localIsTouching = true
                         localIsHovering = false
                         localPressure = 1f
-                        handleToolDown(downScreen, downDoc, 1f, isStylus = false)
+                        handleToolDown(downScreen, downDoc, 1f, isStylus = false, eventTimeMs = event.downTime)
                         handleToolMove(event, 0, docPos, 1f, isStylus = false)
                         if (!realInk.wantsHold()) invalidate()
                         return true
@@ -1650,7 +1689,7 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
                     if (!v.penOnlyMode) {
                         setLocalCursorPos(screenPos.x, screenPos.y)
                         localIsTouching = true
-                        handleToolDown(pendingDownScreenPos, pendingDownDocPos, pendingDownPressure, isStylus = false)
+                        handleToolDown(pendingDownScreenPos, pendingDownDocPos, pendingDownPressure, isStylus = false, eventTimeMs = event.downTime)
                         handleToolMove(event, 0, docPos, 1f, isStylus = false)
                         if (!realInk.wantsHold()) invalidate()
                         return true
@@ -1750,6 +1789,7 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
                     }
                 }
                 isInteracting = false
+                clearTouchCursor(clearHover = true)
                 invalidate()
                 return true
             }
@@ -1762,8 +1802,7 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
                 isSingleFingerDoubleTapActive = false
                 lastSingleFingerTapTimeMs = 0L
                 lastSingleFingerTapDrewStroke = false
-                localIsTouching = false
-                clearLocalCursorPos()
+                clearTouchCursor(clearHover = true)
                 invalidate()
                 return true
             }
@@ -1783,6 +1822,7 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
                 } else if (event.actionMasked == MotionEvent.ACTION_CANCEL) {
                     v.requestUiCommand("close_edit_menu")
                 }
+                clearTouchCursor(clearHover = true, triggerInvalidate = true)
                 return true
             }
 
@@ -1791,6 +1831,7 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
                 lastSingleFingerTapTimeMs = 0L
                 lastSingleFingerTapDrewStroke = false
                 if (strokeStarted) cancelActiveStroke(v)
+                clearTouchCursor(clearHover = true, triggerInvalidate = true)
                 return true
             }
 
@@ -1806,12 +1847,11 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
                 val wasDrawing = event.actionMasked != MotionEvent.ACTION_CANCEL && !v.penOnlyMode
                 var drewStroke = false
                 if (wasDrawing) {
-                    handleToolDown(downScreen, downDoc, 1f, isStylus = false)
+                    handleToolDown(downScreen, downDoc, 1f, isStylus = false, eventTimeMs = event.downTime)
                     drewStroke = strokeStarted
                     handleToolUp(event, downDoc, isCancel = false)
                 }
-                localIsTouching = false
-                clearLocalCursorPos()
+                clearTouchCursor(clearHover = true)
                 val tapDuration = nowMs - singleFingerDownTimeMs
                 val moveDist = hypot(screenPos.x - singleFingerDownScreenPos.x, screenPos.y - singleFingerDownScreenPos.y)
                 if (event.actionMasked == MotionEvent.ACTION_UP && tapDuration < 320L && moveDist < 16f * density) {
@@ -1832,12 +1872,11 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
                 val wasDrawing = !v.penOnlyMode && event.actionMasked != MotionEvent.ACTION_CANCEL
                 var drewStroke = false
                 if (wasDrawing) {
-                    handleToolDown(pendingDownScreenPos, pendingDownDocPos, pendingDownPressure, isStylus = false)
+                    handleToolDown(pendingDownScreenPos, pendingDownDocPos, pendingDownPressure, isStylus = false, eventTimeMs = event.downTime)
                     drewStroke = strokeStarted
                     handleToolUp(event, pendingDownDocPos, isCancel = false)
                 }
-                localIsTouching = false
-                clearLocalCursorPos()
+                clearTouchCursor(clearHover = true)
                 val tapDuration = nowMs - singleFingerDownTimeMs
                 val moveDist = hypot(screenPos.x - singleFingerDownScreenPos.x, screenPos.y - singleFingerDownScreenPos.y)
                 if (event.actionMasked == MotionEvent.ACTION_UP && tapDuration < 320L && moveDist < 16f * density) {
@@ -1856,20 +1895,21 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
             val wasStroke = strokeStarted
             if (!isSinglePointerPan) {
                 if (v.penOnlyMode) {
-                    localIsTouching = false
-                    clearLocalCursorPos()
+                    clearTouchCursor(clearHover = true)
                     invalidate()
                 } else {
                     handleToolUp(event, docPos, isCancel = (event.actionMasked == MotionEvent.ACTION_CANCEL))
-                    localIsTouching = false
-                    clearLocalCursorPos()
+                    clearTouchCursor(clearHover = true)
                     invalidate()
                 }
             } else if (isPanTool) {
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N && systemHandPointer != null) {
                     pointerIcon = systemHandPointer
                 }
+                clearTouchCursor(clearHover = true)
                 invalidate()
+            } else {
+                clearTouchCursor(clearHover = true, triggerInvalidate = true)
             }
             val tapDuration = nowMs - singleFingerDownTimeMs
             val moveDist = hypot(screenPos.x - singleFingerDownScreenPos.x, screenPos.y - singleFingerDownScreenPos.y)

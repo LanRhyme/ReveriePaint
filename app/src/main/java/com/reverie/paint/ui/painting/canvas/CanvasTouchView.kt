@@ -650,6 +650,16 @@ class CanvasTouchView(context: Context) : View(context) {
         maxTouchPointers = 0
         lastPos0 = Offset.Zero
         lastPos1 = Offset.Zero
+        clearTouchCursor(clearHover = true, triggerInvalidate = true)
+    }
+
+    internal val stylusPostUpHoverGuardRunnable = Runnable {
+        if (!localIsTouching && localIsHovering) {
+            localIsHovering = false
+            clearLocalCursorPos()
+            smoothedCursorPressure = -1f
+            invalidate()
+        }
     }
 
     // 防抖撤销任务与 Procreate 风格连续撤销/重做
@@ -1244,6 +1254,8 @@ class CanvasTouchView(context: Context) : View(context) {
             checkAndRestoreHighRefreshRate()
             // B4: 静止计时也从这里起算(进页面后一直不动也要降频)
             markInteractionFrameRate()
+        } else {
+            clearTouchCursor(clearHover = true, triggerInvalidate = true)
         }
     }
 
@@ -1278,6 +1290,7 @@ class CanvasTouchView(context: Context) : View(context) {
         isPendingLongPress = false
         removeCallbacks(flushEdgeFingerRunnable)
         isPendingEdgeFinger = false
+        removeCallbacks(stylusPostUpHoverGuardRunnable)
         dismissPickerOverlay()
         longPressToken++
         if (activeTouchView == this) activeTouchView = null
@@ -1548,6 +1561,7 @@ class CanvasTouchView(context: Context) : View(context) {
 
         when (actionMasked) {
             MotionEvent.ACTION_HOVER_ENTER, MotionEvent.ACTION_HOVER_MOVE -> {
+                removeCallbacks(stylusPostUpHoverGuardRunnable)
                 val predPos = calculatePredictedHoverPos(localX, localY, android.os.SystemClock.uptimeMillis())
                 setLocalCursorPos(predPos.x, predPos.y)
                 val overUi = isHoverOverUi(localX, localY)
@@ -1568,6 +1582,7 @@ class CanvasTouchView(context: Context) : View(context) {
                 }
             }
             MotionEvent.ACTION_HOVER_EXIT -> {
+                removeCallbacks(stylusPostUpHoverGuardRunnable)
                 lastHoverEventTimeMs = 0L
                 localIsHovering = false
                 localIsTouching = false
@@ -1585,6 +1600,12 @@ class CanvasTouchView(context: Context) : View(context) {
 
     public override fun dispatchHoverEvent(event: MotionEvent): Boolean {
         if (isInteracting || isTransformActive) {
+            if (event.actionMasked == MotionEvent.ACTION_HOVER_EXIT) {
+                return super.dispatchHoverEvent(event)
+            }
+            if (event.pointerCount > 0 && event.getToolType(0) == MotionEvent.TOOL_TYPE_FINGER) {
+                return true
+            }
             setLocalCursorPos(event.x, event.y)
             invalidate()
             return true
@@ -1595,6 +1616,9 @@ class CanvasTouchView(context: Context) : View(context) {
     override fun dispatchGenericMotionEvent(event: MotionEvent): Boolean {
         if (isInteracting || isTransformActive) {
             if (event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) {
+                if (event.pointerCount > 0 && event.getToolType(0) == MotionEvent.TOOL_TYPE_FINGER) {
+                    return true
+                }
                 setLocalCursorPos(event.x, event.y)
                 invalidate()
                 return true
@@ -1616,6 +1640,13 @@ class CanvasTouchView(context: Context) : View(context) {
             MotionEvent.ACTION_HOVER_MOVE,
             MotionEvent.ACTION_BUTTON_PRESS,
             MotionEvent.ACTION_BUTTON_RELEASE -> {
+                if ((event.actionMasked == MotionEvent.ACTION_HOVER_ENTER ||
+                        event.actionMasked == MotionEvent.ACTION_HOVER_MOVE) &&
+                    event.pointerCount > 0 && event.getToolType(0) == MotionEvent.TOOL_TYPE_FINGER
+                ) {
+                    return false
+                }
+                removeCallbacks(stylusPostUpHoverGuardRunnable)
                 val predPos = calculatePredictedHoverPos(event.x, event.y, event.eventTime)
                 setLocalCursorPos(predPos.x, predPos.y)
                 vm?.lastPointerScreenPosition = Offset(event.x, event.y)
@@ -1659,6 +1690,7 @@ class CanvasTouchView(context: Context) : View(context) {
             }
             MotionEvent.ACTION_HOVER_EXIT -> {
                 // 侧键仍被追踪为按下时笔已离开悬停场: 通知驱动层冲销挂起的按压
+                removeCallbacks(stylusPostUpHoverGuardRunnable)
                 lastHoverEventTimeMs = 0L
                 if (lastHoverButtonState != 0) {
                     getOrCreateStylusDriver()?.onStylusHoverExited()
@@ -1694,6 +1726,12 @@ class CanvasTouchView(context: Context) : View(context) {
                 action == MotionEvent.ACTION_BUTTON_PRESS ||
                 action == MotionEvent.ACTION_BUTTON_RELEASE
             ) {
+                if ((action == MotionEvent.ACTION_HOVER_MOVE || action == MotionEvent.ACTION_HOVER_ENTER) &&
+                    event.pointerCount > 0 && event.getToolType(0) == MotionEvent.TOOL_TYPE_FINGER
+                ) {
+                    return false
+                }
+                removeCallbacks(stylusPostUpHoverGuardRunnable)
                 val predPos = calculatePredictedHoverPos(event.x, event.y, event.eventTime)
                 setLocalCursorPos(predPos.x, predPos.y)
                 vm?.lastPointerScreenPosition = Offset(event.x, event.y)

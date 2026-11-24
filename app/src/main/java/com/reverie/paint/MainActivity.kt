@@ -561,11 +561,16 @@ class MainActivity : ComponentActivity() {
                     action == android.view.MotionEvent.ACTION_HOVER_ENTER ||
                     action == android.view.MotionEvent.ACTION_HOVER_EXIT) {
 
-                    val loc = IntArray(2)
-                    touchView.getLocationOnScreen(loc)
-                    val localX = ev.rawX - loc[0]
-                    val localY = ev.rawY - loc[1]
-                    touchView.onDirectHover(localX, localY, action)
+                    val isFingerHover = action != android.view.MotionEvent.ACTION_HOVER_EXIT &&
+                        ev.pointerCount > 0 &&
+                        ev.getToolType(0) == android.view.MotionEvent.TOOL_TYPE_FINGER
+                    if (!isFingerHover) {
+                        val loc = IntArray(2)
+                        touchView.getLocationOnScreen(loc)
+                        val localX = ev.rawX - loc[0]
+                        val localY = ev.rawY - loc[1]
+                        touchView.onDirectHover(localX, localY, action)
+                    }
 
                     // 核心防护：当手指正在双指缩放/旋转或触控作画时，在 Activity 顶层直接消费掉悬停事件，
                     // 阻止 ViewGroup 默认下发 ACTION_CANCEL 杀掉多指触控手势流！

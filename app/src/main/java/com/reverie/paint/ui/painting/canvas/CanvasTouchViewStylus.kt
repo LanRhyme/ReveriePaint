@@ -37,6 +37,27 @@ internal fun CanvasTouchView.clearLocalCursorPos() {
     localCursorY = Float.NaN
 }
 
+internal fun CanvasTouchView.clearTouchCursor(
+    clearHover: Boolean = true,
+    triggerInvalidate: Boolean = false,
+) {
+    removeCallbacks(stylusPostUpHoverGuardRunnable)
+    val hadCursor = hasLocalCursorPos || localIsTouching || (clearHover && localIsHovering)
+    localIsTouching = false
+    if (clearHover) {
+        localIsHovering = false
+    }
+    clearLocalCursorPos()
+    smoothedCursorPressure = -1f
+    if (!realInk.held) {
+        realInk.cursorR = 0f
+        realInk.symCursorCount = 0
+    }
+    if (triggerInvalidate && hadCursor) {
+        invalidate()
+    }
+}
+
 internal fun CanvasTouchView.updateCursorAngleFromDocMove(docX: Float, docY: Float, isDown: Boolean) {
     if (isDown) {
         lastCursorMoveDocX = docX

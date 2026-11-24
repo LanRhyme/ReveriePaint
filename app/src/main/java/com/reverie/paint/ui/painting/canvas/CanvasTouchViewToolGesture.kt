@@ -152,7 +152,15 @@ internal fun CanvasTouchView.handleToolDown(
             } else {
                 resetMirrorBranches()
             }
-            if (strokeStarted) armRealInkHold(v, hasSymmetry, screenPos.x, screenPos.y, pressure)
+            if (strokeStarted) {
+                armRealInkHold(
+                    v,
+                    hasSymmetry,
+                    screenPos.x,
+                    screenPos.y,
+                    if (v.speedSimulatedPressureActiveForStroke) v.lastStrokeEffectivePressure.toFloat() else pressure,
+                )
+            }
         }
         Tool.LIQUIFY -> {
             liquifyFlushPosted = false
@@ -705,7 +713,13 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
             if (!strokeStarted) return
             // 迟到的笔画起点 (首帧被历史点吞掉) 在这里才真正落笔。
             if (startedNow && pointerIndex in 0 until event.pointerCount) {
-                armRealInkHold(v, hasSymmetry, event.getX(pointerIndex), event.getY(pointerIndex), pressure)
+                armRealInkHold(
+                    v,
+                    hasSymmetry,
+                    event.getX(pointerIndex),
+                    event.getY(pointerIndex),
+                    if (v.speedSimulatedPressureActiveForStroke) v.lastStrokeEffectivePressure.toFloat() else pressure,
+                )
             }
 
             v.quickShapeCapture?.let { capture ->
@@ -722,6 +736,7 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
 
             val effectiveDocPos = applyAssistedDrawing(firstDocPos, docPos)
             val isAssist = (v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing)
+            val docToDpScale = ((canvasZoom * canvasFitScale) / density.coerceAtLeast(0.5f)).coerceAtLeast(0.0005f)
 
             for (i in 0 until event.historySize) {
                 val hScreen = Offset(event.getHistoricalX(pointerIndex, i), event.getHistoricalY(pointerIndex, i))
@@ -734,8 +749,7 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                 val hTime = event.getHistoricalEventTime(i)
                 updateStylusSensors(event, pointerIndex, isStylus, historyPos = i)
                 resolveStrokeTilt(touchTiltX, touchTiltY, hAssisted.x, hAssisted.y)
-                val currentCanvasScale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
-                v.touchMove(hAssisted.x, hAssisted.y, hP.toDouble(), hTime, strokeTiltX, strokeTiltY, touchRotation, isStylus = isStylus, canvasScale = currentCanvasScale)
+                v.touchMove(hAssisted.x, hAssisted.y, hP.toDouble(), hTime, strokeTiltX, strokeTiltY, touchRotation, isStylus = isStylus, docToDpScale = docToDpScale)
                 if (hasSymmetry) {
                     appendSymmetricSamplePair(
                         v.smoothedStrokeX, v.smoothedStrokeY, v.smoothedStrokePressure,
@@ -762,11 +776,16 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                 smoothedLeadMs = if (smoothedLeadMs <= 0f) rawLeadMs else (smoothedLeadMs * 0.8f + rawLeadMs * 0.2f)
                 universalPredictor.setPredictionTargetMs(smoothedLeadMs)
                 if (pointerIndex in 0 until event.pointerCount) {
+                    val simPredP = if (v.speedSimulatedPressureActiveForStroke) {
+                        v.lastStrokeEffectivePressure.toFloat().coerceIn(0.01f, 1f)
+                    } else {
+                        null
+                    }
                     val histCount = event.historySize
                     for (i in 0 until histCount) {
                         val hx = event.getHistoricalX(pointerIndex, i)
                         val hy = event.getHistoricalY(pointerIndex, i)
-                        val rawHp = if (isStylus) event.getHistoricalPressure(pointerIndex, i) else 1f
+                        val rawHp = simPredP ?: if (isStylus) event.getHistoricalPressure(pointerIndex, i) else 1f
                         val hp = if (rawHp.isFinite()) rawHp.coerceIn(0.01f, 1f) else 1f
                         val ht = event.getHistoricalEventTime(i)
                         if (hx.isFinite() && hy.isFinite()) {
@@ -776,7 +795,7 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                     }
                     val curX = event.getX(pointerIndex)
                     val curY = event.getY(pointerIndex)
-                    val rawP = if (isStylus) pressure else 1f
+                    val rawP = simPredP ?: if (isStylus) pressure else 1f
                     val curP = if (rawP.isFinite()) rawP.coerceIn(0.01f, 1f) else 1f
                     val curT = event.eventTime
                     if (curX.isFinite() && curY.isFinite()) {
@@ -1028,7 +1047,7 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                 predDocX,
                 predDocY,
                 isStylus = isStylus,
-                canvasScale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f),
+                docToDpScale = docToDpScale,
             )
 
             // 纸张摩擦音效: 按文档坐标瞬时速度与压感动态调制增益与共振 (零分配, 单次 volatile 写)
@@ -1057,7 +1076,11 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                 val sy = event.getY(pointerIndex)
                 updatePredictedTip(v, sx, sy)
                 snapshotHoldGuide(v)
-                noteHoldCursor(sx, sy, pressure)
+                noteHoldCursor(
+                    sx,
+                    sy,
+                    if (v.speedSimulatedPressureActiveForStroke) v.smoothedStrokePressure.toFloat() else pressure,
+                )
             }
         }
         Tool.LIQUIFY -> {
@@ -1452,9 +1475,13 @@ internal fun CanvasTouchView.handleToolUp(event: MotionEvent, docPos: Offset, is
                     // touchEnd 会给主笔补发追赶点与尾锋点。这些点也必须进镜像分支, 否则镜像笔迹缺少收尾
                     // R4-B: 抬笔末端压感 (最近一次真实输入过校准后的有效压感);
                     // 镜像收尾与主笔收尾用同一个值, 保证两条收笔补点序列逐字一致
-                    val tailEndP = if (lastStrokeRawPressure.isFinite() && lastStrokeRawPressure in 0f..1f) {
+                    val tailEndP = if (v.speedSimulatedPressureActiveForStroke) {
+                        v.lastStrokeEffectivePressure.coerceIn(0.01, 1.0)
+                    } else if (lastStrokeRawPressure.isFinite() && lastStrokeRawPressure in 0f..1f) {
                         v.computeEffectivePressure(lastStrokeRawPressure.toDouble())
-                    } else v.smoothedStrokePressure
+                    } else {
+                        v.smoothedStrokePressure
+                    }
                     if (hasMirrorSamples) {
                         appendMirrorCatchUpAndTaper(v, event.eventTime, tailEndP)
                     }

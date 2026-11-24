@@ -30,9 +30,13 @@ import java.io.File
 import java.util.zip.ZipFile
 
 internal fun PaintViewModel.shouldApplySpeedPressure(rawPressure: Double, isStylus: Boolean): Boolean {
+    if (isStylus && rawPressure in 0.001..0.985) {
+        stylusHardwarePressureDetected = true
+    }
     if (!speedSimulatedPressureEnabled) return false
     if (!speedPressureFingerOnly) return true
-    return !isStylus || rawPressure >= 0.99
+    if (!isStylus) return true
+    return !stylusHardwarePressureDetected && rawPressure >= 0.99
 }
 
 internal fun PaintViewModel.computeEffectivePressure(raw: Double): Double {
@@ -90,15 +94,16 @@ internal fun PaintViewModel.touchStart(
     lastStrokeDeltaY = 0f
     lastStrokeTimeMs = android.os.SystemClock.uptimeMillis()
     strokeDistanceAccumulator = 0f
-    currentSpeedSimulatedPressure = 0.85
-    val inputPressure = if (shouldApplySpeedPressure(safePressure, isStylus)) {
-        val influence = speedPressureInfluence.toDouble().coerceIn(0.05, 1.0)
-        val startModulated = 1.0 - (1.0 - currentSpeedSimulatedPressure) * influence
-        (safePressure * startModulated).coerceIn(0.02, 1.0)
+    val applySpeed = shouldApplySpeedPressure(safePressure, isStylus)
+    speedSimulatedPressureActiveForStroke = applySpeed
+    val inputPressure = if (applySpeed) {
+        val simP = speedPressureSimulator.beginStroke(speedPressureInfluence.toDouble(), inputEventTimeMs)
+        (safePressure * simP).coerceIn(0.02, 1.0)
     } else {
         safePressure
     }
     val effPressure = computeEffectivePressure(inputPressure)
+    lastStrokeEffectivePressure = effPressure
     smoothedStrokePressure = effPressure
     val strokeColor = brushColor
     lastDynamicColor = strokeColor
@@ -290,7 +295,7 @@ internal fun PaintViewModel.touchMove(
     @Suppress("UNUSED_PARAMETER") predictedDocX: Float = Float.NaN,
     @Suppress("UNUSED_PARAMETER") predictedDocY: Float = Float.NaN,
     isStylus: Boolean = true,
-    canvasScale: Float = 1.0f,
+    docToDpScale: Float = 1.0f,
 ) {
     if (x.isNaN() || y.isNaN()) return
     val safePressure = if (pressure.isNaN() || pressure < 0.0) 1.0 else pressure.coerceIn(0.0, 1.0)
@@ -316,21 +321,24 @@ internal fun PaintViewModel.touchMove(
     if (dist > 0.5) {
         disarmStrokeStartKick()
     }
-    val inputPressure = if (shouldApplySpeedPressure(safePressure, isStylus)) {
-        val dtSec = (dt.toDouble() / 1000.0).coerceIn(0.003, 0.1)
-        val scale = if (canvasScale > 0.001f) canvasScale.toDouble() else 1.0
-        val screenDist = dist * scale
-        val screenSpeed = screenDist / dtSec
-        val normSpeed = (screenSpeed / 2500.0).coerceIn(0.0, 1.0)
-        val targetSimP = 1.0 - (normSpeed * 0.9)
-        currentSpeedSimulatedPressure = currentSpeedSimulatedPressure * 0.65 + targetSimP * 0.35
-        val influence = speedPressureInfluence.toDouble().coerceIn(0.05, 1.0)
-        val speedModulated = 1.0 - (1.0 - currentSpeedSimulatedPressure) * influence
-        (safePressure * speedModulated).coerceIn(0.02, 1.0)
+    val applySpeed = shouldApplySpeedPressure(safePressure, isStylus)
+    if (applySpeed && !speedSimulatedPressureActiveForStroke) {
+        speedPressureSimulator.beginStroke(speedPressureInfluence.toDouble(), inputEventTimeMs)
+    }
+    speedSimulatedPressureActiveForStroke = applySpeed
+    val inputPressure = if (applySpeed) {
+        val scale = if (docToDpScale > 0.0005f) docToDpScale.toDouble() else 1.0
+        val simP = speedPressureSimulator.onMove(
+            dist * scale,
+            inputEventTimeMs,
+            speedPressureInfluence.toDouble(),
+        )
+        (safePressure * simP).coerceIn(0.02, 1.0)
     } else {
         safePressure
     }
     val effPressure = computeEffectivePressure(inputPressure)
+    lastStrokeEffectivePressure = effPressure
 
     lastStrokeTimeMs = now
     // lastStrokeX/Y 严格保存真实物理落点: 抬笔 touchEnd 收尾补点以它为终点, 绝不过冲

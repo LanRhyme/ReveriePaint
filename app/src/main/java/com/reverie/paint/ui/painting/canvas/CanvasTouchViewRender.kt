@@ -643,19 +643,23 @@ internal fun CanvasTouchView.drawCanvas(canvas: Canvas) {
         }
         val holdEmaSnapshot = smoothedCursorPressure
         val pressureFraction = if (localIsTouching) {
+            val effectiveTargetP = if (v.speedSimulatedPressureActiveForStroke) {
+                v.smoothedStrokePressure.toFloat()
+            } else {
+                localPressure
+            }
             if (v.frontBufferPredictionEnabled) {
                 // 前缓冲预测: 预测压力 + EMA 阻尼 (防光标环呼吸抖动)
-                val targetPressure = localPressure
                 smoothedCursorPressure = if (smoothedCursorPressure < 0f) {
-                    targetPressure
+                    effectiveTargetP
                 } else {
-                    smoothedCursorPressure * 0.65f + targetPressure * 0.35f
+                    smoothedCursorPressure * 0.65f + effectiveTargetP * 0.35f
                 }
                 pressureFractionCached(smoothedCursorPressure)
             } else {
                 // 上游原版: 直接使用当前实际压力, 无平滑
                 smoothedCursorPressure = -1f
-                pressureFractionCached(localPressure)
+                pressureFractionCached(effectiveTargetP)
             }
         } else {
             smoothedCursorPressure = -1f

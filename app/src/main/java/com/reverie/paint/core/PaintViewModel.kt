@@ -950,9 +950,12 @@ class PaintViewModel : ViewModel() {
 
     // 速度模拟压感 (Issue #225)
     var speedSimulatedPressureEnabled by mutableStateOf(false)
-    var speedPressureInfluence by mutableFloatStateOf(0.5f)
+    var speedPressureInfluence by mutableFloatStateOf(0.7f)
     var speedPressureFingerOnly by mutableStateOf(true)
-    internal var currentSpeedSimulatedPressure: Double = 1.0
+    internal val speedPressureSimulator = com.reverie.paint.model.SpeedPressureSimulator()
+    internal var speedSimulatedPressureActiveForStroke: Boolean = false
+    internal var lastStrokeEffectivePressure: Double = 1.0
+    internal var stylusHardwarePressureDetected: Boolean = false
 
     var colorPickerMode by mutableStateOf("SQUARE")
         internal set
