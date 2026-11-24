@@ -352,6 +352,9 @@ internal fun PaintViewModel.syncSettingsFromPrefs() {
             }
         } catch (_: Exception) {
         }
+        speedSimulatedPressureEnabled = prefs.getBoolean("speedSimulatedPressureEnabled", false)
+        speedPressureInfluence = prefs.getFloat("speedPressureInfluence", 0.5f).coerceIn(0.05f, 1.0f)
+        speedPressureFingerOnly = prefs.getBoolean("speedPressureFingerOnly", true)
         stylusDriver?.syncSettings()
 
         autoSaveEnabled = prefs.getBoolean("autoSaveEnabled", true)

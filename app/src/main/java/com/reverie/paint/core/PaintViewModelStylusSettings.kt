@@ -775,6 +775,28 @@ internal fun PaintViewModel.refreshStylusAudioGate(foreground: Boolean = isAppFo
     stylusDriver?.refreshAudioGate(foreground)
 }
 
+internal fun PaintViewModel.updateSpeedSimulatedPressureEnabled(enabled: Boolean) {
+    speedSimulatedPressureEnabled = enabled
+    if (isAppContextReady()) {
+        prefs.edit().putBoolean("speedSimulatedPressureEnabled", enabled).apply()
+    }
+}
+
+internal fun PaintViewModel.updateSpeedPressureInfluence(v: Float) {
+    val clamped = v.coerceIn(0.05f, 1.0f)
+    speedPressureInfluence = clamped
+    if (isAppContextReady()) {
+        prefs.edit().putFloat("speedPressureInfluence", clamped).apply()
+    }
+}
+
+internal fun PaintViewModel.updateSpeedPressureFingerOnly(enabled: Boolean) {
+    speedPressureFingerOnly = enabled
+    if (isAppContextReady()) {
+        prefs.edit().putBoolean("speedPressureFingerOnly", enabled).apply()
+    }
+}
+
 internal fun PaintViewModel.getOrCreateStylusDriver(context: android.content.Context): com.reverie.paint.core.stylus.StylusDriver {
     val existing = stylusDriver
     if (existing != null) {

@@ -127,7 +127,7 @@ internal fun CanvasTouchView.handleToolDown(
             val overrideTool = if (effTool() == Tool.ERASER && tool != Tool.ERASER) "eraser" else null
             lastStrokeRawPressure = pressure
             beginStrokeTilt(tiltX, tiltY, targetDocPos.x, targetDocPos.y)
-            strokeStarted = v.touchStart(targetDocPos.x, targetDocPos.y, pressure.toDouble(), strokeTiltX, strokeTiltY, rotation, toolOverride = overrideTool, inputEventTimeMs = eventTimeMs)
+            strokeStarted = v.touchStart(targetDocPos.x, targetDocPos.y, pressure.toDouble(), strokeTiltX, strokeTiltY, rotation, toolOverride = overrideTool, inputEventTimeMs = eventTimeMs, isStylus = isStylus)
             if (strokeStarted) {
                 // 纸张摩擦音效: 落笔起振 (橡皮稍收音量, 附带初始落笔压感)
                 getOrCreateStylusDriver()?.feedbackManager?.startStrokeSound(effTool() == Tool.ERASER, pressure.toFloat())
@@ -678,7 +678,7 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                     clearPredictionState(triggerInvalidate = false)
                 }
                 val overrideTool = if (effTool() == Tool.ERASER && tool != Tool.ERASER) "eraser" else null
-                strokeStarted = v.touchStart(startDoc.x, startDoc.y, pressure.toDouble(), strokeTiltX, strokeTiltY, touchRotation, toolOverride = overrideTool, inputEventTimeMs = event.eventTime)
+                strokeStarted = v.touchStart(startDoc.x, startDoc.y, pressure.toDouble(), strokeTiltX, strokeTiltY, touchRotation, toolOverride = overrideTool, inputEventTimeMs = event.eventTime, isStylus = isStylus)
                 if (strokeStarted) {
                     if (isStylus) {
                         getOrCreateStylusDriver()?.feedbackManager?.setWritingHapticsEnabled(true, isEraser = (effTool() == Tool.ERASER))
@@ -734,7 +734,8 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                 val hTime = event.getHistoricalEventTime(i)
                 updateStylusSensors(event, pointerIndex, isStylus, historyPos = i)
                 resolveStrokeTilt(touchTiltX, touchTiltY, hAssisted.x, hAssisted.y)
-                v.touchMove(hAssisted.x, hAssisted.y, hP.toDouble(), hTime, strokeTiltX, strokeTiltY, touchRotation)
+                val currentCanvasScale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
+                v.touchMove(hAssisted.x, hAssisted.y, hP.toDouble(), hTime, strokeTiltX, strokeTiltY, touchRotation, isStylus = isStylus, canvasScale = currentCanvasScale)
                 if (hasSymmetry) {
                     appendSymmetricSamplePair(
                         v.smoothedStrokeX, v.smoothedStrokeY, v.smoothedStrokePressure,
@@ -1026,6 +1027,8 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                 touchRotation,
                 predDocX,
                 predDocY,
+                isStylus = isStylus,
+                canvasScale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f),
             )
 
             // 纸张摩擦音效: 按文档坐标瞬时速度与压感动态调制增益与共振 (零分配, 单次 volatile 写)

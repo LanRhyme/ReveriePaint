@@ -29,6 +29,12 @@ import org.json.JSONObject
 import java.io.File
 import java.util.zip.ZipFile
 
+internal fun PaintViewModel.shouldApplySpeedPressure(rawPressure: Double, isStylus: Boolean): Boolean {
+    if (!speedSimulatedPressureEnabled) return false
+    if (!speedPressureFingerOnly) return true
+    return !isStylus || rawPressure >= 0.99
+}
+
 internal fun PaintViewModel.computeEffectivePressure(raw: Double): Double {
     if (!brushPressureEnabled) return 1.0
     val p = raw.coerceIn(0.0, 1.0)
@@ -55,6 +61,7 @@ internal fun PaintViewModel.touchStart(
     rotation: Double = 0.0,
     toolOverride: String? = null,
     inputEventTimeMs: Long = 0L,
+    isStylus: Boolean = true,
 ): Boolean {
     if (x.isNaN() || y.isNaN()) return false
     val safePressure = if (pressure.isNaN() || pressure < 0.0) 1.0 else pressure.coerceIn(0.0, 1.0)
@@ -83,7 +90,15 @@ internal fun PaintViewModel.touchStart(
     lastStrokeDeltaY = 0f
     lastStrokeTimeMs = android.os.SystemClock.uptimeMillis()
     strokeDistanceAccumulator = 0f
-    val effPressure = computeEffectivePressure(safePressure)
+    currentSpeedSimulatedPressure = 0.85
+    val inputPressure = if (shouldApplySpeedPressure(safePressure, isStylus)) {
+        val influence = speedPressureInfluence.toDouble().coerceIn(0.05, 1.0)
+        val startModulated = 1.0 - (1.0 - currentSpeedSimulatedPressure) * influence
+        (safePressure * startModulated).coerceIn(0.02, 1.0)
+    } else {
+        safePressure
+    }
+    val effPressure = computeEffectivePressure(inputPressure)
     smoothedStrokePressure = effPressure
     val strokeColor = brushColor
     lastDynamicColor = strokeColor
@@ -274,6 +289,8 @@ internal fun PaintViewModel.touchMove(
     // predictedDocX/Y 保留参数，供上层前缓冲极速呈现/手势预测链路对齐扩展，真实笔画与录制不消费预测点
     @Suppress("UNUSED_PARAMETER") predictedDocX: Float = Float.NaN,
     @Suppress("UNUSED_PARAMETER") predictedDocY: Float = Float.NaN,
+    isStylus: Boolean = true,
+    canvasScale: Float = 1.0f,
 ) {
     if (x.isNaN() || y.isNaN()) return
     val safePressure = if (pressure.isNaN() || pressure < 0.0) 1.0 else pressure.coerceIn(0.0, 1.0)
@@ -299,7 +316,21 @@ internal fun PaintViewModel.touchMove(
     if (dist > 0.5) {
         disarmStrokeStartKick()
     }
-    val effPressure = computeEffectivePressure(safePressure)
+    val inputPressure = if (shouldApplySpeedPressure(safePressure, isStylus)) {
+        val dtSec = (dt.toDouble() / 1000.0).coerceIn(0.003, 0.1)
+        val scale = if (canvasScale > 0.001f) canvasScale.toDouble() else 1.0
+        val screenDist = dist * scale
+        val screenSpeed = screenDist / dtSec
+        val normSpeed = (screenSpeed / 2500.0).coerceIn(0.0, 1.0)
+        val targetSimP = 1.0 - (normSpeed * 0.9)
+        currentSpeedSimulatedPressure = currentSpeedSimulatedPressure * 0.65 + targetSimP * 0.35
+        val influence = speedPressureInfluence.toDouble().coerceIn(0.05, 1.0)
+        val speedModulated = 1.0 - (1.0 - currentSpeedSimulatedPressure) * influence
+        (safePressure * speedModulated).coerceIn(0.02, 1.0)
+    } else {
+        safePressure
+    }
+    val effPressure = computeEffectivePressure(inputPressure)
 
     lastStrokeTimeMs = now
     // lastStrokeX/Y 严格保存真实物理落点: 抬笔 touchEnd 收尾补点以它为终点, 绝不过冲
@@ -1624,7 +1655,10 @@ internal fun PaintViewModel.undo(
     disarmStrokeStartKick()
     clearPendingStrokeSamples()
     if (showToast && undoToastEnabled) {
-        showActionToast(R.string.toast_undo, R.drawable.ic_undo)
+        val raw = ReverieCoreBridge.undoText()
+        val msg = if (isAppContextReady()) UndoActionFormatter.formatUndo(appContext, raw)
+        else getString(R.string.toast_undo)
+        showActionToast(msg, R.drawable.ic_undo)
     }
     canUndoTransformSelection = false
     transientTransformSelectionPending = false
@@ -1721,7 +1755,10 @@ internal fun PaintViewModel.redo(fromPanel: Boolean = false, settled: (() -> Uni
     disarmStrokeStartKick()
     clearPendingStrokeSamples()
     if (undoToastEnabled) {
-        showActionToast(R.string.toast_redo, R.drawable.ic_redo)
+        val raw = ReverieCoreBridge.redoText()
+        val msg = if (isAppContextReady()) UndoActionFormatter.formatRedo(appContext, raw)
+        else getString(R.string.toast_redo)
+        showActionToast(msg, R.drawable.ic_redo)
     }
     canRedoTransformSelection = false
     var didRedo = false

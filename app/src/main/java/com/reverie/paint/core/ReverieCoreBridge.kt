@@ -758,6 +758,12 @@ object ReverieCoreBridge {
     /** 可重做步数 (count - index), 与 canRedo 语义一致: 0 步 <=> !canRedo */
     external fun redoCount(): Int
 
+    /** 当前待撤销动作的名称描述 (栈顶命令的 actionText/text) */
+    external fun undoText(): String?
+
+    /** 当前待重做动作的名称描述 */
+    external fun redoText(): String?
+
     external fun setUndoCaptureEnabled(on: Boolean)
 
     external fun clearUndoHistory()

@@ -948,6 +948,12 @@ class PaintViewModel : ViewModel() {
         ),
     )
 
+    // 速度模拟压感 (Issue #225)
+    var speedSimulatedPressureEnabled by mutableStateOf(false)
+    var speedPressureInfluence by mutableFloatStateOf(0.5f)
+    var speedPressureFingerOnly by mutableStateOf(true)
+    internal var currentSpeedSimulatedPressure: Double = 1.0
+
     var colorPickerMode by mutableStateOf("SQUARE")
         internal set
 

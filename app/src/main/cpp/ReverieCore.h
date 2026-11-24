@@ -878,6 +878,8 @@ public:
     // redoCount() == 0 <=> !canRedo().
     int undoCount() const;   // 可撤销步数 (KUndo2Stack index)
     int redoCount() const;   // 可重做步数 (count - index)
+    QString undoText() const;
+    QString redoText() const;
     void beginUndoMacro(const QString &text = QString());
     void endUndoMacro();
     // Replay support: while undo capture is disabled, strokes and ops apply

@@ -44,6 +44,8 @@ public:
     bool canRedo() const;
     int count() const;
     int index() const;
+    QString undoText() const;
+    QString redoText() const;
 
 private:
     KUndo2Stack *m_undoStack;

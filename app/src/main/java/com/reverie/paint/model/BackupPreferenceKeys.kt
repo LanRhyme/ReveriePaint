@@ -6,6 +6,7 @@ object BackupPreferenceKeys {
     private val stylusKeys = setOf(
         "penOnlyMode", "penModeSingleFingerPanEnabled", "penModeStylusEyedropperEnabled",
         "pressureCurvePreset", "pressureControlPoints", "pressure_curve",
+        "speedSimulatedPressureEnabled", "speedPressureInfluence", "speedPressureFingerOnly",
         "stylusHapticsEnabled", "stylusHapticsIntensity",
         "stylusAudioEnabled", "stylusAudioVolume", "stylusAudioType",
         "stylusStrokePredictionEnabled", "stylusFrontBufferPreviewEnabled",

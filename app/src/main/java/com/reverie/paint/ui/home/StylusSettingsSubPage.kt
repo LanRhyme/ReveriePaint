@@ -70,6 +70,9 @@ import com.reverie.paint.core.updateStylusAudioType
 import com.reverie.paint.core.updateStylusAudioVolume
 import com.reverie.paint.core.updateStylusPredictionMaster
 import com.reverie.paint.core.stylusPredictionMasterEnabled
+import com.reverie.paint.core.updateSpeedSimulatedPressureEnabled
+import com.reverie.paint.core.updateSpeedPressureInfluence
+import com.reverie.paint.core.updateSpeedPressureFingerOnly
 
 @Composable
 internal fun StylusSettingsSubPage(
@@ -154,6 +157,42 @@ internal fun StylusSettingsSubPage(
                     shape = settingGroupShape(2, touchTotal),
                     onCheckedChange = { vm.updateStylusPredictionMaster(it) },
                 )
+            }
+
+            // 2. 速度模拟压感
+            SettingCategoryTitle(stringResource(R.string.setting_speed_simulated_pressure_title))
+            SettingGroup {
+                val speedPressureTotal = if (vm.speedSimulatedPressureEnabled) 3 else 1
+                SettingSwitchGroupItem(
+                    icon = Icons.Rounded.Speed,
+                    title = stringResource(R.string.setting_speed_simulated_pressure_title),
+                    summary = stringResource(R.string.setting_speed_simulated_pressure_desc),
+                    checked = vm.speedSimulatedPressureEnabled,
+                    shape = settingGroupShape(0, speedPressureTotal),
+                    onCheckedChange = { vm.updateSpeedSimulatedPressureEnabled(it) },
+                )
+                if (vm.speedSimulatedPressureEnabled) {
+                    SettingSliderGroupItem(
+                        icon = Icons.Rounded.Speed,
+                        title = stringResource(R.string.setting_speed_pressure_influence_title),
+                        summary = stringResource(R.string.setting_speed_pressure_influence_desc),
+                        valueText = "${(vm.speedPressureInfluence * 100).toInt()}%",
+                        sliderFraction = (vm.speedPressureInfluence - 0.05f) / (1.0f - 0.05f),
+                        shape = settingGroupShape(1, speedPressureTotal),
+                        onValueChange = { fraction ->
+                            val value = 0.05f + fraction * (1.0f - 0.05f)
+                            vm.updateSpeedPressureInfluence(value)
+                        },
+                    )
+                    SettingSwitchGroupItem(
+                        icon = R.drawable.ic_hand,
+                        title = stringResource(R.string.setting_speed_pressure_finger_only_title),
+                        summary = stringResource(R.string.setting_speed_pressure_finger_only_desc),
+                        checked = vm.speedPressureFingerOnly,
+                        shape = settingGroupShape(2, speedPressureTotal),
+                        onCheckedChange = { vm.updateSpeedPressureFingerOnly(it) },
+                    )
+                }
             }
 
             // 2. 光标与准星指示

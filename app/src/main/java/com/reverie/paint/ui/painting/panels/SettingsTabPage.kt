@@ -1012,6 +1012,66 @@ internal fun SettingsTabPage(
 
                         SettingsInnerDivider()
 
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .height(42.dp)
+                                .padding(horizontal = 4.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                Icon(
+                                    painter = painterResource(R.drawable.ic_brush_quick),
+                                    contentDescription = null,
+                                    tint = Morandi.icon,
+                                    modifier = Modifier.size(18.dp),
+                                )
+                                Spacer(Modifier.width(10.dp))
+                                Text(stringResource(R.string.setting_speed_simulated_pressure_title), color = Morandi.text, fontSize = 13.sp)
+                            }
+                            ReSwitch(
+                                checked = vm.speedSimulatedPressureEnabled,
+                                onChecked = { vm.updateSpeedSimulatedPressureEnabled(it) },
+                            )
+                        }
+
+                        if (vm.speedSimulatedPressureEnabled) {
+                            SettingsInnerDivider()
+                            Column(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 14.dp, vertical = 6.dp),
+                            ) {
+                                Row(
+                                    modifier = Modifier.fillMaxWidth(),
+                                    horizontalArrangement = Arrangement.SpaceBetween,
+                                    verticalAlignment = Alignment.CenterVertically,
+                                ) {
+                                    Text(
+                                        stringResource(R.string.setting_speed_pressure_influence_title),
+                                        color = Morandi.subText,
+                                        fontSize = 12.sp,
+                                    )
+                                    Text(
+                                        "${(vm.speedPressureInfluence * 100).toInt()}%",
+                                        color = Morandi.accent,
+                                        fontSize = 12.sp,
+                                        fontWeight = FontWeight.Medium,
+                                    )
+                                }
+                                Spacer(Modifier.height(4.dp))
+                                ReSlider(
+                                    value = ((vm.speedPressureInfluence - 0.05f) / (1.0f - 0.05f)).coerceIn(0f, 1f),
+                                    onValue = { frac ->
+                                        vm.updateSpeedPressureInfluence(0.05f + frac * (1.0f - 0.05f))
+                                    },
+                                )
+                            }
+                        }
+
+                        SettingsInnerDivider()
+
                         SettingNavRow(
                             title = stringResource(R.string.settings_gestures),
                             icon = R.drawable.ic_hand,

@@ -359,6 +359,22 @@ Java_com_reverie_paint_core_ReverieCoreBridge_redoCount(JNIEnv *, jobject)
     return core()->redoCount();
 }
 
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_undoText(JNIEnv *env, jobject)
+{
+    if (!core()) return nullptr;
+    QString t = core()->undoText();
+    return t.isEmpty() ? nullptr : env->NewStringUTF(t.toUtf8().constData());
+}
+
+extern "C" JNIEXPORT jstring JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_redoText(JNIEnv *env, jobject)
+{
+    if (!core()) return nullptr;
+    QString t = core()->redoText();
+    return t.isEmpty() ? nullptr : env->NewStringUTF(t.toUtf8().constData());
+}
+
 extern "C" JNIEXPORT void JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_setBackgroundColor(JNIEnv *, jobject, jint color, jboolean commit)
 {

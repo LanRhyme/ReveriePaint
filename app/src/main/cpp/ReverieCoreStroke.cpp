@@ -1918,6 +1918,16 @@ int ReverieCore::redoCount() const
     return m_undoStore ? m_undoStore->count() - m_undoStore->index() : 0;
 }
 
+QString ReverieCore::undoText() const
+{
+    return m_undoStore ? m_undoStore->undoText() : QString();
+}
+
+QString ReverieCore::redoText() const
+{
+    return m_undoStore ? m_undoStore->redoText() : QString();
+}
+
 void ReverieCore::prepareHistoryReplay()
 {
     if (m_strokeBatchOpen) {

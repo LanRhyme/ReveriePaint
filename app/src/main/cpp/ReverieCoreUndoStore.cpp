@@ -124,3 +124,35 @@ int ReverieUndoStore::index() const
 {
     return m_undoStack ? m_undoStack->index() : 0;
 }
+
+QString ReverieUndoStore::undoText() const
+{
+    if (!m_undoStack || !m_undoStack->canUndo()) return QString();
+    const int idx = m_undoStack->index();
+    if (idx > 0) {
+        const KUndo2Command *cmd = m_undoStack->command(idx - 1);
+        if (cmd) {
+            QString t = cmd->actionText();
+            if (!t.isEmpty()) return t;
+            t = cmd->text().toString();
+            if (!t.isEmpty()) return t;
+        }
+    }
+    return m_undoStack->undoText();
+}
+
+QString ReverieUndoStore::redoText() const
+{
+    if (!m_undoStack || !m_undoStack->canRedo()) return QString();
+    const int idx = m_undoStack->index();
+    if (idx >= 0 && idx < m_undoStack->count()) {
+        const KUndo2Command *cmd = m_undoStack->command(idx);
+        if (cmd) {
+            QString t = cmd->actionText();
+            if (!t.isEmpty()) return t;
+            t = cmd->text().toString();
+            if (!t.isEmpty()) return t;
+        }
+    }
+    return m_undoStack->redoText();
+}
