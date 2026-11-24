@@ -4,18 +4,14 @@
 
 package com.reverie.paint.ui.painting.brush
 
-import android.content.Context
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
 import androidx.compose.foundation.lazy.grid.items
-import androidx.compose.foundation.rememberScrollState
-import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -24,7 +20,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.asImageBitmap
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
@@ -36,28 +31,162 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.core.brushstore.BrushCompositeIds
+import com.reverie.paint.core.brushstore.ControlId
 import com.reverie.paint.ui.components.ReIconButton
-import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.glassBorder
 
 // ==========================================
-// Tab 1: 笔尖外形与几何 (Tip & Geometry)
+// Tab 1: 通用混合 (General & Blend Mode)
+// ==========================================
+@Composable
+internal fun GeneralTabContent(
+    vm: PaintViewModel,
+    textMain: Color,
+    textSub: Color,
+) {
+    var showBlendPicker by remember { mutableStateOf(false) }
+
+    // 1. 核心笔刷参数 (Size / Opacity / Flow)
+    StudioGroupCard(stringResource(R.string.brush_studio_basic_params)) {
+        ModernParamSlider(
+            label = stringResource(R.string.brush_param_size),
+            value = vm.brushSize,
+            min = vm.brushMinSizeLimit.coerceAtLeast(0.5),
+            max = vm.effectiveBrushMaxSize,
+            unit = ParamUnit.PIXEL,
+            onChange = { vm.updateBrushSize(it) },
+        )
+        ModernParamSlider(
+            label = stringResource(R.string.brush_param_opacity),
+            value = vm.brushOpacity,
+            min = 0.05,
+            max = 1.0,
+            unit = ParamUnit.PERCENT,
+            onChange = { vm.updateBrushOpacity(it) },
+        )
+        ModernParamSlider(
+            label = stringResource(R.string.brush_param_flow),
+            value = vm.brushFlow,
+            min = 0.05,
+            max = 1.0,
+            unit = ParamUnit.PERCENT,
+            onChange = { vm.updateBrushFlow(it) },
+        )
+    }
+
+    // 2. 混合模式、独立橡皮与绘制模式 (Wash / Build-up)
+    StudioGroupCard(stringResource(R.string.brush_studio_blend_and_mode)) {
+        val canonicalOp = BrushCompositeIds.canonical(vm.brushCompositeOp)
+        val hasSharedEntry = remember(canonicalOp) {
+            BRUSH_BLEND_IDS.any { it.first == canonicalOp }
+        }
+        BrushBlendModeSelectorRow(
+            label = stringResource(R.string.brush_studio_composite_op),
+            currentId = if (hasSharedEntry) canonicalOp else vm.brushCompositeOp,
+            eraserModeActive = vm.brushEraserMode || vm.currentToolId == "eraser",
+            onClick = { showBlendPicker = true },
+            textMain = textMain,
+            textSub = textSub,
+        )
+
+        StudioInnerDivider()
+
+        StudioSwitchItem(
+            label = stringResource(R.string.brush_studio_eraser_mode),
+            checked = vm.brushEraserMode,
+            textMain = textMain,
+            onCheckedChange = { vm.updateBrushEraserMode(it) },
+        )
+        Text(
+            text = stringResource(
+                if (vm.currentToolId == "eraser") {
+                    R.string.brush_studio_eraser_tool_active_hint
+                } else {
+                    R.string.brush_studio_eraser_mode_desc
+                },
+            ),
+            color = textSub,
+            fontSize = 11.sp,
+            lineHeight = 14.sp,
+            modifier = Modifier.padding(bottom = 2.dp),
+        )
+
+        StudioInnerDivider()
+
+        val paintingModeGate = studioGateReason(vm, ControlId.PAINTING_MODE)
+        StudioGated(paintingModeGate, textSub) {
+            Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+                StudioSegmentedRow(
+                    label = stringResource(R.string.brush_studio_painting_mode),
+                    options = listOf(
+                        2 to stringResource(R.string.brush_studio_painting_wash),
+                        1 to stringResource(R.string.brush_studio_painting_buildup),
+                    ),
+                    selected = if (vm.brushMaskingEnabled) 2 else vm.brushPaintingMode,
+                    enabled = !vm.brushMaskingEnabled,
+                    textMain = textMain,
+                    textSub = textSub,
+                    onSelect = { vm.updateBrushPaintingMode(it) },
+                )
+                Text(
+                    text = stringResource(
+                        if (vm.brushMaskingEnabled) {
+                            R.string.brush_studio_painting_masking_locked
+                        } else {
+                            R.string.brush_studio_painting_mode_desc
+                        },
+                    ),
+                    color = textSub,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                )
+            }
+        }
+    }
+
+    // 3. 笔触辅助 (防抖平滑 / 收尖)
+    StudioGroupCard(stringResource(R.string.brush_studio_stroke_assist)) {
+        StudioSliderItem(
+            label = stringResource(R.string.brush_studio_dynamics_streamline),
+            value = vm.brushStreamline,
+            min = 0.0,
+            max = 1.0,
+            isPercent = true,
+            textMain = textMain,
+            textSub = textSub,
+        ) { vm.updateBrushStreamline(it) }
+        StudioSliderItem(
+            label = stringResource(R.string.brush_studio_dynamics_taper),
+            value = vm.brushTaper,
+            min = 0.0,
+            max = 1.0,
+            isPercent = true,
+            textMain = textMain,
+            textSub = textSub,
+        ) { vm.updateBrushTaper(it) }
+    }
+
+    if (showBlendPicker) {
+        BrushBlendModePickerDialog(
+            currentId = vm.brushCompositeOp,
+            onSelect = { vm.updateBrushCompositeOp(it) },
+            onDismiss = { showBlendPicker = false },
+            vm = vm,
+        )
+    }
+}
+
+// ==========================================
+// Tab 2: 笔尖外形与几何 (Tip & Geometry)
 // ==========================================
 @Composable
 internal fun TipTabContent(
     vm: PaintViewModel,
-    preset: BrushPresetInfo?,
     allTips: List<BrushTipItem>,
-    shapeInvert: Boolean = false,
-    onShapeInvert: (Boolean) -> Unit = {},
-    shapeColorInvert: Boolean = false,
-    onShapeColorInvert: (Boolean) -> Unit = {},
-    shapeRgbAffectsAlpha: Boolean = true,
-    onShapeRgbAffectsAlpha: (Boolean) -> Unit = {},
     onOpenTipPicker: () -> Unit,
-    onImportCustomTip: () -> Unit,
     cardBg: Color,
     borderCol: Color,
     textMain: Color,
@@ -67,167 +196,286 @@ internal fun TipTabContent(
         allTips.firstOrNull { it.filename == vm.brushTipAsset } ?: allTips.firstOrNull()
     }
     val isAutoBrush = vm.brushTipAsset.isBlank()
+    val brushDefGate = studioGateReason(vm, ControlId.ANGLE)
 
-    val rotationSensors = listOf(
-        "drawingangle" to R.string.brush_studio_sensor_drawingangle,
-        "rotation" to R.string.brush_sensor_rotation,
-        "fuzzy" to R.string.brush_studio_sensor_fuzzy,
-        "pressure" to R.string.brush_studio_sensor_pressure,
-        "speed" to R.string.brush_studio_sensor_speed,
-        "declination" to R.string.brush_sensor_tilt_elevation,
-    )
-
-    // 笔尖类型切换：生成式矢量笔尖 vs 素材贴图笔尖
+    // 1. 笔尖类型与外形
     StudioGroupCard(stringResource(R.string.brush_studio_tip_section_title)) {
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(vertical = 4.dp),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (isAutoBrush) Morandi.accent.copy(alpha = 0.22f) else Morandi.panel.copy(alpha = 0.6f))
-                    .clickable { vm.updateBrushTipAsset("") }
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    stringResource(R.string.brush_studio_prop_auto_vector),
-                    color = if (isAutoBrush) Morandi.accent else textSub,
-                    fontSize = 12.sp,
-                    fontWeight = if (isAutoBrush) FontWeight.SemiBold else FontWeight.Normal,
-                )
-            }
+        StudioGated(brushDefGate, textSub) {
+            Column {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(vertical = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (isAutoBrush) Morandi.accent.copy(alpha = 0.22f) else Morandi.panel.copy(alpha = 0.6f))
+                            .clickable { vm.updateBrushTipAsset("") }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.brush_studio_prop_auto_vector),
+                            color = if (isAutoBrush) Morandi.accent else textSub,
+                            fontSize = 12.sp,
+                            fontWeight = if (isAutoBrush) FontWeight.SemiBold else FontWeight.Normal,
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(if (!isAutoBrush) Morandi.accent.copy(alpha = 0.22f) else Morandi.panel.copy(alpha = 0.6f))
+                            .clickable {
+                                if (vm.brushTipAsset.isBlank()) onOpenTipPicker()
+                            }
+                            .padding(vertical = 8.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.brush_studio_tip_library_title),
+                            color = if (!isAutoBrush) Morandi.accent else textSub,
+                            fontSize = 12.sp,
+                            fontWeight = if (!isAutoBrush) FontWeight.SemiBold else FontWeight.Normal,
+                        )
+                    }
+                }
 
-            Box(
-                modifier = Modifier
-                    .weight(1f)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(if (!isAutoBrush) Morandi.accent.copy(alpha = 0.22f) else Morandi.panel.copy(alpha = 0.6f))
-                    .clickable {
-                        if (vm.brushTipAsset.isBlank()) {
-                            onOpenTipPicker()
+                StudioInnerDivider()
+
+                if (isAutoBrush) {
+                    StudioSegmentedRow(
+                        label = stringResource(R.string.brush_studio_tip_mask_type),
+                        options = listOf(
+                            0 to stringResource(R.string.brush_studio_tip_mask_default),
+                            1 to stringResource(R.string.brush_studio_tip_mask_gauss),
+                            2 to stringResource(R.string.brush_studio_tip_mask_soft),
+                        ),
+                        selected = vm.brushTipMaskType,
+                        textMain = textMain,
+                        textSub = textSub,
+                        onSelect = { vm.updateBrushTipMaskType(it) },
+                    )
+
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                        horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        val isCircle = vm.brushTipShape == 0
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (isCircle) Morandi.accent.copy(alpha = 0.18f) else Morandi.panel.copy(alpha = 0.45f))
+                                .clickable { vm.updateBrushTipShape(0) }
+                                .padding(vertical = 7.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(stringResource(R.string.brush_studio_tip_round), color = if (isCircle) Morandi.accent else textSub, fontSize = 11.5.sp)
+                        }
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (!isCircle) Morandi.accent.copy(alpha = 0.18f) else Morandi.panel.copy(alpha = 0.45f))
+                                .clickable { vm.updateBrushTipShape(1) }
+                                .padding(vertical = 7.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(stringResource(R.string.brush_studio_tip_square), color = if (!isCircle) Morandi.accent else textSub, fontSize = 11.5.sp)
                         }
                     }
-                    .padding(vertical = 8.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Text(
-                    stringResource(R.string.brush_studio_tip_library_title),
-                    color = if (!isAutoBrush) Morandi.accent else textSub,
-                    fontSize = 12.sp,
-                    fontWeight = if (!isAutoBrush) FontWeight.SemiBold else FontWeight.Normal,
-                )
-            }
-        }
 
-        if (isAutoBrush) {
-            StudioInnerDivider()
-            // 形状：圆形 vs 方形
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                val isCircle = vm.brushTipShape == 0
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (isCircle) Morandi.accent.copy(alpha = 0.18f) else Morandi.panel.copy(alpha = 0.4f))
-                        .clickable { vm.updateBrushTipShape(0) }
-                        .padding(vertical = 7.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(stringResource(R.string.brush_studio_tip_round), color = if (isCircle) Morandi.accent else textSub, fontSize = 11.sp)
-                }
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (!isCircle) Morandi.accent.copy(alpha = 0.18f) else Morandi.panel.copy(alpha = 0.4f))
-                        .clickable { vm.updateBrushTipShape(1) }
-                        .padding(vertical = 7.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(stringResource(R.string.brush_studio_tip_square), color = if (!isCircle) Morandi.accent else textSub, fontSize = 11.sp)
-                }
-            }
+                    StudioSliderItem(
+                        label = stringResource(R.string.brush_studio_tip_spikes),
+                        value = vm.brushSpikes.toDouble(),
+                        min = 2.0,
+                        max = 20.0,
+                        textMain = textMain,
+                        textSub = textSub,
+                    ) { vm.updateBrushSpikes(it.toInt()) }
+                    StudioSliderItem(
+                        label = stringResource(R.string.brush_studio_tip_fade),
+                        value = vm.brushFade,
+                        min = 0.0,
+                        max = 1.0,
+                        isPercent = true,
+                        textMain = textMain,
+                        textSub = textSub,
+                    ) { vm.updateBrushFade(it) }
+                    StudioSliderItem(
+                        label = stringResource(R.string.brush_studio_tip_softness),
+                        value = vm.brushSoftness,
+                        min = 0.1,
+                        max = 1.0,
+                        isPercent = true,
+                        textMain = textMain,
+                        textSub = textSub,
+                    ) { vm.updateBrushSoftness(it) }
+                    StudioSliderItem(
+                        label = stringResource(R.string.brush_studio_tip_density),
+                        value = vm.brushTipDensity,
+                        min = 0.0,
+                        max = 1.0,
+                        isPercent = true,
+                        textMain = textMain,
+                        textSub = textSub,
+                    ) { vm.updateBrushTipDensity(it) }
+                    StudioSliderItem(
+                        label = stringResource(R.string.brush_studio_tip_randomness),
+                        value = vm.brushTipRandomness,
+                        min = 0.0,
+                        max = 1.0,
+                        isPercent = true,
+                        textMain = textMain,
+                        textSub = textSub,
+                    ) { vm.updateBrushTipRandomness(it) }
 
-            StudioSliderItem(stringResource(R.string.brush_studio_tip_spikes), vm.brushSpikes.toDouble(), 2.0, 16.0, textMain = textMain, textSub = textSub) { vm.updateBrushSpikes(it.toInt()) }
-            StudioSliderItem(stringResource(R.string.brush_studio_masking_softness), vm.brushSoftness, 0.1, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSoftness(it) }
-            StudioSliderItem(stringResource(R.string.brush_studio_dynamics_fade), vm.brushFade, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushFade(it) }
+                    StudioInnerDivider()
 
-            StudioInnerDivider()
-            StudioSwitchItem(stringResource(R.string.brush_studio_tip_flip_x), vm.brushRandomFlipX, textMain = textMain) { vm.updateBrushRandomFlipX(it) }
-            StudioSwitchItem(stringResource(R.string.brush_studio_tip_flip_y), vm.brushRandomFlipY, textMain = textMain) { vm.updateBrushRandomFlipY(it) }
-        } else {
-            // 素材贴图笔尖卡片
-            StudioInnerDivider()
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Morandi.panel)
-                        .clickable { onOpenTipPicker() }
-                        .padding(3.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CheckerboardBackground(modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)))
-                    if (curTipItem?.bitmap != null) {
-                        Image(
-                            bitmap = curTipItem.bitmap.asImageBitmap(),
-                            contentDescription = null,
-                            modifier = Modifier.fillMaxSize().padding(2.dp),
-                        )
-                    } else {
-                        TipThumb(vm.brushTipAsset, curTipItem?.name)
+                    StudioSwitchItem(
+                        label = stringResource(R.string.brush_studio_tip_antialias_enable),
+                        checked = vm.brushAntiAliasing != 0,
+                        textMain = textMain,
+                    ) { vm.updateBrushAntiAliasing(if (it) 1 else 0) }
+                } else {
+                    // 图片笔尖选择行 + 应用模式
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Box(
+                            modifier = Modifier
+                                .size(56.dp)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(Morandi.panel)
+                                .clickable { onOpenTipPicker() }
+                                .padding(3.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            CheckerboardBackground(modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)))
+                            if (curTipItem?.bitmap != null) {
+                                Image(
+                                    bitmap = curTipItem.bitmap.asImageBitmap(),
+                                    contentDescription = null,
+                                    modifier = Modifier.fillMaxSize().padding(2.dp),
+                                )
+                            } else {
+                                TipThumb(vm.brushTipAsset, curTipItem?.name)
+                            }
+                        }
+
+                        Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                            Text(
+                                curTipItem?.name ?: stringResource(R.string.brush_studio_tip_default),
+                                color = textMain,
+                                fontSize = 13.sp,
+                                fontWeight = FontWeight.Medium,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                            Text(
+                                if (curTipItem?.isCustom == true) {
+                                    stringResource(R.string.brush_studio_tip_custom_tag)
+                                } else {
+                                    stringResource(R.string.brush_studio_tip_builtin_tag)
+                                },
+                                color = textSub,
+                                fontSize = 11.sp,
+                            )
+                        }
+
+                        Box(
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Morandi.panel.copy(alpha = 0.8f))
+                                .clickable { onOpenTipPicker() }
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
+                        ) {
+                            Text(stringResource(R.string.brush_studio_tip_browse), color = textMain, fontSize = 11.sp)
+                        }
                     }
-                }
 
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                    StudioInnerDivider()
+
+                    val appOptions = listOf(
+                        0 to R.string.brush_studio_tip_app_alphamask,
+                        1 to R.string.brush_studio_tip_app_imagestamp,
+                        2 to R.string.brush_studio_tip_app_lightness,
+                        3 to R.string.brush_studio_tip_app_gradient,
+                    )
                     Text(
-                        curTipItem?.name ?: stringResource(R.string.brush_studio_tip_default),
+                        text = stringResource(R.string.brush_studio_tip_application),
                         color = textMain,
                         fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
+                        modifier = Modifier.padding(top = 2.dp, bottom = 6.dp),
                     )
-                    Text(
-                        if (curTipItem?.isCustom == true) stringResource(R.string.brush_studio_tip_custom_tag) else stringResource(R.string.brush_studio_tip_builtin_tag),
-                        color = textSub,
-                        fontSize = 11.sp,
-                    )
-                }
+                    appOptions.chunked(2).forEach { row ->
+                        Row(
+                            modifier = Modifier.fillMaxWidth().padding(bottom = 6.dp),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            row.forEach { (id, res) ->
+                                val sel = vm.brushApplication == id
+                                Box(
+                                    modifier = Modifier
+                                        .weight(1f)
+                                        .clip(RoundedCornerShape(8.dp))
+                                        .background(if (sel) Morandi.accent.copy(alpha = 0.22f) else Morandi.panel.copy(alpha = 0.55f))
+                                        .border(
+                                            0.6.dp,
+                                            if (sel) Morandi.accent.copy(alpha = 0.7f) else Morandi.border.copy(alpha = 0.2f),
+                                            RoundedCornerShape(8.dp),
+                                        )
+                                        .clickable { vm.updateBrushApplication(id) }
+                                        .padding(vertical = 7.dp, horizontal = 6.dp),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        text = stringResource(res),
+                                        color = if (sel) Morandi.accent else textSub,
+                                        fontSize = 11.5.sp,
+                                        fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+                                        maxLines = 1,
+                                        overflow = TextOverflow.Ellipsis,
+                                    )
+                                }
+                            }
+                        }
+                    }
 
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Morandi.panel.copy(alpha = 0.8f))
-                        .clickable { onOpenTipPicker() }
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                ) {
-                    Text(stringResource(R.string.brush_studio_tip_browse), color = textMain, fontSize = 11.sp)
+                    StudioSliderItem(
+                        label = stringResource(R.string.brush_studio_lightness_strength),
+                        value = vm.brushLightnessStrength,
+                        min = 0.0,
+                        max = 1.0,
+                        isPercent = true,
+                        textMain = textMain,
+                        textSub = textSub,
+                    ) { vm.updateBrushLightnessStrength(it) }
+
+                    BrushDynamicCurveEditor(
+                        config = vm.getBrushDynamicOption("LightnessStrength"),
+                        onConfigChange = { vm.updateBrushDynamicOption(it) },
+                        cardBg = cardBg,
+                        borderCol = borderCol,
+                        textMain = textMain,
+                        textSub = textSub,
+                        liveInput = vm.scratchpadLiveInput,
+                        title = stringResource(R.string.brush_studio_dyn_lightness),
+                    )
                 }
             }
-
-            StudioInnerDivider()
-            StudioSwitchItem(stringResource(R.string.brush_dynamics_invert_h), vm.brushRandomFlipX, textMain = textMain) { vm.updateBrushRandomFlipX(it) }
-            StudioSwitchItem(stringResource(R.string.brush_dynamics_invert_v), vm.brushRandomFlipY, textMain = textMain) { vm.updateBrushRandomFlipY(it) }
         }
     }
 
-    // 几何形态与罗盘旋转
+    // 2. 几何形态与罗盘旋转
     StudioGroupCard(stringResource(R.string.brush_studio_geo_title)) {
         Box(
             modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp),
@@ -239,33 +487,206 @@ internal fun TipTabContent(
                 onAngleChange = { vm.updateBrushAngle(it.toDouble()) },
                 cardBg = cardBg,
                 borderCol = borderCol,
-                modifier = Modifier.size(96.dp),
+                modifier = Modifier.size(104.dp),
+                tipShape = if (isAutoBrush) vm.brushTipShape else 0,
             )
         }
 
-        StudioSliderItem(stringResource(R.string.brush_studio_geo_aspect_ratio), vm.brushRatio, 0.05, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushRatio(it) }
-        StudioGated(studioGateReason(vm, com.reverie.paint.core.brushstore.ControlId.ANGLE), textSub) {
-            StudioSliderItem(stringResource(R.string.brush_studio_geo_base_angle), vm.brushAngle, 0.0, 360.0, unit = "°", textMain = textMain, textSub = textSub) { vm.updateBrushAngle(it) }
-        }
-        StudioSliderItem(stringResource(R.string.brush_studio_geo_offset_angle), vm.brushRotation, 0.0, 360.0, unit = "°", textMain = textMain, textSub = textSub) { vm.updateBrushRotation(it) }
-        StudioSliderItem(stringResource(R.string.brush_studio_geo_angle_jitter), vm.brushJitterAngle, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushJitterAngle(it) }
-        StudioInnerDivider()
-        StudioSwitchItem(stringResource(R.string.brush_studio_geo_auto_rotate), vm.brushFollowDirection, textMain = textMain) { vm.updateBrushFollowDirection(it) }
-        StudioSensorChips(stringResource(R.string.brush_studio_rotation_sensor), vm.brushRotationSensor, rotationSensors, { vm.updateBrushRotationSensor(it) }, cardBg, textMain, textSub)
-        BrushDynamicCurveEditor(
-            config = vm.getBrushDynamicOption("Rotation"),
-            onConfigChange = { vm.updateBrushDynamicOption(it) },
-            cardBg = cardBg,
-            borderCol = borderCol,
+        StudioSliderItem(
+            label = stringResource(R.string.brush_studio_geo_aspect_ratio),
+            value = vm.brushRatio,
+            min = 0.05,
+            max = 1.0,
+            isPercent = true,
             textMain = textMain,
             textSub = textSub,
-            liveInput = vm.scratchpadLiveInput,
-        )
+        ) { vm.updateBrushRatio(it) }
+
+        StudioGated(brushDefGate, textSub) {
+            StudioSliderItem(
+                label = stringResource(R.string.brush_studio_geo_base_angle),
+                value = vm.brushAngle,
+                min = 0.0,
+                max = 360.0,
+                unit = "°",
+                textMain = textMain,
+                textSub = textSub,
+            ) { vm.updateBrushAngle(it) }
+        }
+
+        StudioSliderItem(
+            label = stringResource(R.string.brush_studio_geo_offset_angle),
+            value = vm.brushRotation,
+            min = 0.0,
+            max = 360.0,
+            unit = "°",
+            textMain = textMain,
+            textSub = textSub,
+        ) { vm.updateBrushRotation(it) }
+
+        StudioSliderItem(
+            label = stringResource(R.string.brush_studio_geo_angle_jitter),
+            value = vm.brushJitterAngle,
+            min = 0.0,
+            max = 1.0,
+            isPercent = true,
+            textMain = textMain,
+            textSub = textSub,
+        ) { vm.updateBrushJitterAngle(it) }
+
+        StudioInnerDivider()
+
+        StudioSwitchItem(
+            label = stringResource(R.string.brush_studio_tip_flip_x),
+            checked = vm.brushRandomFlipX,
+            textMain = textMain,
+        ) { vm.updateBrushRandomFlipX(it) }
+        StudioSwitchItem(
+            label = stringResource(R.string.brush_studio_tip_flip_y),
+            checked = vm.brushRandomFlipY,
+            textMain = textMain,
+        ) { vm.updateBrushRandomFlipY(it) }
+    }
+
+    // 3. 锐度与像素对齐
+    StudioGroupCard(stringResource(R.string.brush_studio_sharpness_section)) {
+        StudioSliderItem(
+            label = stringResource(R.string.brush_studio_engine_sharpness),
+            value = vm.brushSharpness,
+            min = 0.0,
+            max = 1.0,
+            isPercent = true,
+            textMain = textMain,
+            textSub = textSub,
+        ) { vm.updateBrushSharpness(it) }
+        StudioSliderItem(
+            label = stringResource(R.string.brush_studio_sharpness_softness),
+            value = vm.brushSharpnessSoftness.toDouble(),
+            min = 0.0,
+            max = 100.0,
+            unit = "%",
+            textMain = textMain,
+            textSub = textSub,
+        ) { vm.updateBrushSharpnessSoftness(it.toInt()) }
     }
 }
 
 // ==========================================
-// Tab 2: 笔画动态与感应 (Dynamics)
+// Tab 3: 描边散布 (Stroke & Scatter)
+// ==========================================
+@Composable
+internal fun StrokeTabContent(
+    vm: PaintViewModel,
+    textMain: Color,
+    textSub: Color,
+) {
+    // 1. 间距与步进
+    StudioGroupCard(stringResource(R.string.brush_studio_spacing_section)) {
+        StudioGated(studioGateReason(vm, ControlId.SPACING), textSub) {
+            Column {
+                StudioSwitchItem(
+                    label = stringResource(R.string.brush_studio_use_auto_spacing),
+                    checked = vm.brushUseAutoSpacing,
+                    textMain = textMain,
+                ) { vm.updateBrushUseAutoSpacing(it) }
+
+                val spacingMax = if (vm.brushUseAutoSpacing) 3.0 else 2.5
+                val spacingMin = if (vm.brushUseAutoSpacing) 0.05 else 0.02
+                StudioSliderItem(
+                    label = stringResource(
+                        if (vm.brushUseAutoSpacing) {
+                            R.string.brush_studio_auto_spacing_coeff
+                        } else {
+                            R.string.brush_studio_dynamics_spacing
+                        },
+                    ),
+                    value = vm.brushSpacing.coerceIn(spacingMin, spacingMax),
+                    min = spacingMin,
+                    max = spacingMax,
+                    isPercent = true,
+                    textMain = textMain,
+                    textSub = textSub,
+                ) { vm.updateBrushSpacing(it) }
+
+                StudioSwitchItem(
+                    label = stringResource(R.string.brush_studio_isotropic_spacing),
+                    checked = vm.brushIsotropicSpacing,
+                    textMain = textMain,
+                ) { vm.updateBrushIsotropicSpacing(it) }
+            }
+        }
+    }
+
+    // 2. 散布与随机抖动
+    StudioGroupCard(stringResource(R.string.brush_studio_dynamics_spacing_scatter)) {
+        StudioSliderItem(
+            label = stringResource(R.string.brush_studio_dynamics_scatter),
+            value = vm.brushScatter,
+            min = 0.0,
+            max = 1.0,
+            isPercent = true,
+            textMain = textMain,
+            textSub = textSub,
+        ) { vm.updateBrushScatter(it) }
+
+        StudioSegmentedRow(
+            label = stringResource(R.string.brush_studio_scatter_axes),
+            options = listOf(
+                1 to stringResource(R.string.brush_studio_scatter_both),
+                0 to stringResource(R.string.brush_studio_scatter_normal),
+            ),
+            selected = if (vm.brushScatterBothAxes) 1 else 0,
+            textMain = textMain,
+            textSub = textSub,
+            onSelect = { vm.updateBrushScatterBothAxes(it == 1) },
+        )
+
+        StudioInnerDivider()
+
+        StudioSliderItem(
+            label = stringResource(R.string.brush_studio_jitter_size),
+            value = vm.brushJitterSize,
+            min = 0.0,
+            max = 1.0,
+            isPercent = true,
+            textMain = textMain,
+            textSub = textSub,
+        ) { vm.updateBrushJitterSize(it) }
+
+        StudioSliderItem(
+            label = stringResource(R.string.brush_studio_press_speed),
+            value = vm.brushSpeedSize,
+            min = 0.0,
+            max = 1.0,
+            isPercent = true,
+            textMain = textMain,
+            textSub = textSub,
+        ) { vm.updateBrushSpeedSize(it) }
+    }
+
+    // 3. 喷枪模式
+    StudioGroupCard(stringResource(R.string.brush_studio_dynamics_airbrush_mode)) {
+        StudioSwitchItem(
+            label = stringResource(R.string.brush_studio_dynamics_airbrush_enable),
+            checked = vm.brushAirbrush,
+            textMain = textMain,
+        ) { vm.updateBrushAirbrush(it) }
+        if (vm.brushAirbrush) {
+            StudioSliderItem(
+                label = stringResource(R.string.brush_studio_dynamics_airbrush_rate),
+                value = vm.brushAirbrushRate,
+                min = 10.0,
+                max = 120.0,
+                unit = stringResource(R.string.brush_studio_unit_dabs_per_sec),
+                textMain = textMain,
+                textSub = textSub,
+            ) { vm.updateBrushAirbrushRate(it) }
+        }
+    }
+}
+
+// ==========================================
+// Tab 4: 动态曲线 (Dynamic Curves)
 // ==========================================
 @Composable
 internal fun DynamicsTabContent(
@@ -275,43 +696,131 @@ internal fun DynamicsTabContent(
     textMain: Color,
     textSub: Color,
 ) {
-    val standardSensors = listOf(
-        "pressure" to R.string.brush_studio_sensor_pressure,
-        "speed" to R.string.brush_studio_sensor_speed,
-        "drawingangle" to R.string.brush_studio_sensor_drawingangle,
-        "rotation" to R.string.brush_sensor_rotation,
-        "fuzzy" to R.string.brush_studio_sensor_fuzzy,
-        "fade" to R.string.brush_studio_sensor_fade,
-        "declination" to R.string.brush_sensor_tilt_elevation,
-    )
+    // 1. 全局压感校准
+    StudioGroupCard(stringResource(R.string.brush_studio_pressure_calibration)) {
+        StudioSwitchItem(
+            label = stringResource(R.string.brush_studio_press_enable),
+            checked = vm.brushPressureEnabled,
+            textMain = textMain,
+        ) { vm.updateBrushPressureEnabled(it) }
 
-    val scatterSensors = listOf(
-        "fuzzy" to R.string.brush_studio_sensor_fuzzy,
-        "pressure" to R.string.brush_studio_sensor_pressure,
-        "speed" to R.string.brush_studio_sensor_speed,
-    )
+        Text(
+            text = stringResource(R.string.brush_studio_pressure_calibration_desc),
+            color = textSub,
+            fontSize = 11.sp,
+            lineHeight = 14.sp,
+        )
 
-    // 间距与散布
-    StudioGroupCard(stringResource(R.string.brush_studio_dynamics_spacing_scatter)) {
-        StudioGated(studioGateReason(vm, com.reverie.paint.core.brushstore.ControlId.SPACING), textSub) {
-            Column {
-                StudioSliderItem(stringResource(R.string.brush_studio_dynamics_spacing), vm.brushSpacing, 0.01, 2.5, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSpacing(it) }
-                BrushDynamicCurveEditor(
-                    config = vm.getBrushDynamicOption("Spacing"),
-                    onConfigChange = { vm.updateBrushDynamicOption(it) },
-                    cardBg = cardBg,
-                    borderCol = borderCol,
-                    textMain = textMain,
-                    textSub = textSub,
-                    liveInput = vm.scratchpadLiveInput,
-                )
+        if (vm.brushPressureEnabled) {
+            val curves = listOf(
+                0 to R.string.brush_studio_press_linear,
+                1 to R.string.brush_studio_press_soft,
+                2 to R.string.brush_studio_press_hard,
+                3 to R.string.brush_studio_press_scurve,
+            )
+            curves.chunked(2).forEach { row ->
+                Row(
+                    modifier = Modifier.fillMaxWidth().padding(top = 4.dp),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    row.forEach { (idx, curveRes) ->
+                        val sel = vm.brushPressureCurve == idx
+                        Box(
+                            modifier = Modifier
+                                .weight(1f)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(if (sel) Morandi.accent.copy(alpha = 0.22f) else Morandi.panel.copy(alpha = 0.55f))
+                                .border(
+                                    0.6.dp,
+                                    if (sel) Morandi.accent.copy(alpha = 0.7f) else Morandi.border.copy(alpha = 0.2f),
+                                    RoundedCornerShape(8.dp),
+                                )
+                                .clickable { vm.updateBrushPressureCurve(idx) }
+                                .padding(vertical = 8.dp, horizontal = 6.dp),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                text = stringResource(curveRes),
+                                color = if (sel) Morandi.accent else textSub,
+                                fontSize = 11.5.sp,
+                                fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+                                maxLines = 1,
+                                overflow = TextOverflow.Ellipsis,
+                            )
+                        }
+                    }
+                }
             }
         }
+    }
+
+    // 2. 核心描边动态 (无冗余三层控件，每项单行展开精调曲线)
+    StudioGroupCard(stringResource(R.string.brush_studio_core_dynamics)) {
+        BrushDynamicCurveEditor(
+            config = vm.getBrushDynamicOption("Size"),
+            onConfigChange = { vm.updateBrushDynamicOption(it) },
+            cardBg = cardBg,
+            borderCol = borderCol,
+            textMain = textMain,
+            textSub = textSub,
+            liveInput = vm.scratchpadLiveInput,
+            title = stringResource(R.string.brush_studio_dyn_size),
+        )
         StudioInnerDivider()
-        StudioSliderItem(stringResource(R.string.brush_studio_dynamics_scatter), vm.brushScatter, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushScatter(it) }
-        StudioSensorChips(stringResource(R.string.brush_studio_scatter_sensor), vm.brushScatterSensor, scatterSensors, { vm.updateBrushScatterSensor(it) }, cardBg, textMain, textSub)
-        // 速度压低尺寸: 与压力无关, 归在"间距/散布"这一组 (原先放在压感动态里容易误读)
-        StudioSliderItem(stringResource(R.string.brush_studio_press_speed), vm.brushSpeedSize, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSpeedSize(it) }
+        BrushDynamicCurveEditor(
+            config = vm.getBrushDynamicOption("Opacity"),
+            onConfigChange = { vm.updateBrushDynamicOption(it) },
+            cardBg = cardBg,
+            borderCol = borderCol,
+            textMain = textMain,
+            textSub = textSub,
+            liveInput = vm.scratchpadLiveInput,
+            title = stringResource(R.string.brush_studio_dyn_opacity),
+        )
+        StudioInnerDivider()
+        BrushDynamicCurveEditor(
+            config = vm.getBrushDynamicOption("Flow"),
+            onConfigChange = { vm.updateBrushDynamicOption(it) },
+            cardBg = cardBg,
+            borderCol = borderCol,
+            textMain = textMain,
+            textSub = textSub,
+            liveInput = vm.scratchpadLiveInput,
+            title = stringResource(R.string.brush_studio_dyn_flow),
+        )
+        StudioInnerDivider()
+        BrushDynamicCurveEditor(
+            config = vm.getBrushDynamicOption("Rotation"),
+            onConfigChange = { vm.updateBrushDynamicOption(it) },
+            cardBg = cardBg,
+            borderCol = borderCol,
+            textMain = textMain,
+            textSub = textSub,
+            liveInput = vm.scratchpadLiveInput,
+            title = stringResource(R.string.brush_studio_dyn_rotation),
+        )
+        StudioSwitchItem(
+            label = stringResource(R.string.brush_studio_geo_auto_rotate),
+            checked = vm.brushFollowDirection,
+            textMain = textMain,
+        ) { vm.updateBrushFollowDirection(it) }
+    }
+
+    // 3. 形态与边缘动态
+    StudioGroupCard(stringResource(R.string.brush_studio_shape_dynamics)) {
+        StudioGated(studioGateReason(vm, ControlId.CURVE_SPACING), textSub) {
+            BrushDynamicCurveEditor(
+                config = vm.getBrushDynamicOption("Spacing"),
+                onConfigChange = { vm.updateBrushDynamicOption(it) },
+                cardBg = cardBg,
+                borderCol = borderCol,
+                textMain = textMain,
+                textSub = textSub,
+                liveInput = vm.scratchpadLiveInput,
+                title = stringResource(R.string.brush_studio_dyn_spacing),
+            )
+        }
+        StudioInnerDivider()
         BrushDynamicCurveEditor(
             config = vm.getBrushDynamicOption("Scatter"),
             onConfigChange = { vm.updateBrushDynamicOption(it) },
@@ -320,711 +829,41 @@ internal fun DynamicsTabContent(
             textMain = textMain,
             textSub = textSub,
             liveInput = vm.scratchpadLiveInput,
+            title = stringResource(R.string.brush_studio_dyn_scatter),
         )
         StudioInnerDivider()
-        StudioSliderItem(stringResource(R.string.brush_studio_dynamics_streamline), vm.brushStreamline, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushStreamline(it) }
-    }
-
-    // 气笔流速模式
-    StudioGroupCard(stringResource(R.string.brush_studio_dynamics_airbrush_mode)) {
-        StudioSwitchItem(stringResource(R.string.brush_studio_dynamics_airbrush_enable), vm.brushAirbrush, textMain = textMain) { vm.updateBrushAirbrush(it) }
-        if (vm.brushAirbrush) {
-            StudioInnerDivider()
-            StudioSliderItem(stringResource(R.string.brush_studio_dynamics_airbrush_rate), vm.brushAirbrushRate, 10.0, 120.0, unit = stringResource(R.string.brush_studio_unit_dabs_per_sec), textMain = textMain, textSub = textSub) { vm.updateBrushAirbrushRate(it) }
-        }
-    }
-
-    // 压感感应总开关与传感器联动
-    StudioCard {
-        StudioSwitchItem(stringResource(R.string.brush_studio_press_enable), vm.brushPressureEnabled, textMain = textMain) { vm.updateBrushPressureEnabled(it) }
-    }
-
-    if (vm.brushPressureEnabled) {
-        StudioGroupCard(stringResource(R.string.brush_studio_press_dynamics)) {
-            // 大小驱动
-            StudioSensorChips(stringResource(R.string.brush_studio_size_sensor), vm.brushSizeSensor, standardSensors, { vm.updateBrushSizeSensor(it) }, cardBg, textMain, textSub)
-            StudioSliderItem(stringResource(R.string.brush_studio_press_size), vm.brushPressureSize, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushPressureSize(it) }
-            BrushDynamicCurveEditor(
-                config = vm.getBrushDynamicOption("Size"),
-                onConfigChange = { vm.updateBrushDynamicOption(it) },
-                cardBg = cardBg,
-                borderCol = borderCol,
-                textMain = textMain,
-                textSub = textSub,
-                liveInput = vm.scratchpadLiveInput,
-            )
-            StudioInnerDivider()
-
-            // 不透明度驱动
-            StudioSensorChips(stringResource(R.string.brush_studio_opacity_sensor), vm.brushOpacitySensor, standardSensors, { vm.updateBrushOpacitySensor(it) }, cardBg, textMain, textSub)
-            StudioSliderItem(stringResource(R.string.brush_studio_press_opacity), vm.brushPressureOpacity, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushPressureOpacity(it) }
-            BrushDynamicCurveEditor(
-                config = vm.getBrushDynamicOption("Opacity"),
-                onConfigChange = { vm.updateBrushDynamicOption(it) },
-                cardBg = cardBg,
-                borderCol = borderCol,
-                textMain = textMain,
-                textSub = textSub,
-                liveInput = vm.scratchpadLiveInput,
-            )
-            StudioInnerDivider()
-
-            // 流量驱动
-            StudioSensorChips(stringResource(R.string.brush_studio_flow_sensor), vm.brushFlowSensor, standardSensors, { vm.updateBrushFlowSensor(it) }, cardBg, textMain, textSub)
-            StudioSliderItem(stringResource(R.string.brush_studio_press_flow), vm.brushPressureFlow, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushPressureFlow(it) }
-            BrushDynamicCurveEditor(
-                config = vm.getBrushDynamicOption("Flow"),
-                onConfigChange = { vm.updateBrushDynamicOption(it) },
-                cardBg = cardBg,
-                borderCol = borderCol,
-                textMain = textMain,
-                textSub = textSub,
-                liveInput = vm.scratchpadLiveInput,
-            )
-            StudioInnerDivider()
-
-            // 速度驱动
-        }
-
-        // 快捷压感曲线预设 (采用扁平胶囊预设选择，消除冗余大边框)
-        StudioGroupCard(stringResource(R.string.brush_studio_press_curve)) {
-            val curves = listOf(
-                R.string.brush_studio_press_linear,
-                R.string.brush_studio_press_soft,
-                R.string.brush_studio_press_hard,
-                R.string.brush_studio_press_scurve,
-            )
-            Row(
-                modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                curves.forEachIndexed { idx, curveRes ->
-                    val sel = vm.brushPressureCurve == idx
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(34.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (sel) Morandi.accent.copy(alpha = 0.22f) else Morandi.panel.copy(alpha = 0.6f))
-                            .clickable { vm.updateBrushPressureCurve(idx) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = stringResource(curveRes),
-                            color = if (sel) Morandi.accent else textSub,
-                            fontSize = 11.sp,
-                            fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
-                        )
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ==========================================
-// Tab 3: 色彩与涂抹 (Color & Smudge)
-// ==========================================
-@Composable
-internal fun ColorTabContent(
-    vm: PaintViewModel,
-    cardBg: Color,
-    borderCol: Color,
-    textMain: Color,
-    textSub: Color,
-) {
-    // Krita 原生混色涂抹引擎全量对齐 (Smudge Mode, Color Rate, Smudge Rate, Smudge Length)
-    StudioGroupCard(stringResource(R.string.brush_studio_color_smudge_title)) {
-        StudioGated(studioGateReason(vm, com.reverie.paint.core.brushstore.ControlId.COLOR_RATE), textSub) {
-            Column {
-                // 1. 涂抹工作模式：Dulling (混色耗散) vs Smearing (刮刀拉伸)
-                Row(
-                    modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(stringResource(R.string.brush_studio_smudge_mode), color = textMain, fontSize = 13.sp)
-                    Row(
-                        modifier = Modifier
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(Morandi.panel.copy(alpha = 0.6f))
-                            .padding(2.dp),
-                        horizontalArrangement = Arrangement.spacedBy(4.dp),
-                    ) {
-                        // Krita SmudgeRateMode：0 = 涂抹(Smearing)，1 = 钝化(Dulling)
-                        val isDulling = vm.brushSmudgeMode == 1
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (isDulling) Morandi.accent.copy(alpha = 0.22f) else Color.Transparent)
-                                .clickable { vm.updateBrushSmudgeMode(1) }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.brush_studio_smudge_mode_dulling),
-                                color = if (isDulling) Morandi.accent else textSub,
-                                fontSize = 11.sp,
-                                fontWeight = if (isDulling) FontWeight.SemiBold else FontWeight.Normal,
-                            )
-                        }
-                        Box(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(if (!isDulling) Morandi.accent.copy(alpha = 0.22f) else Color.Transparent)
-                                .clickable { vm.updateBrushSmudgeMode(0) }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                        ) {
-                            Text(
-                                text = stringResource(R.string.brush_studio_smudge_mode_smearing),
-                                color = if (!isDulling) Morandi.accent else textSub,
-                                fontSize = 11.sp,
-                                fontWeight = if (!isDulling) FontWeight.SemiBold else FontWeight.Normal,
-                            )
-                        }
-                    }
-                }
-
-                StudioInnerDivider()
-
-                // 2. 色彩速率 (Color Rate)
-                StudioSliderItem(stringResource(R.string.brush_studio_color_rate), vm.brushColorRate, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushColorRate(it) }
-                BrushDynamicCurveEditor(
-                    config = vm.getBrushDynamicOption("ColorRate"),
-                    onConfigChange = { vm.updateBrushDynamicOption(it) },
-                    cardBg = cardBg,
-                    borderCol = borderCol,
-                    textMain = textMain,
-                    textSub = textSub,
-                    liveInput = vm.scratchpadLiveInput,
-                )
-
-                StudioInnerDivider()
-
-                // 3. 涂抹长度 (Smudge Length) —— Krita 的 SmudgeRate 键；其曲线即 SmudgeRate 曲线。
-                // W-16：原"涂抹速率"滑块（brushSmudgeRate）与色彩速率写同一个 ColorRate 键（D-2），重复且在 v2 下不产生覆盖，已移除。
-                StudioSliderItem(stringResource(R.string.brush_studio_color_smudge_length), vm.brushSmudgeLength, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSmudgeLength(it) }
-                BrushDynamicCurveEditor(
-                    config = vm.getBrushDynamicOption("SmudgeRate"),
-                    onConfigChange = { vm.updateBrushDynamicOption(it) },
-                    cardBg = cardBg,
-                    borderCol = borderCol,
-                    textMain = textMain,
-                    textSub = textSub,
-                    liveInput = vm.scratchpadLiveInput,
-                )
-            }
-        }
-    }
-
-    // 次要颜色与压感混色
-    StudioGroupCard(stringResource(R.string.brush_studio_color_jitter_title)) {
-        val primaryCol = runCatching { Color(android.graphics.Color.parseColor(vm.brushColor)) }.getOrDefault(Color.Black)
-        val secCol = runCatching { Color(android.graphics.Color.parseColor(vm.brushSecondaryColor)) }.getOrDefault(Color.White)
-        Row(
-            modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.SpaceBetween,
-        ) {
-            Text(stringResource(R.string.brush_studio_color_secondary_mix), color = textMain, fontSize = 13.sp)
-            // 现代重叠双色融合微缩胶囊
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(12.dp))
-                    .background(Morandi.panel.copy(alpha = 0.6f))
-                    .padding(horizontal = 8.dp, vertical = 4.dp),
-            ) {
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
-                    Box(Modifier.size(18.dp).clip(CircleShape).background(primaryCol))
-                    Box(Modifier.size(18.dp).clip(CircleShape).background(secCol))
-                }
-            }
-        }
-        StudioSliderItem(stringResource(R.string.brush_studio_color_secondary_mix), vm.brushSecondaryMix, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSecondaryMix(it) }
-        StudioSwitchItem(stringResource(R.string.brush_studio_color_pressure_mix), vm.brushPressureColorMix, textMain = textMain) { vm.updateBrushPressureColorMix(it) }
-
-        StudioInnerDivider()
-        // HSV 随机抖动
-        StudioSliderItem(stringResource(R.string.brush_studio_color_hue_jitter), vm.brushHueJitter, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushHueJitter(it) }
-        StudioSliderItem(stringResource(R.string.brush_studio_color_sat_jitter), vm.brushSatJitter, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSatJitter(it) }
-        StudioSliderItem(stringResource(R.string.brush_studio_color_val_jitter), vm.brushValJitter, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushValJitter(it) }
-    }
-}
-
-// ==========================================
-// Tab 4: 纹理与蒙版 (Texture & Masking)
-// ==========================================
-@Composable
-internal fun TextureTabContent(
-    vm: PaintViewModel,
-    preset: BrushPresetInfo?,
-    allTips: List<BrushTipItem>,
-    allPatterns: List<PatternItem>,
-    onOpenPatternPicker: () -> Unit,
-    onOpenMaskingTipPicker: () -> Unit,
-    cardBg: Color,
-    borderCol: Color,
-    textMain: Color,
-    textSub: Color,
-) {
-    val curPattern = remember(vm.brushTexturePattern, allPatterns) {
-        allPatterns.firstOrNull { it.filename == vm.brushTexturePattern }
-    }
-
-    val maskTip = remember(vm.brushMaskingTipAsset, allTips) {
-        allTips.firstOrNull { it.filename == vm.brushMaskingTipAsset }
-    }
-
-    // ---- 材质纹理叠加 ----
-    StudioCard {
-        StudioSwitchItem(stringResource(R.string.brush_studio_tex_enable), vm.brushTextureEnabled, textMain = textMain) { vm.updateBrushTextureEnabled(it) }
-    }
-
-    if (vm.brushTextureEnabled) {
-        StudioGroupCard(stringResource(R.string.brush_studio_pattern_title)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(12.dp),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(56.dp)
-                        .clip(RoundedCornerShape(10.dp))
-                        .background(Morandi.panel)
-                        .clickable { onOpenPatternPicker() }
-                        .padding(3.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CheckerboardBackground(modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)))
-                    PatternThumb(vm.brushTexturePattern, curPattern?.name)
-                }
-
-                Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                    Text(
-                        curPattern?.name ?: stringResource(R.string.brush_studio_pattern_default),
-                        color = textMain,
-                        fontSize = 13.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    Text(
-                        if (curPattern?.isCustom == true) stringResource(R.string.brush_studio_tip_custom_tag) else stringResource(R.string.brush_studio_tip_builtin_tag),
-                        color = textSub,
-                        fontSize = 11.sp,
-                    )
-                }
-
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Morandi.panel.copy(alpha = 0.8f))
-                        .clickable { onOpenPatternPicker() }
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
-                ) {
-                    Text(stringResource(R.string.brush_studio_pattern_choose), color = textMain, fontSize = 11.sp)
-                }
-            }
-
-            StudioInnerDivider()
-            StudioSliderItem(stringResource(R.string.brush_studio_tex_scale), vm.brushTextureScale, 0.2, 4.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushTextureScale(it) }
-            StudioSliderItem(stringResource(R.string.brush_studio_tex_strength), vm.brushTextureStrength, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushTextureStrength(it) }
-        }
-
-        StudioGroupCard(stringResource(R.string.brush_studio_tex_blend_mode)) {
-            // Krita 16 种纹理模式（D-3）；选中按整数码比较，兼容旧存档里的 dodge/screen 等旧名
-            val texModes = listOf(
-                R.string.brush_studio_texmode_multiply, R.string.brush_studio_texmode_subtract,
-                R.string.brush_studio_texmode_lightness, R.string.brush_studio_texmode_gradient,
-                R.string.brush_studio_texmode_darken, R.string.brush_studio_texmode_overlay,
-                R.string.brush_studio_texmode_color_dodge, R.string.brush_studio_texmode_color_burn,
-                R.string.brush_studio_texmode_linear_dodge, R.string.brush_studio_texmode_linear_burn,
-                R.string.brush_studio_texmode_hard_mix_photoshop, R.string.brush_studio_texmode_hard_mix_softer_photoshop,
-                R.string.brush_studio_texmode_height, R.string.brush_studio_texmode_linear_height,
-                R.string.brush_studio_texmode_height_photoshop, R.string.brush_studio_texmode_linear_height_photoshop,
-            )
-            val curCode = com.reverie.paint.core.brushstore.TextureModes.toInt(vm.brushTextureMode)
-            texModes.forEachIndexed { code, nameRes ->
-                StudioRadioRow(name = stringResource(nameRes), selected = curCode == code, textMain = textMain, textSub = textSub) {
-                    vm.updateBrushTextureMode(com.reverie.paint.core.brushstore.TextureModes.nameOf(code))
-                }
-            }
-        }
-    }
-
-    // ---- 双重蒙版画笔 (Masking Brush) ----
-    StudioCard {
-        StudioSwitchItem(stringResource(R.string.brush_studio_masking_enable), vm.brushMaskingEnabled, textMain = textMain) { vm.updateBrushMaskingEnabled(it) }
-    }
-
-    if (vm.brushMaskingEnabled) {
-        StudioGroupCard(stringResource(R.string.brush_studio_masking_title)) {
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(44.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Morandi.panel)
-                        .clickable { onOpenMaskingTipPicker() }
-                        .padding(2.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CheckerboardBackground(modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp)))
-                    if (maskTip?.bitmap != null) {
-                        Image(bitmap = maskTip.bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize().padding(2.dp))
-                    } else {
-                        TipThumb(vm.brushMaskingTipAsset, maskTip?.name)
-                    }
-                }
-                Column(modifier = Modifier.weight(1f)) {
-                    Text(
-                        text = maskTip?.name ?: stringResource(R.string.brush_studio_masking_tip_default),
-                        color = textMain,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.Medium,
-                        maxLines = 1,
-                    )
-                    Text(
-                        text = if (vm.brushMaskingTipAsset.isNotBlank()) vm.brushMaskingTipAsset else stringResource(R.string.brush_studio_tip_preset_default),
-                        color = textSub,
-                        fontSize = 10.sp,
-                        maxLines = 1,
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Morandi.panel.copy(alpha = 0.8f))
-                        .clickable { onOpenMaskingTipPicker() }
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
-                ) {
-                    Text(stringResource(R.string.brush_studio_masking_tip_choose), color = textMain, fontSize = 11.sp)
-                }
-            }
-
-            StudioInnerDivider()
-            StudioSliderItem(stringResource(R.string.brush_studio_masking_ratio), vm.brushMaskingSizeRatio, 0.1, 3.0, unit = "x", textMain = textMain, textSub = textSub) { vm.updateBrushMaskingSizeRatio(it) }
-            StudioSliderItem(stringResource(R.string.brush_studio_masking_spacing), vm.brushMaskingSpacing, 0.02, 1.5, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushMaskingSpacing(it) }
-            StudioSliderItem(stringResource(R.string.brush_studio_masking_fade), vm.brushMaskingFade, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushMaskingFade(it) }
-        }
-
-        StudioGroupCard(stringResource(R.string.brush_studio_masking_mode)) {
-            // 只列 KisMaskingBrushCompositeOpFactory 支持的 id: screen/lighten/add 等会被引擎
-            // KIS_SAFE_ASSERT_RECOVER 静默回落到 multiply (选了没反应)
-            val maskingModes = listOf(
-                "multiply" to R.string.brush_studio_blend_multiply,
-                "darken" to R.string.brush_studio_blend_darken,
-                "overlay" to R.string.brush_studio_blend_overlay,
-                "dodge" to R.string.brush_studio_blend_dodge,
-                "burn" to R.string.brush_studio_blend_burn,
-                "linear_dodge" to R.string.brush_studio_blend_linear_dodge,
-                "linear_burn" to R.string.brush_studio_blend_linear_burn,
-                "subtract" to R.string.brush_studio_blend_subtract,
-            )
-            maskingModes.chunked(4).forEach { row ->
-                Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                    row.forEach { (opId, nameRes) ->
-                        val sel = vm.brushMaskingCompositeOp == opId
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .height(32.dp)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (sel) Morandi.accent.copy(alpha = 0.22f) else Morandi.panel.copy(alpha = 0.6f))
-                                .clickable { vm.updateBrushMaskingCompositeOp(opId) },
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                stringResource(nameRes),
-                                color = if (sel) Morandi.accent else textSub,
-                                fontSize = 11.sp,
-                                fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
-                            )
-                        }
-                    }
-                }
-            }
-        }
-    }
-}
-
-// ==========================================
-// Tab 5: 预设高级与引擎 (Preset & Engine)
-// ==========================================
-@Composable
-internal fun PresetTabContent(
-    vm: PaintViewModel,
-    presetIndex: Int,
-    preset: BrushPresetInfo?,
-    cardBg: Color,
-    borderCol: Color,
-    textMain: Color,
-    textSub: Color,
-    onDuplicate: () -> Unit,
-    onRename: () -> Unit,
-    onDelete: () -> Unit,
-    onImportThumbnail: () -> Unit = {},
-) {
-    // 预设图标与缩略图管理
-    StudioGroupCard(stringResource(R.string.brush_studio_thumbnail_title)) {
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp)
-        ) {
-            val bmp = rememberPresetThumb(preset?.name ?: "", preset?.thumbBytes)
-            Box(
-                modifier = Modifier
-                    .size(64.dp)
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Morandi.panel.copy(alpha = 0.6f))
-                    .border(1.dp, Morandi.border.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
-                    .clickable { onImportThumbnail() },
-                contentAlignment = Alignment.Center,
-            ) {
-                if (bmp != null) {
-                    Image(
-                        bitmap = bmp.asImageBitmap(),
-                        contentDescription = preset?.name,
-                        modifier = Modifier
-                            .fillMaxSize()
-                            .clip(RoundedCornerShape(10.dp))
-                    )
-                } else {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_brush),
-                        contentDescription = null,
-                        tint = textSub.copy(alpha = 0.5f),
-                        modifier = Modifier.size(28.dp)
-                    )
-                }
-                Box(
-                    modifier = Modifier
-                        .align(Alignment.BottomEnd)
-                        .padding(3.dp)
-                        .size(16.dp)
-                        .clip(CircleShape)
-                        .background(Morandi.accent),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_image),
-                        contentDescription = null,
-                        tint = Color.White,
-                        modifier = Modifier.size(10.dp)
-                    )
-                }
-            }
-
-            Column(
-                modifier = Modifier.weight(1f),
-                verticalArrangement = Arrangement.spacedBy(6.dp)
-            ) {
-                Text(
-                    stringResource(R.string.brush_studio_thumbnail_desc),
-                    color = textSub,
-                    fontSize = 11.sp,
-                    lineHeight = 15.sp
-                )
-                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    ReTextButton(
-                        text = stringResource(R.string.brush_studio_import_thumbnail),
-                        onClick = onImportThumbnail,
-                        containerColor = Morandi.accent,
-                        contentColor = Morandi.onAccent,
-                        fontSize = 12.sp
-                    )
-                }
-            }
-        }
-    }
-
-    // 引擎切换
-    StudioGroupCard(stringResource(R.string.brush_studio_engine_title)) {
-        val engines = listOf(
-            "paintbrush" to R.string.brush_studio_engine_pixel,
-            "colorsmudge" to R.string.brush_studio_engine_smudge,
-            com.reverie.paint.core.brushstore.PaintOpIds.SPRAY to R.string.brush_studio_engine_spray,
-            com.reverie.paint.core.brushstore.PaintOpIds.SKETCH to R.string.brush_studio_engine_sketch,
-            com.reverie.paint.core.brushstore.PaintOpIds.HAIRY to R.string.brush_studio_engine_hairy,
-            "roundmarker" to R.string.brush_studio_engine_marker,
+        BrushDynamicCurveEditor(
+            config = vm.getBrushDynamicOption("Ratio"),
+            onConfigChange = { vm.updateBrushDynamicOption(it) },
+            cardBg = cardBg,
+            borderCol = borderCol,
+            textMain = textMain,
+            textSub = textSub,
+            liveInput = vm.scratchpadLiveInput,
+            title = stringResource(R.string.brush_studio_dyn_ratio),
         )
-        engines.forEach { (id, nameRes) ->
-            val sel = (vm.brushPaintOpId == id) || (id == "paintbrush" && vm.brushPaintOpId == "defaultpaintop")
-            StudioRadioRow(name = stringResource(nameRes), selected = sel, textMain = textMain, textSub = textSub) { vm.updateBrushPaintOpId(id) }
-        }
-    }
-
-    // 尺寸极限与锐度
-    StudioGroupCard(stringResource(R.string.brush_studio_engine_limits)) {
-        StudioSliderItem(stringResource(R.string.brush_studio_engine_min_size), vm.brushMinSizeLimit, 1.0, 50.0, unit = "px", textMain = textMain, textSub = textSub) { vm.updateBrushMinSizeLimit(it) }
-        // 尺寸上限默认由画布尺寸决定 (brushSizeScalesWithCanvas), 此时本滑条不参与 clamp, 直接置灰免得误调
-        StudioSliderItem(
-            stringResource(R.string.brush_studio_engine_max_size),
-            vm.brushMaxSizeLimit, 50.0, 1000.0, unit = "px",
-            textMain = textMain, textSub = textSub,
-            enabled = !vm.brushSizeScalesWithCanvas,
-        ) { vm.updateBrushMaxSizeLimit(it) }
-        if (vm.brushSizeScalesWithCanvas) {
-            Text(
-                stringResource(R.string.brush_studio_engine_max_size_by_canvas),
-                color = textSub.copy(alpha = 0.7f),
-                fontSize = 10.sp,
-            )
-        }
         StudioInnerDivider()
-        StudioSliderItem(stringResource(R.string.brush_studio_engine_sharpness), vm.brushSharpness, 0.0, 1.0, isPercent = true, textMain = textMain, textSub = textSub) { vm.updateBrushSharpness(it) }
-    }
-
-    // 画笔混合模式 (Blend Mode / Composite Op，完全对齐 Krita 预设混合模式)
-    StudioGroupCard(stringResource(R.string.brush_studio_composite_op)) {
-        val compositeOps = BRUSH_BLEND_IDS + ("erase" to R.string.tool_eraser)
-        compositeOps.chunked(3).forEach { row ->
-            Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                row.forEach { (opId, nameRes) ->
-                    val sel = vm.brushCompositeOp == opId
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .height(32.dp)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (sel) Morandi.accent.copy(alpha = 0.22f) else Morandi.panel.copy(alpha = 0.6f))
-                            .clickable { vm.updateBrushCompositeOp(opId) },
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = stringResource(nameRes),
-                            color = if (sel) Morandi.accent else textSub,
-                            fontSize = 11.sp,
-                            fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
-                        )
-                    }
-                }
-            }
-        }
-    }
-
-    // 预设生命周期管理
-    StudioGroupCard(stringResource(R.string.brush_studio_prop_ops)) {
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ReTextButton(
-                stringResource(R.string.brush_studio_prop_copy),
-                onDuplicate,
-                modifier = Modifier.weight(1f),
-                textColor = textMain,
-                fontSize = 12.sp,
-            )
-            if (preset?.isBuiltIn == true) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(38.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Morandi.panel.copy(alpha = 0.6f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(stringResource(R.string.brush_studio_prop_builtin_locked), color = textSub.copy(alpha = 0.5f), fontSize = 11.sp)
-                }
-            } else {
-                ReTextButton(
-                    stringResource(R.string.brush_studio_prop_rename),
-                    onRename,
-                    modifier = Modifier.weight(1f),
-                    textColor = textMain,
-                    fontSize = 12.sp,
-                )
-            }
-        }
-
-        Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-            ReTextButton(
-                stringResource(R.string.brush_studio_prop_reset),
-                { vm.resetBrushParams() },
-                modifier = Modifier.weight(1f),
-                textColor = textMain,
-                fontSize = 12.sp,
-            )
-            if (preset?.isBuiltIn == true) {
-                Box(
-                    modifier = Modifier
-                        .weight(1f)
-                        .height(38.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Morandi.panel.copy(alpha = 0.6f)),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(stringResource(R.string.brush_studio_prop_builtin_cannot_delete), color = textSub.copy(alpha = 0.5f), fontSize = 11.sp)
-                }
-            } else {
-                ReTextButton(
-                    stringResource(R.string.brush_studio_prop_delete),
-                    onDelete,
-                    modifier = Modifier.weight(1f),
-                    containerColor = Morandi.error.copy(alpha = 0.15f),
-                    contentColor = Morandi.error,
-                    fontSize = 12.sp,
-                )
-            }
-        }
-    }
-
-    // 元数据与信息归属
-    StudioGroupCard(stringResource(R.string.brush_studio_prop_info_title)) {
-        Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-            Text(stringResource(R.string.brush_studio_prop_name), color = textSub, fontSize = 11.sp)
-            if (preset?.isBuiltIn == true) {
-                Icon(painterResource(R.drawable.ic_lock), contentDescription = null, tint = Morandi.subText.copy(alpha = 0.7f), modifier = Modifier.size(12.dp))
-                Text(stringResource(R.string.brush_studio_prop_builtin_tag), color = textSub.copy(alpha = 0.8f), fontSize = 10.sp)
-            }
-        }
-        Box(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .background(Morandi.panel)
-                .padding(10.dp),
-        ) {
-            Text(preset?.name ?: stringResource(R.string.brush_studio_builtin_brush), color = textMain, fontSize = 13.sp, fontWeight = FontWeight.Medium)
-        }
-
-        Spacer(Modifier.height(4.dp))
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(8.dp),
-        ) {
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(stringResource(R.string.brush_studio_prop_author), color = textSub, fontSize = 11.sp)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Morandi.panel)
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                ) {
-                    Text(vm.brushAuthor.ifBlank { "ReveriePaint" }, color = textMain, fontSize = 11.sp, maxLines = 1)
-                }
-            }
-            Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                Text(stringResource(R.string.brush_studio_prop_group), color = textSub, fontSize = 11.sp)
-                Box(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Morandi.panel)
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
-                ) {
-                    Text(preset?.group ?: stringResource(R.string.brush_studio_prop_default_group), color = textMain, fontSize = 11.sp, maxLines = 1)
-                }
-            }
-        }
+        BrushDynamicCurveEditor(
+            config = vm.getBrushDynamicOption("Softness"),
+            onConfigChange = { vm.updateBrushDynamicOption(it) },
+            cardBg = cardBg,
+            borderCol = borderCol,
+            textMain = textMain,
+            textSub = textSub,
+            liveInput = vm.scratchpadLiveInput,
+            title = stringResource(R.string.brush_studio_dyn_softness),
+        )
+        StudioInnerDivider()
+        BrushDynamicCurveEditor(
+            config = vm.getBrushDynamicOption("Sharpness"),
+            onConfigChange = { vm.updateBrushDynamicOption(it) },
+            cardBg = cardBg,
+            borderCol = borderCol,
+            textMain = textMain,
+            textSub = textSub,
+            liveInput = vm.scratchpadLiveInput,
+            title = stringResource(R.string.brush_studio_dyn_sharpness),
+        )
     }
 }
 

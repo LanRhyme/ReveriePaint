@@ -44,17 +44,34 @@ enum class ControlId(val key: String, val klass: ControlClass, val group: String
     CURVE_SPACING("curve.Spacing", ControlClass.REBUILD, curveOption = "Spacing"),
     CURVE_SMUDGE_RATE("curve.SmudgeRate", ControlClass.REBUILD, curveOption = "SmudgeRate"),
     CURVE_COLOR_RATE("curve.ColorRate", ControlClass.REBUILD, curveOption = "ColorRate"),
+    CURVE_SHARPNESS("curve.Sharpness", ControlClass.REBUILD, curveOption = "Sharpness"),
+    CURVE_DARKEN("curve.Darken", ControlClass.REBUILD, curveOption = "Darken"),
+    CURVE_LIGHTNESS_STRENGTH("curve.LightnessStrength", ControlClass.REBUILD, curveOption = "LightnessStrength"),
+    CURVE_SMUDGE_RADIUS("curve.SmudgeRadius", ControlClass.REBUILD, curveOption = "SmudgeRadius"),
+    CURVE_PAINT_THICKNESS("curve.PaintThickness", ControlClass.REBUILD, curveOption = "PaintThickness"),
     SPACING("spacing", ControlClass.REBUILD),
+    USE_AUTO_SPACING("useAutoSpacing", ControlClass.REBUILD),
+    ISOTROPIC_SPACING("isotropicSpacing", ControlClass.REBUILD),
     SCATTER("scatter", ControlClass.REBUILD),
     SCATTER_BOTH_AXES("scatterBothAxes", ControlClass.REBUILD),
     SOFTNESS("softness", ControlClass.REBUILD),
     SHARPNESS("sharpness", ControlClass.REBUILD),
+    SHARPNESS_SOFTNESS("sharpnessSoftness", ControlClass.REBUILD),
     RATIO("ratio", ControlClass.REBUILD),
     FADE("fade", ControlClass.REBUILD),
     TIP_SHAPE("tipShape", ControlClass.REBUILD),
+    TIP_MASK_TYPE("tipMaskType", ControlClass.REBUILD),
+    TIP_DENSITY("tipDensity", ControlClass.REBUILD),
+    TIP_RANDOMNESS("tipRandomness", ControlClass.REBUILD),
+    BRUSH_APPLICATION("brushApplication", ControlClass.REBUILD),
+    LIGHTNESS_STRENGTH("lightnessStrength", ControlClass.REBUILD),
     SPIKES("spikes", ControlClass.REBUILD),
     ANTI_ALIASING("antiAliasing", ControlClass.REBUILD),
     COMPOSITE_OP("compositeOp", ControlClass.REBUILD),
+    ERASER_MODE("eraserMode", ControlClass.REBUILD),
+    PAINTING_MODE("paintingMode", ControlClass.REBUILD),
+    PRECISION_LEVEL("precisionLevel", ControlClass.REBUILD),
+    PRECISION_AUTO("precisionAuto", ControlClass.REBUILD),
     RANDOM_FLIP_X("randomFlipX", ControlClass.REBUILD),
     RANDOM_FLIP_Y("randomFlipY", ControlClass.REBUILD),
     FOLLOW_DIRECTION("followDirection", ControlClass.REBUILD),
@@ -71,6 +88,8 @@ enum class ControlId(val key: String, val klass: ControlClass, val group: String
     TEXTURE_BRIGHTNESS("textureBrightness", ControlClass.REBUILD),
     TEXTURE_CONTRAST("textureContrast", ControlClass.REBUILD),
     TEXTURE_PATTERN("texturePattern", ControlClass.REBUILD),
+    COLOR_SOURCE_TYPE("colorSourceType", ControlClass.REBUILD),
+    DARKEN("darken", ControlClass.REBUILD),
     HUE_JITTER("hueJitter", ControlClass.REBUILD),
     SAT_JITTER("satJitter", ControlClass.REBUILD),
     VAL_JITTER("valJitter", ControlClass.REBUILD),
@@ -79,6 +98,12 @@ enum class ControlId(val key: String, val klass: ControlClass, val group: String
     COLOR_RATE("colorRate", ControlClass.REBUILD),
     SMUDGE_LENGTH("smudgeLength", ControlClass.REBUILD),
     SMUDGE_MODE("smudgeMode", ControlClass.REBUILD),
+    SMUDGE_SMEAR_ALPHA("smudgeSmearAlpha", ControlClass.REBUILD),
+    SMUDGE_USE_NEW_ENGINE("smudgeUseNewEngine", ControlClass.REBUILD),
+    SMUDGE_OVERLAY_MODE("smudgeOverlayMode", ControlClass.REBUILD),
+    SMUDGE_RADIUS("smudgeRadius", ControlClass.REBUILD),
+    PAINT_THICKNESS("paintThickness", ControlClass.REBUILD),
+    PAINT_THICKNESS_MODE("paintThicknessMode", ControlClass.REBUILD),
     AIRBRUSH("airbrush", ControlClass.REBUILD),
     AIRBRUSH_RATE("airbrushRate", ControlClass.REBUILD),
     MASKING_ENABLED("maskingEnabled", ControlClass.REBUILD, group = "masking"),
@@ -357,8 +382,9 @@ object PresetPropertyMap {
             write = { xml, v, _ -> CurveValue.parse(s(v))?.let { writeCurve(xml, opt, it) } ?: xml },
             applicable = { ctx ->
                 !ctx.isMyPaint && when (opt) {
-                    "SmudgeRate", "ColorRate" -> ctx.isColorSmudge
+                    "SmudgeRate", "ColorRate", "SmudgeRadius", "PaintThickness" -> ctx.isColorSmudge
                     "Spacing" -> ctx.hasBrushDef
+                    "LightnessStrength" -> ctx.hasBrushDef && !ctx.hasMaskGenerator
                     else -> true
                 }
             },
@@ -691,6 +717,10 @@ object PresetPropertyMap {
                 spikes = eff.spikes,
                 ratio = eff.ratio,
                 antiAliasing = eff.antiAliasing,
+                maskType = eff.tipMaskType,
+                density = eff.tipDensity,
+                randomness = eff.tipRandomness,
+                useAutoSpacing = eff.useAutoSpacing,
             )
             var x = KppXml.setMainBrushDef(xml, def)
             x = KppXml.remove(x, "requiredBrushFile")
@@ -828,7 +858,12 @@ object PresetPropertyMap {
 
     private val hasDef: (PresetContext) -> Boolean = { !it.isMyPaint && it.hasBrushDef }
     private val hasGen: (PresetContext) -> Boolean = { !it.isMyPaint && it.hasMaskGenerator }
+    private val bitmapTipOnly: (PresetContext) -> Boolean = { !it.isMyPaint && it.hasBrushDef && !it.hasMaskGenerator }
     private val smudgeOnly: (PresetContext) -> Boolean = { !it.isMyPaint && it.isColorSmudge }
+    private val directPaintEngines = setOf("colorsmudge", "deformbrush", "filter", "duplicate")
+    private val supportsPaintingMode: (PresetContext) -> Boolean = {
+        !it.isMyPaint && PaintOpIds.canonical(it.paintOpId) !in directPaintEngines
+    }
     private val always: (PresetContext) -> Boolean = { true }
 
     private fun app(id: ControlId, get: (BrushParams) -> Any, set: (BrushParams, Any) -> BrushParams) =
@@ -893,11 +928,39 @@ object PresetPropertyMap {
             ControlId.CURVE_SIZE, ControlId.CURVE_OPACITY, ControlId.CURVE_FLOW, ControlId.CURVE_ROTATION,
             ControlId.CURVE_SCATTER, ControlId.CURVE_RATIO, ControlId.CURVE_SOFTNESS, ControlId.CURVE_SPACING,
             ControlId.CURVE_SMUDGE_RATE, ControlId.CURVE_COLOR_RATE,
+            ControlId.CURVE_SHARPNESS, ControlId.CURVE_DARKEN, ControlId.CURVE_LIGHTNESS_STRENGTH,
+            ControlId.CURVE_SMUDGE_RADIUS, ControlId.CURVE_PAINT_THICKNESS,
         ).forEach { add(curveSpec(it)) }
         add(
             ControlSpec(
                 ControlId.SPACING, { it.spacing }, { p, v -> p.copy(spacing = d(v)) },
                 read = ::readSpacing, write = { x, v, _ -> writeSpacing(x, d(v)) }, applicable = hasDef,
+            ),
+        )
+        add(
+            ControlSpec(
+                ControlId.USE_AUTO_SPACING, { it.useAutoSpacing }, { p, v -> p.copy(useAutoSpacing = b(v)) },
+                read = { x -> KppXml.brushAttr(x, "useAutoSpacing")?.trim()?.let { it == "1" || it.equals("true", true) } ?: false },
+                write = { x, v, eff ->
+                    val on = b(v)
+                    var out = KppXml.setBrushAttr(x, "useAutoSpacing", if (on) "1" else "0")
+                    if (on && KppXml.brushAttr(out, "autoSpacingCoeff").isNullOrBlank()) {
+                        out = KppXml.setBrushAttr(out, "autoSpacingCoeff", f(eff.spacing.coerceIn(0.05, 3.0)))
+                    }
+                    if (!on && KppXml.brushAttr(out, "spacing").isNullOrBlank()) {
+                        out = KppXml.setBrushAttr(out, "spacing", f(eff.spacing.coerceIn(0.02, 2.5)))
+                    }
+                    out
+                },
+                applicable = hasDef,
+            ),
+        )
+        add(
+            ControlSpec(
+                ControlId.ISOTROPIC_SPACING, { it.isotropicSpacing }, { p, v -> p.copy(isotropicSpacing = b(v)) },
+                read = { KppXml.getBool(it, "Spacing/Isotropic", false) },
+                write = { x, v, _ -> KppXml.set(x, "Spacing/Isotropic", b(v).toString()) },
+                applicable = hasDef,
             ),
         )
         add(strengthSpec(ControlId.SCATTER, "Scatter", 0.0, { it.scatter }, { p, v -> p.copy(scatter = v) }, { it > TOL }))
@@ -945,6 +1008,14 @@ object PresetPropertyMap {
         )
         add(
             ControlSpec(
+                ControlId.SHARPNESS_SOFTNESS, { it.sharpnessSoftness }, { p, v -> p.copy(sharpnessSoftness = i(v)) },
+                read = { x -> (KppXml.getInt(x, "Sharpness/softness") ?: 0).coerceIn(0, 100) },
+                write = { x, v, _ -> KppXml.set(x, "Sharpness/softness", i(v).coerceIn(0, 100).toString()) },
+                normalize = { v -> i(v).coerceIn(0, 100) },
+            ),
+        )
+        add(
+            ControlSpec(
                 ControlId.RATIO, { it.ratio }, { p, v -> p.copy(ratio = d(v)) },
                 read = { x ->
                     if (KppXml.hasMaskGenerator(x)) KppXml.maskGenAttr(x, "ratio")?.toDoubleOrNull() ?: 1.0
@@ -988,6 +1059,66 @@ object PresetPropertyMap {
         )
         add(
             ControlSpec(
+                ControlId.TIP_MASK_TYPE, { it.tipMaskType }, { p, v -> p.copy(tipMaskType = i(v)) },
+                read = { x ->
+                    when (KppXml.maskGenAttr(x, "id")?.trim()?.lowercase()) {
+                        "gauss" -> 1
+                        "soft" -> 2
+                        else -> 0
+                    }
+                },
+                write = { x, v, _ ->
+                    val idStr = when (i(v).coerceIn(0, 2)) {
+                        1 -> "gauss"
+                        2 -> "soft"
+                        else -> "default"
+                    }
+                    KppXml.setMaskGenAttr(x, "id", idStr)
+                },
+                applicable = hasGen,
+                normalize = { v -> i(v).coerceIn(0, 2) },
+            ),
+        )
+        add(
+            ControlSpec(
+                ControlId.TIP_DENSITY, { it.tipDensity }, { p, v -> p.copy(tipDensity = d(v)) },
+                read = { x -> (KppXml.brushAttr(x, "density")?.toDoubleOrNull() ?: 1.0).coerceIn(0.0, 1.0) },
+                write = { x, v, _ -> KppXml.setBrushAttr(x, "density", f(d(v).coerceIn(0.0, 1.0))) },
+                applicable = hasGen,
+                normalize = { v -> d(v).coerceIn(0.0, 1.0) },
+            ),
+        )
+        add(
+            ControlSpec(
+                ControlId.TIP_RANDOMNESS, { it.tipRandomness }, { p, v -> p.copy(tipRandomness = d(v)) },
+                read = { x -> (KppXml.brushAttr(x, "randomness")?.toDoubleOrNull() ?: 0.0).coerceIn(0.0, 1.0) },
+                write = { x, v, _ -> KppXml.setBrushAttr(x, "randomness", f(d(v).coerceIn(0.0, 1.0))) },
+                applicable = hasGen,
+                normalize = { v -> d(v).coerceIn(0.0, 1.0) },
+            ),
+        )
+        add(
+            ControlSpec(
+                ControlId.BRUSH_APPLICATION, { it.brushApplication }, { p, v -> p.copy(brushApplication = i(v)) },
+                read = { x -> (KppXml.brushAttr(x, "brushApplication")?.toIntOrNull() ?: 0).coerceIn(0, 3) },
+                write = { x, v, _ -> KppXml.setBrushAttr(x, "brushApplication", i(v).coerceIn(0, 3).toString()) },
+                applicable = bitmapTipOnly,
+                normalize = { v -> i(v).coerceIn(0, 3) },
+            ),
+        )
+        add(
+            strengthSpec(
+                ControlId.LIGHTNESS_STRENGTH,
+                "LightnessStrength",
+                1.0,
+                { it.lightnessStrength },
+                { p, v -> p.copy(lightnessStrength = v) },
+                { it < 1.0 - TOL },
+                bitmapTipOnly,
+            ),
+        )
+        add(
+            ControlSpec(
                 ControlId.SPIKES, { it.spikes }, { p, v -> p.copy(spikes = i(v)) },
                 read = { x -> KppXml.maskGenAttr(x, "spikes")?.toDoubleOrNull()?.toInt() },
                 write = { x, v, _ -> KppXml.setMaskGenAttr(x, "spikes", i(v).coerceAtLeast(2).toString()) },
@@ -1008,7 +1139,66 @@ object PresetPropertyMap {
             ControlSpec(
                 ControlId.COMPOSITE_OP, { it.compositeOp }, { p, v -> p.copy(compositeOp = BrushCompositeIds.canonical(s(v))) },
                 read = { BrushCompositeIds.canonical(KppXml.get(it, "CompositeOp")?.trim()?.ifBlank { null } ?: "normal") },
-                write = { x, v, _ -> if (s(v).isBlank()) x else KppXml.set(x, "CompositeOp", BrushCompositeIds.canonical(s(v))) },
+                write = { x, v, eff ->
+                    if (s(v).isBlank()) x
+                    else {
+                        var out = KppXml.set(x, "CompositeOp", BrushCompositeIds.canonical(s(v)))
+                        if (eff.eraserMode && !KppXml.getBool(out, "EraserMode", false)) {
+                            out = KppXml.set(out, "EraserMode", "true")
+                        }
+                        out
+                    }
+                },
+            ),
+        )
+        add(
+            ControlSpec(
+                ControlId.ERASER_MODE,
+                { it.eraserMode },
+                { p, v ->
+                    val on = b(v)
+                    p.copy(
+                        eraserMode = on,
+                        compositeOp = if (!on && p.compositeOp == "erase") "normal" else p.compositeOp,
+                    )
+                },
+                read = { x -> KppXml.getBool(x, "EraserMode", false) || KppXml.get(x, "CompositeOp")?.trim() == "erase" },
+                write = { x, v, eff ->
+                    val on = b(v)
+                    var out = KppXml.set(x, "EraserMode", on.toString())
+                    if (!on && KppXml.get(out, "CompositeOp")?.trim() == "erase") {
+                        val fallback = BrushCompositeIds.canonical(eff.compositeOp)
+                            .takeIf { it.isNotBlank() && it != "erase" } ?: "normal"
+                        out = KppXml.set(out, "CompositeOp", fallback)
+                    }
+                    out
+                },
+            ),
+        )
+        add(
+            ControlSpec(
+                ControlId.PAINTING_MODE, { it.paintingMode }, { p, v -> p.copy(paintingMode = if (i(v) == 1) 1 else 2) },
+                read = { x -> KppXml.getInt(x, "PaintOpAction")?.let { if (it == 1) 1 else 2 } ?: 2 },
+                write = { x, v, _ -> KppXml.set(x, "PaintOpAction", if (i(v) == 1) "1" else "2") },
+                applicable = supportsPaintingMode,
+                normalize = { v -> if (i(v) == 1) 1 else 2 },
+            ),
+        )
+        add(
+            ControlSpec(
+                ControlId.PRECISION_LEVEL, { it.precisionLevel }, { p, v -> p.copy(precisionLevel = i(v).coerceIn(1, 5)) },
+                read = { x -> (KppXml.getInt(x, "KisPrecisionOption/precisionLevel") ?: 5).coerceIn(1, 5) },
+                write = { x, v, _ -> KppXml.set(x, "KisPrecisionOption/precisionLevel", i(v).coerceIn(1, 5).toString()) },
+                applicable = hasDef,
+                normalize = { v -> i(v).coerceIn(1, 5) },
+            ),
+        )
+        add(
+            ControlSpec(
+                ControlId.PRECISION_AUTO, { it.precisionAuto }, { p, v -> p.copy(precisionAuto = b(v)) },
+                read = { KppXml.getBool(it, "KisPrecisionOption/AutoPrecisionEnabled", false) },
+                write = { x, v, _ -> KppXml.set(x, "KisPrecisionOption/AutoPrecisionEnabled", b(v).toString()) },
+                applicable = hasDef,
             ),
         )
         add(mirrorSpec(ControlId.RANDOM_FLIP_X, "HorizontalMirrorEnabled", "VerticalMirrorEnabled", { it.randomFlipX }) { p, v -> p.copy(randomFlipX = v) })
@@ -1141,6 +1331,14 @@ object PresetPropertyMap {
                 write = { x, v, _ -> writeTexturePattern(x, ResourceStore.Ref(md5 = "", file = s(v), kind = ResourceStore.Kind.PATTERN)) },
             ),
         )
+        add(
+            ControlSpec(
+                ControlId.COLOR_SOURCE_TYPE, { it.colorSourceType }, { p, v -> p.copy(colorSourceType = s(v)) },
+                read = { x -> KppXml.get(x, "ColorSource/Type")?.trim()?.ifBlank { null } ?: "plain" },
+                write = { x, v, _ -> KppXml.set(x, "ColorSource/Type", s(v).trim().ifBlank { "plain" }) },
+            ),
+        )
+        add(strengthSpec(ControlId.DARKEN, "Darken", 0.0, { it.darken }, { p, v -> p.copy(darken = v) }, { it > TOL }))
         add(jitterSpec(ControlId.HUE_JITTER, "h", { it.hueJitter }) { p, v -> p.copy(hueJitter = v) })
         add(jitterSpec(ControlId.SAT_JITTER, "s", { it.satJitter }) { p, v -> p.copy(satJitter = v) })
         add(jitterSpec(ControlId.VAL_JITTER, "v", { it.valJitter }) { p, v -> p.copy(valJitter = v) })
@@ -1173,6 +1371,70 @@ object PresetPropertyMap {
                 write = { x, v, _ -> KppXml.set(x, "SmudgeRateMode", i(v).coerceIn(0, 1).toString()) },
                 applicable = smudgeOnly,
                 normalize = { v -> i(v).coerceIn(0, 1) },
+            ),
+        )
+        add(
+            ControlSpec(
+                ControlId.SMUDGE_SMEAR_ALPHA, { it.smudgeSmearAlpha }, { p, v -> p.copy(smudgeSmearAlpha = b(v)) },
+                read = { KppXml.getBool(it, "SmudgeRateSmearAlpha", true) },
+                write = { x, v, _ -> KppXml.set(x, "SmudgeRateSmearAlpha", b(v).toString()) },
+                applicable = smudgeOnly,
+            ),
+        )
+        add(
+            ControlSpec(
+                ControlId.SMUDGE_USE_NEW_ENGINE, { it.smudgeUseNewEngine }, { p, v -> p.copy(smudgeUseNewEngine = b(v)) },
+                read = { KppXml.getBool(it, "SmudgeRateUseNewEngine", false) },
+                write = { x, v, _ -> KppXml.set(x, "SmudgeRateUseNewEngine", b(v).toString()) },
+                applicable = smudgeOnly,
+            ),
+        )
+        add(
+            ControlSpec(
+                ControlId.SMUDGE_OVERLAY_MODE, { it.smudgeOverlayMode }, { p, v -> p.copy(smudgeOverlayMode = b(v)) },
+                read = { KppXml.getBool(it, "MergedPaint", false) },
+                write = { x, v, _ -> KppXml.set(x, "MergedPaint", b(v).toString()) },
+                applicable = smudgeOnly,
+            ),
+        )
+        add(
+            ControlSpec(
+                ControlId.SMUDGE_RADIUS, { it.smudgeRadius }, { p, v -> p.copy(smudgeRadius = d(v).coerceIn(0.0, 3.0)) },
+                read = { x ->
+                    if (!KppSensors.isChecked(x, "SmudgeRadius")) 0.0
+                    else {
+                        val raw = KppXml.getDouble(x, "SmudgeRadiusValue") ?: 0.0
+                        val ver = KppXml.getInt(x, "SmudgeRadiusVersion") ?: 1
+                        (if (ver < 2) raw / 100.0 else raw).coerceIn(0.0, 3.0)
+                    }
+                },
+                write = { x, v, _ ->
+                    val sv = d(v).coerceIn(0.0, 3.0)
+                    val out = KppSensors.writeStrength(x, "SmudgeRadius", sv, sv > TOL || curveActive(x, "SmudgeRadius"))
+                    KppXml.set(out, "SmudgeRadiusVersion", "2")
+                },
+                applicable = smudgeOnly,
+                normalize = { v -> d(v).coerceIn(0.0, 3.0) },
+            ),
+        )
+        add(
+            strengthSpec(
+                ControlId.PAINT_THICKNESS,
+                "PaintThickness",
+                0.0,
+                { it.paintThickness },
+                { p, v -> p.copy(paintThickness = v) },
+                { it > TOL },
+                smudgeOnly,
+            ),
+        )
+        add(
+            ControlSpec(
+                ControlId.PAINT_THICKNESS_MODE, { it.paintThicknessMode }, { p, v -> p.copy(paintThicknessMode = if (i(v) == 1) 1 else 2) },
+                read = { x -> KppXml.getInt(x, "PaintThicknessThicknessMode")?.let { if (it == 1) 1 else 2 } ?: 2 },
+                write = { x, v, _ -> KppXml.set(x, "PaintThicknessThicknessMode", if (i(v) == 1) "1" else "2") },
+                applicable = smudgeOnly,
+                normalize = { v -> if (i(v) == 1) 1 else 2 },
             ),
         )
         add(

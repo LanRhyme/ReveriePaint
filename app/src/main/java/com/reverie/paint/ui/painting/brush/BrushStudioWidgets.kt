@@ -18,6 +18,7 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
+import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -40,10 +41,12 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
 import com.reverie.paint.ui.theme.glassBorder
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
 import androidx.compose.ui.graphics.drawscope.DrawScope
+import androidx.compose.ui.graphics.drawscope.Fill
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.graphics.drawscope.rotate
 import androidx.compose.ui.graphics.drawscope.scale
@@ -163,6 +166,8 @@ internal fun studioGateReason(vm: PaintViewModel, id: com.reverie.paint.core.bru
             com.reverie.paint.core.brushstore.BrushApplicability.Reason.COLORSMUDGE_ONLY -> R.string.brush_gate_colorsmudge_only
             com.reverie.paint.core.brushstore.BrushApplicability.Reason.NO_BRUSH_DEF -> R.string.brush_gate_no_brush_def
             com.reverie.paint.core.brushstore.BrushApplicability.Reason.AUTO_TIP_ONLY -> R.string.brush_gate_auto_tip_only
+            com.reverie.paint.core.brushstore.BrushApplicability.Reason.DIRECT_PAINT_ENGINE -> R.string.brush_gate_direct_paint_engine
+            com.reverie.paint.core.brushstore.BrushApplicability.Reason.IMAGE_TIP_ONLY -> R.string.brush_gate_image_tip_only
         },
     )
 }
@@ -272,11 +277,16 @@ internal fun StudioAngleDial(
     cardBg: Color,
     borderCol: Color,
     modifier: Modifier = Modifier,
+    tipShape: Int = 0,
 ) {
+    val safeRatio = ratio.coerceIn(0.08f, 1f)
+    val normAngle = ((angle % 360f) + 360f) % 360f
+
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
             .background(Morandi.panel.copy(alpha = 0.6f))
+            .border(0.6.dp, Morandi.border.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
             .pointerInput(Unit) {
                 detectDragGestures { change, _ ->
                     change.consume()
@@ -284,7 +294,7 @@ internal fun StudioAngleDial(
                     val dx = change.position.x - center.x
                     val dy = change.position.y - center.y
                     var deg = (atan2(dy, dx) * 180f / Math.PI.toFloat())
-                    if (deg < 0) deg += 360f
+                    if (deg < 0f) deg += 360f
                     onAngleChange(deg)
                 }
             },
@@ -294,68 +304,155 @@ internal fun StudioAngleDial(
             val center = Offset(size.width / 2f, size.height / 2f)
             val radius = size.minDimension / 2f
 
+            // Outer dial ring
             drawCircle(
-                color = Morandi.border.copy(alpha = 0.25f),
+                color = Morandi.border.copy(alpha = 0.28f),
                 radius = radius,
                 center = center,
-                style = Stroke(width = 1.5.dp.toPx()),
+                style = Stroke(width = 1.2.dp.toPx()),
             )
 
-            val rad = angle * (Math.PI.toFloat() / 180f)
+            // 12 radial ticks around perimeter
+            for (i in 0 until 12) {
+                val tickRad = (i * 30f) * (Math.PI.toFloat() / 180f)
+                val innerR = radius - if (i % 3 == 0) 6.dp.toPx() else 3.5.dp.toPx()
+                drawLine(
+                    color = Morandi.border.copy(alpha = if (i % 3 == 0) 0.45f else 0.22f),
+                    start = Offset(center.x + cos(tickRad) * innerR, center.y + sin(tickRad) * innerR),
+                    end = Offset(center.x + cos(tickRad) * radius, center.y + sin(tickRad) * radius),
+                    strokeWidth = 1.dp.toPx(),
+                )
+            }
+
+            // Rotated tip silhouette (ellipse or rounded rect scaled by aspect ratio)
+            val tipMaxW = radius * 1.18f
+            val tipH = (tipMaxW * safeRatio).coerceAtLeast(3.dp.toPx())
+            val tipTopLeft = Offset(center.x - tipMaxW / 2f, center.y - tipH / 2f)
+            val tipSize = Size(tipMaxW, tipH)
+            rotate(degrees = normAngle, pivot = center) {
+                if (tipShape == 1) {
+                    val cr = CornerRadius(3.dp.toPx(), 3.dp.toPx())
+                    drawRoundRect(
+                        color = Morandi.accent.copy(alpha = 0.22f),
+                        topLeft = tipTopLeft,
+                        size = tipSize,
+                        cornerRadius = cr,
+                        style = Fill,
+                    )
+                    drawRoundRect(
+                        color = Morandi.accent.copy(alpha = 0.72f),
+                        topLeft = tipTopLeft,
+                        size = tipSize,
+                        cornerRadius = cr,
+                        style = Stroke(width = 1.2.dp.toPx()),
+                    )
+                } else {
+                    drawOval(
+                        color = Morandi.accent.copy(alpha = 0.22f),
+                        topLeft = tipTopLeft,
+                        size = tipSize,
+                        style = Fill,
+                    )
+                    drawOval(
+                        color = Morandi.accent.copy(alpha = 0.72f),
+                        topLeft = tipTopLeft,
+                        size = tipSize,
+                        style = Stroke(width = 1.2.dp.toPx()),
+                    )
+                }
+            }
+
+            // Direction indicator needle
+            val rad = normAngle * (Math.PI.toFloat() / 180f)
             val needleX = center.x + cos(rad) * (radius - 4.dp.toPx())
             val needleY = center.y + sin(rad) * (radius - 4.dp.toPx())
-
             drawLine(
-                color = Morandi.accent.copy(alpha = 0.8f),
+                color = Morandi.accent.copy(alpha = 0.85f),
                 start = center,
                 end = Offset(needleX, needleY),
-                strokeWidth = 2.dp.toPx(),
+                strokeWidth = 1.8.dp.toPx(),
                 cap = StrokeCap.Round,
             )
-
             drawCircle(
                 color = Morandi.accent,
-                radius = 3.5.dp.toPx(),
+                radius = 3.2.dp.toPx(),
                 center = Offset(needleX, needleY),
             )
         }
+        Text(
+            text = "${normAngle.roundToInt()}°",
+            color = Morandi.text,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.SemiBold,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 3.dp)
+                .clip(RoundedCornerShape(4.dp))
+                .background(Morandi.panel.copy(alpha = 0.8f))
+                .padding(horizontal = 4.dp, vertical = 1.dp),
+        )
     }
 }
 
 @Composable
-internal fun StudioSensorChips(
-    title: String,
-    selectedSensor: String,
-    sensors: List<Pair<String, Int>>,
-    onSelectSensor: (String) -> Unit,
-    cardBg: Color,
-    textMain: Color,
-    textSub: Color,
+internal fun StudioSegmentedRow(
+    label: String,
+    options: List<Pair<Int, String>>,
+    selected: Int,
+    enabled: Boolean = true,
+    textMain: Color = Morandi.text,
+    textSub: Color = Morandi.subText,
+    onSelect: (Int) -> Unit,
 ) {
     Column(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 2.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(vertical = 4.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        Text(title, color = textSub, fontSize = 11.sp, fontWeight = FontWeight.Medium)
+        Text(
+            text = label,
+            color = if (enabled) textMain else textSub.copy(alpha = 0.55f),
+            fontSize = 13.sp,
+            fontWeight = FontWeight.Normal,
+        )
         Row(
-            modifier = Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
-            horizontalArrangement = Arrangement.spacedBy(6.dp),
+            modifier = Modifier
+                .fillMaxWidth()
+                .clip(RoundedCornerShape(10.dp))
+                .background(Morandi.panel.copy(alpha = 0.55f))
+                .border(0.6.dp, Morandi.border.copy(alpha = 0.22f), RoundedCornerShape(10.dp))
+                .padding(3.dp),
+            horizontalArrangement = Arrangement.spacedBy(3.dp),
         ) {
-            sensors.forEach { (sensorId, nameRes) ->
-                val sel = (selectedSensor == sensorId) || (sensorId == "pressure" && selectedSensor.isBlank())
+            options.forEach { (id, title) ->
+                val isSelected = selected == id
                 Box(
                     modifier = Modifier
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(if (sel) Morandi.accent.copy(alpha = 0.22f) else Morandi.panel.copy(alpha = 0.6f))
-                        .clickable { onSelectSensor(sensorId) }
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                        .weight(1f)
+                        .clip(RoundedCornerShape(7.dp))
+                        .background(if (isSelected) Morandi.accent.copy(alpha = 0.24f) else Color.Transparent)
+                        .border(
+                            width = if (isSelected) 0.6.dp else 0.dp,
+                            color = if (isSelected) Morandi.accent.copy(alpha = 0.7f) else Color.Transparent,
+                            shape = RoundedCornerShape(7.dp),
+                        )
+                        .clickable(enabled = enabled) { onSelect(id) }
+                        .padding(horizontal = 6.dp, vertical = 6.dp),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(
-                        stringResource(nameRes),
-                        color = if (sel) Morandi.accent else textMain,
-                        fontSize = 11.sp,
-                        fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+                        text = title,
+                        color = when {
+                            !enabled -> textSub.copy(alpha = 0.5f)
+                            isSelected -> Morandi.accent
+                            else -> textSub
+                        },
+                        fontSize = 11.5.sp,
+                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textAlign = TextAlign.Center,
                     )
                 }
             }
@@ -364,67 +461,73 @@ internal fun StudioSensorChips(
 }
 
 @Composable
-internal fun StudioCurvePreview(
-    curveType: Int,
-    cardBg: Color,
-    borderCol: Color,
-    modifier: Modifier = Modifier,
+internal fun StudioSelectorRow(
+    label: String,
+    valueText: String,
+    subtitle: String? = null,
+    enabled: Boolean = true,
+    textMain: Color = Morandi.text,
+    textSub: Color = Morandi.subText,
+    onClick: () -> Unit,
 ) {
-    Canvas(
-        modifier = modifier
+    Column(
+        modifier = Modifier
             .fillMaxWidth()
-            .height(96.dp)
             .clip(RoundedCornerShape(10.dp))
-            .background(Morandi.panel.copy(alpha = 0.6f))
-            .padding(10.dp)
+            .clickable(enabled = enabled, onClick = onClick)
+            .padding(vertical = 7.dp, horizontal = 4.dp),
     ) {
-        val w = size.width
-        val h = size.height
-        val gridLines = 4
-        for (i in 1 until gridLines) {
-            val x = w * (i.toFloat() / gridLines)
-            val y = h * (i.toFloat() / gridLines)
-            drawLine(
-                color = borderCol.copy(alpha = 0.35f),
-                start = Offset(x, 0f),
-                end = Offset(x, h),
-                strokeWidth = 1f,
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Text(
+                text = label,
+                color = if (enabled) textMain else textSub.copy(alpha = 0.55f),
+                fontSize = 13.sp,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
             )
-            drawLine(
-                color = borderCol.copy(alpha = 0.35f),
-                start = Offset(0f, y),
-                end = Offset(w, y),
-                strokeWidth = 1f,
-            )
-        }
-
-        val path = androidx.compose.ui.graphics.Path()
-        val steps = 50
-        for (step in 0..steps) {
-            val t = step.toFloat() / steps
-            val v = when (curveType) {
-                1 -> t.toDouble().pow(0.5).toFloat()
-                2 -> t.toDouble().pow(2.0).toFloat()
-                3 -> {
-                    val s = if (t < 0.5f) {
-                        2.0 * t * t
-                    } else {
-                        1.0 - 2.0 * (1.0 - t) * (1.0 - t)
-                    }
-                    s.toFloat()
-                }
-                else -> t
+            Spacer(modifier = Modifier.width(8.dp))
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(Morandi.panel.copy(alpha = 0.65f))
+                    .border(0.6.dp, Morandi.border.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
+                    .padding(horizontal = 9.dp, vertical = 4.dp),
+            ) {
+                Text(
+                    text = valueText,
+                    color = if (enabled) Morandi.accent else textSub.copy(alpha = 0.55f),
+                    fontSize = 12.sp,
+                    fontWeight = FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Icon(
+                    painter = painterResource(R.drawable.ic_chevron),
+                    contentDescription = null,
+                    tint = textSub,
+                    modifier = Modifier.size(13.dp),
+                )
             }
-            val px = t * w
-            val py = h - v * h
-            if (step == 0) path.moveTo(px, py) else path.lineTo(px, py)
         }
-
-        drawPath(
-            path = path,
-            color = Morandi.accent,
-            style = Stroke(width = 2.dp.toPx(), cap = StrokeCap.Round),
-        )
+        if (!subtitle.isNullOrBlank()) {
+            Spacer(modifier = Modifier.height(3.dp))
+            Text(
+                text = subtitle,
+                color = textSub,
+                fontSize = 11.sp,
+                lineHeight = 14.sp,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
+
 

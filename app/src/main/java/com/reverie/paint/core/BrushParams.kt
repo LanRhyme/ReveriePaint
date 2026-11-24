@@ -118,6 +118,46 @@ data class BrushParams(
     val sizeSensor: String = "pressure",
     val opacitySensor: String = "pressure",
     val flowSensor: String = "pressure",
+    /** 绘制模式（Krita PaintOpAction）：1=堆积 (BUILDUP)，2=冲刷 (WASH) */
+    val paintingMode: Int = 2,
+    /** 独立橡皮模式（Krita EraserMode） */
+    val eraserMode: Boolean = false,
+    /** 参数化笔尖羽化类型（MaskGenerator id）：0=default，1=gauss，2=soft */
+    val tipMaskType: Int = 0,
+    /** 参数化笔尖密度（<Brush density> 0.0..1.0） */
+    val tipDensity: Double = 1.0,
+    /** 参数化笔尖随机度（<Brush randomness> 0.0..1.0） */
+    val tipRandomness: Double = 0.0,
+    /** 自动间距开关（<Brush useAutoSpacing>） */
+    val useAutoSpacing: Boolean = false,
+    /** 等向间距开关（Spacing/Isotropic） */
+    val isotropicSpacing: Boolean = false,
+    /** 贴图笔尖应用模式（<Brush brushApplication>）：0=ALPHAMASK, 1=IMAGESTAMP, 2=LIGHTNESSMAP, 3=GRADIENTMAP */
+    val brushApplication: Int = 0,
+    /** 亮度映射强度（LightnessStrength 0.0..1.0） */
+    val lightnessStrength: Double = 1.0,
+    /** 锐度边缘柔化容差（Sharpness/softness 0..100） */
+    val sharpnessSoftness: Int = 0,
+    /** 色彩源类型（ColorSource/Type）：plain/gradient/uniform_random/total_random/pattern/lockedpattern */
+    val colorSourceType: String = "plain",
+    /** 变暗强度（Darken 0.0..1.0） */
+    val darken: Double = 0.0,
+    /** 渲染精度等级（KisPrecisionOption/precisionLevel 1..5） */
+    val precisionLevel: Int = 5,
+    /** 自动精度开关（KisPrecisionOption/AutoPrecisionEnabled） */
+    val precisionAuto: Boolean = false,
+    /** 涂抹引擎：涂抹透明通道（SmudgeRateSmearAlpha） */
+    val smudgeSmearAlpha: Boolean = true,
+    /** 涂抹引擎：使用新版混色引擎（SmudgeRateUseNewEngine） */
+    val smudgeUseNewEngine: Boolean = false,
+    /** 涂抹引擎：采样全部可见图层/叠加模式（MergedPaint） */
+    val smudgeOverlayMode: Boolean = false,
+    /** 涂抹引擎：涂抹采样半径（SmudgeRadius 0.0..3.0） */
+    val smudgeRadius: Double = 0.0,
+    /** 涂抹引擎：颜料厚涂强度（PaintThickness 0.0..1.0） */
+    val paintThickness: Double = 0.0,
+    /** 涂抹引擎：厚涂模式（PaintThicknessThicknessMode）：1=OVERWRITE 覆盖，2=OVERLAY 叠加 */
+    val paintThicknessMode: Int = 2,
 )
 
 /** A bundled Krita brush preset (.kpp) with its PNG thumbnail. */

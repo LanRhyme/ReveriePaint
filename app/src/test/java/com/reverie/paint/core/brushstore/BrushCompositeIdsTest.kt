@@ -22,12 +22,53 @@ class BrushCompositeIdsTest {
     private val mainRoot = listOf(File("src/main/java"), File("app/src/main/java")).first { it.isDirectory }
     private fun src(rel: String) = File(mainRoot, rel).readText()
 
-    /** Krita KoCompositeOpRegistry.h 里的真 id（本测试用到的子集） */
+    /** Krita KoCompositeOps.h 在 RGB8 下编译注册的全部 op id（132 个混合模式 + erase） */
     private val kritaIds = setOf(
-        "normal", "dissolve", "behind", "darken", "multiply", "burn", "linear_burn", "darker color",
-        "lighten", "screen", "dodge", "linear_dodge", "lighter color", "overlay", "soft_light", "hard_light",
-        "vivid_light", "linear light", "pin_light", "hard_mix_photoshop", "diff", "exclusion", "subtract",
-        "divide", "hue", "saturation", "color", "luminize", "erase",
+        // 常用与笔刷专用 (9 + erase)
+        "normal", "dissolve", "behind", "greater", "alphadarken", "marker",
+        "copy", "destination-in", "destination-atop", "erase",
+        // 变暗 (9)
+        "darken", "multiply", "burn", "linear_burn", "darker color", "gamma_dark",
+        "easy burn", "shade_ifs_illusions", "fog_darken_ifs_illusions",
+        // 变亮与发光 (12)
+        "lighten", "screen", "dodge", "linear_dodge", "add", "lighter color",
+        "luminosity_sai", "gamma_light", "gamma_illumination", "easy dodge",
+        "tint_ifs_illusions", "fog_lighten_ifs_illusions",
+        // 对比与光效 (17)
+        "overlay", "soft_light", "soft_light_svg", "soft_light_pegtop_delphi",
+        "soft_light_ifs_illusions", "hard_light", "vivid_light", "linear light",
+        "pin_light", "hard mix", "hard_mix_photoshop", "hard_mix_softer_photoshop",
+        "hard overlay", "flat_light", "super_light", "pnorm_a", "pnorm_b",
+        // 差值与运算 (10)
+        "diff", "exclusion", "subtract", "inverse_subtract", "divide",
+        "equivalence", "additive_subtractive", "arc_tangent", "negation", "grain_extract",
+        // 混合与质感 (13)
+        "grain_merge", "allanon", "parallel", "geometric_mean", "interpolation",
+        "interpolation 2x", "penumbra a", "penumbra b", "penumbra c", "penumbra d",
+        "lambert_lighting", "lambert_lighting_gamma2.2", "glow",
+        // 二次光效 (8)
+        "reflect", "freeze", "heat", "glow_heat", "heat_glow",
+        "reflect_freeze", "freeze_reflect", "heat_glow_freeze_reflect_hybrid",
+        // HSY (9)
+        "hue", "saturation", "color", "luminize", "tint",
+        "inc_saturation", "dec_saturation", "inc_luminosity", "dec_luminosity",
+        // HSL (8)
+        "hue_hsl", "saturation_hsl", "color_hsl", "lightness",
+        "inc_saturation_hsl", "dec_saturation_hsl", "inc_lightness", "dec_lightness",
+        // HSV (8)
+        "hue_hsv", "saturation_hsv", "color_hsv", "value",
+        "inc_saturation_hsv", "dec_saturation_hsv", "inc_value", "dec_value",
+        // HSI (8)
+        "hue_hsi", "saturation_hsi", "color_hsi", "intensity",
+        "inc_saturation_hsi", "dec_saturation_hsi", "inc_intensity", "dec_intensity",
+        // 法线与通道 (5)
+        "tangent_normalmap", "combine_normal", "copy_red", "copy_green", "copy_blue",
+        // 取模 (6)
+        "modulo", "modulo_continuous", "divisive_modulo", "divisive_modulo_continuous",
+        "modulo_shift", "modulo_shift_continuous",
+        // 二值逻辑 (10)
+        "xor", "or", "and", "nand", "nor", "xnor",
+        "implication", "not_implication", "converse", "not_converse",
     )
 
     @Test fun canonicalMapsLayerAliasesOnly() {
@@ -52,8 +93,12 @@ class BrushCompositeIdsTest {
     @Test fun uiListHasOnlyKritaIdsAndEveryAbrIdIsSelectable() {
         val ids = BRUSH_BLEND_IDS.map { it.first }
         assertEquals("重复项", ids.size, ids.toSet().size)
+        assertEquals("应包含全部 132 个非擦除 Krita RGB8 混合模式", 132, ids.size)
         assertTrue("UI 里有不存在的 Krita id: ${ids - kritaIds}", kritaIds.containsAll(ids))
+        assertEquals("UI 列表应精确等于 Krita 132 个混合模式", kritaIds - "erase", ids.toSet())
+        assertFalse("erase 归独立橡皮开关管理", "erase" in ids)
         assertFalse("difference" in ids)
+        assertFalse("luminosity" in ids)
         // ABR 主笔刷能映射出的每一个 id，在 UI 里都必须能选到并显示名字
         val abrIds = AbrBlendModes.exactCodes(AbrBlendModes.Context.BRUSH).map { AbrBlendModes.brush(it).id }.toSet()
         assertTrue("ABR 会产出但 UI 无法显示的 id: ${abrIds - ids.toSet()}", ids.containsAll(abrIds))

@@ -87,6 +87,11 @@ internal fun PaintViewModel.updateBrushDynamicOption(
         "smudgerate" -> com.reverie.paint.core.brushstore.ControlId.CURVE_SMUDGE_RATE
         "colorrate" -> com.reverie.paint.core.brushstore.ControlId.CURVE_COLOR_RATE
         "ratio" -> com.reverie.paint.core.brushstore.ControlId.CURVE_RATIO
+        "sharpness" -> com.reverie.paint.core.brushstore.ControlId.CURVE_SHARPNESS
+        "darken" -> com.reverie.paint.core.brushstore.ControlId.CURVE_DARKEN
+        "lightnessstrength" -> com.reverie.paint.core.brushstore.ControlId.CURVE_LIGHTNESS_STRENGTH
+        "smudgeradius" -> com.reverie.paint.core.brushstore.ControlId.CURVE_SMUDGE_RADIUS
+        "paintthickness" -> com.reverie.paint.core.brushstore.ControlId.CURVE_PAINT_THICKNESS
         else -> null
     }
     if (cid != null) {

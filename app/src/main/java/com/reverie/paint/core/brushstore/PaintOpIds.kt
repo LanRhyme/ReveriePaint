@@ -21,17 +21,28 @@ object PaintOpIds {
     const val SKETCH = "sketchbrush"
     const val HAIRY = "hairybrush"
     const val ROUND_MARKER = "roundmarker"
+    const val HATCHING = "hatchingbrush"
+    const val CURVE = "curvebrush"
+    const val PARTICLE = "particlebrush"
+    const val GRID = "gridbrush"
+    const val EXPERIMENT = "experimentbrush"
+    const val TANGENT_NORMAL = "tangentnormal"
+    const val DEFORM = "deformbrush"
+    const val DUPLICATE = "duplicate"
+    const val FILTER = "filter"
 
     /** 历史短名（曾经写进用户预设）→ Krita 真实注册 id */
     private val ALIASES = mapOf(
         "spray" to SPRAY,
         "sketch" to SKETCH,
         "hairy" to HAIRY,
-        "particle" to "particlebrush",
-        "deform" to "deformbrush",
-        "curve" to "curvebrush",
-        "hatching" to "hatchingbrush",
-        "experiment" to "experimentbrush",
+        "particle" to PARTICLE,
+        "deform" to DEFORM,
+        "curve" to CURVE,
+        "hatching" to HATCHING,
+        "experiment" to EXPERIMENT,
+        "grid" to GRID,
+        "tangent" to TANGENT_NORMAL,
         "defaultpaintop" to PAINTBRUSH,
         "brush" to PAINTBRUSH,
     )

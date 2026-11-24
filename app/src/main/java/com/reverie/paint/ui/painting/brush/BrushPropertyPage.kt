@@ -18,7 +18,6 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
@@ -29,6 +28,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.core.brushstore.BrushCompositeIds
+import com.reverie.paint.core.brushstore.ControlId
 import com.reverie.paint.ui.components.*
 import com.reverie.paint.ui.theme.Morandi
 
@@ -40,9 +41,12 @@ fun BrushPropertyPage(
     onOpenStudio: () -> Unit = {},
 ) {
     val preset = vm.brushPresets.firstOrNull { it.index == presetIndex }
-    var showBlendMenu by remember { mutableStateOf(false) }
+    var showBlendPicker by remember { mutableStateOf(false) }
 
-    val blendModeList = BRUSH_BLEND_IDS.map { (id, res) -> id to stringResource(res) }
+    val canonicalOp = BrushCompositeIds.canonical(vm.brushCompositeOp)
+    val hasBlendEntry = remember(canonicalOp) {
+        BRUSH_BLEND_IDS.any { it.first == canonicalOp }
+    }
 
     val scrollState = rememberScrollState(initial = vm.brushPropertyScrollValue)
     LaunchedEffect(scrollState) {
@@ -273,69 +277,37 @@ fun BrushPropertyPage(
                     unit = ParamUnit.PERCENT,
                 ) { vm.updateBrushFlow(it) }
 
-                // Blend Mode row with compact selector
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(top = 2.dp),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        stringResource(R.string.brush_blend_mode),
-                        color = Morandi.text,
-                        fontSize = 12.sp,
-                    )
+                BrushBlendModeSelectorRow(
+                    label = stringResource(R.string.brush_blend_mode),
+                    currentId = if (hasBlendEntry) canonicalOp else vm.brushCompositeOp,
+                    eraserModeActive = vm.brushEraserMode || vm.currentToolId == "eraser",
+                    onClick = { showBlendPicker = true },
+                )
 
-                    Box {
-                        Row(
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(Morandi.panel)
-                                .noRippleClickable { showBlendMenu = true }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(4.dp),
-                        ) {
+                StudioSwitchItem(
+                    label = stringResource(R.string.brush_studio_eraser_mode),
+                    checked = vm.brushEraserMode,
+                    textMain = Morandi.text,
+                ) { vm.updateBrushEraserMode(it) }
+
+                StudioGated(studioGateReason(vm, ControlId.PAINTING_MODE), Morandi.subText) {
+                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
+                        StudioSegmentedRow(
+                            label = stringResource(R.string.brush_studio_painting_mode),
+                            options = listOf(
+                                2 to stringResource(R.string.brush_studio_painting_wash),
+                                1 to stringResource(R.string.brush_studio_painting_buildup),
+                            ),
+                            selected = if (vm.brushMaskingEnabled) 2 else vm.brushPaintingMode,
+                            enabled = !vm.brushMaskingEnabled,
+                            onSelect = { vm.updateBrushPaintingMode(it) },
+                        )
+                        if (vm.brushMaskingEnabled) {
                             Text(
-                                blendModeList.firstOrNull { it.first == vm.brushCompositeOp }?.second ?: stringResource(R.string.blend_normal),
-                                color = Morandi.accent,
-                                fontSize = 11.sp,
-                                fontWeight = FontWeight.Medium,
+                                text = stringResource(R.string.brush_studio_painting_masking_locked),
+                                color = Morandi.subText,
+                                fontSize = 10.5.sp,
                             )
-                            Icon(
-                                painterResource(R.drawable.ic_chevron),
-                                contentDescription = null,
-                                tint = Morandi.subText,
-                                modifier = Modifier.size(12.dp).rotate(90f),
-                            )
-                        }
-
-                        ReDropdownMenu(
-                            expanded = showBlendMenu,
-                            onDismissRequest = { showBlendMenu = false },
-                        ) {
-                            blendModeList.forEach { (opId, name) ->
-                                val sel = vm.brushCompositeOp == opId
-                                ReDropdownMenuItem(
-                                    text = name,
-                                    selected = sel,
-                                    trailingIcon = if (sel) {
-                                        {
-                                            Icon(
-                                                painterResource(R.drawable.ic_check),
-                                                contentDescription = null,
-                                                tint = Morandi.accent,
-                                                modifier = Modifier.size(14.dp),
-                                            )
-                                        }
-                                    } else null,
-                                    onClick = {
-                                        vm.updateBrushCompositeOp(opId)
-                                        showBlendMenu = false
-                                    },
-                                )
-                            }
                         }
                     }
                 }
@@ -415,6 +387,15 @@ fun BrushPropertyPage(
 
             Spacer(Modifier.height(16.dp))
         }
+    }
+
+    if (showBlendPicker) {
+        BrushBlendModePickerDialog(
+            currentId = vm.brushCompositeOp,
+            onSelect = { vm.updateBrushCompositeOp(it) },
+            onDismiss = { showBlendPicker = false },
+            vm = vm,
+        )
     }
 }
 

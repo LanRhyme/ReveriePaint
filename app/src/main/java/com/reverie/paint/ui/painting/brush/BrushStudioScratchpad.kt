@@ -16,6 +16,7 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
@@ -52,6 +53,11 @@ data class ScratchPoint(
     val tiltY: Float = 0f,
     val rotation: Float = 0f,
     val timeMs: Long = 0L,
+)
+
+private data class ScratchStroke(
+    val color: String,
+    val points: List<ScratchPoint>,
 )
 
 /**
@@ -518,10 +524,11 @@ internal fun BrushStudioScratchpadPanel(
     val context = LocalContext.current
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
     var scratchBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    val strokes = remember { mutableStateListOf<List<ScratchPoint>>() }
+    val strokes = remember { mutableStateListOf<ScratchStroke>() }
     val currentStroke = remember { mutableListOf<ScratchPoint>() }
     var renderTick by remember { mutableIntStateOf(0) }
-    var solidBg by remember { mutableStateOf(false) }
+    var bgMode by remember { mutableIntStateOf(0) }
+    var scratchColor by remember { mutableStateOf(vm.brushColor) }
     var isDrawing by remember { mutableStateOf(false) }
     val smoothSession = remember { ScratchpadSmoothSession() }
 
@@ -549,9 +556,9 @@ internal fun BrushStudioScratchpadPanel(
     val thumbnailUpdatedToast = stringResource(R.string.brush_studio_toast_thumbnail_updated)
 
     DisposableEffect(Unit) {
-        val color = vm.brushColor
+        val initColor = scratchColor
         vm.runCore(render = false) {
-            runCatching { ReverieCoreBridge.setBrushColor(color) }
+            runCatching { ReverieCoreBridge.setBrushColor(initColor) }
         }
         onDispose {
             // 先撤掉挂起的 VSync 回调并停用合帧器, 防止销毁后仍触发读回/空转调度
@@ -560,7 +567,9 @@ internal fun BrushStudioScratchpadPanel(
             // runCore 只入队。bitmap 要等 scratchpadEnd 的 after 再回收，否则渲染线程会画到已回收的 bitmap。
             val bmp = scratchBitmap
             scratchBitmap = null
+            val restoreColor = vm.brushColor
             vm.runCore(render = false, after = { bmp?.recycle() }) {
+                runCatching { ReverieCoreBridge.setBrushColor(restoreColor) }
                 ReverieCoreBridge.scratchpadEnd()
             }
         }
@@ -569,7 +578,8 @@ internal fun BrushStudioScratchpadPanel(
     // 重放已有笔画至 C++ 试画板。strokes 在主线程快照；JNI 在渲染线程。
     // 直通录制时的真实物理压感与倾角，彻底清退人造假斜坡与假倾角伪算法。
     fun replayStrokesOnEngine(bmp: Bitmap) {
-        val snapshot = strokes.map { it.toList() }
+        val snapshot = strokes.map { ScratchStroke(it.color, it.points.toList()) }
+        val activeColor = scratchColor
         val directToken = renderCoalescer.newDirectRenderToken()
         vm.runCore(render = false, after = {
             renderTick++
@@ -578,10 +588,12 @@ internal fun BrushStudioScratchpadPanel(
         }) {
             ReverieCoreBridge.scratchpadClear()
             for (stroke in snapshot) {
-                if (stroke.isEmpty()) continue
-                val n = stroke.size
+                val pts = stroke.points
+                if (pts.isEmpty()) continue
+                runCatching { ReverieCoreBridge.setBrushColor(stroke.color) }
+                val n = pts.size
                 for (i in 0 until n) {
-                    val p = stroke[i]
+                    val p = pts[i]
                     if (i == 0) {
                         ReverieCoreBridge.scratchpadStrokeStart(
                             p.x.toDouble(), p.y.toDouble(), p.pressure.toDouble(),
@@ -596,6 +608,7 @@ internal fun BrushStudioScratchpadPanel(
                 }
                 ReverieCoreBridge.scratchpadStrokeEnd()
             }
+            runCatching { ReverieCoreBridge.setBrushColor(activeColor) }
             if (!bmp.isRecycled) {
                 bmp.eraseColor(0)
                 ReverieCoreBridge.scratchpadRender(bmp)
@@ -688,93 +701,64 @@ internal fun BrushStudioScratchpadPanel(
                 size = 30.dp,
             )
 
-            // 背景棋盘格 / 纯色切换
+            // 背景 3 态切换：棋盘格 / 白色 / 深色 (#24262B)
             ReIconButton(
-                if (solidBg) R.drawable.ic_layers else R.drawable.ic_circle,
-                stringResource(if (solidBg) R.string.scratchpad_bg_checker else R.string.scratchpad_bg_solid),
-                onTap = { solidBg = !solidBg },
+                when (bgMode) {
+                    0 -> R.drawable.ic_grid
+                    1 -> R.drawable.ic_sun
+                    else -> R.drawable.ic_moon
+                },
+                stringResource(
+                    when (bgMode) {
+                        0 -> R.string.scratchpad_bg_solid
+                        1 -> R.string.scratchpad_bg_dark
+                        else -> R.string.scratchpad_bg_checker
+                    },
+                ),
+                onTap = { bgMode = (bgMode + 1) % 3 },
                 tint = Morandi.subText,
                 iconSize = 15.dp,
                 size = 30.dp,
             )
 
-            // 设为预设图标。笔画在主线程快照；像素在渲染线程 scratchpadRender 返回后拷贝，JNI 此时已解锁。
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Morandi.panel.copy(alpha = 0.85f))
-                    .clickable {
-                        val strokeSnapshot = strokes.map { it.toList() }
-                        val bmp = scratchBitmap
-                        val directToken = renderCoalescer.newDirectRenderToken()
-                        var pixelCopy: Bitmap? = null
-                        vm.runCore(render = false, after = {
-                            // 同批次末尾已同步渲染; 按代际票据消费待渲染标记, 不吞入队后新请求
-                            renderCoalescer.onDirectRenderCompleted(directToken)
-                            captureScratchpadAsThumbnail(context, vm, pixelCopy, strokeSnapshot)
-                            pixelCopy?.recycle()
-                            Toast.makeText(context, thumbnailUpdatedToast, Toast.LENGTH_SHORT).show()
-                        }) {
-                            if (bmp != null && !bmp.isRecycled) {
-                                ReverieCoreBridge.scratchpadRender(bmp)
-                                pixelCopy = bmp.copy(Bitmap.Config.ARGB_8888, false)
-                            }
+            // 设为预设图标（紧凑图标按钮）
+            ReIconButton(
+                R.drawable.ic_stamp,
+                stringResource(R.string.brush_studio_scratchpad_set_icon),
+                onTap = {
+                    val strokeSnapshot = strokes.map { it.points.toList() }
+                    val bmp = scratchBitmap
+                    val directToken = renderCoalescer.newDirectRenderToken()
+                    var pixelCopy: Bitmap? = null
+                    vm.runCore(render = false, after = {
+                        // 同批次末尾已同步渲染; 按代际票据消费待渲染标记, 不吞入队后新请求
+                        renderCoalescer.onDirectRenderCompleted(directToken)
+                        captureScratchpadAsThumbnail(context, vm, pixelCopy, strokeSnapshot)
+                        pixelCopy?.recycle()
+                        Toast.makeText(context, thumbnailUpdatedToast, Toast.LENGTH_SHORT).show()
+                    }) {
+                        if (bmp != null && !bmp.isRecycled) {
+                            ReverieCoreBridge.scratchpadRender(bmp)
+                            pixelCopy = bmp.copy(Bitmap.Config.ARGB_8888, false)
                         }
                     }
-                    .padding(horizontal = 8.dp, vertical = 5.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Icon(
-                        painterResource(R.drawable.ic_pencil),
-                        contentDescription = null,
-                        tint = Morandi.accent,
-                        modifier = Modifier.size(12.dp),
-                    )
-                    Text(
-                        stringResource(R.string.brush_studio_scratchpad_set_icon),
-                        color = Morandi.accent,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
-            }
+                },
+                tint = Morandi.accent,
+                iconSize = 15.dp,
+                size = 30.dp,
+            )
 
-            Spacer(Modifier.width(4.dp))
-
-            // 导入自定义图标
-            Box(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Morandi.panel.copy(alpha = 0.85f))
-                    .clickable { onImportThumbnail() }
-                    .padding(horizontal = 8.dp, vertical = 5.dp),
-                contentAlignment = Alignment.Center,
-            ) {
-                Row(
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(4.dp),
-                ) {
-                    Icon(
-                        painterResource(R.drawable.ic_image),
-                        contentDescription = null,
-                        tint = Morandi.text,
-                        modifier = Modifier.size(12.dp),
-                    )
-                    Text(
-                        stringResource(R.string.brush_studio_import_thumbnail),
-                        color = Morandi.text,
-                        fontSize = 11.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
-                }
-            }
+            // 导入自定义图标（紧凑图标按钮）
+            ReIconButton(
+                R.drawable.ic_image,
+                stringResource(R.string.brush_studio_import_thumbnail),
+                onTap = onImportThumbnail,
+                tint = Morandi.text,
+                iconSize = 15.dp,
+                size = 30.dp,
+            )
 
             if (isCollapsible) {
-                Spacer(Modifier.width(4.dp))
                 ReIconButton(
                     R.drawable.ic_x,
                     stringResource(R.string.common_close),
@@ -794,7 +778,7 @@ internal fun BrushStudioScratchpadPanel(
                 .fillMaxWidth()
                 .weight(1f)
                 .clip(RoundedCornerShape(10.dp))
-                .background(Color.White)
+                .background(if (bgMode == 2) Color(0xFF24262B) else Color.White)
                 .onSizeChanged { size ->
                     if (size.width > 0 && size.height > 0 &&
                         (size.width != canvasSize.width || size.height != canvasSize.height)
@@ -810,7 +794,7 @@ internal fun BrushStudioScratchpadPanel(
                     }
                 },
         ) {
-            if (!solidBg) {
+            if (bgMode == 0) {
                 CheckerboardBackground(
                     modifier = Modifier.fillMaxSize(),
                     color1 = Color(0xFFFFFFFF),
@@ -828,7 +812,7 @@ internal fun BrushStudioScratchpadPanel(
                     smoothSession.start(p.x, p.y)
                     currentStroke.clear()
                     currentStroke.add(p)
-                    val color = vm.brushColor
+                    val color = scratchColor
                     vm.runCore(render = false) {
                         runCatching { ReverieCoreBridge.setBrushColor(color) }
                         ReverieCoreBridge.scratchpadStrokeStart(
@@ -897,7 +881,7 @@ internal fun BrushStudioScratchpadPanel(
                         currentStroke.add(tailPt)
                     }
                     if (currentStroke.isNotEmpty()) {
-                        strokes.add(currentStroke.toList())
+                        strokes.add(ScratchStroke(scratchColor, currentStroke.toList()))
                         currentStroke.clear()
                     }
                     val bmp = scratchBitmap
@@ -927,9 +911,76 @@ internal fun BrushStudioScratchpadPanel(
             if (strokes.isEmpty() && currentStroke.isEmpty()) {
                 Text(
                     stringResource(R.string.brush_studio_scratchpad_hint),
-                    color = Color(0x66000000),
+                    color = if (bgMode == 2) Color(0x88FFFFFF) else Color(0x66000000),
                     fontSize = 12.sp,
                     modifier = Modifier.align(Alignment.Center),
+                )
+            }
+        }
+
+        // ---- 底部快速测试色板与尺寸/不透明度读数 ----
+        val quickColors = remember(vm.brushColor) {
+            listOf(vm.brushColor, "#1E1F24", "#D94E4E", "#3B7DD8", "#E6B84C", "#FFFFFF", "#4CAF7D")
+                .distinctBy { it.uppercase() }
+                .take(6)
+        }
+        Row(
+            modifier = Modifier
+                .fillMaxWidth()
+                .padding(top = 6.dp, start = 2.dp, end = 2.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(7.dp),
+            ) {
+                quickColors.forEach { hex ->
+                    val swatchCol = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color.Black)
+                    val isSel = scratchColor.equals(hex, ignoreCase = true)
+                    Box(
+                        modifier = Modifier
+                            .size(if (isSel) 20.dp else 18.dp)
+                            .clip(CircleShape)
+                            .background(swatchCol)
+                            .border(
+                                width = if (isSel) 2.dp else 0.8.dp,
+                                color = if (isSel) Morandi.accent else Morandi.border.copy(alpha = 0.45f),
+                                shape = CircleShape,
+                            )
+                            .clickable {
+                                scratchColor = hex
+                                vm.runCore(render = false) {
+                                    runCatching { ReverieCoreBridge.setBrushColor(hex) }
+                                }
+                            },
+                    )
+                }
+            }
+
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                Text(
+                    text = "${vm.brushSize.toInt()}px",
+                    color = Morandi.text,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Morandi.panel.copy(alpha = 0.72f))
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                )
+                Text(
+                    text = "${(vm.brushOpacity * 100).toInt()}%",
+                    color = Morandi.subText,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.Medium,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .background(Morandi.panel.copy(alpha = 0.72f))
+                        .padding(horizontal = 7.dp, vertical = 3.dp),
                 )
             }
         }

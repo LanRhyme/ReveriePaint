@@ -140,6 +140,68 @@ internal val PaintViewModel.brushDescription: String get() = brushParams.descrip
 
 internal val PaintViewModel.brushVersion: String get() = brushParams.version
 
+internal val PaintViewModel.brushScatterBothAxes: Boolean get() = brushParams.scatterBothAxes
+
+internal val PaintViewModel.brushTextureInvert: Boolean get() = brushParams.textureInvert
+
+internal val PaintViewModel.brushTextureSoft: Boolean get() = brushParams.textureSoft
+
+internal val PaintViewModel.brushTextureBrightness: Double get() = brushParams.textureBrightness
+
+internal val PaintViewModel.brushTextureContrast: Double get() = brushParams.textureContrast
+
+internal val PaintViewModel.brushTextureStrengthPressureMin: Double get() = brushParams.textureStrengthPressureMin
+
+internal val PaintViewModel.brushMaskingScatter: Double get() = brushParams.maskingScatter
+
+internal val PaintViewModel.brushMaskingScatterBothAxes: Boolean get() = brushParams.maskingScatterBothAxes
+
+internal val PaintViewModel.brushMaskingAngle: Double get() = brushParams.maskingAngle
+
+internal val PaintViewModel.brushMaskingFlipX: Boolean get() = brushParams.maskingFlipX
+
+internal val PaintViewModel.brushMaskingFlipY: Boolean get() = brushParams.maskingFlipY
+
+internal val PaintViewModel.brushPaintingMode: Int get() = brushParams.paintingMode
+
+internal val PaintViewModel.brushEraserMode: Boolean get() = brushParams.eraserMode
+
+internal val PaintViewModel.brushTipMaskType: Int get() = brushParams.tipMaskType
+
+internal val PaintViewModel.brushTipDensity: Double get() = brushParams.tipDensity
+
+internal val PaintViewModel.brushTipRandomness: Double get() = brushParams.tipRandomness
+
+internal val PaintViewModel.brushUseAutoSpacing: Boolean get() = brushParams.useAutoSpacing
+
+internal val PaintViewModel.brushIsotropicSpacing: Boolean get() = brushParams.isotropicSpacing
+
+internal val PaintViewModel.brushApplication: Int get() = brushParams.brushApplication
+
+internal val PaintViewModel.brushLightnessStrength: Double get() = brushParams.lightnessStrength
+
+internal val PaintViewModel.brushSharpnessSoftness: Int get() = brushParams.sharpnessSoftness
+
+internal val PaintViewModel.brushColorSourceType: String get() = brushParams.colorSourceType
+
+internal val PaintViewModel.brushDarken: Double get() = brushParams.darken
+
+internal val PaintViewModel.brushPrecisionLevel: Int get() = brushParams.precisionLevel
+
+internal val PaintViewModel.brushPrecisionAuto: Boolean get() = brushParams.precisionAuto
+
+internal val PaintViewModel.brushSmudgeSmearAlpha: Boolean get() = brushParams.smudgeSmearAlpha
+
+internal val PaintViewModel.brushSmudgeUseNewEngine: Boolean get() = brushParams.smudgeUseNewEngine
+
+internal val PaintViewModel.brushSmudgeOverlayMode: Boolean get() = brushParams.smudgeOverlayMode
+
+internal val PaintViewModel.brushSmudgeRadius: Double get() = brushParams.smudgeRadius
+
+internal val PaintViewModel.brushPaintThickness: Double get() = brushParams.paintThickness
+
+internal val PaintViewModel.brushPaintThicknessMode: Int get() = brushParams.paintThicknessMode
+
 internal val PaintViewModel.effectiveBrushMaxSize: Double
     get() {
         val minL = brushMinSizeLimit.coerceAtLeast(0.5)

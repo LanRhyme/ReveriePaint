@@ -333,6 +333,196 @@ import kotlinx.coroutines.Job
         BrushStoreVm.stage(this, ControlId.MASKING_FADE, v)
     }
 
+    internal fun PaintViewModel.updateBrushEraserMode(v: Boolean) {
+        brushParams = brushParams.copy(eraserMode = v)
+        BrushStoreVm.stage(this, ControlId.ERASER_MODE, v)
+    }
+
+    internal fun PaintViewModel.updateBrushPaintingMode(v: Int) {
+        val mode = if (v == 1) 1 else 2
+        brushParams = brushParams.copy(paintingMode = mode)
+        BrushStoreVm.stage(this, ControlId.PAINTING_MODE, mode)
+    }
+
+    internal fun PaintViewModel.updateBrushTipMaskType(v: Int) {
+        val t = v.coerceIn(0, 2)
+        brushParams = brushParams.copy(tipMaskType = t)
+        BrushStoreVm.stage(this, ControlId.TIP_MASK_TYPE, t)
+    }
+
+    internal fun PaintViewModel.updateBrushTipDensity(v: Double) {
+        val clamped = v.coerceIn(0.0, 1.0)
+        brushParams = brushParams.copy(tipDensity = clamped)
+        BrushStoreVm.stage(this, ControlId.TIP_DENSITY, clamped)
+    }
+
+    internal fun PaintViewModel.updateBrushTipRandomness(v: Double) {
+        val clamped = v.coerceIn(0.0, 1.0)
+        brushParams = brushParams.copy(tipRandomness = clamped)
+        BrushStoreVm.stage(this, ControlId.TIP_RANDOMNESS, clamped)
+    }
+
+    internal fun PaintViewModel.updateBrushUseAutoSpacing(v: Boolean) {
+        brushParams = brushParams.copy(useAutoSpacing = v)
+        BrushStoreVm.stage(this, ControlId.USE_AUTO_SPACING, v)
+    }
+
+    internal fun PaintViewModel.updateBrushIsotropicSpacing(v: Boolean) {
+        brushParams = brushParams.copy(isotropicSpacing = v)
+        BrushStoreVm.stage(this, ControlId.ISOTROPIC_SPACING, v)
+    }
+
+    internal fun PaintViewModel.updateBrushApplication(v: Int) {
+        val app = v.coerceIn(0, 3)
+        brushParams = brushParams.copy(brushApplication = app)
+        BrushStoreVm.stage(this, ControlId.BRUSH_APPLICATION, app)
+    }
+
+    internal fun PaintViewModel.updateBrushLightnessStrength(v: Double) {
+        val clamped = v.coerceIn(0.0, 1.0)
+        brushParams = brushParams.copy(lightnessStrength = clamped)
+        BrushStoreVm.stage(this, ControlId.LIGHTNESS_STRENGTH, clamped)
+    }
+
+    internal fun PaintViewModel.updateBrushSharpnessSoftness(v: Int) {
+        val clamped = v.coerceIn(0, 100)
+        brushParams = brushParams.copy(sharpnessSoftness = clamped)
+        BrushStoreVm.stage(this, ControlId.SHARPNESS_SOFTNESS, clamped)
+    }
+
+    internal fun PaintViewModel.updateBrushScatterBothAxes(v: Boolean) {
+        brushParams = brushParams.copy(scatterBothAxes = v)
+        BrushStoreVm.stage(this, ControlId.SCATTER_BOTH_AXES, v)
+    }
+
+    internal fun PaintViewModel.updateBrushJitterSize(v: Double) {
+        val clamped = v.coerceIn(0.0, 1.0)
+        brushParams = brushParams.copy(jitterSize = clamped)
+        BrushStoreVm.stage(this, ControlId.JITTER_SIZE, clamped)
+    }
+
+    internal fun PaintViewModel.updateBrushColorSourceType(v: String) {
+        val clean = v.trim().ifBlank { "plain" }
+        brushParams = brushParams.copy(colorSourceType = clean)
+        BrushStoreVm.stage(this, ControlId.COLOR_SOURCE_TYPE, clean)
+    }
+
+    internal fun PaintViewModel.updateBrushDarken(v: Double) {
+        val clamped = v.coerceIn(0.0, 1.0)
+        brushParams = brushParams.copy(darken = clamped)
+        BrushStoreVm.stage(this, ControlId.DARKEN, clamped)
+    }
+
+    internal fun PaintViewModel.updateBrushPrecisionLevel(v: Int) {
+        val clamped = v.coerceIn(1, 5)
+        brushParams = brushParams.copy(precisionLevel = clamped)
+        BrushStoreVm.stage(this, ControlId.PRECISION_LEVEL, clamped)
+    }
+
+    internal fun PaintViewModel.updateBrushPrecisionAuto(v: Boolean) {
+        brushParams = brushParams.copy(precisionAuto = v)
+        BrushStoreVm.stage(this, ControlId.PRECISION_AUTO, v)
+    }
+
+    internal fun PaintViewModel.updateBrushTextureInvert(v: Boolean) {
+        brushParams = brushParams.copy(textureInvert = v)
+        BrushStoreVm.stage(this, ControlId.TEXTURE_INVERT, v)
+    }
+
+    internal fun PaintViewModel.updateBrushTextureSoft(v: Boolean) {
+        brushParams = brushParams.copy(textureSoft = v)
+        BrushStoreVm.stage(this, ControlId.TEXTURE_SOFT, v)
+    }
+
+    internal fun PaintViewModel.updateBrushTextureBrightness(v: Double) {
+        val clamped = v.coerceIn(-1.0, 1.0)
+        brushParams = brushParams.copy(textureBrightness = clamped)
+        BrushStoreVm.stage(this, ControlId.TEXTURE_BRIGHTNESS, clamped)
+    }
+
+    internal fun PaintViewModel.updateBrushTextureContrast(v: Double) {
+        val clamped = v.coerceIn(0.0, 2.0)
+        brushParams = brushParams.copy(textureContrast = clamped)
+        BrushStoreVm.stage(this, ControlId.TEXTURE_CONTRAST, clamped)
+    }
+
+    internal fun PaintViewModel.updateBrushTextureStrengthPressureMin(v: Double) {
+        val normalized = if (v < 0.0) -1.0 else v.coerceIn(0.0, 1.0)
+        brushParams = brushParams.copy(textureStrengthPressureMin = normalized)
+        BrushStoreVm.stage(this, ControlId.TEXTURE_STRENGTH_PRESSURE, normalized)
+    }
+
+    internal fun PaintViewModel.updateBrushSmudgeSmearAlpha(v: Boolean) {
+        brushParams = brushParams.copy(smudgeSmearAlpha = v)
+        BrushStoreVm.stage(this, ControlId.SMUDGE_SMEAR_ALPHA, v)
+    }
+
+    internal fun PaintViewModel.updateBrushSmudgeUseNewEngine(v: Boolean) {
+        brushParams = brushParams.copy(smudgeUseNewEngine = v)
+        BrushStoreVm.stage(this, ControlId.SMUDGE_USE_NEW_ENGINE, v)
+    }
+
+    internal fun PaintViewModel.updateBrushSmudgeOverlayMode(v: Boolean) {
+        brushParams = brushParams.copy(smudgeOverlayMode = v)
+        BrushStoreVm.stage(this, ControlId.SMUDGE_OVERLAY_MODE, v)
+    }
+
+    internal fun PaintViewModel.updateBrushSmudgeRadius(v: Double) {
+        val clamped = v.coerceIn(0.0, 3.0)
+        brushParams = brushParams.copy(smudgeRadius = clamped)
+        BrushStoreVm.stage(this, ControlId.SMUDGE_RADIUS, clamped)
+    }
+
+    internal fun PaintViewModel.updateBrushPaintThickness(v: Double) {
+        val clamped = v.coerceIn(0.0, 1.0)
+        brushParams = brushParams.copy(paintThickness = clamped)
+        BrushStoreVm.stage(this, ControlId.PAINT_THICKNESS, clamped)
+    }
+
+    internal fun PaintViewModel.updateBrushPaintThicknessMode(v: Int) {
+        val mode = if (v == 1) 1 else 2
+        brushParams = brushParams.copy(paintThicknessMode = mode)
+        BrushStoreVm.stage(this, ControlId.PAINT_THICKNESS_MODE, mode)
+    }
+
+    internal fun PaintViewModel.updateBrushMaskingTipShape(v: Int) {
+        val shape = if (v == 1) 1 else 0
+        brushParams = brushParams.copy(maskingTipShape = shape)
+        BrushStoreVm.stage(this, ControlId.MASKING_TIP_SHAPE, shape)
+    }
+
+    internal fun PaintViewModel.updateBrushMaskingSoftness(v: Double) {
+        val clamped = v.coerceIn(0.0, 1.0)
+        brushParams = brushParams.copy(maskingSoftness = clamped, maskingFade = clamped)
+        BrushStoreVm.stage(this, ControlId.MASKING_SOFTNESS, clamped)
+    }
+
+    internal fun PaintViewModel.updateBrushMaskingAngle(v: Double) {
+        brushParams = brushParams.copy(maskingAngle = v)
+        BrushStoreVm.stage(this, ControlId.MASKING_ANGLE, v)
+    }
+
+    internal fun PaintViewModel.updateBrushMaskingScatter(v: Double) {
+        val clamped = v.coerceIn(0.0, 1.0)
+        brushParams = brushParams.copy(maskingScatter = clamped)
+        BrushStoreVm.stage(this, ControlId.MASKING_SCATTER, clamped)
+    }
+
+    internal fun PaintViewModel.updateBrushMaskingScatterBothAxes(v: Boolean) {
+        brushParams = brushParams.copy(maskingScatterBothAxes = v)
+        BrushStoreVm.stage(this, ControlId.MASKING_SCATTER_BOTH_AXES, v)
+    }
+
+    internal fun PaintViewModel.updateBrushMaskingFlipX(v: Boolean) {
+        brushParams = brushParams.copy(maskingFlipX = v)
+        BrushStoreVm.stage(this, ControlId.MASKING_FLIP_X, v)
+    }
+
+    internal fun PaintViewModel.updateBrushMaskingFlipY(v: Boolean) {
+        brushParams = brushParams.copy(maskingFlipY = v)
+        BrushStoreVm.stage(this, ControlId.MASKING_FLIP_Y, v)
+    }
+
     internal fun PaintViewModel.updateBrushRotationSensor(v: String) {
         brushParams = brushParams.copy(rotationSensor = v)
         val opt = (brushDynamicOptions["Rotation"]
@@ -460,7 +650,11 @@ import kotlinx.coroutines.Job
      * 每次切换笔刷时必须先彻底重置内存 Map，彻底杜绝跨笔刷曲线污染。
      */
     internal fun PaintViewModel.applySensorXmlToDynamicOptions(sensorXml: Map<String, String>) {
-        val standardKeys = listOf("Size", "Opacity", "Flow", "Spacing", "Scatter", "Rotation", "SmudgeRate", "ColorRate")
+        val standardKeys = listOf(
+            "Size", "Opacity", "Flow", "Spacing", "Scatter", "Rotation",
+            "Ratio", "Softness", "Sharpness", "Darken", "LightnessStrength",
+            "SmudgeRate", "ColorRate", "SmudgeRadius", "PaintThickness",
+        )
         val newMap = mutableMapOf<String, com.reverie.paint.model.DynamicOptionConfig>()
         for (k in standardKeys) {
             val defSensor = when (k) {

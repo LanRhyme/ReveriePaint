@@ -67,9 +67,11 @@ fun BrushDynamicCurveEditor(
     borderCol: Color = Morandi.border,
     textMain: Color = Morandi.text,
     textSub: Color = Morandi.subText,
+    title: String? = null,
 ) {
     val haptic = LocalHapticFeedback.current
     var showDialog by remember { mutableStateOf(false) }
+    val resolvedTitle = title ?: stringResource(R.string.brush_dynamics_expand_title)
 
     val currentSensor = remember(config.sensorId) {
         BrushSensor.fromId(config.sensorId)
@@ -97,7 +99,7 @@ fun BrushDynamicCurveEditor(
                 modifier = Modifier.weight(1f),
             ) {
                 Text(
-                    text = stringResource(R.string.brush_dynamics_expand_title),
+                    text = resolvedTitle,
                     color = textMain,
                     fontSize = 13.sp,
                     fontWeight = FontWeight.Normal,
@@ -248,6 +250,7 @@ fun BrushDynamicCurveEditor(
             textMain = textMain,
             textSub = textSub,
             borderCol = borderCol,
+            title = resolvedTitle,
         )
     }
 }
@@ -264,6 +267,7 @@ internal fun BrushDynamicCurveDialog(
     textMain: Color,
     textSub: Color,
     borderCol: Color,
+    title: String = "",
 ) {
     val haptic = LocalHapticFeedback.current
     var showSensorDropdown by remember { mutableStateOf(false) }
@@ -303,7 +307,7 @@ internal fun BrushDynamicCurveDialog(
                     ) {
                         Column {
                             Text(
-                                text = stringResource(R.string.brush_dynamics_expand_title),
+                                text = title.ifBlank { stringResource(R.string.brush_dynamics_expand_title) },
                                 color = textMain,
                                 fontSize = 15.sp,
                                 fontWeight = FontWeight.SemiBold,

@@ -24,11 +24,25 @@ object BrushApplicability {
         NO_BRUSH_DEF,
         /** 图片笔尖：只作用于参数化（auto）笔尖 */
         AUTO_TIP_ONLY,
+        /** 直绘引擎（涂抹/液化/滤镜/克隆）不使用冲刷/堆积临时图层 */
+        DIRECT_PAINT_ENGINE,
+        /** 参数化笔尖不支持：只作用于图片笔尖 */
+        IMAGE_TIP_ONLY,
     }
 
     private val SMUDGE_IDS = setOf(
         ControlId.COLOR_RATE, ControlId.SMUDGE_LENGTH, ControlId.SMUDGE_MODE,
         ControlId.CURVE_SMUDGE_RATE, ControlId.CURVE_COLOR_RATE,
+        ControlId.SMUDGE_SMEAR_ALPHA, ControlId.SMUDGE_USE_NEW_ENGINE,
+        ControlId.SMUDGE_OVERLAY_MODE, ControlId.SMUDGE_RADIUS,
+        ControlId.PAINT_THICKNESS, ControlId.PAINT_THICKNESS_MODE,
+        ControlId.CURVE_SMUDGE_RADIUS, ControlId.CURVE_PAINT_THICKNESS,
+    )
+
+    private val IMAGE_TIP_IDS = setOf(
+        ControlId.BRUSH_APPLICATION,
+        ControlId.LIGHTNESS_STRENGTH,
+        ControlId.CURVE_LIGHTNESS_STRENGTH,
     )
 
     fun reason(id: ControlId, ctx: PresetContext): Reason? {
@@ -36,7 +50,9 @@ object BrushApplicability {
         return when {
             ctx.isMyPaint -> Reason.MYPAINT
             id in SMUDGE_IDS -> Reason.COLORSMUDGE_ONLY
+            id == ControlId.PAINTING_MODE -> Reason.DIRECT_PAINT_ENGINE
             !ctx.hasBrushDef -> Reason.NO_BRUSH_DEF
+            id in IMAGE_TIP_IDS -> Reason.IMAGE_TIP_ONLY
             else -> Reason.AUTO_TIP_ONLY
         }
     }

@@ -31,10 +31,23 @@ class PresetPropertyMapRoundTripTest {
         ControlId.CURVE_SOFTNESS to setOf(ControlId.SOFTNESS),
         ControlId.CURVE_SMUDGE_RATE to setOf(ControlId.SMUDGE_LENGTH),
         ControlId.CURVE_COLOR_RATE to setOf(ControlId.COLOR_RATE),
+        ControlId.CURVE_SHARPNESS to setOf(ControlId.SHARPNESS),
+        ControlId.CURVE_DARKEN to setOf(ControlId.DARKEN),
+        ControlId.CURVE_LIGHTNESS_STRENGTH to setOf(ControlId.LIGHTNESS_STRENGTH),
+        ControlId.CURVE_SMUDGE_RADIUS to setOf(ControlId.SMUDGE_RADIUS),
+        ControlId.CURVE_PAINT_THICKNESS to setOf(ControlId.PAINT_THICKNESS),
         ControlId.SCATTER to setOf(ControlId.CURVE_SCATTER),
         ControlId.SOFTNESS to setOf(ControlId.CURVE_SOFTNESS),
         ControlId.SMUDGE_LENGTH to setOf(ControlId.CURVE_SMUDGE_RATE),
         ControlId.COLOR_RATE to setOf(ControlId.CURVE_COLOR_RATE),
+        ControlId.SHARPNESS to setOf(ControlId.CURVE_SHARPNESS),
+        ControlId.DARKEN to setOf(ControlId.CURVE_DARKEN),
+        ControlId.LIGHTNESS_STRENGTH to setOf(ControlId.CURVE_LIGHTNESS_STRENGTH),
+        ControlId.SMUDGE_RADIUS to setOf(ControlId.CURVE_SMUDGE_RADIUS),
+        ControlId.PAINT_THICKNESS to setOf(ControlId.CURVE_PAINT_THICKNESS),
+        ControlId.USE_AUTO_SPACING to setOf(ControlId.SPACING),
+        ControlId.ERASER_MODE to setOf(ControlId.COMPOSITE_OP),
+        ControlId.COMPOSITE_OP to setOf(ControlId.ERASER_MODE),
         ControlId.FOLLOW_DIRECTION to setOf(ControlId.CURVE_ROTATION, ControlId.JITTER_ANGLE),
         ControlId.JITTER_ANGLE to setOf(ControlId.CURVE_ROTATION, ControlId.FOLLOW_DIRECTION),
         ControlId.JITTER_SIZE to setOf(ControlId.CURVE_SIZE),
@@ -50,7 +63,9 @@ class PresetPropertyMapRoundTripTest {
         // 换笔尖文件：笔尖定义整体替换（MaskGenerator 消失），角度/间距取 eff
         ControlId.TIP_ASSET to setOf(
             ControlId.SIZE, ControlId.RATIO, ControlId.FADE, ControlId.TIP_SHAPE, ControlId.SPIKES, ControlId.ANTI_ALIASING,
-            ControlId.SPACING, ControlId.ANGLE,
+            ControlId.TIP_MASK_TYPE, ControlId.TIP_DENSITY, ControlId.TIP_RANDOMNESS,
+            ControlId.SPACING, ControlId.USE_AUTO_SPACING, ControlId.ANGLE,
+            ControlId.BRUSH_APPLICATION, ControlId.LIGHTNESS_STRENGTH, ControlId.CURVE_LIGHTNESS_STRENGTH,
         ),
     )
 
@@ -66,6 +81,12 @@ class PresetPropertyMapRoundTripTest {
         ControlId.ROTATION -> listOf(other(cur as Double, 12.0, 24.0))
         ControlId.SPIKES -> listOf(if (cur == 5) 7 else 5)
         ControlId.TIP_SHAPE, ControlId.ANTI_ALIASING, ControlId.SMUDGE_MODE -> listOf(1 - (cur as Int))
+        ControlId.PAINTING_MODE, ControlId.PAINT_THICKNESS_MODE -> listOf(if (cur == 1) 2 else 1)
+        ControlId.TIP_MASK_TYPE -> listOf(((cur as Int) + 1) % 3)
+        ControlId.BRUSH_APPLICATION -> listOf(((cur as Int) + 1) % 4)
+        ControlId.SHARPNESS_SOFTNESS -> listOf(if (cur == 35) 70 else 35)
+        ControlId.COLOR_SOURCE_TYPE -> listOf(if (cur == "gradient") "plain" else "gradient")
+        ControlId.PRECISION_LEVEL -> listOf(if (cur == 3) 5 else 3)
         ControlId.TEXTURE_MODE -> listOf(if (cur == 5) 9 else 5)
         ControlId.COMPOSITE_OP -> listOf(if (cur == "multiply") "normal" else "multiply")
         ControlId.TEXTURE_PATTERN -> listOf("roundtrip_pattern.png")

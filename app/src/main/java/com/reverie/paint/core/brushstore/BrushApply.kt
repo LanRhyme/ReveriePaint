@@ -343,16 +343,22 @@ object BrushApply {
         }
         val isEraserPreset = BrushStoreVm.isEraserPreset(preset)
         if (!notifyUi) {
+            val effectiveEraser = vm.currentToolId == "eraser" || vm.brushParams.eraserMode
+            val compOverride = if (effectiveEraser) {
+                "erase"
+            } else {
+                vm.brushParams.compositeOp.takeIf { it.isNotBlank() && it != "erase" } ?: "normal"
+            }
             vm.runCore(after = { onComplete?.invoke() }) {
                 if (engine.loadBrushPreset(index)) {
                     com.reverie.paint.core.Breadcrumbs.record("Brush", "Reload preset [$index]: ${preset.name}")
                     applyAfterLoad(
                         engine,
                         NonPresetState(
-                            isEraser = vm.currentToolId == "eraser" || isEraserPreset,
+                            isEraser = effectiveEraser,
                             color = vm.brushColor,
                             secondaryColor = vm.brushSecondaryColor,
-                            compositeOverride = vm.brushParams.compositeOp,
+                            compositeOverride = compOverride,
                             size = vm.brushSize,
                             opacity = vm.brushOpacity,
                             flow = vm.brushFlow,
@@ -371,11 +377,13 @@ object BrushApply {
             PresetReadback.baseline(id)
         }
         val nativeCompOp = if (index >= 0) ReverieCoreBridge.brushPresetCompositeOp(index) else "normal"
-        val effectiveCompOp = if (vm.currentToolId == "eraser" || isEraserPreset) {
-            "erase"
-        } else {
-            if (eff.compositeOp.isNotBlank() && eff.compositeOp != "erase") eff.compositeOp else nativeCompOp
-        }
+        val isKpp = BrushStoreVm.resolveEntry(id)?.ext?.equals("kpp", ignoreCase = true) != false
+        val presetEraser = if (read != null && isKpp) eff.eraserMode else isEraserPreset
+        val displayCompOp = eff.compositeOp.takeIf { it.isNotBlank() && it != "erase" }
+            ?: nativeCompOp.takeIf { it.isNotBlank() && it != "erase" }
+            ?: "normal"
+        val effectiveEraser = vm.currentToolId == "eraser" || presetEraser
+        val effectiveCompOp = if (effectiveEraser) "erase" else displayCompOp
         // 大小/不透明度/流量只由按工具记忆决定；没有记忆时大小看 kpp 是否显式声明：
         // 显式 → 快照出厂值；未声明（原生 inkP/水彩位图笔尖）→ 引擎解析的原生尺寸兜底，
         // 否则 20px 缺省会覆写引擎从原生预设读出的真实尺寸（见 resolveSelectSize）
@@ -395,7 +403,8 @@ object BrushApply {
                         size = finalSize,
                         opacity = finalOpacity,
                         flow = finalFlow,
-                        compositeOp = effectiveCompOp,
+                        compositeOp = displayCompOp,
+                        eraserMode = presetEraser,
                         paintOpId = if (eff.paintOpId.isBlank() || eff.paintOpId == "defaultpaintop") {
                             if (index >= 0) ReverieCoreBridge.brushPresetPaintOpId(index) else "paintbrush"
                         } else {
@@ -421,7 +430,7 @@ object BrushApply {
             // 跳过, 它会保留上一支笔(常常是橡皮)的值 —— 用户看到的就是"切回自定义画笔
             // 却还在擦除"。加载成功与否只影响预设内部参数, 不影响这两项的归属。
             val nonPreset = NonPresetState(
-                isEraser = vm.currentToolId == "eraser" || isEraserPreset,
+                isEraser = effectiveEraser,
                 color = vm.brushColor,
                 secondaryColor = vm.brushSecondaryColor,
                 compositeOverride = effectiveCompOp,
@@ -456,21 +465,24 @@ object BrushApply {
         if (preset != null) {
             val isEraserPreset = BrushStoreVm.isEraserPreset(preset)
             val id = preset.id
-            val eff = BrushStoreVm.readback(id)?.first ?: run {
+            val read = BrushStoreVm.readback(id)
+            val eff = read?.first ?: run {
                 BrushDiagnostics.log("restore_readback_missing", "id" to id, "fallback" to "baseline")
                 PresetReadback.baseline(id)
             }
             val nativeCompOp = ReverieCoreBridge.brushPresetCompositeOp(origPreset)
-            val effectiveCompOp = if (origIsEraser || isEraserPreset) {
-                "erase"
-            } else {
-                if (eff.compositeOp.isNotBlank() && eff.compositeOp != "erase") eff.compositeOp else nativeCompOp
-            }
+            val isKpp = BrushStoreVm.resolveEntry(id)?.ext?.equals("kpp", ignoreCase = true) != false
+            val presetEraser = if (read != null && isKpp) eff.eraserMode else isEraserPreset
+            val effectiveEraser = origIsEraser || presetEraser
+            val displayCompOp = eff.compositeOp.takeIf { it.isNotBlank() && it != "erase" }
+                ?: nativeCompOp.takeIf { it.isNotBlank() && it != "erase" }
+                ?: "normal"
+            val effectiveCompOp = if (effectiveEraser) "erase" else displayCompOp
 
             if (engine.loadBrushPreset(origPreset)) {
                 com.reverie.paint.core.Breadcrumbs.record("Brush", "Restore preset [$origPreset]: ${preset.name}")
                 val nonPreset = NonPresetState(
-                    isEraser = origIsEraser || isEraserPreset,
+                    isEraser = effectiveEraser,
                     color = vm.brushColor,
                     secondaryColor = vm.brushSecondaryColor,
                     compositeOverride = effectiveCompOp,
@@ -504,15 +516,16 @@ object BrushApply {
         if (mode >= 0) {
             engine.setToolMode(mode)
         }
+        val effectiveEraser = vm.currentToolId == "eraser" || vm.brushParams.eraserMode
         if (vm.brushPresetIndex >= 0) {
             engine.loadBrushPreset(vm.brushPresetIndex)
-            val p = vm.brushPresets.firstOrNull { it.index == vm.brushPresetIndex }
-            engine.setPresetIsEraser(BrushStoreVm.isEraserPreset(p))
+            engine.setPresetIsEraser(effectiveEraser)
             engine.setBrushSize(vm.brushSize)
             engine.setBrushOpacity(vm.brushOpacity)
             engine.setBrushFlow(vm.brushFlow)
         }
-        engine.setBrushCompositeOp(vm.brushCompositeOp)
+        val compOp = if (effectiveEraser) "erase" else vm.brushCompositeOp
+        engine.setBrushCompositeOp(compOp)
         engine.setBrushColor(vm.brushColor)
     }
 }

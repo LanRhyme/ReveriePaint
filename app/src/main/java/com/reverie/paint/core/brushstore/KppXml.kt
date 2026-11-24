@@ -170,10 +170,20 @@ object KppXml {
         spikes: Int = 2,
         ratio: Double = 1.0,
         antiAliasing: Int = 1,
+        maskType: Int = 0,
+        density: Double = 1.0,
+        randomness: Double = 0.0,
+        useAutoSpacing: Boolean = false,
     ): String {
         val fFade = fmt(fade.coerceIn(0.0, 1.0))
         val shapeStr = if (shape == 1) "rect" else "circle"
-        val gen = """<MaskGenerator diameter="${fmt(size)}" hfade="$fFade" vfade="$fFade" id="default" spikes="${spikes.coerceAtLeast(2)}" type="$shapeStr" ratio="${fmt(ratio)}" antialiasEdges="${if (antiAliasing > 0) 1 else 0}"/>"""
-        return """<Brush scale="1" type="auto_brush" useAutoSpacing="0" BrushVersion="2" spacing="${fmt(spacing)}" angle="${fmt(angleRad)}" brushApplication="0"> $gen </Brush>"""
+        val maskId = when (maskType) {
+            1 -> "gauss"
+            2 -> "soft"
+            else -> "default"
+        }
+        val gen = """<MaskGenerator diameter="${fmt(size)}" hfade="$fFade" vfade="$fFade" id="$maskId" spikes="${spikes.coerceAtLeast(2)}" type="$shapeStr" ratio="${fmt(ratio)}" antialiasEdges="${if (antiAliasing > 0) 1 else 0}"/>"""
+        val autoSpacingAttr = if (useAutoSpacing) """ useAutoSpacing="1" autoSpacingCoeff="${fmt(spacing)}"""" else """ useAutoSpacing="0""""
+        return """<Brush scale="1" type="auto_brush"$autoSpacingAttr BrushVersion="2" spacing="${fmt(spacing)}" angle="${fmt(angleRad)}" density="${fmt(density.coerceIn(0.0, 1.0))}" randomness="${fmt(randomness.coerceIn(0.0, 1.0))}" brushApplication="0"> $gen </Brush>"""
     }
 }
