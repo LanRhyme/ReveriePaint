@@ -51,18 +51,21 @@ object FrontBufferProbe {
     fun isCrashQuarantined(): Boolean = crashQuarantined && !forceEnabledByProp
 
     /**
-     * 已知存在系统级 libgui registerSurfaceControlForCallback 空指针缺陷的 ROM 组合:
+     * 已知存在系统级 libgui registerSurfaceControlForCallback 空指针或事务并发引用计数损坏的 ROM 组合:
      * 1. Android 13 (SDK 33) 的小米/红米与 vivo/iQOO 机型 (线上 d8f74afe88 / 7f68bfcd44 / f047d7d9a2 / 8d5df3d6e2)。
      * 2. Android 12 (SDK 31) 的华为/荣耀鸿蒙 ROM (线上 1.9.0 b245be222a, 1.9.1 c0304d67e3 / 6401162f4a / a7b289ea37 / 127c50c4de)。
-     * 该系统缺陷在 SurfaceControl 事务中解引用空指针导致 SIGSEGV (0x0/0x8), 需前置规避。
+     * 3. Android 12 (SDK 31) 的 XPPen 绘画平板 (XPPen Magic Drawing Pad，固件 FLE8，#232)。
+     * 该系统缺陷在 SurfaceControl 事务与 BLASTBufferQueue 中解引用空指针或 RefBase 强弱引用断言失败导致崩溃，需前置规避。
      */
     internal fun isKnownDefectiveVendorRom(
         sdk: Int = Build.VERSION.SDK_INT,
         brand: String = Build.BRAND ?: "",
         mfg: String = Build.MANUFACTURER ?: "",
+        device: String = Build.DEVICE ?: "",
     ): Boolean {
         val b = brand.lowercase()
         val m = mfg.lowercase()
+        val d = device.lowercase()
         if (sdk == 33) {
             if (b.contains("xiaomi") || b.contains("redmi") || m.contains("xiaomi") ||
                 b.contains("vivo") || b.contains("iqoo") || m.contains("vivo")
@@ -72,7 +75,8 @@ object FrontBufferProbe {
         }
         if (sdk == 31) {
             if (b.contains("huawei") || m.contains("huawei") ||
-                b.contains("honor") || m.contains("honor")
+                b.contains("honor") || m.contains("honor") ||
+                b.contains("xppen") || m.contains("xppen") || d.contains("xppen")
             ) {
                 return true
             }

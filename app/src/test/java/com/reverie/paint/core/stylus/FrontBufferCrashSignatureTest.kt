@@ -56,6 +56,18 @@ class FrontBufferCrashSignatureTest {
     }
 
     @Test
+    fun `matches SIGABRT from RefBase assertion failure in libgui`() {
+        val stack = "libutils.so (RefBase::decStrong)\nlibgui.so (SurfaceComposerClient::Transaction::getLayerState)\nlibandroid_runtime.so"
+        assertTrue(FrontBufferCrashSignature.matches(log(signal = "SIGABRT", frames = stack)))
+    }
+
+    @Test
+    fun `matches SIGSEGV from BLASTBufferQueue`() {
+        val stack = "libgui.so (BLASTBufferQueue::onFrameAvailable)\nlibgui.so\nlibEGL.so"
+        assertTrue(FrontBufferCrashSignature.matches(log(signal = "SIGSEGV", fault = "0x0000000000000004", frames = stack)))
+    }
+
+    @Test
     fun `ignores libgui crash when front buffer was disabled`() {
         assertFalse(
             FrontBufferCrashSignature.matches(
@@ -65,20 +77,15 @@ class FrontBufferCrashSignatureTest {
     }
 
     @Test
-    fun `ignores non-null fault addresses`() {
-        assertFalse(FrontBufferCrashSignature.matches(log(fault = "0x0000000012345678")))
-    }
-
-    @Test
-    fun `ignores stacks without the surface jni frame`() {
+    fun `ignores stacks without surface keywords`() {
         assertFalse(
             FrontBufferCrashSignature.matches(log(frames = "libgui.so+0xc5b94\nlibc.so+0x1234")),
         )
     }
 
     @Test
-    fun `ignores non-SIGSEGV signals`() {
-        assertFalse(FrontBufferCrashSignature.matches(log(signal = "SIGABRT")))
+    fun `ignores non-crash signals`() {
+        assertFalse(FrontBufferCrashSignature.matches(log(signal = "SIGTERM")))
     }
 
     @Test

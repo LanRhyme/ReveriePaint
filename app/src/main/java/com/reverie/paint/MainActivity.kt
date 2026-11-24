@@ -660,6 +660,7 @@ fun ReverieApp(vm: PaintViewModel = viewModel()) {
                 if (vm.isWaveTransitionManaged &&
                     (
                         (initialState == Page.HOME && targetState == Page.PAINTING) ||
+                            (initialState == Page.CREATE && targetState == Page.PAINTING) ||
                             (initialState == Page.PAINTING && targetState == Page.HOME)
                     )
                 ) {

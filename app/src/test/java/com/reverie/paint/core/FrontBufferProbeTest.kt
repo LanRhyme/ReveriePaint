@@ -96,8 +96,11 @@ class FrontBufferProbeTest {
 
         assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "HUAWEI", mfg = "HUAWEI"))
         assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "HONOR", mfg = "HONOR"))
+        assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "XPPen", mfg = "XPPen"))
+        assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "XPPen", mfg = "", device = "Titan_XPPen"))
 
         // Other Android versions are not affected
+        assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 34, brand = "XPPen", mfg = "XPPen"))
         assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 34, brand = "Xiaomi", mfg = "Xiaomi"))
         assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "Xiaomi", mfg = "Xiaomi"))
         assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "HUAWEI", mfg = "HUAWEI"))
