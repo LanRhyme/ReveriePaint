@@ -18,7 +18,6 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -40,7 +39,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
-import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
@@ -71,10 +69,14 @@ import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.ui.components.LiquidSegmentedBar
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.components.pressScale
+import androidx.compose.foundation.interaction.MutableInteractionSource
+import androidx.compose.ui.unit.TextUnit
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import dev.chrisbanes.haze.HazeState
@@ -94,24 +96,25 @@ internal fun StudioGroupCard(
         Row(
             modifier = Modifier
                 .fillMaxWidth()
-                .padding(start = 4.dp, bottom = 6.dp),
+                .padding(start = 6.dp, bottom = 6.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
         ) {
             Text(
                 text = title,
-                color = Morandi.subText,
-                fontSize = 11.sp,
+                color = Morandi.accent,
+                fontSize = 12.sp,
                 fontWeight = FontWeight.SemiBold,
+                letterSpacing = 0.5.sp,
             )
             trailing?.invoke()
         }
         Column(
             modifier = Modifier
                 .fillMaxWidth()
-                .clip(RoundedCornerShape(14.dp))
-                .background(Morandi.panelHi.copy(alpha = 0.5f))
-                .padding(horizontal = 12.dp, vertical = 8.dp),
+                .clip(RoundedCornerShape(16.dp))
+                .background(Morandi.panel)
+                .padding(horizontal = 14.dp, vertical = 10.dp),
             verticalArrangement = Arrangement.spacedBy(6.dp),
             content = content,
         )
@@ -126,9 +129,9 @@ internal fun StudioCard(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(14.dp))
-            .background(Morandi.panelHi.copy(alpha = 0.5f))
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .clip(RoundedCornerShape(16.dp))
+            .background(Morandi.panel)
+            .padding(horizontal = 14.dp, vertical = 10.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
         content = content,
     )
@@ -139,8 +142,9 @@ internal fun StudioInnerDivider() {
     Box(
         modifier = Modifier
             .fillMaxWidth()
-            .height(0.6.dp)
-            .background(Morandi.border.copy(alpha = 0.1f)),
+            .padding(vertical = 2.dp)
+            .height(0.8.dp)
+            .background(Morandi.text.copy(alpha = 0.06f)),
     )
 }
 
@@ -200,41 +204,66 @@ internal fun StudioGated(reason: String?, textSub: Color, content: @Composable (
 }
 
 @Composable
-internal fun StudioSwitchItem(label: String, checked: Boolean, textMain: Color, onCheckedChange: (Boolean) -> Unit) {
+internal fun StudioSwitchItem(
+    label: String,
+    checked: Boolean,
+    textMain: Color = Morandi.text,
+    subtitle: String? = null,
+    labelFontSize: TextUnit = 13.sp,
+    onCheckedChange: (Boolean) -> Unit,
+) {
     Row(
-        modifier = Modifier.fillMaxWidth().padding(vertical = 3.dp),
+        modifier = Modifier
+            .fillMaxWidth()
+            .noRippleClickable { onCheckedChange(!checked) }
+            .padding(vertical = 4.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.SpaceBetween,
     ) {
-        Text(label, color = textMain, fontSize = 13.sp)
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Text(label, color = textMain, fontSize = labelFontSize)
+            if (!subtitle.isNullOrBlank()) {
+                Text(
+                    text = subtitle,
+                    color = Morandi.subText,
+                    fontSize = 11.sp,
+                    lineHeight = 14.sp,
+                )
+            }
+        }
+        Spacer(Modifier.width(10.dp))
         ReSwitch(
             checked = checked,
             onChecked = onCheckedChange,
-            modifier = Modifier.scale(0.85f),
         )
     }
 }
 
 @Composable
 internal fun StudioRadioRow(name: String, selected: Boolean, textMain: Color, textSub: Color, onSelect: () -> Unit) {
+    val interaction = remember { MutableInteractionSource() }
     Row(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(8.dp))
-            .background(if (selected) Morandi.accent.copy(alpha = 0.12f) else Color.Transparent)
-            .clickable { onSelect() }
-            .padding(horizontal = 10.dp, vertical = 8.dp),
+            .pressScale(interaction, pressedScale = 0.98f)
+            .clip(RoundedCornerShape(10.dp))
+            .background(if (selected) Morandi.accent.copy(alpha = 0.14f) else Color.Transparent)
+            .clickable(interactionSource = interaction, indication = null) { onSelect() }
+            .padding(horizontal = 10.dp, vertical = 9.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Text(
             name,
             color = if (selected) Morandi.accent else textMain,
-            fontSize = 12.sp,
+            fontSize = 13.sp,
             fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
             modifier = Modifier.weight(1f),
         )
         if (selected) {
-            Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = Morandi.accent, modifier = Modifier.size(15.dp))
+            Icon(painterResource(R.drawable.ic_check), contentDescription = null, tint = Morandi.accent, modifier = Modifier.size(16.dp))
         }
     }
 }
@@ -250,6 +279,8 @@ internal fun StudioSliderItem(
     textMain: Color,
     textSub: Color,
     enabled: Boolean = true,
+    valuePillBg: Color = Morandi.panelHi,
+    labelFontSize: TextUnit = 13.sp,
     onChange: (Double) -> Unit,
 ) {
     val paramUnit = when {
@@ -265,6 +296,8 @@ internal fun StudioSliderItem(
         max = max,
         unit = paramUnit,
         enabled = enabled,
+        valuePillBg = valuePillBg,
+        labelFontSize = labelFontSize,
         onChange = onChange,
     )
 }
@@ -285,8 +318,7 @@ internal fun StudioAngleDial(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(12.dp))
-            .background(Morandi.panel.copy(alpha = 0.6f))
-            .border(0.6.dp, Morandi.border.copy(alpha = 0.2f), RoundedCornerShape(12.dp))
+            .background(Morandi.panelHi)
             .pointerInput(Unit) {
                 detectDragGestures { change, _ ->
                     change.consume()
@@ -306,7 +338,7 @@ internal fun StudioAngleDial(
 
             // Outer dial ring
             drawCircle(
-                color = Morandi.border.copy(alpha = 0.28f),
+                color = Morandi.text.copy(alpha = 0.16f),
                 radius = radius,
                 center = center,
                 style = Stroke(width = 1.2.dp.toPx()),
@@ -317,7 +349,7 @@ internal fun StudioAngleDial(
                 val tickRad = (i * 30f) * (Math.PI.toFloat() / 180f)
                 val innerR = radius - if (i % 3 == 0) 6.dp.toPx() else 3.5.dp.toPx()
                 drawLine(
-                    color = Morandi.border.copy(alpha = if (i % 3 == 0) 0.45f else 0.22f),
+                    color = Morandi.text.copy(alpha = if (i % 3 == 0) 0.28f else 0.12f),
                     start = Offset(center.x + cos(tickRad) * innerR, center.y + sin(tickRad) * innerR),
                     end = Offset(center.x + cos(tickRad) * radius, center.y + sin(tickRad) * radius),
                     strokeWidth = 1.dp.toPx(),
@@ -387,9 +419,9 @@ internal fun StudioAngleDial(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
                 .padding(bottom = 3.dp)
-                .clip(RoundedCornerShape(4.dp))
-                .background(Morandi.panel.copy(alpha = 0.8f))
-                .padding(horizontal = 4.dp, vertical = 1.dp),
+                .clip(RoundedCornerShape(6.dp))
+                .background(Morandi.panel.copy(alpha = 0.88f))
+                .padding(horizontal = 5.dp, vertical = 1.dp),
         )
     }
 }
@@ -402,8 +434,11 @@ internal fun StudioSegmentedRow(
     enabled: Boolean = true,
     textMain: Color = Morandi.text,
     textSub: Color = Morandi.subText,
+    trackColor: Color = Morandi.panelHi,
+    labelFontSize: TextUnit = 13.sp,
     onSelect: (Int) -> Unit,
 ) {
+    val selectedIdx = options.indexOfFirst { it.first == selected }.coerceAtLeast(0)
     Column(
         modifier = Modifier
             .fillMaxWidth()
@@ -413,48 +448,48 @@ internal fun StudioSegmentedRow(
         Text(
             text = label,
             color = if (enabled) textMain else textSub.copy(alpha = 0.55f),
-            fontSize = 13.sp,
+            fontSize = labelFontSize,
             fontWeight = FontWeight.Normal,
         )
-        Row(
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(RoundedCornerShape(10.dp))
-                .background(Morandi.panel.copy(alpha = 0.55f))
-                .border(0.6.dp, Morandi.border.copy(alpha = 0.22f), RoundedCornerShape(10.dp))
-                .padding(3.dp),
-            horizontalArrangement = Arrangement.spacedBy(3.dp),
-        ) {
-            options.forEach { (id, title) ->
-                val isSelected = selected == id
+        Box(modifier = Modifier.fillMaxWidth()) {
+            LiquidSegmentedBar(
+                count = options.size,
+                selectedIndex = selectedIdx,
+                onSelect = { idx ->
+                    if (enabled) options.getOrNull(idx)?.let { onSelect(it.first) }
+                },
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(36.dp)
+                    .graphicsLayer { alpha = if (enabled) 1f else 0.45f },
+                trackColor = trackColor,
+                pillColor = Morandi.accent,
+                trackCornerRadius = 10.dp,
+                pillCornerRadius = 8.dp,
+                trackPadding = 3.dp,
+            ) { idx, isActive ->
+                Text(
+                    text = options[idx].second,
+                    color = if (isActive) Morandi.onAccent else textSub,
+                    fontSize = 12.sp,
+                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    textAlign = TextAlign.Center,
+                )
+            }
+            if (!enabled) {
                 Box(
                     modifier = Modifier
-                        .weight(1f)
-                        .clip(RoundedCornerShape(7.dp))
-                        .background(if (isSelected) Morandi.accent.copy(alpha = 0.24f) else Color.Transparent)
-                        .border(
-                            width = if (isSelected) 0.6.dp else 0.dp,
-                            color = if (isSelected) Morandi.accent.copy(alpha = 0.7f) else Color.Transparent,
-                            shape = RoundedCornerShape(7.dp),
-                        )
-                        .clickable(enabled = enabled) { onSelect(id) }
-                        .padding(horizontal = 6.dp, vertical = 6.dp),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Text(
-                        text = title,
-                        color = when {
-                            !enabled -> textSub.copy(alpha = 0.5f)
-                            isSelected -> Morandi.accent
-                            else -> textSub
+                        .matchParentSize()
+                        .pointerInput(Unit) {
+                            awaitPointerEventScope {
+                                while (true) {
+                                    awaitPointerEvent().changes.forEach { it.consume() }
+                                }
+                            }
                         },
-                        fontSize = 11.5.sp,
-                        fontWeight = if (isSelected) FontWeight.SemiBold else FontWeight.Normal,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                        textAlign = TextAlign.Center,
-                    )
-                }
+                )
             }
         }
     }
@@ -468,14 +503,18 @@ internal fun StudioSelectorRow(
     enabled: Boolean = true,
     textMain: Color = Morandi.text,
     textSub: Color = Morandi.subText,
+    pillBg: Color = Morandi.panelHi,
+    labelFontSize: TextUnit = 13.sp,
     onClick: () -> Unit,
 ) {
+    val interaction = remember { MutableInteractionSource() }
     Column(
         modifier = Modifier
             .fillMaxWidth()
+            .pressScale(interaction, pressedScale = 0.985f)
             .clip(RoundedCornerShape(10.dp))
-            .clickable(enabled = enabled, onClick = onClick)
-            .padding(vertical = 7.dp, horizontal = 4.dp),
+            .clickable(interactionSource = interaction, indication = null, enabled = enabled, onClick = onClick)
+            .padding(vertical = 6.dp, horizontal = 2.dp),
     ) {
         Row(
             modifier = Modifier.fillMaxWidth(),
@@ -485,7 +524,7 @@ internal fun StudioSelectorRow(
             Text(
                 text = label,
                 color = if (enabled) textMain else textSub.copy(alpha = 0.55f),
-                fontSize = 13.sp,
+                fontSize = labelFontSize,
                 modifier = Modifier.weight(1f),
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
@@ -496,9 +535,8 @@ internal fun StudioSelectorRow(
                 horizontalArrangement = Arrangement.spacedBy(5.dp),
                 modifier = Modifier
                     .clip(RoundedCornerShape(8.dp))
-                    .background(Morandi.panel.copy(alpha = 0.65f))
-                    .border(0.6.dp, Morandi.border.copy(alpha = 0.25f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 9.dp, vertical = 4.dp),
+                    .background(pillBg)
+                    .padding(horizontal = 10.dp, vertical = 5.dp),
             ) {
                 Text(
                     text = valueText,

@@ -6,8 +6,8 @@ package com.reverie.paint.ui.painting.brush
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.grid.GridCells
 import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
@@ -33,10 +33,11 @@ import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.core.brushstore.BrushCompositeIds
 import com.reverie.paint.core.brushstore.ControlId
+import com.reverie.paint.ui.components.LiquidSegmentedBar
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.theme.Morandi
-import com.reverie.paint.ui.theme.glassBorder
 
 // ==========================================
 // Tab 1: 通用混合 (General & Blend Mode)
@@ -57,6 +58,8 @@ internal fun GeneralTabContent(
             min = vm.brushMinSizeLimit.coerceAtLeast(0.5),
             max = vm.effectiveBrushMaxSize,
             unit = ParamUnit.PIXEL,
+            valuePillBg = Morandi.panelHi,
+            labelFontSize = 13.sp,
             onChange = { vm.updateBrushSize(it) },
         )
         ModernParamSlider(
@@ -65,6 +68,8 @@ internal fun GeneralTabContent(
             min = 0.05,
             max = 1.0,
             unit = ParamUnit.PERCENT,
+            valuePillBg = Morandi.panelHi,
+            labelFontSize = 13.sp,
             onChange = { vm.updateBrushOpacity(it) },
         )
         ModernParamSlider(
@@ -73,6 +78,8 @@ internal fun GeneralTabContent(
             min = 0.05,
             max = 1.0,
             unit = ParamUnit.PERCENT,
+            valuePillBg = Morandi.panelHi,
+            labelFontSize = 13.sp,
             onChange = { vm.updateBrushFlow(it) },
         )
     }
@@ -90,6 +97,8 @@ internal fun GeneralTabContent(
             onClick = { showBlendPicker = true },
             textMain = textMain,
             textSub = textSub,
+            pillBg = Morandi.panelHi,
+            labelFontSize = 13.sp,
         )
 
         StudioInnerDivider()
@@ -98,20 +107,14 @@ internal fun GeneralTabContent(
             label = stringResource(R.string.brush_studio_eraser_mode),
             checked = vm.brushEraserMode,
             textMain = textMain,
-            onCheckedChange = { vm.updateBrushEraserMode(it) },
-        )
-        Text(
-            text = stringResource(
+            subtitle = stringResource(
                 if (vm.currentToolId == "eraser") {
                     R.string.brush_studio_eraser_tool_active_hint
                 } else {
                     R.string.brush_studio_eraser_mode_desc
                 },
             ),
-            color = textSub,
-            fontSize = 11.sp,
-            lineHeight = 14.sp,
-            modifier = Modifier.padding(bottom = 2.dp),
+            onCheckedChange = { vm.updateBrushEraserMode(it) },
         )
 
         StudioInnerDivider()
@@ -202,46 +205,39 @@ internal fun TipTabContent(
     StudioGroupCard(stringResource(R.string.brush_studio_tip_section_title)) {
         StudioGated(brushDefGate, textSub) {
             Column {
-                Row(
+                LiquidSegmentedBar(
+                    count = 2,
+                    selectedIndex = if (isAutoBrush) 0 else 1,
+                    onSelect = { idx ->
+                        if (idx == 0) {
+                            vm.updateBrushTipAsset("")
+                        } else if (vm.brushTipAsset.isBlank()) {
+                            onOpenTipPicker()
+                        }
+                    },
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(vertical = 4.dp),
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (isAutoBrush) Morandi.accent.copy(alpha = 0.22f) else Morandi.panel.copy(alpha = 0.6f))
-                            .clickable { vm.updateBrushTipAsset("") }
-                            .padding(vertical = 8.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.brush_studio_prop_auto_vector),
-                            color = if (isAutoBrush) Morandi.accent else textSub,
-                            fontSize = 12.sp,
-                            fontWeight = if (isAutoBrush) FontWeight.SemiBold else FontWeight.Normal,
-                        )
+                        .padding(vertical = 4.dp)
+                        .height(36.dp),
+                    trackColor = Morandi.panelHi,
+                    pillColor = Morandi.accent,
+                    trackCornerRadius = 10.dp,
+                    pillCornerRadius = 8.dp,
+                    trackPadding = 3.dp,
+                ) { idx, isActive ->
+                    val labelRes = if (idx == 0) {
+                        R.string.brush_studio_prop_auto_vector
+                    } else {
+                        R.string.brush_studio_tip_library_title
                     }
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (!isAutoBrush) Morandi.accent.copy(alpha = 0.22f) else Morandi.panel.copy(alpha = 0.6f))
-                            .clickable {
-                                if (vm.brushTipAsset.isBlank()) onOpenTipPicker()
-                            }
-                            .padding(vertical = 8.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.brush_studio_tip_library_title),
-                            color = if (!isAutoBrush) Morandi.accent else textSub,
-                            fontSize = 12.sp,
-                            fontWeight = if (!isAutoBrush) FontWeight.SemiBold else FontWeight.Normal,
-                        )
-                    }
+                    Text(
+                        text = stringResource(labelRes),
+                        color = if (isActive) Morandi.onAccent else textSub,
+                        fontSize = 12.sp,
+                        fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
                 }
 
                 StudioInnerDivider()
@@ -260,33 +256,28 @@ internal fun TipTabContent(
                         onSelect = { vm.updateBrushTipMaskType(it) },
                     )
 
-                    Row(
-                        modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp),
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    ) {
-                        val isCircle = vm.brushTipShape == 0
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (isCircle) Morandi.accent.copy(alpha = 0.18f) else Morandi.panel.copy(alpha = 0.45f))
-                                .clickable { vm.updateBrushTipShape(0) }
-                                .padding(vertical = 7.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(stringResource(R.string.brush_studio_tip_round), color = if (isCircle) Morandi.accent else textSub, fontSize = 11.5.sp)
-                        }
-                        Box(
-                            modifier = Modifier
-                                .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (!isCircle) Morandi.accent.copy(alpha = 0.18f) else Morandi.panel.copy(alpha = 0.45f))
-                                .clickable { vm.updateBrushTipShape(1) }
-                                .padding(vertical = 7.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(stringResource(R.string.brush_studio_tip_square), color = if (!isCircle) Morandi.accent else textSub, fontSize = 11.5.sp)
-                        }
+                    LiquidSegmentedBar(
+                        count = 2,
+                        selectedIndex = if (vm.brushTipShape == 0) 0 else 1,
+                        onSelect = { idx -> vm.updateBrushTipShape(idx) },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(vertical = 4.dp)
+                            .height(34.dp),
+                        trackColor = Morandi.panelHi,
+                        pillColor = Morandi.accent,
+                        trackCornerRadius = 10.dp,
+                        pillCornerRadius = 8.dp,
+                        trackPadding = 3.dp,
+                    ) { idx, isActive ->
+                        val shapeRes = if (idx == 0) R.string.brush_studio_tip_round else R.string.brush_studio_tip_square
+                        Text(
+                            text = stringResource(shapeRes),
+                            color = if (isActive) Morandi.onAccent else textSub,
+                            fontSize = 12.sp,
+                            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                            maxLines = 1,
+                        )
                     }
 
                     StudioSliderItem(
@@ -354,8 +345,8 @@ internal fun TipTabContent(
                             modifier = Modifier
                                 .size(56.dp)
                                 .clip(RoundedCornerShape(10.dp))
-                                .background(Morandi.panel)
-                                .clickable { onOpenTipPicker() }
+                                .background(Morandi.panelHi)
+                                .noRippleClickable { onOpenTipPicker() }
                                 .padding(3.dp),
                             contentAlignment = Alignment.Center,
                         ) {
@@ -391,14 +382,16 @@ internal fun TipTabContent(
                             )
                         }
 
+                        val browseInteraction = remember { MutableInteractionSource() }
                         Box(
                             modifier = Modifier
+                                .pressScale(browseInteraction, pressedScale = 0.94f)
                                 .clip(RoundedCornerShape(8.dp))
-                                .background(Morandi.panel.copy(alpha = 0.8f))
-                                .clickable { onOpenTipPicker() }
+                                .background(Morandi.panelHi)
+                                .clickable(interactionSource = browseInteraction, indication = null) { onOpenTipPicker() }
                                 .padding(horizontal = 10.dp, vertical = 6.dp),
                         ) {
-                            Text(stringResource(R.string.brush_studio_tip_browse), color = textMain, fontSize = 11.sp)
+                            Text(stringResource(R.string.brush_studio_tip_browse), color = textMain, fontSize = 11.5.sp)
                         }
                     }
 
@@ -423,24 +416,23 @@ internal fun TipTabContent(
                         ) {
                             row.forEach { (id, res) ->
                                 val sel = vm.brushApplication == id
+                                val optInteraction = remember(id) { MutableInteractionSource() }
                                 Box(
                                     modifier = Modifier
                                         .weight(1f)
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (sel) Morandi.accent.copy(alpha = 0.22f) else Morandi.panel.copy(alpha = 0.55f))
-                                        .border(
-                                            0.6.dp,
-                                            if (sel) Morandi.accent.copy(alpha = 0.7f) else Morandi.border.copy(alpha = 0.2f),
-                                            RoundedCornerShape(8.dp),
-                                        )
-                                        .clickable { vm.updateBrushApplication(id) }
-                                        .padding(vertical = 7.dp, horizontal = 6.dp),
+                                        .pressScale(optInteraction, pressedScale = 0.96f)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (sel) Morandi.accent.copy(alpha = 0.16f) else Morandi.panelHi)
+                                        .clickable(interactionSource = optInteraction, indication = null) {
+                                            vm.updateBrushApplication(id)
+                                        }
+                                        .padding(vertical = 8.dp, horizontal = 6.dp),
                                     contentAlignment = Alignment.Center,
                                 ) {
                                     Text(
                                         text = stringResource(res),
                                         color = if (sel) Morandi.accent else textSub,
-                                        fontSize = 11.5.sp,
+                                        fontSize = 12.sp,
                                         fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
                                         maxLines = 1,
                                         overflow = TextOverflow.Ellipsis,
@@ -725,18 +717,17 @@ internal fun DynamicsTabContent(
                 ) {
                     row.forEach { (idx, curveRes) ->
                         val sel = vm.brushPressureCurve == idx
+                        val interaction = remember { MutableInteractionSource() }
                         Box(
                             modifier = Modifier
                                 .weight(1f)
-                                .clip(RoundedCornerShape(8.dp))
-                                .background(if (sel) Morandi.accent.copy(alpha = 0.22f) else Morandi.panel.copy(alpha = 0.55f))
-                                .border(
-                                    0.6.dp,
-                                    if (sel) Morandi.accent.copy(alpha = 0.7f) else Morandi.border.copy(alpha = 0.2f),
-                                    RoundedCornerShape(8.dp),
-                                )
-                                .clickable { vm.updateBrushPressureCurve(idx) }
-                                .padding(vertical = 8.dp, horizontal = 6.dp),
+                                .pressScale(interaction)
+                                .clip(RoundedCornerShape(10.dp))
+                                .background(if (sel) Morandi.accent.copy(alpha = 0.16f) else Morandi.panelHi)
+                                .clickable(interactionSource = interaction, indication = null) {
+                                    vm.updateBrushPressureCurve(idx)
+                                }
+                                .padding(vertical = 9.dp, horizontal = 8.dp),
                             contentAlignment = Alignment.Center,
                         ) {
                             Text(
@@ -904,7 +895,7 @@ internal fun BrushTipPickerModal(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.65f))
+                .background(Morandi.scrim)
                 .noRippleClickable(onDismiss),
             contentAlignment = Alignment.Center,
         ) {
@@ -913,12 +904,11 @@ internal fun BrushTipPickerModal(
                     .widthIn(min = 320.dp, max = 560.dp)
                     .fillMaxWidth(0.88f)
                     .fillMaxHeight(0.78f)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(20.dp))
                     .background(Morandi.panel)
-                    .glassBorder(RoundedCornerShape(14.dp))
-                    .clickable(enabled = false) {},
+                    .noRippleClickable {},
             ) {
-                Column(modifier = Modifier.fillMaxSize().padding(14.dp)) {
+                Column(modifier = Modifier.fillMaxSize().padding(18.dp)) {
                     // Header
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -927,56 +917,56 @@ internal fun BrushTipPickerModal(
                         Text(
                             stringResource(R.string.brush_studio_tip_library_title),
                             color = textMain,
-                            fontSize = 15.sp,
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f),
                         )
 
-                        Spacer(Modifier.width(10.dp))
-
-                        // Category Pills
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            categories.forEachIndexed { idx, catRes ->
-                                val sel = filterCategoryIndex == idx
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(if (sel) Morandi.accent.copy(alpha = 0.18f) else cardBg)
-                                        .clickable { filterCategoryIndex = idx }
-                                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                                ) {
-                                    Text(
-                                        stringResource(catRes),
-                                        color = if (sel) Morandi.accent else textSub,
-                                        fontSize = 11.sp,
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(Modifier.weight(1f))
-
                         // Import Custom Tip button
+                        val importInteraction = remember { MutableInteractionSource() }
                         Row(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(cardBg)
-                                .clickable { onImportTip() }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                .pressScale(importInteraction)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Morandi.panelHi)
+                                .clickable(interactionSource = importInteraction, indication = null) { onImportTip() }
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Icon(painterResource(R.drawable.ic_plus), contentDescription = null, tint = textMain, modifier = Modifier.size(13.dp))
-                            Text(stringResource(R.string.brush_studio_tip_import_btn), color = textMain, fontSize = 11.sp)
+                            Text(stringResource(R.string.brush_studio_tip_import_btn), color = textMain, fontSize = 11.5.sp)
                         }
 
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(8.dp))
 
                         ReIconButton(R.drawable.ic_x, stringResource(R.string.common_close), onDismiss, size = 28.dp, tint = textSub, iconSize = 16.dp)
                     }
 
                     Spacer(Modifier.height(10.dp))
-                    Box(Modifier.fillMaxWidth().height(0.6.dp).background(Morandi.border.copy(alpha = 0.2f)))
-                    Spacer(Modifier.height(10.dp))
+
+                    // Category Filter Bar
+                    LiquidSegmentedBar(
+                        count = categories.size,
+                        selectedIndex = filterCategoryIndex,
+                        onSelect = { filterCategoryIndex = it },
+                        modifier = Modifier.fillMaxWidth().height(32.dp),
+                        trackColor = Morandi.panelHi,
+                        pillColor = Morandi.accent,
+                    ) { idx, isActive ->
+                        Text(
+                            text = stringResource(categories[idx]),
+                            color = if (isActive) Morandi.onAccent else textSub,
+                            fontSize = 11.5.sp,
+                            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+                    Box(Modifier.fillMaxWidth().height(0.8.dp).background(Morandi.text.copy(alpha = 0.06f)))
+                    Spacer(Modifier.height(12.dp))
 
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 72.dp),
@@ -986,18 +976,17 @@ internal fun BrushTipPickerModal(
                     ) {
                         items(displayedTips, key = { it.filename }) { item ->
                             val isSelected = item.filename == currentAsset
+                            val itemInteraction = remember { MutableInteractionSource() }
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) Morandi.accent.copy(alpha = 0.2f) else cardBg.copy(alpha = 0.6f))
-                                    .border(
-                                        width = if (isSelected) 1.5.dp else 0.5.dp,
-                                        color = if (isSelected) Morandi.accent else borderCol,
-                                        shape = RoundedCornerShape(8.dp),
-                                    )
-                                    .clickable { onSelectTip(item.filename) }
+                                    .pressScale(itemInteraction)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isSelected) Morandi.accent.copy(alpha = 0.18f) else Morandi.panelHi)
+                                    .clickable(interactionSource = itemInteraction, indication = null) {
+                                        onSelectTip(item.filename)
+                                    }
                                     .padding(6.dp),
                             ) {
                                 Box(

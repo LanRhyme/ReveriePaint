@@ -15,6 +15,7 @@ import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,6 +27,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.SolidColor
 import androidx.compose.ui.graphics.drawscope.drawIntoCanvas
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.input.pointer.pointerInteropFilter
@@ -43,6 +45,7 @@ import com.reverie.paint.core.*
 import com.reverie.paint.model.BarrelRotationPolicy
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReTextButton
+import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.theme.Morandi
 
 data class ScratchPoint(
@@ -637,10 +640,9 @@ internal fun BrushStudioScratchpadPanel(
 
     Column(
         modifier = modifier
-            .clip(RoundedCornerShape(14.dp))
-            .background(Morandi.panelHi.copy(alpha = 0.5f))
-            .border(0.6.dp, Morandi.border.copy(alpha = 0.2f), RoundedCornerShape(14.dp))
-            .padding(8.dp),
+            .clip(RoundedCornerShape(16.dp))
+            .background(Morandi.panel)
+            .padding(12.dp),
     ) {
         // ---- 顶部控制栏 ----
         Row(
@@ -777,7 +779,7 @@ internal fun BrushStudioScratchpadPanel(
             modifier = Modifier
                 .fillMaxWidth()
                 .weight(1f)
-                .clip(RoundedCornerShape(10.dp))
+                .clip(RoundedCornerShape(12.dp))
                 .background(if (bgMode == 2) Color(0xFF24262B) else Color.White)
                 .onSizeChanged { size ->
                     if (size.width > 0 && size.height > 0 &&
@@ -938,17 +940,19 @@ internal fun BrushStudioScratchpadPanel(
                 quickColors.forEach { hex ->
                     val swatchCol = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color.Black)
                     val isSel = scratchColor.equals(hex, ignoreCase = true)
+                    val swatchInteraction = remember { MutableInteractionSource() }
                     Box(
                         modifier = Modifier
                             .size(if (isSel) 20.dp else 18.dp)
+                            .pressScale(swatchInteraction, pressedScale = 0.90f)
                             .clip(CircleShape)
                             .background(swatchCol)
                             .border(
                                 width = if (isSel) 2.dp else 0.8.dp,
-                                color = if (isSel) Morandi.accent else Morandi.border.copy(alpha = 0.45f),
+                                color = if (isSel) Morandi.accent else Morandi.text.copy(alpha = 0.18f),
                                 shape = CircleShape,
                             )
-                            .clickable {
+                            .clickable(interactionSource = swatchInteraction, indication = null) {
                                 scratchColor = hex
                                 vm.runCore(render = false) {
                                     runCatching { ReverieCoreBridge.setBrushColor(hex) }
@@ -968,9 +972,9 @@ internal fun BrushStudioScratchpadPanel(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Morandi.panel.copy(alpha = 0.72f))
-                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Morandi.panelHi)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                 )
                 Text(
                     text = "${(vm.brushOpacity * 100).toInt()}%",
@@ -978,9 +982,9 @@ internal fun BrushStudioScratchpadPanel(
                     fontSize = 11.sp,
                     fontWeight = FontWeight.Medium,
                     modifier = Modifier
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Morandi.panel.copy(alpha = 0.72f))
-                        .padding(horizontal = 7.dp, vertical = 3.dp),
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Morandi.panelHi)
+                        .padding(horizontal = 8.dp, vertical = 4.dp),
                 )
             }
         }
@@ -1015,10 +1019,11 @@ internal fun StudioNewBrushDialog(
                     onValueChange = { name = it },
                     singleLine = true,
                     textStyle = TextStyle(color = textMain, fontSize = 14.sp),
+                    cursorBrush = SolidColor(Morandi.accent),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
-                        .background(Morandi.panel)
+                        .background(Morandi.panelHi)
                         .padding(10.dp),
                 )
             }
@@ -1034,7 +1039,7 @@ internal fun StudioNewBrushDialog(
         dismissButton = {
             ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = textSub)
         },
-        containerColor = cardBg,
+        containerColor = Morandi.panel,
     )
 }
 
@@ -1061,10 +1066,11 @@ internal fun StudioRenameDialog(
                     onValueChange = { name = it },
                     singleLine = true,
                     textStyle = TextStyle(color = textMain, fontSize = 14.sp),
+                    cursorBrush = SolidColor(Morandi.accent),
                     modifier = Modifier
                         .fillMaxWidth()
                         .clip(RoundedCornerShape(10.dp))
-                        .background(Morandi.panel)
+                        .background(Morandi.panelHi)
                         .padding(10.dp),
                 )
             }
@@ -1080,7 +1086,7 @@ internal fun StudioRenameDialog(
         dismissButton = {
             ReTextButton(stringResource(R.string.common_cancel), onDismiss, textColor = textSub)
         },
-        containerColor = cardBg,
+        containerColor = Morandi.panel,
     )
 }
 

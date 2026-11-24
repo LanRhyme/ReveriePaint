@@ -19,8 +19,8 @@ import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.gestures.detectDragGestures
@@ -41,7 +41,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.rotate
 import androidx.compose.ui.draw.scale
-import com.reverie.paint.ui.theme.glassBorder
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.*
@@ -72,8 +71,10 @@ import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.ReSwitch
+import com.reverie.paint.ui.components.LiquidSegmentedBar
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
 import dev.chrisbanes.haze.HazeState
@@ -455,7 +456,7 @@ internal fun BrushPatternPickerModal(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.65f))
+                .background(Morandi.scrim)
                 .noRippleClickable(onDismiss),
             contentAlignment = Alignment.Center,
         ) {
@@ -464,12 +465,11 @@ internal fun BrushPatternPickerModal(
                     .widthIn(min = 320.dp, max = 560.dp)
                     .fillMaxWidth(0.88f)
                     .fillMaxHeight(0.78f)
-                    .clip(RoundedCornerShape(14.dp))
+                    .clip(RoundedCornerShape(20.dp))
                     .background(Morandi.panel)
-                    .glassBorder(RoundedCornerShape(14.dp))
-                    .clickable(enabled = false) {},
+                    .noRippleClickable {},
             ) {
-                Column(modifier = Modifier.fillMaxSize().padding(14.dp)) {
+                Column(modifier = Modifier.fillMaxSize().padding(18.dp)) {
                     // Header
                     Row(
                         modifier = Modifier.fillMaxWidth(),
@@ -478,56 +478,56 @@ internal fun BrushPatternPickerModal(
                         Text(
                             stringResource(R.string.brush_studio_pattern_title),
                             color = textMain,
-                            fontSize = 15.sp,
+                            fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
+                            modifier = Modifier.weight(1f),
                         )
 
-                        Spacer(Modifier.width(10.dp))
-
-                        // Category Pills
-                        Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                            categories.forEachIndexed { idx, catRes ->
-                                val sel = filterCategoryIndex == idx
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(4.dp))
-                                        .background(if (sel) Morandi.accent.copy(alpha = 0.18f) else cardBg)
-                                        .clickable { filterCategoryIndex = idx }
-                                        .padding(horizontal = 8.dp, vertical = 3.dp),
-                                ) {
-                                    Text(
-                                        stringResource(catRes),
-                                        color = if (sel) Morandi.accent else textSub,
-                                        fontSize = 11.sp,
-                                    )
-                                }
-                            }
-                        }
-
-                        Spacer(Modifier.weight(1f))
-
                         // Import Custom Pattern
+                        val importInteraction = remember { MutableInteractionSource() }
                         Row(
                             modifier = Modifier
-                                .clip(RoundedCornerShape(6.dp))
-                                .background(cardBg)
-                                .clickable { onImportPattern() }
-                                .padding(horizontal = 8.dp, vertical = 4.dp),
+                                .pressScale(importInteraction)
+                                .clip(RoundedCornerShape(8.dp))
+                                .background(Morandi.panelHi)
+                                .clickable(interactionSource = importInteraction, indication = null) { onImportPattern() }
+                                .padding(horizontal = 10.dp, vertical = 6.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                         ) {
                             Icon(painterResource(R.drawable.ic_plus), contentDescription = null, tint = textMain, modifier = Modifier.size(13.dp))
-                            Text(stringResource(R.string.brush_studio_pattern_import), color = textMain, fontSize = 11.sp)
+                            Text(stringResource(R.string.brush_studio_pattern_import), color = textMain, fontSize = 11.5.sp)
                         }
 
-                        Spacer(Modifier.width(6.dp))
+                        Spacer(Modifier.width(8.dp))
 
                         ReIconButton(R.drawable.ic_x, stringResource(R.string.common_close), onDismiss, size = 28.dp, tint = textSub, iconSize = 16.dp)
                     }
 
                     Spacer(Modifier.height(10.dp))
-                    Box(Modifier.fillMaxWidth().height(0.6.dp).background(Morandi.border.copy(alpha = 0.2f)))
-                    Spacer(Modifier.height(10.dp))
+
+                    // Category Filter Bar
+                    LiquidSegmentedBar(
+                        count = categories.size,
+                        selectedIndex = filterCategoryIndex,
+                        onSelect = { filterCategoryIndex = it },
+                        modifier = Modifier.fillMaxWidth().height(32.dp),
+                        trackColor = Morandi.panelHi,
+                        pillColor = Morandi.accent,
+                    ) { idx, isActive ->
+                        Text(
+                            text = stringResource(categories[idx]),
+                            color = if (isActive) Morandi.onAccent else textSub,
+                            fontSize = 11.5.sp,
+                            fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Normal,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+
+                    Spacer(Modifier.height(12.dp))
+                    Box(Modifier.fillMaxWidth().height(0.8.dp).background(Morandi.text.copy(alpha = 0.06f)))
+                    Spacer(Modifier.height(12.dp))
 
                     LazyVerticalGrid(
                         columns = GridCells.Adaptive(minSize = 72.dp),
@@ -537,18 +537,17 @@ internal fun BrushPatternPickerModal(
                     ) {
                         items(displayed, key = { it.filename }) { item ->
                             val isSelected = item.filename == currentPattern
+                            val itemInteraction = remember { MutableInteractionSource() }
                             Column(
                                 horizontalAlignment = Alignment.CenterHorizontally,
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                                 modifier = Modifier
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (isSelected) Morandi.accent.copy(alpha = 0.2f) else cardBg.copy(alpha = 0.6f))
-                                    .border(
-                                        width = if (isSelected) 1.5.dp else 0.5.dp,
-                                        color = if (isSelected) Morandi.accent else borderCol,
-                                        shape = RoundedCornerShape(8.dp),
-                                    )
-                                    .clickable { onSelectPattern(item.filename) }
+                                    .pressScale(itemInteraction)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (isSelected) Morandi.accent.copy(alpha = 0.18f) else Morandi.panelHi)
+                                    .clickable(interactionSource = itemInteraction, indication = null) {
+                                        onSelectPattern(item.filename)
+                                    }
                                     .padding(6.dp),
                             ) {
                                 Box(

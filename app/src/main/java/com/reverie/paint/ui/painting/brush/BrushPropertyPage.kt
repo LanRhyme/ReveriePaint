@@ -137,7 +137,7 @@ fun BrushPropertyPage(
             }
         }
 
-        Box(Modifier.fillMaxWidth().height(0.6.dp).background(Morandi.border.copy(alpha = 0.2f)))
+        Box(Modifier.fillMaxWidth().height(0.8.dp).background(Morandi.text.copy(alpha = 0.06f)))
 
         Column(
             modifier = Modifier
@@ -281,6 +281,8 @@ fun BrushPropertyPage(
                     label = stringResource(R.string.brush_blend_mode),
                     currentId = if (hasBlendEntry) canonicalOp else vm.brushCompositeOp,
                     eraserModeActive = vm.brushEraserMode || vm.currentToolId == "eraser",
+                    pillBg = Morandi.panel,
+                    labelFontSize = 12.sp,
                     onClick = { showBlendPicker = true },
                 )
 
@@ -288,6 +290,7 @@ fun BrushPropertyPage(
                     label = stringResource(R.string.brush_studio_eraser_mode),
                     checked = vm.brushEraserMode,
                     textMain = Morandi.text,
+                    labelFontSize = 12.sp,
                 ) { vm.updateBrushEraserMode(it) }
 
                 StudioGated(studioGateReason(vm, ControlId.PAINTING_MODE), Morandi.subText) {
@@ -300,6 +303,8 @@ fun BrushPropertyPage(
                             ),
                             selected = if (vm.brushMaskingEnabled) 2 else vm.brushPaintingMode,
                             enabled = !vm.brushMaskingEnabled,
+                            trackColor = Morandi.panel,
+                            labelFontSize = 12.sp,
                             onSelect = { vm.updateBrushPaintingMode(it) },
                         )
                         if (vm.brushMaskingEnabled) {

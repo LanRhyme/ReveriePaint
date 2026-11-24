@@ -92,8 +92,8 @@ fun BrushSectionCard(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(0.6.dp)
-                .background(Morandi.border.copy(alpha = 0.2f)),
+                .height(0.8.dp)
+                .background(Morandi.text.copy(alpha = 0.06f)),
         )
 
         content()
@@ -316,6 +316,8 @@ fun ModernParamSlider(
     modifier: Modifier = Modifier,
     /** false = 置灰并禁用交互 (参数当前不参与生效, 例如尺寸随画布缩放时的上限) */
     enabled: Boolean = true,
+    valuePillBg: Color = Morandi.panel,
+    labelFontSize: androidx.compose.ui.unit.TextUnit = 12.sp,
     onChange: (Double) -> Unit,
 ) {
     var showDialog by remember { mutableStateOf(false) }
@@ -345,17 +347,17 @@ fun ModernParamSlider(
             Text(
                 text = label,
                 color = if (enabled) Morandi.text else Morandi.text.copy(alpha = 0.45f),
-                fontSize = 12.sp,
+                fontSize = labelFontSize,
                 fontWeight = FontWeight.Normal,
             )
 
             // Value pill, clickable to open fine-tuning dialog
             Row(
                 modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .background(Morandi.panel)
+                    .clip(RoundedCornerShape(8.dp))
+                    .background(valuePillBg)
                     .then(if (enabled) Modifier.noRippleClickable { showDialog = true } else Modifier)
-                    .padding(horizontal = 8.dp, vertical = 3.dp),
+                    .padding(horizontal = 9.dp, vertical = 3.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(3.dp),
             ) {

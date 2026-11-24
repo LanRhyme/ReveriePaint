@@ -6,7 +6,6 @@ package com.reverie.paint.ui.painting.brush
 
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
@@ -42,10 +41,14 @@ import com.reverie.paint.model.BrushSensor
 import com.reverie.paint.model.CurvePoint
 import com.reverie.paint.model.CurvePreset
 import com.reverie.paint.model.DynamicOptionConfig
+import com.reverie.paint.ui.components.ReDropdownMenu
+import com.reverie.paint.ui.components.ReDropdownMenuItem
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.ReSwitch
-import com.reverie.paint.ui.theme.glassBorder
+import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.components.pressScale
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.theme.Morandi
 
@@ -80,15 +83,17 @@ fun BrushDynamicCurveEditor(
     Column(
         modifier = modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(if (config.enabled) Morandi.panel.copy(alpha = 0.35f) else Color.Transparent)
-            .padding(horizontal = 4.dp, vertical = 2.dp),
+            .padding(vertical = 2.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
         // 顶栏：左侧标题与传感器药丸，右侧重置按钮与开关 (完全对齐 Studio 统一交互与尺度)
         Row(
             modifier = Modifier
                 .fillMaxWidth()
+                .noRippleClickable {
+                    haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                    onConfigChange(config.copy(enabled = !config.enabled))
+                }
                 .padding(vertical = 2.dp),
             verticalAlignment = Alignment.CenterVertically,
             horizontalArrangement = Arrangement.SpaceBetween,
@@ -105,11 +110,13 @@ fun BrushDynamicCurveEditor(
                     fontWeight = FontWeight.Normal,
                 )
                 if (config.enabled) {
+                    val pillInteraction = remember { MutableInteractionSource() }
                     Box(
                         modifier = Modifier
+                            .pressScale(pillInteraction, pressedScale = 0.94f)
                             .clip(RoundedCornerShape(6.dp))
                             .background(Morandi.accent.copy(alpha = 0.16f))
-                            .clickable { showDialog = true }
+                            .clickable(interactionSource = pillInteraction, indication = null) { showDialog = true }
                             .padding(horizontal = 6.dp, vertical = 2.dp),
                     ) {
                         Row(
@@ -161,35 +168,36 @@ fun BrushDynamicCurveEditor(
                         haptic.performHapticFeedback(HapticFeedbackType.LongPress)
                         onConfigChange(config.copy(enabled = checked))
                     },
-                    modifier = Modifier.scale(0.85f),
                 )
             }
         }
 
-        // 启用状态下：微缩曲线条目，去除所有突兀边框，内敛深色卡片
+        // 启用状态下：微缩曲线条目
         if (config.enabled) {
+            val previewInteraction = remember { MutableInteractionSource() }
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(Morandi.panelHi.copy(alpha = 0.6f))
-                    .clickable { showDialog = true }
-                    .padding(horizontal = 8.dp, vertical = 6.dp),
+                    .pressScale(previewInteraction, pressedScale = 0.985f)
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(Morandi.panelHi)
+                    .clickable(interactionSource = previewInteraction, indication = null) { showDialog = true }
+                    .padding(horizontal = 10.dp, vertical = 7.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
-                // 微缩高清曲线预览 (无多余白边)
+                // 微缩高清曲线预览
                 Box(
                     modifier = Modifier
                         .size(width = 72.dp, height = 44.dp)
-                        .clip(RoundedCornerShape(6.dp))
-                        .background(Color(0xFF141619)),
+                        .clip(RoundedCornerShape(8.dp))
+                        .background(Morandi.bg),
                 ) {
                     Canvas(modifier = Modifier.fillMaxSize().padding(4.dp)) {
                         val w = size.width
                         val h = size.height
 
-                        val gridCol = Color.White.copy(alpha = 0.08f)
+                        val gridCol = Morandi.text.copy(alpha = 0.10f)
                         drawLine(gridCol, Offset(w * 0.5f, 0f), Offset(w * 0.5f, h), 0.8f)
                         drawLine(gridCol, Offset(0f, h * 0.5f), Offset(w, h * 0.5f), 0.8f)
 
@@ -211,7 +219,7 @@ fun BrushDynamicCurveEditor(
                         if (liveInput in 0f..1f) {
                             val liveX = liveInput * w
                             val liveY = (1f - config.evaluate(liveInput)) * h
-                            drawCircle(Color.White, 3.dp.toPx(), Offset(liveX, liveY))
+                            drawCircle(Morandi.text, 3.dp.toPx(), Offset(liveX, liveY))
                         }
                     }
                 }
@@ -283,17 +291,18 @@ internal fun BrushDynamicCurveDialog(
         Box(
             modifier = Modifier
                 .fillMaxSize()
-                .background(Color.Black.copy(alpha = 0.65f)),
+                .background(Morandi.scrim)
+                .noRippleClickable(onDismiss),
             contentAlignment = Alignment.Center,
         ) {
             Box(
                 modifier = Modifier
                     .widthIn(min = 320.dp, max = 580.dp)
                     .fillMaxWidth(0.92f)
-                    .clip(RoundedCornerShape(18.dp))
+                    .clip(RoundedCornerShape(20.dp))
                     .background(Morandi.panel)
-                    .glassBorder(RoundedCornerShape(18.dp))
-                    .padding(16.dp),
+                    .clickable(enabled = false) {}
+                    .padding(18.dp),
             ) {
                 Column(
                     modifier = Modifier.fillMaxWidth(),
@@ -329,7 +338,7 @@ internal fun BrushDynamicCurveDialog(
                                     modifier = Modifier
                                         .clip(RoundedCornerShape(8.dp))
                                         .background(Morandi.accent.copy(alpha = 0.15f))
-                                        .clickable { showSensorDropdown = true }
+                                        .noRippleClickable { showSensorDropdown = true }
                                         .padding(horizontal = 9.dp, vertical = 5.dp),
                                 ) {
                                     Row(
@@ -357,32 +366,15 @@ internal fun BrushDynamicCurveDialog(
                                     }
                                 }
 
-                                DropdownMenu(
+                                ReDropdownMenu(
                                     expanded = showSensorDropdown,
                                     onDismissRequest = { showSensorDropdown = false },
-                                    modifier = Modifier.background(Morandi.panelHi),
                                 ) {
                                     BrushSensor.entries.forEach { sensor ->
-                                        DropdownMenuItem(
-                                            text = {
-                                                Row(
-                                                    verticalAlignment = Alignment.CenterVertically,
-                                                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                                                ) {
-                                                    Icon(
-                                                        painter = painterResource(sensor.iconRes),
-                                                        contentDescription = null,
-                                                        tint = if (sensor == currentSensor) Morandi.accent else textSub,
-                                                        modifier = Modifier.size(14.dp),
-                                                    )
-                                                    Text(
-                                                        text = stringResource(sensor.titleRes),
-                                                        color = if (sensor == currentSensor) Morandi.accent else textMain,
-                                                        fontSize = 13.sp,
-                                                        fontWeight = if (sensor == currentSensor) FontWeight.SemiBold else FontWeight.Normal,
-                                                    )
-                                                }
-                                            },
+                                        ReDropdownMenuItem(
+                                            text = stringResource(sensor.titleRes),
+                                            icon = sensor.iconRes,
+                                            selected = sensor == currentSensor,
                                             onClick = {
                                                 showSensorDropdown = false
                                                 onConfigChange(config.copy(sensorId = sensor.id))
@@ -672,7 +664,7 @@ private fun DynamicCurveEditorCanvas(
 
             // 1. 4x4 网格辅助线
             val gridSteps = 4
-            val gridCol = Color.White.copy(alpha = 0.08f)
+            val gridCol = Morandi.text.copy(alpha = 0.10f)
             for (i in 0..gridSteps) {
                 val gx = pad + (w / gridSteps) * i
                 val gy = pad + (h / gridSteps) * i
@@ -701,7 +693,7 @@ private fun DynamicCurveEditorCanvas(
                 if (isSel) {
                     drawCircle(Morandi.accent.copy(alpha = 0.3f), 10.dp.toPx(), Offset(cx, cy))
                 }
-                drawCircle(Color.White, 5.5.dp.toPx(), Offset(cx, cy))
+                drawCircle(Morandi.panel, 5.5.dp.toPx(), Offset(cx, cy))
                 drawCircle(Morandi.accent, 4.dp.toPx(), Offset(cx, cy))
             }
         }
@@ -724,8 +716,7 @@ private fun DynamicTestStrokeCanvas(
     Box(
         modifier = modifier
             .clip(RoundedCornerShape(10.dp))
-            .background(Morandi.panelHi)
-            .glassBorder(RoundedCornerShape(10.dp)),
+            .background(Morandi.panelHi),
     ) {
         Canvas(
             modifier = Modifier

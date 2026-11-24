@@ -15,8 +15,8 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
@@ -42,6 +42,7 @@ import com.reverie.paint.ui.components.ReDropdownMenu
 import com.reverie.paint.ui.components.ReDropdownMenuItem
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReTextButton
+import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.painting.TextInputGuard
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.systemHoverIcon
@@ -164,7 +165,7 @@ fun BrushStudioPage(
     val pageBg = Morandi.bg
     val panelBg = Morandi.panel
     val cardBg = Morandi.panelHi
-    val borderCol = Morandi.border.copy(alpha = 0.2f)
+    val borderCol = Morandi.text.copy(alpha = 0.08f)
     val textMain = Morandi.text
     val textSub = Morandi.subText
 
@@ -181,9 +182,9 @@ fun BrushStudioPage(
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(48.dp)
+                        .height(52.dp)
                         .background(panelBg)
-                        .padding(horizontal = 8.dp),
+                        .padding(horizontal = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     ReIconButton(R.drawable.ic_arrow_left, stringResource(R.string.brush_studio_back_canvas), onBack, size = 34.dp, tint = textMain)
@@ -191,7 +192,7 @@ fun BrushStudioPage(
                     Text(
                         stringResource(R.string.brush_studio_workbench),
                         color = textMain,
-                        fontSize = 15.sp,
+                        fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
 
@@ -200,7 +201,7 @@ fun BrushStudioPage(
                     Box(
                         modifier = Modifier
                             .clip(RoundedCornerShape(8.dp))
-                            .background(cardBg.copy(alpha = 0.6f))
+                            .background(Morandi.panelHi)
                             .padding(horizontal = 8.dp, vertical = 3.dp),
                     ) {
                         Text(
@@ -309,7 +310,7 @@ fun BrushStudioPage(
                 }
             }
 
-            Box(Modifier.fillMaxWidth().height(0.6.dp).background(Morandi.border.copy(alpha = 0.08f)))
+            Box(Modifier.fillMaxWidth().height(0.8.dp).background(Morandi.text.copy(alpha = 0.06f)))
 
             // ---- 参数面板卡片内容 ----
             @Composable
@@ -412,14 +413,16 @@ fun BrushStudioPage(
             // 折叠状态下的快速呼出栏
             @Composable
             fun CollapsedScratchpadBar() {
+                val barInteraction = remember { MutableInteractionSource() }
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
                         .padding(horizontal = 10.dp, vertical = 4.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(cardBg.copy(alpha = 0.5f))
-                        .clickable { scratchpadVisible = true }
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                        .pressScale(barInteraction)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Morandi.panel)
+                        .clickable(interactionSource = barInteraction, indication = null) { scratchpadVisible = true }
+                        .padding(horizontal = 12.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
@@ -434,49 +437,43 @@ fun BrushStudioPage(
             // ---- 自适应工作区 (宽屏/平板左右分栏，窄屏/手机顶部Tab胶囊) ----
             Box(modifier = Modifier.fillMaxWidth().weight(1f)) {
                 if (isWideScreen) {
-                    // 宽屏模式：左侧参数区（内含 112dp 导航导轨 + 参数卡片）+ 右侧全高试画板
+                    // 宽屏模式：左侧参数区（内含 148dp 导航导轨 + 参数卡片）+ 右侧全高试画板
                     Row(modifier = Modifier.fillMaxSize()) {
-                        Row(modifier = Modifier.weight(1.15f).fillMaxHeight()) {
-                            // 112dp 导轨
+                        Row(modifier = Modifier.weight(1.22f).fillMaxHeight()) {
+                            // 148dp 导轨
                             Column(
                                 modifier = Modifier
-                                    .width(112.dp)
+                                    .width(148.dp)
                                     .fillMaxHeight()
                                     .background(panelBg)
                                     .verticalScroll(rememberScrollState())
-                                    .padding(vertical = 8.dp, horizontal = 6.dp),
+                                    .padding(vertical = 10.dp, horizontal = 10.dp),
                                 verticalArrangement = Arrangement.spacedBy(4.dp),
                             ) {
                                 StudioTab.entries.forEach { tab ->
                                     val sel = tab == selectedTab
+                                    val navInteraction = remember { MutableInteractionSource() }
                                     Row(
                                         modifier = Modifier
                                             .fillMaxWidth()
-                                            .clip(RoundedCornerShape(10.dp))
-                                            .background(if (sel) Morandi.accent.copy(alpha = 0.16f) else Color.Transparent)
-                                            .clickable { selectedTab = tab }
-                                            .padding(vertical = 10.dp, horizontal = 6.dp),
+                                            .pressScale(navInteraction)
+                                            .clip(RoundedCornerShape(12.dp))
+                                            .background(if (sel) Morandi.accent.copy(alpha = 0.14f) else Color.Transparent)
+                                            .clickable(interactionSource = navInteraction, indication = null) { selectedTab = tab }
+                                            .padding(horizontal = 12.dp, vertical = 10.dp),
                                         verticalAlignment = Alignment.CenterVertically,
                                     ) {
-                                        Box(
-                                            modifier = Modifier
-                                                .width(3.dp)
-                                                .height(16.dp)
-                                                .clip(RoundedCornerShape(2.dp))
-                                                .background(if (sel) Morandi.accent else Color.Transparent),
-                                        )
-                                        Spacer(Modifier.width(6.dp))
                                         Icon(
                                             painterResource(tab.iconRes),
                                             contentDescription = null,
                                             tint = if (sel) Morandi.accent else textSub,
-                                            modifier = Modifier.size(16.dp),
+                                            modifier = Modifier.size(18.dp),
                                         )
-                                        Spacer(Modifier.width(6.dp))
+                                        Spacer(Modifier.width(10.dp))
                                         Text(
                                             text = stringResource(tab.titleRes),
                                             color = if (sel) Morandi.accent else textMain,
-                                            fontSize = 12.sp,
+                                            fontSize = 13.5.sp,
                                             fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
                                             maxLines = 1,
                                         )
@@ -484,18 +481,18 @@ fun BrushStudioPage(
                                 }
                             }
 
-                            Box(modifier = Modifier.width(0.6.dp).fillMaxHeight().background(Morandi.border.copy(alpha = 0.15f)))
+                            Box(modifier = Modifier.width(0.8.dp).fillMaxHeight().background(Morandi.text.copy(alpha = 0.06f)))
 
                             ParameterCards(modifier = Modifier.weight(1f).fillMaxHeight().background(pageBg))
                         }
 
-                        Box(modifier = Modifier.width(0.6.dp).fillMaxHeight().background(Morandi.border.copy(alpha = 0.15f)))
+                        Box(modifier = Modifier.width(0.8.dp).fillMaxHeight().background(Morandi.text.copy(alpha = 0.06f)))
 
                         // 右侧独立全高试画板
                         BrushStudioScratchpadPanel(
                             vm = vm,
                             modifier = Modifier
-                                .weight(0.95f)
+                                .weight(0.88f)
                                 .fillMaxHeight()
                                 .padding(8.dp),
                             isCollapsible = false,
@@ -520,13 +517,14 @@ fun BrushStudioPage(
                         ) {
                             items(StudioTab.entries) { tab ->
                                 val sel = tab == selectedTab
+                                val tabInteraction = remember { MutableInteractionSource() }
                                 Box(
                                     modifier = Modifier
-                                        .clip(RoundedCornerShape(8.dp))
-                                        .background(if (sel) Morandi.accent.copy(alpha = 0.16f) else cardBg.copy(alpha = 0.5f))
-                                        .border(if (sel) 1.dp else 0.5.dp, if (sel) Morandi.accent.copy(alpha = 0.4f) else borderCol, RoundedCornerShape(8.dp))
-                                        .clickable { selectedTab = tab }
-                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                        .pressScale(tabInteraction)
+                                        .clip(RoundedCornerShape(10.dp))
+                                        .background(if (sel) Morandi.accent.copy(alpha = 0.16f) else Morandi.panelHi)
+                                        .clickable(interactionSource = tabInteraction, indication = null) { selectedTab = tab }
+                                        .padding(horizontal = 12.dp, vertical = 7.dp),
                                 ) {
                                     Row(
                                         verticalAlignment = Alignment.CenterVertically,
@@ -541,7 +539,7 @@ fun BrushStudioPage(
                                         Text(
                                             stringResource(tab.titleRes),
                                             color = if (sel) Morandi.accent else textMain,
-                                            fontSize = 11.sp,
+                                            fontSize = 11.5.sp,
                                             fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
                                         )
                                     }
@@ -549,7 +547,7 @@ fun BrushStudioPage(
                             }
                         }
 
-                        Box(Modifier.fillMaxWidth().height(0.6.dp).background(Morandi.border.copy(alpha = 0.08f)))
+                        Box(Modifier.fillMaxWidth().height(0.8.dp).background(Morandi.text.copy(alpha = 0.06f)))
 
                         if (scratchpadVisible) {
                             val scratchpadHeight by animateDpAsState(
@@ -572,7 +570,7 @@ fun BrushStudioPage(
                             CollapsedScratchpadBar()
                         }
 
-                        Box(Modifier.fillMaxWidth().height(0.6.dp).background(Morandi.border.copy(alpha = 0.08f)))
+                        Box(Modifier.fillMaxWidth().height(0.8.dp).background(Morandi.text.copy(alpha = 0.06f)))
                         ParameterCards(modifier = Modifier.fillMaxWidth().weight(1f))
                     }
                 }
@@ -691,7 +689,7 @@ fun BrushStudioPage(
                 dismissButton = {
                     ReTextButton(stringResource(R.string.common_cancel), { showRevertConfirmDialog = false }, textColor = textSub)
                 },
-                containerColor = cardBg,
+                containerColor = Morandi.panel,
             )
         }
 
@@ -714,7 +712,7 @@ fun BrushStudioPage(
                 dismissButton = {
                     ReTextButton(stringResource(R.string.common_cancel), { showDeleteConfirmDialog = false }, textColor = textSub)
                 },
-                containerColor = cardBg,
+                containerColor = Morandi.panel,
             )
         }
     }

@@ -6,8 +6,8 @@ package com.reverie.paint.ui.painting.brush
 
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
-import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
@@ -15,7 +15,6 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
-import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
@@ -38,8 +37,9 @@ import com.reverie.paint.core.brushstore.PaintOpIds
 import com.reverie.paint.core.brushstore.TextureModes
 import com.reverie.paint.ui.components.ReIconButton
 import com.reverie.paint.ui.components.ReTextButton
+import com.reverie.paint.ui.components.noRippleClickable
+import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.theme.Morandi
-import com.reverie.paint.ui.theme.glassBorder
 
 private data class StudioPickerOption(
     val id: String,
@@ -59,82 +59,89 @@ private fun StudioOptionPickerDialog(
         onDismissRequest = onDismiss,
         properties = DialogProperties(usePlatformDefaultWidth = false),
     ) {
-        Surface(
+        Box(
             modifier = Modifier
-                .fillMaxWidth(0.88f)
-                .widthIn(max = 420.dp)
-                .heightIn(max = 540.dp)
-                .glassBorder(RoundedCornerShape(16.dp)),
-            shape = RoundedCornerShape(16.dp),
-            color = Morandi.panel,
-            border = androidx.compose.foundation.BorderStroke(0.6.dp, Morandi.border.copy(alpha = 0.25f)),
-            tonalElevation = 0.dp,
-            shadowElevation = 12.dp,
+                .fillMaxSize()
+                .background(Morandi.scrim)
+                .noRippleClickable(onDismiss),
+            contentAlignment = Alignment.Center,
         ) {
-            Column(modifier = Modifier.fillMaxWidth().padding(14.dp)) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
-                ) {
-                    Text(
-                        text = title,
-                        color = Morandi.text,
-                        fontSize = 15.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
-                    ReIconButton(
-                        icon = R.drawable.ic_x,
-                        desc = stringResource(R.string.common_close),
-                        onTap = onDismiss,
-                        size = 28.dp,
-                        tint = Morandi.subText,
-                        iconSize = 16.dp,
-                    )
-                }
-                Spacer(modifier = Modifier.height(8.dp))
-                HorizontalDivider(color = Morandi.border.copy(alpha = 0.2f), thickness = 0.6.dp)
-                Spacer(modifier = Modifier.height(6.dp))
-                LazyColumn(
-                    verticalArrangement = Arrangement.spacedBy(4.dp),
-                    contentPadding = PaddingValues(vertical = 4.dp),
-                ) {
-                    items(options, key = { it.id }) { opt ->
-                        val sel = opt.id == selectedId
-                        Row(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(9.dp))
-                                .background(if (sel) Morandi.accent.copy(alpha = 0.16f) else Color.Transparent)
-                                .clickable {
-                                    onSelect(opt.id)
-                                    onDismiss()
-                                }
-                                .padding(horizontal = 10.dp, vertical = 9.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
-                                Text(
-                                    text = opt.label,
-                                    color = if (sel) Morandi.accent else Morandi.text,
-                                    fontSize = 13.sp,
-                                    fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
-                                )
-                                if (!opt.subtitle.isNullOrBlank()) {
+            Box(
+                modifier = Modifier
+                    .fillMaxWidth(0.88f)
+                    .widthIn(max = 420.dp)
+                    .heightIn(max = 540.dp)
+                    .clip(RoundedCornerShape(20.dp))
+                    .background(Morandi.panel)
+                    .noRippleClickable {},
+            ) {
+                Column(modifier = Modifier.fillMaxWidth().padding(18.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = title,
+                            color = Morandi.text,
+                            fontSize = 16.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        ReIconButton(
+                            icon = R.drawable.ic_x,
+                            desc = stringResource(R.string.common_close),
+                            onTap = onDismiss,
+                            size = 28.dp,
+                            tint = Morandi.subText,
+                            iconSize = 16.dp,
+                        )
+                    }
+                    Spacer(modifier = Modifier.height(10.dp))
+                    HorizontalDivider(color = Morandi.text.copy(alpha = 0.06f), thickness = 0.8.dp)
+                    Spacer(modifier = Modifier.height(8.dp))
+                    LazyColumn(
+                        verticalArrangement = Arrangement.spacedBy(4.dp),
+                        contentPadding = PaddingValues(vertical = 4.dp),
+                    ) {
+                        items(options, key = { it.id }) { opt ->
+                            val sel = opt.id == selectedId
+                            val rowInteraction = remember { MutableInteractionSource() }
+                            Row(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .pressScale(rowInteraction, pressedScale = 0.98f)
+                                    .clip(RoundedCornerShape(10.dp))
+                                    .background(if (sel) Morandi.accent.copy(alpha = 0.16f) else Color.Transparent)
+                                    .clickable(interactionSource = rowInteraction, indication = null) {
+                                        onSelect(opt.id)
+                                        onDismiss()
+                                    }
+                                    .padding(horizontal = 12.dp, vertical = 10.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Column(modifier = Modifier.weight(1f)) {
                                     Text(
-                                        text = opt.subtitle,
-                                        color = Morandi.subText,
-                                        fontSize = 10.5.sp,
+                                        text = opt.label,
+                                        color = if (sel) Morandi.accent else Morandi.text,
+                                        fontSize = 13.sp,
+                                        fontWeight = if (sel) FontWeight.SemiBold else FontWeight.Normal,
+                                    )
+                                    if (!opt.subtitle.isNullOrBlank()) {
+                                        Text(
+                                            text = opt.subtitle,
+                                            color = Morandi.subText,
+                                            fontSize = 10.5.sp,
+                                        )
+                                    }
+                                }
+                                if (sel) {
+                                    Icon(
+                                        painter = painterResource(R.drawable.ic_check),
+                                        contentDescription = null,
+                                        tint = Morandi.accent,
+                                        modifier = Modifier.size(16.dp),
                                     )
                                 }
-                            }
-                            if (sel) {
-                                Icon(
-                                    painter = painterResource(R.drawable.ic_check),
-                                    contentDescription = null,
-                                    tint = Morandi.accent,
-                                    modifier = Modifier.size(16.dp),
-                                )
                             }
                         }
                     }
@@ -192,7 +199,7 @@ internal fun ColorTabContent(
             Box(
                 modifier = Modifier
                     .clip(RoundedCornerShape(12.dp))
-                    .background(Morandi.panel.copy(alpha = 0.6f))
+                    .background(Morandi.panelHi)
                     .padding(horizontal = 8.dp, vertical = 4.dp),
             ) {
                 Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy((-6).dp)) {
@@ -469,12 +476,14 @@ internal fun TextureTabContent(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(12.dp),
             ) {
+                val previewInteraction = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
                         .size(56.dp)
+                        .pressScale(previewInteraction)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(Morandi.panel)
-                        .clickable { onOpenPatternPicker() }
+                        .background(Morandi.panelHi)
+                        .clickable(interactionSource = previewInteraction, indication = null) { onOpenPatternPicker() }
                         .padding(3.dp),
                     contentAlignment = Alignment.Center,
                 ) {
@@ -502,14 +511,16 @@ internal fun TextureTabContent(
                     )
                 }
 
+                val chooseInteraction = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
+                        .pressScale(chooseInteraction)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(Morandi.panel.copy(alpha = 0.8f))
-                        .clickable { onOpenPatternPicker() }
-                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                        .background(Morandi.panelHi)
+                        .clickable(interactionSource = chooseInteraction, indication = null) { onOpenPatternPicker() }
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
                 ) {
-                    Text(stringResource(R.string.brush_studio_pattern_choose), color = textMain, fontSize = 11.sp)
+                    Text(stringResource(R.string.brush_studio_pattern_choose), color = textMain, fontSize = 11.5.sp)
                 }
             }
 
@@ -674,16 +685,18 @@ internal fun MaskingTabContent(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
             ) {
+                val previewInteraction = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
                         .size(48.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Morandi.panel)
-                        .clickable { onOpenMaskingTipPicker() }
+                        .pressScale(previewInteraction)
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Morandi.panelHi)
+                        .clickable(interactionSource = previewInteraction, indication = null) { onOpenMaskingTipPicker() }
                         .padding(2.dp),
                     contentAlignment = Alignment.Center,
                 ) {
-                    CheckerboardBackground(modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(6.dp)))
+                    CheckerboardBackground(modifier = Modifier.fillMaxSize().clip(RoundedCornerShape(8.dp)))
                     if (maskTip?.bitmap != null) {
                         Image(bitmap = maskTip.bitmap.asImageBitmap(), contentDescription = null, modifier = Modifier.fillMaxSize().padding(2.dp))
                     } else {
@@ -711,14 +724,16 @@ internal fun MaskingTabContent(
                         overflow = TextOverflow.Ellipsis,
                     )
                 }
+                val chooseInteraction = remember { MutableInteractionSource() }
                 Box(
                     modifier = Modifier
+                        .pressScale(chooseInteraction)
                         .clip(RoundedCornerShape(8.dp))
-                        .background(Morandi.panel.copy(alpha = 0.8f))
-                        .clickable { onOpenMaskingTipPicker() }
-                        .padding(horizontal = 10.dp, vertical = 5.dp),
+                        .background(Morandi.panelHi)
+                        .clickable(interactionSource = chooseInteraction, indication = null) { onOpenMaskingTipPicker() }
+                        .padding(horizontal = 12.dp, vertical = 7.dp),
                 ) {
-                    Text(stringResource(R.string.brush_studio_masking_tip_choose), color = textMain, fontSize = 11.sp)
+                    Text(stringResource(R.string.brush_studio_masking_tip_choose), color = textMain, fontSize = 11.5.sp)
                 }
             }
 
@@ -883,13 +898,14 @@ internal fun PresetTabContent(
             horizontalArrangement = Arrangement.spacedBy(12.dp),
         ) {
             val bmp = rememberPresetThumb(preset?.name ?: "", preset?.thumbBytes)
+            val thumbInteraction = remember { MutableInteractionSource() }
             Box(
                 modifier = Modifier
                     .size(64.dp)
+                    .pressScale(thumbInteraction)
                     .clip(RoundedCornerShape(10.dp))
-                    .background(Morandi.panel.copy(alpha = 0.6f))
-                    .border(1.dp, borderCol.copy(alpha = 0.25f), RoundedCornerShape(10.dp))
-                    .clickable { onImportThumbnail() },
+                    .background(Morandi.panelHi)
+                    .clickable(interactionSource = thumbInteraction, indication = null) { onImportThumbnail() },
                 contentAlignment = Alignment.Center,
             ) {
                 if (bmp != null) {
@@ -918,7 +934,7 @@ internal fun PresetTabContent(
                     Icon(
                         painter = painterResource(R.drawable.ic_image),
                         contentDescription = null,
-                        tint = Color.White,
+                        tint = Morandi.onAccent,
                         modifier = Modifier.size(10.dp),
                     )
                 }
@@ -1018,8 +1034,8 @@ internal fun PresetTabContent(
                     modifier = Modifier
                         .weight(1f)
                         .height(38.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(cardBg.copy(alpha = 0.6f)),
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Morandi.panelHi),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(stringResource(R.string.brush_studio_prop_builtin_locked), color = textSub.copy(alpha = 0.5f), fontSize = 11.sp)
@@ -1048,8 +1064,8 @@ internal fun PresetTabContent(
                     modifier = Modifier
                         .weight(1f)
                         .height(38.dp)
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(cardBg.copy(alpha = 0.6f)),
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Morandi.panelHi),
                     contentAlignment = Alignment.Center,
                 ) {
                     Text(stringResource(R.string.brush_studio_prop_builtin_cannot_delete), color = textSub.copy(alpha = 0.5f), fontSize = 11.sp)
@@ -1080,7 +1096,7 @@ internal fun PresetTabContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .clip(RoundedCornerShape(10.dp))
-                .background(Morandi.panel)
+                .background(Morandi.panelHi)
                 .padding(10.dp),
         ) {
             Text(preset?.name ?: stringResource(R.string.brush_studio_builtin_brush), color = textMain, fontSize = 13.sp, fontWeight = FontWeight.Medium)
@@ -1096,11 +1112,11 @@ internal fun PresetTabContent(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Morandi.panel)
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Morandi.panelHi)
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
                 ) {
-                    Text(vm.brushAuthor.ifBlank { "ReveriePaint" }, color = textMain, fontSize = 11.sp, maxLines = 1)
+                    Text(vm.brushAuthor.ifBlank { "ReveriePaint" }, color = textMain, fontSize = 11.5.sp, maxLines = 1)
                 }
             }
             Column(modifier = Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(3.dp)) {
@@ -1108,11 +1124,11 @@ internal fun PresetTabContent(
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(8.dp))
-                        .background(Morandi.panel)
-                        .padding(horizontal = 8.dp, vertical = 6.dp),
+                        .clip(RoundedCornerShape(10.dp))
+                        .background(Morandi.panelHi)
+                        .padding(horizontal = 10.dp, vertical = 7.dp),
                 ) {
-                    Text(preset?.group ?: stringResource(R.string.brush_studio_prop_default_group), color = textMain, fontSize = 11.sp, maxLines = 1)
+                    Text(preset?.group ?: stringResource(R.string.brush_studio_prop_default_group), color = textMain, fontSize = 11.5.sp, maxLines = 1)
                 }
             }
         }
