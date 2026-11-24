@@ -256,6 +256,19 @@ internal fun ColorTabContent(
             textMain = textMain,
             textSub = textSub,
         ) { vm.updateBrushHueJitter(it) }
+        BrushDynamicCurveEditor(
+            config = vm.getBrushDynamicOption("h"),
+            onConfigChange = { vm.updateBrushDynamicOption(it) },
+            cardBg = cardBg,
+            borderCol = borderCol,
+            textMain = textMain,
+            textSub = textSub,
+            liveInput = vm.scratchpadLiveInput,
+            title = stringResource(R.string.brush_studio_dyn_hue),
+        )
+
+        StudioInnerDivider()
+
         StudioSliderItem(
             label = stringResource(R.string.brush_studio_color_sat_jitter),
             value = vm.brushSatJitter,
@@ -265,6 +278,19 @@ internal fun ColorTabContent(
             textMain = textMain,
             textSub = textSub,
         ) { vm.updateBrushSatJitter(it) }
+        BrushDynamicCurveEditor(
+            config = vm.getBrushDynamicOption("s"),
+            onConfigChange = { vm.updateBrushDynamicOption(it) },
+            cardBg = cardBg,
+            borderCol = borderCol,
+            textMain = textMain,
+            textSub = textSub,
+            liveInput = vm.scratchpadLiveInput,
+            title = stringResource(R.string.brush_studio_dyn_sat),
+        )
+
+        StudioInnerDivider()
+
         StudioSliderItem(
             label = stringResource(R.string.brush_studio_color_val_jitter),
             value = vm.brushValJitter,
@@ -274,6 +300,16 @@ internal fun ColorTabContent(
             textMain = textMain,
             textSub = textSub,
         ) { vm.updateBrushValJitter(it) }
+        BrushDynamicCurveEditor(
+            config = vm.getBrushDynamicOption("v"),
+            onConfigChange = { vm.updateBrushDynamicOption(it) },
+            cardBg = cardBg,
+            borderCol = borderCol,
+            textMain = textMain,
+            textSub = textSub,
+            liveInput = vm.scratchpadLiveInput,
+            title = stringResource(R.string.brush_studio_dyn_val),
+        )
     }
 
     // 2. ColorSmudge 混色涂抹引擎全量参数

@@ -94,6 +94,7 @@ enum class BrushSensor(
     DISTANCE("distance", R.string.brush_sensor_distance, R.drawable.ic_repeat_loop),
     TIME("time", R.string.brush_sensor_time, R.drawable.ic_clock),
     FUZZY("fuzzy", R.string.brush_sensor_fuzzy, R.drawable.ic_grid),
+    FUZZY_STROKE("fuzzystroke", R.string.brush_sensor_fuzzy_stroke, R.drawable.ic_grid),
     PERSPECTIVE("perspective", R.string.brush_sensor_perspective, R.drawable.ic_grid);
 
     companion object {
@@ -104,6 +105,7 @@ enum class BrushSensor(
                 "ascension", "tilt-direction", "tiltdirection" -> TILT_DIRECTION
                 "xtilt", "tilt-x", "tiltx" -> TILT_X
                 "ytilt", "tilt-y", "tilty" -> TILT_Y
+                "fuzzystroke", "fuzzy_stroke", "fuzzy-stroke" -> FUZZY_STROKE
                 else -> entries.firstOrNull { it.id == normalized } ?: PRESSURE
             }
         }
@@ -115,6 +117,7 @@ enum class BrushSensor(
                 "ascension", "tilt-direction", "tiltdirection" -> TILT_DIRECTION
                 "xtilt", "tilt-x", "tiltx" -> TILT_X
                 "ytilt", "tilt-y", "tilty" -> TILT_Y
+                "fuzzystroke", "fuzzy_stroke", "fuzzy-stroke" -> FUZZY_STROKE
                 else -> entries.firstOrNull { it.id == normalized }
             }
         }
@@ -232,10 +235,15 @@ data class DynamicOptionConfig(
 
     companion object {
         fun defaultFor(optionKey: String): DynamicOptionConfig {
+            val defSensor = when (optionKey.lowercase()) {
+                "rotation" -> BrushSensor.DRAWING_ANGLE.id
+                "scatter", "h", "s", "v", "hue", "sat", "saturation", "val", "value" -> BrushSensor.FUZZY.id
+                else -> BrushSensor.PRESSURE.id
+            }
             return DynamicOptionConfig(
                 optionKey = optionKey,
                 enabled = false,
-                sensorId = BrushSensor.PRESSURE.id,
+                sensorId = defSensor,
                 points = CurvePreset.LINEAR.createPoints(),
                 strength = 1.0f,
             )

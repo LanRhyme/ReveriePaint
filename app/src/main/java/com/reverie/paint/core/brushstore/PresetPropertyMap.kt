@@ -49,6 +49,9 @@ enum class ControlId(val key: String, val klass: ControlClass, val group: String
     CURVE_LIGHTNESS_STRENGTH("curve.LightnessStrength", ControlClass.REBUILD, curveOption = "LightnessStrength"),
     CURVE_SMUDGE_RADIUS("curve.SmudgeRadius", ControlClass.REBUILD, curveOption = "SmudgeRadius"),
     CURVE_PAINT_THICKNESS("curve.PaintThickness", ControlClass.REBUILD, curveOption = "PaintThickness"),
+    CURVE_HUE("curve.h", ControlClass.REBUILD, curveOption = "h"),
+    CURVE_SATURATION("curve.s", ControlClass.REBUILD, curveOption = "s"),
+    CURVE_VALUE("curve.v", ControlClass.REBUILD, curveOption = "v"),
     SPACING("spacing", ControlClass.REBUILD),
     USE_AUTO_SPACING("useAutoSpacing", ControlClass.REBUILD),
     ISOTROPIC_SPACING("isotropicSpacing", ControlClass.REBUILD),
@@ -261,7 +264,7 @@ object PresetPropertyMap {
 
     fun defaultSensorFor(option: String): String = when (option) {
         "Rotation" -> "drawingangle"
-        "Scatter" -> "fuzzy"
+        "Scatter", "h", "s", "v" -> "fuzzy"
         else -> "pressure"
     }
 
@@ -428,7 +431,7 @@ object PresetPropertyMap {
             get = { get(it) },
             set = { p, v -> set(p, d(v)) },
             read = { xml -> KppSensors.readStrength(xml, option, 0.0) },
-            write = { xml, v, _ -> KppSensors.writeJitter(xml, option, d(v), d(v) > TOL) },
+            write = { xml, v, _ -> KppSensors.writeJitter(xml, option, d(v), d(v) > TOL || curveActive(xml, option)) },
         )
 
     /** 抖动叠加在已有选项上（Rotation / Size）：fuzzy 在传感器里才算抖动，值取 `<Id>Value` */
@@ -930,6 +933,7 @@ object PresetPropertyMap {
             ControlId.CURVE_SMUDGE_RATE, ControlId.CURVE_COLOR_RATE,
             ControlId.CURVE_SHARPNESS, ControlId.CURVE_DARKEN, ControlId.CURVE_LIGHTNESS_STRENGTH,
             ControlId.CURVE_SMUDGE_RADIUS, ControlId.CURVE_PAINT_THICKNESS,
+            ControlId.CURVE_HUE, ControlId.CURVE_SATURATION, ControlId.CURVE_VALUE,
         ).forEach { add(curveSpec(it)) }
         add(
             ControlSpec(
@@ -1766,7 +1770,27 @@ object PresetPropertyMap {
         val fl = c("Flow")
         val rot = c("Rotation")
         val sc = c("Scatter")
+        val h = c("h")
+        val s = c("s")
+        val v = c("v")
+        var dyn = p.dynamicOptions
+        if (p.hueJitter > TOL && h?.enabled != true) {
+            dyn = dyn + ("h" to CurveValue(enabled = true, sensorId = "fuzzy", curve = h?.curve ?: KppSensors.LINEAR, strength = 1.0).encode())
+        } else if (p.hueJitter <= TOL && h?.enabled == true && h.sensorId == "fuzzy") {
+            dyn = dyn + ("h" to h.copy(enabled = false).encode())
+        }
+        if (p.satJitter > TOL && s?.enabled != true) {
+            dyn = dyn + ("s" to CurveValue(enabled = true, sensorId = "fuzzy", curve = s?.curve ?: KppSensors.LINEAR, strength = 1.0).encode())
+        } else if (p.satJitter <= TOL && s?.enabled == true && s.sensorId == "fuzzy") {
+            dyn = dyn + ("s" to s.copy(enabled = false).encode())
+        }
+        if (p.valJitter > TOL && v?.enabled != true) {
+            dyn = dyn + ("v" to CurveValue(enabled = true, sensorId = "fuzzy", curve = v?.curve ?: KppSensors.LINEAR, strength = 1.0).encode())
+        } else if (p.valJitter <= TOL && v?.enabled == true && v.sensorId == "fuzzy") {
+            dyn = dyn + ("v" to v.copy(enabled = false).encode())
+        }
         return p.copy(
+            dynamicOptions = dyn,
             pressureSize = size?.let { if (it.enabled) it.strength else 0.0 } ?: p.pressureSize,
             pressureOpacity = op?.let { if (it.enabled) it.strength else 0.0 } ?: p.pressureOpacity,
             pressureFlow = fl?.let { if (it.enabled) it.strength else 0.0 } ?: p.pressureFlow,

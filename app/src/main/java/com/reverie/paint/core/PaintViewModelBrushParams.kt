@@ -137,16 +137,40 @@ import kotlinx.coroutines.Job
 
     internal fun PaintViewModel.updateBrushHueJitter(v: Double) {
         brushParams = brushParams.copy(hueJitter = v)
+        val opt = brushDynamicOptions["h"]
+        if (v > 1e-4) {
+            if (opt?.enabled != true) {
+                brushDynamicOptions["h"] = (opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("h")).copy(enabled = true, sensorId = "fuzzy")
+            }
+        } else if (opt?.enabled == true && opt.sensorId == "fuzzy") {
+            brushDynamicOptions["h"] = opt.copy(enabled = false)
+        }
         BrushStoreVm.stage(this, ControlId.HUE_JITTER, v)
     }
 
     internal fun PaintViewModel.updateBrushSatJitter(v: Double) {
         brushParams = brushParams.copy(satJitter = v)
+        val opt = brushDynamicOptions["s"]
+        if (v > 1e-4) {
+            if (opt?.enabled != true) {
+                brushDynamicOptions["s"] = (opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("s")).copy(enabled = true, sensorId = "fuzzy")
+            }
+        } else if (opt?.enabled == true && opt.sensorId == "fuzzy") {
+            brushDynamicOptions["s"] = opt.copy(enabled = false)
+        }
         BrushStoreVm.stage(this, ControlId.SAT_JITTER, v)
     }
 
     internal fun PaintViewModel.updateBrushValJitter(v: Double) {
         brushParams = brushParams.copy(valJitter = v)
+        val opt = brushDynamicOptions["v"]
+        if (v > 1e-4) {
+            if (opt?.enabled != true) {
+                brushDynamicOptions["v"] = (opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("v")).copy(enabled = true, sensorId = "fuzzy")
+            }
+        } else if (opt?.enabled == true && opt.sensorId == "fuzzy") {
+            brushDynamicOptions["v"] = opt.copy(enabled = false)
+        }
         BrushStoreVm.stage(this, ControlId.VAL_JITTER, v)
     }
 
@@ -654,12 +678,13 @@ import kotlinx.coroutines.Job
             "Size", "Opacity", "Flow", "Spacing", "Scatter", "Rotation",
             "Ratio", "Softness", "Sharpness", "Darken", "LightnessStrength",
             "SmudgeRate", "ColorRate", "SmudgeRadius", "PaintThickness",
+            "h", "s", "v",
         )
         val newMap = mutableMapOf<String, com.reverie.paint.model.DynamicOptionConfig>()
         for (k in standardKeys) {
             val defSensor = when (k) {
                 "Rotation" -> com.reverie.paint.model.BrushSensor.DRAWING_ANGLE.id
-                "Scatter" -> com.reverie.paint.model.BrushSensor.FUZZY.id
+                "Scatter", "h", "s", "v" -> com.reverie.paint.model.BrushSensor.FUZZY.id
                 else -> com.reverie.paint.model.BrushSensor.PRESSURE.id
             }
             newMap[k] = com.reverie.paint.model.DynamicOptionConfig(

@@ -98,7 +98,21 @@ class BrushDynamicsTest {
         assertEquals(BrushSensor.SPEED, BrushSensor.fromId("speed"))
         assertEquals(BrushSensor.TILT_ELEVATION, BrushSensor.fromId("tilt-elevation"))
         assertEquals(BrushSensor.TANGENTIAL_PRESSURE, BrushSensor.fromId("tangentialpressure"))
+        assertEquals(BrushSensor.FUZZY, BrushSensor.fromId("fuzzy"))
+        assertEquals(BrushSensor.FUZZY_STROKE, BrushSensor.fromId("fuzzystroke"))
+        assertEquals(BrushSensor.FUZZY_STROKE, BrushSensor.fromId("fuzzy_stroke"))
+        assertEquals(BrushSensor.FUZZY_STROKE, BrushSensor.fromId("fuzzy-stroke"))
         // Unknown defaults to PRESSURE
         assertEquals(BrushSensor.PRESSURE, BrushSensor.fromId("unknown_sensor"))
+    }
+
+    @Test
+    fun `defaultFor chooses correct default sensors`() {
+        assertEquals(BrushSensor.FUZZY.id, DynamicOptionConfig.defaultFor("h").sensorId)
+        assertEquals(BrushSensor.FUZZY.id, DynamicOptionConfig.defaultFor("s").sensorId)
+        assertEquals(BrushSensor.FUZZY.id, DynamicOptionConfig.defaultFor("v").sensorId)
+        assertEquals(BrushSensor.FUZZY.id, DynamicOptionConfig.defaultFor("scatter").sensorId)
+        assertEquals(BrushSensor.DRAWING_ANGLE.id, DynamicOptionConfig.defaultFor("rotation").sensorId)
+        assertEquals(BrushSensor.PRESSURE.id, DynamicOptionConfig.defaultFor("size").sensorId)
     }
 }

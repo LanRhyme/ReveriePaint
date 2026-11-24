@@ -190,11 +190,14 @@ object KppSensors {
     fun writeJitter(xml: String, id: String, value: Double, enable: Boolean): String {
         var x = KppXml.set(xml, "${id}Value", KppXml.fmt(value))
         x = KppXml.set(x, pressureKey(id), enable.toString())
-        if (enable) {
+        if (enable && value > 1e-4) {
             val s = sensorXml(x, id)
-            if (!isChecked(xml, id) || "fuzzy" !in sensorIds(s)) {
-                x = KppXml.set(x, "${id}UseCurve", "true")
-                x = writeSensor(x, id, if (isChecked(xml, id)) addSensor(s, "fuzzy") else single("fuzzy"))
+            x = KppXml.set(x, "${id}UseCurve", "true")
+            val c = firstCurve(s) ?: LINEAR
+            if (s == null) {
+                x = writeSensor(x, id, single("fuzzy"))
+            } else if ("fuzzy" !in sensorIds(s)) {
+                x = writeSensor(x, id, if (isChecked(xml, id)) addSensor(s, "fuzzy", c) else single("fuzzy", c))
             }
         }
         return x

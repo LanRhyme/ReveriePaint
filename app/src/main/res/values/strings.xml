@@ -1795,6 +1795,9 @@
     <string name="brush_studio_dyn_color_rate">色彩速率动态</string>
     <string name="brush_studio_dyn_smudge_radius">涂抹半径动态</string>
     <string name="brush_studio_dyn_paint_thickness">颜料厚涂动态</string>
+    <string name="brush_studio_dyn_hue">色相动态</string>
+    <string name="brush_studio_dyn_sat">饱和度动态</string>
+    <string name="brush_studio_dyn_val">明度动态</string>
     <string name="brush_studio_color_source">色彩源类型</string>
     <string name="brush_studio_color_src_plain">纯前景色</string>
     <string name="brush_studio_color_src_gradient">渐变色</string>
@@ -2084,6 +2087,7 @@
     <string name="brush_sensor_distance">行程距离 (Distance)</string>
     <string name="brush_sensor_time">停留时间 (Time)</string>
     <string name="brush_sensor_fuzzy">随机噪点 (Fuzzy)</string>
+    <string name="brush_sensor_fuzzy_stroke">笔画噪点 (Fuzzy Stroke)</string>
     <string name="brush_sensor_perspective">透视网格 (Perspective)</string>
     <string name="brush_dynamics_expand_title">动态响应曲线</string>
     <string name="brush_dynamics_invert_h">水平反转</string>

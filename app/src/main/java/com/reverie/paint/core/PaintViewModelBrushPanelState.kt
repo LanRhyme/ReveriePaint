@@ -30,18 +30,25 @@ internal fun PaintViewModel.restorePreviousTool() {
 }
 
 internal fun PaintViewModel.getBrushDynamicOption(key: String): com.reverie.paint.model.DynamicOptionConfig {
-    return brushDynamicOptions[key] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor(key).let { def ->
-        val sensor = when (key.lowercase()) {
+    val canonicalKey = when (key.lowercase()) {
+        "hue" -> "h"
+        "saturation", "sat" -> "s"
+        "value", "val" -> "v"
+        else -> key
+    }
+    return brushDynamicOptions[canonicalKey] ?: brushDynamicOptions[key] ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor(canonicalKey).let { def ->
+        val sensor = when (canonicalKey.lowercase()) {
             "size" -> brushParams.sizeSensor
             "opacity" -> brushParams.opacitySensor
             "flow" -> brushParams.flowSensor
             "rotation" -> brushParams.rotationSensor
             "scatter" -> brushParams.scatterSensor
+            "h", "s", "v" -> com.reverie.paint.model.BrushSensor.FUZZY.id
             else -> def.sensorId
         }
         def.copy(sensorId = sensor.ifBlank { def.sensorId })
     }.also {
-        brushDynamicOptions[key] = it
+        brushDynamicOptions[canonicalKey] = it
     }
 }
 
@@ -53,10 +60,16 @@ internal fun PaintViewModel.updateBrushDynamicOption(
     key: String,
     config: com.reverie.paint.model.DynamicOptionConfig,
 ) {
+    val canonicalKey = when (key.lowercase()) {
+        "hue" -> "h"
+        "saturation", "sat" -> "s"
+        "value", "val" -> "v"
+        else -> key
+    }
     val finalConfig = if (config.enabled && config.strength <= 0.001f) config.copy(strength = 1.0f) else config
-    brushDynamicOptions[key] = finalConfig
+    brushDynamicOptions[canonicalKey] = finalConfig
     val strength = if (finalConfig.enabled) finalConfig.strength.toDouble() else 0.0
-    brushParams = when (key.lowercase()) {
+    brushParams = when (canonicalKey.lowercase()) {
         "size" -> brushParams.copy(
             pressureSize = strength,
             pressureEnabled = brushPressureEnabled || finalConfig.enabled,
@@ -74,9 +87,42 @@ internal fun PaintViewModel.updateBrushDynamicOption(
         )
         "scatter" -> brushParams.copy(scatterSensor = finalConfig.sensorId)
         "rotation" -> brushParams.copy(rotationSensor = finalConfig.sensorId)
+        "h" -> {
+            if (finalConfig.enabled && brushParams.hueJitter <= 0.001) {
+                val j = finalConfig.strength.toDouble().coerceIn(0.05, 1.0)
+                brushParams = brushParams.copy(hueJitter = j)
+                BrushStoreVm.stage(this, com.reverie.paint.core.brushstore.ControlId.HUE_JITTER, j)
+            } else if (!finalConfig.enabled && brushParams.hueJitter > 0.001) {
+                brushParams = brushParams.copy(hueJitter = 0.0)
+                BrushStoreVm.stage(this, com.reverie.paint.core.brushstore.ControlId.HUE_JITTER, 0.0)
+            }
+            brushParams
+        }
+        "s" -> {
+            if (finalConfig.enabled && brushParams.satJitter <= 0.001) {
+                val j = finalConfig.strength.toDouble().coerceIn(0.05, 1.0)
+                brushParams = brushParams.copy(satJitter = j)
+                BrushStoreVm.stage(this, com.reverie.paint.core.brushstore.ControlId.SAT_JITTER, j)
+            } else if (!finalConfig.enabled && brushParams.satJitter > 0.001) {
+                brushParams = brushParams.copy(satJitter = 0.0)
+                BrushStoreVm.stage(this, com.reverie.paint.core.brushstore.ControlId.SAT_JITTER, 0.0)
+            }
+            brushParams
+        }
+        "v" -> {
+            if (finalConfig.enabled && brushParams.valJitter <= 0.001) {
+                val j = finalConfig.strength.toDouble().coerceIn(0.05, 1.0)
+                brushParams = brushParams.copy(valJitter = j)
+                BrushStoreVm.stage(this, com.reverie.paint.core.brushstore.ControlId.VAL_JITTER, j)
+            } else if (!finalConfig.enabled && brushParams.valJitter > 0.001) {
+                brushParams = brushParams.copy(valJitter = 0.0)
+                BrushStoreVm.stage(this, com.reverie.paint.core.brushstore.ControlId.VAL_JITTER, 0.0)
+            }
+            brushParams
+        }
         else -> brushParams
     }
-    val cid = when (key.lowercase()) {
+    val cid = when (canonicalKey.lowercase()) {
         "size" -> com.reverie.paint.core.brushstore.ControlId.CURVE_SIZE
         "opacity" -> com.reverie.paint.core.brushstore.ControlId.CURVE_OPACITY
         "flow" -> com.reverie.paint.core.brushstore.ControlId.CURVE_FLOW
@@ -92,6 +138,9 @@ internal fun PaintViewModel.updateBrushDynamicOption(
         "lightnessstrength" -> com.reverie.paint.core.brushstore.ControlId.CURVE_LIGHTNESS_STRENGTH
         "smudgeradius" -> com.reverie.paint.core.brushstore.ControlId.CURVE_SMUDGE_RADIUS
         "paintthickness" -> com.reverie.paint.core.brushstore.ControlId.CURVE_PAINT_THICKNESS
+        "h" -> com.reverie.paint.core.brushstore.ControlId.CURVE_HUE
+        "s" -> com.reverie.paint.core.brushstore.ControlId.CURVE_SATURATION
+        "v" -> com.reverie.paint.core.brushstore.ControlId.CURVE_VALUE
         else -> null
     }
     if (cid != null) {

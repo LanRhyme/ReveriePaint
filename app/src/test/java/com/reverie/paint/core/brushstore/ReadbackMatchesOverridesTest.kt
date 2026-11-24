@@ -39,6 +39,13 @@ class ReadbackMatchesOverridesTest {
                 // 传感器曲线替换成用户曲线，speedSize 反解随之失效（原生 speed 曲线恰与本控件
                 // 编码同形，如 d)_Ink-1_Precision）——属 Krita 语义上的同键联动，不算串写
                 if (id == ControlId.SPEED_SIZE && ControlId.CURVE_SIZE in edits) continue
+                // HSV 抖动与 HSV 动力学曲线共享 h/s/v 节点：编辑抖动会激活对应动力学项并同步传感器曲线
+                if (id == ControlId.CURVE_HUE && ControlId.HUE_JITTER in edits) continue
+                if (id == ControlId.CURVE_SATURATION && ControlId.SAT_JITTER in edits) continue
+                if (id == ControlId.CURVE_VALUE && ControlId.VAL_JITTER in edits) continue
+                if (id == ControlId.HUE_JITTER && ControlId.CURVE_HUE in edits) continue
+                if (id == ControlId.SAT_JITTER && ControlId.CURVE_SATURATION in edits) continue
+                if (id == ControlId.VAL_JITTER && ControlId.CURVE_VALUE in edits) continue
                 // 同组联动的控件（如曲线开关影响 pressure* 派生）不算在内：只比 kpp 层控件值
                 if (!PresetPropertyMap.same(id, after[id], v)) failures += "$stem ${id.key}: 未覆盖却变了 ${v} -> ${after[id]}"
             }
