@@ -4169,10 +4169,11 @@
     <string name="anim_delete_track_message">This removes “%1$s” at every frame and can be undone.\nTo delete only the current cel, use the cel or layer panel delete button.</string>
     <string name="anim_delete_track_confirm">Delete entire track</string>
 
-    <!-- P2P Collaborative Painting -->
-    <string name="collab_title">Collab Canvas</string>
+    <!-- P2P Collab -->
+    <string name="collab_title">Collab</string>
     <string name="collab_create_room">Host Room</string>
     <string name="collab_join_room">Join Room</string>
+    <string name="collab_beta_badge">Beta</string>
     <string name="collab_room_code">Room Code</string>
     <string name="collab_room_code_hint">Enter 6-char room code</string>
     <string name="collab_nickname">Nickname</string>
@@ -4192,14 +4193,23 @@
     <string name="collab_status_waiting_approval">Waiting for approval…</string>
     <string name="collab_status_connected">Live · %1$d</string>
     <string name="collab_status_error">Error: %1$s</string>
+    <string name="collab_status_error_short">Error</string>
+    <string name="collab_joined_toast">Joined collab room</string>
+    <string name="collab_err_duplicate_name">Nickname is already taken in this room</string>
+    <string name="collab_err_invalid_password">Incorrect room password</string>
+    <string name="collab_err_password_required">This room requires a password</string>
+    <string name="collab_err_room_full">Room is full</string>
+    <string name="collab_err_room_not_found">Room not found or expired</string>
+    <string name="collab_err_host_auth">Host authentication failed</string>
+    <string name="collab_err_network">Network connection failed, please retry</string>
     <string name="collab_peers_title">Artists in Room</string>
     <string name="collab_pending_requests">Join Requests (%1$d)</string>
     <string name="collab_approve">Approve</string>
     <string name="collab_reject">Reject</string>
     <string name="collab_kick">Kick</string>
     <string name="collab_host_badge">Host</string>
-    <string name="collab_p2p_ready">P2P Ready</string>
-    <string name="collab_p2p_pending">Handshaking</string>
+    <string name="collab_p2p_ready">Connected</string>
+    <string name="collab_p2p_pending">Connecting</string>
     <string name="collab_layer_no_permission">Cannot draw on this layer</string>
     <string name="collab_layer_no_permission_owner">Layer belongs to %1$s, switch or add your own</string>
     <string name="collab_layer_owner_toast">Owned by %1$s</string>
@@ -4221,8 +4231,8 @@
     <string name="collab_kicked_msg">Removed from room by host</string>
     <string name="collab_rejected_msg">Host declined your join request</string>
     <string name="collab_host_migrated_msg">%1$s took over as host</string>
-    <string name="collab_open_lobby">Collab Room</string>
-    <string name="collab_lan_discover_tip">Enter the 6-character code from host to connect via P2P</string>
+    <string name="collab_open_lobby">Collab</string>
+    <string name="collab_lan_discover_tip">Enter the 6-character code from host to join the canvas</string>
     <string name="collab_custom_turn_section">Network &amp; Custom TURN Relay</string>
     <string name="collab_turn_url_hint">TURN URL (e.g. turn:host:3478, optional)</string>
     <string name="collab_turn_user_hint">TURN Username (optional)</string>
@@ -4253,7 +4263,7 @@
     <string name="collab_layer_type_unsupported">This layer or mask type is unavailable in collab</string>
     <string name="collab_layer_bg_host_only">Only the room host can edit the canvas background</string>
     <string name="collab_layer_delete_no_permission">Only the owner or host can delete unlocked layers</string>
-    <string name="collab_layer_props_no_permission">Layer properties are protected by collab permission</string>
+    <string name="collab_layer_props_no_permission">Only the owner or host can edit this layer</string>
     <string name="collab_layer_group_no_permission">Cannot move layers into a locked or private group</string>
     <string name="collab_layer_reclaim_section">Departed Artist Layers (%1$d)</string>
     <string name="collab_layer_reclaim_desc">Orphaned layers from left members can be shared or claimed</string>
@@ -4264,4 +4274,20 @@
     <string name="collab_toast_autofocus_layer">Focused editable layer "%1$s"</string>
     <string name="collab_toast_autocreate_personal_layer">Created personal layer "%1$s"</string>
     <string name="collab_default_personal_layer_name">%1$s\'s Layer</string>
+    <string name="collab_public_room_toggle">List in Online Rooms</string>
+    <string name="collab_room_title_required_label">Room Title (Required)</string>
+    <string name="collab_room_title_hint">Enter public room title</string>
+    <string name="collab_err_room_title_required">Public rooms require a room title</string>
+    <string name="collab_online_rooms_title">Online Rooms</string>
+    <string name="collab_online_rooms_count">Online Rooms (%1$d)</string>
+    <string name="collab_online_rooms_refresh">Refresh</string>
+    <string name="collab_online_rooms_loading">Loading online rooms…</string>
+    <string name="collab_online_rooms_empty">No public rooms online right now</string>
+    <string name="collab_public_room_host">Host: %1$s</string>
+    <string name="collab_public_room_locked_tag">Password</string>
+    <string name="collab_public_room_approval_tag">Approval</string>
+    <string name="collab_public_room_full_tag">Full</string>
+    <string name="collab_public_room_badge">Public</string>
+    <string name="collab_public_room_need_password">Selected "%1$s", enter password to join</string>
+    <string name="collab_create_public_summary">Public room · %1$s</string>
 </resources>

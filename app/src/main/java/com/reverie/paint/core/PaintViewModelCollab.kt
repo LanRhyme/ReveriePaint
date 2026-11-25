@@ -17,6 +17,7 @@ import com.reverie.paint.model.CollabLayerDescriptor
 import com.reverie.paint.model.CollabPendingRequest
 import com.reverie.paint.model.CollabPeer
 import com.reverie.paint.model.CollabPermissionPolicy
+import com.reverie.paint.model.CollabPublicRoom
 import com.reverie.paint.model.CollabRole
 import com.reverie.paint.model.CollabTopologyPolicy
 import com.reverie.paint.model.LayerCollabPermission
@@ -61,6 +62,8 @@ internal class CollabSessionState {
     var customTurnCredential by mutableStateOf("")
     var requireApproval by mutableStateOf(false)
     var maxPeers by mutableIntStateOf(10)
+    var isPublicRoom by mutableStateOf(false)
+    var roomTitle by mutableStateOf("")
     var peers by mutableStateOf<List<CollabPeer>>(emptyList())
     var departedPeers by mutableStateOf<Map<String, String>>(emptyMap())
     var pendingRequests by mutableStateOf<List<CollabPendingRequest>>(emptyList())
@@ -69,6 +72,9 @@ internal class CollabSessionState {
     var snapshotTotalChunks by mutableIntStateOf(0)
     var statusMessage by mutableStateOf<String?>(null)
     var reconnectAttempt by mutableIntStateOf(0)
+    var publicRooms by mutableStateOf<List<CollabPublicRoom>>(emptyList())
+    var isLoadingPublicRooms by mutableStateOf(false)
+    var publicRoomsError by mutableStateOf<String?>(null)
 
     var showLobbyDialog by mutableStateOf(false)
     var showRoomSheet by mutableStateOf(false)
@@ -81,12 +87,15 @@ internal class CollabSessionState {
     var pendingCreatePassword by mutableStateOf("")
     var pendingCreateRequireApproval by mutableStateOf(false)
     var pendingCreateMaxPeers by mutableIntStateOf(10)
+    var pendingCreateIsPublic by mutableStateOf(false)
+    var pendingCreateTitle by mutableStateOf("")
 
     internal var sessionGeneration: Long = 0L
     internal var signalingClient: SignalingClient? = null
     internal var drainJob: Job? = null
     internal var reconnectJob: Job? = null
     internal var hostOfflineTimerJob: Job? = null
+    internal var publicRoomsLoadJob: Job? = null
     internal val drainInFlight = AtomicBoolean(false)
 
     @Volatile
@@ -102,6 +111,8 @@ internal class CollabSessionState {
     internal var lastCursorDocY: Float = 0f
     internal var prefsLoaded: Boolean = false
     internal var pendingAutoFocusOnSnapshot: Boolean = false
+    internal var pendingJoinCanvasW: Int = 0
+    internal var pendingJoinCanvasH: Int = 0
 }
 
 internal fun PaintViewModel.ensureCollabPrefsLoaded() {
@@ -176,13 +187,25 @@ internal fun PaintViewModel.openCreateCanvasForCollab(
     turnUrl: String = collab.customTurnUrl,
     turnUsername: String = collab.customTurnUsername,
     turnCredential: String = collab.customTurnCredential,
+    isPublic: Boolean = false,
+    roomTitle: String = "",
 ) {
     ensureCollabPrefsLoaded()
     saveCollabIdentityPrefs(nickname, signalingUrl, turnUrl, turnUsername, turnCredential)
+    val cleanTitle = CollabTopologyPolicy.sanitizeRoomTitle(roomTitle)
+    if (!CollabTopologyPolicy.isValidPublicRoomTitle(isPublic, cleanTitle)) {
+        val msg = getString(R.string.collab_err_room_title_required)
+        collab.phase = CollabConnectionPhase.ERROR
+        collab.statusMessage = msg
+        showActionToast(msg, R.drawable.ic_cloud)
+        return
+    }
     collab.pendingCreateMode = true
     collab.pendingCreatePassword = password
     collab.pendingCreateRequireApproval = requireApproval
     collab.pendingCreateMaxPeers = maxPeers.coerceIn(2, 32)
+    collab.pendingCreateIsPublic = isPublic
+    collab.pendingCreateTitle = if (isPublic) cleanTitle else ""
     collab.showLobbyDialog = false
     goCreate()
 }
@@ -191,6 +214,8 @@ internal fun PaintViewModel.hostRoomOnCreatedCanvas(canvasW: Int, canvasH: Int) 
     val pw = collab.pendingCreatePassword
     val approval = collab.pendingCreateRequireApproval
     val maxP = collab.pendingCreateMaxPeers
+    val isPublic = collab.pendingCreateIsPublic
+    val roomTitle = collab.pendingCreateTitle
     collab.pendingCreateMode = false
     createCollabRoom(
         nickname = collab.selfName,
@@ -200,6 +225,8 @@ internal fun PaintViewModel.hostRoomOnCreatedCanvas(canvasW: Int, canvasH: Int) 
         signalingUrl = collab.signalingUrl,
         canvasW = canvasW,
         canvasH = canvasH,
+        isPublic = isPublic,
+        roomTitle = roomTitle,
     )
 }
 
@@ -211,12 +238,31 @@ internal fun PaintViewModel.createCollabRoom(
     signalingUrl: String = collab.signalingUrl,
     canvasW: Int = docWidth,
     canvasH: Int = docHeight,
+    isPublic: Boolean = false,
+    roomTitle: String = "",
 ) {
     ensureCollabPrefsLoaded()
     saveCollabIdentityPrefs(nickname, signalingUrl)
 
+    val cleanTitle = CollabTopologyPolicy.sanitizeRoomTitle(roomTitle)
+    if (!CollabTopologyPolicy.isValidPublicRoomTitle(isPublic, cleanTitle)) {
+        val msg = getString(R.string.collab_err_room_title_required)
+        collab.phase = CollabConnectionPhase.ERROR
+        collab.statusMessage = msg
+        showActionToast(msg, R.drawable.ic_cloud)
+        return
+    }
+
     if (currentPage != Page.PAINTING) {
-        openCreateCanvasForCollab(nickname, password, requireApproval, maxPeers, signalingUrl)
+        openCreateCanvasForCollab(
+            nickname = nickname,
+            password = password,
+            requireApproval = requireApproval,
+            maxPeers = maxPeers,
+            signalingUrl = signalingUrl,
+            isPublic = isPublic,
+            roomTitle = cleanTitle,
+        )
         return
     }
 
@@ -231,6 +277,7 @@ internal fun PaintViewModel.createCollabRoom(
     val clampedMax = maxPeers.coerceIn(2, 32)
     val safeW = canvasW.coerceAtLeast(1)
     val safeH = canvasH.coerceAtLeast(1)
+    val effectiveTitle = if (isPublic) cleanTitle else ""
 
     collab.intentionalLeave = false
     collab.lastJoinPassword = password
@@ -240,6 +287,8 @@ internal fun PaintViewModel.createCollabRoom(
     collab.role = CollabRole.HOST
     collab.requireApproval = requireApproval
     collab.maxPeers = clampedMax
+    collab.isPublicRoom = isPublic
+    collab.roomTitle = effectiveTitle
     collab.hostPeerId = selfId
     collab.hostToken = ""
     collab.roomCode = ""
@@ -265,14 +314,16 @@ internal fun PaintViewModel.createCollabRoom(
             maxPeers = clampedMax,
             canvasWidth = safeW,
             canvasHeight = safeH,
+            isPublic = isPublic,
+            title = effectiveTitle,
         )
         if (collab.sessionGeneration != gen) return@launch
         result.onFailure { err ->
-            val msg = err.message ?: "network_error"
+            val msg = localizeCollabError(err.message ?: "ws_failure", "")
             collab.phase = CollabConnectionPhase.ERROR
             collab.isActive = false
-            collab.statusMessage = getString(R.string.collab_status_error, msg)
-            showActionToast(collab.statusMessage!!, R.drawable.ic_cloud)
+            collab.statusMessage = msg
+            showActionToast(msg, R.drawable.ic_cloud)
         }.onSuccess { created ->
             collab.roomCode = created.roomCode
             collab.hostPeerId = created.hostPeerId
@@ -329,6 +380,8 @@ internal fun PaintViewModel.joinCollabRoom(
     collab.role = CollabRole.PEER
     collab.roomCode = normCode
     collab.hostToken = ""
+    collab.isPublicRoom = false
+    collab.roomTitle = ""
     collab.peers = emptyList()
     collab.departedPeers = emptyMap()
     collab.pendingAutoFocusOnSnapshot = true
@@ -336,6 +389,8 @@ internal fun PaintViewModel.joinCollabRoom(
     collab.remoteCursors = emptyList()
     collab.snapshotReceivedChunks = 0
     collab.snapshotTotalChunks = 0
+    collab.pendingJoinCanvasW = 0
+    collab.pendingJoinCanvasH = 0
     collab.statusMessage = getString(R.string.collab_status_connecting)
 
     val client = SignalingClient(viewModelScope)
@@ -345,20 +400,43 @@ internal fun PaintViewModel.joinCollabRoom(
         val infoResult = client.fetchRoomInfo(baseUrl = baseUrl, roomCode = normCode)
         if (collab.sessionGeneration != gen) return@launch
         infoResult.onFailure { err ->
-            val msg = err.message ?: "not_found"
+            val msg = localizeCollabError(err.message ?: "room_not_found", "")
             collab.phase = CollabConnectionPhase.ERROR
             collab.isActive = false
-            collab.statusMessage = getString(R.string.collab_status_error, msg)
-            showActionToast(collab.statusMessage!!, R.drawable.ic_cloud)
+            collab.signalingClient = null
+            collab.statusMessage = msg
+            showActionToast(msg, R.drawable.ic_cloud)
         }.onSuccess { summary ->
+            val failJoinWith: (String) -> Unit = { errText ->
+                collab.phase = CollabConnectionPhase.ERROR
+                collab.isActive = false
+                collab.signalingClient = null
+                collab.statusMessage = errText
+                showActionToast(errText, R.drawable.ic_cloud)
+            }
+            if (summary.hasPassword && password.isBlank()) {
+                failJoinWith(getString(R.string.collab_err_password_required))
+                return@onSuccess
+            }
+            if (summary.peerCount >= summary.maxPeers) {
+                failJoinWith(getString(R.string.collab_err_room_full))
+                return@onSuccess
+            }
+            val existingNames = buildList {
+                if (summary.hostName.isNotBlank() && summary.hostPeerId != selfId) add(summary.hostName)
+                addAll(summary.peerNames)
+            }
+            if (CollabTopologyPolicy.hasDuplicateNickname(displayName, existingNames)) {
+                failJoinWith(getString(R.string.collab_err_duplicate_name))
+                return@onSuccess
+            }
             collab.hostPeerId = summary.hostPeerId
             collab.requireApproval = summary.requireApproval
             collab.maxPeers = summary.maxPeers
-            if (currentPage != Page.PAINTING) {
-                val targetW = summary.canvasWidth.takeIf { it > 0 } ?: 1600
-                val targetH = summary.canvasHeight.takeIf { it > 0 } ?: 1200
-                startPainting(w = targetW, h = targetH, name = "Collab-$normCode")
-            }
+            collab.isPublicRoom = summary.isPublic
+            collab.roomTitle = summary.title
+            collab.pendingJoinCanvasW = summary.canvasWidth
+            collab.pendingJoinCanvasH = summary.canvasHeight
             client.connectWebSocket(
                 baseUrl = baseUrl,
                 roomCode = normCode,
@@ -369,6 +447,26 @@ internal fun PaintViewModel.joinCollabRoom(
                 password = password.ifEmpty { null },
                 listener = buildSignalingListener(gen),
             )
+        }
+    }
+}
+
+internal fun PaintViewModel.refreshPublicCollabRooms(signalingUrlOverride: String? = null) {
+    ensureCollabPrefsLoaded()
+    val rawUrl = signalingUrlOverride ?: collab.signalingUrl
+    val baseUrl = rawUrl.trim().trimEnd('/').ifBlank { CollabTopologyPolicy.DEFAULT_SIGNALING_URL }
+    collab.publicRoomsLoadJob?.cancel()
+    collab.isLoadingPublicRooms = true
+    collab.publicRoomsError = null
+    val client = SignalingClient(viewModelScope)
+    collab.publicRoomsLoadJob = viewModelScope.launch {
+        val result = client.fetchPublicRooms(baseUrl = baseUrl)
+        collab.isLoadingPublicRooms = false
+        result.onSuccess { rooms ->
+            collab.publicRooms = rooms
+            collab.publicRoomsError = null
+        }.onFailure { err ->
+            collab.publicRoomsError = localizeCollabError(err.message ?: "ws_failure", "")
         }
     }
 }
@@ -437,6 +535,80 @@ private fun PaintViewModel.scheduleAutoReconnect(gen: Long) {
     }
 }
 
+private fun PaintViewModel.localizeCollabError(code: String, rawMessage: String): String = when (code) {
+    "duplicate_name" -> getString(R.string.collab_err_duplicate_name)
+    "room_title_required" -> getString(R.string.collab_err_room_title_required)
+    "invalid_password" -> getString(R.string.collab_err_invalid_password)
+    "room_full" -> getString(R.string.collab_err_room_full)
+    "room_not_found", "not_found", "http_404" -> getString(R.string.collab_err_room_not_found)
+    "kicked" -> getString(R.string.collab_kicked_msg)
+    "invalid_host_token" -> getString(R.string.collab_err_host_auth)
+    "ws_failure" -> getString(R.string.collab_err_network)
+    else -> getString(R.string.collab_status_error, rawMessage.ifBlank { code })
+}
+
+private fun PaintViewModel.handleCollabAdmittedOrWelcome(
+    gen: Long,
+    roomCode: String,
+    selfPeerId: String,
+    hostPeerId: String,
+    iceServersJson: String,
+    peers: List<CollabPeer>,
+    canvasWidth: Int,
+    canvasHeight: Int,
+) {
+    if (!collab.nativeStarted &&
+        selfPeerId != hostPeerId &&
+        peers.any { it.peerId != selfPeerId && CollabTopologyPolicy.isSameNickname(it.name, collab.selfName) }
+    ) {
+        val dupMsg = getString(R.string.collab_err_duplicate_name)
+        teardownCollabLocalState(gracefulLeave = true)
+        collab.phase = CollabConnectionPhase.ERROR
+        collab.statusMessage = dupMsg
+        if (currentPage != Page.PAINTING) {
+            collab.showLobbyDialog = true
+        }
+        showActionToast(dupMsg, R.drawable.ic_cloud)
+        return
+    }
+
+    collab.reconnectJob?.cancel()
+    collab.reconnectJob = null
+    collab.reconnectAttempt = 0
+    collab.roomCode = roomCode
+    collab.selfPeerId = selfPeerId
+    collab.hostPeerId = hostPeerId
+    collab.role = if (selfPeerId == hostPeerId) CollabRole.HOST else CollabRole.PEER
+    val p2pStates = collab.peers.associate { it.peerId to it.connectedP2P }
+    val mergedPeers = normalizePeersWithFlags(peers, hostPeerId, p2pStates)
+    collab.peers = mergedPeers
+
+    val effIce = mergeEffectiveIceServers(iceServersJson)
+    collab.lastIceServersJson = effIce
+    collab.phase = CollabConnectionPhase.CONNECTED
+    collab.statusMessage = null
+    collab.showLobbyDialog = false
+    if (!collab.nativeStarted) {
+        if (currentPage != Page.PAINTING) {
+            val targetW = canvasWidth.takeIf { it > 0 }
+                ?: collab.pendingJoinCanvasW.takeIf { it > 0 }
+                ?: 1600
+            val targetH = canvasHeight.takeIf { it > 0 }
+                ?: collab.pendingJoinCanvasH.takeIf { it > 0 }
+                ?: 1200
+            startPainting(w = targetW, h = targetH, name = "Collab-$roomCode")
+        }
+        if (collab.role == CollabRole.HOST) {
+            collab.showRoomSheet = true
+        } else {
+            showActionToast(R.string.collab_joined_toast, R.drawable.ic_cloud)
+        }
+        beginNativeCollabSession(gen, roomCode, selfPeerId, collab.selfName, hostPeerId, effIce, mergedPeers)
+    } else {
+        syncNativeOnSignalingReconnect(gen, hostPeerId, effIce, mergedPeers)
+    }
+}
+
 private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventListener {
     return object : SignalingEventListener {
         override fun onWelcome(
@@ -451,33 +623,29 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
         ) {
             mainHandler.post {
                 if (collab.sessionGeneration != gen) return@post
-                collab.reconnectJob?.cancel()
-                collab.reconnectJob = null
-                collab.reconnectAttempt = 0
-                collab.roomCode = roomCode
-                collab.selfPeerId = selfPeerId
-                collab.hostPeerId = hostPeerId
-                collab.role = if (selfPeerId == hostPeerId) CollabRole.HOST else CollabRole.PEER
-                val p2pStates = collab.peers.associate { it.peerId to it.connectedP2P }
-                val mergedPeers = normalizePeersWithFlags(peers, hostPeerId, p2pStates)
-                collab.peers = mergedPeers
-
-                val effIce = mergeEffectiveIceServers(iceServersJson)
-                collab.lastIceServersJson = effIce
-
-                if (status == "waiting_approval") {
+                if (status == "pending" || status == "waiting_approval") {
+                    collab.reconnectJob?.cancel()
+                    collab.reconnectJob = null
+                    collab.reconnectAttempt = 0
+                    collab.roomCode = roomCode
+                    collab.selfPeerId = selfPeerId
+                    collab.hostPeerId = hostPeerId
+                    collab.role = if (selfPeerId == hostPeerId) CollabRole.HOST else CollabRole.PEER
+                    val effIce = mergeEffectiveIceServers(iceServersJson)
+                    collab.lastIceServersJson = effIce
                     collab.phase = CollabConnectionPhase.WAITING_APPROVAL
                     collab.statusMessage = getString(R.string.collab_status_waiting_approval)
                 } else {
-                    collab.phase = CollabConnectionPhase.CONNECTED
-                    collab.statusMessage = null
-                    collab.showLobbyDialog = false
-                    if (!collab.nativeStarted) {
-                        collab.showRoomSheet = true
-                        beginNativeCollabSession(gen, roomCode, selfPeerId, collab.selfName, hostPeerId, effIce, mergedPeers)
-                    } else {
-                        syncNativeOnSignalingReconnect(gen, hostPeerId, effIce, mergedPeers)
-                    }
+                    handleCollabAdmittedOrWelcome(
+                        gen = gen,
+                        roomCode = roomCode,
+                        selfPeerId = selfPeerId,
+                        hostPeerId = hostPeerId,
+                        iceServersJson = iceServersJson,
+                        peers = peers,
+                        canvasWidth = canvasWidth,
+                        canvasHeight = canvasHeight,
+                    )
                 }
             }
         }
@@ -493,28 +661,16 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
         ) {
             mainHandler.post {
                 if (collab.sessionGeneration != gen) return@post
-                collab.reconnectJob?.cancel()
-                collab.reconnectJob = null
-                collab.reconnectAttempt = 0
-                collab.roomCode = roomCode
-                collab.selfPeerId = selfPeerId
-                collab.hostPeerId = hostPeerId
-                collab.role = if (selfPeerId == hostPeerId) CollabRole.HOST else CollabRole.PEER
-                val p2pStates = collab.peers.associate { it.peerId to it.connectedP2P }
-                val mergedPeers = normalizePeersWithFlags(peers, hostPeerId, p2pStates)
-                collab.peers = mergedPeers
-
-                val effIce = mergeEffectiveIceServers(iceServersJson)
-                collab.lastIceServersJson = effIce
-                collab.phase = CollabConnectionPhase.CONNECTED
-                collab.statusMessage = null
-                collab.showLobbyDialog = false
-                if (!collab.nativeStarted) {
-                    collab.showRoomSheet = true
-                    beginNativeCollabSession(gen, roomCode, selfPeerId, collab.selfName, hostPeerId, effIce, mergedPeers)
-                } else {
-                    syncNativeOnSignalingReconnect(gen, hostPeerId, effIce, mergedPeers)
-                }
+                handleCollabAdmittedOrWelcome(
+                    gen = gen,
+                    roomCode = roomCode,
+                    selfPeerId = selfPeerId,
+                    hostPeerId = hostPeerId,
+                    iceServersJson = iceServersJson,
+                    peers = peers,
+                    canvasWidth = canvasWidth,
+                    canvasHeight = canvasHeight,
+                )
             }
         }
 
@@ -717,17 +873,21 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
                             scheduleAutoReconnect(gen)
                         }
                     }
-                    "invalid_password", "room_not_found", "kicked", "invalid_host_token" -> {
-                        val detail = message.ifBlank { code }
+                    "duplicate_name", "room_full", "invalid_password", "room_not_found",
+                    "kicked", "invalid_host_token", "service_disabled" -> {
+                        val detail = localizeCollabError(code, message)
                         teardownCollabLocalState(gracefulLeave = false)
                         collab.phase = CollabConnectionPhase.ERROR
-                        collab.statusMessage = getString(R.string.collab_status_error, detail)
-                        showActionToast(collab.statusMessage!!, R.drawable.ic_cloud)
+                        collab.statusMessage = detail
+                        if (currentPage != Page.PAINTING) {
+                            collab.showLobbyDialog = true
+                        }
+                        showActionToast(detail, R.drawable.ic_cloud)
                     }
                     else -> {
-                        val detail = message.ifBlank { code }
-                        collab.statusMessage = getString(R.string.collab_status_error, detail)
-                        showActionToast(collab.statusMessage!!, R.drawable.ic_cloud)
+                        val detail = localizeCollabError(code, message)
+                        collab.statusMessage = detail
+                        showActionToast(detail, R.drawable.ic_cloud)
                     }
                 }
             }
@@ -1092,6 +1252,8 @@ private fun PaintViewModel.teardownCollabLocalState(
     collab.roomCode = ""
     collab.hostPeerId = ""
     collab.hostToken = ""
+    collab.isPublicRoom = false
+    collab.roomTitle = ""
     collab.reconnectAttempt = 0
     collab.peers = emptyList()
     collab.departedPeers = emptyMap()
@@ -1100,6 +1262,8 @@ private fun PaintViewModel.teardownCollabLocalState(
     collab.remoteCursors = emptyList()
     collab.snapshotReceivedChunks = 0
     collab.snapshotTotalChunks = 0
+    collab.pendingJoinCanvasW = 0
+    collab.pendingJoinCanvasH = 0
     collab.statusMessage = null
     collab.showRoomSheet = false
 

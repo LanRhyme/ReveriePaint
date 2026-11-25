@@ -92,7 +92,11 @@ struct PeerLink {
     qint64 attemptStartedAtMs = 0;
     qint64 disconnectedAtMs = 0;
     qint64 nextRetryAtMs = 0;
+    qint64 ctrlOpenedAtMs = 0;
+    qint64 lastSnapshotReqAtMs = 0;
     int retryCount = 0;
+    bool remoteDescriptionSet = false;
+    QVector<QPair<QString, QString>> pendingRemoteCandidates;
     std::shared_ptr<rtc::PeerConnection> pc;
     std::shared_ptr<rtc::DataChannel> ctrl;
     std::shared_ptr<rtc::DataChannel> live;
@@ -162,32 +166,47 @@ bool parseIceServers(const QString &jsonStr, rtc::Configuration &cfg)
 {
     cfg.enableIceTcp = true;
     QJsonDocument doc = QJsonDocument::fromJson(jsonStr.toUtf8());
-    if (!doc.isArray()) return false;
-    const QJsonArray arr = doc.array();
-    for (const QJsonValue &v : arr) {
-        if (!v.isObject()) continue;
-        const QJsonObject obj = v.toObject();
-        const QString user = obj.value("username").toString();
-        const QString cred = obj.value("credential").toString();
+    if (doc.isArray()) {
+        const QJsonArray arr = doc.array();
+        for (const QJsonValue &v : arr) {
+            if (!v.isObject()) continue;
+            const QJsonObject obj = v.toObject();
+            const QString user = obj.value("username").toString();
+            const QString cred = obj.value("credential").toString();
 
-        QStringList urls;
-        const QJsonValue uVal = obj.value("urls");
-        if (uVal.isString()) {
-            urls.append(uVal.toString());
-        } else if (uVal.isArray()) {
-            for (const QJsonValue &uv : uVal.toArray()) {
-                if (uv.isString()) urls.append(uv.toString());
+            QStringList urls;
+            const QJsonValue uVal = obj.value("urls");
+            if (uVal.isString()) {
+                urls.append(uVal.toString());
+            } else if (uVal.isArray()) {
+                for (const QJsonValue &uv : uVal.toArray()) {
+                    if (uv.isString()) urls.append(uv.toString());
+                }
+            }
+            for (const QString &u : urls) {
+                if (u.isEmpty()) continue;
+                try {
+                    rtc::IceServer srv(u.toStdString());
+                    if (!user.isEmpty()) srv.username = user.toStdString();
+                    if (!cred.isEmpty()) srv.password = cred.toStdString();
+                    cfg.iceServers.push_back(std::move(srv));
+                } catch (const std::exception &e) {
+                    RPC_LOG("Collab bad IceServer (%s): %s", u.toUtf8().constData(), e.what());
+                }
             }
         }
-        for (const QString &u : urls) {
-            if (u.isEmpty()) continue;
+    }
+    if (cfg.iceServers.empty()) {
+        static const char *const kFallbackStun[] = {
+            "stun:stun.qq.com:3478",
+            "stun:stun.miwifi.com:3478",
+            "stun:stun.cloudflare.com:3478",
+        };
+        for (const char *u : kFallbackStun) {
             try {
-                rtc::IceServer srv(u.toStdString());
-                if (!user.isEmpty()) srv.username = user.toStdString();
-                if (!cred.isEmpty()) srv.password = cred.toStdString();
-                cfg.iceServers.push_back(std::move(srv));
+                cfg.iceServers.emplace_back(u);
             } catch (const std::exception &e) {
-                RPC_LOG("Collab bad IceServer (%s): %s", u.toUtf8().constData(), e.what());
+                RPC_LOG("Collab fallback STUN (%s): %s", u, e.what());
             }
         }
     }
@@ -587,12 +606,39 @@ public:
                 if (typeStr == QLatin1String("offer")) descType = rtc::Description::Type::Offer;
                 else if (typeStr == QLatin1String("answer")) descType = rtc::Description::Type::Answer;
                 pc->setRemoteDescription(rtc::Description(sdp.toStdString(), descType));
+                QVector<QPair<QString, QString>> buffered;
+                {
+                    std::lock_guard<std::mutex> lock(m_netMutex);
+                    auto it = m_peers.find(fromPeerId);
+                    if (it != m_peers.end()) {
+                        it->remoteDescriptionSet = true;
+                        buffered.swap(it->pendingRemoteCandidates);
+                    }
+                }
+                for (const auto &c : buffered) {
+                    try {
+                        pc->addRemoteCandidate(rtc::Candidate(c.first.toStdString(), c.second.toStdString()));
+                    } catch (const std::exception &e) {
+                        RPC_LOG("Collab buffered candidate error from=%s: %s", fromPeerId.toUtf8().constData(), e.what());
+                    }
+                }
             } catch (const std::exception &e) {
                 RPC_LOG("Collab setRemoteDescription error from=%s: %s", fromPeerId.toUtf8().constData(), e.what());
             }
         } else if (obj.contains("candidate")) {
             const QString cand = obj.value("candidate").toString();
             const QString mid = obj.value("sdpMid").toString();
+            if (cand.isEmpty()) return;
+            {
+                std::lock_guard<std::mutex> lock(m_netMutex);
+                auto it = m_peers.find(fromPeerId);
+                if (it != m_peers.end() && !it->remoteDescriptionSet) {
+                    if (it->pendingRemoteCandidates.size() < 64) {
+                        it->pendingRemoteCandidates.append(qMakePair(cand, mid));
+                    }
+                    return;
+                }
+            }
             try {
                 pc->addRemoteCandidate(rtc::Candidate(cand.toStdString(), mid.toStdString()));
             } catch (const std::exception &e) {
@@ -1168,6 +1214,10 @@ public:
             it->liveOpen = false;
             it->snapshotSent = false;
             it->disconnectedAtMs = 0;
+            it->ctrlOpenedAtMs = 0;
+            it->lastSnapshotReqAtMs = 0;
+            it->remoteDescriptionSet = false;
+            it->pendingRemoteCandidates.clear();
             if (!keepLinkMeta) {
                 m_peers.erase(it);
             }
@@ -1377,6 +1427,7 @@ private:
         m_lastWatchdogMs = now;
 
         bool needRetry = false;
+        bool needSnapshotReq = false;
         {
             std::lock_guard<std::mutex> lock(m_netMutex);
             auto it = m_peers.find(m_hostPeerId);
@@ -1384,22 +1435,34 @@ private:
             if (it->ctrlOpen && it->pc && it->pc->state() == rtc::PeerConnection::State::Connected) {
                 it->retryCount = 0;
                 it->disconnectedAtMs = 0;
-                return;
+                if (!m_hasLoadedSnapshot && !m_incomingSnapshot.active &&
+                    it->ctrlOpenedAtMs > 0 && now - it->lastSnapshotReqAtMs >= 4000) {
+                    it->lastSnapshotReqAtMs = now;
+                    needSnapshotReq = true;
+                }
+            } else if (now >= it->nextRetryAtMs) {
+                const auto st = it->pc ? it->pc->state() : rtc::PeerConnection::State::Closed;
+                const bool stuckConnecting = !it->ctrlOpen && it->attemptStartedAtMs > 0 &&
+                                             (now - it->attemptStartedAtMs >= 8000);
+                const bool deadDisconnect = (st == rtc::PeerConnection::State::Disconnected &&
+                                             it->disconnectedAtMs > 0 && now - it->disconnectedAtMs >= 3500);
+                if (!it->pc || st == rtc::PeerConnection::State::Failed ||
+                    st == rtc::PeerConnection::State::Closed || deadDisconnect || stuckConnecting) {
+                    const qint64 backoffMs = qMin<qint64>(10000, 1500LL << qMin(it->retryCount, 3));
+                    it->retryCount++;
+                    it->nextRetryAtMs = now + backoffMs;
+                    needRetry = true;
+                }
             }
-            if (now < it->nextRetryAtMs) return;
-
-            const auto st = it->pc ? it->pc->state() : rtc::PeerConnection::State::Closed;
-            const bool stuckConnecting = !it->ctrlOpen && it->attemptStartedAtMs > 0 &&
-                                         (now - it->attemptStartedAtMs >= 10000);
-            const bool deadDisconnect = (st == rtc::PeerConnection::State::Disconnected &&
-                                         it->disconnectedAtMs > 0 && now - it->disconnectedAtMs >= 5000);
-            if (!it->pc || st == rtc::PeerConnection::State::Failed ||
-                st == rtc::PeerConnection::State::Closed || deadDisconnect || stuckConnecting) {
-                const qint64 backoffMs = qMin<qint64>(12000, 3000LL << qMin(it->retryCount, 2));
-                it->retryCount++;
-                it->nextRetryAtMs = now + backoffMs;
-                needRetry = true;
-            }
+        }
+        if (needSnapshotReq) {
+            QByteArray hello = packMsgHeader(MsgHello);
+            QDataStream ds(&hello, QIODevice::Append);
+            ds.setByteOrder(QDataStream::LittleEndian);
+            writeUtf8(ds, m_selfPeerId);
+            writeUtf8(ds, QStringLiteral("__SEND_SNAPSHOT__"));
+            ds << kCollabProtoVersion;
+            sendBytesToPeer(m_hostPeerId, hello, false);
         }
         if (needRetry) {
             RPC_LOG("Collab watchdog retrying P2P to host=%s", m_hostPeerId.toUtf8().constData());
@@ -1534,6 +1597,10 @@ private:
             link.initiatedByUs = initiateOffer;
             link.attemptStartedAtMs = QDateTime::currentMSecsSinceEpoch();
             link.disconnectedAtMs = 0;
+            link.ctrlOpenedAtMs = 0;
+            link.lastSnapshotReqAtMs = 0;
+            link.remoteDescriptionSet = false;
+            link.pendingRemoteCandidates.clear();
         }
 
         if (initiateOffer) {
@@ -1562,21 +1629,38 @@ private:
             else link.ctrl = dc;
         }
 
-        dc->onOpen([this, remotePeerId, isLive]() {
+        std::weak_ptr<rtc::DataChannel> dcWeak(dc);
+        dc->onOpen([this, remotePeerId, isLive, dcWeak]() {
+            auto dcPtr = dcWeak.lock();
+            if (!m_active || !dcPtr) return;
             bool shouldSendHello = false;
+            bool pushConnected = false;
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
             {
                 std::lock_guard<std::mutex> lock(m_netMutex);
                 auto it = m_peers.find(remotePeerId);
                 if (it != m_peers.end()) {
+                    const auto &currentDc = isLive ? it->live : it->ctrl;
+                    if (currentDc != dcPtr) return;
                     if (isLive) {
                         it->liveOpen = true;
                     } else {
                         it->ctrlOpen = true;
                         it->retryCount = 0;
                         it->disconnectedAtMs = 0;
+                        it->ctrlOpenedAtMs = now;
+                        it->lastSnapshotReqAtMs = now;
                         shouldSendHello = true;
+                        pushConnected = true;
                     }
                 }
+            }
+            if (pushConnected) {
+                pushUiEvent(QJsonObject{
+                    {"type", QStringLiteral("peer_p2p_state")},
+                    {"peerId", remotePeerId},
+                    {"connected", true},
+                });
             }
             if (shouldSendHello) {
                 QByteArray hello = packMsgHeader(MsgHello);
@@ -1587,6 +1671,45 @@ private:
                 ds << kCollabProtoVersion << m_lastAppliedSeq << quint8(m_hasLoadedSnapshot ? 0 : 1);
                 sendBytesToPeer(remotePeerId, hello, false);
             }
+        });
+
+        auto handleChannelDrop = [this, remotePeerId, isLive](const std::shared_ptr<rtc::DataChannel> &dcPtr) {
+            if (!m_active || !dcPtr) return;
+            bool pushDisconnected = false;
+            const qint64 now = QDateTime::currentMSecsSinceEpoch();
+            {
+                std::lock_guard<std::mutex> lock(m_netMutex);
+                auto it = m_peers.find(remotePeerId);
+                if (it != m_peers.end()) {
+                    const auto &currentDc = isLive ? it->live : it->ctrl;
+                    if (currentDc != dcPtr) return;
+                    if (isLive) {
+                        it->liveOpen = false;
+                    } else {
+                        it->ctrlOpen = false;
+                        it->ctrlOpenedAtMs = 0;
+                        if (it->disconnectedAtMs == 0) it->disconnectedAtMs = now;
+                        pushDisconnected = true;
+                    }
+                }
+            }
+            if (pushDisconnected) {
+                pushUiEvent(QJsonObject{
+                    {"type", QStringLiteral("peer_p2p_state")},
+                    {"peerId", remotePeerId},
+                    {"connected", false},
+                });
+            }
+        };
+
+        dc->onClosed([handleChannelDrop, dcWeak]() {
+            handleChannelDrop(dcWeak.lock());
+        });
+
+        dc->onError([handleChannelDrop, remotePeerId, isLive, dcWeak](rtc::string err) {
+            RPC_LOG("Collab dc error from=%s live=%d: %s",
+                    remotePeerId.toUtf8().constData(), isLive ? 1 : 0, err.c_str());
+            handleChannelDrop(dcWeak.lock());
         });
 
         dc->onMessage([this, remotePeerId, isLive](rtc::message_variant data) {

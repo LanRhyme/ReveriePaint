@@ -13,10 +13,18 @@ routes = [
 name = "ROOMS"
 class_name = "CollabRoom"
 
+[[durable_objects.bindings]]
+name = "DIRECTORY"
+class_name = "RoomDirectory"
+
 # Free 计划要求使用 SQLite-backed Durable Objects
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["CollabRoom"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["RoomDirectory"]
 
 [vars]
 DISABLED = "0"

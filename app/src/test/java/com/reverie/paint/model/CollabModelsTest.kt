@@ -326,4 +326,29 @@ class CollabModelsTest {
         assertEquals("A", CollabPermissionPolicy.formatAvatarInitial("alice"))
         assertEquals("小", CollabPermissionPolicy.formatAvatarInitial("小明"))
     }
+
+    @Test
+    fun `重名成员校验忽略首尾空格与英文大小写且放行空白输入`() {
+        assertEquals("alice", CollabTopologyPolicy.normalizeNickname("  Alice "))
+        assertTrue(CollabTopologyPolicy.isSameNickname("Alice", " alice "))
+        assertFalse(CollabTopologyPolicy.isSameNickname("   ", ""))
+        assertFalse(CollabTopologyPolicy.isSameNickname("Alice", "Bob"))
+        assertTrue(CollabTopologyPolicy.hasDuplicateNickname("小画师", listOf("房主", "小画师 ")))
+        assertFalse(CollabTopologyPolicy.hasDuplicateNickname("新画师", listOf("房主", "小画师")))
+        assertFalse(CollabTopologyPolicy.hasDuplicateNickname("   ", listOf("   ", "房主")))
+    }
+
+    @Test
+    fun `公开房间标题规范化与必填校验正确`() {
+        assertEquals("深夜 摸鱼房", CollabTopologyPolicy.sanitizeRoomTitle("  深夜\n摸鱼房\t "))
+        assertEquals(
+            CollabTopologyPolicy.MAX_ROOM_TITLE_LENGTH,
+            CollabTopologyPolicy.sanitizeRoomTitle("a".repeat(50)).length,
+        )
+        assertTrue(CollabTopologyPolicy.isValidPublicRoomTitle(isPublic = false, rawTitle = ""))
+        assertTrue(CollabTopologyPolicy.isValidPublicRoomTitle(isPublic = false, rawTitle = "   "))
+        assertFalse(CollabTopologyPolicy.isValidPublicRoomTitle(isPublic = true, rawTitle = ""))
+        assertFalse(CollabTopologyPolicy.isValidPublicRoomTitle(isPublic = true, rawTitle = " \n\t "))
+        assertTrue(CollabTopologyPolicy.isValidPublicRoomTitle(isPublic = true, rawTitle = "周末线稿接龙"))
+    }
 }

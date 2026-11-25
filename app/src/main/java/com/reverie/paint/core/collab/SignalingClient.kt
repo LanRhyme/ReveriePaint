@@ -6,6 +6,7 @@ package com.reverie.paint.core.collab
 
 import com.reverie.paint.model.CollabPendingRequest
 import com.reverie.paint.model.CollabPeer
+import com.reverie.paint.model.CollabPublicRoom
 import com.reverie.paint.model.CollabRole
 import com.reverie.paint.model.CollabRoomSummary
 import com.reverie.paint.model.CollabTopologyPolicy
@@ -90,6 +91,8 @@ class SignalingClient(
 
     @Volatile
     private var webSocket: WebSocket? = null
+    @Volatile
+    private var lastInboundMs: Long = 0L
     private var pingJob: Job? = null
 
     suspend fun createRoom(
@@ -101,15 +104,20 @@ class SignalingClient(
         maxPeers: Int,
         canvasWidth: Int,
         canvasHeight: Int,
+        isPublic: Boolean = false,
+        title: String = "",
     ): Result<CreatedRoomResponse> = withContext(Dispatchers.IO) {
         runCatching {
             val cleanBase = normalizeBaseUrl(baseUrl)
+            val cleanTitle = CollabTopologyPolicy.sanitizeRoomTitle(title)
             val bodyJson = JSONObject().apply {
                 put("hostPeerId", hostPeerId)
                 put("hostName", hostName)
                 if (password.isNotEmpty()) put("password", password)
                 put("requireApproval", requireApproval)
                 put("maxPeers", maxPeers)
+                put("isPublic", isPublic)
+                if (cleanTitle.isNotEmpty()) put("title", cleanTitle)
                 put("canvasMeta", JSONObject().apply {
                     put("width", canvasWidth)
                     put("height", canvasHeight)
@@ -154,6 +162,15 @@ class SignalingClient(
                     throw IllegalStateException(json.optString("error", "http_${resp.code}"))
                 }
                 val meta = json.optJSONObject("canvasMeta")
+                val namesArr = json.optJSONArray("peerNames")
+                val peerNames = buildList {
+                    if (namesArr != null) {
+                        for (i in 0 until namesArr.length()) {
+                            val n = namesArr.optString(i).trim()
+                            if (n.isNotEmpty()) add(n)
+                        }
+                    }
+                }
                 CollabRoomSummary(
                     roomCode = json.getString("roomCode"),
                     hostPeerId = json.getString("hostPeerId"),
@@ -164,7 +181,55 @@ class SignalingClient(
                     peerCount = json.optInt("peerCount", 0),
                     canvasWidth = meta?.optInt("width", 0) ?: 0,
                     canvasHeight = meta?.optInt("height", 0) ?: 0,
+                    peerNames = peerNames,
+                    isPublic = json.optBoolean("isPublic", false),
+                    title = json.optString("title", ""),
                 )
+            }
+        }
+    }
+
+    suspend fun fetchPublicRooms(
+        baseUrl: String,
+        limit: Int = 50,
+    ): Result<List<CollabPublicRoom>> = withContext(Dispatchers.IO) {
+        runCatching {
+            val cleanBase = normalizeBaseUrl(baseUrl)
+            val safeLimit = limit.coerceIn(1, 100)
+            val req = Request.Builder()
+                .url("$cleanBase/c/v1/rooms?limit=$safeLimit")
+                .get()
+                .build()
+            http.newCall(req).execute().use { resp ->
+                val text = resp.body?.string().orEmpty()
+                val json = JSONObject(text.ifEmpty { "{}" })
+                if (!resp.isSuccessful || !json.optBoolean("ok", false)) {
+                    throw IllegalStateException(json.optString("error", "http_${resp.code}"))
+                }
+                val arr = json.optJSONArray("rooms") ?: JSONArray()
+                buildList {
+                    for (i in 0 until arr.length()) {
+                        val obj = arr.optJSONObject(i) ?: continue
+                        val code = CollabTopologyPolicy.normalizeRoomCode(obj.optString("roomCode"))
+                        val title = obj.optString("title").trim()
+                        if (!CollabTopologyPolicy.isValidRoomCode(code) || title.isEmpty()) continue
+                        add(
+                            CollabPublicRoom(
+                                roomCode = code,
+                                title = title,
+                                hostName = obj.optString("hostName", "Host"),
+                                peerCount = obj.optInt("peerCount", 1).coerceAtLeast(0),
+                                maxPeers = obj.optInt("maxPeers", 16).coerceAtLeast(2),
+                                hasPassword = obj.optBoolean("hasPassword", false),
+                                requireApproval = obj.optBoolean("requireApproval", false),
+                                canvasWidth = obj.optInt("canvasWidth", 0),
+                                canvasHeight = obj.optInt("canvasHeight", 0),
+                                createdAt = obj.optLong("createdAt", 0L),
+                                updatedAt = obj.optLong("updatedAt", 0L),
+                            ),
+                        )
+                    }
+                }
             }
         }
     }
@@ -206,21 +271,36 @@ class SignalingClient(
             req,
             object : WebSocketListener() {
                 override fun onOpen(webSocket: WebSocket, response: Response) {
+                    if (this@SignalingClient.webSocket !== webSocket) return
+                    lastInboundMs = android.os.SystemClock.elapsedRealtime()
                     startKeepAlive(webSocket)
                 }
 
                 override fun onMessage(webSocket: WebSocket, text: String) {
+                    if (this@SignalingClient.webSocket !== webSocket) return
+                    lastInboundMs = android.os.SystemClock.elapsedRealtime()
                     if (text == "pong") return
                     handleIncomingJson(text, listener)
                 }
 
                 override fun onClosed(webSocket: WebSocket, code: Int, reason: String) {
+                    if (this@SignalingClient.webSocket !== webSocket) return
                     stopKeepAlive()
                     listener.onSocketClosed(code, reason)
                 }
 
                 override fun onFailure(webSocket: WebSocket, t: Throwable, response: Response?) {
+                    if (this@SignalingClient.webSocket !== webSocket) return
                     stopKeepAlive()
+                    val code = response?.code
+                    if (response != null && code != null && code in 400..499) {
+                        val errBody = runCatching { response.body?.string().orEmpty() }.getOrDefault("")
+                        val errJson = runCatching { JSONObject(errBody.ifEmpty { "{}" }) }.getOrNull()
+                        val errCode = errJson?.optString("error").orEmpty().ifBlank { "http_$code" }
+                        val errMsg = errJson?.optString("message").orEmpty()
+                        listener.onError(errCode, errMsg)
+                        return
+                    }
                     listener.onError("ws_failure", t.message ?: "WebSocket connection failed")
                 }
             },
@@ -277,8 +357,13 @@ class SignalingClient(
         pingJob?.cancel()
         pingJob = scope.launch(Dispatchers.IO) {
             while (isActive) {
-                delay(25_000L)
+                delay(20_000L)
                 if (webSocket !== ws) break
+                val idleMs = android.os.SystemClock.elapsedRealtime() - lastInboundMs
+                if (lastInboundMs > 0L && idleMs > 35_000L) {
+                    ws.cancel()
+                    break
+                }
                 // 文本 "ping" 触发 Cloudflare DO AutoResponse 边缘直接回 "pong", 零计算账单
                 ws.send("ping")
             }

@@ -27,7 +27,8 @@ curl -s http://127.0.0.1:8787/c/v1/health
 |---|---|---|
 | `GET` | `/c/v1/health` | 存活与版本探针, 返回 `disabled` 与 `turnConfigured` 状态 |
 | `GET` | `/c/v1/ice` | 下发当前可用的 STUN / 可选 TURN 服务器列表 |
-| `POST` | `/c/v1/rooms` | 创建房间, 分配 6 位防混淆房间码并签发 `hostToken` |
+| `GET` | `/c/v1/rooms` | 查询当前在线的公开茶绘房间列表 |
+| `POST` | `/c/v1/rooms` | 创建房间, 分配 6 位防混淆房间码并签发 `hostToken` (`isPublic` 为真时 `title` 必填) |
 | `GET` | `/c/v1/rooms/:code/info` | 查询房间状态, 密码/审批门禁与画布信息 |
 | `GET` | `/c/v1/rooms/:code/ws` | WebSocket 信令连接 (`peerId`, `role=host\|peer`, `token`, `name`, `pw`) |
 

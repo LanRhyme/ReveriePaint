@@ -573,6 +573,7 @@ fun CreatePage(vm: PaintViewModel) {
                         fontWeight = FontWeight.Medium,
                         maxLines = 1,
                     )
+                    com.reverie.paint.ui.painting.collab.CollabBetaBadge(onAccent = collabOn)
                 }
             }
 
@@ -643,8 +644,13 @@ fun CreatePage(vm: PaintViewModel) {
                             fontSize = 13.sp,
                             fontWeight = FontWeight.SemiBold,
                         )
+                        val publicSummary = if (vm.collab.pendingCreateIsPublic && vm.collab.pendingCreateTitle.isNotBlank()) {
+                            stringResource(R.string.collab_create_public_summary, vm.collab.pendingCreateTitle)
+                        } else {
+                            stringResource(R.string.collab_create_toggle_desc)
+                        }
                         Text(
-                            text = stringResource(R.string.collab_create_toggle_desc),
+                            text = publicSummary,
                             color = colors.subText,
                             fontSize = 11.sp,
                             maxLines = 1,

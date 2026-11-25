@@ -82,6 +82,24 @@ data class CollabRoomSummary(
     val peerCount: Int,
     val canvasWidth: Int = 0,
     val canvasHeight: Int = 0,
+    val peerNames: List<String> = emptyList(),
+    val isPublic: Boolean = false,
+    val title: String = "",
+)
+
+/** 在线房间大厅展示的公开房间摘要 */
+data class CollabPublicRoom(
+    val roomCode: String,
+    val title: String,
+    val hostName: String,
+    val peerCount: Int,
+    val maxPeers: Int,
+    val hasPassword: Boolean,
+    val requireApproval: Boolean,
+    val canvasWidth: Int = 0,
+    val canvasHeight: Int = 0,
+    val createdAt: Long = 0L,
+    val updatedAt: Long = 0L,
 )
 
 /** 图层结构校验用的轻量只读描述 (供纯模型决策与自动选层复用, 不依赖 UI State) */
@@ -280,6 +298,7 @@ object CollabTopologyPolicy {
     const val DEFAULT_SIGNALING_URL = "https://reverieteapaint.lanrhyme.top"
     const val ROOM_CODE_LENGTH = 6
     const val STAR_MAX_PEERS = 10
+    const val MAX_ROOM_TITLE_LENGTH = 32
 
     private val ROOM_CODE_REGEX = Regex("^[A-Z2-9]{6}$")
 
@@ -311,6 +330,23 @@ object CollabTopologyPolicy {
 
     fun isValidRoomCode(raw: String): Boolean =
         ROOM_CODE_REGEX.matches(normalizeRoomCode(raw))
+
+    fun normalizeNickname(raw: String): String =
+        raw.trim().lowercase()
+
+    fun isSameNickname(a: String, b: String): Boolean {
+        val na = normalizeNickname(a)
+        return na.isNotEmpty() && na == normalizeNickname(b)
+    }
+
+    fun hasDuplicateNickname(candidate: String, existingNames: Collection<String>): Boolean =
+        existingNames.any { isSameNickname(candidate, it) }
+
+    fun sanitizeRoomTitle(raw: String): String =
+        raw.replace(Regex("[\\r\\n\\t]+"), " ").trim().take(MAX_ROOM_TITLE_LENGTH)
+
+    fun isValidPublicRoomTitle(isPublic: Boolean, rawTitle: String): Boolean =
+        !isPublic || sanitizeRoomTitle(rawTitle).isNotEmpty()
 
     /**
      * 房主离线后的确定性继任选举:

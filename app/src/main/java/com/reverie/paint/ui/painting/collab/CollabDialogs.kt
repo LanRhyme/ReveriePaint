@@ -60,11 +60,13 @@ import com.reverie.paint.core.openCreateCanvasForCollab
 import com.reverie.paint.core.orphanedCollabLayers
 import com.reverie.paint.core.reclaimOrphanedLayers
 import com.reverie.paint.core.reconnectCollabNow
+import com.reverie.paint.core.refreshPublicCollabRooms
 import com.reverie.paint.core.rejectCollabPeer
 import com.reverie.paint.core.requestEndCollabAndPromptSave
 import com.reverie.paint.core.saveCollabArtwork
 import com.reverie.paint.core.showActionToast
 import com.reverie.paint.model.CollabConnectionPhase
+import com.reverie.paint.model.CollabPublicRoom
 import com.reverie.paint.model.CollabRole
 import com.reverie.paint.model.CollabTopologyPolicy
 import com.reverie.paint.ui.components.Dimens
@@ -83,6 +85,25 @@ import com.reverie.paint.ui.theme.glassBorder
 
 private val STATUS_GREEN = Color(0xFF5F9E6E)
 private val STATUS_AMBER = Color(0xFFC99E52)
+
+@Composable
+internal fun CollabBetaBadge(onAccent: Boolean = false) {
+    val colors = Theme.current
+    Box(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(if (onAccent) colors.onAccent.copy(alpha = 0.20f) else colors.accent.copy(alpha = 0.16f))
+            .padding(horizontal = 5.dp, vertical = 1.dp),
+    ) {
+        Text(
+            text = stringResource(R.string.collab_beta_badge),
+            color = if (onAccent) colors.onAccent else colors.accent,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Bold,
+            maxLines = 1,
+        )
+    }
+}
 
 /**
  * 顶栏/主页茶绘状态按钮。常态单机画布顶栏不再渲染此按钮 (由 TopBar 调用处判断 vm.collab.isActive)。
@@ -163,9 +184,10 @@ internal fun CollabStatusButton(
                 modifier = Modifier.size(14.dp),
             )
             val label = when {
-                !isActive -> stringResource(R.string.collab_open_lobby)
+                !isActive -> stringResource(R.string.collab_title)
                 collab.phase == CollabConnectionPhase.RECONNECTING -> stringResource(R.string.collab_peer_offline_tag)
-                collab.roomCode.isNotEmpty() -> "${collab.roomCode} · ${collab.peers.size.coerceAtLeast(1)}"
+                collab.phase == CollabConnectionPhase.CONNECTED -> "${collab.peers.size.coerceAtLeast(1)}"
+                collab.phase == CollabConnectionPhase.ERROR -> stringResource(R.string.collab_status_error_short)
                 else -> stringResource(R.string.collab_status_connecting)
             }
             Text(
@@ -198,11 +220,19 @@ internal fun CollabLobbyDialog(
     var password by remember { mutableStateOf("") }
     var requireApproval by remember { mutableStateOf(false) }
     var maxPeers by remember { mutableIntStateOf(10) }
+    var isPublic by remember { mutableStateOf(false) }
+    var roomTitle by remember { mutableStateOf("") }
     var signalingUrl by remember(vm.collab.signalingUrl) { mutableStateOf(vm.collab.signalingUrl) }
     var turnUrl by remember(vm.collab.customTurnUrl) { mutableStateOf(vm.collab.customTurnUrl) }
     var turnUser by remember(vm.collab.customTurnUsername) { mutableStateOf(vm.collab.customTurnUsername) }
     var turnCred by remember(vm.collab.customTurnCredential) { mutableStateOf(vm.collab.customTurnCredential) }
     var showAdvanced by remember { mutableStateOf(false) }
+
+    LaunchedEffect(selectedTab) {
+        if (selectedTab == 1) {
+            vm.refreshPublicCollabRooms(signalingUrl)
+        }
+    }
 
     val dialogShape = RoundedCornerShape(Dimens.radius * 1.5f)
     val tabs = listOf(
@@ -247,6 +277,7 @@ internal fun CollabLobbyDialog(
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
+                    CollabBetaBadge()
                 }
                 PanelCloseButton(onClose = onDismiss)
             }
@@ -273,12 +304,22 @@ internal fun CollabLobbyDialog(
                 placeholder = stringResource(R.string.collab_nickname_default),
             )
 
+            val busy = vm.collab.phase == CollabConnectionPhase.CREATING ||
+                vm.collab.phase == CollabConnectionPhase.JOINING ||
+                vm.collab.phase == CollabConnectionPhase.WAITING_APPROVAL
+
             if (selectedTab == 0) {
                 Text(
                     text = stringResource(R.string.collab_create_need_canvas),
                     color = colors.subText,
                     fontSize = 11.5.sp,
                     lineHeight = 16.sp,
+                )
+                CollabPublicRoomConfigSection(
+                    isPublic = isPublic,
+                    onPublicChange = { isPublic = it },
+                    roomTitle = roomTitle,
+                    onTitleChange = { roomTitle = it.take(CollabTopologyPolicy.MAX_ROOM_TITLE_LENGTH) },
                 )
             } else {
                 ReSectionTitle(stringResource(R.string.collab_room_code))
@@ -331,6 +372,51 @@ internal fun CollabLobbyDialog(
                         )
                     }
                 }
+            } else {
+                val needPasswordPattern = stringResource(R.string.collab_public_room_need_password)
+                CollabOnlineRoomsSection(
+                    rooms = vm.collab.publicRooms,
+                    isLoading = vm.collab.isLoadingPublicRooms,
+                    errorText = vm.collab.publicRoomsError,
+                    selectedRoomCode = CollabTopologyPolicy.normalizeRoomCode(roomCodeInput),
+                    onRefresh = { vm.refreshPublicCollabRooms(signalingUrl) },
+                    onSelectRoom = { room ->
+                        if (!busy) {
+                            if (room.peerCount >= room.maxPeers) {
+                                vm.showActionToast(R.string.collab_err_room_full, R.drawable.ic_cloud)
+                            } else if (!room.hasPassword) {
+                                roomCodeInput = room.roomCode
+                                vm.joinCollabRoom(
+                                    rawRoomCode = room.roomCode,
+                                    nickname = nickname,
+                                    password = "",
+                                    signalingUrl = signalingUrl,
+                                    turnUrl = turnUrl,
+                                    turnUsername = turnUser,
+                                    turnCredential = turnCred,
+                                )
+                            } else if (CollabTopologyPolicy.normalizeRoomCode(roomCodeInput) == room.roomCode &&
+                                password.isNotBlank()
+                            ) {
+                                vm.joinCollabRoom(
+                                    rawRoomCode = room.roomCode,
+                                    nickname = nickname,
+                                    password = password,
+                                    signalingUrl = signalingUrl,
+                                    turnUrl = turnUrl,
+                                    turnUsername = turnUser,
+                                    turnCredential = turnCred,
+                                )
+                            } else {
+                                roomCodeInput = room.roomCode
+                                vm.showActionToast(
+                                    message = String.format(needPasswordPattern, room.title),
+                                    iconRes = R.drawable.ic_lock,
+                                )
+                            }
+                        }
+                    },
+                )
             }
 
             Row(
@@ -394,13 +480,10 @@ internal fun CollabLobbyDialog(
                 )
             }
 
-            val busy = vm.collab.phase == CollabConnectionPhase.CREATING ||
-                vm.collab.phase == CollabConnectionPhase.JOINING ||
-                vm.collab.phase == CollabConnectionPhase.WAITING_APPROVAL
-
             Spacer(Modifier.height(2.dp))
             if (selectedTab == 0) {
-                ReButton(
+                val canCreate = !busy && CollabTopologyPolicy.isValidPublicRoomTitle(isPublic, roomTitle)
+                ReTextButton(
                     text = stringResource(R.string.collab_go_create_canvas),
                     onClick = {
                         vm.openCreateCanvasForCollab(
@@ -412,9 +495,12 @@ internal fun CollabLobbyDialog(
                             turnUrl = turnUrl,
                             turnUsername = turnUser,
                             turnCredential = turnCred,
+                            isPublic = isPublic,
+                            roomTitle = roomTitle,
                         )
                     },
                     primary = true,
+                    enabled = canCreate,
                     modifier = Modifier.fillMaxWidth(),
                 )
             } else {
@@ -438,6 +524,255 @@ internal fun CollabLobbyDialog(
                 )
             }
         }
+    }
+}
+
+@Composable
+private fun CollabPublicRoomConfigSection(
+    isPublic: Boolean,
+    onPublicChange: (Boolean) -> Unit,
+    roomTitle: String,
+    onTitleChange: (String) -> Unit,
+) {
+    val colors = Theme.current
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        ReSettingRow(
+            label = stringResource(R.string.collab_public_room_toggle),
+            modifier = Modifier
+                .clip(RoundedCornerShape(Dimens.radiusSm))
+                .background(colors.panelHi),
+        ) {
+            ReSwitch(
+                checked = isPublic,
+                onChecked = onPublicChange,
+            )
+        }
+        if (isPublic) {
+            ReSectionTitle(stringResource(R.string.collab_room_title_required_label))
+            ReTextInput(
+                value = roomTitle,
+                onValueChange = onTitleChange,
+                placeholder = stringResource(R.string.collab_room_title_hint),
+            )
+            if (roomTitle.isBlank()) {
+                Text(
+                    text = stringResource(R.string.collab_err_room_title_required),
+                    color = colors.error,
+                    fontSize = 11.sp,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CollabOnlineRoomsSection(
+    rooms: List<CollabPublicRoom>,
+    isLoading: Boolean,
+    errorText: String?,
+    selectedRoomCode: String,
+    onRefresh: () -> Unit,
+    onSelectRoom: (CollabPublicRoom) -> Unit,
+) {
+    val colors = Theme.current
+    val sectionShape = RoundedCornerShape(Dimens.radiusSm)
+    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.SpaceBetween,
+        ) {
+            ReSectionTitle(
+                if (rooms.isNotEmpty()) {
+                    stringResource(R.string.collab_online_rooms_count, rooms.size)
+                } else {
+                    stringResource(R.string.collab_online_rooms_title)
+                },
+            )
+            ReTextButton(
+                text = stringResource(R.string.collab_online_rooms_refresh),
+                icon = R.drawable.ic_refresh,
+                onClick = onRefresh,
+                enabled = !isLoading,
+                fontSize = 11.5.sp,
+            )
+        }
+        when {
+            isLoading && rooms.isEmpty() -> {
+                Text(
+                    text = stringResource(R.string.collab_online_rooms_loading),
+                    color = colors.subText,
+                    fontSize = 11.5.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(sectionShape)
+                        .background(colors.panelHi)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                )
+            }
+            !errorText.isNullOrBlank() && rooms.isEmpty() -> {
+                Text(
+                    text = errorText,
+                    color = colors.error,
+                    fontSize = 11.5.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(sectionShape)
+                        .background(colors.panelHi)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                )
+            }
+            rooms.isEmpty() -> {
+                Text(
+                    text = stringResource(R.string.collab_online_rooms_empty),
+                    color = colors.subText,
+                    fontSize = 11.5.sp,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(sectionShape)
+                        .background(colors.panelHi)
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                )
+            }
+            else -> {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    rooms.forEach { room ->
+                        CollabOnlineRoomCard(
+                            room = room,
+                            selected = selectedRoomCode == room.roomCode,
+                            onClick = { onSelectRoom(room) },
+                        )
+                    }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun CollabOnlineRoomCard(
+    room: CollabPublicRoom,
+    selected: Boolean,
+    onClick: () -> Unit,
+) {
+    val colors = Theme.current
+    val cardShape = RoundedCornerShape(Dimens.radiusSm)
+    val isFull = room.peerCount >= room.maxPeers
+    val countColor = if (isFull) colors.error else STATUS_GREEN
+    val borderColor = if (selected) colors.accent else colors.border
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(cardShape)
+            .background(if (selected) colors.accent.copy(alpha = 0.08f) else colors.panelHi)
+            .border(width = if (selected) 1.5.dp else 1.dp, color = borderColor, shape = cardShape)
+            .clickable(onClick = onClick)
+            .padding(horizontal = 12.dp, vertical = 10.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Column(
+            modifier = Modifier.weight(1f),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            Text(
+                text = room.title,
+                color = colors.text,
+                fontSize = 13.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                val metaText = if (room.canvasWidth > 0 && room.canvasHeight > 0) {
+                    "${stringResource(R.string.collab_public_room_host, room.hostName)} · ${room.canvasWidth}×${room.canvasHeight}"
+                } else {
+                    stringResource(R.string.collab_public_room_host, room.hostName)
+                }
+                Text(
+                    text = metaText,
+                    color = colors.subText,
+                    fontSize = 11.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+                if (room.hasPassword) {
+                    CollabRoomTagPill(
+                        text = stringResource(R.string.collab_public_room_locked_tag),
+                        iconRes = R.drawable.ic_lock,
+                        tint = colors.accent,
+                    )
+                }
+                if (room.requireApproval) {
+                    CollabRoomTagPill(
+                        text = stringResource(R.string.collab_public_room_approval_tag),
+                        tint = STATUS_AMBER,
+                    )
+                }
+            }
+        }
+        Column(
+            horizontalAlignment = Alignment.End,
+            verticalArrangement = Arrangement.spacedBy(2.dp),
+        ) {
+            Box(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(10.dp))
+                    .background(countColor.copy(alpha = 0.14f))
+                    .padding(horizontal = 7.dp, vertical = 2.dp),
+            ) {
+                Text(
+                    text = "${room.peerCount}/${room.maxPeers}",
+                    color = countColor,
+                    fontSize = 11.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                )
+            }
+            if (isFull) {
+                Text(
+                    text = stringResource(R.string.collab_public_room_full_tag),
+                    color = colors.error,
+                    fontSize = 10.sp,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CollabRoomTagPill(
+    text: String,
+    tint: Color,
+    iconRes: Int? = null,
+) {
+    Row(
+        modifier = Modifier
+            .clip(RoundedCornerShape(4.dp))
+            .background(tint.copy(alpha = 0.14f))
+            .padding(horizontal = 5.dp, vertical = 1.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
+    ) {
+        if (iconRes != null) {
+            Icon(
+                painter = painterResource(iconRes),
+                contentDescription = null,
+                tint = tint,
+                modifier = Modifier.size(10.dp),
+            )
+        }
+        Text(
+            text = text,
+            color = tint,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
+            maxLines = 1,
+        )
     }
 }
 
@@ -497,12 +832,18 @@ internal fun CollabRoomSheet(
                         modifier = Modifier.size(20.dp),
                     )
                     Column {
-                        Text(
-                            text = stringResource(R.string.collab_title),
-                            color = colors.text,
-                            fontSize = 16.sp,
-                            fontWeight = FontWeight.SemiBold,
-                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            Text(
+                                text = stringResource(R.string.collab_title),
+                                color = colors.text,
+                                fontSize = 16.sp,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            CollabBetaBadge()
+                        }
                         val sub = when (collab.phase) {
                             CollabConnectionPhase.CONNECTED -> stringResource(
                                 R.string.collab_status_connected,
@@ -530,7 +871,32 @@ internal fun CollabRoomSheet(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
                 ) {
-                    Column {
+                    Column(
+                        modifier = Modifier.weight(1f),
+                        verticalArrangement = Arrangement.spacedBy(2.dp),
+                    ) {
+                        if (collab.roomTitle.isNotBlank()) {
+                            Row(
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                Text(
+                                    text = collab.roomTitle,
+                                    color = colors.text,
+                                    fontSize = 13.sp,
+                                    fontWeight = FontWeight.SemiBold,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    modifier = Modifier.weight(1f, fill = false),
+                                )
+                                if (collab.isPublicRoom) {
+                                    CollabRoomTagPill(
+                                        text = stringResource(R.string.collab_public_room_badge),
+                                        tint = STATUS_GREEN,
+                                    )
+                                }
+                            }
+                        }
                         Text(
                             text = stringResource(R.string.collab_room_code),
                             color = colors.subText,
@@ -906,6 +1272,12 @@ internal fun CollabCreateConfigDialog(
     var maxPeers by remember(vm.collab.pendingCreateMaxPeers) {
         mutableIntStateOf(vm.collab.pendingCreateMaxPeers)
     }
+    var isPublic by remember(vm.collab.pendingCreateIsPublic) {
+        mutableStateOf(vm.collab.pendingCreateIsPublic)
+    }
+    var roomTitle by remember(vm.collab.pendingCreateTitle) {
+        mutableStateOf(vm.collab.pendingCreateTitle)
+    }
     var signalingUrl by remember(vm.collab.signalingUrl) { mutableStateOf(vm.collab.signalingUrl) }
     var turnUrl by remember(vm.collab.customTurnUrl) { mutableStateOf(vm.collab.customTurnUrl) }
     var turnUser by remember(vm.collab.customTurnUsername) { mutableStateOf(vm.collab.customTurnUsername) }
@@ -948,6 +1320,13 @@ internal fun CollabCreateConfigDialog(
                 value = nickname,
                 onValueChange = { nickname = it.take(24) },
                 placeholder = stringResource(R.string.collab_nickname_default),
+            )
+
+            CollabPublicRoomConfigSection(
+                isPublic = isPublic,
+                onPublicChange = { isPublic = it },
+                roomTitle = roomTitle,
+                onTitleChange = { roomTitle = it.take(CollabTopologyPolicy.MAX_ROOM_TITLE_LENGTH) },
             )
 
             ReTextInput(
@@ -1032,7 +1411,7 @@ internal fun CollabCreateConfigDialog(
                 }
             }
 
-            ReButton(
+            ReTextButton(
                 text = stringResource(R.string.common_save),
                 onClick = {
                     vm.openCreateCanvasForCollab(
@@ -1044,10 +1423,13 @@ internal fun CollabCreateConfigDialog(
                         turnUrl = turnUrl,
                         turnUsername = turnUser,
                         turnCredential = turnCred,
+                        isPublic = isPublic,
+                        roomTitle = roomTitle,
                     )
                     onDismiss()
                 },
                 primary = true,
+                enabled = CollabTopologyPolicy.isValidPublicRoomTitle(isPublic, roomTitle),
                 modifier = Modifier.fillMaxWidth(),
             )
         }

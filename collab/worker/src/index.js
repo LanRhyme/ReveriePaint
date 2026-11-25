@@ -12,6 +12,7 @@ import {
 } from './common.js';
 
 export { CollabRoom } from './room.js';
+export { RoomDirectory } from './directory.js';
 
 function isDisabled(env) {
   return String(env?.DISABLED || '0') === '1';
@@ -51,6 +52,13 @@ export default {
         const peerId = url.searchParams.get('peerId') || '';
         const iceServers = await buildIceServers(env, peerId);
         return jsonResponse({ ok: true, iceServers });
+      }
+
+      if (path === '/c/v1/rooms' && request.method === 'GET') {
+        const stub = env.DIRECTORY.get(env.DIRECTORY.idFromName('global'));
+        const forwardUrl = new URL('https://directory/list');
+        forwardUrl.search = url.search;
+        return await stub.fetch(forwardUrl.toString(), { method: 'GET' });
       }
 
       if (path === '/c/v1/rooms' && request.method === 'POST') {

@@ -12,6 +12,7 @@ import {
   parsePositiveInt,
   randomTokenHex,
   sanitizeName,
+  sanitizeTitle,
   sha256Hex,
   timingSafeEqualStr,
 } from './common.js';
@@ -69,6 +70,11 @@ export class CollabRoom extends DurableObject {
     const idleTtlMs = parsePositiveInt(this.env.IDLE_TTL_MS, 1800000, 60000, roomTtlMs);
     const maxPeers = parsePositiveInt(body.maxPeers, DEFAULT_MAX_PEERS, 2, MAX_ROOM_CONNECTIONS);
     const requireApproval = Boolean(body.requireApproval);
+    const isPublic = Boolean(body.isPublic);
+    const title = sanitizeTitle(body.title);
+    if (isPublic && !title) {
+      throw new HttpError(400, 'room_title_required', 'public room requires a title');
+    }
     const password = typeof body.password === 'string' ? body.password : '';
     const passwordHash = password.length > 0 ? await sha256Hex(password) : '';
     const hostToken = randomTokenHex(24);
@@ -83,6 +89,8 @@ export class CollabRoom extends DurableObject {
       passwordHash,
       requireApproval,
       maxPeers,
+      isPublic,
+      title: isPublic ? title : '',
       canvasMeta,
       admittedPeers: {
         [hostPeerId]: { name: hostName, joinedAt: now, disconnectedAt: 0 },
@@ -96,6 +104,14 @@ export class CollabRoom extends DurableObject {
 
     await this.ctx.storage.put(STORAGE_ROOM_KEY, meta);
     await this.ctx.storage.setAlarm(now + idleTtlMs);
+    if (isPublic) {
+      await this.syncDirectory(meta, {
+        peerCountOverride: 1,
+        expiresAtOverride: Math.min(meta.expiresAt, now + 60_000),
+      });
+    } else if (existing?.isPublic) {
+      await this.syncDirectory({ roomCode }, { forceRemove: true });
+    }
 
     const iceServers = await buildIceServers(this.env, hostPeerId);
     return jsonResponse({
@@ -106,6 +122,8 @@ export class CollabRoom extends DurableObject {
       requireApproval,
       hasPassword: passwordHash.length > 0,
       maxPeers,
+      isPublic,
+      title: meta.title,
       expiresInMs: roomTtlMs,
       iceServers,
     });
@@ -125,7 +143,10 @@ export class CollabRoom extends DurableObject {
       requireApproval: meta.requireApproval,
       hasPassword: meta.passwordHash.length > 0,
       maxPeers: meta.maxPeers,
+      isPublic: Boolean(meta.isPublic),
+      title: meta.title || '',
       peerCount: peers.length,
+      peerNames: peers.map((p) => p.name),
       canvasMeta: meta.canvasMeta,
       expiresAt: meta.expiresAt,
     });
@@ -187,6 +208,11 @@ export class CollabRoom extends DurableObject {
       throw new HttpError(409, 'room_full', 'room reached maxPeers');
     }
 
+    const name = sanitizeName(url.searchParams.get('name'), isHost ? meta.hostName : 'Artist');
+    if (!isHost && this.isNicknameTaken(meta, name, peerId)) {
+      throw new HttpError(409, 'duplicate_name', 'nickname already taken in room');
+    }
+
     // 若同 peerId 重连, 标记旧连接为 replaced 避免延迟 close 误发断线广播
     for (const oldWs of existingForPeer) {
       const att = oldWs.deserializeAttachment() || {};
@@ -200,7 +226,6 @@ export class CollabRoom extends DurableObject {
     const [client, server] = Object.values(pair);
     const now = Date.now();
     const status = isHost || !meta.requireApproval || alreadyAdmitted ? 'admitted' : 'pending';
-    const name = sanitizeName(url.searchParams.get('name'), isHost ? meta.hostName : 'Artist');
     const joinedAt = prevAdmitted?.joinedAt || now;
 
     this.ctx.acceptWebSocket(server, [peerId]);
@@ -225,6 +250,9 @@ export class CollabRoom extends DurableObject {
     }
     await this.ctx.storage.put(STORAGE_ROOM_KEY, meta);
     await this.scheduleIdleAlarm(meta);
+    if (status === 'admitted' && meta.isPublic) {
+      await this.syncDirectory(meta);
+    }
 
     const iceServers = await buildIceServers(this.env, peerId);
     if (status === 'admitted') {
@@ -377,6 +405,9 @@ export class CollabRoom extends DurableObject {
             },
             targetAtt.peerId,
           );
+          if (meta.isPublic) {
+            await this.syncDirectory(meta);
+          }
         } else {
           targetWs.serializeAttachment({ ...targetAtt, replaced: true });
           this.sendJson(targetWs, { type: 'join_rejected' });
@@ -414,6 +445,9 @@ export class CollabRoom extends DurableObject {
         try {
           targetWs.close(4005, 'kicked');
         } catch {}
+        if (meta.isPublic) {
+          await this.syncDirectory(meta);
+        }
         break;
       }
 
@@ -470,6 +504,9 @@ export class CollabRoom extends DurableObject {
         }
         meta.lastActiveAt = Date.now();
         await this.ctx.storage.put(STORAGE_ROOM_KEY, meta);
+        if (meta.isPublic) {
+          await this.syncDirectory(meta, { excludeWs: ws });
+        }
         try {
           ws.close(1000, 'left');
         } catch {}
@@ -488,6 +525,9 @@ export class CollabRoom extends DurableObject {
           try {
             sock.close(4000, 'room_closed');
           } catch {}
+        }
+        if (meta.isPublic) {
+          await this.syncDirectory(meta, { forceRemove: true });
         }
         await this.ctx.storage.deleteAll();
         return;
@@ -532,6 +572,9 @@ export class CollabRoom extends DurableObject {
     meta.lastActiveAt = now;
     await this.ctx.storage.put(STORAGE_ROOM_KEY, meta);
     await this.scheduleIdleAlarm(meta);
+    if (att.status === 'admitted' && meta.isPublic) {
+      await this.syncDirectory(meta, { excludeWs: ws });
+    }
   }
 
   async alarm() {
@@ -549,6 +592,9 @@ export class CollabRoom extends DurableObject {
         try {
           sock.close(4004, 'expired');
         } catch {}
+      }
+      if (meta.isPublic) {
+        await this.syncDirectory(meta, { forceRemove: true });
       }
       await this.ctx.storage.deleteAll();
       return;
@@ -574,6 +620,9 @@ export class CollabRoom extends DurableObject {
     meta.hostDisconnectedAt = 0;
     meta.lastActiveAt = Date.now();
     await this.ctx.storage.put(STORAGE_ROOM_KEY, meta);
+    if (meta.isPublic) {
+      await this.syncDirectory(meta);
+    }
 
     this.sendJson(newHostWs, {
       type: 'host_promoted',
@@ -594,6 +643,9 @@ export class CollabRoom extends DurableObject {
     const meta = await this.ctx.storage.get(STORAGE_ROOM_KEY);
     if (!meta) return null;
     if (Date.now() >= meta.expiresAt) {
+      if (meta.isPublic) {
+        await this.syncDirectory(meta, { forceRemove: true });
+      }
       await this.ctx.storage.deleteAll();
       return null;
     }
@@ -606,9 +658,56 @@ export class CollabRoom extends DurableObject {
     await this.ctx.storage.setAlarm(target);
   }
 
-  listAdmittedPeers() {
+  async syncDirectory(
+    meta,
+    { forceRemove = false, peerCountOverride = null, expiresAtOverride = null, excludeWs = null } = {},
+  ) {
+    if (!this.env.DIRECTORY || !meta?.roomCode) return;
+    try {
+      const stub = this.env.DIRECTORY.get(this.env.DIRECTORY.idFromName('global'));
+      if (forceRemove || !meta.isPublic || !meta.title) {
+        await stub.fetch('https://directory/remove', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ roomCode: meta.roomCode }),
+        });
+        return;
+      }
+      const peerCount =
+        peerCountOverride !== null ? peerCountOverride : this.listAdmittedPeers(excludeWs).length;
+      if (peerCount <= 0) {
+        await stub.fetch('https://directory/remove', {
+          method: 'POST',
+          headers: { 'content-type': 'application/json' },
+          body: JSON.stringify({ roomCode: meta.roomCode }),
+        });
+        return;
+      }
+      await stub.fetch('https://directory/upsert', {
+        method: 'POST',
+        headers: { 'content-type': 'application/json' },
+        body: JSON.stringify({
+          roomCode: meta.roomCode,
+          title: meta.title,
+          hostName: meta.hostName,
+          peerCount,
+          maxPeers: meta.maxPeers,
+          hasPassword: Boolean(meta.passwordHash),
+          requireApproval: Boolean(meta.requireApproval),
+          canvasWidth: Number(meta.canvasMeta?.width) || 0,
+          canvasHeight: Number(meta.canvasMeta?.height) || 0,
+          createdAt: meta.createdAt,
+          updatedAt: Date.now(),
+          expiresAt: expiresAtOverride || meta.expiresAt,
+        }),
+      });
+    } catch {}
+  }
+
+  listAdmittedPeers(excludeWs = null) {
     const peers = [];
     for (const ws of this.ctx.getWebSockets()) {
+      if (excludeWs && ws === excludeWs) continue;
       const att = ws.deserializeAttachment();
       if (att && !att.replaced && att.status === 'admitted') {
         peers.push({
@@ -626,6 +725,26 @@ export class CollabRoom extends DurableObject {
   earliestAdmittedPeer(excludePeerId) {
     const peers = this.listAdmittedPeers().filter((p) => p.peerId !== excludePeerId);
     return peers.length > 0 ? peers[0] : null;
+  }
+
+  isNicknameTaken(meta, candidateName, excludePeerId = '') {
+    const norm = String(candidateName || '').trim().toLowerCase();
+    if (!norm) return false;
+    for (const ws of this.ctx.getWebSockets()) {
+      const att = ws.deserializeAttachment();
+      if (!att || att.replaced || att.peerId === excludePeerId) continue;
+      if (String(att.name || '').trim().toLowerCase() === norm) {
+        return true;
+      }
+    }
+    const admitted = meta?.admittedPeers || {};
+    for (const [pId, info] of Object.entries(admitted)) {
+      if (pId === excludePeerId) continue;
+      if (String(info?.name || '').trim().toLowerCase() === norm) {
+        return true;
+      }
+    }
+    return false;
   }
 
   findSocketByPeerId(peerId) {

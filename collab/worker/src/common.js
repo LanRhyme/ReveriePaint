@@ -4,6 +4,7 @@ export const CONTRACT_VERSION = 1;
 export const MAX_SIGNAL_BYTES = 64 * 1024;
 export const MAX_ROOM_CONNECTIONS = 64;
 export const DEFAULT_MAX_PEERS = 16;
+export const MAX_ROOM_TITLE_LEN = 32;
 export const ROOM_CODE_ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 export const ROOM_CODE_LEN = 6;
 export const ROOM_CODE_RE = /^[A-Z2-9]{6}$/;
@@ -54,6 +55,11 @@ export function sanitizeName(raw, fallback = 'Guest') {
   if (typeof raw !== 'string') return fallback;
   const trimmed = raw.trim().slice(0, 32);
   return trimmed.length > 0 ? trimmed : fallback;
+}
+
+export function sanitizeTitle(raw) {
+  if (typeof raw !== 'string') return '';
+  return raw.replace(/[\r\n\t]+/g, ' ').trim().slice(0, MAX_ROOM_TITLE_LEN);
 }
 
 export function timingSafeEqualStr(a, b) {
