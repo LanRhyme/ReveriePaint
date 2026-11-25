@@ -635,14 +635,22 @@ internal fun CanvasTouchView.drawCanvas(canvas: Canvas) {
         // 绘画中且前缓冲预测生效时，光标圆心自动对齐至预测延伸笔尖 (对称模式下不使用预测笔尖)
         val effectiveCursorPos = pos
 
+        val activeTool = effTool()
         val scale = (canvasZoom * canvasFitScale).coerceAtLeast(0.001f)
         val cursorBrushSize = when {
-            effTool() == Tool.LIQUIFY -> liquifyBrushSize
-            effTool() == Tool.ERASER && tool != Tool.ERASER -> v.getToolEffectiveSize("eraser").toFloat()
+            activeTool == Tool.LIQUIFY -> liquifyBrushSize
+            activeTool == Tool.ERASER && tool != Tool.ERASER -> v.getToolEffectiveSize("eraser").toFloat()
             else -> v.brushSize.toFloat()
         }
+        val reflectsActualSize = CursorOutlineGeometry.shouldReflectActualSize(
+            activeTool,
+            v.cursorOutlineReflectsActualSize,
+        )
         val holdEmaSnapshot = smoothedCursorPressure
-        val pressureFraction = if (localIsTouching) {
+        val pressureFraction = if (activeTool == Tool.LIQUIFY) {
+            smoothedCursorPressure = -1f
+            1f
+        } else if (localIsTouching) {
             val effectiveTargetP = if (v.speedSimulatedPressureActiveForStroke) {
                 v.smoothedStrokePressure.toFloat()
             } else {
@@ -666,7 +674,7 @@ internal fun CanvasTouchView.drawCanvas(canvas: Canvas) {
             1f
         }
         val brushRadiusScreen = CursorOutlineGeometry.outlineRadius(
-            cursorBrushSize, scale, pressureFraction, v.cursorOutlineReflectsActualSize,
+            cursorBrushSize, scale, pressureFraction, reflectsActualSize,
         )
         // 按住期间这段 EMA 归前缓冲光标 (noteHoldCursor) 独占: 窗口因孔洞/UI 裁剪重画时不能
         // 再推进一次, 否则前缓冲光标半径会随窗口重画频率变化。

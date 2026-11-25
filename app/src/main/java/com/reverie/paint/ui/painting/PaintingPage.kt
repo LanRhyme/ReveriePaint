@@ -534,17 +534,11 @@ fun PaintingPage(
 
     val tfState = remember { TransformState() }
     var gradientType by remember { mutableStateOf(0) }
-    var liquifyStrength by remember { mutableStateOf(0.9f) }
-    var liquifyHardness by remember { mutableStateOf(0.5f) }
-    var liquifyMode by remember { mutableStateOf(0) }
-    var liquifyBrushSize by remember { mutableStateOf(60f) }
-    // 上限随画布自适应 (与画笔大小同一口径): 换到大画布时放宽, 换到小画布时把越界值收回
+    // 上限随画布自适应 (与画笔大小同一口径): 换到大画布时放宽, 换到小画布时只钳有效值而不覆盖持久化偏好
     val liquifyMaxSize = vm.effectiveBrushMaxSize.toFloat().coerceAtLeast(16f)
-    LaunchedEffect(liquifyMaxSize) {
-        if (liquifyBrushSize > liquifyMaxSize) {
-            liquifyBrushSize = liquifyMaxSize
-            vm.setLiquifyBrushSize(liquifyMaxSize.toDouble())
-        }
+    val effectiveLiquifyBrushSize = vm.liquifyBrushSize.coerceIn(8f, liquifyMaxSize)
+    LaunchedEffect(effectiveLiquifyBrushSize) {
+        vm.setLiquifyBrushSize(effectiveLiquifyBrushSize.toDouble())
     }
     // Point-click shape tools share the canvas vertex list
     var polyPoints by remember { mutableStateOf<List<Offset>>(emptyList()) }
@@ -943,10 +937,10 @@ fun PaintingPage(
                 },
                 fillTolerance = vm.fillTolerance,
                 gradientType = gradientType,
-                liquifyStrength = liquifyStrength,
-                liquifyHardness = liquifyHardness,
-                liquifyMode = liquifyMode,
-                liquifyBrushSize = liquifyBrushSize,
+                liquifyStrength = vm.liquifyStrength,
+                liquifyHardness = vm.liquifyHardness,
+                liquifyMode = vm.liquifyMode,
+                liquifyBrushSize = effectiveLiquifyBrushSize,
                 overlayPanelsOpen = com.reverie.paint.model.RealInkHoldPolicy.overlayPanelsBlockHold(
                     brushPanelBlocking = com.reverie.paint.model.RealInkHoldPolicy.brushPanelBlocksHold(
                         open = brushPanelOpen, pinned = vm.panelPinningEnabled && vm.isBrushPanelPinned,
@@ -2154,20 +2148,17 @@ fun PaintingPage(
         ) {
             LiquifyPanel(
                 vm = vm,
-                strength = liquifyStrength,
-                onStrength = { liquifyStrength = it },
-                hardness = liquifyHardness,
-                onHardness = { liquifyHardness = it },
-                mode = liquifyMode,
-                onMode = { liquifyMode = it },
-                brushSize = liquifyBrushSize,
+                strength = vm.liquifyStrength,
+                onStrength = { vm.updateLiquifyStrength(it) },
+                hardness = vm.liquifyHardness,
+                onHardness = { vm.updateLiquifyHardness(it) },
+                mode = vm.liquifyMode,
+                onMode = { vm.updateLiquifyMode(it) },
+                brushSize = effectiveLiquifyBrushSize,
                 // 上限跟画笔大小一致: 随画布自适应 (大画布可以给到 canvas/2)
                 maxBrushSize = liquifyMaxSize,
                 hazeState = hazeState,
-                onBrushSize = {
-                    liquifyBrushSize = it
-                    vm.setLiquifyBrushSize(it.toDouble())
-                },
+                onBrushSize = { vm.updateLiquifyBrushSize(it) },
             )
         }
         androidx.compose.animation.AnimatedVisibility(

@@ -16,6 +16,7 @@
 #include "LiquifyPixelSampling.h"
 #include "kis_liquify_transform_worker.h"
 #include <QtConcurrent/QtConcurrentMap>
+#include <QThreadPool>
 #include <chrono>
 
 void ReverieCore::cropCanvas(int x, int y, int w, int h)
@@ -194,7 +195,7 @@ void ReverieCore::stampBitmap(int x, int y, int bw, int bh, const void *rgbaPixe
 namespace
 {
 // min writeback interval; adapts upward if a single apply is slower
-const qint64 LIQUIFY_APPLY_MIN_INTERVAL_MS = 20;
+const qint64 LIQUIFY_APPLY_MIN_INTERVAL_MS = 8;
 // 累积脏区面积上限 (像素)。大笔刷 (单 dab 影响半径 infl = 3.2×size, 200px 笔刷就是
 // ~1300² ≈ 1.7M px) 叠加快速拖动时, 若一直 united() 累积区会退化成"整条轨迹的包围盒",
 // 单次 apply 的 warp + 回写 + 投影合成面积无界增长 —— 真机表现就是"笔刷/强度调大后
@@ -328,7 +329,7 @@ int liquifyForcedPrecision()
 // ---------------------------------------------------------------------------
 // 4ms → 6ms(test17 之后上调): 更快的消费速度 = 更短的队列寿命; 单帧代价仍 <1/2 帧,
 // 而"积压到收口点一次性消费"才是真正的尖峰来源。
-const qint64 LIQUIFY_MAT_BUDGET_MS_DEFAULT = 6;
+const qint64 LIQUIFY_MAT_BUDGET_MS_DEFAULT = 8;
 // 行带高度: 越小越平滑, 但每带都要过一次 liquifyApplyLocked 的固定开销(选区/合成/统计)
 const int LIQUIFY_MAT_BAND_ROWS = 64;
 // 队列像素上限: 超过就先整体清空(退化为一次性物化), 防止积压无界增长
@@ -393,7 +394,7 @@ bool liquifyBicubicRequested()
 // Materialize an inverse map against the gesture's immutable, tile-shared source.
 // Neither writeback bands nor preview cache windows define source boundaries.
 bool warpInverseField(const LiquifyInverseField &field, KisPaintDeviceSP src, KisPaintDeviceSP dst,
-                      const QRect &area, const QRect &doc)
+                      const QRect &area, const QRect &doc, bool allowParallel = false)
 {
     if (!src || !dst || area.isEmpty() || doc.isEmpty()) return false;
     const int ps = src->colorSpace()->pixelSize();
@@ -403,64 +404,136 @@ bool warpInverseField(const LiquifyInverseField &field, KisPaintDeviceSP src, Ki
     // Bounds of a bilinear map attain their extrema at grid vertices. Include
     // every pixel here as the scratch offsets are also used by the sampling pass.
     const bool bicubic = liquifyBicubicRequested();
+    const int aw = area.width();
+    const int ah = area.height();
     thread_local std::vector<LiquifyInverseField::Point> offsets;
-    offsets.resize(size_t(area.width()) * area.height());
+    offsets.resize(size_t(aw) * ah);
     LiquifyInverseField::SamplingCache cache;
-    for (int y = 0; y < area.height(); ++y) {
-        for (int x = 0; x < area.width(); ++x) {
-            const float px = float(area.x() + x), py = float(area.y() + y);
-            const auto off = field.sample(px + .5f, py + .5f, &cache);
-            offsets[size_t(y) * area.width() + x] = off;
-            left = std::min(left, px - off.x); right = std::max(right, px - off.x);
-            top = std::min(top, py - off.y); bottom = std::max(bottom, py - off.y);
+    const int areaX = area.x();
+    const int areaY = area.y();
+    for (int y = 0; y < ah; ++y) {
+        const float py = float(areaY + y);
+        const float psy = py + .5f;
+        LiquifyInverseField::Point *rowOff = offsets.data() + size_t(y) * aw;
+        for (int x = 0; x < aw; ++x) {
+            const float px = float(areaX + x);
+            const auto off = field.sample(px + .5f, psy, &cache);
+            rowOff[x] = off;
+            if (off.x != 0.f || off.y != 0.f) {
+                const float sx = px - off.x;
+                const float sy = py - off.y;
+                if (sx < left) left = sx;
+                if (sx > right) right = sx;
+                if (sy < top) top = sy;
+                if (sy > bottom) bottom = sy;
+            }
         }
     }
     // 三次卷积要 2px 邻域: 先把取样矩形外扩, 再夹到文档内 —— 否则四角会取到"透明",
     // 表现为边缘一圈半透黑边。
-    const int kernelPad = liquifyBicubicRequested() ? 2 : 1;
+    const int kernelPad = bicubic ? 2 : 1;
     const QRect need = QRect(QPoint(int(std::floor(left)) - kernelPad, int(std::floor(top)) - kernelPad),
                              QPoint(int(std::ceil(right)) + kernelPad, int(std::ceil(bottom)) + kernelPad)) & doc;
     if (need.isEmpty()) return false;
     thread_local QByteArray source, output;
     source.resize(qint64(need.width()) * need.height() * ps);
-    output.resize(qint64(area.width()) * area.height() * ps);
+    output.resize(qint64(aw) * ah * ps);
     src->readBytes(reinterpret_cast<quint8 *>(source.data()), need.x(), need.y(), need.width(), need.height());
     const auto *bytes = reinterpret_cast<const quint8 *>(source.constData());
     auto *result = reinterpret_cast<quint8 *>(output.data());
-    for (int y = 0; y < area.height(); ++y) {
-        for (int x = 0; x < area.width(); ++x) {
-            const auto off = offsets[size_t(y) * area.width() + x];
-            if (off.x == 0.f && off.y == 0.f) {
-                const auto *identity = bytes + (size_t(area.y() + y - need.y()) * need.width() +
-                    area.x() + x - need.x()) * ps;
-                auto *out = result + (size_t(y) * area.width() + x) * ps;
-                if (ps == 1 || identity[3]) memcpy(out, identity, ps);
-                else memset(out, 0, ps);
-                continue;
-            }
-            const float u = float(area.x() + x - need.x()) - off.x;
-            const float v = float(area.y() + y - need.y()) - off.y;
-            const int ix = int(std::floor(u)), iy = int(std::floor(v));
-            // 边缘**复制**而不是透明: 三次卷积的负权重会把"透明"放大成暗角
-            const auto clampX = [&](int px) { return px < 0 ? 0 : (px >= need.width() ? need.width() - 1 : px); };
-            const auto clampY = [&](int py) { return py < 0 ? 0 : (py >= need.height() ? need.height() - 1 : py); };
-            const auto pixel = [&](int px, int py) -> const uint8_t * {
-                return bytes + (size_t(clampY(py)) * need.width() + clampX(px)) * ps;
-            };
-            uint8_t *out = result + (size_t(y) * area.width() + x) * ps;
-            if (bicubic) {
-                const uint8_t *tap[16];
-                for (int j = 0; j < 4; ++j) {
-                    for (int i = 0; i < 4; ++i) tap[j * 4 + i] = pixel(ix - 1 + i, iy - 1 + j);
+    const LiquifyInverseField::Point *offPtr = offsets.data();
+    const int needW = need.width();
+    const int needH = need.height();
+    const int needStride = needW * ps;
+    const int dxOrigin = areaX - need.x();
+    const int dyOrigin = areaY - need.y();
+
+    const auto processRows = [bytes, result, offPtr, aw, needW, needH, needStride, dxOrigin, dyOrigin, ps, bicubic](
+                                 int yStart, int yEnd) {
+        for (int y = yStart; y < yEnd; ++y) {
+            const size_t rowIdx = size_t(y) * aw;
+            const int srcRelY = dyOrigin + y;
+            for (int x = 0; x < aw; ++x) {
+                const auto off = offPtr[rowIdx + x];
+                uint8_t *out = result + (rowIdx + x) * ps;
+                if (off.x == 0.f && off.y == 0.f) {
+                    const int ix = dxOrigin + x;
+                    const int iy = srcRelY;
+                    if (ix >= 0 && ix < needW && iy >= 0 && iy < needH) {
+                        const uint8_t *identity = bytes + size_t(iy) * needStride + size_t(ix) * ps;
+                        if (ps == 1 || identity[3]) memcpy(out, identity, ps);
+                        else memset(out, 0, ps);
+                    } else {
+                        memset(out, 0, ps);
+                    }
+                    continue;
                 }
-                LiquifyPixelSampling::bicubic16(tap, u - ix, v - iy, ps, out);
-            } else {
-                LiquifyPixelSampling::bilinear(pixel(ix,iy),pixel(ix+1,iy),pixel(ix,iy+1),pixel(ix+1,iy+1),
-                    u-ix,v-iy,ps,out);
+                const float u = float(dxOrigin + x) - off.x;
+                const float v = float(srcRelY) - off.y;
+                const int ix = int(std::floor(u)), iy = int(std::floor(v));
+                if (bicubic) {
+                    if (ps == 4 && ix >= 1 && ix + 2 < needW && iy >= 1 && iy + 2 < needH) {
+                        const uint8_t *rowBase = bytes + size_t(iy - 1) * needStride + size_t(ix - 1) * 4;
+                        LiquifyPixelSampling::bicubic16RowPtr(
+                            rowBase,
+                            rowBase + needStride,
+                            rowBase + needStride * 2,
+                            rowBase + needStride * 3,
+                            u - ix, v - iy, out);
+                    } else {
+                        const uint8_t *tap[16];
+                        for (int j = 0; j < 4; ++j) {
+                            const int py = iy - 1 + j;
+                            const int cy = py < 0 ? 0 : (py >= needH ? needH - 1 : py);
+                            const uint8_t *rowPtr = bytes + size_t(cy) * needStride;
+                            for (int i = 0; i < 4; ++i) {
+                                const int px = ix - 1 + i;
+                                const int cx = px < 0 ? 0 : (px >= needW ? needW - 1 : px);
+                                tap[j * 4 + i] = rowPtr + size_t(cx) * ps;
+                            }
+                        }
+                        LiquifyPixelSampling::bicubic16(tap, u - ix, v - iy, ps, out);
+                    }
+                } else {
+                    if (ix >= 0 && ix + 1 < needW && iy >= 0 && iy + 1 < needH) {
+                        const uint8_t *r0 = bytes + size_t(iy) * needStride + size_t(ix) * ps;
+                        const uint8_t *r1 = r0 + needStride;
+                        LiquifyPixelSampling::bilinear(r0, r0 + ps, r1, r1 + ps, u - ix, v - iy, ps, out);
+                    } else {
+                        const int cx0 = ix < 0 ? 0 : (ix >= needW ? needW - 1 : ix);
+                        const int cx1 = (ix + 1) < 0 ? 0 : ((ix + 1) >= needW ? needW - 1 : (ix + 1));
+                        const int cy0 = iy < 0 ? 0 : (iy >= needH ? needH - 1 : iy);
+                        const int cy1 = (iy + 1) < 0 ? 0 : ((iy + 1) >= needH ? needH - 1 : (iy + 1));
+                        const uint8_t *r0 = bytes + size_t(cy0) * needStride;
+                        const uint8_t *r1 = bytes + size_t(cy1) * needStride;
+                        LiquifyPixelSampling::bilinear(
+                            r0 + size_t(cx0) * ps, r0 + size_t(cx1) * ps,
+                            r1 + size_t(cx0) * ps, r1 + size_t(cx1) * ps,
+                            u - ix, v - iy, ps, out);
+                    }
+                }
             }
         }
+    };
+
+    QThreadPool *pool = allowParallel && qint64(aw) * ah >= 8192 && ah >= 8 ? reverieBackgroundPool() : nullptr;
+    if (pool && pool->maxThreadCount() > 1) {
+        const int stripCount = qMin(4, ah / 2);
+        QVector<QPair<int, int>> strips;
+        strips.reserve(stripCount);
+        for (int s = 0; s < stripCount; ++s) {
+            const int y0 = (ah * s) / stripCount;
+            const int y1 = (ah * (s + 1)) / stripCount;
+            if (y1 > y0) strips.append(qMakePair(y0, y1));
+        }
+        QtConcurrent::blockingMap(pool, strips, [&processRows](const QPair<int, int> &span) {
+            processRows(span.first, span.second);
+        });
+    } else {
+        processRows(0, ah);
     }
-    dst->writeBytes(result, area.x(), area.y(), area.width(), area.height());
+
+    dst->writeBytes(result, area.x(), area.y(), aw, ah);
     return true;
 }
 
@@ -592,6 +665,10 @@ void ReverieCore::resetLiquifyWorker()
     // Phase 6/7: 分帧物化队列与去重键随 worker 一起作废(队列里的区域属于上一段手势的网格)
     m_liquifyMatQueue.clear();
     m_liquifyMatKeys.clear();
+    m_liquifyStaticUnderlay.clear();
+    m_liquifyUnderlayTiles.clear();
+    m_liquifyUnderlayStop = 0;
+    m_liquifyFullGraphRefresh = false;
     // 预览基座随手势一起摘掉: 目标图层必须立刻回到画布合成里(否则那块区域会一直少一层),
     // 摘掉时会把旧矩形标脏, 让下一次渲染按真实文档重读。
     invalidateLiquifyPreviewBase();
@@ -622,20 +699,70 @@ void ReverieCore::liquifyRecomposeProjection(const QRect &area)
 {
     if (!m_document || m_soloedNode || area.isEmpty()) return;
     if (m_liquifyGraphProjection) {
-        // The flat synchronous compositor reads paint devices and treats masks
-        // as ordinary leaves. Only Krita can evaluate transform/filter masks,
-        // inherited alpha and pass-through groups with the correct dependency area.
-        recompositeProjection();
-        markDirty(); // Transform/filter masks may affect pixels outside the dab.
+        if (m_liquifyFullGraphRefresh) {
+            recompositeProjection();
+            markDirty();
+            m_liquifyProjectionClean = true;
+        } else {
+            flushProjectionUpdates();
+            m_liquifyProjectionClean = !m_liquifyHadPreDirty;
+        }
         return;
     }
     liquifyWaitForIdle(m_document);
     KisPaintDeviceSP projection = m_document->projection();
-    const QRect clipped = area & QRect(0, 0, m_document->width(), m_document->height());
-    if (projection && !clipped.isEmpty()) {
-        projection->clear(clipped);
-        compositeLayersRange(projection, 0, m_layers.size(), clipped);
+    const QRect docRect(0, 0, m_document->width(), m_document->height());
+    const QRect clipped = area & docRect;
+    if (!projection || clipped.isEmpty()) return;
+
+    const KoColor defaultBg = m_document->defaultProjectionColor();
+    const bool hasBg = (defaultBg.opacityU8() > 0);
+    if (m_liquifyUnderlayStop > 0) {
+        if (!m_liquifyStaticUnderlay) {
+            m_liquifyStaticUnderlay = new KisPaintDevice(m_document->colorSpace());
+        }
+        KisPaintDeviceSP underlay = m_liquifyStaticUnderlay;
+        if (underlay) {
+            constexpr int tile = 512;
+            for (int ty = clipped.top() / tile; ty <= clipped.bottom() / tile; ++ty) {
+                QRect rowSpan;
+                for (int tx = clipped.left() / tile; tx <= clipped.right() / tile; ++tx) {
+                    const quint64 key = (quint64(quint32(ty)) << 32) | quint64(quint32(tx));
+                    if (m_liquifyUnderlayTiles.contains(key)) {
+                        if (!rowSpan.isEmpty()) {
+                            if (hasBg) underlay->fill(rowSpan, defaultBg);
+                            else underlay->clear(rowSpan);
+                            compositeLayersRange(underlay, 0, m_liquifyUnderlayStop, rowSpan);
+                            rowSpan = QRect();
+                        }
+                        continue;
+                    }
+                    m_liquifyUnderlayTiles.insert(key);
+                    const QRect tc = QRect(tx * tile, ty * tile, tile, tile).intersected(docRect);
+                    if (!tc.isEmpty()) {
+                        rowSpan = rowSpan.isEmpty() ? tc : rowSpan.united(tc);
+                    }
+                }
+                if (!rowSpan.isEmpty()) {
+                    if (hasBg) underlay->fill(rowSpan, defaultBg);
+                    else underlay->clear(rowSpan);
+                    compositeLayersRange(underlay, 0, m_liquifyUnderlayStop, rowSpan);
+                }
+            }
+            KisPainter cp(projection);
+            cp.setCompositeOpId(COMPOSITE_COPY);
+            cp.bitBlt(clipped.topLeft(), underlay, clipped);
+            cp.end();
+            compositeLayersRange(projection, m_liquifyUnderlayStop, m_layers.size(), clipped);
+            m_liquifyProjectionClean = !m_liquifyHadPreDirty;
+            return;
+        }
     }
+
+    if (hasBg) projection->fill(clipped, defaultBg);
+    else projection->clear(clipped);
+    compositeLayersRange(projection, 0, m_layers.size(), clipped);
+    m_liquifyProjectionClean = !m_liquifyHadPreDirty;
 }
 
 void ReverieCore::liquifyApplyLocked(const QRect &deltaRect, bool compositeProjection)
@@ -668,12 +795,13 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect, bool compositeProje
     QVector<LiquifyTarget *> warped;
     warped.reserve(m_liquifyTargets.size());
     for (LiquifyTarget &t : m_liquifyTargets) {
-        if (t.worker) warped.append(&t);
+        if (t.src && t.dst) warped.append(&t);
     }
     const QRect docRect(0, 0, m_document->width(), m_document->height());
+    const bool parallelWarp = (warped.size() == 1 && kLiquifyParallelTargets);
     const auto warp = [&](LiquifyTarget *t) {
         const QRect area = deltaRect.intersected(clipRect);
-        if (!warpInverseField(m_liquifyInverseField, t->src, t->dst, area, docRect)) {
+        if (!warpInverseField(m_liquifyInverseField, t->src, t->dst, area, docRect, parallelWarp)) {
             // Unsupported formats retain the source instead of copying stale destination pixels.
             t->dst->makeCloneFrom(t->src, area);
         }
@@ -688,7 +816,7 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect, bool compositeProje
     // 阶段 2: 串行写回 (选区/透明像素锁/脏区标记语义与改动前完全一致)
     liquifyWaitForIdle(m_document);
     for (LiquifyTarget &t : m_liquifyTargets) {
-        if (!t.worker) continue;
+        if (!t.src || !t.dst) continue;
         const QRect area = deltaRect.intersected(clipRect);
         if (!area.isEmpty()) {
             // 先补掉 warp 未覆盖的透明像素, 否则 COMPOSITE_COPY 会把它们擦进图层
@@ -721,6 +849,14 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect, bool compositeProje
             // synchronous projection paths update m_document->projection() directly.
             if (m_liquifyGraphProjection) {
                 t.device->setDirty(area);
+                if (t.layer) {
+                    if (t.layer->clippingEnabled()) {
+                        if (KisNodeSP base = t.layer->findClippingBase()) base->setDirty(area);
+                    }
+                    for (KisNodeSP clipped : t.layer->gatherClippingLayers()) {
+                        if (clipped) clipped->setDirty(area);
+                    }
+                }
             }
             tBlitMs += QDateTime::currentMSecsSinceEpoch() - tb0;
             dirtyUnion = dirtyUnion.isNull() ? area : dirtyUnion.united(area);
@@ -731,21 +867,13 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect, bool compositeProje
         markRegionDirty(dirtyUnion);
         // 立刻把投影的这块区域同步合成掉: Krita 后台调度器未必已经处理刚标记的脏区,
         // 渲染路径此时读投影就会拿到半更新像素 (白线/撕裂的第二个成因)。放在这里做,
-        // 重活就落在"按 20~64ms 节流的 apply"上, 而不是每个输入事件一次的渲染路径上 ——
-        // 大笔刷下这是数量级的差别 (200px 笔刷单次脏区可达数百万像素)。
+        // 重活就落在"按节流间隔的 apply"上, 而不是每个输入事件一次的渲染路径上。
         if (compositeProjection) liquifyRecomposeProjection(dirtyUnion);
         tCompositeMs = QDateTime::currentMSecsSinceEpoch() - tc0;
     }
     m_liquifyLastApplyMs = QDateTime::currentMSecsSinceEpoch();
     const qint64 elapsed = m_liquifyLastApplyMs - t0;
-    // Adaptive pacing: if one apply exceeds the frame budget, back off (up
-    // to ~15fps) so the render thread always keeps serving input
-    // 节流上限回到 64ms: 放宽到 120ms 会让一次 apply 前累积更多 dab, 网格形变更剧烈、
-    // 更容易走 Krita 内部的退化路径 (真机 68px 闪退)。宁可多做一些 apply 也不冒险。
-    m_liquifyApplyIntervalMs =
-        qBound<qint64>(LIQUIFY_APPLY_MIN_INTERVAL_MS,
-                       qMax<qint64>(elapsed * 2, LIQUIFY_APPLY_MIN_INTERVAL_MS),
-                       64);
+    m_liquifyApplyIntervalMs = qBound<qint64>(LIQUIFY_APPLY_MIN_INTERVAL_MS, elapsed + 4, 32);
     // 脏区预算同步自适应: 单次 apply 超帧预算就收小累积区, 很快时再逐步放回。
     // 目标始终是"一次 apply 的 warp + 回写 + 同步合成"贴着帧预算, 而不是随拖动越来越大。
     {
@@ -832,7 +960,7 @@ bool ReverieCore::liquifyDrainMaterialize(bool force)
         s_liquifyStats[LqTotal].store(totalMs, std::memory_order_relaxed);
         s_liquifyStats[LqAreaPx].store(qint64(changed.width()) * changed.height(), std::memory_order_relaxed);
         m_liquifyLastApplyMs = QDateTime::currentMSecsSinceEpoch();
-        m_liquifyApplyIntervalMs = qBound<qint64>(LIQUIFY_APPLY_MIN_INTERVAL_MS, totalMs * 2, 64);
+        m_liquifyApplyIntervalMs = qBound<qint64>(LIQUIFY_APPLY_MIN_INTERVAL_MS, totalMs + 4, 32);
     }
     return m_liquifyMatQueue.isEmpty();
 }
@@ -849,15 +977,26 @@ void ReverieCore::liquifyBegin(const QVector<int> &layers)
         return;
     }
     liquifyWaitForIdle(m_document);
+    m_liquifyHadPreDirty = !m_dirtyRect.isEmpty();
     resetLiquifyWorker();
     m_liquifyTargets.clear();
     m_liquifyGraphProjection = false;
+    m_liquifyFullGraphRefresh = false;
+    m_liquifyUnderlayStop = 0;
     for (const LayerEntry &entry : m_layers) {
-        const KisGroupLayer *group = dynamic_cast<KisGroupLayer *>(entry.node);
-        if (entry.node && (dynamic_cast<KisMask *>(entry.node) || entry.clipped ||
-            (group && group->passThroughMode()))) {
+        if (!entry.node) continue;
+        const KisLayer *layer = dynamic_cast<const KisLayer *>(entry.node);
+        if (dynamic_cast<const KisTransformMask *>(entry.node) ||
+            dynamic_cast<const KisFilterMask *>(entry.node) ||
+            entry.nodeType == NodeTypeClone ||
+            (layer && layer->layerStyle())) {
             m_liquifyGraphProjection = true;
+            m_liquifyFullGraphRefresh = true;
             break;
+        }
+        if (dynamic_cast<const KisMask *>(entry.node) ||
+            (layer && layer->alphaChannelDisabled())) {
+            m_liquifyGraphProjection = true;
         }
     }
 
@@ -929,6 +1068,51 @@ void ReverieCore::liquifyBegin(const QVector<int> &layers)
               m_currentLayer, int(m_layers.size()), int(m_liquifyTxnActive));
     if (m_liquifyTargets.isEmpty()) {
         return;
+    }
+    bool canStaticUnderlay = !m_liquifyGraphProjection;
+    if (canStaticUnderlay) {
+        for (const LayerEntry &e : m_layers) {
+            if (!e.node) continue;
+            if (e.isStrokeLayer || e.nodeType == NodeTypeStroke ||
+                e.nodeType == NodeTypeAdjustment || e.nodeType == NodeTypeClone) {
+                canStaticUnderlay = false;
+                break;
+            }
+            if (e.isGroup) {
+                const KisGroupLayer *grp = dynamic_cast<const KisGroupLayer *>(e.node);
+                if (grp && grp->passThroughMode()) {
+                    canStaticUnderlay = false;
+                    break;
+                }
+            }
+        }
+    }
+    if (canStaticUnderlay) {
+        int minIdx = m_layers.size();
+        for (int i = 0; i < m_layers.size(); ++i) {
+            if (!m_layers[i].node) continue;
+            KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[i]);
+            if (!dev) continue;
+            for (const LiquifyTarget &t : m_liquifyTargets) {
+                if (t.device == dev) {
+                    minIdx = qMin(minIdx, i);
+                    break;
+                }
+            }
+        }
+        if (minIdx > 0 && minIdx < m_layers.size()) {
+            int b = minIdx;
+            while (b > 0 && m_layers.at(b).depth > 0) {
+                --b;
+            }
+            while (b > 0 && m_layers.at(b).clipped) {
+                --b;
+                while (b > 0 && m_layers.at(b).depth > 0) {
+                    --b;
+                }
+            }
+            m_liquifyUnderlayStop = b;
+        }
     }
     const int fieldStep = LiquifyInverseField::stepForDocument(
         m_liquifyProfessional ? 0 : m_document->width(), m_liquifyProfessional ? 0 : m_document->height(),
@@ -1178,6 +1362,14 @@ bool ReverieCore::liquifyFieldCommitPtr(int x, int y, int w, int h, const quint8
         t.written = true;
         if (m_liquifyGraphProjection) {
             t.device->setDirty(a);
+            if (t.layer) {
+                if (t.layer->clippingEnabled()) {
+                    if (KisNodeSP base = t.layer->findClippingBase()) base->setDirty(a);
+                }
+                for (KisNodeSP clipped : t.layer->gatherClippingLayers()) {
+                    if (clipped) clipped->setDirty(a);
+                }
+            }
         }
         tBlitMs += QDateTime::currentMSecsSinceEpoch() - tb0;
         dirtyUnion = dirtyUnion.isNull() ? a : dirtyUnion.united(a);
@@ -1733,12 +1925,21 @@ void ReverieCore::liquifyAt(qreal fx, qreal fy, qreal tx, qreal ty, qreal streng
     // Shared C1 inverse-map kernel uses the same brush size as the GLES field.
     const qreal size = qMax<qreal>(8.0, m_liquifyBrushSize);
 
-    // Local grid: rebase when the brush is about to leave the inner margin
-    // (the worker's run() copies the whole bounds complement, so the bounds
-    // must stay local or every dab costs a full-bounds copy)
-    // Phase 3 埋点: 这一次是否需要 rebase、为什么(纯诊断, 不影响判定逻辑)
+    // Without legacy preview, warpInverseField reads the tile-shared source
+    // directly without building a grid worker or rebasing preview bounds.
+    const bool wantPreview = !ownBracket && liquifyPreviewWanted();
     int rebaseReason = LqRebaseNone;
     qint64 rebaseInnerOverflowPx = 0;
+    if (!wantPreview) {
+        for (LiquifyTarget &t : m_liquifyTargets) {
+            if (!t.src) {
+                t.src = new KisPaintDevice(*t.device);
+            }
+            if (!t.dst) {
+                t.dst = new KisPaintDevice(t.device->colorSpace());
+            }
+        }
+    } else {
     bool needRebase = m_liquifyTargets.isEmpty() || m_liquifyTargets[0].worker == nullptr;
     if (needRebase) {
         rebaseReason = LqRebaseFirstDab;
@@ -1844,7 +2045,9 @@ void ReverieCore::liquifyAt(qreal fx, qreal fy, qreal tx, qreal ty, qreal streng
                 // Krita copy constructor shares tiles until a write (no full pixel copy).
                 t.src = new KisPaintDevice(*t.device);
             }
-            t.dst = new KisPaintDevice(t.device->colorSpace());
+            if (!t.dst) {
+                t.dst = new KisPaintDevice(t.device->colorSpace());
+            }
             delete t.worker;
             // pixelPrecision is the grid cell size: the warp is piecewise
             // linear WITHIN a cell, so the gaussian bump must be resolved by
@@ -1898,10 +2101,9 @@ void ReverieCore::liquifyAt(qreal fx, qreal fy, qreal tx, qreal ty, qreal streng
         }
         // Phase 2A-2: 预览模式下 rebase 后缓存一份 bounds 的原始像素(整段手势只读这一次),
         // 之后每次 dab 只做 CPU 位移采样 —— 拖动期间不再碰 Krita device。
-        if (!ownBracket && liquifyPreviewWanted()) {
-            m_liquifyPreview = true;
-            liquifyPreviewCaptureLocked();
-        }
+        m_liquifyPreview = true;
+        liquifyPreviewCaptureLocked();
+    }
     }
 
     m_liquifyInverseField.apply(float(fx), float(fy), float(tx), float(ty), float(s), float(size), mode,
@@ -1979,6 +2181,8 @@ void ReverieCore::liquifyAt(qreal fx, qreal fy, qreal tx, qreal ty, qreal streng
         maxRebaseStat(LqrThrottleMaxMs, throttleMs);
         m_liquifyPendingDelta = QRect();
         if (drained) m_liquifyPendingDabs.clear();
+    } else if (!m_liquifyMatQueue.isEmpty()) {
+        liquifyDrainMaterialize(false);
     }
 
     // Phase 3 · Commit 1b 埋点: 记下这一次调用的成本。刻意放在 liquifyEnd() **之前** ——

@@ -1827,7 +1827,28 @@ internal fun PaintViewModel.redo(fromPanel: Boolean = false, settled: (() -> Uni
 }
 
 internal fun PaintViewModel.setLiquifyBrushSize(size: Double) {
-    runCore { ReverieCoreBridge.setLiquifyBrushSize(size) }
+    runCore(render = false) { ReverieCoreBridge.setLiquifyBrushSize(size) }
+}
+
+internal fun PaintViewModel.updateLiquifyStrength(value: Float) {
+    liquifyStrength = value.coerceIn(0.05f, 1f)
+    saveToolOptions()
+}
+
+internal fun PaintViewModel.updateLiquifyHardness(value: Float) {
+    liquifyHardness = value.coerceIn(0f, 1f)
+    saveToolOptions()
+}
+
+internal fun PaintViewModel.updateLiquifyMode(value: Int) {
+    liquifyMode = value.coerceIn(0, 6)
+    saveToolOptions()
+}
+
+internal fun PaintViewModel.updateLiquifyBrushSize(value: Float) {
+    liquifyBrushSize = value.coerceAtLeast(8f)
+    saveToolOptions()
+    setLiquifyBrushSize(liquifyBrushSize.toDouble())
 }
 
 /** Layers an edit should apply to: the multi-selected set when any layer is
@@ -1908,11 +1929,13 @@ internal fun PaintViewModel.replayLiquifyFieldDabs(dabs: FloatArray, count: Int,
 }
 
 internal fun PaintViewModel.liquifyEnd() {
+    liquifyMaterializePending = false
     val gesture = liquifyPresentationGesture
     val retirePreview = LiquifyGpuPreview.requested
     runCore(after = { refreshLayerThumbs() }) {
         if (retirePreview && gesture == liquifyPresentationGesture) liquifyPresentation.arm(gesture)
         ReverieCoreBridge.liquifyEnd()
+        liquifyMaterializePending = false
     }
 }
 
@@ -2072,10 +2095,12 @@ internal fun PaintViewModel.recordLiquifyDab(
 ) {}
 
 internal fun PaintViewModel.liquifyCancel() {
+    liquifyMaterializePending = false
     liquifyPresentation.cancel()
     LiquifyGpuPreview.clear()
     runCore(after = { scheduleRender(immediate = true) }) {
         ReverieCoreBridge.liquifyCancel()
+        liquifyMaterializePending = false
     }
 }
 
@@ -2096,12 +2121,12 @@ private const val LIQUIFY_DAB_STRIDE = 6
  * Phase 6(稳定性 v2): 分帧物化的"空闲推进"(**引擎线程**)。
  *
  * 引擎把整块物化(真机峰值 126ms)拆成 64 行行带排队, 每次调用最多消费
- * `debug.reverie.lqmatbudget`(默认 4ms) 的量。调用点见 `CanvasTouchView.flushLiquifyPending`:
+ * `debug.reverie.lqmatbudget` 的量。调用点见 `CanvasTouchView.flushLiquifyPending`:
  * 拖动期与"停手后的追赶期"都由它驱动, 因此单次 `liquify()` 不再出现 >10ms 的尖峰。
  * 队列空时 C++ 侧只做一次空检查, 开销可忽略。
  */
 internal fun PaintViewModel.tickLiquifyMaterialize() {
-    runCore(render = false) {
+    runCore(render = true) {
         liquifyMaterializePending = ReverieCoreBridge.liquifyMaterializeTick()
     }
 }
@@ -2112,9 +2137,11 @@ internal fun PaintViewModel.liquifyBatch(buf: FloatArray, count: Int) {
     if (count <= 0 || buf.size < count * LIQUIFY_DAB_STRIDE) return
     if (renderHandler == null) return
     val batch = liquifyDabBuffers.capture(buf, count)
+    liquifyMaterializePending = true
     runCore {
         try {
             ReverieCoreBridge.liquifyDabs(batch, count)
+            liquifyMaterializePending = true
         } finally {
             liquifyDabBuffers.release(batch)
         }

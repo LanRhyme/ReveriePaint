@@ -1278,6 +1278,12 @@ private:
     bool m_liquifyProfessional = false; // Legacy recordings retain their original geometry.
     qreal m_liquifyHardness = .5;
     bool m_liquifyGraphProjection = false; // Masks/clipping need the Krita node graph.
+    bool m_liquifyFullGraphRefresh = false;
+    bool m_liquifyProjectionClean = false;
+    bool m_liquifyHadPreDirty = false;
+    int m_liquifyUnderlayStop = 0;
+    KisPaintDeviceSP m_liquifyStaticUnderlay;
+    QSet<quint64> m_liquifyUnderlayTiles;
     // 本次手势的预览源目标(m_liquifyTargets 下标): 第一个**可见**的目标图层;
     // -1 = 全部目标都不可见 ⇒ 不生成任何预览(源裁剪元信息上报 0, 覆盖层据此清空)。
     // 只在 liquifyBegin 里算一次: 手势期间可见性不会变(层面板在手势中不可用)。
@@ -1324,7 +1330,7 @@ private:
     // rebase 时若决定"不物化", 就用它把位移**重放**到新窗口的网格上, 从而把 run() 推迟到抬笔。
     QVector<float> m_liquifyPendingDabs;
     // Adaptive writeback pacing (grows when a single apply overruns)
-    qint64 m_liquifyApplyIntervalMs = 20;
+    qint64 m_liquifyApplyIntervalMs = 8;
     QColor m_brushColor = Qt::black;
     QColor m_brushSecondaryColor = Qt::white;
     qreal m_brushOpacity = 1.0;
@@ -1674,6 +1680,7 @@ private:
     // 运笔内部标脏: 本笔只改当前层 k, 而底图是 [0, b) 且 b <= k (见 strokeStaticUnderlayStop),
     // 底图不受影响, 只登记脏区。
     void markStrokeDirty(const QRect &r) {
+        m_liquifyProjectionClean = false;
         m_dirtyRect = m_dirtyRect.isNull() ? r : m_dirtyRect.united(r);
         addDirtyRegion(r);
         if (m_dirtyCb) m_dirtyCb(m_dirtyCtx);
@@ -1688,11 +1695,15 @@ private:
     // 同时清空总包围盒与离散列表。不要再直接写 m_dirtyRect = QRect(),
     // 否则列表会残留上一帧的矩形, 被下一帧当成脏区重复合成。
     void clearDirtyRegions() {
+        m_liquifyProjectionClean = false;
+        m_liquifyHadPreDirty = false;
         m_dirtyRect = QRect();
         m_dirtyRects.clear();
     }
     // 整幅画布标脏 (缓冲重置 / 文档尺寸变化), 列表同步收敛成这一整块。
     void setDirtyFullFrame(const QRect &full) {
+        m_liquifyProjectionClean = false;
+        m_liquifyHadPreDirty = false;
         invalidateStaticUnderlay();
         m_dirtyRect = full;
         m_dirtyRects.clear();

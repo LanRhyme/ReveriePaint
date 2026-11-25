@@ -482,6 +482,10 @@ internal fun PaintViewModel.saveToolOptions() {
         o.put("enc_mode", encloseFillRegionMode.id)
         o.put("enc_color", encloseFillSpecificColor)
         o.put("enc_inc_contour", encloseFillIncludeContour)
+        o.put("liquify_strength", liquifyStrength.toDouble())
+        o.put("liquify_hardness", liquifyHardness.toDouble())
+        o.put("liquify_mode", liquifyMode)
+        o.put("liquify_brush_size", liquifyBrushSize.toDouble())
         prefs().edit().putString("tool_options", o.toString()).apply()
     } catch (_: Exception) {
     }
@@ -524,6 +528,12 @@ internal fun PaintViewModel.loadToolOptions() {
         encloseFillRegionMode = com.reverie.paint.model.EncloseFillRegionMode.fromId(o.optInt("enc_mode", 0))
         encloseFillSpecificColor = o.optInt("enc_color", 0xFF000000.toInt())
         encloseFillIncludeContour = o.optBoolean("enc_inc_contour", false)
+        liquifyStrength = o.optDouble("liquify_strength", 0.9).toFloat().coerceIn(0.05f, 1f)
+        liquifyHardness = o.optDouble("liquify_hardness", 0.5).toFloat().coerceIn(0f, 1f)
+        liquifyMode = o.optInt("liquify_mode", 0).coerceIn(0, 6)
+        liquifyBrushSize = o.optDouble("liquify_brush_size", 60.0).toFloat().coerceAtLeast(8f)
+        val lqSize = liquifyBrushSize.toDouble()
+        runCore(render = false) { ReverieCoreBridge.setLiquifyBrushSize(lqSize) }
     } catch (_: Exception) {
     }
 }

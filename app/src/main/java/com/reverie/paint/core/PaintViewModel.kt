@@ -998,6 +998,11 @@ class PaintViewModel : ViewModel() {
 
     var measureStrokeWidth by mutableFloatStateOf(2.5f)
 
+    var liquifyStrength by mutableFloatStateOf(0.9f)
+    var liquifyHardness by mutableFloatStateOf(0.5f)
+    var liquifyMode by mutableIntStateOf(0)
+    var liquifyBrushSize by mutableFloatStateOf(60f)
+
     var selectionMode by mutableIntStateOf(0) // 0: 替换, 1: 添加, 2: 减去, 3: 相交
     var lassoSubMode by mutableIntStateOf(LassoSubMode.FREEHAND) // 0: 自由描画, 1: 折线, 2: 自由+折线
     var lassoMultiPoints by mutableStateOf<List<Pair<Int, Int>>>(emptyList())

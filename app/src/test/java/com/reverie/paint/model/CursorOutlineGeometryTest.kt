@@ -85,4 +85,22 @@ class CursorOutlineGeometryTest {
             1e-4f,
         )
     }
+
+    @Test
+    fun `liquify never reflects actual pressure size setting`() {
+        org.junit.Assert.assertFalse(CursorOutlineGeometry.shouldReflectActualSize(Tool.LIQUIFY, true))
+        org.junit.Assert.assertTrue(CursorOutlineGeometry.shouldReflectActualSize(Tool.BRUSH, true))
+        org.junit.Assert.assertTrue(CursorOutlineGeometry.shouldReflectActualSize(Tool.ERASER, true))
+        org.junit.Assert.assertTrue(CursorOutlineGeometry.shouldReflectActualSize(Tool.SMUDGE, true))
+        org.junit.Assert.assertFalse(CursorOutlineGeometry.shouldReflectActualSize(Tool.BRUSH, false))
+
+        val reflects = CursorOutlineGeometry.shouldReflectActualSize(Tool.LIQUIFY, true)
+        for (p in floatArrayOf(0f, 0.2f, 1f)) {
+            assertEquals(
+                30f,
+                CursorOutlineGeometry.outlineRadius(60f, 1f, p, reflects),
+                1e-4f,
+            )
+        }
+    }
 }

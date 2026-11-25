@@ -427,23 +427,27 @@ internal fun CanvasTouchView.appendLiquifyBatch(
 internal fun CanvasTouchView.flushLiquifyPending() {
     liquifyFlushPosted = false
     val v = vm ?: return
-    // Phase 6(稳定性 v2): 分帧物化推进 —— 每次最多消费 4ms 的落盘量, 把此前
-    // 单次 126ms 的 rebase 尖峰摊到各帧。放在背压判断**之前**: 停手后即使不再新增
-    // 补点(或引擎忙), 已积压的物化也必须继续推进, 否则会留下"半物化"的陈旧像素。
-    if (!liquifyFieldGesture) v.tickLiquifyMaterialize()
-    val materializePending = v.liquifyMaterializePending
     // 引擎背压: 队列里还积压着上一次推进(阈值见 LIQUIFY_ENGINE_BACKLOG_LIMIT)时,
     // 本帧**不再新增补点** —— 会话保留"最新位置", 下一帧继续追。
     // 高压拖动下这是把"队列雪崩 / 抬笔后画面还在继续变形"掐掉的关键一步。
     if (v.pendingCoreOps.get() > LIQUIFY_ENGINE_BACKLOG_LIMIT) {
-        if ((liquifySession.hasPending || materializePending) && !liquifyFlushPosted) {
+        if ((liquifySession.hasPending || (!liquifyFieldGesture && v.liquifyMaterializePending)) &&
+            !liquifyFlushPosted
+        ) {
             liquifyFlushPosted = true
             postOnAnimation(liquifyFlushRunnable)
         }
         return
     }
-    liquifyFlushNow(v, forceFull = false)
-    if ((liquifySession.hasPending || materializePending) && !liquifyFlushPosted) {
+    if (liquifySession.hasPending) {
+        liquifyFlushNow(v, forceFull = false)
+    } else if (!liquifyFieldGesture && v.liquifyMaterializePending) {
+        // Phase 6(稳定性 v2): 停手后或帧内无新输入时推进剩余分帧物化行带
+        v.tickLiquifyMaterialize()
+    }
+    if ((liquifySession.hasPending || (!liquifyFieldGesture && v.liquifyMaterializePending)) &&
+        !liquifyFlushPosted
+    ) {
         // 还没追上最新位置(或还有待落盘的行带): 下一帧继续推进
         liquifyFlushPosted = true
         postOnAnimation(liquifyFlushRunnable)

@@ -22,6 +22,9 @@ internal object CursorOutlineGeometry {
      * [reflectsActualSize] 为 false 时忽略它，固定按满号直径画（Krita「使用有效轮廓大小」
      * 反选后的行为），运笔途中光标不再随压感忽大忽小。
      */
+    fun shouldReflectActualSize(tool: Tool, settingEnabled: Boolean): Boolean =
+        settingEnabled && tool != Tool.LIQUIFY
+
     fun outlineRadius(
         brushSizePx: Float,
         viewScale: Float,

@@ -6,6 +6,7 @@
 #include <cmath>
 #include <cstdint>
 #include <unordered_map>
+#include <utility>
 #include <vector>
 
 // Destination-space backward displacement: image(p) = original(p - field(p)).
@@ -25,33 +26,40 @@ public:
         return step;
     }
     static constexpr int TileSide = 32;
-    // Per-reader cache, valid only while the field is immutable. No shared mutable
-    // lookup state: parallel layer materialization owns one cache per invocation.
+    // Per-reader 8x8 tile grid cache, valid only while the field is immutable.
+    // Collision-free across up to 256x256 field nodes for both dab() and warpInverseField().
     struct SamplingCache {
-        std::array<uint64_t, 4> keys = {UINT64_MAX, UINT64_MAX, UINT64_MAX, UINT64_MAX};
-        std::array<const Point *, 4> points = {};
+        std::array<uint64_t, 64> keys;
+        std::array<const Point *, 64> points = {};
+        SamplingCache() { keys.fill(UINT64_MAX); }
     };
 
     void reset(int width = 0, int height = 0, int step = 1) {
         m_width = width;
         m_height = height;
         m_step = std::max(1, step);
+        m_invStep = 1.f / float(m_step);
+        m_maxFieldX = m_width > 0 ? float((m_width + m_step - 1) / m_step - 1) : 0.f;
+        m_maxFieldY = m_height > 0 ? float((m_height + m_step - 1) / m_step - 1) : 0.f;
         m_tiles.clear();
         m_scratch.clear();
+        m_rowSpan.clear();
     }
 
     Point sample(float x, float y, SamplingCache *cache = nullptr) const {
         // Clamp the field at the document edge, never at a temporary cache edge.
         if (m_width <= 0 || m_height <= 0) return {};
-        x = std::clamp(x / m_step - .5f, 0.f, float((m_width + m_step - 1) / m_step - 1));
-        y = std::clamp(y / m_step - .5f, 0.f, float((m_height + m_step - 1) / m_step - 1));
+        x = std::clamp(x * m_invStep - .5f, 0.f, m_maxFieldX);
+        y = std::clamp(y * m_invStep - .5f, 0.f, m_maxFieldY);
         const int ix = int(x), iy = int(y);
         const float fx = x - ix, fy = y - iy;
         // Almost all bilinear footprints remain within one tile: one hash lookup, not four.
-        if (ix % TileSide != TileSide - 1 && iy % TileSide != TileSide - 1) {
+        const int lx = ix & (TileSide - 1);
+        const int ly = iy & (TileSide - 1);
+        if (lx != TileSide - 1 && ly != TileSide - 1) {
             const Point *tile = tilePoints(ix, iy, cache);
             if (!tile) return {};
-            const Point *p = tile + (iy % TileSide) * TileSide + ix % TileSide;
+            const Point *p = tile + ly * TileSide + lx;
             return {(p[0].x + (p[1].x-p[0].x)*fx)*(1-fy) +
                     (p[TileSide].x + (p[TileSide+1].x-p[TileSide].x)*fx)*fy,
                     (p[0].y + (p[1].y-p[0].y)*fx)*(1-fy) +
@@ -105,11 +113,12 @@ public:
 private:
     using Tile = std::array<Point, TileSide * TileSide>;
     static uint64_t key(int x, int y) {
-        return (uint64_t(uint32_t(y / TileSide)) << 32) | uint32_t(x / TileSide);
+        return (uint64_t(uint32_t(y >> 5)) << 32) | uint32_t(x >> 5);
     }
     const Point *tilePoints(int x, int y, SamplingCache *cache) const {
-        const uint64_t k = key(x, y);
-        const size_t slot = size_t((k ^ (k >> 32)) & 3);
+        const int tx = x >> 5, ty = y >> 5;
+        const uint64_t k = (uint64_t(uint32_t(ty)) << 32) | uint32_t(tx);
+        const size_t slot = size_t(tx & 7) | (size_t(ty & 7) << 3);
         if (cache && cache->keys[slot] == k) return cache->points[slot];
         const auto it = m_tiles.find(k);
         const Point *p = it == m_tiles.end() ? nullptr : it->second.data();
@@ -121,71 +130,119 @@ private:
     }
     Point node(int x, int y, SamplingCache *cache = nullptr) const {
         const Point *p = tilePoints(x, y, cache);
-        return p ? p[(y % TileSide) * TileSide + x % TileSide] : Point{};
+        return p ? p[(y & (TileSide - 1)) * TileSide + (x & (TileSide - 1))] : Point{};
     }
     void dab(float cx, float cy, float dx, float dy, float gain, float radius, int mode,
              bool professional, float hardness) {
-        const int x0 = std::max(0, int(std::floor((cx - radius) / m_step - .5f)));
-        const int y0 = std::max(0, int(std::floor((cy - radius) / m_step - .5f)));
-        const int x1 = std::min((m_width + m_step - 1) / m_step - 1, int(std::ceil((cx + radius) / m_step - .5f)));
-        const int y1 = std::min((m_height + m_step - 1) / m_step - 1, int(std::ceil((cy + radius) / m_step - .5f)));
+        const int maxNodeX = (m_width + m_step - 1) / m_step - 1;
+        const int maxNodeY = (m_height + m_step - 1) / m_step - 1;
+        const int x0 = std::max(0, int(std::floor((cx - radius) * m_invStep - .5f)));
+        const int y0 = std::max(0, int(std::floor((cy - radius) * m_invStep - .5f)));
+        const int x1 = std::min(maxNodeX, int(std::ceil((cx + radius) * m_invStep - .5f)));
+        const int y1 = std::min(maxNodeY, int(std::ceil((cy + radius) * m_invStep - .5f)));
         if (x1 < x0 || y1 < y0) return;
         const int width = x1 - x0 + 1;
-        m_scratch.resize(size_t(width) * (y1 - y0 + 1));
+        const int rows = y1 - y0 + 1;
+        m_scratch.resize(size_t(width) * rows);
+        m_rowSpan.resize(size_t(rows));
         const float h = professional && std::isfinite(hardness)
             ? std::clamp(hardness, 0.f, 1.f) * .85f : 0.f;
+        const float radiusSq = radius * radius;
+        const float invRadius = 1.f / radius;
+        const float invOneMinusH = (h > 0.f && h < 1.f) ? 1.f / (1.f - h) : 0.f;
+        const float stepF = float(m_step);
+        const bool pushLike = (mode == 0 || mode == 5 || mode == 6);
+        const float baseVx = (mode == 5 ? dy : (mode == 6 ? -dy : dx)) * gain;
+        const float baseVy = (mode == 5 ? -dx : (mode == 6 ? dx : dy)) * gain;
+        const bool needRetain = (!professional && mode == 0);
+        const float radialSignGain = ((mode == 1 || mode == 3) ? -1.f : 1.f) * gain;
         SamplingCache cache;
         // Read the old generation in full before publishing any new nodes.
         for (int y = y0; y <= y1; ++y) {
-            for (int x = x0; x <= x1; ++x) {
-                const float px = (x + .5f) * m_step, py = (y + .5f) * m_step;
-                const float rx = px - cx, ry = py - cy;
-                const float t = mask(rx, ry, radius, h);
-                if (t == 0.f) {
-                    // Outside compact support this generation is exactly unchanged.
-                    // Avoid transcendental mode math and bilinear sampling there.
-                    m_scratch[size_t(y - y0) * width + x - x0] = node(x, y, &cache);
+            const float py = (y + .5f) * stepF;
+            const float ry = py - cy;
+            const float rySq = ry * ry;
+            const float remSq = radiusSq - rySq;
+            if (remSq <= 0.f) {
+                m_rowSpan[size_t(y - y0)] = {1, 0};
+                continue;
+            }
+            const float halfW = std::sqrt(remSq);
+            int rx0 = std::max(x0, int(std::floor((cx - halfW) * m_invStep - .5f)));
+            int rx1 = std::min(x1, int(std::ceil((cx + halfW) * m_invStep - .5f)));
+            while (rx0 <= rx1) {
+                const float rxL = (rx0 + .5f) * stepF - cx;
+                if (rxL * rxL >= remSq) ++rx0;
+                else break;
+            }
+            while (rx1 >= rx0) {
+                const float rxR = (rx1 + .5f) * stepF - cx;
+                if (rxR * rxR >= remSq) --rx1;
+                else break;
+            }
+            m_rowSpan[size_t(y - y0)] = {rx0, rx1};
+            if (rx1 < rx0) continue;
+            Point *scratchRow = m_scratch.data() + size_t(y - y0) * width - x0;
+            for (int x = rx0; x <= rx1; ++x) {
+                const float px = (x + .5f) * stepF;
+                const float rx = px - cx;
+                const float dist = std::sqrt(rx * rx + rySq) * invRadius;
+                const float r = h == 0.f ? std::min(1.f, dist)
+                    : (dist <= h ? 0.f : (dist >= 1.f ? 1.f : (dist - h) * invOneMinusH));
+                const float t = 1.f - r * r * (3.f - 2.f * r);
+                if (t <= 0.f) {
+                    scratchRow[x] = node(x, y, &cache);
                     continue;
                 }
-                float vx = dx * gain * t, vy = dy * gain * t;
-                if (mode == 5) { vx = dy * gain * t; vy = -dx * gain * t; }
-                if (mode == 6) { vx = -dy * gain * t; vy = dx * gain * t; }
-                if (mode == 1 || mode == 2) {
-                    const float scale = std::exp((mode == 1 ? -1.f : 1.f) * gain * t);
-                    vx = rx * (1 - scale); vy = ry * (1 - scale);
-                } else if (mode == 3 || mode == 4) {
-                    const float angle = (mode == 3 ? -1.f : 1.f) * gain * t;
+                float vx, vy;
+                float retain = 1.f;
+                if (pushLike) {
+                    vx = baseVx * t;
+                    vy = baseVy * t;
+                    if (needRetain) {
+                        retain = 1.f / (1.f + 2.f * std::sqrt(vx * vx + vy * vy) * invRadius);
+                    }
+                } else if (mode == 1 || mode == 2) {
+                    const float scale = std::exp(radialSignGain * t);
+                    vx = rx * (1.f - scale);
+                    vy = ry * (1.f - scale);
+                } else {
+                    const float angle = radialSignGain * t;
                     const float c = std::cos(angle), s = std::sin(angle);
-                    vx = rx - (rx * c - ry * s); vy = ry - (rx * s + ry * c);
+                    vx = rx - (rx * c - ry * s);
+                    vy = ry - (rx * s + ry * c);
                 }
                 const Point old = sample(px - vx, py - vy, &cache);
-                // Implicit, distance-based elastic relaxation bounds accumulated strain
-                // during repeated loops. Zero movement does not relax the image; the rate
-                // depends on travelled brush distance, never on input/frame count.
-                const float retain = !professional && mode == 0
-                    ? 1.f / (1.f + 2.f * std::hypot(vx, vy) / radius) : 1.f;
-                m_scratch[size_t(y - y0) * width + x - x0] = {vx + old.x * retain, vy + old.y * retain};
+                scratchRow[x] = {vx + old.x * retain, vy + old.y * retain};
             }
         }
-        // Publish contiguous tile rows. Avoid operator[] / hashing for every pixel.
+        // Publish contiguous tile rows within each row's circle span.
         for (int y = y0; y <= y1; ++y) {
-            for (int x = x0; x <= x1;) {
-                const int end = std::min(x1 + 1, (x / TileSide + 1) * TileSide);
-                const Point *from = m_scratch.data() + size_t(y-y0)*width + x-x0;
-                auto it = m_tiles.find(key(x,y));
+            const auto span = m_rowSpan[size_t(y - y0)];
+            const int rx0 = span.first, rx1 = span.second;
+            const Point *scratchRow = m_scratch.data() + size_t(y - y0) * width - x0;
+            for (int x = rx0; x <= rx1;) {
+                const int end = std::min(rx1 + 1, ((x >> 5) + 1) * TileSide);
+                const Point *from = scratchRow + x;
+                const uint64_t tk = key(x, y);
+                auto it = m_tiles.find(tk);
                 if (it == m_tiles.end()) {
                     bool nonzero = false;
-                    for (int i=0;i<end-x;++i) nonzero |= from[i].x != 0 || from[i].y != 0;
-                    if (!nonzero) { x=end; continue; }
-                    it = m_tiles.try_emplace(key(x,y), Tile{}).first;
+                    for (int i = 0; i < end - x; ++i) {
+                        if (from[i].x != 0.f || from[i].y != 0.f) { nonzero = true; break; }
+                    }
+                    if (!nonzero) { x = end; continue; }
+                    it = m_tiles.try_emplace(tk, Tile{}).first;
                 }
-                std::copy_n(from,end-x,it->second.data()+(y%TileSide)*TileSide+x%TileSide);
-                x=end;
+                std::copy_n(from, end - x, it->second.data() + (y & (TileSide - 1)) * TileSide + (x & (TileSide - 1)));
+                x = end;
             }
         }
     }
 
     int m_width = 0, m_height = 0, m_step = 1;
+    float m_invStep = 1.f, m_maxFieldX = 0.f, m_maxFieldY = 0.f;
     std::unordered_map<uint64_t, Tile> m_tiles;
     std::vector<Point> m_scratch;
+    std::vector<std::pair<int, int>> m_rowSpan;
 };

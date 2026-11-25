@@ -596,6 +596,7 @@ internal fun PaintViewModel.syncSettingsFromPrefs() {
         quickLayerCollapsed = prefs.getBoolean("quick_layer_collapsed", false)
         quickLayerPinned = prefs.getBoolean("quick_layer_pinned", true)
 
+        loadToolOptions()
         applyCurrentTheme()
     }
 }

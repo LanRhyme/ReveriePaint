@@ -58,10 +58,20 @@ internal fun BrushCursorOverlay(
         if (shouldShow && cursorScreenPos.value != null && isDrawTool && vm.cursorStyleMode != 4) {
             val curPos = cursorScreenPos.value!!
             val scale = (zoom * fitScale).coerceAtLeast(0.001f)
-            val pressureScale = if (isCursorTouching.value) livePressure.value.coerceIn(0.08f, 1f) else 1f
+            val reflectsActualSize = CursorOutlineGeometry.shouldReflectActualSize(
+                tool,
+                vm.cursorOutlineReflectsActualSize,
+            )
+            val pressureScale = if (tool == Tool.LIQUIFY) {
+                1f
+            } else if (isCursorTouching.value) {
+                livePressure.value.coerceIn(0.08f, 1f)
+            } else {
+                1f
+            }
             val cursorBrushSize = if (tool == Tool.LIQUIFY) liquifyBrushSize else vm.brushSize.toFloat()
             val brushRadiusScreen = CursorOutlineGeometry.outlineRadius(
-                cursorBrushSize, scale, pressureScale, vm.cursorOutlineReflectsActualSize,
+                cursorBrushSize, scale, pressureScale, reflectsActualSize,
             )
 
             when (vm.cursorStyleMode) {
