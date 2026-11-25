@@ -115,7 +115,7 @@ class AbrConverterDriftBootstrapTest {
         boot()
 
         val src = PresetSnapshotStore.source(id)!!
-        assertEquals(13, src.getInt("abrConverterVersion"))
+        assertEquals(AbrPresetConverter.CONVERTER_VERSION, src.getInt("abrConverterVersion"))
         assertEquals(BrushDiagnostics.md5(PresetSnapshotStore.read(id)!!), src.getString("md5"))
         val newSnap = PresetSnapshotStore.read(id)!!
         val newXml = xmlOf(newSnap)
@@ -194,9 +194,9 @@ class AbrConverterDriftBootstrapTest {
         assertEquals("涂抹强度不丢", "0.7", KppXml.get(newXml, "SmudgeRateValue"))
         assertEquals("仍是涂抹而非混合器", "0", KppXml.get(newXml, "SmudgeRateMode") ?: "0")
         val src = PresetSnapshotStore.source(id)!!
-        assertEquals(13, src.getInt("abrConverterVersion"))
+        assertEquals(AbrPresetConverter.CONVERTER_VERSION, src.getInt("abrConverterVersion"))
         assertEquals("SmTl", src.getJSONObject("abrParams").getString("toolClass"))
-        // 重建结果应与“回填后的 preset 走一遍 v13 全新转换”逐字节一致（XML 部分）
+        // 重建结果应与“回填后的 preset 走一遍当前版本全新转换”逐字节一致（XML 部分）
         val restored = AbrPresetConverter.fromAbrParamsJson(src.getJSONObject("abrParams"))
         val fresh = AbrPresetConverter.convert(restored, preset.name, null, "", emptyMap(), "v11pack.abr")
         assertEquals(xmlOf(fresh.kppBytes), newXml)
@@ -217,7 +217,7 @@ class AbrConverterDriftBootstrapTest {
         boot()
 
         val src = PresetSnapshotStore.source(id)!!
-        assertEquals(13, src.getInt("abrConverterVersion"))
+        assertEquals(AbrPresetConverter.CONVERTER_VERSION, src.getInt("abrConverterVersion"))
         assertEquals("策略键必须原样保留", "PRECISION", src.optString("abrBlendPolicy"))
         assertEquals(
             "刷新后不得回退到 COMPAT_SAFE 映射",

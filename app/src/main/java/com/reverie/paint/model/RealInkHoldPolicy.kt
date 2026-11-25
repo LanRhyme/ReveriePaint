@@ -18,6 +18,30 @@ internal object RealInkHoldPolicy {
     fun shouldReleaseOnReject(held: Boolean, wantsHold: Boolean): Boolean = held && !wantsHold
 
     /**
+     * 软件尾线兜底判定 (in-window Canvas):
+     * - 关闭前缓冲低延迟时: 维持上游原版 OEM 预测尾线开关与白名单门控
+     * - 开启前缓冲低延迟但本笔未能按住真墨 (!realInkHeld) 时: 对 TIER_1/TIER_2 笔刷回退绘制轻量软件尾线
+     */
+    fun shouldDrawSoftwarePredictionTail(
+        frontBufferPredictionEnabled: Boolean,
+        realInkHeld: Boolean,
+        stylusStrokePredictionEnabled: Boolean,
+        legacyBrushEligible: Boolean,
+        frontBufferFallbackEligible: Boolean,
+    ): Boolean {
+        if (!frontBufferPredictionEnabled) {
+            return stylusStrokePredictionEnabled && legacyBrushEligible
+        }
+        return !realInkHeld && frontBufferFallbackEligible
+    }
+
+    /** 软件预测尾线起点不透明度系数: 前缓冲降级回退的 TIER_2 笔刷用更轻的 0.35 减弱突变 */
+    fun softwarePredictionTailAlphaFactor(
+        frontBufferPredictionEnabled: Boolean,
+        isTier2Fallback: Boolean,
+    ): Float = if (frontBufferPredictionEnabled && isTier2Fallback) 0.35f else 0.55f
+
+    /**
      * 判断当前工具是否为低延迟前缓冲预测线/预测器支持的画笔工具。
      * 预测线只适用于常规笔刷；侧键临时切橡皮或橡皮/涂抹一律不画预测线。
      */

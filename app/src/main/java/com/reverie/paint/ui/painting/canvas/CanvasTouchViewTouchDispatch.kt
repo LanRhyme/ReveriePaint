@@ -647,14 +647,18 @@ internal fun CanvasTouchView.handleTouchEvent(event: MotionEvent): Boolean {
                 if (!isDrawingTool) {
                     invalidate()
                 } else if (!realInk.wantsHold()) {
-                    val isEraser = tool == Tool.ERASER
+                    val isEraser = effTool() == Tool.ERASER
                     val cursorMode = if (isEraser) v.eraserCursorMode else v.brushCursorMode
                     val hasAssist = v.drawingGuide.mode != GuideMode.OFF && v.drawingGuide.assistedDrawing
-                    val predictionVisualActive = if (v.frontBufferPredictionEnabled) {
-                        hasPredictedScreenPoint
-                    } else {
-                        v.isCurrentBrushPredictionEligible && hasPredictedScreenPoint
-                    }
+                    val predTier = v.effectivePredictionTier
+                    val predictionVisualActive = hasPredictedScreenPoint && RealInkHoldPolicy.shouldDrawSoftwarePredictionTail(
+                        frontBufferPredictionEnabled = v.frontBufferPredictionEnabled,
+                        realInkHeld = realInk.held,
+                        stylusStrokePredictionEnabled = v.stylusStrokePredictionEnabled,
+                        legacyBrushEligible = v.isCurrentBrushPredictionEligible,
+                        frontBufferFallbackEligible = predTier == PaintViewModel.PredictionFidelityTier.TIER_1 ||
+                            predTier == PaintViewModel.PredictionFidelityTier.TIER_2,
+                    )
                     if (cursorMode == 1 || cursorMode == 3 || hasAssist || predictionVisualActive) {
                         invalidate()
                     }

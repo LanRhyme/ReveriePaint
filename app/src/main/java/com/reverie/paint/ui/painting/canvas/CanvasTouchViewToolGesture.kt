@@ -918,10 +918,8 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                     clearPredictedScreenPoint()
                 }
 
-                // 3. 前缓冲直出: 捕获到移动事件并计算好最新笔尖前沿后立即直出, 绕过 VSYNC。
-                // 门控与 onDraw 软件回退互补 (canRenderPreview 为 false 时由软件回退接管,
-                // 见 FrontBufferProbe.softwareFallbackRequired): 渲染器初始化失败时不能在此
-                // 置 drew=true, 否则直出与回退两边都不画。
+                // 3. 真墨按住由前缓冲直出并负责面板避让; 无法按住真墨时由调度的软件尾线与
+                // 触摸分发结尾的 invalidate() 统一接管, 此处不再提前以旧光标坐标触发冗余重绘。
                 if (hasPredictedScreenPoint) {
                     // 预测点并入本帧包络：只提前触发避让，不允许把已避让面板误判为离开。
                     if (hasEvasionEnv) {
@@ -939,13 +937,6 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                             predictedScreenX, predictedScreenY, brushR,
                         )
                     }
-                }
-
-                if (!realInk.held) {
-                    invalidateCursor(
-                        if (hasLocalCursorPos) localCursorX else Float.NaN,
-                        if (hasLocalCursorPos) localCursorY else Float.NaN
-                    )
                 }
             } else if (!v.frontBufferPredictionEnabled && isStylus && v.isCurrentBrushPredictionEligible) {
                 // OEM 反射 / 系统前向预测尾线 (抵消 144Hz 屏幕 1~2 帧物理上屏延迟)

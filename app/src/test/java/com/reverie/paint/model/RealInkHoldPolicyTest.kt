@@ -1,5 +1,6 @@
 package com.reverie.paint.model
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
@@ -144,6 +145,96 @@ class RealInkHoldPolicyTest {
                 drawingGuidePanelOpen = false,
                 modalDialogOpen = true,
             )
+        )
+    }
+
+    @Test
+    fun `software prediction tail off front-buffer follows oem toggle and legacy whitelist`() {
+        assertTrue(
+            RealInkHoldPolicy.shouldDrawSoftwarePredictionTail(
+                frontBufferPredictionEnabled = false,
+                realInkHeld = false,
+                stylusStrokePredictionEnabled = true,
+                legacyBrushEligible = true,
+                frontBufferFallbackEligible = false,
+            )
+        )
+        assertFalse(
+            RealInkHoldPolicy.shouldDrawSoftwarePredictionTail(
+                frontBufferPredictionEnabled = false,
+                realInkHeld = false,
+                stylusStrokePredictionEnabled = false,
+                legacyBrushEligible = true,
+                frontBufferFallbackEligible = true,
+            )
+        )
+        assertFalse(
+            RealInkHoldPolicy.shouldDrawSoftwarePredictionTail(
+                frontBufferPredictionEnabled = false,
+                realInkHeld = false,
+                stylusStrokePredictionEnabled = true,
+                legacyBrushEligible = false,
+                frontBufferFallbackEligible = true,
+            )
+        )
+    }
+
+    @Test
+    fun `software prediction tail on front-buffer falls back only when realInkHeld is false`() {
+        assertFalse(
+            RealInkHoldPolicy.shouldDrawSoftwarePredictionTail(
+                frontBufferPredictionEnabled = true,
+                realInkHeld = true,
+                stylusStrokePredictionEnabled = false,
+                legacyBrushEligible = false,
+                frontBufferFallbackEligible = true,
+            )
+        )
+        assertTrue(
+            RealInkHoldPolicy.shouldDrawSoftwarePredictionTail(
+                frontBufferPredictionEnabled = true,
+                realInkHeld = false,
+                stylusStrokePredictionEnabled = false,
+                legacyBrushEligible = false,
+                frontBufferFallbackEligible = true,
+            )
+        )
+        assertFalse(
+            RealInkHoldPolicy.shouldDrawSoftwarePredictionTail(
+                frontBufferPredictionEnabled = true,
+                realInkHeld = false,
+                stylusStrokePredictionEnabled = true,
+                legacyBrushEligible = true,
+                frontBufferFallbackEligible = false,
+            )
+        )
+    }
+
+    @Test
+    fun `software prediction tail alpha softens tier2 fallback only when front-buffer enabled`() {
+        assertEquals(
+            0.35f,
+            RealInkHoldPolicy.softwarePredictionTailAlphaFactor(
+                frontBufferPredictionEnabled = true,
+                isTier2Fallback = true,
+            ),
+            1e-6f,
+        )
+        assertEquals(
+            0.55f,
+            RealInkHoldPolicy.softwarePredictionTailAlphaFactor(
+                frontBufferPredictionEnabled = true,
+                isTier2Fallback = false,
+            ),
+            1e-6f,
+        )
+        assertEquals(
+            0.55f,
+            RealInkHoldPolicy.softwarePredictionTailAlphaFactor(
+                frontBufferPredictionEnabled = false,
+                isTier2Fallback = true,
+            ),
+            1e-6f,
         )
     }
 }

@@ -25,7 +25,10 @@ internal object AbrPresetConverter {
     // v12: 最小直径取值规则修正——szVr.Mnm>0 才优先，Mnm 缺失/为 0 时吃顶层 minimumDiameter
     // （#1 十九号 70% 与 #48 肌理-粗糙 72% 下限保真修正）
     // v13: 颜色动态 fgBgControl==0 时 fgBgJitter 不再映射恒定 secondaryMix（置 0）；启动支持版本漂移自动重转
-    const val CONVERTER_VERSION = 13
+    // v14: COMPAT_SAFE 下为极小间距采样笔尖 (<0.04) 与双重画笔 (<0.05) 加防过载下限（无散布时）
+    const val CONVERTER_VERSION = 14
+    internal const val SAMPLED_MIN_SAFE_SPACING = 0.04
+    internal const val DUAL_MIN_SAFE_SPACING = 0.05
 
     data class Converted(val bp: BrushParams, val kppBytes: ByteArray, val tipScale: Double?)
 
@@ -237,11 +240,19 @@ internal object AbrPresetConverter {
             }
         } else -1.0
 
-        // 物理间距防饱和校准：计算圆笔刷在 1% 极小间距且无散布时（如 19号画笔），
-        // Krita 逐印章 Over 叠加导致 1 像素内累积 100 次印章瞬间饱和至纯黑死硬边缘。
-        // COMPAT_SAFE 模式下平滑校准至 0.06（对齐 Krita 官方 Basic-5 间距标准），消除累积死黑并降低 83% 渲染负荷。
+        // 物理间距防饱和校准：
+        // - 计算圆笔刷在 1% 极小间距且无散布时（如 19号画笔），Krita 逐印章 Over 叠加导致瞬间饱和与高负荷 -> 0.06
+        // - 采样笔尖在极小间距 (<0.04) 且无散布时（如部分原子笔/铅笔 ABR），避免高频密铺拖垮移动 CPU -> 0.04
         val safeSpacing = if (policy == AbrBlendModes.Policy.COMPAT_SAFE && preset.isComputed && preset.spacing <= 0.02 && preset.scatter <= 0.001) {
             0.06
+        } else if (policy == AbrBlendModes.Policy.COMPAT_SAFE && !preset.isComputed && preset.spacing < SAMPLED_MIN_SAFE_SPACING && preset.scatter <= 0.001) {
+            BrushDiagnostics.log(
+                "abr_sampled_spacing_floor",
+                "preset" to preset.name,
+                "from" to preset.spacing,
+                "to" to SAMPLED_MIN_SAFE_SPACING,
+            )
+            SAMPLED_MIN_SAFE_SPACING
         } else {
             preset.spacing
         }
@@ -254,6 +265,20 @@ internal object AbrPresetConverter {
                 )
             }
         } else safeSpacing
+
+        val effectiveMaskingSpacing = when {
+            dual == null -> 0.1
+            policy == AbrBlendModes.Policy.COMPAT_SAFE && dual.spacing < DUAL_MIN_SAFE_SPACING && dual.scatter <= 0.001 -> {
+                BrushDiagnostics.log(
+                    "abr_dual_spacing_floor",
+                    "preset" to preset.name,
+                    "from" to dual.spacing,
+                    "to" to DUAL_MIN_SAFE_SPACING,
+                )
+                DUAL_MIN_SAFE_SPACING
+            }
+            else -> dual.spacing
+        }
 
         val bp = BrushParams(
             size = preset.diameter,
@@ -297,7 +322,7 @@ internal object AbrPresetConverter {
             maskingEnabled = hasDual,
             maskingCompositeOp = dualCompositeOp,
             maskingSizeRatio = maskingSizeRatio,
-            maskingSpacing = dual?.spacing ?: 0.1,
+            maskingSpacing = effectiveMaskingSpacing,
             maskingTipAsset = dualTipFileName,
             maskingScatter = if (hasDual) dual!!.scatter else 0.0,
             maskingScatterBothAxes = dual?.scatterBothAxes ?: true,

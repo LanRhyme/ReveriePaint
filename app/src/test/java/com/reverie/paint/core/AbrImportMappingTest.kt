@@ -446,5 +446,68 @@ class AbrImportMappingTest {
         return be32(body.size) + body
     }
 
+    @Test
+    fun sampledTipUltraSmallSpacingClampedUnderCompatSafeWhenNoScatter() {
+        val preset = AbrParser.AbrPresetInfo(
+            name = "BallpointSampled",
+            diameter = 30.0,
+            spacing = 0.01,
+            scatter = 0.0,
+            isComputed = false,
+        )
+        val compatBp = AbrPresetConverter.convert(
+            preset, "BallpointSampled", null, "", emptyMap(), "pack",
+            policy = AbrBlendModes.Policy.COMPAT_SAFE,
+        ).bp
+        assertEquals(AbrPresetConverter.SAMPLED_MIN_SAFE_SPACING, compatBp.spacing, 1e-9)
+
+        val rawBp = AbrPresetConverter.convert(
+            preset, "BallpointSampled", null, "", emptyMap(), "pack",
+            policy = AbrBlendModes.Policy.PRECISION,
+        ).bp
+        assertEquals(0.01, rawBp.spacing, 1e-9)
+
+        val scatteredBp = AbrPresetConverter.convert(
+            preset.copy(scatter = 0.15), "BallpointSampled", null, "", emptyMap(), "pack",
+            policy = AbrBlendModes.Policy.COMPAT_SAFE,
+        ).bp
+        assertEquals(0.01, scatteredBp.spacing, 1e-9)
+
+        val normalSpacingBp = AbrPresetConverter.convert(
+            preset.copy(spacing = 0.05), "BallpointSampled", null, "", emptyMap(), "pack",
+            policy = AbrBlendModes.Policy.COMPAT_SAFE,
+        ).bp
+        assertEquals(0.05, normalSpacingBp.spacing, 1e-9)
+    }
+
+    @Test
+    fun dualBrushUltraSmallSpacingClampedUnderCompatSafeWhenNoScatter() {
+        val preset = AbrParser.AbrPresetInfo(
+            name = "DualDense",
+            diameter = 40.0,
+            spacing = 0.1,
+            isComputed = true,
+            dualBrush = AbrParser.AbrDualBrushInfo(spacing = 0.01, scatter = 0.0),
+        )
+        val compatBp = AbrPresetConverter.convert(
+            preset, "DualDense", null, "", emptyMap(), "pack",
+            policy = AbrBlendModes.Policy.COMPAT_SAFE,
+        ).bp
+        assertEquals(AbrPresetConverter.DUAL_MIN_SAFE_SPACING, compatBp.maskingSpacing, 1e-9)
+
+        val rawBp = AbrPresetConverter.convert(
+            preset, "DualDense", null, "", emptyMap(), "pack",
+            policy = AbrBlendModes.Policy.PRECISION,
+        ).bp
+        assertEquals(0.01, rawBp.maskingSpacing, 1e-9)
+
+        val scatteredDualBp = AbrPresetConverter.convert(
+            preset.copy(dualBrush = AbrParser.AbrDualBrushInfo(spacing = 0.01, scatter = 0.2)),
+            "DualDense", null, "", emptyMap(), "pack",
+            policy = AbrBlendModes.Policy.COMPAT_SAFE,
+        ).bp
+        assertEquals(0.01, scatteredDualBp.maskingSpacing, 1e-9)
+    }
+
     private fun abrWithPatt(key: String): ByteArray = be16(6) + be16(1) + section(key, onePixelPatt())
 }

@@ -29,6 +29,7 @@ import android.view.SurfaceView
 import androidx.annotation.RequiresApi
 import androidx.graphics.lowlatency.CanvasFrontBufferedRenderer
 import androidx.graphics.surface.SurfaceControlCompat
+import com.reverie.paint.core.StrokeLatencyDiag
 import com.reverie.paint.core.stylus.FrontBufferProbe
 import com.reverie.paint.model.CanvasPose
 import com.reverie.paint.model.FrontBufferCompose
@@ -330,21 +331,48 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
     @Volatile private var surfaceValid = false
     @Volatile private var surfaceW = 0
     @Volatile private var surfaceH = 0
+    private var recreatedInSurfaceCreated = false
+    private var recreatedViewW = 0
+    private var recreatedViewH = 0
     private val geomLocSelf = IntArray(2)
     private val geomLocTarget = IntArray(2)
 
     private val surfaceGeometryCallback = object : SurfaceHolder.Callback {
         override fun surfaceCreated(holder: SurfaceHolder) {
+            recreatedInSurfaceCreated = false
             if (!released && !isRendererInitialized && Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
                 initRenderer()
+                if (isRendererInitialized) {
+                    // 把 surfaceGeometryCallback 重新移到末尾, 保持在 androidx mHolderCallback 之后执行
+                    holder.removeCallback(this)
+                    holder.addCallback(this)
+                    recreatedInSurfaceCreated = true
+                    recreatedViewW = this@FrontBufferPreviewOverlay.width
+                    recreatedViewH = this@FrontBufferPreviewOverlay.height
+                }
             }
         }
 
         override fun surfaceChanged(holder: SurfaceHolder, format: Int, width: Int, height: Int) {
+            if (recreatedInSurfaceCreated) {
+                recreatedInSurfaceCreated = false
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q &&
+                    isRendererInitialized &&
+                    (width != recreatedViewW || height != recreatedViewH)
+                ) {
+                    releaseFrontRendererOnly()
+                    initRenderer()
+                    if (isRendererInitialized) {
+                        holder.removeCallback(this)
+                        holder.addCallback(this)
+                    }
+                }
+            }
             onSurfaceGeometry(valid = true, w = width, h = height)
         }
 
         override fun surfaceDestroyed(holder: SurfaceHolder) {
+            recreatedInSurfaceCreated = false
             onSurfaceGeometry(valid = false, w = 0, h = 0)
             // 在 Surface 彻底销毁前同步释放 CanvasFrontBufferedRenderer,
             // 防止后台切回或退出页面时残留事务打到已销毁的 SurfaceControl 触发 libgui SIGSEGV
@@ -371,6 +399,7 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
             // 旧缓冲 (含本笔已上屏的增量墨) 已丢弃: 松开, 窗口全量接管这一笔, 与关低延迟同图。
             if (ctl.held) {
                 Log.i(TAG, "ev=surface_changed_release seq=${ctl.currentStrokeSeq}")
+                StrokeLatencyDiag.recordRealInkEvent("surface_changed_release seq=${ctl.currentStrokeSeq}")
                 ctl.releaseAndCatchUp()
             } else {
                 ctl.release()
@@ -502,6 +531,7 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
                         if (ctl != null && ctl.held) {
                             val seq = ctl.currentStrokeSeq
                             Log.i(TAG, "ev=multi_buffered_redraw_release seq=$seq")
+                            StrokeLatencyDiag.recordRealInkEvent("multi_buffered_redraw_release seq=$seq")
                             ctl.release()
                             targetTouchView?.let { tv ->
                                 tv.post {
@@ -1614,6 +1644,7 @@ class FrontBufferPreviewOverlay @JvmOverloads constructor(
     fun release() {
         if (released) return
         released = true
+        recreatedInSurfaceCreated = false
         surfaceValid = false
         // 松开可能还按住的真墨: 渲染器即将销毁, 留着 held=true 会让下一笔误以为前缓冲还在
         realInk?.cancelCatchUp()

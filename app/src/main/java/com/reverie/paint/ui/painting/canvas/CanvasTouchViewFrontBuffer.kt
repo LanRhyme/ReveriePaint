@@ -260,6 +260,23 @@ internal fun CanvasTouchView.armRealInkHold(v: PaintViewModel, hasSymmetry: Bool
     val extras = !compose && (cursorWhileDrawing || predictedTipEligible(v) ||
         FrontBufferHolePolicy.snapNeedsExtras(snapGuidePossible(v), FrontBufferFeatureFlags.snapHold))
     val armed = realInk.arm(allowed, extras, uiClipSnapshot)
+    val armReason = if (armed) {
+        "armed"
+    } else when {
+        !v.frontBufferPredictionEnabled -> "fb_off"
+        hasSymmetry && !v.mirrorGate.isQueueing -> "sym_not_queueing"
+        v.displayTiles.drawable() == null -> "no_tiles"
+        !FrontBufferProbe.realInkHoldAllowed() -> "preserve_unsupported(${FrontBufferProbe.preservedContentState()})"
+        !strokeFbReady -> "ready_gate(${FrontBufferFeatureFlags.readyGate},dec=$strokeFbDecision)"
+        v.anim.shiftTraceActive -> "shift_trace"
+        !RealInkHoldPolicy.bakeSupported(hasCheckerboard, has3DVisible) -> "bake_unsupported(chk=$hasCheckerboard,d3=$has3DVisible)"
+        holeArm == FrontBufferHolePolicy.ARM_NORMAL -> "hole_normal(cov=$holeCov)"
+        frontBufferOverlay == null -> "no_overlay"
+        frontBufferOverlay?.canRenderPreview != true -> "cannot_preview"
+        frontBufferOverlay?.bufferGeometryMatches(this) != true -> "geom_mismatch"
+        else -> "arm_denied"
+    }
+    com.reverie.paint.core.StrokeLatencyDiag.recordRealInkArm(armed, armReason)
     if (holeMode != FrontBufferHolePolicy.MODE_OFF) {
         com.reverie.paint.perf.FbGeomLog.holeArm(realInk.currentStrokeSeq, holeMode, holeArm, holeCov)
     }

@@ -1858,7 +1858,24 @@ class PaintViewModel : ViewModel() {
                     hasPendingFrontier = false
                 }
 
-                if (++perfLogCounter % 5 == 0) {
+                val perfTick = (++perfLogCounter % 5 == 0)
+                if (perfTick || e2e >= 30L || dtKrita >= 16L || dtRender >= 16L) {
+                    StrokeLatencyDiag.recordStrokePerf(
+                        n = n,
+                        merged = merged,
+                        modeId = renderScheduleMode.id,
+                        queueWaitMs = queueWait,
+                        kritaMs = dtKrita,
+                        renderMs = dtRender,
+                        e2eMs = e2e,
+                        effectiveDelayMs = effectivePipelineDelayMs,
+                        presentWaitP50Ms = PerfTrace.presentWaitP50Ms,
+                        frontierErrPx = PerfTrace.frontierErrP50Px,
+                        realInkHeld = realInkHeld(),
+                        uptimeMs = tDone,
+                    )
+                }
+                if (perfTick) {
                     android.util.Log.i(
                         "ReveriePerf",
                         "StrokePerf: n=$n merged=$merged mode=${renderScheduleMode.name} queueWait=${queueWait}ms krita=${dtKrita}ms " +

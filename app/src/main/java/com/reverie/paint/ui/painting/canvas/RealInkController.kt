@@ -18,6 +18,7 @@ import android.os.SystemClock
 import com.reverie.paint.core.LandDiag
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.PerfTrace
+import com.reverie.paint.core.StrokeLatencyDiag
 import com.reverie.paint.core.PublishedTiles
 import com.reverie.paint.core.RealInkSink
 import com.reverie.paint.core.ReverieCoreBridge
@@ -535,9 +536,11 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
         val rejectCode = wantsHoldRejectReason()
         if (rejectCode != REJECT_NONE) {
             if (RealInkHoldPolicy.shouldReleaseOnReject(held, wantsHold = false)) {
+                val rejectReason = rejectReasonToString(rejectCode)
+                StrokeLatencyDiag.recordRealInkEvent("hold_reject:$rejectReason")
                 android.util.Log.i(
                     "RealInkController",
-                    "ev=hold_reject reason=${rejectReasonToString(rejectCode)} seq=$currentStrokeSeq held=$held",
+                    "ev=hold_reject reason=$rejectReason seq=$currentStrokeSeq held=$held",
                 )
                 releaseAndCatchUp()
             }
@@ -582,6 +585,7 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
                 }
                 if (area > FrontBufferFeatureFlags.maxInkAreaPx) {
                     PerfTrace.tick("inkSkipBigArea")
+                    StrokeLatencyDiag.recordRealInkEvent("skip_big_area:$area/${FrontBufferFeatureFlags.maxInkAreaPx}")
                     android.util.Log.i(
                         "RealInkController",
                         "ev=ink_skip_big_area screenArea=$area max=${FrontBufferFeatureFlags.maxInkAreaPx} " +

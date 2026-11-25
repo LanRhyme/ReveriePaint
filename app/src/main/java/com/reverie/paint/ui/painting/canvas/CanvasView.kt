@@ -128,12 +128,6 @@ fun CanvasView(
     val pickerInitialColor = remember { mutableStateOf(Color.White) }
     val pickerCurrentColor = remember { mutableStateOf(Color.White) }
 
-    // Krita-style cursor hover and touch position tracking
-    val cursorScreenPos = remember { mutableStateOf<Offset?>(null) }
-    val isCursorHovering = remember { mutableStateOf(false) }
-    val isCursorTouching = remember { mutableStateOf(false) }
-    val livePressure = remember { mutableStateOf(1f) }
-
     // 分格工具手势 ↔ 覆盖层共享预览状态 (触摸层写, 覆盖层与长按菜单读)
     val panelInteraction = remember { PanelInteractionState() }
 
@@ -357,7 +351,6 @@ fun CanvasView(
                 touchView.onCropRect = onCropRect
                 touchView.liveShapeStart = liveShapeStart
                 touchView.liveShapeEnd = liveShapeEnd
-                touchView.livePressure = livePressure
                 touchView.measureStart = measureStart
                 touchView.measureEnd = measureEnd
                 touchView.wandFlash = wandFlash
@@ -366,9 +359,6 @@ fun CanvasView(
                 touchView.pickerInitialColor = pickerInitialColor
                 touchView.pickerCurrentColor = pickerCurrentColor
                 touchView.liveSelectionPath = liveSelectionPath
-                touchView.cursorScreenPos = cursorScreenPos
-                touchView.isCursorHovering = isCursorHovering
-                touchView.isCursorTouching = isCursorTouching
                 touchView.fillTolerance = fillTolerance
                 touchView.gradientType = gradientType
                 touchView.liquifyStrength = liquifyStrength
@@ -475,13 +465,8 @@ fun CanvasView(
             pickerScreenPos = pickerScreenPos,
             pickerInitialColor = pickerInitialColor,
             pickerCurrentColor = pickerCurrentColor,
-            cursorScreenPos = cursorScreenPos,
-            isCursorHovering = isCursorHovering,
-            isCursorTouching = isCursorTouching,
-            livePressure = livePressure,
             wandFlash = wandFlash,
             liveSelectionPath = liveSelectionPath,
-            checkerboardPaint = canvasBackgroundPaint,
             panelInteraction = panelInteraction,
         )
 

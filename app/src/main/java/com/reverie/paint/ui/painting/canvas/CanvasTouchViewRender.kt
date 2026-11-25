@@ -413,13 +413,22 @@ internal fun CanvasTouchView.drawCanvas(canvas: Canvas) {
 
     // =========================================================================
     // 1.5 笔尖前向超前预测 (双系统分派)
-    // - 前缓冲预测开启: 前沿孪生预览 [P_frontier -> P_cur -> P_pred], 前缓冲直出,
-    //   不可用时在此软件回退绘制 (回退空洞见 FrontBufferProbe.softwareFallbackRequired)
-    // - 前缓冲预测关闭: 上游原版 OEM 硬件预测渐隐尾线 (仅 OPPO 硬件预测器有效)
+    // - 前缓冲预测开启且按住真墨: 前缓冲 GL 线程绘制真墨与可选预测笔尖
+    // - 前缓冲预测开启但未能按住真墨 (!realInk.held): 对 TIER_1/TIER_2 回退绘制轻量软件尾线
+    // - 前缓冲预测关闭: 上游原版 OEM / 通用预测渐隐尾线
     // =========================================================================
     val hasSymmetry = v.drawingGuide.mode == GuideMode.SYMMETRY && v.drawingGuide.assistedDrawing
-    if (!v.frontBufferPredictionEnabled && v.stylusStrokePredictionEnabled && v.isCurrentBrushPredictionEligible) {
-        // 上游原版: OEM 硬件预测尾线 (实时预测未来 15~20ms 笔尖切线, 微羽化渐隐)
+    val predTier = v.effectivePredictionTier
+    val drawSoftwareTail = RealInkHoldPolicy.shouldDrawSoftwarePredictionTail(
+        frontBufferPredictionEnabled = v.frontBufferPredictionEnabled,
+        realInkHeld = realInk.held,
+        stylusStrokePredictionEnabled = v.stylusStrokePredictionEnabled,
+        legacyBrushEligible = v.isCurrentBrushPredictionEligible,
+        frontBufferFallbackEligible = predTier == PaintViewModel.PredictionFidelityTier.TIER_1 ||
+            predTier == PaintViewModel.PredictionFidelityTier.TIER_2,
+    )
+    if (drawSoftwareTail) {
+        // 软件前向预测尾线 (实时预测未来 15~20ms 笔尖切线, 微羽化渐隐)
         val isDrawingTool = effTool() == Tool.BRUSH || effTool() == Tool.ERASER
         if (localIsTouching && isDrawingTool && hasPredictedScreenPoint && hasLocalCursorPos) {
             try {
@@ -465,8 +474,12 @@ internal fun CanvasTouchView.drawCanvas(canvas: Canvas) {
                         }
                         val baseAlpha = (if (isEraser) 0.8 else (v.brushOpacity * (if (v.brushFlow > 0.0) v.brushFlow else 1.0))).coerceIn(0.05, 1.0).toFloat()
 
+                        val tailAlphaFactor = RealInkHoldPolicy.softwarePredictionTailAlphaFactor(
+                            v.frontBufferPredictionEnabled,
+                            predTier == PaintViewModel.PredictionFidelityTier.TIER_2,
+                        )
                         val startColor = android.graphics.Color.argb(
-                            (baseAlpha * 0.55f * 255).toInt().coerceIn(0, 255),
+                            (baseAlpha * tailAlphaFactor * 255).toInt().coerceIn(0, 255),
                             android.graphics.Color.red(baseColor),
                             android.graphics.Color.green(baseColor),
                             android.graphics.Color.blue(baseColor)

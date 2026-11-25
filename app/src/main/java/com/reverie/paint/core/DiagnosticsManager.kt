@@ -21,6 +21,7 @@ import androidx.core.content.FileProvider
 import com.reverie.paint.BuildConfig
 import com.reverie.paint.MainActivity
 import com.reverie.paint.R
+import com.reverie.paint.core.stylus.FrontBufferProbe
 import java.io.BufferedReader
 import java.io.File
 import java.io.InputStreamReader
@@ -37,6 +38,42 @@ import java.util.Locale
 object DiagnosticsManager {
     private const val TAG = "DiagnosticsManager"
     private const val DEFAULT_LOGCAT_LINES = 500
+
+    /**
+     * 按设备品牌与当前适配器配置生成可读的手写笔型号摘要。
+     */
+    internal fun resolveStylusSummary(
+        brand: String,
+        manufacturer: String,
+        oppoModel: String,
+        oppoMode: String,
+        huaweiModel: String,
+        huaweiMode: String,
+        honorModel: String,
+        xiaomiModel: String,
+        vivoModel: String,
+        genericEnabled: Boolean,
+    ): String {
+        val tag = "$brand $manufacturer".lowercase(Locale.ROOT)
+        return when {
+            tag.contains("oppo") || tag.contains("oneplus") || tag.contains("realme") ->
+                "OPPO/$oppoModel (mode=$oppoMode)"
+            tag.contains("huawei") ->
+                "Huawei/$huaweiModel (mode=$huaweiMode)"
+            tag.contains("honor") ->
+                "Honor/$honorModel"
+            tag.contains("xiaomi") || tag.contains("redmi") || tag.contains("poco") ->
+                "Xiaomi/$xiaomiModel"
+            tag.contains("vivo") || tag.contains("iqoo") ->
+                "vivo/$vivoModel"
+            tag.contains("samsung") ->
+                "Samsung/S-Pen (generic=$genericEnabled)"
+            genericEnabled ->
+                "Generic ($brand)"
+            else ->
+                "Standard ($brand)"
+        }
+    }
 
     /**
      * 对文本中的密码、Token 和私密凭据进行正则脱敏
@@ -172,10 +209,79 @@ object DiagnosticsManager {
             sb.append("Active Tool: ${vm.currentToolId}\n")
             sb.append("Color Mode: ${vm.colorMode}\n")
             sb.append("Total Strokes: ${vm.totalStrokes}, Elapsed: ${vm.elapsedSeconds}s\n")
-            sb.append("Stylus Model: ${vm.huaweiPencilModel}\n")
+            val stylusSummary = resolveStylusSummary(
+                brand = Build.BRAND ?: "",
+                manufacturer = Build.MANUFACTURER ?: "",
+                oppoModel = vm.oppoPencilModel.name,
+                oppoMode = vm.oppoPencilModelMode,
+                huaweiModel = vm.huaweiPencilModel.name,
+                huaweiMode = vm.huaweiPencilModelMode,
+                honorModel = vm.honorPencilModel.name,
+                xiaomiModel = vm.xiaomiPencilModel.name,
+                vivoModel = vm.vivoPencilModel.name,
+                genericEnabled = vm.genericStylusEnabled,
+            )
+            sb.append("Stylus Model: $stylusSummary\n")
         } else {
             sb.append("ViewModel: Not attached or in background\n")
         }
+
+        // 3.5 渲染延迟与前缓冲配置
+        sb.append("\n--- [Latency & Render Config] ---\n")
+        val refreshSummary = runCatching {
+            val act = MainActivity.activityInstance
+            val disp = if (act != null && Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) act.display else null
+            if (disp != null) {
+                val maxHz = disp.supportedModes.maxOfOrNull { it.refreshRate } ?: disp.refreshRate
+                String.format(Locale.US, "%.1fHz (max=%.1fHz)", disp.refreshRate, maxHz)
+            } else {
+                "unavailable"
+            }
+        }.getOrDefault("unavailable")
+        sb.append("Display Refresh: $refreshSummary\n")
+        if (vm != null) {
+            val activePreset = vm.brushPresets.firstOrNull { it.index == vm.brushPresetIndex }
+            sb.append(
+                "Render Schedule: ${vm.renderScheduleMode}, CanvasRenderSize: ${vm.renderW}x${vm.renderH}, " +
+                    "DisplayTiles: active=${vm.displayTiles.drawable() != null}, " +
+                    "oomTripped=${vm.displayTilesUnavailableForDoc}\n"
+            )
+            sb.append(
+                "Prediction: frontBuffer=${vm.frontBufferPredictionEnabled}, " +
+                    "stylusOEM=${vm.stylusStrokePredictionEnabled}, " +
+                    "lastE2e=${vm.lastE2ePipelineMs}ms, effectiveDelay=${vm.effectivePipelineDelayMs}ms\n"
+            )
+            sb.append(
+                "Smoothing: type=${vm.strokeSmoothingType}, stabilizer=${vm.strokeStabilizer}, " +
+                    "streamline=${vm.brushStreamline}, weighted=[${vm.strokeSmoothnessDistanceMin}, " +
+                    "${vm.strokeSmoothnessDistanceMax}], smoothP=${vm.strokeSmoothPressure}, " +
+                    "scalable=${vm.strokeScalableDistance}\n"
+            )
+            sb.append(
+                "Active Brush: index=${vm.brushPresetIndex}, name=${activePreset?.name ?: "none"}, " +
+                    "id=${activePreset?.id ?: "none"}, paintOp=${vm.brushPaintOpId}, " +
+                    "size=${vm.brushSize}, opacity=${vm.brushOpacity}, flow=${vm.brushFlow}, " +
+                    "spacing=${vm.brushSpacing}, scatter=${vm.brushScatter}, " +
+                    "masking=${vm.brushMaskingEnabled}(sp=${vm.brushMaskingSpacing}), " +
+                    "texture=${vm.brushTextureEnabled}, tip=${vm.brushTipAsset.ifEmpty { "computed" }}, " +
+                    "predTier=${vm.effectivePredictionTier}\n"
+            )
+        }
+        sb.append(
+            "FrontBuffer Probe: ${FrontBufferProbe.getDiagnosticSummary()}, " +
+                "preserved=${FrontBufferProbe.preservedContentState()}, " +
+                "holdAllowed=${FrontBufferProbe.realInkHoldAllowed()}\n"
+        )
+        sb.append(
+            "FrontBuffer Flags: holeMode=${FrontBufferFeatureFlags.holeMode}, " +
+                "strict=${FrontBufferFeatureFlags.strict}, " +
+                "maxInkAreaPx=${FrontBufferFeatureFlags.maxInkAreaPx}, " +
+                "readyGate=${FrontBufferFeatureFlags.readyGate}\n"
+        )
+
+        // 3.6 运笔延迟与真墨生命周期内存遥测
+        sb.append("\n--- [Stroke Latency & FrontBuffer Telemetry] ---\n")
+        sb.append(StrokeLatencyDiag.formatForDiagnostics())
 
         // 4. 用户行为轨迹 (Breadcrumbs)
         sb.append("\n--- [User Action Breadcrumbs (Last 100)] ---\n")

@@ -244,7 +244,6 @@ class CanvasTouchView(context: Context) : View(context) {
 
     var liveShapeStart: MutableState<Offset?>? = null
     var liveShapeEnd: MutableState<Offset?>? = null
-    var livePressure: MutableState<Float>? = null
     var measureStart: MutableState<Offset?>? = null
     var measureEnd: MutableState<Offset?>? = null
     /** 测量工具当前激活的手柄: 0 表示起点, 1 表示终点, -1 表示新建或未命中手柄 */
@@ -255,9 +254,6 @@ class CanvasTouchView(context: Context) : View(context) {
     var pickerInitialColor: MutableState<Color>? = null
     var pickerCurrentColor: MutableState<Color>? = null
     var liveSelectionPath: MutableState<Path?>? = null
-    var cursorScreenPos: MutableState<Offset?>? = null
-    var isCursorHovering: MutableState<Boolean>? = null
-    var isCursorTouching: MutableState<Boolean>? = null
 
     var fillTolerance: Int = 24
     var gradientType: Int = 0
@@ -350,10 +346,6 @@ class CanvasTouchView(context: Context) : View(context) {
 
     internal var localIsHovering = false
     internal var localIsTouching = false
-        set(value) {
-            field = value
-            isCursorTouching?.value = value
-        }
 
     val lastKnownCursorScreenPos: androidx.compose.ui.geometry.Offset?
         get() = if (hasLocalCursorPos && (localIsHovering || localIsTouching)) {
