@@ -1990,6 +1990,9 @@ internal fun PaintViewModel.goHome() {
 }
 
 private fun PaintViewModel.performGoHomeNow() {
+    if (collab.isActive) {
+        leaveCollabRoom()
+    }
     resetProjectReferences()
     stopPaintingTimer()
     // 动画播放与状态镜像: 离开绘画页彻底停止并重置动画状态, 避免耗电和跨画布状态残留

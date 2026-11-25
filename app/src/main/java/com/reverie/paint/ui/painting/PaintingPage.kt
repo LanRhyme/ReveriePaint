@@ -1093,6 +1093,8 @@ fun PaintingPage(
                 vm.showLowStorageDialog -> vm.showLowStorageDialog = false
                 vm.showLowMemoryDialog -> vm.showLowMemoryDialog = false
                 vm.showToolbarSqueezedDialog -> vm.showToolbarSqueezedDialog = false
+                vm.collab.showRoomSheet -> vm.collab.showRoomSheet = false
+                vm.collab.showLobbyDialog -> vm.collab.showLobbyDialog = false
                 showDiscardConfirmDialog -> showDiscardConfirmDialog = false
                 showExitSaveDialog -> showExitSaveDialog = false
                 brushPanelOpen && !(vm.panelPinningEnabled && vm.isBrushPanelPinned) -> {

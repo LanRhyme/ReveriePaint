@@ -129,6 +129,7 @@ fun TopBar(
                     modifier = Modifier.size(32.dp),
                 )
             }
+            com.reverie.paint.ui.painting.collab.CollabStatusButton(vm = vm, compact = true)
             ReIconButton(R.drawable.ic_layers, stringResource(R.string.layer_title), onLayers, modifier = Modifier.size(32.dp))
             ReIconButton(R.drawable.ic_settings, stringResource(R.string.common_settings), onSettings, modifier = Modifier.size(32.dp))
             ReIconButton(R.drawable.ic_x, stringResource(R.string.common_close), onBack, modifier = Modifier.size(32.dp))
@@ -170,6 +171,7 @@ fun TopBar(
                     modifier = Modifier.size(32.dp),
                 )
             }
+            com.reverie.paint.ui.painting.collab.CollabStatusButton(vm = vm, compact = !vm.collab.isActive)
             ReIconButton(R.drawable.ic_layers, stringResource(R.string.layer_title), onLayers, modifier = Modifier.size(32.dp))
             ReIconButton(R.drawable.ic_settings, stringResource(R.string.common_settings), onSettings, modifier = Modifier.size(32.dp))
             ReIconButton(R.drawable.ic_x, stringResource(R.string.common_close), onBack, modifier = Modifier.size(32.dp))

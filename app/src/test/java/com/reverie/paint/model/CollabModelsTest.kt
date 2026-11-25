@@ -111,4 +111,17 @@ class CollabModelsTest {
         assertEquals(c1, c2)
         assertTrue((c1 ushr 24) == 0xFF)
     }
+
+    @Test
+    fun `图层所有权管理与权限枚举映射边界正确`() {
+        assertEquals(LayerCollabPermission.SHARED, LayerCollabPermission.fromCode(0))
+        assertEquals(LayerCollabPermission.OWNER_ONLY, LayerCollabPermission.fromCode(1))
+        assertEquals(LayerCollabPermission.LOCKED, LayerCollabPermission.fromCode(2))
+        assertEquals(LayerCollabPermission.SHARED, LayerCollabPermission.fromCode(999))
+
+        assertTrue(CollabPermissionPolicy.canManageOwnership(isHost = true, ownerPeerId = "other", selfPeerId = "host"))
+        assertTrue(CollabPermissionPolicy.canManageOwnership(isHost = false, ownerPeerId = "me", selfPeerId = "me"))
+        assertTrue(CollabPermissionPolicy.canManageOwnership(isHost = false, ownerPeerId = "", selfPeerId = "me"))
+        assertFalse(CollabPermissionPolicy.canManageOwnership(isHost = false, ownerPeerId = "other", selfPeerId = "me"))
+    }
 }

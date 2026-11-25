@@ -1453,6 +1453,13 @@ internal fun LayerDetailPage(
                     }
                 }
             }
+            if (vm.collab.isActive && !isBg && layer != null) {
+                com.reverie.paint.ui.painting.collab.CollabLayerPermissionCard(
+                    vm = vm,
+                    index = index,
+                    layer = layer,
+                )
+            }
         }
     }
 }

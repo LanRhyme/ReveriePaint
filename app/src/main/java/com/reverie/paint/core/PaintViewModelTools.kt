@@ -145,6 +145,11 @@ internal fun PaintViewModel.touchStart(
         onStylusStrokeEnded()
         return false
     }
+    if (collab.isActive && !canEditLayerInCollab(curLayer)) {
+        showActionToast(R.string.collab_layer_no_permission, com.reverie.paint.R.drawable.ic_lock)
+        onStylusStrokeEnded()
+        return false
+    }
 
     if (currentToolId == "brush" || currentToolId == "eraser" || currentToolId == "smudge") {
         flushPendingPresetSelect()
@@ -281,6 +286,9 @@ internal fun PaintViewModel.touchStart(
     // 蒙版 / 引擎绕过选区) 或抬笔时还没确认才走旧的预览 + 抬笔重放。
     // 必须在 CanvasTouchView 追加第一个镜像点之前调用 (touchStart 先于 appendSymmetricSamplePair)。
     mirrorGate.begin(mirrorSeq, drawingGuide.mode == GuideMode.SYMMETRY && drawingGuide.assistedDrawing)
+    if (collab.isActive) {
+        reportCollabCursor(x, y, isDrawing = true, force = true)
+    }
     return true
 }
 
@@ -349,6 +357,9 @@ internal fun PaintViewModel.touchMove(
     // 真实笔触与录制严格走真实物理采样点 (对齐 CSP/Procreate 标准, 预测只上前缓冲显示, 绝不进文档与录制)
     val targetX = x
     val targetY = y
+    if (collab.isActive) {
+        reportCollabCursor(targetX, targetY, isDrawing = true)
+    }
 
     var effX = targetX
     var effY = targetY
@@ -586,6 +597,9 @@ internal fun PaintViewModel.touchEnd(
     }
 
     resetRenderedFrontier()
+    if (collab.isActive) {
+        reportCollabCursorIdle()
+    }
     if (render) {
         runCore(after = {
             scheduleRender(immediate = true)
@@ -594,6 +608,7 @@ internal fun PaintViewModel.touchEnd(
             } else null
             refreshLayerThumbs(onlyLayerIds = targetIds)
             triggerTimelapseCapture(isChanged = true)
+            if (collab.isActive) refreshUndoCounts()
         }) {
             drainPendingStrokeBatchOnRenderThread()
             drainMirrorBatchesOnRenderThread()
@@ -643,6 +658,9 @@ internal fun PaintViewModel.touchCancel() {
     // whose cancel (transaction revert) is already in flight behind it.
     mirrorGate.cancel()
     clearPendingStrokeSamples()
+    if (collab.isActive) {
+        reportCollabCursorIdle()
+    }
     val hadOverride = (activeStrokeToolOverride != null)
     val presetSwitched = activeStrokePresetSwitched
     activeStrokeToolOverride = null

@@ -987,6 +987,30 @@ internal fun LayerRowContent(
                     }
                 }
                 val panelTitle = vm.drawUnitTitleForPanelGroup(layer.index)
+                if (vm.collab.isActive && !isBg) {
+                    if (layer.ownerPeerId.isNotEmpty()) {
+                        Box(
+                            modifier = Modifier
+                                .size(7.dp)
+                                .clip(androidx.compose.foundation.shape.CircleShape)
+                                .background(
+                                    Color(
+                                        com.reverie.paint.model.CollabTopologyPolicy.assignBadgeColorArgb(
+                                            layer.ownerPeerId,
+                                        ),
+                                    ),
+                                ),
+                        )
+                    }
+                    if (!vm.canEditLayerInCollab(layer) && !layer.isGroup) {
+                        Icon(
+                            painterResource(R.drawable.ic_lock),
+                            contentDescription = stringResource(R.string.collab_layer_no_permission),
+                            tint = Morandi.subText,
+                            modifier = Modifier.size(11.dp),
+                        )
+                    }
+                }
                 Text(
                     text = panelTitle ?: layerDisplayName(layer.name),
                     color = Morandi.text,
