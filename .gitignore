@@ -32,6 +32,10 @@ telemetry/worker/.dev.sqlite
 telemetry/worker/.wrangler/
 telemetry/worker/node_modules/
 
+# 茶绘信令本地开发
+collab/worker/.wrangler/
+collab/worker/node_modules/
+
 # 回放保真度验证产物 (scripts/replay-verify.py)
 .replay-verify/
 
