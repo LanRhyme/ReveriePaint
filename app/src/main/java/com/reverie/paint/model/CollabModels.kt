@@ -48,6 +48,7 @@ data class CollabPeer(
     val joinedAt: Long = 0L,
     val badgeColorArgb: Int = CollabTopologyPolicy.assignBadgeColorArgb(peerId),
     val connectedP2P: Boolean = false,
+    val signalingOnline: Boolean = true,
 )
 
 /** 房主审批队列中的待加入成员 */

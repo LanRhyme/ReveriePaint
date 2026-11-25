@@ -123,5 +123,9 @@ class CollabModelsTest {
         assertTrue(CollabPermissionPolicy.canManageOwnership(isHost = false, ownerPeerId = "me", selfPeerId = "me"))
         assertTrue(CollabPermissionPolicy.canManageOwnership(isHost = false, ownerPeerId = "", selfPeerId = "me"))
         assertFalse(CollabPermissionPolicy.canManageOwnership(isHost = false, ownerPeerId = "other", selfPeerId = "me"))
+
+        val offlinePeer = CollabPeer("p1", "Artist", CollabRole.PEER).copy(signalingOnline = false)
+        assertFalse(offlinePeer.signalingOnline)
+        assertEquals(CollabTopologyPolicy.assignBadgeColorArgb("p1"), offlinePeer.badgeColorArgb)
     }
 }

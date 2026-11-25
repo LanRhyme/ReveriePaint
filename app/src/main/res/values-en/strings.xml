@@ -4216,4 +4216,24 @@
     <string name="collab_host_migrated_msg">%1$s took over as host</string>
     <string name="collab_open_lobby">Collab Room</string>
     <string name="collab_lan_discover_tip">Enter the 6-character code from host to connect via P2P</string>
+    <string name="collab_custom_turn_section">Network &amp; Custom TURN Relay</string>
+    <string name="collab_turn_url_hint">TURN URL (e.g. turn:host:3478, optional)</string>
+    <string name="collab_turn_user_hint">TURN Username (optional)</string>
+    <string name="collab_turn_pass_hint">TURN Credential (optional)</string>
+    <string name="collab_reconnect_now">Reconnect</string>
+    <string name="collab_reconnecting_msg">Connection lost, reconnecting (attempt %1$d)…</string>
+    <string name="collab_create_need_canvas">Hosting a room starts by configuring a new canvas</string>
+    <string name="collab_go_create_canvas">New Canvas &amp; Host</string>
+    <string name="collab_create_toggle_title">Host as Collab Room</string>
+    <string name="collab_create_toggle_desc">Create a 6-char room automatically when canvas opens</string>
+    <string name="collab_end_save_title">Save Collab Artwork</string>
+    <string name="collab_end_save_desc">The collab session has ended. Save this shared canvas locally with a Collab badge</string>
+    <string name="collab_end_project_name">Project Name</string>
+    <string name="collab_end_save_stay">Save &amp; Keep Drawing</string>
+    <string name="collab_end_save_exit">Save &amp; Exit Home</string>
+    <string name="collab_end_discard_exit">Exit Without Saving</string>
+    <string name="gallery_badge_collab">Collab</string>
+    <string name="collab_handoff_short">Make Host</string>
+    <string name="collab_peer_offline_tag">Reconnecting</string>
+    <string name="collab_room_settings_btn">Room Options</string>
 </resources>

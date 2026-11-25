@@ -17,22 +17,14 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.widthIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
-import androidx.compose.material3.Button
-import androidx.compose.material3.ButtonDefaults
 import androidx.compose.material3.Icon
 import androidx.compose.material3.LinearProgressIndicator
-import androidx.compose.material3.OutlinedButton
-import androidx.compose.material3.OutlinedTextField
-import androidx.compose.material3.OutlinedTextFieldDefaults
-import androidx.compose.material3.Switch
-import androidx.compose.material3.SwitchDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -59,25 +51,39 @@ import androidx.compose.ui.window.DialogProperties
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.approveCollabPeer
-import com.reverie.paint.core.closeCollabRoom
-import com.reverie.paint.core.createCollabRoom
+import com.reverie.paint.core.discardCollabAndExit
 import com.reverie.paint.core.ensureCollabPrefsLoaded
 import com.reverie.paint.core.handoffCollabHost
 import com.reverie.paint.core.joinCollabRoom
 import com.reverie.paint.core.kickCollabPeer
-import com.reverie.paint.core.leaveCollabRoom
+import com.reverie.paint.core.openCreateCanvasForCollab
+import com.reverie.paint.core.reconnectCollabNow
 import com.reverie.paint.core.rejectCollabPeer
+import com.reverie.paint.core.requestEndCollabAndPromptSave
+import com.reverie.paint.core.saveCollabArtwork
 import com.reverie.paint.core.showActionToast
 import com.reverie.paint.model.CollabConnectionPhase
 import com.reverie.paint.model.CollabRole
 import com.reverie.paint.model.CollabTopologyPolicy
-import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.components.Dimens
+import com.reverie.paint.ui.components.LiquidSegmentedBar
+import com.reverie.paint.ui.components.PanelCloseButton
+import com.reverie.paint.ui.components.ReButton
+import com.reverie.paint.ui.components.ReChip
+import com.reverie.paint.ui.components.ReIconButton
+import com.reverie.paint.ui.components.ReSectionTitle
+import com.reverie.paint.ui.components.ReSettingRow
+import com.reverie.paint.ui.components.ReSwitch
+import com.reverie.paint.ui.components.ReTextButton
+import com.reverie.paint.ui.components.ReTextInput
+import com.reverie.paint.ui.theme.Theme
+import com.reverie.paint.ui.theme.glassBorder
 
 private val STATUS_GREEN = Color(0xFF5F9E6E)
 private val STATUS_AMBER = Color(0xFFC99E52)
 
 /**
- * 顶栏/主页共用的茶绘状态入口组件。
+ * 顶栏/主页茶绘状态按钮。常态单机画布顶栏不再渲染此按钮 (由 TopBar 调用处判断 vm.collab.isActive)。
  */
 @Composable
 internal fun CollabStatusButton(
@@ -85,12 +91,13 @@ internal fun CollabStatusButton(
     compact: Boolean = true,
     onClick: (() -> Unit)? = null,
 ) {
+    val colors = Theme.current
     val collab = vm.collab
     val isActive = collab.isActive
     val tint = when {
-        !isActive -> Morandi.icon
+        !isActive -> colors.icon
         collab.phase == CollabConnectionPhase.CONNECTED -> STATUS_GREEN
-        collab.phase == CollabConnectionPhase.ERROR -> Morandi.error
+        collab.phase == CollabConnectionPhase.ERROR -> colors.error
         else -> STATUS_AMBER
     }
     val handleClick = {
@@ -105,25 +112,20 @@ internal fun CollabStatusButton(
     }
 
     if (compact) {
-        Box(
-            modifier = Modifier
-                .size(32.dp)
-                .clip(CircleShape)
-                .background(if (isActive) tint.copy(alpha = 0.16f) else Color.Transparent)
-                .clickable(onClick = handleClick),
-            contentAlignment = Alignment.Center,
-        ) {
-            Icon(
-                painter = painterResource(R.drawable.ic_cloud),
-                contentDescription = stringResource(R.string.collab_open_lobby),
+        Box(contentAlignment = Alignment.Center) {
+            ReIconButton(
+                icon = R.drawable.ic_cloud,
+                desc = stringResource(R.string.collab_open_lobby),
+                onTap = handleClick,
                 tint = tint,
-                modifier = Modifier.size(18.dp),
+                size = 32.dp,
+                iconSize = 18.dp,
             )
             if (isActive) {
                 Box(
                     modifier = Modifier
                         .align(Alignment.TopEnd)
-                        .padding(5.dp)
+                        .padding(4.dp)
                         .size(6.dp)
                         .clip(CircleShape)
                         .background(tint),
@@ -131,16 +133,15 @@ internal fun CollabStatusButton(
             }
         }
     } else {
+        val pillShape = RoundedCornerShape(14.dp)
         Row(
             modifier = Modifier
-                .clip(RoundedCornerShape(14.dp))
-                .background(
-                    if (isActive) tint.copy(alpha = 0.16f) else Morandi.panelHi,
-                )
+                .clip(pillShape)
+                .background(if (isActive) tint.copy(alpha = 0.16f) else colors.panelHi)
                 .border(
                     width = 1.dp,
-                    color = if (isActive) tint.copy(alpha = 0.45f) else Morandi.border,
-                    shape = RoundedCornerShape(14.dp),
+                    color = if (isActive) tint.copy(alpha = 0.45f) else colors.border,
+                    shape = pillShape,
                 )
                 .clickable(onClick = handleClick)
                 .padding(horizontal = 8.dp, vertical = 5.dp),
@@ -161,12 +162,13 @@ internal fun CollabStatusButton(
             )
             val label = when {
                 !isActive -> stringResource(R.string.collab_open_lobby)
+                collab.phase == CollabConnectionPhase.RECONNECTING -> stringResource(R.string.collab_peer_offline_tag)
                 collab.roomCode.isNotEmpty() -> "${collab.roomCode} · ${collab.peers.size.coerceAtLeast(1)}"
                 else -> stringResource(R.string.collab_status_connecting)
             }
             Text(
                 text = label,
-                color = Morandi.text,
+                color = colors.text,
                 fontSize = 11.sp,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
@@ -176,50 +178,51 @@ internal fun CollabStatusButton(
 }
 
 /**
- * 创建 / 加入茶绘房间大厅弹窗。
+ * 创建(跳新建画布)/加入茶绘大厅弹窗。全量使用项目内置 ReComponents + LiquidSegmentedBar + Theme.current。
  */
 @Composable
 internal fun CollabLobbyDialog(
     vm: PaintViewModel,
     onDismiss: () -> Unit,
 ) {
+    val colors = Theme.current
     LaunchedEffect(Unit) {
         vm.ensureCollabPrefsLoaded()
     }
 
-    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Create, 1 = Join
+    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Create (go CreatePage), 1 = Join
     var nickname by remember(vm.collab.selfName) { mutableStateOf(vm.collab.selfName) }
     var roomCodeInput by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
     var requireApproval by remember { mutableStateOf(false) }
     var maxPeers by remember { mutableIntStateOf(10) }
     var signalingUrl by remember(vm.collab.signalingUrl) { mutableStateOf(vm.collab.signalingUrl) }
+    var turnUrl by remember(vm.collab.customTurnUrl) { mutableStateOf(vm.collab.customTurnUrl) }
+    var turnUser by remember(vm.collab.customTurnUsername) { mutableStateOf(vm.collab.customTurnUsername) }
+    var turnCred by remember(vm.collab.customTurnCredential) { mutableStateOf(vm.collab.customTurnCredential) }
     var showAdvanced by remember { mutableStateOf(false) }
 
-    val fieldColors = OutlinedTextFieldDefaults.colors(
-        focusedBorderColor = Morandi.accent,
-        unfocusedBorderColor = Morandi.border,
-        focusedTextColor = Morandi.text,
-        unfocusedTextColor = Morandi.text,
-        focusedLabelColor = Morandi.accent,
-        unfocusedLabelColor = Morandi.subText,
-        cursorColor = Morandi.accent,
+    val dialogShape = RoundedCornerShape(Dimens.radius * 1.5f)
+    val tabs = listOf(
+        stringResource(R.string.collab_create_room),
+        stringResource(R.string.collab_join_room),
     )
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
         Column(
             modifier = Modifier
-                .widthIn(min = 310.dp, max = 420.dp)
+                .widthIn(min = 310.dp, max = 430.dp)
                 .fillMaxWidth(0.9f)
-                .clip(RoundedCornerShape(18.dp))
-                .background(Morandi.panel)
-                .border(1.dp, Morandi.border, RoundedCornerShape(18.dp))
+                .heightIn(max = 640.dp)
+                .clip(dialogShape)
+                .background(colors.panel)
+                .glassBorder(dialogShape)
                 .padding(18.dp)
                 .verticalScroll(rememberScrollState()),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
         ) {
             Row(
                 modifier = Modifier.fillMaxWidth(),
@@ -233,159 +236,97 @@ internal fun CollabLobbyDialog(
                     Icon(
                         painter = painterResource(R.drawable.ic_cloud),
                         contentDescription = null,
-                        tint = Morandi.accent,
+                        tint = colors.accent,
                         modifier = Modifier.size(20.dp),
                     )
                     Text(
                         text = stringResource(R.string.collab_title),
-                        color = Morandi.text,
+                        color = colors.text,
                         fontSize = 16.sp,
                         fontWeight = FontWeight.SemiBold,
                     )
                 }
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onDismiss),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_x),
-                        contentDescription = stringResource(R.string.common_close),
-                        tint = Morandi.icon,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
+                PanelCloseButton(onClose = onDismiss)
             }
 
-            // 模式切换胶囊: 创建房间 / 加入房间
-            Row(
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .clip(RoundedCornerShape(10.dp))
-                    .background(Morandi.panelHi)
-                    .padding(3.dp),
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                listOf(
-                    0 to stringResource(R.string.collab_create_room),
-                    1 to stringResource(R.string.collab_join_room),
-                ).forEach { (tabIdx, title) ->
-                    val active = selectedTab == tabIdx
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(8.dp))
-                            .background(if (active) Morandi.accent else Color.Transparent)
-                            .clickable { selectedTab = tabIdx }
-                            .padding(vertical = 8.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = title,
-                            color = if (active) Morandi.onAccent else Morandi.subText,
-                            fontSize = 13.sp,
-                            fontWeight = FontWeight.Medium,
-                        )
-                    }
-                }
+            LiquidSegmentedBar(
+                count = tabs.size,
+                selectedIndex = selectedTab,
+                onSelect = { selectedTab = it },
+                modifier = Modifier.fillMaxWidth().height(38.dp),
+            ) { idx, isActive ->
+                Text(
+                    text = tabs[idx],
+                    color = if (isActive) colors.onAccent else colors.subText,
+                    fontSize = 13.sp,
+                    fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Medium,
+                    modifier = Modifier.align(Alignment.Center),
+                )
             }
 
-            OutlinedTextField(
+            ReSectionTitle(stringResource(R.string.collab_nickname))
+            ReTextInput(
                 value = nickname,
                 onValueChange = { nickname = it.take(24) },
-                label = { Text(stringResource(R.string.collab_nickname)) },
-                singleLine = true,
-                colors = fieldColors,
-                modifier = Modifier.fillMaxWidth(),
+                placeholder = stringResource(R.string.collab_nickname_default),
             )
 
-            if (selectedTab == 1) {
-                OutlinedTextField(
+            if (selectedTab == 0) {
+                Text(
+                    text = stringResource(R.string.collab_create_need_canvas),
+                    color = colors.subText,
+                    fontSize = 11.5.sp,
+                    lineHeight = 16.sp,
+                )
+            } else {
+                ReSectionTitle(stringResource(R.string.collab_room_code))
+                ReTextInput(
                     value = roomCodeInput,
                     onValueChange = { raw ->
                         roomCodeInput = CollabTopologyPolicy.normalizeRoomCode(raw).take(6)
                     },
-                    label = { Text(stringResource(R.string.collab_room_code)) },
-                    placeholder = { Text(stringResource(R.string.collab_room_code_hint)) },
-                    singleLine = true,
+                    placeholder = stringResource(R.string.collab_room_code_hint),
                     keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
-                    colors = fieldColors,
-                    modifier = Modifier.fillMaxWidth(),
                 )
                 Text(
                     text = stringResource(R.string.collab_lan_discover_tip),
-                    color = Morandi.subText,
+                    color = colors.subText,
                     fontSize = 11.sp,
                 )
             }
 
-            OutlinedTextField(
+            ReTextInput(
                 value = password,
                 onValueChange = { password = it.take(32) },
-                label = { Text(stringResource(R.string.collab_password_optional)) },
-                singleLine = true,
+                placeholder = stringResource(R.string.collab_password_optional),
                 visualTransformation = PasswordVisualTransformation(),
-                colors = fieldColors,
-                modifier = Modifier.fillMaxWidth(),
             )
 
             if (selectedTab == 0) {
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.SpaceBetween,
+                ReSettingRow(
+                    label = stringResource(R.string.collab_require_approval),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(Dimens.radiusSm))
+                        .background(colors.panelHi),
                 ) {
-                    Text(
-                        text = stringResource(R.string.collab_require_approval),
-                        color = Morandi.text,
-                        fontSize = 13.sp,
-                    )
-                    Switch(
+                    ReSwitch(
                         checked = requireApproval,
-                        onCheckedChange = { requireApproval = it },
-                        colors = SwitchDefaults.colors(
-                            checkedThumbColor = Morandi.onAccent,
-                            checkedTrackColor = Morandi.accent,
-                        ),
+                        onChecked = { requireApproval = it },
                     )
                 }
 
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    Text(
-                        text = stringResource(R.string.collab_max_peers),
-                        color = Morandi.subText,
-                        fontSize = 12.sp,
-                    )
-                    Row(
-                        modifier = Modifier.fillMaxWidth(),
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        listOf(4, 8, 10, 16).forEach { count ->
-                            val selected = maxPeers == count
-                            Box(
-                                modifier = Modifier
-                                    .weight(1f)
-                                    .clip(RoundedCornerShape(8.dp))
-                                    .background(if (selected) Morandi.accent else Morandi.panelHi)
-                                    .border(
-                                        1.dp,
-                                        if (selected) Morandi.accent else Morandi.border,
-                                        RoundedCornerShape(8.dp),
-                                    )
-                                    .clickable { maxPeers = count }
-                                    .padding(vertical = 7.dp),
-                                contentAlignment = Alignment.Center,
-                            ) {
-                                Text(
-                                    text = count.toString(),
-                                    color = if (selected) Morandi.onAccent else Morandi.text,
-                                    fontSize = 12.sp,
-                                    fontWeight = FontWeight.Medium,
-                                )
-                            }
-                        }
+                ReSectionTitle(stringResource(R.string.collab_max_peers))
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    listOf(4, 8, 10, 16).forEach { count ->
+                        ReChip(
+                            text = count.toString(),
+                            selected = maxPeers == count,
+                            onTap = { maxPeers = count },
+                            modifier = Modifier.weight(1f),
+                        )
                     }
                 }
             }
@@ -394,41 +335,59 @@ internal fun CollabLobbyDialog(
                 modifier = Modifier
                     .clip(RoundedCornerShape(6.dp))
                     .clickable { showAdvanced = !showAdvanced }
-                    .padding(vertical = 2.dp),
+                    .padding(vertical = 4.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
                 Text(
-                    text = stringResource(R.string.collab_signaling_url),
-                    color = Morandi.subText,
-                    fontSize = 11.sp,
+                    text = stringResource(R.string.collab_custom_turn_section),
+                    color = colors.subText,
+                    fontSize = 11.5.sp,
+                    fontWeight = FontWeight.Medium,
                 )
                 Icon(
                     painter = painterResource(
                         if (showAdvanced) R.drawable.ic_chevron_down else R.drawable.ic_chevron,
                     ),
                     contentDescription = null,
-                    tint = Morandi.subText,
+                    tint = colors.subText,
                     modifier = Modifier.size(12.dp),
                 )
             }
 
             if (showAdvanced) {
-                OutlinedTextField(
-                    value = signalingUrl,
-                    onValueChange = { signalingUrl = it.trim() },
-                    label = { Text(stringResource(R.string.collab_signaling_url)) },
-                    singleLine = true,
-                    colors = fieldColors,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ReTextInput(
+                        value = signalingUrl,
+                        onValueChange = { signalingUrl = it.trim() },
+                        placeholder = stringResource(R.string.collab_signaling_url),
+                    )
+                    ReTextInput(
+                        value = turnUrl,
+                        onValueChange = { turnUrl = it.trim() },
+                        placeholder = stringResource(R.string.collab_turn_url_hint),
+                    )
+                    if (turnUrl.isNotBlank()) {
+                        ReTextInput(
+                            value = turnUser,
+                            onValueChange = { turnUser = it.trim() },
+                            placeholder = stringResource(R.string.collab_turn_user_hint),
+                        )
+                        ReTextInput(
+                            value = turnCred,
+                            onValueChange = { turnCred = it },
+                            placeholder = stringResource(R.string.collab_turn_pass_hint),
+                            visualTransformation = PasswordVisualTransformation(),
+                        )
+                    }
+                }
             }
 
             val status = vm.collab.statusMessage
             if (!status.isNullOrBlank()) {
                 Text(
                     text = status,
-                    color = if (vm.collab.phase == CollabConnectionPhase.ERROR) Morandi.error else Morandi.accent,
+                    color = if (vm.collab.phase == CollabConnectionPhase.ERROR) colors.error else colors.accent,
                     fontSize = 12.sp,
                 )
             }
@@ -437,41 +396,43 @@ internal fun CollabLobbyDialog(
                 vm.collab.phase == CollabConnectionPhase.JOINING ||
                 vm.collab.phase == CollabConnectionPhase.WAITING_APPROVAL
 
-            Button(
-                onClick = {
-                    if (selectedTab == 0) {
-                        vm.createCollabRoom(
+            Spacer(Modifier.height(2.dp))
+            if (selectedTab == 0) {
+                ReButton(
+                    text = stringResource(R.string.collab_go_create_canvas),
+                    onClick = {
+                        vm.openCreateCanvasForCollab(
                             nickname = nickname,
                             password = password,
                             requireApproval = requireApproval,
                             maxPeers = maxPeers,
                             signalingUrl = signalingUrl,
+                            turnUrl = turnUrl,
+                            turnUsername = turnUser,
+                            turnCredential = turnCred,
                         )
-                    } else {
+                    },
+                    primary = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            } else {
+                val canJoin = !busy && CollabTopologyPolicy.isValidRoomCode(roomCodeInput)
+                ReTextButton(
+                    text = stringResource(R.string.collab_join_now),
+                    onClick = {
                         vm.joinCollabRoom(
                             rawRoomCode = roomCodeInput,
                             nickname = nickname,
                             password = password,
                             signalingUrl = signalingUrl,
+                            turnUrl = turnUrl,
+                            turnUsername = turnUser,
+                            turnCredential = turnCred,
                         )
-                    }
-                },
-                enabled = !busy && (selectedTab == 0 || CollabTopologyPolicy.isValidRoomCode(roomCodeInput)),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Morandi.accent,
-                    contentColor = Morandi.onAccent,
-                ),
-                shape = RoundedCornerShape(10.dp),
-                modifier = Modifier.fillMaxWidth().height(42.dp),
-            ) {
-                Text(
-                    text = if (selectedTab == 0) {
-                        stringResource(R.string.collab_start_hosting)
-                    } else {
-                        stringResource(R.string.collab_join_now)
                     },
-                    fontSize = 13.sp,
-                    fontWeight = FontWeight.SemiBold,
+                    primary = true,
+                    enabled = canJoin,
+                    modifier = Modifier.fillMaxWidth(),
                 )
             }
         }
@@ -479,29 +440,37 @@ internal fun CollabLobbyDialog(
 }
 
 /**
- * 茶绘房间运行面板: 房间码分享、快照同步进度、房主审批与成员管理。
+ * 茶绘房间管理面板: 房间码复制、断线手动/自动重连控制、快照进度、审批、成员、离房/解散后提示保存。
  */
 @Composable
 internal fun CollabRoomSheet(
     vm: PaintViewModel,
     onDismiss: () -> Unit,
 ) {
+    val colors = Theme.current
     val collab = vm.collab
     val context = LocalContext.current
     val copiedPattern = stringResource(R.string.collab_code_copied)
+    val dialogShape = RoundedCornerShape(Dimens.radius * 1.5f)
+    val cardShape = RoundedCornerShape(Dimens.radius)
+
+    val hasPendingP2p = collab.peers.any { it.peerId != collab.selfPeerId && !it.connectedP2P }
+    val showReconnectAction = collab.phase == CollabConnectionPhase.RECONNECTING ||
+        collab.phase == CollabConnectionPhase.ERROR ||
+        hasPendingP2p
 
     Dialog(
         onDismissRequest = onDismiss,
-        properties = DialogProperties(usePlatformDefaultWidth = false),
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
     ) {
         Column(
             modifier = Modifier
                 .widthIn(min = 310.dp, max = 440.dp)
                 .fillMaxWidth(0.92f)
-                .heightIn(max = 580.dp)
-                .clip(RoundedCornerShape(18.dp))
-                .background(Morandi.panel)
-                .border(1.dp, Morandi.border, RoundedCornerShape(18.dp))
+                .heightIn(max = 600.dp)
+                .clip(dialogShape)
+                .background(colors.panel)
+                .glassBorder(dialogShape)
                 .padding(18.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
@@ -514,16 +483,21 @@ internal fun CollabRoomSheet(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
+                    val statusTint = when (collab.phase) {
+                        CollabConnectionPhase.CONNECTED -> STATUS_GREEN
+                        CollabConnectionPhase.ERROR -> colors.error
+                        else -> STATUS_AMBER
+                    }
                     Icon(
                         painter = painterResource(R.drawable.ic_cloud),
                         contentDescription = null,
-                        tint = STATUS_GREEN,
+                        tint = statusTint,
                         modifier = Modifier.size(20.dp),
                     )
                     Column {
                         Text(
                             text = stringResource(R.string.collab_title),
-                            color = Morandi.text,
+                            color = colors.text,
                             fontSize = 16.sp,
                             fontWeight = FontWeight.SemiBold,
                         )
@@ -533,36 +507,23 @@ internal fun CollabRoomSheet(
                                 collab.peers.size.coerceAtLeast(1),
                             )
                             CollabConnectionPhase.WAITING_APPROVAL -> stringResource(R.string.collab_status_waiting_approval)
+                            CollabConnectionPhase.RECONNECTING -> collab.statusMessage ?: stringResource(R.string.collab_peer_offline_tag)
                             CollabConnectionPhase.ERROR -> collab.statusMessage ?: stringResource(R.string.collab_status_idle)
                             else -> stringResource(R.string.collab_status_connecting)
                         }
-                        Text(text = sub, color = Morandi.subText, fontSize = 11.sp)
+                        Text(text = sub, color = colors.subText, fontSize = 11.sp)
                     }
                 }
-                Box(
-                    modifier = Modifier
-                        .size(28.dp)
-                        .clip(CircleShape)
-                        .clickable(onClick = onDismiss),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        painter = painterResource(R.drawable.ic_x),
-                        contentDescription = stringResource(R.string.common_close),
-                        tint = Morandi.icon,
-                        modifier = Modifier.size(16.dp),
-                    )
-                }
+                PanelCloseButton(onClose = onDismiss)
             }
 
-            // 房间码卡片
             if (collab.roomCode.isNotEmpty()) {
                 Row(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(12.dp))
-                        .background(Morandi.panelHi)
-                        .border(1.dp, Morandi.border, RoundedCornerShape(12.dp))
+                        .clip(cardShape)
+                        .background(colors.panelHi)
+                        .glassBorder(cardShape)
                         .padding(horizontal = 14.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -570,48 +531,45 @@ internal fun CollabRoomSheet(
                     Column {
                         Text(
                             text = stringResource(R.string.collab_room_code),
-                            color = Morandi.subText,
+                            color = colors.subText,
                             fontSize = 11.sp,
                         )
                         Text(
                             text = collab.roomCode,
-                            color = Morandi.text,
+                            color = colors.text,
                             fontSize = 22.sp,
                             fontWeight = FontWeight.Bold,
                             letterSpacing = 3.sp,
                         )
                     }
-                    OutlinedButton(
-                        onClick = {
-                            val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
-                                as? android.content.ClipboardManager
-                            cm?.setPrimaryClip(
-                                android.content.ClipData.newPlainText("collab_room_code", collab.roomCode),
+                    Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
+                        if (showReconnectAction) {
+                            ReTextButton(
+                                text = stringResource(R.string.collab_reconnect_now),
+                                onClick = { vm.reconnectCollabNow() },
+                                fontSize = 11.5.sp,
                             )
-                            vm.showActionToast(
-                                message = String.format(copiedPattern, collab.roomCode),
-                                iconRes = R.drawable.ic_copy,
-                            )
-                        },
-                        shape = RoundedCornerShape(8.dp),
-                    ) {
-                        Icon(
-                            painter = painterResource(R.drawable.ic_copy),
-                            contentDescription = null,
-                            tint = Morandi.accent,
-                            modifier = Modifier.size(14.dp),
-                        )
-                        Spacer(Modifier.width(5.dp))
-                        Text(
+                        }
+                        ReTextButton(
                             text = stringResource(R.string.collab_copy_code),
-                            color = Morandi.accent,
-                            fontSize = 12.sp,
+                            icon = R.drawable.ic_copy,
+                            onClick = {
+                                val cm = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                                    as? android.content.ClipboardManager
+                                cm?.setPrimaryClip(
+                                    android.content.ClipData.newPlainText("collab_room_code", collab.roomCode),
+                                )
+                                vm.showActionToast(
+                                    message = String.format(copiedPattern, collab.roomCode),
+                                    iconRes = R.drawable.ic_copy,
+                                )
+                            },
+                            fontSize = 11.5.sp,
                         )
                     }
                 }
             }
 
-            // 初入房 .revp 快照进度条
             if (collab.snapshotTotalChunks > 0) {
                 Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
                     Text(
@@ -620,7 +578,7 @@ internal fun CollabRoomSheet(
                             collab.snapshotReceivedChunks,
                             collab.snapshotTotalChunks,
                         ),
-                        color = Morandi.subText,
+                        color = colors.subText,
                         fontSize = 11.sp,
                     )
                     LinearProgressIndicator(
@@ -628,8 +586,8 @@ internal fun CollabRoomSheet(
                             (collab.snapshotReceivedChunks.toFloat() / collab.snapshotTotalChunks.coerceAtLeast(1))
                                 .coerceIn(0f, 1f)
                         },
-                        color = Morandi.accent,
-                        trackColor = Morandi.panelHi,
+                        color = colors.accent,
+                        trackColor = colors.panelHi,
                         modifier = Modifier.fillMaxWidth().height(5.dp).clip(RoundedCornerShape(3.dp)),
                     )
                 }
@@ -639,29 +597,24 @@ internal fun CollabRoomSheet(
                 modifier = Modifier
                     .weight(1f, fill = false)
                     .verticalScroll(rememberScrollState()),
-                verticalArrangement = Arrangement.spacedBy(10.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                // 房主待审批入房申请
                 if (collab.role == CollabRole.HOST && collab.pendingRequests.isNotEmpty()) {
-                    Text(
-                        text = stringResource(R.string.collab_pending_requests, collab.pendingRequests.size),
-                        color = Morandi.accent,
-                        fontSize = 12.sp,
-                        fontWeight = FontWeight.SemiBold,
-                    )
+                    ReSectionTitle(stringResource(R.string.collab_pending_requests, collab.pendingRequests.size))
                     collab.pendingRequests.forEach { req ->
+                        val itemShape = RoundedCornerShape(Dimens.radiusSm)
                         Row(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .clip(RoundedCornerShape(10.dp))
-                                .background(Morandi.panelHi)
+                                .clip(itemShape)
+                                .background(colors.panelHi)
                                 .padding(horizontal = 10.dp, vertical = 8.dp),
                             verticalAlignment = Alignment.CenterVertically,
                             horizontalArrangement = Arrangement.SpaceBetween,
                         ) {
                             Text(
                                 text = req.name,
-                                color = Morandi.text,
+                                color = colors.text,
                                 fontSize = 13.sp,
                                 fontWeight = FontWeight.Medium,
                                 maxLines = 1,
@@ -669,55 +622,34 @@ internal fun CollabRoomSheet(
                                 modifier = Modifier.weight(1f),
                             )
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(STATUS_GREEN)
-                                        .clickable { vm.approveCollabPeer(req.peerId) }
-                                        .padding(horizontal = 10.dp, vertical = 5.dp),
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.collab_approve),
-                                        color = Color.White,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium,
-                                    )
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Morandi.error.copy(alpha = 0.16f))
-                                        .clickable { vm.rejectCollabPeer(req.peerId) }
-                                        .padding(horizontal = 10.dp, vertical = 5.dp),
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.collab_reject),
-                                        color = Morandi.error,
-                                        fontSize = 11.sp,
-                                        fontWeight = FontWeight.Medium,
-                                    )
-                                }
+                                ReTextButton(
+                                    text = stringResource(R.string.collab_approve),
+                                    onClick = { vm.approveCollabPeer(req.peerId) },
+                                    containerColor = STATUS_GREEN,
+                                    contentColor = Color.White,
+                                    fontSize = 11.sp,
+                                )
+                                ReTextButton(
+                                    text = stringResource(R.string.collab_reject),
+                                    onClick = { vm.rejectCollabPeer(req.peerId) },
+                                    textColor = colors.error,
+                                    fontSize = 11.sp,
+                                )
                             }
                         }
                     }
                 }
 
-                // 在线画师列表
-                Text(
-                    text = stringResource(R.string.collab_peers_title),
-                    color = Morandi.subText,
-                    fontSize = 12.sp,
-                    fontWeight = FontWeight.Medium,
-                )
-
+                ReSectionTitle(stringResource(R.string.collab_peers_title))
                 collab.peers.forEach { peer ->
                     val isSelf = peer.peerId == collab.selfPeerId
                     val isHost = peer.role == CollabRole.HOST
+                    val itemShape = RoundedCornerShape(Dimens.radiusSm)
                     Row(
                         modifier = Modifier
                             .fillMaxWidth()
-                            .clip(RoundedCornerShape(10.dp))
-                            .background(Morandi.panelHi)
+                            .clip(itemShape)
+                            .background(colors.panelHi)
                             .padding(horizontal = 10.dp, vertical = 8.dp),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(8.dp),
@@ -735,7 +667,7 @@ internal fun CollabRoomSheet(
                             ) {
                                 Text(
                                     text = peer.name,
-                                    color = Morandi.text,
+                                    color = colors.text,
                                     fontSize = 13.sp,
                                     fontWeight = FontWeight.Medium,
                                     maxLines = 1,
@@ -745,12 +677,12 @@ internal fun CollabRoomSheet(
                                     Box(
                                         modifier = Modifier
                                             .clip(RoundedCornerShape(4.dp))
-                                            .background(Morandi.accent.copy(alpha = 0.16f))
+                                            .background(colors.accent.copy(alpha = 0.16f))
                                             .padding(horizontal = 5.dp, vertical = 1.dp),
                                     ) {
                                         Text(
                                             text = stringResource(R.string.collab_host_badge),
-                                            color = Morandi.accent,
+                                            color = colors.accent,
                                             fontSize = 10.sp,
                                             fontWeight = FontWeight.SemiBold,
                                         )
@@ -758,89 +690,326 @@ internal fun CollabRoomSheet(
                                 }
                             }
                             if (!isSelf) {
+                                val subLabel = when {
+                                    !peer.signalingOnline && !peer.connectedP2P -> stringResource(R.string.collab_peer_offline_tag)
+                                    peer.connectedP2P -> stringResource(R.string.collab_p2p_ready)
+                                    else -> stringResource(R.string.collab_p2p_pending)
+                                }
                                 Text(
-                                    text = stringResource(
-                                        if (peer.connectedP2P) R.string.collab_p2p_ready else R.string.collab_p2p_pending,
-                                    ),
-                                    color = if (peer.connectedP2P) STATUS_GREEN else Morandi.subText,
+                                    text = subLabel,
+                                    color = if (peer.connectedP2P) STATUS_GREEN else colors.subText,
                                     fontSize = 10.sp,
                                 )
                             }
                         }
                         if (collab.role == CollabRole.HOST && !isSelf) {
                             Row(horizontalArrangement = Arrangement.spacedBy(4.dp)) {
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Morandi.accent.copy(alpha = 0.14f))
-                                        .clickable { vm.handoffCollabHost(peer.peerId) }
-                                        .padding(horizontal = 7.dp, vertical = 4.dp),
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.collab_host_badge),
-                                        color = Morandi.accent,
-                                        fontSize = 10.sp,
-                                    )
-                                }
-                                Box(
-                                    modifier = Modifier
-                                        .clip(RoundedCornerShape(6.dp))
-                                        .background(Morandi.error.copy(alpha = 0.14f))
-                                        .clickable { vm.kickCollabPeer(peer.peerId) }
-                                        .padding(horizontal = 7.dp, vertical = 4.dp),
-                                ) {
-                                    Text(
-                                        text = stringResource(R.string.collab_kick),
-                                        color = Morandi.error,
-                                        fontSize = 10.sp,
-                                    )
-                                }
+                                ReTextButton(
+                                    text = stringResource(R.string.collab_handoff_short),
+                                    onClick = { vm.handoffCollabHost(peer.peerId) },
+                                    fontSize = 10.5.sp,
+                                )
+                                ReTextButton(
+                                    text = stringResource(R.string.collab_kick),
+                                    onClick = { vm.kickCollabPeer(peer.peerId) },
+                                    textColor = colors.error,
+                                    fontSize = 10.5.sp,
+                                )
                             }
                         }
                     }
                 }
             }
 
-            // 底部操作按钮
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                OutlinedButton(
+                ReTextButton(
+                    text = stringResource(R.string.collab_leave_room),
                     onClick = {
-                        vm.leaveCollabRoom()
-                        onDismiss()
+                        vm.requestEndCollabAndPromptSave(closeRoomForAll = false)
                     },
-                    shape = RoundedCornerShape(10.dp),
-                    modifier = Modifier.weight(1f).height(40.dp),
-                ) {
-                    Text(
-                        text = stringResource(R.string.collab_leave_room),
-                        color = Morandi.text,
-                        fontSize = 12.sp,
+                    textColor = colors.text,
+                    fontSize = 12.5.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                if (collab.role == CollabRole.HOST) {
+                    ReTextButton(
+                        text = stringResource(R.string.collab_close_room),
+                        onClick = {
+                            vm.requestEndCollabAndPromptSave(closeRoomForAll = true)
+                        },
+                        containerColor = colors.error,
+                        contentColor = Color.White,
+                        fontSize = 12.5.sp,
+                        modifier = Modifier.weight(1f),
                     )
                 }
-                if (collab.role == CollabRole.HOST) {
-                    Button(
-                        onClick = {
-                            vm.closeCollabRoom()
-                            onDismiss()
-                        },
-                        colors = ButtonDefaults.buttonColors(
-                            containerColor = Morandi.error,
-                            contentColor = Color.White,
-                        ),
-                        shape = RoundedCornerShape(10.dp),
-                        modifier = Modifier.weight(1f).height(40.dp),
-                    ) {
-                        Text(
-                            text = stringResource(R.string.collab_close_room),
-                            fontSize = 12.sp,
-                            fontWeight = FontWeight.SemiBold,
+            }
+        }
+    }
+}
+
+/**
+ * 茶绘结束保存弹窗: 允许房主及全体参与画师将画布保存为带「茶绘」标签的本地工程。
+ */
+@Composable
+internal fun CollabEndSaveDialog(
+    vm: PaintViewModel,
+) {
+    val colors = Theme.current
+    val collab = vm.collab
+    var projectName by remember(collab.endSaveDefaultName) {
+        mutableStateOf(collab.endSaveDefaultName)
+    }
+    val dialogShape = RoundedCornerShape(Dimens.radius * 1.5f)
+
+    Dialog(
+        onDismissRequest = { collab.showEndSaveDialog = false },
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(min = 300.dp, max = 400.dp)
+                .fillMaxWidth(0.88f)
+                .clip(dialogShape)
+                .background(colors.panel)
+                .glassBorder(dialogShape)
+                .padding(18.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_cloud),
+                        contentDescription = null,
+                        tint = colors.accent,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Text(
+                        text = stringResource(R.string.collab_end_save_title),
+                        color = colors.text,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+                PanelCloseButton(onClose = { collab.showEndSaveDialog = false })
+            }
+
+            Text(
+                text = stringResource(R.string.collab_end_save_desc),
+                color = colors.subText,
+                fontSize = 12.sp,
+                lineHeight = 17.sp,
+            )
+
+            ReSectionTitle(stringResource(R.string.collab_end_project_name))
+            ReTextInput(
+                value = projectName,
+                onValueChange = { projectName = it.take(40) },
+                placeholder = stringResource(R.string.collab_end_project_name),
+            )
+
+            ReButton(
+                text = stringResource(R.string.collab_end_save_stay),
+                onClick = { vm.saveCollabArtwork(projectName, exitToHome = false) },
+                primary = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                ReTextButton(
+                    text = stringResource(R.string.collab_end_discard_exit),
+                    onClick = { vm.discardCollabAndExit() },
+                    textColor = colors.error,
+                    fontSize = 12.sp,
+                    modifier = Modifier.weight(1f),
+                )
+                ReTextButton(
+                    text = stringResource(R.string.collab_end_save_exit),
+                    onClick = { vm.saveCollabArtwork(projectName, exitToHome = true) },
+                    textColor = colors.accent,
+                    fontSize = 12.sp,
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+    }
+}
+
+/**
+ * 新建画布页面内的茶绘开房参数设置弹窗。
+ */
+@Composable
+internal fun CollabCreateConfigDialog(
+    vm: PaintViewModel,
+    onDismiss: () -> Unit,
+) {
+    val colors = Theme.current
+    LaunchedEffect(Unit) { vm.ensureCollabPrefsLoaded() }
+    var nickname by remember(vm.collab.selfName) { mutableStateOf(vm.collab.selfName) }
+    var password by remember(vm.collab.pendingCreatePassword) { mutableStateOf(vm.collab.pendingCreatePassword) }
+    var requireApproval by remember(vm.collab.pendingCreateRequireApproval) {
+        mutableStateOf(vm.collab.pendingCreateRequireApproval)
+    }
+    var maxPeers by remember(vm.collab.pendingCreateMaxPeers) {
+        mutableIntStateOf(vm.collab.pendingCreateMaxPeers)
+    }
+    var signalingUrl by remember(vm.collab.signalingUrl) { mutableStateOf(vm.collab.signalingUrl) }
+    var turnUrl by remember(vm.collab.customTurnUrl) { mutableStateOf(vm.collab.customTurnUrl) }
+    var turnUser by remember(vm.collab.customTurnUsername) { mutableStateOf(vm.collab.customTurnUsername) }
+    var turnCred by remember(vm.collab.customTurnCredential) { mutableStateOf(vm.collab.customTurnCredential) }
+    var showAdvanced by remember { mutableStateOf(false) }
+
+    val dialogShape = RoundedCornerShape(Dimens.radius * 1.5f)
+    Dialog(
+        onDismissRequest = onDismiss,
+        properties = DialogProperties(usePlatformDefaultWidth = false, decorFitsSystemWindows = false),
+    ) {
+        Column(
+            modifier = Modifier
+                .widthIn(min = 310.dp, max = 420.dp)
+                .fillMaxWidth(0.9f)
+                .heightIn(max = 600.dp)
+                .clip(dialogShape)
+                .background(colors.panel)
+                .glassBorder(dialogShape)
+                .padding(18.dp)
+                .verticalScroll(rememberScrollState()),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    text = stringResource(R.string.collab_room_settings_btn),
+                    color = colors.text,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                PanelCloseButton(onClose = onDismiss)
+            }
+
+            ReSectionTitle(stringResource(R.string.collab_nickname))
+            ReTextInput(
+                value = nickname,
+                onValueChange = { nickname = it.take(24) },
+                placeholder = stringResource(R.string.collab_nickname_default),
+            )
+
+            ReTextInput(
+                value = password,
+                onValueChange = { password = it.take(32) },
+                placeholder = stringResource(R.string.collab_password_optional),
+                visualTransformation = PasswordVisualTransformation(),
+            )
+
+            ReSettingRow(
+                label = stringResource(R.string.collab_require_approval),
+                modifier = Modifier
+                    .clip(RoundedCornerShape(Dimens.radiusSm))
+                    .background(colors.panelHi),
+            ) {
+                ReSwitch(checked = requireApproval, onChecked = { requireApproval = it })
+            }
+
+            ReSectionTitle(stringResource(R.string.collab_max_peers))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                listOf(4, 8, 10, 16).forEach { count ->
+                    ReChip(
+                        text = count.toString(),
+                        selected = maxPeers == count,
+                        onTap = { maxPeers = count },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+            }
+
+            Row(
+                modifier = Modifier
+                    .clip(RoundedCornerShape(6.dp))
+                    .clickable { showAdvanced = !showAdvanced }
+                    .padding(vertical = 4.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    text = stringResource(R.string.collab_custom_turn_section),
+                    color = colors.subText,
+                    fontSize = 11.5.sp,
+                )
+                Icon(
+                    painter = painterResource(
+                        if (showAdvanced) R.drawable.ic_chevron_down else R.drawable.ic_chevron,
+                    ),
+                    contentDescription = null,
+                    tint = colors.subText,
+                    modifier = Modifier.size(12.dp),
+                )
+            }
+
+            if (showAdvanced) {
+                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                    ReTextInput(
+                        value = signalingUrl,
+                        onValueChange = { signalingUrl = it.trim() },
+                        placeholder = stringResource(R.string.collab_signaling_url),
+                    )
+                    ReTextInput(
+                        value = turnUrl,
+                        onValueChange = { turnUrl = it.trim() },
+                        placeholder = stringResource(R.string.collab_turn_url_hint),
+                    )
+                    if (turnUrl.isNotBlank()) {
+                        ReTextInput(
+                            value = turnUser,
+                            onValueChange = { turnUser = it.trim() },
+                            placeholder = stringResource(R.string.collab_turn_user_hint),
+                        )
+                        ReTextInput(
+                            value = turnCred,
+                            onValueChange = { turnCred = it },
+                            placeholder = stringResource(R.string.collab_turn_pass_hint),
+                            visualTransformation = PasswordVisualTransformation(),
                         )
                     }
                 }
             }
+
+            ReButton(
+                text = stringResource(R.string.common_save),
+                onClick = {
+                    vm.openCreateCanvasForCollab(
+                        nickname = nickname,
+                        password = password,
+                        requireApproval = requireApproval,
+                        maxPeers = maxPeers,
+                        signalingUrl = signalingUrl,
+                        turnUrl = turnUrl,
+                        turnUsername = turnUser,
+                        turnCredential = turnCred,
+                    )
+                    onDismiss()
+                },
+                primary = true,
+                modifier = Modifier.fillMaxWidth(),
+            )
         }
     }
 }

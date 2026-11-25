@@ -107,4 +107,8 @@ internal fun PaintingGlobalDialogs(
             onDismiss = { vm.collab.showRoomSheet = false },
         )
     }
+
+    if (vm.collab.showEndSaveDialog) {
+        com.reverie.paint.ui.painting.collab.CollabEndSaveDialog(vm = vm)
+    }
 }

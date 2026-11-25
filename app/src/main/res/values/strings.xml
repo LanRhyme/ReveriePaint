@@ -4215,4 +4215,24 @@
     <string name="collab_host_migrated_msg">原房主离线，%1$s 已接管房主</string>
     <string name="collab_open_lobby">多人茶绘</string>
     <string name="collab_lan_discover_tip">输入房主分享的 6 位房间码即可公网 P2P 互联</string>
+    <string name="collab_custom_turn_section">高级网络与自定义 TURN 中继</string>
+    <string name="collab_turn_url_hint">TURN 地址（如 turn:域名:3478，可选）</string>
+    <string name="collab_turn_user_hint">TURN 用户名（可选）</string>
+    <string name="collab_turn_pass_hint">TURN 密码 / 凭证（可选）</string>
+    <string name="collab_reconnect_now">立即重连</string>
+    <string name="collab_reconnecting_msg">网络中断，正在自动重连（第 %1$d 次）…</string>
+    <string name="collab_create_need_canvas">创建房间前需先设定画布尺寸与模板，可先配置下方房间选项再去新建画布</string>
+    <string name="collab_go_create_canvas">新建画布并开房</string>
+    <string name="collab_create_toggle_title">创建为多人茶绘房间</string>
+    <string name="collab_create_toggle_desc">创建画布后自动开启房间并生成 6 位房间码</string>
+    <string name="collab_end_save_title">保存茶绘工程</string>
+    <string name="collab_end_save_desc">茶绘连接已结束，你可将当前合作画布保存为本地工程（自动附带「茶绘」标签）</string>
+    <string name="collab_end_project_name">工程名称</string>
+    <string name="collab_end_save_stay">保存并留在画布</string>
+    <string name="collab_end_save_exit">保存并返回主页</string>
+    <string name="collab_end_discard_exit">不保存退出</string>
+    <string name="gallery_badge_collab">茶绘</string>
+    <string name="collab_handoff_short">转交房主</string>
+    <string name="collab_peer_offline_tag">信令重连中</string>
+    <string name="collab_room_settings_btn">房间设置</string>
 </resources>

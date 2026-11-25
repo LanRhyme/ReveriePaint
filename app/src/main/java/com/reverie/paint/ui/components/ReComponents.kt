@@ -1804,12 +1804,18 @@ fun ReTextInput(
     onValueChange: (String) -> Unit,
     placeholder: String,
     modifier: Modifier = Modifier,
+    visualTransformation: androidx.compose.ui.text.input.VisualTransformation =
+        androidx.compose.ui.text.input.VisualTransformation.None,
+    keyboardOptions: androidx.compose.foundation.text.KeyboardOptions =
+        androidx.compose.foundation.text.KeyboardOptions.Default,
 ) {
     val colors = Theme.current
     androidx.compose.material3.OutlinedTextField(
         value = value,
         onValueChange = onValueChange,
         singleLine = true,
+        visualTransformation = visualTransformation,
+        keyboardOptions = keyboardOptions,
         placeholder = { Text(placeholder, color = colors.subText) },
         colors =
             androidx.compose.material3.OutlinedTextFieldDefaults.colors(

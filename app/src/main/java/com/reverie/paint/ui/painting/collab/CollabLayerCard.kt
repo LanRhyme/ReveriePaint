@@ -18,8 +18,6 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.material3.DropdownMenu
-import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -46,11 +44,16 @@ import com.reverie.paint.model.CollabPermissionPolicy
 import com.reverie.paint.model.CollabRole
 import com.reverie.paint.model.CollabTopologyPolicy
 import com.reverie.paint.model.LayerCollabPermission
-import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.components.Dimens
+import com.reverie.paint.ui.components.ReChip
+import com.reverie.paint.ui.components.ReDropdownMenu
+import com.reverie.paint.ui.components.ReDropdownMenuItem
+import com.reverie.paint.ui.components.ReTextButton
+import com.reverie.paint.ui.theme.Theme
+import com.reverie.paint.ui.theme.glassBorder
 
 /**
- * 图层详情页内的 Magma 式多人茶绘所有权控制卡片:
- * 切换 公共层 / 专属层 / 全锁定, 认领归属或转让给房间内其他画师。
+ * 图层详情页内的 Magma 式多人茶绘所有权控制卡片 (使用项目 ReComponents)。
  */
 @Composable
 internal fun CollabLayerPermissionCard(
@@ -58,6 +61,7 @@ internal fun CollabLayerPermissionCard(
     index: Int,
     layer: PaintViewModel.LayerUiState,
 ) {
+    val colors = Theme.current
     val collab = vm.collab
     val isHost = collab.role == CollabRole.HOST
     val canManage = CollabPermissionPolicy.canManageOwnership(
@@ -68,14 +72,15 @@ internal fun CollabLayerPermissionCard(
     val currentPerm = LayerCollabPermission.fromCode(layer.collabPermission)
     val ownerName = vm.collabOwnerDisplayName(layer.ownerPeerId)
     var showOwnerMenu by remember { mutableStateOf(false) }
+    val cardShape = RoundedCornerShape(Dimens.radius)
 
     Spacer(Modifier.height(10.dp))
     Column(
         modifier = Modifier
             .fillMaxWidth()
-            .clip(RoundedCornerShape(10.dp))
-            .background(Morandi.panelHi)
-            .border(1.dp, Morandi.border, RoundedCornerShape(10.dp))
+            .clip(cardShape)
+            .background(colors.panelHi)
+            .glassBorder(cardShape)
             .padding(10.dp),
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
@@ -91,12 +96,12 @@ internal fun CollabLayerPermissionCard(
                 Icon(
                     painter = painterResource(R.drawable.ic_cloud),
                     contentDescription = null,
-                    tint = Morandi.accent,
+                    tint = colors.accent,
                     modifier = Modifier.size(14.dp),
                 )
                 Text(
                     text = stringResource(R.string.collab_layer_perm_title),
-                    color = Morandi.text,
+                    color = colors.text,
                     fontSize = 12.sp,
                     fontWeight = FontWeight.SemiBold,
                 )
@@ -115,7 +120,7 @@ internal fun CollabLayerPermissionCard(
                 }
                 Text(
                     text = stringResource(R.string.collab_layer_owner_label, ownerName),
-                    color = Morandi.subText,
+                    color = colors.subText,
                     fontSize = 11.sp,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
@@ -130,15 +135,18 @@ internal fun CollabLayerPermissionCard(
                 LayerCollabPermission.LOCKED to stringResource(R.string.collab_layer_perm_locked),
             ).forEach { (perm, label) ->
                 val selected = currentPerm == perm
+                val itemShape = RoundedCornerShape(Dimens.radiusSm)
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .clip(RoundedCornerShape(7.dp))
-                        .background(if (selected) Morandi.accent else Morandi.panel)
-                        .border(
-                            1.dp,
-                            if (selected) Morandi.accent else Morandi.border.copy(alpha = 0.6f),
-                            RoundedCornerShape(7.dp),
+                        .clip(itemShape)
+                        .background(if (selected) colors.accent else colors.panel)
+                        .then(
+                            if (!selected) {
+                                Modifier.border(1.dp, colors.border.copy(alpha = 0.55f), itemShape)
+                            } else {
+                                Modifier
+                            },
                         )
                         .clickable(enabled = canManage) {
                             if (!selected) {
@@ -149,7 +157,7 @@ internal fun CollabLayerPermissionCard(
                 ) {
                     Text(
                         text = label,
-                        color = if (selected) Morandi.onAccent else if (canManage) Morandi.text else Morandi.subText,
+                        color = if (selected) colors.onAccent else if (canManage) colors.text else colors.subText,
                         fontSize = 11.sp,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
                     )
@@ -163,50 +171,30 @@ internal fun CollabLayerPermissionCard(
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
             ) {
                 if (layer.ownerPeerId != collab.selfPeerId) {
-                    Box(
-                        modifier = Modifier
-                            .weight(1f)
-                            .clip(RoundedCornerShape(7.dp))
-                            .background(Morandi.accent.copy(alpha = 0.14f))
-                            .clickable { vm.setCollabLayerOwner(index, collab.selfPeerId) }
-                            .padding(vertical = 6.dp),
-                        contentAlignment = Alignment.Center,
-                    ) {
-                        Text(
-                            text = stringResource(R.string.collab_layer_claim_mine),
-                            color = Morandi.accent,
-                            fontSize = 11.sp,
-                            fontWeight = FontWeight.Medium,
-                        )
-                    }
+                    ReTextButton(
+                        text = stringResource(R.string.collab_layer_claim_mine),
+                        onClick = { vm.setCollabLayerOwner(index, collab.selfPeerId) },
+                        fontSize = 11.sp,
+                        modifier = Modifier.weight(1f),
+                    )
                 }
 
                 val otherPeers = collab.peers.filter { it.peerId != layer.ownerPeerId }
                 if (otherPeers.isNotEmpty()) {
                     Box(modifier = Modifier.weight(1f)) {
-                        Box(
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .clip(RoundedCornerShape(7.dp))
-                                .background(Morandi.panel)
-                                .border(1.dp, Morandi.border, RoundedCornerShape(7.dp))
-                                .clickable { showOwnerMenu = true }
-                                .padding(vertical = 6.dp),
-                            contentAlignment = Alignment.Center,
-                        ) {
-                            Text(
-                                text = stringResource(R.string.collab_layer_transfer_owner),
-                                color = Morandi.text,
-                                fontSize = 11.sp,
-                            )
-                        }
-                        DropdownMenu(
+                        ReChip(
+                            text = stringResource(R.string.collab_layer_transfer_owner),
+                            onTap = { showOwnerMenu = true },
+                            selected = showOwnerMenu,
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        ReDropdownMenu(
                             expanded = showOwnerMenu,
                             onDismissRequest = { showOwnerMenu = false },
                         ) {
                             otherPeers.forEach { target ->
-                                DropdownMenuItem(
-                                    text = { Text(target.name, fontSize = 12.sp) },
+                                ReDropdownMenuItem(
+                                    text = target.name,
                                     onClick = {
                                         showOwnerMenu = false
                                         vm.setCollabLayerOwner(index, target.peerId)
