@@ -38,7 +38,6 @@ import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.collabOwnerDisplayName
-import com.reverie.paint.core.isOrphanedCollabLayer
 import com.reverie.paint.core.setCollabLayerOwner
 import com.reverie.paint.core.setCollabLayerPermission
 import com.reverie.paint.model.CollabPermissionPolicy
@@ -71,7 +70,11 @@ internal fun CollabLayerPermissionCard(
         selfPeerId = collab.selfPeerId,
     )
     val currentPerm = LayerCollabPermission.fromCode(layer.collabPermission)
-    val ownerName = vm.collabOwnerDisplayName(layer.ownerPeerId)
+    val ownerLabelText = if (currentPerm == LayerCollabPermission.SHARED || layer.ownerPeerId.isEmpty()) {
+        stringResource(R.string.collab_layer_mode_shared)
+    } else {
+        stringResource(R.string.collab_layer_owner_label, vm.collabOwnerDisplayName(layer.ownerPeerId))
+    }
     var showOwnerMenu by remember { mutableStateOf(false) }
     val cardShape = RoundedCornerShape(Dimens.radius)
 
@@ -111,7 +114,7 @@ internal fun CollabLayerPermissionCard(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                if (layer.ownerPeerId.isNotEmpty()) {
+                if (currentPerm != LayerCollabPermission.SHARED && layer.ownerPeerId.isNotEmpty()) {
                     Box(
                         modifier = Modifier
                             .size(8.dp)
@@ -120,7 +123,7 @@ internal fun CollabLayerPermissionCard(
                     )
                 }
                 Text(
-                    text = stringResource(R.string.collab_layer_owner_label, ownerName),
+                    text = ownerLabelText,
                     color = colors.subText,
                     fontSize = 11.sp,
                     maxLines = 1,
@@ -129,17 +132,29 @@ internal fun CollabLayerPermissionCard(
             }
         }
 
-        Column(verticalArrangement = Arrangement.spacedBy(4.dp)) {
+        val isSharedMode = currentPerm == LayerCollabPermission.SHARED
+        val isPersonalMode = currentPerm != LayerCollabPermission.SHARED
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
             listOf(
-                LayerCollabPermission.SHARED to stringResource(R.string.collab_layer_perm_shared),
-                LayerCollabPermission.OWNER_ONLY to stringResource(R.string.collab_layer_perm_owner),
-                LayerCollabPermission.LOCKED to stringResource(R.string.collab_layer_perm_locked),
-            ).forEach { (perm, label) ->
-                val selected = currentPerm == perm
+                Triple(
+                    LayerCollabPermission.OWNER_ONLY,
+                    stringResource(R.string.collab_layer_mode_personal),
+                    isPersonalMode,
+                ),
+                Triple(
+                    LayerCollabPermission.SHARED,
+                    stringResource(R.string.collab_layer_mode_shared),
+                    isSharedMode,
+                ),
+            ).forEach { (perm, label, selected) ->
                 val itemShape = RoundedCornerShape(Dimens.radiusSm)
                 Box(
+                    contentAlignment = Alignment.Center,
                     modifier = Modifier
-                        .fillMaxWidth()
+                        .weight(1f)
                         .clip(itemShape)
                         .background(if (selected) colors.accent else colors.panel)
                         .then(
@@ -150,7 +165,7 @@ internal fun CollabLayerPermissionCard(
                             },
                         )
                         .clickable(enabled = canManage) {
-                            if (!selected) {
+                            if (currentPerm != perm) {
                                 vm.setCollabLayerPermission(index, perm)
                             }
                         }
@@ -159,61 +174,52 @@ internal fun CollabLayerPermissionCard(
                     Text(
                         text = label,
                         color = if (selected) colors.onAccent else if (canManage) colors.text else colors.subText,
-                        fontSize = 11.sp,
+                        fontSize = 11.5.sp,
                         fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                        maxLines = 1,
                     )
                 }
             }
         }
 
         if (canManage) {
-            val isOrphan = vm.isOrphanedCollabLayer(layer)
-            Row(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
-            ) {
-                if (layer.ownerPeerId != collab.selfPeerId) {
-                    ReTextButton(
-                        text = stringResource(R.string.collab_layer_claim_mine),
-                        onClick = { vm.setCollabLayerOwner(index, collab.selfPeerId) },
-                        fontSize = 11.sp,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-
-                if (isOrphan && isHost && currentPerm != LayerCollabPermission.SHARED) {
-                    ReTextButton(
-                        text = stringResource(R.string.collab_layer_reclaim_set_shared),
-                        onClick = {
-                            vm.setCollabLayerOwner(index, collab.selfPeerId)
-                            vm.setCollabLayerPermission(index, LayerCollabPermission.SHARED)
-                        },
-                        fontSize = 11.sp,
-                        modifier = Modifier.weight(1f),
-                    )
-                }
-
-                val otherPeers = collab.peers.filter { it.peerId != layer.ownerPeerId }
-                if (otherPeers.isNotEmpty()) {
-                    Box(modifier = Modifier.weight(1f)) {
-                        ReChip(
-                            text = stringResource(R.string.collab_layer_transfer_owner),
-                            onTap = { showOwnerMenu = true },
-                            selected = showOwnerMenu,
-                            modifier = Modifier.fillMaxWidth(),
+            val otherPeers = collab.peers.filter { it.peerId != layer.ownerPeerId }
+            val needsClaim = layer.ownerPeerId != collab.selfPeerId
+            if (needsClaim || otherPeers.isNotEmpty()) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    if (needsClaim) {
+                        ReTextButton(
+                            text = stringResource(R.string.collab_layer_claim_mine),
+                            onClick = { vm.setCollabLayerOwner(index, collab.selfPeerId) },
+                            fontSize = 11.sp,
+                            modifier = Modifier.weight(1f),
                         )
-                        ReDropdownMenu(
-                            expanded = showOwnerMenu,
-                            onDismissRequest = { showOwnerMenu = false },
-                        ) {
-                            otherPeers.forEach { target ->
-                                ReDropdownMenuItem(
-                                    text = target.name,
-                                    onClick = {
-                                        showOwnerMenu = false
-                                        vm.setCollabLayerOwner(index, target.peerId)
-                                    },
-                                )
+                    }
+
+                    if (otherPeers.isNotEmpty()) {
+                        Box(modifier = Modifier.weight(1f)) {
+                            ReChip(
+                                text = stringResource(R.string.collab_layer_transfer_owner),
+                                onTap = { showOwnerMenu = true },
+                                selected = showOwnerMenu,
+                                modifier = Modifier.fillMaxWidth(),
+                            )
+                            ReDropdownMenu(
+                                expanded = showOwnerMenu,
+                                onDismissRequest = { showOwnerMenu = false },
+                            ) {
+                                otherPeers.forEach { target ->
+                                    ReDropdownMenuItem(
+                                        text = target.name,
+                                        onClick = {
+                                            showOwnerMenu = false
+                                            vm.setCollabLayerOwner(index, target.peerId)
+                                        },
+                                    )
+                                }
                             }
                         }
                     }

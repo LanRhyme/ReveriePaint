@@ -754,8 +754,13 @@ private fun PaintViewModel.beginNativeCollabSession(
     initialPeers: List<CollabPeer>,
 ) {
     val cacheDir = File(appContext.cacheDir, "collab").apply { mkdirs() }.absolutePath
+    var startedOk = false
     runCore(render = true, after = {
         if (collab.sessionGeneration == gen) {
+            if (startedOk) {
+                syncLayersFromNative()
+                layerRevision++
+            }
             startCollabPollingLoop(gen)
             refreshUndoCounts()
         }
@@ -770,6 +775,7 @@ private fun PaintViewModel.beginNativeCollabSession(
             cacheDir,
         )
         if (ok) {
+            startedOk = true
             for (p in initialPeers) {
                 if (p.peerId != selfPeerId) {
                     ReverieCoreBridge.collabOnPeerJoined(p.peerId, p.name, p.role == CollabRole.HOST)
@@ -784,7 +790,6 @@ private fun PaintViewModel.beginNativeCollabSession(
             for ((from, payload) in earlySignals) {
                 ReverieCoreBridge.collabOnRemoteSignal(from, payload)
             }
-            syncLayersFromNative()
         }
     }
 }
@@ -896,26 +901,33 @@ private fun PaintViewModel.handleCollabPolledData(gen: Long, eventsJson: String,
                             renderH = h
                         }
                         runCore(render = true, after = {
-                            isBlockingLoading = false
-                            refreshLayerThumbs(force = true)
-                            refreshUndoCounts()
-                            if (collab.pendingAutoFocusOnSnapshot) {
-                                collab.pendingAutoFocusOnSnapshot = false
-                                applyAutoFocusOrCreateCollabLayer()
+                            if (collab.sessionGeneration == gen) {
+                                syncLayersFromNative()
+                                layerRevision++
+                                isBlockingLoading = false
+                                refreshLayerThumbs(force = true)
+                                refreshUndoCounts()
+                                if (collab.pendingAutoFocusOnSnapshot) {
+                                    collab.pendingAutoFocusOnSnapshot = false
+                                    applyAutoFocusOrCreateCollabLayer()
+                                }
                             }
                         }) {
                             displayBufferInvalid = true
-                            syncLayersFromNative()
                         }
                     }
                     "layers_changed" -> {
-                        runCore(render = true, after = {
-                            if (collab.sessionGeneration == gen) {
-                                refreshLayerThumbs(force = false)
-                                refreshUndoCounts()
-                            }
-                        }) {
+                        if (collab.sessionGeneration == gen) {
                             syncLayersFromNative()
+                            layerRevision++
+                            refreshLayerThumbs(force = false)
+                            refreshUndoCounts()
+                            scheduleRender()
+                        }
+                    }
+                    "thumb_dirty" -> {
+                        if (collab.sessionGeneration == gen) {
+                            refreshLayerThumbs(force = false)
                         }
                     }
                 }
@@ -1095,9 +1107,12 @@ private fun PaintViewModel.teardownCollabLocalState(
         if (synchronousNativeStop || renderHandler == null) {
             runCatching { ReverieCoreBridge.collabStopSession() }
         } else {
-            runCore(render = true, after = { refreshUndoCounts() }) {
-                ReverieCoreBridge.collabStopSession()
+            runCore(render = true, after = {
                 syncLayersFromNative()
+                layerRevision++
+                refreshUndoCounts()
+            }) {
+                ReverieCoreBridge.collabStopSession()
             }
         }
     }
@@ -1198,12 +1213,23 @@ internal fun PaintViewModel.ensureCollabLayerEditable(
     val layer = layers.getOrNull(index)
     if (canEditLayerInCollab(layer)) return true
     if (showToast) {
-        val reasonRes = if (layer?.locked == true) {
-            R.string.canvas_toast_layer_locked
-        } else {
-            R.string.collab_layer_no_permission
+        when {
+            layer?.locked == true -> {
+                showActionToast(R.string.canvas_toast_layer_locked, R.drawable.ic_lock)
+            }
+            layer != null &&
+                layer.collabPermission == LayerCollabPermission.OWNER_ONLY.code &&
+                layer.ownerPeerId.isNotEmpty() &&
+                layer.ownerPeerId != collab.selfPeerId -> {
+                showActionToast(
+                    getString(R.string.collab_layer_no_permission_owner, collabOwnerDisplayName(layer.ownerPeerId)),
+                    R.drawable.ic_lock,
+                )
+            }
+            else -> {
+                showActionToast(R.string.collab_layer_no_permission, R.drawable.ic_lock)
+            }
         }
-        showActionToast(reasonRes, R.drawable.ic_lock)
     }
     return false
 }
@@ -1354,6 +1380,16 @@ internal fun PaintViewModel.collabOwnerShortBadgeLabel(ownerPeerId: String): Str
     return getString(R.string.collab_peer_departed_short)
 }
 
+internal fun PaintViewModel.collabOwnerAvatarInitial(ownerPeerId: String): String {
+    if (ownerPeerId.isEmpty()) return getString(R.string.collab_layer_badge_shared_short)
+    if (ownerPeerId == collab.selfPeerId) return getString(R.string.collab_layer_owner_self_short)
+    collab.peers.firstOrNull { it.peerId == ownerPeerId }?.let { peer ->
+        val initial = CollabPermissionPolicy.formatAvatarInitial(peer.name)
+        if (initial.isNotEmpty()) return initial
+    }
+    return getString(R.string.collab_peer_departed_initial)
+}
+
 internal fun PaintViewModel.isOrphanedCollabLayer(layer: PaintViewModel.LayerUiState?): Boolean {
     if (layer == null || !collab.isActive) return false
     return CollabPermissionPolicy.isOrphanedDepartedLayer(
@@ -1393,9 +1429,13 @@ internal fun PaintViewModel.reclaimOrphanedLayers(
     if (orphanedIds.isEmpty()) return
 
     var updatedCount = 0
-    val newOwner = collab.selfPeerId
+    val newOwner = if (makeShared) "" else collab.selfPeerId
     val newPerm = if (makeShared) LayerCollabPermission.SHARED.code else LayerCollabPermission.OWNER_ONLY.code
     runCore(render = false, after = {
+        if (updatedCount > 0) {
+            syncLayersFromNative()
+            layerRevision++
+        }
         refreshLayerThumbs(force = false)
         if (updatedCount > 0) {
             showActionToast(getString(R.string.collab_toast_reclaimed_layers, updatedCount), R.drawable.ic_layers)
@@ -1408,13 +1448,10 @@ internal fun PaintViewModel.reclaimOrphanedLayers(
                 if (ReverieCoreBridge.layerLocked(idx)) {
                     ReverieCoreBridge.setLayerLocked(idx, false)
                 }
-                ReverieCoreBridge.setLayerOwnerPeerId(idx, newOwner)
                 ReverieCoreBridge.setLayerCollabPermission(idx, newPerm)
+                ReverieCoreBridge.setLayerOwnerPeerId(idx, newOwner)
                 updatedCount++
             }
-        }
-        if (updatedCount > 0) {
-            syncLayersFromNative()
         }
     }
 }
@@ -1423,6 +1460,7 @@ internal fun PaintViewModel.applyAutoFocusOrCreateCollabLayer() {
     if (!collab.isActive || currentPage != Page.PAINTING || layers.isEmpty()) return
     val current = layers.getOrNull(currentLayerIndex)
     val currentReady = current != null &&
+        current.ownerPeerId == collab.selfPeerId &&
         canEditLayerInCollab(current) &&
         isLayerTypeSupportedInCollab(current) &&
         !current.isGroup &&
@@ -1466,37 +1504,48 @@ internal fun PaintViewModel.applyAutoFocusOrCreateCollabLayer() {
 }
 
 internal fun PaintViewModel.setCollabLayerPermission(index: Int, perm: LayerCollabPermission) {
-    val curLayer = layers.getOrNull(index)
-    val curOwner = curLayer?.ownerPeerId.orEmpty()
-    val nextOwner = if (perm == LayerCollabPermission.OWNER_ONLY && curOwner.isEmpty()) {
-        collab.selfPeerId
-    } else {
-        curOwner
-    }
-    val unlockNative = perm != LayerCollabPermission.LOCKED && curLayer?.locked == true
+    val curLayer = layers.getOrNull(index) ?: return
+    val curOwner = curLayer.ownerPeerId
+    val unlockNative = perm != LayerCollabPermission.LOCKED && curLayer.locked
     runCore(render = false, after = {
+        syncLayersFromNative()
+        layerRevision++
         refreshLayerThumbs(force = false)
     }) {
         if (unlockNative || (perm != LayerCollabPermission.LOCKED && ReverieCoreBridge.layerLocked(index))) {
             ReverieCoreBridge.setLayerLocked(index, false)
         }
-        if (nextOwner != curOwner) {
-            ReverieCoreBridge.setLayerOwnerPeerId(index, nextOwner)
+        if (perm == LayerCollabPermission.SHARED) {
+            ReverieCoreBridge.setLayerCollabPermission(index, perm.code)
+            if (curOwner.isNotEmpty()) {
+                ReverieCoreBridge.setLayerOwnerPeerId(index, "")
+            }
+        } else {
+            ReverieCoreBridge.setLayerCollabPermission(index, perm.code)
+            if (perm == LayerCollabPermission.OWNER_ONLY && curOwner.isEmpty()) {
+                ReverieCoreBridge.setLayerOwnerPeerId(index, collab.selfPeerId)
+            }
         }
-        ReverieCoreBridge.setLayerCollabPermission(index, perm.code)
-        syncLayersFromNative()
     }
 }
 
 internal fun PaintViewModel.setCollabLayerOwner(index: Int, ownerPeerId: String) {
     runCore(render = false, after = {
+        syncLayersFromNative()
+        layerRevision++
         refreshLayerThumbs(force = false)
     }) {
-        ReverieCoreBridge.setLayerOwnerPeerId(index, ownerPeerId)
-        if (ownerPeerId.isNotEmpty() && ReverieCoreBridge.layerCollabPermission(index) == LayerCollabPermission.SHARED.code) {
-            ReverieCoreBridge.setLayerCollabPermission(index, LayerCollabPermission.OWNER_ONLY.code)
+        if (ownerPeerId.isNotEmpty()) {
+            if (ReverieCoreBridge.layerCollabPermission(index) != LayerCollabPermission.OWNER_ONLY.code) {
+                ReverieCoreBridge.setLayerCollabPermission(index, LayerCollabPermission.OWNER_ONLY.code)
+            }
+            ReverieCoreBridge.setLayerOwnerPeerId(index, ownerPeerId)
+        } else {
+            if (ReverieCoreBridge.layerCollabPermission(index) != LayerCollabPermission.SHARED.code) {
+                ReverieCoreBridge.setLayerCollabPermission(index, LayerCollabPermission.SHARED.code)
+            }
+            ReverieCoreBridge.setLayerOwnerPeerId(index, "")
         }
-        syncLayersFromNative()
     }
 }
 

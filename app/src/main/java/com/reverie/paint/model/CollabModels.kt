@@ -213,10 +213,15 @@ object CollabPermissionPolicy {
             nodeType == LayerNodeType.TRANSPARENCY_MASK
     }
 
-    /** 加入房间/重加载快照后自动选择最上方自己可绘的普通图层: 优先本人专属, 其次公共层, 找不到返回 -1 */
+    /**
+     * 加入房间/重加载快照后自动选择最上方自己可绘的普通图层:
+     * 默认仅匹配本人专属图层 (Magma 风格, 找不到则返回 -1 触发自动建专属层);
+     * 当 [fallbackToShared] 为 true 时兜底选最上方可绘公共层。
+     */
     fun pickAutoFocusLayerIndex(
         layers: List<CollabLayerDescriptor>,
         selfPeerId: String,
+        fallbackToShared: Boolean = false,
     ): Int {
         fun isCandidate(d: CollabLayerDescriptor): Boolean {
             if (d.isBackground || d.isGroup || LayerNodeType.isMask(d.nodeType)) return false
@@ -234,6 +239,7 @@ object CollabPermissionPolicy {
         }
         val ownTop = layers.asReversed().firstOrNull { isCandidate(it) && it.ownerPeerId == selfPeerId }
         if (ownTop != null) return ownTop.index
+        if (!fallbackToShared) return -1
         val sharedTop = layers.asReversed().firstOrNull { isCandidate(it) }
         return sharedTop?.index ?: -1
     }
@@ -257,6 +263,15 @@ object CollabPermissionPolicy {
         val trimmed = rawName.trim()
         if (trimmed.isEmpty()) return ""
         return if (trimmed.length <= maxChars) trimmed else trimmed.take(maxChars) + "…"
+    }
+
+    /** 生成图层右侧归属圆标的单字头像缩写 (支持 Unicode 码点与英文大写) */
+    fun formatAvatarInitial(rawName: String): String {
+        val trimmed = rawName.trim()
+        if (trimmed.isEmpty()) return ""
+        val firstCp = trimmed.codePointAt(0)
+        val charCount = Character.charCount(firstCp)
+        return trimmed.substring(0, charCount).uppercase()
     }
 }
 

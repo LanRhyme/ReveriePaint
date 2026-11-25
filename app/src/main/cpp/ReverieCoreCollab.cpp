@@ -979,6 +979,7 @@ public:
         QByteArray pkt = packMsgHeader(MsgLayerOp);
         QDataStream ds(&pkt, QIODevice::Append);
         ds.setByteOrder(QDataStream::LittleEndian);
+        ds.setFloatingPointPrecision(QDataStream::SinglePrecision);
         writeUtf8(ds, m_selfPeerId);
         ds << quint8(opKind);
         writeUtf8(ds, targetUuid);
@@ -989,7 +990,6 @@ public:
         writeUtf8(ds, aboveUuid);
 
         emitCtrlAction(pkt, /*orderedWithHostSeq=*/true);
-        pushUiEvent(QJsonObject{{"type", QStringLiteral("layers_changed")}});
     }
 
     void emitLayerPixelsInitial(int index)
@@ -2643,6 +2643,7 @@ private:
                         m_core->invalidateStaticUnderlayRect(searchRect);
                         m_core->markStrokeDirty(searchRect);
                         m_core->bumpLayerThumbGen(pl);
+                        pushUiEvent(QJsonObject{{"type", QStringLiteral("thumb_dirty")}});
                         updated = true;
                     }
                 }
@@ -2716,7 +2717,11 @@ private:
         if (opKind == ReverieCore::CollabLayerAddPaint || opKind == ReverieCore::CollabLayerAddGroup) {
             if (m_core->layerIndexByUuid(layerUuid) < 0) {
                 const int aboveIdx = m_core->layerIndexByUuid(aboveUuid);
-                if (aboveIdx >= 0) m_core->m_currentLayer = aboveIdx;
+                if (aboveIdx >= 0) {
+                    m_core->m_currentLayer = aboveIdx;
+                } else if (!m_core->m_layers.isEmpty()) {
+                    m_core->m_currentLayer = 0;
+                }
                 const int createdIdx = (opKind == ReverieCore::CollabLayerAddGroup)
                     ? m_core->addGroupLayer(extraStr)
                     : m_core->addLayer(extraStr);
@@ -2725,7 +2730,11 @@ private:
         } else if (opKind == ReverieCore::CollabLayerAddFill) {
             if (m_core->layerIndexByUuid(layerUuid) < 0) {
                 const int aboveIdx = m_core->layerIndexByUuid(aboveUuid);
-                if (aboveIdx >= 0) m_core->m_currentLayer = aboveIdx;
+                if (aboveIdx >= 0) {
+                    m_core->m_currentLayer = aboveIdx;
+                } else if (!m_core->m_layers.isEmpty()) {
+                    m_core->m_currentLayer = 0;
+                }
                 if (m_core->addLayerWithType(extraStr, ReverieCore::LayerTypeFill, static_cast<quint32>(extraInt))) {
                     bindRemoteCreatedNode(m_core->m_currentLayer);
                 }
@@ -3410,13 +3419,15 @@ bool ReverieCore::collabStartSession(const QString &roomCode,
     m_collabActive = true;
     clearUndoHistory();
     m_undoCaptureEnabled = false;
-    // 房主建房时, 为所有已有非背景图层补齐房主所有权 (若原为空)
+    // 房主建房时, 为所有已有非背景图层补齐房主专属所有权 (若原为空)
     if (selfPeerId == hostPeerId) {
         std::lock_guard<std::mutex> mirrorLock(m_layerMirrorMutex);
         for (int i = 1; i < m_layers.size(); ++i) {
             if (m_layers[i].node && m_layers[i].ownerPeerId.isEmpty()) {
                 m_layers[i].ownerPeerId = selfPeerId;
+                m_layers[i].collabPermission = 1;
                 reverie::setLayerProperty(m_layers[i].node, "reverie_owner", selfPeerId);
+                reverie::setLayerProperty(m_layers[i].node, "reverie_collab_perm", 1);
             }
         }
     }

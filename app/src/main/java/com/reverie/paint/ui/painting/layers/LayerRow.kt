@@ -1005,113 +1005,6 @@ internal fun LayerRowContent(
                     }
                 }
                 val panelTitle = vm.drawUnitTitleForPanelGroup(layer.index)
-                if (vm.collab.isActive && !isBg) {
-                    val colors = Theme.current
-                    val perm = LayerCollabPermission.fromCode(layer.collabPermission)
-                    val canManage = vm.canManageLayerOwnershipInCollab(layer)
-                    val isOrphan = vm.isOrphanedCollabLayer(layer)
-                    val hasOwner = layer.ownerPeerId.isNotEmpty()
-                    val ownerTint = if (hasOwner) {
-                        Color(CollabTopologyPolicy.assignBadgeColorArgb(layer.ownerPeerId))
-                    } else {
-                        Morandi.accent
-                    }
-                    val pillFg = when {
-                        isOrphan -> colors.error
-                        perm == LayerCollabPermission.LOCKED || layer.locked -> Morandi.subText
-                        perm == LayerCollabPermission.OWNER_ONLY -> ownerTint
-                        else -> Morandi.accent
-                    }
-                    val effectivelyLocked = layer.locked || perm == LayerCollabPermission.LOCKED
-                    val pillBg = pillFg.copy(alpha = 0.15f)
-                    val pillText = when {
-                        effectivelyLocked -> stringResource(R.string.collab_layer_badge_locked)
-                        perm == LayerCollabPermission.OWNER_ONLY -> vm.collabOwnerShortBadgeLabel(layer.ownerPeerId)
-                        else -> stringResource(R.string.collab_layer_badge_shared)
-                    }
-                    var showPermMenu by remember { mutableStateOf(false) }
-
-                    Box {
-                        Row(
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.spacedBy(3.dp),
-                            modifier = Modifier
-                                .clip(RoundedCornerShape(4.dp))
-                                .background(pillBg)
-                                .then(
-                                    if (interactiveCollabPill) {
-                                        Modifier.noRippleClickable {
-                                            if (canManage) {
-                                                showPermMenu = true
-                                            } else {
-                                                vm.showActionToast(R.string.collab_layer_props_no_permission, R.drawable.ic_lock)
-                                            }
-                                        }
-                                    } else {
-                                        Modifier
-                                    },
-                                )
-                                .padding(horizontal = 4.dp, vertical = 1.dp),
-                        ) {
-                            if (hasOwner) {
-                                Box(
-                                    modifier = Modifier
-                                        .size(6.dp)
-                                        .clip(CircleShape)
-                                        .background(ownerTint),
-                                )
-                            }
-                            Text(
-                                text = pillText,
-                                color = pillFg,
-                                fontSize = 8.5.sp,
-                                fontWeight = FontWeight.SemiBold,
-                                maxLines = 1,
-                            )
-                        }
-                        if (interactiveCollabPill) {
-                            ReDropdownMenu(
-                                expanded = showPermMenu,
-                                onDismissRequest = { showPermMenu = false },
-                            ) {
-                                ReDropdownMenuItem(
-                                    text = stringResource(R.string.collab_layer_perm_shared),
-                                    selected = !effectivelyLocked && perm == LayerCollabPermission.SHARED,
-                                    onClick = {
-                                        showPermMenu = false
-                                        vm.setCollabLayerPermission(layer.index, LayerCollabPermission.SHARED)
-                                    },
-                                )
-                                ReDropdownMenuItem(
-                                    text = stringResource(R.string.collab_layer_perm_owner),
-                                    selected = !effectivelyLocked && perm == LayerCollabPermission.OWNER_ONLY,
-                                    onClick = {
-                                        showPermMenu = false
-                                        vm.setCollabLayerPermission(layer.index, LayerCollabPermission.OWNER_ONLY)
-                                    },
-                                )
-                                ReDropdownMenuItem(
-                                    text = stringResource(R.string.collab_layer_perm_locked),
-                                    selected = effectivelyLocked,
-                                    onClick = {
-                                        showPermMenu = false
-                                        vm.setCollabLayerPermission(layer.index, LayerCollabPermission.LOCKED)
-                                    },
-                                )
-                                if (layer.ownerPeerId != vm.collab.selfPeerId) {
-                                    ReDropdownMenuItem(
-                                        text = stringResource(R.string.collab_layer_claim_mine),
-                                        icon = R.drawable.ic_cloud,
-                                        onClick = {
-                                            showPermMenu = false
-                                            vm.setCollabLayerOwner(layer.index, vm.collab.selfPeerId)
-                                        },
-                                    )
-                                }
-                            }
-                        }
-                    }
-                }
                 Text(
                     text = panelTitle ?: layerDisplayName(layer.name),
                     color = Morandi.text,
@@ -1255,13 +1148,163 @@ internal fun LayerRowContent(
                     modifier = Modifier.size(13.dp),
                 )
             }
-            if (layer.locked || isBg || (vm.collab.isActive && !vm.canEditLayerInCollab(layer) && !layer.isGroup)) {
+            if (layer.locked || isBg || (vm.collab.isActive && layer.collabPermission == LayerCollabPermission.LOCKED.code)) {
                 Icon(
                     painterResource(R.drawable.ic_lock),
                     contentDescription = stringResource(R.string.layer_locked),
                     tint = if (selected) Morandi.text.copy(alpha = 0.85f) else Morandi.subText,
                     modifier = Modifier.size(13.dp),
                 )
+            }
+            if (vm.collab.isActive && !isBg) {
+                CollabLayerOwnerBadge(
+                    vm = vm,
+                    layer = layer,
+                    interactive = interactiveCollabPill,
+                    pressGate = pressGate,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CollabLayerOwnerBadge(
+    vm: PaintViewModel,
+    layer: PaintViewModel.LayerUiState,
+    interactive: Boolean,
+    pressGate: LayerRowPressGate?,
+) {
+    val colors = Theme.current
+    val perm = LayerCollabPermission.fromCode(layer.collabPermission)
+    val isExclusive = perm != LayerCollabPermission.SHARED && layer.ownerPeerId.isNotEmpty()
+    val isSelf = layer.ownerPeerId == vm.collab.selfPeerId
+    val isOrphan = vm.isOrphanedCollabLayer(layer)
+    val canManage = vm.canManageLayerOwnershipInCollab(layer)
+    val ownerTint = if (layer.ownerPeerId.isNotEmpty()) {
+        Color(CollabTopologyPolicy.assignBadgeColorArgb(layer.ownerPeerId))
+    } else {
+        Morandi.subText
+    }
+    val fgColor = when {
+        isOrphan -> colors.error
+        isExclusive -> ownerTint
+        else -> Morandi.subText
+    }
+    val bgColor = when {
+        isExclusive -> ownerTint.copy(alpha = if (isSelf) 0.24f else 0.18f)
+        else -> Morandi.panelHi.copy(alpha = 0.7f)
+    }
+    val borderColor = when {
+        isOrphan -> colors.error.copy(alpha = 0.85f)
+        isExclusive && isSelf -> ownerTint
+        isExclusive -> ownerTint.copy(alpha = 0.65f)
+        else -> Morandi.border.copy(alpha = 0.45f)
+    }
+    val labelText = if (isExclusive) {
+        vm.collabOwnerAvatarInitial(layer.ownerPeerId)
+    } else {
+        stringResource(R.string.collab_layer_badge_shared_short)
+    }
+    var showMenu by remember { mutableStateOf(false) }
+
+    Box {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(20.dp)
+                .clip(CircleShape)
+                .background(bgColor)
+                .border(if (isExclusive) 1.2.dp else 1.dp, borderColor, CircleShape)
+                .then(
+                    if (interactive && pressGate != null) {
+                        Modifier.pointerInput(Unit) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                pressGate.pressedInside = true
+                                try {
+                                    while (true) {
+                                        val ev = awaitPointerEvent()
+                                        if (ev.changes.all { it.changedToUpIgnoreConsumed() || !it.pressed }) break
+                                    }
+                                } finally {
+                                    pressGate.pressedInside = false
+                                }
+                            }
+                        }
+                    } else {
+                        Modifier
+                    },
+                )
+                .then(
+                    if (interactive) {
+                        Modifier.noRippleClickable {
+                            if (canManage) {
+                                showMenu = true
+                            } else {
+                                val ownerName = vm.collabOwnerDisplayName(layer.ownerPeerId)
+                                vm.showActionToast(
+                                    vm.appContext.getString(R.string.collab_layer_owner_toast, ownerName),
+                                    R.drawable.ic_cloud,
+                                )
+                            }
+                        }
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
+            Text(
+                text = labelText,
+                color = fgColor,
+                fontSize = if (isExclusive) 9.sp else 8.sp,
+                fontWeight = if (isExclusive) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 1,
+            )
+        }
+        if (interactive) {
+            ReDropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false },
+            ) {
+                if (!isExclusive) {
+                    ReDropdownMenuItem(
+                        text = stringResource(R.string.collab_layer_claim_mine),
+                        icon = R.drawable.ic_cloud,
+                        onClick = {
+                            showMenu = false
+                            vm.setCollabLayerOwner(layer.index, vm.collab.selfPeerId)
+                        },
+                    )
+                } else {
+                    ReDropdownMenuItem(
+                        text = stringResource(R.string.collab_layer_release_shared),
+                        onClick = {
+                            showMenu = false
+                            vm.setCollabLayerPermission(layer.index, LayerCollabPermission.SHARED)
+                        },
+                    )
+                    if (layer.ownerPeerId != vm.collab.selfPeerId) {
+                        ReDropdownMenuItem(
+                            text = stringResource(R.string.collab_layer_claim_mine),
+                            icon = R.drawable.ic_cloud,
+                            onClick = {
+                                showMenu = false
+                                vm.setCollabLayerOwner(layer.index, vm.collab.selfPeerId)
+                            },
+                        )
+                    }
+                    val otherPeers = vm.collab.peers.filter { it.peerId != layer.ownerPeerId }
+                    otherPeers.forEach { target ->
+                        ReDropdownMenuItem(
+                            text = stringResource(R.string.collab_layer_transfer_to, target.name),
+                            onClick = {
+                                showMenu = false
+                                vm.setCollabLayerOwner(layer.index, target.peerId)
+                            },
+                        )
+                    }
+                }
             }
         }
     }

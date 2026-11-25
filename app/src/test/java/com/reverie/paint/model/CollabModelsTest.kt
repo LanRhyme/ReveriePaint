@@ -273,12 +273,14 @@ class CollabModelsTest {
             CollabLayerDescriptor(3, isBackground = false, isGroup = false, isLocked = false, nodeType = 0, ownerPeerId = "other", permissionCode = LayerCollabPermission.OWNER_ONLY.code),
         )
         assertEquals(2, CollabPermissionPolicy.pickAutoFocusLayerIndex(layers, "me"))
-        assertEquals(1, CollabPermissionPolicy.pickAutoFocusLayerIndex(layers, "third"))
+        assertEquals(-1, CollabPermissionPolicy.pickAutoFocusLayerIndex(layers, "third"))
+        assertEquals(1, CollabPermissionPolicy.pickAutoFocusLayerIndex(layers, "third", fallbackToShared = true))
         assertEquals(
             -1,
             CollabPermissionPolicy.pickAutoFocusLayerIndex(
                 layers.filterNot { it.permissionCode == LayerCollabPermission.SHARED.code },
                 "third",
+                fallbackToShared = true,
             ),
         )
 
@@ -320,5 +322,8 @@ class CollabModelsTest {
         assertEquals("", CollabPermissionPolicy.formatShortOwnerLabel("   "))
         assertEquals("Alex", CollabPermissionPolicy.formatShortOwnerLabel("Alex"))
         assertEquals("LanR…", CollabPermissionPolicy.formatShortOwnerLabel("LanRhyme"))
+        assertEquals("", CollabPermissionPolicy.formatAvatarInitial("   "))
+        assertEquals("A", CollabPermissionPolicy.formatAvatarInitial("alice"))
+        assertEquals("小", CollabPermissionPolicy.formatAvatarInitial("小明"))
     }
 }

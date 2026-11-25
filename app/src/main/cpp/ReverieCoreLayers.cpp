@@ -146,7 +146,8 @@ void ReverieCore::collabSyncAddedLayerPlacement(int idx, int addOpKind,
     if (idx <= 0) return;
     collabEmitLayerOp(addOpKind, idx, layerName, 0.0, extraInt);
     if (idx - 1 >= 0 && idx < m_layers.size() &&
-        m_layers[idx].depth < m_layers[idx - 1].depth &&
+        (m_layers[idx].depth < m_layers[idx - 1].depth ||
+         (m_layers[idx - 1].isGroup && m_layers[idx].depth <= m_layers[idx - 1].depth)) &&
         m_layers[idx].node) {
         collabEmitLayerMoved({m_layers[idx].node});
     }
@@ -577,7 +578,7 @@ int ReverieCore::copySelectionToNewLayer(bool cut)
             collabRecordLayerPixelEdit(cutIdx, cutCollabBefore, selBounds, true);
         }
         if (idx >= 0) {
-            collabEmitLayerOp(CollabLayerAddPaint, idx, newName);
+            collabSyncAddedLayerPlacement(idx, CollabLayerAddPaint, newName);
             KisPaintDeviceSP emptyBefore(new KisPaintDevice(cs));
             collabRecordLayerPixelEdit(idx, emptyBefore, selBounds);
         }
