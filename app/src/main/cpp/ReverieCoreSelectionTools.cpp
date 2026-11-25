@@ -240,10 +240,12 @@ void ReverieCore::moveLayerContent(int dx, int dy)
 {
     KisImageSP image = m_document;
     if (!image) return;
+    if (!collabCanEditLayerIndex(m_currentLayer)) return;
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) return;
     if (dx == 0 && dy == 0) return;
 
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
     const bool activeSel = hasSelection();
 
     if (activeSel) {
@@ -289,19 +291,31 @@ void ReverieCore::moveLayerContent(int dx, int dy)
         device->setDirty();
         recompositeProjection();
         markDirty();
-        txn.commit(image->undoAdapter());
-        m_redoCount = 0;
+        finishPixelTransaction(txn);
+        collabRecordLayerPixelEdit(m_currentLayer, collabBefore, QRect());
     } else {
         // Krita MoveNormalNodeStrategy: shift the paint device offset.
         // This is a metadata-only operation — no pixel resampling, no artifacts.
         // We wrap it in a KisTransaction so undo restores the original offset.
         KisTransaction txn(kundo2_i18n("Move"), device);
-        device->moveTo(device->x() + dx, device->y() + dy);
+        if (m_collabActive) {
+            // 协同模式维持画布坐标系一致, 在像素级平移避免本地与远端偏移量错位
+            KisPaintDeviceSP src(new KisPaintDevice(*device));
+            const QRect ext = src->exactBounds();
+            device->clear();
+            if (!ext.isEmpty()) {
+                KisPainter p(device);
+                p.bitBlt(ext.topLeft() + QPoint(dx, dy), src, ext);
+                p.end();
+            }
+        } else {
+            device->moveTo(device->x() + dx, device->y() + dy);
+        }
         device->setDirty();
         recompositeProjection();
         markDirty();
-        txn.commit(image->undoAdapter());
-        m_redoCount = 0;
+        finishPixelTransaction(txn);
+        collabRecordLayerPixelEdit(m_currentLayer, collabBefore, QRect());
     }
 }
 
@@ -319,9 +333,12 @@ void ReverieCore::moveLayerContentLayers(const QVector<int> &layers, int dx, int
 
     // Resolve target devices (deduped, groups skipped)
     QVector<KisPaintDeviceSP> devices;
+    QVector<int> deviceLayerIndices;
+    QVector<KisPaintDeviceSP> deviceCollabBefore;
     QVector<int> targets = layers.isEmpty() ? QVector<int>{m_currentLayer} : layers;
     for (int idx : targets) {
         if (idx < 0 || idx >= m_layers.size()) continue;
+        if (!collabCanEditLayerIndex(idx)) continue;
         KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[idx]);
         if (!dev) continue;
         bool dup = false;
@@ -331,7 +348,11 @@ void ReverieCore::moveLayerContentLayers(const QVector<int> &layers, int dx, int
                 break;
             }
         }
-        if (!dup) devices.append(dev);
+        if (!dup) {
+            devices.append(dev);
+            deviceLayerIndices.append(idx);
+            deviceCollabBefore.append(collabSnapshotLayerBefore(idx));
+        }
     }
     if (devices.isEmpty()) return;
 
@@ -361,6 +382,15 @@ void ReverieCore::moveLayerContentLayers(const QVector<int> &layers, int dx, int
                 QRect tempBounds = temp->exactBounds();
                 p2.bitBlt(tempBounds.topLeft() + QPoint(dx, dy), temp, tempBounds);
                 p2.end();
+            }
+        } else if (m_collabActive) {
+            KisPaintDeviceSP src(new KisPaintDevice(*device));
+            const QRect ext = src->exactBounds();
+            device->clear();
+            if (!ext.isEmpty()) {
+                KisPainter p(device);
+                p.bitBlt(ext.topLeft() + QPoint(dx, dy), src, ext);
+                p.end();
             }
         } else {
             // Krita MoveNormalNodeStrategy: metadata-only offset shift
@@ -394,6 +424,17 @@ void ReverieCore::moveLayerContentLayers(const QVector<int> &layers, int dx, int
         m_redoCount = 0;
     } else {
         qDeleteAll(children);
+    }
+    if (m_collabActive) {
+        QVector<QPair<int, KisPaintDeviceSP>> collabBatch;
+        for (int i = 0; i < deviceLayerIndices.size(); ++i) {
+            if (deviceCollabBefore[i]) {
+                collabBatch.append(qMakePair(deviceLayerIndices[i], deviceCollabBefore[i]));
+            }
+        }
+        if (!collabBatch.isEmpty()) {
+            collabRecordLayerPixelBatch(collabBatch);
+        }
     }
 }
 

@@ -898,7 +898,7 @@ public:
     // normally but push no undo commands (no memory growth, no history),
     // and clearUndoHistory drops all recorded commands. The document image
     // is untouched by both.
-    void setUndoCaptureEnabled(bool on) { m_undoCaptureEnabled = on; }
+    void setUndoCaptureEnabled(bool on) { m_undoCaptureEnabled = m_collabActive ? false : on; }
     void clearUndoHistory();
     // Cap the undo history (number of retained commands). 0 = unlimited.
     // Excess commands are freed from the bottom of the stack on the next
@@ -1343,6 +1343,8 @@ private:
         // Owning paint layer (null for masks/projections): supplies the
         // alpha-lock channel flags for the writeback
         class KisPaintLayer *layer = nullptr;
+        int layerIndex = -1;
+        KisPaintDeviceSP collabBefore;
     };
     QVector<LiquifyTarget> m_liquifyTargets;
     bool m_liquifyTxnActive = false;   // a bracketed drag session is open
@@ -1485,6 +1487,7 @@ private:
     };
     StrokeStashPatch m_strokeStash;
     KisTransaction *m_openRestoreTransaction = nullptr;
+    KisPaintDeviceSP m_openRestoreBeforeDev;
     ParallelStrokeJobsExecutor m_fakeExecutor;
 
     // Stroke batching
@@ -1917,6 +1920,15 @@ private:
     void collabOnLocalStrokeFlushed();
     void collabOnLocalStrokeEnd(const QRect &dirtyRect);
     void collabOnLocalStrokeCancel();
+    bool collabCanEditLayerIndex(int index) const;
+    KisPaintDeviceSP collabSnapshotLayerBefore(int layerIndex) const;
+    void collabRecordLayerPixelEdit(int layerIndex, const KisPaintDeviceSP &beforeDev,
+                                    const QRect &hintRect, bool isEraserLike = false);
+    void collabRecordLayerPixelBatch(const QVector<QPair<int, KisPaintDeviceSP>> &beforeList,
+                                     const QVector<QRect> &hintRects = QVector<QRect>(),
+                                     bool isEraserLike = false);
+    void finishPixelTransaction(KisTransaction &txn);
+    void finishPixelTransactionPtr(KisTransaction *txn);
 };
 
 #endif // REVERIECORE_H

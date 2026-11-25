@@ -128,4 +128,23 @@ class CollabModelsTest {
         assertFalse(offlinePeer.signalingOnline)
         assertEquals(CollabTopologyPolicy.assignBadgeColorArgb("p1"), offlinePeer.badgeColorArgb)
     }
+
+    @Test
+    fun `协同模式下像素工具写入门禁与画布尺寸保护正确`() {
+        assertTrue(CollabToolSupportPolicy.canResizeOrCropCanvas(inCollab = false))
+        assertFalse(CollabToolSupportPolicy.canResizeOrCropCanvas(inCollab = true))
+
+        assertTrue(CollabToolSupportPolicy.requiresLayerWritePermission(Tool.FILL))
+        assertTrue(CollabToolSupportPolicy.requiresLayerWritePermission(Tool.ENCLOSE_FILL))
+        assertTrue(CollabToolSupportPolicy.requiresLayerWritePermission(Tool.GRADIENT))
+        assertTrue(CollabToolSupportPolicy.requiresLayerWritePermission(Tool.LIQUIFY))
+        assertTrue(CollabToolSupportPolicy.requiresLayerWritePermission(Tool.TRANSFORM))
+        assertTrue(CollabToolSupportPolicy.requiresLayerWritePermission(Tool.SHAPES))
+        assertTrue(CollabToolSupportPolicy.requiresLayerWritePermission(Tool.TEXT))
+
+        assertFalse(CollabToolSupportPolicy.requiresLayerWritePermission(Tool.PICKER))
+        assertFalse(CollabToolSupportPolicy.requiresLayerWritePermission(Tool.LASSO))
+        assertFalse(CollabToolSupportPolicy.requiresLayerWritePermission(Tool.MAGICWAND))
+        assertFalse(CollabToolSupportPolicy.requiresLayerWritePermission(Tool.PAN))
+    }
 }

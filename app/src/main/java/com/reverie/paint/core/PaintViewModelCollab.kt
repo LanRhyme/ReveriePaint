@@ -1095,6 +1095,24 @@ internal fun PaintViewModel.canEditLayerInCollab(layer: PaintViewModel.LayerUiSt
     )
 }
 
+internal fun PaintViewModel.ensureCollabLayerEditable(
+    index: Int = currentLayerIndex,
+    showToast: Boolean = true,
+): Boolean {
+    if (!collab.isActive) return true
+    val layer = layers.getOrNull(index)
+    if (canEditLayerInCollab(layer)) return true
+    if (showToast) {
+        val reasonRes = if (layer?.locked == true) {
+            R.string.canvas_toast_layer_locked
+        } else {
+            R.string.collab_layer_no_permission
+        }
+        showActionToast(reasonRes, R.drawable.ic_lock)
+    }
+    return false
+}
+
 internal fun PaintViewModel.setCollabLayerPermission(index: Int, perm: LayerCollabPermission) {
     val curOwner = layers.getOrNull(index)?.ownerPeerId.orEmpty()
     val nextOwner = if (perm == LayerCollabPermission.OWNER_ONLY && curOwner.isEmpty()) {

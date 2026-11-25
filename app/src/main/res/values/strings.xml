@@ -4200,6 +4200,7 @@
     <string name="collab_p2p_ready">P2P 直连</string>
     <string name="collab_p2p_pending">握手中</string>
     <string name="collab_layer_no_permission">当前图层受 Magma 权限保护，无法绘制</string>
+    <string name="collab_canvas_resize_disabled">茶绘进行中暂不支持修改画布尺寸或裁剪</string>
     <string name="collab_layer_perm_title">茶绘图层权限</string>
     <string name="collab_layer_perm_shared">公共层（全员可画）</string>
     <string name="collab_layer_perm_owner">专属层（仅拥有者可画）</string>

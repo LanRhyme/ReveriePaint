@@ -2475,6 +2475,7 @@ bool ReverieCore::restoreStashedStrokePatchOpen()
     }
 
     invalidateRedoState("stroke-stash-restore");
+    m_openRestoreBeforeDev = collabSnapshotLayerBefore(m_currentLayer);
     m_openRestoreTransaction = new KisTransaction(pl->paintDevice());
     if (m_strokeStash.wasIndirect) {
         KisPaintDeviceSP tempDevice = new KisPaintDevice(pl->colorSpace());
@@ -2515,6 +2516,10 @@ void ReverieCore::commitStashedStrokePatch()
         delete m_openRestoreTransaction;
         m_openRestoreTransaction = nullptr;
     }
+    if (m_openRestoreBeforeDev) {
+        collabRecordLayerPixelEdit(m_currentLayer, m_openRestoreBeforeDev, m_strokeStash.bounds);
+        m_openRestoreBeforeDev = nullptr;
+    }
     m_strokeStash.valid = false;
     m_strokeStash.wasIndirect = false;
     m_strokeStash.bytes.clear();
@@ -2523,6 +2528,7 @@ void ReverieCore::commitStashedStrokePatch()
 
 void ReverieCore::revertOpenRestorePatch()
 {
+    m_openRestoreBeforeDev = nullptr;
     if (m_openRestoreTransaction) {
         m_openRestoreTransaction->revert();
         delete m_openRestoreTransaction;

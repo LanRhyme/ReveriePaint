@@ -4201,6 +4201,7 @@
     <string name="collab_p2p_ready">P2P Ready</string>
     <string name="collab_p2p_pending">Handshaking</string>
     <string name="collab_layer_no_permission">This layer is protected by Magma ownership</string>
+    <string name="collab_canvas_resize_disabled">Canvas resize or crop is unavailable during collaborative painting</string>
     <string name="collab_layer_perm_title">Collab Layer Permission</string>
     <string name="collab_layer_perm_shared">Shared (All Artists)</string>
     <string name="collab_layer_perm_owner">Owner Only</string>

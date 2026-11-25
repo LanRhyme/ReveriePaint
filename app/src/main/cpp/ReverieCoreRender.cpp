@@ -723,10 +723,12 @@ void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged, in
     ensureRgbU8DifferenceHook();
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return;
+    if (!collabCanEditLayerIndex(m_currentLayer)) return;
     if (x < 0 || y < 0 || x >= image->width() || y >= image->height()) return;
     KisPaintDeviceSP targetDevice = currentPaintDevice();
     if (!targetDevice) return;
     KisPaintDeviceSP srcDevice = sampleMerged ? image->projection() : targetDevice;
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
 
     const int clampedTol = qBound(1, tolerance, 100);
 
@@ -783,8 +785,8 @@ void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged, in
     targetDevice->setDirty();
     recompositeProjection();
     markDirty();
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
+    collabRecordLayerPixelEdit(m_currentLayer, collabBefore, QRect());
 
     if (traceFill) {
         const QRect afterBounds = targetDevice->exactBounds();
@@ -807,6 +809,7 @@ void ReverieCore::encloseAndFill(const QVector<QPoint> &points,
     ensureRgbU8DifferenceHook();
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return;
+    if (!collabCanEditLayerIndex(m_currentLayer)) return;
     QPolygon poly;
     poly.reserve(points.size());
     for (const QPoint &p : points) {
@@ -817,6 +820,7 @@ void ReverieCore::encloseAndFill(const QVector<QPoint> &points,
 
     KisPaintDeviceSP targetDevice = currentPaintDevice();
     if (!targetDevice) return;
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
 
     KisPaintDeviceSP srcDevice;
     if (sampleMerged) {
@@ -914,8 +918,8 @@ void ReverieCore::encloseAndFill(const QVector<QPoint> &points,
     targetDevice->setDirty();
     recompositeProjection();
     markDirty();
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
+    collabRecordLayerPixelEdit(m_currentLayer, collabBefore, QRect());
 
     const QRect afterBounds = targetDevice->exactBounds();
     __android_log_print(ANDROID_LOG_INFO, "RP_FILL",
@@ -949,8 +953,10 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2, bool fille
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return;
+    if (!collabCanEditLayerIndex(m_currentLayer)) return;
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) return;
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
 
     KisTransaction txn(kundo2_i18n("Shape"), device);
     KisPainter painter(device);
@@ -1007,17 +1013,19 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2, bool fille
     if (pl) {
         bumpLayerThumbGen(pl);
     }
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
+    collabRecordLayerPixelEdit(m_currentLayer, collabBefore, dirty);
 }
 
 void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return;
+    if (!collabCanEditLayerIndex(m_currentLayer)) return;
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) return;
     if (points.size() < 2) return;
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
 
     KisTransaction txn(kundo2_i18n("Polygon"), device);
     KisPainter painter(device);
@@ -1075,8 +1083,8 @@ void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
     if (pl) {
         bumpLayerThumbGen(pl);
     }
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
+    collabRecordLayerPixelEdit(m_currentLayer, collabBefore, dirty);
 }
 
 void ReverieCore::gradientFill(int x1, int y1, int x2, int y2, int type, int repeat, bool reverse)
@@ -1092,9 +1100,11 @@ void ReverieCore::gradientFillV3(
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return;
+    if (!collabCanEditLayerIndex(m_currentLayer)) return;
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) return;
     if (x1 == x2 && y1 == y2) return;
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
 
     KisTransaction txn(kundo2_i18n("Gradient"), device);
 
@@ -1281,9 +1291,10 @@ void ReverieCore::gradientFillV3(
     painter.bitBlt(QPoint(0, 0), tempSrc, QRect(0, 0, iw, ih));
 
     device->setDirty();
+    recompositeProjection();
     markDirty();
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
+    collabRecordLayerPixelEdit(m_currentLayer, collabBefore, QRect());
 }
 
 

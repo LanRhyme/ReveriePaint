@@ -31,40 +31,40 @@ static KisNodeSP maskHostNode(const KisNodeSP &mask)
 
 void ReverieCore::flipLayerHorizontal(int index)
 {
-    if (!isLayerEditable(index)) {
+    if (!isLayerEditable(index) || !collabCanEditLayerIndex(index)) {
         return;
     }
     KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
     if (!dev) {
         return;
     }
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(index);
     // Krita-native undo: wrap the pixel flip in a transaction
     KisTransaction txn(kundo2_i18n("FlipH"), dev);
     flipDevice(dev, true);
+    recompositeProjection();
     markDirty();
-    if (m_document) {
-        txn.commit(m_document->undoAdapter());
-        m_redoCount = 0;
-    }
+    finishPixelTransaction(txn);
+    collabRecordLayerPixelEdit(index, collabBefore, QRect());
 }
 
 void ReverieCore::flipLayerVertical(int index)
 {
-    if (!isLayerEditable(index)) {
+    if (!isLayerEditable(index) || !collabCanEditLayerIndex(index)) {
         return;
     }
     KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
     if (!dev) {
         return;
     }
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(index);
     // Krita-native undo: wrap the pixel flip in a transaction
     KisTransaction txn(kundo2_i18n("FlipV"), dev);
     flipDevice(dev, false);
+    recompositeProjection();
     markDirty();
-    if (m_document) {
-        txn.commit(m_document->undoAdapter());
-        m_redoCount = 0;
-    }
+    finishPixelTransaction(txn);
+    collabRecordLayerPixelEdit(index, collabBefore, QRect());
 }
 
 // Mirror one device around the document centre (canvas flip): read the
@@ -120,28 +120,41 @@ void ReverieCore::flipCanvasCommon(bool horizontal)
     const KUndo2MagicString magic =
         horizontal ? kundo2_i18n("Flip Canvas H") : kundo2_i18n("Flip Canvas V");
     QVector<KUndo2Command *> children;
-    for (const LayerEntry &e : m_layers) {
+    QVector<QPair<int, KisPaintDeviceSP>> collabBatch;
+    for (int idx = 0; idx < m_layers.size(); ++idx) {
+        const LayerEntry &e = m_layers[idx];
         if (e.isGroup) {
+            continue;
+        }
+        if (m_collabActive && !collabCanEditLayerIndex(idx)) {
             continue;
         }
         KisPaintDeviceSP dev = layerPaintDeviceFor(e);
         if (!dev) {
             continue;
         }
+        KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(idx);
         invalidateRedoState("flip-canvas");
         KisTransaction *txn = new KisTransaction(magic, dev, nullptr, -1, nullptr);
         flipCanvasDevice(dev, horizontal, docW, docH);
         children << txn->endAndTake();
         delete txn;
+        if (collabBefore) {
+            collabBatch.append(qMakePair(idx, collabBefore));
+        }
     }
     if (children.isEmpty()) {
         return;
     }
+    recompositeProjection();
     markDirty();
     if (m_document) {
         pushUndoCommand(new ReverieCompositeCommand(magic, children));
     } else {
         qDeleteAll(children);
+    }
+    if (!collabBatch.isEmpty()) {
+        collabRecordLayerPixelBatch(collabBatch);
     }
 }
 
@@ -160,7 +173,7 @@ void ReverieCore::flipCanvasVertical()
 // panel use setFillLayerColor instead; keep these two semantics separate.
 void ReverieCore::fillLayer(int index)
 {
-    if (!isLayerEditable(index)) {
+    if (!isLayerEditable(index) || !collabCanEditLayerIndex(index)) {
         return;
     }
     KisImageSP image = m_document;
@@ -171,6 +184,7 @@ void ReverieCore::fillLayer(int index)
     if (!dev) {
         return;
     }
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(index);
     KisTransaction txn(kundo2_i18n("Fill Layer"), dev);
     QColor qColor(m_brushColor);
     if (!qColor.isValid()) qColor = Qt::black;
@@ -191,9 +205,10 @@ void ReverieCore::fillLayer(int index)
     // fillSelection() uses bitBlt, preserving selection, channel locks and compositing.
     painter.fillSelection(docRect, koColor);
     dev->setDirty(docRect);
+    recompositeProjection();
     markDirty();
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
+    collabRecordLayerPixelEdit(index, collabBefore, docRect);
 }
 
 bool ReverieCore::mergeDown(int index)
@@ -227,6 +242,9 @@ bool ReverieCore::mergeDown(int index)
     if (ti < 0 || m_layers[ti].isGroup || m_layers[ti].locked) {
         return false;
     }
+    if (m_collabActive && (!collabCanEditLayerIndex(index) || !collabCanEditLayerIndex(ti))) {
+        return false;
+    }
     if (m_liquifyTxnActive) {
         liquifyCancel();
     }
@@ -256,6 +274,8 @@ bool ReverieCore::mergeDown(int index)
     KisNode *targetNode = m_layers[ti].node;
     const quint8 targetOpacity = targetNode->opacity();
     const quint8 srcOpacity = e.node->opacity();
+    const QString removedUuid = e.uuid;
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(ti);
 
     // Krita-native undo: the pixel merge is one transaction, the layer
     // removal is a remove command. Commit order matters: txn first, remove
@@ -302,6 +322,17 @@ bool ReverieCore::mergeDown(int index)
     syncLayersFromImage();
     m_currentLayer = indexOfNode(targetNode);
     markDirty();
+    if (m_collabActive && !m_collabSuppressEmit) {
+        if (m_currentLayer >= 0 && collabBefore) {
+            collabRecordLayerPixelEdit(m_currentLayer, collabBefore, fullExt);
+        }
+        if (targetOpacity < 255 && m_currentLayer >= 0) {
+            collabEmitLayerOp(CollabLayerOpacity, m_currentLayer, QString(), 1.0);
+        }
+        if (!removedUuid.isEmpty()) {
+            collabEmitLayerOp(CollabLayerRemove, -1, removedUuid);
+        }
+    }
     return true;
 }
 
@@ -809,17 +840,21 @@ bool ReverieCore::invertMask(int layerIndex)
     if (!target) return false;
 
     KisPaintDeviceSP dev;
+    int maskLayerIdx = -1;
     if (reverie::layerProperty(&*target, "reverie_is_transparency_mask").toBool()) {
         if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(target)) {
             dev = pl->paintDevice();
+            maskLayerIdx = layerIndex;
         }
     } else if (KisMask *mask = dynamic_cast<KisMask *>(target)) {
         dev = mask->paintDevice();
+        maskLayerIdx = layerIndex;
     } else if (layerIndex + 1 < m_layers.size() &&
                m_layers[layerIndex + 1].nodeType == NodeTypeTransparencyMask &&
                m_layers[layerIndex + 1].node) {
         if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(m_layers[layerIndex + 1].node)) {
             dev = pl->paintDevice();
+            maskLayerIdx = layerIndex + 1;
         }
     } else {
         // Check if target has a child mask
@@ -828,19 +863,23 @@ bool ReverieCore::invertMask(int layerIndex)
             if (reverie::layerProperty(&*child, "reverie_is_transparency_mask").toBool()) {
                 if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(child.data())) {
                     dev = pl->paintDevice();
+                    maskLayerIdx = indexOfNode(child.data());
                     break;
                 }
             } else if (KisMask *m = dynamic_cast<KisMask *>(child.data())) {
                 dev = m->paintDevice();
+                maskLayerIdx = indexOfNode(child.data());
                 break;
             }
             child = child->nextSibling();
         }
     }
     if (!dev) return false;
+    if (maskLayerIdx >= 0 && !collabCanEditLayerIndex(maskLayerIdx)) return false;
 
     const int iw = image->width();
     const int ih = image->height();
+    KisPaintDeviceSP collabBefore = (maskLayerIdx >= 0) ? collabSnapshotLayerBefore(maskLayerIdx) : KisPaintDeviceSP();
     KisTransaction txn(kundo2_i18n("Invert Mask"), dev);
 
     const int pixelSize = dev->pixelSize();
@@ -865,11 +904,13 @@ bool ReverieCore::invertMask(int layerIndex)
         }
         dev->writeBytes(bytes.constData(), 0, 0, iw, ih);
     }
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
 
     recompositeProjection();
     markDirty();
+    if (collabBefore && maskLayerIdx >= 0) {
+        collabRecordLayerPixelEdit(maskLayerIdx, collabBefore, QRect(0, 0, iw, ih));
+    }
     return true;
 }
 
@@ -929,6 +970,13 @@ bool ReverieCore::applyMask(int layerIndex)
 
     const int iw = image->width();
     const int ih = image->height();
+    const int hostIdx = indexOfNode(parentLayer.data());
+    const int maskIdx = indexOfNode(maskNode.data());
+    if (m_collabActive && (!collabCanEditLayerIndex(hostIdx) || (maskIdx >= 0 && !collabCanEditLayerIndex(maskIdx)))) {
+        return false;
+    }
+    const QString maskUuid = (maskIdx >= 0 && maskIdx < m_layers.size()) ? m_layers[maskIdx].uuid : QString();
+    KisPaintDeviceSP collabBefore = (hostIdx >= 0) ? collabSnapshotLayerBefore(hostIdx) : KisPaintDeviceSP();
 
     beginUndoMacro(QStringLiteral("应用蒙版"));
 
@@ -953,7 +1001,7 @@ bool ReverieCore::applyMask(int layerIndex)
         }
     }
     layerDev->writeBytes(layerBytes.constData(), 0, 0, iw, ih);
-    txn.commit(image->undoAdapter());
+    finishPixelTransaction(txn);
 
     pushUndoCommand(new KisImageLayerRemoveCommand(image, maskNode));
     endUndoMacro();
@@ -963,6 +1011,14 @@ bool ReverieCore::applyMask(int layerIndex)
     const int newIdx = indexOfNode(parentLayer.data());
     if (newIdx >= 0) m_currentLayer = newIdx;
     markDirty();
+    if (m_collabActive && !m_collabSuppressEmit) {
+        if (newIdx >= 0 && collabBefore) {
+            collabRecordLayerPixelEdit(newIdx, collabBefore, QRect(0, 0, iw, ih));
+        }
+        if (!maskUuid.isEmpty()) {
+            collabEmitLayerOp(CollabLayerRemove, -1, maskUuid);
+        }
+    }
     return true;
 }
 

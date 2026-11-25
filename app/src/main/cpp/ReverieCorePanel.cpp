@@ -97,7 +97,7 @@ bool ReverieCore::paintPanelQuad(int layerIndex, const QVector<QPointF> &corners
     }
     // 锁定层 no-op (与 clearLayer 的 isLayerEditable 门对齐): 用户在图层面板
     // 锁定该层后, 分格工具不再写入其像素
-    if (!isLayerEditable(layerIndex)) {
+    if (!isLayerEditable(layerIndex) || !collabCanEditLayerIndex(layerIndex)) {
         return false;
     }
     KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(m_layers[layerIndex].node);
@@ -105,6 +105,7 @@ bool ReverieCore::paintPanelQuad(int layerIndex, const QVector<QPointF> &corners
     KisPaintDeviceSP device = pl->paintDevice();
     if (!device) return false;
 
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(layerIndex);
     KisTransaction txn(kundo2_i18n("Panel Shape"), device);
     KisPainter painter(device);
 
@@ -153,7 +154,7 @@ bool ReverieCore::paintPanelQuad(int layerIndex, const QVector<QPointF> &corners
     device->setDirty();
     markDirty(bbox);
     bumpLayerThumbGen(pl);
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
+    collabRecordLayerPixelEdit(layerIndex, collabBefore, bbox, eraseFill);
     return true;
 }

@@ -296,7 +296,7 @@ internal fun PaintViewModel.notifyLayerChanged(
     // 撤回条刻度同步: undo/redo 之外的历史变化 (图层结构操作 / undoLimit 修剪
     // 等经本函数出口的路径) 也可能改变 undo/redo 计数, 撤回条显示期间补一次
     // 镜像刷新 (2 个 O(1) JNI 整数读); 不可见时不调, 隐藏态由打开路径对齐。
-    if (undoBarVisible) {
+    if (undoBarVisible || collab.isActive) {
         refreshUndoCounts()
     }
 }
@@ -831,6 +831,9 @@ internal fun PaintViewModel.clearLayer(i: Int) {
     if (layer.isBackground || layer.isGroup || layer.nodeType == LayerNodeType.ADJUSTMENT) {
         return
     }
+    if (!ensureCollabLayerEditable(i)) {
+        return
+    }
     if (active3DLayers.containsKey(layer.id)) {
         active3DLayers = active3DLayers - layer.id
     }
@@ -1032,25 +1035,27 @@ internal fun PaintViewModel.setLayerAlphaInherited(
 }
 
 internal fun PaintViewModel.flipLayerHorizontal(i: Int) {
-    runCore(after = ::notifyLayerChanged) {
+    if (!ensureCollabLayerEditable(i)) return
+    runCore(after = { notifyLayerChanged(pixelChanged = true) }) {
         ReverieCoreBridge.flipLayerHorizontal(i)
     }
 }
 
 internal fun PaintViewModel.flipLayerVertical(i: Int) {
-    runCore(after = ::notifyLayerChanged) {
+    if (!ensureCollabLayerEditable(i)) return
+    runCore(after = { notifyLayerChanged(pixelChanged = true) }) {
         ReverieCoreBridge.flipLayerVertical(i)
     }
 }
 
 internal fun PaintViewModel.flipCanvasHorizontal() {
-    runCore(after = ::notifyLayerChanged) {
+    runCore(after = { notifyLayerChanged(pixelChanged = true) }) {
         ReverieCoreBridge.flipCanvasHorizontal()
     }
 }
 
 internal fun PaintViewModel.flipCanvasVertical() {
-    runCore(after = ::notifyLayerChanged) {
+    runCore(after = { notifyLayerChanged(pixelChanged = true) }) {
         ReverieCoreBridge.flipCanvasVertical()
     }
 }
@@ -1108,13 +1113,15 @@ internal fun PaintViewModel.flipCanvasVerticalFull() {
 
 /** 用当前前景色填充整层 (区别于 floodFill 的角点连通区填充)。 */
 internal fun PaintViewModel.fillLayerForeground(i: Int) {
-    runCore(after = ::notifyLayerChanged) {
+    if (!ensureCollabLayerEditable(i)) return
+    runCore(after = { notifyLayerChanged(pixelChanged = true) }) {
         ReverieCoreBridge.fillLayer(i)
     }
 }
 
 /** 修改填充图层的颜色 (区别于 fillLayerForeground, 不污染画笔颜色且支持填充图层与预填色颜料层)。 */
 internal fun PaintViewModel.setFillLayerColor(index: Int, colorInt: Int) {
+    if (!ensureCollabLayerEditable(index)) return
     runCore(after = { notifyLayerChanged(pixelChanged = true) }) {
         ReverieCoreBridge.setFillLayerColor(index, colorInt)
     }
@@ -1396,6 +1403,10 @@ internal fun PaintViewModel.mergeDown(i: Int, onResult: ((Boolean) -> Unit)? = n
         if (upper?.locked == true) {
             showActionToast(R.string.canvas_toast_layer_locked, R.drawable.ic_lock)
         }
+        onResult?.invoke(false)
+        return
+    }
+    if (!ensureCollabLayerEditable(i)) {
         onResult?.invoke(false)
         return
     }

@@ -21,15 +21,17 @@ void ReverieCore::applyFilterMulti(const QVector<int> &indices, int filterId)
 {
     if (indices.isEmpty() || !m_document) return;
     QVector<KUndo2Command *> children;
+    QVector<QPair<int, KisPaintDeviceSP>> collabBatch;
 
     for (int index : indices) {
-        if (!isLayerEditable(index)) continue;
+        if (!isLayerEditable(index) || !collabCanEditLayerIndex(index)) continue;
         KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
         if (!dev) continue;
 
         const QRect ext = dev->extent().intersected(QRect(0, 0, m_docWidth, m_docHeight));
         if (ext.isEmpty()) continue;
 
+        KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(index);
         KisTransaction txn(kundo2_i18n("Filter"), dev);
         QImage origImg(ext.size(), QImage::Format_ARGB32_Premultiplied);
         dev->readBytes(origImg.bits(), ext.x(), ext.y(), ext.width(), ext.height());
@@ -118,12 +120,18 @@ void ReverieCore::applyFilterMulti(const QVector<int> &indices, int filterId)
         if (childCmd) {
             children.append(childCmd);
         }
+        if (collabBefore) {
+            collabBatch.append(qMakePair(index, collabBefore));
+        }
     }
     if (!children.isEmpty()) {
         pushUndoCommand(new ReverieCompositeCommand(kundo2_i18n("Filter"), children));
     }
     recompositeProjection();
     markDirty();
+    if (!collabBatch.isEmpty()) {
+        collabRecordLayerPixelBatch(collabBatch);
+    }
 }
 
 void ReverieCore::applyFilter(int index, int filterId)
@@ -135,7 +143,7 @@ void ReverieCore::beginFilterPreviewMulti(const QVector<int> &indices)
 {
     m_filterBackups.clear();
     for (int index : indices) {
-        if (!isLayerEditable(index)) continue;
+        if (!isLayerEditable(index) || !collabCanEditLayerIndex(index)) continue;
         KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
         if (!dev) continue;
 
@@ -157,19 +165,25 @@ void ReverieCore::commitFilterMulti(const QVector<int> &indices, const QString &
     }
     if (m_document) {
         QVector<KUndo2Command *> children;
+        QVector<QPair<int, KisPaintDeviceSP>> collabBatch;
         const QRect docRect(0, 0, m_docWidth, m_docHeight);
         for (int index : indices) {
-            if (!isLayerEditable(index)) continue;
+            if (!isLayerEditable(index) || !collabCanEditLayerIndex(index)) continue;
             KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
             KisPaintDeviceSP backup = findFilterBackup(index);
             if (!dev || !backup) continue;
             children.append(new ReverieFilterCommitCommand(dev, backup, docRect));
+            collabBatch.append(qMakePair(index, backup));
         }
         if (!children.isEmpty()) {
             pushUndoCommand(new ReverieCompositeCommand(kundo2_i18n(filterName.toUtf8().constData()), children));
         }
+        if (!collabBatch.isEmpty()) {
+            collabRecordLayerPixelBatch(collabBatch);
+        }
     }
     m_filterBackups.clear();
+    recompositeProjection();
     markDirty();
 }
 

@@ -25,6 +25,7 @@
 #include <QtEndian>
 #include <algorithm>
 #include <cmath>
+#include <cstring>
 #include <memory>
 
 namespace {
@@ -33,7 +34,9 @@ constexpr quint32 kCollabProtoVersion = 1;
 constexpr int kSnapshotChunkBytes = 16 * 1024;
 constexpr int kBrushChunkBytes = 16 * 1024;
 constexpr int kStarMaxPeers = 10;
-constexpr int kUndoCap = 30;
+constexpr int kUndoCap = 80;
+constexpr int kHistoryCap = 256;
+constexpr qint64 kHistoryMaxBytes = 64 * 1024 * 1024;
 constexpr int kHostSeqHistoryLimit = 256;
 
 enum WireMsgType : quint8 {
@@ -52,6 +55,8 @@ enum WireMsgType : quint8 {
     MsgLayerOp = 0x19,
     MsgTilePatch = 0x1A,
     MsgTopologyRelay = 0x1B,
+    MsgUndoReq = 0x1C,
+    MsgUndoPatch = 0x1D,
 };
 
 struct InboundPacket {
@@ -180,9 +185,137 @@ bool parseIceServers(const QString &jsonStr, rtc::Configuration &cfg)
     return true;
 }
 
+/** 计算两个同格式绘图层之间真实发生变化的最小包围盒 (64 行带宽 memcmp 快速跳过未变行) */
+QRect computeDeviceDiffRect(const KisPaintDeviceSP &beforeDev,
+                            const KisPaintDeviceSP &afterDev,
+                            const QRect &searchRect)
+{
+    if (!beforeDev || !afterDev || searchRect.isEmpty()) return QRect();
+    const int ps = int(afterDev->pixelSize());
+    if (ps <= 0 || int(beforeDev->pixelSize()) != ps) return searchRect;
+
+    const int x0 = searchRect.x();
+    const int y0 = searchRect.y();
+    const int w = searchRect.width();
+    const int h = searchRect.height();
+    const int rowBytes = w * ps;
+    if (rowBytes <= 0) return QRect();
+
+    constexpr int kBandRows = 64;
+    QByteArray bBuf(rowBytes * kBandRows, Qt::Uninitialized);
+    QByteArray aBuf(rowBytes * kBandRows, Qt::Uninitialized);
+
+    int minX = w;
+    int maxX = -1;
+    int minY = h;
+    int maxY = -1;
+
+    for (int ry = 0; ry < h; ry += kBandRows) {
+        const int rows = qMin(kBandRows, h - ry);
+        beforeDev->readBytes(reinterpret_cast<quint8 *>(bBuf.data()), x0, y0 + ry, w, rows);
+        afterDev->readBytes(reinterpret_cast<quint8 *>(aBuf.data()), x0, y0 + ry, w, rows);
+        const quint8 *bp = reinterpret_cast<const quint8 *>(bBuf.constData());
+        const quint8 *ap = reinterpret_cast<const quint8 *>(aBuf.constData());
+        for (int r = 0; r < rows; ++r) {
+            const quint8 *br = bp + qint64(r) * rowBytes;
+            const quint8 *ar = ap + qint64(r) * rowBytes;
+            if (std::memcmp(br, ar, size_t(rowBytes)) == 0) continue;
+            const int cy = ry + r;
+            if (cy < minY) minY = cy;
+            if (cy > maxY) maxY = cy;
+
+            for (int col = 0; col < minX; ++col) {
+                if (std::memcmp(br + col * ps, ar + col * ps, size_t(ps)) != 0) {
+                    minX = col;
+                    break;
+                }
+            }
+            for (int col = w - 1; col > maxX; --col) {
+                if (std::memcmp(br + col * ps, ar + col * ps, size_t(ps)) != 0) {
+                    maxX = col;
+                    break;
+                }
+            }
+        }
+    }
+    if (maxX < minX || maxY < minY) return QRect();
+    return QRect(x0 + minX, y0 + minY, maxX - minX + 1, maxY - minY + 1);
+}
+
+QByteArray buildChangedMaskCompressed(const QByteArray &rawBefore,
+                                      const QByteArray &rawAfter,
+                                      int pixelCount,
+                                      int ps)
+{
+    if (pixelCount <= 0 || ps <= 0 ||
+        rawBefore.size() < pixelCount * ps || rawAfter.size() < pixelCount * ps) {
+        return QByteArray();
+    }
+    QByteArray mask(pixelCount, 0);
+    const quint8 *b = reinterpret_cast<const quint8 *>(rawBefore.constData());
+    const quint8 *a = reinterpret_cast<const quint8 *>(rawAfter.constData());
+    quint8 *m = reinterpret_cast<quint8 *>(mask.data());
+    if (ps == 4) {
+        const quint32 *b32 = reinterpret_cast<const quint32 *>(b);
+        const quint32 *a32 = reinterpret_cast<const quint32 *>(a);
+        for (int i = 0; i < pixelCount; ++i) {
+            m[i] = (b32[i] != a32[i]) ? 1 : 0;
+        }
+    } else {
+        for (int i = 0; i < pixelCount; ++i) {
+            m[i] = (std::memcmp(b + qint64(i) * ps, a + qint64(i) * ps, size_t(ps)) != 0) ? 1 : 0;
+        }
+    }
+    return qCompress(mask, 4);
+}
+
 } // namespace
 
 namespace reverie {
+
+struct CollabHistoryOp {
+    quint64 seq = 0;
+    QString authorPeerId;
+    quint32 clientOpId = 0;
+    QString layerUuid;
+    QRect rect;
+    bool undone = false;
+
+    bool hasStrokeReplay = false;
+    bool nonStrokeEraserLike = false;
+    bool strokeAlphaLocked = false;
+    QString presetMd5;
+    quint32 seed = 0;
+    QRgb color = 0;
+    float brushSize = 10.0f;
+    float opacity = 1.0f;
+    int toolMode = 0;
+    QVector<CollabSample> samples;
+
+    QByteArray beforeCompressed;
+    QByteArray afterCompressed;
+    QByteArray nonStrokeMaskCompressed;
+
+    qint64 approxBytes() const
+    {
+        return beforeCompressed.size() + afterCompressed.size() + nonStrokeMaskCompressed.size()
+               + qint64(samples.size()) * qint64(sizeof(CollabSample)) + 128;
+    }
+};
+
+struct CollabLocalSubOp {
+    QString layerUuid;
+    QRect rect;
+    QByteArray beforeCompressed;
+    QByteArray afterCompressed;
+    bool hasStrokeReplay = false;
+    bool isEraserLike = false;
+};
+
+struct CollabLocalStep {
+    quint32 clientOpId = 0;
+    QVector<CollabLocalSubOp> ops;
+};
 
 RemoteStrokeSession::~RemoteStrokeSession()
 {
@@ -230,11 +363,18 @@ public:
         m_hostGlobalSeq = 0;
         m_lastAppliedSeq = 0;
         m_localStrokeSeq = 0;
+        m_nextLocalOpId = 0;
         m_hasLoadedSnapshot = m_isHost;
         m_lastWatchdogMs = 0;
         m_seqHistory.clear();
-        m_undoEntries.clear();
-        m_undoIdx = 0;
+        m_myUndoSteps.clear();
+        m_myUndoCursor = 0;
+        m_historyOps.clear();
+        m_nextHistorySeq = 0;
+        m_historyBytes = 0;
+        m_pendingLocalStrokeOp = CollabHistoryOp{};
+        m_localStrokeLiveMuted = false;
+        m_localStrokeUsePatch = false;
         m_active = true;
         m_core->m_isCollabProject = true;
         m_core->m_collabRoomCode = roomCode;
@@ -296,8 +436,15 @@ public:
         m_localBeforeDev = nullptr;
         m_localBeforeLayerUuid.clear();
         m_localStrokeActive = false;
-        m_undoEntries.clear();
-        m_undoIdx = 0;
+        m_localStrokeLiveMuted = false;
+        m_localStrokeUsePatch = false;
+        m_pendingLocalStrokeOp = CollabHistoryOp{};
+        m_myUndoSteps.clear();
+        m_myUndoCursor = 0;
+        m_nextLocalOpId = 0;
+        m_historyOps.clear();
+        m_nextHistorySeq = 0;
+        m_historyBytes = 0;
         m_incomingSnapshot = IncomingSnapshotAssembly{};
     }
 
@@ -456,21 +603,24 @@ public:
     {
         if (!m_active || !m_core->m_document) return;
         const int idx = m_core->m_currentLayer;
-        if (idx <= 0 || idx >= m_core->m_layers.size()) return;
+        if (!m_core->collabCanEditLayer(idx)) return;
         const QString layerUuid = m_core->m_layers[idx].uuid;
         if (layerUuid.isEmpty()) return;
 
-        if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(m_core->m_layers[idx].node)) {
-            if (pl->paintDevice()) {
-                m_localBeforeDev = new KisPaintDevice(*pl->paintDevice());
-                m_localBeforeLayerUuid = layerUuid;
-            }
+        KisPaintDeviceSP dev = m_core->layerPaintDeviceFor(m_core->m_layers[idx]);
+        if (dev) {
+            m_localBeforeDev = new KisPaintDevice(*dev);
+            m_localBeforeLayerUuid = layerUuid;
         }
+        KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(m_core->m_layers[idx].node);
 
-        m_localStrokeSeq++;
+        m_nextLocalOpId++;
+        m_localStrokeSeq = m_nextLocalOpId;
         m_localStrokeActive = true;
         m_localStrokeLayerUuid = layerUuid;
         m_localSentSampleCount = 0;
+        m_localStrokeLiveMuted = m_core->hasSelection();
+        m_localStrokeUsePatch = m_localStrokeLiveMuted;
 
         QString presetMd5;
         QByteArray kppBytes;
@@ -479,6 +629,23 @@ public:
         const QPointF startPos = m_core->m_strokeSamples.isEmpty()
             ? m_core->m_strokeStartImg
             : m_core->m_strokeSamples.first().imgPos;
+
+        m_pendingLocalStrokeOp = CollabHistoryOp{};
+        m_pendingLocalStrokeOp.authorPeerId = m_selfPeerId;
+        m_pendingLocalStrokeOp.clientOpId = m_localStrokeSeq;
+        m_pendingLocalStrokeOp.layerUuid = layerUuid;
+        m_pendingLocalStrokeOp.hasStrokeReplay = true;
+        m_pendingLocalStrokeOp.strokeAlphaLocked = (pl && pl->alphaLocked());
+        m_pendingLocalStrokeOp.presetMd5 = presetMd5;
+        m_pendingLocalStrokeOp.seed = quint32(seed);
+        m_pendingLocalStrokeOp.color = m_core->m_strokeColor.rgba();
+        m_pendingLocalStrokeOp.brushSize = float(m_core->m_brushSize);
+        m_pendingLocalStrokeOp.opacity = float(m_core->m_strokeOpacity);
+        m_pendingLocalStrokeOp.toolMode = int(m_core->m_toolMode);
+
+        if (m_localStrokeLiveMuted) {
+            return;
+        }
 
         QByteArray pkt = packMsgHeader(MsgStrokeBegin);
         QDataStream ds(&pkt, QIODevice::Append);
@@ -510,6 +677,7 @@ public:
         const int startIdx = m_localSentSampleCount;
         const int count = total - startIdx;
         m_localSentSampleCount = total;
+        if (m_localStrokeLiveMuted) return;
 
         QByteArray pkt = packMsgHeader(MsgStrokeDelta);
         QDataStream ds(&pkt, QIODevice::Append);
@@ -529,25 +697,104 @@ public:
     {
         if (!m_active || !m_localStrokeActive) {
             m_localBeforeDev = nullptr;
+            m_localBeforeLayerUuid.clear();
             return;
         }
         onLocalStrokeFlushed();
 
-        // 记录个人独立图层像素撤销栈 (支持 Magma 个人互不干扰撤回)
+        const bool hadSymmetry = m_core->m_mirrorLiveStarted;
+        const bool usePatchOnly = m_localStrokeLiveMuted || hadSymmetry || m_localStrokeUsePatch;
+        const QRect docRect(0, 0, m_core->m_docWidth, m_core->m_docHeight);
         const int idx = m_core->layerIndexByUuid(m_localBeforeLayerUuid);
-        if (m_localBeforeDev && idx >= 0 && idx < m_core->m_layers.size() && !dirtyRect.isEmpty()) {
-            if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(m_core->m_layers[idx].node)) {
-                if (pl->paintDevice()) {
-                    const QRect docRect(0, 0, m_core->m_docWidth, m_core->m_docHeight);
-                    const QRect r = dirtyRect.intersected(docRect);
-                    if (!r.isEmpty()) {
-                        pushPixelUndo(m_localBeforeLayerUuid, r, m_localBeforeDev, pl->paintDevice());
+        QRect exactRect;
+        CollabHistoryOp op = m_pendingLocalStrokeOp;
+        QVector<CollabSample> strokeSamples;
+        strokeSamples.reserve(m_core->m_collabPendingSamples.size());
+        for (const ReverieCore::StrokeSample &s : m_core->m_collabPendingSamples) {
+            strokeSamples.append(CollabSample{
+                float(s.imgPos.x()), float(s.imgPos.y()), float(s.pressure),
+                float(s.tiltX), float(s.tiltY), float(s.rotation), float(s.time)
+            });
+        }
+
+        if (m_localBeforeDev && idx >= 0 && idx < m_core->m_layers.size()) {
+            KisPaintDeviceSP afterDev = m_core->layerPaintDeviceFor(m_core->m_layers[idx]);
+            if (afterDev) {
+                const QRect searchRect = (hadSymmetry || dirtyRect.isEmpty())
+                    ? docRect
+                    : dirtyRect.intersected(docRect);
+                exactRect = computeDeviceDiffRect(m_localBeforeDev, afterDev, searchRect);
+                if (!exactRect.isEmpty()) {
+                    const int pxSize = int(afterDev->pixelSize());
+                    const qint64 byteCount = qint64(exactRect.width()) * exactRect.height() * pxSize;
+                    if (byteCount > 0 && byteCount <= 64LL * 1024 * 1024) {
+                        QByteArray rawBefore(int(byteCount), 0);
+                        QByteArray rawAfter(int(byteCount), 0);
+                        m_localBeforeDev->readBytes(reinterpret_cast<quint8 *>(rawBefore.data()),
+                                                    exactRect.x(), exactRect.y(), exactRect.width(), exactRect.height());
+                        afterDev->readBytes(reinterpret_cast<quint8 *>(rawAfter.data()),
+                                            exactRect.x(), exactRect.y(), exactRect.width(), exactRect.height());
+                        op.rect = exactRect;
+                        op.beforeCompressed = qCompress(rawBefore, 4);
+                        op.afterCompressed = qCompress(rawAfter, 4);
+                        op.nonStrokeEraserLike = (op.toolMode == ReverieCore::ToolEraser);
+                        if (usePatchOnly) {
+                            op.hasStrokeReplay = false;
+                            op.samples.clear();
+                            op.nonStrokeMaskCompressed = buildChangedMaskCompressed(
+                                rawBefore, rawAfter, exactRect.width() * exactRect.height(), pxSize);
+                        } else {
+                            op.hasStrokeReplay = true;
+                            op.samples = strokeSamples;
+                        }
+                        CollabLocalSubOp sub;
+                        sub.layerUuid = op.layerUuid;
+                        sub.rect = exactRect;
+                        sub.beforeCompressed = op.beforeCompressed;
+                        sub.afterCompressed = op.afterCompressed;
+                        sub.hasStrokeReplay = op.hasStrokeReplay;
+                        sub.isEraserLike = op.nonStrokeEraserLike;
+                        pushMyUndoStep(op.clientOpId, {sub});
+                        appendHistoryOp(op);
                     }
                 }
             }
         }
         m_localBeforeDev = nullptr;
         m_localBeforeLayerUuid.clear();
+        m_pendingLocalStrokeOp = CollabHistoryOp{};
+        const bool wasMuted = m_localStrokeLiveMuted;
+        const quint32 endedSeq = m_localStrokeSeq;
+        m_localStrokeLiveMuted = false;
+        m_localStrokeUsePatch = false;
+        m_localStrokeActive = false;
+
+        if (exactRect.isEmpty()) {
+            m_core->m_collabPendingSamples.clear();
+            if (!wasMuted) {
+                QByteArray cancelPkt = packMsgHeader(MsgStrokeCancel);
+                QDataStream cds(&cancelPkt, QIODevice::Append);
+                cds.setByteOrder(QDataStream::LittleEndian);
+                writeUtf8(cds, m_selfPeerId);
+                cds << endedSeq;
+                emitCtrlAction(cancelPkt, /*orderedWithHostSeq=*/false);
+            }
+            return;
+        }
+
+        if (usePatchOnly) {
+            m_core->m_collabPendingSamples.clear();
+            if (!wasMuted) {
+                QByteArray cancelPkt = packMsgHeader(MsgStrokeCancel);
+                QDataStream cds(&cancelPkt, QIODevice::Append);
+                cds.setByteOrder(QDataStream::LittleEndian);
+                writeUtf8(cds, m_selfPeerId);
+                cds << endedSeq;
+                emitCtrlAction(cancelPkt, /*orderedWithHostSeq=*/false);
+            }
+            emitTilePatchPacket(op.layerUuid, exactRect, op.afterCompressed, op.clientOpId, op.nonStrokeEraserLike);
+            return;
+        }
 
         // Commit 包附带整笔完整采样点 (兜底不可靠通道万一丢失的片段)
         const int total = m_core->m_collabPendingSamples.size();
@@ -556,14 +803,13 @@ public:
         ds.setByteOrder(QDataStream::LittleEndian);
         ds.setFloatingPointPrecision(QDataStream::SinglePrecision);
         writeUtf8(ds, m_selfPeerId);
-        ds << quint32(m_localStrokeSeq) << quint32(total);
+        ds << quint32(endedSeq) << quint32(total);
         for (int i = 0; i < total; ++i) {
             const ReverieCore::StrokeSample &s = m_core->m_collabPendingSamples.at(i);
             ds << float(s.imgPos.x()) << float(s.imgPos.y()) << float(s.pressure)
                << float(s.tiltX) << float(s.tiltY) << float(s.rotation) << float(s.time);
         }
         m_core->m_collabPendingSamples.clear();
-        m_localStrokeActive = false;
         emitCtrlAction(pkt, /*orderedWithHostSeq=*/true);
     }
 
@@ -571,14 +817,92 @@ public:
     {
         m_localBeforeDev = nullptr;
         m_localBeforeLayerUuid.clear();
+        m_pendingLocalStrokeOp = CollabHistoryOp{};
+        const bool wasMuted = m_localStrokeLiveMuted;
+        m_localStrokeLiveMuted = false;
+        m_localStrokeUsePatch = false;
         if (!m_active || !m_localStrokeActive) return;
         m_localStrokeActive = false;
+        if (wasMuted) return;
         QByteArray pkt = packMsgHeader(MsgStrokeCancel);
         QDataStream ds(&pkt, QIODevice::Append);
         ds.setByteOrder(QDataStream::LittleEndian);
         writeUtf8(ds, m_selfPeerId);
         ds << quint32(m_localStrokeSeq);
         emitCtrlAction(pkt, /*orderedWithHostSeq=*/false);
+    }
+
+    void recordLocalToolBatch(const QVector<QPair<int, KisPaintDeviceSP>> &beforeList,
+                              const QVector<QRect> &hintRects,
+                              bool isEraserLike)
+    {
+        if (!m_active || !m_core->m_document || beforeList.isEmpty()) return;
+        const QRect docRect(0, 0, m_core->m_docWidth, m_core->m_docHeight);
+        if (docRect.isEmpty()) return;
+
+        const quint32 clientOpId = ++m_nextLocalOpId;
+        QVector<CollabLocalSubOp> localSubs;
+        QVector<CollabHistoryOp> historyOps;
+
+        for (int i = 0; i < beforeList.size(); ++i) {
+            const int idx = beforeList[i].first;
+            const KisPaintDeviceSP &beforeDev = beforeList[i].second;
+            if (!beforeDev || idx < 0 || idx >= m_core->m_layers.size()) continue;
+            const QString layerUuid = m_core->m_layers[idx].uuid;
+            if (layerUuid.isEmpty()) continue;
+            KisPaintDeviceSP afterDev = m_core->layerPaintDeviceFor(m_core->m_layers[idx]);
+            if (!afterDev) continue;
+
+            QRect searchRect = (i < hintRects.size() && hintRects[i].isValid() && !hintRects[i].isEmpty())
+                ? hintRects[i].intersected(docRect)
+                : (beforeDev->exactBounds() | afterDev->exactBounds()).intersected(docRect);
+            if (searchRect.isEmpty()) {
+                searchRect = docRect;
+            }
+            const QRect diffRect = computeDeviceDiffRect(beforeDev, afterDev, searchRect);
+            if (diffRect.isEmpty()) continue;
+
+            const int pxSize = int(afterDev->pixelSize());
+            const qint64 byteCount = qint64(diffRect.width()) * diffRect.height() * pxSize;
+            if (byteCount <= 0 || byteCount > 64LL * 1024 * 1024) continue;
+
+            QByteArray rawBefore(int(byteCount), 0);
+            QByteArray rawAfter(int(byteCount), 0);
+            beforeDev->readBytes(reinterpret_cast<quint8 *>(rawBefore.data()),
+                                 diffRect.x(), diffRect.y(), diffRect.width(), diffRect.height());
+            afterDev->readBytes(reinterpret_cast<quint8 *>(rawAfter.data()),
+                                diffRect.x(), diffRect.y(), diffRect.width(), diffRect.height());
+
+            CollabHistoryOp op;
+            op.authorPeerId = m_selfPeerId;
+            op.clientOpId = clientOpId;
+            op.layerUuid = layerUuid;
+            op.rect = diffRect;
+            op.hasStrokeReplay = false;
+            op.nonStrokeEraserLike = isEraserLike;
+            op.beforeCompressed = qCompress(rawBefore, 4);
+            op.afterCompressed = qCompress(rawAfter, 4);
+            op.nonStrokeMaskCompressed = buildChangedMaskCompressed(
+                rawBefore, rawAfter, diffRect.width() * diffRect.height(), pxSize);
+
+            CollabLocalSubOp sub;
+            sub.layerUuid = layerUuid;
+            sub.rect = diffRect;
+            sub.beforeCompressed = op.beforeCompressed;
+            sub.afterCompressed = op.afterCompressed;
+            sub.hasStrokeReplay = false;
+            sub.isEraserLike = isEraserLike;
+
+            localSubs.append(std::move(sub));
+            historyOps.append(std::move(op));
+        }
+
+        if (localSubs.isEmpty()) return;
+        pushMyUndoStep(clientOpId, localSubs);
+        for (CollabHistoryOp &op : historyOps) {
+            appendHistoryOp(op);
+            emitTilePatchPacket(op.layerUuid, op.rect, op.afterCompressed, clientOpId, isEraserLike);
+        }
     }
 
     void emitLayerOp(int opKind, int index, const QString &extraStr, double extraVal, int extraInt)
@@ -629,31 +953,67 @@ public:
         pushUiEvent(QJsonObject{{"type", QStringLiteral("layers_changed")}});
     }
 
-    bool canUndo() const { return m_undoIdx > 0; }
-    bool canRedo() const { return m_undoIdx < m_undoEntries.size(); }
-    int undoCount() const { return m_undoIdx; }
-    int redoCount() const { return m_undoEntries.size() - m_undoIdx; }
+    bool canUndo() const { return m_myUndoCursor > 0; }
+    bool canRedo() const { return m_myUndoCursor < m_myUndoSteps.size(); }
+    int undoCount() const { return m_myUndoCursor; }
+    int redoCount() const { return m_myUndoSteps.size() - m_myUndoCursor; }
 
     bool undo()
     {
         if (!canUndo()) return false;
-        const CollabUndoEntry &e = m_undoEntries.at(m_undoIdx - 1);
-        if (!applyCompressedPatchToLayer(e.layerUuid, e.rect, e.beforeCompressed, true)) {
-            return false;
+        const CollabLocalStep step = m_myUndoSteps.at(m_myUndoCursor - 1);
+        if (m_isHost) {
+            if (!executeSelectiveUndoRedo(m_selfPeerId, step.clientOpId, /*isRedo=*/false, /*broadcastResult=*/true)) {
+                return false;
+            }
+            --m_myUndoCursor;
+            return true;
         }
-        --m_undoIdx;
-        return true;
+        --m_myUndoCursor;
+        if (hasOpenHostCtrl()) {
+            emitUndoReq(step.clientOpId, /*isRedo=*/false);
+            return true;
+        }
+        if (executeSelectiveUndoRedo(m_selfPeerId, step.clientOpId, /*isRedo=*/false, /*broadcastResult=*/false)) {
+            return true;
+        }
+        bool any = false;
+        for (int i = step.ops.size() - 1; i >= 0; --i) {
+            const CollabLocalSubOp &sub = step.ops.at(i);
+            if (applyCompressedPatchToLayer(sub.layerUuid, sub.rect, sub.beforeCompressed, false)) {
+                any = true;
+            }
+        }
+        return any;
     }
 
     bool redo()
     {
         if (!canRedo()) return false;
-        const CollabUndoEntry &e = m_undoEntries.at(m_undoIdx);
-        if (!applyCompressedPatchToLayer(e.layerUuid, e.rect, e.afterCompressed, true)) {
-            return false;
+        const CollabLocalStep step = m_myUndoSteps.at(m_myUndoCursor);
+        if (m_isHost) {
+            if (!executeSelectiveUndoRedo(m_selfPeerId, step.clientOpId, /*isRedo=*/true, /*broadcastResult=*/true)) {
+                return false;
+            }
+            ++m_myUndoCursor;
+            return true;
         }
-        ++m_undoIdx;
-        return true;
+        ++m_myUndoCursor;
+        if (hasOpenHostCtrl()) {
+            emitUndoReq(step.clientOpId, /*isRedo=*/true);
+            return true;
+        }
+        if (executeSelectiveUndoRedo(m_selfPeerId, step.clientOpId, /*isRedo=*/true, /*broadcastResult=*/false)) {
+            return true;
+        }
+        bool any = false;
+        for (int i = 0; i < step.ops.size(); ++i) {
+            const CollabLocalSubOp &sub = step.ops.at(i);
+            if (applyCompressedPatchToLayer(sub.layerUuid, sub.rect, sub.afterCompressed, false)) {
+                any = true;
+            }
+        }
+        return any;
     }
 
     void syncOnReconnect(const QString &newHostPeerId, const QString &iceServersJson, const QString &peersJson)
@@ -969,14 +1329,23 @@ private:
     // 房主短历史缓存, 用于大房间/新加入对齐增量
     QVector<QPair<quint64, QByteArray>> m_seqHistory;
 
-    // 本地当前绘制前像素快照 (COW) 与独立撤销栈
+    // 本地当前绘制前像素快照 (COW) 与独立选择性撤销历史
     bool m_localStrokeActive = false;
+    bool m_localStrokeLiveMuted = false;
+    bool m_localStrokeUsePatch = false;
     QString m_localStrokeLayerUuid;
     int m_localSentSampleCount = 0;
     KisPaintDeviceSP m_localBeforeDev;
     QString m_localBeforeLayerUuid;
-    QVector<CollabUndoEntry> m_undoEntries;
-    int m_undoIdx = 0;
+    CollabHistoryOp m_pendingLocalStrokeOp;
+
+    QVector<CollabLocalStep> m_myUndoSteps;
+    int m_myUndoCursor = 0;
+    quint32 m_nextLocalOpId = 0;
+
+    QVector<CollabHistoryOp> m_historyOps;
+    quint64 m_nextHistorySeq = 0;
+    qint64 m_historyBytes = 0;
 
     void pushUiEvent(const QJsonObject &obj)
     {
@@ -1414,7 +1783,7 @@ private:
         }
 
         // 若是房主收到普通成员发来的非包装包: 先定序广播再本地执行
-        if (m_isHost && type != MsgStrokeDelta && type != MsgStrokeCancel) {
+        if (m_isHost && type != MsgStrokeDelta && type != MsgStrokeCancel && type != MsgUndoReq) {
             const quint64 seq = ++m_hostGlobalSeq;
             const QByteArray wrapped = wrapWithSeq(seq, pkt.data);
             rememberHostSeq(seq, wrapped);
@@ -1515,8 +1884,43 @@ private:
             quint8 codec = 0;
             QByteArray compressed;
             ds >> x >> y >> w >> h >> codec >> compressed;
+            quint32 clientOpId = 0;
+            quint8 isEraserLike = 0;
+            if (!ds.atEnd()) ds >> clientOpId;
+            if (!ds.atEnd()) ds >> isEraserLike;
             if (ds.status() != QDataStream::Ok || actorPeerId == m_selfPeerId) return false;
-            return applyCompressedPatchToLayer(layerUuid, QRect(x, y, w, h), compressed, false);
+            return applyRemoteTilePatchAndRecord(
+                actorPeerId, clientOpId, isEraserLike != 0, layerUuid, QRect(x, y, w, h), compressed);
+        }
+
+        if (type == MsgUndoReq) {
+            const QString requesterPeerId = readUtf8(ds);
+            quint32 clientOpId = 0;
+            quint8 isRedo = 0;
+            ds >> clientOpId >> isRedo;
+            if (ds.status() != QDataStream::Ok || !m_isHost || requesterPeerId.isEmpty() || clientOpId == 0) {
+                return false;
+            }
+            return executeSelectiveUndoRedo(requesterPeerId, clientOpId, isRedo != 0, /*broadcastResult=*/true);
+        }
+
+        if (type == MsgUndoPatch) {
+            const QString targetAuthor = readUtf8(ds);
+            quint32 targetClientOpId = 0;
+            quint8 isRedo = 0;
+            ds >> targetClientOpId >> isRedo;
+            const QString layerUuid = readUtf8(ds);
+            qint32 x = 0, y = 0, w = 0, h = 0;
+            quint8 codec = 0;
+            QByteArray compressed;
+            ds >> x >> y >> w >> h >> codec >> compressed;
+            if (ds.status() != QDataStream::Ok) return false;
+            const bool ok = applyCompressedPatchToLayer(layerUuid, QRect(x, y, w, h), compressed, false);
+            syncPassiveOpUndoFlag(targetAuthor, targetClientOpId, isRedo != 0, layerUuid);
+            if (ok) {
+                pushUiEvent(QJsonObject{{"type", QStringLiteral("layers_changed")}});
+            }
+            return ok;
         }
 
         return false;
@@ -1736,15 +2140,14 @@ private:
         return false;
     }
 
-    bool initRemoteStrokePainter(RemoteStrokeSession *s, const KisPaintOpPresetSP &srcPreset)
+    bool preparePaintSession(RemoteStrokeSession *s,
+                             const KisPaintOpPresetSP &srcPreset,
+                             const KisPaintDeviceSP &baseLayerDev,
+                             KisNodeSP layerNode)
     {
-        if (!s || !srcPreset || !m_core->m_document) return false;
-        const int layerIdx = m_core->layerIndexByUuid(s->layerUuid);
-        if (layerIdx < 0 || layerIdx >= m_core->m_layers.size()) return false;
-        KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(m_core->m_layers[layerIdx].node);
-        if (!pl || !pl->paintDevice()) return false;
+        if (!s || !srcPreset || !baseLayerDev || !layerNode || !m_core->m_document) return false;
 
-        // 克隆一份独立 preset 防止远端改写 size/opacity 污染本地或其它并发笔画
+        // 克隆一份独立 preset 防止远端/重放改写 size/opacity 污染本地或其它并发笔画
         KisPaintOpPresetSP cloned = srcPreset->clone().dynamicCast<KisPaintOpPreset>();
         s->preset = cloned ? cloned : srcPreset;
 
@@ -1763,10 +2166,10 @@ private:
 
         s->isFullDeviceCopy = readsCanvas;
         if (readsCanvas) {
-            // COW 浅拷贝当前图层像素供涂抹/液化笔刷采样
-            s->previewDev = new KisPaintDevice(*pl->paintDevice());
+            // COW 浅拷贝基底层像素供涂抹/液化笔刷采样
+            s->previewDev = new KisPaintDevice(*baseLayerDev);
         } else {
-            s->previewDev = pl->paintDevice()->createCompositionSourceDevice();
+            s->previewDev = baseLayerDev->createCompositionSourceDevice();
         }
         s->previewCompositeOp = isEraser ? QStringLiteral("erase") : QStringLiteral("normal");
 
@@ -1782,12 +2185,22 @@ private:
 
         s->randomSource = new KisRandomSource(int(s->seed));
         s->perStrokeRandom = new KisPerStrokeRandomSource();
-        s->op = KisPaintOpRegistry::instance()->paintOp(s->preset, s->painter, KisNodeSP(pl), m_core->m_document);
+        s->op = KisPaintOpRegistry::instance()->paintOp(s->preset, s->painter, layerNode, m_core->m_document);
         if (!s->op) {
-            s->op = new KisBrushOp(s->preset->settings(), s->painter, KisNodeSP(pl), m_core->m_document);
+            s->op = new KisBrushOp(s->preset->settings(), s->painter, layerNode, m_core->m_document);
         }
         s->distance = new KisDistanceInformation(s->lastPos, 0.0);
         return s->op != nullptr;
+    }
+
+    bool initRemoteStrokePainter(RemoteStrokeSession *s, const KisPaintOpPresetSP &srcPreset)
+    {
+        if (!s || !srcPreset || !m_core->m_document) return false;
+        const int layerIdx = m_core->layerIndexByUuid(s->layerUuid);
+        if (layerIdx < 0 || layerIdx >= m_core->m_layers.size()) return false;
+        KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(m_core->m_layers[layerIdx].node);
+        if (!pl || !pl->paintDevice()) return false;
+        return preparePaintSession(s, srcPreset, pl->paintDevice(), KisNodeSP(pl));
     }
 
     bool handleStrokeSamples(const QString &peerId, quint32 strokeId, quint32 seqStart, const QVector<CollabSample> &samples)
@@ -1810,10 +2223,12 @@ private:
             s->pendingSamples.append(fresh);
             return false;
         }
-        return paintRemoteSessionSamples(s, fresh);
+        return paintRemoteSessionSamples(s, fresh, true);
     }
 
-    bool paintRemoteSessionSamples(RemoteStrokeSession *s, const QVector<CollabSample> &samples)
+    bool paintRemoteSessionSamples(RemoteStrokeSession *s,
+                                   const QVector<CollabSample> &samples,
+                                   bool markCanvasDirty = true)
     {
         if (!s || !s->op || !s->distance || samples.isEmpty() || !m_core->m_document) return false;
         QRect segBounds;
@@ -1854,8 +2269,10 @@ private:
         const QRect dirty = segBounds.adjusted(-margin, -margin, margin, margin).intersected(docRect);
         if (dirty.isEmpty()) return false;
         s->dirtyBounds = s->dirtyBounds.isNull() ? dirty : s->dirtyBounds.united(dirty);
-        m_core->invalidateStaticUnderlayRect(dirty);
-        m_core->markStrokeDirty(dirty);
+        if (markCanvasDirty) {
+            m_core->invalidateStaticUnderlayRect(dirty);
+            m_core->markStrokeDirty(dirty);
+        }
         return true;
     }
 
@@ -1872,7 +2289,7 @@ private:
             if (!s->op) {
                 s->pendingSamples.append(missing);
             } else {
-                paintRemoteSessionSamples(s, missing);
+                paintRemoteSessionSamples(s, missing, true);
             }
         }
         s->committed = true;
@@ -1891,20 +2308,60 @@ private:
         const int layerIdx = m_core->layerIndexByUuid(s->layerUuid);
         if (s->previewDev && layerIdx >= 0 && layerIdx < m_core->m_layers.size() && m_core->m_document) {
             if (KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(m_core->m_layers[layerIdx].node)) {
-                if (pl->paintDevice()) {
-                    const QRect ext = s->previewDev->exactBounds().intersected(
-                        QRect(0, 0, m_core->m_docWidth, m_core->m_docHeight));
-                    if (!ext.isEmpty()) {
-                        KisPainter gc(pl->paintDevice());
+                if (KisPaintDeviceSP dev = pl->paintDevice()) {
+                    const QRect docRect(0, 0, m_core->m_docWidth, m_core->m_docHeight);
+                    QRect searchRect = s->isFullDeviceCopy && !s->dirtyBounds.isEmpty()
+                        ? s->dirtyBounds.intersected(docRect)
+                        : s->previewDev->exactBounds().intersected(docRect);
+                    if (searchRect.isEmpty() && !s->dirtyBounds.isEmpty()) {
+                        searchRect = s->dirtyBounds.intersected(docRect);
+                    }
+                    if (!searchRect.isEmpty()) {
+                        KisPaintDeviceSP beforeClone(new KisPaintDevice(*dev));
+                        const bool alphaLocked = pl->alphaLocked();
+                        KisPainter gc(dev);
                         gc.setCompositeOpId(s->isFullDeviceCopy ? QString(COMPOSITE_COPY) : s->previewCompositeOp);
                         gc.setOpacityF(s->isFullDeviceCopy ? 1.0 : qBound<qreal>(0.0, s->opacity, 1.0));
-                        if (pl->alphaLocked()) {
+                        if (alphaLocked) {
                             gc.setChannelFlags(pl->channelLockFlags());
                         }
-                        gc.bitBlt(ext.topLeft(), s->previewDev, ext);
+                        gc.bitBlt(searchRect.topLeft(), s->previewDev, searchRect);
                         gc.end();
-                        m_core->invalidateStaticUnderlayRect(ext);
-                        m_core->markStrokeDirty(ext);
+
+                        const QRect diffRect = computeDeviceDiffRect(beforeClone, dev, searchRect);
+                        if (!diffRect.isEmpty()) {
+                            const int pxSize = int(dev->pixelSize());
+                            const qint64 byteCount = qint64(diffRect.width()) * diffRect.height() * pxSize;
+                            if (byteCount > 0 && byteCount <= 64LL * 1024 * 1024) {
+                                QByteArray rawBefore(int(byteCount), 0);
+                                QByteArray rawAfter(int(byteCount), 0);
+                                beforeClone->readBytes(reinterpret_cast<quint8 *>(rawBefore.data()),
+                                                       diffRect.x(), diffRect.y(), diffRect.width(), diffRect.height());
+                                dev->readBytes(reinterpret_cast<quint8 *>(rawAfter.data()),
+                                               diffRect.x(), diffRect.y(), diffRect.width(), diffRect.height());
+                                CollabHistoryOp op;
+                                op.authorPeerId = s->peerId;
+                                op.clientOpId = s->strokeId;
+                                op.layerUuid = s->layerUuid;
+                                op.rect = diffRect;
+                                op.hasStrokeReplay = true;
+                                op.nonStrokeEraserLike = (s->toolMode == ReverieCore::ToolEraser);
+                                op.strokeAlphaLocked = alphaLocked;
+                                op.presetMd5 = s->presetMd5;
+                                op.seed = s->seed;
+                                op.color = s->color.rgba();
+                                op.brushSize = float(s->brushSize);
+                                op.opacity = float(s->opacity);
+                                op.toolMode = s->toolMode;
+                                op.samples = s->allSamples;
+                                op.beforeCompressed = qCompress(rawBefore, 4);
+                                op.afterCompressed = qCompress(rawAfter, 4);
+                                appendHistoryOp(op);
+                            }
+                        }
+
+                        m_core->invalidateStaticUnderlayRect(searchRect);
+                        m_core->markStrokeDirty(searchRect);
                         m_core->bumpLayerThumbGen(pl);
                         updated = true;
                     }
@@ -2034,33 +2491,488 @@ private:
         return changed;
     }
 
-    void pushPixelUndo(const QString &layerUuid, const QRect &rect,
-                       const KisPaintDeviceSP &beforeDev, const KisPaintDeviceSP &afterDev)
+    bool hasOpenHostCtrl()
     {
-        if (!beforeDev || !afterDev || rect.isEmpty()) return;
-        const int pxSize = int(afterDev->pixelSize());
-        const int byteCount = rect.width() * rect.height() * pxSize;
-        if (byteCount <= 0 || byteCount > 64 * 1024 * 1024) return;
+        if (m_isHost || m_hostPeerId.isEmpty()) return false;
+        std::lock_guard<std::mutex> lock(m_netMutex);
+        auto it = m_peers.constFind(m_hostPeerId);
+        return it != m_peers.constEnd() && it->ctrlOpen && it->ctrl && it->ctrl->isOpen();
+    }
 
-        QByteArray rawBefore(byteCount, 0);
-        QByteArray rawAfter(byteCount, 0);
-        beforeDev->readBytes(reinterpret_cast<quint8 *>(rawBefore.data()), rect.x(), rect.y(), rect.width(), rect.height());
-        afterDev->readBytes(reinterpret_cast<quint8 *>(rawAfter.data()), rect.x(), rect.y(), rect.width(), rect.height());
+    void emitUndoReq(quint32 clientOpId, bool isRedo)
+    {
+        QByteArray pkt = packMsgHeader(MsgUndoReq);
+        QDataStream ds(&pkt, QIODevice::Append);
+        ds.setByteOrder(QDataStream::LittleEndian);
+        writeUtf8(ds, m_selfPeerId);
+        ds << quint32(clientOpId) << quint8(isRedo ? 1 : 0);
+        emitCtrlAction(pkt, /*orderedWithHostSeq=*/true);
+    }
 
-        CollabUndoEntry entry;
-        entry.layerUuid = layerUuid;
-        entry.rect = rect;
-        entry.beforeCompressed = qCompress(rawBefore, 4);
-        entry.afterCompressed = qCompress(rawAfter, 4);
+    void emitTilePatchPacket(const QString &layerUuid,
+                             const QRect &rect,
+                             const QByteArray &compressed,
+                             quint32 clientOpId,
+                             bool isEraserLike)
+    {
+        QByteArray pkt = packMsgHeader(MsgTilePatch);
+        QDataStream ds(&pkt, QIODevice::Append);
+        ds.setByteOrder(QDataStream::LittleEndian);
+        writeUtf8(ds, m_selfPeerId);
+        writeUtf8(ds, layerUuid);
+        ds << qint32(rect.x()) << qint32(rect.y()) << qint32(rect.width()) << qint32(rect.height())
+           << quint8(1) << compressed << quint32(clientOpId) << quint8(isEraserLike ? 1 : 0);
+        emitCtrlAction(pkt, /*orderedWithHostSeq=*/true);
+    }
 
-        if (m_undoIdx < m_undoEntries.size()) {
-            m_undoEntries.resize(m_undoIdx);
+    void emitUndoPatchPacket(const QString &targetAuthor,
+                             quint32 targetClientOpId,
+                             bool isRedo,
+                             const QString &layerUuid,
+                             const QRect &rect,
+                             const QByteArray &compressed)
+    {
+        QByteArray pkt = packMsgHeader(MsgUndoPatch);
+        QDataStream ds(&pkt, QIODevice::Append);
+        ds.setByteOrder(QDataStream::LittleEndian);
+        writeUtf8(ds, targetAuthor);
+        ds << quint32(targetClientOpId) << quint8(isRedo ? 1 : 0);
+        writeUtf8(ds, layerUuid);
+        ds << qint32(rect.x()) << qint32(rect.y()) << qint32(rect.width()) << qint32(rect.height())
+           << quint8(1) << compressed;
+        emitCtrlAction(pkt, /*orderedWithHostSeq=*/true);
+    }
+
+    void pushMyUndoStep(quint32 clientOpId, const QVector<CollabLocalSubOp> &ops)
+    {
+        if (ops.isEmpty()) return;
+        if (m_myUndoCursor < m_myUndoSteps.size()) {
+            m_myUndoSteps.resize(m_myUndoCursor);
         }
-        m_undoEntries.append(std::move(entry));
-        if (m_undoEntries.size() > kUndoCap) {
-            m_undoEntries.removeFirst();
+        CollabLocalStep step;
+        step.clientOpId = clientOpId;
+        step.ops = ops;
+        m_myUndoSteps.append(std::move(step));
+        if (m_myUndoSteps.size() > kUndoCap) {
+            m_myUndoSteps.removeFirst();
         }
-        m_undoIdx = m_undoEntries.size();
+        m_myUndoCursor = m_myUndoSteps.size();
+    }
+
+    void purgeAuthorRedoOps(const QString &authorPeerId)
+    {
+        for (int i = m_historyOps.size() - 1; i >= 0; --i) {
+            if (m_historyOps.at(i).undone && m_historyOps.at(i).authorPeerId == authorPeerId) {
+                m_historyBytes -= m_historyOps.at(i).approxBytes();
+                m_historyOps.removeAt(i);
+            }
+        }
+        if (m_historyBytes < 0) m_historyBytes = 0;
+    }
+
+    void pruneHistoryIfNeeded()
+    {
+        while (m_historyOps.size() > kHistoryCap || (m_historyBytes > kHistoryMaxBytes && m_historyOps.size() > 8)) {
+            const QString firstAuthor = m_historyOps.first().authorPeerId;
+            const quint32 firstOpId = m_historyOps.first().clientOpId;
+            while (!m_historyOps.isEmpty() &&
+                   m_historyOps.first().authorPeerId == firstAuthor &&
+                   m_historyOps.first().clientOpId == firstOpId) {
+                m_historyBytes -= m_historyOps.first().approxBytes();
+                m_historyOps.removeFirst();
+            }
+        }
+        if (m_historyBytes < 0) m_historyBytes = 0;
+    }
+
+    void appendHistoryOp(CollabHistoryOp &op)
+    {
+        purgeAuthorRedoOps(op.authorPeerId);
+        op.seq = ++m_nextHistorySeq;
+        op.undone = false;
+        m_historyBytes += op.approxBytes();
+        m_historyOps.append(op);
+        pruneHistoryIfNeeded();
+    }
+
+    void syncPassiveOpUndoFlag(const QString &authorPeerId, quint32 clientOpId, bool isRedo, const QString &layerUuid)
+    {
+        for (CollabHistoryOp &op : m_historyOps) {
+            if (op.authorPeerId == authorPeerId && op.clientOpId == clientOpId && op.layerUuid == layerUuid) {
+                op.undone = !isRedo;
+            }
+        }
+    }
+
+    KisPaintOpPresetSP resolvePresetForReplay(const QString &md5)
+    {
+        KisPaintOpPresetSP preset = m_presetCache.value(md5);
+        if (!preset && !md5.isEmpty()) {
+            const QString cachedPath = m_brushCacheDir + QLatin1Char('/') + md5 + QStringLiteral(".kpp");
+            if (QFile::exists(cachedPath)) {
+                preset = m_core->loadPresetObjectFromPath(cachedPath, md5);
+                if (preset) m_presetCache.insert(md5, preset);
+            }
+        }
+        if (!preset) preset = m_core->m_brushPreset;
+        return preset;
+    }
+
+    bool replayCollabStrokeIntoDevice(KisPaintDeviceSP workingDev,
+                                      KisNodeSP layerNode,
+                                      const CollabHistoryOp &op,
+                                      const QRect &clipRect)
+    {
+        if (!workingDev || !layerNode || !m_core->m_document || op.samples.isEmpty() || clipRect.isEmpty()) {
+            return false;
+        }
+        KisPaintOpPresetSP preset = resolvePresetForReplay(op.presetMd5);
+        if (!preset) return false;
+
+        RemoteStrokeSession tmp;
+        tmp.layerUuid = op.layerUuid;
+        tmp.presetMd5 = op.presetMd5;
+        tmp.seed = op.seed;
+        tmp.color = QColor::fromRgba(op.color);
+        tmp.brushSize = qBound<qreal>(0.5, qreal(op.brushSize), 1500.0);
+        tmp.opacity = qBound<qreal>(0.0, qreal(op.opacity), 1.0);
+        tmp.toolMode = op.toolMode;
+        tmp.lastPos = QPointF(op.samples.first().x, op.samples.first().y);
+        tmp.lastTimeSec = 0.0;
+
+        if (!preparePaintSession(&tmp, preset, workingDev, layerNode)) {
+            return false;
+        }
+        paintRemoteSessionSamples(&tmp, op.samples, false);
+
+        const QRect ext = tmp.isFullDeviceCopy
+            ? clipRect
+            : tmp.previewDev->exactBounds().intersected(clipRect);
+        if (!ext.isEmpty()) {
+            KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(layerNode.data());
+            KisPainter gc(workingDev);
+            gc.setCompositeOpId(tmp.isFullDeviceCopy ? QString(COMPOSITE_COPY) : tmp.previewCompositeOp);
+            gc.setOpacityF(tmp.isFullDeviceCopy ? 1.0 : qBound<qreal>(0.0, tmp.opacity, 1.0));
+            if (op.strokeAlphaLocked && pl) {
+                gc.setChannelFlags(pl->channelLockFlags());
+            }
+            gc.bitBlt(ext.topLeft(), tmp.previewDev, ext);
+            gc.end();
+        }
+        return true;
+    }
+
+    bool replayNonStrokeOpIntoDevice(KisPaintDeviceSP workingDev,
+                                      CollabHistoryOp &op,
+                                      const QByteArray &oldBeforeRaw,
+                                      const QByteArray &oldAfterRaw)
+    {
+        if (!workingDev || op.rect.isEmpty()) return false;
+        const int pxSize = int(workingDev->pixelSize());
+        const int pxCount = op.rect.width() * op.rect.height();
+        const int expected = pxCount * pxSize;
+        if (expected <= 0 || oldBeforeRaw.size() != expected || oldAfterRaw.size() != expected) {
+            return false;
+        }
+
+        QByteArray newBeforeRaw(expected, 0);
+        workingDev->readBytes(reinterpret_cast<quint8 *>(newBeforeRaw.data()),
+                              op.rect.x(), op.rect.y(), op.rect.width(), op.rect.height());
+
+        QByteArray mask;
+        if (!op.nonStrokeMaskCompressed.isEmpty()) {
+            mask = qUncompress(op.nonStrokeMaskCompressed);
+        }
+        const bool hasMask = (mask.size() == pxCount);
+        const quint8 *m = hasMask ? reinterpret_cast<const quint8 *>(mask.constData()) : nullptr;
+        const quint8 *ob = reinterpret_cast<const quint8 *>(oldBeforeRaw.constData());
+        const quint8 *oa = reinterpret_cast<const quint8 *>(oldAfterRaw.constData());
+
+        QByteArray newAfterRaw = newBeforeRaw;
+        quint8 *na = reinterpret_cast<quint8 *>(newAfterRaw.data());
+        for (int i = 0; i < pxCount; ++i) {
+            const bool touched = hasMask ? (m[i] != 0) : (std::memcmp(ob + qint64(i) * pxSize, oa + qint64(i) * pxSize, size_t(pxSize)) != 0);
+            if (touched) {
+                std::memcpy(na + qint64(i) * pxSize, oa + qint64(i) * pxSize, size_t(pxSize));
+            }
+        }
+
+        workingDev->writeBytes(reinterpret_cast<const quint8 *>(newAfterRaw.constData()),
+                               op.rect.x(), op.rect.y(), op.rect.width(), op.rect.height());
+
+        const qint64 oldMem = op.approxBytes();
+        op.beforeCompressed = qCompress(newBeforeRaw, 4);
+        op.afterCompressed = qCompress(newAfterRaw, 4);
+        m_historyBytes += (op.approxBytes() - oldMem);
+        return true;
+    }
+
+    static bool writeCompressedRawToDevice(KisPaintDeviceSP dev, const QRect &rect, const QByteArray &compressed)
+    {
+        if (!dev || rect.isEmpty() || compressed.isEmpty()) return false;
+        const QByteArray raw = qUncompress(compressed);
+        const int expected = rect.width() * rect.height() * int(dev->pixelSize());
+        if (raw.size() != expected) return false;
+        dev->writeBytes(reinterpret_cast<const quint8 *>(raw.constData()),
+                        rect.x(), rect.y(), rect.width(), rect.height());
+        return true;
+    }
+
+    bool executeSelectiveUndoRedo(const QString &authorPeerId, quint32 clientOpId, bool isRedo, bool broadcastResult)
+    {
+        if (!m_core->m_document || authorPeerId.isEmpty() || clientOpId == 0) return false;
+        const QRect docRect(0, 0, m_core->m_docWidth, m_core->m_docHeight);
+        if (docRect.isEmpty()) return false;
+
+        QVector<int> targetIndices;
+        for (int i = 0; i < m_historyOps.size(); ++i) {
+            const CollabHistoryOp &op = m_historyOps.at(i);
+            if (op.authorPeerId == authorPeerId && op.clientOpId == clientOpId && op.undone == isRedo) {
+                targetIndices.append(i);
+            }
+        }
+        if (targetIndices.isEmpty()) return false;
+
+        bool anyApplied = false;
+        const int stepDirBegin = isRedo ? 0 : (targetIndices.size() - 1);
+        const int stepDirEnd = isRedo ? targetIndices.size() : -1;
+        const int stepInc = isRedo ? 1 : -1;
+
+        for (int ti = stepDirBegin; ti != stepDirEnd; ti += stepInc) {
+            const int targetIdx = targetIndices.at(ti);
+            CollabHistoryOp &target = m_historyOps[targetIdx];
+            const QString layerUuid = target.layerUuid;
+            const int layerIdx = m_core->layerIndexByUuid(layerUuid);
+            if (layerIdx < 0 || layerIdx >= m_core->m_layers.size()) {
+                target.undone = !isRedo;
+                continue;
+            }
+            KisNode *layerNode = m_core->m_layers[layerIdx].node;
+            KisPaintDeviceSP layerDev = m_core->layerPaintDeviceFor(m_core->m_layers[layerIdx]);
+            if (!layerNode || !layerDev) {
+                target.undone = !isRedo;
+                continue;
+            }
+
+            // 传播闭包计算同一图层上在此操作之后、空间范围相交的所有有效操作 (保留他人重叠笔迹)
+            QRect affectedRect = target.rect.intersected(docRect);
+            if (affectedRect.isEmpty()) {
+                target.undone = !isRedo;
+                continue;
+            }
+            QVector<int> laterIndices;
+            QVector<bool> included(m_historyOps.size(), false);
+            bool expanded = true;
+            while (expanded) {
+                expanded = false;
+                for (int i = targetIdx + 1; i < m_historyOps.size(); ++i) {
+                    if (included[i]) continue;
+                    const CollabHistoryOp &later = m_historyOps.at(i);
+                    if (later.undone || later.layerUuid != layerUuid) continue;
+                    const QRect lr = later.rect.intersected(docRect);
+                    if (!lr.isEmpty() && lr.intersects(affectedRect)) {
+                        included[i] = true;
+                        laterIndices.append(i);
+                        affectedRect = affectedRect.united(lr);
+                        expanded = true;
+                    }
+                }
+            }
+            std::sort(laterIndices.begin(), laterIndices.end());
+
+            // 极速路径: 后续无重叠操作, 直接应用单步局部块
+            if (laterIndices.isEmpty()) {
+                const int pxSize = int(layerDev->pixelSize());
+                if (!isRedo) {
+                    if (writeCompressedRawToDevice(layerDev, target.rect, target.beforeCompressed)) {
+                        target.undone = true;
+                        m_core->invalidateStaticUnderlayRect(target.rect);
+                        m_core->recompositeProjection();
+                        m_core->markDirty(target.rect);
+                        m_core->bumpLayerThumbGen(layerNode);
+                        if (broadcastResult) {
+                            emitUndoPatchPacket(authorPeerId, clientOpId, false, layerUuid, target.rect, target.beforeCompressed);
+                        }
+                        anyApplied = true;
+                    }
+                } else {
+                    if (target.hasStrokeReplay) {
+                        const qint64 bc = qint64(target.rect.width()) * target.rect.height() * pxSize;
+                        QByteArray curBefore(int(bc), 0);
+                        layerDev->readBytes(reinterpret_cast<quint8 *>(curBefore.data()),
+                                            target.rect.x(), target.rect.y(), target.rect.width(), target.rect.height());
+                        replayCollabStrokeIntoDevice(layerDev, KisNodeSP(layerNode), target, target.rect);
+                        QByteArray curAfter(int(bc), 0);
+                        layerDev->readBytes(reinterpret_cast<quint8 *>(curAfter.data()),
+                                            target.rect.x(), target.rect.y(), target.rect.width(), target.rect.height());
+                        const qint64 oldMem = target.approxBytes();
+                        target.beforeCompressed = qCompress(curBefore, 4);
+                        target.afterCompressed = qCompress(curAfter, 4);
+                        m_historyBytes += (target.approxBytes() - oldMem);
+                    } else {
+                        const QByteArray oldB = qUncompress(target.beforeCompressed);
+                        const QByteArray oldA = qUncompress(target.afterCompressed);
+                        replayNonStrokeOpIntoDevice(layerDev, target, oldB, oldA);
+                    }
+                    target.undone = false;
+                    m_core->invalidateStaticUnderlayRect(target.rect);
+                    m_core->recompositeProjection();
+                    m_core->markDirty(target.rect);
+                    m_core->bumpLayerThumbGen(layerNode);
+                    if (broadcastResult) {
+                        emitUndoPatchPacket(authorPeerId, clientOpId, true, layerUuid, target.rect, target.afterCompressed);
+                    }
+                    anyApplied = true;
+                }
+                continue;
+            }
+
+            // 重叠路径: 在隔离画布块上按时序回滚 -> 切换目标状态 -> 无损重放其余所有人后续笔迹/工具
+            const int pxSize = int(layerDev->pixelSize());
+            const qint64 byteCount = qint64(affectedRect.width()) * affectedRect.height() * pxSize;
+            if (byteCount <= 0 || byteCount > 64LL * 1024 * 1024) continue;
+
+            KisPaintDeviceSP workingDev(new KisPaintDevice(layerDev->colorSpace()));
+            QByteArray initialRaw(int(byteCount), 0);
+            layerDev->readBytes(reinterpret_cast<quint8 *>(initialRaw.data()),
+                                affectedRect.x(), affectedRect.y(), affectedRect.width(), affectedRect.height());
+            workingDev->writeBytes(reinterpret_cast<const quint8 *>(initialRaw.constData()),
+                                   affectedRect.x(), affectedRect.y(), affectedRect.width(), affectedRect.height());
+
+            QByteArray targetOldB;
+            QByteArray targetOldA;
+            if (isRedo && !target.hasStrokeReplay) {
+                targetOldB = qUncompress(target.beforeCompressed);
+                targetOldA = qUncompress(target.afterCompressed);
+            }
+            QVector<QByteArray> laterOldB(laterIndices.size());
+            QVector<QByteArray> laterOldA(laterIndices.size());
+            for (int k = 0; k < laterIndices.size(); ++k) {
+                const CollabHistoryOp &lop = m_historyOps.at(laterIndices.at(k));
+                if (!lop.hasStrokeReplay) {
+                    laterOldB[k] = qUncompress(lop.beforeCompressed);
+                    laterOldA[k] = qUncompress(lop.afterCompressed);
+                }
+            }
+
+            for (int k = laterIndices.size() - 1; k >= 0; --k) {
+                const CollabHistoryOp &lop = m_historyOps.at(laterIndices.at(k));
+                writeCompressedRawToDevice(workingDev, lop.rect, lop.beforeCompressed);
+            }
+
+            if (!isRedo) {
+                // Undo: 必须回滚 target 本身到 target 执行前像素状态
+                writeCompressedRawToDevice(workingDev, target.rect, target.beforeCompressed);
+                target.undone = true;
+            } else {
+                // Redo: target 原本不在画面上, workingDev 已是当前真实状态, 重新执行 target
+                const qint64 tByteCount = qint64(target.rect.width()) * target.rect.height() * pxSize;
+                if (target.hasStrokeReplay && tByteCount > 0) {
+                    QByteArray newTB(int(tByteCount), 0);
+                    workingDev->readBytes(reinterpret_cast<quint8 *>(newTB.data()),
+                                          target.rect.x(), target.rect.y(), target.rect.width(), target.rect.height());
+                    replayCollabStrokeIntoDevice(workingDev, KisNodeSP(layerNode), target, target.rect);
+                    QByteArray newTA(int(tByteCount), 0);
+                    workingDev->readBytes(reinterpret_cast<quint8 *>(newTA.data()),
+                                          target.rect.x(), target.rect.y(), target.rect.width(), target.rect.height());
+                    const qint64 oldMem = target.approxBytes();
+                    target.beforeCompressed = qCompress(newTB, 4);
+                    target.afterCompressed = qCompress(newTA, 4);
+                    m_historyBytes += (target.approxBytes() - oldMem);
+                } else {
+                    replayNonStrokeOpIntoDevice(workingDev, target, targetOldB, targetOldA);
+                }
+                target.undone = false;
+            }
+
+            // 顺次重放后续所有依然活跃的操作并刷新它们的 before/after 缓存
+            for (int k = 0; k < laterIndices.size(); ++k) {
+                CollabHistoryOp &lop = m_historyOps[laterIndices.at(k)];
+                if (lop.hasStrokeReplay) {
+                    const qint64 lByteCount = qint64(lop.rect.width()) * lop.rect.height() * pxSize;
+                    if (lByteCount > 0) {
+                        QByteArray newB(int(lByteCount), 0);
+                        workingDev->readBytes(reinterpret_cast<quint8 *>(newB.data()),
+                                              lop.rect.x(), lop.rect.y(), lop.rect.width(), lop.rect.height());
+                        replayCollabStrokeIntoDevice(workingDev, KisNodeSP(layerNode), lop, lop.rect);
+                        QByteArray newA(int(lByteCount), 0);
+                        workingDev->readBytes(reinterpret_cast<quint8 *>(newA.data()),
+                                              lop.rect.x(), lop.rect.y(), lop.rect.width(), lop.rect.height());
+                        const qint64 oldMem = lop.approxBytes();
+                        lop.beforeCompressed = qCompress(newB, 4);
+                        lop.afterCompressed = qCompress(newA, 4);
+                        m_historyBytes += (lop.approxBytes() - oldMem);
+                    }
+                } else {
+                    replayNonStrokeOpIntoDevice(workingDev, lop, laterOldB[k], laterOldA[k]);
+                }
+            }
+
+            QByteArray finalRaw(int(byteCount), 0);
+            workingDev->readBytes(reinterpret_cast<quint8 *>(finalRaw.data()),
+                                  affectedRect.x(), affectedRect.y(), affectedRect.width(), affectedRect.height());
+            layerDev->writeBytes(reinterpret_cast<const quint8 *>(finalRaw.constData()),
+                                 affectedRect.x(), affectedRect.y(), affectedRect.width(), affectedRect.height());
+
+            m_core->invalidateStaticUnderlayRect(affectedRect);
+            m_core->recompositeProjection();
+            m_core->markDirty(affectedRect);
+            m_core->bumpLayerThumbGen(layerNode);
+
+            if (broadcastResult) {
+                const QByteArray compressedFinal = qCompress(finalRaw, 4);
+                emitUndoPatchPacket(authorPeerId, clientOpId, isRedo, layerUuid, affectedRect, compressedFinal);
+            }
+            anyApplied = true;
+        }
+        return anyApplied;
+    }
+
+    bool applyRemoteTilePatchAndRecord(const QString &actorPeerId,
+                                       quint32 clientOpId,
+                                       bool isEraserLike,
+                                       const QString &layerUuid,
+                                       const QRect &rect,
+                                       const QByteArray &compressed)
+    {
+        if (!m_core->m_document || rect.isEmpty() || compressed.isEmpty()) return false;
+        const int idx = m_core->layerIndexByUuid(layerUuid);
+        if (idx < 0 || idx >= m_core->m_layers.size()) return false;
+        KisNode *node = m_core->m_layers[idx].node;
+        KisPaintDeviceSP dev = m_core->layerPaintDeviceFor(m_core->m_layers[idx]);
+        if (!node || !dev) return false;
+
+        const QByteArray rawAfter = qUncompress(compressed);
+        const int pxSize = int(dev->pixelSize());
+        const int pxCount = rect.width() * rect.height();
+        const int expected = pxCount * pxSize;
+        if (expected <= 0 || rawAfter.size() != expected) return false;
+
+        QByteArray rawBefore(expected, 0);
+        dev->readBytes(reinterpret_cast<quint8 *>(rawBefore.data()),
+                       rect.x(), rect.y(), rect.width(), rect.height());
+
+        dev->writeBytes(reinterpret_cast<const quint8 *>(rawAfter.constData()),
+                        rect.x(), rect.y(), rect.width(), rect.height());
+        m_core->invalidateStaticUnderlayRect(rect);
+        m_core->recompositeProjection();
+        m_core->markDirty(rect);
+        m_core->bumpLayerThumbGen(node);
+
+        if (clientOpId > 0) {
+            CollabHistoryOp op;
+            op.authorPeerId = actorPeerId;
+            op.clientOpId = clientOpId;
+            op.layerUuid = layerUuid;
+            op.rect = rect;
+            op.hasStrokeReplay = false;
+            op.nonStrokeEraserLike = isEraserLike;
+            op.beforeCompressed = qCompress(rawBefore, 4);
+            op.afterCompressed = compressed;
+            op.nonStrokeMaskCompressed = buildChangedMaskCompressed(rawBefore, rawAfter, pxCount, pxSize);
+            appendHistoryOp(op);
+        }
+        return true;
     }
 
     bool applyCompressedPatchToLayer(const QString &layerUuid, const QRect &rect,
@@ -2069,28 +2981,23 @@ private:
         if (!m_core->m_document || rect.isEmpty() || compressed.isEmpty()) return false;
         const int idx = m_core->layerIndexByUuid(layerUuid);
         if (idx < 0 || idx >= m_core->m_layers.size()) return false;
-        KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(m_core->m_layers[idx].node);
-        if (!pl || !pl->paintDevice()) return false;
+        KisNode *node = m_core->m_layers[idx].node;
+        KisPaintDeviceSP dev = m_core->layerPaintDeviceFor(m_core->m_layers[idx]);
+        if (!node || !dev) return false;
 
         const QByteArray raw = qUncompress(compressed);
-        const int expected = rect.width() * rect.height() * int(pl->paintDevice()->pixelSize());
+        const int expected = rect.width() * rect.height() * int(dev->pixelSize());
         if (raw.size() != expected) return false;
 
-        pl->paintDevice()->writeBytes(reinterpret_cast<const quint8 *>(raw.constData()),
-                                      rect.x(), rect.y(), rect.width(), rect.height());
+        dev->writeBytes(reinterpret_cast<const quint8 *>(raw.constData()),
+                        rect.x(), rect.y(), rect.width(), rect.height());
         m_core->invalidateStaticUnderlayRect(rect);
-        m_core->markStrokeDirty(rect);
-        m_core->bumpLayerThumbGen(pl);
+        m_core->recompositeProjection();
+        m_core->markDirty(rect);
+        m_core->bumpLayerThumbGen(node);
 
         if (broadcastPatch) {
-            QByteArray pkt = packMsgHeader(MsgTilePatch);
-            QDataStream ds(&pkt, QIODevice::Append);
-            ds.setByteOrder(QDataStream::LittleEndian);
-            writeUtf8(ds, m_selfPeerId);
-            writeUtf8(ds, layerUuid);
-            ds << qint32(rect.x()) << qint32(rect.y()) << qint32(rect.width()) << qint32(rect.height())
-               << quint8(1) << compressed;
-            emitCtrlAction(pkt, /*orderedWithHostSeq=*/true);
+            emitTilePatchPacket(layerUuid, rect, compressed, 0, false);
         }
         return true;
     }
@@ -2318,4 +3225,60 @@ void ReverieCore::collabOnLocalStrokeEnd(const QRect &dirtyRect)
 void ReverieCore::collabOnLocalStrokeCancel()
 {
     if (m_collab) m_collab->onLocalStrokeCancel();
+}
+
+bool ReverieCore::collabCanEditLayerIndex(int index) const
+{
+    if (!m_collabActive) return true;
+    return collabCanEditLayer(index);
+}
+
+KisPaintDeviceSP ReverieCore::collabSnapshotLayerBefore(int layerIndex) const
+{
+    if (!m_collabActive || m_collabSuppressEmit || !m_document) return KisPaintDeviceSP();
+    if (layerIndex < 0 || layerIndex >= m_layers.size()) return KisPaintDeviceSP();
+    KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[layerIndex]);
+    if (!dev) return KisPaintDeviceSP();
+    return KisPaintDeviceSP(new KisPaintDevice(*dev));
+}
+
+void ReverieCore::collabRecordLayerPixelEdit(int layerIndex,
+                                             const KisPaintDeviceSP &beforeDev,
+                                             const QRect &hintRect,
+                                             bool isEraserLike)
+{
+    if (!m_collabActive || m_collabSuppressEmit || !m_collab || !beforeDev) return;
+    m_collab->recordLocalToolBatch({qMakePair(layerIndex, beforeDev)}, {hintRect}, isEraserLike);
+}
+
+void ReverieCore::collabRecordLayerPixelBatch(const QVector<QPair<int, KisPaintDeviceSP>> &beforeList,
+                                              const QVector<QRect> &hintRects,
+                                              bool isEraserLike)
+{
+    if (!m_collabActive || m_collabSuppressEmit || !m_collab || beforeList.isEmpty()) return;
+    m_collab->recordLocalToolBatch(beforeList, hintRects, isEraserLike);
+}
+
+void ReverieCore::finishPixelTransaction(KisTransaction &txn)
+{
+    if (m_document && m_undoCaptureEnabled) {
+        txn.commit(m_document->undoAdapter());
+        m_redoCount = 0;
+    } else {
+        KUndo2Command *cmd = txn.endAndTake();
+        delete cmd;
+    }
+}
+
+void ReverieCore::finishPixelTransactionPtr(KisTransaction *txn)
+{
+    if (!txn) return;
+    if (m_document && m_undoCaptureEnabled) {
+        txn->commit(m_document->undoAdapter());
+        m_redoCount = 0;
+    } else {
+        KUndo2Command *cmd = txn->endAndTake();
+        delete cmd;
+    }
+    delete txn;
 }

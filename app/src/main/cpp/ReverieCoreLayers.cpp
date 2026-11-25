@@ -459,8 +459,10 @@ int ReverieCore::copySelectionToNewLayer(bool cut)
     if (!image) return -1;
     if (!hasSelection()) return -1;
     if (m_currentLayer < 0 || m_currentLayer >= m_layers.size()) return -1;
+    if (cut && !collabCanEditLayerIndex(m_currentLayer)) return -1;
 
-    LayerEntry &src = m_layers[m_currentLayer];
+    const int srcLayerIdx = m_currentLayer;
+    LayerEntry &src = m_layers[srcLayerIdx];
     KisPaintDeviceSP srcDev = layerPaintDeviceFor(src);
     if (!srcDev) return -1;
 
@@ -483,6 +485,7 @@ int ReverieCore::copySelectionToNewLayer(bool cut)
     p.end();
     dstDev->setDirty(selBounds);
 
+    KisPaintDeviceSP cutCollabBefore = cut ? collabSnapshotLayerBefore(srcLayerIdx) : KisPaintDeviceSP();
     if (cut) {
         invalidateRedoState("cut-selection");
         KisTransaction *cutTxn = new KisTransaction(kundo2_i18n("Cut Selection"), srcDev, nullptr, -1, nullptr);
@@ -509,6 +512,18 @@ int ReverieCore::copySelectionToNewLayer(bool cut)
     const int idx = indexOfNode(newLayer.data());
     if (idx >= 0) {
         m_currentLayer = idx;
+    }
+    if (m_collabActive && !m_collabSuppressEmit) {
+        if (cut && cutCollabBefore) {
+            const int updatedSrcIdx = indexOfNode(srcDev == src.node->paintDevice() ? src.node : nullptr);
+            const int cutIdx = (updatedSrcIdx >= 0) ? updatedSrcIdx : srcLayerIdx;
+            collabRecordLayerPixelEdit(cutIdx, cutCollabBefore, selBounds, true);
+        }
+        if (idx >= 0) {
+            collabEmitLayerOp(CollabLayerAddPaint, idx, newName);
+            KisPaintDeviceSP emptyBefore(new KisPaintDevice(cs));
+            collabRecordLayerPixelEdit(idx, emptyBefore, selBounds);
+        }
     }
     markDirty();
     return m_currentLayer;
@@ -537,6 +552,7 @@ int ReverieCore::canvasClipboardCapabilities() const
 bool ReverieCore::copyCanvasToClipboard(bool cut)
 {
     if (!(canvasClipboardCapabilities() & (cut ? 2 : 1))) return false;
+    if (cut && !collabCanEditLayerIndex(m_currentLayer)) return false;
     KisPaintDeviceSP srcDev = dynamic_cast<KisPaintLayer *>(m_layers[m_currentLayer].node)->paintDevice();
     QRect bounds = srcDev->exactBounds().intersected(QRect(0, 0, m_document->width(), m_document->height()));
     const KisSelectionSP selection = hasSelection() ? m_selection : KisSelectionSP();
@@ -549,6 +565,7 @@ bool ReverieCore::copyCanvasToClipboard(bool cut)
     // Do not replace a valid clipboard or cut pixels on an empty selection.
     if (copied->exactBounds().isEmpty()) return false;
     if (cut) {
+        KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
         KisTransaction txn(kundo2_i18n("Cut"), srcDev);
         if (selection) srcDev->clearSelection(selection);
         else srcDev->clear(bounds);
@@ -556,6 +573,7 @@ bool ReverieCore::copyCanvasToClipboard(bool cut)
         pushUndoCommand(txn.endAndTake());
         recompositeProjection();
         markDirty();
+        collabRecordLayerPixelEdit(m_currentLayer, collabBefore, bounds, true);
     }
     m_canvasClipboard = copied;
     return true;
@@ -718,13 +736,14 @@ void ReverieCore::removeLayer(int index)
 
 void ReverieCore::clearLayer(int index)
 {
-    if (!isLayerEditable(index)) {
+    if (!isLayerEditable(index) || !collabCanEditLayerIndex(index)) {
         return;
     }
     KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
     if (!dev) {
         return;
     }
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(index);
     // Krita-native undo: wrap the pixel clear in a transaction
     KisTransaction txn(kundo2_i18n("Clear"), dev);
     if (m_layers[index].nodeType == NodeTypeTransparencyMask) {
@@ -734,19 +753,14 @@ void ReverieCore::clearLayer(int index)
         dev->clear();
     }
     dev->setDirty();
-    if (m_document) {
-        txn.commit(m_document->undoAdapter());
-        m_redoCount = 0;
-    }
+    finishPixelTransaction(txn);
     // Content became empty: dirty-region projection leaf updates do not
     // recomposite regions whose content is now empty, so the cleared layer
     // would keep showing its old pixels until a later full recomposite.
     // Force a full subtree walk + merge so the projection matches.
     recompositeProjection();
     markDirty();
-    if (m_collabActive && !m_collabSuppressEmit) {
-        collabEmitLayerOp(CollabLayerClear, index);
-    }
+    collabRecordLayerPixelEdit(index, collabBefore, QRect(), m_layers[index].nodeType != NodeTypeTransparencyMask);
 }
 
 // 与 clearLayer 的语义差异: clearLayer 对透明度蒙版做 "清空=重置为无遮罩" 特判
@@ -756,25 +770,24 @@ void ReverieCore::clearLayer(int index)
 // 铺全画布白底, 等于关掉分格裁剪
 void ReverieCore::clearLayerToTransparent(int index)
 {
-    if (!isLayerEditable(index)) {
+    if (!isLayerEditable(index) || !collabCanEditLayerIndex(index)) {
         return;
     }
     KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index]);
     if (!dev) {
         return;
     }
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(index);
     // Krita-native undo: wrap the pixel clear in a transaction
     KisTransaction txn(kundo2_i18n("Clear"), dev);
     dev->clear();
     dev->setDirty();
-    if (m_document) {
-        txn.commit(m_document->undoAdapter());
-        m_redoCount = 0;
-    }
+    finishPixelTransaction(txn);
     // 同 clearLayer: 内容变空后脏区投影叶更新不会重合成已变空的区域, 强制
     // 全子树重走 + 合并保证投影一致
     recompositeProjection();
     markDirty();
+    collabRecordLayerPixelEdit(index, collabBefore, QRect(), true);
 }
 
 void ReverieCore::setCurrentLayer(int index)
@@ -1370,7 +1383,7 @@ bool ReverieCore::getLayerStrokeParams(int index, int &size, quint32 &color, int
 bool ReverieCore::rasterizeLayerStroke(int index)
 {
     if (index < 0 || index >= m_layers.size()) return false;
-    if (m_layers[index].background) return false;
+    if (m_layers[index].background || !collabCanEditLayerIndex(index)) return false;
     KisImageSP image = m_document;
     if (!image) return false;
     LayerEntry &e = m_layers[index];
@@ -1386,6 +1399,7 @@ bool ReverieCore::rasterizeLayerStroke(int index)
         const QRect dirty = bounds.adjusted(-extra, -extra, extra, extra).intersected(
             QRect(0, 0, image->width(), image->height()));
 
+        KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(index);
         KisPaintDeviceSP styledDev(new KisPaintDevice(image->colorSpace()));
         styledDev->clear();
         compositeStrokeLayer(styledDev, e, dirty);
@@ -1400,9 +1414,10 @@ bool ReverieCore::rasterizeLayerStroke(int index)
         dev->clear();
         KisPainter::copyAreaOptimized(dirty.topLeft(), styledDev, dev, dirty);
         dev->setDirty(dirty);
-        txn.commit(image->undoAdapter());
+        finishPixelTransaction(txn);
         pushUndoCommand(new RasterizeStrokeCommand(this, KisNodeSP(e.node), oldSize, oldColor, oldPos, oldOp));
         endUndoMacro();
+        collabRecordLayerPixelEdit(index, collabBefore, dirty);
 
         markRegionDirty(dirty);
     } else {

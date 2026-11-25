@@ -81,6 +81,11 @@ internal fun CanvasTouchView.handleToolDown(
         v.showActionToast(context.getString(R.string.canvas_toast_layer_hidden), R.drawable.ic_eye_off)
         return
     }
+    if (v.collab.isActive && com.reverie.paint.model.CollabToolSupportPolicy.requiresLayerWritePermission(t)) {
+        if (!v.ensureCollabLayerEditable(v.currentLayerIndex)) {
+            return
+        }
+    }
     if (activeLayer != null && v.activeTextLayers.containsKey(activeLayer.id) && isDrawingTool) {
         v.showActionToast(context.getString(R.string.canvas_toast_text_not_drawable), R.drawable.ic_text)
         return

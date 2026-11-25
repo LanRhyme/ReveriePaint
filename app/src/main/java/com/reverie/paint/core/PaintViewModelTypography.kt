@@ -43,6 +43,7 @@ internal fun PaintViewModel.commitTypographyToCanvas() {
     if (existingLayerId != null) {
         val targetIdx = layers.indexOfFirst { it.id == existingLayerId }
         if (targetIdx >= 0) {
+            if (!ensureCollabLayerEditable(targetIdx)) return
             val currentItems = activeTextLayers[existingLayerId] ?: emptyList()
             val existingItemIdx = currentItems.indexOfFirst { it.id == currentItemId }
             val updatedItems = if (existingItemIdx >= 0) {

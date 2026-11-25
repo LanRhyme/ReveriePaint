@@ -175,3 +175,30 @@ object CollabTopologyPolicy {
         return BADGE_PALETTE[idx]
     }
 }
+
+/** 协同模式下工具可用性与局部像素互斥策略 */
+object CollabToolSupportPolicy {
+    /** 协同会话期间禁止改变画布宽高，避免成员间坐标系撕裂 */
+    fun canResizeOrCropCanvas(inCollab: Boolean): Boolean = !inCollab
+
+    /** 仅会改写当前图层像素的工具需要通过 Magma 图层所有权/锁定校验 */
+    fun requiresLayerWritePermission(tool: Tool): Boolean = when (tool) {
+        Tool.BRUSH,
+        Tool.ERASER,
+        Tool.SMUDGE,
+        Tool.LIQUIFY,
+        Tool.FILL,
+        Tool.ENCLOSE_FILL,
+        Tool.SHAPES,
+        Tool.LINE,
+        Tool.RECT,
+        Tool.ELLIPSE,
+        Tool.POLYGON,
+        Tool.POLYLINE,
+        Tool.PATH,
+        Tool.GRADIENT,
+        Tool.TRANSFORM,
+        Tool.TEXT -> true
+        else -> false
+    }
+}
