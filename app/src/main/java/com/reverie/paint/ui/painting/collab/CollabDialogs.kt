@@ -214,7 +214,7 @@ internal fun CollabLobbyDialog(
         vm.ensureCollabPrefsLoaded()
     }
 
-    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Create (go CreatePage), 1 = Join
+    var selectedTab by remember { mutableIntStateOf(0) } // 0 = Create, 1 = Join, 2 = Online
     var nickname by remember(vm.collab.selfName) { mutableStateOf(vm.collab.selfName) }
     var roomCodeInput by remember { mutableStateOf("") }
     var password by remember { mutableStateOf("") }
@@ -222,6 +222,7 @@ internal fun CollabLobbyDialog(
     var maxPeers by remember { mutableIntStateOf(10) }
     var isPublic by remember { mutableStateOf(false) }
     var roomTitle by remember { mutableStateOf("") }
+    var pendingLockedRoom by remember { mutableStateOf<CollabPublicRoom?>(null) }
     var signalingUrl by remember(vm.collab.signalingUrl) { mutableStateOf(vm.collab.signalingUrl) }
     var turnUrl by remember(vm.collab.customTurnUrl) { mutableStateOf(vm.collab.customTurnUrl) }
     var turnUser by remember(vm.collab.customTurnUsername) { mutableStateOf(vm.collab.customTurnUsername) }
@@ -229,8 +230,10 @@ internal fun CollabLobbyDialog(
     var showAdvanced by remember { mutableStateOf(false) }
 
     LaunchedEffect(selectedTab) {
-        if (selectedTab == 1) {
+        if (selectedTab == 2) {
             vm.refreshPublicCollabRooms(signalingUrl)
+        } else {
+            pendingLockedRoom = null
         }
     }
 
@@ -238,6 +241,7 @@ internal fun CollabLobbyDialog(
     val tabs = listOf(
         stringResource(R.string.collab_create_room),
         stringResource(R.string.collab_join_room),
+        stringResource(R.string.collab_tab_online_rooms),
     )
 
     Dialog(
@@ -291,8 +295,10 @@ internal fun CollabLobbyDialog(
                 Text(
                     text = tabs[idx],
                     color = if (isActive) colors.onAccent else colors.subText,
-                    fontSize = 13.sp,
+                    fontSize = 12.5.sp,
                     fontWeight = if (isActive) FontWeight.SemiBold else FontWeight.Medium,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                     modifier = Modifier.align(Alignment.Center),
                 )
             }
@@ -308,165 +314,169 @@ internal fun CollabLobbyDialog(
                 vm.collab.phase == CollabConnectionPhase.JOINING ||
                 vm.collab.phase == CollabConnectionPhase.WAITING_APPROVAL
 
-            if (selectedTab == 0) {
-                Text(
-                    text = stringResource(R.string.collab_create_need_canvas),
-                    color = colors.subText,
-                    fontSize = 11.5.sp,
-                    lineHeight = 16.sp,
-                )
-                CollabPublicRoomConfigSection(
-                    isPublic = isPublic,
-                    onPublicChange = { isPublic = it },
-                    roomTitle = roomTitle,
-                    onTitleChange = { roomTitle = it.take(CollabTopologyPolicy.MAX_ROOM_TITLE_LENGTH) },
-                )
-            } else {
-                ReSectionTitle(stringResource(R.string.collab_room_code))
-                ReTextInput(
-                    value = roomCodeInput,
-                    onValueChange = { raw ->
-                        roomCodeInput = CollabTopologyPolicy.normalizeRoomCode(raw).take(6)
-                    },
-                    placeholder = stringResource(R.string.collab_room_code_hint),
-                    keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
-                )
-                Text(
-                    text = stringResource(R.string.collab_lan_discover_tip),
-                    color = colors.subText,
-                    fontSize = 11.sp,
-                )
-            }
-
-            ReTextInput(
-                value = password,
-                onValueChange = { password = it.take(32) },
-                placeholder = stringResource(R.string.collab_password_optional),
-                visualTransformation = PasswordVisualTransformation(),
-            )
-
-            if (selectedTab == 0) {
-                ReSettingRow(
-                    label = stringResource(R.string.collab_require_approval),
-                    modifier = Modifier
-                        .clip(RoundedCornerShape(Dimens.radiusSm))
-                        .background(colors.panelHi),
-                ) {
-                    ReSwitch(
-                        checked = requireApproval,
-                        onChecked = { requireApproval = it },
+            when (selectedTab) {
+                0 -> {
+                    Text(
+                        text = stringResource(R.string.collab_create_need_canvas),
+                        color = colors.subText,
+                        fontSize = 11.5.sp,
+                        lineHeight = 16.sp,
+                    )
+                    CollabPublicRoomConfigSection(
+                        isPublic = isPublic,
+                        onPublicChange = { isPublic = it },
+                        roomTitle = roomTitle,
+                        onTitleChange = { roomTitle = it.take(CollabTopologyPolicy.MAX_ROOM_TITLE_LENGTH) },
+                    )
+                    ReTextInput(
+                        value = password,
+                        onValueChange = { password = it.take(32) },
+                        placeholder = stringResource(R.string.collab_password_optional),
+                        visualTransformation = PasswordVisualTransformation(),
+                    )
+                    ReSettingRow(
+                        label = stringResource(R.string.collab_require_approval),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(Dimens.radiusSm))
+                            .background(colors.panelHi),
+                    ) {
+                        ReSwitch(
+                            checked = requireApproval,
+                            onChecked = { requireApproval = it },
+                        )
+                    }
+                    ReSectionTitle(stringResource(R.string.collab_max_peers))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    ) {
+                        listOf(4, 8, 10, 16).forEach { count ->
+                            ReChip(
+                                text = count.toString(),
+                                selected = maxPeers == count,
+                                onTap = { maxPeers = count },
+                                modifier = Modifier.weight(1f),
+                            )
+                        }
+                    }
+                }
+                1 -> {
+                    ReSectionTitle(stringResource(R.string.collab_room_code))
+                    ReTextInput(
+                        value = roomCodeInput,
+                        onValueChange = { raw ->
+                            roomCodeInput = CollabTopologyPolicy.normalizeRoomCode(raw).take(6)
+                        },
+                        placeholder = stringResource(R.string.collab_room_code_hint),
+                        keyboardOptions = KeyboardOptions(capitalization = KeyboardCapitalization.Characters),
+                    )
+                    Text(
+                        text = stringResource(R.string.collab_lan_discover_tip),
+                        color = colors.subText,
+                        fontSize = 11.sp,
+                    )
+                    ReTextInput(
+                        value = password,
+                        onValueChange = { password = it.take(32) },
+                        placeholder = stringResource(R.string.collab_password_optional),
+                        visualTransformation = PasswordVisualTransformation(),
                     )
                 }
-
-                ReSectionTitle(stringResource(R.string.collab_max_peers))
-                Row(
-                    modifier = Modifier.fillMaxWidth(),
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
-                ) {
-                    listOf(4, 8, 10, 16).forEach { count ->
-                        ReChip(
-                            text = count.toString(),
-                            selected = maxPeers == count,
-                            onTap = { maxPeers = count },
-                            modifier = Modifier.weight(1f),
+                else -> {
+                    CollabOnlineRoomsSection(
+                        rooms = vm.collab.publicRooms,
+                        isLoading = vm.collab.isLoadingPublicRooms,
+                        errorText = vm.collab.publicRoomsError,
+                        selectedRoomCode = pendingLockedRoom?.roomCode.orEmpty(),
+                        onRefresh = { vm.refreshPublicCollabRooms(signalingUrl) },
+                        onSelectRoom = { room ->
+                            if (!busy) {
+                                if (room.peerCount >= room.maxPeers) {
+                                    vm.showActionToast(R.string.collab_err_room_full, R.drawable.ic_cloud)
+                                } else if (!room.hasPassword) {
+                                    pendingLockedRoom = null
+                                    vm.joinCollabRoom(
+                                        rawRoomCode = room.roomCode,
+                                        nickname = nickname,
+                                        password = "",
+                                        signalingUrl = signalingUrl,
+                                        turnUrl = turnUrl,
+                                        turnUsername = turnUser,
+                                        turnCredential = turnCred,
+                                    )
+                                } else if (pendingLockedRoom?.roomCode != room.roomCode) {
+                                    pendingLockedRoom = room
+                                    password = ""
+                                }
+                            }
+                        },
+                    )
+                    pendingLockedRoom?.let { locked ->
+                        Text(
+                            text = stringResource(R.string.collab_public_room_need_password, locked.title),
+                            color = colors.accent,
+                            fontSize = 11.5.sp,
+                        )
+                        ReTextInput(
+                            value = password,
+                            onValueChange = { password = it.take(32) },
+                            placeholder = stringResource(R.string.collab_password_required_hint),
+                            visualTransformation = PasswordVisualTransformation(),
                         )
                     }
                 }
-            } else {
-                val needPasswordPattern = stringResource(R.string.collab_public_room_need_password)
-                CollabOnlineRoomsSection(
-                    rooms = vm.collab.publicRooms,
-                    isLoading = vm.collab.isLoadingPublicRooms,
-                    errorText = vm.collab.publicRoomsError,
-                    selectedRoomCode = CollabTopologyPolicy.normalizeRoomCode(roomCodeInput),
-                    onRefresh = { vm.refreshPublicCollabRooms(signalingUrl) },
-                    onSelectRoom = { room ->
-                        if (!busy) {
-                            if (room.peerCount >= room.maxPeers) {
-                                vm.showActionToast(R.string.collab_err_room_full, R.drawable.ic_cloud)
-                            } else if (!room.hasPassword) {
-                                roomCodeInput = room.roomCode
-                                vm.joinCollabRoom(
-                                    rawRoomCode = room.roomCode,
-                                    nickname = nickname,
-                                    password = "",
-                                    signalingUrl = signalingUrl,
-                                    turnUrl = turnUrl,
-                                    turnUsername = turnUser,
-                                    turnCredential = turnCred,
-                                )
-                            } else if (CollabTopologyPolicy.normalizeRoomCode(roomCodeInput) == room.roomCode &&
-                                password.isNotBlank()
-                            ) {
-                                vm.joinCollabRoom(
-                                    rawRoomCode = room.roomCode,
-                                    nickname = nickname,
-                                    password = password,
-                                    signalingUrl = signalingUrl,
-                                    turnUrl = turnUrl,
-                                    turnUsername = turnUser,
-                                    turnCredential = turnCred,
-                                )
-                            } else {
-                                roomCodeInput = room.roomCode
-                                vm.showActionToast(
-                                    message = String.format(needPasswordPattern, room.title),
-                                    iconRes = R.drawable.ic_lock,
-                                )
-                            }
+            }
+
+            if (selectedTab != 2) {
+                Row(
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(6.dp))
+                        .clickable { showAdvanced = !showAdvanced }
+                        .padding(vertical = 4.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(4.dp),
+                ) {
+                    Text(
+                        text = stringResource(R.string.collab_custom_turn_section),
+                        color = colors.subText,
+                        fontSize = 11.5.sp,
+                        fontWeight = FontWeight.Medium,
+                    )
+                    Icon(
+                        painter = painterResource(
+                            if (showAdvanced) R.drawable.ic_chevron_down else R.drawable.ic_chevron,
+                        ),
+                        contentDescription = null,
+                        tint = colors.subText,
+                        modifier = Modifier.size(12.dp),
+                    )
+                }
+
+                if (showAdvanced) {
+                    Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                        ReTextInput(
+                            value = signalingUrl,
+                            onValueChange = { signalingUrl = it.trim() },
+                            placeholder = stringResource(R.string.collab_signaling_url),
+                        )
+                        ReTextInput(
+                            value = turnUrl,
+                            onValueChange = { turnUrl = it.trim() },
+                            placeholder = stringResource(R.string.collab_turn_url_hint),
+                        )
+                        if (turnUrl.isNotBlank()) {
+                            ReTextInput(
+                                value = turnUser,
+                                onValueChange = { turnUser = it.trim() },
+                                placeholder = stringResource(R.string.collab_turn_user_hint),
+                            )
+                            ReTextInput(
+                                value = turnCred,
+                                onValueChange = { turnCred = it },
+                                placeholder = stringResource(R.string.collab_turn_pass_hint),
+                                visualTransformation = PasswordVisualTransformation(),
+                            )
                         }
-                    },
-                )
-            }
-
-            Row(
-                modifier = Modifier
-                    .clip(RoundedCornerShape(6.dp))
-                    .clickable { showAdvanced = !showAdvanced }
-                    .padding(vertical = 4.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(4.dp),
-            ) {
-                Text(
-                    text = stringResource(R.string.collab_custom_turn_section),
-                    color = colors.subText,
-                    fontSize = 11.5.sp,
-                    fontWeight = FontWeight.Medium,
-                )
-                Icon(
-                    painter = painterResource(
-                        if (showAdvanced) R.drawable.ic_chevron_down else R.drawable.ic_chevron,
-                    ),
-                    contentDescription = null,
-                    tint = colors.subText,
-                    modifier = Modifier.size(12.dp),
-                )
-            }
-
-            if (showAdvanced) {
-                Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                    ReTextInput(
-                        value = signalingUrl,
-                        onValueChange = { signalingUrl = it.trim() },
-                        placeholder = stringResource(R.string.collab_signaling_url),
-                    )
-                    ReTextInput(
-                        value = turnUrl,
-                        onValueChange = { turnUrl = it.trim() },
-                        placeholder = stringResource(R.string.collab_turn_url_hint),
-                    )
-                    if (turnUrl.isNotBlank()) {
-                        ReTextInput(
-                            value = turnUser,
-                            onValueChange = { turnUser = it.trim() },
-                            placeholder = stringResource(R.string.collab_turn_user_hint),
-                        )
-                        ReTextInput(
-                            value = turnCred,
-                            onValueChange = { turnCred = it },
-                            placeholder = stringResource(R.string.collab_turn_pass_hint),
-                            visualTransformation = PasswordVisualTransformation(),
-                        )
                     }
                 }
             }
@@ -480,48 +490,74 @@ internal fun CollabLobbyDialog(
                 )
             }
 
-            Spacer(Modifier.height(2.dp))
-            if (selectedTab == 0) {
-                val canCreate = !busy && CollabTopologyPolicy.isValidPublicRoomTitle(isPublic, roomTitle)
-                ReTextButton(
-                    text = stringResource(R.string.collab_go_create_canvas),
-                    onClick = {
-                        vm.openCreateCanvasForCollab(
-                            nickname = nickname,
-                            password = password,
-                            requireApproval = requireApproval,
-                            maxPeers = maxPeers,
-                            signalingUrl = signalingUrl,
-                            turnUrl = turnUrl,
-                            turnUsername = turnUser,
-                            turnCredential = turnCred,
-                            isPublic = isPublic,
-                            roomTitle = roomTitle,
+            when (selectedTab) {
+                0 -> {
+                    Spacer(Modifier.height(2.dp))
+                    val canCreate = !busy && CollabTopologyPolicy.isValidPublicRoomTitle(isPublic, roomTitle)
+                    ReTextButton(
+                        text = stringResource(R.string.collab_go_create_canvas),
+                        onClick = {
+                            vm.openCreateCanvasForCollab(
+                                nickname = nickname,
+                                password = password,
+                                requireApproval = requireApproval,
+                                maxPeers = maxPeers,
+                                signalingUrl = signalingUrl,
+                                turnUrl = turnUrl,
+                                turnUsername = turnUser,
+                                turnCredential = turnCred,
+                                isPublic = isPublic,
+                                roomTitle = roomTitle,
+                            )
+                        },
+                        primary = true,
+                        enabled = canCreate,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                1 -> {
+                    Spacer(Modifier.height(2.dp))
+                    val canJoin = !busy && CollabTopologyPolicy.isValidRoomCode(roomCodeInput)
+                    ReTextButton(
+                        text = stringResource(R.string.collab_join_now),
+                        onClick = {
+                            vm.joinCollabRoom(
+                                rawRoomCode = roomCodeInput,
+                                nickname = nickname,
+                                password = password,
+                                signalingUrl = signalingUrl,
+                                turnUrl = turnUrl,
+                                turnUsername = turnUser,
+                                turnCredential = turnCred,
+                            )
+                        },
+                        primary = true,
+                        enabled = canJoin,
+                        modifier = Modifier.fillMaxWidth(),
+                    )
+                }
+                else -> {
+                    pendingLockedRoom?.let { locked ->
+                        Spacer(Modifier.height(2.dp))
+                        ReTextButton(
+                            text = stringResource(R.string.collab_join_now),
+                            onClick = {
+                                vm.joinCollabRoom(
+                                    rawRoomCode = locked.roomCode,
+                                    nickname = nickname,
+                                    password = password,
+                                    signalingUrl = signalingUrl,
+                                    turnUrl = turnUrl,
+                                    turnUsername = turnUser,
+                                    turnCredential = turnCred,
+                                )
+                            },
+                            primary = true,
+                            enabled = !busy && password.isNotBlank(),
+                            modifier = Modifier.fillMaxWidth(),
                         )
-                    },
-                    primary = true,
-                    enabled = canCreate,
-                    modifier = Modifier.fillMaxWidth(),
-                )
-            } else {
-                val canJoin = !busy && CollabTopologyPolicy.isValidRoomCode(roomCodeInput)
-                ReTextButton(
-                    text = stringResource(R.string.collab_join_now),
-                    onClick = {
-                        vm.joinCollabRoom(
-                            rawRoomCode = roomCodeInput,
-                            nickname = nickname,
-                            password = password,
-                            signalingUrl = signalingUrl,
-                            turnUrl = turnUrl,
-                            turnUsername = turnUser,
-                            turnCredential = turnCred,
-                        )
-                    },
-                    primary = true,
-                    enabled = canJoin,
-                    modifier = Modifier.fillMaxWidth(),
-                )
+                    }
+                }
             }
         }
     }
@@ -675,14 +711,28 @@ private fun CollabOnlineRoomCard(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(4.dp),
         ) {
-            Text(
-                text = room.title,
-                color = colors.text,
-                fontSize = 13.sp,
-                fontWeight = FontWeight.SemiBold,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-            )
+            Row(
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(5.dp),
+            ) {
+                if (room.hasPassword) {
+                    Icon(
+                        painter = painterResource(R.drawable.ic_lock),
+                        contentDescription = stringResource(R.string.collab_public_room_locked_tag),
+                        tint = colors.accent,
+                        modifier = Modifier.size(14.dp),
+                    )
+                }
+                Text(
+                    text = room.title,
+                    color = colors.text,
+                    fontSize = 13.sp,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.weight(1f, fill = false),
+                )
+            }
             Row(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -703,7 +753,6 @@ private fun CollabOnlineRoomCard(
                 if (room.hasPassword) {
                     CollabRoomTagPill(
                         text = stringResource(R.string.collab_public_room_locked_tag),
-                        iconRes = R.drawable.ic_lock,
                         tint = colors.accent,
                     )
                 }
@@ -748,7 +797,6 @@ private fun CollabOnlineRoomCard(
 private fun CollabRoomTagPill(
     text: String,
     tint: Color,
-    iconRes: Int? = null,
 ) {
     Row(
         modifier = Modifier
@@ -758,14 +806,6 @@ private fun CollabRoomTagPill(
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
-        if (iconRes != null) {
-            Icon(
-                painter = painterResource(iconRes),
-                contentDescription = null,
-                tint = tint,
-                modifier = Modifier.size(10.dp),
-            )
-        }
         Text(
             text = text,
             color = tint,

@@ -4290,4 +4290,6 @@
     <string name="collab_public_room_badge">Public</string>
     <string name="collab_public_room_need_password">Selected "%1$s", enter password to join</string>
     <string name="collab_create_public_summary">Public room · %1$s</string>
+    <string name="collab_tab_online_rooms">Online</string>
+    <string name="collab_password_required_hint">Enter room password</string>
 </resources>

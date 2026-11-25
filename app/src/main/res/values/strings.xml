@@ -4289,4 +4289,6 @@
     <string name="collab_public_room_badge">公开</string>
     <string name="collab_public_room_need_password">已选中「%1$s」，请输入房间密码后加入</string>
     <string name="collab_create_public_summary">公开房间 · %1$s</string>
+    <string name="collab_tab_online_rooms">在线房间</string>
+    <string name="collab_password_required_hint">输入房间密码</string>
 </resources>
