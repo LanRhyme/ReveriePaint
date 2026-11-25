@@ -18,6 +18,7 @@ bool ReverieCore::applyPerspectiveTransform(
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return false;
+    if (!collabCanEditLayerIndex(m_currentLayer)) return false;
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) return false;
 
@@ -66,6 +67,7 @@ bool ReverieCore::applyPerspectiveTransform(
     // 事务必须开在全部校验之后: 顺手 return 会把未提交的 KisTransaction 析构掉,
     // ~KisTransactionData -> purgeHistory() 连带清掉这台设备更早的撤销 revision,
     // 撤销栈从此错位(撤错帧/内容乱跳)。
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
     KisTransaction txn(kundo2_i18n("Perspective Transform"), device);
 
     const bool activeSel = hasSelection();
@@ -127,8 +129,8 @@ bool ReverieCore::applyPerspectiveTransform(
     device->setDirty();
     recompositeProjection();
     markDirty();
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
+    collabRecordLayerPixelEdit(m_currentLayer, collabBefore, QRect());
     return true;
 }
 
@@ -139,6 +141,7 @@ bool ReverieCore::applyWarpMeshTransform(
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return false;
+    if (!collabCanEditLayerIndex(m_currentLayer)) return false;
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) return false;
     if (origPoints.size() < 4 || origPoints.size() != transfPoints.size()) return false;
@@ -148,6 +151,7 @@ bool ReverieCore::applyWarpMeshTransform(
     }
 
     invalidateRedoState("transform-mesh-warp");
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
     KisTransaction txn(kundo2_i18n("Mesh Warp Transform"), device);
 
     KisWarpTransformWorker worker(
@@ -200,8 +204,8 @@ bool ReverieCore::applyWarpMeshTransform(
     device->setDirty();
     recompositeProjection();
     markDirty();
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
+    collabRecordLayerPixelEdit(m_currentLayer, collabBefore, QRect());
     return true;
 }
 
@@ -238,6 +242,7 @@ bool ReverieCore::applyTransform(double xscale, double yscale,
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return false;
+    if (!collabCanEditLayerIndex(m_currentLayer)) return false;
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) return false;
 
@@ -246,6 +251,7 @@ bool ReverieCore::applyTransform(double xscale, double yscale,
     }
 
     invalidateRedoState("transform-apply");
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
     KisTransaction txn(kundo2_i18n("Transform"), device);
 
     QRect bounds = device->exactBounds().intersected(QRect(0, 0, image->width(), image->height()));
@@ -341,8 +347,8 @@ bool ReverieCore::applyTransform(double xscale, double yscale,
     device->setDirty();
     recompositeProjection();
     markDirty();
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
+    collabRecordLayerPixelEdit(m_currentLayer, collabBefore, QRect());
     return true;
 }
 
@@ -365,9 +371,12 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
     }
 
     QVector<KisPaintDeviceSP> devices;
+    QVector<int> deviceLayerIndices;
+    QVector<KisPaintDeviceSP> deviceCollabBefore;
     QVector<int> targets = layers.isEmpty() ? QVector<int>{m_currentLayer} : layers;
     for (int idx : targets) {
         if (idx < 0 || idx >= m_layers.size()) continue;
+        if (!collabCanEditLayerIndex(idx)) continue;
         KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[idx]);
         if (!dev) continue;
         bool dup = false;
@@ -377,7 +386,11 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
                 break;
             }
         }
-        if (!dup) devices.append(dev);
+        if (!dup) {
+            devices.append(dev);
+            deviceLayerIndices.append(idx);
+            deviceCollabBefore.append(collabSnapshotLayerBefore(idx));
+        }
     }
     if (devices.isEmpty()) return false;
     RPC_LOG("applyTransformLayersEx: targets=%d devices=%d copyOnly=%d tx=%.1f ty=%.1f rot=%.2f",
@@ -415,7 +428,9 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
     // 循环前统一让重做区失效一次。
     invalidateRedoState("transform-layers");
     QVector<KUndo2Command *> children;
-    for (KisPaintDeviceSP device : devices) {
+    QVector<QPair<int, KisPaintDeviceSP>> collabBatch;
+    for (int di = 0; di < devices.size(); ++di) {
+        KisPaintDeviceSP device = devices[di];
         KisTransaction *txn = nullptr;
         if (activeSel) {
             QRect selBounds = m_selection->selectedExactRect().intersected(canvasRect);
@@ -518,6 +533,9 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
         if (txn) {
             children << txn->endAndTake();
             delete txn;
+            if (deviceCollabBefore[di]) {
+                collabBatch.append(qMakePair(deviceLayerIndices[di], deviceCollabBefore[di]));
+            }
         }
     }
 
@@ -550,6 +568,9 @@ bool ReverieCore::applyTransformLayers(const QVector<int> &layers,
     } else {
         qDeleteAll(children);
     }
+    if (!collabBatch.isEmpty()) {
+        collabRecordLayerPixelBatch(collabBatch);
+    }
     return true;
 }
 
@@ -569,6 +590,7 @@ bool ReverieCore::startTransformPreview(const QVector<int> &layers, QImage* outI
     QVector<KisPaintDeviceSP> devices;
     for (int idx : targets) {
         if (idx < 0 || idx >= m_layers.size()) continue;
+        if (!collabCanEditLayerIndex(idx)) continue;
         KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[idx]);
         if (!dev) continue;
         bool dup = false;

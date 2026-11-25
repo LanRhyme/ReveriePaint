@@ -1460,6 +1460,8 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
     var hasRec = false
     var masterPath = ""
     var isAnimation = false
+    var isCollab = false
+    var collabRoomCode = ""
 
     val ext = f.extension.lowercase()
     if (ext == "revp" || ext == "kra") {
@@ -1484,6 +1486,8 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
                     isAnimation = json.optJSONArray("layers")?.let { arr ->
                         (0 until arr.length()).any { arr.optJSONObject(it)?.optBoolean("animated", false) == true }
                     } ?: false
+                    isCollab = json.optBoolean("isCollab", false)
+                    collabRoomCode = json.optString("collabRoomCode", "")
                 }
                 val prevEntry = zip.getEntry("thumbnail.png") ?: zip.getEntry("preview.png")
                 if (prevEntry != null) {
@@ -1551,6 +1555,8 @@ internal fun PaintViewModel.parseProjectFromFile(f: File): com.reverie.paint.mod
             isAutoSaved = isAutoSaveFile,
             masterFilePath = masterPath,
             isAnimation = isAnimation,
+            isCollab = isCollab,
+            collabRoomCode = collabRoomCode,
         ).also { p ->
             projectMetaCache[f.absolutePath] = ProjectMetaCacheEntry(f.lastModified(), f.length(), p)
         }
@@ -1990,6 +1996,9 @@ internal fun PaintViewModel.goHome() {
 }
 
 private fun PaintViewModel.performGoHomeNow() {
+    if (collab.isActive) {
+        leaveCollabRoom()
+    }
     resetProjectReferences()
     stopPaintingTimer()
     // 动画播放与状态镜像: 离开绘画页彻底停止并重置动画状态, 避免耗电和跨画布状态残留

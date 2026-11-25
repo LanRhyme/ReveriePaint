@@ -355,6 +355,27 @@ internal fun LayerListView(
             return
         }
 
+        if (vm.collab.isActive) {
+            val targetAllowed = when (target.placement) {
+                LayerDropPlacement.INSIDE -> vm.canInsertIntoGroupInCollab(
+                    vm.layers.firstOrNull { it.index == target.anchorIndex },
+                )
+                LayerDropPlacement.ABOVE, LayerDropPlacement.BELOW -> {
+                    val pIdx = target.parentGroupIndex
+                    pIdx == null || pIdx < 0 || vm.canInsertIntoGroupInCollab(
+                        vm.layers.firstOrNull { it.index == pIdx },
+                    )
+                }
+            }
+            if (!targetAllowed) {
+                currentDropTarget = null
+                dragOver = null
+                dragTargetIdx = -1
+                previewDropIdx = -1
+                return
+            }
+        }
+
         val displaySlot = resolveDisplayDropSlot(target, displayRows)
         if (target.placement == LayerDropPlacement.INSIDE) {
             dragOver = target.anchorIndex to DropMode.OnGroup
@@ -410,6 +431,25 @@ internal fun LayerListView(
             }
 
             groupDrop = target.placement == LayerDropPlacement.INSIDE
+            val collabDropOk = if (vm.collab.isActive) {
+                if (groupDrop) {
+                    vm.ensureCollabInsertIntoGroup(target.anchorIndex)
+                } else {
+                    val pIdx = target.parentGroupIndex
+                    pIdx == null || pIdx < 0 || vm.ensureCollabInsertIntoGroup(pIdx)
+                }
+            } else {
+                true
+            }
+            if (!collabDropOk) {
+                draggingFrom = -1
+                dragTargetIdx = -1
+                dragOver = null
+                currentDropTarget = null
+                previewDropIdx = -1
+                vm.activeLayerDrag = null
+                return
+            }
             when (target.placement) {
                 LayerDropPlacement.INSIDE -> {
                     if (batch.size > 1) {
@@ -605,37 +645,39 @@ internal fun LayerListView(
                                 }
                             },
                         )
-                        ReDropdownMenuItem(
-                            text = stringResource(R.string.layer_type_filter),
-                            icon = R.drawable.ic_image_adjust,
-                            onClick = {
-                                showNewLayerMenu = false
-                                vm.clearLayerSelection()
-                                onOpenCreateFilter()
-                            },
-                        )
-                        ReDropdownMenuItem(
-                            text = stringResource(R.string.layer_type_stroke),
-                            icon = R.drawable.ic_shape_stroke,
-                            onClick = {
-                                showNewLayerMenu = false
-                                val now = System.currentTimeMillis()
-                                if (now - lastLayerOpTime > 350L) {
-                                    lastLayerOpTime = now
+                        if (!vm.collab.isActive) {
+                            ReDropdownMenuItem(
+                                text = stringResource(R.string.layer_type_filter),
+                                icon = R.drawable.ic_image_adjust,
+                                onClick = {
+                                    showNewLayerMenu = false
                                     vm.clearLayerSelection()
-                                    vm.addStrokeLayer()
-                                }
-                            },
-                        )
-                        ReDropdownMenuItem(
-                            text = stringResource(R.string.layer_new_3d_reference),
-                            icon = R.drawable.ic_eye,
-                            onClick = {
-                                showNewLayerMenu = false
-                                vm.clearLayerSelection()
-                                vm.show3DModelPicker = true
-                            },
-                        )
+                                    onOpenCreateFilter()
+                                },
+                            )
+                            ReDropdownMenuItem(
+                                text = stringResource(R.string.layer_type_stroke),
+                                icon = R.drawable.ic_shape_stroke,
+                                onClick = {
+                                    showNewLayerMenu = false
+                                    val now = System.currentTimeMillis()
+                                    if (now - lastLayerOpTime > 350L) {
+                                        lastLayerOpTime = now
+                                        vm.clearLayerSelection()
+                                        vm.addStrokeLayer()
+                                    }
+                                },
+                            )
+                            ReDropdownMenuItem(
+                                text = stringResource(R.string.layer_new_3d_reference),
+                                icon = R.drawable.ic_eye,
+                                onClick = {
+                                    showNewLayerMenu = false
+                                    vm.clearLayerSelection()
+                                    vm.show3DModelPicker = true
+                                },
+                            )
+                        }
 
                         // 柔和分割线
                         Box(
@@ -674,26 +716,28 @@ internal fun LayerListView(
                                 }
                             },
                         )
-                        ReDropdownMenuItem(
-                            text = stringResource(R.string.layer_op_add_selection_mask),
-                            icon = R.drawable.ic_select,
-                            onClick = {
-                                showNewLayerMenu = false
-                                val now = System.currentTimeMillis()
-                                if (now - lastLayerOpTime > 350L) {
-                                    lastLayerOpTime = now
-                                    if (!vm.hasSelection) {
-                                        android.widget.Toast.makeText(
-                                            context,
-                                            R.string.layer_mask_toast_no_selection,
-                                            android.widget.Toast.LENGTH_SHORT
-                                        ).show()
-                                    } else if (curIdx > 0 && curIdx < vm.layers.size && !isBg && !isFilter) {
-                                        vm.addMaskToLayer(curIdx, com.reverie.paint.model.LayerMaskType.SELECTION)
+                        if (!vm.collab.isActive) {
+                            ReDropdownMenuItem(
+                                text = stringResource(R.string.layer_op_add_selection_mask),
+                                icon = R.drawable.ic_select,
+                                onClick = {
+                                    showNewLayerMenu = false
+                                    val now = System.currentTimeMillis()
+                                    if (now - lastLayerOpTime > 350L) {
+                                        lastLayerOpTime = now
+                                        if (!vm.hasSelection) {
+                                            android.widget.Toast.makeText(
+                                                context,
+                                                R.string.layer_mask_toast_no_selection,
+                                                android.widget.Toast.LENGTH_SHORT
+                                            ).show()
+                                        } else if (curIdx > 0 && curIdx < vm.layers.size && !isBg && !isFilter) {
+                                            vm.addMaskToLayer(curIdx, com.reverie.paint.model.LayerMaskType.SELECTION)
+                                        }
                                     }
-                                }
-                            },
-                        )
+                                },
+                            )
+                        }
 
                         // 柔和分割线
                         Box(
@@ -743,10 +787,13 @@ internal fun LayerListView(
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(4.dp),
             ) {
+                val canModifyProps = !vm.collab.isActive || vm.canModifyLayerPropsInCollab(selLayer)
+                val canDeleteSel = !vm.collab.isActive ||
+                    (vm.canDeleteLayerInCollab(selLayer) && vm.isLayerTypeSupportedInCollab(selLayer))
                 TopIcon(
                     resId = R.drawable.ic_merge_down,
                     desc = stringResource(R.string.layer_op_merge_down),
-                    enabled = selectedIndex > 1 && !isBg && !isFilter && selLayer?.locked != true,
+                    enabled = selectedIndex > 1 && !isBg && !isFilter && selLayer?.locked != true && canDeleteSel,
                     onClick = {
                         val now = System.currentTimeMillis()
                         if (now - lastLayerOpTime > 350L && selectedIndex > 1 && !isBg && !isFilter && selLayer?.locked != true) {
@@ -759,7 +806,7 @@ internal fun LayerListView(
                     resId = R.drawable.ic_grid,
                     desc = stringResource(R.string.layer_op_alpha_lock),
                     active = selLayer?.alphaLocked == true,
-                    enabled = !isBg && !isFilter,
+                    enabled = !isBg && !isFilter && canModifyProps,
                     onClick = {
                         if (selectedIndex >= 0 && !isBg && !isFilter) {
                             vm.setLayerAlphaLocked(selectedIndex, !(selLayer?.alphaLocked == true))
@@ -771,7 +818,7 @@ internal fun LayerListView(
                     resId = if (useAlphaInherit) R.drawable.ic_alpha_inherit else R.drawable.ic_clip,
                     desc = stringResource(if (useAlphaInherit) R.string.layer_op_alpha_inherit else R.string.layer_op_clip),
                     active = if (useAlphaInherit) selLayer?.alphaInherited == true else selLayer?.clipped == true,
-                    enabled = !isBg,
+                    enabled = !isBg && canModifyProps,
                     onClick = {
                         if (selectedIndex >= 0 && !isBg) {
                             if (useAlphaInherit) {
@@ -783,10 +830,13 @@ internal fun LayerListView(
                     },
                 )
                 if (vm.selectedLayerIndices.isNotEmpty()) {
+                    val anyBatchDeletable = !vm.collab.isActive ||
+                        vm.selectedLayerIndices.any { vm.canDeleteLayerInCollab(vm.layers.getOrNull(it)) }
                     TopIcon(
                         resId = R.drawable.ic_trash,
                         desc = stringResource(R.string.layer_batch_delete),
-                        active = true,
+                        active = anyBatchDeletable,
+                        enabled = anyBatchDeletable,
                         onClick = {
                             val now = System.currentTimeMillis()
                             if (now - lastLayerOpTime > 350L) {
@@ -800,7 +850,7 @@ internal fun LayerListView(
                     resId = R.drawable.ic_lock,
                     desc = stringResource(R.string.layer_op_lock_layer),
                     active = selLayer?.locked == true,
-                    enabled = !isBg,
+                    enabled = !isBg && (!vm.collab.isActive || vm.canToggleLayerLockInCollab(selLayer)),
                     onClick = {
                         if (selectedIndex >= 0 && !isBg) {
                             vm.setLayerLocked(selectedIndex, !(selLayer?.locked == true))
@@ -890,10 +940,12 @@ internal fun LayerListView(
                                         } else if (curLayer.nodeType == 3) {
                                             vm.showActionToast(R.string.layer_toast_filter_cannot_merge, com.reverie.paint.R.drawable.ic_image_adjust)
                                         } else if (curLayer.isGroup) {
-                                            haptic.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            vm.flattenGroup(curIdx)
-                                            vm.clearLayerSelection()
-                                            vm.showActionToast(R.string.layer_toast_group_flattened, com.reverie.paint.R.drawable.ic_merge_down)
+                                            if (vm.ensureCollabLayerDeletable(curIdx) && vm.ensureCollabLayerTypeSupported(curIdx)) {
+                                                haptic.performHapticFeedback(HapticFeedbackType.LongPress)
+                                                vm.flattenGroup(curIdx)
+                                                vm.clearLayerSelection()
+                                                vm.showActionToast(R.string.layer_toast_group_flattened, com.reverie.paint.R.drawable.ic_merge_down)
+                                            }
                                         } else {
                                             var ti = curIdx - 1
                                             while (ti > 0 && vm.layers.getOrNull(ti)?.isGroup == true) {
@@ -1000,6 +1052,12 @@ internal fun LayerListView(
                             onBounds = { top, bottom -> rowBounds[layer.index] = top to bottom },
                             onDragStart = { startX, startY ->
                                 if (vm.isLayerBackendBusy()) return@LayerRow
+                                val isMultiCheck = layer.index in vm.selectedLayerIndices && vm.selectedLayerIndices.size > 1
+                                val dragBatch = if (isMultiCheck) vm.selectedLayerIndices.filter { it > 0 }.sorted() else listOf(layer.index)
+                                if (vm.collab.isActive && dragBatch.none { vm.canModifyLayerPropsInCollab(vm.layers.getOrNull(it)) }) {
+                                    vm.showActionToast(R.string.collab_layer_props_no_permission, R.drawable.ic_lock)
+                                    return@LayerRow
+                                }
                                 revealedIndex = null
                                 if (vm.selectedLayerIndices.isNotEmpty()) {
                                     vm.clearLayerSelection()

@@ -69,14 +69,18 @@ internal fun PaintViewModel.encloseAndFill(
         showActionToast(R.string.canvas_toast_layer_hidden, R.drawable.ic_eye_off)
         return
     }
-
+    if (!ensureCollabLayerEditable()) return
 
     commitColorCompareBaseline()
     val xs = IntArray(points.size) { points[it].first }
     val ys = IntArray(points.size) { points[it].second }
     val methodVal = regionMode.methodValue
 
-    runCore {
+    runCore(after = {
+        refreshLayerThumbs(force = false)
+        triggerTimelapseCapture(isChanged = true)
+        refreshUndoCounts()
+    }) {
         ReverieCoreBridge.encloseAndFill(
             xs,
             ys,

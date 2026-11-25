@@ -145,6 +145,11 @@ internal fun PaintViewModel.touchStart(
         onStylusStrokeEnded()
         return false
     }
+    if (collab.isActive && !canEditLayerInCollab(curLayer)) {
+        showActionToast(R.string.collab_layer_no_permission, com.reverie.paint.R.drawable.ic_lock)
+        onStylusStrokeEnded()
+        return false
+    }
 
     if (currentToolId == "brush" || currentToolId == "eraser" || currentToolId == "smudge") {
         flushPendingPresetSelect()
@@ -281,6 +286,9 @@ internal fun PaintViewModel.touchStart(
     // 蒙版 / 引擎绕过选区) 或抬笔时还没确认才走旧的预览 + 抬笔重放。
     // 必须在 CanvasTouchView 追加第一个镜像点之前调用 (touchStart 先于 appendSymmetricSamplePair)。
     mirrorGate.begin(mirrorSeq, drawingGuide.mode == GuideMode.SYMMETRY && drawingGuide.assistedDrawing)
+    if (collab.isActive) {
+        reportCollabCursor(x, y, isDrawing = true, force = true)
+    }
     return true
 }
 
@@ -349,6 +357,9 @@ internal fun PaintViewModel.touchMove(
     // 真实笔触与录制严格走真实物理采样点 (对齐 CSP/Procreate 标准, 预测只上前缓冲显示, 绝不进文档与录制)
     val targetX = x
     val targetY = y
+    if (collab.isActive) {
+        reportCollabCursor(targetX, targetY, isDrawing = true)
+    }
 
     var effX = targetX
     var effY = targetY
@@ -586,6 +597,9 @@ internal fun PaintViewModel.touchEnd(
     }
 
     resetRenderedFrontier()
+    if (collab.isActive) {
+        reportCollabCursorIdle()
+    }
     if (render) {
         runCore(after = {
             scheduleRender(immediate = true)
@@ -594,6 +608,7 @@ internal fun PaintViewModel.touchEnd(
             } else null
             refreshLayerThumbs(onlyLayerIds = targetIds)
             triggerTimelapseCapture(isChanged = true)
+            if (collab.isActive) refreshUndoCounts()
         }) {
             drainPendingStrokeBatchOnRenderThread()
             drainMirrorBatchesOnRenderThread()
@@ -643,6 +658,9 @@ internal fun PaintViewModel.touchCancel() {
     // whose cancel (transaction revert) is already in flight behind it.
     mirrorGate.cancel()
     clearPendingStrokeSamples()
+    if (collab.isActive) {
+        reportCollabCursorIdle()
+    }
     val hadOverride = (activeStrokeToolOverride != null)
     val presetSwitched = activeStrokePresetSwitched
     activeStrokeToolOverride = null
@@ -1098,8 +1116,11 @@ internal fun PaintViewModel.gradientFill(
     repeat: Int = gradientRepeat,
     reverse: Boolean = gradientReverse,
 ) {
+    if (!ensureCollabLayerEditable()) return
     commitColorCompareBaseline()
-    runCore { ReverieCoreBridge.gradientFill(x1, y1, x2, y2, type, repeat, reverse) }
+    runCore(after = {
+        notifyLayerChanged(pixelChanged = true)
+    }) { ReverieCoreBridge.gradientFill(x1, y1, x2, y2, type, repeat, reverse) }
 }
 
 internal fun PaintViewModel.gradientFillV3(
@@ -1116,8 +1137,11 @@ internal fun PaintViewModel.gradientFillV3(
     stopPositions: FloatArray = floatArrayOf(0f, 1f),
     stopColors: IntArray = intArrayOf(android.graphics.Color.BLACK, android.graphics.Color.WHITE),
 ) {
+    if (!ensureCollabLayerEditable()) return
     commitColorCompareBaseline()
-    runCore {
+    runCore(after = {
+        notifyLayerChanged(pixelChanged = true)
+    }) {
         ReverieCoreBridge.gradientFillV3(
             x1, y1, x2, y2, type, repeat, reverse,
             opacity, blendMode, dither, stopPositions, stopColors
@@ -1128,6 +1152,10 @@ internal fun PaintViewModel.gradientFillV3(
 internal fun PaintViewModel.commitActiveGradient() {
     val state = gradientState
     if (!state.active) return
+    if (!ensureCollabLayerEditable()) {
+        state.clear()
+        return
+    }
     val p1 = state.p1
     val p2 = state.p2
     if (p1 == p2) {
@@ -1248,9 +1276,12 @@ internal fun PaintViewModel.drawPolygon(
     closed: Boolean,
 ) {
     if (points.size < 2) return
+    if (!ensureCollabLayerEditable()) return
     val xs = IntArray(points.size) { points[it].first }
     val ys = IntArray(points.size) { points[it].second }
-    runCore { ReverieCoreBridge.drawPolygon(xs, ys, points.size, closed) }
+    runCore(after = { notifyLayerChanged(pixelChanged = true) }) {
+        ReverieCoreBridge.drawPolygon(xs, ys, points.size, closed)
+    }
 }
 
 @Deprecated("Retained for replay/recording compatibility, move tool has been removed in favor of transform tool")
@@ -1260,6 +1291,7 @@ internal fun PaintViewModel.moveLayerContent(
 ) {
     val layers = editTargetLayers()
     if (layers.isEmpty()) return
+    if (!ensureCollabLayerEditable(layers.first())) return
     val multi = layers.size > 1 || selectedLayerIndices.isNotEmpty()
     val arr = if (multi) layers.toIntArray() else null
     runCore(render = true, after = {
@@ -1282,6 +1314,10 @@ internal fun PaintViewModel.cropCanvas(
     w: Int,
     h: Int,
 ) {
+    if (!com.reverie.paint.model.CollabToolSupportPolicy.canResizeOrCropCanvas(collab.isActive)) {
+        showActionToast(R.string.collab_canvas_resize_disabled, R.drawable.ic_lock)
+        return
+    }
     runCore(after = {
         // The document size changed in C++ - keep coreW/coreH and docWidth/docHeight in sync or
         // the viewport render reads stale dimensions (crop crash)
@@ -1314,6 +1350,10 @@ internal fun PaintViewModel.scaleImage(
     h: Int,
     filterType: Int = 0,
 ) {
+    if (!com.reverie.paint.model.CollabToolSupportPolicy.canResizeOrCropCanvas(collab.isActive)) {
+        showActionToast(R.string.collab_canvas_resize_disabled, R.drawable.ic_lock)
+        return
+    }
     runCore(after = {
         val nw = ReverieCoreBridge.docWidth()
         val nh = ReverieCoreBridge.docHeight()
@@ -1388,7 +1428,7 @@ internal fun PaintViewModel.applyTransform(
     originY: Double = -1.0,
 ) {
     val layers = editTargetLayers()
-    if (layers.isEmpty()) {
+    if (layers.isEmpty() || !ensureCollabLayerEditable(layers.first())) {
         cancelTransformPreview()
         return
     }
@@ -1473,6 +1513,10 @@ internal fun PaintViewModel.applyPerspectiveTransform(
     origW: Double,
     origH: Double,
 ) {
+    if (!ensureCollabLayerEditable()) {
+        cancelTransformPreview()
+        return
+    }
     val wasSelectionPending = isSelectionTransformPending
     val hadSelection = hasSelection
     val targetTool = com.reverie.paint.model.Tool.fromId(currentToolId)
@@ -1531,6 +1575,10 @@ internal fun PaintViewModel.applyWarpMeshTransform(
     origW: Double,
     origH: Double,
 ) {
+    if (!ensureCollabLayerEditable()) {
+        cancelTransformPreview()
+        return
+    }
     val count = origPoints.size
     val ox = DoubleArray(count) { origPoints[it].x.toDouble() }
     val oy = DoubleArray(count) { origPoints[it].y.toDouble() }
@@ -1732,7 +1780,9 @@ internal fun PaintViewModel.undo(
                         restoredOverlay = buildSelectionOverlayLocked()
                         restoredOutline = pendingSelectionOutlinePath
                     } finally {
-                        ReverieCoreBridge.setUndoCaptureEnabled(true)
+                        if (!collab.isActive) {
+                            ReverieCoreBridge.setUndoCaptureEnabled(true)
+                        }
                     }
                     canRedoTransformSelection = true
                 } else {
@@ -1816,7 +1866,9 @@ internal fun PaintViewModel.redo(fromPanel: Boolean = false, settled: (() -> Uni
                 try {
                     ReverieCoreBridge.clearSelection()
                 } finally {
-                    ReverieCoreBridge.setUndoCaptureEnabled(true)
+                    if (!collab.isActive) {
+                        ReverieCoreBridge.setUndoCaptureEnabled(true)
+                    }
                 }
                 transientTransformSelectionPending = true
                 canUndoTransformSelection = true
@@ -1886,6 +1938,7 @@ internal fun PaintViewModel.editTargetLayers(): List<Int> {
 /** One undo transaction for a whole liquify drag gesture. Selected layers
  *  (multi-select) warp together as one undo step. */
 internal fun PaintViewModel.liquifyBegin() {
+    if (!ensureCollabLayerEditable()) return
     liquifyPresentationGesture++
     liquifyPresentation.cancel()
     val layers = editTargetLayers()
@@ -1935,7 +1988,13 @@ internal fun PaintViewModel.liquifyEnd() {
     liquifyMaterializePending = false
     val gesture = liquifyPresentationGesture
     val retirePreview = LiquifyGpuPreview.requested
-    runCore(after = { refreshLayerThumbs() }) {
+    runCore(after = {
+        refreshLayerThumbs()
+        if (collab.isActive) {
+            triggerTimelapseCapture(isChanged = true)
+            refreshUndoCounts()
+        }
+    }) {
         if (retirePreview && gesture == liquifyPresentationGesture) liquifyPresentation.arm(gesture)
         ReverieCoreBridge.liquifyEnd()
         liquifyMaterializePending = false
@@ -2028,6 +2087,10 @@ internal fun PaintViewModel.liquifyFieldEndFromOverlay(
     val h = rect[3]
     runCore(after = {
         refreshLayerThumbs()
+        if (collab.isActive) {
+            triggerTimelapseCapture(isChanged = true)
+            refreshUndoCounts()
+        }
     }) {
         var completed = false
         try {
@@ -2176,7 +2239,7 @@ internal fun PaintViewModel.liquify(
 internal fun PaintViewModel.startTransformPreview() {
     if (docWidth <= 0 || docHeight <= 0) return
     val targets = editTargetLayers().toIntArray()
-    if (targets.isEmpty()) return
+    if (targets.isEmpty() || !ensureCollabLayerEditable(targets.first())) return
     val copyOnly = transformCopyOnly
     val gen = ++transformPreviewGen
     transformPreviewPending = true

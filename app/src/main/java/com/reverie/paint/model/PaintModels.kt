@@ -193,6 +193,9 @@ data class Project(
     val isAnimation: Boolean = false,
     /** Whether this project is the chosen cover artwork for its parent folder */
     val isFolderCover: Boolean = false,
+    /** Whether this artwork originated from / participated in P2P collaborative painting */
+    val isCollab: Boolean = false,
+    val collabRoomCode: String = "",
 )
 
 /** A canvas size preset for the create page */

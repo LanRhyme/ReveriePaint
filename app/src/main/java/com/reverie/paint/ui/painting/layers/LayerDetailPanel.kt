@@ -213,13 +213,18 @@ internal fun LayerDetailPage(
                 var currentColor by remember { mutableIntStateOf(0xFFFFFFFF.toInt()) }
                 var showBgColorPicker by remember { mutableStateOf(false) }
 
+                val canEditBg = vm.canEditBackgroundInCollab()
                 Row(
                     modifier =
                         Modifier
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(10.dp))
                             .background(Morandi.panelHi)
-                            .noRippleClickable { showBgColorPicker = true }
+                            .noRippleClickable {
+                                if (vm.ensureCollabHostForBackground()) {
+                                    showBgColorPicker = true
+                                }
+                            }
                             .padding(horizontal = 12.dp, vertical = 12.dp),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.SpaceBetween,
@@ -244,11 +249,16 @@ internal fun LayerDetailPage(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(4.dp),
                     ) {
-                        Text(stringResource(R.string.layer_bg_pick_color), color = Morandi.accent, fontSize = 12.sp, fontWeight = FontWeight.Medium)
+                        Text(
+                            stringResource(R.string.layer_bg_pick_color),
+                            color = if (canEditBg) Morandi.accent else Morandi.subText.copy(alpha = 0.5f),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
                         Icon(
                             painterResource(R.drawable.ic_chevron),
                             contentDescription = null,
-                            tint = Morandi.accent,
+                            tint = if (canEditBg) Morandi.accent else Morandi.subText.copy(alpha = 0.5f),
                             modifier = Modifier.size(14.dp),
                         )
                     }
@@ -322,6 +332,10 @@ internal fun LayerDetailPage(
         val isStrokeLayer = (layer?.isStrokeLayer == true) || (layer?.nodeType == 6)
         val isMaskLayer = com.reverie.paint.model.LayerNodeType.isMask(layer?.nodeType ?: 0)
         val isTextLayer = layer != null && vm.activeTextLayers.containsKey(layer.id)
+        val canModifyProps = !vm.collab.isActive || vm.canModifyLayerPropsInCollab(layer)
+        val canToggleLock = !vm.collab.isActive || vm.canToggleLayerLockInCollab(layer)
+        val canDelete = !vm.collab.isActive || vm.canDeleteLayerInCollab(layer)
+        val canCopyInCollab = !vm.collab.isActive || vm.isLayerTypeSupportedInCollab(layer)
 
         if (isTextLayer) {
             val items = vm.activeTextLayers[layer!!.id] ?: emptyList()
@@ -469,7 +483,11 @@ internal fun LayerDetailPage(
                         .padding(horizontal = 14.dp, vertical = 6.dp)
                         .clip(RoundedCornerShape(10.dp))
                         .background(Morandi.panelHi)
-                        .noRippleClickable { showFillColorPicker = true }
+                        .noRippleClickable {
+                            if (vm.ensureCollabLayerEditable(index)) {
+                                showFillColorPicker = true
+                            }
+                        }
                         .padding(horizontal = 12.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.SpaceBetween,
@@ -940,7 +958,11 @@ internal fun LayerDetailPage(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .noRippleClickable(onOpenBlendModes)
+                        .noRippleClickable {
+                            if (vm.ensureCollabLayerPropsEditable(index)) {
+                                onOpenBlendModes()
+                            }
+                        }
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -948,12 +970,12 @@ internal fun LayerDetailPage(
                 Icon(
                     painterResource(R.drawable.ic_layerstack),
                     contentDescription = null,
-                    tint = Morandi.icon,
+                    tint = if (canModifyProps) Morandi.icon else Morandi.subText.copy(alpha = 0.45f),
                     modifier = Modifier.size(18.dp),
                 )
                 Text(
                     stringResource(R.string.layer_blend_mode),
-                    color = Morandi.text,
+                    color = if (canModifyProps) Morandi.text else Morandi.subText.copy(alpha = 0.55f),
                     fontSize = 13.sp,
                     modifier = Modifier.weight(1f),
                 )
@@ -969,11 +991,16 @@ internal fun LayerDetailPage(
 
         // 滤镜与颜色调整 (非滤镜图层且非蒙版图层时显示)
         if (layer?.isGroup != true && !isFilterLayer && !isMaskLayer) {
+            val canApplyFilters = !vm.collab.isActive || vm.canEditLayerInCollab(layer)
             Row(
                 modifier =
                     Modifier
                         .fillMaxWidth()
-                        .noRippleClickable(onOpenFilters)
+                        .noRippleClickable {
+                            if (vm.ensureCollabLayerEditable(index)) {
+                                onOpenFilters()
+                            }
+                        }
                         .padding(horizontal = 14.dp, vertical = 10.dp),
                 verticalAlignment = Alignment.CenterVertically,
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
@@ -981,10 +1008,15 @@ internal fun LayerDetailPage(
                 Icon(
                     painterResource(R.drawable.ic_sliders),
                     contentDescription = null,
-                    tint = Morandi.icon,
+                    tint = if (canApplyFilters) Morandi.icon else Morandi.subText.copy(alpha = 0.45f),
                     modifier = Modifier.size(18.dp),
                 )
-                Text(stringResource(R.string.layer_filters_and_color), color = Morandi.text, fontSize = 13.sp, modifier = Modifier.weight(1f))
+                Text(
+                    stringResource(R.string.layer_filters_and_color),
+                    color = if (canApplyFilters) Morandi.text else Morandi.subText.copy(alpha = 0.55f),
+                    fontSize = 13.sp,
+                    modifier = Modifier.weight(1f),
+                )
                 Icon(
                     painterResource(R.drawable.ic_chevron),
                     contentDescription = null,
@@ -1027,6 +1059,7 @@ internal fun LayerDetailPage(
         ReSlider(
             value = localOpacity,
             onValue = {
+                if (!canModifyProps) return@ReSlider
                 if (!isDraggingOpacity) {
                     isDraggingOpacity = true
                     startOpacity = localOpacity
@@ -1041,6 +1074,10 @@ internal fun LayerDetailPage(
                 }
             },
             onRelease = {
+                if (!canModifyProps) {
+                    vm.ensureCollabLayerPropsEditable(index)
+                    return@ReSlider
+                }
                 isDraggingOpacity = false
                 vm.commitLayerOpacityScrub(index, from = startOpacity.toDouble(), to = localOpacity.toDouble())
             },
@@ -1076,7 +1113,7 @@ internal fun LayerDetailPage(
                                     if (isSelected) {
                                         Modifier.border(2.dp, Morandi.accent, CircleShape)
                                     } else Modifier
-                                ).clickable { vm.setLayerColorLabel(index, label) },
+                                ).clickable(enabled = canModifyProps) { vm.setLayerColorLabel(index, label) },
                         contentAlignment = Alignment.Center,
                     ) {
                         if (label == 0) {
@@ -1112,8 +1149,10 @@ internal fun LayerDetailPage(
             }
         }
         val availableGroups =
-            remember(vm.layers) {
-                vm.layers.filter { it.isGroup && it.index != index }
+            remember(vm.layers, vm.collab.isActive, vm.collab.selfPeerId, vm.collab.role) {
+                vm.layers.filter {
+                    it.isGroup && it.index != index && (!vm.collab.isActive || vm.canInsertIntoGroupInCollab(it))
+                }
             }
 
         if (showRasterizeConfirm) {
@@ -1318,28 +1357,28 @@ internal fun LayerDetailPage(
         if (layer?.isGroup == true) {
             // Group-specific page
             Column {
-                OpItem(R.drawable.ic_rename, stringResource(R.string.layer_op_rename)) { onRename(name) }
-                OpItem(R.drawable.ic_trash, stringResource(R.string.layer_op_delete_group), enabled = !isBg && layer?.locked != true) {
+                OpItem(R.drawable.ic_rename, stringResource(R.string.layer_op_rename), enabled = canModifyProps) { onRename(name) }
+                OpItem(R.drawable.ic_trash, stringResource(R.string.layer_op_delete_group), enabled = !isBg && layer?.locked != true && canDelete) {
                     vm.removeLayer(index)
                     onBack()
                 }
-                OpItem(R.drawable.ic_merge_down, stringResource(R.string.layer_op_merge_group), enabled = !isBg) {
+                OpItem(R.drawable.ic_merge_down, stringResource(R.string.layer_op_merge_group), enabled = !isBg && canDelete && canCopyInCollab) {
                     vm.flattenGroup(index)
                     onBack()
                 }
                 OpItem(R.drawable.ic_select, stringResource(R.string.layer_op_select_from_group)) {
                     triggerSelectFromLayer()
                 }
-                OpToggle(R.drawable.ic_lock, stringResource(R.string.layer_op_lock_group), layer?.locked == true || isBg, enabled = !isBg) {
+                OpToggle(R.drawable.ic_lock, stringResource(R.string.layer_op_lock_group), layer?.locked == true || isBg, enabled = !isBg && canToggleLock) {
                     vm.setLayerLocked(index, !(layer?.locked == true))
                 }
-                OpToggle(R.drawable.ic_clip, stringResource(R.string.layer_op_clip), layer?.clipped == true, enabled = !isBg) {
+                OpToggle(R.drawable.ic_clip, stringResource(R.string.layer_op_clip), layer?.clipped == true, enabled = !isBg && canModifyProps) {
                     vm.setLayerClipped(index, !(layer?.clipped == true))
                 }
-                OpToggle(R.drawable.ic_alpha_inherit, stringResource(R.string.layer_op_alpha_inherit), layer?.alphaInherited == true, enabled = !isBg) {
+                OpToggle(R.drawable.ic_alpha_inherit, stringResource(R.string.layer_op_alpha_inherit), layer?.alphaInherited == true, enabled = !isBg && canModifyProps) {
                     vm.setLayerAlphaInherited(index, !(layer?.alphaInherited == true))
                 }
-                OpToggle(R.drawable.ic_sliders, stringResource(R.string.layer_op_pass_through), layer?.passThrough == true) {
+                OpToggle(R.drawable.ic_sliders, stringResource(R.string.layer_op_pass_through), layer?.passThrough == true, enabled = canModifyProps) {
                     vm.setGroupPassThrough(index, layer?.passThrough != true)
                 }
             }
@@ -1351,18 +1390,23 @@ internal fun LayerDetailPage(
             val clearedMsg = stringResource(R.string.layer_mask_toast_cleared)
             val selectionActivatedMsg = stringResource(R.string.layer_mask_toast_selection_activated)
             val removedMsg = stringResource(R.string.layer_mask_toast_removed)
+            val canEditMask = !vm.collab.isActive || vm.canEditLayerInCollab(layer)
             Column {
-                OpItem(R.drawable.ic_rename, stringResource(R.string.layer_op_rename)) { onRename(name) }
-                OpItem(R.drawable.ic_image_adjust, stringResource(R.string.layer_op_invert_mask)) {
-                    vm.invertMask(index)
-                    android.widget.Toast.makeText(context, invertedMsg, android.widget.Toast.LENGTH_SHORT).show()
+                OpItem(R.drawable.ic_rename, stringResource(R.string.layer_op_rename), enabled = canModifyProps) { onRename(name) }
+                OpItem(R.drawable.ic_image_adjust, stringResource(R.string.layer_op_invert_mask), enabled = canEditMask) {
+                    if (vm.ensureCollabLayerEditable(index)) {
+                        vm.invertMask(index)
+                        android.widget.Toast.makeText(context, invertedMsg, android.widget.Toast.LENGTH_SHORT).show()
+                    }
                 }
-                OpItem(R.drawable.ic_fill, stringResource(R.string.layer_op_apply_mask)) {
-                    vm.applyMask(index)
-                    android.widget.Toast.makeText(context, appliedMsg, android.widget.Toast.LENGTH_SHORT).show()
-                    onBack()
+                OpItem(R.drawable.ic_fill, stringResource(R.string.layer_op_apply_mask), enabled = canEditMask) {
+                    if (vm.ensureCollabLayerEditable(index)) {
+                        vm.applyMask(index)
+                        android.widget.Toast.makeText(context, appliedMsg, android.widget.Toast.LENGTH_SHORT).show()
+                        onBack()
+                    }
                 }
-                OpItem(R.drawable.ic_erase, stringResource(R.string.layer_op_clear_mask)) {
+                OpItem(R.drawable.ic_erase, stringResource(R.string.layer_op_clear_mask), enabled = canEditMask) {
                     vm.clearLayer(index)
                 }
                 val isSelectionMask = layer?.nodeType == com.reverie.paint.model.LayerNodeType.SELECTION_MASK
@@ -1376,56 +1420,58 @@ internal fun LayerDetailPage(
                         triggerSelectFromLayer()
                     }
                 }
-                OpItem(R.drawable.ic_trash, stringResource(R.string.layer_op_remove_mask)) {
-                    vm.removeMask(index)
-                    android.widget.Toast.makeText(context, removedMsg, android.widget.Toast.LENGTH_SHORT).show()
-                    onBack()
+                OpItem(R.drawable.ic_trash, stringResource(R.string.layer_op_remove_mask), enabled = canModifyProps) {
+                    if (vm.ensureCollabLayerPropsEditable(index)) {
+                        vm.removeMask(index)
+                        android.widget.Toast.makeText(context, removedMsg, android.widget.Toast.LENGTH_SHORT).show()
+                        onBack()
+                    }
                 }
-                OpToggle(R.drawable.ic_lock, stringResource(R.string.layer_op_lock_layer), layer?.locked == true) {
+                OpToggle(R.drawable.ic_lock, stringResource(R.string.layer_op_lock_layer), layer?.locked == true, enabled = canToggleLock) {
                     vm.setLayerLocked(index, !(layer?.locked == true))
                 }
             }
         } else {
             // Vertical operation list
             Column {
-                OpItem(R.drawable.ic_copy, stringResource(R.string.layer_op_duplicate)) { vm.copyLayer(index) }
-                OpItem(R.drawable.ic_rename, stringResource(R.string.layer_op_rename)) { onRename(name) }
+                OpItem(R.drawable.ic_copy, stringResource(R.string.layer_op_duplicate), enabled = canCopyInCollab) { vm.copyLayer(index) }
+                OpItem(R.drawable.ic_rename, stringResource(R.string.layer_op_rename), enabled = canModifyProps) { onRename(name) }
                 OpItem(
                     R.drawable.ic_erase,
                     stringResource(R.string.layer_clear),
-                    enabled = !isBg && layer?.locked != true && !isFilterLayer && layer?.isGroup != true,
+                    enabled = !isBg && layer?.locked != true && !isFilterLayer && layer?.isGroup != true && canModifyProps,
                 ) {
                     vm.clearLayer(index)
                 }
-                OpItem(R.drawable.ic_trash, stringResource(R.string.layer_op_delete_layer), enabled = !isBg && layer?.locked != true) {
+                OpItem(R.drawable.ic_trash, stringResource(R.string.layer_op_delete_layer), enabled = !isBg && layer?.locked != true && canDelete) {
                     vm.removeLayer(index)
                     onBack()
                 }
                 if ((layer?.depth ?: 0) > 0) {
-                    OpItem(R.drawable.ic_folder, stringResource(R.string.layer_op_move_out_group)) { vm.moveLayerOut(index) }
+                    OpItem(R.drawable.ic_folder, stringResource(R.string.layer_op_move_out_group), enabled = canModifyProps) { vm.moveLayerOut(index) }
                 }
                 if (availableGroups.isNotEmpty()) {
-                    OpItem(R.drawable.ic_folder, stringResource(R.string.layer_op_move_into_group)) { showGroupPicker = true }
+                    OpItem(R.drawable.ic_folder, stringResource(R.string.layer_op_move_into_group), enabled = canModifyProps) { showGroupPicker = true }
                 }
-                OpItem(R.drawable.ic_flip_h, stringResource(R.string.layer_op_flip_h), enabled = !isFilterLayer) { vm.flipLayerHorizontal(index) }
-                OpItem(R.drawable.ic_flip_v, stringResource(R.string.layer_op_flip_v), enabled = !isFilterLayer) { vm.flipLayerVertical(index) }
-                OpItem(R.drawable.ic_merge_down, stringResource(R.string.layer_op_merge_down), enabled = !isBg && index > 1 && !isFilterLayer && layer?.locked != true) {
+                OpItem(R.drawable.ic_flip_h, stringResource(R.string.layer_op_flip_h), enabled = !isFilterLayer && canModifyProps) { vm.flipLayerHorizontal(index) }
+                OpItem(R.drawable.ic_flip_v, stringResource(R.string.layer_op_flip_v), enabled = !isFilterLayer && canModifyProps) { vm.flipLayerVertical(index) }
+                OpItem(R.drawable.ic_merge_down, stringResource(R.string.layer_op_merge_down), enabled = !isBg && index > 1 && !isFilterLayer && layer?.locked != true && canDelete) {
                     vm.mergeDown(index)
                     onBack()
                 }
                 OpItem(R.drawable.ic_select, stringResource(R.string.layer_op_select_from_layer), enabled = !isFilterLayer) {
                     triggerSelectFromLayer()
                 }
-                OpToggle(R.drawable.ic_lock, stringResource(R.string.layer_op_lock_layer), layer?.locked == true || isBg, enabled = !isBg) {
+                OpToggle(R.drawable.ic_lock, stringResource(R.string.layer_op_lock_layer), layer?.locked == true || isBg, enabled = !isBg && canToggleLock) {
                     vm.setLayerLocked(index, !(layer?.locked == true))
                 }
-                OpToggle(R.drawable.ic_grid, stringResource(R.string.layer_op_alpha_lock), layer?.alphaLocked == true, enabled = !isBg && !isFilterLayer) {
+                OpToggle(R.drawable.ic_grid, stringResource(R.string.layer_op_alpha_lock), layer?.alphaLocked == true, enabled = !isBg && !isFilterLayer && canModifyProps) {
                     vm.setLayerAlphaLocked(index, !(layer?.alphaLocked == true))
                 }
-                OpToggle(R.drawable.ic_clip, stringResource(R.string.layer_op_clip), layer?.clipped == true, enabled = !isBg) {
+                OpToggle(R.drawable.ic_clip, stringResource(R.string.layer_op_clip), layer?.clipped == true, enabled = !isBg && canModifyProps) {
                     vm.setLayerClipped(index, !(layer?.clipped == true))
                 }
-                OpToggle(R.drawable.ic_alpha_inherit, stringResource(R.string.layer_op_alpha_inherit), layer?.alphaInherited == true, enabled = !isBg) {
+                OpToggle(R.drawable.ic_alpha_inherit, stringResource(R.string.layer_op_alpha_inherit), layer?.alphaInherited == true, enabled = !isBg && canModifyProps) {
                     vm.setLayerAlphaInherited(index, !(layer?.alphaInherited == true))
                 }
                 if (isTextLayer) {
@@ -1436,14 +1482,14 @@ internal fun LayerDetailPage(
                             onBack()
                         }
                     }
-                    OpItem(R.drawable.ic_fill, stringResource(R.string.layer_op_rasterize)) {
+                    OpItem(R.drawable.ic_fill, stringResource(R.string.layer_op_rasterize), enabled = canDelete && canCopyInCollab) {
                         vm.rasterizeTextLayer(layer.id)
                         onBack()
                     }
                 }
                 val canRasterize = !isTextLayer && (isFilterLayer || isFillLayer || (layer != null && layer.nodeType != 0 && !layer.isGroup))
                 if (canRasterize) {
-                    OpItem(R.drawable.ic_fill, stringResource(R.string.layer_op_rasterize)) {
+                    OpItem(R.drawable.ic_fill, stringResource(R.string.layer_op_rasterize), enabled = canDelete && canCopyInCollab) {
                         if (isFilterLayer) {
                             showRasterizeConfirm = true
                         } else {
@@ -1452,6 +1498,17 @@ internal fun LayerDetailPage(
                         }
                     }
                 }
+            }
+        }
+        if (vm.collab.isActive && !isBg && layer != null) {
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+            ) {
+                com.reverie.paint.ui.painting.collab.CollabLayerPermissionCard(
+                    vm = vm,
+                    index = index,
+                    layer = layer,
+                )
             }
         }
     }

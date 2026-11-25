@@ -439,6 +439,10 @@ internal fun PaintViewModel.create3DLayer(
     builtin: BuiltinModel3D = BuiltinModel3D.ANIME_BOY,
     customName: String? = null,
 ) {
+    if (collab.isActive) {
+        showActionToast(R.string.collab_layer_type_unsupported, R.drawable.ic_lock)
+        return
+    }
     val displayName = customName ?: (getString(R.string.layer_3d_tag) + " (" + builtin.displayNameRes + ")")
     clearLayerSelection()
 
@@ -478,6 +482,10 @@ internal fun PaintViewModel.create3DLayerFromFile(
     uri: Uri,
     fileName: String,
 ) {
+    if (collab.isActive) {
+        showActionToast(R.string.collab_layer_type_unsupported, R.drawable.ic_lock)
+        return
+    }
     // 3D 模型解析是重 IO + CPU 活 (大 obj 可到数万行): 必须离开主线程, 否则选完文件
     // 立刻 input dispatch timeout (1.6.2 线上 ANR 的主线程栈就停在 Mesh3D 解析里)。
     viewModelScope.launch(Dispatchers.IO) {

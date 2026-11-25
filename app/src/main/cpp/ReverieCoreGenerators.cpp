@@ -121,11 +121,13 @@ bool ReverieCore::setFillLayerColor(int index, quint32 colorArgb)
         if (!reverie::layerProperty(&*node, "reverie_is_fill").toBool()) {
             return false;
         }
+        if (!collabCanEditLayerIndex(index)) return false;
         KisPaintDeviceSP dev = pl->paintDevice();
         if (!dev) return false;
         KisImageSP image = m_document;
         const KoColorSpace *cs = image->colorSpace();
         const QRect docRect(0, 0, image->width(), image->height());
+        KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(index);
         KisTransaction txn(kundo2_i18n("Fill Layer Color"), dev);
         dev->clear();
         QColor qc = QColor::fromRgba(colorArgb);
@@ -136,6 +138,7 @@ bool ReverieCore::setFillLayerColor(int index, quint32 colorArgb)
         reverie::setLayerProperty(&*node, "reverie_fill_color", colorArgb);
         recompositeProjection();
         markDirty();
+        collabRecordLayerPixelEdit(index, collabBefore, docRect);
         return true;
     }
     return false;

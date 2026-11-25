@@ -291,32 +291,64 @@ internal fun ArtworkThumbnailBox(
             }
         }
 
-        // 画集封面角标
-        if (isFolderCover) {
-            Box(
+        // 底部左侧角标组合: 茶绘工程标识 / 画集封面角标
+        if (project.isCollab || isFolderCover) {
+            Column(
                 modifier = Modifier
                     .align(Alignment.BottomStart)
-                    .padding(6.dp)
-                    .shadow(2.dp, RoundedCornerShape(8.dp), clip = false)
-                    .clip(RoundedCornerShape(8.dp))
-                    .background(colors.panel.copy(alpha = 0.92f))
-                    .border(0.5.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
-                    .padding(horizontal = 6.dp, vertical = 2.5.dp),
+                    .padding(6.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Row(verticalAlignment = Alignment.CenterVertically) {
-                    Icon(
-                        painterResource(R.drawable.ic_image),
-                        contentDescription = null,
-                        tint = colors.text,
-                        modifier = Modifier.size(10.dp),
-                    )
-                    Spacer(Modifier.width(3.dp))
-                    Text(
-                        text = stringResource(R.string.gallery_cover_badge),
-                        color = colors.text,
-                        fontSize = 10.sp,
-                        fontWeight = FontWeight.Medium,
-                    )
+                if (project.isCollab) {
+                    Box(
+                        modifier = Modifier
+                            .shadow(3.dp, RoundedCornerShape(10.dp), clip = false)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(colors.accent.copy(alpha = 0.92f))
+                            .padding(horizontal = 7.dp, vertical = 2.5.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                painterResource(R.drawable.ic_cloud),
+                                contentDescription = null,
+                                tint = colors.onAccent,
+                                modifier = Modifier.size(10.dp),
+                            )
+                            Spacer(Modifier.width(3.dp))
+                            Text(
+                                text = stringResource(R.string.gallery_badge_collab),
+                                color = colors.onAccent,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Bold,
+                            )
+                        }
+                    }
+                }
+                if (isFolderCover) {
+                    Box(
+                        modifier = Modifier
+                            .shadow(2.dp, RoundedCornerShape(8.dp), clip = false)
+                            .clip(RoundedCornerShape(8.dp))
+                            .background(colors.panel.copy(alpha = 0.92f))
+                            .border(0.5.dp, colors.border.copy(alpha = 0.6f), RoundedCornerShape(8.dp))
+                            .padding(horizontal = 6.dp, vertical = 2.5.dp),
+                    ) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            Icon(
+                                painterResource(R.drawable.ic_image),
+                                contentDescription = null,
+                                tint = colors.text,
+                                modifier = Modifier.size(10.dp),
+                            )
+                            Spacer(Modifier.width(3.dp))
+                            Text(
+                                text = stringResource(R.string.gallery_cover_badge),
+                                color = colors.text,
+                                fontSize = 10.sp,
+                                fontWeight = FontWeight.Medium,
+                            )
+                        }
+                    }
                 }
             }
         }

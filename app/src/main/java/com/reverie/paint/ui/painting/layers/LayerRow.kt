@@ -116,11 +116,16 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.model.CollabTopologyPolicy
+import com.reverie.paint.model.LayerCollabPermission
+import com.reverie.paint.ui.components.ReDropdownMenu
+import com.reverie.paint.ui.components.ReDropdownMenuItem
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.Motion
+import com.reverie.paint.ui.theme.Theme
 import com.reverie.paint.ui.theme.optimalTextColor
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
@@ -552,18 +557,25 @@ internal fun LayerRow(
                     effectiveVisible = effectiveVisible,
                     // 背景层不透明度由引擎固定为 100% (ReverieCore::setLayerOpacity 直接
                     // 忽略 index 0), 分格裁剪蒙版也没有独立不透明度: 这两种行只显示数值
-                    opacityScrub = if (panelCrop != null || isBg) null else opacityScrub,
+                    opacityScrub =
+                        if (panelCrop != null || isBg || (vm.collab.isActive && !vm.canModifyLayerPropsInCollab(layer))) {
+                            null
+                        } else {
+                            opacityScrub
+                        },
                     // 混合模式直达: 背景层恒为"正常", 蒙版没有混合模式, 分格组行走
                     // 自己的面板工具 —— 这三种行不挂入口, 标签退化成纯文本
                     onOpenBlendModes =
                         if (isBg || isPanelMask ||
                             com.reverie.paint.model.LayerNodeType.isMask(layer.nodeType) ||
-                            vm.panelIdForGroupRow(index) != null
+                            vm.panelIdForGroupRow(index) != null ||
+                            (vm.collab.isActive && !vm.canModifyLayerPropsInCollab(layer))
                         ) {
                             null
                         } else {
                             onOpenBlendModes
                         },
+                    interactiveCollabPill = true,
                     isDropTargetParent = isDropTargetParent,
                     pressGate = controlPressGate,
                 )
@@ -589,11 +601,15 @@ internal fun LayerRow(
                     }
                 } else {
                     DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_image_adjust, stringResource(R.string.layer_op_invert_mask)) {
-                        vm.invertMask(index)
+                        if (vm.ensureCollabLayerEditable(index)) {
+                            vm.invertMask(index)
+                        }
                         onRevealClose()
                     }
                     DrawerAction(Modifier.weight(1f), Morandi.accent, R.drawable.ic_fill, stringResource(R.string.layer_op_apply_mask)) {
-                        vm.applyMask(index)
+                        if (vm.ensureCollabLayerEditable(index)) {
+                            vm.applyMask(index)
+                        }
                         onRevealClose()
                     }
                 }
@@ -660,6 +676,8 @@ internal fun LayerRowContent(
     isDropTargetParent: Boolean = false,
     // 行内混合模式标签的直达入口; null = 纯文本 (拖拽卡片与背景/蒙版行)
     onOpenBlendModes: ((Int) -> Unit)? = null,
+    // 真实列表行允许点击协同徽章弹快捷权限菜单; 拖拽预览卡片置 false
+    interactiveCollabPill: Boolean = false,
 ) {
     val isBg = layer.isBackground
     val visible = layer.visible
@@ -1003,7 +1021,9 @@ internal fun LayerRowContent(
                                     lastNameTapTime = 0L
                                     pendingDetailJob?.cancel()
                                     pendingDetailJob = null
-                                    onRename(layer.index, layer.name)
+                                    if (vm.ensureCollabLayerPropsEditable(layer.index)) {
+                                        onRename(layer.index, layer.name)
+                                    }
                                 } else {
                                     lastNameTapTime = now
                                     if (!selected) {
@@ -1128,13 +1148,163 @@ internal fun LayerRowContent(
                     modifier = Modifier.size(13.dp),
                 )
             }
-            if (layer.locked || isBg) {
+            if (layer.locked || isBg || (vm.collab.isActive && layer.collabPermission == LayerCollabPermission.LOCKED.code)) {
                 Icon(
                     painterResource(R.drawable.ic_lock),
                     contentDescription = stringResource(R.string.layer_locked),
                     tint = if (selected) Morandi.text.copy(alpha = 0.85f) else Morandi.subText,
                     modifier = Modifier.size(13.dp),
                 )
+            }
+            if (vm.collab.isActive && !isBg) {
+                CollabLayerOwnerBadge(
+                    vm = vm,
+                    layer = layer,
+                    interactive = interactiveCollabPill,
+                    pressGate = pressGate,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun CollabLayerOwnerBadge(
+    vm: PaintViewModel,
+    layer: PaintViewModel.LayerUiState,
+    interactive: Boolean,
+    pressGate: LayerRowPressGate?,
+) {
+    val colors = Theme.current
+    val perm = LayerCollabPermission.fromCode(layer.collabPermission)
+    val isExclusive = perm != LayerCollabPermission.SHARED && layer.ownerPeerId.isNotEmpty()
+    val isSelf = layer.ownerPeerId == vm.collab.selfPeerId
+    val isOrphan = vm.isOrphanedCollabLayer(layer)
+    val canManage = vm.canManageLayerOwnershipInCollab(layer)
+    val ownerTint = if (layer.ownerPeerId.isNotEmpty()) {
+        Color(CollabTopologyPolicy.assignBadgeColorArgb(layer.ownerPeerId))
+    } else {
+        Morandi.subText
+    }
+    val fgColor = when {
+        isOrphan -> colors.error
+        isExclusive -> ownerTint
+        else -> Morandi.subText
+    }
+    val bgColor = when {
+        isExclusive -> ownerTint.copy(alpha = if (isSelf) 0.24f else 0.18f)
+        else -> Morandi.panelHi.copy(alpha = 0.7f)
+    }
+    val borderColor = when {
+        isOrphan -> colors.error.copy(alpha = 0.85f)
+        isExclusive && isSelf -> ownerTint
+        isExclusive -> ownerTint.copy(alpha = 0.65f)
+        else -> Morandi.border.copy(alpha = 0.45f)
+    }
+    val labelText = if (isExclusive) {
+        vm.collabOwnerAvatarInitial(layer.ownerPeerId)
+    } else {
+        stringResource(R.string.collab_layer_badge_shared_short)
+    }
+    var showMenu by remember { mutableStateOf(false) }
+
+    Box {
+        Box(
+            contentAlignment = Alignment.Center,
+            modifier = Modifier
+                .size(20.dp)
+                .clip(CircleShape)
+                .background(bgColor)
+                .border(if (isExclusive) 1.2.dp else 1.dp, borderColor, CircleShape)
+                .then(
+                    if (interactive && pressGate != null) {
+                        Modifier.pointerInput(Unit) {
+                            awaitEachGesture {
+                                awaitFirstDown(requireUnconsumed = false)
+                                pressGate.pressedInside = true
+                                try {
+                                    while (true) {
+                                        val ev = awaitPointerEvent()
+                                        if (ev.changes.all { it.changedToUpIgnoreConsumed() || !it.pressed }) break
+                                    }
+                                } finally {
+                                    pressGate.pressedInside = false
+                                }
+                            }
+                        }
+                    } else {
+                        Modifier
+                    },
+                )
+                .then(
+                    if (interactive) {
+                        Modifier.noRippleClickable {
+                            if (canManage) {
+                                showMenu = true
+                            } else {
+                                val ownerName = vm.collabOwnerDisplayName(layer.ownerPeerId)
+                                vm.showActionToast(
+                                    vm.appContext.getString(R.string.collab_layer_owner_toast, ownerName),
+                                    R.drawable.ic_cloud,
+                                )
+                            }
+                        }
+                    } else {
+                        Modifier
+                    },
+                ),
+        ) {
+            Text(
+                text = labelText,
+                color = fgColor,
+                fontSize = if (isExclusive) 9.sp else 8.sp,
+                fontWeight = if (isExclusive) FontWeight.SemiBold else FontWeight.Medium,
+                maxLines = 1,
+            )
+        }
+        if (interactive) {
+            ReDropdownMenu(
+                expanded = showMenu,
+                onDismissRequest = { showMenu = false },
+            ) {
+                if (!isExclusive) {
+                    ReDropdownMenuItem(
+                        text = stringResource(R.string.collab_layer_claim_mine),
+                        icon = R.drawable.ic_cloud,
+                        onClick = {
+                            showMenu = false
+                            vm.setCollabLayerOwner(layer.index, vm.collab.selfPeerId)
+                        },
+                    )
+                } else {
+                    ReDropdownMenuItem(
+                        text = stringResource(R.string.collab_layer_release_shared),
+                        onClick = {
+                            showMenu = false
+                            vm.setCollabLayerPermission(layer.index, LayerCollabPermission.SHARED)
+                        },
+                    )
+                    if (layer.ownerPeerId != vm.collab.selfPeerId) {
+                        ReDropdownMenuItem(
+                            text = stringResource(R.string.collab_layer_claim_mine),
+                            icon = R.drawable.ic_cloud,
+                            onClick = {
+                                showMenu = false
+                                vm.setCollabLayerOwner(layer.index, vm.collab.selfPeerId)
+                            },
+                        )
+                    }
+                    val otherPeers = vm.collab.peers.filter { it.peerId != layer.ownerPeerId }
+                    otherPeers.forEach { target ->
+                        ReDropdownMenuItem(
+                            text = stringResource(R.string.collab_layer_transfer_to, target.name),
+                            onClick = {
+                                showMenu = false
+                                vm.setCollabLayerOwner(layer.index, target.peerId)
+                            },
+                        )
+                    }
+                }
             }
         }
     }

@@ -108,6 +108,9 @@ void ReverieCore::stampBitmap(int x, int y, int bw, int bh, const void *rgbaPixe
     if (!image || !rgbaPixels || bw <= 0 || bh <= 0) {
         return;
     }
+    if (!collabCanEditLayerIndex(m_currentLayer)) {
+        return;
+    }
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) {
         return;
@@ -121,6 +124,7 @@ void ReverieCore::stampBitmap(int x, int y, int bw, int bh, const void *rgbaPixe
     if (region.isEmpty()) {
         return;
     }
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
     // 事务开在空区域校验之后: 提前 return 会析构未提交的 KisTransaction,
     // 连带清掉这台设备更早的撤销 revision(撤销栈错位)。
     KisTransaction txn(kundo2_i18n("Stamp"), device);
@@ -166,9 +170,10 @@ void ReverieCore::stampBitmap(int x, int y, int bw, int bh, const void *rgbaPixe
 
     device->writeBytes(dst.constData(), region.x(), region.y(), rw, rh);
     device->setDirty();
+    recompositeProjection();
     markDirty();
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
+    collabRecordLayerPixelEdit(m_currentLayer, collabBefore, region);
 }
 
 // Liquify via Krita's own KisLiquifyTransformWorker (libkritaimage, the same
@@ -1021,7 +1026,7 @@ void ReverieCore::liquifyBegin(const QVector<int> &layers)
         const LayerEntry &entry = m_layers[idx];
         // Projections belong to the graph, not to an editable source. In particular
         // writing a group projection disappears on the next graph refresh.
-        if (!isLayerEditable(idx) || !entry.node ||
+        if (!isLayerEditable(idx) || !collabCanEditLayerIndex(idx) || !entry.node ||
             (!dynamic_cast<KisPaintLayer *>(entry.node) && !dynamic_cast<KisMask *>(entry.node))) continue;
         bool locked = false;
         for (KisNodeSP node = entry.node; node; node = node->parent()) {
@@ -1042,6 +1047,8 @@ void ReverieCore::liquifyBegin(const QVector<int> &layers)
         LiquifyTarget t;
         t.device = dev;
         t.layer = dynamic_cast<KisPaintLayer *>(m_layers[idx].node);
+        t.layerIndex = idx;
+        t.collabBefore = collabSnapshotLayerBefore(idx);
         // 可见性以节点为准(m_layers 的镜像字段可能落后于引擎内的真实树)
         t.visible = m_layers[idx].node ? m_layers[idx].node->visible() : m_layers[idx].visible;
         invalidateRedoState("liquify-begin");
@@ -1159,7 +1166,12 @@ void ReverieCore::liquifyEnd()
     // Collect the per-target transactions as ONE composite undo step
     // (Krita's adapter pushes every addCommand separately)
     QVector<KUndo2Command *> children;
+    QVector<QPair<int, KisPaintDeviceSP>> collabBeforeBatch;
     for (LiquifyTarget &t : m_liquifyTargets) {
+        if (t.written && t.collabBefore && t.layerIndex >= 0) {
+            collabBeforeBatch.append(qMakePair(t.layerIndex, t.collabBefore));
+        }
+        t.collabBefore = nullptr;
         if (t.txn) {
             if (t.written) {
                 KUndo2Command *c = t.txn->endAndTake();
@@ -1173,6 +1185,9 @@ void ReverieCore::liquifyEnd()
     }
     if (!children.isEmpty()) {
         pushUndoCommand(new ReverieCompositeCommand(kundo2_i18n("Liquify"), children));
+    }
+    if (!collabBeforeBatch.isEmpty()) {
+        collabRecordLayerPixelBatch(collabBeforeBatch);
     }
     resetLiquifyWorker();
     m_liquifyTargets.clear();

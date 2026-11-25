@@ -252,6 +252,20 @@ fun HomePage(vm: PaintViewModel) {
         SponsorsDialog(onDismiss = { showSponsorsListDialog = false })
     }
 
+    if (vm.collab.showLobbyDialog) {
+        com.reverie.paint.ui.painting.collab.CollabLobbyDialog(
+            vm = vm,
+            onDismiss = { vm.collab.showLobbyDialog = false },
+        )
+    }
+
+    if (vm.collab.showRoomSheet) {
+        com.reverie.paint.ui.painting.collab.CollabRoomSheet(
+            vm = vm,
+            onDismiss = { vm.collab.showRoomSheet = false },
+        )
+    }
+
     // Custom Styled Dialog: Create Stack / Folder (新建画集)
     if (showNewFolderDialog) {
         NewFolderDialog(
@@ -673,6 +687,11 @@ fun HomePage(vm: PaintViewModel) {
                                             horizontalArrangement = Arrangement.spacedBy(4.dp),
                                             verticalAlignment = Alignment.CenterVertically,
                                         ) {
+                                            com.reverie.paint.ui.painting.collab.CollabStatusButton(
+                                                vm = vm,
+                                                compact = !vm.collab.isActive,
+                                            )
+
                                             // Search icon button
                                             Box(
                                                 modifier =

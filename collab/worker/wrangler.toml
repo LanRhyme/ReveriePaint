@@ -1,0 +1,33 @@
+#:schema node_modules/wrangler/config-schema.json
+name = "reveriepaint-collab"
+main = "src/index.js"
+compatibility_date = "2026-10-01"
+workers_dev = true
+
+# 自定义域名 (与 telemetry 一致: 国内直连自家 zone 绕开 workers.dev DNS 污染)
+routes = [
+  { pattern = "reverieteapaint.lanrhyme.top", custom_domain = true }
+]
+
+[[durable_objects.bindings]]
+name = "ROOMS"
+class_name = "CollabRoom"
+
+[[durable_objects.bindings]]
+name = "DIRECTORY"
+class_name = "RoomDirectory"
+
+# Free 计划要求使用 SQLite-backed Durable Objects
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["CollabRoom"]
+
+[[migrations]]
+tag = "v2"
+new_sqlite_classes = ["RoomDirectory"]
+
+[vars]
+DISABLED = "0"
+STUN_URLS = "stun:stun.qq.com:3478,stun:stun.miwifi.com:3478,stun:stun.cloudflare.com:3478"
+ROOM_TTL_MS = "86400000"
+IDLE_TTL_MS = "1800000"

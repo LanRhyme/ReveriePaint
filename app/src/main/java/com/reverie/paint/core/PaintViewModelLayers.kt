@@ -6,6 +6,8 @@ package com.reverie.paint.core
 
 import android.graphics.Bitmap
 import com.reverie.paint.R
+import com.reverie.paint.model.LayerCollabPermission
+import com.reverie.paint.model.LayerMaskType
 import com.reverie.paint.model.LayerNodeType
 import com.reverie.paint.model.LayerOrderNode
 import com.reverie.paint.model.OptimisticLayerPlacement
@@ -296,7 +298,7 @@ internal fun PaintViewModel.notifyLayerChanged(
     // 撤回条刻度同步: undo/redo 之外的历史变化 (图层结构操作 / undoLimit 修剪
     // 等经本函数出口的路径) 也可能改变 undo/redo 计数, 撤回条显示期间补一次
     // 镜像刷新 (2 个 O(1) JNI 整数读); 不可见时不调, 隐藏态由打开路径对齐。
-    if (undoBarVisible) {
+    if (undoBarVisible || collab.isActive) {
         refreshUndoCounts()
     }
 }
@@ -541,6 +543,9 @@ internal fun PaintViewModel.removeLayer(index: Int) {
         showActionToast(R.string.toast_layer_delete_locked, R.drawable.ic_lock)
         return
     }
+    if (!ensureCollabLayerDeletable(index)) {
+        return
+    }
     if (anim.enabled) {
         // 动画文档里"轨道就是图层": 图层面板的删除只清当前帧格的内容,
         // 不删图层/轴 (整条轴删除走时间轴长按标题的确认入口)。
@@ -585,9 +590,14 @@ internal fun PaintViewModel.removeSelectedLayers() {
     if (selected.isEmpty()) return
 
     val selectedLayers = selected.mapNotNull { layers.getOrNull(it) }
-    val deletable = selectedLayers.filter { !it.isBackground && !it.locked }
+    val deletable = selectedLayers.filter { !it.isBackground && !it.locked && canDeleteLayerInCollab(it) }
     if (deletable.isEmpty()) {
-        showActionToast(R.string.toast_layer_delete_locked, R.drawable.ic_lock)
+        val toastRes = if (collab.isActive && selectedLayers.any { !it.isBackground && !it.locked }) {
+            R.string.collab_layer_delete_no_permission
+        } else {
+            R.string.toast_layer_delete_locked
+        }
+        showActionToast(toastRes, R.drawable.ic_lock)
         return
     }
     val hasLockedSkipped = deletable.size < selectedLayers.size
@@ -670,6 +680,7 @@ internal fun PaintViewModel.setLayerBlendMode(
     i: Int,
     opId: String,
 ) {
+    if (!ensureCollabLayerPropsEditable(i)) return
     if (i in layers.indices) {
         layers = layers.mapIndexed { idx, item ->
             if (idx == i) item.copy(blendMode = opId) else item
@@ -683,6 +694,11 @@ internal fun PaintViewModel.setLayerBlendMode(
 
 internal fun PaintViewModel.toggleLayerVisible(i: Int) {
     if (i !in layers.indices) return
+    if (layers[i].isBackground) {
+        if (!ensureCollabHostForBackground()) return
+    } else if (!ensureCollabLayerPropsEditable(i)) {
+        return
+    }
     val current = layers[i].visible
     val target = !current
     val perfT0 = android.os.SystemClock.elapsedRealtimeNanos()
@@ -750,7 +766,11 @@ internal fun PaintViewModel.layerVisible(i: Int) = ReverieCoreBridge.layerVisibl
 internal fun PaintViewModel.addGroupLayer() {
     if (isLayerBackendBusy()) return
     val selected = selectedLayerIndices.filter { it > 0 }.sorted()
-    val selectedIds = selected.mapNotNull { layers.getOrNull(it)?.takeIf { l -> !l.locked && !l.isBackground }?.id }.toSet()
+    val selectedIds = selected.mapNotNull {
+        layers.getOrNull(it)?.takeIf { l ->
+            !l.locked && !l.isBackground && canModifyLayerPropsInCollab(l)
+        }?.id
+    }.toSet()
     clearLayerSelection()
     val groupName = generateDefaultGroupName()
     runLayerCore(after = {
@@ -787,6 +807,7 @@ internal fun PaintViewModel.addGroupLayer() {
 
 internal fun PaintViewModel.copyLayer(i: Int) {
     if (isCopyingLayer) return
+    if (!ensureCollabLayerTypeSupported(i)) return
     isCopyingLayer = true
     clearLayerSelection()
     val srcLayer = layers.getOrNull(i)
@@ -831,6 +852,9 @@ internal fun PaintViewModel.clearLayer(i: Int) {
     if (layer.isBackground || layer.isGroup || layer.nodeType == LayerNodeType.ADJUSTMENT) {
         return
     }
+    if (!ensureCollabLayerEditable(i)) {
+        return
+    }
     if (active3DLayers.containsKey(layer.id)) {
         active3DLayers = active3DLayers - layer.id
     }
@@ -851,6 +875,7 @@ internal fun PaintViewModel.renameLayer(
     name: String,
 ) {
     if (name.isBlank()) return
+    if (!ensureCollabLayerPropsEditable(i)) return
     val trimmed = name.trim()
     if (i in layers.indices) {
         layers = layers.mapIndexed { idx, item ->
@@ -870,6 +895,7 @@ internal fun PaintViewModel.setLayerOpacity(
     v: Double,
     preview: Boolean = false,
 ) {
+    if (!ensureCollabLayerPropsEditable(i, showToast = !preview)) return
     if (preview) {
         if (!layerOpacityDragStarts.containsKey(i)) {
             val cur = layers.getOrNull(i)?.opacity ?: 1.0
@@ -921,6 +947,7 @@ internal fun PaintViewModel.commitLayerOpacityScrub(
     from: Double,
     to: Double,
 ) {
+    if (!ensureCollabLayerPropsEditable(i)) return
     layerOpacityDragStarts.remove(i)
     if (kotlin.math.abs(from - to) < 1e-4) {
         runCore(after = { scheduleRender(immediate = false) }) {
@@ -946,14 +973,30 @@ internal fun PaintViewModel.setLayerLocked(
     i: Int,
     locked: Boolean,
 ) {
+    if (!ensureCollabLayerLockToggleAllowed(i)) return
+    val cur = layers.getOrNull(i)
+    val clearedPerm = if (!locked && collab.isActive && cur != null &&
+        cur.collabPermission == LayerCollabPermission.LOCKED.code
+    ) {
+        if (cur.ownerPeerId.isNotEmpty()) LayerCollabPermission.OWNER_ONLY.code else LayerCollabPermission.SHARED.code
+    } else {
+        null
+    }
     if (i in layers.indices) {
         layers = layers.mapIndexed { idx, item ->
-            if (idx == i) item.copy(locked = locked) else item
+            if (idx == i) {
+                item.copy(locked = locked, collabPermission = clearedPerm ?: item.collabPermission)
+            } else {
+                item
+            }
         }
         layerRevision++
     }
     runLayerCore(after = { notifyLayerChanged(forceThumbs = false, immediateRender = false) }) {
         ReverieCoreBridge.setLayerLocked(i, locked)
+        if (clearedPerm != null) {
+            ReverieCoreBridge.setLayerCollabPermission(i, clearedPerm)
+        }
     }
 }
 
@@ -963,6 +1006,7 @@ internal fun PaintViewModel.setLayerAlphaLocked(
     i: Int,
     locked: Boolean,
 ) {
+    if (!ensureCollabLayerPropsEditable(i)) return
     if (i in layers.indices) {
         layers = layers.mapIndexed { idx, item ->
             if (idx == i) item.copy(alphaLocked = locked) else item
@@ -980,6 +1024,7 @@ internal fun PaintViewModel.setLayerColorLabel(
     i: Int,
     label: Int,
 ) {
+    if (!ensureCollabLayerPropsEditable(i)) return
     if (i in layers.indices) {
         layers = layers.mapIndexed { idx, item ->
             if (idx == i) item.copy(colorLabel = label) else item
@@ -1003,6 +1048,7 @@ internal fun PaintViewModel.setLayerClipped(
     i: Int,
     clipped: Boolean,
 ) {
+    if (!ensureCollabLayerPropsEditable(i)) return
     if (i in layers.indices) {
         layers = layers.mapIndexed { idx, item ->
             if (idx == i) item.copy(clipped = clipped) else item
@@ -1020,6 +1066,7 @@ internal fun PaintViewModel.setLayerAlphaInherited(
     i: Int,
     enable: Boolean,
 ) {
+    if (!ensureCollabLayerPropsEditable(i)) return
     if (i in layers.indices) {
         layers = layers.mapIndexed { idx, item ->
             if (idx == i) item.copy(alphaInherited = enable) else item
@@ -1032,25 +1079,27 @@ internal fun PaintViewModel.setLayerAlphaInherited(
 }
 
 internal fun PaintViewModel.flipLayerHorizontal(i: Int) {
-    runCore(after = ::notifyLayerChanged) {
+    if (!ensureCollabLayerEditable(i)) return
+    runCore(after = { notifyLayerChanged(pixelChanged = true) }) {
         ReverieCoreBridge.flipLayerHorizontal(i)
     }
 }
 
 internal fun PaintViewModel.flipLayerVertical(i: Int) {
-    runCore(after = ::notifyLayerChanged) {
+    if (!ensureCollabLayerEditable(i)) return
+    runCore(after = { notifyLayerChanged(pixelChanged = true) }) {
         ReverieCoreBridge.flipLayerVertical(i)
     }
 }
 
 internal fun PaintViewModel.flipCanvasHorizontal() {
-    runCore(after = ::notifyLayerChanged) {
+    runCore(after = { notifyLayerChanged(pixelChanged = true) }) {
         ReverieCoreBridge.flipCanvasHorizontal()
     }
 }
 
 internal fun PaintViewModel.flipCanvasVertical() {
-    runCore(after = ::notifyLayerChanged) {
+    runCore(after = { notifyLayerChanged(pixelChanged = true) }) {
         ReverieCoreBridge.flipCanvasVertical()
     }
 }
@@ -1108,13 +1157,15 @@ internal fun PaintViewModel.flipCanvasVerticalFull() {
 
 /** 用当前前景色填充整层 (区别于 floodFill 的角点连通区填充)。 */
 internal fun PaintViewModel.fillLayerForeground(i: Int) {
-    runCore(after = ::notifyLayerChanged) {
+    if (!ensureCollabLayerEditable(i)) return
+    runCore(after = { notifyLayerChanged(pixelChanged = true) }) {
         ReverieCoreBridge.fillLayer(i)
     }
 }
 
 /** 修改填充图层的颜色 (区别于 fillLayerForeground, 不污染画笔颜色且支持填充图层与预填色颜料层)。 */
 internal fun PaintViewModel.setFillLayerColor(index: Int, colorInt: Int) {
+    if (!ensureCollabLayerEditable(index)) return
     runCore(after = { notifyLayerChanged(pixelChanged = true) }) {
         ReverieCoreBridge.setFillLayerColor(index, colorInt)
     }
@@ -1138,6 +1189,7 @@ internal fun PaintViewModel.setBackgroundColor(
     color: Int,
     commit: Boolean = true,
 ) {
+    if (!ensureCollabHostForBackground(showToast = commit)) return
     if (commit) {
         runCore(after = ::notifyLayerChanged) {
             ReverieCoreBridge.setBackgroundColor(color, true)
@@ -1197,6 +1249,11 @@ internal fun PaintViewModel.moveLayerAbove(
     from: Int,
     above: Int,
 ) {
+    if (!ensureCollabLayerPropsEditable(from)) return
+    if (above >= 0) {
+        val parentGrp = collabEnclosingGroupIndex(above)
+        if (parentGrp >= 0 && !ensureCollabInsertIntoGroup(parentGrp)) return
+    }
     applyOptimisticLayerReorder(
         computeOptimisticMoveRelative(layerOrderNodes(), listOf(from), above, placeAbove = true),
     )
@@ -1217,9 +1274,19 @@ internal fun PaintViewModel.moveLayersToGroup(
     group: Int,
 ) {
     if (fromIndices.isEmpty()) return
+    if (!ensureCollabInsertIntoGroup(group)) return
+    val allowedIndices = if (collab.isActive) {
+        fromIndices.filter { canModifyLayerPropsInCollab(layers.getOrNull(it)) }
+    } else {
+        fromIndices
+    }
+    if (allowedIndices.isEmpty()) {
+        showActionToast(R.string.collab_layer_props_no_permission, R.drawable.ic_lock)
+        return
+    }
     val effectiveIndices = mutableListOf<Int>()
-    val fromSet = fromIndices.toSet()
-    for (idx in fromIndices) {
+    val fromSet = allowedIndices.toSet()
+    for (idx in allowedIndices) {
         if (idx !in effectiveIndices) {
             effectiveIndices.add(idx)
         }
@@ -1257,10 +1324,27 @@ internal fun PaintViewModel.moveLayersRelative(
     placeAbove: Boolean,
 ) {
     if (fromIndices.isEmpty()) return
+    val allowedIndices = if (collab.isActive) {
+        fromIndices.filter { canModifyLayerPropsInCollab(layers.getOrNull(it)) }
+    } else {
+        fromIndices
+    }
+    if (allowedIndices.isEmpty()) {
+        showActionToast(R.string.collab_layer_props_no_permission, R.drawable.ic_lock)
+        return
+    }
+    // 落点是蒙版时改以宿主为锚 (下方): 引擎侧同样会这样归一, 这里保证乐观预览一致 (issue #216)
+    val anchorTarget = if (placeAbove) target else com.reverie.paint.model.resolveMaskAnchorHost(
+        index = target,
+        layerCount = layers.size,
+        isMaskAt = { com.reverie.paint.model.LayerNodeType.isMask(layers[it].nodeType) },
+    )
+    val dstParentGrp = collabEnclosingGroupIndex(anchorTarget)
+    if (dstParentGrp >= 0 && !ensureCollabInsertIntoGroup(dstParentGrp)) return
     // 强制绑定: 若移动父图层，自动附带其直接附属的透明度/滤镜等蒙版图层 (idx + 1 且 depth = parent.depth + 1) 一同移动
     val effectiveIndices = mutableListOf<Int>()
-    val fromSet = fromIndices.toSet()
-    for (idx in fromIndices) {
+    val fromSet = allowedIndices.toSet()
+    for (idx in allowedIndices) {
         if (idx !in effectiveIndices) {
             effectiveIndices.add(idx)
         }
@@ -1278,12 +1362,6 @@ internal fun PaintViewModel.moveLayersRelative(
     }
     val selectedIds = layers.filter { it.index in effectiveIndices }.map { it.id }.toSet()
     val selectedNames = layers.filter { it.index in effectiveIndices }.map { it.name }.toSet()
-    // 落点是蒙版时改以宿主为锚 (下方): 引擎侧同样会这样归一, 这里保证乐观预览一致 (issue #216)
-    val anchorTarget = if (placeAbove) target else com.reverie.paint.model.resolveMaskAnchorHost(
-        index = target,
-        layerCount = layers.size,
-        isMaskAt = { com.reverie.paint.model.LayerNodeType.isMask(layers[it].nodeType) },
-    )
     applyOptimisticLayerReorder(
         computeOptimisticMoveRelative(layerOrderNodes(), effectiveIndices, anchorTarget, placeAbove),
         selectedIds = selectedIds,
@@ -1306,18 +1384,23 @@ internal fun PaintViewModel.moveLayerRelative(
 }
 
 internal fun PaintViewModel.moveLayerUp(i: Int) {
+    if (!ensureCollabLayerPropsEditable(i)) return
     runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.moveLayerUp(i)
     }
 }
 
 internal fun PaintViewModel.moveLayerDown(i: Int) {
+    if (!ensureCollabLayerPropsEditable(i)) return
     runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.moveLayerDown(i)
     }
 }
 
 internal fun PaintViewModel.moveLayerOut(i: Int) {
+    if (!ensureCollabLayerPropsEditable(i)) return
+    val enclosing = collabEnclosingGroupIndex(i)
+    if (enclosing >= 0 && !ensureCollabInsertIntoGroup(enclosing)) return
     runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.moveLayerOut(i)
     }
@@ -1327,6 +1410,11 @@ internal fun PaintViewModel.addMaskToLayer(
     layerIndex: Int,
     maskType: Int = 4,
 ) {
+    if (collab.isActive && maskType != LayerMaskType.TRANSPARENCY) {
+        showActionToast(R.string.collab_layer_type_unsupported, R.drawable.ic_lock)
+        return
+    }
+    if (!ensureCollabLayerPropsEditable(layerIndex)) return
     runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.addMaskToLayer(layerIndex, maskType)
     }
@@ -1334,6 +1422,13 @@ internal fun PaintViewModel.addMaskToLayer(
 
 internal fun PaintViewModel.removeMask(layerIndex: Int) {
     if (isLayerBackendBusy()) return
+    if (!ensureCollabLayerPropsEditable(layerIndex)) return
+    val next = layers.getOrNull(layerIndex + 1)
+    if (next != null && next.nodeType == LayerNodeType.TRANSPARENCY_MASK &&
+        !ensureCollabLayerPropsEditable(layerIndex + 1)
+    ) {
+        return
+    }
     runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.removeMask(layerIndex)
     }
@@ -1353,16 +1448,24 @@ internal fun PaintViewModel.applyMask(layerIndex: Int) {
 
 internal fun PaintViewModel.rasterizeLayer(i: Int) {
     val layer = layers.getOrNull(i)
+    if (layer?.isGroup == true) {
+        flattenGroup(i)
+        return
+    }
     if (layer != null && active3DLayers.containsKey(layer.id)) {
         rasterize3DLayer(layer.id)
         return
     }
+    if (!ensureCollabLayerDeletable(i) || !ensureCollabLayerTypeSupported(i)) return
     runLayerCore(after = ::notifyLayerChanged) {
         ReverieCoreBridge.rasterizeLayer(i)
     }
 }
 
 internal fun PaintViewModel.flattenGroup(i: Int) {
+    if (!ensureCollabLayerDeletable(i) || !ensureCollabLayerTypeSupported(i)) return
+    val parentGrp = collabEnclosingGroupIndex(i)
+    if (parentGrp >= 0 && !ensureCollabInsertIntoGroup(parentGrp)) return
     val groupLayer = layers.getOrNull(i)
     if (groupLayer != null && groupLayer.isGroup) {
         setGroupCollapsed(groupLayer.id, collapsed = false)
@@ -1376,6 +1479,7 @@ internal fun PaintViewModel.setGroupPassThrough(
     i: Int,
     passThrough: Boolean,
 ) {
+    if (!ensureCollabLayerPropsEditable(i)) return
     if (i in layers.indices) {
         layers = layers.mapIndexed { idx, item ->
             if (idx == i) item.copy(passThrough = passThrough) else item
@@ -1400,8 +1504,24 @@ internal fun PaintViewModel.mergeDown(i: Int, onResult: ((Boolean) -> Unit)? = n
         return
     }
     if (upper.isGroup) {
+        if (!ensureCollabLayerDeletable(i) || !ensureCollabLayerTypeSupported(i)) {
+            onResult?.invoke(false)
+            return
+        }
         flattenGroup(i)
         onResult?.invoke(true)
+        return
+    }
+    if (!ensureCollabLayerDeletable(i)) {
+        onResult?.invoke(false)
+        return
+    }
+    var ti = i - 1
+    while (ti > 0 && layers.getOrNull(ti)?.isGroup == true) {
+        ti--
+    }
+    if (collab.isActive && !ensureCollabLayerEditable(ti)) {
+        onResult?.invoke(false)
         return
     }
     var ok = false
@@ -1581,6 +1701,10 @@ internal fun PaintViewModel.addFilterLayer(onOpenFilters: (Int) -> Unit) {
 }
 
 internal fun PaintViewModel.addStrokeLayer() {
+    if (collab.isActive) {
+        showActionToast(R.string.collab_layer_type_unsupported, R.drawable.ic_lock)
+        return
+    }
     clearLayerSelection()
     val strokeLayerName = generateDefaultStrokeLayerName()
     val pids = currentPaintingPanelIds()

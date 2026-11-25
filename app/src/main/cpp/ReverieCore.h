@@ -58,6 +58,9 @@ class KoStore;
 // 运笔静态底图的上界 (实现在 StrokePresentFastPath.h, 要读 m_drawing / m_layers /
 // m_currentLayer, 所以在这里前置声明并授予友元)。
 class ReverieCore;
+namespace reverie {
+class CollabRuntime;
+}
 int strokeStaticUnderlayStop(const ReverieCore &core);
 
 class ReverieCore
@@ -115,6 +118,12 @@ public:
         }
         return static_cast<quint64>(index + 1);
     }
+    QString layerUuid(int index) const;
+    int layerIndexByUuid(const QString &uuid) const;
+    QString layerOwnerPeerId(int index) const;
+    void setLayerOwnerPeerId(int index, const QString &ownerPeerId);
+    int layerCollabPermission(int index) const;
+    void setLayerCollabPermission(int index, int permission);
     QString layerName(int index) const;
     void setLayerName(int index, const QString &name);
     bool layerVisible(int index) const;
@@ -553,6 +562,9 @@ public:
         int strokePosition = 0;       // 0: outside, 1: inside, 2: center
         int strokeOpacity = 100;
         QVector<SoloBackup> soloPrev; // snapshot before solo (FolioLayers)
+        QString uuid;                 // 跨端图层唯一标识 (由 NodeExtra 同步)
+        QString ownerPeerId;          // 协同拥有者 ID
+        int collabPermission = 0;     // 0=Shared, 1=OwnerOnly, 2=Locked
     };
 
     // Fill the current layer's region (or whole layer) with the brush color
@@ -886,7 +898,7 @@ public:
     // normally but push no undo commands (no memory growth, no history),
     // and clearUndoHistory drops all recorded commands. The document image
     // is untouched by both.
-    void setUndoCaptureEnabled(bool on) { m_undoCaptureEnabled = on; }
+    void setUndoCaptureEnabled(bool on) { m_undoCaptureEnabled = m_collabActive ? false : on; }
     void clearUndoHistory();
     // Cap the undo history (number of retained commands). 0 = unlimited.
     // Excess commands are freed from the bottom of the stack on the next
@@ -1120,7 +1132,87 @@ public:
         m_dirtyCtx = ctx;
     }
 
+    // ================= Collaborative Painting (P2P 茶绘) =================
+    bool collabStartSession(const QString &roomCode,
+                            const QString &selfPeerId,
+                            const QString &selfName,
+                            const QString &hostPeerId,
+                            const QString &iceServersJson,
+                            const QString &cacheDir);
+    void collabStopSession();
+    bool collabIsActive() const { return m_collabActive; }
+    bool collabCanEditCurrentLayer() const;
+    bool collabCanEditLayer(int index) const;
+    bool collabIsHost() const;
+    bool collabCanEditBackground() const;
+    bool collabCanModifyLayerProps(int index) const;
+    bool collabCanManageLayerOwnership(int index) const;
+    bool collabCanDeleteLayer(int index) const;
+    bool collabCanInsertIntoGroup(int groupIndex) const;
+    bool collabCanCopySubtree(int index) const;
+    bool collabIsNodeTypeSupported(int nodeType) const;
+    void collabOnPeerJoined(const QString &peerId, const QString &name, bool isHostPeer);
+    void collabOnPeerLeft(const QString &peerId);
+    void collabOnHostChanged(const QString &newHostPeerId);
+    void collabOnRemoteSignal(const QString &fromPeerId, const QString &payloadJson);
+    void collabSyncOnReconnect(const QString &hostPeerId, const QString &iceServersJson, const QString &peersJson);
+    void collabRetryPeer(const QString &peerId);
+    void setProjectCollabMeta(bool isCollab, const QString &roomCode);
+    bool isCollabProject() const { return m_isCollabProject; }
+    QString collabProjectRoomCode() const { return m_collabRoomCode; }
+    bool collabDrainInbound();
+    QString collabPollEventsJson();
+    QString collabPollCursorsJson();
+    QString collabLayersMetaJson() const;
+    void collabSendLocalCursor(float docX, float docY, bool isDrawing);
+    bool collabUndo();
+    bool collabRedo();
+    bool collabCanUndo() const;
+    bool collabCanRedo() const;
+    int collabUndoCount() const;
+    int collabRedoCount() const;
+    // 仅供合成管线内部调用: 叠加远端进行中的笔触预览
+    bool hasRemotePreviewForLayer(const QString &layerUuid) const;
+    void compositeRemotePreviewsForLayer(const QString &layerUuid, KisPaintDeviceSP scratch,
+                                         const QRect &r, const QBitArray &alphaLockFlags);
+    bool hasActiveRemoteStrokeBelow(int stopIdx) const;
+
+    // 本地模拟/单机双笔并发自测接口 (测试验证多路 StrokeSession 与隔离撤销)
+    bool collabTestSimulateRemoteStroke(const QString &peerId, const QString &layerUuid,
+                                        quint32 colorArgb, qreal brushSize,
+                                        const QVector<QPointF> &points, bool commit);
+
+    enum CollabLayerOpKind {
+        CollabLayerAddPaint = 1,
+        CollabLayerAddGroup = 2,
+        CollabLayerRemove = 3,
+        CollabLayerRename = 4,
+        CollabLayerVisible = 5,
+        CollabLayerLocked = 6,
+        CollabLayerAlphaLocked = 7,
+        CollabLayerOpacity = 8,
+        CollabLayerBlend = 9,
+        CollabLayerOwnerPerm = 10,
+        CollabLayerClear = 12,
+        CollabLayerAddFill = 13,
+        CollabLayerClipped = 14,
+        CollabLayerAlphaInherited = 15,
+        CollabLayerColorLabel = 16,
+        CollabLayerGroupPassThrough = 17,
+        CollabLayerBgColor = 18,
+        CollabLayerMoveRelative = 19,
+        CollabLayerAddMask = 20,
+        CollabLayerRemoveMask = 21,
+    };
+    void collabEmitLayerOp(int opKind, int index, const QString &extraStr = QString(),
+                           double extraVal = 0.0, int extraInt = 0);
+    void collabEmitLayerPixelsInitial(int index);
+    void collabEmitLayerTreeAdded(int rootIndex);
+    void collabEmitLayerMoved(const QVector<KisNode *> &movedNodes);
+
 private:
+    void collabAdjustProtectedInsertPosition(KisImageSP image, KisNodeSP &parent, KisNodeSP &above) const;
+    void collabSyncAddedLayerPlacement(int idx, int addOpKind, const QString &layerName, int extraInt = 0);
     // 丢掉撤销栈的重做区, 让"引擎的历史状态"和"Kotlin 看到的重做可用性"一起失效。
     //
     // 任何**暂定事务**(变换/液化的预览、笔刷暂存回滚、被取消的笔画)在创建时都会让
@@ -1177,6 +1269,7 @@ private:
 
     KisImageSP m_document;
     QVector<LayerEntry> m_layers;   // bottom -> top, tree traversal order
+    QHash<QString, int> m_uuidToLayerIndex;
     // m_layers 里存的是裸 KisNode*; 这份强引用保证"已被移出图层树、但 m_layers 还没重建"
     // 的节点在快照线程读取期间仍然活着 (线上 3bfafaf734: 主线程快照读 node->opacity()
     // 撞上核心线程删层 -> UAF)。syncLayersFromImage 重建 m_layers 时同步刷新。
@@ -1272,6 +1365,8 @@ private:
         // Owning paint layer (null for masks/projections): supplies the
         // alpha-lock channel flags for the writeback
         class KisPaintLayer *layer = nullptr;
+        int layerIndex = -1;
+        KisPaintDeviceSP collabBefore;
     };
     QVector<LiquifyTarget> m_liquifyTargets;
     bool m_liquifyTxnActive = false;   // a bracketed drag session is open
@@ -1414,6 +1509,7 @@ private:
     };
     StrokeStashPatch m_strokeStash;
     KisTransaction *m_openRestoreTransaction = nullptr;
+    KisPaintDeviceSP m_openRestoreBeforeDev;
     ParallelStrokeJobsExecutor m_fakeExecutor;
 
     // Stroke batching
@@ -1832,6 +1928,29 @@ private:
 
     void (*m_dirtyCb)(void *) = nullptr;
     void *m_dirtyCtx = nullptr;
+
+    friend class reverie::CollabRuntime;
+    reverie::CollabRuntime *m_collab = nullptr;
+    bool m_collabActive = false;
+    bool m_collabSuppressEmit = false;
+    bool m_isCollabProject = false;
+    QString m_collabRoomCode;
+    int m_lastStrokeSeed = 0;
+    QVector<StrokeSample> m_collabPendingSamples;
+    void collabResetDocumentState();
+    void collabOnLocalStrokeBegin(int seed);
+    void collabOnLocalStrokeFlushed();
+    void collabOnLocalStrokeEnd(const QRect &dirtyRect);
+    void collabOnLocalStrokeCancel();
+    bool collabCanEditLayerIndex(int index) const;
+    KisPaintDeviceSP collabSnapshotLayerBefore(int layerIndex) const;
+    void collabRecordLayerPixelEdit(int layerIndex, const KisPaintDeviceSP &beforeDev,
+                                    const QRect &hintRect, bool isEraserLike = false);
+    void collabRecordLayerPixelBatch(const QVector<QPair<int, KisPaintDeviceSP>> &beforeList,
+                                     const QVector<QRect> &hintRects = QVector<QRect>(),
+                                     bool isEraserLike = false);
+    void finishPixelTransaction(KisTransaction &txn);
+    void finishPixelTransactionPtr(KisTransaction *txn);
 };
 
 #endif // REVERIECORE_H

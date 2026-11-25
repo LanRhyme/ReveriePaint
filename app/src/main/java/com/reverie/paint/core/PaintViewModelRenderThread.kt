@@ -727,7 +727,8 @@ internal fun PaintViewModel.syncLayersFromNative() {
             android.util.Log.w("ReverieCore", "syncLayersFromNative: empty snapshot while on PAINTING (kept ${layers.size} layers)")
             Breadcrumbs.record("Layer", "empty native snapshot on PAINTING, kept ${layers.size} layers")
         } else {
-            layers = page.layers.map(LayerSnapshotProbe::toUiState)
+            val mapped = page.layers.map(LayerSnapshotProbe::toUiState)
+            layers = enrichLayersWithCollabMeta(mapped)
         }
     } else {
         LayerSnapshotProbe.reportUnavailable()

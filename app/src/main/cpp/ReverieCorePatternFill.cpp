@@ -122,10 +122,12 @@ bool ReverieCore::setFillLayerPattern(int index, const QByteArray &png)
         qWarning("Pattern: target is not a fill layer (%d)", index);
         return false;
     }
+    if (!collabCanEditLayerIndex(index)) return false;
     const QImage image = decodePattern(png);
     if (image.isNull()) return false;
     auto device = layer->paintDevice();
     if (!device) return false;
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(index);
     KisTransaction transaction(kundo2_i18n("Fill Layer Pattern"), device);
     device->clear();
     KisFillPainter painter(device);
@@ -134,6 +136,7 @@ bool ReverieCore::setFillLayerPattern(int index, const QByteArray &png)
     pushUndoCommand(transaction.endAndTake());
     recompositeProjection();
     markDirty();
+    collabRecordLayerPixelEdit(index, collabBefore, m_document->bounds());
     return true;
 }
 
@@ -143,6 +146,7 @@ bool ReverieCore::floodFillPatternAt(int x, int y, int tolerance, bool sampleMer
 {
     if (!m_document || !m_document->bounds().contains(x, y) || !std::isfinite(opacity)) return false;
     if (m_currentLayer < 0 || m_currentLayer >= m_layers.size()) return false;
+    if (!collabCanEditLayerIndex(m_currentLayer)) return false;
     const auto node = m_layers[m_currentLayer].node;
     if (!node || !node->isEditable()) return false;
     auto target = currentPaintDevice();
@@ -150,6 +154,7 @@ bool ReverieCore::floodFillPatternAt(int x, int y, int tolerance, bool sampleMer
     const QImage image = decodePattern(png);
     if (image.isNull()) return false;
     ensureRgbU8DifferenceHook();
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
     KisTransaction transaction(kundo2_i18n("Pattern Fill"), target);
     KisFillPainter painter(target);
     painter.setWidth(m_document->width());
@@ -175,5 +180,6 @@ bool ReverieCore::floodFillPatternAt(int x, int y, int tolerance, bool sampleMer
     pushUndoCommand(transaction.endAndTake());
     recompositeProjection();
     markDirty();
+    collabRecordLayerPixelEdit(m_currentLayer, collabBefore, QRect());
     return true;
 }

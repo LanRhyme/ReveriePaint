@@ -485,6 +485,17 @@ fun CanvasView(
             panelInteraction = panelInteraction,
         )
 
+        com.reverie.paint.ui.painting.collab.RemoteCursorOverlay(
+            vm = vm,
+            zoom = zoom,
+            rotation = rotation,
+            panX = panX,
+            panY = panY,
+            fitScale = fitScale,
+            flipX = flipX,
+            flipY = flipY,
+        )
+
         // 分格长按菜单 (锚在按下点; 触摸层写 menuScreenPos, 这里渲染)
         if (panelInteraction.menuScreenPos != null) {
             PanelLongPressMenu(vm = vm, interaction = panelInteraction)

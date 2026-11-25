@@ -829,6 +829,10 @@ internal fun PaintViewModel.panelCropStateFor(layerIndex: Int): Pair<Long, Boole
 
 /** 新建一格: 根组(若无) → 分格组 → 填充/内容/边框 → 裁剪蒙版 → 重绘视觉 → 写元数据。 */
 internal fun PaintViewModel.createPanelAt(quad: PanelQuad) {
+    if (collab.isActive) {
+        showActionToast(R.string.collab_layer_type_unsupported, R.drawable.ic_lock)
+        return
+    }
     if (coreW <= 0 || coreH <= 0) return
     if (quad.isDegenerate(MIN_PANEL_AREA)) return
     val panelId = nextPanelId()

@@ -591,15 +591,25 @@ internal fun PaintViewModel.selectSimilar(
 internal fun PaintViewModel.hQueued(): Int = if (renderHandler?.hasMessages(0) == true) 1 else 0
 
 internal fun PaintViewModel.lassoFill(points: List<Pair<Int, Int>>) {
+    if (!ensureCollabLayerEditable()) return
     val xs = points.map { it.first }.toIntArray()
     val ys = points.map { it.second }.toIntArray()
-    runCore { ReverieCoreBridge.lassoFill(xs, ys, points.size) }
+    runCore(after = {
+        refreshLayerThumbs(force = false)
+        triggerTimelapseCapture(isChanged = true)
+        refreshUndoCounts()
+    }) { ReverieCoreBridge.lassoFill(xs, ys, points.size) }
 }
 
 internal fun PaintViewModel.lassoClear(points: List<Pair<Int, Int>>) {
+    if (!ensureCollabLayerEditable()) return
     val xs = points.map { it.first }.toIntArray()
     val ys = points.map { it.second }.toIntArray()
-    runCore { ReverieCoreBridge.lassoClear(xs, ys, points.size) }
+    runCore(after = {
+        refreshLayerThumbs(force = false)
+        triggerTimelapseCapture(isChanged = true)
+        refreshUndoCounts()
+    }) { ReverieCoreBridge.lassoClear(xs, ys, points.size) }
 }
 
 internal fun PaintViewModel.drawText(
@@ -609,6 +619,7 @@ internal fun PaintViewModel.drawText(
     fontSize: Double,
 ) {
     if (text.isBlank()) return
+    if (!ensureCollabLayerEditable()) return
     val lines = text.split("\n")
     val paint = android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG).apply {
         textSize = fontSize.toFloat()
@@ -638,7 +649,11 @@ internal fun PaintViewModel.drawText(
     }
 
 
-    runCore {
+    runCore(after = {
+        refreshLayerThumbs(force = false)
+        triggerTimelapseCapture(isChanged = true)
+        refreshUndoCounts()
+    }) {
         val stampBmp = ImageImportHelper.swapRedAndBlueForStamp(textBmp)
         try {
             ReverieCoreBridge.stampBitmap(x.toInt(), y.toInt(), stampBmp)
@@ -656,7 +671,12 @@ internal fun PaintViewModel.drawShape(
     y2: Float,
     filled: Boolean = shapeFillMode == 1 || shapeFillMode == 2,
 ) {
-    runCore {
+    if (!ensureCollabLayerEditable()) return
+    runCore(after = {
+        refreshLayerThumbs(force = false)
+        triggerTimelapseCapture(isChanged = true)
+        refreshUndoCounts()
+    }) {
         ReverieCoreBridge.drawShape(kind, x1.toInt(), y1.toInt(), x2.toInt(), y2.toInt(), filled)
     }
 }
@@ -674,6 +694,7 @@ internal fun PaintViewModel.floodFill(
         showActionToast(R.string.canvas_toast_layer_hidden, com.reverie.paint.R.drawable.ic_eye_off)
         return
     }
+    if (!ensureCollabLayerEditable()) return
     // 连点防抖: 若上一笔填充正在引擎线程排队或执行中, 且位置相近, 丢弃重复点击, 防止撤销栈生成冗余事务
     val now = android.os.SystemClock.uptimeMillis()
     if (now - lastFillSubmitTime < 320L && pendingCoreOps.get() > 0 &&
@@ -690,7 +711,9 @@ internal fun PaintViewModel.floodFill(
         return
     }
     runCore(after = {
+        refreshLayerThumbs(force = false)
         triggerTimelapseCapture(isChanged = true)
+        refreshUndoCounts()
     }) {
         ReverieCoreBridge.floodFillAt(x.toInt(), y.toInt(), tolerance, sampleMerged, expand, feather, closeGap)
         // 填充直接改了当前帧像素, 洋葱皮缓存要失效 (它不感知帧内改动)
@@ -706,6 +729,7 @@ internal fun PaintViewModel.updateDrawingGuide(config: DrawingGuideConfig) {
 internal fun PaintViewModel.commitActiveShape() {
     val state = shapeState
     if (!state.active) return
+    if (!ensureCollabLayerEditable()) return
 
     val type = state.type
     val fillMode = state.fillMode
@@ -865,7 +889,11 @@ internal fun PaintViewModel.commitActiveShape() {
         canvas.drawPath(path, paint)
     }
 
-    runCore {
+    runCore(after = {
+        refreshLayerThumbs(force = false)
+        triggerTimelapseCapture(isChanged = true)
+        refreshUndoCounts()
+    }) {
         val stampBmp = ImageImportHelper.swapRedAndBlueForStamp(shapeBmp)
         try {
             ReverieCoreBridge.stampBitmap(left, top, stampBmp)

@@ -63,6 +63,10 @@ inline int strokeStaticUnderlayStop(const ReverieCore &core)
             --b;
         }
     }
+    // 协同模式下若有远端画师正在 b 以下图层预览绘制, 不冻结下层静态底图避免预览丢失
+    if (b > 0 && core.m_collabActive && core.hasActiveRemoteStrokeBelow(b)) {
+        return 0;
+    }
     return b;
 }
 

@@ -94,6 +94,9 @@ fun CreatePage(vm: PaintViewModel) {
                         initialBitmap = imported.first,
                         initialSnapshotFile = imported.third,
                     )
+                    if (vm.collab.pendingCreateMode) {
+                        vm.hostRoomOnCreatedCanvas(imported.first.width, imported.first.height)
+                    }
                 } else {
                     android.widget.Toast.makeText(context, context.getString(R.string.create_toast_image_failed), android.widget.Toast.LENGTH_SHORT).show()
                 }
@@ -215,12 +218,22 @@ fun CreatePage(vm: PaintViewModel) {
     // Delete Preset Confirm Dialog State
     var presetToDelete by remember { mutableStateOf<CanvasPresetItem?>(null) }
 
+    var showCollabConfigDialog by remember { mutableStateOf(false) }
+
     BackHandler {
         if (!isWideLandscape && portraitTab != 0) {
             portraitTab = 0
         } else {
+            vm.collab.pendingCreateMode = false
             vm.goHome()
         }
+    }
+
+    if (showCollabConfigDialog) {
+        com.reverie.paint.ui.painting.collab.CollabCreateConfigDialog(
+            vm = vm,
+            onDismiss = { showCollabConfigDialog = false },
+        )
     }
 
     // Save Preset Dialog
@@ -314,6 +327,9 @@ fun CreatePage(vm: PaintViewModel) {
                 animation = animationCanvas,
                 animationFps = DEFAULT_ANIMATION_FPS,
             )
+            if (vm.collab.pendingCreateMode) {
+                vm.hostRoomOnCreatedCanvas(finalW, finalH)
+            }
         }
         val host = vm.waveTransitionHost
         val handled = host?.tryCreateCanvas(focusPx = null, performCreate = perform) == true
@@ -448,6 +464,7 @@ fun CreatePage(vm: PaintViewModel) {
                         if (!isWideLandscape && portraitTab != 0) {
                             portraitTab = 0
                         } else {
+                            vm.collab.pendingCreateMode = false
                             vm.goHome()
                         }
                     },
@@ -529,6 +546,39 @@ fun CreatePage(vm: PaintViewModel) {
 
             Spacer(Modifier.weight(1f))
 
+            val collabOn = vm.collab.pendingCreateMode
+            Box(
+                modifier = Modifier
+                    .height(38.dp)
+                    .clip(RoundedCornerShape(19.dp))
+                    .background(if (collabOn) colors.accent else colors.panelHi)
+                    .clickable { vm.collab.pendingCreateMode = !collabOn }
+                    .padding(horizontal = 12.dp),
+                contentAlignment = Alignment.Center,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_cloud),
+                        contentDescription = stringResource(R.string.collab_title),
+                        tint = if (collabOn) colors.onAccent else colors.accent,
+                        modifier = Modifier.size(16.dp),
+                    )
+                    Text(
+                        text = stringResource(R.string.collab_title),
+                        color = if (collabOn) colors.onAccent else colors.text,
+                        fontSize = 12.5.sp,
+                        fontWeight = FontWeight.Medium,
+                        maxLines = 1,
+                    )
+                    com.reverie.paint.ui.painting.collab.CollabBetaBadge(onAccent = collabOn)
+                }
+            }
+
+            Spacer(Modifier.width(8.dp))
+
             Box(
                 modifier = Modifier
                     .height(38.dp)
@@ -556,6 +606,63 @@ fun CreatePage(vm: PaintViewModel) {
                         maxLines = 1,
                     )
                 }
+            }
+        }
+
+        AnimatedVisibility(
+            visible = vm.collab.pendingCreateMode,
+            enter = fadeIn() + expandVertically(),
+            exit = fadeOut() + shrinkVertically(),
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 10.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(colors.panelHi)
+                    .border(1.dp, colors.accent.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
+                    .padding(horizontal = 14.dp, vertical = 10.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier.weight(1f),
+                ) {
+                    Icon(
+                        painterResource(R.drawable.ic_cloud),
+                        contentDescription = null,
+                        tint = colors.accent,
+                        modifier = Modifier.size(18.dp),
+                    )
+                    Column {
+                        Text(
+                            text = stringResource(R.string.collab_create_toggle_title),
+                            color = colors.text,
+                            fontSize = 13.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        val publicSummary = if (vm.collab.pendingCreateIsPublic && vm.collab.pendingCreateTitle.isNotBlank()) {
+                            stringResource(R.string.collab_create_public_summary, vm.collab.pendingCreateTitle)
+                        } else {
+                            stringResource(R.string.collab_create_toggle_desc)
+                        }
+                        Text(
+                            text = publicSummary,
+                            color = colors.subText,
+                            fontSize = 11.sp,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                        )
+                    }
+                }
+                ReTextButton(
+                    text = stringResource(R.string.collab_room_settings_btn),
+                    onClick = { showCollabConfigDialog = true },
+                    fontSize = 12.sp,
+                )
             }
         }
 

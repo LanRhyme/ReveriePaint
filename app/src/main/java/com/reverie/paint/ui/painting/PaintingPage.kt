@@ -1057,7 +1057,9 @@ fun PaintingPage(
         }
 
         val requestExit: () -> Unit = {
-            if (vm.hasUnsavedChanges()) {
+            if (vm.collab.isActive) {
+                vm.requestEndCollabAndPromptSave(closeRoomForAll = false)
+            } else if (vm.hasUnsavedChanges()) {
                 showExitSaveDialog = true
             } else {
                 vm.discardAndExit()
@@ -1093,6 +1095,9 @@ fun PaintingPage(
                 vm.showLowStorageDialog -> vm.showLowStorageDialog = false
                 vm.showLowMemoryDialog -> vm.showLowMemoryDialog = false
                 vm.showToolbarSqueezedDialog -> vm.showToolbarSqueezedDialog = false
+                vm.collab.showEndSaveDialog -> vm.collab.showEndSaveDialog = false
+                vm.collab.showRoomSheet -> vm.collab.showRoomSheet = false
+                vm.collab.showLobbyDialog -> vm.collab.showLobbyDialog = false
                 showDiscardConfirmDialog -> showDiscardConfirmDialog = false
                 showExitSaveDialog -> showExitSaveDialog = false
                 brushPanelOpen && !(vm.panelPinningEnabled && vm.isBrushPanelPinned) -> {

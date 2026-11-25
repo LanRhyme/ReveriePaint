@@ -6,6 +6,7 @@ import com.reverie.paint.model.PatternFillEvent
 
 internal fun PaintViewModel.setFillLayerPattern(index: Int, pattern: FillPattern) {
     if (layers.getOrNull(index)?.locked != false || isLayerEffectivelyHidden(index)) return
+    if (!ensureCollabLayerEditable(index)) return
     applyPatternFill(PatternFillEvent(layer = index, wholeLayer = true, png = pattern.png))
 }
 
@@ -15,6 +16,7 @@ internal fun PaintViewModel.floodFillPattern(
     val pattern = fillPattern ?: return
     val index = currentLayerIndex
     if (!x.isFinite() || !y.isFinite() || index < 0 || layers.getOrNull(index)?.locked != false) return
+    if (!ensureCollabLayerEditable(index)) return
     applyPatternFill(PatternFillEvent(index, false, x.toInt(), y.toInt(), tolerance, merged,
         expand, feather, closeGap, fillOpacity.coerceIn(0.0, 1.0), fillCompositeOp, pattern.png))
 }
@@ -22,8 +24,12 @@ internal fun PaintViewModel.floodFillPattern(
 private fun PaintViewModel.applyPatternFill(event: PatternFillEvent) {
     var success = false
     runCore(after = {
-        if (success) notifyLayerChanged(pixelChanged = true)
-        else showActionToast(R.string.pattern_fill_failed, R.drawable.ic_fill)
+        if (success) {
+            notifyLayerChanged(pixelChanged = true)
+            refreshUndoCounts()
+        } else {
+            showActionToast(R.string.pattern_fill_failed, R.drawable.ic_fill)
+        }
     }) {
         success = applyPatternFillLocked(event)
         if (success) ReverieCoreBridge.flushOnionSkinCaches()

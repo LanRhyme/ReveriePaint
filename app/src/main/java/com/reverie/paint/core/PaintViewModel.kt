@@ -1223,6 +1223,9 @@ class PaintViewModel : ViewModel() {
         // 组合期直接 JNI 读, 设置后镜像 equals 不变 -> 面板重组被跳过 ->
         // 开关显示永远不刷新 (点锁定等"真正改变镜像"的操作才会顺带刷新)
         val passThrough: Boolean = false,
+        val uuid: String = "",
+        val ownerPeerId: String = "",
+        val collabPermission: Int = 0,
     )
 
     // ---- async render plumbing ----
@@ -1257,6 +1260,8 @@ class PaintViewModel : ViewModel() {
     internal val syncState = SyncState()
 
     internal val localBackupState = LocalBackupState()
+
+    internal val collab = CollabSessionState()
 
     /** 动画音频播放器 (导入的音频资源, 播放动画时循环同步播放; 见 PaintViewModelAnimation.kt) */
     internal val animAudioPlayers = mutableListOf<android.media.MediaPlayer>()
@@ -1395,6 +1400,9 @@ class PaintViewModel : ViewModel() {
         queuedPresetIndex = null
         com.reverie.paint.core.brushstore.AtomicFiles.flushPending()
         closePerformanceHintSession()
+        if (collab.isActive) {
+            leaveCollabRoom(synchronousNativeStop = true)
+        }
         renderThread?.quitSafely()
         unregisterMemoryPressureCallbacks()
         renderThread = null

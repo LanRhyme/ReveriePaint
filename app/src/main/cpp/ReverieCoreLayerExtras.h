@@ -38,6 +38,14 @@ struct NodeExtra {
     // copyLayerProperties 做整结构复制 (extras()[to] = it.value()), 本字段自动随拷,
     // 无需在调用点特判; clearLayerProperties/pruneLayerProperties 按条目整体清理, 同样无需特判。
     QString panelJson;
+
+    // 协同茶绘跨端图层身份与 Magma 式所有权:
+    // uuid: 全局唯一标识 (copyLayerProperties 会置空以确保副本重新分配新 UUID)
+    // ownerPeerId: 拥有者 peerId (空 = 房主/未分配)
+    // collabPermission: 0=Shared(公共), 1=OwnerOnly(仅拥有者), 2=Locked(锁定)
+    QString uuid;
+    QString ownerPeerId;
+    int collabPermission = 0;
 };
 
 QVariant layerProperty(const KisNode *node, const char *key);

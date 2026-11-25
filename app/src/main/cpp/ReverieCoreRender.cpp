@@ -723,10 +723,12 @@ void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged, in
     ensureRgbU8DifferenceHook();
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return;
+    if (!collabCanEditLayerIndex(m_currentLayer)) return;
     if (x < 0 || y < 0 || x >= image->width() || y >= image->height()) return;
     KisPaintDeviceSP targetDevice = currentPaintDevice();
     if (!targetDevice) return;
     KisPaintDeviceSP srcDevice = sampleMerged ? image->projection() : targetDevice;
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
 
     const int clampedTol = qBound(1, tolerance, 100);
 
@@ -783,8 +785,8 @@ void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged, in
     targetDevice->setDirty();
     recompositeProjection();
     markDirty();
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
+    collabRecordLayerPixelEdit(m_currentLayer, collabBefore, QRect());
 
     if (traceFill) {
         const QRect afterBounds = targetDevice->exactBounds();
@@ -807,6 +809,7 @@ void ReverieCore::encloseAndFill(const QVector<QPoint> &points,
     ensureRgbU8DifferenceHook();
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return;
+    if (!collabCanEditLayerIndex(m_currentLayer)) return;
     QPolygon poly;
     poly.reserve(points.size());
     for (const QPoint &p : points) {
@@ -817,6 +820,7 @@ void ReverieCore::encloseAndFill(const QVector<QPoint> &points,
 
     KisPaintDeviceSP targetDevice = currentPaintDevice();
     if (!targetDevice) return;
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
 
     KisPaintDeviceSP srcDevice;
     if (sampleMerged) {
@@ -914,8 +918,8 @@ void ReverieCore::encloseAndFill(const QVector<QPoint> &points,
     targetDevice->setDirty();
     recompositeProjection();
     markDirty();
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
+    collabRecordLayerPixelEdit(m_currentLayer, collabBefore, QRect());
 
     const QRect afterBounds = targetDevice->exactBounds();
     __android_log_print(ANDROID_LOG_INFO, "RP_FILL",
@@ -949,8 +953,10 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2, bool fille
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return;
+    if (!collabCanEditLayerIndex(m_currentLayer)) return;
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) return;
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
 
     KisTransaction txn(kundo2_i18n("Shape"), device);
     KisPainter painter(device);
@@ -1007,17 +1013,19 @@ void ReverieCore::drawShape(int kind, int x1, int y1, int x2, int y2, bool fille
     if (pl) {
         bumpLayerThumbGen(pl);
     }
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
+    collabRecordLayerPixelEdit(m_currentLayer, collabBefore, dirty);
 }
 
 void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return;
+    if (!collabCanEditLayerIndex(m_currentLayer)) return;
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) return;
     if (points.size() < 2) return;
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
 
     KisTransaction txn(kundo2_i18n("Polygon"), device);
     KisPainter painter(device);
@@ -1075,8 +1083,8 @@ void ReverieCore::drawPolygon(const QVector<QPoint> &points, bool closed)
     if (pl) {
         bumpLayerThumbGen(pl);
     }
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
+    collabRecordLayerPixelEdit(m_currentLayer, collabBefore, dirty);
 }
 
 void ReverieCore::gradientFill(int x1, int y1, int x2, int y2, int type, int repeat, bool reverse)
@@ -1092,9 +1100,11 @@ void ReverieCore::gradientFillV3(
 {
     KisImageSP image = m_document ? m_document : KisImageSP();
     if (!image) return;
+    if (!collabCanEditLayerIndex(m_currentLayer)) return;
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) return;
     if (x1 == x2 && y1 == y2) return;
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
 
     KisTransaction txn(kundo2_i18n("Gradient"), device);
 
@@ -1281,9 +1291,10 @@ void ReverieCore::gradientFillV3(
     painter.bitBlt(QPoint(0, 0), tempSrc, QRect(0, 0, iw, ih));
 
     device->setDirty();
+    recompositeProjection();
     markDirty();
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
+    collabRecordLayerPixelEdit(m_currentLayer, collabBefore, QRect());
 }
 
 
@@ -1687,6 +1698,7 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
 
         KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(le.node);
         const bool hasTemp = pl && pl->hasTemporaryTarget();
+        const bool hasRemote = m_collabActive && hasRemotePreviewForLayer(le.uuid);
         KisPaintDeviceSP maskDev = (maskIdx >= 0) ? maskDeviceFor(maskIdx) : nullptr;
 
         const qreal opacity = (overrideOpacity >= 0.0) ? overrideOpacity : (qreal(le.node->opacity()) / 255.0);
@@ -1711,12 +1723,12 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
         // 数学上等价; 8 位整数下两种结合次序的舍入可能差 1 LSB (只影响运笔中的显示, 抬笔后
         // 由 Krita 自己的合成接管)。洋葱皮 / 图层蒙版 / 半透明 / 非 normal 混合 / 通道锁 /
         // Alpha 锁 / 橡皮擦 / 非 normal 的临时算子任一成立就退回暂存路径。
-        const bool canDirectTempOver = !src && hasTemp && pl && !maskDev && opacity >= 0.999 &&
+        const bool canDirectTempOver = !src && hasTemp && !hasRemote && pl && !maskDev && opacity >= 0.999 &&
             (opId.isEmpty() || opId == QLatin1String("normal")) && chanFlags.isEmpty() &&
             !pl->alphaLocked() && m_toolMode != ToolEraser &&
             (m_indirectTempCompositeOp.isEmpty() || m_indirectTempCompositeOp == QLatin1String("normal"));
 
-        if (!src && !hasTemp && !maskDev) {
+        if (!src && !hasTemp && !hasRemote && !maskDev) {
             const QRect devExt = dev->extent();
             const KoColorSpace *cs = dev->colorSpace();
             const bool isDefaultTransparent = !cs || cs->opacityU8(dev->defaultPixel().data()) == 0;
@@ -1791,6 +1803,10 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
                     tempPainter.bitBlt(r.topLeft(), tempTarget, r);
                     tempPainter.end();
                 }
+            }
+            if (hasRemote) {
+                const QBitArray layerAlphaFlags = (pl && pl->alphaLocked()) ? pl->channelLockFlags() : QBitArray();
+                compositeRemotePreviewsForLayer(le.uuid, scratch, r, layerAlphaFlags);
             }
             if (maskDev) {
                 const size_t pixelCount = size_t(r.width()) * r.height();

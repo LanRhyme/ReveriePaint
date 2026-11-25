@@ -203,13 +203,14 @@ void ReverieCore::lassoFill(const QVector<QPoint> &points)
     if (!image) {
         return;
     }
-    if (!isLayerEditable(m_currentLayer)) {
+    if (!isLayerEditable(m_currentLayer) || !collabCanEditLayerIndex(m_currentLayer)) {
         return;
     }
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) {
         return;
     }
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
 
     vQPointF pts;
     pts.reserve(points.size());
@@ -246,8 +247,9 @@ void ReverieCore::lassoFill(const QVector<QPoint> &points)
     if (m_currentLayer >= 0 && m_currentLayer < m_layers.size()) {
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
     }
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
+    recompositeProjection();
+    collabRecordLayerPixelEdit(m_currentLayer, collabBefore, bbox);
 }
 
 void ReverieCore::lassoClear(const QVector<QPoint> &points)
@@ -259,13 +261,14 @@ void ReverieCore::lassoClear(const QVector<QPoint> &points)
     if (!image) {
         return;
     }
-    if (!isLayerEditable(m_currentLayer)) {
+    if (!isLayerEditable(m_currentLayer) || !collabCanEditLayerIndex(m_currentLayer)) {
         return;
     }
     KisPaintDeviceSP device = currentPaintDevice();
     if (!device) {
         return;
     }
+    KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
 
     vQPointF pts;
     pts.reserve(points.size());
@@ -304,7 +307,8 @@ void ReverieCore::lassoClear(const QVector<QPoint> &points)
     if (m_currentLayer >= 0 && m_currentLayer < m_layers.size()) {
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
     }
-    txn.commit(image->undoAdapter());
-    m_redoCount = 0;
+    finishPixelTransaction(txn);
+    recompositeProjection();
+    collabRecordLayerPixelEdit(m_currentLayer, collabBefore, bbox, true);
 }
 

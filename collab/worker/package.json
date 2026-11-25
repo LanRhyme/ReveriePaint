@@ -1,0 +1,13 @@
+{
+  "name": "reveriepaint-collab",
+  "private": true,
+  "type": "module",
+  "description": "ReveriePaint P2P 茶绘信令端 (Cloudflare Worker + Durable Objects)",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy"
+  },
+  "devDependencies": {
+    "wrangler": "^4.0.0"
+  }
+}
