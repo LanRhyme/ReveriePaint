@@ -52,6 +52,8 @@
 #include <QMutex>
 #include <QImage>
 #include <png.h>
+#include <exception>
+#include <utility>
 
 class QThreadPool;
 
@@ -1665,5 +1667,18 @@ typedef QSharedPointer<KisBrush> KisBrushSP;
 void injectBrushDefinitionProperties(KisBrushBasedPaintOpSettings *bs,
                                      const KisResourcesInterfaceSP &resources,
                                      const QHash<QString, KisBrushSP> &loadedBrushes);
+
+/** 保护后台并行/笔画任务调用: 捕获 C++ 异常并打日志, 防止跨越 QFuture/JNI 触发 std::terminate */
+template <typename Fn>
+inline void reverieCallSafely(const char *context, Fn &&fn)
+{
+    try {
+        std::forward<Fn>(fn)();
+    } catch (const std::exception &e) {
+        qWarning("ReverieCore: %s threw exception: %s", context, e.what());
+    } catch (...) {
+        qWarning("ReverieCore: %s threw unknown exception", context);
+    }
+}
 
 #endif // REVERIECORE_INTERNAL_H

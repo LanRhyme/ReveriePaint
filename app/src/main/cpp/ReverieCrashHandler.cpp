@@ -162,6 +162,52 @@ static size_t capture_backtrace(void **buffer, size_t max) {
     return state.current - buffer;
 }
 
+static void safe_write_frame(int fd, size_t index, void *pc) {
+    safe_write_str(fd, "#");
+    if (index < 10) safe_write_str(fd, "0");
+    safe_write_uint(fd, index);
+    safe_write_str(fd, " pc ");
+    safe_write_hex64(fd, reinterpret_cast<uintptr_t>(pc));
+
+    // 模块基址相对偏移: 这是唯一能事后符号化的锚点。
+    // 绝对 pc 受 ASLR 影响每次进程都不同, 拿它去 addr2line 是无效的。
+    Dl_info dlinfo = {};
+    const bool hasModule = dladdr(pc, &dlinfo) != 0 && dlinfo.dli_fname != nullptr;
+    safe_write_str(fd, "  ");
+    if (hasModule && dlinfo.dli_fbase != nullptr) {
+        const uintptr_t moduleOffset =
+            reinterpret_cast<uintptr_t>(pc) - reinterpret_cast<uintptr_t>(dlinfo.dli_fbase);
+        safe_write_str(fd, "+");
+        safe_write_hex_compact(fd, moduleOffset);
+    } else {
+        safe_write_str(fd, "-");
+    }
+    safe_write_str(fd, "  ");
+    safe_write_str(fd, hasModule ? dlinfo.dli_fname : "-");
+    if (hasModule && dlinfo.dli_sname) {
+        safe_write_str(fd, "  (");
+        safe_write_str(fd, dlinfo.dli_sname);
+        uintptr_t offset = reinterpret_cast<uintptr_t>(pc) - reinterpret_cast<uintptr_t>(dlinfo.dli_saddr);
+        safe_write_str(fd, "+");
+        safe_write_uint(fd, offset);
+        safe_write_str(fd, ")");
+    }
+    safe_write_str(fd, "\n");
+}
+
+static bool has_real_caller_frame(void *const *frames, size_t frameCount) {
+    for (size_t i = 1; i < frameCount; ++i) {
+        Dl_info dlinfo = {};
+        if (dladdr(frames[i], &dlinfo) != 0 && dlinfo.dli_fname != nullptr) {
+            if (strstr(dlinfo.dli_fname, "[vdso]") == nullptr &&
+                strstr(dlinfo.dli_fname, "libsigchain.so") == nullptr) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
 // 核心崩溃处理入口
 static void native_crash_handler(int signo, siginfo_t *info, void *context) {
     // 防止多线程并发崩溃引发重入死锁
@@ -299,37 +345,30 @@ static void native_crash_handler(int signo, siginfo_t *info, void *context) {
     size_t frameCount = capture_backtrace(frames, maxFrames);
 
     for (size_t i = 0; i < frameCount; ++i) {
-        void *pc = frames[i];
-        safe_write_str(fd, "#");
-        if (i < 10) safe_write_str(fd, "0");
-        safe_write_uint(fd, i);
-        safe_write_str(fd, " pc ");
-        safe_write_hex64(fd, reinterpret_cast<uintptr_t>(pc));
+        safe_write_frame(fd, i, frames[i]);
+    }
 
-        // 模块基址相对偏移: 这是唯一能事后符号化的锚点。
-        // 绝对 pc 受 ASLR 影响每次进程都不同, 拿它去 addr2line 是无效的。
-        Dl_info dlinfo = {};
-        const bool hasModule = dladdr(pc, &dlinfo) != 0 && dlinfo.dli_fname != nullptr;
-        safe_write_str(fd, "  ");
-        if (hasModule && dlinfo.dli_fbase != nullptr) {
-            const uintptr_t moduleOffset =
-                reinterpret_cast<uintptr_t>(pc) - reinterpret_cast<uintptr_t>(dlinfo.dli_fbase);
-            safe_write_str(fd, "+");
-            safe_write_hex_compact(fd, moduleOffset);
-        } else {
-            safe_write_str(fd, "-");
+    // 部分 SIGBUS/叶子函数崩溃会导致 _Unwind_Backtrace 停在信号跳板 ([vdso]),
+    // 此时用 ucontext 里的崩溃点 PC 与 LR 补出可符号化的模块偏移帧。
+    if (!has_real_caller_frame(frames, frameCount) && context != nullptr) {
+        uintptr_t faultPc = 0;
+        uintptr_t faultLr = 0;
+#if defined(__aarch64__)
+        ucontext_t *faultUc = static_cast<ucontext_t *>(context);
+        faultPc = static_cast<uintptr_t>(faultUc->uc_mcontext.pc);
+        faultLr = static_cast<uintptr_t>(faultUc->uc_mcontext.regs[30]);
+#elif defined(__arm__)
+        ucontext_t *faultUc = static_cast<ucontext_t *>(context);
+        faultPc = static_cast<uintptr_t>(faultUc->uc_mcontext.arm_pc);
+        faultLr = static_cast<uintptr_t>(faultUc->uc_mcontext.arm_lr);
+#endif
+        size_t nextIndex = frameCount;
+        if (faultPc != 0) {
+            safe_write_frame(fd, nextIndex++, reinterpret_cast<void *>(faultPc));
         }
-        safe_write_str(fd, "  ");
-        safe_write_str(fd, hasModule ? dlinfo.dli_fname : "-");
-        if (hasModule && dlinfo.dli_sname) {
-            safe_write_str(fd, "  (");
-            safe_write_str(fd, dlinfo.dli_sname);
-            uintptr_t offset = reinterpret_cast<uintptr_t>(pc) - reinterpret_cast<uintptr_t>(dlinfo.dli_saddr);
-            safe_write_str(fd, "+");
-            safe_write_uint(fd, offset);
-            safe_write_str(fd, ")");
+        if (faultLr != 0 && faultLr != faultPc) {
+            safe_write_frame(fd, nextIndex++, reinterpret_cast<void *>(faultLr));
         }
-        safe_write_str(fd, "\n");
     }
 
     // 应用状态快照

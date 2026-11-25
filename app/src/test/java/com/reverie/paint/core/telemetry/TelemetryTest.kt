@@ -412,3 +412,36 @@ class TelemetryPayloadTest {
         assertFalse("面包屑里的笔刷名不得出现在上报体", env.toJson().contains("my-brush"))
     }
 }
+
+class TelemetryReporterAbiTest {
+
+    @Test
+    fun `resolves 32-bit process abi on 64-bit hardware`() {
+        val abi = TelemetryReporter.resolveProcessAbi(
+            is64Bit = false,
+            supported64 = arrayOf("arm64-v8a"),
+            supported32 = arrayOf("armeabi-v7a", "armeabi"),
+            supportedAll = arrayOf("arm64-v8a", "armeabi-v7a"),
+        )
+        assertEquals("armeabi-v7a", abi)
+    }
+
+    @Test
+    fun `resolves 64-bit process abi and falls back when bit-specific list is empty`() {
+        val arm64 = TelemetryReporter.resolveProcessAbi(
+            is64Bit = true,
+            supported64 = arrayOf("arm64-v8a"),
+            supported32 = arrayOf("armeabi-v7a"),
+            supportedAll = arrayOf("arm64-v8a", "armeabi-v7a"),
+        )
+        assertEquals("arm64-v8a", arm64)
+
+        val fallback = TelemetryReporter.resolveProcessAbi(
+            is64Bit = false,
+            supported64 = emptyArray(),
+            supported32 = emptyArray(),
+            supportedAll = arrayOf("arm64-v8a"),
+        )
+        assertEquals("arm64-v8a", fallback)
+    }
+}

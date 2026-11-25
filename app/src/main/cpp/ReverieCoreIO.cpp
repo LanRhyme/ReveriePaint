@@ -2027,12 +2027,16 @@ void LayerPixelLoader::flush()
         }
         m_jobs.erase(m_jobs.begin(), m_jobs.begin() + count);
 
-        QtConcurrent::blockingMap(batch, [](PendingLayerPixels &j) {
-            if (j.hasPng && !j.pngBytes.isEmpty()) {
-                if (j.decoded.loadFromData(j.pngBytes, "PNG")) {
-                    j.bbox = nonTransparentBounds(j.decoded);
-                }
-            }
+        reverieCallSafely("blockingMap in PendingLayerPixels", [&batch]() {
+            QtConcurrent::blockingMap(batch, [](PendingLayerPixels &j) {
+                reverieCallSafely("decode layer PNG", [&j]() {
+                    if (j.hasPng && !j.pngBytes.isEmpty()) {
+                        if (j.decoded.loadFromData(j.pngBytes, "PNG")) {
+                            j.bbox = nonTransparentBounds(j.decoded);
+                        }
+                    }
+                });
+            });
         });
         // 串行写回: Krita tile 分配/写入不并发; 写完立即释放字节缓冲
         for (int i = 0; i < count; ++i) {

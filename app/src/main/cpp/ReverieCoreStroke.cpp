@@ -49,7 +49,7 @@ void runStrokeJobsBatch(const QVector<Job *> &jobs, qreal brushSize = 0.0)
             continue;
         }
         if (first->sequentiality() != KisStrokeJobData::CONCURRENT) {
-            first->run();
+            reverieCallSafely("sequential stroke job", [first]() { first->run(); });
             delete first;
             ++i;
             continue;
@@ -64,10 +64,15 @@ void runStrokeJobsBatch(const QVector<Job *> &jobs, qreal brushSize = 0.0)
             (count >= 2 && brushSize >= 96.0);
         if (worthParallel) {
             const QVector<Job *> slice = jobs.mid(i, count);
-            QtConcurrent::blockingMap(reverieBackgroundPool(), slice, [](Job *job) { job->run(); });
+            reverieCallSafely("blockingMap in runStrokeJobsBatch", [&slice]() {
+                QtConcurrent::blockingMap(reverieBackgroundPool(), slice, [](Job *job) {
+                    reverieCallSafely("parallel stroke job", [job]() { job->run(); });
+                });
+            });
         } else {
             for (int k = i; k < j; ++k) {
-                jobs[k]->run();
+                Job *job = jobs[k];
+                reverieCallSafely("inline stroke job", [job]() { job->run(); });
             }
         }
         for (int k = i; k < j; ++k) {

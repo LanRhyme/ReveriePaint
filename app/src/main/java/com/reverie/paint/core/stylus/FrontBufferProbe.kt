@@ -52,9 +52,9 @@ object FrontBufferProbe {
 
     /**
      * 已知存在系统级 libgui registerSurfaceControlForCallback 空指针或事务并发引用计数损坏的 ROM 组合:
-     * 1. Android 13 (SDK 33) 的小米/红米与 vivo/iQOO 机型 (线上 d8f74afe88 / 7f68bfcd44 / f047d7d9a2 / 8d5df3d6e2)。
+     * 1. Android 13 (SDK 33) 的小米/红米、vivo/iQOO、INFINIX、ZTE 与 realme 机型 (线上 d8f74afe88 / e08be7f0df / 0c9db10540 / a34378376d)。
      * 2. Android 12 (SDK 31) 的华为/荣耀鸿蒙 ROM (线上 1.9.0 b245be222a, 1.9.1 c0304d67e3 / 6401162f4a / a7b289ea37 / 127c50c4de)。
-     * 3. Android 12 (SDK 31) 的 XPPen 绘画平板 (XPPen Magic Drawing Pad，固件 FLE8，#232)。
+     * 3. Android 12 (SDK 31) 的 XPPen / Ugee Titan 系列绘画平板 (Titan_XPPen #232、TCL UT1 / Titan_Vis_Wifi 97a75a3d7a)。
      * 该系统缺陷在 SurfaceControl 事务与 BLASTBufferQueue 中解引用空指针或 RefBase 强弱引用断言失败导致崩溃，需前置规避。
      */
     internal fun isKnownDefectiveVendorRom(
@@ -68,7 +68,10 @@ object FrontBufferProbe {
         val d = device.lowercase()
         if (sdk == 33) {
             if (b.contains("xiaomi") || b.contains("redmi") || m.contains("xiaomi") ||
-                b.contains("vivo") || b.contains("iqoo") || m.contains("vivo")
+                b.contains("vivo") || b.contains("iqoo") || m.contains("vivo") ||
+                b.contains("infinix") || m.contains("infinix") ||
+                b.contains("zte") || m.contains("zte") ||
+                b.contains("realme") || m.contains("realme")
             ) {
                 return true
             }
@@ -76,7 +79,8 @@ object FrontBufferProbe {
         if (sdk == 31) {
             if (b.contains("huawei") || m.contains("huawei") ||
                 b.contains("honor") || m.contains("honor") ||
-                b.contains("xppen") || m.contains("xppen") || d.contains("xppen")
+                b.contains("xppen") || m.contains("xppen") || d.contains("xppen") ||
+                b.contains("ugee") || m.contains("ugee") || d.contains("titan")
             ) {
                 return true
             }

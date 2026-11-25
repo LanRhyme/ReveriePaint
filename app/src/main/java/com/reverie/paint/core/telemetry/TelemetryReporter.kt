@@ -9,6 +9,7 @@ import android.content.Context
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.os.Process
 import android.util.Log
 import com.reverie.paint.BuildConfig
 import com.reverie.paint.core.Breadcrumbs
@@ -257,9 +258,22 @@ object TelemetryReporter {
             installId = prefs.installId,
             appVer = BuildConfig.VERSION_NAME,
             appCode = BuildConfig.VERSION_CODE,
-            abi = Build.SUPPORTED_ABIS?.firstOrNull().orEmpty(),
+            abi = resolveProcessAbi(),
             fallbackDevice = deviceProfile(context),
         )
+
+    /** 取当前进程实际运行的 ABI (32 位 APK 跑在 64 位设备上应上报 armeabi-v7a 而非硬件首项 arm64-v8a)。 */
+    internal fun resolveProcessAbi(
+        is64Bit: Boolean = Process.is64Bit(),
+        supported64: Array<String>? = Build.SUPPORTED_64_BIT_ABIS,
+        supported32: Array<String>? = Build.SUPPORTED_32_BIT_ABIS,
+        supportedAll: Array<String>? = Build.SUPPORTED_ABIS,
+    ): String {
+        val preferred = if (is64Bit) supported64 else supported32
+        return preferred?.firstOrNull { it.isNotBlank() }
+            ?: supportedAll?.firstOrNull { it.isNotBlank() }
+            ?: ""
+    }
 
     private fun deviceProfile(context: Context): TelemetryPayload.TelemetryDevice {
         var ramMb = 0

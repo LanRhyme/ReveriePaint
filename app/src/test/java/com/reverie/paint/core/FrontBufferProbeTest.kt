@@ -93,14 +93,23 @@ class FrontBufferProbeTest {
         assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "Redmi", mfg = "Xiaomi"))
         assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "vivo", mfg = "vivo"))
         assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "iQOO", mfg = "vivo"))
+        assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "Infinix", mfg = "INFINIX"))
+        assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "ZTE", mfg = "ZTE"))
+        assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "realme", mfg = "realme"))
 
         assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "HUAWEI", mfg = "HUAWEI"))
         assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "HONOR", mfg = "HONOR"))
         assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "XPPen", mfg = "XPPen"))
         assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "XPPen", mfg = "", device = "Titan_XPPen"))
+        assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "TCL", mfg = "TCL", device = "Titan_Vis_Wifi"))
+        assertTrue(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "ugee", mfg = "ugee"))
 
         // Other Android versions are not affected
         assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 34, brand = "XPPen", mfg = "XPPen"))
+        assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 34, brand = "TCL", mfg = "TCL", device = "Titan_Vis_Wifi"))
+        assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 34, brand = "Infinix", mfg = "INFINIX"))
+        assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 34, brand = "ZTE", mfg = "ZTE"))
+        assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 34, brand = "realme", mfg = "realme"))
         assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 34, brand = "Xiaomi", mfg = "Xiaomi"))
         assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 31, brand = "Xiaomi", mfg = "Xiaomi"))
         assertFalse(FrontBufferProbe.isKnownDefectiveVendorRom(sdk = 33, brand = "HUAWEI", mfg = "HUAWEI"))

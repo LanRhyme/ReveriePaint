@@ -526,8 +526,12 @@ bool warpInverseField(const LiquifyInverseField &field, KisPaintDeviceSP src, Ki
             const int y1 = (ah * (s + 1)) / stripCount;
             if (y1 > y0) strips.append(qMakePair(y0, y1));
         }
-        QtConcurrent::blockingMap(pool, strips, [&processRows](const QPair<int, int> &span) {
-            processRows(span.first, span.second);
+        reverieCallSafely("blockingMap in warpInverseField", [pool, &strips, &processRows]() {
+            QtConcurrent::blockingMap(pool, strips, [&processRows](const QPair<int, int> &span) {
+                reverieCallSafely("warpInverseField strip", [&processRows, &span]() {
+                    processRows(span.first, span.second);
+                });
+            });
         });
     } else {
         processRows(0, ah);
@@ -807,7 +811,11 @@ void ReverieCore::liquifyApplyLocked(const QRect &deltaRect, bool compositeProje
         }
     };
     if (warped.size() > 1 && kLiquifyParallelTargets) {
-        QtConcurrent::blockingMap(reverieBackgroundPool(), warped, warp);
+        reverieCallSafely("blockingMap in liquify targets", [&warped, &warp]() {
+            QtConcurrent::blockingMap(reverieBackgroundPool(), warped, [&warp](LiquifyTarget *t) {
+                reverieCallSafely("warp liquify target", [&warp, t]() { warp(t); });
+            });
+        });
     } else {
         for (LiquifyTarget *t : warped) warp(t);
     }
