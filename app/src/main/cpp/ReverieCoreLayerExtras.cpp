@@ -63,6 +63,9 @@ QVariant layerProperty(const KisNode *node, const char *key)
     if (k == "reverie_stroke_opacity") return e.strokeOpacity;
     if (k == "reverie_is_transparency_mask") return e.isTransparencyMask;
     if (k == "reverie_panel") return e.panelJson;
+    if (k == "reverie_uuid") return e.uuid;
+    if (k == "reverie_owner") return e.ownerPeerId;
+    if (k == "reverie_collab_perm") return e.collabPermission;
     return QVariant();
 }
 
@@ -92,6 +95,12 @@ void setLayerProperty(const KisNode *node, const char *key, const QVariant &valu
         e.isTransparencyMask = value.toBool();
     } else if (k == "reverie_panel") {
         e.panelJson = value.toString();
+    } else if (k == "reverie_uuid") {
+        e.uuid = value.toString();
+    } else if (k == "reverie_owner") {
+        e.ownerPeerId = value.toString();
+    } else if (k == "reverie_collab_perm") {
+        e.collabPermission = value.toInt();
     }
 }
 
@@ -100,7 +109,10 @@ void copyLayerProperties(const KisNode *from, const KisNode *to)
     if (!from || !to) return;
     if (const auto it = extras().constFind(from); it != extras().constEnd()) {
         watchNode(to);
-        extras()[to] = it.value();
+        NodeExtra copied = it.value();
+        // 克隆节点不能复用原节点的跨端 UUID, 交由 syncLayersFromImage 重新分配
+        copied.uuid.clear();
+        extras()[to] = copied;
     }
 
     // 子层按位置一一对应 (按名字找会在重名时错位)

@@ -1511,5 +1511,60 @@ object ReverieCoreBridge {
 
     // CPU Affinity & Performance Core Binding
     external fun bindCurrentThreadToPerformanceCores(): Boolean
+
+    // P2P 协同茶绘 (Magma 图层所有权 + libdatachannel 传输 + 多路并发)
+    external fun layerUuid(index: Int): String
+    external fun layerIndexByUuid(uuid: String): Int
+    external fun layerOwnerPeerId(index: Int): String
+    external fun setLayerOwnerPeerId(index: Int, ownerPeerId: String)
+    external fun layerCollabPermission(index: Int): Int
+    external fun setLayerCollabPermission(index: Int, permission: Int)
+    external fun collabLayersMetaJson(): String
+
+    external fun collabStartSession(
+        roomCode: String,
+        selfPeerId: String,
+        selfName: String,
+        hostPeerId: String,
+        iceServersJson: String,
+        cacheDir: String,
+    ): Boolean
+
+    external fun collabStopSession()
+    external fun collabIsActive(): Boolean
+    external fun collabCanEditCurrentLayer(): Boolean
+
+    external fun collabOnPeerJoined(
+        peerId: String,
+        name: String,
+        isHostPeer: Boolean,
+    )
+
+    external fun collabOnPeerLeft(peerId: String)
+    external fun collabOnHostChanged(newHostPeerId: String)
+
+    external fun collabOnRemoteSignal(
+        fromPeerId: String,
+        payloadJson: String,
+    )
+
+    external fun collabDrainInbound(): Boolean
+    external fun collabPollEventsJson(): String
+    external fun collabPollCursorsJson(): String
+
+    external fun collabSendLocalCursor(
+        docX: Float,
+        docY: Float,
+        isDrawing: Boolean,
+    )
+
+    external fun collabTestSimulateRemoteStroke(
+        peerId: String,
+        layerUuid: String,
+        colorArgb: Int,
+        brushSize: Float,
+        xyPoints: FloatArray,
+        commit: Boolean,
+    ): Boolean
 }
 

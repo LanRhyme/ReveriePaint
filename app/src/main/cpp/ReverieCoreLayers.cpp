@@ -180,6 +180,9 @@ int ReverieCore::addLayer(const QString &name)
     }
     m_currentLayer = idx;
     markDirty();
+    if (m_collabActive && !m_collabSuppressEmit) {
+        collabEmitLayerOp(CollabLayerAddPaint, idx, layerName);
+    }
     return m_currentLayer;
 }
 
@@ -224,6 +227,9 @@ int ReverieCore::addGroupLayer(const QString &name)
     }
     m_currentLayer = idx;
     markDirty();
+    if (m_collabActive && !m_collabSuppressEmit) {
+        collabEmitLayerOp(CollabLayerAddGroup, idx, groupName);
+    }
     return m_currentLayer;
 }
 
@@ -634,6 +640,7 @@ void ReverieCore::removeLayer(int index)
     if (e.background || e.locked) {
         return;
     }
+    const QString removedUuid = e.uuid;
     KisImageSP image = m_document;
     if (!image || !m_layers[index].node) {
         return;
@@ -704,6 +711,9 @@ void ReverieCore::removeLayer(int index)
         m_currentLayer = qMax(0, index - 1);
     }
     markDirty();
+    if (m_collabActive && !m_collabSuppressEmit && !removedUuid.isEmpty()) {
+        collabEmitLayerOp(CollabLayerRemove, -1, removedUuid);
+    }
 }
 
 void ReverieCore::clearLayer(int index)
@@ -734,6 +744,9 @@ void ReverieCore::clearLayer(int index)
     // Force a full subtree walk + merge so the projection matches.
     recompositeProjection();
     markDirty();
+    if (m_collabActive && !m_collabSuppressEmit) {
+        collabEmitLayerOp(CollabLayerClear, index);
+    }
 }
 
 // 与 clearLayer 的语义差异: clearLayer 对透明度蒙版做 "清空=重置为无遮罩" 特判
@@ -817,6 +830,9 @@ void ReverieCore::setLayerName(int index, const QString &name)
         pushUndoCommand(new KisNodeRenameCommand(
             KisNodeSP(m_layers[index].node), oldName, name));
         m_layers[index].name = name;
+        if (m_collabActive && !m_collabSuppressEmit) {
+            collabEmitLayerOp(CollabLayerRename, index, name);
+        }
     }
 }
 
@@ -860,6 +876,9 @@ void ReverieCore::setLayerVisible(int index, bool visible)
         perf.phase("markDirty");
         perf.note("idx", index);
         perf.note("visible", visible ? 1 : 0);
+        if (m_collabActive && !m_collabSuppressEmit) {
+            collabEmitLayerOp(CollabLayerVisible, index, QString(), 0.0, visible ? 1 : 0);
+        }
     }
 }
 
@@ -891,6 +910,9 @@ void ReverieCore::setLayerLocked(int index, bool locked)
             KisNodeSP(m_layers[index].node), ReverieNodeFlagCommand::UserLocked, locked,
             kundo2_i18n("Toggle Layer Lock")));
         m_layers[index].locked = locked;
+        if (m_collabActive && !m_collabSuppressEmit) {
+            collabEmitLayerOp(CollabLayerLocked, index, QString(), 0.0, locked ? 1 : 0);
+        }
     }
 }
 
@@ -927,6 +949,9 @@ void ReverieCore::setLayerAlphaLocked(int index, bool locked)
                 m_strokePainter->setChannelFlags(QBitArray());
             }
         }
+        if (m_collabActive && !m_collabSuppressEmit) {
+            collabEmitLayerOp(CollabLayerAlphaLocked, index, QString(), 0.0, locked ? 1 : 0);
+        }
     }
 }
 
@@ -954,6 +979,9 @@ void ReverieCore::setLayerOpacity(int index, qreal opacity)
         markNodeDirtyAndFlush(m_layers[index].node);
     }
     markProjectionDirty();
+    if (m_collabActive && !m_collabSuppressEmit) {
+        collabEmitLayerOp(CollabLayerOpacity, index, QString(), opacity, 0);
+    }
 }
 
 // Opacity change WITHOUT pushing an undo command - used while the user is
@@ -994,6 +1022,9 @@ void ReverieCore::setLayerBlendMode(int index, const QString &opId)
             markNodeDirtyAndFlush(m_layers[index].node);
         }
         markBlendChanged(index);
+        if (m_collabActive && !m_collabSuppressEmit) {
+            collabEmitLayerOp(CollabLayerBlend, index, effectiveOp);
+        }
     }
 }
 
@@ -1457,5 +1488,59 @@ QVector<int> ReverieCore::findLayersAtPoint(int x, int y, int radius)
         }
     }
     return result;
+}
+
+QString ReverieCore::layerUuid(int index) const
+{
+    std::lock_guard<std::mutex> mirrorLock(m_layerMirrorMutex);
+    if (index < 0 || index >= m_layers.size()) return QString();
+    return m_layers[index].uuid;
+}
+
+int ReverieCore::layerIndexByUuid(const QString &uuid) const
+{
+    if (uuid.isEmpty()) return -1;
+    return m_uuidToLayerIndex.value(uuid, -1);
+}
+
+QString ReverieCore::layerOwnerPeerId(int index) const
+{
+    std::lock_guard<std::mutex> mirrorLock(m_layerMirrorMutex);
+    if (index < 0 || index >= m_layers.size()) return QString();
+    return m_layers[index].ownerPeerId;
+}
+
+void ReverieCore::setLayerOwnerPeerId(int index, const QString &ownerPeerId)
+{
+    if (index < 0 || index >= m_layers.size() || !m_layers[index].node) return;
+    {
+        std::lock_guard<std::mutex> mirrorLock(m_layerMirrorMutex);
+        m_layers[index].ownerPeerId = ownerPeerId;
+        reverie::setLayerProperty(m_layers[index].node, "reverie_owner", ownerPeerId);
+    }
+    if (m_collabActive && !m_collabSuppressEmit) {
+        collabEmitLayerOp(CollabLayerOwnerPerm, index, ownerPeerId, 0.0, m_layers[index].collabPermission);
+    }
+}
+
+int ReverieCore::layerCollabPermission(int index) const
+{
+    std::lock_guard<std::mutex> mirrorLock(m_layerMirrorMutex);
+    if (index < 0 || index >= m_layers.size()) return 0;
+    return m_layers[index].collabPermission;
+}
+
+void ReverieCore::setLayerCollabPermission(int index, int permission)
+{
+    if (index < 0 || index >= m_layers.size() || !m_layers[index].node) return;
+    const int clamped = qBound(0, permission, 2);
+    {
+        std::lock_guard<std::mutex> mirrorLock(m_layerMirrorMutex);
+        m_layers[index].collabPermission = clamped;
+        reverie::setLayerProperty(m_layers[index].node, "reverie_collab_perm", clamped);
+    }
+    if (m_collabActive && !m_collabSuppressEmit) {
+        collabEmitLayerOp(CollabLayerOwnerPerm, index, m_layers[index].ownerPeerId, 0.0, clamped);
+    }
 }
 

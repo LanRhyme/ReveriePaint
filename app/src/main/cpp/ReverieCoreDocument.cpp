@@ -19,6 +19,7 @@
 #include <QSet>
 #include <QThread>
 #include <QThreadPool>
+#include <QUuid>
 
 QThreadPool *reverieBackgroundPool()
 {
@@ -90,6 +91,7 @@ void ReverieCore::setupDocumentConnections(KisImageSP image)
 
 ReverieCore::~ReverieCore()
 {
+    collabStopSession();
     if (m_sigImageUpdatedConn) {
         QObject::disconnect(m_sigImageUpdatedConn);
     }
@@ -152,6 +154,9 @@ bool ReverieCore::newDocument(int width, int height, bool infiniteCanvas)
     m_lastPressure = 1.0;
     m_strokeColor = QColor();
     m_strokeOpacity = 1.0;
+    if (m_collabActive) {
+        collabResetDocumentState();
+    }
     // Krita-native undo store: fresh instance per document (owned by KisImage).
     delete m_strokeTxn;
     m_strokeTxn = nullptr;
@@ -228,6 +233,9 @@ bool ReverieCore::newDocument(int width, int height, bool infiniteCanvas)
 // without creating a replacement document.
 void ReverieCore::closeDocument()
 {
+    if (m_collabActive) {
+        collabResetDocumentState();
+    }
     // Liquify owns transactions, tile snapshots and raw layer pointers. Release
     // them while their document is still alive, including an interrupted gesture.
     liquifyCancel();
@@ -583,6 +591,7 @@ void ReverieCore::syncLayersFromImage()
     }
     m_layers.clear();
     m_layerMirrorRefs.clear();
+    m_uuidToLayerIndex.clear();
     KisImageSP image = m_document;
     if (!image) {
         return;
@@ -591,6 +600,16 @@ void ReverieCore::syncLayersFromImage()
     if (!root) {
         return;
     }
+    auto populateCollabMeta = [&](KisNode *nodePtr, LayerEntry &entry) {
+        QString uuid = reverie::layerProperty(nodePtr, "reverie_uuid").toString();
+        if (uuid.isEmpty()) {
+            uuid = QUuid::createUuid().toString(QUuid::WithoutBraces);
+            reverie::setLayerProperty(nodePtr, "reverie_uuid", uuid);
+        }
+        entry.uuid = uuid;
+        entry.ownerPeerId = reverie::layerProperty(nodePtr, "reverie_owner").toString();
+        entry.collabPermission = reverie::layerProperty(nodePtr, "reverie_collab_perm").toInt();
+    };
     std::function<void(KisNodeSP, int)> walk = [&](KisNodeSP parent, int depth) {
         KisNodeSP node = parent->firstChild();
         while (node) {
@@ -667,7 +686,9 @@ void ReverieCore::syncLayersFromImage()
                     reverie::setLayerProperty(&*node, "reverie_stroke_pos", entry.strokePosition);
                     reverie::setLayerProperty(&*node, "reverie_stroke_opacity", entry.strokeOpacity);
                 }
+                populateCollabMeta(node.data(), entry);
                 m_layers.append(entry);
+                m_uuidToLayerIndex.insert(entry.uuid, m_layers.size() - 1);
                 m_layerMirrorRefs.append(node);
             } else if (KisMask *m = dynamic_cast<KisMask *>(node.data())) {
                 LayerEntry entry;
@@ -690,7 +711,9 @@ void ReverieCore::syncLayersFromImage()
                 } else {
                     entry.nodeType = NodeTypeTransparencyMask;
                 }
+                populateCollabMeta(node.data(), entry);
                 m_layers.append(entry);
+                m_uuidToLayerIndex.insert(entry.uuid, m_layers.size() - 1);
                 m_layerMirrorRefs.append(node);
             }
             if (node->childCount() > 0) {

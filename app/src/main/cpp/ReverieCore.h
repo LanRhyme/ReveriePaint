@@ -58,6 +58,9 @@ class KoStore;
 // 运笔静态底图的上界 (实现在 StrokePresentFastPath.h, 要读 m_drawing / m_layers /
 // m_currentLayer, 所以在这里前置声明并授予友元)。
 class ReverieCore;
+namespace reverie {
+class CollabRuntime;
+}
 int strokeStaticUnderlayStop(const ReverieCore &core);
 
 class ReverieCore
@@ -115,6 +118,12 @@ public:
         }
         return static_cast<quint64>(index + 1);
     }
+    QString layerUuid(int index) const;
+    int layerIndexByUuid(const QString &uuid) const;
+    QString layerOwnerPeerId(int index) const;
+    void setLayerOwnerPeerId(int index, const QString &ownerPeerId);
+    int layerCollabPermission(int index) const;
+    void setLayerCollabPermission(int index, int permission);
     QString layerName(int index) const;
     void setLayerName(int index, const QString &name);
     bool layerVisible(int index) const;
@@ -553,6 +562,9 @@ public:
         int strokePosition = 0;       // 0: outside, 1: inside, 2: center
         int strokeOpacity = 100;
         QVector<SoloBackup> soloPrev; // snapshot before solo (FolioLayers)
+        QString uuid;                 // 跨端图层唯一标识 (由 NodeExtra 同步)
+        QString ownerPeerId;          // 协同拥有者 ID
+        int collabPermission = 0;     // 0=Shared, 1=OwnerOnly, 2=Locked
     };
 
     // Fill the current layer's region (or whole layer) with the brush color
@@ -1120,6 +1132,59 @@ public:
         m_dirtyCtx = ctx;
     }
 
+    // ================= Collaborative Painting (P2P 茶绘) =================
+    bool collabStartSession(const QString &roomCode,
+                            const QString &selfPeerId,
+                            const QString &selfName,
+                            const QString &hostPeerId,
+                            const QString &iceServersJson,
+                            const QString &cacheDir);
+    void collabStopSession();
+    bool collabIsActive() const { return m_collabActive; }
+    bool collabCanEditCurrentLayer() const;
+    bool collabCanEditLayer(int index) const;
+    void collabOnPeerJoined(const QString &peerId, const QString &name, bool isHostPeer);
+    void collabOnPeerLeft(const QString &peerId);
+    void collabOnHostChanged(const QString &newHostPeerId);
+    void collabOnRemoteSignal(const QString &fromPeerId, const QString &payloadJson);
+    bool collabDrainInbound();
+    QString collabPollEventsJson();
+    QString collabPollCursorsJson();
+    QString collabLayersMetaJson() const;
+    void collabSendLocalCursor(float docX, float docY, bool isDrawing);
+    bool collabUndo();
+    bool collabRedo();
+    bool collabCanUndo() const;
+    bool collabCanRedo() const;
+    int collabUndoCount() const;
+    int collabRedoCount() const;
+    // 仅供合成管线内部调用: 叠加远端进行中的笔触预览
+    bool hasRemotePreviewForLayer(const QString &layerUuid) const;
+    void compositeRemotePreviewsForLayer(const QString &layerUuid, KisPaintDeviceSP scratch,
+                                         const QRect &r, const QBitArray &alphaLockFlags);
+    bool hasActiveRemoteStrokeBelow(int stopIdx) const;
+
+    // 本地模拟/单机双笔并发自测接口 (测试验证多路 StrokeSession 与隔离撤销)
+    bool collabTestSimulateRemoteStroke(const QString &peerId, const QString &layerUuid,
+                                        quint32 colorArgb, qreal brushSize,
+                                        const QVector<QPointF> &points, bool commit);
+
+    enum CollabLayerOpKind {
+        CollabLayerAddPaint = 1,
+        CollabLayerAddGroup = 2,
+        CollabLayerRemove = 3,
+        CollabLayerRename = 4,
+        CollabLayerVisible = 5,
+        CollabLayerLocked = 6,
+        CollabLayerAlphaLocked = 7,
+        CollabLayerOpacity = 8,
+        CollabLayerBlend = 9,
+        CollabLayerOwnerPerm = 10,
+        CollabLayerClear = 12,
+    };
+    void collabEmitLayerOp(int opKind, int index, const QString &extraStr = QString(),
+                           double extraVal = 0.0, int extraInt = 0);
+
 private:
     // 丢掉撤销栈的重做区, 让"引擎的历史状态"和"Kotlin 看到的重做可用性"一起失效。
     //
@@ -1177,6 +1242,7 @@ private:
 
     KisImageSP m_document;
     QVector<LayerEntry> m_layers;   // bottom -> top, tree traversal order
+    QHash<QString, int> m_uuidToLayerIndex;
     // m_layers 里存的是裸 KisNode*; 这份强引用保证"已被移出图层树、但 m_layers 还没重建"
     // 的节点在快照线程读取期间仍然活着 (线上 3bfafaf734: 主线程快照读 node->opacity()
     // 撞上核心线程删层 -> UAF)。syncLayersFromImage 重建 m_layers 时同步刷新。
@@ -1832,6 +1898,18 @@ private:
 
     void (*m_dirtyCb)(void *) = nullptr;
     void *m_dirtyCtx = nullptr;
+
+    friend class reverie::CollabRuntime;
+    reverie::CollabRuntime *m_collab = nullptr;
+    bool m_collabActive = false;
+    bool m_collabSuppressEmit = false;
+    int m_lastStrokeSeed = 0;
+    QVector<StrokeSample> m_collabPendingSamples;
+    void collabResetDocumentState();
+    void collabOnLocalStrokeBegin(int seed);
+    void collabOnLocalStrokeFlushed();
+    void collabOnLocalStrokeEnd(const QRect &dirtyRect);
+    void collabOnLocalStrokeCancel();
 };
 
 #endif // REVERIECORE_H

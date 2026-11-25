@@ -273,6 +273,7 @@ add_library(reverie_core SHARED
     ReverieCoreLayerExtras.cpp
     ReverieCorePanel.cpp
     ReverieCoreInstance.cpp
+    ReverieCoreCollab.cpp
     ReverieCrashHandler.cpp
     ${KRITA_SRC_DIR}/plugins/impex/psd/psd_colormode_block.cpp
     ${KRITA_SRC_DIR}/plugins/impex/psd/psd_image_data.cpp
@@ -295,10 +296,12 @@ add_library(reverie_jni SHARED
     reverie_jni_io.cpp
     reverie_jni_panel.cpp
     reverie_jni_animation.cpp
+    reverie_jni_collab.cpp
 )
 
 set(REVERIE_INCLUDE_DIRS
     ${KRITA_INCLUDES}
+    ${DEPS_DIR}/include
     ${QT_ANDROID_DIR}/include
     ${QT_ANDROID_DIR}/include/QtCore
     ${QT_ANDROID_DIR}/include/QtGui
@@ -350,6 +353,16 @@ endforeach()
 
 # JNI 只依赖核心库导出的符号 (core() / ReverieCore / C ABI)
 target_link_libraries(reverie_jni reverie_core)
+
+# 茶绘 P2P 静态依赖 (libdatachannel + libjuice + usrsctp + mbedtls 静态编入 reverie_core)
+target_link_libraries(reverie_core
+    ${DEPS_DIR}/lib/libdatachannel.a
+    ${DEPS_DIR}/lib/libjuice.a
+    ${DEPS_DIR}/lib/libusrsctp.a
+    ${DEPS_DIR}/lib/libmbedtls.a
+    ${DEPS_DIR}/lib/libmbedx509.a
+    ${DEPS_DIR}/lib/libmbedcrypto.a
+)
 
 add_custom_command(TARGET reverie_jni POST_BUILD
     COMMAND ${CMAKE_COMMAND} -E copy_if_different

@@ -82,6 +82,15 @@ void writeCommonAttrs(QXmlStreamWriter &w, const ReverieCore::LayerEntry &e)
         if (!panelJson.isEmpty()) {
             w.writeAttribute("panel", panelJson);
         }
+        if (!e.uuid.isEmpty()) {
+            w.writeAttribute("uuid", e.uuid);
+        }
+        if (!e.ownerPeerId.isEmpty()) {
+            w.writeAttribute("owner_peer_id", e.ownerPeerId);
+        }
+        if (e.collabPermission != 0) {
+            w.writeAttribute("collab_perm", QString::number(e.collabPermission));
+        }
     }
 }
 
@@ -297,6 +306,17 @@ bool ReverieCore::loadLayersXmlTree(const QByteArray &xmlData, KisImageSP image,
         const QString panelJson = a.value("panel").toString();
         if (!panelJson.isEmpty()) {
             reverie::setLayerProperty(&*node, "reverie_panel", panelJson);
+        }
+        const QString uuid = a.value("uuid").toString();
+        if (!uuid.isEmpty()) {
+            reverie::setLayerProperty(&*node, "reverie_uuid", uuid);
+        }
+        const QString ownerPeerId = a.value("owner_peer_id").toString();
+        if (!ownerPeerId.isEmpty()) {
+            reverie::setLayerProperty(&*node, "reverie_owner", ownerPeerId);
+        }
+        if (a.hasAttribute("collab_perm")) {
+            reverie::setLayerProperty(&*node, "reverie_collab_perm", attrInt("collab_perm", 0));
         }
     };
 

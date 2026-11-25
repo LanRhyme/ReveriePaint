@@ -1687,6 +1687,7 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
 
         KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(le.node);
         const bool hasTemp = pl && pl->hasTemporaryTarget();
+        const bool hasRemote = m_collabActive && hasRemotePreviewForLayer(le.uuid);
         KisPaintDeviceSP maskDev = (maskIdx >= 0) ? maskDeviceFor(maskIdx) : nullptr;
 
         const qreal opacity = (overrideOpacity >= 0.0) ? overrideOpacity : (qreal(le.node->opacity()) / 255.0);
@@ -1711,12 +1712,12 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
         // 数学上等价; 8 位整数下两种结合次序的舍入可能差 1 LSB (只影响运笔中的显示, 抬笔后
         // 由 Krita 自己的合成接管)。洋葱皮 / 图层蒙版 / 半透明 / 非 normal 混合 / 通道锁 /
         // Alpha 锁 / 橡皮擦 / 非 normal 的临时算子任一成立就退回暂存路径。
-        const bool canDirectTempOver = !src && hasTemp && pl && !maskDev && opacity >= 0.999 &&
+        const bool canDirectTempOver = !src && hasTemp && !hasRemote && pl && !maskDev && opacity >= 0.999 &&
             (opId.isEmpty() || opId == QLatin1String("normal")) && chanFlags.isEmpty() &&
             !pl->alphaLocked() && m_toolMode != ToolEraser &&
             (m_indirectTempCompositeOp.isEmpty() || m_indirectTempCompositeOp == QLatin1String("normal"));
 
-        if (!src && !hasTemp && !maskDev) {
+        if (!src && !hasTemp && !hasRemote && !maskDev) {
             const QRect devExt = dev->extent();
             const KoColorSpace *cs = dev->colorSpace();
             const bool isDefaultTransparent = !cs || cs->opacityU8(dev->defaultPixel().data()) == 0;
@@ -1791,6 +1792,10 @@ void ReverieCore::compositeLayersRange(KisPaintDeviceSP out, int startIdx, int e
                     tempPainter.bitBlt(r.topLeft(), tempTarget, r);
                     tempPainter.end();
                 }
+            }
+            if (hasRemote) {
+                const QBitArray layerAlphaFlags = (pl && pl->alphaLocked()) ? pl->channelLockFlags() : QBitArray();
+                compositeRemotePreviewsForLayer(le.uuid, scratch, r, layerAlphaFlags);
             }
             if (maskDev) {
                 const size_t pixelCount = size_t(r.width()) * r.height();

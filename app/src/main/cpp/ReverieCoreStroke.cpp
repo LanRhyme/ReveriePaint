@@ -163,6 +163,9 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX
     if (!m_document || std::isnan(x) || std::isnan(y) || !std::isfinite(x) || !std::isfinite(y)) {
         return;
     }
+    if (m_collabActive && !collabCanEditCurrentLayer()) {
+        return;
+    }
     if (std::isnan(pressure) || !std::isfinite(pressure) || pressure < 0.0) {
         pressure = 1.0;
     }
@@ -209,6 +212,7 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX
     m_airbrushGate.reset(0.0);   // m_strokeTimer 刚 restart, 笔画起点 = 0ms
     m_strokeCounter++;
     const int strokeSeed = (m_replaySeed >= 0) ? m_replaySeed : int(quint32(m_strokeCounter) * 1664525u + 1013904223u);
+    m_lastStrokeSeed = strokeSeed;
     m_randomSource = new KisRandomSource(strokeSeed);
     m_perStrokeRandomSource = new KisPerStrokeRandomSource();
     // The stroke paints straight onto the layer device with per-dab opacity
@@ -236,6 +240,11 @@ void ReverieCore::touchStrokeStart(qreal x, qreal y, qreal pressure, qreal tiltX
     s.time = startTime;
     s.speed = 0.0;
     m_strokeSamples.append(s);
+    if (m_collabActive) {
+        m_collabPendingSamples.clear();
+        m_collabPendingSamples.append(s);
+        collabOnLocalStrokeBegin(m_lastStrokeSeed);
+    }
 }
 
 bool ReverieCore::touchStrokeMove(qreal x, qreal y, qreal pressure, qreal tiltX, qreal tiltY, qreal rotation, qreal timeSeconds, bool allowTimeFlush)
@@ -674,6 +683,7 @@ void ReverieCore::touchStrokeEnd()
         ? dynamic_cast<KisPaintLayer *>(m_layers[m_currentLayer].node)
         : nullptr;
     bool committedTempTarget = false;
+    QRect collabCommittedDirty;
     if (pl && pl->hasTemporaryTarget()) {
         KisPaintDeviceSP tempTarget = pl->temporaryTarget();
         const QRect ext = tempTarget->exactBounds();
@@ -708,6 +718,7 @@ void ReverieCore::touchStrokeEnd()
             gc.end();
             const int strokeMargin = strokeLayerMargin();
             const QRect dirtyR = ext.adjusted(-strokeMargin, -strokeMargin, strokeMargin, strokeMargin);
+            collabCommittedDirty = dirtyR.intersected(QRect(0, 0, m_docWidth, m_docHeight));
             markStrokeDirty(dirtyR);
             if (m_staticUnderlayTop > 0 && m_currentLayer < m_staticUnderlayTop) {
                 invalidateStaticUnderlay();
@@ -770,6 +781,7 @@ void ReverieCore::touchStrokeEnd()
             -margin, -margin, margin, margin).intersected(
             QRect(0, 0, m_document->width(), m_document->height()));
         if (!totalDirty.isEmpty()) {
+            collabCommittedDirty = totalDirty;
             markStrokeDirty(totalDirty);
             if (m_staticUnderlayTop > 0 && m_currentLayer < m_staticUnderlayTop) {
                 invalidateStaticUnderlay();
@@ -777,6 +789,10 @@ void ReverieCore::touchStrokeEnd()
                 invalidateStaticUnderlayRect(totalDirty);
             }
         }
+    }
+
+    if (m_collabActive) {
+        collabOnLocalStrokeEnd(collabCommittedDirty);
     }
 
     // s12-F1/H3: 笔画已收尾, 迟到的镜像批一律按过期丢弃
@@ -863,6 +879,10 @@ void ReverieCore::touchStrokeCancel()
     endStrokeBatch();
     m_strokeBatchOpen = false;
     m_drawing = false;
+    if (m_collabActive) {
+        m_collabPendingSamples.clear();
+        collabOnLocalStrokeCancel();
+    }
 }
 
 bool ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure,
@@ -930,6 +950,9 @@ bool ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure,
                 m_strokeSamples.last().rotation = rotation;
                 m_strokeSamples.last().time = sampleTime;     // 同步更新时间，消除微移后的 Δt 黑洞
                 m_strokeSamples.last().speed = smoothedSpeed; // 同步更新平滑速度
+                if (m_collabActive && !m_collabPendingSamples.isEmpty()) {
+                    m_collabPendingSamples.last() = m_strokeSamples.last();
+                }
             }
             return false;
         }
@@ -950,6 +973,9 @@ bool ReverieCore::appendStrokeSample(const QPointF &imgPos, qreal pressure,
     s.time = sampleTime;
     s.speed = smoothedSpeed;
     m_strokeSamples.append(s);
+    if (m_collabActive) {
+        m_collabPendingSamples.append(s);
+    }
 
     // 4. 仅在回放单点路径 (allowTimeFlush == true && timeSeconds >= 0.0) 下按 8ms 触发仿真分批；
     //    实时批次路径 (allowTimeFlush == false) 以 512 点为防溢出兜底上限才分段，
@@ -1375,6 +1401,9 @@ bool ReverieCore::flushStrokeBatch()
         markStrokeDirty(strokeDirty.isNull() ? tr : strokeDirty);
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
         m_strokeCarryCount = 1;
+        if (m_collabActive) {
+            collabOnLocalStrokeFlushed();
+        }
         return true;
     }
 
@@ -1679,6 +1708,9 @@ bool ReverieCore::flushStrokeBatch()
         // 本实现的 strokeHadInk 等价于 strokeDirty 非空), 供 Stash 事务恢复判断
         m_lastFlushHadInk = true;
         bumpLayerThumbGen(m_layers[m_currentLayer].node);
+        if (m_collabActive) {
+            collabOnLocalStrokeFlushed();
+        }
     }
     return !strokeDirty.isNull();
 }
@@ -1905,21 +1937,25 @@ void ReverieCore::flushPendingRedoPurge()
 
 bool ReverieCore::canUndo() const
 {
+    if (m_collabActive) return collabCanUndo();
     return m_undoStore && m_undoStore->canUndo();
 }
 
 bool ReverieCore::canRedo() const
 {
+    if (m_collabActive) return collabCanRedo();
     return m_undoStore && m_undoStore->canRedo();
 }
 
 int ReverieCore::undoCount() const
 {
+    if (m_collabActive) return collabUndoCount();
     return m_undoStore ? m_undoStore->index() : 0;
 }
 
 int ReverieCore::redoCount() const
 {
+    if (m_collabActive) return collabRedoCount();
     return m_undoStore ? m_undoStore->count() - m_undoStore->index() : 0;
 }
 
@@ -1998,6 +2034,10 @@ void ReverieCore::replayHistoryCommand(bool redoOp)
 
 void ReverieCore::undo()
 {
+    if (m_collabActive) {
+        collabUndo();
+        return;
+    }
     // 变换预览是跨用户交互的长事务: 预览期间回滚历史会把事务依赖的像素/选区抽走,
     // 事务结束时直接撞 KisTransactionData::endTransaction 的一致性断言 (线上 7738948083
     // 的同类路径)。UI 已经置灰并拦截, 这里兜住直接走 JNI 的调用方 (回放/脚本/旧入口)。
@@ -2125,6 +2165,10 @@ void ReverieCore::undo()
 
 void ReverieCore::redo()
 {
+    if (m_collabActive) {
+        collabRedo();
+        return;
+    }
     // 变换预览是跨用户交互的长事务: 预览期间回滚历史会把事务依赖的像素/选区抽走,
     // 事务结束时直接撞 KisTransactionData::endTransaction 的一致性断言 (线上 7738948083
     // 的同类路径)。UI 已经置灰并拦截, 这里兜住直接走 JNI 的调用方 (回放/脚本/旧入口)。
