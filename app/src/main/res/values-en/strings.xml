@@ -1399,6 +1399,8 @@
     <string name="settings_eyedropper_stylus_in_pen_mode_title">Allow Stylus Long Press to Pick Color in Pen Mode</string>
     <string name="settings_eyedropper_stylus_in_pen_mode_desc">When disabled, only finger long press picks color in pen mode, stylus long press will not trigger color picking</string>
     <string name="settings_eyedropper_footer_desc">Note: Higher sensitivity triggers faster. Movement tolerance is fixed at 1dp. Seamlessly switches to stylus when stylus mode is active</string>
+    <string name="settings_color_wheel_compare_title">Color Picker Comparison Bubble</string>
+    <string name="settings_color_wheel_compare_desc">Show a split-circle comparing previous and current colors while dragging in the color wheel or square</string>
     <string name="settings_shortcut_dialog_title">Set Shortcut</string>
     <string name="settings_shortcut_press_key">Press a shortcut key...</string>
     <string name="settings_shortcut_set_none">Clear Key</string>

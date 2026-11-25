@@ -43,9 +43,12 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
+import com.reverie.paint.model.ColorCompareBubbleGeometry
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.text.TextStyle
@@ -1319,5 +1322,87 @@ fun CompactColorPickerPopup(
         showFastSwatches = showFastSwatches,
     )
 }
+
+internal fun parseColorHexOrDefault(hex: String, fallback: Color = Color.Black): Color {
+    return try {
+        Color(AColor.parseColor(hex.ifBlank { return fallback }))
+    } catch (_: Exception) {
+        fallback
+    }
+}
+
+/**
+ * 拖动色轮内圈或色方取色时，在取色点上方浮现「左旧色 | 右新色」双半圆对比气泡。
+ */
+internal fun DrawScope.drawColorCompareBubble(
+    reticleX: Float,
+    reticleY: Float,
+    currentColor: Color,
+    previousColor: Color,
+    progress: Float,
+    topOverflowAllowancePx: Float,
+) {
+    val pose = ColorCompareBubbleGeometry.compute(
+        reticleX = reticleX,
+        reticleY = reticleY,
+        areaWidth = size.width,
+        areaHeight = size.height,
+        bubbleRadiusPx = 21.dp.toPx(),
+        bubbleOuterRadiusPx = 24.dp.toPx(),
+        liftOffsetPx = 36.dp.toPx(),
+        topOverflowAllowancePx = topOverflowAllowancePx,
+        progress = progress,
+    )
+    if (pose.alpha <= 0.01f || pose.radius <= 0.5f) return
+
+    val topLeft = Offset(pose.cx - pose.radius, pose.cy - pose.radius)
+    val circleSize = Size(pose.radius * 2f, pose.radius * 2f)
+
+    // 1. 柔和投影
+    drawCircle(
+        color = Color.Black.copy(alpha = 0.24f * pose.alpha),
+        radius = pose.radius + 2.5.dp.toPx(),
+        center = Offset(pose.cx, pose.cy + 1.5.dp.toPx()),
+    )
+
+    // 2. 左半圆 = 上一个基准色，右半圆 = 当前实时新色
+    drawArc(
+        color = previousColor.copy(alpha = pose.alpha),
+        startAngle = 90f,
+        sweepAngle = 180f,
+        useCenter = true,
+        topLeft = topLeft,
+        size = circleSize,
+    )
+    drawArc(
+        color = currentColor.copy(alpha = pose.alpha),
+        startAngle = -90f,
+        sweepAngle = 180f,
+        useCenter = true,
+        topLeft = topLeft,
+        size = circleSize,
+    )
+
+    // 3. 高对比多层环形描边（深浅底色下均清晰可读）
+    drawCircle(
+        color = Color.Black.copy(alpha = 0.30f * pose.alpha),
+        radius = pose.radius - 0.5.dp.toPx(),
+        center = Offset(pose.cx, pose.cy),
+        style = Stroke(width = 1.dp.toPx()),
+    )
+    drawCircle(
+        color = Color.White.copy(alpha = 0.96f * pose.alpha),
+        radius = pose.radius + 0.6.dp.toPx(),
+        center = Offset(pose.cx, pose.cy),
+        style = Stroke(width = 2.2.dp.toPx()),
+    )
+    drawCircle(
+        color = Color.Black.copy(alpha = 0.25f * pose.alpha),
+        radius = pose.radius + 1.7.dp.toPx(),
+        center = Offset(pose.cx, pose.cy),
+        style = Stroke(width = 0.8.dp.toPx()),
+    )
+}
+
 
 

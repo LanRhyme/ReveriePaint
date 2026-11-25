@@ -958,6 +958,29 @@ internal fun SettingsTabPage(
                         }
                     }
 
+                    SettingsCard {
+                        Row(
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .padding(vertical = 8.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Column(modifier = Modifier.weight(1f).padding(end = 8.dp)) {
+                                Text(stringResource(R.string.settings_color_wheel_compare_title), color = Morandi.text, fontSize = 13.sp)
+                                Text(
+                                    stringResource(R.string.settings_color_wheel_compare_desc),
+                                    color = Morandi.subText,
+                                    fontSize = 11.sp,
+                                )
+                            }
+                            ReSwitch(
+                                checked = vm.colorWheelCompareEnabled,
+                                onChecked = { vm.updateColorWheelCompareEnabled(it) },
+                            )
+                        }
+                    }
+
                     Box(
                         modifier = Modifier
                             .fillMaxWidth()

@@ -150,6 +150,16 @@ internal fun PaintViewModel.updateEyedropperOffsetEnabled(enable: Boolean) {
     }
 }
 
+internal fun PaintViewModel.updateColorWheelCompareEnabled(enable: Boolean) {
+    colorWheelCompareEnabled = enable
+    if (isAppContextReady()) {
+        prefs
+            .edit()
+            .putBoolean("colorWheelCompareEnabled", enable)
+            .apply()
+    }
+}
+
 internal fun PaintViewModel.updatePenModeStylusEyedropperEnabled(enable: Boolean) {
     penModeStylusEyedropperEnabled = enable
     if (isAppContextReady()) {

@@ -71,6 +71,7 @@ internal fun PaintViewModel.encloseAndFill(
     }
 
 
+    commitColorCompareBaseline()
     val xs = IntArray(points.size) { points[it].first }
     val ys = IntArray(points.size) { points[it].second }
     val methodVal = regionMode.methodValue

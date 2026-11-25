@@ -1399,6 +1399,8 @@
     <string name="settings_eyedropper_stylus_in_pen_mode_title">笔模式下允许手写笔长按取色</string>
     <string name="settings_eyedropper_stylus_in_pen_mode_desc">关闭后在笔模式下仅允许手指长按取色，手写笔长按不触发取色</string>
     <string name="settings_eyedropper_footer_desc">说明：灵敏度越高，长按触发时间越短；移动容差固定为 1dp（移动超过即不触发），笔模式开启时，长按取色由手指触控无缝转换为手写笔长按</string>
+    <string name="settings_color_wheel_compare_title">选色新旧对比气泡</string>
+    <string name="settings_color_wheel_compare_desc">在色轮与色方中拖动选色时浮现双半圆，对比上一个颜色与当前颜色</string>
     <string name="settings_shortcut_dialog_title">设置快捷键</string>
     <string name="settings_shortcut_press_key">请按下快捷键...</string>
     <string name="settings_shortcut_set_none">设为无</string>

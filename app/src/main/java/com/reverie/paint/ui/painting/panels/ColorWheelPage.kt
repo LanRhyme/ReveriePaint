@@ -10,6 +10,8 @@ import android.graphics.Color as AColor
 import android.graphics.Matrix
 import android.graphics.Paint as APaint
 import android.graphics.Shader
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -98,6 +100,9 @@ fun WheelColorPage(
                 hue = hue,
                 sat = sat,
                 valB = valB,
+                compareEnabled = vm.colorWheelCompareEnabled,
+                previousColorHex = vm.colorCompareBaseline,
+                topOverflowAllowanceDp = 42.dp,
                 onHue = onHue,
                 onSatVal = onSatVal,
                 onInteractionStart = onInteractionStart,
@@ -339,6 +344,9 @@ internal fun WheelPickerCanvas(
     hue: Float,
     sat: Float,
     valB: Float,
+    compareEnabled: Boolean = false,
+    previousColorHex: String = "#000000",
+    topOverflowAllowanceDp: androidx.compose.ui.unit.Dp = 42.dp,
     onHue: (Float) -> Unit,
     onSatVal: (Float, Float) -> Unit,
     onInteractionStart: () -> Unit,
@@ -361,6 +369,16 @@ internal fun WheelPickerCanvas(
     // Tap tracking for double-tap snap
     var lastTapTime by remember { mutableLongStateOf(0L) }
     var lastTapOffset by remember { mutableStateOf(Offset.Zero) }
+    var isDraggingInner by remember { mutableStateOf(false) }
+
+    val compareProgress by animateFloatAsState(
+        targetValue = if (compareEnabled && isDraggingInner) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 620f),
+        label = "wheelCompareProgress",
+    )
+    val previousColor = remember(previousColorHex) {
+        parseColorHexOrDefault(previousColorHex)
+    }
 
     val currentOnHue by rememberUpdatedState(onHue)
     val currentOnSatVal by rememberUpdatedState(onSatVal)
@@ -386,6 +404,8 @@ internal fun WheelPickerCanvas(
                     val dy = down.position.y - cy
                     val dist = sqrt(dx * dx + dy * dy)
                     val isRing = dist >= R - strokeWidth / 2f
+                    // 外圈色相环保持现有纯圆环指示，仅拖动内圈 SV 色域时浮现新旧对比气泡
+                    isDraggingInner = !isRing
 
                     val now = System.currentTimeMillis()
                     val tapDist = (down.position - lastTapOffset).getDistance()
@@ -467,23 +487,27 @@ internal fun WheelPickerCanvas(
                         }
                     }
 
-                    if (isDoubleTap) {
-                        updatePos(down.position, snapIfDoubleTap = true)
-                        lastTapTime = 0L
-                    } else {
-                        lastTapTime = now
-                        lastTapOffset = down.position
-                        updatePos(down.position, snapIfDoubleTap = false)
-                    }
+                    try {
+                        if (isDoubleTap) {
+                            updatePos(down.position, snapIfDoubleTap = true)
+                            lastTapTime = 0L
+                        } else {
+                            lastTapTime = now
+                            lastTapOffset = down.position
+                            updatePos(down.position, snapIfDoubleTap = false)
+                        }
 
-                    while (true) {
-                        val event = awaitPointerEvent()
-                        val change = event.changes.firstOrNull() ?: break
-                        if (!change.pressed) break
-                        updatePos(change.position, snapIfDoubleTap = false)
-                        change.consume()
+                        while (true) {
+                            val event = awaitPointerEvent()
+                            val change = event.changes.firstOrNull() ?: break
+                            if (!change.pressed) break
+                            updatePos(change.position, snapIfDoubleTap = false)
+                            change.consume()
+                        }
+                    } finally {
+                        isDraggingInner = false
+                        currentOnInteractionEnd()
                     }
-                    currentOnInteractionEnd()
                 }
             }
     ) {
@@ -664,5 +688,17 @@ internal fun WheelPickerCanvas(
         // Inner Reticle
         drawCircle(Color.White, radius = 6.5.dp.toPx(), center = Offset(selX, selY), style = Stroke(2.2.dp.toPx()))
         drawCircle(Color.Black.copy(alpha = 0.65f), radius = 4.5.dp.toPx(), center = Offset(selX, selY), style = Stroke(1.dp.toPx()))
+
+        if (compareProgress > 0.01f) {
+            val liveColor = Color(hsvModelToRgb(hue, sat, valB, colorModel))
+            drawColorCompareBubble(
+                reticleX = selX,
+                reticleY = selY,
+                currentColor = liveColor,
+                previousColor = previousColor,
+                progress = compareProgress,
+                topOverflowAllowancePx = topOverflowAllowanceDp.toPx(),
+            )
+        }
     }
 }

@@ -108,6 +108,7 @@ internal fun PaintViewModel.touchStart(
     val strokeColor = brushColor
     lastDynamicColor = strokeColor
     if (currentToolId == "brush" || currentToolId == "fill" || currentToolId == "gradient") {
+        commitColorCompareBaseline()
         if (recentColors.firstOrNull() != brushColor.uppercase()) {
             addRecentColor(brushColor)
         }
@@ -1097,6 +1098,7 @@ internal fun PaintViewModel.gradientFill(
     repeat: Int = gradientRepeat,
     reverse: Boolean = gradientReverse,
 ) {
+    commitColorCompareBaseline()
     runCore { ReverieCoreBridge.gradientFill(x1, y1, x2, y2, type, repeat, reverse) }
 }
 
@@ -1114,6 +1116,7 @@ internal fun PaintViewModel.gradientFillV3(
     stopPositions: FloatArray = floatArrayOf(0f, 1f),
     stopColors: IntArray = intArrayOf(android.graphics.Color.BLACK, android.graphics.Color.WHITE),
 ) {
+    commitColorCompareBaseline()
     runCore {
         ReverieCoreBridge.gradientFillV3(
             x1, y1, x2, y2, type, repeat, reverse,

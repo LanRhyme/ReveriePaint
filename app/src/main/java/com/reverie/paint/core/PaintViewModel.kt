@@ -227,6 +227,7 @@ class PaintViewModel : ViewModel() {
      */
     var brushParams by mutableStateOf(BrushParams(paintOpId = "paintbrush"))
     var brushColor by mutableStateOf("#000000")
+    var colorCompareBaseline by mutableStateOf("#000000")
     var brushSecondaryColor by mutableStateOf("#ffffff")
     var brushPresets by mutableStateOf<List<BrushPresetInfo>>(emptyList())
     var isBrushPresetsLoading by mutableStateOf(false)
@@ -1091,6 +1092,7 @@ class PaintViewModel : ViewModel() {
     var longPressEyedropperEnabled by mutableStateOf(true)
     var eyedropperSensitivity by mutableIntStateOf(3) // 1..5, default 3
     var eyedropperOffsetEnabled by mutableStateOf(true) // offset sampling point to avoid finger blocking
+    var colorWheelCompareEnabled by mutableStateOf(true)
 
     var penModeStylusEyedropperEnabled by mutableStateOf(false)
 

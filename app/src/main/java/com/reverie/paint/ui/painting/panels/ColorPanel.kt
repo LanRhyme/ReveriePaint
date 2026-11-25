@@ -6,6 +6,7 @@ package com.reverie.paint.ui.painting.panels
 
 import android.widget.Toast
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.core.FastOutSlowInEasing
 import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
@@ -94,6 +95,10 @@ fun ColorPanel(
 
     var lastSelfUpdatedHex by remember { mutableStateOf("") }
 
+    LaunchedEffect(Unit) {
+        vm.commitColorCompareBaseline()
+    }
+
     // Sync from vm.brushColor & vm.colorModel (supports canvas eyedropper in any color model)
     LaunchedEffect(vm.brushColor, vm.colorModel) {
         if (!isInteracting && !vm.brushColor.equals(lastSelfUpdatedHex, ignoreCase = true)) {
@@ -115,7 +120,7 @@ fun ColorPanel(
         val rgb = hsvModelToRgb(h, s, v, vm.colorModel)
         val hex = "#%06X".format(rgb and 0xFFFFFF)
         lastSelfUpdatedHex = hex
-        vm.updateBrushColor(hex)
+        vm.updateBrushColor(hex, commitBaseline = false)
     }
 
     val density = LocalDensity.current
@@ -199,8 +204,8 @@ fun ColorPanel(
                 AnimatedContent(
                     targetState = vm.colorPanelTab,
                     transitionSpec = {
-                        fadeIn(tween(110, easing = FastOutSlowInEasing)) togetherWith
-                                fadeOut(tween(70))
+                        (fadeIn(tween(110, easing = FastOutSlowInEasing)) togetherWith
+                                fadeOut(tween(70))) using SizeTransform(clip = false)
                     },
                     label = "ColorPanelTabAnimation"
                 ) { tab ->

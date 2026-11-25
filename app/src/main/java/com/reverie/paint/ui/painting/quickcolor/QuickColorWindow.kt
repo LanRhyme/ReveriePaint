@@ -6,6 +6,7 @@ package com.reverie.paint.ui.painting.quickcolor
 
 import android.graphics.Bitmap
 import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
 import androidx.compose.animation.animateColorAsState
 import androidx.compose.animation.animateContentSize
 import androidx.compose.animation.core.animateFloatAsState
@@ -36,11 +37,15 @@ import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.input.pointer.pointerInput
@@ -74,8 +79,10 @@ import com.reverie.paint.ui.painting.panels.CompactHsvSlider
 import com.reverie.paint.ui.painting.panels.RainbowHueColors
 import com.reverie.paint.ui.painting.panels.SquarePaletteSwatchesGrid
 import com.reverie.paint.ui.painting.panels.WheelPickerCanvas
+import com.reverie.paint.ui.painting.panels.drawColorCompareBubble
 import com.reverie.paint.ui.painting.panels.hsvModelToRgb
 import com.reverie.paint.ui.painting.panels.hueToPureColor
+import com.reverie.paint.ui.painting.panels.parseColorHexOrDefault
 import com.reverie.paint.ui.painting.panels.rgbToHsvModel
 import com.reverie.paint.ui.theme.Glass
 import com.reverie.paint.ui.theme.Morandi
@@ -146,6 +153,12 @@ fun QuickColorWindow(
     var isInteracting by remember { mutableStateOf(false) }
     var lastSelfUpdatedHex by remember { mutableStateOf("") }
 
+    LaunchedEffect(isCollapsed) {
+        if (!isCollapsed) {
+            vm.commitColorCompareBaseline()
+        }
+    }
+
     // 监听 vm.brushColor 与 vm.colorModel 同步 (非色盘交互期间始终同步最新颜色)
     LaunchedEffect(vm.brushColor, vm.colorModel) {
         if (!isInteracting && !vm.brushColor.equals(lastSelfUpdatedHex, ignoreCase = true)) {
@@ -167,7 +180,7 @@ fun QuickColorWindow(
         val rgb = hsvModelToRgb(h, s, v, vm.colorModel)
         val hex = "#%06X".format(rgb and 0xFFFFFF)
         lastSelfUpdatedHex = hex
-        vm.updateBrushColor(hex)
+        vm.updateBrushColor(hex, commitBaseline = false)
     }
 
     val windowShape = remember(isCollapsed) {
@@ -509,8 +522,9 @@ fun QuickColorWindow(
                         AnimatedContent(
                             targetState = vm.quickColorTab,
                             transitionSpec = {
-                                fadeIn(Motion.enterSpring()) + scaleIn(Motion.enterSpring(), initialScale = 0.94f) togetherWith
-                                        fadeOut(Motion.exitTween(90)) + scaleOut(Motion.exitTween(90), targetScale = 0.96f)
+                                (fadeIn(Motion.enterSpring()) + scaleIn(Motion.enterSpring(), initialScale = 0.94f) togetherWith
+                                        fadeOut(Motion.exitTween(90)) + scaleOut(Motion.exitTween(90), targetScale = 0.96f)) using
+                                    SizeTransform(clip = false)
                             },
                             label = "QuickColorTabAnimation",
                         ) { tab ->
@@ -530,6 +544,9 @@ fun QuickColorWindow(
                                             hue = hue,
                                             sat = sat,
                                             valB = valB,
+                                            compareEnabled = vm.colorWheelCompareEnabled,
+                                            previousColorHex = vm.colorCompareBaseline,
+                                            topOverflowAllowanceDp = 38.dp,
                                             onHue = {
                                                 hue = it
                                                 updateColorHsv(it, sat, valB)
@@ -740,6 +757,17 @@ private fun QuickColorSquareTab(
     val pixelBuffer = remember { IntArray(res * res) }
     var lastHueForBmp by remember { mutableFloatStateOf(-1f) }
     var lastModelForBmp by remember { mutableStateOf("") }
+    var isDraggingSv by remember { mutableStateOf(false) }
+    val clipRoundPath = remember { Path() }
+
+    val compareProgress by animateFloatAsState(
+        targetValue = if (vm.colorWheelCompareEnabled && isDraggingSv) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 620f),
+        label = "quickSquareCompareProgress",
+    )
+    val previousColor = remember(vm.colorCompareBaseline) {
+        parseColorHexOrDefault(vm.colorCompareBaseline)
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -750,8 +778,7 @@ private fun QuickColorSquareTab(
         Box(
             modifier = Modifier
                 .fillMaxWidth()
-                .height(142.dp)
-                .clip(RoundedCornerShape(8.dp)),
+                .height(142.dp),
         ) {
             val currentOnSatVal by rememberUpdatedState(onSatVal)
             val currentOnInteractionStart by rememberUpdatedState(onInteractionStart)
@@ -763,69 +790,81 @@ private fun QuickColorSquareTab(
                     .pointerInput(vm.colorModel) {
                         awaitEachGesture {
                             val down = awaitFirstDown().also { it.consume() }
+                            isDraggingSv = true
                             currentOnInteractionStart()
                             val w = size.width.toFloat()
                             val h = size.height.toFloat()
-                            val s = (down.position.x / w).coerceIn(0f, 1f)
-                            val v = (1f - down.position.y / h).coerceIn(0f, 1f)
-                            currentOnSatVal(s, v)
+                            try {
+                                val s = (down.position.x / w).coerceIn(0f, 1f)
+                                val v = (1f - down.position.y / h).coerceIn(0f, 1f)
+                                currentOnSatVal(s, v)
 
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull() ?: break
-                                if (!change.pressed) break
-                                val curS = (change.position.x / w).coerceIn(0f, 1f)
-                                val curV = (1f - change.position.y / h).coerceIn(0f, 1f)
-                                currentOnSatVal(curS, curV)
-                                change.consume()
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull() ?: break
+                                    if (!change.pressed) break
+                                    val curS = (change.position.x / w).coerceIn(0f, 1f)
+                                    val curV = (1f - change.position.y / h).coerceIn(0f, 1f)
+                                    currentOnSatVal(curS, curV)
+                                    change.consume()
+                                }
+                            } finally {
+                                isDraggingSv = false
+                                currentOnInteractionEnd()
                             }
-                            currentOnInteractionEnd()
                         }
                     },
             ) {
                 val w = size.width
                 val h = size.height
+                val corner = 8.dp.toPx()
+                clipRoundPath.rewind()
+                clipRoundPath.addRoundRect(
+                    RoundRect(0f, 0f, w, h, CornerRadius(corner, corner))
+                )
 
-                if (vm.colorModel == "hsv") {
-                    // 标准 HSV: 硬件加速双重渐变
-                    val pureHueColor = hueToPureColor(hue)
-                    drawRect(
-                        brush = Brush.horizontalGradient(
-                            colors = listOf(Color.White, pureHueColor),
-                            startX = 0f,
-                            endX = w,
-                        ),
-                        size = size,
-                    )
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color.Black),
-                            startY = 0f,
-                            endY = h,
-                        ),
-                        size = size,
-                    )
-                } else {
-                    // 非线性模型 (v-HSV, HSL, HSY'): 像素缓冲池绘制
-                    val bmp = cachedBmp ?: Bitmap.createBitmap(res, res, Bitmap.Config.ARGB_8888).also {
-                        cachedBmp = it
-                    }
-                    if (abs(lastHueForBmp - hue) > 0.8f || lastModelForBmp != vm.colorModel) {
-                        for (y in 0 until res) {
-                            val vy = 1.0f - (y / (res - 1.0f))
-                            for (x in 0 until res) {
-                                val sx = x / (res - 1.0f)
-                                pixelBuffer[y * res + x] = hsvModelToRgb(hue, sx, vy, vm.colorModel)
-                            }
+                clipPath(clipRoundPath) {
+                    if (vm.colorModel == "hsv") {
+                        // 标准 HSV: 硬件加速双重渐变
+                        val pureHueColor = hueToPureColor(hue)
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(Color.White, pureHueColor),
+                                startX = 0f,
+                                endX = w,
+                            ),
+                            size = size,
+                        )
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color.Black),
+                                startY = 0f,
+                                endY = h,
+                            ),
+                            size = size,
+                        )
+                    } else {
+                        // 非线性模型 (v-HSV, HSL, HSY'): 像素缓冲池绘制
+                        val bmp = cachedBmp ?: Bitmap.createBitmap(res, res, Bitmap.Config.ARGB_8888).also {
+                            cachedBmp = it
                         }
-                        bmp.setPixels(pixelBuffer, 0, res, 0, 0, res, res)
-                        lastHueForBmp = hue
-                        lastModelForBmp = vm.colorModel
+                        if (abs(lastHueForBmp - hue) > 0.8f || lastModelForBmp != vm.colorModel) {
+                            for (y in 0 until res) {
+                                val vy = 1.0f - (y / (res - 1.0f))
+                                for (x in 0 until res) {
+                                    val sx = x / (res - 1.0f)
+                                    pixelBuffer[y * res + x] = hsvModelToRgb(hue, sx, vy, vm.colorModel)
+                                }
+                            }
+                            bmp.setPixels(pixelBuffer, 0, res, 0, 0, res, res)
+                            lastHueForBmp = hue
+                            lastModelForBmp = vm.colorModel
+                        }
+                        drawImage(
+                            image = bmp.asImageBitmap(),
+                            dstSize = IntSize(w.toInt(), h.toInt()),
+                        )
                     }
-                    drawImage(
-                        image = bmp.asImageBitmap(),
-                        dstSize = IntSize(w.toInt(), h.toInt()),
-                    )
                 }
 
                 // 取色准星
@@ -843,6 +882,18 @@ private fun QuickColorSquareTab(
                     center = Offset(selX, selY),
                     style = Stroke(1.dp.toPx()),
                 )
+
+                if (compareProgress > 0.01f) {
+                    val liveColor = Color(hsvModelToRgb(hue, sat, valB, vm.colorModel))
+                    drawColorCompareBubble(
+                        reticleX = selX,
+                        reticleY = selY,
+                        currentColor = liveColor,
+                        previousColor = previousColor,
+                        progress = compareProgress,
+                        topOverflowAllowancePx = 38.dp.toPx(),
+                    )
+                }
             }
         }
 

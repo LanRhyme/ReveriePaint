@@ -704,8 +704,15 @@ import kotlinx.coroutines.withContext
         com.reverie.paint.core.brushstore.BrushApply.applyLive(com.reverie.paint.core.brushstore.ControlId.SIZE, clamped)
     }
 
-    internal fun PaintViewModel.updateBrushColor(c: String) {
+    internal fun PaintViewModel.commitColorCompareBaseline() {
+        colorCompareBaseline = brushColor
+    }
+
+    internal fun PaintViewModel.updateBrushColor(c: String, commitBaseline: Boolean = true) {
         brushColor = c
+        if (commitBaseline) {
+            colorCompareBaseline = c
+        }
         if (colorPanelTab != 2) {
             colorSphereBaseHex = c
         }

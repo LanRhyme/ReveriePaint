@@ -5,25 +5,27 @@
 package com.reverie.paint.ui.painting.panels
 
 import android.graphics.Bitmap
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.spring
 import androidx.compose.foundation.Canvas
-import androidx.compose.foundation.border
 import androidx.compose.foundation.gestures.awaitEachGesture
 import androidx.compose.foundation.gestures.awaitFirstDown
 import androidx.compose.foundation.layout.*
-import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.runtime.*
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
+import androidx.compose.ui.geometry.CornerRadius
 import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.RoundRect
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Path
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.drawscope.Stroke
+import androidx.compose.ui.graphics.drawscope.clipPath
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.IntSize
 import androidx.compose.ui.unit.dp
 import com.reverie.paint.core.*
-import com.reverie.paint.ui.theme.Morandi
 import kotlin.math.abs
 
 /**
@@ -55,6 +57,17 @@ fun SquareHsbColorPage(
     // Tap tracking for double-tap snap
     var lastTapTime by remember { mutableLongStateOf(0L) }
     var lastTapOffset by remember { mutableStateOf(Offset.Zero) }
+    var isDraggingSv by remember { mutableStateOf(false) }
+    val clipRoundPath = remember { Path() }
+
+    val compareProgress by animateFloatAsState(
+        targetValue = if (vm.colorWheelCompareEnabled && isDraggingSv) 1f else 0f,
+        animationSpec = spring(dampingRatio = 0.72f, stiffness = 620f),
+        label = "squareCompareProgress",
+    )
+    val previousColor = remember(vm.colorCompareBaseline) {
+        parseColorHexOrDefault(vm.colorCompareBaseline)
+    }
 
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -65,7 +78,6 @@ fun SquareHsbColorPage(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(175.dp)
-                .clip(RoundedCornerShape(10.dp))
         ) {
             val currentOnSatVal by rememberUpdatedState(onSatVal)
             val currentOnInteractionStart by rememberUpdatedState(onInteractionStart)
@@ -77,6 +89,7 @@ fun SquareHsbColorPage(
                     .pointerInput(vm.colorModel) {
                         awaitEachGesture {
                             val down = awaitFirstDown().also { it.consume() }
+                            isDraggingSv = true
                             currentOnInteractionStart()
 
                             val now = System.currentTimeMillis()
@@ -86,97 +99,108 @@ fun SquareHsbColorPage(
                             val w = size.width.toFloat()
                             val h = size.height.toFloat()
 
-                            if (isDoubleTap) {
-                                val sNorm = (down.position.x / w).coerceIn(0f, 1f)
-                                val vNorm = (1f - down.position.y / h).coerceIn(0f, 1f)
+                            try {
+                                if (isDoubleTap) {
+                                    val sNorm = (down.position.x / w).coerceIn(0f, 1f)
+                                    val vNorm = (1f - down.position.y / h).coerceIn(0f, 1f)
 
-                                when {
-                                    // Top-left double tap: Snap to pure White (S=0, V=1)
-                                    sNorm <= 0.28f && vNorm >= 0.72f -> {
-                                        currentOnSatVal(0f, 1f)
+                                    when {
+                                        // Top-left double tap: Snap to pure White (S=0, V=1)
+                                        sNorm <= 0.28f && vNorm >= 0.72f -> {
+                                            currentOnSatVal(0f, 1f)
+                                        }
+                                        // Top-right double tap: Snap to pure Vivid color (S=1, V=1)
+                                        sNorm >= 0.72f && vNorm >= 0.72f -> {
+                                            currentOnSatVal(1f, 1f)
+                                        }
+                                        // Bottom double tap: Snap to pure Black (V=0)
+                                        vNorm <= 0.22f -> {
+                                            currentOnSatVal(sNorm, 0f)
+                                        }
+                                        // Default fallback to tap position
+                                        else -> {
+                                            currentOnSatVal(sNorm, vNorm)
+                                        }
                                     }
-                                    // Top-right double tap: Snap to pure Vivid color (S=1, V=1)
-                                    sNorm >= 0.72f && vNorm >= 0.72f -> {
-                                        currentOnSatVal(1f, 1f)
-                                    }
-                                    // Bottom double tap: Snap to pure Black (V=0)
-                                    vNorm <= 0.22f -> {
-                                        currentOnSatVal(sNorm, 0f)
-                                    }
-                                    // Default fallback to tap position
-                                    else -> {
-                                        currentOnSatVal(sNorm, vNorm)
-                                    }
+                                    lastTapTime = 0L
+                                } else {
+                                    lastTapTime = now
+                                    lastTapOffset = down.position
+                                    val s = (down.position.x / w).coerceIn(0f, 1f)
+                                    val v = (1f - down.position.y / h).coerceIn(0f, 1f)
+                                    currentOnSatVal(s, v)
                                 }
-                                lastTapTime = 0L
-                            } else {
-                                lastTapTime = now
-                                lastTapOffset = down.position
-                                val s = (down.position.x / w).coerceIn(0f, 1f)
-                                val v = (1f - down.position.y / h).coerceIn(0f, 1f)
-                                currentOnSatVal(s, v)
-                            }
 
-                            while (true) {
-                                val event = awaitPointerEvent()
-                                val change = event.changes.firstOrNull() ?: break
-                                if (!change.pressed) break
-                                val s = (change.position.x / w).coerceIn(0f, 1f)
-                                val v = (1f - change.position.y / h).coerceIn(0f, 1f)
-                                currentOnSatVal(s, v)
-                                change.consume()
+                                while (true) {
+                                    val event = awaitPointerEvent()
+                                    val change = event.changes.firstOrNull() ?: break
+                                    if (!change.pressed) break
+                                    val s = (change.position.x / w).coerceIn(0f, 1f)
+                                    val v = (1f - change.position.y / h).coerceIn(0f, 1f)
+                                    currentOnSatVal(s, v)
+                                    change.consume()
+                                }
+                            } finally {
+                                isDraggingSv = false
+                                currentOnInteractionEnd()
                             }
-                            currentOnInteractionEnd()
                         }
                     }
             ) {
                 val w = size.width
                 val h = size.height
+                val corner = 10.dp.toPx()
+                clipRoundPath.rewind()
+                clipRoundPath.addRoundRect(
+                    RoundRect(0f, 0f, w, h, CornerRadius(corner, corner))
+                )
 
-                if (vm.colorModel == "hsv") {
-                    // --- GPU Hardware-Accelerated Zero-Allocation Dual Gradient ---
-                    // Layer 1: Horizontal gradient from pure White to pure Hue color
-                    val pureHueColor = hueToPureColor(hue)
-                    drawRect(
-                        brush = Brush.horizontalGradient(
-                            colors = listOf(Color.White, pureHueColor),
-                            startX = 0f,
-                            endX = w
-                        ),
-                        size = size
-                    )
-                    // Layer 2: Vertical gradient from Transparent to Black (alpha multiplies brightness)
-                    drawRect(
-                        brush = Brush.verticalGradient(
-                            colors = listOf(Color.Transparent, Color.Black),
-                            startY = 0f,
-                            endY = h
-                        ),
-                        size = size
-                    )
-                } else {
-                    // --- Non-linear Color Models (v-HSV, HSL, HSY') with Reusable Buffer ---
-                    val bmp = cachedBmp ?: Bitmap.createBitmap(res, res, Bitmap.Config.ARGB_8888).also {
-                        cachedBmp = it
-                    }
-
-                    if (abs(lastHueForBmp - hue) > 0.8f || lastModelForBmp != vm.colorModel) {
-                        for (y in 0 until res) {
-                            val vy = 1.0f - (y / (res - 1.0f))
-                            for (x in 0 until res) {
-                                val sx = x / (res - 1.0f)
-                                pixelBuffer[y * res + x] = hsvModelToRgb(hue, sx, vy, vm.colorModel)
-                            }
+                clipPath(clipRoundPath) {
+                    if (vm.colorModel == "hsv") {
+                        // --- GPU Hardware-Accelerated Zero-Allocation Dual Gradient ---
+                        // Layer 1: Horizontal gradient from pure White to pure Hue color
+                        val pureHueColor = hueToPureColor(hue)
+                        drawRect(
+                            brush = Brush.horizontalGradient(
+                                colors = listOf(Color.White, pureHueColor),
+                                startX = 0f,
+                                endX = w
+                            ),
+                            size = size
+                        )
+                        // Layer 2: Vertical gradient from Transparent to Black (alpha multiplies brightness)
+                        drawRect(
+                            brush = Brush.verticalGradient(
+                                colors = listOf(Color.Transparent, Color.Black),
+                                startY = 0f,
+                                endY = h
+                            ),
+                            size = size
+                        )
+                    } else {
+                        // --- Non-linear Color Models (v-HSV, HSL, HSY') with Reusable Buffer ---
+                        val bmp = cachedBmp ?: Bitmap.createBitmap(res, res, Bitmap.Config.ARGB_8888).also {
+                            cachedBmp = it
                         }
-                        bmp.setPixels(pixelBuffer, 0, res, 0, 0, res, res)
-                        lastHueForBmp = hue
-                        lastModelForBmp = vm.colorModel
-                    }
 
-                    drawImage(
-                        image = bmp.asImageBitmap(),
-                        dstSize = IntSize(w.toInt(), h.toInt())
-                    )
+                        if (abs(lastHueForBmp - hue) > 0.8f || lastModelForBmp != vm.colorModel) {
+                            for (y in 0 until res) {
+                                val vy = 1.0f - (y / (res - 1.0f))
+                                for (x in 0 until res) {
+                                    val sx = x / (res - 1.0f)
+                                    pixelBuffer[y * res + x] = hsvModelToRgb(hue, sx, vy, vm.colorModel)
+                                }
+                            }
+                            bmp.setPixels(pixelBuffer, 0, res, 0, 0, res, res)
+                            lastHueForBmp = hue
+                            lastModelForBmp = vm.colorModel
+                        }
+
+                        drawImage(
+                            image = bmp.asImageBitmap(),
+                            dstSize = IntSize(w.toInt(), h.toInt())
+                        )
+                    }
                 }
 
                 // Selector Reticle
@@ -194,6 +218,18 @@ fun SquareHsbColorPage(
                     center = Offset(selX, selY),
                     style = Stroke(1.dp.toPx())
                 )
+
+                if (compareProgress > 0.01f) {
+                    val liveColor = Color(hsvModelToRgb(hue, sat, valB, vm.colorModel))
+                    drawColorCompareBubble(
+                        reticleX = selX,
+                        reticleY = selY,
+                        currentColor = liveColor,
+                        previousColor = previousColor,
+                        progress = compareProgress,
+                        topOverflowAllowancePx = 42.dp.toPx(),
+                    )
+                }
             }
         }
 

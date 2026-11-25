@@ -683,6 +683,7 @@ internal fun PaintViewModel.floodFill(
     lastFillSubmitTime = now
     lastFillDocX = x
     lastFillDocY = y
+    commitColorCompareBaseline()
 
     if (fillPattern != null) {
         floodFillPattern(x, y, tolerance, sampleMerged, expand, feather, closeGap)

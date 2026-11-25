@@ -184,7 +184,7 @@ fun QuickOklchWindow(
         currentOklch = newColor
         val hex = newColor.toHex(clip = true)
         lastSelfHex = hex
-        vm.updateBrushColor(hex)
+        vm.updateBrushColor(hex, commitBaseline = false)
     }
 
     val parsedCurrentColor = remember(vm.brushColor) {

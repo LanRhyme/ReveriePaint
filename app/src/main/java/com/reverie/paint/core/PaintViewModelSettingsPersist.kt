@@ -306,6 +306,7 @@ internal fun PaintViewModel.syncSettingsFromPrefs() {
         longPressEyedropperEnabled = prefs.getBoolean("longPressEyedropperEnabled", true)
         eyedropperSensitivity = prefs.getInt("eyedropperSensitivity", 3).coerceIn(1, 5)
         eyedropperOffsetEnabled = prefs.getBoolean("eyedropperOffsetEnabled", true)
+        colorWheelCompareEnabled = prefs.getBoolean("colorWheelCompareEnabled", true)
         penModeStylusEyedropperEnabled = prefs.getBoolean("penModeStylusEyedropperEnabled", false)
         brushCursorMode = prefs.getInt("brushCursorMode", 3)
         eraserCursorMode = prefs.getInt("eraserCursorMode", 3)
@@ -404,6 +405,7 @@ internal fun PaintViewModel.syncSettingsFromPrefs() {
         loadSyncSettings()
 
         brushColor = prefs.getString("brushColor", "#000000") ?: "#000000"
+        colorCompareBaseline = brushColor
         brushSecondaryColor = prefs.getString("brushSecondaryColor", "#ffffff") ?: "#ffffff"
         runCore {
             ReverieCoreBridge.setBrushColor(brushColor)
