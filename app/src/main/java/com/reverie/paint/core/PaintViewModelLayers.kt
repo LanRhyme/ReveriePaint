@@ -6,6 +6,7 @@ package com.reverie.paint.core
 
 import android.graphics.Bitmap
 import com.reverie.paint.R
+import com.reverie.paint.model.LayerCollabPermission
 import com.reverie.paint.model.LayerMaskType
 import com.reverie.paint.model.LayerNodeType
 import com.reverie.paint.model.LayerOrderNode
@@ -973,14 +974,29 @@ internal fun PaintViewModel.setLayerLocked(
     locked: Boolean,
 ) {
     if (!ensureCollabLayerLockToggleAllowed(i)) return
+    val cur = layers.getOrNull(i)
+    val clearedPerm = if (!locked && collab.isActive && cur != null &&
+        cur.collabPermission == LayerCollabPermission.LOCKED.code
+    ) {
+        if (cur.ownerPeerId.isNotEmpty()) LayerCollabPermission.OWNER_ONLY.code else LayerCollabPermission.SHARED.code
+    } else {
+        null
+    }
     if (i in layers.indices) {
         layers = layers.mapIndexed { idx, item ->
-            if (idx == i) item.copy(locked = locked) else item
+            if (idx == i) {
+                item.copy(locked = locked, collabPermission = clearedPerm ?: item.collabPermission)
+            } else {
+                item
+            }
         }
         layerRevision++
     }
     runLayerCore(after = { notifyLayerChanged(forceThumbs = false, immediateRender = false) }) {
         ReverieCoreBridge.setLayerLocked(i, locked)
+        if (clearedPerm != null) {
+            ReverieCoreBridge.setLayerCollabPermission(i, clearedPerm)
+        }
     }
 }
 

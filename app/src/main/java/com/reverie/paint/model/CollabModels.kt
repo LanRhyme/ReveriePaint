@@ -251,6 +251,13 @@ object CollabPermissionPolicy {
         if (ownerPeerId in activePeerIds) return false
         return ownerPeerId in departedPeerIds || activePeerIds.isNotEmpty()
     }
+
+    /** 生成图层行内紧凑归属简称 (用于专属层徽章展示, 最长 4 字) */
+    fun formatShortOwnerLabel(rawName: String, maxChars: Int = 4): String {
+        val trimmed = rawName.trim()
+        if (trimmed.isEmpty()) return ""
+        return if (trimmed.length <= maxChars) trimmed else trimmed.take(maxChars) + "…"
+    }
 }
 
 /** 拓扑模式与确定性房间码 / 选主策略 (与服务端 collab/worker/src/room.js 一致) */

@@ -1018,15 +1018,16 @@ internal fun LayerRowContent(
                     }
                     val pillFg = when {
                         isOrphan -> colors.error
-                        perm == LayerCollabPermission.LOCKED -> Morandi.subText
+                        perm == LayerCollabPermission.LOCKED || layer.locked -> Morandi.subText
                         perm == LayerCollabPermission.OWNER_ONLY -> ownerTint
                         else -> Morandi.accent
                     }
+                    val effectivelyLocked = layer.locked || perm == LayerCollabPermission.LOCKED
                     val pillBg = pillFg.copy(alpha = 0.15f)
-                    val pillText = when (perm) {
-                        LayerCollabPermission.LOCKED -> stringResource(R.string.collab_layer_badge_locked)
-                        LayerCollabPermission.OWNER_ONLY -> stringResource(R.string.collab_layer_badge_owner)
-                        LayerCollabPermission.SHARED -> stringResource(R.string.collab_layer_badge_shared)
+                    val pillText = when {
+                        effectivelyLocked -> stringResource(R.string.collab_layer_badge_locked)
+                        perm == LayerCollabPermission.OWNER_ONLY -> vm.collabOwnerShortBadgeLabel(layer.ownerPeerId)
+                        else -> stringResource(R.string.collab_layer_badge_shared)
                     }
                     var showPermMenu by remember { mutableStateOf(false) }
 
@@ -1075,7 +1076,7 @@ internal fun LayerRowContent(
                             ) {
                                 ReDropdownMenuItem(
                                     text = stringResource(R.string.collab_layer_perm_shared),
-                                    selected = perm == LayerCollabPermission.SHARED,
+                                    selected = !effectivelyLocked && perm == LayerCollabPermission.SHARED,
                                     onClick = {
                                         showPermMenu = false
                                         vm.setCollabLayerPermission(layer.index, LayerCollabPermission.SHARED)
@@ -1083,7 +1084,7 @@ internal fun LayerRowContent(
                                 )
                                 ReDropdownMenuItem(
                                     text = stringResource(R.string.collab_layer_perm_owner),
-                                    selected = perm == LayerCollabPermission.OWNER_ONLY,
+                                    selected = !effectivelyLocked && perm == LayerCollabPermission.OWNER_ONLY,
                                     onClick = {
                                         showPermMenu = false
                                         vm.setCollabLayerPermission(layer.index, LayerCollabPermission.OWNER_ONLY)
@@ -1091,7 +1092,7 @@ internal fun LayerRowContent(
                                 )
                                 ReDropdownMenuItem(
                                     text = stringResource(R.string.collab_layer_perm_locked),
-                                    selected = perm == LayerCollabPermission.LOCKED,
+                                    selected = effectivelyLocked,
                                     onClick = {
                                         showPermMenu = false
                                         vm.setCollabLayerPermission(layer.index, LayerCollabPermission.LOCKED)

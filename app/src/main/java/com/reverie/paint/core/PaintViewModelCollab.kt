@@ -1344,6 +1344,16 @@ internal fun PaintViewModel.collabOwnerDisplayName(ownerPeerId: String): String 
     return if (!oldName.isNullOrBlank()) "$oldName ($leftTag)" else leftTag
 }
 
+internal fun PaintViewModel.collabOwnerShortBadgeLabel(ownerPeerId: String): String {
+    if (ownerPeerId.isEmpty()) return getString(R.string.collab_layer_badge_owner)
+    if (ownerPeerId == collab.selfPeerId) return getString(R.string.collab_layer_owner_self_short)
+    collab.peers.firstOrNull { it.peerId == ownerPeerId }?.let { peer ->
+        return CollabPermissionPolicy.formatShortOwnerLabel(peer.name)
+            .ifEmpty { getString(R.string.collab_layer_badge_owner) }
+    }
+    return getString(R.string.collab_peer_departed_short)
+}
+
 internal fun PaintViewModel.isOrphanedCollabLayer(layer: PaintViewModel.LayerUiState?): Boolean {
     if (layer == null || !collab.isActive) return false
     return CollabPermissionPolicy.isOrphanedDepartedLayer(
@@ -1456,15 +1466,20 @@ internal fun PaintViewModel.applyAutoFocusOrCreateCollabLayer() {
 }
 
 internal fun PaintViewModel.setCollabLayerPermission(index: Int, perm: LayerCollabPermission) {
-    val curOwner = layers.getOrNull(index)?.ownerPeerId.orEmpty()
+    val curLayer = layers.getOrNull(index)
+    val curOwner = curLayer?.ownerPeerId.orEmpty()
     val nextOwner = if (perm == LayerCollabPermission.OWNER_ONLY && curOwner.isEmpty()) {
         collab.selfPeerId
     } else {
         curOwner
     }
+    val unlockNative = perm != LayerCollabPermission.LOCKED && curLayer?.locked == true
     runCore(render = false, after = {
         refreshLayerThumbs(force = false)
     }) {
+        if (unlockNative || (perm != LayerCollabPermission.LOCKED && ReverieCoreBridge.layerLocked(index))) {
+            ReverieCoreBridge.setLayerLocked(index, false)
+        }
         if (nextOwner != curOwner) {
             ReverieCoreBridge.setLayerOwnerPeerId(index, nextOwner)
         }

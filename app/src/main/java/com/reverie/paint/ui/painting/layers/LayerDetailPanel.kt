@@ -1499,7 +1499,11 @@ internal fun LayerDetailPage(
                     }
                 }
             }
-            if (vm.collab.isActive && !isBg && layer != null) {
+        }
+        if (vm.collab.isActive && !isBg && layer != null) {
+            androidx.compose.foundation.layout.Box(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 4.dp),
+            ) {
                 com.reverie.paint.ui.painting.collab.CollabLayerPermissionCard(
                     vm = vm,
                     index = index,

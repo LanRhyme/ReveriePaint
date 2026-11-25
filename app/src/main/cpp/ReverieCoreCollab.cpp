@@ -24,6 +24,7 @@
 #include <QUuid>
 #include <QtEndian>
 #include <algorithm>
+#include <atomic>
 #include <cmath>
 #include <cstring>
 #include <memory>
@@ -33,6 +34,7 @@ namespace {
 constexpr quint32 kCollabProtoVersion = 1;
 constexpr int kSnapshotChunkBytes = 16 * 1024;
 constexpr int kBrushChunkBytes = 16 * 1024;
+constexpr int kCtrlLargeChunkBytes = 48 * 1024;
 constexpr int kStarMaxPeers = 10;
 constexpr int kUndoCap = 80;
 constexpr int kHistoryCap = 256;
@@ -57,6 +59,7 @@ enum WireMsgType : quint8 {
     MsgTopologyRelay = 0x1B,
     MsgUndoReq = 0x1C,
     MsgUndoPatch = 0x1D,
+    MsgLargeChunk = 0x1E,
 };
 
 struct InboundPacket {
@@ -108,6 +111,12 @@ struct IncomingSnapshotAssembly {
 struct IncomingBrushAssembly {
     QString presetMd5;
     quint32 totalBytes = 0;
+    quint32 totalChunks = 0;
+    QVector<QByteArray> chunks;
+    quint32 receivedChunks = 0;
+};
+
+struct IncomingLargeAssembly {
     quint32 totalChunks = 0;
     QVector<QByteArray> chunks;
     quint32 receivedChunks = 0;
@@ -428,6 +437,10 @@ public:
         m_presetCache.clear();
         m_presetBytesCache.clear();
         m_incomingBrushes.clear();
+        {
+            std::lock_guard<std::mutex> lock(m_largeMutex);
+            m_incomingLarge.clear();
+        }
     }
 
     void clearDocumentBoundState()
@@ -517,6 +530,7 @@ public:
             m_cursors.remove(peerId);
         }
         cancelRemoteStrokesForPeer(peerId);
+        purgeIncomingLargeForPeer(peerId);
         if (m_isHost) {
             recomputeTopologyIfNeeded();
         }
@@ -989,6 +1003,8 @@ public:
         const QRect ext = dev->exactBounds().intersected(docRect);
         if (ext.isEmpty()) return;
 
+        const bool isMask = (e.nodeType == ReverieCore::NodeTypeTransparencyMask);
+        const quint8 defaultByte = isMask ? 0xFF : 0x00;
         const int pxSize = int(dev->pixelSize());
         constexpr int kTile = 512;
         for (int ty = ext.top(); ty <= ext.bottom(); ty += kTile) {
@@ -1000,15 +1016,15 @@ public:
                 if (byteCount <= 0 || byteCount > 64LL * 1024 * 1024) continue;
                 QByteArray raw(int(byteCount), 0);
                 dev->readBytes(reinterpret_cast<quint8 *>(raw.data()), tx, ty, w, h);
-                bool anyNonZero = false;
+                bool differsFromDefault = false;
                 const quint8 *ptr = reinterpret_cast<const quint8 *>(raw.constData());
                 for (qint64 i = 0; i < byteCount; ++i) {
-                    if (ptr[i] != 0) {
-                        anyNonZero = true;
+                    if (ptr[i] != defaultByte) {
+                        differsFromDefault = true;
                         break;
                     }
                 }
-                if (!anyNonZero) continue;
+                if (!differsFromDefault) continue;
                 emitTilePatchPacket(e.uuid, tileRect, qCompress(raw, 4), /*clientOpId=*/0, /*isEraserLike=*/false);
             }
         }
@@ -1169,6 +1185,7 @@ public:
             } catch (...) {
             }
         }
+        purgeIncomingLargeForPeer(peerId);
     }
 
     bool drainInbound()
@@ -1344,6 +1361,9 @@ private:
     QHash<QString, KisPaintOpPresetSP> m_presetCache;
     QHash<QString, QByteArray> m_presetBytesCache;
     QHash<QString, IncomingBrushAssembly> m_incomingBrushes;
+    std::mutex m_largeMutex;
+    QHash<QString, IncomingLargeAssembly> m_incomingLarge;
+    std::atomic<quint32> m_nextChunkMsgId{0};
     IncomingSnapshotAssembly m_incomingSnapshot;
 
     qint64 m_lastWatchdogMs = 0;
@@ -1437,6 +1457,7 @@ private:
 
         rtc::Configuration cfg;
         parseIceServers(m_iceServersJson, cfg);
+        cfg.maxMessageSize = size_t(16 * 1024 * 1024);
 
         std::shared_ptr<rtc::PeerConnection> pc;
         try {
@@ -1588,6 +1609,61 @@ private:
         });
     }
 
+    void purgeIncomingLargeForPeer(const QString &peerId)
+    {
+        if (peerId.isEmpty()) return;
+        const QString prefix = peerId + QLatin1Char(':');
+        std::lock_guard<std::mutex> lock(m_largeMutex);
+        for (auto it = m_incomingLarge.begin(); it != m_incomingLarge.end();) {
+            if (it.key().startsWith(prefix)) {
+                it = m_incomingLarge.erase(it);
+            } else {
+                ++it;
+            }
+        }
+    }
+
+    void sendRawOrChunked(const std::shared_ptr<rtc::DataChannel> &dc,
+                          const QByteArray &bytes,
+                          bool isLive,
+                          quint32 sharedMsgId = 0)
+    {
+        if (!dc || !dc->isOpen() || bytes.isEmpty()) return;
+        if (isLive || bytes.size() <= kCtrlLargeChunkBytes) {
+            try {
+                dc->send(reinterpret_cast<const rtc::byte *>(bytes.constData()), size_t(bytes.size()));
+            } catch (const std::exception &e) {
+                RPC_LOG("Collab dc->send error (len=%d, live=%d): %s",
+                        int(bytes.size()), isLive ? 1 : 0, e.what());
+            } catch (...) {
+                RPC_LOG("Collab dc->send unknown error (len=%d, live=%d)",
+                        int(bytes.size()), isLive ? 1 : 0);
+            }
+            return;
+        }
+        const quint32 msgId = (sharedMsgId != 0) ? sharedMsgId : ++m_nextChunkMsgId;
+        const quint32 totalChunks = quint32((bytes.size() + kCtrlLargeChunkBytes - 1) / kCtrlLargeChunkBytes);
+        for (quint32 i = 0; i < totalChunks; ++i) {
+            const int offset = int(i) * kCtrlLargeChunkBytes;
+            const int len = qMin(kCtrlLargeChunkBytes, bytes.size() - offset);
+            QByteArray cPkt = packMsgHeader(MsgLargeChunk);
+            QDataStream cds(&cPkt, QIODevice::Append);
+            cds.setByteOrder(QDataStream::LittleEndian);
+            cds << msgId << totalChunks << i << QByteArray::fromRawData(bytes.constData() + offset, len);
+            try {
+                dc->send(reinterpret_cast<const rtc::byte *>(cPkt.constData()), size_t(cPkt.size()));
+            } catch (const std::exception &e) {
+                RPC_LOG("Collab chunk send error (id=%u, idx=%u/%u): %s",
+                        msgId, i, totalChunks, e.what());
+                break;
+            } catch (...) {
+                RPC_LOG("Collab chunk send unknown error (id=%u, idx=%u/%u)",
+                        msgId, i, totalChunks);
+                break;
+            }
+        }
+    }
+
     void sendBytesToPeer(const QString &peerId, const QByteArray &bytes, bool isLive)
     {
         if (bytes.isEmpty()) return;
@@ -1599,12 +1675,7 @@ private:
                 dc = (isLive && it->liveOpen) ? it->live : (it->ctrlOpen ? it->ctrl : nullptr);
             }
         }
-        if (dc && dc->isOpen()) {
-            try {
-                dc->send(reinterpret_cast<const rtc::byte *>(bytes.constData()), size_t(bytes.size()));
-            } catch (...) {
-            }
-        }
+        sendRawOrChunked(dc, bytes, isLive);
     }
 
     void broadcastBytes(const QByteArray &bytes, bool isLive, const QString &excludePeerId = QString())
@@ -1621,11 +1692,9 @@ private:
                 if (dc && dc->isOpen()) targets.append(dc);
             }
         }
+        const quint32 sharedId = (!isLive && bytes.size() > kCtrlLargeChunkBytes) ? ++m_nextChunkMsgId : 0;
         for (const auto &dc : targets) {
-            try {
-                dc->send(reinterpret_cast<const rtc::byte *>(bytes.constData()), size_t(bytes.size()));
-            } catch (...) {
-            }
+            sendRawOrChunked(dc, bytes, isLive, sharedId);
         }
     }
 
@@ -1712,6 +1781,118 @@ private:
         c.updatedAtMs = QDateTime::currentMSecsSinceEpoch();
     }
 
+    bool authorizeRemoteLayerOpAsHost(const QString &fromPeerId, const QByteArray &rawPkt) const
+    {
+        if (!m_core || !m_core->m_document || rawPkt.isEmpty()) return false;
+        QDataStream ds(rawPkt);
+        ds.setByteOrder(QDataStream::LittleEndian);
+        ds.setFloatingPointPrecision(QDataStream::SinglePrecision);
+
+        quint8 type = 0;
+        ds >> type;
+        const QString actorPeerId = readUtf8(ds);
+        quint8 opKind = 0;
+        ds >> opKind;
+        const QString layerUuid = readUtf8(ds);
+        const QString extraStr = readUtf8(ds);
+        double extraVal = 0.0;
+        qint32 extraInt = 0;
+        ds >> extraVal >> extraInt;
+        const QString ownerId = readUtf8(ds);
+        quint8 perm = 0;
+        ds >> perm;
+        const QString aboveUuid = readUtf8(ds);
+        if (ds.status() != QDataStream::Ok || type != MsgLayerOp ||
+            actorPeerId.isEmpty() || actorPeerId != fromPeerId) {
+            return false;
+        }
+        if (actorPeerId == m_hostPeerId) return true;
+
+        auto canManage = [&](int idx) -> bool {
+            if (idx <= 0 || idx >= m_core->m_layers.size()) return false;
+            const auto &e = m_core->m_layers[idx];
+            if (e.background) return false;
+            return e.ownerPeerId.isEmpty() || e.ownerPeerId == actorPeerId;
+        };
+        auto canModifyProps = [&](int idx) -> bool {
+            if (idx <= 0 || idx >= m_core->m_layers.size()) return false;
+            const auto &e = m_core->m_layers[idx];
+            if (e.background || e.locked || e.collabPermission == 2) return false;
+            if (e.collabPermission == 1) return e.ownerPeerId.isEmpty() || e.ownerPeerId == actorPeerId;
+            return true;
+        };
+        auto canDelete = [&](int idx) -> bool {
+            if (idx <= 0 || idx >= m_core->m_layers.size()) return false;
+            const auto &e = m_core->m_layers[idx];
+            if (e.background || e.locked || e.collabPermission == 2) return false;
+            return canManage(idx);
+        };
+        auto canInsertGroup = [&](int gIdx) -> bool {
+            if (gIdx <= 0 || gIdx >= m_core->m_layers.size()) return false;
+            return m_core->m_layers[gIdx].isGroup && canModifyProps(gIdx);
+        };
+
+        switch (opKind) {
+        case ReverieCore::CollabLayerAddPaint:
+        case ReverieCore::CollabLayerAddGroup:
+        case ReverieCore::CollabLayerAddFill:
+            return true;
+        case ReverieCore::CollabLayerAddMask: {
+            const int hostIdx = m_core->layerIndexByUuid(aboveUuid);
+            return canModifyProps(hostIdx);
+        }
+        case ReverieCore::CollabLayerBgColor:
+            return false;
+        case ReverieCore::CollabLayerRemove: {
+            const int idx = m_core->layerIndexByUuid(layerUuid);
+            if (!canDelete(idx)) return false;
+            if (m_core->m_layers[idx].isGroup) {
+                const int rootDepth = m_core->m_layers[idx].depth;
+                for (int k = idx + 1; k < m_core->m_layers.size() && m_core->m_layers[k].depth > rootDepth; ++k) {
+                    if (!canDelete(k)) return false;
+                }
+            }
+            return true;
+        }
+        case ReverieCore::CollabLayerLocked:
+        case ReverieCore::CollabLayerOwnerPerm:
+            return canManage(m_core->layerIndexByUuid(layerUuid));
+        case ReverieCore::CollabLayerMoveRelative: {
+            const int idx = m_core->layerIndexByUuid(layerUuid);
+            if (!canModifyProps(idx)) return false;
+            KisNode *root = m_core->m_document->rootLayer().data();
+            KisNode *dstParent = root;
+            if (!extraStr.isEmpty()) {
+                const int pIdx = m_core->layerIndexByUuid(extraStr);
+                if (pIdx >= 0) {
+                    if (!canInsertGroup(pIdx)) return false;
+                    dstParent = m_core->m_layers[pIdx].node;
+                }
+            }
+            KisNode *curParent = m_core->m_layers[idx].node ? m_core->m_layers[idx].node->parent().data() : nullptr;
+            if (curParent && curParent != root && curParent != dstParent) {
+                const int cpIdx = m_core->indexOfNode(curParent);
+                if (cpIdx >= 0 && !canInsertGroup(cpIdx)) return false;
+            }
+            return true;
+        }
+        case ReverieCore::CollabLayerRename:
+        case ReverieCore::CollabLayerVisible:
+        case ReverieCore::CollabLayerAlphaLocked:
+        case ReverieCore::CollabLayerOpacity:
+        case ReverieCore::CollabLayerBlend:
+        case ReverieCore::CollabLayerClear:
+        case ReverieCore::CollabLayerClipped:
+        case ReverieCore::CollabLayerAlphaInherited:
+        case ReverieCore::CollabLayerColorLabel:
+        case ReverieCore::CollabLayerGroupPassThrough:
+        case ReverieCore::CollabLayerRemoveMask:
+            return canModifyProps(m_core->layerIndexByUuid(layerUuid));
+        default:
+            return false;
+        }
+    }
+
     bool handleInboundPacket(const InboundPacket &pkt)
     {
         if (pkt.data.isEmpty()) return false;
@@ -1720,6 +1901,39 @@ private:
         ds.setFloatingPointPrecision(QDataStream::SinglePrecision);
         quint8 type = 0;
         ds >> type;
+
+        if (type == MsgLargeChunk) {
+            quint32 msgId = 0, totalChunks = 0, idx = 0;
+            QByteArray chunk;
+            ds >> msgId >> totalChunks >> idx >> chunk;
+            if (ds.status() != QDataStream::Ok || totalChunks == 0 || totalChunks > 8192 || idx >= totalChunks) {
+                return false;
+            }
+            QByteArray reassembled;
+            {
+                const QString key = pkt.fromPeerId + QLatin1Char(':') + QString::number(msgId);
+                std::lock_guard<std::mutex> lock(m_largeMutex);
+                IncomingLargeAssembly &al = m_incomingLarge[key];
+                if (al.chunks.size() != int(totalChunks)) {
+                    al.totalChunks = totalChunks;
+                    al.chunks.resize(int(totalChunks));
+                    al.receivedChunks = 0;
+                }
+                if (al.chunks[int(idx)].isEmpty()) {
+                    al.chunks[int(idx)] = chunk;
+                    al.receivedChunks++;
+                }
+                if (al.receivedChunks == al.totalChunks) {
+                    int totalBytes = 0;
+                    for (const QByteArray &part : al.chunks) totalBytes += part.size();
+                    reassembled.reserve(totalBytes);
+                    for (const QByteArray &part : al.chunks) reassembled.append(part);
+                    m_incomingLarge.remove(key);
+                }
+            }
+            if (reassembled.isEmpty()) return false;
+            return handleInboundPacket(InboundPacket{pkt.fromPeerId, std::move(reassembled), pkt.isLiveChannel});
+        }
 
         if (type == MsgHello) {
             const QString id = readUtf8(ds);
@@ -1840,6 +2054,11 @@ private:
             if (ab.receivedChunks == ab.totalChunks) {
                 return finalizeIncomingBrush(md5);
             }
+            return false;
+        }
+
+        if (m_isHost && type == MsgLayerOp && !authorizeRemoteLayerOpAsHost(pkt.fromPeerId, pkt.data)) {
+            RPC_LOG("Collab host rejected unauthorized MsgLayerOp from=%s", pkt.fromPeerId.toUtf8().constData());
             return false;
         }
 

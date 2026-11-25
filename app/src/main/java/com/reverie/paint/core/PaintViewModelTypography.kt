@@ -79,9 +79,11 @@ internal fun PaintViewModel.commitTypographyToCanvas() {
         val initialItems = listOf(cfg)
         runCore(render = true, after = {
             notifyLayerChanged(forceThumbs = true, pixelChanged = true)
-            val newLayer = layers.getOrNull(currentLayerIndex)
-            if (newLayer != null) {
-                activeTextLayers = activeTextLayers + (newLayer.id to initialItems)
+            if (!collab.isActive) {
+                val newLayer = layers.getOrNull(currentLayerIndex)
+                if (newLayer != null) {
+                    activeTextLayers = activeTextLayers + (newLayer.id to initialItems)
+                }
             }
         }) {
             executeAddLayerSafely(wasInside) {
@@ -107,6 +109,7 @@ internal fun PaintViewModel.startEditingTextLayer(layerId: Long, itemId: String)
     val item = items.find { it.id == itemId } ?: return
     val targetIdx = layers.indexOfFirst { it.id == layerId }
     if (targetIdx < 0) return
+    if (!ensureCollabLayerEditable(targetIdx)) return
 
     if (isTypographyEditing) {
         commitTypographyToCanvas()

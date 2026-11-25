@@ -316,5 +316,9 @@ class CollabModelsTest {
         assertFalse(CollabPermissionPolicy.isLayerTypeSupportedInCollab(LayerNodeType.STROKE))
         assertFalse(CollabPermissionPolicy.isLayerTypeSupportedInCollab(LayerNodeType.PAINT, has3DContent = true))
         assertFalse(CollabPermissionPolicy.isLayerTypeSupportedInCollab(LayerNodeType.PAINT, hasTextContent = true))
+
+        assertEquals("", CollabPermissionPolicy.formatShortOwnerLabel("   "))
+        assertEquals("Alex", CollabPermissionPolicy.formatShortOwnerLabel("Alex"))
+        assertEquals("LanR…", CollabPermissionPolicy.formatShortOwnerLabel("LanRhyme"))
     }
 }
