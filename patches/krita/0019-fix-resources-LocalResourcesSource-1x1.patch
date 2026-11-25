@@ -1,0 +1,171 @@
+From b1f60bf648bc31344839256888c804f1f3c10af0 Mon Sep 17 00:00:00 2001
+From: LanRhyme <xiao_ren233@foxmail.com>
+Date: Wed, 25 Nov 2026 12:21:49 +0800
+Subject: [PATCH] =?UTF-8?q?fix(resources):=20LocalResourcesSource=20?=
+ =?UTF-8?q?=E6=94=B9=E7=94=A8=E5=85=B1=E4=BA=AB=E8=AF=BB=E5=86=99=E9=94=81?=
+ =?UTF-8?q?=E5=BF=AB=E7=85=A7,=20=E4=BF=AE=E5=A4=8D=E6=8C=89=E9=9C=80?=
+ =?UTF-8?q?=E5=8A=A0=E8=BD=BD=E7=AC=94=E5=B0=96=E4=B8=8D=E5=8F=AF=E8=A7=81?=
+ =?UTF-8?q?=E9=80=80=E5=8C=96=E4=B8=BA=201x1=20=E7=AC=94=E5=88=B7?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+- 根因: 补丁 0018 将 LocalResourcesSource::m_cachedResources 改为按值拷贝后, KisResourcesInterface::source("brushes") 永久缓存了首次查询时的列表快照; 随后由 KisLocalStrokeResources::addResource() 追加的按需加载资源 (.gih 笔尖如 watercolor.gih / circle_hard_eroded.gih、内嵌图案/笔尖、.abr 笔尖、新导入资源与灰度适配克隆笔尖) 对 bestMatch() 不可见, 导致水彩笔刷回退为 1x1 auto_brush
+- 修复: 在 KisLocalStrokeResources 内部通过 std::shared_ptr<SharedResources> (内含 QReadWriteLock + QList<KoResourceSP>) 共享同一份资源表; addResource()/removeResource() 持写锁修改, LocalResourcesSource 查询方法持读锁获取值拷贝快照再遍历, 同时避免并发修改导致的悬垂引用与按需资源丢失
+---
+ libs/resources/KisLocalStrokeResources.cpp | 60 ++++++++++++++--------
+ 1 file changed, 40 insertions(+), 20 deletions(-)
+
+diff --git a/libs/resources/KisLocalStrokeResources.cpp b/libs/resources/KisLocalStrokeResources.cpp
+index ffd0295a..3f173eda 100644
+--- a/libs/resources/KisLocalStrokeResources.cpp
++++ b/libs/resources/KisLocalStrokeResources.cpp
+@@ -6,23 +6,37 @@
+ #include "KisLocalStrokeResources.h"
+ #include "KisResourcesInterface_p.h"
+ 
++#include <algorithm>
++#include <memory>
++
+ #include "kis_assert.h"
+ #include "kis_debug.h"
+ 
+ namespace {
++struct SharedResources {
++    mutable QReadWriteLock lock;
++    QList<KoResourceSP> resources;
++
++    QList<KoResourceSP> snapshot() const {
++        QReadLocker l(&lock);
++        return resources;
++    }
++};
++
+ class LocalResourcesSource : public KisResourcesInterface::ResourceSourceAdapter
+ {
+ public:
+-    LocalResourcesSource(const QString &resourceType, const QList<KoResourceSP> &cachedResources)
++    LocalResourcesSource(const QString &resourceType, std::shared_ptr<SharedResources> sharedResources)
+         : KisResourcesInterface::ResourceSourceAdapter(resourceType)
+         , m_resourceType(resourceType)
+-        , m_cachedResources(cachedResources)
++        , m_sharedResources(std::move(sharedResources))
+     {
+     }
+ protected:
+     QVector<KoResourceSP> resourcesForFilename(const QString &filename) const override {
+         QVector<KoResourceSP> resources;
+-        Q_FOREACH(KoResourceSP res, m_cachedResources) {
++        const QList<KoResourceSP> snapshot = m_sharedResources->snapshot();
++        for (const KoResourceSP &res : snapshot) {
+             if (res->filename() == filename && res->resourceType().first == m_resourceType) {
+                 resources << res;
+             }
+@@ -32,7 +46,8 @@ protected:
+ 
+     QVector<KoResourceSP> resourcesForName(const QString &name) const override {
+         QVector<KoResourceSP> resources;
+-        Q_FOREACH(KoResourceSP res, m_cachedResources) {
++        const QList<KoResourceSP> snapshot = m_sharedResources->snapshot();
++        for (const KoResourceSP &res : snapshot) {
+             if (res->name() == name && res->resourceType().first == m_resourceType) {
+                 resources << res;
+             }
+@@ -42,7 +57,8 @@ protected:
+ 
+     QVector<KoResourceSP> resourcesForMD5(const QString &md5) const override {
+         QVector<KoResourceSP> resources;
+-        Q_FOREACH(KoResourceSP res, m_cachedResources) {
++        const QList<KoResourceSP> snapshot = m_sharedResources->snapshot();
++        for (const KoResourceSP &res : snapshot) {
+             if (res->md5Sum() == md5 && res->resourceType().first == m_resourceType) {
+                 resources << res;
+             }
+@@ -53,17 +69,18 @@ protected:
+ public:
+ 
+     KoResourceSP fallbackResource() const override {
+-        auto it = std::find_if(m_cachedResources.begin(),
+-                               m_cachedResources.end(),
+-                               [this] (KoResourceSP res) {
++        const QList<KoResourceSP> snapshot = m_sharedResources->snapshot();
++        auto it = std::find_if(snapshot.begin(),
++                               snapshot.end(),
++                               [this] (const KoResourceSP &res) {
+                 return res->resourceType().first == this->m_resourceType;
+-    });
+-        return it != m_cachedResources.end() ? *it : KoResourceSP();
++        });
++        return it != snapshot.end() ? *it : KoResourceSP();
+     }
+ 
+ private:
+     const QString m_resourceType;
+-    const QList<KoResourceSP> m_cachedResources;
++    const std::shared_ptr<SharedResources> m_sharedResources;
+ };
+ }
+ 
+@@ -71,17 +88,18 @@ class KisLocalStrokeResourcesPrivate : public KisResourcesInterfacePrivate
+ {
+ public:
+     KisLocalStrokeResourcesPrivate(const QList<KoResourceSP> &_localResources)
+-        : localResources(_localResources)
++        : shared(std::make_shared<SharedResources>())
+     {
++        shared->resources = _localResources;
+ 
+         // sanity check that we don't have any null resources
+-        KIS_SAFE_ASSERT_RECOVER(!localResources.contains(KoResourceSP())) {
+-            localResources.removeAll(KoResourceSP());
++        KIS_SAFE_ASSERT_RECOVER(!shared->resources.contains(KoResourceSP())) {
++            shared->resources.removeAll(KoResourceSP());
+         }
+ 
+ 
+     }
+-    QList<KoResourceSP> localResources;
++    std::shared_ptr<SharedResources> shared;
+ };
+ 
+ 
+@@ -103,29 +121,31 @@ void KisLocalStrokeResources::addResource(KoResourceSP resource)
+         warnKrita << "Attempted to insert a null resource into the local style resource server";
+         return;
+     }
+-    d->localResources.append(resource);
++    QWriteLocker l(&d->shared->lock);
++    d->shared->resources.append(resource);
+ }
+ 
+ void KisLocalStrokeResources::removeResource(KoResourceSP resource)
+ {
+     Q_D(KisLocalStrokeResources);
+-    d->localResources.removeAll(resource);
++    QWriteLocker l(&d->shared->lock);
++    d->shared->resources.removeAll(resource);
+ }
+ 
+ KisLocalStrokeResources *KisLocalStrokeResources::clone() const
+ {
+     Q_D(const KisLocalStrokeResources);
+-    return new KisLocalStrokeResources(d->localResources);
++    return new KisLocalStrokeResources(d->shared->snapshot());
+ }
+ 
+ KisResourcesInterface::ResourceSourceAdapter *KisLocalStrokeResources::createSourceImpl(const QString &type) const
+ {
+     Q_D(const KisLocalStrokeResources);
+-    return new LocalResourcesSource(type, d->localResources);
++    return new LocalResourcesSource(type, d->shared);
+ }
+ 
+ QList<KoResourceSP> KisLocalStrokeResources::resources() const
+ {
+     Q_D(const KisLocalStrokeResources);
+-    return d->localResources;
++    return d->shared->snapshot();
+ }
+-- 
+2.56.1
+
