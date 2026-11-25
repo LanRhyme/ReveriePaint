@@ -61,7 +61,10 @@ interface SignalingEventListener {
     fun onJoinRequest(request: CollabPendingRequest)
     fun onPeerJoined(peer: CollabPeer)
     fun onPeerLeft(peerId: String, reason: String)
+    fun onPeerOffline(peerId: String)
+    fun onPeerOnline(peerId: String)
     fun onSignal(fromPeerId: String, payloadJson: String)
+    fun onSignalUndelivered(targetPeerId: String)
     fun onHostChanged(newHostPeerId: String, hostToken: String?)
     fun onHostOffline(hostPeerId: String)
     fun onHostOnline(hostPeerId: String)
@@ -252,12 +255,18 @@ class SignalingClient(
     fun closeRoom(): Boolean =
         sendJson(JSONObject().apply { put("type", "close_room") })
 
-    fun disconnect() {
+    fun sendLeave(): Boolean =
+        sendJson(JSONObject().apply { put("type", "leave") })
+
+    fun disconnect(gracefulLeave: Boolean = false) {
+        if (gracefulLeave) {
+            runCatching { sendLeave() }
+        }
         stopKeepAlive()
         val ws = webSocket
         webSocket = null
         try {
-            ws?.close(1000, "client_disconnect")
+            ws?.close(1000, if (gracefulLeave) "client_leave" else "client_disconnect")
         } catch (_: Throwable) {
         }
     }
@@ -331,11 +340,14 @@ class SignalingClient(
                 peerId = msg.optString("peerId"),
                 reason = msg.optString("reason", "disconnected"),
             )
+            "peer_offline" -> listener.onPeerOffline(msg.optString("peerId"))
+            "peer_online" -> listener.onPeerOnline(msg.optString("peerId"))
             "signal" -> {
                 val from = msg.optString("from")
                 val payload = msg.optJSONObject("payload")?.toString() ?: return
                 listener.onSignal(from, payload)
             }
+            "signal_undelivered" -> listener.onSignalUndelivered(msg.optString("to"))
             "host_promoted" -> listener.onHostChanged(
                 newHostPeerId = msg.optString("hostPeerId"),
                 hostToken = msg.optString("hostToken").takeIf { it.isNotEmpty() },

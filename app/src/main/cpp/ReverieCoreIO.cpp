@@ -1396,6 +1396,13 @@ bool ReverieCore::saveRevp(const QString &path, const QString &extraMetaJson, co
         meta["animation"] = animObj;
     }
 
+    if (m_isCollabProject) {
+        meta["isCollab"] = true;
+        if (!m_collabRoomCode.isEmpty()) {
+            meta["collabRoomCode"] = m_collabRoomCode;
+        }
+    }
+
     QJsonArray assetNames;
     for (auto it = m_revAssets.constBegin(); it != m_revAssets.constEnd(); ++it) {
         assetNames.append(it.key());
@@ -1692,6 +1699,13 @@ bool ReverieCore::saveRevpAsync(const QString &path, const QString &extraMetaJso
         animObj["lastFrameHolds"] = holdsObj;
 
         meta["animation"] = animObj;
+    }
+
+    if (m_isCollabProject) {
+        meta["isCollab"] = true;
+        if (!m_collabRoomCode.isEmpty()) {
+            meta["collabRoomCode"] = m_collabRoomCode;
+        }
     }
 
     QJsonArray assetNames;
@@ -2524,6 +2538,8 @@ bool ReverieCore::loadRevp(const QString &path)
     if (isKraFallback) {
         w = kraW;
         h = kraH;
+        m_isCollabProject = false;
+        m_collabRoomCode.clear();
     } else {
         QJsonDocument metaDoc = QJsonDocument::fromJson(metaData);
         if (!metaDoc.isObject()) {
@@ -2533,6 +2549,8 @@ bool ReverieCore::loadRevp(const QString &path)
         meta = metaDoc.object();
         w = meta["width"].toInt(m_docWidth > 0 ? m_docWidth : 1080);
         h = meta["height"].toInt(m_docHeight > 0 ? m_docHeight : 1920);
+        m_isCollabProject = meta["isCollab"].toBool(false);
+        m_collabRoomCode = meta["collabRoomCode"].toString();
     }
     qWarning() << "ReverieCore::loadRevp w:" << w << "h:" << h;
 

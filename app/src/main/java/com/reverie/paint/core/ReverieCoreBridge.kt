@@ -1548,6 +1548,17 @@ object ReverieCoreBridge {
         payloadJson: String,
     )
 
+    external fun collabSyncOnReconnect(
+        hostPeerId: String,
+        iceServersJson: String,
+        peersJson: String,
+    )
+
+    external fun collabRetryPeer(peerId: String)
+    external fun setProjectCollabMeta(isCollab: Boolean, roomCode: String)
+    external fun isCollabProject(): Boolean
+    external fun collabProjectRoomCode(): String
+
     external fun collabDrainInbound(): Boolean
     external fun collabPollEventsJson(): String
     external fun collabPollCursorsJson(): String

@@ -84,6 +84,10 @@ export class CollabRoom extends DurableObject {
       requireApproval,
       maxPeers,
       canvasMeta,
+      admittedPeers: {
+        [hostPeerId]: { name: hostName, joinedAt: now, disconnectedAt: 0 },
+      },
+      kickedPeers: [],
       createdAt: now,
       lastActiveAt: now,
       expiresAt: now + roomTtlMs,
@@ -165,6 +169,10 @@ export class CollabRoom extends DurableObject {
       }
     }
 
+    if (!isHost && Array.isArray(meta.kickedPeers) && meta.kickedPeers.includes(peerId)) {
+      throw new HttpError(403, 'kicked', 'removed from room by host');
+    }
+
     const existingForPeer = this.ctx.getWebSockets(peerId);
     const activeSockets = this.ctx.getWebSockets();
     if (existingForPeer.length === 0 && activeSockets.length >= MAX_ROOM_CONNECTIONS) {
@@ -172,12 +180,14 @@ export class CollabRoom extends DurableObject {
     }
 
     const admittedPeers = this.listAdmittedPeers();
-    const alreadyAdmitted = existingForPeer.some((s) => s.deserializeAttachment()?.status === 'admitted');
+    const prevAdmitted = meta.admittedPeers && meta.admittedPeers[peerId];
+    const alreadyAdmitted = Boolean(prevAdmitted) ||
+      existingForPeer.some((s) => s.deserializeAttachment()?.status === 'admitted');
     if (!isHost && !alreadyAdmitted && admittedPeers.length >= meta.maxPeers) {
       throw new HttpError(409, 'room_full', 'room reached maxPeers');
     }
 
-    // 若同 peerId 重连, 标记旧连接为 replaced 避免延迟 close 误发 peer_left
+    // 若同 peerId 重连, 标记旧连接为 replaced 避免延迟 close 误发断线广播
     for (const oldWs of existingForPeer) {
       const att = oldWs.deserializeAttachment() || {};
       oldWs.serializeAttachment({ ...att, replaced: true });
@@ -189,8 +199,9 @@ export class CollabRoom extends DurableObject {
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
     const now = Date.now();
-    const status = isHost || !meta.requireApproval ? 'admitted' : 'pending';
+    const status = isHost || !meta.requireApproval || alreadyAdmitted ? 'admitted' : 'pending';
     const name = sanitizeName(url.searchParams.get('name'), isHost ? meta.hostName : 'Artist');
+    const joinedAt = prevAdmitted?.joinedAt || now;
 
     this.ctx.acceptWebSocket(server, [peerId]);
     server.serializeAttachment({
@@ -198,11 +209,17 @@ export class CollabRoom extends DurableObject {
       role: isHost ? 'host' : 'peer',
       name,
       status,
-      joinedAt: now,
+      joinedAt,
       replaced: false,
     });
 
     meta.lastActiveAt = now;
+    if (!meta.admittedPeers || typeof meta.admittedPeers !== 'object') {
+      meta.admittedPeers = {};
+    }
+    if (status === 'admitted') {
+      meta.admittedPeers[peerId] = { name, joinedAt, disconnectedAt: 0 };
+    }
     if (isHost) {
       meta.hostDisconnectedAt = 0;
     }
@@ -225,7 +242,7 @@ export class CollabRoom extends DurableObject {
 
       if (!isHost) {
         this.broadcastAdmitted(
-          { type: 'peer_joined', peer: { peerId, role: 'peer', name, joinedAt: now } },
+          { type: 'peer_joined', peer: { peerId, role: 'peer', name, joinedAt } },
           peerId,
         );
       } else {
@@ -330,6 +347,14 @@ export class CollabRoom extends DurableObject {
 
         if (msg.type === 'approve') {
           targetWs.serializeAttachment({ ...targetAtt, status: 'admitted' });
+          if (!meta.admittedPeers || typeof meta.admittedPeers !== 'object') {
+            meta.admittedPeers = {};
+          }
+          meta.admittedPeers[targetAtt.peerId] = {
+            name: targetAtt.name,
+            joinedAt: targetAtt.joinedAt,
+            disconnectedAt: 0,
+          };
           const iceServers = await buildIceServers(this.env, targetAtt.peerId);
           this.sendJson(targetWs, {
             type: 'admitted',
@@ -369,6 +394,13 @@ export class CollabRoom extends DurableObject {
         }
         const targetId = typeof msg.targetPeerId === 'string' ? msg.targetPeerId : '';
         if (!targetId || targetId === meta.hostPeerId) return;
+        if (meta.admittedPeers && meta.admittedPeers[targetId]) {
+          delete meta.admittedPeers[targetId];
+        }
+        if (!Array.isArray(meta.kickedPeers)) meta.kickedPeers = [];
+        if (!meta.kickedPeers.includes(targetId)) {
+          meta.kickedPeers.push(targetId);
+        }
         const targetWs = this.findSocketByPeerId(targetId);
         if (!targetWs) return;
         const targetAtt = targetWs.deserializeAttachment();
@@ -425,6 +457,25 @@ export class CollabRoom extends DurableObject {
         break;
       }
 
+      case 'leave': {
+        if (meta.admittedPeers && meta.admittedPeers[sender.peerId]) {
+          delete meta.admittedPeers[sender.peerId];
+        }
+        ws.serializeAttachment({ ...sender, replaced: true });
+        if (sender.status === 'admitted') {
+          this.broadcastAdmitted(
+            { type: 'peer_left', peerId: sender.peerId, reason: 'left' },
+            sender.peerId,
+          );
+        }
+        meta.lastActiveAt = Date.now();
+        await this.ctx.storage.put(STORAGE_ROOM_KEY, meta);
+        try {
+          ws.close(1000, 'left');
+        } catch {}
+        return;
+      }
+
       case 'close_room': {
         if (sender.peerId !== meta.hostPeerId) {
           this.sendJson(ws, { type: 'error', code: 'host_only' });
@@ -471,7 +522,11 @@ export class CollabRoom extends DurableObject {
       meta.hostDisconnectedAt = now;
       this.broadcastAdmitted({ type: 'host_offline', hostPeerId: meta.hostPeerId }, att.peerId);
     } else if (att.status === 'admitted') {
-      this.broadcastAdmitted({ type: 'peer_left', peerId: att.peerId, reason: 'disconnected' }, att.peerId);
+      if (meta.admittedPeers && meta.admittedPeers[att.peerId]) {
+        meta.admittedPeers[att.peerId].disconnectedAt = now;
+      }
+      // 仅广播 peer_offline 通知信令暂断, 保留已建立的 P2P 通道等待几秒内无感重连
+      this.broadcastAdmitted({ type: 'peer_offline', peerId: att.peerId }, att.peerId);
     }
 
     meta.lastActiveAt = now;

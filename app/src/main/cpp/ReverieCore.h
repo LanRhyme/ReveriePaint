@@ -1147,6 +1147,11 @@ public:
     void collabOnPeerLeft(const QString &peerId);
     void collabOnHostChanged(const QString &newHostPeerId);
     void collabOnRemoteSignal(const QString &fromPeerId, const QString &payloadJson);
+    void collabSyncOnReconnect(const QString &hostPeerId, const QString &iceServersJson, const QString &peersJson);
+    void collabRetryPeer(const QString &peerId);
+    void setProjectCollabMeta(bool isCollab, const QString &roomCode);
+    bool isCollabProject() const { return m_isCollabProject; }
+    QString collabProjectRoomCode() const { return m_collabRoomCode; }
     bool collabDrainInbound();
     QString collabPollEventsJson();
     QString collabPollCursorsJson();
@@ -1903,6 +1908,8 @@ private:
     reverie::CollabRuntime *m_collab = nullptr;
     bool m_collabActive = false;
     bool m_collabSuppressEmit = false;
+    bool m_isCollabProject = false;
+    QString m_collabRoomCode;
     int m_lastStrokeSeed = 0;
     QVector<StrokeSample> m_collabPendingSamples;
     void collabResetDocumentState();

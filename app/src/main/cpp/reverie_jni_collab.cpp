@@ -134,6 +134,42 @@ Java_com_reverie_paint_core_ReverieCoreBridge_collabOnRemoteSignal(
     core()->collabOnRemoteSignal(jstrToQString(env, fromPeerId), jstrToQString(env, payloadJson));
 }
 
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_collabSyncOnReconnect(
+    JNIEnv *env, jobject, jstring hostPeerId, jstring iceServersJson, jstring peersJson)
+{
+    core()->collabSyncOnReconnect(
+        jstrToQString(env, hostPeerId),
+        jstrToQString(env, iceServersJson),
+        jstrToQString(env, peersJson));
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_collabRetryPeer(
+    JNIEnv *env, jobject, jstring peerId)
+{
+    core()->collabRetryPeer(jstrToQString(env, peerId));
+}
+
+JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_setProjectCollabMeta(
+    JNIEnv *env, jobject, jboolean isCollab, jstring roomCode)
+{
+    core()->setProjectCollabMeta(isCollab == JNI_TRUE, jstrToQString(env, roomCode));
+}
+
+JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_isCollabProject(JNIEnv *, jobject)
+{
+    return core()->isCollabProject() ? JNI_TRUE : JNI_FALSE;
+}
+
+JNIEXPORT jstring JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_collabProjectRoomCode(JNIEnv *env, jobject)
+{
+    return qStringToJstr(env, core()->collabProjectRoomCode());
+}
+
 JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_collabDrainInbound(JNIEnv *, jobject)
 {

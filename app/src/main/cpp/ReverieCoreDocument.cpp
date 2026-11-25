@@ -154,6 +154,10 @@ bool ReverieCore::newDocument(int width, int height, bool infiniteCanvas)
     m_lastPressure = 1.0;
     m_strokeColor = QColor();
     m_strokeOpacity = 1.0;
+    m_isCollabProject = m_collabActive;
+    if (!m_collabActive) {
+        m_collabRoomCode.clear();
+    }
     if (m_collabActive) {
         collabResetDocumentState();
     }
@@ -233,9 +237,15 @@ bool ReverieCore::newDocument(int width, int height, bool infiniteCanvas)
 // without creating a replacement document.
 void ReverieCore::closeDocument()
 {
+    m_isCollabProject = m_collabActive;
+    if (!m_collabActive) {
+        m_collabRoomCode.clear();
+    }
     if (m_collabActive) {
         collabResetDocumentState();
     }
+    m_isCollabProject = false;
+    m_collabRoomCode.clear();
     // Liquify owns transactions, tile snapshots and raw layer pointers. Release
     // them while their document is still alive, including an interrupted gesture.
     liquifyCancel();
