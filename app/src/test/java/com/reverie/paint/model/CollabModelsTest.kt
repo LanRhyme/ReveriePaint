@@ -147,4 +147,174 @@ class CollabModelsTest {
         assertFalse(CollabToolSupportPolicy.requiresLayerWritePermission(Tool.MAGICWAND))
         assertFalse(CollabToolSupportPolicy.requiresLayerWritePermission(Tool.PAN))
     }
+
+    @Test
+    fun `协同图层结构属性删除与分组权限校验完整`() {
+        // 锁定或背景层不允许非房主改属性
+        assertFalse(
+            CollabPermissionPolicy.canModifyLayerProperties(
+                inCollab = true,
+                isHost = false,
+                isBackground = false,
+                isLayerLocked = true,
+                ownerPeerId = "me",
+                permissionCode = LayerCollabPermission.SHARED.code,
+                selfPeerId = "me",
+            ),
+        )
+        assertFalse(
+            CollabPermissionPolicy.canModifyLayerProperties(
+                inCollab = true,
+                isHost = false,
+                isBackground = true,
+                isLayerLocked = false,
+                ownerPeerId = "host",
+                permissionCode = LayerCollabPermission.SHARED.code,
+                selfPeerId = "guest",
+            ),
+        )
+        assertTrue(
+            CollabPermissionPolicy.canModifyLayerProperties(
+                inCollab = true,
+                isHost = true,
+                isBackground = true,
+                isLayerLocked = false,
+                ownerPeerId = "host",
+                permissionCode = LayerCollabPermission.SHARED.code,
+                selfPeerId = "host",
+            ),
+        )
+
+        // 公共层允许他人在未锁定时调整混合模式/排序等属性, 但禁止他人在无所有权时加锁或删层
+        assertTrue(
+            CollabPermissionPolicy.canModifyLayerProperties(
+                inCollab = true,
+                isHost = false,
+                isBackground = false,
+                isLayerLocked = false,
+                ownerPeerId = "other",
+                permissionCode = LayerCollabPermission.SHARED.code,
+                selfPeerId = "guest",
+            ),
+        )
+        assertFalse(
+            CollabPermissionPolicy.canToggleLayerLock(
+                inCollab = true,
+                isHost = false,
+                isBackground = false,
+                ownerPeerId = "other",
+                selfPeerId = "guest",
+            ),
+        )
+        assertFalse(
+            CollabPermissionPolicy.canDeleteLayer(
+                inCollab = true,
+                isHost = false,
+                isBackground = false,
+                isLayerLocked = false,
+                ownerPeerId = "other",
+                permissionCode = LayerCollabPermission.SHARED.code,
+                selfPeerId = "guest",
+            ),
+        )
+        assertTrue(
+            CollabPermissionPolicy.canDeleteLayer(
+                inCollab = true,
+                isHost = true,
+                isBackground = false,
+                isLayerLocked = false,
+                ownerPeerId = "other",
+                permissionCode = LayerCollabPermission.OWNER_ONLY.code,
+                selfPeerId = "host",
+            ),
+        )
+        // 锁定状态无人能直接删除
+        assertFalse(
+            CollabPermissionPolicy.canDeleteLayer(
+                inCollab = true,
+                isHost = true,
+                isBackground = false,
+                isLayerLocked = true,
+                ownerPeerId = "host",
+                permissionCode = LayerCollabPermission.OWNER_ONLY.code,
+                selfPeerId = "host",
+            ),
+        )
+
+        // 插入分组权限
+        assertFalse(
+            CollabPermissionPolicy.canInsertIntoGroup(
+                inCollab = true,
+                isHost = false,
+                isGroupLocked = false,
+                groupOwnerPeerId = "other",
+                groupPermissionCode = LayerCollabPermission.OWNER_ONLY.code,
+                selfPeerId = "guest",
+            ),
+        )
+        assertTrue(
+            CollabPermissionPolicy.canInsertIntoGroup(
+                inCollab = true,
+                isHost = false,
+                isGroupLocked = false,
+                groupOwnerPeerId = "other",
+                groupPermissionCode = LayerCollabPermission.SHARED.code,
+                selfPeerId = "guest",
+            ),
+        )
+    }
+
+    @Test
+    fun `加入自动聚焦优选本人层并识别离房遗留图层`() {
+        val layers = listOf(
+            CollabLayerDescriptor(0, isBackground = true, isGroup = false, isLocked = true, nodeType = 0, ownerPeerId = "", permissionCode = 0),
+            CollabLayerDescriptor(1, isBackground = false, isGroup = false, isLocked = false, nodeType = 0, ownerPeerId = "other", permissionCode = LayerCollabPermission.SHARED.code),
+            CollabLayerDescriptor(2, isBackground = false, isGroup = false, isLocked = false, nodeType = 0, ownerPeerId = "me", permissionCode = LayerCollabPermission.OWNER_ONLY.code),
+            CollabLayerDescriptor(3, isBackground = false, isGroup = false, isLocked = false, nodeType = 0, ownerPeerId = "other", permissionCode = LayerCollabPermission.OWNER_ONLY.code),
+        )
+        assertEquals(2, CollabPermissionPolicy.pickAutoFocusLayerIndex(layers, "me"))
+        assertEquals(1, CollabPermissionPolicy.pickAutoFocusLayerIndex(layers, "third"))
+        assertEquals(
+            -1,
+            CollabPermissionPolicy.pickAutoFocusLayerIndex(
+                layers.filterNot { it.permissionCode == LayerCollabPermission.SHARED.code },
+                "third",
+            ),
+        )
+
+        // 暂时离线成员仍在 activePeerIds 中, 不得视为遗留
+        assertFalse(
+            CollabPermissionPolicy.isOrphanedDepartedLayer(
+                inCollab = true,
+                isBackground = false,
+                ownerPeerId = "p2",
+                selfPeerId = "host",
+                activePeerIds = setOf("host", "p2"),
+                departedPeerIds = emptySet(),
+            ),
+        )
+        // 已离房成员不再在 activePeerIds 中, 视为遗留可接管
+        assertTrue(
+            CollabPermissionPolicy.isOrphanedDepartedLayer(
+                inCollab = true,
+                isBackground = false,
+                ownerPeerId = "p2",
+                selfPeerId = "host",
+                activePeerIds = setOf("host"),
+                departedPeerIds = setOf("p2"),
+            ),
+        )
+    }
+
+    @Test
+    fun `协同模式下支持与不支持的图层类型分类明确`() {
+        assertTrue(CollabPermissionPolicy.isLayerTypeSupportedInCollab(LayerNodeType.PAINT))
+        assertTrue(CollabPermissionPolicy.isLayerTypeSupportedInCollab(LayerNodeType.GROUP))
+        assertTrue(CollabPermissionPolicy.isLayerTypeSupportedInCollab(LayerNodeType.FILL))
+        assertTrue(CollabPermissionPolicy.isLayerTypeSupportedInCollab(LayerNodeType.TRANSPARENCY_MASK))
+        assertFalse(CollabPermissionPolicy.isLayerTypeSupportedInCollab(LayerNodeType.ADJUSTMENT))
+        assertFalse(CollabPermissionPolicy.isLayerTypeSupportedInCollab(LayerNodeType.STROKE))
+        assertFalse(CollabPermissionPolicy.isLayerTypeSupportedInCollab(LayerNodeType.PAINT, has3DContent = true))
+        assertFalse(CollabPermissionPolicy.isLayerTypeSupportedInCollab(LayerNodeType.PAINT, hasTextContent = true))
+    }
 }

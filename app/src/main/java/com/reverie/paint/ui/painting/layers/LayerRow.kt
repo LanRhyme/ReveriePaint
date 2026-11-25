@@ -116,11 +116,16 @@ import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.zIndex
 import com.reverie.paint.R
 import com.reverie.paint.core.*
+import com.reverie.paint.model.CollabTopologyPolicy
+import com.reverie.paint.model.LayerCollabPermission
+import com.reverie.paint.ui.components.ReDropdownMenu
+import com.reverie.paint.ui.components.ReDropdownMenuItem
 import com.reverie.paint.ui.components.ReSlider
 import com.reverie.paint.ui.components.pressScale
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.Motion
+import com.reverie.paint.ui.theme.Theme
 import com.reverie.paint.ui.theme.optimalTextColor
 import dev.chrisbanes.haze.HazeState
 import dev.chrisbanes.haze.HazeStyle
@@ -552,18 +557,25 @@ internal fun LayerRow(
                     effectiveVisible = effectiveVisible,
                     // 背景层不透明度由引擎固定为 100% (ReverieCore::setLayerOpacity 直接
                     // 忽略 index 0), 分格裁剪蒙版也没有独立不透明度: 这两种行只显示数值
-                    opacityScrub = if (panelCrop != null || isBg) null else opacityScrub,
+                    opacityScrub =
+                        if (panelCrop != null || isBg || (vm.collab.isActive && !vm.canModifyLayerPropsInCollab(layer))) {
+                            null
+                        } else {
+                            opacityScrub
+                        },
                     // 混合模式直达: 背景层恒为"正常", 蒙版没有混合模式, 分格组行走
                     // 自己的面板工具 —— 这三种行不挂入口, 标签退化成纯文本
                     onOpenBlendModes =
                         if (isBg || isPanelMask ||
                             com.reverie.paint.model.LayerNodeType.isMask(layer.nodeType) ||
-                            vm.panelIdForGroupRow(index) != null
+                            vm.panelIdForGroupRow(index) != null ||
+                            (vm.collab.isActive && !vm.canModifyLayerPropsInCollab(layer))
                         ) {
                             null
                         } else {
                             onOpenBlendModes
                         },
+                    interactiveCollabPill = true,
                     isDropTargetParent = isDropTargetParent,
                     pressGate = controlPressGate,
                 )
@@ -589,11 +601,15 @@ internal fun LayerRow(
                     }
                 } else {
                     DrawerAction(Modifier.weight(1f), Morandi.panelHi, R.drawable.ic_image_adjust, stringResource(R.string.layer_op_invert_mask)) {
-                        vm.invertMask(index)
+                        if (vm.ensureCollabLayerEditable(index)) {
+                            vm.invertMask(index)
+                        }
                         onRevealClose()
                     }
                     DrawerAction(Modifier.weight(1f), Morandi.accent, R.drawable.ic_fill, stringResource(R.string.layer_op_apply_mask)) {
-                        vm.applyMask(index)
+                        if (vm.ensureCollabLayerEditable(index)) {
+                            vm.applyMask(index)
+                        }
                         onRevealClose()
                     }
                 }
@@ -660,6 +676,8 @@ internal fun LayerRowContent(
     isDropTargetParent: Boolean = false,
     // 行内混合模式标签的直达入口; null = 纯文本 (拖拽卡片与背景/蒙版行)
     onOpenBlendModes: ((Int) -> Unit)? = null,
+    // 真实列表行允许点击协同徽章弹快捷权限菜单; 拖拽预览卡片置 false
+    interactiveCollabPill: Boolean = false,
 ) {
     val isBg = layer.isBackground
     val visible = layer.visible
@@ -988,27 +1006,109 @@ internal fun LayerRowContent(
                 }
                 val panelTitle = vm.drawUnitTitleForPanelGroup(layer.index)
                 if (vm.collab.isActive && !isBg) {
-                    if (layer.ownerPeerId.isNotEmpty()) {
-                        Box(
-                            modifier = Modifier
-                                .size(7.dp)
-                                .clip(androidx.compose.foundation.shape.CircleShape)
-                                .background(
-                                    Color(
-                                        com.reverie.paint.model.CollabTopologyPolicy.assignBadgeColorArgb(
-                                            layer.ownerPeerId,
-                                        ),
-                                    ),
-                                ),
-                        )
+                    val colors = Theme.current
+                    val perm = LayerCollabPermission.fromCode(layer.collabPermission)
+                    val canManage = vm.canManageLayerOwnershipInCollab(layer)
+                    val isOrphan = vm.isOrphanedCollabLayer(layer)
+                    val hasOwner = layer.ownerPeerId.isNotEmpty()
+                    val ownerTint = if (hasOwner) {
+                        Color(CollabTopologyPolicy.assignBadgeColorArgb(layer.ownerPeerId))
+                    } else {
+                        Morandi.accent
                     }
-                    if (!vm.canEditLayerInCollab(layer) && !layer.isGroup) {
-                        Icon(
-                            painterResource(R.drawable.ic_lock),
-                            contentDescription = stringResource(R.string.collab_layer_no_permission),
-                            tint = Morandi.subText,
-                            modifier = Modifier.size(11.dp),
-                        )
+                    val pillFg = when {
+                        isOrphan -> colors.error
+                        perm == LayerCollabPermission.LOCKED -> Morandi.subText
+                        perm == LayerCollabPermission.OWNER_ONLY -> ownerTint
+                        else -> Morandi.accent
+                    }
+                    val pillBg = pillFg.copy(alpha = 0.15f)
+                    val pillText = when (perm) {
+                        LayerCollabPermission.LOCKED -> stringResource(R.string.collab_layer_badge_locked)
+                        LayerCollabPermission.OWNER_ONLY -> stringResource(R.string.collab_layer_badge_owner)
+                        LayerCollabPermission.SHARED -> stringResource(R.string.collab_layer_badge_shared)
+                    }
+                    var showPermMenu by remember { mutableStateOf(false) }
+
+                    Box {
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(3.dp),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(4.dp))
+                                .background(pillBg)
+                                .then(
+                                    if (interactiveCollabPill) {
+                                        Modifier.noRippleClickable {
+                                            if (canManage) {
+                                                showPermMenu = true
+                                            } else {
+                                                vm.showActionToast(R.string.collab_layer_props_no_permission, R.drawable.ic_lock)
+                                            }
+                                        }
+                                    } else {
+                                        Modifier
+                                    },
+                                )
+                                .padding(horizontal = 4.dp, vertical = 1.dp),
+                        ) {
+                            if (hasOwner) {
+                                Box(
+                                    modifier = Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(ownerTint),
+                                )
+                            }
+                            Text(
+                                text = pillText,
+                                color = pillFg,
+                                fontSize = 8.5.sp,
+                                fontWeight = FontWeight.SemiBold,
+                                maxLines = 1,
+                            )
+                        }
+                        if (interactiveCollabPill) {
+                            ReDropdownMenu(
+                                expanded = showPermMenu,
+                                onDismissRequest = { showPermMenu = false },
+                            ) {
+                                ReDropdownMenuItem(
+                                    text = stringResource(R.string.collab_layer_perm_shared),
+                                    selected = perm == LayerCollabPermission.SHARED,
+                                    onClick = {
+                                        showPermMenu = false
+                                        vm.setCollabLayerPermission(layer.index, LayerCollabPermission.SHARED)
+                                    },
+                                )
+                                ReDropdownMenuItem(
+                                    text = stringResource(R.string.collab_layer_perm_owner),
+                                    selected = perm == LayerCollabPermission.OWNER_ONLY,
+                                    onClick = {
+                                        showPermMenu = false
+                                        vm.setCollabLayerPermission(layer.index, LayerCollabPermission.OWNER_ONLY)
+                                    },
+                                )
+                                ReDropdownMenuItem(
+                                    text = stringResource(R.string.collab_layer_perm_locked),
+                                    selected = perm == LayerCollabPermission.LOCKED,
+                                    onClick = {
+                                        showPermMenu = false
+                                        vm.setCollabLayerPermission(layer.index, LayerCollabPermission.LOCKED)
+                                    },
+                                )
+                                if (layer.ownerPeerId != vm.collab.selfPeerId) {
+                                    ReDropdownMenuItem(
+                                        text = stringResource(R.string.collab_layer_claim_mine),
+                                        icon = R.drawable.ic_cloud,
+                                        onClick = {
+                                            showPermMenu = false
+                                            vm.setCollabLayerOwner(layer.index, vm.collab.selfPeerId)
+                                        },
+                                    )
+                                }
+                            }
+                        }
                     }
                 }
                 Text(
@@ -1027,7 +1127,9 @@ internal fun LayerRowContent(
                                     lastNameTapTime = 0L
                                     pendingDetailJob?.cancel()
                                     pendingDetailJob = null
-                                    onRename(layer.index, layer.name)
+                                    if (vm.ensureCollabLayerPropsEditable(layer.index)) {
+                                        onRename(layer.index, layer.name)
+                                    }
                                 } else {
                                     lastNameTapTime = now
                                     if (!selected) {
@@ -1152,7 +1254,7 @@ internal fun LayerRowContent(
                     modifier = Modifier.size(13.dp),
                 )
             }
-            if (layer.locked || isBg) {
+            if (layer.locked || isBg || (vm.collab.isActive && !vm.canEditLayerInCollab(layer) && !layer.isGroup)) {
                 Icon(
                     painterResource(R.drawable.ic_lock),
                     contentDescription = stringResource(R.string.layer_locked),

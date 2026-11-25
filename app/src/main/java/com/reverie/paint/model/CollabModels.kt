@@ -84,6 +84,18 @@ data class CollabRoomSummary(
     val canvasHeight: Int = 0,
 )
 
+/** 图层结构校验用的轻量只读描述 (供纯模型决策与自动选层复用, 不依赖 UI State) */
+data class CollabLayerDescriptor(
+    val index: Int,
+    val isBackground: Boolean,
+    val isGroup: Boolean,
+    val isLocked: Boolean,
+    val nodeType: Int,
+    val ownerPeerId: String,
+    val permissionCode: Int,
+    val hasLocalSpecialContent: Boolean = false,
+)
+
 /** Magma 图层所有权与写入权限纯规则 */
 object CollabPermissionPolicy {
     /**
@@ -108,12 +120,137 @@ object CollabPermissionPolicy {
         }
     }
 
-    /** 仅房主或图层当前拥有者可修改协同权限或转让所有权 */
+    /** 仅房主或图层当前拥有者可修改协同权限、锁定状态或转让所有权 */
     fun canManageOwnership(
         isHost: Boolean,
         ownerPeerId: String,
         selfPeerId: String,
     ): Boolean = isHost || ownerPeerId.isEmpty() || ownerPeerId == selfPeerId
+
+    /** 协同模式下仅房主可修改画布背景色或背景层显隐 */
+    fun canEditBackground(
+        inCollab: Boolean,
+        isHost: Boolean,
+    ): Boolean = !inCollab || isHost
+
+    /** 判断成员是否允许修改图层名称、显隐、透明度、混合模式、剪切蒙版、排序与透明度保护等结构/属性 */
+    fun canModifyLayerProperties(
+        inCollab: Boolean,
+        isHost: Boolean,
+        isBackground: Boolean,
+        isLayerLocked: Boolean,
+        ownerPeerId: String,
+        permissionCode: Int,
+        selfPeerId: String,
+    ): Boolean {
+        if (isBackground) return canEditBackground(inCollab, isHost)
+        if (!inCollab) return true
+        if (isLayerLocked) return false
+        return when (LayerCollabPermission.fromCode(permissionCode)) {
+            LayerCollabPermission.LOCKED -> false
+            LayerCollabPermission.OWNER_ONLY -> canManageOwnership(isHost, ownerPeerId, selfPeerId)
+            LayerCollabPermission.SHARED -> true
+        }
+    }
+
+    /** 判断成员是否允许切换图层本身的双态锁定图标 */
+    fun canToggleLayerLock(
+        inCollab: Boolean,
+        isHost: Boolean,
+        isBackground: Boolean,
+        ownerPeerId: String,
+        selfPeerId: String,
+    ): Boolean {
+        if (isBackground) return false
+        if (!inCollab) return true
+        return canManageOwnership(isHost, ownerPeerId, selfPeerId)
+    }
+
+    /** 判断成员是否允许删除图层或图层组: 锁定图层无人可删; 未锁定时仅房主或创建者本人可删 */
+    fun canDeleteLayer(
+        inCollab: Boolean,
+        isHost: Boolean,
+        isBackground: Boolean,
+        isLayerLocked: Boolean,
+        ownerPeerId: String,
+        permissionCode: Int,
+        selfPeerId: String,
+    ): Boolean {
+        if (isBackground || isLayerLocked) return false
+        if (!inCollab) return true
+        if (LayerCollabPermission.fromCode(permissionCode) == LayerCollabPermission.LOCKED) return false
+        return canManageOwnership(isHost, ownerPeerId, selfPeerId)
+    }
+
+    /** 判断成员是否允许将图层放入目标图层组 */
+    fun canInsertIntoGroup(
+        inCollab: Boolean,
+        isHost: Boolean,
+        isGroupLocked: Boolean,
+        groupOwnerPeerId: String,
+        groupPermissionCode: Int,
+        selfPeerId: String,
+    ): Boolean {
+        if (isGroupLocked) return false
+        if (!inCollab) return true
+        return when (LayerCollabPermission.fromCode(groupPermissionCode)) {
+            LayerCollabPermission.LOCKED -> false
+            LayerCollabPermission.OWNER_ONLY -> canManageOwnership(isHost, groupOwnerPeerId, selfPeerId)
+            LayerCollabPermission.SHARED -> true
+        }
+    }
+
+    /** 协同会话中仅同步颜料图层、图层组、填充图层与透明度蒙版 */
+    fun isLayerTypeSupportedInCollab(
+        nodeType: Int,
+        has3DContent: Boolean = false,
+        hasTextContent: Boolean = false,
+    ): Boolean {
+        if (has3DContent || hasTextContent) return false
+        return nodeType == LayerNodeType.PAINT ||
+            nodeType == LayerNodeType.GROUP ||
+            nodeType == LayerNodeType.FILL ||
+            nodeType == LayerNodeType.TRANSPARENCY_MASK
+    }
+
+    /** 加入房间/重加载快照后自动选择最上方自己可绘的普通图层: 优先本人专属, 其次公共层, 找不到返回 -1 */
+    fun pickAutoFocusLayerIndex(
+        layers: List<CollabLayerDescriptor>,
+        selfPeerId: String,
+    ): Int {
+        fun isCandidate(d: CollabLayerDescriptor): Boolean {
+            if (d.isBackground || d.isGroup || LayerNodeType.isMask(d.nodeType)) return false
+            if (!isLayerTypeSupportedInCollab(d.nodeType, has3DContent = d.hasLocalSpecialContent)) return false
+            if (d.nodeType == LayerNodeType.FILL) return false
+            return canEditLayer(
+                inCollab = true,
+                isLayerLocked = d.isLocked,
+                isBackground = false,
+                isGroup = false,
+                ownerPeerId = d.ownerPeerId,
+                permissionCode = d.permissionCode,
+                selfPeerId = selfPeerId,
+            )
+        }
+        val ownTop = layers.asReversed().firstOrNull { isCandidate(it) && it.ownerPeerId == selfPeerId }
+        if (ownTop != null) return ownTop.index
+        val sharedTop = layers.asReversed().firstOrNull { isCandidate(it) }
+        return sharedTop?.index ?: -1
+    }
+
+    /** 判断某图层是否属于已离房/被移出成员留下的遗留专属/有主图层 (暂时离线仍保留所有权, 不视为遗留) */
+    fun isOrphanedDepartedLayer(
+        inCollab: Boolean,
+        isBackground: Boolean,
+        ownerPeerId: String,
+        selfPeerId: String,
+        activePeerIds: Set<String>,
+        departedPeerIds: Set<String>,
+    ): Boolean {
+        if (!inCollab || isBackground || ownerPeerId.isEmpty() || ownerPeerId == selfPeerId) return false
+        if (ownerPeerId in activePeerIds) return false
+        return ownerPeerId in departedPeerIds || activePeerIds.isNotEmpty()
+    }
 }
 
 /** 拓扑模式与确定性房间码 / 选主策略 (与服务端 collab/worker/src/room.js 一致) */

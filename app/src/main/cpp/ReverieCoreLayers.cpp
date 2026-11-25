@@ -126,6 +126,35 @@ void applyAutoClipIfBetweenClipped(KisNodeSP newNode, const KisNodeSP &above)
     }
 }
 
+void ReverieCore::collabAdjustProtectedInsertPosition(KisImageSP image,
+                                                      KisNodeSP &parent,
+                                                      KisNodeSP &above) const
+{
+    if (!image || !m_collabActive || !parent) return;
+    KisNodeSP root(image->rootLayer());
+    if (parent == root) return;
+    const int pIdx = indexOfNode(parent.data());
+    if (pIdx >= 0 && !collabCanInsertIntoGroup(pIdx)) {
+        parent = root;
+        above = root ? root->lastChild() : KisNodeSP();
+    }
+}
+
+void ReverieCore::collabSyncAddedLayerPlacement(int idx, int addOpKind,
+                                                const QString &layerName, int extraInt)
+{
+    if (idx <= 0) return;
+    collabEmitLayerOp(addOpKind, idx, layerName, 0.0, extraInt);
+    if (idx - 1 >= 0 && idx < m_layers.size() &&
+        m_layers[idx].depth < m_layers[idx - 1].depth &&
+        m_layers[idx].node) {
+        collabEmitLayerMoved({m_layers[idx].node});
+    }
+    if (idx < m_layers.size() && layerClipped(idx)) {
+        collabEmitLayerOp(CollabLayerClipped, idx, QString(), 0.0, 1);
+    }
+}
+
 int ReverieCore::addLayer(const QString &name)
 {
     KisImageSP image = m_document;
@@ -163,6 +192,9 @@ int ReverieCore::addLayer(const QString &name)
     if (!parent) {
         parent = KisNodeSP(image->rootLayer());
     }
+    if (m_collabActive && !m_collabSuppressEmit) {
+        collabAdjustProtectedInsertPosition(image, parent, above);
+    }
     if (!parent) {
         return -1;
     }
@@ -181,7 +213,7 @@ int ReverieCore::addLayer(const QString &name)
     m_currentLayer = idx;
     markDirty();
     if (m_collabActive && !m_collabSuppressEmit) {
-        collabEmitLayerOp(CollabLayerAddPaint, idx, layerName);
+        collabSyncAddedLayerPlacement(idx, CollabLayerAddPaint, layerName);
     }
     return m_currentLayer;
 }
@@ -214,6 +246,9 @@ int ReverieCore::addGroupLayer(const QString &name)
     if (!parent) {
         parent = KisNodeSP(image->rootLayer());
     }
+    if (m_collabActive && !m_collabSuppressEmit) {
+        collabAdjustProtectedInsertPosition(image, parent, above);
+    }
     if (!parent) {
         return -1;
     }
@@ -228,7 +263,7 @@ int ReverieCore::addGroupLayer(const QString &name)
     m_currentLayer = idx;
     markDirty();
     if (m_collabActive && !m_collabSuppressEmit) {
-        collabEmitLayerOp(CollabLayerAddGroup, idx, groupName);
+        collabSyncAddedLayerPlacement(idx, CollabLayerAddGroup, groupName);
     }
     return m_currentLayer;
 }
@@ -237,6 +272,10 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
 {
     KisImageSP image = m_document;
     if (!image) {
+        return false;
+    }
+    if (m_collabActive && !m_collabSuppressEmit &&
+        type != LayerTypePaint && type != LayerTypeGroup && type != LayerTypeFill) {
         return false;
     }
     if (!m_previewTransactions.isEmpty() || m_previewTransaction) {
@@ -273,6 +312,9 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
     currentInsertPosition(m_layers, m_currentLayer, above, parent, image);
     if (!parent) {
         parent = KisNodeSP(image->rootLayer());
+    }
+    if (m_collabActive && !m_collabSuppressEmit) {
+        collabAdjustProtectedInsertPosition(image, parent, above);
     }
     if (!parent) {
         return false;
@@ -340,6 +382,15 @@ bool ReverieCore::addLayerWithType(const QString &name, int type, quint32 fillCo
                 reverie::setLayerProperty(&*newNode, "reverie_stroke_opacity", 100);
             }
         }
+        if (m_collabActive && !m_collabSuppressEmit) {
+            if (type == LayerTypeGroup) {
+                collabSyncAddedLayerPlacement(idx, CollabLayerAddGroup, finalName);
+            } else if (type == LayerTypeFill) {
+                collabSyncAddedLayerPlacement(idx, CollabLayerAddFill, finalName, static_cast<int>(fillColor));
+            } else {
+                collabSyncAddedLayerPlacement(idx, CollabLayerAddPaint, finalName);
+            }
+        }
     }
     markDirty();
     return true;
@@ -349,6 +400,9 @@ int ReverieCore::copyLayer(int index)
 {
     if (index <= 0 || index >= m_layers.size()) {
         return -1;  // background cannot be copied
+    }
+    if (m_collabActive && !m_collabSuppressEmit && !collabCanCopySubtree(index)) {
+        return -1;
     }
     LayerEntry &src = m_layers[index];
     if (!src.node) return -1;
@@ -447,6 +501,9 @@ int ReverieCore::copyLayer(int index)
                 reverie::setLayerProperty(&*cloned, "reverie_stroke_pos", sPos);
                 reverie::setLayerProperty(&*cloned, "reverie_stroke_opacity", sOp);
             }
+        }
+        if (m_collabActive && !m_collabSuppressEmit) {
+            collabEmitLayerTreeAdded(idx);
         }
     }
     markDirty();
@@ -605,6 +662,9 @@ int ReverieCore::pasteCanvasClipboard()
     if (index < 0) return -1;
     m_currentLayer = index;
     markDirty();
+    if (m_collabActive && !m_collabSuppressEmit) {
+        collabEmitLayerTreeAdded(index);
+    }
     return index;
 }
 
@@ -630,6 +690,12 @@ int ReverieCore::stampVisibleLayers()
     KisNodeSP above;
     KisNodeSP parent;
     currentInsertPosition(m_layers, m_currentLayer, above, parent, image);
+    if (!parent) {
+        parent = KisNodeSP(image->rootLayer());
+    }
+    if (m_collabActive && !m_collabSuppressEmit) {
+        collabAdjustProtectedInsertPosition(image, parent, above);
+    }
     applyAutoClipIfBetweenClipped(nl, above);
     pushUndoCommand(new KisImageLayerAddCommand(image, nl, parent, above));
     recompositeProjection();
@@ -640,6 +706,9 @@ int ReverieCore::stampVisibleLayers()
     }
     m_currentLayer = idx;
     markDirty();
+    if (m_collabActive && !m_collabSuppressEmit) {
+        collabEmitLayerTreeAdded(idx);
+    }
     return m_currentLayer;
 }
 
@@ -657,6 +726,19 @@ void ReverieCore::removeLayer(int index)
     const LayerEntry &e = m_layers[index];
     if (e.background || e.locked) {
         return;
+    }
+    if (m_collabActive && !m_collabSuppressEmit) {
+        if (!collabCanDeleteLayer(index)) {
+            return;
+        }
+        if (e.isGroup) {
+            const int rootDepth = e.depth;
+            for (int k = index + 1; k < m_layers.size() && m_layers[k].depth > rootDepth; ++k) {
+                if (m_layers[k].locked || !collabCanDeleteLayer(k)) {
+                    return;
+                }
+            }
+        }
     }
     const QString removedUuid = e.uuid;
     KisImageSP image = m_document;
@@ -838,6 +920,9 @@ void ReverieCore::setLayerName(int index, const QString &name)
     if (index <= 0 || index >= m_layers.size() || name.isEmpty()) {
         return;  // background cannot be renamed
     }
+    if (m_collabActive && !m_collabSuppressEmit && !collabCanModifyLayerProps(index)) {
+        return;
+    }
     if (m_layers[index].node) {
         const QString oldName = m_layers[index].name;
         pushUndoCommand(new KisNodeRenameCommand(
@@ -852,6 +937,9 @@ void ReverieCore::setLayerName(int index, const QString &name)
 void ReverieCore::setLayerVisible(int index, bool visible)
 {
     if (index < 0 || index >= m_layers.size()) {
+        return;
+    }
+    if (m_collabActive && !m_collabSuppressEmit && !collabCanModifyLayerProps(index)) {
         return;
     }
     if (m_layers[index].visible != visible && m_layers[index].node) {
@@ -916,6 +1004,9 @@ void ReverieCore::setLayerLocked(int index, bool locked)
     if (index <= 0 || index >= m_layers.size()) {
         return;  // background is always locked
     }
+    if (m_collabActive && !m_collabSuppressEmit && !collabCanManageLayerOwnership(index)) {
+        return;
+    }
     // 以节点真实状态为准 (镜像可能落后), 与桌面端"状态没变就不入栈"一致
     if (m_layers[index].node && m_layers[index].node->userLocked() != locked) {
         // 桌面 Krita 把 userLocked 记进撤销栈 (KisNodePropertyListCommand); 这里同款
@@ -941,6 +1032,9 @@ void ReverieCore::setLayerAlphaLocked(int index, bool locked)
 {
     if (index <= 0 || index >= m_layers.size()) {
         return;  // background is always alpha-locked
+    }
+    if (m_collabActive && !m_collabSuppressEmit && !collabCanModifyLayerProps(index)) {
+        return;
     }
     KisPaintLayer *pl = m_layers[index].isGroup ? nullptr
                                                : dynamic_cast<KisPaintLayer *>(m_layers[index].node);
@@ -981,6 +1075,9 @@ void ReverieCore::setLayerOpacity(int index, qreal opacity)
     if (index <= 0 || index >= m_layers.size() || !m_layers[index].node) {
         return;  // background stays opaque
     }
+    if (m_collabActive && !m_collabSuppressEmit && !collabCanModifyLayerProps(index)) {
+        return;
+    }
     const quint8 o = quint8(qBound<qreal>(0.0, opacity, 1.0) * 255.0);
     // Krita-native undo: the opacity command redo() applies the value
     pushUndoCommand(new KisNodeOpacityCommand(KisNodeSP(m_layers[index].node), o));
@@ -1009,6 +1106,9 @@ void ReverieCore::setLayerOpacityDirect(int index, qreal opacity)
     if (index <= 0 || index >= m_layers.size() || !m_layers[index].node) {
         return;  // background stays opaque
     }
+    if (m_collabActive && !m_collabSuppressEmit && !collabCanModifyLayerProps(index)) {
+        return;
+    }
     const quint8 o = quint8(qBound<qreal>(0.0, opacity, 1.0) * 255.0);
     if (m_layers[index].node->opacity() != o) {
         m_layers[index].node->setOpacity(o);
@@ -1023,6 +1123,9 @@ void ReverieCore::setLayerBlendMode(int index, const QString &opId)
 {
     if (index <= 0 || index >= m_layers.size()) {
         return;  // background is always 'normal'
+    }
+    if (m_collabActive && !m_collabSuppressEmit && !collabCanModifyLayerProps(index)) {
+        return;
     }
     if (m_layers[index].node) {
         const QString effectiveOp = (opId == "difference") ? COMPOSITE_DIFF : opId;
@@ -1062,6 +1165,10 @@ void ReverieCore::setLayerColorLabel(int index, int label)
     if (index < 0 || index >= m_layers.size() || !m_layers[index].node) {
         return;
     }
+    if (index == 0) return;
+    if (m_collabActive && !m_collabSuppressEmit && !collabCanModifyLayerProps(index)) {
+        return;
+    }
     // 以节点真实状态为准 (镜像可能落后)
     if (m_layers[index].node->colorLabelIndex() == label) {
         m_layers[index].colorLabel = label;
@@ -1070,6 +1177,9 @@ void ReverieCore::setLayerColorLabel(int index, int label)
     pushUndoCommand(new ReverieNodeColorLabelCommand(
         KisNodeSP(m_layers[index].node), label, kundo2_i18n("Color Label")));
     m_layers[index].colorLabel = label;
+    if (m_collabActive && !m_collabSuppressEmit) {
+        collabEmitLayerOp(CollabLayerColorLabel, index, QString(), 0.0, label);
+    }
 }
 
 bool ReverieCore::layerIsGroup(int index) const
@@ -1120,6 +1230,9 @@ void ReverieCore::setLayerClipped(int index, bool clipped)
     if (index <= 0 || index >= m_layers.size()) {
         return;
     }
+    if (m_collabActive && !m_collabSuppressEmit && !collabCanModifyLayerProps(index)) {
+        return;
+    }
     if (clipped) {
         KisNode *node = m_layers[index].node;
         if (!node || !node->prevSibling()) {
@@ -1149,6 +1262,9 @@ void ReverieCore::setLayerClipped(int index, bool clipped)
             }
             recompositeProjection();
             markDirty();
+            if (m_collabActive && !m_collabSuppressEmit) {
+                collabEmitLayerOp(CollabLayerClipped, index, QString(), 0.0, clipped ? 1 : 0);
+            }
         }
     }
 }
@@ -1167,6 +1283,9 @@ bool ReverieCore::layerAlphaInherited(int index) const
 void ReverieCore::setLayerAlphaInherited(int index, bool enable)
 {
     if (index <= 0 || index >= m_layers.size()) {
+        return;
+    }
+    if (m_collabActive && !m_collabSuppressEmit && !collabCanModifyLayerProps(index)) {
         return;
     }
     if (KisLayer *layer = dynamic_cast<KisLayer *>(m_layers[index].node)) {
@@ -1190,6 +1309,9 @@ void ReverieCore::setLayerAlphaInherited(int index, bool enable)
             }
             recompositeProjection();
             markDirty();
+            if (m_collabActive && !m_collabSuppressEmit) {
+                collabEmitLayerOp(CollabLayerAlphaInherited, index, QString(), 0.0, enable ? 1 : 0);
+            }
         }
     }
 }
@@ -1527,7 +1649,8 @@ QString ReverieCore::layerOwnerPeerId(int index) const
 
 void ReverieCore::setLayerOwnerPeerId(int index, const QString &ownerPeerId)
 {
-    if (index < 0 || index >= m_layers.size() || !m_layers[index].node) return;
+    if (index <= 0 || index >= m_layers.size() || !m_layers[index].node) return;
+    if (m_collabActive && !m_collabSuppressEmit && !collabCanManageLayerOwnership(index)) return;
     {
         std::lock_guard<std::mutex> mirrorLock(m_layerMirrorMutex);
         m_layers[index].ownerPeerId = ownerPeerId;
@@ -1547,7 +1670,8 @@ int ReverieCore::layerCollabPermission(int index) const
 
 void ReverieCore::setLayerCollabPermission(int index, int permission)
 {
-    if (index < 0 || index >= m_layers.size() || !m_layers[index].node) return;
+    if (index <= 0 || index >= m_layers.size() || !m_layers[index].node) return;
+    if (m_collabActive && !m_collabSuppressEmit && !collabCanManageLayerOwnership(index)) return;
     const int clamped = qBound(0, permission, 2);
     {
         std::lock_guard<std::mutex> mirrorLock(m_layerMirrorMutex);

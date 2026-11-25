@@ -38,6 +38,7 @@ import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.PaintViewModel
 import com.reverie.paint.core.collabOwnerDisplayName
+import com.reverie.paint.core.isOrphanedCollabLayer
 import com.reverie.paint.core.setCollabLayerOwner
 import com.reverie.paint.core.setCollabLayerPermission
 import com.reverie.paint.model.CollabPermissionPolicy
@@ -166,6 +167,7 @@ internal fun CollabLayerPermissionCard(
         }
 
         if (canManage) {
+            val isOrphan = vm.isOrphanedCollabLayer(layer)
             Row(
                 modifier = Modifier.fillMaxWidth(),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -174,6 +176,18 @@ internal fun CollabLayerPermissionCard(
                     ReTextButton(
                         text = stringResource(R.string.collab_layer_claim_mine),
                         onClick = { vm.setCollabLayerOwner(index, collab.selfPeerId) },
+                        fontSize = 11.sp,
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+
+                if (isOrphan && isHost && currentPerm != LayerCollabPermission.SHARED) {
+                    ReTextButton(
+                        text = stringResource(R.string.collab_layer_reclaim_set_shared),
+                        onClick = {
+                            vm.setCollabLayerOwner(index, collab.selfPeerId)
+                            vm.setCollabLayerPermission(index, LayerCollabPermission.SHARED)
+                        },
                         fontSize = 11.sp,
                         modifier = Modifier.weight(1f),
                     )

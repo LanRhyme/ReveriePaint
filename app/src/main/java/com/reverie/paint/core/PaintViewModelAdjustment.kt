@@ -20,6 +20,10 @@ internal fun PaintViewModel.addAdjustmentLayer(
     lut: ByteArray? = null,
     onCreated: (Int) -> Unit = {},
 ) {
+    if (collab.isActive) {
+        showActionToast(com.reverie.paint.R.string.collab_layer_type_unsupported, com.reverie.paint.R.drawable.ic_lock)
+        return
+    }
     var success = false
     runCore(after = {
         if (success) {

@@ -45,7 +45,7 @@ bool ReverieCore::createAdjustmentLayer(const QString &name, int filterType,
                                         const QByteArray &lut)
 {
     KisImageSP image = m_document;
-    if (!image) {
+    if (!image || (m_collabActive && !m_collabSuppressEmit)) {
         return false;
     }
     if (!m_previewTransactions.isEmpty() || m_previewTransaction) {

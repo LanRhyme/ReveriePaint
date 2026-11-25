@@ -13,12 +13,14 @@ import com.reverie.paint.R
 import com.reverie.paint.core.collab.SignalingClient
 import com.reverie.paint.core.collab.SignalingEventListener
 import com.reverie.paint.model.CollabConnectionPhase
+import com.reverie.paint.model.CollabLayerDescriptor
 import com.reverie.paint.model.CollabPendingRequest
 import com.reverie.paint.model.CollabPeer
 import com.reverie.paint.model.CollabPermissionPolicy
 import com.reverie.paint.model.CollabRole
 import com.reverie.paint.model.CollabTopologyPolicy
 import com.reverie.paint.model.LayerCollabPermission
+import com.reverie.paint.model.LayerNodeType
 import com.reverie.paint.model.RemoteCursorState
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
@@ -60,6 +62,7 @@ internal class CollabSessionState {
     var requireApproval by mutableStateOf(false)
     var maxPeers by mutableIntStateOf(10)
     var peers by mutableStateOf<List<CollabPeer>>(emptyList())
+    var departedPeers by mutableStateOf<Map<String, String>>(emptyMap())
     var pendingRequests by mutableStateOf<List<CollabPendingRequest>>(emptyList())
     var remoteCursors by mutableStateOf<List<RemoteCursorState>>(emptyList())
     var snapshotReceivedChunks by mutableIntStateOf(0)
@@ -98,6 +101,7 @@ internal class CollabSessionState {
     internal var lastCursorDocX: Float = 0f
     internal var lastCursorDocY: Float = 0f
     internal var prefsLoaded: Boolean = false
+    internal var pendingAutoFocusOnSnapshot: Boolean = false
 }
 
 internal fun PaintViewModel.ensureCollabPrefsLoaded() {
@@ -240,6 +244,8 @@ internal fun PaintViewModel.createCollabRoom(
     collab.hostToken = ""
     collab.roomCode = ""
     collab.peers = listOf(CollabPeer(peerId = selfId, name = displayName, role = CollabRole.HOST, connectedP2P = true))
+    collab.departedPeers = emptyMap()
+    collab.pendingAutoFocusOnSnapshot = false
     collab.pendingRequests = emptyList()
     collab.remoteCursors = emptyList()
     collab.snapshotReceivedChunks = 0
@@ -324,6 +330,8 @@ internal fun PaintViewModel.joinCollabRoom(
     collab.roomCode = normCode
     collab.hostToken = ""
     collab.peers = emptyList()
+    collab.departedPeers = emptyMap()
+    collab.pendingAutoFocusOnSnapshot = true
     collab.pendingRequests = emptyList()
     collab.remoteCursors = emptyList()
     collab.snapshotReceivedChunks = 0
@@ -522,6 +530,9 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
         override fun onPeerJoined(peer: CollabPeer) {
             mainHandler.post {
                 if (collab.sessionGeneration != gen) return@post
+                if (peer.peerId in collab.departedPeers) {
+                    collab.departedPeers = collab.departedPeers - peer.peerId
+                }
                 val p2pStates = collab.peers.associate { it.peerId to it.connectedP2P }
                 val updated = collab.peers.filterNot { it.peerId == peer.peerId } + peer.copy(signalingOnline = true)
                 collab.peers = normalizePeersWithFlags(updated, collab.hostPeerId, p2pStates)
@@ -542,6 +553,10 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
         override fun onPeerLeft(peerId: String, reason: String) {
             mainHandler.post {
                 if (collab.sessionGeneration != gen) return@post
+                val leftPeer = collab.peers.firstOrNull { it.peerId == peerId }
+                if (peerId != collab.selfPeerId && leftPeer != null) {
+                    collab.departedPeers = collab.departedPeers + (peerId to leftPeer.name)
+                }
                 collab.peers = collab.peers.filterNot { it.peerId == peerId }
                 collab.pendingRequests = collab.pendingRequests.filterNot { it.peerId == peerId }
                 collab.remoteCursors = collab.remoteCursors.filterNot { it.peerId == peerId }
@@ -884,6 +899,10 @@ private fun PaintViewModel.handleCollabPolledData(gen: Long, eventsJson: String,
                             isBlockingLoading = false
                             refreshLayerThumbs(force = true)
                             refreshUndoCounts()
+                            if (collab.pendingAutoFocusOnSnapshot) {
+                                collab.pendingAutoFocusOnSnapshot = false
+                                applyAutoFocusOrCreateCollabLayer()
+                            }
                         }) {
                             displayBufferInvalid = true
                             syncLayersFromNative()
@@ -1063,6 +1082,8 @@ private fun PaintViewModel.teardownCollabLocalState(
     collab.hostToken = ""
     collab.reconnectAttempt = 0
     collab.peers = emptyList()
+    collab.departedPeers = emptyMap()
+    collab.pendingAutoFocusOnSnapshot = false
     collab.pendingRequests = emptyList()
     collab.remoteCursors = emptyList()
     collab.snapshotReceivedChunks = 0
@@ -1095,6 +1116,80 @@ internal fun PaintViewModel.canEditLayerInCollab(layer: PaintViewModel.LayerUiSt
     )
 }
 
+internal fun PaintViewModel.canManageLayerOwnershipInCollab(layer: PaintViewModel.LayerUiState?): Boolean {
+    if (layer == null || layer.isBackground) return false
+    if (!collab.isActive) return true
+    return CollabPermissionPolicy.canManageOwnership(
+        isHost = collab.role == CollabRole.HOST,
+        ownerPeerId = layer.ownerPeerId,
+        selfPeerId = collab.selfPeerId,
+    )
+}
+
+internal fun PaintViewModel.canModifyLayerPropsInCollab(layer: PaintViewModel.LayerUiState?): Boolean {
+    if (layer == null) return false
+    return CollabPermissionPolicy.canModifyLayerProperties(
+        inCollab = collab.isActive,
+        isHost = collab.role == CollabRole.HOST,
+        isBackground = layer.isBackground,
+        isLayerLocked = layer.locked,
+        ownerPeerId = layer.ownerPeerId,
+        permissionCode = layer.collabPermission,
+        selfPeerId = collab.selfPeerId,
+    )
+}
+
+internal fun PaintViewModel.canToggleLayerLockInCollab(layer: PaintViewModel.LayerUiState?): Boolean {
+    if (layer == null) return false
+    return CollabPermissionPolicy.canToggleLayerLock(
+        inCollab = collab.isActive,
+        isHost = collab.role == CollabRole.HOST,
+        isBackground = layer.isBackground,
+        ownerPeerId = layer.ownerPeerId,
+        selfPeerId = collab.selfPeerId,
+    )
+}
+
+internal fun PaintViewModel.canDeleteLayerInCollab(layer: PaintViewModel.LayerUiState?): Boolean {
+    if (layer == null) return false
+    return CollabPermissionPolicy.canDeleteLayer(
+        inCollab = collab.isActive,
+        isHost = collab.role == CollabRole.HOST,
+        isBackground = layer.isBackground,
+        isLayerLocked = layer.locked,
+        ownerPeerId = layer.ownerPeerId,
+        permissionCode = layer.collabPermission,
+        selfPeerId = collab.selfPeerId,
+    )
+}
+
+internal fun PaintViewModel.canInsertIntoGroupInCollab(groupLayer: PaintViewModel.LayerUiState?): Boolean {
+    if (groupLayer == null || !groupLayer.isGroup) return false
+    return CollabPermissionPolicy.canInsertIntoGroup(
+        inCollab = collab.isActive,
+        isHost = collab.role == CollabRole.HOST,
+        isGroupLocked = groupLayer.locked,
+        groupOwnerPeerId = groupLayer.ownerPeerId,
+        groupPermissionCode = groupLayer.collabPermission,
+        selfPeerId = collab.selfPeerId,
+    )
+}
+
+internal fun PaintViewModel.canEditBackgroundInCollab(): Boolean =
+    CollabPermissionPolicy.canEditBackground(
+        inCollab = collab.isActive,
+        isHost = collab.role == CollabRole.HOST,
+    )
+
+internal fun PaintViewModel.isLayerTypeSupportedInCollab(layer: PaintViewModel.LayerUiState?): Boolean {
+    if (layer == null) return false
+    return CollabPermissionPolicy.isLayerTypeSupportedInCollab(
+        nodeType = layer.nodeType,
+        has3DContent = active3DLayers.containsKey(layer.id),
+        hasTextContent = activeTextLayers.containsKey(layer.id),
+    ) && !layer.isStrokeLayer
+}
+
 internal fun PaintViewModel.ensureCollabLayerEditable(
     index: Int = currentLayerIndex,
     showToast: Boolean = true,
@@ -1111,6 +1206,253 @@ internal fun PaintViewModel.ensureCollabLayerEditable(
         showActionToast(reasonRes, R.drawable.ic_lock)
     }
     return false
+}
+
+internal fun PaintViewModel.ensureCollabLayerPropsEditable(
+    index: Int,
+    showToast: Boolean = true,
+): Boolean {
+    if (!collab.isActive) return true
+    val layer = layers.getOrNull(index) ?: return false
+    if (canModifyLayerPropsInCollab(layer)) return true
+    if (showToast) {
+        val reasonRes = when {
+            layer.isBackground -> R.string.collab_layer_bg_host_only
+            layer.locked || layer.collabPermission == LayerCollabPermission.LOCKED.code -> R.string.canvas_toast_layer_locked
+            else -> R.string.collab_layer_props_no_permission
+        }
+        showActionToast(reasonRes, R.drawable.ic_lock)
+    }
+    return false
+}
+
+internal fun PaintViewModel.ensureCollabLayerLockToggleAllowed(
+    index: Int,
+    showToast: Boolean = true,
+): Boolean {
+    if (!collab.isActive) return true
+    val layer = layers.getOrNull(index) ?: return false
+    if (canToggleLayerLockInCollab(layer)) return true
+    if (showToast) {
+        showActionToast(R.string.collab_layer_props_no_permission, R.drawable.ic_lock)
+    }
+    return false
+}
+
+internal fun PaintViewModel.ensureCollabLayerDeletable(
+    index: Int,
+    showToast: Boolean = true,
+): Boolean {
+    if (!collab.isActive) return true
+    val layer = layers.getOrNull(index) ?: return false
+    if (!canDeleteLayerInCollab(layer)) {
+        if (showToast) {
+            val res = if (layer.locked || layer.collabPermission == LayerCollabPermission.LOCKED.code) {
+                R.string.toast_layer_delete_locked
+            } else {
+                R.string.collab_layer_delete_no_permission
+            }
+            showActionToast(res, R.drawable.ic_lock)
+        }
+        return false
+    }
+    if (layer.isGroup) {
+        val rootDepth = layer.depth
+        for (k in (index + 1) until layers.size) {
+            val child = layers[k]
+            if (child.depth <= rootDepth) break
+            if (!canDeleteLayerInCollab(child)) {
+                if (showToast) {
+                    showActionToast(R.string.collab_layer_delete_no_permission, R.drawable.ic_lock)
+                }
+                return false
+            }
+        }
+    }
+    return true
+}
+
+internal fun PaintViewModel.ensureCollabHostForBackground(showToast: Boolean = true): Boolean {
+    if (canEditBackgroundInCollab()) return true
+    if (showToast) {
+        showActionToast(R.string.collab_layer_bg_host_only, R.drawable.ic_lock)
+    }
+    return false
+}
+
+internal fun PaintViewModel.ensureCollabInsertIntoGroup(
+    groupIndex: Int,
+    showToast: Boolean = true,
+): Boolean {
+    if (!collab.isActive) return true
+    val grp = layers.getOrNull(groupIndex) ?: return false
+    if (canInsertIntoGroupInCollab(grp)) return true
+    if (showToast) {
+        showActionToast(R.string.collab_layer_group_no_permission, R.drawable.ic_lock)
+    }
+    return false
+}
+
+internal fun PaintViewModel.ensureCollabLayerTypeSupported(
+    index: Int,
+    showToast: Boolean = true,
+): Boolean {
+    if (!collab.isActive) return true
+    val layer = layers.getOrNull(index) ?: return false
+    if (!isLayerTypeSupportedInCollab(layer)) {
+        if (showToast) {
+            showActionToast(R.string.collab_layer_type_unsupported, R.drawable.ic_lock)
+        }
+        return false
+    }
+    if (layer.isGroup) {
+        val rootDepth = layer.depth
+        for (k in (index + 1) until layers.size) {
+            val child = layers[k]
+            if (child.depth <= rootDepth) break
+            if (!isLayerTypeSupportedInCollab(child)) {
+                if (showToast) {
+                    showActionToast(R.string.collab_layer_type_unsupported, R.drawable.ic_lock)
+                }
+                return false
+            }
+        }
+    }
+    return true
+}
+
+internal fun PaintViewModel.collabEnclosingGroupIndex(index: Int): Int {
+    val target = layers.getOrNull(index) ?: return -1
+    if (target.depth <= 0) return -1
+    for (k in (index - 1) downTo 0) {
+        val cand = layers[k]
+        if (cand.isGroup && cand.depth == target.depth - 1) {
+            return k
+        }
+    }
+    return -1
+}
+
+internal fun PaintViewModel.collabOwnerDisplayName(ownerPeerId: String): String {
+    if (ownerPeerId.isEmpty()) return getString(R.string.collab_layer_owner_unassigned)
+    if (ownerPeerId == collab.selfPeerId) {
+        return collab.selfName.ifBlank { getString(R.string.collab_layer_owner_self_short) }
+    }
+    collab.peers.firstOrNull { it.peerId == ownerPeerId }?.let { return it.name }
+    val leftTag = getString(R.string.collab_peer_departed_short)
+    val oldName = collab.departedPeers[ownerPeerId]
+    return if (!oldName.isNullOrBlank()) "$oldName ($leftTag)" else leftTag
+}
+
+internal fun PaintViewModel.isOrphanedCollabLayer(layer: PaintViewModel.LayerUiState?): Boolean {
+    if (layer == null || !collab.isActive) return false
+    return CollabPermissionPolicy.isOrphanedDepartedLayer(
+        inCollab = true,
+        isBackground = layer.isBackground,
+        ownerPeerId = layer.ownerPeerId,
+        selfPeerId = collab.selfPeerId,
+        activePeerIds = collab.peers.mapTo(HashSet()) { it.peerId },
+        departedPeerIds = collab.departedPeers.keys,
+    )
+}
+
+internal fun PaintViewModel.orphanedCollabLayers(): List<PaintViewModel.LayerUiState> {
+    if (!collab.isActive) return emptyList()
+    val activeIds = collab.peers.mapTo(HashSet()) { it.peerId }
+    val departedIds = collab.departedPeers.keys
+    return layers.filter { layer ->
+        CollabPermissionPolicy.isOrphanedDepartedLayer(
+            inCollab = true,
+            isBackground = layer.isBackground,
+            ownerPeerId = layer.ownerPeerId,
+            selfPeerId = collab.selfPeerId,
+            activePeerIds = activeIds,
+            departedPeerIds = departedIds,
+        )
+    }
+}
+
+internal fun PaintViewModel.reclaimOrphanedLayers(
+    targetOwnerPeerId: String? = null,
+    makeShared: Boolean,
+) {
+    if (!collab.isActive || collab.role != CollabRole.HOST) return
+    val orphanedIds = orphanedCollabLayers()
+        .filter { targetOwnerPeerId == null || it.ownerPeerId == targetOwnerPeerId }
+        .mapTo(HashSet()) { it.uuid }
+    if (orphanedIds.isEmpty()) return
+
+    var updatedCount = 0
+    val newOwner = collab.selfPeerId
+    val newPerm = if (makeShared) LayerCollabPermission.SHARED.code else LayerCollabPermission.OWNER_ONLY.code
+    runCore(render = false, after = {
+        refreshLayerThumbs(force = false)
+        if (updatedCount > 0) {
+            showActionToast(getString(R.string.collab_toast_reclaimed_layers, updatedCount), R.drawable.ic_layers)
+        }
+    }) {
+        val count = ReverieCoreBridge.layerCount()
+        for (idx in 1 until count) {
+            val uuid = ReverieCoreBridge.layerUuid(idx)
+            if (uuid in orphanedIds) {
+                if (ReverieCoreBridge.layerLocked(idx)) {
+                    ReverieCoreBridge.setLayerLocked(idx, false)
+                }
+                ReverieCoreBridge.setLayerOwnerPeerId(idx, newOwner)
+                ReverieCoreBridge.setLayerCollabPermission(idx, newPerm)
+                updatedCount++
+            }
+        }
+        if (updatedCount > 0) {
+            syncLayersFromNative()
+        }
+    }
+}
+
+internal fun PaintViewModel.applyAutoFocusOrCreateCollabLayer() {
+    if (!collab.isActive || currentPage != Page.PAINTING || layers.isEmpty()) return
+    val current = layers.getOrNull(currentLayerIndex)
+    val currentReady = current != null &&
+        canEditLayerInCollab(current) &&
+        isLayerTypeSupportedInCollab(current) &&
+        !current.isGroup &&
+        !LayerNodeType.isMask(current.nodeType) &&
+        current.nodeType != LayerNodeType.FILL
+    if (currentReady) return
+
+    val descriptors = layers.map { l ->
+        CollabLayerDescriptor(
+            index = l.index,
+            isBackground = l.isBackground,
+            isGroup = l.isGroup,
+            isLocked = l.locked,
+            nodeType = l.nodeType,
+            ownerPeerId = l.ownerPeerId,
+            permissionCode = l.collabPermission,
+            hasLocalSpecialContent = active3DLayers.containsKey(l.id) || activeTextLayers.containsKey(l.id) || l.isStrokeLayer,
+        )
+    }
+    val pickedIdx = CollabPermissionPolicy.pickAutoFocusLayerIndex(descriptors, collab.selfPeerId)
+    if (pickedIdx >= 0) {
+        val pickedName = layers.getOrNull(pickedIdx)?.name.orEmpty()
+        setCurrentLayer(pickedIdx)
+        if (pickedName.isNotEmpty()) {
+            showActionToast(getString(R.string.collab_toast_autofocus_layer, pickedName), R.drawable.ic_layers)
+        }
+        return
+    }
+
+    val personalName = getString(
+        R.string.collab_default_personal_layer_name,
+        collab.selfName.ifBlank { "Artist" },
+    )
+    runCore(after = {
+        clearLayerSelection()
+        notifyLayerChanged()
+        showActionToast(getString(R.string.collab_toast_autocreate_personal_layer, personalName), R.drawable.ic_layers)
+    }) {
+        ReverieCoreBridge.addLayer(personalName)
+    }
 }
 
 internal fun PaintViewModel.setCollabLayerPermission(index: Int, perm: LayerCollabPermission) {
@@ -1186,12 +1528,6 @@ internal fun PaintViewModel.enrichLayersWithCollabMeta(
             )
         }
     }
-}
-
-internal fun PaintViewModel.collabOwnerDisplayName(ownerPeerId: String): String {
-    if (ownerPeerId.isBlank()) return getString(R.string.collab_layer_owner_unassigned)
-    if (ownerPeerId == collab.selfPeerId && collab.selfName.isNotBlank()) return collab.selfName
-    return collab.peers.firstOrNull { it.peerId == ownerPeerId }?.name ?: ownerPeerId.take(8)
 }
 
 private fun normalizePeersWithFlags(

@@ -1143,6 +1143,14 @@ public:
     bool collabIsActive() const { return m_collabActive; }
     bool collabCanEditCurrentLayer() const;
     bool collabCanEditLayer(int index) const;
+    bool collabIsHost() const;
+    bool collabCanEditBackground() const;
+    bool collabCanModifyLayerProps(int index) const;
+    bool collabCanManageLayerOwnership(int index) const;
+    bool collabCanDeleteLayer(int index) const;
+    bool collabCanInsertIntoGroup(int groupIndex) const;
+    bool collabCanCopySubtree(int index) const;
+    bool collabIsNodeTypeSupported(int nodeType) const;
     void collabOnPeerJoined(const QString &peerId, const QString &name, bool isHostPeer);
     void collabOnPeerLeft(const QString &peerId);
     void collabOnHostChanged(const QString &newHostPeerId);
@@ -1186,11 +1194,25 @@ public:
         CollabLayerBlend = 9,
         CollabLayerOwnerPerm = 10,
         CollabLayerClear = 12,
+        CollabLayerAddFill = 13,
+        CollabLayerClipped = 14,
+        CollabLayerAlphaInherited = 15,
+        CollabLayerColorLabel = 16,
+        CollabLayerGroupPassThrough = 17,
+        CollabLayerBgColor = 18,
+        CollabLayerMoveRelative = 19,
+        CollabLayerAddMask = 20,
+        CollabLayerRemoveMask = 21,
     };
     void collabEmitLayerOp(int opKind, int index, const QString &extraStr = QString(),
                            double extraVal = 0.0, int extraInt = 0);
+    void collabEmitLayerPixelsInitial(int index);
+    void collabEmitLayerTreeAdded(int rootIndex);
+    void collabEmitLayerMoved(const QVector<KisNode *> &movedNodes);
 
 private:
+    void collabAdjustProtectedInsertPosition(KisImageSP image, KisNodeSP &parent, KisNodeSP &above) const;
+    void collabSyncAddedLayerPlacement(int idx, int addOpKind, const QString &layerName, int extraInt = 0);
     // 丢掉撤销栈的重做区, 让"引擎的历史状态"和"Kotlin 看到的重做可用性"一起失效。
     //
     // 任何**暂定事务**(变换/液化的预览、笔刷暂存回滚、被取消的笔画)在创建时都会让

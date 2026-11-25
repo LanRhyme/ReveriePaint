@@ -4237,4 +4237,23 @@
     <string name="collab_handoff_short">Make Host</string>
     <string name="collab_peer_offline_tag">Reconnecting</string>
     <string name="collab_room_settings_btn">Room Options</string>
+    <string name="collab_layer_badge_shared">Shared</string>
+    <string name="collab_layer_badge_owner">Owner</string>
+    <string name="collab_layer_badge_locked">Locked</string>
+    <string name="collab_layer_owner_self_short">Me</string>
+    <string name="collab_peer_departed_short">Left</string>
+    <string name="collab_layer_type_unsupported">This layer or mask type is unavailable in collab</string>
+    <string name="collab_layer_bg_host_only">Only the room host can edit the canvas background</string>
+    <string name="collab_layer_delete_no_permission">Only the owner or host can delete unlocked layers</string>
+    <string name="collab_layer_props_no_permission">Layer properties are protected by collab permission</string>
+    <string name="collab_layer_group_no_permission">Cannot move layers into a locked or private group</string>
+    <string name="collab_layer_reclaim_section">Departed Artist Layers (%1$d)</string>
+    <string name="collab_layer_reclaim_desc">Orphaned layers from left members can be shared or claimed</string>
+    <string name="collab_layer_reclaim_share_all">Share All</string>
+    <string name="collab_layer_reclaim_claim_all">Claim All</string>
+    <string name="collab_layer_reclaim_set_shared">Make Shared</string>
+    <string name="collab_toast_reclaimed_layers">Updated %1$d orphaned layer(s)</string>
+    <string name="collab_toast_autofocus_layer">Focused editable layer "%1$s"</string>
+    <string name="collab_toast_autocreate_personal_layer">Created personal layer "%1$s"</string>
+    <string name="collab_default_personal_layer_name">%1$s\'s Layer</string>
 </resources>

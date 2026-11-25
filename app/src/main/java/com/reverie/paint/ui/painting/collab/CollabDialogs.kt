@@ -57,6 +57,8 @@ import com.reverie.paint.core.handoffCollabHost
 import com.reverie.paint.core.joinCollabRoom
 import com.reverie.paint.core.kickCollabPeer
 import com.reverie.paint.core.openCreateCanvasForCollab
+import com.reverie.paint.core.orphanedCollabLayers
+import com.reverie.paint.core.reclaimOrphanedLayers
 import com.reverie.paint.core.reconnectCollabNow
 import com.reverie.paint.core.rejectCollabPeer
 import com.reverie.paint.core.requestEndCollabAndPromptSave
@@ -636,6 +638,44 @@ internal fun CollabRoomSheet(
                                     fontSize = 11.sp,
                                 )
                             }
+                        }
+                    }
+                }
+
+                val orphaned = vm.orphanedCollabLayers()
+                if (collab.role == CollabRole.HOST && orphaned.isNotEmpty()) {
+                    ReSectionTitle(stringResource(R.string.collab_layer_reclaim_section, orphaned.size))
+                    Column(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clip(RoundedCornerShape(Dimens.radiusSm))
+                            .background(colors.panelHi)
+                            .padding(10.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
+                    ) {
+                        Text(
+                            text = stringResource(R.string.collab_layer_reclaim_desc),
+                            color = colors.subText,
+                            fontSize = 11.sp,
+                        )
+                        Row(
+                            modifier = Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            ReTextButton(
+                                text = stringResource(R.string.collab_layer_reclaim_share_all),
+                                onClick = { vm.reclaimOrphanedLayers(makeShared = true) },
+                                fontSize = 11.5.sp,
+                                modifier = Modifier.weight(1f),
+                            )
+                            ReTextButton(
+                                text = stringResource(R.string.collab_layer_reclaim_claim_all),
+                                onClick = { vm.reclaimOrphanedLayers(makeShared = false) },
+                                containerColor = colors.accent,
+                                contentColor = colors.onAccent,
+                                fontSize = 11.5.sp,
+                                modifier = Modifier.weight(1f),
+                            )
                         }
                     }
                 }

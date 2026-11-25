@@ -382,6 +382,9 @@ void ReverieCore::setBackgroundColor(quint32 color, bool commit)
 {
     KisImageSP image = m_document;
     if (!image || m_layers.isEmpty()) return;
+    if (m_collabActive && !m_collabSuppressEmit && !collabCanEditBackground()) {
+        return;
+    }
     KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[0]);
     if (!dev) return;
     const KoColorSpace *cs = image->colorSpace();
@@ -416,6 +419,9 @@ void ReverieCore::setBackgroundColor(quint32 color, bool commit)
             dev->setDirty();
         }
         applyBackgroundColorInternal(qc);
+        if (m_collabActive && !m_collabSuppressEmit) {
+            collabEmitLayerOp(CollabLayerBgColor, 0, QString(), 0.0, static_cast<int>(qc.rgba()));
+        }
     }
     recompositeProjection();
     markDirty();
