@@ -569,6 +569,39 @@ internal fun PaintViewModel.refreshPublicCollabRooms(signalingUrlOverride: Strin
     }
 }
 
+/**
+ * 统一的信令重连入口: 房主身份但本地 hostToken 丢失时先以 peer 身份连,
+ * 由服务端在认领窗口内补发新 token, 避免必然失败的 403 往返
+ */
+private fun PaintViewModel.connectSignalingAsRole(
+    gen: Long,
+    client: SignalingClient,
+    tag: String,
+) {
+    val wantHost = collab.role == CollabRole.HOST
+    val effectiveRole = if (wantHost && collab.hostToken.isBlank()) CollabRole.PEER else collab.role
+    if (wantHost && effectiveRole == CollabRole.PEER) {
+        android.util.Log.w(
+            "ReverieCollab",
+            "$tag: host role without local hostToken, reconnect as peer to reclaim",
+        )
+    }
+    android.util.Log.i(
+        "ReverieCollab",
+        "$tag: connect room=${collab.roomCode} role=$effectiveRole attempt=${collab.reconnectAttempt}",
+    )
+    client.connectWebSocket(
+        baseUrl = collab.signalingUrl,
+        roomCode = collab.roomCode,
+        peerId = collab.selfPeerId,
+        role = effectiveRole,
+        hostToken = collab.hostToken.ifBlank { null },
+        name = collab.selfName,
+        password = collab.lastJoinPassword.ifEmpty { null },
+        listener = buildSignalingListener(gen),
+    )
+}
+
 internal fun PaintViewModel.reconnectCollabNow() {
     if (!collab.isActive || collab.roomCode.isBlank()) return
     collab.reconnectJob?.cancel()
@@ -581,16 +614,7 @@ internal fun PaintViewModel.reconnectCollabNow() {
     val client = collab.signalingClient ?: SignalingClient(viewModelScope).also {
         collab.signalingClient = it
     }
-    client.connectWebSocket(
-        baseUrl = collab.signalingUrl,
-        roomCode = collab.roomCode,
-        peerId = collab.selfPeerId,
-        role = collab.role,
-        hostToken = collab.hostToken.ifBlank { null },
-        name = collab.selfName,
-        password = collab.lastJoinPassword.ifEmpty { null },
-        listener = buildSignalingListener(gen),
-    )
+    connectSignalingAsRole(gen, client, "manual-reconnect")
 
     if (collab.nativeStarted && collab.role != CollabRole.HOST && collab.hostPeerId.isNotBlank()) {
         runCore(render = false) {
@@ -616,16 +640,7 @@ private fun PaintViewModel.scheduleAutoReconnect(gen: Long) {
             val client = collab.signalingClient ?: SignalingClient(viewModelScope).also {
                 collab.signalingClient = it
             }
-            client.connectWebSocket(
-                baseUrl = collab.signalingUrl,
-                roomCode = collab.roomCode,
-                peerId = collab.selfPeerId,
-                role = collab.role,
-                hostToken = collab.hostToken.ifBlank { null },
-                name = collab.selfName,
-                password = collab.lastJoinPassword.ifEmpty { null },
-                listener = buildSignalingListener(gen),
-            )
+            connectSignalingAsRole(gen, client, "auto-reconnect")
             // 等待本次建连落地或下次超时重拨
             delay(COLLAB_RECONNECT_HANDSHAKE_MS)
             if (collab.phase == CollabConnectionPhase.CONNECTED) break
@@ -643,7 +658,15 @@ private fun PaintViewModel.localizeCollabError(code: String, rawMessage: String)
     "invalid_host_token" -> getString(R.string.collab_err_host_auth)
     "peer_id_conflict" -> getString(R.string.collab_err_peer_id_conflict)
     "ws_failure" -> getString(R.string.collab_err_network)
-    else -> getString(R.string.collab_status_error, rawMessage.ifBlank { code })
+    "internal", "http_500" -> getString(R.string.collab_err_server)
+    else -> {
+        val lower = rawMessage.lowercase()
+        if ("timeout" in lower || "timed out" in lower) {
+            getString(R.string.collab_err_timeout)
+        } else {
+            getString(R.string.collab_status_error, rawMessage.ifBlank { code })
+        }
+    }
 }
 
 private fun PaintViewModel.handleCollabAdmittedOrWelcome(
@@ -1007,8 +1030,22 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
                             scheduleAutoReconnect(gen)
                         }
                     }
+                    "invalid_host_token" -> {
+                        // 换届后旧房主 / 本地 hostToken 失效: 降级为普通成员重连, 而不是结束整场会话
+                        if (collab.isActive && !collab.intentionalLeave) {
+                            android.util.Log.w("ReverieCollab", "host token rejected by server, demote to peer")
+                            collab.hostToken = ""
+                            collab.role = CollabRole.PEER
+                            reconnectCollabNow()
+                        } else {
+                            val detail = localizeCollabError(code, message)
+                            collab.phase = CollabConnectionPhase.ERROR
+                            collab.statusMessage = detail
+                            showActionToast(detail, R.drawable.ic_cloud)
+                        }
+                    }
                     "duplicate_name", "room_full", "invalid_password", "room_not_found",
-                    "kicked", "invalid_host_token", "peer_id_conflict", "service_disabled" -> {
+                    "kicked", "peer_id_conflict", "service_disabled" -> {
                         val detail = localizeCollabError(code, message)
                         teardownCollabLocalState(gracefulLeave = false)
                         collab.phase = CollabConnectionPhase.ERROR
@@ -1028,6 +1065,7 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
         }
 
         override fun onSocketClosed(code: Int, reason: String) {
+            android.util.Log.i("ReverieCollab", "socket closed code=$code reason=$reason")
             mainHandler.post {
                 if (collab.sessionGeneration != gen || !collab.isActive || collab.intentionalLeave) return@post
                 if (code == 4004) {

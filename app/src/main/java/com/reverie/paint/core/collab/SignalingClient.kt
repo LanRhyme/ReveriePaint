@@ -87,9 +87,10 @@ class SignalingClient(
     private val scope: CoroutineScope,
 ) {
     private val http = OkHttpClient.Builder()
-        .connectTimeout(10, TimeUnit.SECONDS)
-        .readTimeout(15, TimeUnit.SECONDS)
-        .writeTimeout(15, TimeUnit.SECONDS)
+        // 移动网络下 TLS + WS 握手偶发 10s 以上, 连接超时放宽, 避免刚建立就被判失败
+        .connectTimeout(15, TimeUnit.SECONDS)
+        .readTimeout(20, TimeUnit.SECONDS)
+        .writeTimeout(20, TimeUnit.SECONDS)
         .build()
 
     @Volatile
@@ -159,7 +160,7 @@ class SignalingClient(
                 .url("$cleanBase/c/v1/rooms/$normCode/info")
                 .get()
                 .build()
-            http.newCall(req).execute().use { resp ->
+            executeWithRetry(req, attempts = 2).use { resp ->
                 val text = resp.body?.string().orEmpty()
                 val json = JSONObject(text.ifEmpty { "{}" })
                 if (!resp.isSuccessful || !json.optBoolean("ok", false)) {
@@ -353,6 +354,22 @@ class SignalingClient(
             ws?.close(1000, if (gracefulLeave) "client_leave" else "client_disconnect")
         } catch (_: Throwable) {
         }
+    }
+
+    /** 幂等的 HTTP 探测请求: 仅对网络层异常重试, HTTP 业务错误直接返回 */
+    private fun executeWithRetry(req: Request, attempts: Int): Response {
+        var lastError: java.io.IOException? = null
+        for (attempt in 0 until attempts.coerceAtLeast(1)) {
+            try {
+                return http.newCall(req).execute()
+            } catch (err: java.io.IOException) {
+                lastError = err
+                if (attempt + 1 < attempts) {
+                    runCatching { Thread.sleep(600L * (attempt + 1)) }
+                }
+            }
+        }
+        throw lastError ?: java.io.IOException("request failed")
     }
 
     private fun sendJson(obj: JSONObject): Boolean = webSocket?.send(obj.toString()) == true

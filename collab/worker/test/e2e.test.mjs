@@ -23,7 +23,10 @@ before(async () => {
     // 主实例: 昵称占位阈值压到 3s, 便于验证幽灵清理
     mainWorker = await startWorker({ port: PORT_MAIN, vars: { GHOST_PEER_TTL_MS: 3000 } });
     // 短 TTL 实例: 房间 6s 过期, 便于验证过期与活动顺延
-    fastWorker = await startWorker({ port: PORT_FAST, vars: { ROOM_TTL_MS: 6000, GHOST_PEER_TTL_MS: 3000 } });
+    fastWorker = await startWorker({
+      port: PORT_FAST,
+      vars: { ROOM_TTL_MS: 6000, GHOST_PEER_TTL_MS: 3000, HOST_RECLAIM_WINDOW_MS: 1500 },
+    });
   } catch (err) {
     await Promise.all([stopWorker(mainWorker), stopWorker(fastWorker)]);
     throw err;
@@ -357,6 +360,84 @@ describe('房间管理与房主迁移', () => {
 
     heir.close();
     late.close();
+  });
+
+  it('旧房主被他人接管后果断降级为普通成员, 以 peer 身份重连仍可进房', async () => {
+    const room = await openRoom(client, { hostPeerId: 'p_host_demote' });
+    const heir = await client.connect({ roomCode: room.roomCode, peerId: 'p_demote_heir', name: '新主' });
+    await heir.waitFor((m) => m.type === 'welcome');
+    await sleep(120);
+
+    // 旧房主掉线, 顺位成员接管
+    room.host.close();
+    await sleep(5600);
+    heir.send({ type: 'claim_host' });
+    assert.ok(await heir.waitFor((m) => m.type === 'host_promoted', 6000));
+
+    // 旧房主拿着旧 token 以 host 身份重连会被拒 (旧 token 已随换届失效)
+    const staleHost = await client.connectExpectReject({
+      roomCode: room.roomCode, peerId: 'p_host_demote', name: '旧主', role: 'host', token: room.hostToken,
+    });
+    assert.equal(staleHost, true, '换届后旧 token 必须失效');
+
+    // 客户端据 403 降级为 peer 重连时应正常进房
+    const demoted = await client.connect({
+      roomCode: room.roomCode, peerId: 'p_host_demote', name: '旧主',
+    });
+    const welcome = await demoted.waitFor((m) => m.type === 'welcome');
+    assert.equal(welcome.status, 'admitted');
+    assert.equal(welcome.hostPeerId, 'p_demote_heir');
+    demoted.close();
+    heir.close();
+  });
+
+  it('房主丢失 hostToken: 断线窗口内以 peer 重连可重新认领并换发新 token', async () => {
+    const room = await openRoom(client, { hostPeerId: 'p_host_reclaim' });
+    const peer = await client.connect({ roomCode: room.roomCode, peerId: 'p_reclaim_p', name: '成员' });
+    await peer.waitFor((m) => m.type === 'welcome');
+    await sleep(150);
+
+    // 模拟房主进程被杀: 连接异常断开, 本地 token 丢失
+    room.host.close();
+    await sleep(400);
+
+    const reclaimed = await client.connect({
+      roomCode: room.roomCode, peerId: 'p_host_reclaim', name: '房主',
+    });
+    const welcome = await reclaimed.waitFor((m) => m.type === 'welcome');
+    assert.equal(welcome.hostPeerId, 'p_host_reclaim', '窗口内应认回房主身份');
+    const promoted = await reclaimed.waitFor((m) => m.type === 'host_promoted');
+    assert.ok(promoted, '重新认领必须补发新 hostToken');
+    assert.notEqual(promoted.hostToken, room.hostToken, '认领应换发新 token, 旧 token 立即失效');
+    assert.ok(await peer.waitFor((m) => m.type === 'host_changed'));
+
+    const staleToken = await client.connectExpectReject({
+      roomCode: room.roomCode, peerId: 'p_host_reclaim', name: '房主', role: 'host', token: room.hostToken,
+    });
+    assert.equal(staleToken, true, '旧 token 必须失效');
+
+    const withNewToken = await client.connect({
+      roomCode: room.roomCode, peerId: 'p_host_reclaim', name: '房主', role: 'host', token: promoted.hostToken,
+    });
+    await withNewToken.waitFor((m) => m.type === 'welcome');
+    withNewToken.close();
+    peer.close();
+  });
+
+  it('认领窗口外不再凭 peerId 换发 token (仍需 hostToken)', { timeout: 30000 }, async () => {
+    const created = await fastClient.createRoom({ hostPeerId: 'p_host_late' });
+    const host = await fastClient.connect({
+      roomCode: created.body.roomCode, peerId: 'p_host_late', name: 'Host', role: 'host', token: created.body.hostToken,
+    });
+    await host.waitFor((m) => m.type === 'welcome');
+    await sleep(200);
+    host.close();
+    await sleep(2200); // 远超 1.5s 认领窗口
+
+    const rejected = await fastClient.connectExpectReject({
+      roomCode: created.body.roomCode, peerId: 'p_host_late', name: 'Host',
+    });
+    assert.equal(rejected, true, '窗口外必须凭 hostToken 才能拿回房主');
   });
 
   it('关闭房间: 全员收到 room_closed 并被 4000 关闭, 之后 info 404', async () => {

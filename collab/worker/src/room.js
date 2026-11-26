@@ -24,6 +24,9 @@ import {
 
 const STORAGE_ROOM_KEY = 'room_meta';
 const HOST_CLAIM_GRACE_MS = 5000;
+// 房主断线后的重新认领窗口: 窗口内凭 peerId 即可换发新 hostToken,
+// 覆盖"客户端进程被杀/交接消息丢失导致本地没有 token"的场景, 窗口外仍需正确 token
+const HOST_RECLAIM_WINDOW_MS = 60000;
 // 异常掉线(未发 leave) 的成员超过该时长后惰性清理, 释放昵称与虚拟 IP 占位
 const DEFAULT_GHOST_PEER_TTL_MS = 10 * 60_000;
 // 房间存活上限: 有活跃连接时按活动顺延, 最多 7 天
@@ -204,17 +207,28 @@ export class CollabRoom extends DurableObject {
     }
 
     const token = String(url.searchParams.get('token') || '');
+    const now = Date.now();
     // 房主退房时若接任者恰好离线, 服务端先记账; 该成员以 peer 身份重连时直接补发房主凭据
     const pendingHostAuth = roleParam !== 'host' && meta.pendingHostAuthPeerId === peerId;
     const isHost = roleParam === 'host';
+    // 房主本地丢了 hostToken (进程被杀/状态重置/交接消息丢失) 时, 断线窗口内可凭 peerId 重新认领
+    const reclaimWindowMs = parsePositiveInt(
+      this.env.HOST_RECLAIM_WINDOW_MS,
+      HOST_RECLAIM_WINDOW_MS,
+      1000,
+      7 * 86400000,
+    );
+    const reclaimHost = !isHost && !pendingHostAuth && peerId === meta.hostPeerId &&
+      !this.findSocketByPeerId(peerId) &&
+      now - (Number(meta.hostDisconnectedAt) || Number(meta.createdAt) || now) <= reclaimWindowMs;
     if (isHost) {
       if (peerId !== meta.hostPeerId || !timingSafeEqualStr(token, meta.hostToken)) {
         throw new HttpError(403, 'invalid_host_token', 'host authentication failed');
       }
-    } else if (peerId === meta.hostPeerId && !pendingHostAuth) {
+    } else if (peerId === meta.hostPeerId && !pendingHostAuth && !reclaimHost) {
       throw new HttpError(409, 'peer_id_conflict', 'peerId conflicts with host');
     }
-    const becomesHost = isHost || pendingHostAuth;
+    const becomesHost = isHost || pendingHostAuth || reclaimHost;
 
     if (!becomesHost && meta.passwordHash.length > 0) {
       const providedPw = String(url.searchParams.get('pw') || '');
@@ -258,7 +272,6 @@ export class CollabRoom extends DurableObject {
 
     const pair = new WebSocketPair();
     const [client, server] = Object.values(pair);
-    const now = Date.now();
     const status = becomesHost || !meta.requireApproval || alreadyAdmitted ? 'admitted' : 'pending';
     const joinedAt = prevAdmitted?.joinedAt || now;
 
@@ -290,6 +303,8 @@ export class CollabRoom extends DurableObject {
       meta.hostDisconnectedAt = 0;
       meta.pendingHostAuthPeerId = '';
       meta.hostName = name;
+      // 重新认领时换发新 token: 旧 token 即使泄漏也立即失效
+      if (reclaimHost) meta.hostToken = randomTokenHex(24);
     }
     this.extendRoomTtl(meta, now);
     await this.ctx.storage.put(STORAGE_ROOM_KEY, meta);
@@ -313,8 +328,8 @@ export class CollabRoom extends DurableObject {
         canvasMeta: meta.canvasMeta,
       });
 
-      if (pendingHostAuth) {
-        // 离线交接的接任者上线: 补发房主凭据并通知其余成员
+      if (pendingHostAuth || reclaimHost) {
+        // 离线交接的接任者上线, 或原房主断线后重新认领: 补发房主凭据并通知其余成员
         this.sendJson(server, {
           type: 'host_promoted',
           hostPeerId: peerId,

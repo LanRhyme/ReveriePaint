@@ -4200,6 +4200,8 @@
     <string name="collab_err_password_required">This room requires a password</string>
     <string name="collab_err_room_full">Room is full</string>
     <string name="collab_err_room_not_found">Room not found or expired</string>
+    <string name="collab_err_timeout">Network timed out, check your connection and retry</string>
+    <string name="collab_err_server">Server temporarily unavailable, please retry later</string>
     <string name="collab_err_host_auth">Host authentication failed</string>
     <string name="collab_err_peer_id_conflict">Session conflicts with current host identity, please retry</string>
     <string name="collab_err_network">Network connection failed, please retry</string>
