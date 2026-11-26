@@ -946,9 +946,9 @@ class PaintViewModel : ViewModel() {
 
     // 动画画面参考线 (仅动画工程显示)
     var compositionGuides by mutableStateOf<Set<CompositionGuide>>(emptySet())
-        private set
+        internal set
     var compositionHorizon by mutableFloatStateOf(0.5f)
-        private set
+        internal set
 
     // 画布内富文本排版状态 (In-place Typography)
     var typographyConfig by mutableStateOf(TypographyConfig())

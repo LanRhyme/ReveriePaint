@@ -348,12 +348,12 @@ import kotlinx.coroutines.withContext
 
     internal fun PaintViewModel.loadPinnedTools() {
         try {
-            val prefs = prefs()
-            val pinned = prefs.getString("pinned_tools", null)
+            val store = prefs()
+            val pinned = store.getString("pinned_tools", null)
             val migrationKey = "countdown_tool_pinned_v1"
             if (pinned == null) {
                 // Fresh installs already get COUNTDOWN from DEFAULT_PINNED_TOOLS.
-                prefs.edit().putBoolean(migrationKey, true).apply()
+                store.edit().putBoolean(migrationKey, true).apply()
                 return
             }
             val ids = pinned.split(",").filter { it.isNotEmpty() }
@@ -364,7 +364,7 @@ import kotlinx.coroutines.withContext
                 }
             }.distinct()
             if (loaded.isNotEmpty()) {
-                val migrated = prefs.getBoolean(migrationKey, false)
+                val migrated = store.getBoolean(migrationKey, false)
                 val updated = if (!migrated && com.reverie.paint.model.Tool.COUNTDOWN !in loaded) {
                     loaded + com.reverie.paint.model.Tool.COUNTDOWN
                 } else {
@@ -372,13 +372,13 @@ import kotlinx.coroutines.withContext
                 }
                 pinnedTools = updated
                 if (!migrated) {
-                    prefs.edit()
+                    store.edit()
                         .putBoolean(migrationKey, true)
                         .putString("pinned_tools", updated.joinToString(",") { it.id })
                         .apply()
                 }
             } else {
-                prefs.edit().putBoolean(migrationKey, true).apply()
+                store.edit().putBoolean(migrationKey, true).apply()
             }
         } catch (_: Exception) {
         }

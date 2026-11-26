@@ -56,6 +56,9 @@ import com.reverie.paint.core.animationImportImages
 import com.reverie.paint.core.animationImportVideo
 import com.reverie.paint.core.animationSetFramerate
 import com.reverie.paint.core.animationSetLayerMarker
+import com.reverie.paint.core.persistCompositionGuides
+import com.reverie.paint.core.toggleCompositionGuide
+import com.reverie.paint.core.updateCompositionHorizon
 import com.reverie.paint.model.CompositionGuide
 import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.ReChip
