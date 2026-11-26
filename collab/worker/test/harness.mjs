@@ -21,7 +21,10 @@ function resolveWranglerCommand() {
 
 export async function startWorker({ port, vars = {}, timeoutMs = 180000 } = {}) {
   const { cmd, prefix } = resolveWranglerCommand();
-  const args = [...prefix, 'dev', '--port', String(port), '--local'];
+  // 每个实例独立 persist 目录: 同一项目下并行跑两个 wrangler dev 会争用 workerd 的本地 socket,
+  // CI 上表现为 "Address already in use (socket direct:1:default)"
+  const stateDir = resolve(WORKER_DIR, '.wrangler', 'test-state', String(port));
+  const args = [...prefix, 'dev', '--ip', '127.0.0.1', '--port', String(port), '--local', '--persist-to', stateDir];
   for (const [key, value] of Object.entries(vars)) args.push('--var', `${key}:${value}`);
   const child = spawn(cmd, args, {
     cwd: WORKER_DIR,
@@ -48,7 +51,10 @@ export async function startWorker({ port, vars = {}, timeoutMs = 180000 } = {}) 
   const deadline = startedAt + timeoutMs;
   let lastHeartbeat = 0;
   while (Date.now() < deadline) {
-    if (child.exitCode !== null) throw new Error(`wrangler exited early:\n${log.slice(-4000)}`);
+    if (child.exitCode !== null) {
+      await stopWorker({ child });
+      throw new Error(`wrangler exited early:\n${log.slice(-4000)}`);
+    }
     try {
       const res = await fetch(`${base}/c/v1/health`, { signal: AbortSignal.timeout(2000) });
       const body = await res.json().catch(() => null);
@@ -71,6 +77,7 @@ export async function startWorker({ port, vars = {}, timeoutMs = 180000 } = {}) 
     }
     await sleep(400);
   }
+  await stopWorker({ child });
   throw new Error(`wrangler 未在 ${timeoutMs}ms 内就绪:\n${log.slice(-4000)}`);
 }
 

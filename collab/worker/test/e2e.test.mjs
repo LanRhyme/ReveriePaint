@@ -19,12 +19,15 @@ let fastClient;
 const ROOM_CODE_RE = /^[A-Z2-9]{6}$/;
 
 before(async () => {
-  [mainWorker, fastWorker] = await Promise.all([
+  try {
     // 主实例: 昵称占位阈值压到 3s, 便于验证幽灵清理
-    startWorker({ port: PORT_MAIN, vars: { GHOST_PEER_TTL_MS: 3000 } }),
+    mainWorker = await startWorker({ port: PORT_MAIN, vars: { GHOST_PEER_TTL_MS: 3000 } });
     // 短 TTL 实例: 房间 6s 过期, 便于验证过期与活动顺延
-    startWorker({ port: PORT_FAST, vars: { ROOM_TTL_MS: 6000, GHOST_PEER_TTL_MS: 3000 } }),
-  ]);
+    fastWorker = await startWorker({ port: PORT_FAST, vars: { ROOM_TTL_MS: 6000, GHOST_PEER_TTL_MS: 3000 } });
+  } catch (err) {
+    await Promise.all([stopWorker(mainWorker), stopWorker(fastWorker)]);
+    throw err;
+  }
   client = new WorkerClient(mainWorker);
   fastClient = new WorkerClient(fastWorker);
 });
@@ -32,6 +35,13 @@ before(async () => {
 after(async () => {
   await Promise.all([stopWorker(mainWorker), stopWorker(fastWorker)]);
 });
+
+// 进程被外部信号打断时也要收掉 wrangler/workerd, 否则端口被占会拖垮下一次运行
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.once(signal, () => {
+    Promise.all([stopWorker(mainWorker), stopWorker(fastWorker)]).finally(() => process.exit(130));
+  });
+}
 
 describe('健康检查与建房', () => {
   it('health 返回版本、禁用位与中继配置', async () => {
