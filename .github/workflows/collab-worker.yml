@@ -28,6 +28,11 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Install worker dev dependencies
+        working-directory: collab/worker
+        run: npm ci --no-audit --no-fund
+
       - name: Run Durable Object E2E tests
         working-directory: collab/worker
+        timeout-minutes: 10
         run: npm test

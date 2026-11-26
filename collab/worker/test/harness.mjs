@@ -3,6 +3,7 @@
 
 import { spawn } from 'node:child_process';
 import { once } from 'node:events';
+import { existsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -11,21 +12,41 @@ export const WORKER_DIR = resolve(dirname(fileURLToPath(import.meta.url)), '..')
 export const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
 
 /** 启动本地 worker, 轮询 /health 直到就绪 */
+function resolveWranglerCommand() {
+  // 优先用本地安装的 wrangler (CI 里先 npm install), 缺失时回退 npx
+  const localBin = resolve(WORKER_DIR, 'node_modules', '.bin', 'wrangler');
+  if (existsSync(localBin)) return { cmd: localBin, prefix: [] };
+  return { cmd: 'npx', prefix: ['-y', 'wrangler@4'] };
+}
+
 export async function startWorker({ port, vars = {}, timeoutMs = 180000 } = {}) {
-  const args = ['-y', 'wrangler@4', 'dev', '--port', String(port), '--local'];
+  const { cmd, prefix } = resolveWranglerCommand();
+  const args = [...prefix, 'dev', '--port', String(port), '--local'];
   for (const [key, value] of Object.entries(vars)) args.push('--var', `${key}:${value}`);
-  const child = spawn('npx', args, {
+  const child = spawn(cmd, args, {
     cwd: WORKER_DIR,
     env: { ...process.env, WRANGLER_SEND_METRICS: 'false', CI: '1' },
     stdio: ['ignore', 'pipe', 'pipe'],
     detached: true,
   });
   let log = '';
-  child.stdout.on('data', (d) => { log += String(d); });
-  child.stderr.on('data', (d) => { log += String(d); });
+  const echo = Boolean(process.env.COLLAB_TEST_VERBOSE) || Boolean(process.env.CI);
+  const absorb = (d) => {
+    const text = String(d);
+    log += text;
+    if (echo) {
+      for (const line of text.split('\n')) {
+        if (line.trim()) console.log(`[wrangler:${port}] ${line.trimEnd()}`);
+      }
+    }
+  };
+  child.stdout.on('data', absorb);
+  child.stderr.on('data', absorb);
 
   const base = `http://127.0.0.1:${port}`;
-  const deadline = Date.now() + timeoutMs;
+  const startedAt = Date.now();
+  const deadline = startedAt + timeoutMs;
+  let lastHeartbeat = 0;
   while (Date.now() < deadline) {
     if (child.exitCode !== null) throw new Error(`wrangler exited early:\n${log.slice(-4000)}`);
     try {
@@ -42,6 +63,11 @@ export async function startWorker({ port, vars = {}, timeoutMs = 180000 } = {}) 
       }
     } catch {
       /* 服务还没起来 */
+    }
+    const elapsed = Date.now() - startedAt;
+    if (elapsed - lastHeartbeat >= 5000) {
+      lastHeartbeat = elapsed;
+      console.log(`[wrangler:${port}] 等待就绪 ${Math.round(elapsed / 1000)}s ...`);
     }
     await sleep(400);
   }
