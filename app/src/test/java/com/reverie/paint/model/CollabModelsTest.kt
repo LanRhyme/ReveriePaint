@@ -351,4 +351,60 @@ class CollabModelsTest {
         assertFalse(CollabTopologyPolicy.isValidPublicRoomTitle(isPublic = true, rawTitle = " \n\t "))
         assertTrue(CollabTopologyPolicy.isValidPublicRoomTitle(isPublic = true, rawTitle = "周末线稿接龙"))
     }
+
+    @Test
+    fun `剪贴板提取房间码、重名昵称建议与邀请文案格式化正确`() {
+        assertEquals("AB2C9K", CollabTopologyPolicy.extractRoomCodeFromText(" ab2-c9k "))
+        assertEquals(
+            "K7M9P2",
+            CollabTopologyPolicy.extractRoomCodeFromText("来一起茶绘吧，房间码：K7M9P2（无密码）"),
+        )
+        assertNull(CollabTopologyPolicy.extractRoomCodeFromText("没有有效房间码 AB01OL"))
+
+        assertEquals(
+            "小画师_2",
+            CollabTopologyPolicy.suggestUniqueNickname("小画师", listOf("房主", "小画师")),
+        )
+        assertEquals(
+            "小画师_3",
+            CollabTopologyPolicy.suggestUniqueNickname("小画师", listOf("小画师", "小画师_2")),
+        )
+        val longBase = "a".repeat(24)
+        val longSuggested = CollabTopologyPolicy.suggestUniqueNickname(longBase, listOf(longBase))
+        assertEquals(24, longSuggested.length)
+        assertTrue(longSuggested.endsWith("_2"))
+
+        val inviteZh = CollabTopologyPolicy.formatInviteText("ab2c9k", "深夜摸鱼", hasPassword = true, isChinese = true)
+        assertTrue(inviteZh.contains("AB2C9K"))
+        assertTrue(inviteZh.contains("深夜摸鱼"))
+        assertTrue(inviteZh.contains("密码"))
+
+        assertEquals(CollabCursorDisplayMode.FULL, CollabCursorDisplayMode.fromCode(0))
+        assertEquals(CollabCursorDisplayMode.DOT_ONLY, CollabCursorDisplayMode.fromCode(1))
+        assertEquals(CollabCursorDisplayMode.HIDDEN, CollabCursorDisplayMode.fromCode(2))
+        assertEquals(CollabCursorDisplayMode.FULL, CollabCursorDisplayMode.fromCode(99))
+    }
+
+    @Test
+    fun `视口定位偏移反算使目标文档点精确居中`() {
+        // 1000x1000 文档中心 (500,500) 对应 pan=(0,0)
+        val centerPan = CollabTopologyPolicy.computeCenterPanForDocPoint(
+            docX = 500f, docY = 500f,
+            docW = 1000, docH = 1000,
+            bmpW = 1000, bmpH = 1000,
+            zoom = 2f, fitScale = 0.5f, rotationDeg = 90f,
+        )
+        assertEquals(0f, centerPan.first, 1e-3f)
+        assertEquals(0f, centerPan.second, 1e-3f)
+
+        // (600, 500) 未旋转无翻转、总缩放 1.5 -> dx=+100 -> panX=-150, panY=0
+        val offsetPan = CollabTopologyPolicy.computeCenterPanForDocPoint(
+            docX = 600f, docY = 500f,
+            docW = 1000, docH = 1000,
+            bmpW = 1000, bmpH = 1000,
+            zoom = 1.5f, fitScale = 1f, rotationDeg = 0f,
+        )
+        assertEquals(-150f, offsetPan.first, 1e-3f)
+        assertEquals(0f, offsetPan.second, 1e-3f)
+    }
 }

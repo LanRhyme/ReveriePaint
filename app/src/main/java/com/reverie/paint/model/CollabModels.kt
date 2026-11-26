@@ -4,6 +4,9 @@
 
 package com.reverie.paint.model
 
+import kotlin.math.cos
+import kotlin.math.sin
+
 /** 茶绘会话连接阶段 */
 enum class CollabConnectionPhase {
     IDLE,
@@ -105,6 +108,45 @@ data class CollabPendingRequest(
     val peerId: String,
     val name: String,
     val joinedAt: Long,
+)
+
+/** 远端协作者光标显示模式 */
+enum class CollabCursorDisplayMode(val code: Int) {
+    /** 完整展示画笔大小圆环、中心点与昵称胶囊 */
+    FULL(0),
+
+    /** 仅展示中心小圆点与落笔光晕，避免多人遮挡画面细节 */
+    DOT_ONLY(1),
+
+    /** 隐藏远端光标 */
+    HIDDEN(2),
+    ;
+
+    companion object {
+        fun fromCode(code: Int): CollabCursorDisplayMode = entries.find { it.code == code } ?: FULL
+    }
+}
+
+/** 茶绘轻量快捷聊天消息 */
+data class CollabChatMessage(
+    val id: String,
+    val peerId: String,
+    val senderName: String,
+    val badgeColorArgb: Int,
+    val text: String,
+    val timestampMs: Long,
+    val isSelf: Boolean,
+)
+
+/** 茶绘画布局部提醒标记 (Ping) */
+data class CollabCanvasPing(
+    val id: String,
+    val peerId: String,
+    val senderName: String,
+    val badgeColorArgb: Int,
+    val docX: Float,
+    val docY: Float,
+    val createdAtUptimeMs: Long,
 )
 
 /** 远端协作者在画布上的实时光标投影 (文档坐标系) */
@@ -493,6 +535,92 @@ object CollabTopologyPolicy {
         CollabNatType.SYMMETRIC_EASY_DEC -> 2
         CollabNatType.SYMMETRIC,
         CollabNatType.SYM_UDP_FIREWALL -> 3
+    }
+
+    private val ROOM_CODE_SEARCH_REGEX = Regex("(?<![A-Z0-9])[A-Z2-9]{6}(?![A-Z0-9])")
+
+    /** 从剪贴板文本或邀请口令中提取 6 位房间码，未命中则返回 null */
+    fun extractRoomCodeFromText(raw: String): String? {
+        val direct = normalizeRoomCode(raw)
+        if (isValidRoomCode(direct)) return direct
+        val upper = raw.uppercase()
+        return ROOM_CODE_SEARCH_REGEX.find(upper)?.value
+    }
+
+    /** 昵称重名时生成不冲突的建议昵称（保留最多 24 个字符） */
+    fun suggestUniqueNickname(baseName: String, existingNames: Collection<String>): String {
+        val cleanBase = baseName.trim().ifBlank { "Artist" }.take(24)
+        if (!hasDuplicateNickname(cleanBase, existingNames)) return cleanBase
+        for (suffixNum in 2..99) {
+            val suffix = "_$suffixNum"
+            val candidate = cleanBase.take(24 - suffix.length) + suffix
+            if (!hasDuplicateNickname(candidate, existingNames)) return candidate
+        }
+        return cleanBase.take(20) + "_new"
+    }
+
+    /** 生成便于微信/QQ 转发的完整茶绘邀请文案 */
+    fun formatInviteText(
+        roomCode: String,
+        roomTitle: String,
+        hasPassword: Boolean,
+        isChinese: Boolean,
+    ): String {
+        val code = normalizeRoomCode(roomCode)
+        val title = roomTitle.trim()
+        return if (isChinese) {
+            buildString {
+                if (title.isNotEmpty()) {
+                    append("来 ReveriePaint 茶绘「").append(title).append("」一起画画吧，")
+                } else {
+                    append("来 ReveriePaint 茶绘一起画画吧，")
+                }
+                append("房间码：").append(code)
+                if (hasPassword) append("（需要密码）")
+            }
+        } else {
+            buildString {
+                if (title.isNotEmpty()) {
+                    append("Join \"").append(title).append("\" on ReveriePaint Collab, ")
+                } else {
+                    append("Join my ReveriePaint Collab room, ")
+                }
+                append("Code: ").append(code)
+                if (hasPassword) append(" (Password required)")
+            }
+        }
+    }
+
+    /**
+     * 计算使文档坐标 (docX, docY) 恰好位于视口正中心的 (panX, panY) 偏移量，
+     * 精确对齐 CanvasView.imageToWidget 的正向旋转与翻转变换
+     */
+    fun computeCenterPanForDocPoint(
+        docX: Float,
+        docY: Float,
+        docW: Int,
+        docH: Int,
+        bmpW: Int,
+        bmpH: Int,
+        zoom: Float,
+        fitScale: Float,
+        rotationDeg: Float,
+        flipX: Boolean = false,
+        flipY: Boolean = false,
+    ): Pair<Float, Float> {
+        val scale = (zoom * fitScale).coerceAtLeast(0.001f)
+        val safeDocW = maxOf(1, docW)
+        val safeDocH = maxOf(1, docH)
+        val signX = if (flipX) -1f else 1f
+        val signY = if (flipY) -1f else 1f
+        val bx = (docX * (bmpW.toFloat() / safeDocW) - bmpW / 2f) * signX
+        val by = (docY * (bmpH.toFloat() / safeDocH) - bmpH / 2f) * signY
+        val radians = Math.toRadians(rotationDeg.toDouble())
+        val cosR = cos(radians).toFloat()
+        val sinR = sin(radians).toFloat()
+        val rotX = (bx * scale) * cosR - (by * scale) * sinR
+        val rotY = (bx * scale) * sinR + (by * scale) * cosR
+        return -rotX to -rotY
     }
 }
 

@@ -12,7 +12,10 @@ import androidx.lifecycle.viewModelScope
 import com.reverie.paint.R
 import com.reverie.paint.core.collab.SignalingClient
 import com.reverie.paint.core.collab.SignalingEventListener
+import com.reverie.paint.model.CollabCanvasPing
+import com.reverie.paint.model.CollabChatMessage
 import com.reverie.paint.model.CollabConnectionPhase
+import com.reverie.paint.model.CollabCursorDisplayMode
 import com.reverie.paint.model.CollabLayerDescriptor
 import com.reverie.paint.model.CollabNatType
 import com.reverie.paint.model.CollabNetworkDiag
@@ -44,6 +47,10 @@ private const val PREF_COLLAB_TURN_URL = "collab_turn_url"
 private const val PREF_COLLAB_TURN_USER = "collab_turn_user"
 private const val PREF_COLLAB_TURN_CRED = "collab_turn_cred"
 private const val PREF_COLLAB_KCP_PROXY = "collab_kcp_proxy"
+private const val PREF_COLLAB_CURSOR_MODE = "collab_cursor_mode"
+
+private const val COLLAB_CHAT_BANNER_DURATION_MS = 4000L
+private const val COLLAB_PING_DURATION_MS = 2500L
 
 private const val COLLAB_DRAIN_INTERVAL_MS = 16L
 private const val COLLAB_CURSOR_THROTTLE_MS = 33L
@@ -92,6 +99,19 @@ internal class CollabSessionState {
     var endSaveDefaultName by mutableStateOf("")
     var savedRoomCodeForDialog by mutableStateOf("")
 
+    // UX 增强运行时状态
+    var cursorDisplayMode by mutableStateOf(CollabCursorDisplayMode.FULL)
+    var chatMessages by mutableStateOf<List<CollabChatMessage>>(emptyList())
+    var latestChatBanner by mutableStateOf<CollabChatMessage?>(null)
+    var canvasPings by mutableStateOf<List<CollabCanvasPing>>(emptyList())
+    var pendingFocusDocPoint by mutableStateOf<Pair<Float, Float>?>(null)
+    var pendingPingAtViewportCenter by mutableStateOf(false)
+    var duplicateSuggestedName by mutableStateOf<String?>(null)
+    var lastDuplicateRoomCode by mutableStateOf("")
+    var lastDuplicatePassword by mutableStateOf("")
+    var roomHasPassword by mutableStateOf(false)
+    var kcpNeedsReconnectHint by mutableStateOf(false)
+
     // CreatePage 联动开房参数 (创建房间需先配置并新建画布)
     var pendingCreateMode by mutableStateOf(false)
     var pendingCreatePassword by mutableStateOf("")
@@ -106,6 +126,8 @@ internal class CollabSessionState {
     internal var reconnectJob: Job? = null
     internal var hostOfflineTimerJob: Job? = null
     internal var publicRoomsLoadJob: Job? = null
+    internal var chatBannerClearJob: Job? = null
+    internal var pingPruneJob: Job? = null
     internal val drainInFlight = AtomicBoolean(false)
 
     @Volatile
@@ -139,6 +161,9 @@ internal fun PaintViewModel.ensureCollabPrefsLoaded() {
     collab.customTurnUsername = prefs.getString(PREF_COLLAB_TURN_USER, null).orEmpty().trim()
     collab.customTurnCredential = prefs.getString(PREF_COLLAB_TURN_CRED, null).orEmpty()
     collab.kcpProxyEnabled = prefs.getBoolean(PREF_COLLAB_KCP_PROXY, true)
+    collab.cursorDisplayMode = CollabCursorDisplayMode.fromCode(
+        prefs.getInt(PREF_COLLAB_CURSOR_MODE, CollabCursorDisplayMode.FULL.code),
+    )
 
     var peerId = prefs.getString(PREF_COLLAB_PEER_ID, null).orEmpty().trim()
     if (peerId.isBlank()) {
@@ -184,6 +209,25 @@ internal fun PaintViewModel.setCollabKcpProxyEnabled(enabled: Boolean) {
     collab.kcpProxyEnabled = enabled
     if (isAppContextReady()) {
         prefs.edit().putBoolean(PREF_COLLAB_KCP_PROXY, enabled).apply()
+    }
+    if (collab.isActive) {
+        collab.kcpNeedsReconnectHint = true
+        if (collab.roomCode.isNotEmpty()) {
+            collab.lastEasyTierJson = buildEffectiveTransportConfigJson(
+                roomCode = collab.roomCode,
+                selfPeerId = collab.selfPeerId,
+                hostPeerId = collab.hostPeerId,
+                baseEasyTierJson = collab.lastEasyTierJson,
+            )
+        }
+    }
+}
+
+internal fun PaintViewModel.setCollabCursorDisplayMode(mode: CollabCursorDisplayMode) {
+    if (collab.cursorDisplayMode == mode) return
+    collab.cursorDisplayMode = mode
+    if (isAppContextReady()) {
+        prefs.edit().putInt(PREF_COLLAB_CURSOR_MODE, mode.code).apply()
     }
 }
 
@@ -373,6 +417,9 @@ internal fun PaintViewModel.createCollabRoom(
 
     collab.intentionalLeave = false
     collab.lastJoinPassword = password
+    collab.roomHasPassword = password.isNotEmpty()
+    collab.kcpNeedsReconnectHint = false
+    collab.duplicateSuggestedName = null
     collab.reconnectAttempt = 0
     collab.isActive = true
     collab.phase = CollabConnectionPhase.CREATING
@@ -472,6 +519,9 @@ internal fun PaintViewModel.joinCollabRoom(
 
     collab.intentionalLeave = false
     collab.lastJoinPassword = password
+    collab.roomHasPassword = password.isNotEmpty()
+    collab.kcpNeedsReconnectHint = false
+    collab.duplicateSuggestedName = null
     collab.reconnectAttempt = 0
     collab.isActive = true
     collab.phase = CollabConnectionPhase.JOINING
@@ -525,9 +575,13 @@ internal fun PaintViewModel.joinCollabRoom(
                 addAll(summary.peerNames)
             }
             if (CollabTopologyPolicy.hasDuplicateNickname(displayName, existingNames)) {
+                collab.duplicateSuggestedName = CollabTopologyPolicy.suggestUniqueNickname(displayName, existingNames)
+                collab.lastDuplicateRoomCode = normCode
+                collab.lastDuplicatePassword = password
                 failJoinWith(getString(R.string.collab_err_duplicate_name))
                 return@onSuccess
             }
+            collab.roomHasPassword = summary.hasPassword
             collab.hostPeerId = summary.hostPeerId
             collab.requireApproval = summary.requireApproval
             collab.maxPeers = summary.maxPeers
@@ -607,6 +661,7 @@ internal fun PaintViewModel.reconnectCollabNow() {
     collab.reconnectJob?.cancel()
     collab.reconnectJob = null
     collab.reconnectAttempt = 0
+    collab.kcpNeedsReconnectHint = false
     collab.phase = CollabConnectionPhase.RECONNECTING
     collab.statusMessage = getString(R.string.collab_status_connecting)
 
@@ -685,7 +740,16 @@ private fun PaintViewModel.handleCollabAdmittedOrWelcome(
         peers.any { it.peerId != selfPeerId && CollabTopologyPolicy.isSameNickname(it.name, collab.selfName) }
     ) {
         val dupMsg = getString(R.string.collab_err_duplicate_name)
+        val suggested = CollabTopologyPolicy.suggestUniqueNickname(
+            collab.selfName,
+            peers.filter { it.peerId != selfPeerId }.map { it.name },
+        )
+        val savedCode = collab.roomCode
+        val savedPw = collab.lastJoinPassword
         teardownCollabLocalState(gracefulLeave = true)
+        collab.duplicateSuggestedName = suggested
+        collab.lastDuplicateRoomCode = savedCode
+        collab.lastDuplicatePassword = savedPw
         collab.phase = CollabConnectionPhase.ERROR
         collab.statusMessage = dupMsg
         if (currentPage != Page.PAINTING) {
@@ -698,6 +762,10 @@ private fun PaintViewModel.handleCollabAdmittedOrWelcome(
     collab.reconnectJob?.cancel()
     collab.reconnectJob = null
     collab.reconnectAttempt = 0
+    collab.duplicateSuggestedName = null
+    collab.lastDuplicateRoomCode = ""
+    collab.lastDuplicatePassword = ""
+    collab.kcpNeedsReconnectHint = false
     collab.roomCode = roomCode
     collab.selfPeerId = selfPeerId
     collab.hostPeerId = hostPeerId
@@ -814,13 +882,14 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
                 if (collab.sessionGeneration != gen) return@post
                 val existing = collab.pendingRequests.filterNot { it.peerId == request.peerId }
                 collab.pendingRequests = existing + request
-                collab.showRoomSheet = true
+                // 非阻塞提示: 不再强弹全屏弹窗打断房主运笔，由画布顶部横幅承接审批
             }
         }
 
         override fun onPeerJoined(peer: CollabPeer) {
             mainHandler.post {
                 if (collab.sessionGeneration != gen) return@post
+                val alreadyInPeers = collab.peers.any { it.peerId == peer.peerId }
                 if (peer.peerId in collab.departedPeers) {
                     collab.departedPeers = collab.departedPeers - peer.peerId
                 }
@@ -828,6 +897,9 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
                 val updated = collab.peers.filterNot { it.peerId == peer.peerId } + peer.copy(signalingOnline = true)
                 collab.peers = normalizePeersWithFlags(updated, collab.hostPeerId, p2pStates)
                 if (peer.peerId != collab.selfPeerId) {
+                    if (collab.nativeStarted && !alreadyInPeers) {
+                        showActionToast(getString(R.string.collab_peer_joined_toast, peer.name), R.drawable.ic_cloud)
+                    }
                     runCore(render = false) {
                         if (collab.sessionGeneration == gen && collab.nativeStarted) {
                             ReverieCoreBridge.collabOnPeerJoined(
@@ -855,6 +927,7 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
                 val leftPeer = collab.peers.firstOrNull { it.peerId == peerId }
                 if (peerId != collab.selfPeerId && leftPeer != null) {
                     collab.departedPeers = collab.departedPeers + (peerId to leftPeer.name)
+                    showActionToast(getString(R.string.collab_peer_left_toast, leftPeer.name), R.drawable.ic_cloud)
                 }
                 collab.peers = collab.peers.filterNot { it.peerId == peerId }
                 collab.pendingRequests = collab.pendingRequests.filterNot { it.peerId == peerId }
@@ -868,6 +941,10 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
         override fun onPeerOffline(peerId: String) {
             mainHandler.post {
                 if (collab.sessionGeneration != gen) return@post
+                val target = collab.peers.firstOrNull { it.peerId == peerId }
+                if (peerId != collab.selfPeerId && target?.signalingOnline == true) {
+                    showActionToast(getString(R.string.collab_peer_offline_toast, target.name), R.drawable.ic_cloud)
+                }
                 collab.peers = collab.peers.map {
                     if (it.peerId == peerId) it.copy(signalingOnline = false) else it
                 }
@@ -892,6 +969,35 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
         }
 
         override fun onSignal(fromPeerId: String, payloadJson: String) {
+            if (payloadJson.contains("\"collab_chat\"") || payloadJson.contains("\"collab_ping\"")) {
+                val obj = runCatching { JSONObject(payloadJson) }.getOrNull()
+                val kind = obj?.optString("kind").orEmpty()
+                if (kind == "collab_chat" && obj != null) {
+                    val text = obj.optString("text").trim().take(80)
+                    val senderName = obj.optString("name").trim()
+                    if (text.isNotEmpty()) {
+                        mainHandler.post {
+                            if (collab.sessionGeneration == gen) {
+                                handleInboundCollabChat(fromPeerId, senderName, text)
+                            }
+                        }
+                    }
+                    return
+                }
+                if (kind == "collab_ping" && obj != null) {
+                    val docX = obj.optDouble("docX", Double.NaN).toFloat()
+                    val docY = obj.optDouble("docY", Double.NaN).toFloat()
+                    val senderName = obj.optString("name").trim()
+                    if (docX.isFinite() && docY.isFinite()) {
+                        mainHandler.post {
+                            if (collab.sessionGeneration == gen) {
+                                handleInboundCollabPing(fromPeerId, senderName, docX, docY)
+                            }
+                        }
+                    }
+                    return
+                }
+            }
             val buffered = synchronized(collab.signalLock) {
                 if (!collab.nativeStarted) {
                     collab.pendingSignals.add(fromPeerId to payloadJson)
@@ -1047,7 +1153,20 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
                     "duplicate_name", "room_full", "invalid_password", "room_not_found",
                     "kicked", "peer_id_conflict", "service_disabled" -> {
                         val detail = localizeCollabError(code, message)
+                        val existingNames = collab.peers.map { it.name } + collab.selfName
+                        val suggested = if (code == "duplicate_name") {
+                            CollabTopologyPolicy.suggestUniqueNickname(collab.selfName, existingNames)
+                        } else {
+                            null
+                        }
+                        val savedCode = collab.roomCode
+                        val savedPw = collab.lastJoinPassword
                         teardownCollabLocalState(gracefulLeave = false)
+                        if (suggested != null) {
+                            collab.duplicateSuggestedName = suggested
+                            collab.lastDuplicateRoomCode = savedCode
+                            collab.lastDuplicatePassword = savedPw
+                        }
                         collab.phase = CollabConnectionPhase.ERROR
                         collab.statusMessage = detail
                         if (currentPage != Page.PAINTING) {
@@ -1534,6 +1653,10 @@ private fun PaintViewModel.teardownCollabLocalState(
     collab.drainJob = null
     collab.hostOfflineTimerJob?.cancel()
     collab.hostOfflineTimerJob = null
+    collab.chatBannerClearJob?.cancel()
+    collab.chatBannerClearJob = null
+    collab.pingPruneJob?.cancel()
+    collab.pingPruneJob = null
     collab.signalingClient?.disconnect(gracefulLeave = gracefulLeave)
     collab.signalingClient = null
 
@@ -1566,6 +1689,16 @@ private fun PaintViewModel.teardownCollabLocalState(
     collab.lastEasyTierJson = "{}"
     collab.localEndpointUris = emptyList()
     collab.lastNetDiagPollMs = 0L
+    collab.chatMessages = emptyList()
+    collab.latestChatBanner = null
+    collab.canvasPings = emptyList()
+    collab.pendingFocusDocPoint = null
+    collab.pendingPingAtViewportCenter = false
+    collab.duplicateSuggestedName = null
+    collab.lastDuplicateRoomCode = ""
+    collab.lastDuplicatePassword = ""
+    collab.roomHasPassword = false
+    collab.kcpNeedsReconnectHint = false
 
     if (wasNativeStarted) {
         if (synchronousNativeStop || renderHandler == null) {
@@ -2077,4 +2210,169 @@ private fun normalizePeersWithFlags(
             .thenBy { it.joinedAt }
             .thenBy { it.peerId }
     )
+}
+
+/** 房内不退出保存当前合作画布副本到本地工程列表 */
+internal fun PaintViewModel.saveCollabBackupInPlace() {
+    if (!collab.isActive) return
+    val name = generateNextCollabProjectName(collab.roomCode)
+    val roomTag = collab.roomCode
+    runCore(render = false) {
+        ReverieCoreBridge.setProjectCollabMeta(true, roomTag)
+    }
+    saveProject(name) {
+        showActionToast(R.string.collab_backup_saved_toast, R.drawable.ic_save)
+    }
+}
+
+/** 跳转到指定协作者当前画布坐标（关闭弹窗并居中对准对方光标） */
+internal fun PaintViewModel.focusViewportOnCollabPeer(peerId: String) {
+    val cursor = collab.remoteCursors.firstOrNull { it.peerId == peerId }
+    val name = collab.peers.firstOrNull { it.peerId == peerId }?.name ?: peerId
+    if (cursor == null) {
+        showActionToast(getString(R.string.collab_peer_no_cursor_toast, name), R.drawable.ic_cloud)
+        return
+    }
+    collab.showRoomSheet = false
+    collab.pendingFocusDocPoint = cursor.docX to cursor.docY
+    showActionToast(getString(R.string.collab_located_peer_toast, name), R.drawable.ic_cloud)
+}
+
+/** 发送轻量房间短消息（经由信令透传，不干扰 C++ 笔画数据流） */
+internal fun PaintViewModel.sendCollabChatMessage(rawText: String) {
+    if (!collab.isActive) return
+    val clean = rawText.replace(Regex("[\\r\\n]+"), " ").trim().take(80)
+    if (clean.isEmpty()) return
+    val client = collab.signalingClient
+    val payload = JSONObject().apply {
+        put("kind", "collab_chat")
+        put("text", clean)
+        put("name", collab.selfName)
+    }
+    if (client != null) {
+        for (p in collab.peers) {
+            if (p.peerId != collab.selfPeerId && p.signalingOnline) {
+                client.sendSignal(p.peerId, payload)
+            }
+        }
+    }
+    appendCollabChatEntry(
+        peerId = collab.selfPeerId,
+        senderName = collab.selfName,
+        text = clean,
+        isSelf = true,
+        showBanner = false,
+    )
+}
+
+/** 在指定文档坐标发送脉冲提醒标记（Ping），通知全房画师查看当前区域 */
+internal fun PaintViewModel.sendCollabCanvasPing(docX: Float, docY: Float) {
+    if (!collab.isActive || !docX.isFinite() || !docY.isFinite()) return
+    val client = collab.signalingClient
+    val payload = JSONObject().apply {
+        put("kind", "collab_ping")
+        put("docX", docX.toDouble())
+        put("docY", docY.toDouble())
+        put("name", collab.selfName)
+    }
+    if (client != null) {
+        for (p in collab.peers) {
+            if (p.peerId != collab.selfPeerId && p.signalingOnline) {
+                client.sendSignal(p.peerId, payload)
+            }
+        }
+    }
+    appendCollabPingEntry(
+        peerId = collab.selfPeerId,
+        senderName = collab.selfName,
+        docX = docX,
+        docY = docY,
+    )
+    showActionToast(R.string.collab_ping_sent_toast, R.drawable.ic_cloud)
+}
+
+private fun PaintViewModel.handleInboundCollabChat(fromPeerId: String, senderName: String, text: String) {
+    val resolvedName = senderName.ifBlank { collabOwnerDisplayName(fromPeerId) }
+    appendCollabChatEntry(
+        peerId = fromPeerId,
+        senderName = resolvedName,
+        text = text,
+        isSelf = false,
+        showBanner = true,
+    )
+}
+
+private fun PaintViewModel.appendCollabChatEntry(
+    peerId: String,
+    senderName: String,
+    text: String,
+    isSelf: Boolean,
+    showBanner: Boolean,
+) {
+    val msg = CollabChatMessage(
+        id = UUID.randomUUID().toString(),
+        peerId = peerId,
+        senderName = senderName,
+        badgeColorArgb = CollabTopologyPolicy.assignBadgeColorArgb(peerId),
+        text = text,
+        timestampMs = System.currentTimeMillis(),
+        isSelf = isSelf,
+    )
+    collab.chatMessages = (collab.chatMessages + msg).takeLast(30)
+    if (showBanner) {
+        val gen = collab.sessionGeneration
+        collab.latestChatBanner = msg
+        collab.chatBannerClearJob?.cancel()
+        collab.chatBannerClearJob = viewModelScope.launch {
+            delay(COLLAB_CHAT_BANNER_DURATION_MS)
+            if (collab.sessionGeneration == gen && collab.latestChatBanner?.id == msg.id) {
+                collab.latestChatBanner = null
+            }
+        }
+    }
+}
+
+private fun PaintViewModel.handleInboundCollabPing(
+    fromPeerId: String,
+    senderName: String,
+    docX: Float,
+    docY: Float,
+) {
+    val resolvedName = senderName.ifBlank { collabOwnerDisplayName(fromPeerId) }
+    appendCollabPingEntry(
+        peerId = fromPeerId,
+        senderName = resolvedName,
+        docX = docX,
+        docY = docY,
+    )
+    showActionToast(getString(R.string.collab_ping_received_toast, resolvedName), R.drawable.ic_cloud)
+}
+
+private fun PaintViewModel.appendCollabPingEntry(
+    peerId: String,
+    senderName: String,
+    docX: Float,
+    docY: Float,
+) {
+    val now = android.os.SystemClock.uptimeMillis()
+    val ping = CollabCanvasPing(
+        id = UUID.randomUUID().toString(),
+        peerId = peerId,
+        senderName = senderName,
+        badgeColorArgb = CollabTopologyPolicy.assignBadgeColorArgb(peerId),
+        docX = docX,
+        docY = docY,
+        createdAtUptimeMs = now,
+    )
+    collab.canvasPings = (collab.canvasPings.filter { now - it.createdAtUptimeMs < COLLAB_PING_DURATION_MS } + ping).takeLast(12)
+    val gen = collab.sessionGeneration
+    if (collab.pingPruneJob?.isActive != true) {
+        collab.pingPruneJob = viewModelScope.launch {
+            while (isActive && collab.sessionGeneration == gen && collab.canvasPings.isNotEmpty()) {
+                delay(250L)
+                val cur = android.os.SystemClock.uptimeMillis()
+                collab.canvasPings = collab.canvasPings.filter { cur - it.createdAtUptimeMs < COLLAB_PING_DURATION_MS }
+            }
+        }
+    }
 }

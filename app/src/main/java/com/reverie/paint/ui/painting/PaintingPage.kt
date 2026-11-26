@@ -290,6 +290,65 @@ fun PaintingPage(
         vm.pendingCanvasOrientation = null
     }
 
+    LaunchedEffect(vm.collab.pendingFocusDocPoint) {
+        val targetPt = vm.collab.pendingFocusDocPoint ?: return@LaunchedEffect
+        val tiles = vm.displayTiles.drawable()
+        val displayBmp = if (tiles != null) null else vm.displayBitmap?.takeIf { !it.isRecycled }
+        val docW = vm.docWidth.coerceAtLeast(1)
+        val docH = vm.docHeight.coerceAtLeast(1)
+        val bmpW = tiles?.grid?.width ?: displayBmp?.width ?: docW
+        val bmpH = tiles?.grid?.height ?: displayBmp?.height ?: docH
+        val (targetPanX, targetPanY) = com.reverie.paint.model.CollabTopologyPolicy.computeCenterPanForDocPoint(
+            docX = targetPt.first,
+            docY = targetPt.second,
+            docW = docW,
+            docH = docH,
+            bmpW = bmpW,
+            bmpH = bmpH,
+            zoom = zoom,
+            fitScale = fitScale,
+            rotationDeg = rotation,
+            flipX = vm.viewFlipX,
+            flipY = vm.viewFlipY,
+        )
+        val view = canvasTouchView ?: com.reverie.paint.ui.painting.canvas.CanvasTouchView.activeTouchView
+        if (view != null) {
+            view.applyViewTransform(zoom, rotation, targetPanX, targetPanY)
+        } else {
+            panX = targetPanX
+            panY = targetPanY
+        }
+        vm.collab.pendingFocusDocPoint = null
+    }
+
+    LaunchedEffect(vm.collab.pendingPingAtViewportCenter) {
+        if (!vm.collab.pendingPingAtViewportCenter) return@LaunchedEffect
+        val tiles = vm.displayTiles.drawable()
+        val displayBmp = if (tiles != null) null else vm.displayBitmap?.takeIf { !it.isRecycled }
+        val docW = vm.docWidth.coerceAtLeast(1)
+        val docH = vm.docHeight.coerceAtLeast(1)
+        val bmpW = tiles?.grid?.width ?: displayBmp?.width ?: docW
+        val bmpH = tiles?.grid?.height ?: displayBmp?.height ?: docH
+        val centerDoc = widgetToImage(
+            p = androidx.compose.ui.geometry.Offset(canvasW / 2f, canvasH / 2f),
+            canvasW = canvasW.coerceAtLeast(1),
+            canvasH = canvasH.coerceAtLeast(1),
+            panX = panX,
+            panY = panY,
+            zoom = zoom,
+            fitScale = fitScale,
+            rotation = rotation,
+            bmpW = bmpW,
+            bmpH = bmpH,
+            docW = docW,
+            docH = docH,
+            flipX = vm.viewFlipX,
+            flipY = vm.viewFlipY,
+        )
+        vm.sendCollabCanvasPing(centerDoc.x, centerDoc.y)
+        vm.collab.pendingPingAtViewportCenter = false
+    }
+
     var brushPanelOpen by remember { mutableStateOf(false) }
     var layerPanelOpen by remember { mutableStateOf(false) }
     // 图层面板未钉住且在滤镜调节页 (无遮罩, 画布可落笔) 时由 LayerPanel 回报。
@@ -2583,6 +2642,16 @@ fun PaintingPage(
                     .align(Alignment.TopCenter)
                     .padding(top = topDockPadding)
                     .zIndex(23f),
+        )
+
+        // ---- 茶绘非阻塞顶栏浮条 (审批横幅/快照进度/断线重连/快捷聊天) ----
+        com.reverie.paint.ui.painting.collab.CollabCanvasHud(
+            vm = vm,
+            modifier =
+                Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = topDockPadding)
+                    .zIndex(24f),
         )
 
         // ---- Popup panels (topmost, must stay above timeline panel zIndex 20f) ----
