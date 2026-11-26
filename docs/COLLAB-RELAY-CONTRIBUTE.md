@@ -61,6 +61,7 @@ curl -L -o easytier.zip "https://github.com/EasyTier/EasyTier/releases/download/
 
 unzip -o easytier.zip
 install -m 755 easytier-linux-*/easytier-core /usr/local/bin/easytier-core
+rm -f easytier.zip
 /usr/local/bin/easytier-core --version
 ```
 
@@ -76,17 +77,34 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+DynamicUser=yes
+MemoryMax=256M
 ExecStart=/usr/local/bin/easytier-core \
   --no-tun \
   --listeners tcp://0.0.0.0:11010 udp://0.0.0.0:11010 \
   --relay-network-whitelist "rvp-*" \
-  --relay-all-peer-rpc
+  --enable-relay-foreign-network-kcp true \
+  --console-log-level warn
 Restart=always
 RestartSec=3
 LimitNOFILE=65535
 
 [Install]
 WantedBy=multi-user.target
+```
+
+> 说明: `--enable-relay-foreign-network-kcp true` 允许转发客户端默认开启的 KCP 代理流; `DynamicUser=yes` 与 `MemoryMax=256M` 将服务隔离在非特权用户并限制内存上限; 如需限制中继峰值带宽, 可额外追加 `--foreign-relay-bps-limit <字节每秒>`
+
+可选开启 BBR 与放大 Socket 缓冲区 (降低高并发画作与笔刷转发时的网络抖动):
+
+```bash
+cat >/etc/sysctl.d/99-easytier-relay.conf <<'EOF'
+net.core.default_qdisc = fq
+net.ipv4.tcp_congestion_control = bbr
+net.core.rmem_max = 4194304
+net.core.wmem_max = 4194304
+EOF
+sysctl -p /etc/sysctl.d/99-easytier-relay.conf
 ```
 
 启用并检查服务状态:
