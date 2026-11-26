@@ -6,6 +6,8 @@ package com.reverie.paint.model
 
 import com.reverie.paint.core.ImageImportHelper
 import org.junit.Assert.assertEquals
+import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class ImageImportTest {
@@ -135,6 +137,42 @@ class ImageImportTest {
             ImageImportHelper.FitPlacement(0, 0, 1, 1),
             ImageImportHelper.calculateFitPlacement(0, 0, 0, 0),
         )
+    }
+
+    @Test
+    fun `computeSafeSampleSize scales budget for 8-byte pixels`() {
+        val heap = 2L * 1024 * 1024 * 1024 // capped at DECODE_MAX_BYTES (192MB)
+        // 6000x6000 * 4 = ~137MB (fits in 192MB), * 8 = ~275MB (> 192MB), must downsample
+        assertEquals(1, ImageImportHelper.computeSafeSampleSize(6000, 6000, 8192, heap, bytesPerPixel = 4))
+        assertEquals(2, ImageImportHelper.computeSafeSampleSize(6000, 6000, 8192, heap, bytesPerPixel = 8))
+    }
+
+    @Test
+    fun `sanitizeFileName strips separators and invalid characters`() {
+        assertEquals("photo.jpg", ImageImportHelper.sanitizeFileName("dir/sub\\photo.jpg"))
+        assertEquals("a_b_c.png", ImageImportHelper.sanitizeFileName("a:b*c.png"))
+        assertEquals("fallback", ImageImportHelper.sanitizeFileName("../..", "fallback"))
+        assertTrue(ImageImportHelper.sanitizeFileName("x".repeat(200)).length <= 80)
+    }
+
+    @Test
+    fun `sniffFormatFromHeader detects raster and document formats`() {
+        val png = byteArrayOf(0x89.toByte(), 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A)
+        val jpg = byteArrayOf(0xFF.toByte(), 0xD8.toByte(), 0xFF.toByte(), 0xE0.toByte())
+        val webp = "RIFF\u0000\u0000\u0000\u0000WEBP".toByteArray(Charsets.US_ASCII)
+        val heic = "\u0000\u0000\u0000\u0018ftypheic".toByteArray(Charsets.US_ASCII)
+        val avif = "\u0000\u0000\u0000\u0018ftypavif".toByteArray(Charsets.US_ASCII)
+        val psd = "8BPS\u0000\u0001".toByteArray(Charsets.US_ASCII)
+        val zip = byteArrayOf(0x50, 0x4B, 0x03, 0x04)
+
+        assertEquals("png", ImageImportHelper.sniffFormatFromHeader(png))
+        assertEquals("jpg", ImageImportHelper.sniffFormatFromHeader(jpg))
+        assertEquals("webp", ImageImportHelper.sniffFormatFromHeader(webp))
+        assertEquals("heic", ImageImportHelper.sniffFormatFromHeader(heic))
+        assertEquals("avif", ImageImportHelper.sniffFormatFromHeader(avif))
+        assertEquals("psd", ImageImportHelper.sniffFormatFromHeader(psd))
+        assertEquals("zip", ImageImportHelper.sniffFormatFromHeader(zip))
+        assertNull(ImageImportHelper.sniffFormatFromHeader(byteArrayOf(0x00, 0x01, 0x02, 0x03)))
     }
 
 }

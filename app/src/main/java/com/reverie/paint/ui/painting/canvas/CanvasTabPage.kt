@@ -43,7 +43,6 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -66,9 +65,6 @@ import dev.chrisbanes.haze.hazeChild
 import dev.chrisbanes.haze.HazeStyle
 import dev.chrisbanes.haze.HazeTint
 import com.reverie.paint.ui.painting.panels.SettingInfoRow
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
-import kotlinx.coroutines.withContext
 
 @Composable
 internal fun CanvasTabPage(
@@ -80,25 +76,14 @@ internal fun CanvasTabPage(
     var saveAsName by remember { mutableStateOf(vm.docName) }
     val context = androidx.compose.ui.platform.LocalContext.current
 
-    // 解码走 IO 线程: 与 CreatePage 同一个 ANR 类 (openInputStream 经 ContentProvider binder
-    // 阻塞主线程)。解码完再回主线程碰 Compose 状态与引擎任务。
-    val importScope = rememberCoroutineScope()
+    // 解码与导入交给 vm.viewModelScope: 立即关闭设置面板会卸载 CanvasTabPage 并取消本地
+    // rememberCoroutineScope(), 若绑定在组件作用域上会导致大图/慢速 provider 导入被静默取消。
     val imagePickerLauncher = androidx.activity.compose.rememberLauncherForActivityResult(
         contract = androidx.activity.result.contract.ActivityResultContracts.GetContent(),
     ) { uri: android.net.Uri? ->
         if (uri != null) {
             onClose()
-            importScope.launch {
-                val bmp = withContext(Dispatchers.IO) { ImageImportHelper.decodeUriSafely(context, uri) }
-                if (bmp != null) {
-                    vm.importImageToNewLayer(bmp) {
-                        vm.isImportTransformPending = true
-                        vm.applyTool(com.reverie.paint.model.Tool.TRANSFORM.id)
-                    }
-                } else {
-                    android.widget.Toast.makeText(context, context.getString(R.string.canvas_toast_image_load_failed), android.widget.Toast.LENGTH_SHORT).show()
-                }
-            }
+            vm.importImageUriToNewLayer(uri, context, activateTransform = true)
         }
     }
 

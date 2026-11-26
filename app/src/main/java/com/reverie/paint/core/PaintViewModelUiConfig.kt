@@ -366,35 +366,10 @@ internal suspend fun PaintViewModel.importHomeBackground(uri: android.net.Uri, c
     val saved = withContext(Dispatchers.IO) {
         try {
             if (!dir.exists()) dir.mkdirs()
-            val tmpDownload = File(dir, "home_wallpaper_src.tmp")
             val tmpPng = File(dir, "home_wallpaper.png.tmp")
-            val copied = context.contentResolver.openInputStream(uri)?.use { input ->
-                tmpDownload.outputStream().use { out -> input.copyTo(out) }
-                true
-            } ?: false
-            if (!copied || !tmpDownload.exists() || tmpDownload.length() <= 0L) {
-                tmpDownload.delete()
-                return@withContext false
-            }
-            val boundsOpts = android.graphics.BitmapFactory.Options().apply {
-                inJustDecodeBounds = true
-            }
-            android.graphics.BitmapFactory.decodeFile(tmpDownload.absolutePath, boundsOpts)
             val maxEdge = 2560
-            var sampleSize = 1
-            val srcW = boundsOpts.outWidth
-            val srcH = boundsOpts.outHeight
-            if (srcW > maxEdge || srcH > maxEdge) {
-                while ((srcW / (sampleSize * 2)) >= maxEdge || (srcH / (sampleSize * 2)) >= maxEdge) {
-                    sampleSize *= 2
-                }
-            }
-            val decodeOpts = android.graphics.BitmapFactory.Options().apply {
-                inSampleSize = sampleSize
-            }
-            val decoded = android.graphics.BitmapFactory.decodeFile(tmpDownload.absolutePath, decodeOpts)
-            tmpDownload.delete()
-            if (decoded == null) return@withContext false
+            val decoded = ImageImportHelper.decodeUriSafely(context, uri, maxDimension = maxEdge)
+                ?: return@withContext false
             val finalBmp = try {
                 val maxDim = maxOf(decoded.width, decoded.height)
                 if (maxDim > maxEdge && maxDim > 0) {
@@ -427,8 +402,8 @@ internal suspend fun PaintViewModel.importHomeBackground(uri: android.net.Uri, c
                 tmpPng.delete()
                 true
             })
-        } catch (e: Exception) {
-            android.util.Log.e("PaintViewModel", "Failed to import home background", e)
+        } catch (t: Throwable) {
+            android.util.Log.e("PaintViewModel", "Failed to import home background", t)
             false
         }
     }

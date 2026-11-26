@@ -280,18 +280,21 @@ import kotlinx.coroutines.withContext
                 cleanName = ref.file
             } else {
                 // Decode any image format and write as standard lossless PNG for KisPngBrush
-                val bmp = resolver.openInputStream(uri)?.use { input ->
-                    android.graphics.BitmapFactory.decodeStream(input)
-                } ?: return null
-                val baos = java.io.ByteArrayOutputStream()
-                bmp.compress(Bitmap.CompressFormat.PNG, 100, baos)
-                val ref = store.register(baos.toByteArray(), com.reverie.paint.core.brushstore.ResourceStore.Kind.TIP, "$baseName.png")
+                val bmp = ImageImportHelper.decodeUriSafely(appContext, uri, maxDimension = 2048) ?: return null
+                val pngBytes = try {
+                    val baos = java.io.ByteArrayOutputStream()
+                    check(bmp.compress(Bitmap.CompressFormat.PNG, 100, baos))
+                    baos.toByteArray()
+                } finally {
+                    if (!bmp.isRecycled) bmp.recycle()
+                }
+                val ref = store.register(pngBytes, com.reverie.paint.core.brushstore.ResourceStore.Kind.TIP, "$baseName.png")
                 cleanName = ref.file
             }
             updateBrushTipAsset(cleanName)
             cleanName
-        } catch (e: Exception) {
-            android.util.Log.e("ReveriePaint", "importCustomBrushTip failed", e)
+        } catch (t: Throwable) {
+            android.util.Log.e("ReveriePaint", "importCustomBrushTip failed", t)
             null
         }
     }
@@ -321,18 +324,21 @@ import kotlinx.coroutines.withContext
                 val ref = store.register(bytes, com.reverie.paint.core.brushstore.ResourceStore.Kind.PATTERN, "$baseName.pat")
                 cleanName = ref.file
             } else {
-                val bmp = resolver.openInputStream(uri)?.use { input ->
-                    android.graphics.BitmapFactory.decodeStream(input)
-                } ?: return null
-                val baos = java.io.ByteArrayOutputStream()
-                bmp.compress(Bitmap.CompressFormat.PNG, 100, baos)
-                val ref = store.register(baos.toByteArray(), com.reverie.paint.core.brushstore.ResourceStore.Kind.PATTERN, "$baseName.png")
+                val bmp = ImageImportHelper.decodeUriSafely(appContext, uri, maxDimension = 2048) ?: return null
+                val pngBytes = try {
+                    val baos = java.io.ByteArrayOutputStream()
+                    check(bmp.compress(Bitmap.CompressFormat.PNG, 100, baos))
+                    baos.toByteArray()
+                } finally {
+                    if (!bmp.isRecycled) bmp.recycle()
+                }
+                val ref = store.register(pngBytes, com.reverie.paint.core.brushstore.ResourceStore.Kind.PATTERN, "$baseName.png")
                 cleanName = ref.file
             }
             updateBrushTexturePattern(cleanName)
             cleanName
-        } catch (e: Exception) {
-            android.util.Log.e("ReveriePaint", "importCustomPattern failed", e)
+        } catch (t: Throwable) {
+            android.util.Log.e("ReveriePaint", "importCustomPattern failed", t)
             null
         }
     }

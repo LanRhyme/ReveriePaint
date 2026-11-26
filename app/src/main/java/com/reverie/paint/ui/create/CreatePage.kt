@@ -79,20 +79,22 @@ fun CreatePage(vm: PaintViewModel) {
         if (uri != null && !importingImage) {
             importingImage = true
             importScope.launch {
-                val imported = withContext(Dispatchers.IO) {
-                    val bmp = ImageImportHelper.decodeUriSafely(context, uri) ?: return@withContext null
-                    val name = ImageImportHelper.getFileName(context, uri)
-                        ?: context.getString(R.string.canvas_action_import_image)
-                    Triple(bmp, name, ImageImportHelper.writeTempPng(context, bmp))
+                val imported = try {
+                    withContext(Dispatchers.IO) {
+                        val bmp = ImageImportHelper.decodeUriSafely(context, uri) ?: return@withContext null
+                        val name = ImageImportHelper.getFileName(context, uri)
+                            ?: context.getString(R.string.canvas_action_import_image)
+                        bmp to name
+                    }
+                } finally {
+                    importingImage = false
                 }
-                importingImage = false
                 if (imported != null) {
                     vm.startPainting(
                         w = imported.first.width,
                         h = imported.first.height,
                         name = imported.second,
                         initialBitmap = imported.first,
-                        initialSnapshotFile = imported.third,
                     )
                     if (vm.collab.pendingCreateMode) {
                         vm.hostRoomOnCreatedCanvas(imported.first.width, imported.first.height)

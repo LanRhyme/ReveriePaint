@@ -5,7 +5,6 @@
 package com.reverie.paint.ui.painting.panels
 
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.net.Uri
 import android.widget.Toast
 import androidx.activity.compose.rememberLauncherForActivityResult
@@ -38,7 +37,11 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
+import com.reverie.paint.core.ImageImportHelper
 import com.reverie.paint.core.PaintViewModel
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import com.reverie.paint.ui.components.ReTextButton
 import com.reverie.paint.ui.theme.Morandi
 import com.reverie.paint.ui.theme.glassBorder
@@ -66,6 +69,7 @@ fun PalettesPage(
 ) {
     val context = LocalContext.current
     val scrollState = rememberScrollState()
+    val importScope = rememberCoroutineScope()
 
     var showCreatePaletteDialog by remember { mutableStateOf(false) }
     var newPaletteName by remember { mutableStateOf("") }
@@ -80,29 +84,24 @@ fun PalettesPage(
         contract = ActivityResultContracts.GetContent()
     ) { uri: Uri? ->
         if (uri != null) {
-            try {
-                // B4: **采样解码**再提取 —— 取 30 个颜色不需要原图, 而相册常见 40~100MP,
-                // 直接 decodeStream 会按整张图分配(数百 MB, 低内存机直接 OOM)。
-                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-                context.contentResolver.openInputStream(uri)?.use {
-                    BitmapFactory.decodeStream(it, null, bounds)
-                }
-                var sample = 1
-                while (bounds.outWidth > 0 &&
-                    maxOf(bounds.outWidth, bounds.outHeight) / (sample * 2) >= 768
-                ) {
-                    sample *= 2
-                }
-                val decodeOptions = BitmapFactory.Options().apply { inSampleSize = sample }
-                val bitmap = context.contentResolver.openInputStream(uri)?.use {
-                    BitmapFactory.decodeStream(it, null, decodeOptions)
+            importScope.launch {
+                val bitmap = try {
+                    withContext(Dispatchers.IO) {
+                        ImageImportHelper.decodeUriSafely(context, uri, maxDimension = 768)
+                    }
+                } catch (_: Throwable) {
+                    null
                 }
                 if (bitmap != null) {
-                    vm.importPaletteFromBitmap(bitmap, context.getString(R.string.color_pal_image_default_name))
-                    Toast.makeText(context, context.getString(R.string.color_pal_extract_success), Toast.LENGTH_SHORT).show()
+                    try {
+                        vm.importPaletteFromBitmap(bitmap, context.getString(R.string.color_pal_image_default_name))
+                        Toast.makeText(context, context.getString(R.string.color_pal_extract_success), Toast.LENGTH_SHORT).show()
+                    } finally {
+                        if (!bitmap.isRecycled) bitmap.recycle()
+                    }
+                } else {
+                    Toast.makeText(context, context.getString(R.string.color_pal_extract_failed), Toast.LENGTH_SHORT).show()
                 }
-            } catch (e: Exception) {
-                Toast.makeText(context, context.getString(R.string.color_pal_extract_failed), Toast.LENGTH_SHORT).show()
             }
         }
     }

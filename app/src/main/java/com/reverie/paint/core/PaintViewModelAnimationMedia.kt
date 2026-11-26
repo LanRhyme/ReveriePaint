@@ -42,7 +42,7 @@ internal fun PaintViewModel.animationImportImages(
         try {
             for (uri in uris) {
                 semaphore.acquire()
-                val bmp = decodeSampledBitmapFromUri(uri, targetDim)
+                val bmp = ImageImportHelper.decodeUriSafely(appContext, uri, maxDimension = targetDim)
                 if (bmp == null) {
                     semaphore.release()
                     continue

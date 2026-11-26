@@ -7,12 +7,12 @@ package com.reverie.paint.core
 import com.reverie.paint.core.brushstore.ResourceDirs
 import com.reverie.paint.core.brushstore.ResourceStore
 import android.graphics.Bitmap
-import android.graphics.BitmapFactory
 import android.provider.OpenableColumns
 import androidx.lifecycle.viewModelScope
 import com.reverie.paint.R
 import com.reverie.paint.model.*
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.NonCancellable
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.suspendCancellableCoroutine
 import kotlinx.coroutines.withContext
@@ -308,125 +308,153 @@ fun PaintViewModel.importDocuments(
     blockingLoadingMessage = getString(R.string.project_importing_progress)
 
     viewModelScope.launch(Dispatchers.IO) {
-        val destDir = currentFolder?.let { File(it.filePath) } ?: projectDir()
+        val destDir = (currentFolder?.let { File(it.filePath) } ?: projectDir()).apply {
+            if (!exists()) mkdirs()
+        }
+        val cacheDir = context.cacheDir.apply { if (!exists()) mkdirs() }
         var successCount = 0
         var lastImportedName = ""
 
-        for ((index, uri) in uris.withIndex()) {
-            if (uris.size > 1) {
-                withContext(Dispatchers.Main) {
-                    blockingLoadingMessage = "${getString(R.string.project_importing_progress)} (${index + 1}/${uris.size})"
+        try {
+            for ((index, uri) in uris.withIndex()) {
+                if (uris.size > 1) {
+                    withContext(Dispatchers.Main) {
+                        blockingLoadingMessage = "${getString(R.string.project_importing_progress)} (${index + 1}/${uris.size})"
+                    }
+                }
+                var tempFile: File? = null
+                try {
+                    val defaultName = getString(R.string.project_default_import_name)
+                    val originalName = queryFileName(context, uri) ?: "${defaultName}_${System.currentTimeMillis() % 10000}"
+                    val ext = originalName.substringAfterLast('.', "").lowercase()
+                    val baseName = originalName.substringBeforeLast('.', originalName)
+                    val safeName = ImageImportHelper.sanitizeFileName(originalName, defaultName)
+
+                    val tmp = File.createTempFile("import_temp_", "_$safeName", cacheDir)
+                    tempFile = tmp
+                    openStreamSafely(context, uri)?.use { input ->
+                        tmp.outputStream().use { output ->
+                            input.copyTo(output)
+                        }
+                    }
+
+                    if (!tmp.exists() || tmp.length() == 0L) {
+                        continue
+                    }
+
+                    // Deduplicate project name in destDir
+                    var candidateName = baseName.ifBlank { defaultName }
+                    var targetFile = File(destDir, "$candidateName.revp")
+                    var counter = 1
+                    while (targetFile.exists()) {
+                        candidateName = "$baseName ($counter)"
+                        targetFile = File(destDir, "$candidateName.revp")
+                        counter++
+                    }
+
+                    // Sniff real file header first so misnamed images (e.g. JPEG/WebP with .png ext)
+                    // never fail Qt's extension-driven loader or 128MB QImageReader limit.
+                    val sniffed = sniffFileFormat(tmp)
+                    val resolvedExt = when {
+                        sniffed in setOf("revp", "kra", "psd") -> sniffed!!
+                        sniffed != null -> sniffed
+                        ext in setOf("revp", "kra", "psd") -> ext
+                        else -> ext
+                    }
+
+                    val success = when (resolvedExt) {
+                        "revp" -> {
+                            tmp.copyTo(targetFile, overwrite = true)
+                            targetFile.exists() && targetFile.length() > 0
+                        }
+                        "kra" -> {
+                            convertViaCore(tmp, targetFile, candidateName, format = "kra")
+                        }
+                        "psd" -> {
+                            convertViaCore(tmp, targetFile, candidateName, format = "psd")
+                        }
+                        else -> {
+                            val bmp = ImageImportHelper.decodeFileSafely(tmp)
+                            if (bmp != null) {
+                                convertBitmapViaCore(bmp, targetFile)
+                            } else {
+                                false
+                            }
+                        }
+                    }
+
+                    if (success) {
+                        purgeTimelapseFrames(com.reverie.paint.model.Project(name = candidateName, filePath = targetFile.absolutePath))
+                        successCount++
+                        lastImportedName = candidateName
+                    }
+                } catch (t: Throwable) {
+                    android.util.Log.e("RP_IMPORT", "Failed to import uri: $uri", t)
+                } finally {
+                    tempFile?.delete()
                 }
             }
-            try {
-                val defaultName = getString(R.string.project_default_import_name)
-                val originalName = queryFileName(context, uri) ?: "${defaultName}_${System.currentTimeMillis() % 10000}"
-                val ext = originalName.substringAfterLast('.', "").lowercase()
-                val baseName = originalName.substringBeforeLast('.', originalName)
-
-                val tempFile = File(context.cacheDir, "import_temp_${System.currentTimeMillis()}_${originalName}")
-                openStreamSafely(context, uri)?.use { input ->
-                    tempFile.outputStream().use { output ->
-                        input.copyTo(output)
+        } finally {
+            withContext(NonCancellable + Dispatchers.Main) {
+                isBlockingLoading = false
+                refreshProjects()
+                if (successCount > 0) {
+                    val msg = if (successCount == 1) {
+                        getString(R.string.toast_project_import_single_success, lastImportedName)
+                    } else {
+                        getString(R.string.toast_project_import_multiple_success, successCount)
                     }
-                }
-
-                if (!tempFile.exists() || tempFile.length() == 0L) {
-                    tempFile.delete()
-                    continue
-                }
-
-                // Deduplicate project name in destDir
-                var candidateName = baseName.ifBlank { defaultName }
-                var targetFile = File(destDir, "$candidateName.revp")
-                var counter = 1
-                while (targetFile.exists()) {
-                    candidateName = "$baseName ($counter)"
-                    targetFile = File(destDir, "$candidateName.revp")
-                    counter++
-                }
-
-                val resolvedExt = if (ext in setOf("revp", "kra", "psd", "png", "jpg", "jpeg", "webp", "bmp")) {
-                    ext
+                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
                 } else {
-                    sniffFileFormat(tempFile) ?: ext
+                    android.widget.Toast.makeText(context, getString(R.string.toast_project_import_unsupported), android.widget.Toast.LENGTH_SHORT).show()
                 }
-
-                val success = when (resolvedExt) {
-                    "revp" -> {
-                        tempFile.copyTo(targetFile, overwrite = true)
-                        targetFile.exists() && targetFile.length() > 0
-                    }
-                    "kra" -> {
-                        convertViaCore(tempFile, targetFile, candidateName, format = "kra")
-                    }
-                    "psd" -> {
-                        convertViaCore(tempFile, targetFile, candidateName, format = "psd")
-                    }
-                    "png" -> {
-                        convertViaCore(tempFile, targetFile, candidateName, format = "png")
-                    }
-                    "jpg", "jpeg", "webp", "bmp" -> {
-                        val bmp = BitmapFactory.decodeFile(tempFile.absolutePath)
-                        if (bmp != null) {
-                            val pngTemp = File(context.cacheDir, "img_conv_${System.currentTimeMillis()}.png")
-                            try {
-                                pngTemp.outputStream().use { out ->
-                                    bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
-                                }
-                                bmp.recycle()
-                                convertViaCore(pngTemp, targetFile, candidateName, format = "png")
-                            } finally {
-                                pngTemp.delete()
-                            }
-                        } else {
-                            false
-                        }
-                    }
-                    else -> {
-                        val bmp = BitmapFactory.decodeFile(tempFile.absolutePath)
-                        if (bmp != null) {
-                            val pngTemp = File(context.cacheDir, "img_conv_${System.currentTimeMillis()}.png")
-                            try {
-                                pngTemp.outputStream().use { out ->
-                                    bmp.compress(Bitmap.CompressFormat.PNG, 100, out)
-                                }
-                                bmp.recycle()
-                                convertViaCore(pngTemp, targetFile, candidateName, format = "png")
-                            } finally {
-                                pngTemp.delete()
-                            }
-                        } else {
-                            false
-                        }
-                    }
-                }
-
-                tempFile.delete()
-
-                if (success) {
-                    purgeTimelapseFrames(com.reverie.paint.model.Project(name = candidateName, filePath = targetFile.absolutePath))
-                    successCount++
-                    lastImportedName = candidateName
-                }
-            } catch (e: Exception) {
-                android.util.Log.e("RP_IMPORT", "Failed to import uri: $uri", e)
             }
         }
+    }
+}
 
-        withContext(Dispatchers.Main) {
-            isBlockingLoading = false
-            refreshProjects()
-            if (successCount > 0) {
-                val msg = if (successCount == 1) {
-                    getString(R.string.toast_project_import_single_success, lastImportedName)
-                } else {
-                    getString(R.string.toast_project_import_multiple_success, successCount)
+internal suspend fun PaintViewModel.convertBitmapViaCore(
+    bitmap: Bitmap,
+    destFile: File,
+): Boolean = suspendCancellableCoroutine { cont ->
+    runCore(
+        render = false,
+        after = {
+            cont.resume(destFile.exists() && destFile.length() > 0)
+        },
+    ) {
+        try {
+            if (ReverieCoreBridge.newDocument(bitmap.width, bitmap.height)) {
+                if (!LanguageManager.isChinese() && ReverieCoreBridge.layerCount() >= 2) {
+                    ReverieCoreBridge.setLayerName(0, "Background")
+                    ReverieCoreBridge.setLayerName(1, "Paint Layer 1")
                 }
-                android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
-            } else {
-                android.widget.Toast.makeText(context, getString(R.string.toast_project_import_unsupported), android.widget.Toast.LENGTH_SHORT).show()
+                val stampBmp = ImageImportHelper.swapRedAndBlueForStamp(bitmap)
+                try {
+                    ReverieCoreBridge.stampBitmap(0, 0, stampBmp)
+                } finally {
+                    stampBmp.recycle()
+                }
+                ReverieCoreBridge.clearUndoHistory()
+                ReverieCoreBridge.setUndoLimit(maxUndoSteps)
+                val extraJson = """
+                {
+                    "strokeCount": 0,
+                    "elapsedSeconds": 0,
+                    "createdTime": ${System.currentTimeMillis()},
+                    "colorMode": "RGB 8位",
+                    "layerCount": ${ReverieCoreBridge.layerCount()}
+                }
+                """.trimIndent()
+                ReverieCoreBridge.saveRevp(destFile.absolutePath, extraJson, null)
             }
+        } finally {
+            if (!bitmap.isRecycled) {
+                bitmap.recycle()
+            }
+            ReverieCoreBridge.closeDocument()
+            releaseReclaimableCaches(aggressive = true)
+            System.gc()
         }
     }
 }
@@ -475,60 +503,33 @@ internal suspend fun PaintViewModel.convertViaCore(
  * 根据文件头特征字与结构探测文件真实格式，防止系统 SAF 文件选择器丢扩展名时误判。
  */
 internal fun sniffFileFormat(file: File): String? {
-    if (!file.exists() || file.length() < 4L) return null
+    if (!file.exists() || file.length() < 2L) return null
     try {
         file.inputStream().use { input ->
             val header = ByteArray(16)
             val read = input.read(header)
-            if (read >= 4) {
-                // PSD: "8BPS" (0x38, 0x42, 0x50, 0x53)
-                if (header[0] == 0x38.toByte() && header[1] == 0x42.toByte() &&
-                    header[2] == 0x50.toByte() && header[3] == 0x53.toByte()
-                ) {
-                    return "psd"
-                }
-                // PNG: 0x89 'P' 'N' 'G'
-                if (header[0] == 0x89.toByte() && header[1] == 0x50.toByte() &&
-                    header[2] == 0x4E.toByte() && header[3] == 0x47.toByte()
-                ) {
-                    return "png"
-                }
-                // JPEG: 0xFF 0xD8 0xFF
-                if (header[0] == 0xFF.toByte() && header[1] == 0xD8.toByte() && header[2] == 0xFF.toByte()) {
-                    return "jpg"
-                }
-                // ZIP: 'P' 'K' 0x03 0x04
-                if (header[0] == 0x50.toByte() && header[1] == 0x4B.toByte() &&
-                    header[2] == 0x03.toByte() && header[3] == 0x04.toByte()
-                ) {
-                    try {
-                        java.util.zip.ZipFile(file).use { zip ->
-                            if (zip.getEntry("meta.json") != null || zip.getEntry("layers.xml") != null) {
-                                return "revp"
-                            }
-                            if (zip.getEntry("maindoc.xml") != null || zip.getEntry("mimetype") != null) {
-                                return "kra"
-                            }
+            val sniffed = ImageImportHelper.sniffFormatFromHeader(header, read) ?: return null
+            if (sniffed == "zip") {
+                try {
+                    ZipFile(file).use { zip ->
+                        if (zip.getEntry("meta.json") != null || zip.getEntry("layers.xml") != null) {
+                            return "revp"
                         }
-                    } catch (_: Exception) {}
-                    return "revp"
-                }
+                        if (zip.getEntry("maindoc.xml") != null || zip.getEntry("mimetype") != null) {
+                            return "kra"
+                        }
+                    }
+                } catch (_: Exception) {}
+                return "revp"
             }
+            return sniffed
         }
     } catch (_: Exception) {}
     return null
 }
 
-internal fun openStreamSafely(context: android.content.Context, uri: android.net.Uri): java.io.InputStream? {
-    return if (uri.scheme == "http" || uri.scheme == "https") {
-        val conn = java.net.URL(uri.toString()).openConnection()
-        conn.connectTimeout = 10000
-        conn.readTimeout = 15000
-        conn.getInputStream()
-    } else {
-        context.contentResolver.openInputStream(uri)
-    }
-}
+internal fun openStreamSafely(context: android.content.Context, uri: android.net.Uri): java.io.InputStream? =
+    ImageImportHelper.openInputStreamWithFallback(context, uri)
 
 internal fun queryFileName(context: android.content.Context, uri: android.net.Uri): String? {
     if (uri.scheme == "content") {
@@ -592,7 +593,7 @@ fun isBrushUri(context: android.content.Context, uri: android.net.Uri): Boolean 
 fun isImageFile(context: android.content.Context, uri: android.net.Uri): Boolean {
     val name = queryFileName(context, uri) ?: uri.path ?: ""
     val ext = name.substringAfterLast('.', "").substringBefore('?').lowercase()
-    if (ext in listOf("png", "jpg", "jpeg", "webp", "bmp", "gif")) return true
+    if (ext in listOf("png", "jpg", "jpeg", "webp", "bmp", "gif", "heic", "heif", "avif")) return true
     if (uri.scheme == "http" || uri.scheme == "https") {
         if (uri.toString().contains("image", ignoreCase = true)) return true
     }
@@ -603,47 +604,48 @@ fun isImageFile(context: android.content.Context, uri: android.net.Uri): Boolean
 fun PaintViewModel.importImageUriToNewLayer(
     uri: android.net.Uri,
     context: android.content.Context,
+    activateTransform: Boolean = false,
 ) {
-    val defaultImportName = getString(R.string.project_default_import_image_name)
-    val fullName = queryFileName(context, uri) ?: defaultImportName
+    val appCtx = if (isAppContextReady()) appContext else context.applicationContext
+    val defaultImportName = if (activateTransform) {
+        getString(R.string.layer_default_import_image)
+    } else {
+        getString(R.string.project_default_import_image_name)
+    }
+    val fullName = queryFileName(appCtx, uri) ?: defaultImportName
     val layerName = fullName.substringBeforeLast('.', fullName).take(30).ifBlank { defaultImportName }
     viewModelScope.launch(Dispatchers.IO) {
         try {
-            val options = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-            openStreamSafely(context, uri)?.use { stream ->
-                BitmapFactory.decodeStream(stream, null, options)
-            }
-
-            var inSample = 1
-            if (options.outWidth > 0 && options.outHeight > 0) {
-                val maxDim = maxOf(options.outWidth, options.outHeight)
-                val targetMax = maxOf(coreW, coreH, 2048) * 2
-                while (maxDim / inSample > targetMax && inSample < 16) {
-                    inSample *= 2
-                }
-            }
-
-            val decodeOptions = BitmapFactory.Options().apply {
-                inSampleSize = inSample
-            }
-            val bmp = openStreamSafely(context, uri)?.use { stream ->
-                BitmapFactory.decodeStream(stream, null, decodeOptions)
-            }
+            val bmp = ImageImportHelper.decodeUriSafely(appCtx, uri)
             if (bmp != null) {
                 withContext(Dispatchers.Main) {
                     importImageToNewLayer(bmp, layerName = layerName) {
-                        showActionToast(R.string.toast_project_inserted_layer, R.drawable.ic_check, layerName)
+                        if (activateTransform) {
+                            isImportTransformPending = true
+                            applyTool(com.reverie.paint.model.Tool.TRANSFORM.id)
+                        } else {
+                            showActionToast(R.string.toast_project_inserted_layer, R.drawable.ic_check, layerName)
+                        }
                     }
                 }
             } else {
                 withContext(Dispatchers.Main) {
-                    android.widget.Toast.makeText(context, getString(R.string.toast_project_decode_image_failed), android.widget.Toast.LENGTH_SHORT).show()
+                    val errRes = if (activateTransform) {
+                        R.string.canvas_toast_image_load_failed
+                    } else {
+                        R.string.toast_project_decode_image_failed
+                    }
+                    android.widget.Toast.makeText(appCtx, getString(errRes), android.widget.Toast.LENGTH_SHORT).show()
                 }
             }
-        } catch (e: Exception) {
-            android.util.Log.e("RP_IMPORT", "importImageUriToNewLayer failed", e)
+        } catch (t: Throwable) {
+            android.util.Log.e("RP_IMPORT", "importImageUriToNewLayer failed", t)
             withContext(Dispatchers.Main) {
-                android.widget.Toast.makeText(context, getString(R.string.toast_project_import_image_failed, e.localizedMessage ?: ""), android.widget.Toast.LENGTH_SHORT).show()
+                android.widget.Toast.makeText(
+                    appCtx,
+                    getString(R.string.toast_project_import_image_failed, t.localizedMessage ?: ""),
+                    android.widget.Toast.LENGTH_SHORT,
+                ).show()
             }
         }
     }

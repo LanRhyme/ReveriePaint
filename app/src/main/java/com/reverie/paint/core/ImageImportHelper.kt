@@ -7,13 +7,16 @@ package com.reverie.paint.core
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.ImageDecoder
 import android.graphics.Matrix
 import android.media.ExifInterface
 import android.net.Uri
+import android.os.Build
 import android.provider.OpenableColumns
 import com.reverie.paint.model.MemoryBudget
 import java.io.File
 import java.io.FileOutputStream
+import java.io.InputStream
 import kotlin.math.min
 import kotlin.math.roundToInt
 
@@ -96,10 +99,102 @@ object ImageImportHelper {
         effectiveH: Int,
         maxDimension: Int = MAX_CANVAS_DIMENSION,
         maxHeapBytes: Long = Runtime.getRuntime().maxMemory(),
+        bytesPerPixel: Int = 4,
     ): Int {
         val byDimension = computeSampleSize(effectiveW, effectiveH, maxDimension)
-        val byBudget = MemoryBudget.sampleSize(effectiveW, effectiveH, maxDimension, maxHeapBytes)
-        return maxOf(byDimension, byBudget)
+        val bpp = bytesPerPixel.coerceAtLeast(4).toLong()
+        if (bpp == 4L) {
+            return maxOf(byDimension, MemoryBudget.sampleSize(effectiveW, effectiveH, maxDimension, maxHeapBytes))
+        }
+        val budget = MemoryBudget.decodeBudgetBytes(maxHeapBytes)
+        var sample = byDimension
+        while (sample < MemoryBudget.MAX_SAMPLE) {
+            val sw = effectiveW / sample
+            val sh = effectiveH / sample
+            if (sw <= 0 || sh <= 0) break
+            if (sw.toLong() * sh.toLong() * bpp <= budget) break
+            sample *= 2
+        }
+        return sample
+    }
+
+    /** Sanitizes a display filename so it can be safely embedded into a cache temp filename. */
+    fun sanitizeFileName(raw: String, fallback: String = "import"): String {
+        val stripped = raw
+            .substringAfterLast('/')
+            .substringAfterLast('\\')
+            .replace(Regex("[\\x00-\\x1F:*?\"<>|]"), "_")
+            .trim()
+            .trim('.')
+        if (stripped.isEmpty() || stripped == "." || stripped == "..") return fallback
+        return stripped.take(80)
+    }
+
+    /**
+     * Sniffs container/image format from leading file header bytes (magic bytes).
+     * ZIP containers return "zip" (caller may inspect entries for revp/kra).
+     */
+    fun sniffFormatFromHeader(header: ByteArray, length: Int = header.size): String? {
+        if (length < 2) return null
+        // BMP: 'B' 'M'
+        if (header[0] == 0x42.toByte() && header[1] == 0x4D.toByte()) {
+            return "bmp"
+        }
+        if (length >= 3 &&
+            header[0] == 0xFF.toByte() &&
+            header[1] == 0xD8.toByte() &&
+            header[2] == 0xFF.toByte()
+        ) {
+            return "jpg"
+        }
+        if (length < 4) return null
+        // PSD: "8BPS"
+        if (header[0] == 0x38.toByte() && header[1] == 0x42.toByte() &&
+            header[2] == 0x50.toByte() && header[3] == 0x53.toByte()
+        ) {
+            return "psd"
+        }
+        // PNG: 0x89 'P' 'N' 'G'
+        if (header[0] == 0x89.toByte() && header[1] == 0x50.toByte() &&
+            header[2] == 0x4E.toByte() && header[3] == 0x47.toByte()
+        ) {
+            return "png"
+        }
+        // GIF: "GIF8"
+        if (header[0] == 0x47.toByte() && header[1] == 0x49.toByte() &&
+            header[2] == 0x46.toByte() && header[3] == 0x38.toByte()
+        ) {
+            return "gif"
+        }
+        // ZIP: 'P' 'K' 0x03 0x04
+        if (header[0] == 0x50.toByte() && header[1] == 0x4B.toByte() &&
+            header[2] == 0x03.toByte() && header[3] == 0x04.toByte()
+        ) {
+            return "zip"
+        }
+        // WebP: "RIFF" .... "WEBP"
+        if (length >= 12 &&
+            header[0] == 0x52.toByte() && header[1] == 0x49.toByte() &&
+            header[2] == 0x46.toByte() && header[3] == 0x46.toByte() &&
+            header[8] == 0x57.toByte() && header[9] == 0x45.toByte() &&
+            header[10] == 0x42.toByte() && header[11] == 0x50.toByte()
+        ) {
+            return "webp"
+        }
+        // ISO BMFF (HEIC/HEIF/AVIF): .... "ftyp" <brand>
+        if (length >= 12 &&
+            header[4] == 0x66.toByte() && header[5] == 0x74.toByte() &&
+            header[6] == 0x79.toByte() && header[7] == 0x70.toByte()
+        ) {
+            val brand = String(header, 8, 4, Charsets.US_ASCII).lowercase()
+            if (brand in setOf("heic", "heix", "hevc", "hevx", "mif1", "msf1")) {
+                return "heic"
+            }
+            if (brand in setOf("avif", "avis")) {
+                return "avif"
+            }
+        }
+        return null
     }
 
     /**
@@ -212,21 +307,51 @@ object ImageImportHelper {
     }
 
     /**
-     * Safely reads and decodes an image from a content Uri:
-     * 1. Copies to cache temp file
+     * Opens an InputStream for [uri], supporting http(s), content://, file://, and virtual SAF
+     * providers that only expose typed image streams via openTypedAssetFileDescriptor.
+     */
+    fun openInputStreamWithFallback(context: Context, uri: Uri): InputStream? {
+        if (uri.scheme == "http" || uri.scheme == "https") {
+            val conn = java.net.URL(uri.toString()).openConnection()
+            conn.connectTimeout = 10000
+            conn.readTimeout = 15000
+            return conn.getInputStream()
+        }
+        val direct = try {
+            context.contentResolver.openInputStream(uri)
+        } catch (_: Throwable) {
+            null
+        }
+        if (direct != null) return direct
+        return try {
+            context.contentResolver.openTypedAssetFileDescriptor(uri, "image/*", null)?.createInputStream()
+        } catch (_: Throwable) {
+            null
+        }
+    }
+
+    /**
+     * Safely reads and decodes an image from a content/file/http Uri:
+     * 1. Copies to a unique cache temp file
      * 2. Inspects bounds and EXIF orientation
      * 3. Calculates inSampleSize to prevent OOM (边长上限 + 堆预算双重约束)
-     * 4. Applies EXIF matrix transformation
-     * 5. OOM 时自动提高采样率重试, 而不是让进程崩掉
+     * 4. Applies EXIF matrix transformation (or ImageDecoder fallback on API 28+)
+     * 5. Guarantees ARGB_8888 software bitmap output
      */
     fun decodeUriSafely(
         context: Context,
         uri: Uri,
         maxDimension: Int = MAX_CANVAS_DIMENSION,
     ): Bitmap? {
-        val tempFile = File(context.cacheDir, "import_raw_${System.currentTimeMillis()}.tmp")
-        try {
-            context.contentResolver.openInputStream(uri)?.use { input ->
+        val cacheDir = context.cacheDir.apply { if (!exists()) mkdirs() }
+        val tempFile = try {
+            File.createTempFile("import_raw_", ".tmp", cacheDir)
+        } catch (t: Throwable) {
+            android.util.Log.e("ImageImportHelper", "Failed to create temp file", t)
+            return null
+        }
+        return try {
+            openInputStreamWithFallback(context, uri)?.use { input ->
                 FileOutputStream(tempFile).use { output ->
                     input.copyTo(output)
                 }
@@ -236,112 +361,212 @@ object ImageImportHelper {
                 return null
             }
 
-            // 1. Decode bounds
-            val options = BitmapFactory.Options().apply {
-                inJustDecodeBounds = true
-            }
-            BitmapFactory.decodeFile(tempFile.absolutePath, options)
-            val origW = options.outWidth
-            val origH = options.outHeight
-            if (origW <= 0 || origH <= 0) return null
+            decodeFileSafely(tempFile, maxDimension)
+        } catch (t: Throwable) {
+            android.util.Log.e("ImageImportHelper", "decodeUriSafely failed", t)
+            null
+        } finally {
+            tempFile.delete()
+        }
+    }
 
-            // 2. Read Exif orientation
-            var orientation = ExifInterface.ORIENTATION_NORMAL
-            try {
-                val exif = ExifInterface(tempFile.absolutePath)
-                orientation = exif.getAttributeInt(
-                    ExifInterface.TAG_ORIENTATION,
-                    ExifInterface.ORIENTATION_NORMAL,
-                )
-            } catch (_: Exception) {}
-
-            val isRotated90or270 = orientation == ExifInterface.ORIENTATION_ROTATE_90 ||
-                orientation == ExifInterface.ORIENTATION_ROTATE_270 ||
-                orientation == ExifInterface.ORIENTATION_TRANSPOSE ||
-                orientation == ExifInterface.ORIENTATION_TRANSVERSE
-            val effectiveW = if (isRotated90or270) origH else origW
-            val effectiveH = if (isRotated90or270) origW else origH
-
-            // 3. Compute inSampleSize (边长上限 + 堆预算)
+    /**
+     * Safely decodes an image [file] within [maxDimension] and heap memory budget,
+     * applying EXIF orientation, falling back to API 28+ [ImageDecoder], and normalizing to ARGB_8888.
+     */
+    fun decodeFileSafely(
+        file: File,
+        maxDimension: Int = MAX_CANVAS_DIMENSION,
+    ): Bitmap? {
+        if (!file.isFile || file.length() == 0L) return null
+        return try {
             val maxHeap = try {
                 Runtime.getRuntime().maxMemory()
             } catch (_: Throwable) {
                 -1L
             }
-            var sampleSize = computeSafeSampleSize(effectiveW, effectiveH, maxDimension, maxHeap)
 
-            // 解码: OOM 时提高采样率重试 —— 崩溃换成"画质略降但可用"
-            var rawBitmap: Bitmap? = null
-            var attempt = 0
-            while (rawBitmap == null && attempt < DECODE_OOM_RETRIES) {
+            // 1. Decode bounds
+            val options = BitmapFactory.Options().apply {
+                inJustDecodeBounds = true
+            }
+            BitmapFactory.decodeFile(file.absolutePath, options)
+            val origW = options.outWidth
+            val origH = options.outHeight
+
+            if (origW > 0 && origH > 0) {
+                // 2. Read Exif orientation
+                var orientation = ExifInterface.ORIENTATION_NORMAL
                 try {
-                    val decodeOptions = BitmapFactory.Options().apply {
-                        inSampleSize = sampleSize
-                        inPreferredConfig = Bitmap.Config.ARGB_8888
-                        inMutable = true
-                    }
-                    rawBitmap = BitmapFactory.decodeFile(tempFile.absolutePath, decodeOptions)
-                } catch (oom: OutOfMemoryError) {
-                    attempt++
-                    val next = sampleSize * 2
-                    android.util.Log.w(
-                        "ImageImportHelper",
-                        "decode OOM at sample=$sampleSize (${effectiveW}x$effectiveH), retry $attempt",
-                        oom,
+                    val exif = ExifInterface(file.absolutePath)
+                    orientation = exif.getAttributeInt(
+                        ExifInterface.TAG_ORIENTATION,
+                        ExifInterface.ORIENTATION_NORMAL,
                     )
-                    if (next > MemoryBudget.MAX_SAMPLE) break
-                    sampleSize = next
-                    continue
-                } catch (t: Throwable) {
-                    android.util.Log.e("ImageImportHelper", "decodeFile failed", t)
-                    break
-                }
-            }
-            rawBitmap ?: return null
+                } catch (_: Throwable) {}
 
-            // 4. Transform according to EXIF
-            val matrix = Matrix()
-            when (orientation) {
-                ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
-                ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
-                ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
-                ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
-                ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
-                ExifInterface.ORIENTATION_TRANSPOSE -> {
-                    matrix.postRotate(90f)
-                    matrix.postScale(-1f, 1f)
-                }
-                ExifInterface.ORIENTATION_TRANSVERSE -> {
-                    matrix.postRotate(270f)
-                    matrix.postScale(-1f, 1f)
-                }
-            }
+                val isRotated90or270 = orientation == ExifInterface.ORIENTATION_ROTATE_90 ||
+                    orientation == ExifInterface.ORIENTATION_ROTATE_270 ||
+                    orientation == ExifInterface.ORIENTATION_TRANSPOSE ||
+                    orientation == ExifInterface.ORIENTATION_TRANSVERSE
+                val effectiveW = if (isRotated90or270) origH else origW
+                val effectiveH = if (isRotated90or270) origW else origH
 
-            if (matrix.isIdentity) return rawBitmap
-            return try {
-                val transformed = Bitmap.createBitmap(
-                    rawBitmap,
-                    0,
-                    0,
-                    rawBitmap.width,
-                    rawBitmap.height,
-                    matrix,
-                    true,
+                val bpp = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O &&
+                    options.outConfig == Bitmap.Config.RGBA_F16
+                ) {
+                    8
+                } else {
+                    4
+                }
+
+                // 3. Compute inSampleSize (边长上限 + 堆预算)
+                var sampleSize = computeSafeSampleSize(
+                    effectiveW,
+                    effectiveH,
+                    maxDimension,
+                    maxHeap,
+                    bytesPerPixel = bpp,
                 )
-                if (transformed != rawBitmap) {
-                    rawBitmap.recycle()
+
+                // 解码: OOM 时提高采样率重试 —— 崩溃换成"画质略降但可用"
+                var rawBitmap: Bitmap? = null
+                var attempt = 0
+                while (rawBitmap == null && attempt < DECODE_OOM_RETRIES) {
+                    try {
+                        val decodeOptions = BitmapFactory.Options().apply {
+                            inSampleSize = sampleSize
+                            inPreferredConfig = Bitmap.Config.ARGB_8888
+                            inMutable = true
+                        }
+                        rawBitmap = BitmapFactory.decodeFile(file.absolutePath, decodeOptions)
+                        if (rawBitmap == null) break
+                    } catch (oom: OutOfMemoryError) {
+                        attempt++
+                        val next = sampleSize * 2
+                        android.util.Log.w(
+                            "ImageImportHelper",
+                            "decode OOM at sample=$sampleSize (${effectiveW}x$effectiveH), retry $attempt",
+                            oom,
+                        )
+                        if (next > MemoryBudget.MAX_SAMPLE) break
+                        sampleSize = next
+                    } catch (t: Throwable) {
+                        android.util.Log.e("ImageImportHelper", "decodeFile failed", t)
+                        break
+                    }
                 }
-                transformed
-            } catch (oom: OutOfMemoryError) {
-                // 旋转副本申请失败: 保住已解码的原图(方向略错但可用, 好过整张丢弃)
-                android.util.Log.w("ImageImportHelper", "EXIF transform OOM, keep raw bitmap", oom)
-                rawBitmap
+
+                if (rawBitmap != null) {
+                    val oriented = applyExifOrientation(rawBitmap, orientation)
+                    return ensureArgb8888(oriented)
+                }
             }
-        } catch (e: Exception) {
-            android.util.Log.e("ImageImportHelper", "decodeUriSafely failed", e)
-            return null
-        } finally {
-            tempFile.delete()
+
+            // 4. Fallback to ImageDecoder on API 28+ (HEIC/AVIF/progressive/wide-gamut edge cases)
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                decodeWithImageDecoder(file, maxDimension, maxHeap)?.let { decoded ->
+                    return ensureArgb8888(decoded)
+                }
+            }
+            null
+        } catch (t: Throwable) {
+            android.util.Log.e("ImageImportHelper", "decodeFileSafely failed", t)
+            null
         }
+    }
+
+    private fun applyExifOrientation(rawBitmap: Bitmap, orientation: Int): Bitmap {
+        val matrix = Matrix()
+        when (orientation) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> matrix.postRotate(90f)
+            ExifInterface.ORIENTATION_ROTATE_180 -> matrix.postRotate(180f)
+            ExifInterface.ORIENTATION_ROTATE_270 -> matrix.postRotate(270f)
+            ExifInterface.ORIENTATION_FLIP_HORIZONTAL -> matrix.postScale(-1f, 1f)
+            ExifInterface.ORIENTATION_FLIP_VERTICAL -> matrix.postScale(1f, -1f)
+            ExifInterface.ORIENTATION_TRANSPOSE -> {
+                matrix.postRotate(90f)
+                matrix.postScale(-1f, 1f)
+            }
+            ExifInterface.ORIENTATION_TRANSVERSE -> {
+                matrix.postRotate(270f)
+                matrix.postScale(-1f, 1f)
+            }
+        }
+        if (matrix.isIdentity) return rawBitmap
+        return try {
+            val transformed = Bitmap.createBitmap(
+                rawBitmap,
+                0,
+                0,
+                rawBitmap.width,
+                rawBitmap.height,
+                matrix,
+                true,
+            )
+            if (transformed != rawBitmap) {
+                rawBitmap.recycle()
+            }
+            transformed
+        } catch (oom: OutOfMemoryError) {
+            // 旋转副本申请失败: 保住已解码的原图(方向略错但可用, 好过整张丢弃)
+            android.util.Log.w("ImageImportHelper", "EXIF transform OOM, keep raw bitmap", oom)
+            rawBitmap
+        }
+    }
+
+    @androidx.annotation.RequiresApi(Build.VERSION_CODES.P)
+    private fun decodeWithImageDecoder(
+        file: File,
+        maxDimension: Int,
+        maxHeapBytes: Long,
+    ): Bitmap? {
+        var extraSample = 1
+        for (attempt in 0 until DECODE_OOM_RETRIES) {
+            try {
+                val source = ImageDecoder.createSource(file)
+                return ImageDecoder.decodeBitmap(source) { decoder, info, _ ->
+                    val safeSample = computeSafeSampleSize(
+                        info.size.width,
+                        info.size.height,
+                        maxDimension,
+                        maxHeapBytes,
+                    )
+                    val targetSample = maxOf(safeSample, extraSample).coerceAtMost(MemoryBudget.MAX_SAMPLE)
+                    if (targetSample > 1) {
+                        decoder.setTargetSampleSize(targetSample)
+                    }
+                    decoder.allocator = ImageDecoder.ALLOCATOR_SOFTWARE
+                    decoder.isMutableRequired = true
+                }
+            } catch (oom: OutOfMemoryError) {
+                val next = extraSample * 2
+                android.util.Log.w("ImageImportHelper", "ImageDecoder OOM at extraSample=$extraSample", oom)
+                if (next > MemoryBudget.MAX_SAMPLE) break
+                extraSample = next
+            } catch (t: Throwable) {
+                android.util.Log.e("ImageImportHelper", "ImageDecoder failed", t)
+                return null
+            }
+        }
+        return null
+    }
+
+    /** Ensures [bitmap] is ARGB_8888 so native stamp/upload paths never receive RGBA_F16/RGB_565/HARDWARE. */
+    fun ensureArgb8888(bitmap: Bitmap): Bitmap {
+        if (bitmap.config == Bitmap.Config.ARGB_8888) return bitmap
+        val copied = try {
+            bitmap.copy(Bitmap.Config.ARGB_8888, true)
+        } catch (_: Throwable) {
+            null
+        }
+        if (copied != null) {
+            bitmap.recycle()
+            return copied
+        }
+        val out = Bitmap.createBitmap(bitmap.width, bitmap.height, Bitmap.Config.ARGB_8888)
+        android.graphics.Canvas(out).drawBitmap(bitmap, 0f, 0f, null)
+        bitmap.recycle()
+        return out
     }
 }

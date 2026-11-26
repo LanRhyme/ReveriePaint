@@ -167,26 +167,23 @@ internal fun PaintViewModel.ensureReferenceImagesLoaded() {
 }
 
 private fun decodeReferenceImage(file: File, budget: Long): Bitmap {
-    val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
-    BitmapFactory.decodeFile(file.absolutePath, bounds)
-    require(bounds.outWidth > 0 && bounds.outHeight > 0)
-    var sample = 1
-    while (maxOf(bounds.outWidth, bounds.outHeight) / sample > 2048) sample *= 2
-    val estimate = ((bounds.outWidth.toLong() + sample - 1) / sample) *
-        ((bounds.outHeight.toLong() + sample - 1) / sample) * 4
-    require(estimate <= budget)
-    return (BitmapFactory.decodeFile(file.absolutePath,
-        BitmapFactory.Options().apply { inSampleSize = sample; inPreferredConfig = Bitmap.Config.ARGB_8888 })
-        ?: error("Invalid reference image")).also { require(it.byteCount <= budget) }
+    require(budget > 0L)
+    val bmp = ImageImportHelper.decodeFileSafely(file, maxDimension = 2048)
+        ?: error("Invalid reference image")
+    if (bmp.byteCount <= budget) return bmp
+    val scale = kotlin.math.sqrt(budget.toDouble() / bmp.byteCount.toDouble()).toFloat()
+    val sw = (bmp.width * scale).toInt().coerceAtLeast(1)
+    val sh = (bmp.height * scale).toInt().coerceAtLeast(1)
+    val scaled = Bitmap.createScaledBitmap(bmp, sw, sh, true)
+    if (scaled !== bmp) bmp.recycle()
+    require(scaled.byteCount <= budget)
+    return scaled
 }
 
 /** Stream source bytes to a temporary file instead of retaining the whole encoded image in memory. */
 private fun PaintViewModel.copyReferenceSource(uri: Uri, file: File) {
-    val stream = if (uri.scheme == "http" || uri.scheme == "https") {
-        java.net.URL(uri.toString()).openConnection().apply {
-            connectTimeout = 10000; readTimeout = 15000
-        }.getInputStream()
-    } else appContext.contentResolver.openInputStream(uri) ?: error("Cannot open reference image")
+    val stream = ImageImportHelper.openInputStreamWithFallback(appContext, uri)
+        ?: error("Cannot open reference image")
     stream.use { input ->
         file.outputStream().use { output ->
             val block = ByteArray(8192)
