@@ -40,3 +40,7 @@ curl -s http://127.0.0.1:8787/c/v1/health
 npx wrangler secret put TURN_SHARED_SECRET
 npx wrangler deploy --var TURN_URLS:"turn:turn.lanrhyme.top:3478?transport=udp"
 ```
+
+## 自建与社区 EasyTier 中继节点
+
+如需部署专属或社区贡献的 EasyTier 中继节点并通过 `RELAY_PEERS` 热下发给全部客户端, 请参阅 [docs/COLLAB-RELAY-CONTRIBUTE.md](../../docs/COLLAB-RELAY-CONTRIBUTE.md)

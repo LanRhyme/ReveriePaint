@@ -177,3 +177,9 @@ adb install -r app/build/outputs/apk/debug/app-debug.apk
 ./gradlew :app:lintDebug          # Android Lint 门禁检查
 ```
 
+---
+
+## 社区中继节点贡献 (多人茶绘)
+
+除代码贡献外, 社区成员也可以自建或捐赠轻量 EasyTier 中继节点来提升茶绘弱网穿透成功率, 完整部署与提交流程见 [docs/COLLAB-RELAY-CONTRIBUTE.md](docs/COLLAB-RELAY-CONTRIBUTE.md)
+
