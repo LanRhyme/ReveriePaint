@@ -34,3 +34,5 @@ STUN_V6_URLS = "txt:stun-v6.easytier.cn"
 RELAY_PEERS = "tcp://47.95.242.43:11010,udp://47.95.242.43:11010"
 ROOM_TTL_MS = "86400000"
 IDLE_TTL_MS = "1800000"
+# 异常掉线成员昵称占位与虚拟 IP 的清理阈值 (毫秒)
+GHOST_PEER_TTL_MS = "600000"
