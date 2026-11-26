@@ -675,8 +675,8 @@ int ReverieCore::stampVisibleLayers()
     if (!image) {
         return -1;
     }
-    recompositeProjection();
-    KisPaintDeviceSP proj = image->projection();
+    const QRect bounds(0, 0, image->width(), image->height());
+    KisPaintDeviceSP proj = mergedProjectionDevice(bounds, /*refreshNative=*/true);
     if (!proj) {
         return -1;
     }
@@ -684,7 +684,6 @@ int ReverieCore::stampVisibleLayers()
     if (!nl) {
         return -1;
     }
-    const QRect bounds(0, 0, image->width(), image->height());
     nl->original()->makeCloneFrom(proj, bounds);
     nl->original()->setDirty(bounds);
 

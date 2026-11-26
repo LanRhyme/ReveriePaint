@@ -144,7 +144,8 @@ void ReverieCore::selectContiguousAt(int x, int y, int tolerance, bool sampleMer
 
     KisPaintDeviceSP targetDevice = currentPaintDevice();
     if (!targetDevice) return;
-    KisPaintDeviceSP sourceDevice = sampleMerged ? image->projection() : targetDevice;
+    KisPaintDeviceSP sourceDevice = sampleMerged ? mergedProjectionDevice() : targetDevice;
+    if (!sourceDevice) return;
 
     const KisSelectionSP oldSel = m_selection;
     const QVector<quint8> oldMask = readSelectionMaskBytes(image, oldSel);
@@ -188,11 +189,11 @@ void ReverieCore::selectSimilarAt(int x, int y, int tolerance, bool sampleMerged
         return;
     }
     // Match against the visible composite (projection) or current layer
-    KisPaintDeviceSP device = sampleMerged ? image->projection() : currentPaintDevice();
+    KisPaintDeviceSP device = sampleMerged ? mergedProjectionDevice() : currentPaintDevice();
     if (!device) return;
     // 图像被撤销宏锁住 (对称笔画进行中) 时不等: 锁住的调度器排不空, waitForDone 会卡死;
     // 锁住期间也没有 worker 在跑, 不存在要等的并发写者 (见 RenderLockGate.h)。
-    if (reverie::mayWaitForImage(image->locked())) {
+    if (!sampleMerged && reverie::mayWaitForImage(image->locked())) {
         image->waitForDone();
     }
     QVector<quint8> bytes(size_t(iw) * ih * 4);

@@ -1280,7 +1280,25 @@ bool ReverieCore::rasterizeLayer(int index)
         ? m_layers[index].name
         : (m_layers[index].name + QStringLiteral(" (栅格化)"));
     KisPaintLayerSP paintLayer = new KisPaintLayer(image, newName, m_layers[index].node->opacity(), image->colorSpace());
-    if (KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[index])) {
+    KisPaintDeviceSP dev;
+    if (wasGroup) {
+        int groupEnd = index + 1;
+        const int rootDepth = m_layers[index].depth;
+        while (groupEnd < m_layers.size() && m_layers[groupEnd].depth > rootDepth) {
+            ++groupEnd;
+        }
+        if (hasSpecialCompositeLayer(index + 1, groupEnd)) {
+            const QRect fullRect(0, 0, image->width(), image->height());
+            KisPaintDeviceSP compDev(new KisPaintDevice(image->colorSpace()));
+            compDev->clear(fullRect);
+            compositeLayersRange(compDev, index + 1, groupEnd, fullRect);
+            dev = compDev;
+        }
+    }
+    if (!dev) {
+        dev = layerPaintDeviceFor(m_layers[index]);
+    }
+    if (dev) {
         const QRect ext = dev->exactBounds();
         if (!ext.isEmpty()) {
             KisPainter::copyAreaOptimized(ext.topLeft(), dev, paintLayer->paintDevice(), ext);

@@ -31,12 +31,10 @@ QVector<QPoint> ReverieCore::magneticLasso(const QPoint &from, const QPoint &to,
     }
 
     // Composite the current projection so the edges match what the user sees
-    // 图像被撤销宏锁住 (对称笔画进行中) 时不等: 锁住的调度器排不空, waitForDone 会卡死;
-    // 锁住期间也没有 worker 在跑, 不存在要等的并发写者 (见 RenderLockGate.h)。
-    if (reverie::mayWaitForImage(image->locked())) {
-        image->waitForDone();
+    KisPaintDeviceSP proj = mergedProjectionDevice(region);
+    if (!proj) {
+        return {from, to};
     }
-    KisPaintDeviceSP proj = image->projection();
     QVector<quint8> bytes(size_t(rw) * rh * 4);
     proj->readBytes(bytes.data(), region.x(), region.y(), rw, rh);
 

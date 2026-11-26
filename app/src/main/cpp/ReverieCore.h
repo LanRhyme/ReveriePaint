@@ -202,6 +202,13 @@ public:
     // 液化预览要用它得到"不含目标图层"的底图(见 setLiquifyPreviewBaseRect)。
     void compositeLayersRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &r,
                               int excludeIdx = -1);
+    // 检查 [startIdx, endIdx) 中是否存在 Krita 原生 projection 无法正确合成的可见自研层
+    // (描边图层 / 透明度蒙版层); endIdx < 0 表示检查至 m_layers.size()
+    bool hasSpecialCompositeLayer(int startIdx = 0, int endIdx = -1) const;
+    // 返回包含完整可见合成结果的绘制设备: 存在可见自研层时走 compositeLayersRange,
+    // 否则按需等待/刷新 Krita 原生 projection 并返回 image->projection()。
+    // region 为空表示整幅画布; 仅限引擎线程串行调用。
+    KisPaintDeviceSP mergedProjectionDevice(const QRect &region = QRect(), bool refreshNative = false);
     // 变换预览合成: 按层级树完整合成选中图层/多层嵌套组(含混合模式、不透明度、
     // 剪切链、描边效果、组级蒙版与祖先可见性), 用于生成与画布完全一致的预览位图。
     void compositeTransformPreview(KisPaintDeviceSP out, const QVector<int> &targetIndices, const QRect &r);

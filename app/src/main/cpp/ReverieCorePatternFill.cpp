@@ -175,7 +175,9 @@ bool ReverieCore::floodFillPatternAt(int x, int y, int tolerance, bool sampleMer
                                 ((compositeOp == "difference") ? COMPOSITE_DIFF : compositeOp);
     painter.setCompositeOpId(effectiveOp);
     painter.setPattern(KoPatternSP(new KoPattern(image, "Pattern", "pattern.png")));
-    painter.fillPattern(x, y, sampleMerged ? m_document->projection() : target);
+    KisPaintDeviceSP srcDev = sampleMerged ? mergedProjectionDevice() : target;
+    if (!srcDev) return false;
+    painter.fillPattern(x, y, srcDev);
     target->setDirty();
     pushUndoCommand(transaction.endAndTake());
     recompositeProjection();

@@ -212,6 +212,51 @@ void ReverieCore::compositeDirtyRegions(KisPaintDeviceSP out)
     }
 }
 
+bool ReverieCore::hasSpecialCompositeLayer(int startIdx, int endIdx) const
+{
+    const int n = m_layers.size();
+    const int s = qMax(0, startIdx);
+    const int e = (endIdx < 0 || endIdx > n) ? n : endIdx;
+    for (int i = s; i < e; ++i) {
+        const LayerEntry &le = m_layers[i];
+        if (le.visible && (le.isStrokeLayer || le.nodeType == NodeTypeStroke ||
+                           le.nodeType == NodeTypeTransparencyMask)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+KisPaintDeviceSP ReverieCore::mergedProjectionDevice(const QRect &region, bool refreshNative)
+{
+    KisImageSP image = m_document ? m_document : KisImageSP();
+    if (!image) {
+        return KisPaintDeviceSP();
+    }
+    const QRect docRect(0, 0, image->width(), image->height());
+    const QRect rect = region.isEmpty() ? docRect : region.intersected(docRect);
+    if (rect.isEmpty()) {
+        return KisPaintDeviceSP();
+    }
+    if (hasSpecialCompositeLayer()) {
+        KisPaintDeviceSP compDev(new KisPaintDevice(image->colorSpace()));
+        const KoColor defaultBg = image->defaultProjectionColor();
+        if (defaultBg.opacityU8() > 0) {
+            compDev->fill(rect, defaultBg);
+        } else {
+            compDev->clear(rect);
+        }
+        compositeLayersRange(compDev, 0, m_layers.size(), rect);
+        return compDev;
+    }
+    if (refreshNative) {
+        recompositeProjection();
+    } else if (reverie::mayWaitForImage(image->locked())) {
+        image->waitForDone();
+    }
+    return image->projection();
+}
+
 // ============================================================
 // 笔触进行中的洋葱皮
 // ============================================================
@@ -397,15 +442,9 @@ bool ReverieCore::renderToBuffer(quint8 *buffer, int w, int h, bool forceFull)
         // 1) Active in-stroke drawing (m_drawing)
         // 2) Visible stroke layers requiring real-time stroke synchronization
         // 3) Pen-up final stroke completion or direct slider drag previews (!m_dirtyRect.isEmpty())
-        bool hasSpecialCompositeLayer = false;
-        for (const LayerEntry &le : m_layers) {
-            if (le.visible && (le.isStrokeLayer || le.nodeType == NodeTypeStroke || le.nodeType == NodeTypeTransparencyMask)) {
-                hasSpecialCompositeLayer = true;
-                break;
-            }
-        }
+        const bool hasSpecial = hasSpecialCompositeLayer();
         const bool haveDirtyWork =
-            m_drawing || hasSpecialCompositeLayer || !m_dirtyRect.isEmpty() || !m_nativeProjectionValid;
+            m_drawing || hasSpecial || !m_dirtyRect.isEmpty() || !m_nativeProjectionValid;
         if (haveDirtyWork && !m_liquifyProjectionClean) {
             // 逐块合成离散脏区, 不再先把几处笔迹并成一个大包围盒再整体合成。
             compositeDirtyRegions(proj);
@@ -595,16 +634,9 @@ int ReverieCore::beginTileFrame(QRect *outRects, int cap)
         proj = compositeSoloProjection();
     } else {
         proj = image->projection();
-        bool hasSpecialCompositeLayer = false;
-        for (const LayerEntry &le : m_layers) {
-            if (le.visible && (le.isStrokeLayer || le.nodeType == NodeTypeStroke ||
-                               le.nodeType == NodeTypeTransparencyMask)) {
-                hasSpecialCompositeLayer = true;
-                break;
-            }
-        }
+        const bool hasSpecial = hasSpecialCompositeLayer();
         const bool haveDirtyWork =
-            m_drawing || hasSpecialCompositeLayer || !m_dirtyRect.isEmpty() || !m_nativeProjectionValid;
+            m_drawing || hasSpecial || !m_dirtyRect.isEmpty() || !m_nativeProjectionValid;
         if (haveDirtyWork && !m_liquifyProjectionClean) {
             compositeDirtyRegions(proj);
         }
@@ -727,7 +759,8 @@ void ReverieCore::floodFillAt(int x, int y, int tolerance, bool sampleMerged, in
     if (x < 0 || y < 0 || x >= image->width() || y >= image->height()) return;
     KisPaintDeviceSP targetDevice = currentPaintDevice();
     if (!targetDevice) return;
-    KisPaintDeviceSP srcDevice = sampleMerged ? image->projection() : targetDevice;
+    KisPaintDeviceSP srcDevice = sampleMerged ? mergedProjectionDevice() : targetDevice;
+    if (!srcDevice) return;
     KisPaintDeviceSP collabBefore = collabSnapshotLayerBefore(m_currentLayer);
 
     const int clampedTol = qBound(1, tolerance, 100);
@@ -937,7 +970,7 @@ QString ReverieCore::pickColorAt(int x, int y, bool currentLayerOnly)
     if (x < 0 || y < 0 || x >= image->width() || y >= image->height()) {
         return QString();
     }
-    KisPaintDeviceSP dev = currentLayerOnly ? currentPaintDevice() : image->projection();
+    KisPaintDeviceSP dev = currentLayerOnly ? currentPaintDevice() : mergedProjectionDevice(QRect(x, y, 1, 1));
     if (!dev) return QString();
     quint8 pixel[4] = {0, 0, 0, 0};
     dev->readBytes(pixel, x, y, 1, 1);
