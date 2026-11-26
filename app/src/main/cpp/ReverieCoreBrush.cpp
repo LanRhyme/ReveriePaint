@@ -1445,6 +1445,11 @@ KisPaintOpPresetSP ReverieCore::loadPresetObjectFromPath(const QString &path, co
     if (!ok) {
         return nullptr;
     }
+    if (preset && preset->settings()) {
+        if (auto *bs = dynamic_cast<KisBrushBasedPaintOpSettings *>(preset->settings().data())) {
+            injectBrushDefinitionProperties(bs, m_brushResources, m_loadedBrushes);
+        }
+    }
     return preset;
 }
 

@@ -540,6 +540,34 @@ export class CollabRoom extends DurableObject {
           delete meta.admittedPeers[sender.peerId];
         }
         ws.serializeAttachment({ ...sender, replaced: true });
+        if (sender.peerId === meta.hostPeerId) {
+          const candidate = this.earliestAdmittedPeer(meta.hostPeerId);
+          const candWs = candidate ? this.findAdmittedSocket(candidate.peerId) : null;
+          if (candWs) {
+            await this.promoteHost(meta, ws, candWs);
+          } else {
+            const remaining = Object.entries(meta.admittedPeers || {})
+              .filter(([pid]) => pid !== sender.peerId)
+              .sort((a, b) => (a[1]?.joinedAt || 0) - (b[1]?.joinedAt || 0));
+            if (remaining.length > 0) {
+              const [nextHostId, nextInfo] = remaining[0];
+              meta.hostPeerId = nextHostId;
+              meta.hostName = nextInfo?.name || nextHostId;
+              meta.hostToken = randomTokenHex(24);
+              meta.hostDisconnectedAt = Date.now();
+            } else {
+              // 房主主动退房且已无任何成员，关闭并清理房间，避免幽灵房间残留或原房主无法再加新房
+              if (meta.isPublic) {
+                await this.syncDirectory(meta, { forceRemove: true });
+              }
+              await this.ctx.storage.deleteAll();
+              try {
+                ws.close(1000, 'left');
+              } catch {}
+              return;
+            }
+          }
+        }
         if (sender.status === 'admitted') {
           this.broadcastAdmitted(
             { type: 'peer_left', peerId: sender.peerId, reason: 'left' },

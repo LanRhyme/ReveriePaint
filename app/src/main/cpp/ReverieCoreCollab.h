@@ -64,6 +64,10 @@ struct RemoteStrokeSession {
     quint32 nextSeq = 0;
     QPointF lastPos;
     double lastTimeSec = 0.0;
+    float lastPressure = 1.0f;
+    float lastTiltX = 0.0f;
+    float lastTiltY = 0.0f;
+    float lastRotation = 0.0f;
     QRect dirtyBounds;
     QVector<CollabSample> allSamples;
     QVector<CollabSample> pendingSamples; // 缺少 presetMd5 时暂存, 收到 .kpp 后补画

@@ -48,10 +48,10 @@ constexpr int kSnapshotChunkBytes = 16 * 1024;
 constexpr int kBrushChunkBytes = 16 * 1024;
 constexpr int kCtrlLargeChunkBytes = 48 * 1024;
 constexpr int kStarMaxPeers = 10;
-constexpr int kUndoCap = 80;
-constexpr int kHistoryCap = 256;
-constexpr qint64 kHistoryMaxBytes = 64 * 1024 * 1024;
-constexpr int kHostSeqHistoryLimit = 256;
+constexpr int kUndoCap = 120;
+constexpr int kHistoryCap = 512;
+constexpr qint64 kHistoryMaxBytes = 128 * 1024 * 1024;
+constexpr int kHostSeqHistoryLimit = 512;
 
 enum WireMsgType : quint8 {
     MsgCursor = 0x01,
@@ -581,6 +581,12 @@ struct CollabLocalStep {
     QVector<CollabLocalSubOp> ops;
 };
 
+struct PendingUndoReq {
+    QString requesterPeerId;
+    quint32 clientOpId = 0;
+    bool isRedo = false;
+};
+
 RemoteStrokeSession::~RemoteStrokeSession()
 {
     op = nullptr;
@@ -693,6 +699,7 @@ public:
         }
         m_presetCache.clear();
         m_presetBytesCache.clear();
+        m_uploadedBrushMd5s.clear();
         m_incomingBrushes.clear();
         {
             std::lock_guard<std::mutex> lock(m_largeMutex);
@@ -716,6 +723,8 @@ public:
         m_historyOps.clear();
         m_nextHistorySeq = 0;
         m_historyBytes = 0;
+        m_pendingUndoReqs.clear();
+        m_optimisticUndoWatermarks.clear();
         m_incomingSnapshot = IncomingSnapshotAssembly{};
     }
 
@@ -804,7 +813,10 @@ public:
         {
             std::lock_guard<std::mutex> lock(m_netMutex);
             m_needRestartEasyTier = true;
+            m_dialRetryCount = 0;
+            m_nextDialMs = 0;
         }
+        m_uploadedBrushMd5s.clear();
         wakeNetThread();
 
         if (m_isHost && !wasHost) {
@@ -878,6 +890,19 @@ public:
         QByteArray kppBytes;
         serializeCurrentPreset(presetMd5, kppBytes);
 
+        // 根据引擎与预设实时判定是否擦除 (与 ReverieCoreStroke::flushStrokeBatch 一致)
+        bool isEraserPreset = false;
+        if (m_core->m_presetIsEraserOverride >= 0) {
+            isEraserPreset = (m_core->m_presetIsEraserOverride == 1);
+        } else if (m_core->m_brushPreset) {
+            const QString pname = m_core->m_brushPreset->name();
+            isEraserPreset = pname.startsWith(QLatin1String("a)_Eraser"), Qt::CaseInsensitive) ||
+                             pname.contains(QLatin1String("Eraser"), Qt::CaseInsensitive);
+        }
+        const bool localErasing = (m_core->m_toolMode == ReverieCore::ToolEraser) ||
+                                  ((m_core->m_toolMode != ReverieCore::ToolSmudge) && isEraserPreset);
+        const int effectiveToolMode = localErasing ? int(ReverieCore::ToolEraser) : int(m_core->m_toolMode);
+
         const QPointF startPos = m_core->m_strokeSamples.isEmpty()
             ? m_core->m_strokeStartImg
             : m_core->m_strokeSamples.first().imgPos;
@@ -893,10 +918,17 @@ public:
         m_pendingLocalStrokeOp.color = m_core->m_strokeColor.rgba();
         m_pendingLocalStrokeOp.brushSize = float(m_core->m_brushSize);
         m_pendingLocalStrokeOp.opacity = float(m_core->m_strokeOpacity);
-        m_pendingLocalStrokeOp.toolMode = int(m_core->m_toolMode);
+        m_pendingLocalStrokeOp.toolMode = effectiveToolMode;
 
         if (m_localStrokeLiveMuted) {
             return;
+        }
+
+        // 首次使用该笔刷时主动将 .kpp 发给房主，避免房主收到 commit 后再回发 MsgBrushReq 等候
+        if (!m_isHost && !presetMd5.isEmpty() && !kppBytes.isEmpty() &&
+            !m_uploadedBrushMd5s.contains(presetMd5) && hasOpenHostCtrl()) {
+            m_uploadedBrushMd5s.insert(presetMd5);
+            sendBrushChunks(m_hostPeerId, presetMd5, kppBytes);
         }
 
         QByteArray pkt = packMsgHeader(MsgStrokeBegin);
@@ -911,7 +943,7 @@ public:
            << quint32(m_core->m_strokeColor.rgba())
            << float(m_core->m_brushSize)
            << float(m_core->m_strokeOpacity)
-           << quint8(int(m_core->m_toolMode))
+           << quint8(effectiveToolMode)
            << float(startPos.x()) << float(startPos.y())
            << float(m_core->m_lastPressure)
            << float(m_core->m_lastTiltX)
@@ -1277,28 +1309,36 @@ public:
         if (!canUndo()) return false;
         const CollabLocalStep step = m_myUndoSteps.at(m_myUndoCursor - 1);
         if (m_isHost) {
-            if (!executeSelectiveUndoRedo(m_selfPeerId, step.clientOpId, /*isRedo=*/false, /*broadcastResult=*/true)) {
-                return false;
-            }
             --m_myUndoCursor;
-            return true;
+            if (executeSelectiveUndoRedo(m_selfPeerId, step.clientOpId, /*isRedo=*/false, /*broadcastResult=*/true)) {
+                return true;
+            }
+            bool any = false;
+            for (int i = step.ops.size() - 1; i >= 0; --i) {
+                const CollabLocalSubOp &sub = step.ops.at(i);
+                if (applyCompressedPatchToLayer(sub.layerUuid, sub.rect, sub.beforeCompressed, true)) {
+                    any = true;
+                }
+            }
+            return any;
         }
         --m_myUndoCursor;
+        // 客户端立即在本地应用乐观撤销（0ms 响应），再向房主请求权威合并与全员广播
+        bool localApplied = executeSelectiveUndoRedo(m_selfPeerId, step.clientOpId, /*isRedo=*/false, /*broadcastResult=*/false);
+        if (!localApplied) {
+            for (int i = step.ops.size() - 1; i >= 0; --i) {
+                const CollabLocalSubOp &sub = step.ops.at(i);
+                if (applyCompressedPatchToLayer(sub.layerUuid, sub.rect, sub.beforeCompressed, false)) {
+                    localApplied = true;
+                }
+            }
+        }
         if (hasOpenHostCtrl()) {
+            m_optimisticUndoWatermarks.insert(step.clientOpId, m_nextLocalOpId);
             emitUndoReq(step.clientOpId, /*isRedo=*/false);
             return true;
         }
-        if (executeSelectiveUndoRedo(m_selfPeerId, step.clientOpId, /*isRedo=*/false, /*broadcastResult=*/false)) {
-            return true;
-        }
-        bool any = false;
-        for (int i = step.ops.size() - 1; i >= 0; --i) {
-            const CollabLocalSubOp &sub = step.ops.at(i);
-            if (applyCompressedPatchToLayer(sub.layerUuid, sub.rect, sub.beforeCompressed, false)) {
-                any = true;
-            }
-        }
-        return any;
+        return localApplied;
     }
 
     bool redo()
@@ -1306,28 +1346,35 @@ public:
         if (!canRedo()) return false;
         const CollabLocalStep step = m_myUndoSteps.at(m_myUndoCursor);
         if (m_isHost) {
-            if (!executeSelectiveUndoRedo(m_selfPeerId, step.clientOpId, /*isRedo=*/true, /*broadcastResult=*/true)) {
-                return false;
-            }
             ++m_myUndoCursor;
-            return true;
+            if (executeSelectiveUndoRedo(m_selfPeerId, step.clientOpId, /*isRedo=*/true, /*broadcastResult=*/true)) {
+                return true;
+            }
+            bool any = false;
+            for (int i = 0; i < step.ops.size(); ++i) {
+                const CollabLocalSubOp &sub = step.ops.at(i);
+                if (applyCompressedPatchToLayer(sub.layerUuid, sub.rect, sub.afterCompressed, true)) {
+                    any = true;
+                }
+            }
+            return any;
         }
         ++m_myUndoCursor;
+        bool localApplied = executeSelectiveUndoRedo(m_selfPeerId, step.clientOpId, /*isRedo=*/true, /*broadcastResult=*/false);
+        if (!localApplied) {
+            for (int i = 0; i < step.ops.size(); ++i) {
+                const CollabLocalSubOp &sub = step.ops.at(i);
+                if (applyCompressedPatchToLayer(sub.layerUuid, sub.rect, sub.afterCompressed, false)) {
+                    localApplied = true;
+                }
+            }
+        }
         if (hasOpenHostCtrl()) {
+            m_optimisticUndoWatermarks.insert(step.clientOpId, m_nextLocalOpId);
             emitUndoReq(step.clientOpId, /*isRedo=*/true);
             return true;
         }
-        if (executeSelectiveUndoRedo(m_selfPeerId, step.clientOpId, /*isRedo=*/true, /*broadcastResult=*/false)) {
-            return true;
-        }
-        bool any = false;
-        for (int i = 0; i < step.ops.size(); ++i) {
-            const CollabLocalSubOp &sub = step.ops.at(i);
-            if (applyCompressedPatchToLayer(sub.layerUuid, sub.rect, sub.afterCompressed, false)) {
-                any = true;
-            }
-        }
-        return any;
+        return localApplied;
     }
 
     void syncOnReconnect(const QString &newHostPeerId, const QString &transportConfigJson, const QString &peersJson)
@@ -1400,7 +1447,9 @@ public:
         resetPeerConnection(peerId, /*keepLinkMeta=*/true);
         if (!m_isHost && peerId == m_hostPeerId) {
             std::lock_guard<std::mutex> lock(m_netMutex);
+            m_dialRetryCount = 0;
             m_nextDialMs = 0;
+            m_uploadedBrushMd5s.clear();
         }
         wakeNetThread();
     }
@@ -1542,7 +1591,8 @@ public:
 
             KisPainter painter(scratch);
             painter.setCompositeOpId(s->isFullDeviceCopy ? QString(COMPOSITE_COPY) : s->previewCompositeOp);
-            painter.setOpacityF(qBound<qreal>(0.0, s->opacity, 1.0));
+            // paintOpOpacity 已在 preparePaintSession 中设置并作用于 previewDev，此处不再二次乘算透明度
+            painter.setOpacityToUnit();
             if (!alphaLockFlags.isEmpty()) {
                 painter.setChannelFlags(alphaLockFlags);
             }
@@ -1667,6 +1717,7 @@ private:
     QHash<QString, RemoteStrokeSession *> m_remoteStrokes;
     QHash<QString, KisPaintOpPresetSP> m_presetCache;
     QHash<QString, QByteArray> m_presetBytesCache;
+    QSet<QString> m_uploadedBrushMd5s;
     QHash<QString, IncomingBrushAssembly> m_incomingBrushes;
     std::mutex m_largeMutex;
     QHash<QString, IncomingLargeAssembly> m_incomingLarge;
@@ -2361,7 +2412,7 @@ private:
                             conn.connecting = (crc != 0);
                             conn.handshakeDone = false;
                             conn.connectStartedMs = now;
-                            conn.handshakeDeadlineMs = now + 5000;
+                            conn.handshakeDeadlineMs = now + 15000;
                             if (!conn.connecting) {
                                 enqueueFrameToConn(conn, buildHelloPacket(false), true);
                             }
@@ -2617,7 +2668,8 @@ private:
                 }
             }
 
-            if (afterPollMs - lastInfoPollMs >= 1500) {
+            const qint64 telemetryIntervalMs = m_lastBroadcastEndpoints.isEmpty() ? 400 : 1500;
+            if (afterPollMs - lastInfoPollMs >= telemetryIntervalMs) {
                 lastInfoPollMs = afterPollMs;
                 pollEasyTierTelemetry(api, etStarted, lastEtErr);
             }
@@ -2649,6 +2701,8 @@ private:
     QVector<CollabHistoryOp> m_historyOps;
     quint64 m_nextHistorySeq = 0;
     qint64 m_historyBytes = 0;
+    QVector<PendingUndoReq> m_pendingUndoReqs;
+    QHash<quint32, quint32> m_optimisticUndoWatermarks;
 
     void pushUiEvent(const QJsonObject &obj)
     {
@@ -2912,7 +2966,9 @@ private:
             KisNode *curParent = m_core->m_layers[idx].node ? m_core->m_layers[idx].node->parent().data() : nullptr;
             if (curParent && curParent != root && curParent != dstParent) {
                 const int cpIdx = m_core->indexOfNode(curParent);
-                if (cpIdx >= 0 && !canInsertGroup(cpIdx)) return false;
+                // 允许成员将自己新建的图层从受保护组移出到根层或本人组内
+                const bool movingOwnOut = (m_core->m_layers[idx].ownerPeerId == actorPeerId);
+                if (cpIdx >= 0 && !canInsertGroup(cpIdx) && !movingOwnOut) return false;
             }
             return true;
         }
@@ -3221,6 +3277,12 @@ private:
             if (ds.status() != QDataStream::Ok || !m_isHost || requesterPeerId.isEmpty() || clientOpId == 0) {
                 return false;
             }
+            const QString key = requesterPeerId + QLatin1Char(':') + QString::number(clientOpId);
+            if (m_remoteStrokes.contains(key)) {
+                // 该笔画仍在等待 .kpp 或 commit 完成，入队后在 commitRemoteSession 结束时立刻补执行
+                m_pendingUndoReqs.append(PendingUndoReq{requesterPeerId, clientOpId, isRedo != 0});
+                return false;
+            }
             return executeSelectiveUndoRedo(requesterPeerId, clientOpId, isRedo != 0, /*broadcastResult=*/true);
         }
 
@@ -3235,7 +3297,23 @@ private:
             QByteArray compressed;
             ds >> x >> y >> w >> h >> codec >> compressed;
             if (ds.status() != QDataStream::Ok) return false;
-            const bool ok = applyCompressedPatchToLayer(layerUuid, QRect(x, y, w, h), compressed, false);
+
+            const QRect patchRect(x, y, w, h);
+            bool skipOverwrite = false;
+            if (targetAuthor == m_selfPeerId && m_optimisticUndoWatermarks.contains(targetClientOpId)) {
+                const quint32 wm = m_optimisticUndoWatermarks.take(targetClientOpId);
+                for (const CollabHistoryOp &op : m_historyOps) {
+                    if (!op.undone && op.authorPeerId == m_selfPeerId &&
+                        op.clientOpId > wm && op.layerUuid == layerUuid &&
+                        op.rect.intersects(patchRect)) {
+                        skipOverwrite = true;
+                        break;
+                    }
+                }
+            }
+            const bool ok = skipOverwrite
+                ? true
+                : applyCompressedPatchToLayer(layerUuid, patchRect, compressed, false);
             syncPassiveOpUndoFlag(targetAuthor, targetClientOpId, isRedo != 0, layerUuid);
             if (ok) {
                 pushUiEvent(QJsonObject{{"type", QStringLiteral("layers_changed")}});
@@ -3318,6 +3396,8 @@ private:
         m_core->m_isCollabProject = true;
         m_core->m_collabRoomCode = m_roomCode;
         m_core->m_undoCaptureEnabled = false;
+        m_optimisticUndoWatermarks.clear();
+        m_pendingUndoReqs.clear();
         pushUiEvent(QJsonObject{
             {"type", QStringLiteral("doc_reloaded")},
             {"width", m_core->docWidth()},
@@ -3341,8 +3421,23 @@ private:
         if (!m_presetBytesCache.contains(outMd5)) {
             m_presetBytesCache.insert(outMd5, outBytes);
         }
+        // 写入本地 .kpp 缓存并保存独立克隆体，避免后续切换橡皮/改参数污染 m_presetCache
+        const QString cachedPath = m_brushCacheDir + QLatin1Char('/') + outMd5 + QStringLiteral(".kpp");
+        if (!QFile::exists(cachedPath)) {
+            QFile f(cachedPath);
+            if (f.open(QIODevice::WriteOnly | QIODevice::Truncate)) {
+                f.write(outBytes);
+                f.close();
+            }
+        }
         if (!m_presetCache.contains(outMd5)) {
-            m_presetCache.insert(outMd5, m_core->m_brushPreset);
+            KisPaintOpPresetSP cloned = m_core->m_brushPreset->clone().dynamicCast<KisPaintOpPreset>();
+            if (cloned) {
+                if (cloned->settings()) {
+                    cloned->settings()->setEraserMode(false);
+                }
+                m_presetCache.insert(outMd5, cloned);
+            }
         }
     }
 
@@ -3427,6 +3522,10 @@ private:
         s->toolMode = toolMode;
         s->lastPos = QPointF(x, y);
         s->lastTimeSec = 0.0;
+        s->lastPressure = p;
+        s->lastTiltX = tx;
+        s->lastTiltY = ty;
+        s->lastRotation = rot;
 
         CollabSample s0{x, y, p, tx, ty, rot, 0.0f};
         s->allSamples.append(s0);
@@ -3467,12 +3566,12 @@ private:
     {
         if (!s || !srcPreset || !baseLayerDev || !layerNode || !m_core->m_document) return false;
 
-        // 克隆一份独立 preset 防止远端/重放改写 size/opacity 污染本地或其它并发笔画
+        // 克隆一份独立 preset 防止远端/重放改写 size/opacity/eraserMode 污染本地或其它并发笔画
         KisPaintOpPresetSP cloned = srcPreset->clone().dynamicCast<KisPaintOpPreset>();
         s->preset = cloned ? cloned : srcPreset;
 
-        const bool isEraser = (s->toolMode == ReverieCore::ToolEraser) ||
-                              (s->preset->settings() && s->preset->settings()->eraserMode());
+        // 严禁被复用预设上残留的 eraserMode() 劫持为橡皮擦，擦除与否完全以笔画记录的 toolMode 为准
+        const bool isEraser = (s->toolMode == ReverieCore::ToolEraser);
         const QString pid = s->preset->paintOp().id();
         const bool isSmudge = (s->toolMode == ReverieCore::ToolSmudge) || (pid == QLatin1String("colorsmudge"));
         const bool readsCanvas = isSmudge || pid == QLatin1String("deformbrush") ||
@@ -3561,16 +3660,26 @@ private:
                 s->hasStartedPaint = true;
                 s->lastPos = cur;
                 s->lastTimeSec = cs.timeSec;
+                s->lastPressure = cs.pressure;
+                s->lastTiltX = cs.tiltX;
+                s->lastTiltY = cs.tiltY;
+                s->lastRotation = cs.rotation;
                 segBounds = QRect(int(cur.x()), int(cur.y()), 1, 1);
             } else {
                 const qreal dist = std::hypot(cur.x() - s->lastPos.x(), cur.y() - s->lastPos.y());
                 if (dist < 1e-3) continue;
-                const StrokePaintSample prevSample{s->lastPos, cs.pressure, cs.tiltX, cs.tiltY, cs.rotation, s->lastTimeSec};
-                const KisPaintInformation a = makePaintInfo(prevSample, 0.0, s->randomSource, s->perStrokeRandom);
-                const KisPaintInformation b = makePaintInfo(curSample, 0.0, s->randomSource, s->perStrokeRandom);
+                const StrokePaintSample prevSample{
+                    s->lastPos, s->lastPressure, s->lastTiltX, s->lastTiltY, s->lastRotation, s->lastTimeSec};
+                const qreal spd = reverie::speedBetween(prevSample, curSample);
+                const KisPaintInformation a = makePaintInfo(prevSample, spd, s->randomSource, s->perStrokeRandom);
+                const KisPaintInformation b = makePaintInfo(curSample, spd, s->randomSource, s->perStrokeRandom);
                 s->op->paintLine(a, b, s->distance);
                 s->lastPos = cur;
                 s->lastTimeSec = cs.timeSec;
+                s->lastPressure = cs.pressure;
+                s->lastTiltX = cs.tiltX;
+                s->lastTiltY = cs.tiltY;
+                s->lastRotation = cs.rotation;
                 const QRect ptR = QRect(a.pos().toPoint(), b.pos().toPoint()).normalized();
                 segBounds = segBounds.isNull() ? ptR : segBounds.united(ptR);
             }
@@ -3641,7 +3750,8 @@ private:
                         const bool alphaLocked = pl->alphaLocked();
                         KisPainter gc(dev);
                         gc.setCompositeOpId(s->isFullDeviceCopy ? QString(COMPOSITE_COPY) : s->previewCompositeOp);
-                        gc.setOpacityF(s->isFullDeviceCopy ? 1.0 : qBound<qreal>(0.0, s->opacity, 1.0));
+                        // paintOpOpacity 已作用于 previewDev，合成时保持 1.0 避免透明度平方衰减及橡皮擦不净
+                        gc.setOpacityToUnit();
                         if (alphaLocked) {
                             gc.setChannelFlags(pl->channelLockFlags());
                         }
@@ -3689,7 +3799,20 @@ private:
                 }
             }
         }
+        const QString committedPeerId = s->peerId;
+        const quint32 committedStrokeId = s->strokeId;
         delete s;
+        if (m_isHost && !m_pendingUndoReqs.isEmpty()) {
+            for (int i = 0; i < m_pendingUndoReqs.size();) {
+                const PendingUndoReq req = m_pendingUndoReqs.at(i);
+                if (req.requesterPeerId == committedPeerId && req.clientOpId == committedStrokeId) {
+                    m_pendingUndoReqs.removeAt(i);
+                    executeSelectiveUndoRedo(req.requesterPeerId, req.clientOpId, req.isRedo, /*broadcastResult=*/true);
+                } else {
+                    ++i;
+                }
+            }
+        }
         return updated;
     }
 
@@ -4019,6 +4142,19 @@ private:
                 m_historyBytes -= m_historyOps.first().approxBytes();
                 m_historyOps.removeFirst();
             }
+            if (firstAuthor == m_selfPeerId) {
+                for (int i = m_myUndoSteps.size() - 1; i >= 0; --i) {
+                    if (m_myUndoSteps.at(i).clientOpId == firstOpId) {
+                        m_myUndoSteps.removeAt(i);
+                        if (i < m_myUndoCursor && m_myUndoCursor > 0) {
+                            --m_myUndoCursor;
+                        }
+                    }
+                }
+                if (m_myUndoCursor > m_myUndoSteps.size()) {
+                    m_myUndoCursor = m_myUndoSteps.size();
+                }
+            }
         }
         if (m_historyBytes < 0) m_historyBytes = 0;
     }
@@ -4049,10 +4185,19 @@ private:
             const QString cachedPath = m_brushCacheDir + QLatin1Char('/') + md5 + QStringLiteral(".kpp");
             if (QFile::exists(cachedPath)) {
                 preset = m_core->loadPresetObjectFromPath(cachedPath, md5);
-                if (preset) m_presetCache.insert(md5, preset);
+                if (preset) {
+                    if (preset->settings()) preset->settings()->setEraserMode(false);
+                    m_presetCache.insert(md5, preset);
+                }
             }
         }
-        if (!preset) preset = m_core->m_brushPreset;
+        if (!preset && m_core->m_brushPreset) {
+            KisPaintOpPresetSP fallback = m_core->m_brushPreset->clone().dynamicCast<KisPaintOpPreset>();
+            if (fallback && fallback->settings()) {
+                fallback->settings()->setEraserMode(false);
+            }
+            preset = fallback ? fallback : m_core->m_brushPreset;
+        }
         return preset;
     }
 
@@ -4075,8 +4220,13 @@ private:
         tmp.brushSize = qBound<qreal>(0.5, qreal(op.brushSize), 1500.0);
         tmp.opacity = qBound<qreal>(0.0, qreal(op.opacity), 1.0);
         tmp.toolMode = op.toolMode;
-        tmp.lastPos = QPointF(op.samples.first().x, op.samples.first().y);
-        tmp.lastTimeSec = 0.0;
+        const CollabSample &firstSample = op.samples.first();
+        tmp.lastPos = QPointF(firstSample.x, firstSample.y);
+        tmp.lastTimeSec = double(firstSample.timeSec);
+        tmp.lastPressure = firstSample.pressure;
+        tmp.lastTiltX = firstSample.tiltX;
+        tmp.lastTiltY = firstSample.tiltY;
+        tmp.lastRotation = firstSample.rotation;
 
         if (!preparePaintSession(&tmp, preset, workingDev, layerNode)) {
             return false;
@@ -4086,17 +4236,19 @@ private:
         const QRect ext = tmp.isFullDeviceCopy
             ? clipRect
             : tmp.previewDev->exactBounds().intersected(clipRect);
-        if (!ext.isEmpty()) {
-            KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(layerNode.data());
-            KisPainter gc(workingDev);
-            gc.setCompositeOpId(tmp.isFullDeviceCopy ? QString(COMPOSITE_COPY) : tmp.previewCompositeOp);
-            gc.setOpacityF(tmp.isFullDeviceCopy ? 1.0 : qBound<qreal>(0.0, tmp.opacity, 1.0));
-            if (op.strokeAlphaLocked && pl) {
-                gc.setChannelFlags(pl->channelLockFlags());
-            }
-            gc.bitBlt(ext.topLeft(), tmp.previewDev, ext);
-            gc.end();
+        if (ext.isEmpty()) {
+            return false;
         }
+        KisPaintLayer *pl = dynamic_cast<KisPaintLayer *>(layerNode.data());
+        KisPainter gc(workingDev);
+        gc.setCompositeOpId(tmp.isFullDeviceCopy ? QString(COMPOSITE_COPY) : tmp.previewCompositeOp);
+        // paintOpOpacity 已在 preparePaintSession 作用于 previewDev，合成回 workingDev 时用 1.0
+        gc.setOpacityToUnit();
+        if (op.strokeAlphaLocked && pl) {
+            gc.setChannelFlags(pl->channelLockFlags());
+        }
+        gc.bitBlt(ext.topLeft(), tmp.previewDev, ext);
+        gc.end();
         return true;
     }
 
@@ -4239,14 +4391,19 @@ private:
                         QByteArray curBefore(int(bc), 0);
                         layerDev->readBytes(reinterpret_cast<quint8 *>(curBefore.data()),
                                             target.rect.x(), target.rect.y(), target.rect.width(), target.rect.height());
-                        replayCollabStrokeIntoDevice(layerDev, KisNodeSP(layerNode), target, target.rect);
-                        QByteArray curAfter(int(bc), 0);
-                        layerDev->readBytes(reinterpret_cast<quint8 *>(curAfter.data()),
-                                            target.rect.x(), target.rect.y(), target.rect.width(), target.rect.height());
-                        const qint64 oldMem = target.approxBytes();
-                        target.beforeCompressed = qCompress(curBefore, 4);
-                        target.afterCompressed = qCompress(curAfter, 4);
-                        m_historyBytes += (target.approxBytes() - oldMem);
+                        if (!replayCollabStrokeIntoDevice(layerDev, KisNodeSP(layerNode), target, target.rect)) {
+                            const QByteArray oldB = qUncompress(target.beforeCompressed);
+                            const QByteArray oldA = qUncompress(target.afterCompressed);
+                            replayNonStrokeOpIntoDevice(layerDev, target, oldB, oldA);
+                        } else {
+                            QByteArray curAfter(int(bc), 0);
+                            layerDev->readBytes(reinterpret_cast<quint8 *>(curAfter.data()),
+                                                target.rect.x(), target.rect.y(), target.rect.width(), target.rect.height());
+                            const qint64 oldMem = target.approxBytes();
+                            target.beforeCompressed = qCompress(curBefore, 4);
+                            target.afterCompressed = qCompress(curAfter, 4);
+                            m_historyBytes += (target.approxBytes() - oldMem);
+                        }
                     } else {
                         const QByteArray oldB = qUncompress(target.beforeCompressed);
                         const QByteArray oldA = qUncompress(target.afterCompressed);
@@ -4279,7 +4436,7 @@ private:
 
             QByteArray targetOldB;
             QByteArray targetOldA;
-            if (isRedo && !target.hasStrokeReplay) {
+            if (isRedo) {
                 targetOldB = qUncompress(target.beforeCompressed);
                 targetOldA = qUncompress(target.afterCompressed);
             }
@@ -4287,10 +4444,8 @@ private:
             QVector<QByteArray> laterOldA(laterIndices.size());
             for (int k = 0; k < laterIndices.size(); ++k) {
                 const CollabHistoryOp &lop = m_historyOps.at(laterIndices.at(k));
-                if (!lop.hasStrokeReplay) {
-                    laterOldB[k] = qUncompress(lop.beforeCompressed);
-                    laterOldA[k] = qUncompress(lop.afterCompressed);
-                }
+                laterOldB[k] = qUncompress(lop.beforeCompressed);
+                laterOldA[k] = qUncompress(lop.afterCompressed);
             }
 
             for (int k = laterIndices.size() - 1; k >= 0; --k) {
@@ -4309,14 +4464,17 @@ private:
                     QByteArray newTB(int(tByteCount), 0);
                     workingDev->readBytes(reinterpret_cast<quint8 *>(newTB.data()),
                                           target.rect.x(), target.rect.y(), target.rect.width(), target.rect.height());
-                    replayCollabStrokeIntoDevice(workingDev, KisNodeSP(layerNode), target, target.rect);
-                    QByteArray newTA(int(tByteCount), 0);
-                    workingDev->readBytes(reinterpret_cast<quint8 *>(newTA.data()),
-                                          target.rect.x(), target.rect.y(), target.rect.width(), target.rect.height());
-                    const qint64 oldMem = target.approxBytes();
-                    target.beforeCompressed = qCompress(newTB, 4);
-                    target.afterCompressed = qCompress(newTA, 4);
-                    m_historyBytes += (target.approxBytes() - oldMem);
+                    if (!replayCollabStrokeIntoDevice(workingDev, KisNodeSP(layerNode), target, target.rect)) {
+                        replayNonStrokeOpIntoDevice(workingDev, target, targetOldB, targetOldA);
+                    } else {
+                        QByteArray newTA(int(tByteCount), 0);
+                        workingDev->readBytes(reinterpret_cast<quint8 *>(newTA.data()),
+                                              target.rect.x(), target.rect.y(), target.rect.width(), target.rect.height());
+                        const qint64 oldMem = target.approxBytes();
+                        target.beforeCompressed = qCompress(newTB, 4);
+                        target.afterCompressed = qCompress(newTA, 4);
+                        m_historyBytes += (target.approxBytes() - oldMem);
+                    }
                 } else {
                     replayNonStrokeOpIntoDevice(workingDev, target, targetOldB, targetOldA);
                 }
@@ -4332,14 +4490,17 @@ private:
                         QByteArray newB(int(lByteCount), 0);
                         workingDev->readBytes(reinterpret_cast<quint8 *>(newB.data()),
                                               lop.rect.x(), lop.rect.y(), lop.rect.width(), lop.rect.height());
-                        replayCollabStrokeIntoDevice(workingDev, KisNodeSP(layerNode), lop, lop.rect);
-                        QByteArray newA(int(lByteCount), 0);
-                        workingDev->readBytes(reinterpret_cast<quint8 *>(newA.data()),
-                                              lop.rect.x(), lop.rect.y(), lop.rect.width(), lop.rect.height());
-                        const qint64 oldMem = lop.approxBytes();
-                        lop.beforeCompressed = qCompress(newB, 4);
-                        lop.afterCompressed = qCompress(newA, 4);
-                        m_historyBytes += (lop.approxBytes() - oldMem);
+                        if (!replayCollabStrokeIntoDevice(workingDev, KisNodeSP(layerNode), lop, lop.rect)) {
+                            replayNonStrokeOpIntoDevice(workingDev, lop, laterOldB[k], laterOldA[k]);
+                        } else {
+                            QByteArray newA(int(lByteCount), 0);
+                            workingDev->readBytes(reinterpret_cast<quint8 *>(newA.data()),
+                                                  lop.rect.x(), lop.rect.y(), lop.rect.width(), lop.rect.height());
+                            const qint64 oldMem = lop.approxBytes();
+                            lop.beforeCompressed = qCompress(newB, 4);
+                            lop.afterCompressed = qCompress(newA, 4);
+                            m_historyBytes += (lop.approxBytes() - oldMem);
+                        }
                     }
                 } else {
                     replayNonStrokeOpIntoDevice(workingDev, lop, laterOldB[k], laterOldA[k]);

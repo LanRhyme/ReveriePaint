@@ -632,6 +632,7 @@ private fun PaintViewModel.localizeCollabError(code: String, rawMessage: String)
     "room_not_found", "not_found", "http_404" -> getString(R.string.collab_err_room_not_found)
     "kicked" -> getString(R.string.collab_kicked_msg)
     "invalid_host_token" -> getString(R.string.collab_err_host_auth)
+    "peer_id_conflict" -> getString(R.string.collab_err_peer_id_conflict)
     "ws_failure" -> getString(R.string.collab_err_network)
     else -> getString(R.string.collab_status_error, rawMessage.ifBlank { code })
 }
@@ -993,7 +994,7 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
                         }
                     }
                     "duplicate_name", "room_full", "invalid_password", "room_not_found",
-                    "kicked", "invalid_host_token", "service_disabled" -> {
+                    "kicked", "invalid_host_token", "peer_id_conflict", "service_disabled" -> {
                         val detail = localizeCollabError(code, message)
                         teardownCollabLocalState(gracefulLeave = false)
                         collab.phase = CollabConnectionPhase.ERROR
@@ -1300,8 +1301,10 @@ private fun PaintViewModel.handleCollabPolledData(
                                 isBlockingLoading = false
                                 refreshLayerThumbs(force = true)
                                 refreshUndoCounts()
-                                if (collab.pendingAutoFocusOnSnapshot) {
-                                    collab.pendingAutoFocusOnSnapshot = false
+                                val needRefocus = collab.pendingAutoFocusOnSnapshot ||
+                                    !canEditLayerInCollab(layers.getOrNull(currentLayerIndex))
+                                collab.pendingAutoFocusOnSnapshot = false
+                                if (needRefocus) {
                                     applyAutoFocusOrCreateCollabLayer()
                                 }
                             }
@@ -1891,15 +1894,16 @@ internal fun PaintViewModel.applyAutoFocusOrCreateCollabLayer() {
         return
     }
 
-    val personalName = getString(
-        R.string.collab_default_personal_layer_name,
-        collab.selfName.ifBlank { "Artist" },
-    )
+    val displayArtist = collab.selfName.ifBlank { "Artist" }
+    val personalGroupName = getString(R.string.collab_default_personal_group_name, displayArtist)
+    val personalName = getString(R.string.collab_default_personal_layer_name, displayArtist)
     runCore(after = {
         clearLayerSelection()
         notifyLayerChanged()
-        showActionToast(getString(R.string.collab_toast_autocreate_personal_layer, personalName), R.drawable.ic_layers)
+        showActionToast(getString(R.string.collab_toast_autocreate_personal_group, personalGroupName), R.drawable.ic_layers)
     }) {
+        // 先创建本人专属图层组，再在组内创建初始颜料层（addLayer 会自动落入当前组并选中它）
+        ReverieCoreBridge.addGroupLayer(personalGroupName)
         ReverieCoreBridge.addLayer(personalName)
     }
 }
