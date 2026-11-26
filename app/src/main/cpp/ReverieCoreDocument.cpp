@@ -20,6 +20,22 @@
 #include <QThread>
 #include <QThreadPool>
 #include <QUuid>
+#include <tiles3/kis_tile_data_store.h>
+#if defined(__ANDROID__)
+#include <dlfcn.h>
+#include <malloc.h>
+#endif
+
+static void purgeNativeHeapPages()
+{
+#if defined(__ANDROID__) && defined(M_PURGE)
+    using MalloptFn = int (*)(int, int);
+    static MalloptFn fn = reinterpret_cast<MalloptFn>(dlsym(RTLD_DEFAULT, "mallopt"));
+    if (fn) {
+        fn(M_PURGE, 0);
+    }
+#endif
+}
 
 QThreadPool *reverieBackgroundPool()
 {
@@ -326,7 +342,17 @@ void ReverieCore::closeDocument()
     m_strokeMergeScratch = nullptr;
     m_strokeOutScratch = nullptr;
     m_scratchPool.clear();
+    m_scratchPool.squeeze();
     m_scratchPoolIndex = 0;
+    m_filterBackups.clear();
+    QVector<quint8>().swap(m_filterWorkBuffer);
+    QVector<quint8>().swap(m_filterOrigBuffer);
+    QByteArray().swap(m_subRegionBuffer);
+    QByteArray().swap(m_scratchpadReadBuf);
+    m_liquifyPreviewBaseDev.clear();
+    m_liquifyStaticUnderlay.clear();
+    m_liquifyUnderlayTiles.clear();
+    purgeNativeHeapPages();
 
     // Keyframe thumbnail caches reference live nodes. The generation counter
     // stays monotonic: Kotlin caches gen values to decide UI rebuilds, so it
@@ -338,6 +364,64 @@ void ReverieCore::closeDocument()
     // Cosmetic defaults for the next document (newDocument re-sets these)
     m_backgroundColor = Qt::white;
     m_infiniteCanvas = false;
+}
+
+void ReverieCore::trimMemory(bool aggressive)
+{
+    if (m_filterBackups.isEmpty()) {
+        QVector<quint8>().swap(m_filterWorkBuffer);
+        QVector<quint8>().swap(m_filterOrigBuffer);
+    }
+    QByteArray().swap(m_subRegionBuffer);
+
+    if (!m_drawing && !m_strokeBatchOpen) {
+        if (m_scratchPoolIndex == 0) {
+            m_scratchPool.clear();
+            m_scratchPool.squeeze();
+        }
+        m_strokeMergeScratch = nullptr;
+        m_strokeOutScratch = nullptr;
+        invalidateStaticUnderlay();
+    }
+    if (!m_liquifyTxnActive) {
+        m_liquifyPreviewBaseDev.clear();
+        m_liquifyStaticUnderlay.clear();
+        m_liquifyUnderlayTiles.clear();
+    }
+    if (!m_scratchpadStrokeActive && !m_scratchpadDev) {
+        QByteArray().swap(m_scratchpadReadBuf);
+    }
+    if (aggressive) {
+        m_thumbCache.clear();
+        m_keyframeThumbCache.clear();
+        if (!m_drawing && !m_strokeBatchOpen) {
+            invalidateStrokeOnionCache();
+        }
+        if (KisTileDataStore *store = KisTileDataStore::instance()) {
+            store->checkFreeMemory();
+            store->kickPooler();
+        }
+        purgeNativeHeapPages();
+    }
+}
+
+void ReverieCore::memoryStats(qint64 outStats[6])
+{
+    for (int i = 0; i < 6; ++i) {
+        outStats[i] = 0;
+    }
+    KisTileDataStore *store = KisTileDataStore::instance();
+    if (!store) return;
+    if (!m_drawing && (!m_document || m_document->isIdle())) {
+        store->tryForceUpdateMemoryStatisticsWhileIdle();
+    }
+    const KisTileDataStore::MemoryStatistics s = store->memoryStatistics();
+    outStats[0] = s.totalMemorySize;
+    outStats[1] = s.realMemorySize;
+    outStats[2] = s.historicalMemorySize;
+    outStats[3] = s.poolSize;
+    outStats[4] = s.swapSize;
+    outStats[5] = static_cast<qint64>(store->numTilesInMemory());
 }
 
 namespace {

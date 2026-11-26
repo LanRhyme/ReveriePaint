@@ -39,6 +39,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
@@ -53,10 +54,16 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.window.Dialog
 import com.reverie.paint.core.*
+import com.reverie.paint.model.MemoryPressureLevel
+import com.reverie.paint.model.RuntimeMemoryPolicy
+import com.reverie.paint.model.RuntimeMemorySnapshot
 import com.reverie.paint.ui.components.ReSwitch
 import com.reverie.paint.ui.components.noRippleClickable
 import com.reverie.paint.ui.theme.Morandi
+import com.reverie.paint.ui.theme.blendColors
+import kotlinx.coroutines.delay
 import java.text.SimpleDateFormat
 import java.util.Date
 import java.util.Locale
@@ -74,7 +81,110 @@ internal fun CanvasTabPage(
 ) {
     var showSaveAsDialog by remember { mutableStateOf(false) }
     var saveAsName by remember { mutableStateOf(vm.docName) }
+    var memSnapshot by remember { mutableStateOf(RuntimeMemorySnapshot()) }
+    var showMemoryDialog by remember { mutableStateOf(false) }
+    var showClearHistoryConfirm by remember { mutableStateOf(false) }
+    var isReleasingMem by remember { mutableStateOf(false) }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val resources = androidx.compose.ui.platform.LocalResources.current
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            vm.refreshRuntimeMemorySnapshot { memSnapshot = it }
+            delay(2000L)
+        }
+    }
+
+    if (showMemoryDialog) {
+        RuntimeMemoryDialog(
+            snapshot = memSnapshot,
+            isBusy = isReleasingMem,
+            canClearHistory = memSnapshot.canClearHistory && !vm.isHistoryBlockedByTransform,
+            onDismiss = { if (!isReleasingMem) showMemoryDialog = false },
+            onReleaseCache = {
+                if (isReleasingMem) return@RuntimeMemoryDialog
+                isReleasingMem = true
+                vm.manualReleaseCaches { before, after ->
+                    memSnapshot = after
+                    isReleasingMem = false
+                    val freed = (before.appRssBytes - after.appRssBytes).coerceAtLeast(0L)
+                    val nowStr = RuntimeMemoryPolicy.formatBytes(after.appRssBytes)
+                    val msg = if (freed >= 1024L * 1024L) {
+                        resources.getString(
+                            R.string.canvas_memory_toast_released,
+                            nowStr,
+                            RuntimeMemoryPolicy.formatBytes(freed),
+                        )
+                    } else {
+                        resources.getString(R.string.canvas_memory_toast_released_simple, nowStr)
+                    }
+                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                }
+            },
+            onRequestClearHistory = {
+                showClearHistoryConfirm = true
+            },
+        )
+    }
+
+    if (showClearHistoryConfirm) {
+        Dialog(onDismissRequest = { if (!isReleasingMem) showClearHistoryConfirm = false }) {
+            Box(
+                modifier = Modifier
+                    .width(320.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(Morandi.panel)
+                    .padding(20.dp),
+            ) {
+                Column {
+                    Text(
+                        text = stringResource(R.string.canvas_memory_clear_history_title),
+                        color = Morandi.text,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        text = stringResource(R.string.canvas_memory_clear_history_desc),
+                        color = Morandi.subText,
+                        fontSize = 12.5.sp,
+                        lineHeight = 18.sp,
+                    )
+                    Spacer(Modifier.height(18.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.End,
+                    ) {
+                        ReTextButton(
+                            stringResource(R.string.common_cancel),
+                            { if (!isReleasingMem) showClearHistoryConfirm = false },
+                            textColor = Morandi.subText,
+                        )
+                        Spacer(Modifier.width(8.dp))
+                        ReTextButton(
+                            stringResource(R.string.canvas_memory_btn_clear_history),
+                            onClick = {
+                                if (isReleasingMem) return@ReTextButton
+                                showClearHistoryConfirm = false
+                                isReleasingMem = true
+                                vm.manualClearUndoHistory { after ->
+                                    memSnapshot = after
+                                    isReleasingMem = false
+                                    val msg = resources.getString(
+                                        R.string.canvas_memory_toast_history_cleared,
+                                        RuntimeMemoryPolicy.formatBytes(after.appRssBytes),
+                                    )
+                                    android.widget.Toast.makeText(context, msg, android.widget.Toast.LENGTH_SHORT).show()
+                                }
+                            },
+                            textColor = Morandi.error,
+                            fontWeight = FontWeight.Bold,
+                        )
+                    }
+                }
+            }
+        }
+    }
 
     // 解码与导入交给 vm.viewModelScope: 立即关闭设置面板会卸载 CanvasTabPage 并取消本地
     // rememberCoroutineScope(), 若绑定在组件作用域上会导致大图/慢速 provider 导入被静默取消。
@@ -136,7 +246,7 @@ internal fun CanvasTabPage(
                             onClose()
                             if (name.isNotBlank()) {
                                 vm.saveProject(name) {
-                                    android.widget.Toast.makeText(context, context.getString(R.string.canvas_toast_saved_as, name), android.widget.Toast.LENGTH_SHORT).show()
+                                    android.widget.Toast.makeText(context, resources.getString(R.string.canvas_toast_saved_as, name), android.widget.Toast.LENGTH_SHORT).show()
                                 }
                             }
                         },
@@ -166,11 +276,11 @@ internal fun CanvasTabPage(
         val mins = (vm.elapsedSeconds % 3600) / 60
         val secs = vm.elapsedSeconds % 60
         val durationStr = if (hours > 0) {
-            context.getString(R.string.duration_hours_mins, hours, mins.toString().padStart(2, '0'))
+            resources.getString(R.string.duration_hours_mins, hours, mins.toString().padStart(2, '0'))
         } else if (mins > 0) {
-            context.getString(R.string.duration_mins_secs, mins, secs.toString().padStart(2, '0'))
+            resources.getString(R.string.duration_mins_secs, mins, secs.toString().padStart(2, '0'))
         } else {
-            context.getString(R.string.duration_secs, secs)
+            resources.getString(R.string.duration_secs, secs)
         }
 
         // 1. 画布规格信息卡 (Specs Dashboard Card - Zero Border)
@@ -225,14 +335,47 @@ internal fun CanvasTabPage(
                         fontWeight = FontWeight.Medium,
                     )
                 }
-                Column(modifier = Modifier.weight(0.9f)) {
-                    Text(stringResource(R.string.canvas_info_color_mode), color = Morandi.subText, fontSize = 11.sp)
+                Column(
+                    modifier = Modifier
+                        .weight(0.9f)
+                        .clip(RoundedCornerShape(8.dp))
+                        .clickable {
+                            vm.refreshRuntimeMemorySnapshot { memSnapshot = it }
+                            showMemoryDialog = true
+                        }
+                        .padding(horizontal = 4.dp, vertical = 2.dp),
+                ) {
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Text(stringResource(R.string.canvas_info_runtime_memory), color = Morandi.subText, fontSize = 11.sp)
+                        Spacer(Modifier.width(2.dp))
+                        Icon(
+                            painter = painterResource(R.drawable.ic_chevron),
+                            contentDescription = null,
+                            tint = Morandi.subText,
+                            modifier = Modifier.size(11.dp),
+                        )
+                    }
                     Spacer(Modifier.height(2.dp))
+                    val pressureColor = when (memSnapshot.pressureLevel) {
+                        MemoryPressureLevel.NORMAL -> Morandi.text
+                        MemoryPressureLevel.ELEVATED -> blendColors(Morandi.accent, Morandi.error, 0.55f)
+                        MemoryPressureLevel.CRITICAL -> Morandi.error
+                    }
+                    val summaryText = if (memSnapshot.sysTotalBytes > 0L) {
+                        stringResource(
+                            R.string.canvas_memory_summary_fmt,
+                            RuntimeMemoryPolicy.formatBytes(memSnapshot.appRssBytes),
+                            RuntimeMemoryPolicy.formatBytes(memSnapshot.sysAvailBytes),
+                        )
+                    } else {
+                        "..."
+                    }
                     Text(
-                        vm.colorMode,
-                        color = Morandi.text,
+                        text = summaryText,
+                        color = pressureColor,
                         fontSize = 12.sp,
                         fontWeight = FontWeight.Medium,
+                        maxLines = 1,
                     )
                 }
             }
@@ -285,7 +428,7 @@ internal fun CanvasTabPage(
                     onClick = {
                         onClose()
                         vm.saveProject(vm.docName) {
-                            android.widget.Toast.makeText(context, context.getString(R.string.canvas_toast_project_saved, vm.docName), android.widget.Toast.LENGTH_SHORT).show()
+                            android.widget.Toast.makeText(context, resources.getString(R.string.canvas_toast_project_saved, vm.docName), android.widget.Toast.LENGTH_SHORT).show()
                         }
                     },
                     modifier = Modifier.weight(1f),
@@ -310,7 +453,7 @@ internal fun CanvasTabPage(
                     label = stringResource(R.string.canvas_action_stamp),
                     onClick = {
                         vm.stampVisibleLayers()
-                        android.widget.Toast.makeText(context, context.getString(R.string.canvas_toast_stamp_success), android.widget.Toast.LENGTH_SHORT).show()
+                        android.widget.Toast.makeText(context, resources.getString(R.string.canvas_toast_stamp_success), android.widget.Toast.LENGTH_SHORT).show()
                         onClose()
                     },
                     modifier = Modifier.weight(1f),
@@ -440,6 +583,146 @@ private fun CanvasActionTile(
             fontWeight = FontWeight.Medium,
             maxLines = 1,
         )
+    }
+}
+
+@Composable
+private fun RuntimeMemoryDialog(
+    snapshot: RuntimeMemorySnapshot,
+    isBusy: Boolean,
+    canClearHistory: Boolean,
+    onDismiss: () -> Unit,
+    onReleaseCache: () -> Unit,
+    onRequestClearHistory: () -> Unit,
+) {
+    val elevatedColor = remember { blendColors(Morandi.accent, Morandi.error, 0.55f) }
+    val (statusLabelRes, statusColor) = when (snapshot.pressureLevel) {
+        MemoryPressureLevel.NORMAL -> R.string.canvas_memory_status_normal to Morandi.accent
+        MemoryPressureLevel.ELEVATED -> R.string.canvas_memory_status_elevated to elevatedColor
+        MemoryPressureLevel.CRITICAL -> R.string.canvas_memory_status_critical to Morandi.error
+    }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Box(
+            modifier = Modifier
+                .width(340.dp)
+                .clip(RoundedCornerShape(16.dp))
+                .background(Morandi.panel)
+                .padding(18.dp),
+        ) {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                ) {
+                    Text(
+                        text = stringResource(R.string.canvas_memory_dialog_title),
+                        color = Morandi.text,
+                        fontSize = 16.sp,
+                        fontWeight = FontWeight.Bold,
+                    )
+                    Box(
+                        modifier = Modifier
+                            .clip(CircleShape)
+                            .background(statusColor.copy(alpha = 0.16f))
+                            .padding(horizontal = 8.dp, vertical = 2.dp),
+                    ) {
+                        Text(
+                            text = stringResource(statusLabelRes),
+                            color = statusColor,
+                            fontSize = 11.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clip(RoundedCornerShape(12.dp))
+                        .background(Morandi.panelHi.copy(alpha = 0.55f))
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalArrangement = Arrangement.spacedBy(6.dp),
+                ) {
+                    SettingInfoRow(
+                        label = stringResource(R.string.canvas_memory_row_app),
+                        value = RuntimeMemoryPolicy.formatBytes(snapshot.appRssBytes),
+                    )
+                    SettingInfoRow(
+                        label = stringResource(R.string.canvas_memory_row_system),
+                        value = if (snapshot.sysTotalBytes > 0L) {
+                            "${RuntimeMemoryPolicy.formatBytes(snapshot.sysAvailBytes)} / ${RuntimeMemoryPolicy.formatBytes(snapshot.sysTotalBytes)}"
+                        } else {
+                            "-"
+                        },
+                    )
+                    SettingInfoRow(
+                        label = stringResource(R.string.canvas_memory_row_canvas_tiles),
+                        value = RuntimeMemoryPolicy.formatBytes(snapshot.kritaRealBytes),
+                    )
+                    SettingInfoRow(
+                        label = stringResource(R.string.canvas_memory_row_history),
+                        value = RuntimeMemoryPolicy.formatBytes(snapshot.kritaHistoryBytes),
+                    )
+                    SettingInfoRow(
+                        label = stringResource(R.string.canvas_memory_row_swap),
+                        value = RuntimeMemoryPolicy.formatBytes(snapshot.kritaSwapBytes),
+                    )
+                }
+
+                Text(
+                    text = stringResource(R.string.canvas_memory_release_hint),
+                    color = Morandi.subText,
+                    fontSize = 11.sp,
+                    lineHeight = 16.sp,
+                )
+
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (canClearHistory && !isBusy) Morandi.error.copy(alpha = 0.14f)
+                                else Morandi.panelHi.copy(alpha = 0.45f),
+                            )
+                            .clickable(enabled = canClearHistory && !isBusy) { onRequestClearHistory() }
+                            .padding(vertical = 9.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.canvas_memory_btn_clear_history),
+                            color = if (canClearHistory && !isBusy) Morandi.error else Morandi.subText.copy(alpha = 0.5f),
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.Medium,
+                        )
+                    }
+                    Box(
+                        modifier = Modifier
+                            .weight(1f)
+                            .clip(RoundedCornerShape(10.dp))
+                            .background(
+                                if (!isBusy) Morandi.accent.copy(alpha = 0.2f)
+                                else Morandi.panelHi.copy(alpha = 0.45f),
+                            )
+                            .clickable(enabled = !isBusy) { onReleaseCache() }
+                            .padding(vertical = 9.dp),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.canvas_memory_btn_release),
+                            color = if (!isBusy) Morandi.accent else Morandi.subText,
+                            fontSize = 12.sp,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                    }
+                }
+            }
+        }
     }
 }
 

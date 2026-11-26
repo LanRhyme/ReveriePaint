@@ -437,6 +437,25 @@ Java_com_reverie_paint_core_ReverieCoreBridge_configureTileEngine(JNIEnv *env, j
     if (swapDir) env->ReleaseStringUTFChars(jSwapDir, swapDir);
 }
 
+extern "C" JNIEXPORT void JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_trimNativeMemory(JNIEnv *, jobject, jboolean aggressive)
+{
+    core()->trimMemory(aggressive == JNI_TRUE);
+}
+
+extern "C" JNIEXPORT jlongArray JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_nativeMemoryStats(JNIEnv *env, jobject)
+{
+    qint64 stats[6] = {0, 0, 0, 0, 0, 0};
+    core()->memoryStats(stats);
+    jlongArray arr = env->NewLongArray(6);
+    if (!arr) return nullptr;
+    jlong vals[6];
+    for (int i = 0; i < 6; ++i) vals[i] = static_cast<jlong>(stats[i]);
+    env->SetLongArrayRegion(arr, 0, 6, vals);
+    return arr;
+}
+
 extern "C" JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_bindCurrentThreadToPerformanceCores(JNIEnv *, jobject)
 {

@@ -114,13 +114,26 @@ void reverieTuneTileMemory(KisImageConfig &config)
     long availMb = 0;
     querySystemMemoryMb(totalMb, availMb);
 
-    // 目标硬上限: 绝对值锁死在 [384MB, 1400MB] 之间，且绝不超过当前可用内存的 50%
-    const double targetHardMb = qBound(384.0, double(availMb) * 0.50, 1400.0);
-    const double targetSoftMb = qBound(256.0, targetHardMb * 0.70, 1000.0);
+    // 按设备物理内存分档限制 Krita 瓦片硬上限, 同时把预分配克隆池收紧到合理绝对值 (32~96 MB):
+    // - 小内存 (<=4GB) 压低硬上限防 LMK;
+    // - 12GB/16GB+ 平板适度放宽硬上限至 1600/2048 MB, 减少多图层作画时过早触发磁盘 swap 卡顿。
+    double hardCapMb = 2048.0;
+    if (totalMb > 0) {
+        if (totalMb <= 4096) hardCapMb = 512.0;
+        else if (totalMb <= 6144) hardCapMb = 768.0;
+        else if (totalMb <= 8192) hardCapMb = 1152.0;
+        else if (totalMb <= 12288) hardCapMb = 1600.0;
+        else hardCapMb = 2048.0;
+    } else {
+        hardCapMb = 1024.0;
+    }
+    const double targetHardMb = qBound(256.0, double(availMb) * 0.45, hardCapMb);
+    const double targetSoftMb = qBound(192.0, targetHardMb * 0.72, qMax(192.0, targetHardMb - 64.0));
+    const double targetPoolMb = qBound(32.0, targetHardMb * 0.06, 96.0);
 
     const double hardPercent = (totalMb > 0) ? qBound(5.0, (targetHardMb / double(totalMb)) * 100.0, 45.0) : 25.0;
-    const double softPercent = (totalMb > 0) ? qBound(3.0, (targetSoftMb / double(totalMb)) * 100.0, hardPercent * 0.75) : 15.0;
-    const double poolPercent = qBound(2.0, softPercent * 0.5, 10.0);
+    const double softPercent = (totalMb > 0) ? qBound(3.0, (targetSoftMb / double(totalMb)) * 100.0, hardPercent * 0.80) : 18.0;
+    const double poolPercent = (totalMb > 0) ? qBound(0.5, (targetPoolMb / double(totalMb)) * 100.0, 5.0) : 2.0;
 
     config.setMemorySoftLimitPercent(softPercent);
     config.setMemoryHardLimitPercent(hardPercent);
@@ -128,8 +141,8 @@ void reverieTuneTileMemory(KisImageConfig &config)
     config.setMaxSwapSize(8192);
 
     __android_log_print(ANDROID_LOG_INFO, "RP-JNI",
-        "Krita tile memory auto-tuned: total=%ldMB, avail=%ldMB, soft=%.1fMB (%.1f%%), hard=%.1fMB (%.1f%%), pool=%.1f%%",
-        totalMb, availMb, targetSoftMb, softPercent, targetHardMb, hardPercent, poolPercent);
+        "Krita tile memory auto-tuned: total=%ldMB, avail=%ldMB, soft=%.1fMB (%.1f%%), hard=%.1fMB (%.1f%%), pool=%.1fMB (%.1f%%)",
+        totalMb, availMb, targetSoftMb, softPercent, targetHardMb, hardPercent, targetPoolMb, poolPercent);
 }
 
 void reverieEnsureQtApp()

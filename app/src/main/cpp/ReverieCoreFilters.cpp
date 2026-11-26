@@ -183,6 +183,8 @@ void ReverieCore::commitFilterMulti(const QVector<int> &indices, const QString &
         }
     }
     m_filterBackups.clear();
+    QVector<quint8>().swap(m_filterWorkBuffer);
+    QVector<quint8>().swap(m_filterOrigBuffer);
     recompositeProjection();
     markDirty();
 }
@@ -204,6 +206,8 @@ void ReverieCore::cancelFilterMulti(const QVector<int> &indices)
         }
     }
     m_filterBackups.clear();
+    QVector<quint8>().swap(m_filterWorkBuffer);
+    QVector<quint8>().swap(m_filterOrigBuffer);
     recompositeProjection();
     markDirty();
 }

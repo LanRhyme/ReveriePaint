@@ -915,6 +915,13 @@ public:
     // is untouched by both.
     void setUndoCaptureEnabled(bool on) { m_undoCaptureEnabled = m_collabActive ? false : on; }
     void clearUndoHistory();
+    // Release reclaimable native scratch buffers and caches; when aggressive is
+    // true also clears thumbnail/onion caches, nudges Krita's tile swapper, and
+    // purges allocator pages. Never modifies document pixels or undo history.
+    void trimMemory(bool aggressive);
+    // Fill outStats[6] with Krita KisTileDataStore memory statistics:
+    // [totalMemorySize, realMemorySize, historicalMemorySize, poolSize, swapSize, numTilesInMemory].
+    void memoryStats(qint64 outStats[6]);
     // Cap the undo history (number of retained commands). 0 = unlimited.
     // Excess commands are freed from the bottom of the stack on the next
     // push; applies to the live store and to every document created later.

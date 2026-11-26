@@ -1537,6 +1537,8 @@ object ReverieCoreBridge {
 
     // Krita Tile Engine Memory & Swap Configuration
     external fun configureTileEngine(swapDir: String)
+    external fun trimNativeMemory(aggressive: Boolean)
+    external fun nativeMemoryStats(): LongArray?
 
     // CPU Affinity & Performance Core Binding
     external fun bindCurrentThreadToPerformanceCores(): Boolean

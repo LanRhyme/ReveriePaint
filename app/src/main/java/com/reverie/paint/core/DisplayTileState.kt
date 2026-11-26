@@ -166,6 +166,30 @@ internal class DisplayTileState {
         staging = null
     }
 
+    /** 渲染线程: 是否持有任何快照位图。 */
+    val hasSnapshots: Boolean get() = snapshots.any { it != null }
+
+    /** 渲染线程: 丢弃参考窗口/液化共用的三缓冲整图快照 (不主动 recycle, 由 GC 回收)。 */
+    fun releaseSnapshots(): Boolean {
+        var cleared = false
+        for (i in snapshots.indices) {
+            if (snapshots[i] != null) {
+                snapshots[i] = null
+                cleared = true
+            }
+        }
+        lastSnapshotTileRevision = -1L
+        return cleared
+    }
+
+    /** 渲染线程: 在内存紧张或手动清理时收缩空闲瓦片后备池与整图快照 (保留冷却队列以确保 HWUI 安全)。 */
+    fun trimMemory(aggressive: Boolean) {
+        spareReady.clear()
+        if (aggressive) {
+            releaseSnapshots()
+        }
+    }
+
     /** 渲染线程: 丢掉全部网格与池 (切回整图路径 / 换文档)。 */
     fun clear() {
         if (published != null || staging != null) generation++

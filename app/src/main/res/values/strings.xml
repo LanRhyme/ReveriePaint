@@ -4306,4 +4306,25 @@
     <string name="collab_create_public_summary">公开房间 · %1$s</string>
     <string name="collab_tab_online_rooms">在线房间</string>
     <string name="collab_password_required_hint">输入房间密码</string>
+
+    <!-- Runtime Memory Strings -->
+    <string name="canvas_info_runtime_memory">运行内存</string>
+    <string name="canvas_memory_summary_fmt">%1$s / %2$s 可用</string>
+    <string name="canvas_memory_dialog_title">运行内存详情</string>
+    <string name="canvas_memory_status_normal">充裕</string>
+    <string name="canvas_memory_status_elevated">偏高</string>
+    <string name="canvas_memory_status_critical">紧张</string>
+    <string name="canvas_memory_row_app">应用占用</string>
+    <string name="canvas_memory_row_system">系统可用 / 总计</string>
+    <string name="canvas_memory_row_canvas_tiles">画布图层像素</string>
+    <string name="canvas_memory_row_history">撤销历史占用</string>
+    <string name="canvas_memory_row_swap">磁盘缓存换出</string>
+    <string name="canvas_memory_btn_release">立即释放缓存</string>
+    <string name="canvas_memory_btn_clear_history">清空历史记录</string>
+    <string name="canvas_memory_release_hint">释放缓存仅清理可重建缓冲并将冷瓦片换出到磁盘，不会影响画布内容与撤销历史</string>
+    <string name="canvas_memory_toast_released">已释放缓存，当前占用 %1$s（回收约 %2$s）</string>
+    <string name="canvas_memory_toast_released_simple">已释放可回收缓存，当前占用 %1$s</string>
+    <string name="canvas_memory_clear_history_title">确认清空历史记录</string>
+    <string name="canvas_memory_clear_history_desc">清空后将无法撤销或重做此前的操作，但当前画布内容不受影响，是否继续？</string>
+    <string name="canvas_memory_toast_history_cleared">已清空历史记录，当前占用 %1$s</string>
 </resources>

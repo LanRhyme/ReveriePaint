@@ -10,8 +10,13 @@ import android.content.Context
 import android.content.res.Configuration
 import android.graphics.Bitmap
 import android.os.Debug
+import android.system.Os
+import android.system.OsConstants
 import com.reverie.paint.R
 import com.reverie.paint.model.FrameCachePolicy
+import com.reverie.paint.model.RuntimeMemoryPolicy
+import com.reverie.paint.model.RuntimeMemorySnapshot
+import java.io.File
 
 /**
  * 移动端内存策略 (部分对应 Plan.md 优化思路 4)。
@@ -87,6 +92,134 @@ internal fun PaintViewModel.releaseReclaimableCaches(aggressive: Boolean) {
     anim.playbackRamCache.clear()
     if (aggressive) {
         clearLayerThumbs()
+    }
+    val rh = renderHandler
+    if (rh != null) {
+        rh.post {
+            val keepRefSnapshot = referenceWindowOpen && referenceActiveTab == 1
+            displayTiles.trimMemory(aggressive = aggressive || !keepRefSnapshot)
+            if (displayTiles.published != null && !keepRefSnapshot) {
+                displayBitmap = null
+            }
+            runCatching { ReverieCoreBridge.trimNativeMemory(aggressive) }
+        }
+    }
+}
+
+private fun PaintViewModel.collectProcessAndSystemSnapshot(
+    nativeStats: LongArray?,
+    canClearHistory: Boolean,
+): RuntimeMemorySnapshot {
+    var availMem = 0L
+    var totalMem = 0L
+    var lowMem = false
+    if (isAppContextReady()) {
+        runCatching {
+            val am = appContext.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+            if (am != null) {
+                val mi = ActivityManager.MemoryInfo()
+                am.getMemoryInfo(mi)
+                availMem = mi.availMem
+                totalMem = mi.totalMem
+                lowMem = mi.lowMemory
+            }
+        }
+    }
+    val pageSize = runCatching { Os.sysconf(OsConstants._SC_PAGESIZE) }.getOrDefault(4096L)
+    var appRss = runCatching {
+        RuntimeMemoryPolicy.parseStatmRssBytes(File("/proc/self/statm").readText(), pageSize)
+    }.getOrDefault(0L)
+    if (appRss <= 0L) {
+        val rt = Runtime.getRuntime()
+        val javaUsed = (rt.totalMemory() - rt.freeMemory()).coerceAtLeast(0L)
+        val nativeUsed = runCatching { Debug.getNativeHeapAllocatedSize() }.getOrDefault(0L)
+        appRss = javaUsed + nativeUsed
+    }
+    return RuntimeMemorySnapshot(
+        appRssBytes = appRss,
+        sysAvailBytes = availMem,
+        sysTotalBytes = totalMem,
+        sysLowMemory = lowMem,
+        kritaTotalBytes = nativeStats?.getOrNull(0) ?: 0L,
+        kritaRealBytes = nativeStats?.getOrNull(1) ?: 0L,
+        kritaHistoryBytes = nativeStats?.getOrNull(2) ?: 0L,
+        kritaPoolBytes = nativeStats?.getOrNull(3) ?: 0L,
+        kritaSwapBytes = nativeStats?.getOrNull(4) ?: 0L,
+        kritaTilesInMemory = nativeStats?.getOrNull(5) ?: 0L,
+        canClearHistory = canClearHistory,
+    )
+}
+
+/** 在引擎线程采集 Krita 瓦片统计并汇总进程 RSS 与系统可用内存，通过 [onResult] 回到主线程。 */
+internal fun PaintViewModel.refreshRuntimeMemorySnapshot(onResult: (RuntimeMemorySnapshot) -> Unit) {
+    val rh = renderHandler
+    if (rh == null) {
+        onResult(collectProcessAndSystemSnapshot(null, false))
+        return
+    }
+    rh.post {
+        val stats = runCatching { ReverieCoreBridge.nativeMemoryStats() }.getOrNull()
+        val hasHistory = runCatching { ReverieCoreBridge.canUndo() || ReverieCoreBridge.canRedo() }.getOrDefault(false)
+        val snap = collectProcessAndSystemSnapshot(stats, hasHistory)
+        mainHandler.post { onResult(snap) }
+    }
+}
+
+/** 用户主动「立即释放缓存」: 清理可重建缓冲、冷瓦片换出到磁盘，绝不动撤销历史。 */
+internal fun PaintViewModel.manualReleaseCaches(
+    onDone: (before: RuntimeMemorySnapshot, after: RuntimeMemorySnapshot) -> Unit,
+) {
+    val beforeHolder = arrayOfNulls<RuntimeMemorySnapshot>(1)
+    val afterHolder = arrayOfNulls<RuntimeMemorySnapshot>(1)
+    val showing = displayBitmap
+    for ((_, bmp) in anim.playbackRamCache) {
+        if (bmp !== showing && !bmp.isRecycled) bmp.recycle()
+    }
+    anim.playbackRamCache.clear()
+    clearLayerThumbs()
+    realInkSink?.trimMemory()
+    runCore(render = false, after = {
+        val before = beforeHolder[0] ?: collectProcessAndSystemSnapshot(null, false)
+        val after = afterHolder[0] ?: collectProcessAndSystemSnapshot(null, false)
+        onDone(before, after)
+    }) {
+        val beforeStats = runCatching { ReverieCoreBridge.nativeMemoryStats() }.getOrNull()
+        val beforeHasHistory = runCatching { ReverieCoreBridge.canUndo() || ReverieCoreBridge.canRedo() }.getOrDefault(false)
+        beforeHolder[0] = collectProcessAndSystemSnapshot(beforeStats, beforeHasHistory)
+
+        displayTiles.trimMemory(aggressive = true)
+        if (displayTiles.published != null && !(referenceWindowOpen && referenceActiveTab == 1)) {
+            displayBitmap = null
+        }
+        runCatching { ReverieCoreBridge.trimNativeMemory(true) }
+        System.gc()
+
+        val afterStats = runCatching { ReverieCoreBridge.nativeMemoryStats() }.getOrNull()
+        val afterHasHistory = runCatching { ReverieCoreBridge.canUndo() || ReverieCoreBridge.canRedo() }.getOrDefault(false)
+        afterHolder[0] = collectProcessAndSystemSnapshot(afterStats, afterHasHistory)
+    }
+}
+
+/** 用户二次确认「清空历史记录」: 释放撤销/重做栈占据的大量历史瓦片，不改动当前画布像素。 */
+internal fun PaintViewModel.manualClearUndoHistory(
+    onDone: (after: RuntimeMemorySnapshot) -> Unit,
+) {
+    if (isHistoryBlockedByTransform) return
+    val afterHolder = arrayOfNulls<RuntimeMemorySnapshot>(1)
+    runCore(render = false, after = {
+        refreshUndoCounts()
+        onDone(afterHolder[0] ?: collectProcessAndSystemSnapshot(null, false))
+    }) {
+        ReverieCoreBridge.clearUndoHistory()
+        displayTiles.trimMemory(aggressive = true)
+        if (displayTiles.published != null && !(referenceWindowOpen && referenceActiveTab == 1)) {
+            displayBitmap = null
+        }
+        runCatching { ReverieCoreBridge.trimNativeMemory(true) }
+        System.gc()
+        val stats = runCatching { ReverieCoreBridge.nativeMemoryStats() }.getOrNull()
+        val hasHistory = runCatching { ReverieCoreBridge.canUndo() || ReverieCoreBridge.canRedo() }.getOrDefault(false)
+        afterHolder[0] = collectProcessAndSystemSnapshot(stats, hasHistory)
     }
 }
 

@@ -503,7 +503,12 @@ private fun PaintViewModel.publishTileSnapshotIfNeeded(
 ) {
     val liquifyPending = liquifyPresentation.isPending(liquifyPresentationGesture)
     val refCanvasActive = referenceWindowOpen && referenceActiveTab == 1
-    if (!refCanvasActive && !liquifyPending) return
+    if (!refCanvasActive && !liquifyPending) {
+        if (displayTiles.releaseSnapshots() && displayTiles.published != null) {
+            displayBitmap = null
+        }
+        return
+    }
     val st = displayTiles
     val now = SystemClock.uptimeMillis()
     if (!force && !liquifyPending && isStrokeRenderActive() && now - st.lastSnapshotMs < DisplayTileState.SNAPSHOT_MIN_MS) {
@@ -533,4 +538,19 @@ private fun PaintViewModel.composeTileSnapshot(grid: DisplayTileGrid, tiles: Ato
     }
     tileCopyCanvas.setBitmap(null)
     return target
+}
+
+/** 渲染线程上释放已关闭的参考窗口/液化不再使用的整图三缓冲快照。 */
+internal fun PaintViewModel.scheduleReleaseUnusedTileSnapshots() {
+    val rh = renderHandler ?: return
+    rh.post {
+        val liquifyPending = liquifyPresentation.isPending(liquifyPresentationGesture)
+        val refCanvasActive = referenceWindowOpen && referenceActiveTab == 1
+        if (!refCanvasActive && !liquifyPending && displayTiles.hasSnapshots) {
+            displayTiles.releaseSnapshots()
+            if (displayTiles.published != null) {
+                displayBitmap = null
+            }
+        }
+    }
 }

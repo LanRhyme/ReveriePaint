@@ -2722,7 +2722,7 @@ void ReverieCore::scratchpadEnd()
     m_scratchpadWidth = 0;
     m_scratchpadHeight = 0;
     m_scratchpadPreviewDev = nullptr;
-    m_scratchpadReadBuf.clear();
+    QByteArray().swap(m_scratchpadReadBuf);
     m_scratchpadDirtyRect = QRect();
     m_scratchpadPrevTempRect = QRect();
     m_scratchpadFullDirty = true;

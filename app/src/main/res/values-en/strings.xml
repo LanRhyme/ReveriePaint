@@ -4307,4 +4307,25 @@
     <string name="collab_create_public_summary">Public room · %1$s</string>
     <string name="collab_tab_online_rooms">Online</string>
     <string name="collab_password_required_hint">Enter room password</string>
+
+    <!-- Runtime Memory Strings -->
+    <string name="canvas_info_runtime_memory">Runtime Memory</string>
+    <string name="canvas_memory_summary_fmt">%1$s / %2$s free</string>
+    <string name="canvas_memory_dialog_title">Runtime Memory</string>
+    <string name="canvas_memory_status_normal">Normal</string>
+    <string name="canvas_memory_status_elevated">Elevated</string>
+    <string name="canvas_memory_status_critical">Tight</string>
+    <string name="canvas_memory_row_app">App Usage</string>
+    <string name="canvas_memory_row_system">System Free / Total</string>
+    <string name="canvas_memory_row_canvas_tiles">Canvas Layers</string>
+    <string name="canvas_memory_row_history">Undo History</string>
+    <string name="canvas_memory_row_swap">Disk Swap</string>
+    <string name="canvas_memory_btn_release">Release Cache</string>
+    <string name="canvas_memory_btn_clear_history">Clear History</string>
+    <string name="canvas_memory_release_hint">Releasing cache only clears rebuildable buffers and swaps idle tiles to disk without affecting artwork or undo history</string>
+    <string name="canvas_memory_toast_released">Cache released, now %1$s (freed ~%2$s)</string>
+    <string name="canvas_memory_toast_released_simple">Reclaimable cache released, now %1$s</string>
+    <string name="canvas_memory_clear_history_title">Clear Undo History?</string>
+    <string name="canvas_memory_clear_history_desc">You will no longer be able to undo or redo previous steps, while current artwork remains intact. Continue?</string>
+    <string name="canvas_memory_toast_history_cleared">History cleared, now %1$s</string>
 </resources>

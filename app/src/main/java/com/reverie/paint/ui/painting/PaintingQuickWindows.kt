@@ -201,7 +201,11 @@ internal fun BoxScope.PaintingQuickWindows(
     ) {
         ReferenceWindow(
             vm = vm,
-            onClose = { vm.referenceWindowOpen = false; vm.persistReferenceState() },
+            onClose = {
+                vm.referenceWindowOpen = false
+                vm.persistReferenceState()
+                vm.scheduleReleaseUnusedTileSnapshots()
+            },
             hazeState = hazeState,
             opacity = vm.popupPanelOpacity,
         )

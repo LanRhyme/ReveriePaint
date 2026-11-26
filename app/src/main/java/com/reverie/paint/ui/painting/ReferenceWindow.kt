@@ -63,6 +63,7 @@ import com.reverie.paint.R
 import com.reverie.paint.core.importLegacyProjectReferences
 import com.reverie.paint.core.ensureReferenceImagesLoaded
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.core.scheduleReleaseUnusedTileSnapshots
 import com.reverie.paint.core.updateBrushColor
 import com.reverie.paint.model.DragGripSpec
 import com.reverie.paint.model.UiPanelSlot
@@ -603,6 +604,7 @@ fun ReferenceWindow(
                 onClose = {
                     vm.referenceWindowOpen = false
                     vm.persistReferenceState()
+                    vm.scheduleReleaseUnusedTileSnapshots()
                     onClose()
                 },
                 onGripPositioned = { coords ->
