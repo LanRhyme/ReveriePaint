@@ -6,7 +6,7 @@
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
-    "test": "node --test test/"
+    "test": "node --test test/e2e.test.mjs"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"
