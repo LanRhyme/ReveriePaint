@@ -346,6 +346,9 @@ object CollabPermissionPolicy {
 object CollabTopologyPolicy {
     const val DEFAULT_SIGNALING_URL = "https://reverieteapaint.lanrhyme.top"
     const val ROOM_CODE_LENGTH = 6
+
+    /** 服务端未注入专属中继且用户未填自定义节点时的社区引导节点 */
+    const val FALLBACK_RELAY_URI = "tcp://public.easytier.top:11010"
     const val STAR_MAX_PEERS = 10
     const val MAX_ROOM_TITLE_LENGTH = 32
 
@@ -426,6 +429,32 @@ object CollabTopologyPolicy {
             h = (h * 0x01000193L) and 0xFFFFFFFFL
         }
         return h
+    }
+
+    /**
+     * 归一化 EasyTier 中继节点列表:
+     * - 丢弃旧版本误填的 TURN/STUN 地址, 只接纳 EasyTier 节点 URI 或裸 host:port
+     * - 裸 host:port 补 tcp:// 前缀
+     * - 关闭 KCP 加速时剔除 udp:// 节点, 让受限网络真正走纯 TCP
+     * - 保序去重
+     */
+    fun normalizeRelayUris(rawUris: Collection<String>, kcpProxyEnabled: Boolean = true): List<String> {
+        val out = LinkedHashSet<String>()
+        for (raw in rawUris) {
+            val trimmed = raw.trim()
+            if (trimmed.isEmpty()) continue
+            if (trimmed.startsWith("turn:", ignoreCase = true) ||
+                trimmed.startsWith("turns:", ignoreCase = true) ||
+                trimmed.startsWith("stun:", ignoreCase = true) ||
+                trimmed.startsWith("stuns:", ignoreCase = true)
+            ) {
+                continue
+            }
+            val uri = if ("://" in trimmed) trimmed else "tcp://$trimmed"
+            if (!kcpProxyEnabled && uri.startsWith("udp://", ignoreCase = true)) continue
+            out.add(uri)
+        }
+        return out.toList()
     }
 
     fun deriveMeshSubnetByte(roomCode: String): Int =

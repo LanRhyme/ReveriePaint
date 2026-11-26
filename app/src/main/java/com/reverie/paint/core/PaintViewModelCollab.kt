@@ -223,33 +223,22 @@ private fun PaintViewModel.buildEffectiveTransportConfigJson(
         root.put("hostMeshPort", CollabTopologyPolicy.deriveMeshPort(normCode))
     }
 
-    val relays = JSONArray()
-    val seenRelays = LinkedHashSet<String>()
-    fun addRelayUri(raw: String) {
-        val trimmed = raw.trim()
-        if (trimmed.isEmpty()) return
-        // 忽略旧版本配置的 TURN/STUN 地址, 仅接纳 EasyTier 节点协议或 bare host:port
-        if (trimmed.startsWith("turn:", ignoreCase = true) ||
-            trimmed.startsWith("turns:", ignoreCase = true) ||
-            trimmed.startsWith("stun:", ignoreCase = true)) {
-            return
-        }
-        val uri = if ("://" in trimmed) trimmed else "tcp://$trimmed"
-        // 关闭 KCP 加速时剔除 UDP 中继, 让受限网络真正走纯 TCP 连接
-        if (!collab.kcpProxyEnabled && uri.startsWith("udp://", ignoreCase = true)) return
-        if (seenRelays.add(uri)) relays.put(uri)
-    }
+    val relayCandidates = ArrayList<String>()
     root.optJSONArray("relayPeers")?.let { arr ->
-        for (i in 0 until arr.length()) addRelayUri(arr.optString(i))
+        for (i in 0 until arr.length()) relayCandidates.add(arr.optString(i))
     }
     if (collab.customTurnUrl.isNotBlank()) {
-        collab.customTurnUrl.split(',').forEach { addRelayUri(it) }
+        collab.customTurnUrl.split(',').forEach { relayCandidates.add(it) }
     }
+    var relays = CollabTopologyPolicy.normalizeRelayUris(relayCandidates, collab.kcpProxyEnabled)
     // 公共节点兜底 (当服务端未注入专属中继且用户未填自定义节点时, 提供社区引导节点)
-    if (relays.length() == 0) {
-        addRelayUri("tcp://public.easytier.top:11010")
+    if (relays.isEmpty()) {
+        relays = CollabTopologyPolicy.normalizeRelayUris(
+            listOf(CollabTopologyPolicy.FALLBACK_RELAY_URI),
+            collab.kcpProxyEnabled,
+        )
     }
-    root.put("relayPeers", relays)
+    root.put("relayPeers", JSONArray(relays))
 
     val stuns = root.optJSONArray("stunServers") ?: JSONArray()
     if (stuns.length() == 0) {

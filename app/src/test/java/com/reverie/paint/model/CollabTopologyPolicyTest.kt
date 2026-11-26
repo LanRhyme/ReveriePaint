@@ -50,4 +50,47 @@ class CollabTopologyPolicyTest {
         assertEquals(2, CollabTopologyPolicy.natDifficultyLevel(CollabNatType.SYMMETRIC_EASY_INC))
         assertEquals(3, CollabTopologyPolicy.natDifficultyLevel(CollabNatType.SYMMETRIC))
     }
+
+    @Test
+    fun `normalizeRelayUris 丢弃旧 TURN 与 STUN 配置并为裸地址补 tcp 前缀`() {
+        val out = CollabTopologyPolicy.normalizeRelayUris(
+            listOf(
+                " turn:turn.example.com:3478 ",
+                "stuns:stun.example.com",
+                "relay.example.com:11010",
+                "tcp://relay.example.com:11010",
+                "udp://relay.example.com:11010",
+                "",
+                "   ",
+            ),
+        )
+        assertEquals(
+            listOf("tcp://relay.example.com:11010", "udp://relay.example.com:11010"),
+            out,
+        )
+    }
+
+    @Test
+    fun `normalizeRelayUris 关闭 KCP 加速时剔除 udp 节点并保序去重`() {
+        val out = CollabTopologyPolicy.normalizeRelayUris(
+            listOf(
+                "tcp://a.example.com:11010",
+                "UDP://b.example.com:11010",
+                "udp://c.example.com:11010",
+                "tcp://a.example.com:11010",
+            ),
+            kcpProxyEnabled = false,
+        )
+        assertEquals(listOf("tcp://a.example.com:11010"), out)
+    }
+
+    @Test
+    fun `normalizeRelayUris 只剩 udp 且关闭 KCP 时返回空, 由兜底节点接管`() {
+        assertTrue(CollabTopologyPolicy.normalizeRelayUris(listOf("udp://only.example.com:11010"), false).isEmpty())
+        assertEquals(
+            listOf(CollabTopologyPolicy.FALLBACK_RELAY_URI),
+            CollabTopologyPolicy.normalizeRelayUris(listOf(CollabTopologyPolicy.FALLBACK_RELAY_URI), false),
+        )
+        assertTrue(CollabTopologyPolicy.FALLBACK_RELAY_URI.startsWith("tcp://"))
+    }
 }
