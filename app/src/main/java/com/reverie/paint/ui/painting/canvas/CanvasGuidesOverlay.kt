@@ -9,6 +9,7 @@ import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.PathEffect
 import androidx.compose.ui.graphics.nativeCanvas
 import androidx.compose.ui.graphics.drawscope.DrawScope
 import androidx.compose.ui.graphics.drawscope.Stroke
@@ -16,6 +17,7 @@ import androidx.compose.ui.graphics.drawscope.clipRect
 import androidx.compose.ui.graphics.drawscope.withTransform
 import androidx.compose.ui.unit.dp
 import com.reverie.paint.core.PaintViewModel
+import com.reverie.paint.model.CompositionGuideGeometry
 import com.reverie.paint.model.FisheyeGuideGeometryCache
 import com.reverie.paint.model.GuideMode
 import com.reverie.paint.model.DrawingGuideHandleGeometry
@@ -52,6 +54,41 @@ private fun DrawScope.drawFisheyeCurves(
             )
             i += 2
         }
+    }
+}
+
+/**
+ * Composition guides are display-only, animation-project-only overlays.
+ * Each guide has its own high-saturation color; alpha is fixed at 50%.
+ */
+internal fun DrawScope.drawCompositionGuides(
+    vm: PaintViewModel,
+    bmpWidth: Float,
+    bmpHeight: Float,
+    zoom: Float,
+    fitScale: Float,
+) {
+    if (!vm.anim.enabled || vm.compositionGuides.isEmpty() || bmpWidth <= 0f || bmpHeight <= 0f) return
+    val scale = (zoom * fitScale).coerceAtLeast(0.001f)
+    val strokeWidth = 1.dp.toPx() / scale
+    val dashEffect = PathEffect.dashPathEffect(
+        floatArrayOf(6.dp.toPx() / scale, 4.dp.toPx() / scale),
+    )
+    val halfW = bmpWidth / 2f
+    val halfH = bmpHeight / 2f
+    CompositionGuideGeometry.forEachLine(
+        enabled = vm.compositionGuides,
+        horizon = vm.compositionHorizon,
+        width = bmpWidth,
+        height = bmpHeight,
+    ) { guide, x1, y1, x2, y2, dashed ->
+        drawLine(
+            color = Color(guide.colorArgb).copy(alpha = 0.5f),
+            start = Offset(x1 - halfW, y1 - halfH),
+            end = Offset(x2 - halfW, y2 - halfH),
+            strokeWidth = strokeWidth,
+            pathEffect = if (dashed) dashEffect else null,
+        )
     }
 }
 

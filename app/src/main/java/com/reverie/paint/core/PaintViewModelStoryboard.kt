@@ -30,7 +30,18 @@ import kotlin.math.min
 import kotlin.math.roundToInt
 
 internal class StoryboardState {
+    /** Currently visible captions (backed by [allCues] minus cues whose keyframe is gone). */
     var cues by mutableStateOf<List<SrtCue>>(emptyList())
+
+    /** Full caption asset. A deleted shot keeps its caption here so undo can reveal it again. */
+    @Volatile var allCues: List<SrtCue> = emptyList()
+
+    /** Cue -> keyframe time mapping, aligned with [allCues]. */
+    @Volatile var cueTimes: List<Int> = emptyList()
+
+    /** Indices into [allCues] currently visible, aligned with [cues] and [frames]. */
+    @Volatile var visibleIndices: List<Int> = emptyList()
+
     var fps by mutableStateOf(DEFAULT_ANIMATION_FPS)
     var importing by mutableStateOf(false)
     var exportingPdf by mutableStateOf(false)
@@ -42,9 +53,15 @@ internal class StoryboardState {
     var probed = false
     @Volatile var generation = 0
 
+    /** Last single-cue delete, used to restore the cue->frame mapping with engine undo/redo. */
+    @Volatile var pendingCueDelete: PendingStoryboardCueDelete? = null
+
     fun reset() {
         generation++
         cues = emptyList()
+        allCues = emptyList()
+        cueTimes = emptyList()
+        visibleIndices = emptyList()
         importing = false
         exportingPdf = false
         adding = false
@@ -54,8 +71,17 @@ internal class StoryboardState {
         frames = emptyList()
         trackIndex = -1
         trackId = 0L
+        pendingCueDelete = null
     }
 }
+
+internal data class PendingStoryboardCueDelete(
+    val generation: Int,
+    val undoCountAfter: Int,
+    val allIndex: Int,
+    val cueTime: Int,
+    var undone: Boolean = false,
+)
 
 /** Export every mapped SRT shot to A4 PDF; 4-up is landscape and 6-up is portrait. */
 internal fun PaintViewModel.animationExportStoryboardPdf(uri: Uri, cellsPerPage: Int) {
@@ -160,11 +186,7 @@ internal fun PaintViewModel.animationExportStoryboardPdf(uri: Uri, cellsPerPage:
                     val top = margin + row * (cellHeight + gap)
                     val cue = cues[index]
                     canvas.drawText(
-                        appContext.getString(
-                            R.string.srt_pdf_shot_header,
-                            index + 1,
-                            SrtStoryboard.timestamp(cue.startMs),
-                        ),
+                        appContext.getString(R.string.srt_shot_header, index + 1),
                         left,
                         top + 11f,
                         headerPaint,
@@ -241,15 +263,19 @@ internal fun PaintViewModel.syncStoryboardFromNative() {
             ?.decodeToString() == "single-frame"
         state.fps = ReverieCoreBridge.revAssetBytes(SrtStoryboard.ASSET + ".fps")
             ?.decodeToString()?.toIntOrNull()?.takeIf { it in 1..240 } ?: anim.framerate.coerceIn(1, 240)
-        state.cues = runCatching {
+        state.allCues = runCatching {
             ReverieCoreBridge.revAssetBytes(SrtStoryboard.ASSET)?.takeIf { it.isNotEmpty() }
                 ?.let { SrtStoryboard.parseStored(SrtStoryboard.decode(it)) } ?: emptyList()
         }.getOrDefault(emptyList())
+        state.cueTimes = SrtStoryboard.decodeFrameTimes(
+            ReverieCoreBridge.revAssetBytes(SrtStoryboard.ASSET + ".frames"),
+        )
+        state.cues = state.allCues
         val savedIndex = ReverieCoreBridge.revAssetBytes(SrtStoryboard.ASSET + ".track")
             ?.decodeToString()?.toIntOrNull()
         // Compatibility: earlier builds did not store the generated track binding.
         val layerCount = ReverieCoreBridge.layerCount()
-        val track = if (state.cues.isEmpty()) {
+        val track = if (state.allCues.isEmpty()) {
             -1
         } else {
             savedIndex ?: (1 until layerCount).lastOrNull {
@@ -268,12 +294,72 @@ internal fun PaintViewModel.syncStoryboardFromNative() {
         state.probed = true
     }
     syncStoryboardTrackFromNative()
-    state.frames = if (state.singleFrameMode) {
-        SrtStoryboard.resizedShots(
-            state.cues, anim.keyframeCache[state.trackIndex].orEmpty(), anim.lastFrameHold[state.trackIndex] ?: 1,
-        )
+
+    val keyTimes = anim.keyframeCache[state.trackIndex].orEmpty()
+    if (state.singleFrameMode) {
+        // With every cue visible, keyframe moves/resizes define the mapping positionally.
+        if (state.allCues.isNotEmpty() &&
+            state.cueTimes.size == state.allCues.size &&
+            state.cueTimes.none { it < 0 } &&
+            keyTimes.size == state.allCues.size
+        ) {
+            val sortedTimes = keyTimes.sorted()
+            if (state.cueTimes != sortedTimes) {
+                state.cueTimes = sortedTimes
+                ReverieCoreBridge.storeRevAsset(
+                    SrtStoryboard.ASSET + ".frames",
+                    SrtStoryboard.encodeFrameTimes(state.cueTimes),
+                )
+            }
+        } else if (state.cueTimes.size != state.allCues.size &&
+            state.allCues.isNotEmpty() &&
+            keyTimes.size == state.allCues.size
+        ) {
+            // Legacy projects have no .frames asset: adopt the keyframe order when counts agree.
+            state.cueTimes = keyTimes.sorted()
+            ReverieCoreBridge.storeRevAsset(
+                SrtStoryboard.ASSET + ".frames",
+                SrtStoryboard.encodeFrameTimes(state.cueTimes),
+            )
+        }
+        if (state.cueTimes.size == state.allCues.size && state.allCues.isNotEmpty()) {
+            val keySet = keyTimes.toHashSet()
+            state.visibleIndices = state.allCues.indices.filter {
+                val time = state.cueTimes[it]
+                time >= 0 && time in keySet
+            }
+            state.cues = state.visibleIndices.map { state.allCues[it] }
+            state.frames = buildVisibleFrames(
+                state.allCues,
+                state.cueTimes,
+                state.visibleIndices,
+                anim.lastFrameHold[state.trackIndex] ?: 1,
+            )
+        } else {
+            // Missing mapping or track: keep the captions visible for reference, but no frames.
+            state.visibleIndices = state.allCues.indices.toList()
+            state.cues = state.allCues
+            state.frames = emptyList()
+        }
     } else {
-        runCatching { SrtStoryboard.frames(state.cues, state.fps) }.getOrDefault(emptyList())
+        state.visibleIndices = state.allCues.indices.toList()
+        state.cues = state.allCues
+        state.frames = runCatching { SrtStoryboard.frames(state.allCues, state.fps) }.getOrDefault(emptyList())
+    }
+}
+
+private fun buildVisibleFrames(
+    allCues: List<SrtCue>,
+    cueTimes: List<Int>,
+    visibleIndices: List<Int>,
+    lastHold: Int,
+): List<StoryboardFrame> {
+    if (visibleIndices.isEmpty()) return emptyList()
+    val times = visibleIndices.map { cueTimes[it] }
+    return visibleIndices.mapIndexed { i, allIndex ->
+        val start = times[i]
+        val end = times.getOrNull(i + 1) ?: (start + lastHold.coerceAtLeast(1))
+        StoryboardFrame(allCues[allIndex], start, end)
     }
 }
 
@@ -282,7 +368,7 @@ internal fun PaintViewModel.syncStoryboardTrackFromNative() {
     val state = anim.storyboard
     if (!state.probed || state.trackId == 0L) return
     // 字幕被移除 (或本工程根本没有字幕) 时不留任何绑定, 避免影响正常图层的分帧
-    if (state.cues.isEmpty()) {
+    if (state.allCues.isEmpty()) {
         state.trackId = 0L
         state.trackIndex = -1
         return
@@ -324,6 +410,7 @@ internal fun PaintViewModel.clearInheritedRevAssets() {
         SrtStoryboard.ASSET,
         SrtStoryboard.ASSET + ".layout",
         SrtStoryboard.ASSET + ".fps",
+        SrtStoryboard.ASSET + ".frames",
         SrtStoryboard.ASSET + ".track",
         AnimationAudioClips.ASSET,
         AnimationLayerOps.ASSET_BACKGROUND,
@@ -342,7 +429,7 @@ internal fun PaintViewModel.clearInheritedRevAssets() {
 
 /** SRT tracks edit their held drawing; never auto-split it on pen down. Other tracks retain their workflow. */
 internal fun PaintViewModel.isStoryboardTrackOnRenderThread(layer: Int): Boolean =
-    layer > 0 && anim.storyboard.cues.isNotEmpty() && anim.storyboard.trackId != 0L &&
+    layer > 0 && anim.storyboard.allCues.isNotEmpty() && anim.storyboard.trackId != 0L &&
         ReverieCoreBridge.layerId(layer) == anim.storyboard.trackId
 
 internal fun PaintViewModel.animationImportSrt(uri: Uri) {
@@ -371,27 +458,24 @@ internal fun PaintViewModel.animationImportText(text: String) {
 /** Update only the storyboard reference asset; no canvas pixels or keyframes are changed. */
 internal fun PaintViewModel.animationUpdateStoryboardCue(index: Int, text: String) {
     val state = anim.storyboard
-    val updated = SrtStoryboard.replaceCue(state.cues, index, text)
-    if (updated == null) {
+    val allIndex = state.visibleIndices.getOrNull(index) ?: return
+    val updatedAll = SrtStoryboard.replaceCue(state.allCues, allIndex, text)
+    if (updatedAll == null) {
         showActionToast(R.string.srt_error_invalid)
         return
     }
-    if (updated == state.cues) return
-    val assetBytes = SrtStoryboard.encode(updated)
+    if (updatedAll == state.allCues) return
+    val assetBytes = SrtStoryboard.encode(updatedAll)
     if (assetBytes.size > SrtStoryboard.MAX_BYTES) {
         showActionToast(R.string.srt_error_large)
         return
     }
 
-    state.cues = updated
-    state.frames = if (state.singleFrameMode) {
-        SrtStoryboard.resizedShots(
-            updated,
-            anim.keyframeCache[state.trackIndex].orEmpty(),
-            anim.lastFrameHold[state.trackIndex] ?: 1,
-        )
-    } else {
-        runCatching { SrtStoryboard.frames(updated, state.fps) }.getOrDefault(emptyList())
+    val updatedCue = updatedAll[allIndex]
+    state.allCues = updatedAll
+    state.cues = state.cues.toMutableList().also { if (index in it.indices) it[index] = updatedCue }
+    state.frames = state.frames.toMutableList().also {
+        if (index in it.indices) it[index] = it[index].copy(cue = updatedCue)
     }
     val generation = state.generation
     runCore(render = false) {
@@ -407,14 +491,11 @@ internal fun PaintViewModel.animationUpdateStoryboardCue(index: Int, text: Strin
 internal fun PaintViewModel.animationRemoveStoryboardCue(index: Int): Boolean {
     val state = anim.storyboard
     if (state.adding || state.importing || isImportingMedia) return false
-    val updated = SrtStoryboard.removeCue(state.cues, index) ?: return false
-    val assetBytes = SrtStoryboard.encode(updated)
-    if (assetBytes.size > SrtStoryboard.MAX_BYTES) {
-        showActionToast(R.string.srt_error_large)
-        return false
-    }
-    val frame = state.frames.getOrNull(index)
-    if (state.singleFrameMode && (state.frames.size != state.cues.size || frame == null || state.trackId == 0L)) {
+    if (!state.singleFrameMode || state.trackId == 0L) return false
+    val allIndex = state.visibleIndices.getOrNull(index) ?: return false
+    val frame = state.frames.getOrNull(index) ?: return false
+    val cueTime = state.cueTimes.getOrNull(allIndex) ?: return false
+    if (frame.start != cueTime) {
         showActionToast(R.string.srt_mapping_changed)
         return false
     }
@@ -440,25 +521,31 @@ internal fun PaintViewModel.animationRemoveStoryboardCue(index: Int): Boolean {
         }
     }) {
         if (generation != state.generation) return@runCore
-        if (state.singleFrameMode) {
-            val targetFrame = frame ?: return@runCore
-            val layer = (1 until ReverieCoreBridge.layerCount()).firstOrNull {
-                ReverieCoreBridge.layerId(it) == state.trackId
-            } ?: return@runCore
-            val keyTimes = ReverieCoreBridge.keyframeTimes(layer).sorted()
-            if (keyTimes.size != state.cues.size || keyTimes.getOrNull(index) != targetFrame.start) {
-                return@runCore
-            }
-            ReverieCoreBridge.beginUndoMacro(appContext.getString(R.string.srt_delete_cue))
-            val removed = try {
-                ReverieCoreBridge.removeKeyframe(layer, targetFrame.start)
-            } finally {
-                ReverieCoreBridge.endUndoMacro()
-            }
-            if (!removed) return@runCore
+        val layer = (1 until ReverieCoreBridge.layerCount()).firstOrNull {
+            ReverieCoreBridge.layerId(it) == state.trackId
+        } ?: return@runCore
+        val keyTimes = ReverieCoreBridge.keyframeTimes(layer).sorted()
+        if (cueTime !in keyTimes) return@runCore
+        ReverieCoreBridge.beginUndoMacro(appContext.getString(R.string.srt_delete_cue))
+        val removed = try {
+            ReverieCoreBridge.removeKeyframe(layer, cueTime)
+        } finally {
+            ReverieCoreBridge.endUndoMacro()
         }
-        ReverieCoreBridge.storeRevAsset(SrtStoryboard.ASSET, assetBytes)
-        state.cues = updated
+        val undoCountAfter = ReverieCoreBridge.undoCount()
+        if (!removed) return@runCore
+        val updatedTimes = state.cueTimes.toMutableList().also { it[allIndex] = -1 }
+        state.cueTimes = updatedTimes
+        state.pendingCueDelete = PendingStoryboardCueDelete(
+            generation = generation,
+            undoCountAfter = undoCountAfter,
+            allIndex = allIndex,
+            cueTime = cueTime,
+        )
+        ReverieCoreBridge.storeRevAsset(
+            SrtStoryboard.ASSET + ".frames",
+            SrtStoryboard.encodeFrameTimes(updatedTimes),
+        )
         syncAnimationFromNative()
         success = true
     }
@@ -477,17 +564,20 @@ internal fun PaintViewModel.animationSplitStoryboardCue(
     val state = anim.storyboard
     if (state.adding || state.importing || isImportingMedia) return false
     if (!state.singleFrameMode || state.trackId == 0L ||
+        state.cueTimes.size != state.allCues.size ||
         state.frames.size != state.cues.size || index !in state.cues.indices
     ) {
         showActionToast(R.string.srt_mapping_changed)
         return false
     }
-    val updated = SrtStoryboard.splitCue(state.cues, index, leftText, rightText)
-    if (updated == null) {
+    val allIndex = state.visibleIndices.getOrNull(index) ?: return false
+    val updatedAll = SrtStoryboard.splitCue(state.allCues, allIndex, leftText, rightText)
+    val updatedVisible = SrtStoryboard.splitCue(state.cues, index, leftText, rightText)
+    if (updatedAll == null || updatedVisible == null) {
         showActionToast(R.string.srt_error_split)
         return false
     }
-    val assetBytes = SrtStoryboard.encode(updated)
+    val assetBytes = SrtStoryboard.encode(updatedAll)
     if (assetBytes.size > SrtStoryboard.MAX_BYTES) {
         showActionToast(R.string.srt_error_large)
         return false
@@ -556,12 +646,20 @@ internal fun PaintViewModel.animationSplitStoryboardCue(
             ReverieCoreBridge.endUndoMacro()
         }
         if (!readyToCommit) return@runCore
-        success = true
-        state.cues = updated
+        val shiftedTimes = state.cueTimes.map { if (it >= time) it + 1 else it }.toMutableList()
+        shiftedTimes.add(allIndex + 1, time)
+        state.allCues = updatedAll
+        state.cueTimes = shiftedTimes
+        state.cues = updatedVisible
         ReverieCoreBridge.storeRevAsset(SrtStoryboard.ASSET, assetBytes)
+        ReverieCoreBridge.storeRevAsset(
+            SrtStoryboard.ASSET + ".frames",
+            SrtStoryboard.encodeFrameTimes(shiftedTimes),
+        )
         ReverieCoreBridge.storeRevAsset(SrtStoryboard.ASSET + ".track", layer.toString().toByteArray())
         ReverieCoreBridge.setAnimationCurrentTime(time, false)
         syncAnimationFromNative()
+        success = true
     }
     return true
 }
@@ -680,7 +778,11 @@ private fun PaintViewModel.animationImportStoryboard(readCues: suspend () -> Lis
                 syncAnimationFromNative()
                 return@runCore
             }
+            state.allCues = cues
+            state.cueTimes = cues.indices.toList()
+            state.visibleIndices = cues.indices.toList()
             state.cues = cues
+            state.frames = frames
             state.fps = importedFps
             state.singleFrameMode = true
             state.trackId = ReverieCoreBridge.layerId(selected)
@@ -688,6 +790,10 @@ private fun PaintViewModel.animationImportStoryboard(readCues: suspend () -> Lis
             state.probed = true
             ReverieCoreBridge.storeRevAsset(SrtStoryboard.ASSET + ".layout", "single-frame".toByteArray())
             ReverieCoreBridge.storeRevAsset(SrtStoryboard.ASSET, assetBytes)
+            ReverieCoreBridge.storeRevAsset(
+                SrtStoryboard.ASSET + ".frames",
+                SrtStoryboard.encodeFrameTimes(state.cueTimes),
+            )
             ReverieCoreBridge.storeRevAsset(
                 SrtStoryboard.ASSET + ".fps", importedFps.toString().toByteArray(),
             )
@@ -713,6 +819,7 @@ internal fun PaintViewModel.removeStoryboardReference() {
         SrtStoryboard.ASSET,
         SrtStoryboard.ASSET + ".layout",
         SrtStoryboard.ASSET + ".fps",
+        SrtStoryboard.ASSET + ".frames",
         SrtStoryboard.ASSET + ".track",
     )
     for (key in keys) ReverieCoreBridge.storeRevAsset(key, ByteArray(0))

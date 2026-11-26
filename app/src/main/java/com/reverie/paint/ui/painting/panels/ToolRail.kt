@@ -861,7 +861,7 @@ fun toolIcon(tool: Tool): Int =
         Tool.QUICK_COLOR -> R.drawable.ic_palette
         Tool.QUICK_OKLCH -> R.drawable.ic_oklch
         Tool.QUICK_LAYER -> R.drawable.ic_layers
-        Tool.COUNTDOWN -> R.drawable.ic_clock
+        Tool.COUNTDOWN -> R.drawable.ic_countdown
         Tool.DRAWING_GUIDE -> R.drawable.ic_grid
         Tool.SYMMETRY -> R.drawable.ic_flip_horizontal
         Tool.PERSPECTIVE -> R.drawable.ic_grid

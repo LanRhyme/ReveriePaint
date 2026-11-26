@@ -3,6 +3,7 @@
 <resources>
     <!-- App & Common -->
     <string name="app_name">ReveriePaint</string>
+    <string name="app_name_test">ReveriePaint Test</string>
     <string name="common_confirm">确定</string>
     <string name="common_cancel">取消</string>
     <string name="common_done">完成</string>
@@ -1072,6 +1073,18 @@
     <string name="anim_onion_forward_short">未来</string>
     <string name="anim_onion_backward_tint_title">过去帧着色</string>
     <string name="anim_onion_forward_tint_title">未来帧着色</string>
+    <string name="anim_guides_section">动画辅助</string>
+    <string name="anim_guides_title">画面参考线</string>
+    <string name="anim_guides_configure">配置</string>
+    <string name="anim_guides_count">%1$d 项</string>
+    <string name="anim_guides_done">完成</string>
+    <string name="anim_guide_nine_grid">九宫格</string>
+    <string name="anim_guide_center">中心线</string>
+    <string name="anim_guide_golden_ratio">黄金分割</string>
+    <string name="anim_guide_diagonals">对角线</string>
+    <string name="anim_guide_safe_frame">安全框</string>
+    <string name="anim_guide_horizon">地平线</string>
+    <string name="anim_guide_horizon_position">地平线位置</string>
     <string name="anim_settings_display">显示</string>
     <string name="anim_settings_thumbnails">帧缩略图</string>
     <string name="anim_settings_audio">音频</string>
@@ -3662,13 +3675,14 @@
     <string name="srt_pdf_filename_landscape">分镜表-A4横版.pdf</string>
     <string name="srt_pdf_filename_portrait">分镜表-A4竖版.pdf</string>
     <string name="srt_pdf_page_title">分镜表 · 第 %1$d 页</string>
-    <string name="srt_pdf_shot_header">分镜 %1$d · %2$s</string>
+    <string name="srt_shot_header">分镜 %1$d</string>
     <string name="srt_pdf_export_success">分镜 PDF 已导出</string>
     <string name="srt_pdf_export_failed">分镜 PDF 导出失败</string>
     <string name="srt_pdf_mapping_error">分镜与关键帧不匹配，暂时无法导出 PDF</string>
     <string name="countdown_title">绘画倒计时</string>
     <string name="countdown_minutes">%1$d 分钟</string>
     <string name="countdown_custom_minutes">自定义分钟数</string>
+    <string name="countdown_start">开始</string>
     <string name="countdown_start_custom">开始自定义</string>
     <string name="countdown_pause">暂停</string>
     <string name="countdown_resume">继续</string>

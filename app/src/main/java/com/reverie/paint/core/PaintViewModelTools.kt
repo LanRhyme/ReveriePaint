@@ -1765,9 +1765,25 @@ internal fun PaintViewModel.undo(
     }) {
         if (ReverieCoreBridge.canUndo()) {
             val beforeCount = ReverieCoreBridge.undoCount()
+            val pendingCueDelete = anim.storyboard.pendingCueDelete
+            val undoingCueDelete = pendingCueDelete != null &&
+                pendingCueDelete.generation == anim.storyboard.generation &&
+                beforeCount == pendingCueDelete.undoCountAfter
             Breadcrumbs.record("History", "Undo")
             ReverieCoreBridge.undo()
             didUndo = ReverieCoreBridge.undoCount() != beforeCount
+            if (didUndo && undoingCueDelete) {
+                val times = anim.storyboard.cueTimes.toMutableList()
+                if (pendingCueDelete.allIndex in times.indices) {
+                    times[pendingCueDelete.allIndex] = pendingCueDelete.cueTime
+                    anim.storyboard.cueTimes = times
+                    ReverieCoreBridge.storeRevAsset(
+                        SrtStoryboard.ASSET + ".frames",
+                        SrtStoryboard.encodeFrameTimes(times),
+                    )
+                    pendingCueDelete.undone = true
+                }
+            }
             if (didUndo && restoreTransformSel) {
                 val count = ReverieCoreBridge.storedSelectionCount()
                 var preIdx = -1
@@ -1862,9 +1878,26 @@ internal fun PaintViewModel.redo(fromPanel: Boolean = false, settled: (() -> Uni
     }) {
         if (ReverieCoreBridge.canRedo()) {
             val beforeCount = ReverieCoreBridge.redoCount()
+            val pendingCueDelete = anim.storyboard.pendingCueDelete
+            val redoingCueDelete = pendingCueDelete != null &&
+                pendingCueDelete.generation == anim.storyboard.generation &&
+                pendingCueDelete.undone &&
+                ReverieCoreBridge.undoCount() == pendingCueDelete.undoCountAfter - 1
             Breadcrumbs.record("History", "Redo")
             ReverieCoreBridge.redo()
             didRedo = ReverieCoreBridge.redoCount() != beforeCount
+            if (didRedo && redoingCueDelete) {
+                val times = anim.storyboard.cueTimes.toMutableList()
+                if (pendingCueDelete.allIndex in times.indices) {
+                    times[pendingCueDelete.allIndex] = -1
+                    anim.storyboard.cueTimes = times
+                    ReverieCoreBridge.storeRevAsset(
+                        SrtStoryboard.ASSET + ".frames",
+                        SrtStoryboard.encodeFrameTimes(times),
+                    )
+                    pendingCueDelete.undone = false
+                }
+            }
             if (didRedo && restoreRedoSel) {
                 ReverieCoreBridge.setUndoCaptureEnabled(false)
                 try {

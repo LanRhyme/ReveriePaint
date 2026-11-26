@@ -255,6 +255,13 @@ internal class FrontBufferDecorRecorder(private val view: CanvasTouchView) {
                                         zoom = zoom,
                                         fitScale = fit,
                                     )
+                                    drawCompositionGuides(
+                                        vm = v,
+                                        bmpWidth = imgW,
+                                        bmpHeight = imgH,
+                                        zoom = zoom,
+                                        fitScale = fit,
+                                    )
                                     if (panelsOn) {
                                         drawPanelsOverlay(
                                             vm = v,

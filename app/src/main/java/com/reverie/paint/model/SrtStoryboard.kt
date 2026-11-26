@@ -184,6 +184,17 @@ object SrtStoryboard {
         "${index + 1}\n${timestamp(cue.startMs)} --> ${timestamp(cue.endMs)}\n${cue.text}"
     }.joinToString("\n\n").toByteArray(Charsets.UTF_8)
 
+    /** Stable cue -> keyframe-time mapping for single-frame storyboard mode. */
+    fun encodeFrameTimes(times: List<Int>): ByteArray =
+        times.joinToString(",").toByteArray(Charsets.UTF_8)
+
+    fun decodeFrameTimes(bytes: ByteArray?): List<Int> {
+        if (bytes == null || bytes.isEmpty()) return emptyList()
+        return runCatching {
+            bytes.decodeToString().split(',').map { it.trim().toInt() }
+        }.getOrDefault(emptyList())
+    }
+
     /** Binary search for the active frame index at [currentTime]; returns -1 if in a gap or out of range. */
     fun findActiveFrameIndex(frames: List<StoryboardFrame>, currentTime: Int): Int {
         var low = 0

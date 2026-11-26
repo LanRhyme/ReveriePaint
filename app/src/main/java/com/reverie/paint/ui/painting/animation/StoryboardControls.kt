@@ -303,8 +303,7 @@ internal fun StoryboardReferenceBar(
                                     verticalAlignment = androidx.compose.ui.Alignment.CenterVertically,
                                 ) {
                                     Text(
-                                        "${index + 1} · ${SrtStoryboard.timestamp(cue.startMs)} → " +
-                                            SrtStoryboard.timestamp(cue.endMs),
+                                        stringResource(R.string.srt_shot_header, index + 1),
                                         fontSize = 11.sp,
                                         color = Morandi.subText,
                                         modifier = Modifier

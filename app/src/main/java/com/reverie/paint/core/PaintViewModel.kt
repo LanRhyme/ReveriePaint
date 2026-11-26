@@ -944,6 +944,12 @@ class PaintViewModel : ViewModel() {
     var drawingGuideLinesVisible by mutableStateOf(true)
         internal set
 
+    // 动画画面参考线 (仅动画工程显示)
+    var compositionGuides by mutableStateOf<Set<CompositionGuide>>(emptySet())
+        private set
+    var compositionHorizon by mutableFloatStateOf(0.5f)
+        private set
+
     // 画布内富文本排版状态 (In-place Typography)
     var typographyConfig by mutableStateOf(TypographyConfig())
     var isTypographyEditing by mutableStateOf(false)

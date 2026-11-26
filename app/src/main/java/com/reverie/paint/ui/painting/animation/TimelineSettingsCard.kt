@@ -4,6 +4,7 @@
 
 package com.reverie.paint.ui.painting.animation
 
+import androidx.annotation.StringRes
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -22,6 +23,8 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.Checkbox
+import androidx.compose.material3.CheckboxDefaults
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.platform.LocalConfiguration
@@ -53,6 +56,7 @@ import com.reverie.paint.core.animationImportImages
 import com.reverie.paint.core.animationImportVideo
 import com.reverie.paint.core.animationSetFramerate
 import com.reverie.paint.core.animationSetLayerMarker
+import com.reverie.paint.model.CompositionGuide
 import com.reverie.paint.model.UiPanelSlot
 import com.reverie.paint.ui.components.ReChip
 import com.reverie.paint.ui.components.ReIconButton
@@ -138,6 +142,7 @@ internal fun TimelineSettings(
     ) {
         var showFpsInput by remember { mutableStateOf(false) }
         var pickingOnionColor by remember { mutableStateOf<OnionColorTarget?>(null) }
+        var showCompositionGuides by remember { mutableStateOf(false) }
 
         TimelineWorkflowSettings(vm)
 
@@ -336,6 +341,24 @@ internal fun TimelineSettings(
             )
         }
 
+        ReSectionTitle(text = stringResource(R.string.anim_guides_section), modifier = Modifier.padding(start = 12.dp))
+
+        CompactSettingRow(label = stringResource(R.string.anim_guides_title)) {
+            ReChip(
+                text = if (vm.compositionGuides.isEmpty()) {
+                    stringResource(R.string.anim_guides_configure)
+                } else {
+                    stringResource(R.string.anim_guides_count, vm.compositionGuides.size)
+                },
+                onTap = { showCompositionGuides = true },
+                selected = vm.compositionGuides.isNotEmpty(),
+            )
+        }
+
+        if (showCompositionGuides) {
+            CompositionGuidesDialog(vm = vm, onDismiss = { showCompositionGuides = false })
+        }
+
         ReSectionTitle(text = stringResource(R.string.anim_settings_display), modifier = Modifier.padding(start = 12.dp))
 
         CompactSettingRow(label = stringResource(R.string.anim_settings_thumbnails)) {
@@ -410,6 +433,87 @@ internal fun TimelineSettings(
             )
         }
     }
+}
+
+@Composable
+private fun CompositionGuidesDialog(
+    vm: PaintViewModel,
+    onDismiss: () -> Unit,
+) {
+    androidx.compose.material3.AlertDialog(
+        onDismissRequest = onDismiss,
+        containerColor = Morandi.panel,
+        title = { Text(stringResource(R.string.anim_guides_title), color = Morandi.text) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(2.dp)) {
+                CompositionGuide.entries.forEach { guide ->
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable { vm.toggleCompositionGuide(guide) }
+                            .padding(vertical = 1.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Checkbox(
+                            checked = guide in vm.compositionGuides,
+                            onCheckedChange = null,
+                            colors = CheckboxDefaults.colors(
+                                checkedColor = Color(guide.colorArgb),
+                                checkmarkColor = Color.White,
+                                uncheckedColor = Morandi.subText,
+                            ),
+                        )
+                        Text(
+                            text = stringResource(guide.labelRes()),
+                            color = Morandi.text,
+                            fontSize = 14.sp,
+                        )
+                    }
+                }
+                if (CompositionGuide.HORIZON in vm.compositionGuides) {
+                    Spacer(Modifier.height(6.dp))
+                    Row(
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            text = stringResource(R.string.anim_guide_horizon_position),
+                            color = Morandi.text,
+                            fontSize = 13.sp,
+                        )
+                        Text(
+                            text = "${(vm.compositionHorizon * 100f).roundToInt()}%",
+                            color = Color(CompositionGuide.HORIZON.colorArgb),
+                            fontSize = 13.sp,
+                        )
+                    }
+                    ReSlider(
+                        value = vm.compositionHorizon,
+                        onValue = vm::updateCompositionHorizon,
+                        onRelease = vm::persistCompositionGuides,
+                        modifier = Modifier.fillMaxWidth().padding(horizontal = 4.dp),
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            ReTextButton(
+                text = stringResource(R.string.anim_guides_done),
+                onClick = onDismiss,
+            )
+        },
+    )
+}
+
+@StringRes
+private fun CompositionGuide.labelRes(): Int = when (this) {
+    CompositionGuide.NINE_GRID -> R.string.anim_guide_nine_grid
+    CompositionGuide.CENTER -> R.string.anim_guide_center
+    CompositionGuide.GOLDEN_RATIO -> R.string.anim_guide_golden_ratio
+    CompositionGuide.DIAGONALS -> R.string.anim_guide_diagonals
+    CompositionGuide.SAFE_FRAME -> R.string.anim_guide_safe_frame
+    CompositionGuide.HORIZON -> R.string.anim_guide_horizon
 }
 
 @Composable

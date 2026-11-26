@@ -144,6 +144,8 @@ internal fun PaintViewModel.syncSettingsFromPrefs() {
         loadPanelSnapPrefs()
         layerHeaderInheritAlpha = prefs.getBoolean("layerHeaderInheritAlpha", false)
         drawingGuideLinesVisible = prefs.getBoolean("drawing_guide_lines_visible", true)
+        compositionGuides = CompositionGuidesCodec.decode(prefs.getString("composition_guides", null))
+        compositionHorizon = prefs.getFloat("composition_horizon", 0.5f).coerceIn(0f, 1f)
         leftHandMode = prefs.getBoolean("leftHandMode", false)
         autoHidePanelsOnStroke = prefs.getBoolean("autoHidePanelsOnStroke", true)
         brushSlideAdjustEnabled = prefs.getBoolean("brush_slide_adjust_enabled", true)
