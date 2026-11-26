@@ -1,0 +1,33 @@
+name: Collab Worker Tests
+
+# 茶绘信令端 (Cloudflare Worker + Durable Objects) 的端到端测试:
+# 本地拉起 wrangler dev, 用真实 WebSocket 走建房/入房/审批/信令/房主迁移/过期的全链路
+on:
+  push:
+    branches: [ "main", "master", "develop" ]
+    paths:
+      - 'collab/worker/**'
+      - '.github/workflows/collab-worker.yml'
+  pull_request:
+    branches: [ "main", "master", "develop" ]
+    paths:
+      - 'collab/worker/**'
+      - '.github/workflows/collab-worker.yml'
+  workflow_dispatch:
+
+jobs:
+  e2e:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Run Durable Object E2E tests
+        working-directory: collab/worker
+        run: npm test

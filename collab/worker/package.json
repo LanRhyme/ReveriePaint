@@ -5,7 +5,8 @@
   "description": "ReveriePaint P2P 茶绘信令端 (Cloudflare Worker + Durable Objects)",
   "scripts": {
     "dev": "wrangler dev",
-    "deploy": "wrangler deploy"
+    "deploy": "wrangler deploy",
+    "test": "node --test test/"
   },
   "devDependencies": {
     "wrangler": "^4.0.0"

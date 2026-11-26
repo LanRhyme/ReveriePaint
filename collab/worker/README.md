@@ -21,6 +21,19 @@ npx wrangler dev
 curl -s http://127.0.0.1:8787/c/v1/health
 ```
 
+## 测试
+
+端到端用例会自行拉起本地 `wrangler dev` (随机固定端口), 用真实 WebSocket 覆盖建房 / 入房门禁 / 审批 / 信令转发 / 房主在线与离线迁移 / 大厅目录 / 过期与占位清理
+
+```bash
+cd collab/worker
+npm test
+```
+
+- Node >= 20 (依赖内置 `fetch` 与 `WebSocket`)
+- 首次运行会用 `npx` 拉取 `wrangler`, 无本地 node_modules 也可跑
+- 时间相关用例通过 `ROOM_TTL_MS` / `GHOST_PEER_TTL_MS` 变量压到数秒, 全套约 50 秒
+
 ## 接口清单
 
 | 方法 | 路径 | 说明 |
