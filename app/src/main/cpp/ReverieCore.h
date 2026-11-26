@@ -202,6 +202,11 @@ public:
     // 液化预览要用它得到"不含目标图层"的底图(见 setLiquifyPreviewBaseRect)。
     void compositeLayersRange(KisPaintDeviceSP out, int startIdx, int endIdx, const QRect &r,
                               int excludeIdx = -1);
+    // 变换预览合成: 按层级树完整合成选中图层/多层嵌套组(含混合模式、不透明度、
+    // 剪切链、描边效果、组级蒙版与祖先可见性), 用于生成与画布完全一致的预览位图。
+    void compositeTransformPreview(KisPaintDeviceSP out, const QVector<int> &targetIndices, const QRect &r);
+    void compositeTransformFilteredRange(KisPaintDeviceSP out, int startIdx, int endIdx,
+                                         const QRect &r, const QSet<int> &targetSet);
     void compositeStrokeLayer(KisPaintDeviceSP out, const LayerEntry &e, const QRect &r);
     KisPaintDeviceSP borrowScratchDevice(const QRect &r);
     void returnScratchDevice();
@@ -625,9 +630,19 @@ public:
                                    double x2, double y2,
                                    double x3, double y3,
                                    double origX, double origY, double origW, double origH);
+    bool applyPerspectiveTransformLayers(const QVector<int> &layers,
+                                         double x0, double y0,
+                                         double x1, double y1,
+                                         double x2, double y2,
+                                         double x3, double y3,
+                                         double origX, double origY, double origW, double origH);
     bool applyWarpMeshTransform(const QVector<QPointF> &origPoints,
                                 const QVector<QPointF> &transfPoints,
                                 double origX, double origY, double origW, double origH);
+    bool applyWarpMeshTransformLayers(const QVector<int> &layers,
+                                      const QVector<QPointF> &origPoints,
+                                      const QVector<QPointF> &transfPoints,
+                                      double origX, double origY, double origW, double origH);
     // Content bounding box of the edit target set (multi-select union, else
     // the current layer) in document coords (for the transform tool's rubber
     // band). Empty (w<=0) when the target layer is empty.
@@ -1239,6 +1254,9 @@ private:
     void syncLayersFromImage();
     KisPaintDeviceSP currentPaintDevice();
     KisPaintDeviceSP layerPaintDeviceFor(const LayerEntry &e) const;
+    void collectTransformTargets(const QVector<int> &layers,
+                                 QVector<KisPaintDeviceSP> &outDevices,
+                                 QVector<int> &outLayerIndices) const;
     bool isLayerEditable(int index) const;   // background/locked check
     // Force a full synchronous recomposite of the root projection. Krita's
     // projection updates are driven by dirty-region propagation, which does

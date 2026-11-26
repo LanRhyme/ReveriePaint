@@ -473,7 +473,36 @@ object ReverieCoreBridge {
         origH: Double,
     ): Boolean
 
+    external fun applyPerspectiveTransformLayers(
+        layers: IntArray,
+        x0: Double,
+        y0: Double,
+        x1: Double,
+        y1: Double,
+        x2: Double,
+        y2: Double,
+        x3: Double,
+        y3: Double,
+        origX: Double,
+        origY: Double,
+        origW: Double,
+        origH: Double,
+    ): Boolean
+
     external fun applyWarpMeshTransform(
+        origXs: DoubleArray,
+        origYs: DoubleArray,
+        transfXs: DoubleArray,
+        transfYs: DoubleArray,
+        count: Int,
+        origX: Double,
+        origY: Double,
+        origW: Double,
+        origH: Double,
+    ): Boolean
+
+    external fun applyWarpMeshTransformLayers(
+        layers: IntArray,
         origXs: DoubleArray,
         origYs: DoubleArray,
         transfXs: DoubleArray,

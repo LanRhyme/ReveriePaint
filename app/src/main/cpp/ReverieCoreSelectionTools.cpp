@@ -453,16 +453,35 @@ QRect ReverieCore::contentBounds(const QVector<int> &layers)
     // match applyTransformLayers so the rubber band + preview center agree
     // with the commit center
     QVector<int> targets = layers.isEmpty() ? QVector<int>{m_currentLayer} : layers;
-    QRect unionRect;
+    auto ancestorChainVisible = [&](KisNode *node) -> bool {
+        if (!node) return false;
+        KisNode *p = node->parent().data();
+        KisNode *root = image->rootLayer().data();
+        while (p && p != root) {
+            if (!p->visible()) return false;
+            p = p->parent().data();
+        }
+        return true;
+    };
+    QRect visibleNonMaskUnion;
+    QRect allUnion;
     for (int idx : targets) {
         if (idx < 0 || idx >= m_layers.size()) continue;
-        KisPaintDeviceSP dev = layerPaintDeviceFor(m_layers[idx]);
+        const LayerEntry &e = m_layers[idx];
+        if (e.isGroup || e.background || e.locked || e.nodeType == NodeTypeAdjustment || e.nodeType == NodeTypeClone ||
+            e.nodeType == NodeTypeFilterMask || e.nodeType == NodeTypeTransformMask || e.nodeType == NodeTypeSelectionMask) {
+            continue;
+        }
+        KisPaintDeviceSP dev = layerPaintDeviceFor(e);
         if (!dev) continue;
         QRect eb = dev->exactBounds();
-        if (!eb.isEmpty() && eb.isValid()) {
-            unionRect = unionRect.isNull() ? eb : unionRect.united(eb);
+        if (eb.isEmpty() || !eb.isValid()) continue;
+        allUnion = allUnion.isNull() ? eb : allUnion.united(eb);
+        if (e.visible && e.nodeType != NodeTypeTransparencyMask && ancestorChainVisible(e.node)) {
+            visibleNonMaskUnion = visibleNonMaskUnion.isNull() ? eb : visibleNonMaskUnion.united(eb);
         }
     }
+    QRect unionRect = !visibleNonMaskUnion.isNull() ? visibleNonMaskUnion : allUnion;
 
     // 注意: 这里**不能**用 selectedRect() 判空 —— 它的实现是 KisPixelSelection::extent()
     // (设备范围, 缓存口径), 与"选区里到底有没有像素"不是一回事。早期拿它当闸门,

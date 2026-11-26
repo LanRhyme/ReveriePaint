@@ -199,6 +199,31 @@ Java_com_reverie_paint_core_ReverieCoreBridge_applyPerspectiveTransform(JNIEnv *
 }
 
 extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_applyPerspectiveTransformLayers(JNIEnv *env, jobject,
+                                                                              jintArray layers,
+                                                                              jdouble x0, jdouble y0,
+                                                                              jdouble x1, jdouble y1,
+                                                                              jdouble x2, jdouble y2,
+                                                                              jdouble x3, jdouble y3,
+                                                                              jdouble origX, jdouble origY,
+                                                                              jdouble origW, jdouble origH)
+{
+    QVector<int> list;
+    if (layers != nullptr) {
+        const jsize n = env->GetArrayLength(layers);
+        jint *elems = env->GetIntArrayElements(layers, nullptr);
+        for (int i = 0; i < n; ++i) {
+            list.append(int(elems[i]));
+        }
+        env->ReleaseIntArrayElements(layers, elems, JNI_ABORT);
+    }
+    return core()->applyPerspectiveTransformLayers(list, x0, y0, x1, y1, x2, y2, x3, y3,
+                                                   origX, origY, origW, origH)
+        ? JNI_TRUE
+        : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
 Java_com_reverie_paint_core_ReverieCoreBridge_applyWarpMeshTransform(JNIEnv *env, jobject,
                                                                      jdoubleArray origXs, jdoubleArray origYs,
                                                                      jdoubleArray transfXs, jdoubleArray transfYs,
@@ -227,6 +252,49 @@ Java_com_reverie_paint_core_ReverieCoreBridge_applyWarpMeshTransform(JNIEnv *env
     env->ReleaseDoubleArrayElements(transfYs, ty, JNI_ABORT);
 
     return core()->applyWarpMeshTransform(origPoints, transfPoints, origX, origY, origW, origH)
+        ? JNI_TRUE
+        : JNI_FALSE;
+}
+
+extern "C" JNIEXPORT jboolean JNICALL
+Java_com_reverie_paint_core_ReverieCoreBridge_applyWarpMeshTransformLayers(JNIEnv *env, jobject,
+                                                                           jintArray layers,
+                                                                           jdoubleArray origXs, jdoubleArray origYs,
+                                                                           jdoubleArray transfXs, jdoubleArray transfYs,
+                                                                           jint count,
+                                                                           jdouble origX, jdouble origY,
+                                                                           jdouble origW, jdouble origH)
+{
+    if (count <= 0) return JNI_FALSE;
+    QVector<int> list;
+    if (layers != nullptr) {
+        const jsize n = env->GetArrayLength(layers);
+        jint *elems = env->GetIntArrayElements(layers, nullptr);
+        for (int i = 0; i < n; ++i) {
+            list.append(int(elems[i]));
+        }
+        env->ReleaseIntArrayElements(layers, elems, JNI_ABORT);
+    }
+    jdouble *ox = env->GetDoubleArrayElements(origXs, nullptr);
+    jdouble *oy = env->GetDoubleArrayElements(origYs, nullptr);
+    jdouble *tx = env->GetDoubleArrayElements(transfXs, nullptr);
+    jdouble *ty = env->GetDoubleArrayElements(transfYs, nullptr);
+
+    QVector<QPointF> origPoints;
+    QVector<QPointF> transfPoints;
+    origPoints.reserve(count);
+    transfPoints.reserve(count);
+    for (int i = 0; i < count; ++i) {
+        origPoints.append(QPointF(ox[i], oy[i]));
+        transfPoints.append(QPointF(tx[i], ty[i]));
+    }
+
+    env->ReleaseDoubleArrayElements(origXs, ox, JNI_ABORT);
+    env->ReleaseDoubleArrayElements(origYs, oy, JNI_ABORT);
+    env->ReleaseDoubleArrayElements(transfXs, tx, JNI_ABORT);
+    env->ReleaseDoubleArrayElements(transfYs, ty, JNI_ABORT);
+
+    return core()->applyWarpMeshTransformLayers(list, origPoints, transfPoints, origX, origY, origW, origH)
         ? JNI_TRUE
         : JNI_FALSE;
 }

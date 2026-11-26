@@ -23,6 +23,9 @@ import kotlin.math.sin
 
 // 拆分自 CanvasTouchView.kt: 同域实现集中于此 (AGENTS.md §6 单文件行数上限)
 
+private fun clampTransformScale(v: Float): Float =
+    if (abs(v) < 0.02f) (if (v < 0f) -0.02f else 0.02f) else v
+
 internal fun CanvasTouchView.handleToolDown(
     screenPos: Offset,
     docPos: Offset,
@@ -1219,11 +1222,11 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
 
                         if (state.mode == TransformMode.STANDARD) {
                             val k = if (abs(kx - 1f) > abs(ky - 1f)) kx else ky
-                            state.scaleX = state.startScaleX * k
-                            state.scaleY = state.startScaleY * k
+                            state.scaleX = clampTransformScale(state.startScaleX * k)
+                            state.scaleY = clampTransformScale(state.startScaleY * k)
                         } else {
-                            state.scaleX = state.startScaleX * kx
-                            state.scaleY = state.startScaleY * ky
+                            state.scaleX = clampTransformScale(state.startScaleX * kx)
+                            state.scaleY = clampTransformScale(state.startScaleY * ky)
                         }
                     }
                     state.handle == 4 || state.handle == 6 -> {
@@ -1239,7 +1242,7 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                         val suy = sdx * sinR + sdy * cosR
 
                         val ky = if (abs(suy) > 1f) uy / suy else 1f
-                        state.scaleY = state.startScaleY * ky
+                        state.scaleY = clampTransformScale(state.startScaleY * ky)
                     }
                     state.handle == 5 || state.handle == 7 -> {
                         val rad = Math.toRadians(-state.startRotation.toDouble())
@@ -1254,7 +1257,7 @@ internal fun CanvasTouchView.handleToolMove(event: MotionEvent, pointerIndex: In
                         val sux = sdx * cosR - sdy * sinR
 
                         val kx = if (abs(sux) > 1f) ux / sux else 1f
-                        state.scaleX = state.startScaleX * kx
+                        state.scaleX = clampTransformScale(state.startScaleX * kx)
                     }
                     state.handle == 8 -> {
                         state.tx = state.startTx + (imagePos.x - state.dragStart.x)

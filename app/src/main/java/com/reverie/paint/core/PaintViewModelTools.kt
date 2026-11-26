@@ -1513,7 +1513,8 @@ internal fun PaintViewModel.applyPerspectiveTransform(
     origW: Double,
     origH: Double,
 ) {
-    if (!ensureCollabLayerEditable()) {
+    val layers = editTargetLayers()
+    if (layers.isEmpty() || !ensureCollabLayerEditable(layers.first())) {
         cancelTransformPreview()
         return
     }
@@ -1547,7 +1548,8 @@ internal fun PaintViewModel.applyPerspectiveTransform(
         if (shouldStashSelection && !wasSelectionPending) {
             stashPreTransformSelectionCore()
         }
-        ReverieCoreBridge.applyPerspectiveTransform(
+        ReverieCoreBridge.applyPerspectiveTransformLayers(
+            layers.toIntArray(),
             x0,
             y0,
             x1,
@@ -1575,7 +1577,8 @@ internal fun PaintViewModel.applyWarpMeshTransform(
     origW: Double,
     origH: Double,
 ) {
-    if (!ensureCollabLayerEditable()) {
+    val layers = editTargetLayers()
+    if (layers.isEmpty() || !ensureCollabLayerEditable(layers.first())) {
         cancelTransformPreview()
         return
     }
@@ -1615,7 +1618,8 @@ internal fun PaintViewModel.applyWarpMeshTransform(
         if (shouldStashSelection && !wasSelectionPending) {
             stashPreTransformSelectionCore()
         }
-        ReverieCoreBridge.applyWarpMeshTransform(
+        ReverieCoreBridge.applyWarpMeshTransformLayers(
+            layers.toIntArray(),
             ox,
             oy,
             tx,

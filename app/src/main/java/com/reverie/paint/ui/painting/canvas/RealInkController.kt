@@ -897,13 +897,31 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
                 return false
             }
         bakeCanvas.setBitmap(slotBitmap)
+        // 槽位图跨帧复用: 必须在开始烘焙任何一块之前统一预清需要清屏的屏幕矩形,
+        // 不能在烘焙循环内边烤边清, 否则后一块重叠的 screenRect 会把前一块已烤好的像素清成透明
+        // (典型如带画布旋转时 `t)_Shapes_Fill` 连续离散脏区在缺口处露出陈旧底图)。
+        for (i in 0 until baked) {
+            val d = i * 4
+            val hasSrc = RealInkPresent.bakeSrcRect(
+                bmpRects[d], bmpRects[d + 1], bmpRects[d + 2], bmpRects[d + 3],
+                p.scale, p.bmpW, p.bmpH, bakeSrc,
+            )
+            if (!hasSrc || !RealInkPresent.bakeCoversScreenRect(
+                    p, bakeSrc[0].toFloat(), bakeSrc[1].toFloat(), bakeSrc[2].toFloat(), bakeSrc[3].toFloat(),
+                    screenRects[d], screenRects[d + 1], screenRects[d + 2], screenRects[d + 3],
+                )
+            ) {
+                clearSlotRect(
+                    screenRects[d] - minL, screenRects[d + 1] - minT,
+                    screenRects[d + 2] - minL, screenRects[d + 3] - minT,
+                )
+            }
+        }
         var allBaked = true
         for (i in 0 until baked) {
             val d = i * 4
-            // 槽位图跨帧复用: 本块要贴的屏幕范围必须先清成透明再按 pose 烤, 不把陈旧像素贴上屏;
-            // 轴对齐且烘焙矩形完整盖住时由 bakeRect 内的裁剪清屏一次完成 (省掉重复的整块 CLEAR)。
             if (!bakeRect(tiles, p, bmpRects[d], bmpRects[d + 1], bmpRects[d + 2], bmpRects[d + 3], minL, minT,
-                    screenRects[d], screenRects[d + 1], screenRects[d + 2], screenRects[d + 3])
+                    screenRects[d], screenRects[d + 1], screenRects[d + 2], screenRects[d + 3], skipClear = true)
             ) {
                 allBaked = false
                 break
@@ -1166,6 +1184,30 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
                 return false
             }
         bakeCanvas.setBitmap(slotBitmap)
+        if (!shelves) {
+            for (i in 0 until n) {
+                val d = i * 4
+                val px = packXY[i * 2]
+                val py = packXY[i * 2 + 1]
+                val hasBmp = bmpRects[d + 2] > bmpRects[d] && bmpRects[d + 3] > bmpRects[d + 1]
+                val covers = hasBmp &&
+                    RealInkPresent.bakeSrcRect(
+                        bmpRects[d], bmpRects[d + 1], bmpRects[d + 2], bmpRects[d + 3],
+                        p.scale, p.bmpW, p.bmpH, bakeSrc,
+                    ) &&
+                    RealInkPresent.bakeCoversScreenRect(
+                        p, bakeSrc[0].toFloat(), bakeSrc[1].toFloat(), bakeSrc[2].toFloat(), bakeSrc[3].toFloat(),
+                        screenRects[d], screenRects[d + 1], screenRects[d + 2], screenRects[d + 3],
+                    )
+                if (!covers) {
+                    clearSlotRect(
+                        px, py,
+                        px + screenRects[d + 2] - screenRects[d],
+                        py + screenRects[d + 3] - screenRects[d + 1],
+                    )
+                }
+            }
+        }
         // 吸收后墨块可能带上光标边距: 一律按足迹容忍 (无瓦片也算成功, 棋盘格/透明已铺)。
         // 原先 "墨块无瓦片 → 整包失败" 在吸收撑大后会误伤对称笔。
         var inkCovered = baked <= 0
@@ -1177,9 +1219,10 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
             val oy = screenRects[d + 1] - py
             if (bmpRects[d + 2] > bmpRects[d] && bmpRects[d + 3] > bmpRects[d + 1]) {
                 val drew = bakeRect(tiles, p, bmpRects[d], bmpRects[d + 1], bmpRects[d + 2], bmpRects[d + 3], ox, oy,
-                    screenRects[d], screenRects[d + 1], screenRects[d + 2], screenRects[d + 3], clipScreen = true)
+                    screenRects[d], screenRects[d + 1], screenRects[d + 2], screenRects[d + 3],
+                    clipScreen = true, skipClear = !shelves)
                 if (i < baked && drew) inkCovered = true
-            } else {
+            } else if (shelves) {
                 clearSlotRect(px, py, px + screenRects[d + 2] - screenRects[d],
                     py + screenRects[d + 3] - screenRects[d + 1])
             }
@@ -1327,13 +1370,14 @@ internal class RealInkController(private val view: CanvasTouchView) : RealInkSin
         sr: Int,
         sb: Int,
         clipScreen: Boolean = false,
+        skipClear: Boolean = false,
     ): Boolean {
         if (!RealInkPresent.bakeSrcRect(bl, bt, br, bb, p.scale, p.bmpW, p.bmpH, bakeSrc)) {
-            if (clipScreen) clearSlotRect(sl - originX, st - originY, sr - originX, sb - originY)
+            if (clipScreen && !skipClear) clearSlotRect(sl - originX, st - originY, sr - originX, sb - originY)
             return false
         }
-        if (!RealInkPresent.bakeCoversScreenRect(p, bakeSrc[0].toFloat(), bakeSrc[1].toFloat(), bakeSrc[2].toFloat(),
-                bakeSrc[3].toFloat(), sl, st, sr, sb)
+        if (!skipClear && !RealInkPresent.bakeCoversScreenRect(p, bakeSrc[0].toFloat(), bakeSrc[1].toFloat(),
+                bakeSrc[2].toFloat(), bakeSrc[3].toFloat(), sl, st, sr, sb)
         ) {
             clearSlotRect(sl - originX, st - originY, sr - originX, sb - originY)
         }

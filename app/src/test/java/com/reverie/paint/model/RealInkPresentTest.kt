@@ -316,4 +316,31 @@ class RealInkPresentTest {
         assertTrue(zoomed > docArea)
         assertEquals(0L, RealInkPresent.screenAreaOfBmpRect(pose(), 10, 20, 30, 40, 300, 300, out))
     }
+
+    @Test
+    fun `adjacent discrete rects overlap in screen bounds on rotated canvas and require pre-clear`() {
+        val p = pose(scale = 1f, rotation = -2.8f)
+        val screen0 = IntArray(4)
+        val screen1 = IntArray(4)
+        val src0 = IntArray(4)
+        val src1 = IntArray(4)
+        assertTrue(RealInkPresent.bmpRectToScreenBounds(p, 20f, 20f, 100f, 60f, 1000, 1000, RealInkPresent.PAD_PX, screen0))
+        assertTrue(RealInkPresent.bmpRectToScreenBounds(p, 100f, 20f, 180f, 60f, 1000, 1000, RealInkPresent.PAD_PX, screen1))
+        assertTrue(RealInkPresent.bakeSrcRect(20, 20, 100, 60, p.scale, p.bmpW, p.bmpH, src0))
+        assertTrue(RealInkPresent.bakeSrcRect(100, 20, 180, 60, p.scale, p.bmpW, p.bmpH, src1))
+        // 旋转画布下两块相邻脏区的轴对齐屏幕包围盒必然交叠, 且各自触发 pre-clear 判定 (false)
+        assertTrue(screen0[2] > screen1[0] && screen0[3] > screen1[1])
+        assertFalse(
+            RealInkPresent.bakeCoversScreenRect(
+                p, src0[0].toFloat(), src0[1].toFloat(), src0[2].toFloat(), src0[3].toFloat(),
+                screen0[0], screen0[1], screen0[2], screen0[3],
+            ),
+        )
+        assertFalse(
+            RealInkPresent.bakeCoversScreenRect(
+                p, src1[0].toFloat(), src1[1].toFloat(), src1[2].toFloat(), src1[3].toFloat(),
+                screen1[0], screen1[1], screen1[2], screen1[3],
+            ),
+        )
+    }
 }
