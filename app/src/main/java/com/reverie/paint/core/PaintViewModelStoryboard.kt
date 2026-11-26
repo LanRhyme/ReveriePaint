@@ -56,6 +56,9 @@ internal class StoryboardState {
     /** Last single-cue delete, used to restore the cue->frame mapping with engine undo/redo. */
     @Volatile var pendingCueDelete: PendingStoryboardCueDelete? = null
 
+    /** Last split, used to restore both the caption asset and the cue->frame mapping on undo/redo. */
+    @Volatile var pendingCueSplit: PendingStoryboardCueSplit? = null
+
     fun reset() {
         generation++
         cues = emptyList()
@@ -72,6 +75,7 @@ internal class StoryboardState {
         trackIndex = -1
         trackId = 0L
         pendingCueDelete = null
+        pendingCueSplit = null
     }
 }
 
@@ -80,6 +84,18 @@ internal data class PendingStoryboardCueDelete(
     val undoCountAfter: Int,
     val allIndex: Int,
     val cueTime: Int,
+    var undone: Boolean = false,
+)
+
+internal data class PendingStoryboardCueSplit(
+    val generation: Int,
+    val undoCountAfter: Int,
+    val cuesBefore: List<SrtCue>,
+    val cuesAfter: List<SrtCue>,
+    val timesBefore: List<Int>,
+    val timesAfter: List<Int>,
+    val assetBefore: ByteArray,
+    val assetAfter: ByteArray,
     var undone: Boolean = false,
 )
 
@@ -571,6 +587,9 @@ internal fun PaintViewModel.animationSplitStoryboardCue(
         return false
     }
     val allIndex = state.visibleIndices.getOrNull(index) ?: return false
+    val cuesBefore = state.allCues
+    val timesBefore = state.cueTimes
+    val assetBefore = SrtStoryboard.encode(cuesBefore)
     val updatedAll = SrtStoryboard.splitCue(state.allCues, allIndex, leftText, rightText)
     val updatedVisible = SrtStoryboard.splitCue(state.cues, index, leftText, rightText)
     if (updatedAll == null || updatedVisible == null) {
@@ -578,7 +597,7 @@ internal fun PaintViewModel.animationSplitStoryboardCue(
         return false
     }
     val assetBytes = SrtStoryboard.encode(updatedAll)
-    if (assetBytes.size > SrtStoryboard.MAX_BYTES) {
+    if (assetBefore.size > SrtStoryboard.MAX_BYTES || assetBytes.size > SrtStoryboard.MAX_BYTES) {
         showActionToast(R.string.srt_error_large)
         return false
     }
@@ -646,11 +665,22 @@ internal fun PaintViewModel.animationSplitStoryboardCue(
             ReverieCoreBridge.endUndoMacro()
         }
         if (!readyToCommit) return@runCore
+        val undoCountAfter = ReverieCoreBridge.undoCount()
         val shiftedTimes = state.cueTimes.map { if (it >= time) it + 1 else it }.toMutableList()
         shiftedTimes.add(allIndex + 1, time)
         state.allCues = updatedAll
         state.cueTimes = shiftedTimes
         state.cues = updatedVisible
+        state.pendingCueSplit = PendingStoryboardCueSplit(
+            generation = generation,
+            undoCountAfter = undoCountAfter,
+            cuesBefore = cuesBefore,
+            cuesAfter = updatedAll,
+            timesBefore = timesBefore,
+            timesAfter = shiftedTimes,
+            assetBefore = assetBefore,
+            assetAfter = assetBytes,
+        )
         ReverieCoreBridge.storeRevAsset(SrtStoryboard.ASSET, assetBytes)
         ReverieCoreBridge.storeRevAsset(
             SrtStoryboard.ASSET + ".frames",

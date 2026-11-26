@@ -1765,14 +1765,27 @@ internal fun PaintViewModel.undo(
     }) {
         if (ReverieCoreBridge.canUndo()) {
             val beforeCount = ReverieCoreBridge.undoCount()
+            val pendingCueSplit = anim.storyboard.pendingCueSplit
+            val undoingCueSplit = pendingCueSplit != null &&
+                pendingCueSplit.generation == anim.storyboard.generation &&
+                beforeCount == pendingCueSplit.undoCountAfter
             val pendingCueDelete = anim.storyboard.pendingCueDelete
-            val undoingCueDelete = pendingCueDelete != null &&
+            val undoingCueDelete = !undoingCueSplit && pendingCueDelete != null &&
                 pendingCueDelete.generation == anim.storyboard.generation &&
                 beforeCount == pendingCueDelete.undoCountAfter
             Breadcrumbs.record("History", "Undo")
             ReverieCoreBridge.undo()
             didUndo = ReverieCoreBridge.undoCount() != beforeCount
-            if (didUndo && undoingCueDelete) {
+            if (didUndo && undoingCueSplit) {
+                anim.storyboard.allCues = pendingCueSplit.cuesBefore
+                anim.storyboard.cueTimes = pendingCueSplit.timesBefore
+                ReverieCoreBridge.storeRevAsset(SrtStoryboard.ASSET, pendingCueSplit.assetBefore)
+                ReverieCoreBridge.storeRevAsset(
+                    SrtStoryboard.ASSET + ".frames",
+                    SrtStoryboard.encodeFrameTimes(pendingCueSplit.timesBefore),
+                )
+                pendingCueSplit.undone = true
+            } else if (didUndo && undoingCueDelete) {
                 val times = anim.storyboard.cueTimes.toMutableList()
                 if (pendingCueDelete.allIndex in times.indices) {
                     times[pendingCueDelete.allIndex] = pendingCueDelete.cueTime
@@ -1878,15 +1891,29 @@ internal fun PaintViewModel.redo(fromPanel: Boolean = false, settled: (() -> Uni
     }) {
         if (ReverieCoreBridge.canRedo()) {
             val beforeCount = ReverieCoreBridge.redoCount()
+            val pendingCueSplit = anim.storyboard.pendingCueSplit
+            val redoingCueSplit = pendingCueSplit != null &&
+                pendingCueSplit.generation == anim.storyboard.generation &&
+                pendingCueSplit.undone &&
+                ReverieCoreBridge.undoCount() == pendingCueSplit.undoCountAfter - 1
             val pendingCueDelete = anim.storyboard.pendingCueDelete
-            val redoingCueDelete = pendingCueDelete != null &&
+            val redoingCueDelete = !redoingCueSplit && pendingCueDelete != null &&
                 pendingCueDelete.generation == anim.storyboard.generation &&
                 pendingCueDelete.undone &&
                 ReverieCoreBridge.undoCount() == pendingCueDelete.undoCountAfter - 1
             Breadcrumbs.record("History", "Redo")
             ReverieCoreBridge.redo()
             didRedo = ReverieCoreBridge.redoCount() != beforeCount
-            if (didRedo && redoingCueDelete) {
+            if (didRedo && redoingCueSplit) {
+                anim.storyboard.allCues = pendingCueSplit.cuesAfter
+                anim.storyboard.cueTimes = pendingCueSplit.timesAfter
+                ReverieCoreBridge.storeRevAsset(SrtStoryboard.ASSET, pendingCueSplit.assetAfter)
+                ReverieCoreBridge.storeRevAsset(
+                    SrtStoryboard.ASSET + ".frames",
+                    SrtStoryboard.encodeFrameTimes(pendingCueSplit.timesAfter),
+                )
+                pendingCueSplit.undone = false
+            } else if (didRedo && redoingCueDelete) {
                 val times = anim.storyboard.cueTimes.toMutableList()
                 if (pendingCueDelete.allIndex in times.indices) {
                     times[pendingCueDelete.allIndex] = -1
