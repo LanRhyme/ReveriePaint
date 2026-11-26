@@ -361,18 +361,37 @@ class SignalingClient(
         pingJob?.cancel()
         pingJob = scope.launch(Dispatchers.IO) {
             while (isActive) {
-                delay(20_000L)
+                delay(KEEPALIVE_INTERVAL_MS)
                 if (webSocket !== ws) break
-                val idleMs = android.os.SystemClock.elapsedRealtime() - lastInboundMs
-                if (lastInboundMs > 0L && idleMs > 35_000L) {
-                    ws.cancel()
-                    break
+                val idleMs = nowMs() - lastInboundMs
+                if (lastInboundMs > 0L && idleMs > KEEPALIVE_IDLE_TIMEOUT_MS) {
+                    // 熄屏/切后台恢复时 elapsedRealtime 会把休眠时长算进 idle,
+                    // 先补发一次 ping 并等 5s 观察窗, 收到 pong 说明连接仍健康, 不误杀
+                    if (!probeAlive(ws)) {
+                        ws.cancel()
+                        break
+                    }
+                    continue
                 }
                 // 文本 "ping" 触发 Cloudflare DO AutoResponse 边缘直接回 "pong", 零计算账单
                 ws.send("ping")
             }
         }
     }
+
+    /** 连接空闲超时后的探活: ping 后最多等 5s, 期间收到任意下行即判定存活 */
+    private suspend fun probeAlive(ws: WebSocket): Boolean {
+        val sentAt = nowMs()
+        if (!ws.send("ping")) return false
+        while (true) {
+            delay(KEEPALIVE_PROBE_POLL_MS)
+            if (webSocket !== ws) return false
+            if (lastInboundMs >= sentAt) return true
+            if (nowMs() - sentAt >= KEEPALIVE_PROBE_WAIT_MS) return false
+        }
+    }
+
+    private fun nowMs(): Long = android.os.SystemClock.elapsedRealtime()
 
     private fun stopKeepAlive() {
         pingJob?.cancel()
@@ -484,5 +503,9 @@ class SignalingClient(
 
     companion object {
         private val JSON_MEDIA_TYPE = "application/json; charset=utf-8".toMediaType()
+        private const val KEEPALIVE_INTERVAL_MS = 20_000L
+        private const val KEEPALIVE_IDLE_TIMEOUT_MS = 35_000L
+        private const val KEEPALIVE_PROBE_WAIT_MS = 5_000L
+        private const val KEEPALIVE_PROBE_POLL_MS = 500L
     }
 }

@@ -4234,6 +4234,9 @@
     <string name="collab_layer_release_shared">释放为公共层</string>
     <string name="collab_snapshot_syncing">正在同步画布快照 %1$d/%2$d…</string>
     <string name="collab_room_closed_msg">房间已关闭</string>
+    <string name="collab_room_expired_msg">房间已达最长有效期，已自动结束，可另建新房继续</string>
+    <string name="collab_kcp_proxy">启用 KCP 加速</string>
+    <string name="collab_kcp_proxy_hint">部分移动网络会限制 UDP，可关闭改走 TCP 中继，下次重连生效</string>
     <string name="collab_kicked_msg">你已被房主移出房间</string>
     <string name="collab_rejected_msg">房主拒绝了你的入房申请</string>
     <string name="collab_host_migrated_msg">原房主离线，%1$s 已接管房主</string>

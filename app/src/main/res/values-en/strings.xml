@@ -4235,6 +4235,9 @@
     <string name="collab_layer_release_shared">Release to Shared</string>
     <string name="collab_snapshot_syncing">Syncing canvas %1$d/%2$d…</string>
     <string name="collab_room_closed_msg">Room was closed</string>
+    <string name="collab_room_expired_msg">Room reached its maximum lifetime and ended, start a new room to continue</string>
+    <string name="collab_kcp_proxy">Enable KCP acceleration</string>
+    <string name="collab_kcp_proxy_hint">Some mobile networks throttle UDP, disable to relay over TCP, applies on reconnect</string>
     <string name="collab_kicked_msg">Removed from room by host</string>
     <string name="collab_rejected_msg">Host declined your join request</string>
     <string name="collab_host_migrated_msg">%1$s took over as host</string>

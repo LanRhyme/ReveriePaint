@@ -64,6 +64,7 @@ import com.reverie.paint.core.refreshPublicCollabRooms
 import com.reverie.paint.core.rejectCollabPeer
 import com.reverie.paint.core.requestEndCollabAndPromptSave
 import com.reverie.paint.core.saveCollabArtwork
+import com.reverie.paint.core.setCollabKcpProxyEnabled
 import com.reverie.paint.core.showActionToast
 import com.reverie.paint.model.CollabConnectionPhase
 import com.reverie.paint.model.CollabNatType
@@ -481,6 +482,22 @@ internal fun CollabLobbyDialog(
                                 visualTransformation = PasswordVisualTransformation(),
                             )
                         }
+                        ReSettingRow(
+                            label = stringResource(R.string.collab_kcp_proxy),
+                            modifier = Modifier
+                                .clip(RoundedCornerShape(Dimens.radiusSm))
+                                .background(colors.panelHi),
+                        ) {
+                            ReSwitch(
+                                checked = vm.collab.kcpProxyEnabled,
+                                onChecked = { vm.setCollabKcpProxyEnabled(it) },
+                            )
+                        }
+                        Text(
+                            text = stringResource(R.string.collab_kcp_proxy_hint),
+                            color = colors.subText,
+                            fontSize = 11.sp,
+                        )
                     }
                 }
             }
@@ -1518,6 +1535,22 @@ internal fun CollabCreateConfigDialog(
                             visualTransformation = PasswordVisualTransformation(),
                         )
                     }
+                    ReSettingRow(
+                        label = stringResource(R.string.collab_kcp_proxy),
+                        modifier = Modifier
+                            .clip(RoundedCornerShape(Dimens.radiusSm))
+                            .background(colors.panelHi),
+                    ) {
+                        ReSwitch(
+                            checked = vm.collab.kcpProxyEnabled,
+                            onChecked = { vm.setCollabKcpProxyEnabled(it) },
+                        )
+                    }
+                    Text(
+                        text = stringResource(R.string.collab_kcp_proxy_hint),
+                        color = colors.subText,
+                        fontSize = 11.sp,
+                    )
                 }
             }
 

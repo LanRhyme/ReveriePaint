@@ -43,10 +43,13 @@ private const val PREF_COLLAB_PEER_ID = "collab_device_peer_id"
 private const val PREF_COLLAB_TURN_URL = "collab_turn_url"
 private const val PREF_COLLAB_TURN_USER = "collab_turn_user"
 private const val PREF_COLLAB_TURN_CRED = "collab_turn_cred"
+private const val PREF_COLLAB_KCP_PROXY = "collab_kcp_proxy"
 
 private const val COLLAB_DRAIN_INTERVAL_MS = 16L
 private const val COLLAB_CURSOR_THROTTLE_MS = 33L
 private const val COLLAB_HOST_OFFLINE_CLAIM_MS = 5600L
+// 国内连 Cloudflare Workers 的 TLS + WS 握手偶尔接近 4~5s, 窗口过短会在刚连上时被自己掐断重拨
+private const val COLLAB_RECONNECT_HANDSHAKE_MS = 12_000L
 
 /**
  * 多人茶绘 (Magma 式 P2P 协同) 的 ViewModel 状态容器。
@@ -64,6 +67,8 @@ internal class CollabSessionState {
     var customTurnUrl by mutableStateOf("")
     var customTurnUsername by mutableStateOf("")
     var customTurnCredential by mutableStateOf("")
+    /** 高级网络: 是否启用 EasyTier KCP 代理 (UDP 被 QoS 限速的网络可关闭改走纯 TCP 中继) */
+    var kcpProxyEnabled by mutableStateOf(true)
     var requireApproval by mutableStateOf(false)
     var maxPeers by mutableIntStateOf(10)
     var isPublicRoom by mutableStateOf(false)
@@ -133,6 +138,7 @@ internal fun PaintViewModel.ensureCollabPrefsLoaded() {
     collab.customTurnUrl = prefs.getString(PREF_COLLAB_TURN_URL, null).orEmpty().trim()
     collab.customTurnUsername = prefs.getString(PREF_COLLAB_TURN_USER, null).orEmpty().trim()
     collab.customTurnCredential = prefs.getString(PREF_COLLAB_TURN_CRED, null).orEmpty()
+    collab.kcpProxyEnabled = prefs.getBoolean(PREF_COLLAB_KCP_PROXY, true)
 
     var peerId = prefs.getString(PREF_COLLAB_PEER_ID, null).orEmpty().trim()
     if (peerId.isBlank()) {
@@ -166,6 +172,18 @@ internal fun PaintViewModel.saveCollabIdentityPrefs(
             .putString(PREF_COLLAB_TURN_USER, cleanTurnUser)
             .putString(PREF_COLLAB_TURN_CRED, turnCredential)
             .apply()
+    }
+}
+
+/**
+ * 高级网络: 切换 EasyTier KCP 代理开关 (下一次建立/重建网络时生效)。
+ * 默认开启; 移动网络对 UDP 做 QoS 限速时关闭可改走纯 TCP 中继。
+ */
+internal fun PaintViewModel.setCollabKcpProxyEnabled(enabled: Boolean) {
+    if (collab.kcpProxyEnabled == enabled) return
+    collab.kcpProxyEnabled = enabled
+    if (isAppContextReady()) {
+        prefs.edit().putBoolean(PREF_COLLAB_KCP_PROXY, enabled).apply()
     }
 }
 
@@ -217,6 +235,8 @@ private fun PaintViewModel.buildEffectiveTransportConfigJson(
             return
         }
         val uri = if ("://" in trimmed) trimmed else "tcp://$trimmed"
+        // 关闭 KCP 加速时剔除 UDP 中继, 让受限网络真正走纯 TCP 连接
+        if (!collab.kcpProxyEnabled && uri.startsWith("udp://", ignoreCase = true)) return
         if (seenRelays.add(uri)) relays.put(uri)
     }
     root.optJSONArray("relayPeers")?.let { arr ->
@@ -239,7 +259,7 @@ private fun PaintViewModel.buildEffectiveTransportConfigJson(
         stuns.put("txt:stun.easytier.cn")
         root.put("stunServers", stuns)
     }
-    root.put("enableKcpProxy", true)
+    root.put("enableKcpProxy", collab.kcpProxyEnabled)
     root.put("latencyFirst", true)
     return root.toString()
 }
@@ -618,7 +638,7 @@ private fun PaintViewModel.scheduleAutoReconnect(gen: Long) {
                 listener = buildSignalingListener(gen),
             )
             // 等待本次建连落地或下次超时重拨
-            delay(4500L)
+            delay(COLLAB_RECONNECT_HANDSHAKE_MS)
             if (collab.phase == CollabConnectionPhase.CONNECTED) break
         }
     }
@@ -971,7 +991,12 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
         override fun onRoomClosed(reason: String) {
             mainHandler.post {
                 if (collab.sessionGeneration != gen) return@post
-                onCollabSessionEndedPromptSave(toastRes = R.string.collab_room_closed_msg)
+                val toastRes = if (reason == "expired") {
+                    R.string.collab_room_expired_msg
+                } else {
+                    R.string.collab_room_closed_msg
+                }
+                onCollabSessionEndedPromptSave(toastRes = toastRes)
             }
         }
 
@@ -1016,6 +1041,14 @@ private fun PaintViewModel.buildSignalingListener(gen: Long): SignalingEventList
         override fun onSocketClosed(code: Int, reason: String) {
             mainHandler.post {
                 if (collab.sessionGeneration != gen || !collab.isActive || collab.intentionalLeave) return@post
+                if (code == 4004) {
+                    // 房间已达最长有效期或被判定空闲过期, 明示原因并结束会话, 不再盲目重连
+                    val detail = getString(R.string.collab_room_expired_msg)
+                    onCollabSessionEndedPromptSave(toastRes = R.string.collab_room_expired_msg)
+                    collab.phase = CollabConnectionPhase.ERROR
+                    collab.statusMessage = detail
+                    return@post
+                }
                 if (code != 1000 && code != 4000 && code != 4003 && code != 4005) {
                     scheduleAutoReconnect(gen)
                 }
