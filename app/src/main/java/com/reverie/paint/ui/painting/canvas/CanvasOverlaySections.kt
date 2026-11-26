@@ -109,6 +109,8 @@ internal class SelectionOverlayCache {
     val selSrcRect = android.graphics.Rect()
     val inProgressClosedPath = Path()
     val inProgressRectF = android.graphics.RectF()
+    // 逆选预览的差集路径 (android.graphics.Path.op 自 API 19 可用, 兼容 minSdk 23)
+    val inverseClipPath = android.graphics.Path()
     val multiLassoPath = Path()
     val multiLassoClosedPath = Path()
 }
@@ -1023,12 +1025,10 @@ private fun DrawScope.drawSelectionZebraMask(
             when (vm.selectionMode) {
                 0, 1 -> nativeCanvas.drawPath(path.asAndroidPath(), cache.clearPaint)
                 2 -> nativeCanvas.drawPath(path.asAndroidPath(), cache.zebraPaint)
-                3 -> {
-                    nativeCanvas.save()
-                    nativeCanvas.clipOutPath(path.asAndroidPath())
-                    nativeCanvas.drawRect(visLeft, visTop, visRight, visBottom, cache.zebraPaint)
-                    nativeCanvas.restore()
-                }
+                3 -> drawZebraOutsidePath(
+                    nativeCanvas, path.asAndroidPath(),
+                    visLeft, visTop, visRight, visBottom, cache,
+                )
             }
         }
 
@@ -1070,12 +1070,10 @@ private fun DrawScope.drawSelectionZebraMask(
                 when (vm.selectionMode) {
                     0, 1 -> nativeCanvas.drawRect(cache.inProgressRectF, cache.clearPaint)
                     2 -> nativeCanvas.drawRect(cache.inProgressRectF, cache.zebraPaint)
-                    3 -> {
-                        nativeCanvas.save()
-                        nativeCanvas.clipOutRect(cache.inProgressRectF)
-                        nativeCanvas.drawRect(visLeft, visTop, visRight, visBottom, cache.zebraPaint)
-                        nativeCanvas.restore()
-                    }
+                    3 -> drawZebraOutsideRect(
+                        nativeCanvas, cache.inProgressRectF,
+                        visLeft, visTop, visRight, visBottom, cache,
+                    )
                 }
             }
             tool == Tool.SELECT_ELLIPSE && liveShapeStart.value != null && liveShapeEnd.value != null -> {
@@ -1089,19 +1087,77 @@ private fun DrawScope.drawSelectionZebraMask(
                 when (vm.selectionMode) {
                     0, 1 -> nativeCanvas.drawOval(cache.inProgressRectF, cache.clearPaint)
                     2 -> nativeCanvas.drawOval(cache.inProgressRectF, cache.zebraPaint)
-                    3 -> {
-                        cache.inProgressClosedPath.reset()
-                        cache.inProgressClosedPath.addOval(Rect(rLeft, rTop, rRight, rBottom))
-                        nativeCanvas.save()
-                        nativeCanvas.clipOutPath(cache.inProgressClosedPath.asAndroidPath())
-                        nativeCanvas.drawRect(visLeft, visTop, visRight, visBottom, cache.zebraPaint)
-                        nativeCanvas.restore()
-                    }
+                    3 -> drawZebraOutsideOval(
+                        nativeCanvas, rLeft, rTop, rRight, rBottom,
+                        visLeft, visTop, visRight, visBottom, cache,
+                    )
                 }
             }
         }
     }
     nativeCanvas.restoreToCount(saveCount)
+}
+
+/**
+ * 逆选预览: 用「视口矩形减去选区」的差集路径直接填充斑马纹。
+ * Canvas.clipOutPath / clipOutRect 需要 API 26, 这里改用路径填充规则与 Path.op, 兼容 minSdk 23。
+ */
+private fun drawZebraOutsideRect(
+    nativeCanvas: android.graphics.Canvas,
+    holeRect: android.graphics.RectF,
+    visLeft: Float,
+    visTop: Float,
+    visRight: Float,
+    visBottom: Float,
+    cache: SelectionOverlayCache,
+) {
+    val out = cache.inverseClipPath
+    out.reset()
+    out.addRect(visLeft, visTop, visRight, visBottom, android.graphics.Path.Direction.CW)
+    // 反向绕行挖洞 (nonzero 填充), 无需求布尔运算
+    out.addRect(holeRect, android.graphics.Path.Direction.CCW)
+    nativeCanvas.drawPath(out, cache.zebraPaint)
+}
+
+/** 逆选预览: 椭圆选区的差集填充 */
+private fun drawZebraOutsideOval(
+    nativeCanvas: android.graphics.Canvas,
+    left: Float,
+    top: Float,
+    right: Float,
+    bottom: Float,
+    visLeft: Float,
+    visTop: Float,
+    visRight: Float,
+    visBottom: Float,
+    cache: SelectionOverlayCache,
+) {
+    val out = cache.inverseClipPath
+    out.reset()
+    out.addRect(visLeft, visTop, visRight, visBottom, android.graphics.Path.Direction.CW)
+    out.addOval(left, top, right, bottom, android.graphics.Path.Direction.CCW)
+    nativeCanvas.drawPath(out, cache.zebraPaint)
+}
+
+/** 逆选预览: 任意多边形/套索选区的差集填充 (自交路径交给 Path.op 精确求解) */
+private fun drawZebraOutsidePath(
+    nativeCanvas: android.graphics.Canvas,
+    hole: android.graphics.Path,
+    visLeft: Float,
+    visTop: Float,
+    visRight: Float,
+    visBottom: Float,
+    cache: SelectionOverlayCache,
+) {
+    val out = cache.inverseClipPath
+    out.reset()
+    out.addRect(visLeft, visTop, visRight, visBottom, android.graphics.Path.Direction.CW)
+    if (!out.op(hole, android.graphics.Path.Op.DIFFERENCE)) {
+        // 极端自交路径差集失败时退回整幅斑马纹, 至少保留预览反馈
+        nativeCanvas.drawRect(visLeft, visTop, visRight, visBottom, cache.zebraPaint)
+        return
+    }
+    nativeCanvas.drawPath(out, cache.zebraPaint)
 }
 
 private fun DrawScope.drawSelectionOutlineAndLivePath(
