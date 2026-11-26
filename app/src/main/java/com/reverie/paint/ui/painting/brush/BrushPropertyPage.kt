@@ -29,7 +29,6 @@ import androidx.compose.ui.unit.sp
 import com.reverie.paint.R
 import com.reverie.paint.core.*
 import com.reverie.paint.core.brushstore.BrushCompositeIds
-import com.reverie.paint.core.brushstore.ControlId
 import com.reverie.paint.ui.components.*
 import com.reverie.paint.ui.theme.Morandi
 
@@ -285,37 +284,6 @@ fun BrushPropertyPage(
                     labelFontSize = 12.sp,
                     onClick = { showBlendPicker = true },
                 )
-
-                StudioSwitchItem(
-                    label = stringResource(R.string.brush_studio_eraser_mode),
-                    checked = vm.brushEraserMode,
-                    textMain = Morandi.text,
-                    labelFontSize = 12.sp,
-                ) { vm.updateBrushEraserMode(it) }
-
-                StudioGated(studioGateReason(vm, ControlId.PAINTING_MODE), Morandi.subText) {
-                    Column(verticalArrangement = Arrangement.spacedBy(3.dp)) {
-                        StudioSegmentedRow(
-                            label = stringResource(R.string.brush_studio_painting_mode),
-                            options = listOf(
-                                2 to stringResource(R.string.brush_studio_painting_wash),
-                                1 to stringResource(R.string.brush_studio_painting_buildup),
-                            ),
-                            selected = if (vm.brushMaskingEnabled) 2 else vm.brushPaintingMode,
-                            enabled = !vm.brushMaskingEnabled,
-                            trackColor = Morandi.panel,
-                            labelFontSize = 12.sp,
-                            onSelect = { vm.updateBrushPaintingMode(it) },
-                        )
-                        if (vm.brushMaskingEnabled) {
-                            Text(
-                                text = stringResource(R.string.brush_studio_painting_masking_locked),
-                                color = Morandi.subText,
-                                fontSize = 10.5.sp,
-                            )
-                        }
-                    }
-                }
             }
 
             // Card 2: 笔尖几何
@@ -337,14 +305,6 @@ fun BrushPropertyPage(
                     max = 1.0,
                     unit = ParamUnit.PERCENT,
                 ) { vm.updateBrushRatio(it) }
-
-                ModernParamSlider(
-                    label = stringResource(R.string.brush_param_softness),
-                    value = vm.brushSoftness,
-                    min = 0.1,
-                    max = 1.0,
-                    unit = ParamUnit.PERCENT,
-                ) { vm.updateBrushSoftness(it) }
 
                 ModernParamSlider(
                     label = stringResource(R.string.brush_param_angle),

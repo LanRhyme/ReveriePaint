@@ -53,11 +53,11 @@ if [ "$TARGET_ABI" = "armeabi-v7a" ]; then
 		exit 1
 	fi
 
-	echo "== 1/4 同步 Krita 静态库 (defaultpaintops) =="
-	# libkritadefaultpaintops_static.a 被直接链进 libreverie_core.so。
+	echo "== 1/4 同步 Krita 静态库 (defaultpaintops & colorspaceextensions) =="
+	# libkritadefaultpaintops_static.a / libkrita_colorspaces_extensions_static.a 被直接链进 libreverie_core.so。
 	# 它若比源码旧 (Krita 同步后忘了重编), 链接期会冒出
 	# "undefined symbol: KisPaintOpSettingsWidget::setImage" 这类假故障。
-	cmake --build "$KRITA_BIN" --target kritadefaultpaintops_static -j "$(nproc)"
+	cmake --build "$KRITA_BIN" --target kritadefaultpaintops_static krita_colorspaces_extensions_static -j "$(nproc)"
 
 	echo "== 2/4 configure (armeabi-v7a / NDK toolchain) =="
 	cmake -S app/src/main/cpp -B "$BUILD_DIR" -G Ninja \

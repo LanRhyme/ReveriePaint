@@ -140,7 +140,9 @@ import kotlinx.coroutines.Job
         val opt = brushDynamicOptions["h"]
         if (v > 1e-4) {
             if (opt?.enabled != true) {
-                brushDynamicOptions["h"] = (opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("h")).copy(enabled = true, sensorId = "fuzzy")
+                val base = opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("h")
+                val strength = if (base.strength > 0.001f) base.strength else 1.0f
+                brushDynamicOptions["h"] = base.copy(enabled = true, sensorId = "fuzzy", strength = strength)
             }
         } else if (opt?.enabled == true && opt.sensorId == "fuzzy") {
             brushDynamicOptions["h"] = opt.copy(enabled = false)
@@ -153,7 +155,9 @@ import kotlinx.coroutines.Job
         val opt = brushDynamicOptions["s"]
         if (v > 1e-4) {
             if (opt?.enabled != true) {
-                brushDynamicOptions["s"] = (opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("s")).copy(enabled = true, sensorId = "fuzzy")
+                val base = opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("s")
+                val strength = if (base.strength > 0.001f) base.strength else 1.0f
+                brushDynamicOptions["s"] = base.copy(enabled = true, sensorId = "fuzzy", strength = strength)
             }
         } else if (opt?.enabled == true && opt.sensorId == "fuzzy") {
             brushDynamicOptions["s"] = opt.copy(enabled = false)
@@ -166,7 +170,9 @@ import kotlinx.coroutines.Job
         val opt = brushDynamicOptions["v"]
         if (v > 1e-4) {
             if (opt?.enabled != true) {
-                brushDynamicOptions["v"] = (opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("v")).copy(enabled = true, sensorId = "fuzzy")
+                val base = opt ?: com.reverie.paint.model.DynamicOptionConfig.defaultFor("v")
+                val strength = if (base.strength > 0.001f) base.strength else 1.0f
+                brushDynamicOptions["v"] = base.copy(enabled = true, sensorId = "fuzzy", strength = strength)
             }
         } else if (opt?.enabled == true && opt.sensorId == "fuzzy") {
             brushDynamicOptions["v"] = opt.copy(enabled = false)

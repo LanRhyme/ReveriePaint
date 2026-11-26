@@ -306,6 +306,12 @@ internal fun TipTabContent(
                         textMain = textMain,
                         textSub = textSub,
                     ) { vm.updateBrushSoftness(it) }
+                    Text(
+                        text = stringResource(R.string.brush_studio_tip_softness_hint),
+                        color = textSub,
+                        fontSize = 10.5.sp,
+                        modifier = Modifier.padding(top = 1.dp, bottom = 2.dp),
+                    )
                     StudioSliderItem(
                         label = stringResource(R.string.brush_studio_tip_density),
                         value = vm.brushTipDensity,
@@ -834,16 +840,20 @@ internal fun DynamicsTabContent(
             title = stringResource(R.string.brush_studio_dyn_ratio),
         )
         StudioInnerDivider()
-        BrushDynamicCurveEditor(
-            config = vm.getBrushDynamicOption("Softness"),
-            onConfigChange = { vm.updateBrushDynamicOption(it) },
-            cardBg = cardBg,
-            borderCol = borderCol,
-            textMain = textMain,
-            textSub = textSub,
-            liveInput = vm.scratchpadLiveInput,
-            title = stringResource(R.string.brush_studio_dyn_softness),
-        )
+        val softnessGate = studioGateReason(vm, ControlId.CURVE_SOFTNESS)
+            ?: if (vm.brushTipAsset.isNotBlank()) stringResource(R.string.brush_gate_auto_tip_only) else null
+        StudioGated(softnessGate, textSub) {
+            BrushDynamicCurveEditor(
+                config = vm.getBrushDynamicOption("Softness"),
+                onConfigChange = { vm.updateBrushDynamicOption(it) },
+                cardBg = cardBg,
+                borderCol = borderCol,
+                textMain = textMain,
+                textSub = textSub,
+                liveInput = vm.scratchpadLiveInput,
+                title = stringResource(R.string.brush_studio_dyn_softness),
+            )
+        }
         StudioInnerDivider()
         BrushDynamicCurveEditor(
             config = vm.getBrushDynamicOption("Sharpness"),

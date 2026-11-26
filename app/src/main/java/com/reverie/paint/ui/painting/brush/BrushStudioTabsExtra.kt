@@ -818,15 +818,23 @@ internal fun MaskingTabContent(
                 textMain = textMain,
                 textSub = textSub,
             ) { vm.updateBrushMaskingSpacing(it) }
-            StudioSliderItem(
-                label = stringResource(R.string.brush_studio_masking_softness),
-                value = vm.brushMaskingSoftness,
-                min = 0.0,
-                max = 1.0,
-                isPercent = true,
-                textMain = textMain,
-                textSub = textSub,
-            ) { vm.updateBrushMaskingSoftness(it) }
+            val isAutoMaskingTip = vm.brushMaskingTipAsset.isBlank()
+            StudioGated(
+                if (isAutoMaskingTip) null else stringResource(R.string.brush_gate_auto_tip_only),
+                textSub,
+            ) {
+                StudioSliderItem(
+                    label = stringResource(
+                        if (isAutoMaskingTip) R.string.brush_studio_masking_fade else R.string.brush_studio_masking_softness,
+                    ),
+                    value = vm.brushMaskingSoftness,
+                    min = 0.0,
+                    max = 1.0,
+                    isPercent = true,
+                    textMain = textMain,
+                    textSub = textSub,
+                ) { vm.updateBrushMaskingSoftness(it) }
+            }
             StudioSliderItem(
                 label = stringResource(R.string.brush_studio_masking_angle),
                 value = vm.brushMaskingAngle,

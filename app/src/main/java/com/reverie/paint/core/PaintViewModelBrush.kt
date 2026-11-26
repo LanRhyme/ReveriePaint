@@ -496,9 +496,27 @@ import kotlinx.coroutines.withContext
 
     /** Check if the current brush has changes compared to the studio initial snapshot */
     internal fun PaintViewModel.hasBrushStudioChanges(): Boolean {
+        @Suppress("UNUSED_VARIABLE")
+        val epoch = brushModifiedEpoch
+        @Suppress("UNUSED_VARIABLE")
+        val liveParams = brushParams
+        @Suppress("UNUSED_VARIABLE")
+        val liveToolStates = toolBrushStates
         val preset = brushPresets.firstOrNull { it.index == brushPresetIndex } ?: return false
         val initial = brushStudioInitial ?: return false
-        return BrushStoreVm.studioChanged(preset.id, initial, toolBrushStates)
+        return BrushStoreVm.studioChanged(preset.id, initial, liveToolStates)
+    }
+
+    /** Flush any pending debounced studio edits immediately before leaving or switching presets */
+    internal fun PaintViewModel.flushBrushStudioChanges() {
+        val preset = brushPresets.firstOrNull { it.index == brushPresetIndex }
+        if (preset != null) {
+            BrushStoreVm.flushNow(preset.id, this)
+        } else {
+            BrushStoreVm.flushAllPending()
+        }
+        persistToolBrushStates()
+        persistBrushPanelState()
     }
 
     /** Revert parameters (overrides + this tool's size/opacity/flow memory) to the state when Brush Studio was entered */

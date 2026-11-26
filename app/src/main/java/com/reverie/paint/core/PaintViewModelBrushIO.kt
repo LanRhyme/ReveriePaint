@@ -254,8 +254,8 @@ import kotlinx.coroutines.withContext
         return true
     }
 
-    /** 导入用户自定义笔尖贴图 (PNG, GBR, GIH, JPG) 并设置为当前笔刷笔尖 */
-    internal fun PaintViewModel.importCustomBrushTip(uri: android.net.Uri): String? {
+    /** 导入用户自定义笔尖贴图 (PNG, GBR, GIH, JPG) 并按需设为当前笔刷笔尖 */
+    internal fun PaintViewModel.importCustomBrushTip(uri: android.net.Uri, assignToMainTip: Boolean = true): String? {
         return try {
             val resolver = appContext.contentResolver
             val rawName = runCatching {
@@ -291,7 +291,9 @@ import kotlinx.coroutines.withContext
                 val ref = store.register(pngBytes, com.reverie.paint.core.brushstore.ResourceStore.Kind.TIP, "$baseName.png")
                 cleanName = ref.file
             }
-            updateBrushTipAsset(cleanName)
+            if (assignToMainTip) {
+                updateBrushTipAsset(cleanName)
+            }
             cleanName
         } catch (t: Throwable) {
             android.util.Log.e("ReveriePaint", "importCustomBrushTip failed", t)
@@ -299,8 +301,8 @@ import kotlinx.coroutines.withContext
         }
     }
 
-    /** 导入用户自定义材质纹理贴图 (.pat, .png, .jpg) 并设置为当前笔刷纹理 */
-    internal fun PaintViewModel.importCustomPattern(uri: android.net.Uri): String? {
+    /** 导入用户自定义材质纹理贴图 (.pat, .png, .jpg) 并按需设为当前笔刷纹理 */
+    internal fun PaintViewModel.importCustomPattern(uri: android.net.Uri, assignToTexture: Boolean = true): String? {
         return try {
             val resolver = appContext.contentResolver
             val rawName = runCatching {
@@ -335,7 +337,9 @@ import kotlinx.coroutines.withContext
                 val ref = store.register(pngBytes, com.reverie.paint.core.brushstore.ResourceStore.Kind.PATTERN, "$baseName.png")
                 cleanName = ref.file
             }
-            updateBrushTexturePattern(cleanName)
+            if (assignToTexture) {
+                updateBrushTexturePattern(cleanName)
+            }
             cleanName
         } catch (t: Throwable) {
             android.util.Log.e("ReveriePaint", "importCustomPattern failed", t)

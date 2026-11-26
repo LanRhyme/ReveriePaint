@@ -1591,6 +1591,7 @@ void krita_register_tangentnormal_paintop();
 void krita_register_hairy_paintop();
 void krita_register_hatching_paintop();
 void krita_register_mypaint_paintop();
+void krita_register_colorspaces_extensions();
 class KisPaintOpPreset;
 KisPaintOpPreset* krita_create_mypaint_preset(const QString &fileName);
 }

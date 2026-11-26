@@ -58,7 +58,7 @@ data class ScratchPoint(
     val timeMs: Long = 0L,
 )
 
-private data class ScratchStroke(
+internal data class ScratchStroke(
     val color: String,
     val points: List<ScratchPoint>,
 )
@@ -511,13 +511,50 @@ internal fun ScratchpadCanvas(
     }
 }
 
+@Stable
+internal class ScratchpadSessionState(initialColor: String) {
+    val strokes = mutableStateListOf<ScratchStroke>()
+    var bgMode by mutableIntStateOf(0)
+    var scratchColor by mutableStateOf(initialColor)
+}
+
 /**
- * 完整高内聚的试画板面板：内置离线 C++ 渲染调度、手势下发、撤销、清空与缩略图提取
+ * 双缓冲与 3 帧冷却环形显示池：engineBitmap 只在渲染线程由 C++ 增量脏区写入；
+ * 每次读回后通过 SRC 模式拷入下一个显示槽位，确保 UI/HWUI RenderThread 与引擎零竞争。
+ */
+private class ScratchpadRenderBuffers(val width: Int, val height: Int) {
+    val engineBitmap: Bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888)
+    private val displayRing = Array(3) { Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888) }
+    private var slotIndex = 0
+    private val srcCopyPaint = android.graphics.Paint().apply {
+        xfermode = android.graphics.PorterDuffXfermode(android.graphics.PorterDuff.Mode.SRC)
+    }
+
+    /** 仅在渲染线程调用：把 engineBitmap 当前帧像素完整拷入下一空闲展示槽位 */
+    fun snapshotToDisplaySlot(): Bitmap {
+        val dst = displayRing[slotIndex]
+        slotIndex = (slotIndex + 1) % displayRing.size
+        android.graphics.Canvas(dst).drawBitmap(engineBitmap, 0f, 0f, srcCopyPaint)
+        return dst
+    }
+
+    /** 仅在确定 UI/HWUI 不再持有旧帧引用后于渲染线程释放 */
+    fun recycleAll() {
+        if (!engineBitmap.isRecycled) engineBitmap.recycle()
+        for (bmp in displayRing) {
+            if (!bmp.isRecycled) bmp.recycle()
+        }
+    }
+}
+
+/**
+ * 完整高内聚的试画板面板：内置离线 C++ 渲染调度、双缓冲读写隔离、手势下发、撤销、清空与缩略图提取
  */
 @Composable
 internal fun BrushStudioScratchpadPanel(
     vm: PaintViewModel,
     modifier: Modifier = Modifier,
+    session: ScratchpadSessionState = remember(vm.brushColor) { ScratchpadSessionState(vm.brushColor) },
     isCollapsible: Boolean = false,
     isExpanded: Boolean = true,
     onToggleExpanded: () -> Unit = {},
@@ -526,12 +563,10 @@ internal fun BrushStudioScratchpadPanel(
 ) {
     val context = LocalContext.current
     var canvasSize by remember { mutableStateOf(IntSize.Zero) }
-    var scratchBitmap by remember { mutableStateOf<Bitmap?>(null) }
-    val strokes = remember { mutableStateListOf<ScratchStroke>() }
+    var renderBuffers by remember { mutableStateOf<ScratchpadRenderBuffers?>(null) }
+    var publishedBitmap by remember { mutableStateOf<Bitmap?>(null) }
     val currentStroke = remember { mutableListOf<ScratchPoint>() }
     var renderTick by remember { mutableIntStateOf(0) }
-    var bgMode by remember { mutableIntStateOf(0) }
-    var scratchColor by remember { mutableStateOf(vm.brushColor) }
     var isDrawing by remember { mutableStateOf(false) }
     val smoothSession = remember { ScratchpadSmoothSession() }
 
@@ -542,14 +577,19 @@ internal fun BrushStudioScratchpadPanel(
         ScratchpadRenderCoalescer(
             postFrame = frameDispatcher::post,
             enqueueRender = { onDone ->
-                // VSync 合帧后统一读回: bmp 在主线程快照, JNI 在渲染线程执行
-                val bmp = scratchBitmap
+                // VSync 合帧后统一读回: 双缓冲快照仅在渲染线程写入, 发布后交由主线程展示
+                val bufs = renderBuffers
+                var nextFrame: Bitmap? = null
                 vm.runCore(render = false, after = {
-                    renderTick++
+                    if (nextFrame != null && renderBuffers === bufs) {
+                        publishedBitmap = nextFrame
+                        renderTick++
+                    }
                     onDone()
                 }) {
-                    if (bmp != null && !bmp.isRecycled) {
-                        ReverieCoreBridge.scratchpadRender(bmp)
+                    if (bufs != null && !bufs.engineBitmap.isRecycled) {
+                        ReverieCoreBridge.scratchpadRender(bufs.engineBitmap)
+                        nextFrame = bufs.snapshotToDisplaySlot()
                     }
                 }
             },
@@ -559,7 +599,7 @@ internal fun BrushStudioScratchpadPanel(
     val thumbnailUpdatedToast = stringResource(R.string.brush_studio_toast_thumbnail_updated)
 
     DisposableEffect(Unit) {
-        val initColor = scratchColor
+        val initColor = session.scratchColor
         vm.runCore(render = false) {
             runCatching { ReverieCoreBridge.setBrushColor(initColor) }
         }
@@ -567,12 +607,14 @@ internal fun BrushStudioScratchpadPanel(
             // 先撤掉挂起的 VSync 回调并停用合帧器, 防止销毁后仍触发读回/空转调度
             frameDispatcher.cancel()
             renderCoalescer.dispose()
-            // runCore 只入队。bitmap 要等 scratchpadEnd 的 after 再回收，否则渲染线程会画到已回收的 bitmap。
-            val bmp = scratchBitmap
-            scratchBitmap = null
-            val restoreColor = vm.brushColor
-            vm.runCore(render = false, after = { bmp?.recycle() }) {
-                runCatching { ReverieCoreBridge.setBrushColor(restoreColor) }
+            vm.scratchpadLiveInput = -1f
+            vm.scratchpadLiveOutput = -1f
+            // runCore 只入队。双缓冲全部等 scratchpadEnd 结束后在 after 回调内安全回收
+            val bufs = renderBuffers
+            renderBuffers = null
+            publishedBitmap = null
+            vm.runCore(render = false, after = { bufs?.recycleAll() }) {
+                runCatching { ReverieCoreBridge.setBrushColor(vm.brushColor) }
                 ReverieCoreBridge.scratchpadEnd()
             }
         }
@@ -580,15 +622,21 @@ internal fun BrushStudioScratchpadPanel(
 
     // 重放已有笔画至 C++ 试画板。strokes 在主线程快照；JNI 在渲染线程。
     // 直通录制时的真实物理压感与倾角，彻底清退人造假斜坡与假倾角伪算法。
-    fun replayStrokesOnEngine(bmp: Bitmap) {
-        val snapshot = strokes.map { ScratchStroke(it.color, it.points.toList()) }
-        val activeColor = scratchColor
+    fun replayStrokesOnEngine(bufs: ScratchpadRenderBuffers) {
+        val snapshot = session.strokes.map { ScratchStroke(it.color, it.points.toList()) }
+        val activeColor = session.scratchColor
+        val secColor = vm.brushSecondaryColor
         val directToken = renderCoalescer.newDirectRenderToken()
+        var nextFrame: Bitmap? = null
         vm.runCore(render = false, after = {
-            renderTick++
+            if (nextFrame != null && renderBuffers === bufs) {
+                publishedBitmap = nextFrame
+                renderTick++
+            }
             // 重放批次末尾已同步渲染; 按代际票据消费待渲染标记, 不吞入队后新请求
             renderCoalescer.onDirectRenderCompleted(directToken)
         }) {
+            runCatching { ReverieCoreBridge.setBrushSecondaryColor(secColor) }
             ReverieCoreBridge.scratchpadClear()
             for (stroke in snapshot) {
                 val pts = stroke.points
@@ -612,29 +660,59 @@ internal fun BrushStudioScratchpadPanel(
                 ReverieCoreBridge.scratchpadStrokeEnd()
             }
             runCatching { ReverieCoreBridge.setBrushColor(activeColor) }
-            if (!bmp.isRecycled) {
-                bmp.eraseColor(0)
-                ReverieCoreBridge.scratchpadRender(bmp)
+            if (!bufs.engineBitmap.isRecycled) {
+                bufs.engineBitmap.eraseColor(0)
+                ReverieCoreBridge.scratchpadRender(bufs.engineBitmap)
+                nextFrame = bufs.snapshotToDisplaySlot()
             }
         }
     }
 
-    // 5B: REBUILD 类滑块防抖落盘重载（BrushStoreVm.flush → reload → notifyBrushModified）后，
-    // 自动把已有笔画用新参数全量重放（先 clear 再逐笔，幂等）。
-    // lastHandledEpoch 初始 -1 哨兵：首次组合不触发（进入面板时 epoch 可能已非 0）；
-    // isDrawing 为 true 时先不标记，待其变 false 后本 effect 重跑补放，避免重放与正在画的笔画交错。
-    var lastHandledEpoch by remember { mutableLongStateOf(-1L) }
-    LaunchedEffect(vm.brushModifiedEpoch, isDrawing) {
-        val epoch = vm.brushModifiedEpoch
-        if (lastHandledEpoch == -1L) {
-            lastHandledEpoch = epoch
+    fun clearScratchpad(force: Boolean = false) {
+        if (!force && session.strokes.isEmpty() && currentStroke.isEmpty()) return
+        session.strokes.clear()
+        currentStroke.clear()
+        smoothSession.reset()
+        val bufs = renderBuffers
+        val activeColor = session.scratchColor
+        val directToken = renderCoalescer.newDirectRenderToken()
+        var nextFrame: Bitmap? = null
+        vm.runCore(render = false, after = {
+            if (nextFrame != null && renderBuffers === bufs) {
+                publishedBitmap = nextFrame
+                renderTick++
+            }
+            renderCoalescer.onDirectRenderCompleted(directToken)
+        }) {
+            runCatching { ReverieCoreBridge.setBrushColor(activeColor) }
+            ReverieCoreBridge.scratchpadClear()
+            if (bufs != null && !bufs.engineBitmap.isRecycled) {
+                bufs.engineBitmap.eraseColor(0)
+                nextFrame = bufs.snapshotToDisplaySlot()
+            }
+        }
+    }
+
+    // 参数或预设变化时立即清空试画板，避免滑块拖动期间反复重渲染旧笔迹；
+    // 首次挂载跳过（折叠重展开或尺寸变更走 onSizeChanged 恢复已有笔迹）。
+    var paramWatchInitialized by remember { mutableStateOf(false) }
+    LaunchedEffect(
+        vm.brushModifiedEpoch,
+        vm.brushParams,
+        vm.brushSize,
+        vm.brushOpacity,
+        vm.brushFlow,
+        vm.brushAngle,
+        vm.brushRotation,
+        vm.brushSecondaryColor,
+        vm.currentToolId,
+    ) {
+        if (!paramWatchInitialized) {
+            paramWatchInitialized = true
             return@LaunchedEffect
         }
-        if (epoch == lastHandledEpoch || isDrawing) return@LaunchedEffect
-        lastHandledEpoch = epoch
-        val bmp = scratchBitmap
-        if (strokes.isNotEmpty() && bmp != null && !bmp.isRecycled) {
-            replayStrokesOnEngine(bmp)
+        if (!isDrawing) {
+            clearScratchpad()
         }
     }
 
@@ -670,15 +748,15 @@ internal fun BrushStudioScratchpadPanel(
                 R.drawable.ic_undo,
                 stringResource(R.string.brush_studio_scratchpad_undo),
                 onTap = {
-                    if (strokes.isNotEmpty()) {
-                        strokes.removeAt(strokes.lastIndex)
-                        val bmp = scratchBitmap
-                        if (bmp != null && !bmp.isRecycled) {
-                            replayStrokesOnEngine(bmp)
+                    if (session.strokes.isNotEmpty()) {
+                        session.strokes.removeAt(session.strokes.lastIndex)
+                        val bufs = renderBuffers
+                        if (bufs != null) {
+                            replayStrokesOnEngine(bufs)
                         }
                     }
                 },
-                tint = if (strokes.isNotEmpty()) Morandi.text else Morandi.subText.copy(alpha = 0.35f),
+                tint = if (session.strokes.isNotEmpty()) Morandi.text else Morandi.subText.copy(alpha = 0.35f),
                 iconSize = 15.dp,
                 size = 30.dp,
             )
@@ -687,37 +765,27 @@ internal fun BrushStudioScratchpadPanel(
             ReIconButton(
                 R.drawable.ic_trash,
                 stringResource(R.string.brush_studio_scratchpad_clear),
-                onTap = {
-                    strokes.clear()
-                    currentStroke.clear()
-                    val bmp = scratchBitmap
-                    vm.runCore(render = false, after = { renderTick++ }) {
-                        ReverieCoreBridge.scratchpadClear()
-                        if (bmp != null && !bmp.isRecycled) {
-                            bmp.eraseColor(0)
-                        }
-                    }
-                },
-                tint = if (strokes.isNotEmpty()) Morandi.text else Morandi.subText.copy(alpha = 0.35f),
+                onTap = { clearScratchpad(force = true) },
+                tint = if (session.strokes.isNotEmpty()) Morandi.text else Morandi.subText.copy(alpha = 0.35f),
                 iconSize = 15.dp,
                 size = 30.dp,
             )
 
             // 背景 3 态切换：棋盘格 / 白色 / 深色 (#24262B)
             ReIconButton(
-                when (bgMode) {
+                when (session.bgMode) {
                     0 -> R.drawable.ic_grid
                     1 -> R.drawable.ic_sun
                     else -> R.drawable.ic_moon
                 },
                 stringResource(
-                    when (bgMode) {
+                    when (session.bgMode) {
                         0 -> R.string.scratchpad_bg_solid
                         1 -> R.string.scratchpad_bg_dark
                         else -> R.string.scratchpad_bg_checker
                     },
                 ),
-                onTap = { bgMode = (bgMode + 1) % 3 },
+                onTap = { session.bgMode = (session.bgMode + 1) % 3 },
                 tint = Morandi.subText,
                 iconSize = 15.dp,
                 size = 30.dp,
@@ -728,20 +796,26 @@ internal fun BrushStudioScratchpadPanel(
                 R.drawable.ic_stamp,
                 stringResource(R.string.brush_studio_scratchpad_set_icon),
                 onTap = {
-                    val strokeSnapshot = strokes.map { it.points.toList() }
-                    val bmp = scratchBitmap
+                    val strokeSnapshot = session.strokes.map { it.points.toList() }
+                    val bufs = renderBuffers
                     val directToken = renderCoalescer.newDirectRenderToken()
                     var pixelCopy: Bitmap? = null
+                    var nextFrame: Bitmap? = null
                     vm.runCore(render = false, after = {
+                        if (nextFrame != null && renderBuffers === bufs) {
+                            publishedBitmap = nextFrame
+                            renderTick++
+                        }
                         // 同批次末尾已同步渲染; 按代际票据消费待渲染标记, 不吞入队后新请求
                         renderCoalescer.onDirectRenderCompleted(directToken)
                         captureScratchpadAsThumbnail(context, vm, pixelCopy, strokeSnapshot)
                         pixelCopy?.recycle()
                         Toast.makeText(context, thumbnailUpdatedToast, Toast.LENGTH_SHORT).show()
                     }) {
-                        if (bmp != null && !bmp.isRecycled) {
-                            ReverieCoreBridge.scratchpadRender(bmp)
-                            pixelCopy = bmp.copy(Bitmap.Config.ARGB_8888, false)
+                        if (bufs != null && !bufs.engineBitmap.isRecycled) {
+                            ReverieCoreBridge.scratchpadRender(bufs.engineBitmap)
+                            nextFrame = bufs.snapshotToDisplaySlot()
+                            pixelCopy = bufs.engineBitmap.copy(Bitmap.Config.ARGB_8888, false)
                         }
                     }
                 },
@@ -762,6 +836,14 @@ internal fun BrushStudioScratchpadPanel(
 
             if (isCollapsible) {
                 ReIconButton(
+                    if (isExpanded) R.drawable.ic_arrow_up else R.drawable.ic_arrow_down,
+                    stringResource(if (isExpanded) R.string.scratchpad_collapse else R.string.scratchpad_expand),
+                    onTap = onToggleExpanded,
+                    tint = Morandi.subText,
+                    iconSize = 14.dp,
+                    size = 30.dp,
+                )
+                ReIconButton(
                     R.drawable.ic_x,
                     stringResource(R.string.common_close),
                     onTap = onClose,
@@ -780,23 +862,23 @@ internal fun BrushStudioScratchpadPanel(
                 .fillMaxWidth()
                 .weight(1f)
                 .clip(RoundedCornerShape(12.dp))
-                .background(if (bgMode == 2) Color(0xFF24262B) else Color.White)
+                .background(if (session.bgMode == 2) Color(0xFF24262B) else Color.White)
                 .onSizeChanged { size ->
                     if (size.width > 0 && size.height > 0 &&
                         (size.width != canvasSize.width || size.height != canvasSize.height)
                     ) {
                         canvasSize = size
-                        val oldBmp = scratchBitmap
-                        val newBmp = Bitmap.createBitmap(size.width, size.height, Bitmap.Config.ARGB_8888)
-                        scratchBitmap = newBmp
-                        vm.runCore(render = false, after = { oldBmp?.recycle() }) {
+                        val newBufs = ScratchpadRenderBuffers(size.width, size.height)
+                        renderBuffers = newBufs
+                        publishedBitmap = null
+                        vm.runCore(render = false) {
                             ReverieCoreBridge.scratchpadStart(size.width, size.height)
                         }
-                        replayStrokesOnEngine(newBmp)
+                        replayStrokesOnEngine(newBufs)
                     }
                 },
         ) {
-            if (bgMode == 0) {
+            if (session.bgMode == 0) {
                 CheckerboardBackground(
                     modifier = Modifier.fillMaxSize(),
                     color1 = Color(0xFFFFFFFF),
@@ -807,16 +889,20 @@ internal fun BrushStudioScratchpadPanel(
 
             ScratchpadCanvas(
                 vm = vm,
-                scratchBitmap = scratchBitmap,
+                scratchBitmap = publishedBitmap,
                 renderTick = renderTick,
                 onStrokeStart = { p ->
                     isDrawing = true
                     smoothSession.start(p.x, p.y)
                     currentStroke.clear()
                     currentStroke.add(p)
-                    val color = scratchColor
+                    val color = session.scratchColor
+                    val secColor = vm.brushSecondaryColor
                     vm.runCore(render = false) {
-                        runCatching { ReverieCoreBridge.setBrushColor(color) }
+                        runCatching {
+                            ReverieCoreBridge.setBrushColor(color)
+                            ReverieCoreBridge.setBrushSecondaryColor(secColor)
+                        }
                         ReverieCoreBridge.scratchpadStrokeStart(
                             p.x.toDouble(), p.y.toDouble(), p.pressure.toDouble(),
                             p.tiltX.toDouble(), p.tiltY.toDouble(), p.rotation.toDouble(),
@@ -857,7 +943,6 @@ internal fun BrushStudioScratchpadPanel(
                 onStrokeEnd = {
                     isDrawing = false
                     // 收尾：把平滑点直接推到最终目标点（补 1 个点）。
-                    // 不做主画布的分段 catch-up——试画板是预览，单点收尾足够（取舍见汇报）。
                     val tailPt = if (vm.brushStreamline > 0.001) {
                         val raw = smoothSession.lastRaw
                         // 0.5px 收尾补点去抖阈值：最终点与平滑点距离不足半像素时不补点，避免亚像素抖动触发补点
@@ -883,13 +968,17 @@ internal fun BrushStudioScratchpadPanel(
                         currentStroke.add(tailPt)
                     }
                     if (currentStroke.isNotEmpty()) {
-                        strokes.add(ScratchStroke(scratchColor, currentStroke.toList()))
+                        session.strokes.add(ScratchStroke(session.scratchColor, currentStroke.toList()))
                         currentStroke.clear()
                     }
-                    val bmp = scratchBitmap
+                    val bufs = renderBuffers
                     val directToken = renderCoalescer.newDirectRenderToken()
+                    var nextFrame: Bitmap? = null
                     vm.runCore(render = false, after = {
-                        renderTick++
+                        if (nextFrame != null && renderBuffers === bufs) {
+                            publishedBitmap = nextFrame
+                            renderTick++
+                        }
                         // 抬笔批次末尾已同步渲染; 按代际票据消费待渲染标记,
                         // 抬笔后立刻落笔的新 requestRender (代际已变) 不会被吞
                         renderCoalescer.onDirectRenderCompleted(directToken)
@@ -901,8 +990,9 @@ internal fun BrushStudioScratchpadPanel(
                             )
                         }
                         ReverieCoreBridge.scratchpadStrokeEnd()
-                        if (bmp != null && !bmp.isRecycled) {
-                            ReverieCoreBridge.scratchpadRender(bmp)
+                        if (bufs != null && !bufs.engineBitmap.isRecycled) {
+                            ReverieCoreBridge.scratchpadRender(bufs.engineBitmap)
+                            nextFrame = bufs.snapshotToDisplaySlot()
                         }
                     }
                 },
@@ -910,10 +1000,10 @@ internal fun BrushStudioScratchpadPanel(
             )
 
             // 空白提示文字
-            if (strokes.isEmpty() && currentStroke.isEmpty()) {
+            if (session.strokes.isEmpty() && currentStroke.isEmpty()) {
                 Text(
                     stringResource(R.string.brush_studio_scratchpad_hint),
-                    color = if (bgMode == 2) Color(0x88FFFFFF) else Color(0x66000000),
+                    color = if (session.bgMode == 2) Color(0x88FFFFFF) else Color(0x66000000),
                     fontSize = 12.sp,
                     modifier = Modifier.align(Alignment.Center),
                 )
@@ -939,7 +1029,7 @@ internal fun BrushStudioScratchpadPanel(
             ) {
                 quickColors.forEach { hex ->
                     val swatchCol = runCatching { Color(android.graphics.Color.parseColor(hex)) }.getOrDefault(Color.Black)
-                    val isSel = scratchColor.equals(hex, ignoreCase = true)
+                    val isSel = session.scratchColor.equals(hex, ignoreCase = true)
                     val swatchInteraction = remember { MutableInteractionSource() }
                     Box(
                         modifier = Modifier
@@ -953,7 +1043,7 @@ internal fun BrushStudioScratchpadPanel(
                                 shape = CircleShape,
                             )
                             .clickable(interactionSource = swatchInteraction, indication = null) {
-                                scratchColor = hex
+                                session.scratchColor = hex
                                 vm.runCore(render = false) {
                                     runCatching { ReverieCoreBridge.setBrushColor(hex) }
                                 }

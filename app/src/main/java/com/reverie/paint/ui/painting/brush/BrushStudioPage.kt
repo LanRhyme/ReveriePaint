@@ -70,7 +70,11 @@ fun BrushStudioPage(
     onBack: () -> Unit,
     hazeState: HazeState? = null,
 ) {
-    BackHandler { onBack() }
+    val handleClose = {
+        vm.flushBrushStudioChanges()
+        onBack()
+    }
+    BackHandler { handleClose() }
 
     val context = LocalContext.current
     val tipImportedToast = stringResource(R.string.brush_studio_toast_tip_imported)
@@ -105,19 +109,8 @@ fun BrushStudioPage(
         }
     }
 
-    // SAF Import Launcher for Custom Brush Tip Image (.png, .jpg, .gbr, .gih)
-    val importTipLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
-        if (uri != null) {
-            ioScope.launch {
-                val res = withContext(Dispatchers.IO) { vm.importCustomBrushTip(uri) }
-                if (res != null) {
-                    Toast.makeText(context, tipImportedToast, Toast.LENGTH_SHORT).show()
-                } else {
-                    Toast.makeText(context, tipImportFailedToast, Toast.LENGTH_SHORT).show()
-                }
-            }
-        }
-    }
+    // 区分主笔尖与副笔尖的自定义贴图导入目标
+    var importTipForMasking by remember { mutableStateOf(false) }
 
     var allTipItems by remember { mutableStateOf<List<BrushTipItem>>(emptyList()) }
     LaunchedEffect(context) {
@@ -129,13 +122,35 @@ fun BrushStudioPage(
         allPatternItems = withContext(Dispatchers.IO) { buildPatternItems(context) }
     }
 
+    // SAF Import Launcher for Custom Brush Tip Image (.png, .jpg, .gbr, .gih)
+    val importTipLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        if (uri != null) {
+            val targetMasking = importTipForMasking
+            ioScope.launch {
+                val res = withContext(Dispatchers.IO) { vm.importCustomBrushTip(uri, assignToMainTip = false) }
+                if (res != null) {
+                    if (targetMasking) {
+                        vm.updateBrushMaskingTipAsset(res)
+                    } else {
+                        vm.updateBrushTipAsset(res)
+                    }
+                    allTipItems = withContext(Dispatchers.IO) { buildTipItems(context) }
+                    Toast.makeText(context, tipImportedToast, Toast.LENGTH_SHORT).show()
+                } else {
+                    Toast.makeText(context, tipImportFailedToast, Toast.LENGTH_SHORT).show()
+                }
+            }
+        }
+    }
+
     // SAF Import Launcher for Custom Texture Pattern (.pat, .png, .jpg)
     val importPatternLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
         if (uri != null) {
             ioScope.launch {
-                val res = withContext(Dispatchers.IO) { vm.importCustomPattern(uri) }
+                val res = withContext(Dispatchers.IO) { vm.importCustomPattern(uri, assignToTexture = false) }
                 if (res != null) {
-                    allPatternItems = buildPatternItems(context)
+                    vm.updateBrushTexturePattern(res)
+                    allPatternItems = withContext(Dispatchers.IO) { buildPatternItems(context) }
                     Toast.makeText(context, context.getString(R.string.brush_studio_pattern_toast_imported, res), Toast.LENGTH_SHORT).show()
                 } else {
                     Toast.makeText(context, context.getString(R.string.brush_studio_pattern_toast_failed), Toast.LENGTH_SHORT).show()
@@ -156,9 +171,10 @@ fun BrushStudioPage(
         }
     }
 
-    // 手机端折叠状态
+    // 手机端折叠状态及试画板跨折叠保留会话
     var scratchpadVisible by remember { mutableStateOf(true) }
     var scratchpadExpanded by remember { mutableStateOf(false) }
+    val scratchpadSession = remember { ScratchpadSessionState(vm.brushColor) }
 
 
 
@@ -187,7 +203,7 @@ fun BrushStudioPage(
                         .padding(horizontal = 10.dp),
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
-                    ReIconButton(R.drawable.ic_arrow_left, stringResource(R.string.brush_studio_back_canvas), onBack, size = 34.dp, tint = textMain)
+                    ReIconButton(R.drawable.ic_arrow_left, stringResource(R.string.brush_studio_back_canvas), handleClose, size = 34.dp, tint = textMain)
 
                     Text(
                         stringResource(R.string.brush_studio_workbench),
@@ -491,6 +507,7 @@ fun BrushStudioPage(
                         // 右侧独立全高试画板
                         BrushStudioScratchpadPanel(
                             vm = vm,
+                            session = scratchpadSession,
                             modifier = Modifier
                                 .weight(0.88f)
                                 .fillMaxHeight()
@@ -550,12 +567,11 @@ fun BrushStudioPage(
                         Box(Modifier.fillMaxWidth().height(0.8.dp).background(Morandi.text.copy(alpha = 0.06f)))
 
                         if (scratchpadVisible) {
-                            val scratchpadHeight by animateDpAsState(
-                                targetValue = if (scratchpadExpanded) 220.dp else 140.dp,
-                                label = "phoneScratchpadH",
-                            )
+                            // 固定档位切换高度，避免 animateDpAsState 每帧触发 onSizeChanged 导致试画板重建/闪烁风暴
+                            val scratchpadHeight = if (scratchpadExpanded) 220.dp else 140.dp
                             BrushStudioScratchpadPanel(
                                 vm = vm,
+                                session = scratchpadSession,
                                 modifier = Modifier
                                     .fillMaxWidth()
                                     .height(scratchpadHeight)
@@ -588,6 +604,7 @@ fun BrushStudioPage(
                     showTipPickerModal = false
                 },
                 onImportTip = {
+                    importTipForMasking = false
                     importTipLauncher.launch(arrayOf("*/*"))
                 },
                 onDismiss = { showTipPickerModal = false },
@@ -607,6 +624,7 @@ fun BrushStudioPage(
                     showMaskingTipPickerModal = false
                 },
                 onImportTip = {
+                    importTipForMasking = true
                     importTipLauncher.launch(arrayOf("*/*"))
                 },
                 onDismiss = { showMaskingTipPickerModal = false },

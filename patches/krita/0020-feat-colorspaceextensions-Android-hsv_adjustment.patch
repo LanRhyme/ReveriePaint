@@ -1,0 +1,108 @@
+From 08c6b447f40c321b2f0ac5fb71fd1c40153542c8 Mon Sep 17 00:00:00 2001
+From: LanRhyme <xiao_ren233@foxmail.com>
+Date: Thu, 26 Nov 2026 18:25:45 +0800
+Subject: [PATCH] =?UTF-8?q?feat(colorspaceextensions):=20=E6=8B=86?=
+ =?UTF-8?q?=E5=87=BA=E9=9D=99=E6=80=81=E5=BA=93=E4=B8=8E=E9=9D=99=E6=80=81?=
+ =?UTF-8?q?=E6=B3=A8=E5=86=8C=E5=85=A5=E5=8F=A3=E4=BB=A5=E6=94=AF=E6=8C=81?=
+ =?UTF-8?q?=20Android=20=E7=AB=AF=20hsv=5Fadjustment=20=E7=AD=89=E8=89=B2?=
+ =?UTF-8?q?=E5=BD=A9=E5=8F=98=E6=8D=A2?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ .../color/colorspaceextensions/CMakeLists.txt | 14 +++---
+ .../colorspaceextensions/register_static.cpp  | 48 +++++++++++++++++++
+ 2 files changed, 56 insertions(+), 6 deletions(-)
+ create mode 100644 plugins/color/colorspaceextensions/register_static.cpp
+
+diff --git a/plugins/color/colorspaceextensions/CMakeLists.txt b/plugins/color/colorspaceextensions/CMakeLists.txt
+index a2977cf6..b348df3d 100644
+--- a/plugins/color/colorspaceextensions/CMakeLists.txt
++++ b/plugins/color/colorspaceextensions/CMakeLists.txt
+@@ -1,5 +1,4 @@
+-set( extensions_plugin_SOURCES 
+-    extensions_plugin.cc
++set( extensions_plugin_static_SOURCES 
+     kis_hsv_adjustment.cpp
+     kis_dodgehighlights_adjustment.cpp
+     kis_dodgemidtones_adjustment.cpp
+@@ -11,14 +10,17 @@ set( extensions_plugin_SOURCES
+     kis_desaturate_adjustment.cpp
+     kis_gamutmap_clip_adjustment.cpp
+     kis_tonemap_adjustment.cpp
++    register_static.cpp
+ )
+ 
+-kis_add_library(krita_colorspaces_extensions MODULE ${extensions_plugin_SOURCES})
+-
+-target_sources(krita_colorspaces_extensions
++kis_add_library(krita_colorspaces_extensions_static STATIC ${extensions_plugin_static_SOURCES})
++target_sources(krita_colorspaces_extensions_static
+   PRIVATE
+     kis_gamutmap_clip_adjustment.h kis_gamutmap_clip_adjustment.cpp
+     kis_tonemap_adjustment.h kis_tonemap_adjustment.cpp
+ )
+-target_link_libraries(krita_colorspaces_extensions kritapigment kritaglobal ${LINK_OPENEXR_LIB} KF${KF_MAJOR}::I18n KF${KF_MAJOR}::CoreAddons)
++target_link_libraries(krita_colorspaces_extensions_static kritapigment kritaglobal ${LINK_OPENEXR_LIB} KF${KF_MAJOR}::I18n KF${KF_MAJOR}::CoreAddons)
++
++kis_add_library(krita_colorspaces_extensions MODULE extensions_plugin.cc)
++target_link_libraries(krita_colorspaces_extensions krita_colorspaces_extensions_static kritapigment kritaglobal ${LINK_OPENEXR_LIB} KF${KF_MAJOR}::I18n KF${KF_MAJOR}::CoreAddons)
+ install( TARGETS krita_colorspaces_extensions DESTINATION ${KRITA_PLUGIN_INSTALL_DIR} )
+diff --git a/plugins/color/colorspaceextensions/register_static.cpp b/plugins/color/colorspaceextensions/register_static.cpp
+new file mode 100644
+index 00000000..b898a1f0
+--- /dev/null
++++ b/plugins/color/colorspaceextensions/register_static.cpp
+@@ -0,0 +1,48 @@
++/*
++ * SPDX-FileCopyrightText: 2026 ReveriePaint
++ *
++ * SPDX-License-Identifier: GPL-2.0-or-later
++ *
++ * Static registration for colorspace extension transformations (including
++ * hsv_adjustment) so Android builds register them without QPluginLoader.
++ */
++
++#include <KoColorTransformationFactoryRegistry.h>
++
++#include "kis_hsv_adjustment.h"
++#include "kis_dodgemidtones_adjustment.h"
++#include "kis_dodgehighlights_adjustment.h"
++#include "kis_dodgeshadows_adjustment.h"
++#include "kis_burnmidtones_adjustment.h"
++#include "kis_burnhighlights_adjustment.h"
++#include "kis_burnshadows_adjustment.h"
++#include "kis_color_balance_adjustment.h"
++#include "kis_desaturate_adjustment.h"
++#include "kis_gamutmap_clip_adjustment.h"
++#include "kis_tonemap_adjustment.h"
++
++extern "C" __attribute__((visibility("default"))) void krita_register_colorspaces_extensions()
++{
++    static bool registered = false;
++    if (registered) {
++        return;
++    }
++    registered = true;
++
++    KoColorTransformationFactoryRegistry::addColorTransformationFactory(new KisHSVAdjustmentFactory);
++    KoColorTransformationFactoryRegistry::addColorTransformationFactory(new KisHSVCurveAdjustmentFactory);
++
++    KoColorTransformationFactoryRegistry::addColorTransformationFactory(new KisDodgeMidtonesAdjustmentFactory);
++    KoColorTransformationFactoryRegistry::addColorTransformationFactory(new KisDodgeHighlightsAdjustmentFactory);
++    KoColorTransformationFactoryRegistry::addColorTransformationFactory(new KisDodgeShadowsAdjustmentFactory);
++
++    KoColorTransformationFactoryRegistry::addColorTransformationFactory(new KisBurnMidtonesAdjustmentFactory);
++    KoColorTransformationFactoryRegistry::addColorTransformationFactory(new KisBurnHighlightsAdjustmentFactory);
++    KoColorTransformationFactoryRegistry::addColorTransformationFactory(new KisBurnShadowsAdjustmentFactory);
++
++    KoColorTransformationFactoryRegistry::addColorTransformationFactory(new KisColorBalanceAdjustmentFactory);
++    KoColorTransformationFactoryRegistry::addColorTransformationFactory(new KisDesaturateAdjustmentFactory);
++
++    KoColorTransformationFactoryRegistry::addColorTransformationFactory(new KisGamutMapClipAdjustmentFactory);
++    KoColorTransformationFactoryRegistry::addColorTransformationFactory(new KisToneMapAdjustmentFactory);
++}
+-- 
+2.56.1
+

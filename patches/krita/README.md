@@ -30,6 +30,7 @@
 | 0017 | `fix-gridbrush-HSV-KoColorTransformation` | 修复网格笔刷在启用 HSV 随机调整时每次粒子采样均泄露 `KoColorTransformation` 实例的内存泄露缺陷 |
 | 0018 | `fix-paintop-resources` | 修复 `KisHairyPaintOp` 空笔尖/空设备崩溃、`KisTextureOption::apply` 用 `pixelSize()` 越界读取 `channels` 崩溃，以及 `LocalResourcesSource` 悬垂引用 `QList` 导致的 `SIGBUS` |
 | 0019 | `fix-resources-LocalResourcesSource-1x1` | `LocalResourcesSource` 改用共享读写锁快照 (`SharedResources`)，修复按需加载 `.gih` 笔尖、内嵌与导入资源对 `bestMatch()` 不可见进而退化为 1x1 笔刷的问题 |
+| 0020 | `feat-colorspaceextensions-Android-hsv_adjustment` | `krita_colorspaces_extensions` 拆分出静态库并新增 `krita_register_colorspaces_extensions()` 静态注册入口，使 Android 端可直接注册 `hsv_adjustment` 等色彩空间变换工厂 |
 
 ## 应用与重建
 

@@ -2087,7 +2087,7 @@
     <string name="brush_studio_masking_mode">Masking Composite Mode</string>
     <string name="brush_studio_masking_ratio">Size Ratio</string>
     <string name="brush_studio_masking_spacing">Spacing</string>
-    <string name="brush_studio_masking_fade">Solid Core</string>
+    <string name="brush_studio_masking_fade">Fade</string>
     <string name="brush_studio_masking_softness">Softness</string>
     <string name="brush_studio_scratchpad_set_icon">Set as Preset Icon</string>
     <string name="brush_studio_import_thumbnail">Import Icon</string>
@@ -2155,6 +2155,7 @@
     <string name="brush_studio_composite_op">Brush Blend Mode</string>
     <string name="brush_studio_tip_fade">Fade</string>
     <string name="brush_studio_tip_softness">Softness</string>
+    <string name="brush_studio_tip_softness_hint" formatted="false">100% keeps original edge; lower values soften (requires Fade &lt; 100%)</string>
 
     <!-- Color Components & Sliders -->
     <string name="color_num_dialog_range">Range: %1$s ~ %2$s%3$s</string>

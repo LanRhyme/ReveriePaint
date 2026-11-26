@@ -620,6 +620,7 @@ void ReverieCore::registerPaintOps()
         krita_register_hairy_paintop();
         krita_register_hatching_paintop();
         krita_register_mypaint_paintop();
+        krita_register_colorspaces_extensions();
         registerCoreFilters();
 
         const KoColorSpace *cs16 = KoColorSpaceRegistry::instance()->colorSpace(
@@ -1822,8 +1823,8 @@ bool ReverieCore::ensurePresetInfo(int index, CachedPresetInfo &out)
     const bool scatterChecked = s->getBool("PressureScatter", false) || s->getBool("Scatter/isChecked", false);
     const double scatter = scatterChecked ? s->paintOpScatter() : 0.0;
 
-    // Softness, Ratio, Sharpness, Rotation
-    const double softness = s->getDouble("SoftnessValue", s->getDouble("Softness", 0.5));
+    // Softness, Ratio, Sharpness, Rotation (Krita 1.0 = neutral unsoftened)
+    const double softness = s->getDouble("SoftnessValue", s->getDouble("Softness", 1.0));
     const double ratio = s->getDouble("RatioValue", s->getDouble("Ratio", 1.0));
     const double sharpness = s->getDouble("SharpnessValue", s->getDouble("Sharpness", 0.0));
     // 附加旋转偏角默认初始为 0.0, 绝不可读取 Krita 的 RotationValue(曲线强度乘数 1.0)
@@ -1890,7 +1891,7 @@ QVector<double> ReverieCore::brushPresetDefaults(int index)
     const QVector<double> defaultFallback = {
         20.0, 1.0, 1.0, 0.15,
         0.0, 30.0, 0.5, 0.5,
-        0.0, 0.0, 0.5, 1.0, 0.0, 0.0,
+        0.0, 0.0, 1.0, 1.0, 0.0, 0.0,
         1.0, 0.0, 0.0,
         0.0, 0.0, 0.0, 1.0
     };
@@ -2499,12 +2500,15 @@ bool ReverieCore::scratchpadStrokeStart(qreal x, qreal y, qreal pressure, qreal 
     } else {
         m_scratchpadPainter = new KisPainter(target);
         m_scratchpadPainter->setRunnableStrokeJobsInterface(&m_fakeExecutor);
-        m_scratchpadPainter->setPaintOpPreset(m_brushPreset, node, m_document);
+        m_scratchpadPainter->setFillStyle(KisPainter::FillStyleForegroundColor);
+        m_scratchpadPainter->setStrokeStyle(KisPainter::StrokeStyleBrush);
         m_scratchpadPainter->setPaintColor(koColor);
         m_scratchpadPainter->setBackgroundColor(koBgColor);
         // 墨量由引擎 OpacityValue 管, painter 恒 1.0 (消除双乘, 同主画布)
         m_scratchpadPainter->setOpacityF(1.0);
         m_scratchpadPainter->setCompositeOpId(painterCompOp.isEmpty() ? QStringLiteral("normal") : painterCompOp);
+        // PaintOp constructors (e.g. KisColorSmudgeOp) sample paintColor / compositeOp during setPaintOpPreset
+        m_scratchpadPainter->setPaintOpPreset(m_brushPreset, node, m_document);
 
         m_scratchpadDistInfo = new KisDistanceInformation(pt, 0.0);
         m_scratchpadPainter->paintAt(pi, m_scratchpadDistInfo);
@@ -3053,11 +3057,14 @@ bool ReverieCore::renderBrushStrokePreview(int presetIndex, quint8 *buffer, int 
     } else {
         KisPainter painter(target);
         painter.setRunnableStrokeJobsInterface(&m_fakeExecutor);
-        painter.setPaintOpPreset(preset, node, m_document);
+        painter.setFillStyle(KisPainter::FillStyleForegroundColor);
+        painter.setStrokeStyle(KisPainter::StrokeStyleBrush);
         painter.setPaintColor(koFg);
         painter.setBackgroundColor(koBg);
         painter.setOpacityF(indirect ? 1.0 : previewOpacity);
         painter.setCompositeOpId(painterCompOp.isEmpty() ? QStringLiteral("normal") : painterCompOp);
+        // Set colors and composite op before constructing the paintop in setPaintOpPreset
+        painter.setPaintOpPreset(preset, node, m_document);
 
         KisDistanceInformation distInfo(s0.pos, 0.0);
         painter.paintAt(pi0, &distInfo);

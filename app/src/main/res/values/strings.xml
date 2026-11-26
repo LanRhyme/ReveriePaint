@@ -1826,7 +1826,7 @@
     <string name="brush_studio_dyn_spacing">间距动态</string>
     <string name="brush_studio_dyn_scatter">散布动态</string>
     <string name="brush_studio_dyn_ratio">圆度动态</string>
-    <string name="brush_studio_dyn_softness">柔和度动态</string>
+    <string name="brush_studio_dyn_softness">柔和 (Soft) 动态</string>
     <string name="brush_studio_dyn_sharpness">锐度动态</string>
     <string name="brush_studio_dyn_darken">变暗动态</string>
     <string name="brush_studio_dyn_lightness">明度强度动态</string>
@@ -2087,7 +2087,7 @@
     <string name="brush_studio_masking_mode">掩膜混合模式 (Composite Mode)</string>
     <string name="brush_studio_masking_ratio">尺寸比例 (Size Ratio)</string>
     <string name="brush_studio_masking_spacing">间距 (Spacing)</string>
-    <string name="brush_studio_masking_fade">实心率 (Solid Core)</string>
+    <string name="brush_studio_masking_fade">硬度 (Fade)</string>
     <string name="brush_studio_masking_softness">柔和度 (Softness)</string>
     <string name="brush_studio_scratchpad_set_icon">设为预设图标</string>
     <string name="brush_studio_import_thumbnail">导入图标</string>
@@ -2153,8 +2153,9 @@
     <string name="brush_studio_smudge_mode_smearing">刮刀拉伸 (Smearing)</string>
     <string name="brush_studio_color_rate">色彩速率 (Color Rate)</string>
     <string name="brush_studio_composite_op">画笔混合模式 (Blend Mode)</string>
-    <string name="brush_studio_tip_fade">实心率 (Fade)</string>
+    <string name="brush_studio_tip_fade">硬度 (Fade)</string>
     <string name="brush_studio_tip_softness">柔和度 (Softness)</string>
+    <string name="brush_studio_tip_softness_hint" formatted="false">100% 为原样不柔化，数值越小边缘越柔（需硬度低于 100%）</string>
 
     <!-- Color Components & Sliders -->
     <string name="color_num_dialog_range">有效范围: %1$s ~ %2$s%3$s</string>
