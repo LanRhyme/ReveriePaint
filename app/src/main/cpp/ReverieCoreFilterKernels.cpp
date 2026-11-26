@@ -352,7 +352,8 @@ void reverieApplyScalarKernel(QImage &img, int filterType, double p1, double p2,
             for (int y = startY; y < endY; ++y) {
                 quint8 *dst = img.scanLine(y);
                 for (int x = 0; x < w; ++x) {
-                    int grx = 0, gry = 0, ggx = 0, ggy = 0, gbx = 0, gby = 0, gax = 0, gay = 0;
+                    // 缓冲区字节序为 BGRA (p[0]=B, p[1]=G, p[2]=R, p[3]=A)
+                    int gbx = 0, gby = 0, ggx = 0, ggy = 0, grx = 0, gry = 0, gax = 0, gay = 0;
                     for (int dy = -1; dy <= 1; ++dy) {
                         int ny = qBound(0, y + dy, h - 1);
                         const quint8 *row = tmp.constScanLine(ny);
@@ -361,15 +362,15 @@ void reverieApplyScalarKernel(QImage &img, int filterType, double p1, double p2,
                             const quint8 *p = row + nx * 4;
                             int k_x = kx[dy + 1][dx + 1];
                             int k_y = ky[dy + 1][dx + 1];
-                            grx += p[0] * k_x; gry += p[0] * k_y;
+                            gbx += p[0] * k_x; gby += p[0] * k_y;
                             ggx += p[1] * k_x; ggy += p[1] * k_y;
-                            gbx += p[2] * k_x; gby += p[2] * k_y;
+                            grx += p[2] * k_x; gry += p[2] * k_y;
                             gax += p[3] * k_x; gay += p[3] * k_y;
                         }
                     }
-                    int magR = qBound(0, int(sqrt(grx * grx + gry * gry) * invNormStrength + 0.5), 255);
-                    int magG = qBound(0, int(sqrt(ggx * ggx + ggy * ggy) * invNormStrength + 0.5), 255);
                     int magB = qBound(0, int(sqrt(gbx * gbx + gby * gby) * invNormStrength + 0.5), 255);
+                    int magG = qBound(0, int(sqrt(ggx * ggx + ggy * ggy) * invNormStrength + 0.5), 255);
+                    int magR = qBound(0, int(sqrt(grx * grx + gry * gry) * invNormStrength + 0.5), 255);
                     int magA = qBound(0, int(sqrt(gax * gax + gay * gay) * invNormStrength + 0.5), 255);
                     int mag = (magR * 299 + magG * 587 + magB * 114) / 1000;
                     mag = qMax(mag, magA);
@@ -382,9 +383,9 @@ void reverieApplyScalarKernel(QImage &img, int filterType, double p1, double p2,
                         px[2] = quint8(lineVal);
                         px[3] = 255;
                     } else if (mode == 1) { // 黑底彩色边缘 (轮廓高亮)
-                        px[0] = quint8(magR);
+                        px[0] = quint8(magB);
                         px[1] = quint8(magG);
-                        px[2] = quint8(magB);
+                        px[2] = quint8(magR);
                         px[3] = 255;
                     } else { // 透明背景黑线 (提取透明线稿)
                         px[0] = 0;
@@ -1320,5 +1321,60 @@ int reverieFilterMargin(int filterType)
     case 19: return 64;   // 投影偏移+模糊余量
     case 21: case 22: case 23: case 26: case 31: case 32: case 33: case 34: return 48; // FX 卷积/位移类保守上限
     default: return 0;    // 逐像素类
+    }
+}
+
+void reverieApplyFilterWithOpacity(QImage &img, int filterType,
+                                   double p1, double p2, double p3, double p4,
+                                   const QByteArray &lut, quint8 opacity)
+{
+    if (img.isNull() || opacity == 0) {
+        return;
+    }
+    QImage origCopy;
+    if (opacity < 255) {
+        origCopy = img.copy();
+    }
+
+    if (filterType == 13 && lut.size() >= 768) {
+        const quint8 *base = reinterpret_cast<const quint8 *>(lut.constData());
+        reverieApplyCurvesLutKernel(img, base, base + 256, base + 512);
+    } else if (filterType == 30 && lut.size() >= 1024) {
+        qint32 gradientLut[256];
+        memcpy(gradientLut, lut.constData(), sizeof(gradientLut));
+        reverieApplyGradientMapKernel(img, gradientLut);
+    } else {
+        reverieApplyScalarKernel(img, filterType, p1, p2, p3, p4);
+    }
+
+    // 直通 BGRA 按预乘 Alpha 混回原图, 防止半透明/透明输出(如透明线稿)被压暗发灰
+    if (opacity < 255 && !origCopy.isNull()) {
+        const int h = img.height();
+        const int w = img.width();
+        const int alpha = opacity;
+        const int invAlpha = 255 - alpha;
+        for (int y = 0; y < h; ++y) {
+            quint8 *dstP = img.scanLine(y);
+            const quint8 *srcP = origCopy.constScanLine(y);
+            for (int x = 0; x < w; ++x) {
+                quint8 *dPx = dstP + x * 4;
+                const quint8 *sPx = srcP + x * 4;
+                const int aD = dPx[3];
+                const int aS = sPx[3];
+                const int outA = (aD * alpha + aS * invAlpha + 127) / 255;
+                if (outA <= 0) {
+                    dPx[0] = 0;
+                    dPx[1] = 0;
+                    dPx[2] = 0;
+                    dPx[3] = 0;
+                } else {
+                    for (int c = 0; c < 3; ++c) {
+                        const int pm = (dPx[c] * aD * alpha + sPx[c] * aS * invAlpha) / 255;
+                        dPx[c] = static_cast<quint8>(qBound(0, (pm + outA / 2) / outA, 255));
+                    }
+                    dPx[3] = static_cast<quint8>(qBound(0, outA, 255));
+                }
+            }
+        }
     }
 }

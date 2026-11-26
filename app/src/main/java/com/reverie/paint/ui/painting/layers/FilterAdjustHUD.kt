@@ -500,6 +500,7 @@ internal fun FilterBottomDock(
     hazeState: HazeState? = null,
     opacity: Float = 0.94f,
     vm: PaintViewModel? = null,
+    sendDiscretePreview: () -> Unit = sendPreview,
 ) {
     val defs = remember(filterId) { filterParamDefinitions(filterId) }
     val hasMore = hasExpandableControls(filterId)
@@ -572,6 +573,7 @@ internal fun FilterBottomDock(
                         sendPreview = sendPreview,
                         sendCurvesPreview = sendCurvesPreview,
                         sendGradientMapPreview = sendGradientMapPreview,
+                        sendDiscretePreview = sendDiscretePreview,
                     )
                 }
             }
@@ -663,6 +665,7 @@ internal fun FilterBottomDock(
         hazeState = hazeState,
         opacity = opacity,
         vm = controller.vm,
+        sendDiscretePreview = { controller.sendPreview(force = true) },
     )
 }
 
@@ -740,7 +743,7 @@ internal class FilterSessionController(
 
     fun init() {
         if (isAdj) {
-            sendPreview()
+            sendPreview(force = true)
         } else {
             vm.beginFilterPreview(session.indices)
             sendPreview()

@@ -1509,7 +1509,7 @@
     <string name="layer_filter_adjust_desc">配置或切换此图层应用的滤镜效果</string>
     <string name="layer_filters_and_color">滤镜与颜色调整</string>
     <string name="layer_rasterize_dialog_title">栅格化滤镜图层</string>
-    <string name="layer_rasterize_dialog_desc">栅格化会将此滤镜效果永久烘焙合入下方图层并转换为普通绘画图层，此操作不可逆（但可通过撤销恢复），是否继续？</string>
+    <string name="layer_rasterize_dialog_desc">栅格化会将此滤镜效果永久应用到下方受影响的图层并移除该滤镜图层，此操作不可逆（但可通过撤销恢复），是否继续？</string>
     <string name="layer_rasterize_confirm">确定栅格化</string>
     <string name="layer_move_into_group_title">移入图层组</string>
     <string name="layer_no_other_groups">当前画布中暂无其他图层组</string>

@@ -1509,7 +1509,7 @@
     <string name="layer_filter_adjust_desc">Configure or change applied filter effect</string>
     <string name="layer_filters_and_color">Filters &amp; Adjustments</string>
     <string name="layer_rasterize_dialog_title">Rasterize Filter Layer</string>
-    <string name="layer_rasterize_dialog_desc">Rasterization permanently bakes this filter into a normal paint layer. This cannot be undone except via Undo. Continue?</string>
+    <string name="layer_rasterize_dialog_desc">Rasterization permanently applies this filter to the affected layers below and removes the filter layer. This cannot be undone except via Undo. Continue?</string>
     <string name="layer_rasterize_confirm">Rasterize</string>
     <string name="layer_move_into_group_title">Move into Group</string>
     <string name="layer_no_other_groups">No other layer groups in canvas</string>

@@ -546,6 +546,7 @@ internal fun FilterAdjustControls(
     sendPreview: () -> Unit,
     sendCurvesPreview: () -> Unit,
     sendGradientMapPreview: () -> Unit,
+    sendDiscretePreview: () -> Unit = sendPreview,
 ) {
     Column(
         modifier = Modifier.fillMaxWidth(),
@@ -600,7 +601,7 @@ internal fun FilterAdjustControls(
                                     .background(if (st.lineartWhiteLine) Morandi.accent else Morandi.panelHi)
                                     .clickable {
                                         st.lineartWhiteLine = !st.lineartWhiteLine
-                                        sendPreview()
+                                        sendDiscretePreview()
                                     }
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
@@ -630,7 +631,7 @@ internal fun FilterAdjustControls(
                                     .background(Morandi.panelHi)
                                     .clickable {
                                         st.sobelMode = (st.sobelMode + 1) % 3
-                                        sendPreview()
+                                        sendDiscretePreview()
                                     }
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
@@ -655,7 +656,7 @@ internal fun FilterAdjustControls(
                                     .background(if (st.embossPreserveColor) Morandi.accent else Morandi.panelHi)
                                     .clickable {
                                         st.embossPreserveColor = !st.embossPreserveColor
-                                        sendPreview()
+                                        sendDiscretePreview()
                                     }
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
@@ -680,7 +681,7 @@ internal fun FilterAdjustControls(
                                     .background(if (st.lumOpacityInvert) Morandi.accent else Morandi.panelHi)
                                     .clickable {
                                         st.lumOpacityInvert = !st.lumOpacityInvert
-                                        sendPreview()
+                                        sendDiscretePreview()
                                     }
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
@@ -711,7 +712,7 @@ internal fun FilterAdjustControls(
                                     .background(Morandi.panelHi)
                                     .clickable {
                                         st.edgeGlowHue = (st.edgeGlowHue + 1) % 4
-                                        sendPreview()
+                                        sendDiscretePreview()
                                     }
                                     .padding(horizontal = 10.dp, vertical = 4.dp)
                             ) {
@@ -743,7 +744,7 @@ internal fun FilterAdjustControls(
                                             .background(if (st.colorToAlphaTarget == col) Morandi.accent else Morandi.panelHi)
                                             .clickable {
                                                 st.colorToAlphaTarget = col
-                                                sendPreview()
+                                                sendDiscretePreview()
                                             }
                                             .padding(horizontal = 8.dp, vertical = 3.dp)
                                     ) {

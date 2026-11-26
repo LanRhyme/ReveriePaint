@@ -409,6 +409,7 @@ internal fun FilterAdjustPage(
                 sendPreview = ::sendPreview,
                 sendCurvesPreview = ::sendCurvesPreview,
                 sendGradientMapPreview = ::sendGradientMapPreview,
+                sendDiscretePreview = { sendPreview(force = true) },
             )
         }
     }
