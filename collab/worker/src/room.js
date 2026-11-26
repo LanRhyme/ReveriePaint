@@ -77,7 +77,8 @@ export class CollabRoom extends DurableObject {
       throw new HttpError(409, 'room_exists', 'room code already active');
     }
 
-    const roomTtlMs = parsePositiveInt(this.env.ROOM_TTL_MS, 86400000, 60000, 7 * 86400000);
+    // 下限 5s 仅为本地联调与自动化测试用短 TTL, 生产默认 24h
+    const roomTtlMs = parsePositiveInt(this.env.ROOM_TTL_MS, 86400000, 5000, MAX_ROOM_TTL_MS);
     const idleTtlMs = parsePositiveInt(this.env.IDLE_TTL_MS, 1800000, 60000, roomTtlMs);
     const maxPeers = parsePositiveInt(body.maxPeers, DEFAULT_MAX_PEERS, 2, MAX_ROOM_CONNECTIONS);
     const requireApproval = Boolean(body.requireApproval);
@@ -582,7 +583,7 @@ export class CollabRoom extends DurableObject {
           } else {
             const remaining = Object.entries(meta.admittedPeers || {})
               .filter(([pid]) => pid !== sender.peerId)
-              .sort((a, b) => (a[1]?.joinedAt || 0) - (b[1]?.joinedAt || 0));
+              .sort((a, b) => (a[1]?.joinedAt || 0) - (b[1]?.joinedAt || 0) || (a[0] < b[0] ? -1 : 1));
             if (remaining.length > 0) {
               const [nextHostId, nextInfo] = remaining[0];
               meta.hostPeerId = nextHostId;
@@ -709,6 +710,8 @@ export class CollabRoom extends DurableObject {
     const idleExpired = activeCount === 0 && now - meta.lastActiveAt >= idleTtlMs;
 
     if (expired || idleExpired) {
+      // 先发业务消息再关连接: 客户端可立刻给出"房间已过期"的明确提示, 不必等 close 帧
+      this.broadcastAll({ type: 'room_closed', reason: 'expired' });
       for (const sock of this.ctx.getWebSockets()) {
         try {
           sock.close(4004, 'expired');
@@ -791,7 +794,7 @@ export class CollabRoom extends DurableObject {
    * 避免通宵跨夜的长会话在固定 24h TTL 处被无条件切断
    */
   extendRoomTtl(meta, now = Date.now()) {
-    const roomTtlMs = parsePositiveInt(this.env.ROOM_TTL_MS, 86400000, 60000, MAX_ROOM_TTL_MS);
+    const roomTtlMs = parsePositiveInt(this.env.ROOM_TTL_MS, 86400000, 5000, MAX_ROOM_TTL_MS);
     const cap = (Number(meta.createdAt) || now) + MAX_ROOM_TTL_MS;
     const target = Math.min(cap, now + roomTtlMs);
     if (target <= (Number(meta.expiresAt) || 0)) return false;
@@ -976,7 +979,10 @@ export class CollabRoom extends DurableObject {
 
   earliestAdmittedPeer(excludePeerId) {
     const peers = this.listAdmittedPeers().filter((p) => p.peerId !== excludePeerId);
-    return peers.length > 0 ? peers[0] : null;
+    if (peers.length === 0) return null;
+    // 与客户端 CollabTopologyPolicy.electNextHost 严格对齐: joinedAt 相同再按 peerId 字典序
+    peers.sort((a, b) => a.joinedAt - b.joinedAt || (a.peerId < b.peerId ? -1 : a.peerId > b.peerId ? 1 : 0));
+    return peers[0];
   }
 
   isNicknameTaken(meta, candidateName, excludePeerId = '') {
