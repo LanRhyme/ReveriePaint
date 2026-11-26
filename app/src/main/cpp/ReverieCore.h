@@ -1282,7 +1282,7 @@ private:
     bool appendStrokeSample(const QPointF &imgPos, qreal pressure,
                             qreal tiltX = 0.0, qreal tiltY = 0.0, qreal rotation = 0.0,
                             qreal timeSeconds = -1.0, bool allowTimeFlush = true);
-    void endStrokeBatch();
+    void endStrokeBatch(bool keepStrokeState = false);
     // 描边图层的外扩：strokeSize + 4。非描边图层为 0。
     int strokeLayerMargin() const;
     // experimentbrush 抬笔补最后一段扇形。必须在 endStrokeBatch 之前调用。

@@ -3836,10 +3836,30 @@ bool ReverieCore::sampleThumbnailToRgba(const KisPaintDeviceSP &dev, int w, int 
     }
 
     QVector<quint8> rowBuf;
+    try {
+        rowBuf.resize(srcW * 4);
+    } catch (...) {
+        return false;
+    }
+
+    // 1:1 尺寸直通快路径: 无需抽样与逐像素拷贝, 逐行顺序 readBytes + NEON 直转显示格式
+    if (outW == srcW && outH == srcH) {
+        try {
+            for (int y = 0; y < outH; ++y) {
+                dev->readBytes(rowBuf.data(), srcRect.x(), srcRect.y() + y, srcW, 1);
+                PixelAlpha::toDisplay(rowBuf.constData(),
+                                      dstPixels + size_t(y) * size_t(dstStride),
+                                      size_t(outW));
+            }
+            return true;
+        } catch (...) {
+            return false;
+        }
+    }
+
     QVector<quint8> outRow;
     QVector<int> colIndex;
     try {
-        rowBuf.resize(srcW * 4);
         outRow.resize(outW * 4);
         colIndex.resize(outW);
     } catch (...) {
@@ -3879,13 +3899,10 @@ bool ReverieCore::renderDocumentThumb(int w, int h, void *dstPixels, int dstStri
     if (!dev) {
         return false;
     }
-    // 真的降采样时才走快路径 (见 sampleThumbnailToRgba 的实测成本对比); 同尺寸或快路径
-    // 不适用 (16bit / 自定义 ICC) 时回退 Krita 原路径, 保持原来的颜色管理语义。
-    bool wroteFast = false;
-    if (w < image->width() || h < image->height()) {
-        wroteFast = sampleThumbnailToRgba(dev, w, h, docRect,
-                                          static_cast<quint8 *>(dstPixels), dstStride);
-    }
+    // 8bit 同 profile 一律优先走 NEON 快路径 (降采样与 1:1 直通);
+    // 仅快路径不适用 (16bit / 自定义 ICC) 时回退 Krita 原路径, 保持原来的颜色管理语义。
+    const bool wroteFast = sampleThumbnailToRgba(dev, w, h, docRect,
+                                                 static_cast<quint8 *>(dstPixels), dstStride);
     perf.phase("thumb");
     if (wroteFast) {
         return true;

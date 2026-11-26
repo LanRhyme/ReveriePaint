@@ -578,10 +578,10 @@ reverie::MirrorBatchAction ReverieCore::paintMirrorPolyline(const float *samples
             static int s_dynamicsLogCount = 0;
             if (s_dynamicsLogCount < 60) {
                 s_dynamicsLogCount++;
-                RPC_LOG("[DIAG-DYNAMICS] #%d p_last=%.3f p_cur=%.3f spd=%.3f dt_ms=%.1f dist=%.2f",
-                        s_dynamicsLogCount, (double)lastSample.pressure, (double)curSample.pressure,
-                        (double)speed, (double)((curSample.timeSec - lastSample.timeSec) * 1000.0),
-                        (double)QLineF(lastSample.pos, curSample.pos).length());
+                RPC_TRACE("[DIAG-DYNAMICS] #%d p_last=%.3f p_cur=%.3f spd=%.3f dt_ms=%.1f dist=%.2f",
+                          s_dynamicsLogCount, (double)lastSample.pressure, (double)curSample.pressure,
+                          (double)speed, (double)((curSample.timeSec - lastSample.timeSec) * 1000.0),
+                          (double)QLineF(lastSample.pos, curSample.pos).length());
             }
             cursor.op->paintLine(infoLast, infoCur, &cursor.distance);
         }
@@ -1106,7 +1106,13 @@ bool ReverieCore::flushStrokeBatch()
 
     // Krita-style: reuse one KisPainter for the whole stroke.
     if (m_snapshotPending || (!m_strokePainter && !m_maskedStrokePainter) || m_strokeDevice != (void *)target.data()) {
-        endStrokeBatch();
+        endStrokeBatch(/*keepStrokeState=*/true);
+        if (!m_randomSource) {
+            m_randomSource = new KisRandomSource(m_lastStrokeSeed);
+        }
+        if (!m_perStrokeRandomSource) {
+            m_perStrokeRandomSource = new KisPerStrokeRandomSource();
+        }
         // interstrokeData (湿笔颜料厚度高度图) 跨笔保留 (见 endStrokeBatch), 所以换成
         // 非 colorsmudge 笔刷时在这里丢弃: 留着会让下次切回湿笔时按陈旧高度图累积厚度。
         // 换图层天然安全: 高度图挂在各自的 KisPaintDevice 上。
@@ -1440,9 +1446,9 @@ bool ReverieCore::flushStrokeBatch()
                 continue; // 过滤重复采样点与微米级零长段, 防止污染切向与误触发扇形过渡
             }
             if (m_strokeCounter <= 10 && i < firstNewSegment + 6) {
-                RPC_LOG("[DIAG-SEG] masked seg=%d len=%.3f p=(%.3f->%.3f) tilt=(%.1f,%.1f)",
-                        i, (double)segLen, (double)a.pressure, (double)b.pressure,
-                        (double)b.tiltX, (double)b.tiltY);
+                RPC_TRACE("[DIAG-SEG] masked seg=%d len=%.3f p=(%.3f->%.3f) tilt=(%.1f,%.1f)",
+                          i, (double)segLen, (double)a.pressure, (double)b.pressure,
+                          (double)b.tiltX, (double)b.tiltY);
             }
             const reverie::StrokePaintSample sampleA{a.imgPos, a.pressure, a.tiltX, a.tiltY,
                                                      a.rotation, a.time};
@@ -1513,14 +1519,14 @@ bool ReverieCore::flushStrokeBatch()
                 continue; // 过滤重复采样点与微米级零长段, 防止污染切向与误触发扇形过渡
             }
             if (m_strokeCounter <= 3) {
-                RPC_LOG("[SPD-SEG] stroke=%d seg=%d isBoundary=%d dist=%.3f dtMs=%.3f speedA=%.3f speedB=%.3f normB=%.4f",
-                        m_strokeCounter, i, (i == firstNewSegment) ? 1 : 0,
-                        (double)segLen, (double)((b.time - a.time) * 1000.0),
-                        (double)a.speed, (double)b.speed, (double)qMin<qreal>(1.0, b.speed / 30.0));
+                RPC_TRACE("[SPD-SEG] stroke=%d seg=%d isBoundary=%d dist=%.3f dtMs=%.3f speedA=%.3f speedB=%.3f normB=%.4f",
+                          m_strokeCounter, i, (i == firstNewSegment) ? 1 : 0,
+                          (double)segLen, (double)((b.time - a.time) * 1000.0),
+                          (double)a.speed, (double)b.speed, (double)qMin<qreal>(1.0, b.speed / 30.0));
             } else if (m_strokeCounter <= 10 && i < firstNewSegment + 6) {
-                RPC_LOG("[DIAG-SEG] op seg=%d len=%.3f p=(%.3f->%.3f) tilt=(%.1f,%.1f)",
-                        i, (double)segLen, (double)a.pressure, (double)b.pressure,
-                        (double)b.tiltX, (double)b.tiltY);
+                RPC_TRACE("[DIAG-SEG] op seg=%d len=%.3f p=(%.3f->%.3f) tilt=(%.1f,%.1f)",
+                          i, (double)segLen, (double)a.pressure, (double)b.pressure,
+                          (double)b.tiltX, (double)b.tiltY);
             }
             const reverie::StrokePaintSample sampleA{a.imgPos, a.pressure, a.tiltX, a.tiltY,
                                                      a.rotation, a.time};
@@ -1797,7 +1803,7 @@ void ReverieCore::flushExperimentTail()
     }
 }
 
-void ReverieCore::endStrokeBatch()
+void ReverieCore::endStrokeBatch(bool keepStrokeState)
 {
     m_fakeExecutor.clearPendingJobs();
     // 不再在每笔结束时清空 interstrokeData: 原先同一图层连续画湿笔时每笔都要
@@ -1825,9 +1831,11 @@ void ReverieCore::endStrokeBatch()
     m_strokeOp = nullptr;
     delete m_strokeDistance;
     m_strokeDistance = nullptr;
-    m_randomSource.clear();
-    m_perStrokeRandomSource.clear();
-    m_speedSmoother.reset();
+    if (!keepStrokeState) {
+        m_randomSource.clear();
+        m_perStrokeRandomSource.clear();
+        m_speedSmoother.reset();
+    }
 }
 
 // ---------------------------------------------------------------------------

@@ -414,17 +414,31 @@ private fun PaintViewModel.getOrCreateFrameRecorder(): FrameRecorder? {
 }
 
 /**
- * 触摸落笔通知：仅更新触控状态，不打断或取消上一步已完成笔迹的后台入帧
+ * 触摸落笔通知：标记触控中并取消待执行的延迟补帧，避免运笔途中抢占单渲染线程
  */
 fun PaintViewModel.onStylusStrokeStarted() {
     isStylusTouching = true
+    pendingIdleCaptureRunnable?.let {
+        mainHandler.removeCallbacks(it)
+        pendingIdleCaptureRunnable = null
+        pendingTimelapseCapture.set(true)
+    }
 }
 
 /**
- * 触摸抬笔通知
+ * 触摸抬笔通知：恢复因运笔中而延后的抓帧请求
  */
 fun PaintViewModel.onStylusStrokeEnded() {
     isStylusTouching = false
+    if (!isTimelapseCapturing.get() && pendingTimelapseCapture.compareAndSet(true, false)) {
+        mainHandler.post {
+            if (!isStylusTouching) {
+                triggerTimelapseCapture(isChanged = true, force = false)
+            } else {
+                pendingTimelapseCapture.set(true)
+            }
+        }
+    }
 }
 
 /**
@@ -478,6 +492,15 @@ fun PaintViewModel.triggerTimelapseCapture(isChanged: Boolean = true, force: Boo
 
     if (!isChanged) return
 
+    if (isStylusTouching) {
+        pendingIdleCaptureRunnable?.let {
+            mainHandler.removeCallbacks(it)
+            pendingIdleCaptureRunnable = null
+        }
+        pendingTimelapseCapture.set(true)
+        return
+    }
+
     val nowUptime = SystemClock.uptimeMillis()
     val elapsed = nowUptime - lastCaptureTriggerTimeMs
     val minInterval = timelapseMinIntervalMs.coerceIn(50L, 5000L)
@@ -509,6 +532,10 @@ private fun PaintViewModel.executeTimelapseCaptureNow(force: Boolean) {
     if (!timelapseRecordingEnabled || currentProjectFile == null) {
         return
     }
+    if (!force && isStylusTouching) {
+        pendingTimelapseCapture.set(true)
+        return
+    }
 
     if (!isTimelapseCapturing.compareAndSet(false, true)) {
         pendingTimelapseCapture.set(true)
@@ -522,28 +549,23 @@ private fun PaintViewModel.executeTimelapseCaptureNow(force: Boolean) {
         return
     }
 
-    val docW = docWidth
-    val docH = docHeight
-    if (docW <= 0 || docH <= 0) {
+    val captureSize = TimelapseStorage.computeCaptureSize(docWidth, docHeight, timelapseResolution)
+    if (captureSize == null) {
         isTimelapseCapturing.set(false)
         return
     }
-
-    // 根据用户设置的画质分辨率 (如 720, 1080, 1440, 2160) 等比例计算抓帧尺寸
-    val maxDim = timelapseResolution.coerceIn(480, 3840)
-    val (targetW, targetH) = if (docW >= docH) {
-        val h = (docH.toFloat() / docW.toFloat() * maxDim).roundToInt().coerceAtLeast(2)
-        maxDim to h
-    } else {
-        val w = (docW.toFloat() / docH.toFloat() * maxDim).roundToInt().coerceAtLeast(2)
-        w to maxDim
-    }
+    val (targetW, targetH) = captureSize
 
     // 记录抓帧时的工程: 后台压缩期间用户可能切工程/删工程数据, 落盘前要再确认一次
     val projectPathAtSchedule = currentProjectFile
 
     lastCaptureTriggerTimeMs = SystemClock.uptimeMillis()
     runCore(render = false) {
+        if (!force && isStylusTouching) {
+            pendingTimelapseCapture.set(true)
+            isTimelapseCapturing.set(false)
+            return@runCore
+        }
         val captureBitmap = try {
             acquireCaptureBitmap(targetW, targetH)
         } catch (e: Throwable) {

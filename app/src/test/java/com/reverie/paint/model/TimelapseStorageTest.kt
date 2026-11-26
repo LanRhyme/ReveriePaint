@@ -6,6 +6,7 @@ package com.reverie.paint.model
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Rule
 import org.junit.Test
@@ -141,5 +142,15 @@ class TimelapseStorageTest {
         assertTrue(expected.exists())
         assertTrue(File(expected, "frame_00001.webp").exists())
         assertFalse(legacyFramesDir.exists())
+    }
+
+    @Test
+    fun `computeCaptureSize caps at doc dimensions without upscaling`() {
+        assertEquals(1000 to 1000, TimelapseStorage.computeCaptureSize(1000, 1000, 1080))
+        assertEquals(600 to 900, TimelapseStorage.computeCaptureSize(600, 900, 1080))
+        assertEquals(1080 to 1080, TimelapseStorage.computeCaptureSize(2048, 2048, 1080))
+        assertEquals(720 to 1080, TimelapseStorage.computeCaptureSize(800, 1200, 1080))
+        assertNull(TimelapseStorage.computeCaptureSize(0, 1000, 1080))
+        assertNull(TimelapseStorage.computeCaptureSize(1000, -1, 1080))
     }
 }

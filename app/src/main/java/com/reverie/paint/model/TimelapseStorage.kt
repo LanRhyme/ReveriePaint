@@ -1,6 +1,7 @@
 package com.reverie.paint.model
 
 import java.io.File
+import kotlin.math.roundToInt
 
 /**
  * 延时摄影工程存储关联与命名工具
@@ -111,5 +112,22 @@ object TimelapseStorage {
         }
 
         return newDir
+    }
+
+    /**
+     * 计算延时摄影抓帧目标尺寸：不超过文档原尺寸（不放大，避免同尺寸/放大回退慢路径），
+     * 大画布按目标长边等比降采样
+     */
+    fun computeCaptureSize(docW: Int, docH: Int, resolution: Int): Pair<Int, Int>? {
+        if (docW <= 0 || docH <= 0) return null
+        val maxDim = resolution.coerceIn(480, 3840)
+        val effectiveMaxDim = minOf(maxDim, maxOf(docW, docH))
+        return if (docW >= docH) {
+            val h = (docH.toFloat() / docW.toFloat() * effectiveMaxDim).roundToInt().coerceAtLeast(2)
+            effectiveMaxDim to h
+        } else {
+            val w = (docW.toFloat() / docH.toFloat() * effectiveMaxDim).roundToInt().coerceAtLeast(2)
+            w to effectiveMaxDim
+        }
     }
 }
